@@ -24260,3 +24260,45 @@ JSON 教学=`single-source/no-r165-shape-failure`；模型答案所有权=`prese
 下一项=`EVAL-B262-TRANSITIVEHOPDEPTH1`；B272 继续开放。JSON 教学=`unchanged`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 仍开放。runtime artifact 被显式排除，Trace 显式窗、因果投影、自动补齐、
 根因排序、唤醒链、窗内可消除量及双维根因分析=`untouched`。
+
+### 123.257 r166：端点存在修复生效但正文仍越过 no-path；Java 图合同正确拒绝、上下文负担仍高
+
+r166 在 `main@b6a5bc5d9` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与 Java
+`sr_java_call_chain`。runner 1/2 PASS；人工 0/2。两案都没有 attached runtime artifact，也没有 Trace/system supplement 改写模型结论。
+
+Go 案 265s。Analyzer 先错误发出 `discover + non-empty sink`，既有 admission fail-loud 后自纠为 exact。Explorer 读取
+`internal/analysis/gate/gate.go` 的裸定义 `Run @ :134` 后，exact endpoint boundary 最终接受
+`principal_span_waiver=no_directed_path`；不再需要 r165 的 crossfile exists 伪断言，说明 B270 的目标车道已经在生产形发挥作用。其严格语义也保持：
+definition 只证明 `gate.Run` 存在，没有给 call graph 造边。
+
+但最终答案仍人工失败。源码是两条汇合边：`buildAnalysisIR -> gate.RunWith @ analyzer.go:2667` 与
+`gate.Run -> RunWith @ gate.go:135`，不存在 `buildAnalysisIR -> gate.Run`；completion 和成文图 validator 均正确识别并拒绝了模型画出的
+`RunWith -> Run` 反向边。模型却在最终表中把 `gate.Run` 写成 “thin-wrapper 包装器，等价终点”，把共享实现误说成有向到达，且“完整链”标题没有披露
+no-path 边界。系统没有改写该结论，这是模型在已有精确信号下仍未遵守边界，后续应让 finalizer 更易消费 typed boundary，而不是系统替换正文。
+
+同案再次稳定复现 `EVAL-B262-TRANSITIVEHOPDEPTH1`：`buildAnalysisIR` 的已读函数体在最早段直接调用
+`analyzerGraphForNormalize(ctx, rm) @ analyzer.go:1866`，但 Explorer 的 typed roster 从 `normalizer.Normalize @ :2266` 才开始，最终 answer 仍漏该 helper。
+现有 S37s 只补“principal member_set 已经列出的两个成员之间有 AST 边却未发 evidence”；它无法发现根本没进入 model roster 的 direct helper。最优修复不能把
+helper 名或 runner regex 写进 prompt/hard gate，也不能要求每个 direct call 都成为答案。应从 typed exact source endpoint + parser AST 构造有界 direct-call frontier，
+作为 Explorer 的软导航/选材上下文；模型读取源码、判断哪些是 load-bearing，并自行发 evidence 与总结。frontier 不铸 EvidenceItem、不作 completion 充分性判定。
+
+Java 案 244s，runner PASS 但人工失败。五条 callsite 与容量 guard 的最终引用都对齐，B271 没有回归；本轮首稿引用本来就正确，因此
+`EVAL-B271-UNIQUECITEREBIND1` 的错位重绑分支仍是测试闭环、production-unwitnessed。三次成文拒绝不是误杀：首稿 `VisitController -> VisitService`
+消息写成 caller operation `create(...)`，而 typed callee 是 `VisitService.schedule`；第二稿继续保留该错 label；第三稿还声明了不在 body 中的
+`VisitService -> countOpenVisits` anchor。第四稿改成 `schedule(...)` 并补 `countOpenVisits(...)` 才被接受。硬证据门工作正确，不应放宽。
+
+不过这暴露 `EVAL-B273-TYPEDDIAGRAMRECIPE1`（P1）：finalizer prompt 已有 exact typed relation capsule，但没有像 required-diagram repair 那样给普通可选图一份有界、
+同源的结构 recipe；模型需要自行同时维护 participant identity、callee operation、body edge 和 `edge_anchors`，连续消耗三轮。最优方向是从同一 typed edge pool
+提供 advisory/copy-ready skeleton，仍由模型选择是否使用可选图并提交；系统不执行 patch、不删 prose、不生成结论。它也应覆盖所有项目语言和 labelled/unlabelled
+flow/sequence 表达，不为 Java 单例特判。此前两条开放守护继续是其验收条件：sequence 显示参数不得污染 typed endpoint identity；各语言无标签 flowchart 边不得绕过
+strict relation anchor。
+
+Java 最终还把 `AuditLog.record` 称为“审计落库/落地”，而已读实现只有 `System.out.println`。这记为
+`EVAL-B274-TERMINALEFFECTCALIBER1`（P1/observe）：terminal call edge 只证明到达 `record`，definition/mechanism 证明 stdout，不证明数据库持久化。系统已有“callsite 不授权
+callee body effect”教学，但模型没有把边界带进总结。先通过异构 replay 判断是否稳定；若稳定，补 typed terminal implementation lane/软提示，禁止按“落库”关键词扫描、禁止
+系统重写模型结论。
+
+本批处置顺序：B262（已三次稳定复现，直接影响答案完整性）→ B273（减少正确合同下的成文重试）→ B272（比较条件/表面）→ B274（先观察异构稳定性）。
+`EVAL-B270=S37v-implemented/positive-production-outcome`；`EVAL-B271=S37u-implemented/no-regression/branch-unwitnessed`；
+`EVAL-B262=confirmed/next`；`EVAL-B273=confirmed/P1`；`EVAL-B274=observe/P1`。JSON recovery 未触发，JSON 教学仍单源；模型答案所有权保持。
+Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及“真实耗时贡献 / 规则内可消除量”双维根因分析均未触碰。
