@@ -1,6 +1,7 @@
 package types
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -167,6 +168,30 @@ func TestMergeRepairs_MergesAcceptedEvidenceCarrier(t *testing.T) {
 	}
 	if got[0].AcceptedEvidence[0].ID != "ev-a" || got[0].AcceptedEvidence[1].ID != "ev-b" {
 		t.Fatalf("accepted evidence order/ids = %+v, want ev-a then ev-b", got[0].AcceptedEvidence)
+	}
+}
+
+func TestMergeRepairs_MonotonicallyMergesProgressCarriers(t *testing.T) {
+	got := MergeRepairs([]RepairDirective{
+		{
+			Kind:     RepairEmitEvidence,
+			Keywords: []string{"source.Start"},
+			Tools:    []string{"emit_evidence"},
+		},
+		{
+			Kind:     RepairEmitEvidence,
+			Keywords: []string{"source.Start", "sink.Run"},
+			Tools:    []string{"repo_map", "grep", "read_file", "emit_evidence"},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("MergeRepairs len=%d, want 1", len(got))
+	}
+	if want := []string{"emit_evidence", "repo_map", "grep", "read_file"}; !reflect.DeepEqual(got[0].Tools, want) {
+		t.Fatalf("merged tools=%v, want %v", got[0].Tools, want)
+	}
+	if want := []string{"source.Start", "sink.Run"}; !reflect.DeepEqual(got[0].Keywords, want) {
+		t.Fatalf("merged keywords=%v, want %v", got[0].Keywords, want)
 	}
 }
 

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -382,6 +383,30 @@ func TestAddRepair_ReadFile_Dedupe(t *testing.T) {
 	})
 	if pr := c.PendingReads(); len(pr) != 2 {
 		t.Errorf("distinct files must produce distinct PendingReads, got %d", len(pr))
+	}
+}
+
+func TestAddRepair_DedupeMonotonicallyMergesRequiredTools(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:     RepairEmitEvidence,
+		Keywords: []string{"source.Start"},
+		Tools:    []string{"emit_evidence"},
+	})
+	c.AddRepair(RepairDirective{
+		Kind:     RepairEmitEvidence,
+		Keywords: []string{"source.Start", "sink.Run"},
+		Tools:    []string{"repo_map", "grep", "read_file", "emit_evidence"},
+	})
+	repairs := c.ActiveRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("ActiveRepairs len=%d, want 1", len(repairs))
+	}
+	if want := []string{"emit_evidence", "repo_map", "grep", "read_file"}; !reflect.DeepEqual(RepairDirectiveRequiredTools(repairs[0]), want) {
+		t.Fatalf("required tools=%v, want %v", RepairDirectiveRequiredTools(repairs[0]), want)
+	}
+	if want := []string{"source.Start", "sink.Run"}; !reflect.DeepEqual(repairs[0].Keywords, want) {
+		t.Fatalf("merged keywords=%v, want %v", repairs[0].Keywords, want)
 	}
 }
 

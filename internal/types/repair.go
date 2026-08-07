@@ -380,11 +380,44 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 			sourceInventory: repairDirectiveSourceInventoryKey(r),
 		}
 		if idx, ok := seen[k]; ok {
-			out[idx].AcceptedEvidence = mergeAcceptedEvidenceRefs(out[idx].AcceptedEvidence, r.AcceptedEvidence)
+			out[idx] = mergeRepairDirectiveMonotone(out[idx], r)
 			continue
 		}
 		seen[k] = len(out)
 		out = append(out, r)
+	}
+	return out
+}
+
+// mergeRepairDirectiveMonotone preserves the first directive's ownership and
+// user-visible wording while ensuring that later, more actionable instances
+// of the same typed repair cannot lose their machine-readable progress
+// carriers during de-duplication. In particular, a completion-only repair may
+// be raised before a later endpoint-existence repair asks for repo_map/grep/
+// read_file; retaining only the first Tools slice would make the requested
+// repair impossible to perform. These carriers may therefore only grow.
+func mergeRepairDirectiveMonotone(dst, src RepairDirective) RepairDirective {
+	dst.AcceptedEvidence = mergeAcceptedEvidenceRefs(dst.AcceptedEvidence, src.AcceptedEvidence)
+	dst.Tools = mergeRepairDirectiveStrings(dst.Tools, src.Tools)
+	dst.Keywords = mergeRepairDirectiveStrings(dst.Keywords, src.Keywords)
+	return dst
+}
+
+func mergeRepairDirectiveStrings(dst, src []string) []string {
+	if len(dst) == 0 && len(src) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(dst)+len(src))
+	out := make([]string, 0, len(dst)+len(src))
+	for _, values := range [][]string{dst, src} {
+		for _, raw := range values {
+			value := strings.TrimSpace(raw)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			out = append(out, value)
+		}
 	}
 	return out
 }

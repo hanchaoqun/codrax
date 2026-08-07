@@ -10,6 +10,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -244,6 +245,48 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 	res, err = (&EmitInvestigationComplete{}).Execute(bus, params)
 	if err != nil || !res.Success || !mut.IsInvestigationComplete() {
 		t.Fatalf("both exact endpoints proven with no directed path should retain model-owned typed escape: res=%+v err=%v", res, err)
+	}
+}
+
+func TestEmitInvestigationComplete_ExactEndpointGateNeverConvergesAway(t *testing.T) {
+	SetDowngradeConvergenceHardThreshold(2)
+	defer SetDowngradeConvergenceHardThreshold(0)
+
+	mut := types.NewMutableState("opaque request bytes are not consulted")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "buildAnalysisIR", Object: "gate.RunWith",
+		Source: "internal/agent/analyzer.go", LineStart: 2666,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+		},
+	}}}
+	params := json.RawMessage(`{"reason":"investigation complete","confidence":"high","result_kind":"resolved"}`)
+	tool := &EmitInvestigationComplete{}
+	for attempt := 1; attempt <= 6; attempt++ {
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("attempt %d Execute error: %v", attempt, err)
+		}
+		if !res.Success || mut.IsInvestigationComplete() {
+			t.Fatalf("attempt %d: retry count must not erase exact endpoint authority: %+v", attempt, res)
+		}
+		if !strings.Contains(res.Summary, "not directionally proven") {
+			t.Fatalf("attempt %d: precise downgrade missing: %s", attempt, res.Summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().ActiveRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("exact endpoint repair missing")
+	}
+	wantTools := []string{"repo_map", "grep", "read_file", "emit_evidence"}
+	if got := types.RepairDirectiveRequiredTools(repairs[0]); !reflect.DeepEqual(got, wantTools) {
+		t.Fatalf("exact endpoint repair tools=%v, want %v", got, wantTools)
 	}
 }
 

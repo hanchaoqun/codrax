@@ -24632,3 +24632,58 @@ diagram family 统一验证 guard/import/precedence/contain/observe 等逻辑边
 状态：`EVAL-B283=S37ab-implemented/full-tests-pass/pending-production-replay`；
 `EVAL-B284=next-P1`；模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；
 Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.271 r173：call axis 闭包转正；精确端点门却被通用收敛抹除，repair 去重丢失补证工具
+
+r173 在 `main@bf7f7a22e` 上严格并发 2，运行 `qf_sequence_analyzer_gate` 与异构 data
+`data_json_strict_ids`。runner 1/2 PASS；人工同为 1/2。data 案 48s：第一次计划声明 `instructions.md` 与 `users.json`，但动作只消费后者；
+typed `required_material_scheduling` 精确指出遗漏，第二版动作消费两份材料，最终严格输出 `{"ids":["u1","u3"]}`。没有畸形 JSON、恢复文本或解释泄漏，现有
+JSON schema/教学无需复制增补。
+
+QF 案 295s。S37ab 获得 production positive witness：Analyzer 本轮直接发出 `predicate_axis=call`，ordered endpoint profile 完整进入 Explorer；
+`typed direct-call frontier source="buildAnalysisIR" sink="gate.Run"` 也正常供给。但 Explorer 只读两段 `analyzer.go`，发射的是
+`buildAnalysisIR` 到 22 个 sibling callee（终点为 `gate.RunWith`）的 direct edge；它没有读 `gate.go:135`，也没有 exact `gate.Run` definition 或
+`buildAnalysisIR -> gate.Run` 路径。
+
+精确门第一次正确拒绝 closure，模型随后声明 `principal_span_waiver=no_directed_path`；endpoint-existence 门又正确要求补读 exact sink。然而两个系统 gap
+把这条正确拒绝消解：
+
+1. `EVAL-B285-PRECISECONVERGENCE1`：exact endpoint reachability/existence 与其他普通合同共用
+   `DowngradeLaneContractChain`。相同 blocker 重试到第 4 次后，通用 low-delta convergence 直接 force-complete；精确 endpoint identity/direction 被重试次数替代，
+   违反“精确信号才可硬门/解除硬门”；
+2. `EVAL-B286-REPAIRTOOLMONOTONE1`：先出现的同键 `RepairEmitEvidence` 只带 `emit_evidence`，后续 endpoint-existence repair 虽明确带
+   `repo_map/grep/read_file/emit_evidence`，`EvidenceClosure.addRepairLocked` 与 `MergeRepairs` 去重时却只合并 AcceptedEvidence，丢掉更富 Tools/Keywords。
+   Explorer completion-only surface 因而不开放读工具；模型实际调用 grep 时收到 unavailable；
+3. `EVAL-B287-BOUNDARYANCHORSUBST1`：错误 closure 进入 finalizer 后，required-anchor repair 把有真实 `gate.RunWith @ analyzer.go:2667` 引用的列表项
+   机械改名为 `gate.Run`，同时保留“实际方法名为 RunWith”文本。它是 B285/B286 的下游级联，先根修调查闭包，再观察是否仍需独立收窄 anchor repair。
+
+最终答案把 22 条 sibling direct calls 叙述成“到 `gate.Run` 的完整有向路径”，runner 与人工均失败。系统没有扫描或替换模型自由结论；真正问题是 typed
+调查合同被收敛边界绕过，导致 finalizer 收到不完整事实后发生锚点替换。Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双维根因分析均未触碰。
+
+状态：`EVAL-B283=production-positive/closed`；`EVAL-B285/B286=confirmed/immediate`；
+`EVAL-B287=confirmed/cascade-observe-after-root-fix`；JSON 教学=`consistent/no-change`；模型答案所有权=`preserved`；
+`EVAL-B284-LOGICALRELATIONAUTH1=open-P1`。
+
+### 123.272 S37ac：精确端点证据门不可收敛；重复 repair 的进展载体单调合并
+
+本批按 typed authority 层级修复 B285/B286，不增加问题字面或答案 prose 规则：
+
+1. 复用唯一 `callChainExactEndpointReachabilityDowngradeWithEvidence` 判定，在所有可收敛 pre-complete lane 之前先执行 exact endpoint/path 检查。失败时始终保持
+   investigation open；无论重复多少次，retry counter 都不能创造 endpoint existence 或 same-direction call edge。原函数仍留在 contract preflight 内供直接测试/
+   调用者复用，不复制第二套谓词；
+2. exact path 缺失 repair 从第一次起就显式携带 `repo_map/grep/read_file/emit_evidence`。这些工具只在 typed repair 活跃的 completion-only turn 开放，
+   不扩大普通 Explorer 永久权限；模型可以读取精确端点后发证，也可在两个 exact endpoint 均有当前源码存在性凭证时使用
+   `principal_span_waiver=no_directed_path` 披露真实边界；
+3. `MergeRepairs` 与 `EvidenceClosure.addRepairLocked` 共享 `mergeRepairDirectiveMonotone`：同一 repair 的机器载体
+   AcceptedEvidence、Tools、Keywords 只增不减，首条 directive 的 ownership/rationale/可见文案保持不变。没有从 rationale 或原始文本推断工具；
+4. pin 覆盖 6 次同 blocker（阈值设 2）仍不得完成、first repair 即有四个补证工具，以及 slice merge/closure merge 两条去重路径的工具与关键词顺序去重；
+5. B287 暂不靠系统改写答案修补。根修后必须由 Explorer 读 exact endpoint 并给 finalizer typed boundary；下一次生产回放再判断 required-anchor patch 是否还会把
+   sibling 证据改名。B284 全语言逻辑 relation authority 仍作为独立 P1，不塞入本批。
+
+定向 `internal/types`、`internal/tool` 后运行全仓测试；通过即提交推送并用新二进制严格并发 2 回放 QF + write 异构案。人工验收不仅看 regex：必须确认
+Explorer 真正获得 read/grep、读到 `gate.go`、closure 以有向路径或 typed no-path boundary 合法结束，最终答案不得把 parallel/reverse edge 串成路径。
+
+定向 `go test ./internal/types ./internal/tool` 与全仓 `go test ./...` 全绿。
+
+状态：`EVAL-B285/B286=S37ac-implemented/full-tests-pass/pending-production-replay`；`EVAL-B287=pending-replay`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`unchanged`。

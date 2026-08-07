@@ -2714,6 +2714,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
 	preCompleteStart := time.Now()
+	// A requested source-code call-chain endpoint is a precise typed identity
+	// and direction contract. It must not share the generic low-delta escape:
+	// retry count cannot turn an absent exact endpoint/path into evidence. Run
+	// the existing single-source predicate before every convergent lane. Once
+	// the predicate passes, preCompleteContractCheckWithPreflight may call it
+	// again harmlessly as part of its direct-call/test contract.
+	if justification == "" {
+		if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, ctx.Mutable.EvidenceClosure(), preflight.Evidence); downgrade != "" {
+			recordToolRuntimeTiming(&runtimeTimings, "pre_complete_call_chain_exact_endpoint", preCompleteStart, len(preflight.Evidence))
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
 	// Low-delta convergence boundary (gap 1): each gate, when it fires, checks
 	// whether the model has re-attempted emit_investigation_complete with the
 	// SAME lane + SAME typed blocker (pending reads / unverified findings /
@@ -12491,6 +12509,7 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 	closure.AddRepair(types.RepairDirective{
 		Kind:      types.RepairEmitEvidence,
 		Keywords:  []string{startHint, endHint},
+		Tools:     []string{"repo_map", "grep", "read_file", "emit_evidence"},
 		Rationale: "exact source-to-sink call-chain completion lacks a directed path in accepted typed call-edge evidence; emit the missing same-direction edge(s), or declare the typed no_directed_path boundary after source inspection",
 		Origin:    "pre_complete.call_chain_exact_endpoint_reachability",
 		Stage:     string(types.StageExplore),

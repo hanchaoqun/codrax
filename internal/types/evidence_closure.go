@@ -1960,7 +1960,7 @@ func (c *EvidenceClosure) addRepairLocked(r RepairDirective) {
 	}
 	for i, existing := range c.repairs {
 		if sameRepairDirectiveDedupeKey(existing, r) {
-			c.repairs[i].AcceptedEvidence = mergeAcceptedEvidenceRefs(existing.AcceptedEvidence, r.AcceptedEvidence)
+			c.repairs[i] = mergeRepairDirectiveMonotone(existing, r)
 			return
 		}
 	}
