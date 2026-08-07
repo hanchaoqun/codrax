@@ -25405,3 +25405,41 @@ C++ 真实回放连续几轮均未发 Mermaid，因而没有生产形 witness，
 状态：`EVAL-B310=S37as-implemented/full-suite-pass/pending-production-replay`；
 `endpoint-authority=unchanged`；`relation-capsule=typed-soft-context`；`hard-prose-gate=none`；
 模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
+
+### 123.301 r186：role-bound 前沿与关系组合均接线；receiver identity 仍让真实链断成三组件
+
+在 `main@6624262fa` 上严格并发 2 个 eval：`sr_cpp_virtual_chain` 与 `sr_ts_workspace_chain`。runner 2/2 PASS，人工均为 partial：
+
+1. C++ 170s，Analyzer/Explorer/Finalizer=`1/1/1`，finalizer reject/patch=`1/1`。S37as 新增的 role-bound relation composition 与三条
+   dynamic-dispatch candidate 在生产 prompt 中完整出现，故 `EVAL-B310` 的上下文接线获得正证。模型没有按配方把动态边界画成 `Note over`，而是把
+   `Sink::write 虚调用 -> ConsoleSink::write` 继续标成 call；validator 正确拒绝，patch 删除 optional diagram，正文保留；
+2. C++ 第一条图边 `Logger::log -> Sink::write` 的 typed evidence 本来存在，但 participant 展示身份被模型写成 `Sink::write 虚调用`。现有 exact identity
+   fail-closed 是正确边界：不能通过剥离任意中文/英文后缀的模糊规则让展示 prose 获得 endpoint authority。既有 sequence message 参数隔离也未回退；本次
+   不放松 hard gate。正文另把 `level >= kError` 才发生的 `flush` 写成一般写后动作，属于上下文充分后的模型措辞波动；
+3. TypeScript 208s，Analyzer/Explorer/Finalizer=`2/1/1`，finalizer reject=`1`。S37aq 的 RequiredFiles AST 前沿在生产发布 16 行并明确包含
+   `HttpTransport.send -> this.dispatchOnce`；Explorer 读取精确行后发出该 typed call，最终答案恢复 `run -> fetchUser -> send -> dispatchOnce -> fetch` 五个角色，
+   因而 `EVAL-B308` 获得生产正证；
+4. 但 finalizer 的 typed graph 仍报告 3 个 weak components：`run -> client.fetchUser`、`ApiClient.fetchUser -> HttpTransport.send -> this.dispatchOnce`、
+   `HttpTransport.dispatchOnce -> fetch`。源码 AST 已有两条确定性 receiver 事实：局部变量声明是 `const client = new ApiClient(...)`，以及 class method 内
+   `this.dispatchOnce(...)` 的 `this` 必然指向当前 class；JS/TS/ArkTS extractor 当前没有把这两形送入 `ToEP.Receiver`，`ResolveCallTarget` 因此不能把短展示
+   receiver 归一到唯一方法定义，`emit_evidence` 也只能保留三组件；
+5. 记 `EVAL-B312-RECEIVERCONSTRUCTORSELF1=P1`。最优方案在 AST extractor/graph identity 层处理：仅从 `new Type(...)` initializer 与具名 class 内 `this`
+   构造精确 receiver type，再复用现有 `ResolveCallTarget -> normalizeCallEvidenceDirection -> typed relation graph` 单链；无 `new`、匿名 class、动态赋值、歧义定义
+   一律保持 unresolved。不得扫描用户问题、模型 thinking、evidence summary 或最终答案来猜 owner；同形需覆盖 JavaScript/TypeScript/ArkTS，共享能力矩阵同时确认
+   Go/Java/Kotlin/Rust/C/C++/Swift/Cangjie 等既有静态 receiver 车道不回退，Python/Ruby/Lua 动态 receiver 不提升；
+6. TS 最终模型仍写“GET 请求”和“fetch 建立 TCP 连接”，实际源码在 `dispatchOnce` 明确 POST，fetch API 也不证明新建 TCP；同时把三段叙述为连续完整链。
+   这些事实越界随 B312 的断图而更易发生，但修复后仍由模型负责总结；不新增输出关键词 validator，不由系统替换正文；
+7. TS 首次 `emit_answer_document` 的 `blocks` 是 JSON string，且 `ordered_list.items[]` 第二项前漏一个对象左花括号。现有 recovery 识别 3 个候选、只恢复
+   summary/section 两块，因不能无声丢 principal list 而正确拒绝；模型第二次用 native array 完整重发后成功。记
+   `EVAL-B313-JSONMISSINGARRAYOBJECTOPEN1=P2`：可在既有 `repairAnswerBlocksArraySyntax` 内增加严格 bounded 候选，仅当数组元素位置出现合法 JSON key/value 序列、
+   插入一个 `{` 后整数组能解码为全部 block/item 对象且下游完整校验通过时无损接收；否则保持当前 fail-closed/有用块保留/明确降级，不能靠 prose 猜字段；
+8. C++ 无标签 flowchart 本轮仍未发射，故 B217 维持 `implementation-closed/production-not-exercised`。Trace 显式时间窗、因果投影、自动补齐、根因排序、
+   唤醒链、窗内可消除量及双维根因分析没有进入两案；write/data 路由未改。
+
+施工顺序：S37at 先修 B312（答案正确性与全链证据）；S37au 再修 B313（减少无效成文重试）。两批分别完整测试、提交推送，再严格并发 2 回放
+TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 symbol/type/答案词面特判。
+
+状态：runner=`2/2 PASS`；human=`partial+partial`；
+`EVAL-B308=production-positive/closed`；`EVAL-B310=production-positive/context-closed`；
+`EVAL-B312=P1-confirmed/next`；`EVAL-B313=P2-confirmed/queued`；
+`EVAL-B217=implementation-closed/production-not-exercised`；模型答案所有权=`preserved`。
