@@ -555,10 +555,18 @@ func TestAnswerAggregateFactAuthorizesPrincipalContract_RejectsPureInferenceButK
 	if AnswerAggregateFactAuthorizesPrincipalContract(grounded, externalOnly) {
 		t.Fatal("an explicit external-only boundary must outrank current-source support refs")
 	}
+	callChain := &RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+	}
+	if AnswerAggregateFactAuthorizesPrincipalContract(grounded, callChain) {
+		t.Fatal("individually grounded call-chain members must not prove relation, order, or an inter-component bridge")
+	}
 
 	typedRelation := soft
 	typedRelation.Provenance = TypedRelationPrincipalMemberSetAggregateProvenance
-	if !AnswerAggregateFactAuthorizesPrincipalContract(typedRelation, nil) {
+	if !AnswerAggregateFactAuthorizesPrincipalContract(typedRelation, callChain) {
 		t.Fatal("system-verified typed relation marker should authorize the principal contract")
 	}
 }

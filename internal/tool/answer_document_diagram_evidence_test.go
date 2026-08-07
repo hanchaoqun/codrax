@@ -45,6 +45,32 @@ func TestDiagramCallEdgeEvidenceMismatches_CallbackHandoffNeedsExactTypedDirecti
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceCallbackUsesCallbackAuthority(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,
+		Subject: "loop.run_in_executor", Object: "handle", AnchorSymbol: "handle",
+		Source: "pipeline/runner.py", LineStart: 17, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "callback-sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant n6 as loop.run_in_executor",
+			"  participant n7 as handle",
+			"  n6->>n7: callback",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "n6", ToNode: "n7", RelationKind: types.DiagramRelCallback}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("copy-ready sequence callback must consume callback authority instead of call authority: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, nil); len(got) != 1 || got[0].Issue != diagramCallbackEdgeIssueNoEvidence {
+		t.Fatalf("an unproved sequence callback must fail on callback evidence, not missing call authority: %+v", got)
+	}
+}
+
 func diagramEvidenceTestDefinition(owner, operation, source string, line int) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              "ev-def-" + owner + "-" + operation,

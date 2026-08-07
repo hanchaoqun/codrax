@@ -152,7 +152,7 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 	// do not prove set membership, direction, order, or a bridge. Only the
 	// completion tool's exact typed-relation marker above can authorize the
 	// principal relation contract.
-	if rm != nil && RequiresRelationMemberSetHandoff(*rm) {
+	if rm != nil && PrincipalMemberSetRequiresTypedRelationAuthority(*rm) {
 		return false
 	}
 	// Exact file:line support is itself the precise current-source witness. Some

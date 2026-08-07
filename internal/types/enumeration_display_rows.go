@@ -84,7 +84,7 @@ func EnumerationDisplaySetAuthorizesPrincipalContract(rm *RequestModel, fact Ans
 	if AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
 		return true
 	}
-	if rm != nil && RequiresRelationMemberSetHandoff(*rm) {
+	if rm != nil && PrincipalMemberSetRequiresTypedRelationAuthority(*rm) {
 		return false
 	}
 	if AnswerAggregateFactHasRelationMembers(fact) || len(fact.Members) == 0 || len(set.Rows) != len(fact.Members) {

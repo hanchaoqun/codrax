@@ -36,6 +36,21 @@ func AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact AnswerAggregateF
 	return strings.Contains(fact.Provenance, TypedRelationPrincipalMemberSetAggregateProvenance)
 }
 
+// PrincipalMemberSetRequiresTypedRelationAuthority reports the request shapes
+// where individually grounded members still do not prove the principal set's
+// relation, direction, order, or bridge. Relation enumerations use the
+// established handoff predicate; source call-chain families add the narrative
+// case where a model may otherwise line up separately valid call/value-flow
+// components as one end-to-end path.
+//
+// The decision is entirely typed. It does not inspect the raw request,
+// aggregate labels, model reasoning, or answer prose. Runtime root-cause trace
+// families remain outside this source relation authority and keep their own
+// causal projection contract.
+func PrincipalMemberSetRequiresTypedRelationAuthority(rm RequestModel) bool {
+	return RequiresRelationMemberSetHandoff(rm) || ResolveQuestionFamily(rm) == QFCallChain
+}
+
 // AnswerAggregateFactHasTypedExclusionExactEmptyAuthority reports whether the
 // completion layer, rather than model prose, proved that a non-empty member set
 // became empty under a typed exclusion policy.

@@ -238,6 +238,12 @@ func TestDisconnectedTypedComponentsDoNotPromoteSoftExplorerPathToRequiredAnswer
 		Value:   "4",
 		Role:    types.AnswerAggregateRolePrincipalAnswer,
 		Members: []string{"Factory", "Parser", "Registry", "Plugin"},
+		SupportRefs: []string{
+			"Factory @ a.go:10",
+			"Parser @ a.go:10",
+			"Registry @ b.go:20",
+			"Plugin @ b.go:20",
+		},
 	}})
 	mu.RetainInvestigationAggregateFacts()
 	ctx := &types.AgentContext{

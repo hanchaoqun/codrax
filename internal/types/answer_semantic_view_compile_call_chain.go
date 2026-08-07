@@ -30,8 +30,9 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	}
 	view.RequiredBlocks = []BlockRequirement{
 		requireSummaryBlock(
-			"State what initiates the chain, what terminal state it reaches, and the main guard or " +
-				"branch point if there is one. Keep it short — the ordered list carries the hop detail."),
+			"Summarize the grounded directed segment or segments and their verified entry/terminal points. " +
+				"If typed evidence does not bridge two segments, state that boundary instead of presenting one end-to-end chain. " +
+				"Keep it short — the ordered list carries the relation detail."),
 		{
 			Kind:     BlockOrderedList,
 			MinCount: 1,
@@ -47,8 +48,8 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				ClaimCallbackHandoff,
 				ClaimRegistrationEdge,
 			},
-			Rationale: "Walk the call chain hop by hop. Each item is one function/dispatch site " +
-				"with file:line; the order matches the actual control flow.",
+			Rationale: "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line. " +
+				"When evidence forms disconnected segments, keep them visibly separate and do not imply an execution order, value handoff, or bridge between them.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}

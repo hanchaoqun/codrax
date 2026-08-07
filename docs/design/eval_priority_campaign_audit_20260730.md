@@ -23521,3 +23521,54 @@ labelled/unlabelled flowchart edge 均不得绕过 strict relation anchor。
 状态：`EVAL-B236-PHASEBRIDGE1=S37g-implemented/full-tests-pass/replay-next`；
 `EVAL-B245-AGGSUPPDUP1=closed-by-shared-authority`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
 `sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；下一步=`commit+push+r154 exactly-two replay`。
+
+### 123.229 r154：call-chain 精确坐标仍误铸关系权威，callback capsule 再现自拒
+
+r154 在 `main@e9dac381d` 上继续严格并发 2，仅运行 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 1/2 PASS，人工 1/2。
+两轮 JSON tool payload 均合法，未发生 strict decode、字符串恢复或答案消失。
+
+C++ 最终答案的局部源码事实和引用大多正确，但仍把 setup-time `make_sink/create` 与 log-time `sink_->write/ConsoleSink::write` 叙成一条连续路径，
+并且未明确说出 virtual/dynamic dispatch，runner 因此命中 `no_regex_match`，人工同样判 fail。系统 prompt 其实已经给出 4 个 verified components、
+`inter_component_bridge_status=unproven_between_components` 与“不得连续编号”的边界；失效有两层系统原因：
+
+1. investigator 最终为 7 个路径成员各附了精确 file:line。S37g 的基础 authority 把“精确成员坐标”当成普通源码枚举权威，而它只用
+   `RequiresRelationMemberSetHandoff` 识别 relation **set enumeration**，没有覆盖 typed `QFCallChain` narrative family；于是相同 7 席又进入
+   `Required Principal Member Set`，逐节点真实被错误提升成关系/顺序/bridge 真实，`EVAL-B236-PHASEBRIDGE1` 仍未生产闭环；
+2. call-chain 的 Required Answer Blocks 仍写“Walk the call chain hop by hop; order matches actual control flow”，而后面的 typed capsule 要求把未桥接组件
+   分开。这是同一 prompt 的软合同自冲突，记 `EVAL-B246-CALLSEGCONTRACT1`。模型选择了更靠前且带 Required 标识的一侧，不应归为随机波动。
+
+Python 核心答案正确给出 `JsonPlugin`、registry lookup、decorator binding、实例化与 MRO，人工判 pass，但付出 2 次成文拒绝。第二轮模型逐字复制系统
+copy-ready recipe：`n6->>n7: callback` 配同向 `relation_kind=callback`，validator 仍报 `missing_call_anchor`，模型第三轮只能删除 optional diagram。
+根因是 `diagramParsedEdgeRequiresCallAuthority` 无条件把每条非 reply sequence message 当 invocation；后续已有的 exact callback evidence gate 根本没有机会
+成为该边的唯一权威。这是此前持续守护的图层表达问题的可执行生产 witness，记 `EVAL-B247-SEQUENCECALLBACK1`，不是 Mermaid 语法或模型 endpoint 参数问题。
+
+状态：`runner=1/2 PASS`；`human=1/2`；`EVAL-B236-PHASEBRIDGE1=partial/root-refined`；
+`EVAL-B246-CALLSEGCONTRACT1=confirmed/immediate`；`EVAL-B247-SEQUENCECALLBACK1=confirmed/immediate`；
+`sequence-display-parameter-identity=open/independent`；`all-language-flowchart-relation-anchor=open/independent`。
+
+### 123.230 S37h：QFCallChain 关系权威、segment-safe 教学与 sequence callback 单源
+
+r154 两项确定性系统自冲突已同批根修：
+
+1. 新增 `PrincipalMemberSetRequiresTypedRelationAuthority`，统一覆盖 relation-set handoff 与 resolved `QFCallChain`。在 source call-chain 中，哪怕每个成员
+   都有精确 file:line，仍只能证明成员各自真实，不能证明 set membership、direction、order 或 inter-component bridge；只有 completion 工具在结构化关系
+   匹配后铸造的 `typed_relation_principal_member_set` 才可进入 Required Principal Member Set、hard gate、support lane 或 system supplement；
+2. 生产同形回归把原来无 refs 的两组件 soft path 改成 **每席都有精确 support_ref**。finalizer 仍必须发布
+   `Advisory Model-Inferred Member Sets` 与 `unproven_between_components`，不得出现 Required Principal Member Set 或 MUST 文案；普通非关系枚举的精确逐席
+   source rows 继续可授权，Trace root-cause family 保持独立 runtime causal authority；
+3. `compileCallChain` 的 summary/list rationale 改为“grounded connected segment(s)”：segment 内按已证 control flow 排序；segment 间无 typed bridge 时必须
+   显式分组，不得暗示 execution order、value handoff 或 end-to-end path。这里只修正给模型的上下文，不增加模型答案 prose 扫描或硬拒绝；
+4. sequence message 的 relation ownership 不再等同于 call。若同一可见边只有显式 `relation_kind=callback`，进入既有 exact callback handoff evidence gate；
+   call 或 call+callback 仍保留 call authority，guard/register/type/value 等非 message 关系仍不能借 sequence arrow 绕门；
+5. 新回归逐字使用 r154 capsule：`loop.run_in_executor -> handle` 的 sequence callback + exact callback EvidenceItem 必须通过；无 evidence 时必须只报
+   `callback_handoff_unproven`，不能再报 `missing_call_anchor`。反向 callback、sequence guard 冒充、call-DAG mixed relation 等原有 fail-closed pins 保持；
+6. 系统未自动改写或删除模型 diagram、ordered list 或结论；只是让自己提供的 typed recipe、Required Blocks 与 validator 使用同一关系语义。JSON schema、
+   native object/array 和 patch 四操作教学未复制或修改。`go test ./...` 全绿。
+
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量与双维根因分析未触碰。sequence display message 参数不得污染 endpoint identity
+仍是独立开放项；所有支持语言 labelled/unlabelled flowchart edge 的 strict relation-anchor 旁路也继续开放，本批 callback 修复不能替它们销账。
+
+状态：`EVAL-B236-PHASEBRIDGE1=S37h-implemented/full-tests-pass/replay-next`；
+`EVAL-B246-CALLSEGCONTRACT1=S37h-implemented/full-tests-pass`；
+`EVAL-B247-SEQUENCECALLBACK1=S37h-implemented/full-tests-pass`；模型答案所有权=`preserved`；
+JSON 教学=`single-source/preserved`；下一步=`commit+push+r155 exactly-two replay`。

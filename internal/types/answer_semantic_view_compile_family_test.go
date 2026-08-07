@@ -669,6 +669,27 @@ func TestCompileCallChain_HasNoUpperBoundOnHops(t *testing.T) {
 	}
 }
 
+func TestCompileCallChain_RequiredCopyDoesNotDemandAnUnprovedEndToEndPath(t *testing.T) {
+	view := BuildAnswerSemanticView(irForCallChain(), nil)
+	var summary, hops string
+	for _, block := range view.RequiredBlocks {
+		switch block.Kind {
+		case BlockSummary:
+			summary = block.Rationale
+		case BlockOrderedList:
+			hops = block.Rationale
+		}
+	}
+	for label, got := range map[string]string{"summary": summary, "hops": hops} {
+		if !strings.Contains(got, "segment") || !strings.Contains(got, "bridge") {
+			t.Fatalf("%s requirement must preserve disconnected typed-component boundaries: %q", label, got)
+		}
+	}
+	if strings.Contains(hops, "order matches the actual control flow") {
+		t.Fatalf("ordered-list contract must not demand one global flow before a bridge is proved: %q", hops)
+	}
+}
+
 // ── QFEnumeration 3 cases ──────────────────────────────────────────
 
 func TestCompileEnumeration_ResolvesFamily(t *testing.T) {

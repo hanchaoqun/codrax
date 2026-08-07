@@ -664,10 +664,16 @@ func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, relations ma
 	}
 	switch kind {
 	case types.DiagramSequence:
-		// A non-reply sequence message is an invocation surface. Type and
-		// binding boundaries belong in Note-over presentation, not a message
-		// arrow, so an unrelated non-call anchor cannot take it out of the call
-		// evidence contract.
+		// A callback handoff is the one non-call relation represented by a
+		// sequence message in the copy-ready typed recipe. It has its own exact
+		// callback evidence gate below and must not be reclassified as a direct
+		// invocation merely because Mermaid uses the same solid arrow operator.
+		// Type/binding/value boundaries still belong in Note-over presentation;
+		// unrelated non-call anchors cannot take an invocation out of call
+		// authority.
+		if relations[types.DiagramRelCallback] && !relations[types.DiagramRelCall] {
+			return false
+		}
 		return true
 	case types.DiagramCallDAG:
 		// A call-DAG may contain explicitly typed control/dependency edges, but
