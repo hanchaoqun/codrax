@@ -23112,3 +23112,30 @@ JSON tool schema 仍是唯一字段权威，教学不另造 schema；模型答�
 状态：`EVAL-B233-RETURNBODY1=closed/production-replay`；`EVAL-B235-CITEREBIND1=confirmed/next`；
 `EVAL-B236-PHASEBRIDGE1=confirmed`；runner=`2/2 PASS`；human=`0/2 strict`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
+
+### 123.215 S36x：精确源码表面引用遵守单调性，不再被定义 fallback 降级
+
+`EVAL-B235-CITEREBIND1` 已根修。旧链按“backtick quote → typed candidate role → label corroboration → generic candidate”的顺序执行，
+但 label corroboration 在 definition fallback 前只保护 source-inventory member row 与“主成员+第二可见轴”两种形。decorator/annotation/attribute
+应用点即使是模型主动提交、且 citation quote 字节包含完整 label，也可能被唯一的短 base definition 抢占。r149 的
+`@register("json") @ plugins.py:17` 因而被改成 `class JsonPlugin @ line 18`，之后原精确引用又以 unused entry 被裁掉。
+
+本批建立窄而泛化的引用单调性：
+
+- 只对具有确定源码语法的 item label 生效，包括 `@...`、`#...`、`[[...]]`、`__attribute...` 以及带调用/索引/字符串定界符的完整表面；
+- 当前 citation 的规范化 source quote 若精确包含完整富表面，或该坐标的 typed evidence endpoint/surface term/snippet 精确携带同一表面，则当前
+  引用已直接证明该 label，label-only definition fallback 不得覆盖；
+- 普通 `resolve`/`JsonPlugin` 等单符号不走此新护栏，仍由 callable ownership、显式 path:line、typed relation 与 definition 优先级裁决，避免把
+  “调用点提到符号”误当成“定义点”；`@Component` 等无参数 annotation 使用 token boundary，`@ComponentBuilder` 不能误保 `@Component`；
+- 同一护栏同时接入后续 generic pre-emit candidate pass，避免第一道 normalizer 保住后又被下一道改写；缺失、越界、引用不含完整表面或 typed
+  坐标不支持时仍可安全修复。
+
+回归先以旧实现稳定复现 `fixed=1 / line17→line18`，再验证两道 normalizer 均保持 line17；另覆盖 Python decorator、Java/Kotlin annotation、
+ArkTS decorator、Cangjie annotation、Rust/C/C++ attribute 语法及 annotation 前缀负例。`go test ./internal/tool` 全绿。
+
+该修复只读取结构化 item label、citation file/line/quote 与 typed evidence，不读用户原文、模型 thinking 或 item prose，不生成或改写答案结论；
+JSON schema/教学、Mermaid 合同与 Trace 能力未变。sequence display message 参数隔离和 C++ 无标签 flowchart 关系锚的既有 pin 继续守护。
+
+状态：`EVAL-B235-CITEREBIND1=S36x-implemented/tool-suite-pass`；`EVAL-B236-PHASEBRIDGE1=P1-next`；
+模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。

@@ -3745,6 +3745,76 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesAlignedRelation
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesExactDecoratorSurfaceBeforeDefinitionFallback(t *testing.T) {
+	mu := types.NewMutableState("explain decorator registration")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "definition", Producer: "explorer.emit_evidence",
+			Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			Source: "pipeline/plugins.py", LineStart: 18,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "@register", Subject: "@register",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "pipeline/plugins.py", Line: 17, Quote: `@register("json")`},
+			{File: "pipeline/plugins.py", Line: 18, Quote: "class JsonPlugin:"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetCurrentCodePath)},
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID: "decorator", Label: `@register("json")`,
+				Text: "module-load registration prerequisite", CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("exact decorator citation must not be weakened to the class definition, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want exact decorator line 0", got)
+	}
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("later generic candidate repair must preserve the exact decorator citation, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d after generic candidate pass, want exact decorator line 0", got)
+	}
+}
+
+func TestPreEmitCitationDirectlySupportsExactRichLabelAcrossLanguageSyntax(t *testing.T) {
+	tests := []string{
+		`@register("json")`,         // Python decorator
+		`@Route("/echo")`,           // Java/Kotlin annotation
+		`@Component`,                // ArkTS decorator
+		`@CallingConv["C"]`,         // Cangjie annotation form
+		`#[serde(rename = "wire")]`, // Rust attribute
+		`[[nodiscard]]`,             // C++ attribute
+		`__attribute__((packed))`,   // C attribute
+	}
+	for _, label := range tests {
+		t.Run(label, func(t *testing.T) {
+			cit := types.Citation{File: "src/example", Line: 7, Quote: label}
+			if !preEmitCitationDirectlySupportsExactRichLabelWithContext(nil, label, cit) {
+				t.Fatalf("exact rich source syntax %q should preserve its current citation", label)
+			}
+			cit.Quote = strings.Replace(label, "json", "csv", 1)
+			if label == `@register("json")` && preEmitCitationDirectlySupportsExactRichLabelWithContext(nil, label, cit) {
+				t.Fatalf("different decorator argument must not preserve %q", label)
+			}
+		})
+	}
+	if preEmitCitationDirectlySupportsExactRichLabelWithContext(nil, "@Component", types.Citation{Quote: "@ComponentBuilder"}) {
+		t.Fatal("annotation prefix must not match a longer source identifier")
+	}
+}
+
 func TestNormalizeItemCitationRefsByTypedCandidateRole_UsesRowAttributeForDuplicateLabels(t *testing.T) {
 	mu := types.NewMutableState("list foreign func declarations with packages")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

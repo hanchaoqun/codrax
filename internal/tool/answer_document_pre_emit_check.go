@@ -2706,6 +2706,17 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				preEmitCitationSupportsVisibleItemAttributeWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
 				continue
 			}
+			// Citation repair is monotone for exact source syntax. A model may
+			// deliberately cite the application site of a decorator, annotation,
+			// attribute, macro, or other syntactically rich label. If the current
+			// source quote (or a typed endpoint at that exact coordinate) carries
+			// the complete label, a later label-only definition fallback is
+			// strictly weaker and must not replace it. This reads the item label,
+			// citation and typed evidence only; item prose is not an authority.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationDirectlySupportsExactRichLabelWithContext(pctx, label, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			if preEmitBlockPrefersExactDefinitionCitation(*block) {
 				if cit, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok {
 					ref := appendOrReusePreEmitCitation(doc, cit)
@@ -2750,6 +2761,63 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+func preEmitCitationDirectlySupportsExactRichLabelWithContext(pctx *preEmitCheckContext, label string, cit types.Citation) bool {
+	label = strings.Trim(strings.TrimSpace(label), "`")
+	if !preEmitRichSourceSyntaxLabel(label) {
+		return false
+	}
+	if quote := strings.TrimSpace(cit.Quote); preEmitExactRichSourceSyntaxAppears(label, quote) {
+		return true
+	}
+	if pctx == nil {
+		return false
+	}
+	evidence, found := pctx.citedEvidenceItems(cit)
+	if !found {
+		return false
+	}
+	for _, ev := range evidence {
+		for _, surface := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+			if strings.EqualFold(strings.Trim(strings.TrimSpace(surface), "`"), label) {
+				return true
+			}
+		}
+		for _, surface := range ev.SurfaceTerms {
+			if strings.EqualFold(strings.Trim(strings.TrimSpace(surface), "`"), label) {
+				return true
+			}
+		}
+		if snippet := strings.TrimSpace(ev.Snippet); preEmitExactRichSourceSyntaxAppears(label, snippet) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitExactRichSourceSyntaxAppears(label, source string) bool {
+	label = strings.Trim(strings.TrimSpace(label), "`")
+	source = strings.TrimSpace(source)
+	if label == "" || source == "" {
+		return false
+	}
+	if types.IsCodeIdentitySurface(label) {
+		return types.CodeSurfaceAppearsAsToken(label, source)
+	}
+	return strings.Contains(source, label)
+}
+
+func preEmitRichSourceSyntaxLabel(label string) bool {
+	label = strings.Trim(strings.TrimSpace(label), "`")
+	if label == "" {
+		return false
+	}
+	if strings.HasPrefix(label, "@") || strings.HasPrefix(label, "#") ||
+		strings.HasPrefix(label, "[[") || strings.HasPrefix(label, "__attribute") {
+		return true
+	}
+	return strings.ContainsAny(label, "()[]\"'")
 }
 
 func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
@@ -2871,6 +2939,7 @@ func preEmitItemCitationAlignmentAppliesWithContext(pctx *preEmitCheckContext, l
 
 func preEmitItemCitationAlreadyAlignedWithContext(pctx *preEmitCheckContext, block types.AnswerBlock, label, text string, cit types.Citation) bool {
 	return preEmitItemCitationAlignedWithContext(pctx, label, text, cit) ||
+		preEmitCitationDirectlySupportsExactRichLabelWithContext(pctx, label, cit) ||
 		preEmitEnumerationDirectoryLabelCitationScoped(block, label, cit) ||
 		preEmitCitationMatchesAnySourceInventoryCandidate(pctx, cit, label, text)
 }
