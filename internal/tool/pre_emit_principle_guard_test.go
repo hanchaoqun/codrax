@@ -63,6 +63,29 @@ func TestPrinciplePreEmitBlockHardGateUsesTypedBlockKindNotHintText(t *testing.T
 	if !preEmitHintHardByDefault(typed) {
 		t.Fatal("typed diagram block requirement should remain a same-turn hard gate")
 	}
+
+	typedTable := emitFixHint{
+		Kind:               types.ViolBlockCoverageMissing,
+		ExpectedBlockKinds: []types.AnswerBlockKind{types.BlockTable},
+		Reason:             "the compiled view accepts only a table carrier",
+	}
+	if !preEmitMissingBlockRequiresSameTurnRetry(typedTable) || !preEmitHintHardByDefault(typedTable) {
+		t.Fatal("typed sole-kind table requirement should remain a same-turn hard gate")
+	}
+
+	flexibleEnumeration := emitFixHint{
+		Kind: types.ViolBlockCoverageMissing,
+		ExpectedBlockKinds: []types.AnswerBlockKind{
+			types.BlockOrderedList,
+			types.BlockTable,
+			types.BlockBulletList,
+			types.BlockSection,
+		},
+		Reason: "ordinary enumeration leaves carrier selection to the model",
+	}
+	if preEmitMissingBlockRequiresSameTurnRetry(flexibleEnumeration) || preEmitHintHardByDefault(flexibleEnumeration) {
+		t.Fatal("table as one flexible alternative must not harden missing-block coverage")
+	}
 }
 
 func TestPrinciplePreEmitSameTurnHardPolicyIsExplicit(t *testing.T) {

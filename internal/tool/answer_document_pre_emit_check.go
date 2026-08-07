@@ -551,8 +551,10 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		// migration telemetry, where retry planning may choose caveat/materialize
 		// fallbacks. Pre-emit is different: the model is still inside the same
 		// tool call and the Required Answer Blocks contract can carry explicit
-		// visual obligations. Letting a missing diagram block ship loses a
-		// user-requested surface even though the correction is local.
+		// single-kind obligations. Letting a missing diagram, or a typed
+		// no-alternative per-member table, ship loses a required surface even
+		// though the correction is local. Flexible enumeration carriers remain
+		// advisory because list/table/section selection is model-owned.
 		// (preEmitLocalHardSignalAllowed keeps the Kind ==
 		// ViolBlockCoverageMissing constraint via the policy row.)
 		return true
@@ -609,7 +611,11 @@ func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
 			return true
 		}
 	}
-	return false
+	// A table becomes hard here only when the compiled semantic view exposes
+	// it as the sole accepted carrier. In particular, ordinary enumeration
+	// requirements include table among list/bullet/section alternatives and
+	// must not be promoted merely because that word appears in the kind set.
+	return len(hint.ExpectedBlockKinds) == 1 && hint.ExpectedBlockKinds[0] == types.BlockTable
 }
 
 func preEmitCitationHintRequiresSameTurnRetry(hint emitFixHint) bool {

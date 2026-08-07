@@ -24955,3 +24955,26 @@ QF partial、Python PASS：
 状态：`EVAL-B291/B294=production-positive/closed`；`EVAL-B296=tests-positive/no-production-probe-this-run`；
 `EVAL-B297=P1-observe-cross-case`；`EVAL-B295=next-P1`；runner=`2/2 PASS`、human=`1.5/2`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
+
+### 123.284 S37aj：JSON/patch 自愈保留；typed 唯一必需表格禁止降级为 prose carrier
+
+本批根修 B295 的合同矛盾，不撤销 malformed JSON/patch 的安全自愈：
+
+1. `normalizeAnswerDocumentPatchBlockOps` 的 unknown `replace_blocks.id -> add_blocks` 恢复继续保留。该机制能从模型错误 op 分类中提取完整、结构合法的新 block，
+   不应因为 r176 单例被整体禁用；原 positive pin 继续通过；
+2. admission 改读最终 `AnswerSemanticView.RequiredBlocks[].AcceptedKinds()`：缺失 `diagram` 仍按既有 typed lane 同轮修复；当且仅当 accepted kinds
+   只有一个且为 `table` 时，缺失表格也进入同一精确信号 lane。r176 的 `HasPerMemberTable=true` 正好编译为 required principal table、零 alternative，
+   因而 patch 即使成功把未知 replace 恢复为 add section，也不能删除表格后带着 soft caveat 出厂；
+3. 普通枚举的 `ordered_list/table/bullet_list/section` 多载体集合继续 advisory。实现不读取 request、repair reason、block text、模型 thinking 或最终正文，
+   也不因集合中“包含 table”就硬化；载体选择仍由模型决定；
+4. 集成 pin 构造真实事务：上一稿含 principal table；patch 删除该表、把未知 replace ID 的 section 交给自愈；合并后 required-kind census 拒绝，且 Mutable
+   中上一稿表格保持不变。另有原则 pin 覆盖 sole table hard、flexible enumeration soft，既有 unknown replace→add positive 同跑；
+5. 这不是系统代写表格或结论：系统只要求模型兑现 Analyzer 已声明且 semantic compiler 明确为 no-escape 的输出结构。行内容、排序、解释与结论完全由模型发射。
+   JSON schema/教学无需新增字段或关键词例外；Trace 全链未触碰。
+
+聚焦回归、完整 `go test ./internal/tool`（166.215s）与 `go test ./...` 全部通过；全仓同时覆盖
+`hitraceconv`、`mermaidcompat`、`orchestrator`、`tracequery`、`tracediag`、`types` 等共享面，未发现旁路回归。
+
+状态：`EVAL-B295=S37aj-implemented/full-suite-pass/closed`；`EVAL-B297=P1-observe`；
+模型答案所有权=`preserved`；JSON 修复=`preserved + semantic-postcondition`；
+Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。

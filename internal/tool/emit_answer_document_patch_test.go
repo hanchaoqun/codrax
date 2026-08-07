@@ -414,6 +414,59 @@ func TestEmitAnswerDocumentPatch_NormalizesReplaceNewBlockToAdd(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RequiredTableCannotDriftToRecoveredAddSection(t *testing.T) {
+	bus := newPatchTestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Scenario: types.ScenarioGeneric,
+			Predicates: types.SemanticPredicates{
+				HasPerMemberTable: true,
+			},
+		},
+	}
+	prev := bus.Mutable.AnswerDocumentV2()
+	prev.Blocks[1] = types.AnswerBlock{
+		ID:          "list1",
+		Kind:        types.BlockTable,
+		Columns:     []string{"member", "attribute"},
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{
+			{ClaimForm: types.ClaimDefinitionFact, EvidenceID: "ev1"},
+		},
+		Items: []types.AnswerBlockItem{{
+			ID: "i1", Label: "A", Cells: []string{"A", "value"}, CitationRef: 0,
+		}},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"remove_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id": "new-section",
+			"kind": "section",
+			"text": "The same members restated as prose.",
+			"facet_ids": ["enumeration_item"],
+			"claim_uses": [{"claim_form": "definition_fact", "evidence_id": "ev1"}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("patch must not delete a typed sole-kind table and replace it with a recovered add section: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "table") {
+		t.Fatalf("rejection should name the missing typed table carrier: %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].Kind != types.BlockTable {
+		t.Fatalf("rejected patch must leave previous table document intact: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesAddExistingBlockToReplace(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}
