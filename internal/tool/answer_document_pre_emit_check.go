@@ -3922,6 +3922,16 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
+		// A pure system_inference fact is a retained model claim with soft /
+		// illustrative authority.  It may guide the finalizer and participate in
+		// model-owned completeness checks, but it cannot authorize the runtime to
+		// mint a principal answer block.  Doing so would turn an ungrounded model
+		// relation into a system-authored conclusion and then amplify it again when
+		// this normalizer runs at the persist boundary.  This gate consumes only
+		// the typed evidence-origin projection; it never scans user or answer prose.
+		if !preEmitAggregateMemberSetCanAuthorizeSystemCarrier(ctx, fact) {
+			continue
+		}
 		rows := displayRows[ref.Index]
 		covered := preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) ||
 			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) ||
@@ -3951,6 +3961,26 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetCarrierTitle(fact, zh), aggregateMemberSetCarrierText(fact.Label, zh))
 	}
 	return fixed
+}
+
+func preEmitAggregateMemberSetCanAuthorizeSystemCarrier(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	return preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(types.AnswerAggregateFactEvidenceOrigins(fact, rm))
+}
+
+func preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(origins []types.AnswerEvidenceOrigin) bool {
+	for _, origin := range origins {
+		switch origin {
+		case types.AnswerEvidenceOriginUnknown, types.AnswerEvidenceOriginSystemInference:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // preEmitPrimaryMemberCarrierIndex returns one model-authored primary block

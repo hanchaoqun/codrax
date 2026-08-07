@@ -6919,7 +6919,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("- A validator-compatible diagram body and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, copy its body and anchors unchanged; do not compose a different story graph.\n")
+		b.WriteString("- A validator-compatible diagram body and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, copy both unchanged; do not compose a different story graph.\n")
 		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 	if len(edges) > len(bounded) {

@@ -2272,6 +2272,80 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 		!strings.Contains(block.Text, "结构化调查清单") {
 		t.Fatalf("zh system supplement should be clearly marked and localized: %+v", block)
 	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("aggregate carrier normalization must be idempotent across pre-emit and persist, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("idempotent normalization appended a duplicate carrier: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_DoesNotSystemAuthorSoftInference(t *testing.T) {
+	mu := types.NewMutableState("explain an inferred call path")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "complete call path nodes",
+			Value:   "4",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Logger::log", "sink_->write", "ConsoleSink::write", "fputs"},
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "sink selection nodes",
+			Value:   "4",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"SinkRegistry::create", "console branch", "ConsoleSink binding", "Logger injection"},
+		},
+	})
+	mu.SetInvestigationComplete("soft aggregate handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "call-path",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "p1", Label: "Logger::log"},
+				{ID: "p2", Label: "sink_->write"},
+				{ID: "p3", Label: "ConsoleSink::write"},
+				{ID: "p4", Label: "fputs"},
+			},
+		},
+		{
+			ID:          "selection",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "s1", Label: "SinkRegistry::create"},
+				{ID: "s2", Label: "console branch"},
+				{ID: "s3", Label: "ConsoleSink binding"},
+				{ID: "s4", Label: "Logger injection"},
+			},
+		},
+	}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("soft system_inference must not authorize system principal blocks, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("soft inference was duplicated into a system supplement: %+v", doc.Blocks)
+	}
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+			t.Fatalf("model-owned soft inference gained system authority: %+v", block)
+		}
+	}
 }
 
 func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *testing.T) {

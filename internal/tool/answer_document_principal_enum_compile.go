@@ -139,6 +139,15 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 	zh := principalEnumerationPrefersZH(ctx)
 	appended := 0
 	for _, set := range sets {
+		// The display set remains useful as model guidance and for completeness
+		// validation, but a pure soft/system_inference set cannot authorize a
+		// system-authored principal roster.  System supplements are reserved for
+		// typed evidence origins with authority beyond an illustrative model
+		// claim.  This is the same authority boundary used by the aggregate
+		// carrier normalizer.
+		if !preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(set.EvidenceOrigins) {
+			continue
+		}
 		rows := principalEnumerationRenderableSupplementRows(principalEnumerationMissingRows(doc, set))
 		if len(rows) == 0 {
 			continue

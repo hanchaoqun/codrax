@@ -23453,3 +23453,30 @@ flowchart relation authority 仍是独立待闭环项，不能因 visual 过滤�
 状态：`EVAL-B243-RECIPESELF1=S37e-implemented/full-tests-pass`；`EVAL-B244-RETRYCONFLICT1=S37e-implemented/full-tests-pass`；
 `EVAL-B245-AGGSUPPDUP1=next`；`EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；
 下一步=`commit+push, system supplement de-dup / support-lane split`。
+
+### 123.227 S37f：soft aggregate authority 不得升级为系统主答案
+
+`EVAL-B245-AGGSUPPDUP1` 深审后确认同根并不只是可见块去重。r153 C++ 最终接受的两组 `member_set` 已移除
+`support_refs`，类型系统把它们正确投影为 `system_inference`：grounding=`Soft`、authority ceiling=`Illustrative`。但随后
+`normalizeAggregateMemberSetCarriers` 仍把 8 个成员铸成 `principal_enumeration_rows`，`appendPrincipalEnumerationTypedSupplements`
+也没有同一权限边界。这样会把模型尚未证实的“Logger injection”等关系升级成系统主结论；pre-emit 与 persist 两次执行又会放大重复块。
+
+本批按 evidence authority 根修，而不是按 C++、成员名、块标题或答案文字去重：
+
+1. 新建共享 typed 判定：只有 `AnswerAggregateFactEvidenceOrigins` 至少含一个非 `unknown`、非 `system_inference` 的证据来源，系统才有权新增
+   principal roster carrier；纯 soft inference 仍完整保留给 finalizer、模型自有列表与 completeness validator 消费，但系统不代写答案；
+2. aggregate carrier 与 principal-enumeration missing supplement 两个系统发射入口共用同一权限判定，避免只堵住一个出口后从另一个出口重新铸权；
+3. 有精确 current-source support refs、runtime artifact、VCS、command measurement 等 typed 来源的既有补全能力保持；现有 5-member current-source
+   missing-row 测试继续要求系统只追加缺行，不编辑模型块；
+4. 新增生产同形双 `member_set` 回归，要求两个 soft principal lists 不产生任何 `SystemGeneratedKind`；再以 grounded roster 钉住
+   pre-emit → persist 重跑严格幂等，不得追加第二块；
+5. 顺带复齐 S37e 的 authoring-capsule 字节 pin：共享教学统一为“copy both unchanged”，避免实现与结构测试对同一 JSON/body+anchors
+   操作使用两种句形。没有新增 schema，也没有互斥 full-emit/patch 指令。
+
+系统没有删除、改写或替代模型块；低权威事实缺少可见表达时仍由模型依据提示修复，不能靠系统补块把校验“签绿”。该修复仅消费 typed evidence
+origin，不扫描用户输入、模型 thinking 或 final prose。Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析
+未触碰。
+
+状态：`EVAL-B245-AGGSUPPDUP1=S37f-implemented/tests-pass`；`EVAL-B236-PHASEBRIDGE1=next`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；模型答案所有权=`preserved`；
+下一步=`commit+push, typed cross-component support-lane boundary`。

@@ -158,6 +158,39 @@ func TestAppendOrMergePrincipalEnumerationMissingSupplement_CoalescesComplementa
 	}
 }
 
+func TestAppendPrincipalEnumerationTypedSupplements_DoesNotAuthorSoftInferenceRows(t *testing.T) {
+	mu := types.NewMutableState("explain a model-inferred relation")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "inferred call path",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"entry", "bridge", "sink"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "The model must decide how to present the ungrounded relation.",
+	}}}
+
+	if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed != 0 {
+		t.Fatalf("soft system_inference rows must not authorize a system principal supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+		t.Fatalf("soft inference gained system answer authority: %+v", doc.Blocks)
+	}
+}
+
 func TestPrincipalEnumerationSupplementBaseID_DistinguishesSanitizedSetIDCollisions(t *testing.T) {
 	left := principalEnumerationSupplementBaseID("owner-a")
 	right := principalEnumerationSupplementBaseID("owner_a")
