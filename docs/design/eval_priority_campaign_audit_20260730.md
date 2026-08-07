@@ -22636,3 +22636,33 @@ r142 C++ 的精确输入因此呈现为 line 36 `Logger.log -> Sink.write`、lin
 `EVAL-B209-RUBY-IMPLICIT-SUPER=P2-open`；`EVAL-B209-CPP-QUALIFIED-BASE=P2-open`；
 `EVAL-B209-LUA-PROTOTYPE=P3-advisory`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.200 r143：runner 双绿但 Python 人工失败，三条 typed 上下文断链确认
+
+在 `main@a0b95a507` 上严格并行回放 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`，runner 2/2 PASS；人工判定分别为 pass/fail：
+
+- C++：108s，finalizer reject/patch=`2/2`。最终主链、工厂选择以及 line 36 write、line 37 guard、line 38 flush 的事实不再颠倒，
+  说明 S36j 的方向正确；但生产 prompt 没有出现 `Typed same-owner lexical order`。日志亲验显示模型 call row 的 owner 是短名 `log`，
+  concrete guard row 的 owner 是限定名 `Logger.log`，旧实现按 source+owner 裸字符串分组，使同一方法事实被拆成两组。根修采用同源 typed endpoint
+  compatibility：只有短名在同一 source 中唯一匹配一个限定 owner 时才合并；若同时存在 `A.log`/`B.log`，保持分离 fail-closed，不以 leaf 猜 owner。
+- Python：166s，finalizer reject/patch=`2/2`。`repomap_cooperative_call` 两条 exact-super 已进入 finalizer，三条声明 base order 也在，
+  但 method definition 行没有 deterministic 生产者，`Typed cooperative-method rosters` 因定义集合为空而站下。最终 prose 虽正确给出
+  `TimestampMixin.handle -> ValidationMixin.handle -> BasePlugin.handle`，却把 `@register("json")` 的注册键与
+  `JsonPlugin.content_type() -> "application/json"` 混为一谈，错误声称 registry 以 MIME 值注册并由 `resolve("application/json")` 查找。
+  这是 typed 值角色碰撞，不是 JSON 工具调用畸形，也不能靠扫描最终答案词面硬挡。
+- 两案各两次成文拒绝都来自模型主动添加可选图，将抽象 caller、lookup、factory return、runtime dispatch 或 cooperative MRO 候选画成 direct call；
+  现有关系门按 typed evidence 正确拒绝，最终删图出厂。后续优化应减少模型心智：在上下文完整时给可复制的分离关系配方；上下文不完整时软提示
+  优先 ordered list，而不是放松图门或为单案硬编码节点/词面。
+
+本轮同时复核此前提醒的两项：显示消息参数污染 typed endpoint identity 的生产 pin仍需保留，任何 label/message 中的 `(json)` 都不得改写
+`resolve` 端点；`EVAL-B217-FLOWUNLABELED1` 的全图 body-edge ownership 已在 S36h 落地，后续仍需用 C++ 无标签逻辑箭头做异构回放，确认没有
+“无标签 edge 绕门”反例，不能用当前 optional sequence 删图结果代替该回放。
+
+任务顺序冻结为：① S36l 无歧义 owner alias 归并；② parser/graph 产生 cooperative method-definition typed 行并修复 deterministic-only
+结果合并；③ parser-authored decorator selector 与普通 method return 分角色并置，禁止系统替模型下注册语义结论；④ 再严格并行 2 案回放，
+审计事实正确性、图保留与 retry 数。以上均不读取用户原文、模型思考或最终 prose 作硬门，不修改模型答案，不触碰 Trace 显式时间窗因果投影、
+系统补齐、根因排序、唤醒链、窗内可消除量及“真实耗时贡献/规则内可消除量”双维度。
+
+状态：`EVAL-B218-OWNERALIAS1=S36l-implemented/focused-test-pass`；
+`EVAL-B209-COOPDEF1=P1-next`；`EVAL-B222-VALUE-ROLE1=P1-next`；
+`EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace=`not-touched`。

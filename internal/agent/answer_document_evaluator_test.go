@@ -1117,9 +1117,9 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedCooperativeMethodRos
 
 func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventingGuardScope(t *testing.T) {
 	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
-		{ID: "E-flush", Kind: types.EvidenceRelationship, Subject: "Logger.log", OwnerSymbol: "Logger.log", Predicate: "calls", Object: "Sink.flush", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-flush", Kind: types.EvidenceRelationship, Subject: "log", OwnerSymbol: "log", Predicate: "calls", Object: "Sink.flush", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
 		{ID: "E-guard", Kind: types.EvidenceConcrete, Subject: "Logger.log", Predicate: "conditional", Object: "level >= Level::kError", Source: "src/logger.cpp", LineStart: 37, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
-		{ID: "E-write", Kind: types.EvidenceRelationship, Subject: "Logger.log", OwnerSymbol: "Logger.log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-write", Kind: types.EvidenceRelationship, Subject: "log", OwnerSymbol: "log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
 		{ID: "E-unrelated", Kind: types.EvidenceRelationship, Subject: "ConsoleSink.write", OwnerSymbol: "ConsoleSink.write", Predicate: "calls", Object: "IO.write", Source: "src/logger.cpp", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
 	}}
 
@@ -1127,9 +1127,9 @@ func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventi
 	for _, want := range []string{
 		"## Typed same-owner lexical order (advisory)",
 		"owner=`Logger.log` source=`src/logger.cpp`",
-		"1. line=`36` claim_form=`call_edge` fact=`Logger.log -> Sink.write` [E-write]",
+		"1. line=`36` claim_form=`call_edge` fact=`log -> Sink.write` [E-write]",
 		"2. line=`37` claim_form=`guard_condition` fact=`level >= Level::kError` [E-guard]",
-		"3. line=`38` claim_form=`call_edge` fact=`Logger.log -> Sink.flush` [E-flush]",
+		"3. line=`38` claim_form=`call_edge` fact=`log -> Sink.flush` [E-flush]",
 		"do not by themselves prove branch containment or causality",
 		"only when a separate typed control-scope/containment relation proves that ownership",
 	} {
@@ -1139,6 +1139,18 @@ func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventi
 	}
 	if strings.Contains(got, "ConsoleSink.write") || strings.Contains(got, "guard_controls") {
 		t.Fatalf("lexical-order capsule must not add unrelated rows or mint guard containment:\n%s", got)
+	}
+}
+
+func TestAnswerDocumentEvaluator_LocalFactOrderDoesNotGuessAmbiguousShortOwner(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-short", Kind: types.EvidenceRelationship, Subject: "log", OwnerSymbol: "log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-a-guard", Kind: types.EvidenceConcrete, Subject: "A.log", Predicate: "conditional", Object: "aReady", Source: "src/logger.cpp", LineStart: 37, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
+		{ID: "E-b-guard", Kind: types.EvidenceConcrete, Subject: "B.log", Predicate: "conditional", Object: "bReady", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
+	}}
+
+	if got := renderAnswerDocLocalFactOrderCapsule(ctx); got != "" {
+		t.Fatalf("ambiguous leaf owner must not be merged into either qualified owner:\n%s", got)
 	}
 }
 

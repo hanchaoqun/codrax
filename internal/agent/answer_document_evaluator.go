@@ -2891,7 +2891,7 @@ func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
 	if len(pool) == 0 {
 		return ""
 	}
-	groupsByKey := make(map[string]*answerDocLocalFactOrderGroup)
+	groupsBySource := make(map[string]map[string]*answerDocLocalFactOrderGroup)
 	seen := make(map[string]struct{})
 	for _, item := range pool {
 		claim := types.ClaimFormOf(item)
@@ -2914,40 +2914,77 @@ func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
 			continue
 		}
 		seen[identity] = struct{}{}
-		key := strings.ToLower(strings.TrimSpace(item.Source)) + "\x00" + strings.ToLower(owner)
-		group := groupsByKey[key]
+		sourceKey := strings.ToLower(strings.TrimSpace(item.Source))
+		ownerKey := answerDocLocalFactOwnerKey(owner)
+		groupsByOwner := groupsBySource[sourceKey]
+		if groupsByOwner == nil {
+			groupsByOwner = make(map[string]*answerDocLocalFactOrderGroup)
+			groupsBySource[sourceKey] = groupsByOwner
+		}
+		group := groupsByOwner[ownerKey]
 		if group == nil {
 			group = &answerDocLocalFactOrderGroup{source: strings.TrimSpace(item.Source), owner: owner}
-			groupsByKey[key] = group
+			groupsByOwner[ownerKey] = group
 		}
 		group.items = append(group.items, item)
 	}
 
-	groups := make([]answerDocLocalFactOrderGroup, 0, len(groupsByKey))
-	for _, group := range groupsByKey {
-		hasGuard := false
-		hasDifferentLine := false
-		firstLine := 0
-		for _, item := range group.items {
-			if firstLine == 0 {
-				firstLine = item.LineStart
-			} else if item.LineStart != firstLine {
-				hasDifferentLine = true
+	// Sparse model-authored calls can carry only a callable leaf (`log`)
+	// while parser/grounder facts carry a qualified identity (`Logger.log`).
+	// Join those spellings only when the leaf has exactly one compatible
+	// qualified owner in the same source. A short name shared by A.log and
+	// B.log remains separate and lends neither owner an order/guard fact.
+	for _, groupsByOwner := range groupsBySource {
+		for ownerKey, group := range groupsByOwner {
+			if answerDocLocalFactOwnerQualified(group.owner) {
+				continue
 			}
-			if types.ClaimFormOf(item) == types.ClaimGuardCondition {
-				hasGuard = true
+			matchKey := ""
+			for candidateKey, candidate := range groupsByOwner {
+				if candidateKey == ownerKey || !answerDocLocalFactOwnerQualified(candidate.owner) ||
+					!answerDocDispatchIdentityCompatible(group.owner, candidate.owner) {
+					continue
+				}
+				if matchKey != "" {
+					matchKey = ""
+					break
+				}
+				matchKey = candidateKey
+			}
+			if matchKey != "" {
+				groupsByOwner[matchKey].items = append(groupsByOwner[matchKey].items, group.items...)
+				delete(groupsByOwner, ownerKey)
 			}
 		}
-		if !hasGuard || !hasDifferentLine {
-			continue
-		}
-		sort.SliceStable(group.items, func(i, j int) bool {
-			if group.items[i].LineStart != group.items[j].LineStart {
-				return group.items[i].LineStart < group.items[j].LineStart
+	}
+
+	groups := make([]answerDocLocalFactOrderGroup, 0)
+	for _, groupsByOwner := range groupsBySource {
+		for _, group := range groupsByOwner {
+			hasGuard := false
+			hasDifferentLine := false
+			firstLine := 0
+			for _, item := range group.items {
+				if firstLine == 0 {
+					firstLine = item.LineStart
+				} else if item.LineStart != firstLine {
+					hasDifferentLine = true
+				}
+				if types.ClaimFormOf(item) == types.ClaimGuardCondition {
+					hasGuard = true
+				}
 			}
-			return answerDocEvidenceIdentity(group.items[i]) < answerDocEvidenceIdentity(group.items[j])
-		})
-		groups = append(groups, *group)
+			if !hasGuard || !hasDifferentLine {
+				continue
+			}
+			sort.SliceStable(group.items, func(i, j int) bool {
+				if group.items[i].LineStart != group.items[j].LineStart {
+					return group.items[i].LineStart < group.items[j].LineStart
+				}
+				return answerDocEvidenceIdentity(group.items[i]) < answerDocEvidenceIdentity(group.items[j])
+			})
+			groups = append(groups, *group)
+		}
 	}
 	if len(groups) == 0 {
 		return ""
@@ -2983,6 +3020,19 @@ func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n- Do not narrate a later guard as preceding an earlier operation. Attribute an operation to a guard only when a separate typed control-scope/containment relation proves that ownership; otherwise keep the guard and operation as separate facts and let the model state the remaining uncertainty.\n")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocLocalFactOwnerKey(raw string) string {
+	owner, operation := answerDocDispatchEndpointParts(raw)
+	if owner != "" && operation != "" {
+		return strings.ToLower(strings.TrimSpace(owner) + "." + strings.TrimSpace(operation))
+	}
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func answerDocLocalFactOwnerQualified(raw string) bool {
+	owner, operation := answerDocDispatchEndpointParts(raw)
+	return owner != "" && operation != ""
 }
 
 func answerDocLocalFactOrderDescription(item types.EvidenceItem) string {
