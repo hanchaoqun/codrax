@@ -22726,3 +22726,36 @@ Cangjie annotation/宏、Rust attribute 等仍需各 extractor 的 AST carrier �
 状态：`EVAL-B222-VALUE-ROLE1=S36n-implemented/python-witness-closed`；
 `EVAL-B223-XDECOSELECT1=P2-open/all-language-parser-carriers`；模型答案所有权=`preserved`；
 JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、可消除量=`not-touched`。
+
+### 123.203 r144 与 S36o：sequence participant 展示标签不得污染 typed 边身份
+
+在 `main@41339794d` 上再次严格并行 2 个异构 call-chain eval：
+
+- `sr_py_registry_dispatch`：runner/human=`PASS/PASS`，107s，finalizer reject/patch=`2/2`。S36m/S36n 的 typed 上下文已被生产消费，
+  最终答案正确区分 `@register("json")` selector 与 `content_type() -> "application/json"` 返回值，并给出
+  `kind=json -> resolve -> JsonPlugin callback` 及 cooperative chain；先前错误的 MIME registry key 未复发。剩余两次 retry 都来自可选图把
+  lookup、return 或 candidate MRO 画成 direct call，属于后续降低模型心智的图配方问题，不应放松 typed 关系门。
+- `sr_cpp_virtual_chain`：runner=`PASS`、human=`FAIL`，156s，finalizer reject/patch=`2/2`。主链大体存在，但 `sink_->write`、`fputs`、
+  `fputc` 与 factory return 的逐项引用发生错位，prose 还把 C `stderr` 写成 `std::cerr`；未证的 factory-to-Logger injection bridge 也被叙述为
+  已连通。第一轮图揭出新的确定性共享解析缺陷：合法声明 `participant SW as sink_->write` 被 sequence edge parser 从展示标签中的 `->`
+  铸造成虚假 `sink_ -> write` 调用边，继而触发 `missing_call_anchor`。这与 Python 的 `resolve(json)` 参数污染属于同一根类：展示语法不得改变
+  typed endpoint identity。
+
+S36o 在 `internal/mermaidcompat.ParseEdges` 的共享语法层先识别 `participant/actor` declaration 并排除其作为 message edge 的可能；真实
+`SW->>CS: write(message)` 仍按原方向与消息解析。该修复不按 C++、`sink_` 或某个题目分支，对任意语言中带箭头字节的 participant 可见标签均成立。
+回归同时钉住共享 parser 和 answer diagram authority 两层：声明只产生 node identity，不能自铸 body edge；真正 message 仍必须由 typed
+`edge_anchors` 与 citable call evidence 证明。
+
+本批没有扫描用户输入、模型思考、模型答案或 edge message 文案做硬门，没有系统重写模型结论；JSON 教学与 schema 未改。下一施工顺序为：
+
+1. 解决“引用错位已被 soft audit 发现，但随后的 diagram-only patch 合同要求其他块字节不动”的修复合同冲突；应从 structured item 与 typed
+   aggregate support 建立无歧义 metadata 修复，不能扫描 prose 猜 citation；
+2. 修复 C++ concrete 条件把 `Logger.log` 的 `level >= kError` 误报成 `binds ONLY`，恢复 same-owner lexical-order capsule 的生产输入；
+3. 再以两例并行回放，审计 citation、事实措辞、图保留/retry，并继续补 C++ 无标签 flowchart edge 的异构回放 witness。
+
+验证：`go test ./internal/mermaidcompat ./internal/tool` 与 `go test ./...` 全绿。runner summary、人工审计表已随本节入库。
+
+状态：`EVAL-B224-PARTICIPANTARROW1=S36o-closed/full-tests-pass`；
+`EVAL-B225-CITATIONPATCHCONFLICT1=P0-next`；`EVAL-B226-CONDITIONCLASS1=P1-next`；
+`EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
+Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。

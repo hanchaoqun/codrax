@@ -101,6 +101,22 @@ func TestParseEdges_SequenceMessageArrowBytesStayInMessage(t *testing.T) {
 	}
 }
 
+func TestParseEdges_SequenceParticipantLabelArrowBytesAreNotEdges(t *testing.T) {
+	body := strings.Join([]string{
+		"sequenceDiagram",
+		"  participant SW as sink_->write",
+		"  actor CS as ConsoleSink::write",
+		"  SW->>CS: write(message)",
+	}, "\n")
+	edges := ParseEdges(body)
+	if len(edges) != 1 {
+		t.Fatalf("participant presentation bytes minted extra edges: %+v", edges)
+	}
+	if edges[0].From != "SW" || edges[0].To != "CS" || edges[0].Label != "write(message)" {
+		t.Fatalf("real sequence message changed: %+v", edges[0])
+	}
+}
+
 func TestParseEdges_SequenceOperatorMatrixMatchesSharedRendererTable(t *testing.T) {
 	operators := []string{
 		"-->>+", "-->>-", "->>+", "->>-",

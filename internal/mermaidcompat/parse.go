@@ -52,6 +52,14 @@ func ParseEdges(body string) []Edge {
 		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
 			continue
 		}
+		// Sequence participant/actor declarations are presentation metadata,
+		// never message edges. Their visible labels may legitimately contain
+		// language operators such as C/C++ `sink_->write`; looking for an arrow
+		// before recognizing the declaration would mint a fictitious
+		// `sink_ -> write` invocation and pollute typed endpoint identity.
+		if sequenceBody && len(SequenceParticipantDeclarations(line)) > 0 {
+			continue
+		}
 		var from, to, label, operator string
 		var ok bool
 		if sequenceBody {

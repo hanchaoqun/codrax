@@ -168,6 +168,28 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceMessagePayloadCannotPolluteSi
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceParticipantPresentationArrowCannotMintTypedEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: strings.Join([]string{
+				"sequenceDiagram",
+				"  participant SW as sink_->write",
+				"  participant CS as ConsoleSink::write",
+				"  SW->>CS: write(message)",
+			}, "\n"),
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "SW", ToNode: "CS", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("sink_.write", "ConsoleSink.write")}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("participant display label arrow bytes must not become typed body edges: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotHideReverseCallAnchor(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"
