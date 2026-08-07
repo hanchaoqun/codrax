@@ -161,7 +161,8 @@ func TestRenderExplorerCallChainDirectCallFrontier_RepositoryGraphPublishesEarly
 		"gate.RunWith",
 		"Typed Endpoint-boundary Frontier (advisory)",
 		"`gate.Run` -> `RunWith`",
-		"Read the exact boundary line",
+		"Inspect the exact boundary source line",
+		"scoped targeted source `grep`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("repository graph frontier missing %q:\n%s", want, got)

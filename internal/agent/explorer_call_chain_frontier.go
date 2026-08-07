@@ -79,7 +79,7 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 		return ""
 	}
 	boundaryRows := explorerCallChainEndpointBoundaryRows(graph, allRows, source, sink)
-	logging.Debug("[explorer] typed direct-call frontier source=%q sink=%q emitted=%d total=%d", source, sink, len(rows), total)
+	logging.Debug("[explorer] typed direct-call frontier source=%q sink=%q emitted=%d total=%d boundary_emitted=%d", source, sink, len(rows), total, len(boundaryRows))
 
 	var b strings.Builder
 	b.WriteString("### Typed Direct-call Frontier (advisory)\n\n")
@@ -100,7 +100,7 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 	}
 	if len(boundaryRows) > 0 {
 		b.WriteString("\n### Typed Endpoint-boundary Frontier (advisory)\n\n")
-		fmt.Fprintf(&b, "The exact requested sink `%s` has the AST-authored adjacent calls below. They are shown only because they either point back to the exact source or share a direct callee with the source frontier. Read the exact boundary line before describing a wrapper, reverse edge, shared implementation, or `no_directed_path` result. These rows are navigation metadata, not answer evidence; do not reverse an arrow, equate endpoints, or omit a load-bearing boundary edge after you have read it.\n\n", sink)
+		fmt.Fprintf(&b, "The exact requested sink `%s` has the AST-authored adjacent calls below. They are shown only because they either point back to the exact source or share a direct callee with the source frontier. Inspect the exact boundary source line with `read_file` or a scoped targeted source `grep` before describing a wrapper, reverse edge, shared implementation, or `no_directed_path` result. These rows are navigation metadata, not answer evidence; do not reverse an arrow, equate endpoints, or omit a load-bearing boundary edge after you have inspected it.\n\n", sink)
 		b.WriteString("| Exact sink boundary row | Why it may matter |\n")
 		b.WriteString("|-------------------------|-------------------|\n")
 		for _, item := range boundaryRows {

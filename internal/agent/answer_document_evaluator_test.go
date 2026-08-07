@@ -924,10 +924,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"source_endpoint_existence_proof=`call_edge`",
 		"requested_sink_existence_proof=`call_edge`",
 		"shared_frontier=`gate.RunWith`",
+		"directed_topology_shape=`buildAnalysisIR -> ... -> gate.RunWith <- ... <- gate.Run`",
+		"two independently grounded inbound paths converge on the shared frontier",
 		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
 		"requested_sink_path: `gate.Run` -> `RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
 		"not a reachable-chain member declaration",
 		"reverse or parallel typed calls",
+		"both arrowheads point toward the shared frontier",
+		"never rewrite `source -> ... -> frontier <- ... <- requested_sink`",
 		"model owns the conclusion",
 	} {
 		if !strings.Contains(prompt, want) {

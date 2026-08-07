@@ -387,6 +387,8 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 		"optional attribute_roles",
 		"cascade into narrower source_inventory calls",
 		"verify selected behavior or implementation claims with read_file or targeted grep before citing source text",
+		"scoped targeted source grep result that prints the exact production match",
+		"Never emit from a filename-only or relationship-map row",
 		"verified navigation facts",
 		"not semantic source-code citations",
 	} {
@@ -396,6 +398,7 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"do not treat repo_map output as evidence",
+		"Do not emit line-scope evidence from repo_map/grep navigation output alone",
 		"downstream synthesis",
 		"downstream rendering",
 		"the framework has",

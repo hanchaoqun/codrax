@@ -423,6 +423,63 @@ func TestMissingRequiredMechanismAnchors_StructuredIdentifierVariantSatisfiesToo
 	}
 }
 
+func TestMissingRequiredMechanismAnchors_TypedRelationLabelsCarryExactEndpoints(t *testing.T) {
+	required := []AnswerRequiredAnchor{
+		{Text: "buildAnalysisIR", Kind: ContractTermSymbol},
+		{Text: "gate.Run", Kind: ContractTermSymbol},
+	}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID:        "edges",
+		Kind:      BlockOrderedList,
+		ClaimUses: []RenderedClaimUse{{ClaimForm: ClaimCallEdge}},
+		Items: []AnswerBlockItem{
+			{Label: "buildAnalysisIR -> gate.RunWith"},
+			{Label: "gate.Run → RunWith"},
+		},
+	}}}
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("typed relation labels should carry their exact endpoints, missing=%+v", missing)
+	}
+
+	doc.Blocks[0].Items[1].Label = "gate.RunWith -> RunWith"
+	missing := MissingRequiredMechanismAnchors(doc, required)
+	if len(missing) != 1 || missing[0].Text != "gate.Run" {
+		t.Fatalf("qualified sibling endpoint must not satisfy gate.Run, missing=%+v", missing)
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_RelationLikeFreeLabelsDoNotMintEndpoints(t *testing.T) {
+	required := []AnswerRequiredAnchor{{Text: "gate.Run", Kind: ContractTermSymbol}}
+	for name, block := range map[string]AnswerBlock{
+		"untyped_relation_label": {
+			ID: "untyped", Kind: BlockOrderedList,
+			Items: []AnswerBlockItem{{Label: "gate.Run -> RunWith"}},
+		},
+		"definition_claim_block": {
+			ID: "definition", Kind: BlockOrderedList,
+			ClaimUses: []RenderedClaimUse{{ClaimForm: ClaimDefinitionFact}},
+			Items:     []AnswerBlockItem{{Label: "gate.Run -> RunWith"}},
+		},
+		"cpp_member_access": {
+			ID: "cpp", Kind: BlockOrderedList,
+			ClaimUses: []RenderedClaimUse{{ClaimForm: ClaimCallEdge}},
+			Items:     []AnswerBlockItem{{Label: "gate.Run->RunWith"}},
+		},
+		"multi_hop_relation": {
+			ID: "chain", Kind: BlockOrderedList,
+			ClaimUses: []RenderedClaimUse{{ClaimForm: ClaimCallEdge}},
+			Items:     []AnswerBlockItem{{Label: "gate.Run -> helper -> RunWith"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			missing := MissingRequiredMechanismAnchors(&AnswerDocumentV2{Blocks: []AnswerBlock{block}}, required)
+			if len(missing) != 1 || missing[0].Text != "gate.Run" {
+				t.Fatalf("non-authoritative relation-like label minted an endpoint: %+v", missing)
+			}
+		})
+	}
+}
+
 func TestBuildAnswerSemanticView_ErrorGranularityRequiresPrincipalDecision(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

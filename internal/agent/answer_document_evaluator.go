@@ -3676,6 +3676,13 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 		if capsule.SharedFrontier != "" {
 			fmt.Fprintf(&b, "- shared_frontier=`%s`\n", answerDocCallChainInline(capsule.SharedFrontier))
 		}
+		if capsule.Status == types.CallChainEndpointEvidenceParallelConvergence && capsule.SharedFrontier != "" {
+			fmt.Fprintf(&b, "- directed_topology_shape=`%s -> ... -> %s <- ... <- %s`\n",
+				answerDocCallChainInline(boundary.SourceEndpoint),
+				answerDocCallChainInline(capsule.SharedFrontier),
+				answerDocCallChainInline(boundary.RequestedSink))
+			b.WriteString("- topology_semantics=`two independently grounded inbound paths converge on the shared frontier; this is not a source-to-sink path`\n")
+		}
 		b.WriteString("\n### Grounded endpoint evidence capsule\n\n")
 		renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
 		if capsule.SourcePathOmitted > 0 {
@@ -3703,6 +3710,9 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 	b.WriteString("- Keep the nearest proven directed path from the typed call-edge rows above. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
 	b.WriteString("- `definition_only` proves that exact endpoint exists, but `incident_call_evidence=not_emitted` does not prove the endpoint is a leaf or has no callers/callees. Keep that local topology unproven unless an explicit typed call edge above establishes it.\n")
 	b.WriteString("- Keep reverse or parallel typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
+	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceParallelConvergence {
+		b.WriteString("- For `parallel_convergence`, read the displayed topology literally: both arrowheads point toward the shared frontier. In prose and Mermaid, keep the two inbound paths separate; never rewrite `source -> ... -> frontier <- ... <- requested_sink` as `source -> frontier -> requested_sink`.\n")
+	}
 	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
 	b.WriteString("- The summary, principal member roster, and diagram must share this disposition. The model owns the conclusion; this typed context supplies the evidence boundary only.\n\n")
 	return b.String()

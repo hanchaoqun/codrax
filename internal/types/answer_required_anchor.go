@@ -188,7 +188,8 @@ func mechanismAnchorTermKindEligible(kind ContractTermKind) bool {
 
 // MissingRequiredMechanismAnchors reports typed visible-anchor obligations not
 // represented by the structured answer carrier. It compares only exact typed
-// fields: block titles, item labels, table cells, and diagram edge endpoints.
+// fields: block titles, item labels, typed-relation label endpoints, table
+// cells, and diagram edge endpoints.
 // Summary / section prose is deliberately ignored so free-form text does not
 // become a control signal. Cells are scanned by verbatim containment of the
 // typed anchor (the must_include oracle's primitive): a table row legitimately
@@ -203,8 +204,12 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 	var cellTexts []string
 	for _, block := range doc.Blocks {
 		recordAnchorSurface(present, block.Title)
+		relationLabelCarrier := answerBlockCarriesTypedIdentityRelation(block)
 		for _, item := range block.Items {
 			recordAnchorSurface(present, item.Label)
+			if relationLabelCarrier {
+				recordTypedRelationLabelEndpoints(present, item.Label)
+			}
 			for _, cell := range item.Cells {
 				if trimmed := strings.ToLower(strings.TrimSpace(cell)); trimmed != "" {
 					cellTexts = append(cellTexts, trimmed)
@@ -236,6 +241,64 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 		missing = append(missing, anchor)
 	}
 	return missing
+}
+
+// answerBlockCarriesTypedIdentityRelation reports whether the model explicitly
+// declared that a block carries endpoint-bearing relations. This is a precise
+// structured signal: it never infers relation meaning from an item label or
+// surrounding prose. The supported forms share the citation-role identity
+// contract used by the evidence alignment validator.
+func answerBlockCarriesTypedIdentityRelation(block AnswerBlock) bool {
+	for _, use := range block.ClaimUses {
+		if use.ClaimForm.SupportsCitationRoleAlignment() {
+			return true
+		}
+	}
+	return false
+}
+
+// recordTypedRelationLabelEndpoints records the two exact endpoint identities
+// from a typed relation label. ASCII arrows require surrounding spaces so C++
+// member access such as receiver->method and operator-> are never mistaken for
+// answer-graph relations. Exactly one arrow is accepted; multi-hop labels stay
+// out of this carrier because one block-level claim annotation cannot prove
+// every hop. Free-form Text and summary prose never reach this function.
+func recordTypedRelationLabelEndpoints(dst map[string]struct{}, label string) {
+	left, right, ok := splitTypedRelationLabel(label)
+	if !ok {
+		return
+	}
+	recordAnchorSurface(dst, left)
+	recordAnchorSurface(dst, right)
+}
+
+func splitTypedRelationLabel(label string) (string, string, bool) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return "", "", false
+	}
+	matched := ""
+	matchedAt := -1
+	for _, delimiter := range []string{" -> ", " → "} {
+		if at := strings.Index(label, delimiter); at >= 0 {
+			if matched != "" || strings.Contains(label[at+len(delimiter):], delimiter) {
+				return "", "", false
+			}
+			matched = delimiter
+			matchedAt = at
+		}
+	}
+	if matchedAt < 0 {
+		return "", "", false
+	}
+	left := strings.TrimSpace(label[:matchedAt])
+	right := strings.TrimSpace(label[matchedAt+len(matched):])
+	if left == "" || right == "" ||
+		strings.Contains(left, " -> ") || strings.Contains(left, " → ") ||
+		strings.Contains(right, " -> ") || strings.Contains(right, " → ") {
+		return "", "", false
+	}
+	return left, right, true
 }
 
 // requiredAnchorPresentInCells reports whether the canonical anchor

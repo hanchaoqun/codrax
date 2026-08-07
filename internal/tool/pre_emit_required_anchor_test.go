@@ -105,6 +105,30 @@ func TestRunPreEmitChecks_CallChainEndpointMissingIsTypedHard(t *testing.T) {
 	}
 }
 
+func TestRunPreEmitChecks_CallChainTypedEdgeLabelsPreserveEndpoints(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:        "typed_edges",
+		Kind:      types.BlockOrderedList,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items: []types.AnswerBlockItem{
+			{Label: "buildAnalysisIR -> gate.RunWith"},
+			{Label: "gate.Run -> RunWith"},
+		},
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{
+			{Text: "buildAnalysisIR", Kind: types.ContractTermSymbol},
+			{Text: "gate.Run", Kind: types.ContractTermSymbol},
+		},
+	}
+	for _, hint := range runPreEmitChecks(doc, view, nil) {
+		if hint.Kind == types.ViolCallChainEndpointOmitted {
+			t.Fatalf("typed single-edge labels should carry exact endpoint identities: %+v", hint)
+		}
+	}
+}
+
 func TestNormalizeAnswerDocumentForPreEmit_DoesNotAuthorRequiredMechanismAnchors(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable:  types.NewMutableState("call-chain endpoints"),

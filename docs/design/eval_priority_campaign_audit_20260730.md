@@ -24436,3 +24436,56 @@ Go 案 196s。生产日志明确发射
 状态：`EVAL-B276=S37x-implemented/full-tests-pass/pending-production-replay`；`EVAL-B262=closed`；
 下一优先级=`EVAL-B273-TYPEDDIAGRAMRECIPE1`，随后 B272/B274；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
+
+### 123.263 r169：endpoint boundary 已生产消费，但 parallel convergence 被模型反向串联；typed edge 标签不被身份门承认
+
+r169 在 `main@6417066bd` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与 C++ write
+`patch_cpp_typo`。runner 2/2 PASS，人工 1/2。C++ 案 52s，以两次 source read 和一次 list 完成精确一行
+`retrun`→`return`，计划、apply 和 verify 一致，零拒绝/repair；read-mode call-chain 上下文没有泄漏到 write 计划。
+
+Go 案 309s。`EVAL-B276-ENDPOINTBOUNDARYFRONTIER1` 首次获得完整生产 witness：Explorer 收到 source direct frontier 与 exact sink
+boundary；模型随后使用 scoped targeted grep 检查 `internal/analysis/gate/gate.go:135`，自行调用 `emit_evidence` 发射
+`gate.Run -> RunWith`。该行经 grounding 接受后才进入 finalizer，系统没有从 repomap 直接铸 EvidenceItem，也没有代写答案。
+
+最终 typed 事实和 Mermaid 都保持两条真实方向：`buildAnalysisIR -> gate.RunWith @ analyzer.go:2667` 与
+`gate.Run -> RunWith @ gate.go:135`，不存在 source→requested sink 有向路径。但模型正文仍写成“从 buildAnalysisIR 到 gate.Run 的路径经过
+gate.RunWith / 完整路径需要经过共享前沿”，并在稍后段落又声明没有直接边，形成同页方向矛盾。finalizer 初始上下文其实已提供
+`call_graph_status=parallel_convergence`、`shared_frontier` 和两条 typed path；gap 不是证据缺失，而是汇合拓扑的认知表达仍不够直接。
+
+本轮另有两次成文 patch。第一次完整 emit 把 `blocks` 错编码为 JSON 字符串；canonical 单源教学已经明确原生 array，既有
+`answer_document_blocks_string_recovery` 无损恢复且披露一次 recovery event，因此归为模型波动/恢复已覆盖，不再复制 JSON 教学。后续 patch 的确定性根因是
+required mechanism anchor 只把整个 item label 当身份：`buildAnalysisIR -> gate.RunWith` 和 `gate.Run -> RunWith` 即使所在 block 已声明
+`claim_form=call_edge`，仍不能分别承载 exact source/sink，模型被迫添加两条重复 standalone 行。runner 对最终字面通过，但人工答案因方向结论失败。
+
+状态：`EVAL-B276=production-witnessed/closed`；`EVAL-B277-STRUCTUREDLABELEDGE1=confirmed/immediate`；
+`EVAL-B278-NOPATHTOPOLOGY1=confirmed/immediate`；`EVAL-B279-GREPREADCONTRACT1=confirmed/coherence`；
+JSON string blocks=`model-variance/recovery-covered/no-new-teaching`。模型答案所有权保持；Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、
+窗内可消除量与双维根因分析未触碰；两条全局开放守护继续保留。
+
+### 123.264 S37y：结构化单边端点承载 + 双入拓扑软教学 + grep/read 单一证据合同
+
+三个同根合同问题按结构信号统一修复，不针对 Go helper 或 eval 字面拟合：
+
+1. `MissingRequiredMechanismAnchors` 仍禁止 Summary/Text/free prose 参与硬门。只有 block 的 `claim_uses` 明确声明支持身份对齐的 typed relation
+   （call/callback/import/registration）时，才解析 item label 的一个显式结构边；`A -> B` / `A → B` 的 A、B 可作为 exact endpoint carrier。
+   一个 label 多跳、无 typed claim、definition claim 均 fail closed；qualified sibling 仍不满足 exact endpoint；
+2. ASCII 箭头必须是带空格的 `A -> B`，因此 C/C++ `receiver->method` 与 `operator->` 不会被误作关系。该实现不依赖语言关键字，统一覆盖项目支持的
+   Go、Java、Python、JavaScript/TypeScript/ArkTS、Cangjie、Rust、C/C++ 等语言表面；
+3. pre-emit hint 同步说明“exact standalone label 或 typed single-edge endpoint”两条合法承载形，消除 validator 已接受结构与 repair 教学之间的冲突，避免模型为
+   已存在端点再造冗余行；
+4. finalizer 对 precise `parallel_convergence + shared_frontier` 增发
+   `source -> ... -> shared_frontier <- ... <- requested_sink` typed topology shape，并明确两个箭头都指向共同前沿，不能改写成
+   `source -> frontier -> requested_sink`。这是从 typed edges 派生的软上下文；模型仍自行写 prose/diagram/结论，系统不扫描答案和不 patch 结论；
+5. Explorer 教学统一 runtime 已接受的证据边界：repo_map/source_inventory relation rows、broad/files-only grep 仍只作导航；带 file、gutter line 和足够上下文的
+   scoped targeted source grep 可在 grounding 接受时直接发 evidence；需要函数体/控制流时用 read_file。旧“任何 grep 都必须再 read_file”的 blanket 句退役。
+   endpoint frontier 同步使用同一措辞，减少模型心智与自冲突；
+6. direct frontier debug witness 新增 `boundary_emitted`，后续可区分分支未发射与模型未消费。JSON schema/教学未改，Trace 和 write 合同不进入这些 typed QF
+   分支。
+
+验收 pin 覆盖 typed edge 正例、qualified sibling、untyped/definition/multihop/C++ member-access 负例、pre-emit 接线、parallel topology 字节和 grep/read 教学去冲突。
+下一步 full suite 后提交推送，再严格并发 2 回放 QF + 异构数据/Trace/write，人工审计方向结论、finalizer retries 与上下文精准度。
+
+状态：`EVAL-B277=S37y-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B278=S37y-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B279=S37y-implemented/full-tests-pass/pending-production-replay`；模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
