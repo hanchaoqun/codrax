@@ -25619,3 +25619,25 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 状态：`EVAL-B317=S37ax-implemented/full-suite-pass/pending-production-replay`；
 `contract-authority=WorkflowActionsForMode`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`；
 Trace 显式窗/投影/补齐/双维=`unchanged`；`EVAL-B298=S37ay-next`。
+
+### 123.309 S37ay：文本材料完整度成为 typed 软上下文，usage mode 由实际动作选择
+
+`EVAL-B298-DATATEXTUSAGEMODE1` 的实现批已完成，保留材料完整性 hard gate：
+
+1. `inspectTextCandidate` 既有 bounded scan 会给出总行数与最多四行样本；新 helper 只在 `kind=text`、总行数与样本数完全相等、任一行均无截断标记时铸造
+   `sample_complete=true`。长文本、截断行、空文本、JSON/CSV 样本均 fail-closed，不把“看到前几行”说成全文；
+2. 动态 `typed_initial_required_materials` 不再把候选默认值描述为规划指令，改为 `fallback_usage_mode`，并逐行标明
+   `planner_must_choose_usage_mode`、candidate kind 与 sample completeness。该 fallback 只在模型遗漏有效选择时 fail-closed；
+3. 当且仅当 `candidate_sample_complete=true`，软教学说明两条互斥车道：若当前 bounded plan 只把已完整展示的文本当规则/约束，模型可选择
+   `planner_distilled` 并给出具体 notes；若答案由文本字节计算，必须保持 `script_consumed` 并真实读取/使用。禁止为了满足 fallback 做 dummy read；
+4. 系统不根据 `instructions/rules/policy` 文件名、用户问题、模型 thinking 或最终答案判定文本角色，也不自动生成规则解释。最终 usage mode 和 distilled notes
+   仍由模型发射；`required_material_scheduling`、runner consumption、distilled-notes 完整性等原 hard guard 全部不变；
+5. 候选文件展示与 plan-emission contract 复用同一个 `dataTaskTextCandidateSampleComplete`，避免显示说完整而合同说不完整。正负测试覆盖完整短文本、部分长文本、
+   截断行、结构化样本和空文件；原 user-material floor、planner-authored mode preservation、repair/continuation 测试不降杆；
+6. 聚焦 `go test ./internal/repl ./internal/dataquery ./internal/dataworkflow -count=1` 与完整 `go test ./... -count=1` 全绿。首次回放被 eval runner
+   正确拒绝，因为 dirty build 不允许成为生产见证；按纪律先提交本批，再从干净 commit 构建并以严格并发 2 回放 JSON + C++ write；
+7. 本批没有改变 JSON 最终输出 schema、畸形 JSON recovery、答案正文或 data 业务计算；不进入 Trace query/投影/补采、Mermaid、repomap、read/write controller。
+
+状态：`EVAL-B298=S37ay-implemented/full-suite-pass/pending-clean-production-replay`；
+`signal=candidate-kind+bounded-line-census+no-truncation`；`guidance=soft`；`material-hard-gates=unchanged`；
+模型答案所有权=`preserved`；Trace 显式窗/投影/补齐/双维=`unchanged`。

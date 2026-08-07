@@ -954,11 +954,11 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
-	appendDataTaskPlanEmissionContract(&b, dataTaskUserMentionedCandidateMaterials(userLine, candidates))
+	appendDataTaskPlanEmissionContract(&b, dataTaskUserMentionedCandidateMaterials(userLine, candidates), candidates)
 	return strings.TrimSpace(b.String())
 }
 
-func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []dataquery.CoverageMaterial) {
+func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []dataquery.CoverageMaterial, candidates []dataquery.CandidateFile) {
 	if b == nil {
 		return
 	}
@@ -976,19 +976,34 @@ func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []
 		return
 	}
 	type initialMaterialObligation struct {
-		Path                   string `json:"path"`
-		InitialUsageMode       string `json:"initial_usage_mode"`
-		ScriptConsumerRequired bool   `json:"script_consumer_required"`
-		TextEvidencePath       string `json:"text_evidence_path,omitempty"`
+		Path                       string `json:"path"`
+		FallbackUsageMode          string `json:"fallback_usage_mode"`
+		PlannerMustChooseUsageMode bool   `json:"planner_must_choose_usage_mode"`
+		CandidateKind              string `json:"candidate_kind,omitempty"`
+		CandidateSampleComplete    bool   `json:"candidate_sample_complete,omitempty"`
+		TextEvidencePath           string `json:"text_evidence_path,omitempty"`
+	}
+	candidateByPath := make(map[string]dataquery.CandidateFile, len(candidates))
+	for _, candidate := range candidates {
+		if path := normalizeDataTaskCoveragePath(candidate.Path); path != "" {
+			candidateByPath[path] = candidate
+		}
 	}
 	obligations := make([]initialMaterialObligation, 0, len(requiredMaterials))
+	hasCompleteTextCandidate := false
 	for _, material := range requiredMaterials {
 		mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
+		path := normalizeDataTaskCoveragePath(material.Path)
+		candidate := candidateByPath[path]
+		sampleComplete := dataTaskTextCandidateSampleComplete(candidate)
+		hasCompleteTextCandidate = hasCompleteTextCandidate || sampleComplete
 		obligations = append(obligations, initialMaterialObligation{
-			Path:                   normalizeDataTaskCoveragePath(material.Path),
-			InitialUsageMode:       string(mode),
-			ScriptConsumerRequired: mode == dataquery.MaterialUseScriptConsumed,
-			TextEvidencePath:       normalizeDataTaskCoveragePath(material.TextEvidencePath),
+			Path:                       path,
+			FallbackUsageMode:          string(mode),
+			PlannerMustChooseUsageMode: true,
+			CandidateKind:              strings.TrimSpace(candidate.Kind),
+			CandidateSampleComplete:    sampleComplete,
+			TextEvidencePath:           normalizeDataTaskCoveragePath(material.TextEvidencePath),
 		})
 	}
 	sort.Slice(obligations, func(i, j int) bool { return obligations[i].Path < obligations[j].Path })
@@ -996,7 +1011,22 @@ func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []
 	fmt.Fprintf(b, "- typed_initial_required_runner_paths=%s; these are existing workflow obligations, not optional suggestions.\n", raw)
 	materialRaw, _ := json.Marshal(obligations)
 	fmt.Fprintf(b, "- typed_initial_required_materials=%s. This is the exact user-material floor the workflow will merge after planning.\n", materialRaw)
-	b.WriteString("- For every row with script_consumer_required=true, the emitted plan must either give that exact path a real helper consumer in the selected executable script/action, or explicitly replace its coverage entry with a valid planner_distilled/text_evidence_consumed/typed-action lane. input_paths alone is never the consumer.\n")
+	b.WriteString("- fallback_usage_mode is the fail-closed mode used only when the plan omits a valid usage choice; it is not a planning instruction. For every row, choose usage_mode from the actual bounded action: give script_consumed paths a real helper consumer, or explicitly use a valid planner_distilled/text_evidence_consumed/typed-action lane. input_paths alone is never the consumer.\n")
+	if hasCompleteTextCandidate {
+		b.WriteString("- candidate_sample_complete=true is a typed inspection fact: every source line is present in sample_lines_json without truncation. If this bounded plan uses that complete text only as already-visible rules/constraints, planner_distilled with concrete distilled_notes is valid; if the answer is computed from the text bytes, keep script_consumed and read/use them. Never read a text file solely to satisfy the fallback mode.\n")
+	}
+}
+
+func dataTaskTextCandidateSampleComplete(candidate dataquery.CandidateFile) bool {
+	if strings.TrimSpace(candidate.Kind) != "text" || candidate.Lines <= 0 || candidate.Lines != len(candidate.Sample) {
+		return false
+	}
+	for _, line := range candidate.Sample {
+		if strings.Contains(line, "...[truncated]") {
+			return false
+		}
+	}
+	return true
 }
 
 func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {
@@ -1058,7 +1088,7 @@ func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnP
 	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
-	appendDataTaskPlanEmissionContract(&b, nil)
+	appendDataTaskPlanEmissionContract(&b, nil, nil)
 	return strings.TrimSpace(b.String())
 }
 
@@ -1273,7 +1303,7 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
 	b.WriteString("## candidate_data_files\n")
 	appendCompactCandidateDataFiles(&b, candidates)
-	appendDataTaskPlanEmissionContract(&b, nil)
+	appendDataTaskPlanEmissionContract(&b, nil, nil)
 	return strings.TrimSpace(b.String())
 }
 
@@ -1413,6 +1443,9 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 		}
 		if len(f.Sample) > 0 {
 			fmt.Fprintf(b, " sample_lines_json=%s", marshalInlineJSON(f.Sample))
+		}
+		if dataTaskTextCandidateSampleComplete(f) {
+			b.WriteString(" sample_complete=true")
 		}
 		if strings.TrimSpace(f.InspectError) != "" {
 			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 160))

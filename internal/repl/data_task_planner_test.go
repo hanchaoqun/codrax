@@ -2929,8 +2929,9 @@ func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
 	for _, want := range []string{
 		"## current_plan_emission_contract",
 		`typed_initial_required_runner_paths=["instructions.md","users.json"]`,
-		`typed_initial_required_materials=[{"path":"instructions.md","initial_usage_mode":"script_consumed","script_consumer_required":true},{"path":"users.json","initial_usage_mode":"script_consumed","script_consumer_required":true}]`,
+		`typed_initial_required_materials=[{"path":"instructions.md","fallback_usage_mode":"script_consumed","planner_must_choose_usage_mode":true,"candidate_kind":"text"},{"path":"users.json","fallback_usage_mode":"script_consumed","planner_must_choose_usage_mode":true,"candidate_kind":"json"}]`,
 		"exact user-material floor the workflow will merge after planning",
+		"fallback_usage_mode is the fail-closed mode",
 		"input_paths alone is never the consumer",
 		"exactly one executable carrier",
 		"Every custom_transform action must carry its own non-empty action.script",
@@ -2938,6 +2939,50 @@ func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestDataTaskPlannerPromptDistinguishesCompleteTextFallbackFromConsumptionChoice(t *testing.T) {
+	prompt := dataTaskPlannerPrompt(
+		"process users.json according to policy.md",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "structured_file_transform"},
+		[]dataquery.CandidateFile{
+			{Path: "policy.md", Kind: "text", Lines: 2, Sample: []string{"Keep active rows.", "Return JSON."}},
+			{Path: "users.json", Kind: "json", Lines: 3, Sample: []string{`[{"id":"u1"}]`}},
+		},
+	)
+	for _, want := range []string{
+		`"path":"policy.md","fallback_usage_mode":"script_consumed","planner_must_choose_usage_mode":true,"candidate_kind":"text","candidate_sample_complete":true`,
+		"sample_complete=true",
+		"every source line is present",
+		"planner_distilled with concrete distilled_notes is valid",
+		"if the answer is computed from the text bytes, keep script_consumed",
+		"Never read a text file solely to satisfy the fallback mode",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("planner prompt missing complete-text usage choice %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDataTaskTextCandidateSampleCompleteIsExactAndFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		candidate dataquery.CandidateFile
+		want      bool
+	}{
+		{name: "complete", candidate: dataquery.CandidateFile{Kind: "text", Lines: 2, Sample: []string{"a", "b"}}, want: true},
+		{name: "partial lines", candidate: dataquery.CandidateFile{Kind: "text", Lines: 5, Sample: []string{"a", "b", "c", "d"}}},
+		{name: "truncated line", candidate: dataquery.CandidateFile{Kind: "text", Lines: 1, Sample: []string{"a...[truncated]"}}},
+		{name: "structured sample", candidate: dataquery.CandidateFile{Kind: "json", Lines: 1, Sample: []string{"{}"}}},
+		{name: "empty", candidate: dataquery.CandidateFile{Kind: "text"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dataTaskTextCandidateSampleComplete(tc.candidate); got != tc.want {
+				t.Fatalf("sample complete=%t, want %t for %+v", got, tc.want, tc.candidate)
+			}
+		})
 	}
 }
 
