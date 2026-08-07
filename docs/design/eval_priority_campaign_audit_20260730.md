@@ -22948,3 +22948,34 @@ S36t 根修为单一最终 authority：
 `EVAL-B229-COPYGRAPH1=partial/replay-next`；`EVAL-B232-DISCONNECTAUTH1=P1-open`；
 `EVAL-B233-RETURNBODY1=P1-open`；`EVAL-B230-MEMBERMULTIREF1=P1-open`；模型答案所有权=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量与双维根因分析=`not-touched`。
+
+### 123.210 r148：DiagramPlan 单源闭环，根因转向关系端点与 return/value 载体
+
+在 `main@c8fdce865` 上再次严格并行同两案，runner 2/2 PASS，人工仍为 0/2 PASS：
+
+- Python：147s，final reject/patch 从 3 降至 `2/2`。prompt 中只有一份与 Required Answer Blocks 一致的
+  `sequenceDiagram + edge_anchors_json`，无 node_alias/逐边 JSON 重复，证明 `DIAGRAMVIEWSPLIT1` 生产闭环；模型仍自造另一张图后删图。
+  最终正文明确写“resolve 返回 JsonPlugin 类本身（未实例化）”，而当前源码为 `cls = REGISTRY[name]; return cls()`，且摘要又写“实例化”，
+  同页事实冲突再次确认 `RETURNBODY1`。
+- C++：193s，final reject/patch=`2/2`。同样没有系统教学分叉，但模型仍自造图并删除。最终把 `unique_ptr` 说成“裸指针”，继续发明
+  factory→Logger 接管桥，并把 factory selection 排进 `Sink::write` 之后的“完整调用路径”。更严重的是 Explorer 为满足 completion，提交
+  `registration SinkRegistry::create -> ConsoleSink @ src/registry.cpp:32`；grounder 将锚调整到 line 32 后接受，但该行只有
+  `return SinkRegistry::create(kind, path)`，完全不含 `ConsoleSink`。这条假 typed relation 随后进入 finalizer capsule，污染模型上下文。
+
+裁定与排序：
+
+| ID | 优先级 | 判定 | 最优泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B231-DIAGRAMVIEWSPLIT1` | P0-near | 系统双教学已消失 | 保持最终 `AnswerSemanticView.DiagramPlan` 单源 | closed / production replay |
+| `EVAL-B229-COPYGRAPH1` | watch | 精确模板仍可能被模型忽略；现已排除确定性系统分叉 | 保留 soft aid；不得为出图增加答案 prose hard gate 或系统改写 | model-watch |
+| `EVAL-B234-RELENDPOINT1` | P0/P1 | relation evidence 只定位到一个 anchor 即获得双方端点 authority，产生 typed 假边 | model-authored relation 必须由 parser/grounder 验证 owner+direction+object；重定位后若 object/typed structural endpoint 不成立则 fail-closed，不得以 Summary 补 | next |
+| `EVAL-B232-DISCONNECTAUTH1` | P1 | 多 component 仍被模型叙成连续链 | 从 verified typed graph 发布 component partition 与 bridge_status；只作高显著 guidance | after B234 |
+| `EVAL-B233-RETURNBODY1` | P1 | 已读 return/instantiation 未成为 typed final context | 各语言 parser/grounder return/value-flow carrier 统一提升，精确区分 class/value/instance | after B232 |
+
+`RELENDPOINT1` 是当前最高 ROI：若不先清理假 typed 边，component partition 与 return/value-flow 都会在污染图上计算。修复不得扫描用户问题、
+模型 thinking 或答案正文；必须以 EvidenceItem typed fields、已读源码坐标、parser owner/endpoint relation 为依据。模型仍负责结论，系统只撤销未证关系 authority。
+
+状态：`EVAL-B231-DIAGRAMVIEWSPLIT1=closed`；`EVAL-B229-COPYGRAPH1=model-watch`；
+`EVAL-B234-RELENDPOINT1=confirmed/next`；`EVAL-B232-DISCONNECTAUTH1=confirmed`；
+`EVAL-B233-RETURNBODY1=confirmed`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
