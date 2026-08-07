@@ -24121,3 +24121,40 @@ write 控制案 149s：仅把 `main.go` 的 `retrun` 改为 `return`，applied-t
 状态：`EVAL-B265-READCALLNOTCARRIED1=S37s-implemented/full-tests-pass/pending-production-replay`；
 `EVAL-B267-PIPELINESTAGEROSTER1=next-P1`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.252 r164：Rust 完整边回归；named endpoint 被 discover-empty 静默吞掉
+
+r164 在 `main@9e0db9aed` 上严格并发 2，运行 Rust `sr_rust_cross_module_chain` 与 Go
+`qf_sequence_analyzer_gate`。runner 1/2 PASS；人工 Rust=pass、Go=fail。
+
+Rust 案 160s。Explorer 第一批 evidence 已发出 `collect_files -> walk @ src/walker.rs:6` 和递归 `walk -> walk @ :19`，最终主答案保留
+`main -> run -> collect_files -> walk` 以及 `run -> index_file -> is_match` 两段真实结构，不再把“先收集、后循环索引”说成并行汇聚。
+`EVAL-B265` 的用户可见生产结果转正，但本次模型在首次 completion 前主动携带了该边，新 completion downgrade 没有触发；因此状态只能写
+`positive-production-outcome/gate-branch-unwitnessed`，不能虚称精确分支已生产闭环。可选图因模型画出无证 `walk -> run` 边拒绝一次并被模型删除，主 prose/list 未丢；
+两条 walk 行的 inline citation_ref 被 citation alignment 去掉，但 exact source lines 仍在引用清单，记展示观察项，不升级为错误答案。
+
+Go 案发现新的 `EVAL-B269-NAMEDENDPOINTDISCOVER1`（P0/P1）。analyzer payload 同时发出：
+
+- `call_chain_endpoints.source=buildAnalysisIR`；
+- `sink_mode=discover, sink=""`；
+- `exact_targets=[buildAnalysisIR, gate.Run]`；
+- typed question kind/axis=`call_chain/call`。
+
+当前 wire gate 只拒绝 `discover + 非空 sink`，没有拒绝“typed exact target 集合在排除 source 后只剩一个唯一 destination、却仍声明 discover-empty”的矛盾。
+于是 exact endpoint reachability/no-directed-path 合同未启动，Explorer 只读到 `buildAnalysisIR -> gate.RunWith` 就完成；finalizer 的 exact label 合同又要求保留
+`gate.Run`，模型遂写出错误句“`RunWith` 内部最终路由到 `Run`”。源码权威恰好相反：`gate.Run -> RunWith`；`buildAnalysisIR` 没有到
+`gate.Run` 的有向路径。最优修复不是扫描用户原文，也不是系统改写结论，而是在 analyzer admission 使用已存在的 typed fields：call-chain source 非空、
+discover-empty、且 `exact_targets` 除 source 后恰有一个唯一代码端点时，结构拒绝并要求改为 exact sink；多余 exact targets、路径/上下文项或身份歧义时不得猜。
+修复后正常 exact reachability 应推动模型读取 `gate.go`，发真实 `Run -> RunWith` 边并用 `no_directed_path` 说明边界。
+
+同案再次确认 `EVAL-B262-TRANSITIVEHOPDEPTH1`：`buildAnalysisIR` 已读函数体直接包含 `analyzerGraphForNormalize(ctx, rm) @ :1866`，但 Explorer
+只选 `normalizer.Normalize / amplifier.Amplify / gate.RunWith`，最终仍漏 eval 要求的关键 helper。B269 先修方向权威，B262 随后做 typed frontier 上下文，不能按 helper 名硬塞。
+
+两次成文拒绝中，第一次清理 construction/return 伪 call；模型随后把 diagram endpoint 错换为 `gate.Run` 再被拒，S37r exact capsule 在第二次 repair 中
+成功恢复为三条已证 `buildAnalysisIR -> Normalize/Amplify/RunWith`。这证明图 carrier 修复工作正常，也同时证明它不会、且不应替模型修正文中错误因果方向。
+
+状态：`runner=1/2 PASS`；`human=1/2`；
+`EVAL-B265-READCALLNOTCARRIED1=implemented/full-tests-pass/positive-production-outcome/gate-branch-unwitnessed`；
+`EVAL-B269-NAMEDENDPOINTDISCOVER1=confirmed/immediate`；`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；
+`EVAL-B268-SEQUENTIALASPARALLEL1=not-reproduced/model-variance`；模型答案所有权=`preserved`。
+本批无 runtime artifact；未改动或推断具体时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双维根因分析。
