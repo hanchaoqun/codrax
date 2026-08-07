@@ -2956,12 +2956,31 @@ func TestDataTaskPlannerPromptDistinguishesCompleteTextFallbackFromConsumptionCh
 		`"path":"policy.md","fallback_usage_mode":"script_consumed","planner_must_choose_usage_mode":true,"candidate_kind":"text","candidate_sample_complete":true`,
 		"sample_complete=true",
 		"every source line is present",
-		"planner_distilled with concrete distilled_notes is valid",
-		"if the answer is computed from the text bytes, keep script_consumed",
+		"Decide independently for each material row",
+		"filtering or computing from one dataset does not make every required text material script_consumed",
+		"supplies already-visible rules/constraints for processing a different material",
+		"Use script_consumed only when the executable action itself extracts values, records, or dynamically parsed rules",
+		"The overall task being computational is not the discriminator",
 		"Never read a text file solely to satisfy the fallback mode",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing complete-text usage choice %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDataTaskMaterialUseTeachingIsPerMaterialNotPerTask(t *testing.T) {
+	for _, want := range []string{
+		"choose usage_mode for every required material",
+		"decide per material, not per task",
+		"Overall compute/filter",
+		"request to read/follow",
+		"makes it required, not script_consumed",
+		"values, records, or runtime rules",
+		"Complete visible text only constraining another input",
+	} {
+		if !strings.Contains(dataTaskLedgerShapeTeaching, want) {
+			t.Fatalf("material-use teaching missing %q:\n%s", want, dataTaskLedgerShapeTeaching)
 		}
 	}
 }

@@ -25641,3 +25641,44 @@ Trace 显式窗/投影/补齐/双维=`unchanged`；`EVAL-B298=S37ay-next`。
 状态：`EVAL-B298=S37ay-implemented/full-suite-pass/pending-clean-production-replay`；
 `signal=candidate-kind+bounded-line-census+no-truncation`；`guidance=soft`；`material-hard-gates=unchanged`；
 模型答案所有权=`preserved`；Trace 显式窗/投影/补齐/双维=`unchanged`。
+
+### 123.310 r189：write 动作单源生产闭环；文本 mode 信号到达但模型按任务而非材料误判
+
+在 `main@f80762893` 上从干净 build 严格并发 2 回放 r188 同一异构对，runner/human 均 2/2 PASS：
+
+1. C++ write 142s。首次 controller 处于 `ModePlan`，动态 action enum 无 apply/verify；模型先 explore 精确行，再在 ready_to_plan 选择 `plan_batch`。
+   ChangePlan 生成后进入 `ModeApply`，此时动态 enum 才出现 `apply_plan/verify_batch`，两次调用均合法。`workflow_action_not_in_mode` 与 unavailable tool attempts
+   从 r188 的 1/2 降为 0/0，`EVAL-B317` 获得生产正证并关闭；
+2. C++ 最终仍仅修改两个生产头各一行，测试文件字节不变；`make check` 实际编译运行，两个 changed path 均为 project-runner covered。过程修复没有以少探索换错误交付；
+3. JSON 45s，最终仍为严格 `{"ids":["u1","u3"]}`。模型明确读到了 `instructions.md sample_complete`，但把“整个任务是计算型”当作材料 mode
+   判据，选择 `script_consumed`；实际 custom action 仍只读 `users.json`，原 guard 精确拒绝并触发 1 repair。故 S37ay 只能判
+   `typed-context-production-positive/process-partial`，B298 未关闭；
+4. 根因不是材料信号缺失，而是教学中“if the answer is computed from the text bytes”仍可被理解为“任务里存在计算”。下一批 S37az 只修改单源 usage-mode 教学：
+   明确逐材料判定；整体任务是否计算、用户是否说“按照”均不授权 script mode；只有 executable action 从该文本提取值/记录/动态规则时才 script-consumed，
+   已完整展示且仅作为处理另一材料的约束时 planner-distilled。hard gate 不变；
+5. 两案均无成文拒绝、无系统代写、无输出关键词门。Trace 未进入，显式时间窗/投影/补采/根因排序/唤醒链/可消除量/双维分析不变。
+
+状态：`EVAL-B317=production-positive/closed`；
+`EVAL-B298=S37ay-context-positive/process-partial/S37az-next`；`runner=2/2 PASS`；`human=2/2 PASS`；
+模型答案所有权=`preserved`；Trace=`unchanged`。
+
+### 123.311 S37az：usage mode 教学改为逐材料判定，不以整体任务类型替代消费证据
+
+r189 证明模型已看到 sample completeness，却把“任务是计算型”误作所有材料的 mode 判据。S37az 只修单源软教学，不动 hard gate：
+
+1. `dataTaskLedgerShapeTeaching` 的 MATERIAL USE FIRST 明确为逐材料、非逐任务选择；整体存在过滤/计算，或用户要求“读取/遵循”某材料，只决定其 required
+   身份，不自动授予 `script_consumed`；
+2. script mode 的正义收窄为：当前 executable action 真实从该材料字节读取并使用 values、records 或 runtime rules。完整可见文本若只约束另一输入的处理，
+   应由模型选择 `planner_distilled + notes`；该判断仍由模型作出，系统不生成 notes、不改 plan；
+3. 动态 material contract 同步说明每行独立判定，并明确“从一个数据集计算”不等于“所有 required text 都是脚本输入”。candidate completeness、fallback mode、
+   原 consumption hard gate 与 repair 路径保持 S37ay 形；
+4. 没有扫描文件名、用户原文或模型答案，没有按 `instructions.md`/JSON fixture 特判，也没有把模型漏消费自动修成 planner-distilled。若模型仍声明 script 却不读，
+   `required_material_scheduling` 继续 fail-closed；
+5. 教学压缩后 continuation prompt 仍低于既有 62KB 心智预算；没有调大预算掩盖新增文字。聚焦
+   `go test ./internal/repl ./internal/dataquery ./internal/dataworkflow -count=1` 与完整 `go test ./... -count=1` 全绿；
+6. 本批未改 strict JSON schema/repair、答案正文、write controller、Trace、Mermaid 或 repomap。下一步从干净 commit 严格并发 2 回放 JSON + 异构 read/write；
+   若仍为单次 repair，则按模型波动/教学收益不足留档，不继续把软提示硬化成系统替答。
+
+状态：`EVAL-B298=S37az-implemented/full-suite-pass/pending-production-replay`；
+`decision-scope=per-material`；`guidance=soft`；`hard-gate=unchanged`；`prompt-budget=<62KB`；
+模型答案所有权=`preserved`；Trace=`unchanged`。
