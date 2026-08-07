@@ -25806,3 +25806,59 @@ r189 证明模型已看到 sample completeness，却把“任务是计算型”�
 状态：`EVAL-B320+B321=S37bc-implemented/full-suite-pass/pending-production-replay`；
 `principal-hop-order=unchanged`；`non-hop-authority=typed+connected`；`summary-authority=none`；
 `system-answer-rewrite=none`；`raw-prose-hard-gate=none`；Trace=`unchanged`。
+
+### 123.317 r192：selection 引用闭环、write 基线可信；完整调用链仍缺未发射 control facts
+
+在干净 `main@aebcf66ca5` 上严格并发 2 跑 `sr_cpp_virtual_chain` 与 `patch_go_typo`，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. C++ 134s。S37bc 的 selection 主车道生产生效：最终答案把 `kind == "console"` 与
+   `SinkRegistry::create returns ConsoleSink` 分开表达，具体 return 的引用稳定落在 `src/registry.cpp:18`，不再被同名 call site@32 替换；
+   `EVAL-B321` 获得生产正证并关闭；
+2. r191 的“每次 write 后立即 flush”错误也未再出现，说明错误 summary 没有重新取得权威。但用户问的是“完整调用路径”，本轮答案完全没有披露
+   `Logger::log` line30 的 `sink_ == nullptr || level < min_level_` 入口过滤，以及 line37-38 的 error-only `flush` 分支。源码已在 explorer 的
+   `read_file` 结果中可见，模型 thinking 甚至说需要补 flush，却没有发射对应 conditional/call evidence；因此 S37bc 无 typed row 可提升。
+   `EVAL-B320` 判 production-positive/partial；新立 `EVAL-B324-CALLCONTROLCOMPLETENESS1=P1`；
+3. B324 的最优方向是让“完整 call path”调查的 completion 软清单消费 parser/grounder 已有的 callable-local typed control/call 候选，提示模型补发尚未覆盖的
+   guard 与 guarded call；completion authority 仍只认模型发射并 grounding 成功的 rows。不得扫描最终答案有无 `flush`/`if`，不得按 C++、Logger 或行号特判，
+   不得由系统把候选直接写进答案，也不得把 lexical adjacency 铸造成 control ownership；
+4. C++ 唯一一次“成文校验未通过”是合理 fail-closed：首稿 Mermaid 画了调用方→Logger、Logger→ConcreteSink、调用方→registry、自调用 guard、构造注入等
+   5 条无 typed call authority 的箭头；validator 给出 copy-ready capsule，模型只替换可选 diagram，正文三个原 blocks 字节保留，最终图仅含
+   `Logger.log -> Sink.write` 与 `make_sink -> SinkRegistry.create` 两条已证边。它不是 JSON 教学矛盾、RELSTALE1 类双合同或系统删答案；
+5. Go write 116s，唯一代码差异为 `main.go` 一行 `retrun -> return`。计划使用 structured patch，apply 后 verification probe 与项目
+   `go test -json ./...` 均通过，changed path 为 `project_runner/target_behavior covered`，controller 只在 typed `batch_verified` 后
+   `finish(all_verified)`；没有 replan/resume/stamp 车道，T7-1 未回归；
+6. Go analyzer 首次把明确修复请求误标 diagnostic，`emit_analysis` 的互斥 schema 精确拒绝，第二次纠正后继续。该一次 correction 不影响计划/补丁/终验，
+   暂记模型分类波动，不为 typo、Go 或问题词面新增硬门；若异构 write 连续复现再归入 analyzer request-shape 教学审计；
+7. 本批没有 JSON malformed recovery，也没有修改 JSON 单源教学；没有 Trace 输入。S37bc 代码不进入 Trace 路径，r191 的显式时间窗/因果投影/自动补齐/
+   根因排序/唤醒链/窗内可消除量与双维分析生产正证继续有效。系统没有替写、删除或改写模型结论。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B321=production-positive/closed`；`EVAL-B320=production-positive/partial`；
+`EVAL-B324=P1-filed`；`finalizer-reject=legitimate-typed-diagram-gate`；`write-verification=trusted`；
+模型答案所有权=`preserved`；`raw-prose-hard-gate=none`；Trace=`not-entered/previous-isolation-positive`。
+
+### 123.318 S37bd：完整 source call-chain 以 typed 覆盖意图驱动 control-fact 发射
+
+`EVAL-B324-CALLCONTROLCOMPLETENESS1` 采用 analyzer→explorer 的软引导根修，不新增成文硬门：
+
+1. analyzer 的 `completeness_obligation` 单源语义扩展到 whole requested mechanism path，明确 `complete/full path`、`完整路径/完整调用路径`
+   属于覆盖触发形。仍由模型从当前请求发射 `required + verbatim source_quote`，既有 quote validator 校验；系统不在下游扫描用户问题、模型 thinking 或答案；
+2. `CompletenessObligationIsMechanismCoverageOnly` 现在承认 source-code `IntentTrace + ReqCallChain/AxisCall` 的惯用分类，把完整路径解释为
+   load-bearing mechanism coverage，而不是“仓库内所有 callable”的封闭枚举。只有 `runtime_artifact_scope=not_applicable` 且
+   `runtime_question_scope=not_applicable` 才进入该臂；bounded runtime lookup、causal/relation/system report、unspecified/active runtime artifact scope 均保持原合同；
+3. Explorer 的跨语言 call-chain 教学补齐最后一公里：当 typed completeness 已在场，逐个审计已读的 load-bearing callable；入口/early-return guard
+   独立发 `conditional+condition`，条件分支中的 material call 独立发 `relationship+call`。禁止把 guard+call 折成一行，禁止以 lexical adjacency
+   铸 control ownership，也禁止把无关 formatter/helper calls 当作“完整路径”成员；
+4. 教学显式覆盖 Go、Java/Kotlin、JavaScript/TypeScript/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 及其他可执行语言，
+   不为 Logger、flush、C++、具体文件或行号设特判；最终哪些 control facts 是 load-bearing、如何组织结论仍由模型判断；
+5. 本批没有修改 `emit_evidence` hard schema、completion gate、AnswerDocument/引用 repair、Mermaid、JSON decode/repair/教学或 write controller；
+   不会由系统补写、删除或替换模型答案。JSON 的 projected schema 与教学未新增第二套字段/枚举；
+6. Trace 隔离测试钉住 causal-diagnosis、bounded-fact-set、active full-artifact 与无 quote 的 unspecified artifact 四类均不能落入 source mechanism
+   coverage。显式时间窗因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双维性能根因均未修改；
+7. `go test ./internal/skill ./internal/types ./internal/tool -count=1` 分包验证通过（首次组合运行仅因新增 prompt pin 的字面期望少一个词失败，修正测试后
+   skill/types/tool 分别通过），最终完整 `go test ./... -count=1` 通过。
+
+状态：`EVAL-B324=S37bd-implemented/full-suite-pass/pending-production-replay`；
+`authority=typed-completeness+verbatim-quote`；`guidance=soft/model-owned`；
+`closed-member-set=no`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace=`typed-runtime-scopes-isolated`；JSON=`unchanged`。

@@ -2445,6 +2445,39 @@ func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 	}
 	rm.Predicates.IsCategoryEnumeration = false
 
+	rm.Intent = IntentTrace
+	rm.AnalyzerHints.Kind = string(ReqCallChain)
+	rm.PredicateAxis = AxisCall
+	if !CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("source-code trace/call-chain completeness should cover the mechanism path, not require a closed repository member set")
+	}
+	rm.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeCausalDiagnosis}
+	if CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("runtime causal trace completeness must remain on its independent full-report contract")
+	}
+	rm.RuntimeQuestionProfile = nil
+	rm.RuntimeArtifactScopeProfile = &RuntimeArtifactScopeProfile{
+		RequestedScope: RuntimeArtifactScopeFullArtifact,
+		SourceQuote:    "full trace",
+	}
+	if CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("active runtime artifact scope must not be demoted to source mechanism coverage")
+	}
+	rm.RuntimeArtifactScopeProfile = nil
+	rm.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	if CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("bounded runtime relation lookup must remain on the runtime contract")
+	}
+	rm.RuntimeQuestionProfile = nil
+	rm.RuntimeArtifactScopeProfile = &RuntimeArtifactScopeProfile{RequestedScope: RuntimeArtifactScopeUnspecified}
+	if CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("typed runtime artifact scope must remain isolated even when its quote is unavailable")
+	}
+	rm.RuntimeArtifactScopeProfile = nil
+	rm.Intent = IntentExplain
+	rm.AnalyzerHints.Kind = string(ReqMechanism)
+	rm.PredicateAxis = AxisCondition
+
 	rm.Predicates.IsRoleLocateLookup = true
 	rm.Predicates.IsScalarAnswer = true
 	if IsSingleTopicMechanismExplanation(rm) {

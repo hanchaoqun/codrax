@@ -590,7 +590,19 @@ func CompletenessObligationIsMechanismCoverageOnly(rm RequestModel) bool {
 	if !rm.CompletenessObligation.IsActive() {
 		return false
 	}
-	if rm.Intent != IntentExplain {
+	mechanismIntent := rm.Intent == IntentExplain
+	if rm.Intent == IntentTrace &&
+		(rm.RuntimeArtifactScopeProfile == nil || rm.RuntimeArtifactScopeProfile.RequestedScope == RuntimeArtifactScopeNotApplicable) &&
+		(rm.RuntimeQuestionProfile == nil || rm.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeNotApplicable) &&
+		(NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain || rm.PredicateAxis == AxisCall) {
+		// Source-code call-chain questions conventionally use IntentTrace. A
+		// user-authored "complete/full path" quote asks for coverage of the
+		// selected mechanism path, not a closed inventory of every callable in
+		// the repository. Runtime trace reports remain on their independent
+		// typed scope and causal-report contracts.
+		mechanismIntent = true
+	}
+	if !mechanismIntent {
 		return false
 	}
 	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {

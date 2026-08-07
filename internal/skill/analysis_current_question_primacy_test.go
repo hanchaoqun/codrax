@@ -192,6 +192,23 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_CompletenessIncludesWholeMechanismPaths(t *testing.T) {
+	out := analysisSkillPrompt(t)
+	for _, want := range []string{
+		"whole requested mechanism path",
+		"complete path",
+		"full path",
+		"完整路径",
+		"完整调用路径",
+		"load-bearing steps, guards, and branches",
+		"not automatically a request for an exhaustive inventory",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis completeness teaching missing %q", want)
+		}
+	}
+}
+
 func TestAnalysisSkill_DiagnosticPredicatePromptPinned(t *testing.T) {
 	paragraph := diagnosticPredicateParagraph(t)
 	for _, want := range []string{
