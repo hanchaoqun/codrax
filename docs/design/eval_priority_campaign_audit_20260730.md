@@ -22419,3 +22419,38 @@ root-cause 图的独立 authority 均未修改。`EVAL-B209-COOPPATH1` 继续开
 `EVAL-B216-MERMQUOTE1=S36e-implemented/focused-pass/bundled-parser-production-witness-pass`；
 `EVAL-B217-FLOWUNLABELED1=P1-open`；`EVAL-B218-FACTVALUE1=P2-open`；
 模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.193 B205 r141：两项 P0 未回归，但硬锚来源越权与动态分派图层缺口成为主导
+
+`6797cb7a0` 构建后的严格双并行回放 runner 2/2 PASS，人工仍为 0/2：
+
+- Python：113s、1 次 finalizer reject。r140 的 `resolve("json") -> json` identity 污染没有复现，但模型本轮未画图，故生产回放不能替代
+  S36e 的 production-shape pin。唯一拒绝来自另一合同：analyzer 只把 `kind`、`json` 放进普通 `entities`，
+  `CompileRequiredMechanismAnchors` 却把全部 `MentionedEntities` 推断为 source symbol，并硬要求两个词各自成为独立 list label；模型被迫新增
+  第 6/7 项，答案结构变差且仍未解释 `TimestampMixin -> ValidationMixin -> BasePlugin` 的 cooperative 执行顺序；
+- C++：148s、2 次 finalizer reject。上一轮 `kError` 作用域和 unknown-sink 失败行为错误消失；但首稿仍把运行时虚分派
+  `sink_->write -> ConsoleSink` 写成直接 call，现有 typed relation 集无法表达“静态 call + type/override binding -> runtime implementation”的组合，
+  第二次仍失败后按诚实提示删掉可选图。最终文字又把 setup-time `SinkRegistry::create` 排在 log-time `sink_->write` 之后，混淆了选择链和执行链。
+
+代码复核确认：
+
+1. `EVAL-B219-MENTIONHARD1=P0/confirmed`：`mechanismAnchorMentionedSet` 无差别合并 `ExactTargets` 与普通
+   `MentionedEntities`，再由 `InferContractTermKind` 把短参数/字面量猜成 `ContractTermSymbol`；硬门最终只看 typed slice，形式上精确，
+   但 slice 的来源仍是 analyzer 的嘈声实体枚举，违反“嘈声信号只作软引导”。最优修复是硬锚候选只取明确 typed exact-target lane；
+   call-chain 另取精确 `CallChainEndpointProfile.source` 与 `sink_mode=exact` 的 sink。普通 mentioned entities 保留在探索/成文软上下文，不能形成发布硬门；
+2. `EVAL-B220-DYNDISPATCH1=P1/confirmed`：现有 diagram relation 只有 call/callback/type_relation/register/assignment/return 等，缺少
+   动态分派组合载体；当前提示只能要求模型展示静态 call 与 binding/type 边，若探索没产出 citable type/override relation，模型只能删图。
+   最优方案不是把“虚分派”标签硬映射成 call，而是从 parser-authored call-site receiver type、implementer/override relation和工厂/赋值事实
+   形成可复制的 typed composition recipe；对 Java/Kotlin/C++/Rust/Swift/Go/ArkTS/Cangjie 等统一使用关系事实，不按语言词表分支；
+3. `EVAL-B217-FLOWUNLABELED1=P1/open` 继续单独保留：在 B220 给出合法非直接调用表达前，不能贸然把所有 flowchart 裸箭头升级成 call 硬拒，
+   否则只会扩大删图；后续应让所有 source relation 图的 body edge 都有 typed relation ownership，再做统一覆盖；
+4. `EVAL-B216-MERMQUOTE1` 保持 closed：客户完整原图对内置 Mermaid.js 的修前失败/修后成功是生产工件直接证明；r141 没有保留图，
+   因而本轮既没有形成新反例，也不虚报为第二次生产回放。
+
+下一批顺序：先修 `B219`（红线、低风险、高 ROI），再做 `B220` typed composition 设计/实现，最后扩 `B217` 的全图边覆盖。
+三者不得读取用户原文、模型思考或最终答案作硬门。Trace 显式时间窗因果投影、自动补齐、根因排序、唤醒链与可消除量不进入本批。
+
+状态：`EVAL-B215-SEQMSGLABEL1=closed-by-production-shape-pin`；
+`EVAL-B216-MERMQUOTE1=closed-by-client-artifact-and-bundled-parser`；
+`EVAL-B219-MENTIONHARD1=P0-next`；`EVAL-B220-DYNDISPATCH1=P1-designed`；
+`EVAL-B217-FLOWUNLABELED1=P1-blocked-on-B220`；模型答案所有权=`preserved`；Trace=`not-touched`。
