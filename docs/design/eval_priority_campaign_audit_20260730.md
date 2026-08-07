@@ -24074,3 +24074,26 @@ Trace runtime family、显式时间窗、自动补齐、因果投影、根因排
 状态：`EVAL-B266-REQUIREDRECIPECARRY1=S37r-implemented/full-tests-pass`；
 `EVAL-B265-READCALLNOTCARRIED1=next-P1`；`EVAL-B267-PIPELINESTAGEROSTER1=open/P1`；
 模型答案所有权=`preserved`；JSON teaching=`single typed carrier`；Trace 能力=`untouched`。
+
+### 123.250 r163：required diagram 单轮修复生产闭环；阶段 roster 仍只在系统补充
+
+r163 在 `main@4c9f9fd4c` 上严格并发 2，运行组合 read `read_combo_pipeline_sequence_table` 与 write
+`patch_go_typo`。runner 2/2 PASS；人工 write=pass、read=fail。
+
+组合 read 用时 179s，仅一次成文拒绝。首稿把无 typed authority 的 assignment/return/call 混入 required sequence 图后，validator 继续 fail-closed；
+S37r 在同一 repair turn 回放 producer-owned 的 copy-ready Mermaid body 与完整 `edge_anchors_json`，模型一次
+`emit_answer_document_patch` 原位替换图即通过。相较 r162 的 501s、连续 6 次拒绝，生产结果降为 179s、1 次拒绝，且没有删图、重开文件、重组 alias/JSON，
+确认 `EVAL-B266-REQUIREDRECIPECARRY1=production-closed`。系统没有执行 patch，也没有修改模型 prose、阶段解释或结论。
+
+但 read 人工仍失败：模型自己的 ordered list、阶段表和总结都写成 `analyze -> dispatch/apply -> finalize`，遗漏
+`StageExplore` 与 `StageExtract`。底部“系统补充：阶段绑定核对”确实含四阶段，并使 runner regex 通过，但该附录不能替代模型主回答；这进一步确认
+`EVAL-B267-PIPELINESTAGEROSTER1` 是前置 typed context/任务分解 gap，而不是成文后再追加系统答案可以闭环的问题。最优方向仍是把 topology/stage-binding
+的 typed roster 在 analyzer/explorer 规划期软交接，并让模型自行调查、选择和总结；不得由系统把 roster 强写进最终主答案，也不得按 `StageExtract` 字面做硬门。
+
+write 控制案 149s：仅把 `main.go` 的 `retrun` 改为 `return`，applied-tree 无旁改，2 个测试通过，报告 `passed=true`，最终状态 verified。
+计划期有 schema/probe 自纠，但没有成文拒绝、载体降级或模型答案所有权问题。
+
+状态：`runner=2/2 PASS`；`human=1/2`；`EVAL-B266-REQUIREDRECIPECARRY1=production-closed`；
+`EVAL-B267-PIPELINESTAGEROSTER1=open/P1`；`EVAL-B265-READCALLNOTCARRIED1=next-P1`；
+`sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。
+本批未选择 Trace case，既不宣称 Trace 生产闭环，也未改动显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量或双维根因分析。
