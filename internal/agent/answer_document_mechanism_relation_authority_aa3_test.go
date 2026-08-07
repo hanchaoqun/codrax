@@ -328,6 +328,55 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 }
 
+func TestMechanismRelationCopyReadyDiagramSharesQualifiedCallableIdentityAA3(t *testing.T) {
+	inbound := types.EvidenceItem{
+		ID: "inbound", Kind: types.EvidenceRelationship,
+		Source: "src/main.rs", LineStart: 20, AnchorKind: types.AnchorCall,
+		Subject: "run", Object: "walker::collect_files", AnchorSymbol: "walker::collect_files",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	inner := types.EvidenceItem{
+		ID: "inner", Kind: types.EvidenceRelationship,
+		Source: "src/walker.rs", LineStart: 6, AnchorKind: types.AnchorCall,
+		Subject: "collect_files", Object: "walk", AnchorSymbol: "walk", OwnerSymbol: "collect_files",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	definition := types.EvidenceItem{
+		ID: "definition", Kind: types.EvidenceMechanism,
+		Source: "src/walker.rs", LineStart: 4, AnchorKind: types.AnchorDefinition,
+		AnchorSymbol: "collect_files", GroundingStatus: types.GroundingGrounded,
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{inbound, inner, definition},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"typed_relation_graph: unique_endpoint_relations=2; nodes=3; weak_components=1",
+		"single_linear_relation_graph=true",
+		"verified_relation_component_count=1",
+		"participant n1 as run",
+		"participant n2 as walker::collect_files",
+		"participant n3 as walk",
+		"n1->>n2: call",
+		"n2->>n3: call",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("shared qualified callable identity missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "participant n3 as collect_files") ||
+		strings.Contains(got, "inter_component_bridge_status=`unproven_between_components`") {
+		t.Fatalf("copy-ready diagram split one typed callable into two nodes:\n%s", got)
+	}
+}
+
 func TestMechanismRelationCopyReadyDeduplicatesVisualPairBeforeOptionalLimitAA3(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{

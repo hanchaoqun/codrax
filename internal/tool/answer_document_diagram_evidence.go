@@ -866,34 +866,12 @@ func diagramCallEdgeHasUniqueInboundQualifiedCaller(evidence []types.EvidenceIte
 	if diagramEvidenceQualifiedOwner(fromSymbol) == "" || fromOperation == "" || toSymbol == "" {
 		return false
 	}
-	// Qualification must already exist as an exact typed call endpoint. A
-	// model-authored display prefix cannot create its own owner authority.
-	if !diagramEvidenceContainsExactCallEndpoint(evidence, fromSymbol) {
+	// Resolve the presentation identity through the same fail-closed typed
+	// bridge consumed by the relation-authority renderer. A model-authored
+	// prefix, source path, or language-specific separator cannot mint it.
+	qualified, ok := types.ResolveUniqueQualifiedCallEndpoint(evidence, fromOperation)
+	if !ok || !types.AnswerCodeIdentitySurfacesEquivalent(qualified, fromSymbol) {
 		return false
-	}
-
-	type definitionLocation struct {
-		source string
-		line   int
-	}
-	definitions := make(map[definitionLocation]bool)
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimDefinitionFact ||
-			strings.TrimSpace(ev.AnchorSymbol) != fromOperation {
-			continue
-		}
-		source := strings.TrimSpace(ev.Source)
-		if source == "" || ev.LineStart <= 0 {
-			continue
-		}
-		definitions[definitionLocation{source: source, line: ev.LineStart}] = true
-	}
-	if len(definitions) != 1 {
-		return false
-	}
-	var definitionSource string
-	for location := range definitions {
-		definitionSource = location.source
 	}
 
 	found := false
@@ -904,16 +882,6 @@ func diagramCallEdgeHasUniqueInboundQualifiedCaller(evidence []types.EvidenceIte
 		}
 		if !diagramEvidenceExactCallTargetMatches(ev, toSymbol) {
 			continue
-		}
-		owner := strings.TrimSpace(ev.OwnerSymbol)
-		if owner != "" && owner != fromOperation &&
-			!types.AnswerCodeIdentitySurfacesEquivalent(owner, fromSymbol) {
-			return false
-		}
-		// The unique definition is the source-local binding. Seeing the same
-		// short caller in another file makes the qualification ambiguous.
-		if strings.TrimSpace(ev.Source) != definitionSource {
-			return false
 		}
 		found = true
 	}

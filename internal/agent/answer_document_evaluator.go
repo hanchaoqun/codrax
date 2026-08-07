@@ -6860,6 +6860,19 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 		from := strings.TrimSpace(item.Subject)
 		to := strings.TrimSpace(item.Object)
+		if relation == types.DiagramRelCall {
+			// A call-site may carry a reader-friendly module/type-qualified
+			// callee while the same callable's body necessarily uses its short
+			// parser owner. Reuse the shared fail-closed identity bridge before
+			// topology/copy-ready compilation so the renderer and strict diagram
+			// validator consume one typed endpoint projection.
+			if qualified, ok := types.ResolveUniqueQualifiedCallEndpoint(evidence, from); ok {
+				from = qualified
+			}
+			if qualified, ok := types.ResolveUniqueQualifiedCallEndpoint(evidence, to); ok {
+				to = qualified
+			}
+		}
 		if from == "" || to == "" || strings.EqualFold(from, to) {
 			continue
 		}

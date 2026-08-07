@@ -25088,3 +25088,27 @@ r181 在 `main@435edb98b` 上严格并发 2，运行显式窗 `trace_query_wakeu
 状态：`EVAL-B299=P0-next/generalized-typed-identity-bridge`；`EVAL-B300=P1-observe/no-prose-hard-gate`；
 runner=`2/2 PASS`、human=`partial+partial`；模型答案所有权=`preserved`；JSON 教学=`unchanged`；
 Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`production-positive`。
+
+### 123.289 S37al：限定显示身份与短 owner 共享一个 fail-closed typed bridge
+
+本批修复 B299，不改变调用事实、模型结论或 Mermaid 容错边界：
+
+1. `internal/types` 新增共享 `ResolveUniqueQualifiedCallEndpoint`。它不读 request、model thinking、summary、最终正文或路径命名规则；只有同时存在
+   citable 限定调用 endpoint、短 operation 的唯一 citable definition、该短 caller 的全部已观察调用均位于 definition source，且 parser-stamped
+   `OwnerSymbol` 不冲突时，才返回原始语言拼写的限定身份；
+2. `answer_document` relation authority 在构造 topology、component、alias 与 copy-ready Mermaid 之前调用该 resolver。因此 r181 的两条真实边现在编译为
+   `run -> walker::collect_files -> walk`，三节点、单 component、线性两边；不会再生成独立的 `collect_files` 节点，也不需要模型补一条虚构桥；
+3. strict diagram validator 的既有 unique-inbound-qualified-caller 车道改为复用同一 resolver，再只核验当前目标边。由此系统教学与校验不再各维护一份身份定义；
+   copy-ready 能发布的限定身份就是 validator 能接受的身份，消除一类“照系统图仍被拒/validator 能接受但系统图断开”的矛盾合同；
+4. 兼容集合统一覆盖 `.`, `::`, `#`, `->`, `/`, `\` 等项目已有代码身份分隔符。分隔符只用于无损展示等价；Java、Kotlin、Go、C/C++、Python、
+   Rust、TypeScript/ArkTS、Cangjie 等语言是否能合并仍由上述四项 typed 证据决定，不按语言名、扩展名或字符串尾部直接合并；
+5. 歧义负臂全部 fail-closed：缺限定入站、两个不同限定 owner、多 definition、同短 caller 出现在另一 source、冲突 OwnerSymbol 任一出现，resolver 都不铸桥，
+   topology 保持真实断开。标识比较保持大小写精确，避免在大小写敏感语言中把 `Foo` 与 `foo` 合并；
+6. 正臂覆盖五种分隔符；agent 集成 pin 钉住 `unique_endpoint_relations=2/nodes=3/weak_components=1`、单一
+   `walker::collect_files` participant 与两条连续真实边；validator 原跨语言正/负用例继续复用共享 resolver；
+7. 聚焦 `go test ./internal/types ./internal/tool ./internal/agent` 全绿，随后 `go test ./...` 全仓通过，包含
+   `hitraceconv`、`mermaidcompat`、`orchestrator`、`repl`、`repomap`、`tracequery`、`tracediag`、writeflow 等共享面。Trace 实现未改，显式窗与投影能力由
+   全仓回归守住。
+
+状态：`EVAL-B299=S37al-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B300=P1-observe/no-system-rewrite`；模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 全能力=`unchanged`。

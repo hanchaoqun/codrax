@@ -43,6 +43,100 @@ type callChainGraphEdge struct {
 	toKey   string
 }
 
+// ResolveUniqueQualifiedCallEndpoint projects one short callable identity onto
+// an already-observed qualified display identity without guessing from paths,
+// prose, or language syntax. The bridge exists only when all of these typed
+// facts agree:
+//   - a citable call edge already carries the qualified endpoint;
+//   - one unique citable definition anchors the short operation;
+//   - every observed call whose caller is that short operation belongs to the
+//     definition source; and
+//   - parser-stamped OwnerSymbol values do not identify a different owner.
+//
+// This is intentionally stricter than tail matching. It lets renderers and
+// validators share the same lossless presentation identity while same-named
+// callables in different files remain separate.
+func ResolveUniqueQualifiedCallEndpoint(evidence []EvidenceItem, short string) (string, bool) {
+	short = strings.TrimSpace(short)
+	identity := sharedCallChainIdentity(short)
+	operation := sharedCallChainQualifiedOperation(identity)
+	if short == "" || operation == "" || sharedCallChainQualifiedOwner(identity) != "" {
+		return "", false
+	}
+
+	qualified := make([]string, 0, 1)
+	addQualified := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		normalized := sharedCallChainIdentity(raw)
+		if sharedCallChainQualifiedOwner(normalized) == "" ||
+			sharedCallChainQualifiedOperation(normalized) != operation {
+			return
+		}
+		for _, existing := range qualified {
+			if AnswerCodeIdentitySurfacesEquivalent(existing, raw) {
+				return
+			}
+		}
+		qualified = append(qualified, raw)
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || ClaimFormOf(item) != ClaimCallEdge {
+			continue
+		}
+		addQualified(item.Subject)
+		addQualified(item.Object)
+		addQualified(item.AnchorSymbol)
+	}
+	if len(qualified) != 1 {
+		return "", false
+	}
+
+	type definitionLocation struct {
+		source string
+		line   int
+	}
+	definitions := make(map[definitionLocation]bool)
+	for _, item := range evidence {
+		if !item.IsCitable() || ClaimFormOf(item) != ClaimDefinitionFact ||
+			strings.TrimSpace(item.AnchorSymbol) != operation {
+			continue
+		}
+		source := strings.TrimSpace(item.Source)
+		if source == "" || item.LineStart <= 0 {
+			continue
+		}
+		definitions[definitionLocation{source: source, line: item.LineStart}] = true
+	}
+	if len(definitions) != 1 {
+		return "", false
+	}
+	definitionSource := ""
+	for location := range definitions {
+		definitionSource = location.source
+	}
+
+	foundInnerCall := false
+	for _, item := range evidence {
+		if !item.IsCitable() || ClaimFormOf(item) != ClaimCallEdge ||
+			strings.TrimSpace(item.Subject) != operation {
+			continue
+		}
+		if strings.TrimSpace(item.Source) != definitionSource {
+			return "", false
+		}
+		owner := strings.TrimSpace(item.OwnerSymbol)
+		if owner != "" && owner != operation &&
+			!AnswerCodeIdentitySurfacesEquivalent(owner, qualified[0]) {
+			return "", false
+		}
+		foundInnerCall = true
+	}
+	if !foundInnerCall {
+		return "", false
+	}
+	return qualified[0], true
+}
+
 // AnalyzeCallChainEvidenceGraph builds a language-neutral graph from citable
 // current-source call edges. Definitions, recovered rows, runtime artifacts,
 // prose, source order and prefix siblings cannot mint reachability.
@@ -343,8 +437,13 @@ func callChainContainsKey(values []string, want string) bool {
 func sharedCallChainIdentity(raw string) string {
 	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
 	raw = strings.TrimSuffix(raw, "()")
-	raw = strings.ReplaceAll(raw, "::", ".")
-	raw = strings.ReplaceAll(raw, "#", ".")
+	raw = strings.NewReplacer(
+		"::", ".",
+		"->", ".",
+		"#", ".",
+		"/", ".",
+		`\`, ".",
+	).Replace(raw)
 	return strings.TrimSpace(raw)
 }
 

@@ -14,6 +14,77 @@ func groundedCallEdge(id, source string, line int, from, to string) EvidenceItem
 	}
 }
 
+func TestResolveUniqueQualifiedCallEndpoint_UsesOnlyTypedInboundDefinitionBridge(t *testing.T) {
+	for _, qualified := range []string{
+		"walker::collect_files",
+		"walker.collect_files",
+		"Walker#collect_files",
+		"walker/collect_files",
+		"walker->collect_files",
+	} {
+		t.Run(qualified, func(t *testing.T) {
+			inbound := groundedCallEdge("inbound", "src/main.rs", 20, "run", qualified)
+			inner := groundedCallEdge("inner", "src/walker.rs", 6, "collect_files", "walk")
+			inner.OwnerSymbol = "collect_files"
+			definition := EvidenceItem{
+				ID: "definition", Kind: EvidenceMechanism, AnchorKind: AnchorDefinition,
+				AnchorSymbol: "collect_files", Source: "src/walker.rs", LineStart: 4,
+				Scope: ScopeLine, GroundingStatus: GroundingGrounded,
+			}
+			got, ok := ResolveUniqueQualifiedCallEndpoint(
+				[]EvidenceItem{inbound, inner, definition}, "collect_files",
+			)
+			if !ok || got != qualified {
+				t.Fatalf("typed bridge resolved (%q,%t), want (%q,true)", got, ok, qualified)
+			}
+		})
+	}
+}
+
+func TestResolveUniqueQualifiedCallEndpoint_FailsClosedOnIdentityAmbiguity(t *testing.T) {
+	inbound := groundedCallEdge("inbound", "src/main.rs", 20, "run", "walker::collect_files")
+	inner := groundedCallEdge("inner", "src/walker.rs", 6, "collect_files", "walk")
+	inner.OwnerSymbol = "collect_files"
+	definition := EvidenceItem{
+		ID: "definition", Kind: EvidenceMechanism, AnchorKind: AnchorDefinition,
+		AnchorSymbol: "collect_files", Source: "src/walker.rs", LineStart: 4,
+		Scope: ScopeLine, GroundingStatus: GroundingGrounded,
+	}
+
+	tests := []struct {
+		name     string
+		evidence []EvidenceItem
+	}{
+		{name: "missing qualified inbound", evidence: []EvidenceItem{inner, definition}},
+		{name: "two qualified owners", evidence: []EvidenceItem{
+			inbound, groundedCallEdge("other-inbound", "src/main.rs", 21, "run", "other::collect_files"), inner, definition,
+		}},
+		{name: "duplicate definition", evidence: []EvidenceItem{
+			inbound, inner, definition,
+			{ID: "other-definition", Kind: EvidenceMechanism, AnchorKind: AnchorDefinition,
+				AnchorSymbol: "collect_files", Source: "other/walker.rs", LineStart: 4,
+				Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+		}},
+		{name: "same short caller in another source", evidence: []EvidenceItem{
+			inbound, inner, definition, groundedCallEdge("other-inner", "other/walker.rs", 6, "collect_files", "walk"),
+		}},
+		{name: "conflicting parser owner", evidence: []EvidenceItem{
+			inbound, func() EvidenceItem {
+				conflict := inner
+				conflict.OwnerSymbol = "other::collect_files"
+				return conflict
+			}(), definition,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, ok := ResolveUniqueQualifiedCallEndpoint(tc.evidence, "collect_files"); ok || got != "" {
+				t.Fatalf("ambiguous identity resolved unexpectedly: (%q,%t)", got, ok)
+			}
+		})
+	}
+}
+
 func TestAnalyzeCallChainEvidenceGraph_ParallelConvergencePreservesBothDirections(t *testing.T) {
 	evidence := []EvidenceItem{
 		groundedCallEdge("E1", "internal/agent/analyzer.go", 2666, "buildAnalysisIR", "gate.RunWith"),
