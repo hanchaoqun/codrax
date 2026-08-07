@@ -330,6 +330,20 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 							},
 							"then": map[string]any{"required": []string{"subject", "object"}},
 						},
+						map[string]any{
+							"if": map[string]any{
+								"properties": map[string]any{
+									"evidence_kind": map[string]any{"const": "conditional"},
+								},
+								"required": []string{"evidence_kind"},
+							},
+							"then": map[string]any{
+								"required": []string{"condition", "anchor_kind"},
+								"properties": map[string]any{
+									"anchor_kind": map[string]any{"const": "condition"},
+								},
+							},
+						},
 					},
 					"properties": map[string]any{
 						"scope": map[string]any{
@@ -368,7 +382,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"condition": map[string]any{
 							"type":        "string",
-							"description": "For conditional items: the exact IF clause that triggers the behaviour.",
+							"description": "For conditional items: REQUIRED exact IF clause from the guard line. A guarded call is two evidence rows: one conditional/condition row on the guard and one relationship/call row on the invocation. Do not put a body call in a conditional row.",
 						},
 						"summary": map[string]any{
 							"type":        "string",
@@ -787,6 +801,24 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
+		// Registration is typed selection authority. The concrete selected
+		// endpoint must therefore occur on the cited binding surface (or be a
+		// parser/read-file-proven attached decorator), independent of which
+		// syntactic anchor kind the model chose. This prevents a function
+		// definition or wrapper line from laundering a target that appears only
+		// in free-form summary prose. Factory branches remain representable by
+		// the separate condition + return forms taught by the shared guide.
+		registrationAlignmentRejected := false
+		if err := validateRequestedDecoratorRegistrationAlignment(i, built[i], gc, ctx); err != nil {
+			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
+			surfaceAlignmentRejected[i] = true
+			registrationAlignmentRejected = true
+		}
+		if !registrationAlignmentRejected && stabilizeRegistrationEndpointAuthority(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		requestedDiagramRole := built[i].DiagramRole
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
 		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract, diagramRequiredFiles)
@@ -812,10 +844,6 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		reports[i] = r
 		if drops := dropInvalidEvidenceSurfaceTerms(i, &built[i], gc); len(drops) > 0 {
 			surfaceTermDrops = append(surfaceTermDrops, drops...)
-		}
-		if err := validateRequestedDecoratorRegistrationAlignment(i, built[i], gc, ctx); err != nil {
-			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
-			surfaceAlignmentRejected[i] = true
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
@@ -2259,6 +2287,27 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	if kind == types.EvidenceRelationship && strings.TrimSpace(in.Object) == "" {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: relationship items require object", index)
 	}
+	if kind == types.EvidenceRegistration &&
+		(strings.TrimSpace(in.Subject) == "" || strings.TrimSpace(in.Object) == "") {
+		return types.EvidenceItem{}, fmt.Errorf(
+			"items[%d]: registration items require both subject and object on the actual binding surface; factory selection is not registration — emit its branch guard as conditional/condition and its concrete return as direct/return",
+			index,
+		)
+	}
+	if kind == types.EvidenceConditional {
+		if scope != types.ScopeLine || anchorKind != types.AnchorCondition {
+			return types.EvidenceItem{}, fmt.Errorf(
+				"items[%d]: conditional items require scope=line and anchor_kind=condition on the actual guard; emit any guarded invocation separately as relationship/call",
+				index,
+			)
+		}
+		if strings.TrimSpace(in.Condition) == "" {
+			return types.EvidenceItem{}, fmt.Errorf(
+				"items[%d]: conditional items require the exact non-empty condition from the cited guard line",
+				index,
+			)
+		}
+	}
 
 	predicate := strings.ToLower(strings.TrimSpace(in.Predicate))
 	if predicate == "" {
@@ -3294,6 +3343,58 @@ func stabilizeCallAnchorRelationEndpointAuthority(it *types.EvidenceItem, gc *gr
 	logging.Debug("[emit_evidence] downgraded %s call-anchor relation with absent object endpoint at %s:%d: %s",
 		originalKind, it.Source, it.LineStart, it.Object)
 	return true
+}
+
+func stabilizeRegistrationEndpointAuthority(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || it.Producer != EmitEvidenceProducer ||
+		it.Kind != types.EvidenceRegistration ||
+		(it.Scope != types.ScopeLine && it.Scope != types.ScopeLineRange) {
+		return false
+	}
+	if it.GroundingStatus != types.GroundingGrounded && it.GroundingStatus != types.GroundingRecovered {
+		return false
+	}
+	object := strings.TrimSpace(it.Object)
+	if object == "" {
+		return false // runtime shape validation rejects new sparse rows earlier
+	}
+	if evidenceEndpointVisibleOnGroundedSpan(gc, *it, object) {
+		return false
+	}
+	if claimed := decoratorSurfaceTermFromLabel(object); claimed != "" {
+		if attachedDecoratorSurfaceTermSet(*it, gc)[claimed] {
+			return false
+		}
+	}
+
+	it.Kind = types.EvidenceUnresolved
+	it.Confidence = 0
+	it.GroundingStatus = types.GroundingUngrounded
+	it.GroundingTier = ""
+	appendGroundingNoteOnce(it, fmt.Sprintf(
+		"registration object %q is absent from the grounded binding surface at %s:%d; cite the actual registry/decorator/table binding. If this is factory selection, emit the branch guard as conditional/condition and the concrete return as direct/return. Do NOT repair this item by keeping the definition or wrapper line",
+		object, it.Source, it.LineStart,
+	))
+	return true
+}
+
+func evidenceEndpointVisibleOnGroundedSpan(gc *ground.Context, item types.EvidenceItem, endpoint string) bool {
+	start, end := item.LineStart, item.LineEnd
+	if start <= 0 {
+		return false
+	}
+	if end < start {
+		end = start
+	}
+	// Evidence line ranges are already bounded at the schema/grounding layer.
+	// Inspect only their exact observed source span; do not widen into nearby
+	// source or model-authored snippets.
+	for line := start; line <= end; line++ {
+		if evidenceEndpointVisibleOnSourceLine(evidenceVisibleLineText(gc, item.Source, line), endpoint) {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceEndpointVisibleOnSourceLine(line, endpoint string) bool {

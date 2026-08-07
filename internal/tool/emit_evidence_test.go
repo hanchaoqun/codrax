@@ -1281,7 +1281,7 @@ func TestEmitEvidence_SurfaceTermReviewDoesNotPullParentDecoratorOntoNestedMetho
 	)
 	params := json.RawMessage(`{
         "items": [
-          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 8, "summary": "@Builder method defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
+          {"kind": "registration", "subject": "defaultHeader", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 8, "summary": "@Builder method defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
         ]
     }`)
 	res, err := tool.Execute(ctx, params)
@@ -1316,7 +1316,7 @@ func TestEmitEvidence_RejectsRequestedDecoratorObjectMismatch(t *testing.T) {
 	)
 	params := json.RawMessage(`{
         "items": [
-          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
+          {"kind": "registration", "subject": "commonCardStyle", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
         ]
     }`)
 	res, err := tool.Execute(ctx, params)
@@ -1369,8 +1369,8 @@ func TestEmitEvidence_DecoratorMismatchSkipsOnlyInvalidItem(t *testing.T) {
 	})
 	params := json.RawMessage(`{
         "items": [
-          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]},
-          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 1, "summary": "@Builder function defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
+          {"kind": "registration", "subject": "commonCardStyle", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]},
+          {"kind": "registration", "subject": "defaultHeader", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 1, "summary": "@Builder function defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
         ]
     }`)
 	res, err := tool.Execute(ctx, params)
@@ -1415,7 +1415,7 @@ func TestEmitEvidence_DecoratorMismatchDoesNotHardRejectBareAnalyzerEntity(t *te
 	)
 	params := json.RawMessage(`{
         "items": [
-          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
+          {"kind": "registration", "subject": "commonCardStyle", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
         ]
     }`)
 	res, err := tool.Execute(ctx, params)
@@ -1787,13 +1787,23 @@ func TestEmitEvidence_ParametersUsesOnlyCanonicalSchema(t *testing.T) {
 	}
 	itemSchema := schema["properties"].(map[string]any)["items"].(map[string]any)["items"].(map[string]any)
 	allOf, ok := itemSchema["allOf"].([]any)
-	if !ok || len(allOf) != 1 {
+	if !ok || len(allOf) != 2 {
 		t.Fatalf("relation endpoint conditional missing from canonical schema: %+v", itemSchema["allOf"])
 	}
 	branch := allOf[0].(map[string]any)
 	thenRequired := branch["then"].(map[string]any)["required"].([]any)
 	if !reflect.DeepEqual(thenRequired, []any{"subject", "object"}) {
 		t.Fatalf("relation endpoint conditional requires %v, want subject+object", thenRequired)
+	}
+	conditionalBranch := allOf[1].(map[string]any)
+	conditionalThen := conditionalBranch["then"].(map[string]any)
+	conditionalRequired := conditionalThen["required"].([]any)
+	if !reflect.DeepEqual(conditionalRequired, []any{"condition", "anchor_kind"}) {
+		t.Fatalf("conditional evidence schema requires %v, want condition+anchor_kind", conditionalRequired)
+	}
+	anchorKind := conditionalThen["properties"].(map[string]any)["anchor_kind"].(map[string]any)["const"]
+	if anchorKind != "condition" {
+		t.Fatalf("conditional evidence anchor_kind const = %v, want condition", anchorKind)
 	}
 }
 
@@ -2574,7 +2584,7 @@ func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testi
 	params := json.RawMessage(`{
 		"items": [
 			{
-				"kind": "conditional",
+				"kind": "relationship",
 				"subject": "buildOrLoadGraph",
 				"predicate": "calls",
 				"object": "fullScan",
@@ -2585,7 +2595,7 @@ func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testi
 				"anchor_symbol": "fullScan"
 			},
 			{
-				"kind": "conditional",
+				"kind": "relationship",
 				"subject": "buildOrLoadGraph",
 				"predicate": "calls",
 				"object": "loadFromCache",
@@ -2894,6 +2904,7 @@ func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 				"summary": "CLI override applies when non-nil.",
 				"anchor_kind": "condition",
 				"anchor_symbol": "ExploreMidLoopMinIteration",
+				"condition": "rs.ExploreMidLoopMinIteration != nil",
 				"diagram_role_hint": "override"
 			}
 		]
@@ -3025,6 +3036,7 @@ func TestEmitEvidence_PreservesRequestedDiagramRoleWhenScopeRejectsValidation(t 
 				"summary": "CLI override binding layer",
 				"anchor_kind": "condition",
 				"anchor_symbol": "ExploreMidLoopMinIteration",
+				"condition": "rs.ExploreMidLoopMinIteration != nil",
 				"context_role_hint": "related_context",
 				"diagram_role_hint": "override"
 			}
@@ -4081,7 +4093,7 @@ func TestEmitEvidence_NormalizesCallDirectionToCallerCallee(t *testing.T) {
 		},
 	}
 	ctx.Mutable.SetSearchGraph(graph)
-	params := json.RawMessage(`{"items":[{"kind":"conditional","subject":"fullScan","predicate":"calls","object":"buildOrLoadGraph","source":"internal/tool/repomap/tool.go","line_start":149,"condition":"index.NeedsFullRescan(cacheDir)","summary":"If cache directory needs a full rescan, it calls fullScan.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"fullScan","predicate":"calls","object":"buildOrLoadGraph","source":"internal/tool/repomap/tool.go","line_start":149,"summary":"buildOrLoadGraph calls fullScan.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
 
 	res, err := tool.Execute(ctx, params)
 	if err != nil {
@@ -4216,7 +4228,7 @@ func TestEmitEvidence_LineRangeNameMentionCannotMintCallEdgeAuthority(t *testing
 		"})",
 		"}",
 	)
-	params := json.RawMessage(`{"items":[{"kind":"conditional","source":"internal/agent/evaluator.go","line_start":42,"line_end":44,"summary":"the branch filters the patch tool schema","anchor_kind":"call","anchor_symbol":"emitPatch","snippet":"return s.Name == emitPatch"}]}`)
+	params := json.RawMessage(`{"items":[{"kind":"mechanism","source":"internal/agent/evaluator.go","line_start":42,"line_end":44,"summary":"the branch filters the patch tool schema","anchor_kind":"call","anchor_symbol":"emitPatch","snippet":"return s.Name == emitPatch"}]}`)
 	res, err := tool.Execute(ctx, params)
 	if err != nil || !res.Success {
 		t.Fatalf("source mention should remain citable, err=%v summary=%s", err, res.Summary)
@@ -4472,7 +4484,7 @@ func TestEmitEvidence_NormalizeCallDirection_DoesNotFallbackToWrongSameLineCall(
 		},
 	}
 	ctx.Mutable.SetSearchGraph(graph)
-	params := json.RawMessage(`{"items":[{"kind":"conditional","subject":"buildOrLoadGraph","predicate":"calls","object":"fullScan","source":"internal/tool/repomap/tool.go","line_start":147,"condition":"index.NeedsFullRescan(cacheDir)","summary":"Calls fullScan if no cache is found or a full scan is needed.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"if index.NeedsFullRescan(cacheDir) {\n    logging.Info(\"repo_map: full scan (%d files, no cache)\", len(entries))\n    return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"buildOrLoadGraph","predicate":"calls","object":"fullScan","source":"internal/tool/repomap/tool.go","line_start":147,"summary":"buildOrLoadGraph calls fullScan.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"if index.NeedsFullRescan(cacheDir) {\n    logging.Info(\"repo_map: full scan (%d files, no cache)\", len(entries))\n    return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
 
 	res, err := tool.Execute(ctx, params)
 	if err != nil {
@@ -5650,6 +5662,84 @@ func TestEmitEvidence_CallAnchorCannotAuthorizeAbsentRegistrationObject(t *testi
 	})
 	if len(rows) != 0 {
 		t.Fatalf("downgraded row leaked into typed relation provider: %+v", rows)
+	}
+}
+
+func TestEmitEvidence_RejectsCollapsedGuardedCallAndSparseRegistrationRows(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "guarded call must use separate condition row",
+			payload: `{"items":[{"scope":"line","evidence_kind":"conditional","subject":"Logger::log","predicate":"calls","object":"Sink::flush","source":"src/logger.cpp","line_start":38,"condition":"level >= Level::kError","summary":"conditional flush","anchor_kind":"call","anchor_symbol":"flush"}]}`,
+			want:    "anchor_kind=condition",
+		},
+		{
+			name:    "registration requires both typed endpoints",
+			payload: `{"items":[{"scope":"line","evidence_kind":"registration","object":"ConsoleSink","source":"src/registry.cpp","line_start":15,"summary":"factory mapping","anchor_kind":"definition","anchor_symbol":"create"}]}`,
+			want:    "require both subject and object",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := (&EmitEvidence{}).Execute(newEmitCtx(), json.RawMessage(tc.payload))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if res.Success || !strings.Contains(res.Summary, tc.want) {
+				t.Fatalf("collapsed row was not rejected with precise repair; success=%v summary=%s", res.Success, res.Summary)
+			}
+		})
+	}
+}
+
+func TestEmitEvidence_DefinitionCannotAuthorizeFactorySelectionObject(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/registry.cpp", 15,
+		"static std::unique_ptr<Sink> create(const std::string& kind) {",
+	)
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"SinkRegistry::create","predicate":"maps","object":"ConsoleSink","source":"src/registry.cpp","line_start":15,"summary":"factory maps console to ConsoleSink","anchor_kind":"definition","anchor_symbol":"create"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("endpoint audit should return typed feedback, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Kind != types.EvidenceUnresolved || got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("definition laundered an absent factory target: %+v", got)
+	}
+	for _, want := range []string{"registration object \"ConsoleSink\" is absent", "conditional/condition", "direct/return"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("same-turn split-form guidance missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
+func TestEmitEvidence_FactoryGuardAndReturnRemainSeparateAuthoritativeRows(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/registry.cpp", 17,
+		`if (kind == "console") {`,
+		"return std::make_unique<ConsoleSink>();",
+	)
+	params := json.RawMessage(`{"items":[
+		{"scope":"line","evidence_kind":"conditional","subject":"SinkRegistry::create","predicate":"guards","source":"src/registry.cpp","line_start":17,"condition":"kind == \"console\"","summary":"console branch","anchor_kind":"condition","anchor_symbol":"kind"},
+		{"scope":"line","evidence_kind":"direct","subject":"SinkRegistry::create","predicate":"returns","object":"ConsoleSink","source":"src/registry.cpp","line_start":18,"summary":"returns ConsoleSink","anchor_kind":"return","anchor_symbol":"ConsoleSink"}
+	]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("separate factory facts should ground, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 {
+		t.Fatalf("evidence count=%d want 2: %+v", len(got), got)
+	}
+	guard := types.EvidenceDeterministicSurfaceText(got[0], false)
+	selection := types.EvidenceDeterministicSurfaceText(got[1], false)
+	if !strings.Contains(guard, `kind == "console"`) || !strings.Contains(selection, "ConsoleSink") {
+		t.Fatalf("typed finalizer surfaces lost guard/selection: guard=%q selection=%q", guard, selection)
 	}
 }
 

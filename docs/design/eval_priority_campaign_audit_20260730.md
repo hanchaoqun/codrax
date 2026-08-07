@@ -25726,3 +25726,31 @@ r189 证明模型已看到 sample completeness，却把“任务是计算型”�
 状态：`EVAL-B318=S37ba-implemented/full-suite-pass`；`signal=typed-schema+parsed-mermaid-ast`；
 `optional-subset=preserved`；`system-rewrite=none`；`raw-prose-scan=none`；`Trace=isolated`；
 下一批=`EVAL-B319 typed evidence span`，不得在本提交夹带。
+
+### 123.314 S37bb：conditional / registration 的 typed 证据不再把跨行事实折进 summary
+
+`EVAL-B319-TYPEDEVIDENCESPANCOLLAPSE1` 已按“入口 fail-loud、下游不信任 summary”完成实现：
+
+1. r190 的两处错误具有同一根因。explorer 把 `if (level >= kError)` 与下一行 `flush()` 合成
+   `evidence_kind=conditional + anchor_kind=call`，又把 factory 的函数 signature、分支 guard、concrete return 合成一个
+   `registration + definition`；grounder 只证明了 call/signature，模型 summary 却承载 guard/selection，finalizer 的确定性权威面按红线不消费
+   summary，故条件和选择依据消失；
+2. canonical `emit_evidence` schema 现在对 conditional 明确要求 `condition + anchor_kind=condition`。运行时做同构校验，不能依赖 provider
+   是否执行 JSON Schema：conditional 必须是单行真实 guard，guarded invocation 另发 `relationship/call`；registration 必须有精确
+   subject/object，factory selection 必须拆为 `conditional/condition + direct/return`；
+3. registration 的具体 target 现在还必须出现在已 grounding 的真实 binding span。该检查只读 typed item 与 read-file/repomap grounding
+   结果，不读用户问题、model thinking、summary 或最终答案；合法 registry call、initializer/table binding 和 attached decorator 保持通过，
+   definition/wrapper 上只在 summary 出现的 target 降为 unresolved，不能进入 selection provider；
+4. decorator 请求错配保持原有更精确诊断优先级。ArkTS 的 `@Builder/@Styles` 回归补齐 subject，不用稀疏旧 row 绕过 schema；通用
+   endpoint gate 不覆盖 typed requested-decorator mismatch。跨语言 initializer 既有 Go/TS/ArkTS/Cangjie/Kotlin 等套件继续承担兼容见证；
+5. 新回归覆盖 canonical schema/runtime parity、`conditional+call` 折叠拒绝、稀疏 registration 拒绝、factory signature 不得铸造
+   `ConsoleSink` target、真实 guard 与 concrete return 两行在 `EvidenceDeterministicSurfaceText` 中均可见，以及合法 call registration
+   仍进入 typed relation provider。旧调用归一化 fixtures 从矛盾的 conditional+call 改回 relationship+call，不靠放宽新合同维持绿灯；
+6. finalizer 继续不读取自由文本 summary 作为权威，也不由系统补写“flush 条件”或“console 映射”结论；系统只保证模型得到精确分开的 typed
+   guard/return/binding 材料。JSON repair/答案正文、Mermaid、Trace query/投影/补采/根因排序/唤醒链/窗内可消除量与 read/write controller 均未改；
+7. 聚焦新旧回归、完整 `go test ./internal/tool -count=1` 与全仓 `go test ./... -count=1` 均通过。下一次干净
+   production replay 应把同一 C++ case 与一个显式时间窗 Trace case 严格并发 2，既验证 guard/selection 到达 finalizer，也确认 Trace 隔离不变量。
+
+状态：`EVAL-B319=S37bb-implemented/full-suite-pass/pending-production-replay`；
+`authority=typed-anchor+grounded-span`；`summary-authority=unchanged/none`；`system-answer-rewrite=none`；
+`raw-prose-hard-gate=none`；`Trace=isolated`。
