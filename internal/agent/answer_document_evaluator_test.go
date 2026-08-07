@@ -1074,6 +1074,43 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicDispatchCompo
 	}
 }
 
+func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventingGuardScope(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-flush", Kind: types.EvidenceRelationship, Subject: "Logger.log", OwnerSymbol: "Logger.log", Predicate: "calls", Object: "Sink.flush", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-guard", Kind: types.EvidenceConcrete, Subject: "Logger.log", Predicate: "conditional", Object: "level >= Level::kError", Source: "src/logger.cpp", LineStart: 37, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
+		{ID: "E-write", Kind: types.EvidenceRelationship, Subject: "Logger.log", OwnerSymbol: "Logger.log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-unrelated", Kind: types.EvidenceRelationship, Subject: "ConsoleSink.write", OwnerSymbol: "ConsoleSink.write", Predicate: "calls", Object: "IO.write", Source: "src/logger.cpp", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+	}}
+
+	got := renderAnswerDocLocalFactOrderCapsule(ctx)
+	for _, want := range []string{
+		"## Typed same-owner lexical order (advisory)",
+		"owner=`Logger.log` source=`src/logger.cpp`",
+		"1. line=`36` claim_form=`call_edge` fact=`Logger.log -> Sink.write` [E-write]",
+		"2. line=`37` claim_form=`guard_condition` fact=`level >= Level::kError` [E-guard]",
+		"3. line=`38` claim_form=`call_edge` fact=`Logger.log -> Sink.flush` [E-flush]",
+		"do not by themselves prove branch containment or causality",
+		"only when a separate typed control-scope/containment relation proves that ownership",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed lexical-order capsule missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "ConsoleSink.write") || strings.Contains(got, "guard_controls") {
+		t.Fatalf("lexical-order capsule must not add unrelated rows or mint guard containment:\n%s", got)
+	}
+}
+
+func TestAnswerDocumentEvaluator_LocalFactOrderStandsDownWithoutGuard(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-a", Kind: types.EvidenceRelationship, Subject: "A.run", Predicate: "calls", Object: "B.run", Source: "a.go", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-b", Kind: types.EvidenceRelationship, Subject: "A.run", Predicate: "calls", Object: "C.run", Source: "a.go", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+	}}
+	if got := renderAnswerDocLocalFactOrderCapsule(ctx); got != "" {
+		t.Fatalf("same-owner calls without a guard should not add prompt noise:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocRuntimeDispatchCompositions_NoTypedOwnerJoinStandsDown(t *testing.T) {
 	calls := []answerDocRuntimeTargetRelationRow{{family: "static_call", item: types.EvidenceItem{
 		ID: "E-dynamic", Kind: types.EvidenceRelationship, Subject: "Facade.run", Predicate: "calls", Object: "receiver.write",

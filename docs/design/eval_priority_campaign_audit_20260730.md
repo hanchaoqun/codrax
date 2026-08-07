@@ -22580,3 +22580,27 @@ source diagram JSON teaching=`single-source`；模型答案所有权=`preserved`
 状态：`EVAL-B221-PROMPTSECTION1=S36i-closed/focused-pass`；
 `EVAL-B218-FACTVALUE1=P1-next`；`EVAL-B209-COOPPATH1=P1-next`；JSON schema 单源=`preserved/not-triggered`；
 模型答案所有权=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.198 S36j：同 owner 事实词法顺序以 typed advisory 交给模型，禁止把顺序扩成 guard 控制域
+
+`EVAL-B218-FACTVALUE1` 的 r142 witness 已按跨语言事实层根修。问题不在 C++ 的 `kError` 字面量，而在任何语言都可能出现的结构：
+同一 owner 下同时有 call/assignment/return/guard 等已接纳事实，finalizer 只分散展示各行，模型可能把较晚的 guard 叙述成较早操作的前置条件。
+
+新增 `Typed same-owner lexical order (advisory)` 动态胶囊，构造仅消费 `EvidenceItem` 的 typed 枚举、source、owner、line 与 endpoint：
+
+1. 只收 `call_edge/callback_handoff/guard_condition/assignment_fact/return_fact`，且必须 citable、具备 source/line/owner；runtime artifact 与外部观察不进入源码顺序；
+2. 仅当同一 source+owner 至少有一个 guard 且存在不同 source line 时发射，避免普通双调用扩大 prompt；
+3. 组内严格按 `LineStart + EvidenceID` 排序，bounded 为最多 4 组、每组 8 行；不读 summary、调查结论、用户原文、模型思考或最终答案；
+4. 胶囊明确声明：lexical order 只能防止先后颠倒，不证明 branch containment 或 causality。只有独立 typed
+   control-scope/containment relation 才能把 operation 归属给 guard；缺少该关系时模型应把二者作为分离事实并披露边界。
+
+r142 C++ 的精确输入因此呈现为 line 36 `Logger.log -> Sink.write`、line 37 `level >= Level::kError`、line 38
+`Logger.log -> Sink.flush`。系统没有直接写“guard 只控制 flush”，也没有修改模型答案；真正控制域仍等待 parser-authored relation，避免把缩进、相邻行或
+源码文本启发式升级成硬权威。该上下文为纯软引导，不参与 emit-time reject 或 `contract.Check`。
+
+回归同时覆盖逆序输入恢复为源码序、无 guard 站下、无关 owner 排除、不得铸造 `guard_controls`。`go test ./internal/agent` 与
+`go test ./...` 全绿。
+
+状态：`EVAL-B218-FACTVALUE1=S36j-closed/typed-order-advisory`；
+`CONTROL-SCOPE-RELATION=P2-open/parser-authored-only`；`EVAL-B209-COOPPATH1=P1-next`；
+模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。

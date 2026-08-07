@@ -492,6 +492,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "local_fact_order", func() string {
+		return renderAnswerDocLocalFactOrderCapsule(ctx)
+	}) {
+		return b.String()
+	}
 	// 2026-05-17 T1 architectural fix: render the per-dispatch
 	// visible-anchor whitelist immediately after the required
 	// mechanism anchors so the model sees "must surface" + "may
@@ -2859,9 +2864,138 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 
 const answerDocRuntimeTargetRelationCapsuleLimit = 18
 
+const (
+	answerDocLocalFactOrderGroupLimit = 4
+	answerDocLocalFactOrderRowLimit   = 8
+)
+
 type answerDocRuntimeTargetRelationRow struct {
 	family string
 	item   types.EvidenceItem
+}
+
+type answerDocLocalFactOrderGroup struct {
+	source string
+	owner  string
+	items  []types.EvidenceItem
+}
+
+// renderAnswerDocLocalFactOrderCapsule exposes exact lexical order for
+// accepted, same-owner source facts when a guard is present. It deliberately
+// does not infer control-flow containment: source order can refute a reversed
+// narration, but only a parser-authored control relation may prove which
+// operation a condition guards. This is advisory model context, never an
+// answer rewrite or emit-time gate.
+func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
+	pool := answerDocTypedEnrichmentEvidencePool(ctx, 256)
+	if len(pool) == 0 {
+		return ""
+	}
+	groupsByKey := make(map[string]*answerDocLocalFactOrderGroup)
+	seen := make(map[string]struct{})
+	for _, item := range pool {
+		claim := types.ClaimFormOf(item)
+		switch claim {
+		case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimGuardCondition,
+			types.ClaimAssignmentFact, types.ClaimReturnFact:
+		default:
+			continue
+		}
+		if !item.IsCitable() || item.LineStart <= 0 || strings.TrimSpace(item.Source) == "" ||
+			types.RuntimeArtifactPathKind(item.Source) != "" || claim == types.ClaimExternalObservation {
+			continue
+		}
+		owner := firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject)
+		if owner == "" {
+			continue
+		}
+		identity := answerDocEvidenceIdentity(item)
+		if _, duplicate := seen[identity]; duplicate {
+			continue
+		}
+		seen[identity] = struct{}{}
+		key := strings.ToLower(strings.TrimSpace(item.Source)) + "\x00" + strings.ToLower(owner)
+		group := groupsByKey[key]
+		if group == nil {
+			group = &answerDocLocalFactOrderGroup{source: strings.TrimSpace(item.Source), owner: owner}
+			groupsByKey[key] = group
+		}
+		group.items = append(group.items, item)
+	}
+
+	groups := make([]answerDocLocalFactOrderGroup, 0, len(groupsByKey))
+	for _, group := range groupsByKey {
+		hasGuard := false
+		hasDifferentLine := false
+		firstLine := 0
+		for _, item := range group.items {
+			if firstLine == 0 {
+				firstLine = item.LineStart
+			} else if item.LineStart != firstLine {
+				hasDifferentLine = true
+			}
+			if types.ClaimFormOf(item) == types.ClaimGuardCondition {
+				hasGuard = true
+			}
+		}
+		if !hasGuard || !hasDifferentLine {
+			continue
+		}
+		sort.SliceStable(group.items, func(i, j int) bool {
+			if group.items[i].LineStart != group.items[j].LineStart {
+				return group.items[i].LineStart < group.items[j].LineStart
+			}
+			return answerDocEvidenceIdentity(group.items[i]) < answerDocEvidenceIdentity(group.items[j])
+		})
+		groups = append(groups, *group)
+	}
+	if len(groups) == 0 {
+		return ""
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].source != groups[j].source {
+			return groups[i].source < groups[j].source
+		}
+		return groups[i].owner < groups[j].owner
+	})
+
+	var b strings.Builder
+	b.WriteString("## Typed same-owner lexical order (advisory)\n\n")
+	b.WriteString("These rows preserve parser/grounder-accepted source order. They do not by themselves prove branch containment or causality.\n\n")
+	for groupIndex, group := range groups {
+		if groupIndex >= answerDocLocalFactOrderGroupLimit {
+			break
+		}
+		fmt.Fprintf(&b, "- owner=`%s` source=`%s`\n",
+			answerDocCallChainInline(group.owner), answerDocCallChainInline(group.source))
+		for rowIndex, item := range group.items {
+			if rowIndex >= answerDocLocalFactOrderRowLimit {
+				break
+			}
+			fmt.Fprintf(&b, "  %d. line=`%d` claim_form=`%s` fact=`%s` [%s]\n",
+				rowIndex+1,
+				item.LineStart,
+				types.ClaimFormOf(item),
+				answerDocCallChainInline(answerDocLocalFactOrderDescription(item)),
+				answerDocCallChainInline(answerDocEvidenceIdentity(item)),
+			)
+		}
+	}
+	b.WriteString("\n- Do not narrate a later guard as preceding an earlier operation. Attribute an operation to a guard only when a separate typed control-scope/containment relation proves that ownership; otherwise keep the guard and operation as separate facts and let the model state the remaining uncertainty.\n")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocLocalFactOrderDescription(item types.EvidenceItem) string {
+	switch types.ClaimFormOf(item) {
+	case types.ClaimCallEdge, types.ClaimCallbackHandoff:
+		return firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject) + " -> " + strings.TrimSpace(item.Object)
+	case types.ClaimGuardCondition:
+		return firstNonEmptyAnswerDocString(item.Condition, item.Object, item.AnchorSymbol, item.Subject)
+	case types.ClaimAssignmentFact, types.ClaimReturnFact:
+		return strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(item.Object)
+	default:
+		return firstNonEmptyAnswerDocString(item.AnchorSymbol, item.Subject, item.Object)
+	}
 }
 
 // renderAnswerDocRuntimeTargetRelationCapsule places the typed relation
