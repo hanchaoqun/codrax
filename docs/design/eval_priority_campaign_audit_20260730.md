@@ -25030,3 +25030,31 @@ B298 深审后修正归因：不是模型显式选择 `instructions.md=script_co
 
 状态：`EVAL-B298=S37ak-implemented/full-suite-pass/pending-production-replay`；模型答案所有权=`preserved`；
 JSON 教学=`generic-single-source + current-turn typed instance`；Trace 全能力=`unchanged`。
+
+### 123.287 r180：typed material obligation 已被模型看到但仍被忽略；拒绝无来源身份的自动蒸馏
+
+r180 在 `main@5237564d8` 上严格并发 2，运行 `data_json_strict_ids` 与 write-plan `patch_java_typo`。runner 2/2 PASS，人工
+2/2 PASS；data 64s、Java 71s：
+
+1. strict JSON 最终字节面仍精确为 `{"ids":["u1","u3"]}`，active 过滤、源顺序、`json_only` 与
+   `explanation_allowed=false` 全部满足；不存在 JSON 解析、自愈或答案丢失问题；
+2. S37ak 获得了明确的 production negative：Planner 上下文已包含两份 `typed_initial_required_materials`，模型 thinking 也复述
+   `instructions.md` 与 `users.json` 必须真实消费，但首个 `custom_transform` 仍只打开 `users.json`。精确
+   `required_material_scheduling` gate 拒绝后，repair 才加入 `read_text('instructions.md')`。因此新增上下文消除了隐藏合同，却没有消除这类稳定的
+   planner 行为；`EVAL-B298-DATARULECONSUMPTION1` 保持 P1 open，不能把 1 次 repair 虚记为模型波动；
+3. hard gate 继续保留。若删除它，模型可把规则材料仅列入 `input_paths` 而从不消费，最终结果在规则变化时可能静默错误。当前 1 次修复虽有时延，仍是比错误发布更安全的
+   fail-closed；
+4. 深审否决了一个看似省时、实则越权的自动化方案：不能因为唯一文本材料存在、计划又声明若干全局 `validation_rules[]`，就把该文本从
+   `script_consumed` 自动改为 `planner_distilled`。反例是“文本本身为主数据、全局规则只描述输出格式”；现有字符串规则没有 source-material identity，系统无法证明
+   哪条规则来自哪份材料。自动改 mode 会把未读主数据伪装为已蒸馏，违反精确信号硬门红线；实验代码未保留、未提交；
+5. 架构正确的后续方案必须先引入 typed rule provenance，例如让 planner-distilled rule record 带稳定 `source_material_id/path` 与抽取证据，再由同一 authority
+   驱动 mode 和 consumer census。该改动涉及 schema、runner ledger 与兼容迁移，先记设计项，不为 strict JSON 单例匆忙扩域；当前继续用精确 repair 兜底并转向更高
+   优先级异构 eval；
+6. Java ChangePlan 精确只改 `Main.java:16` 的 `retrun -> return`，patch、结构化 edit、owner anchor 与验收一致，Planner 首次 emit 通过，零
+   structured/finalizer reject。写模式本轮没有出现校验合同矛盾；
+7. 本批没有触碰 Trace 路由、query、投影编译或答案 mutation。显式时间窗、Trace 因果投影、系统补齐、根因排序、唤醒链、窗内可消除量与“实际耗时/规则可消除”双维根因
+   保持原合同；模型答案所有权不变。
+
+状态：`EVAL-B298=S37ak-production-negative/P1-open/precise-gate-retained`；
+`unsafe-global-rule-auto-distill=rejected/not-shipped`；runner=`2/2 PASS`、human=`2/2`；
+模型答案所有权=`preserved`；JSON 最终合同=`correct`；Trace 全能力=`unchanged`。
