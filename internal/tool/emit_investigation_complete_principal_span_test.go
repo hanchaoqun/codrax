@@ -235,7 +235,10 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 
 	mut.AppendEvidence([]types.EvidenceItem{{
 		Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
-		Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go",
+		// Grounders commonly preserve the local declaration symbol while the
+		// analyzer endpoint stays package-qualified. The unique defining source
+		// scope must prove existence without minting a call edge.
+		Subject: "Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go",
 		LineStart: 134, GroundingStatus: types.GroundingGrounded,
 	}})
 	res, err = (&EmitInvestigationComplete{}).Execute(bus, params)

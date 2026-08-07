@@ -24235,3 +24235,28 @@ JSON 教学=`single-source/no-r165-shape-failure`；模型答案所有权=`prese
 下一项=`EVAL-B270-QUALIFIEDDEFENDPOINT1`；B262/B272 继续开放。JSON schema/教学=`unchanged`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity` 与 `all-language-flowchart-relation-anchor` 两条守护未遗忘。runtime Trace 分支未参与该 normalization 判定，显式窗、
 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及双维根因分析=`untouched`。
+
+### 123.256 S37v：限定端点可由唯一 scoped bare definition 证明存在
+
+`EVAL-B270-QUALIFIEDDEFENDPOINT1` 在共享 `AnalyzeCallChainEndpointExistence` 层根修，严格保持“存在证明 ≠ 调用边 ≠ 有向可达”：
+
+1. 既有 exact qualified identity 与 short-identity ambiguity 规则优先且不变；只有请求端点带 owner、现有 exact proof 仍为 unproven 时，才进入 scoped bare
+   definition fallback；
+2. fallback 只消费 citable、grounded、current-source、`ClaimDefinitionFact`。本地 operation tail 必须与请求端点精确相同，`RunWith` 不能证明
+   `Run`；runtime artifact、recovered/ungrounded、非代码路径和 call-edge 之外的文本均不参与；
+3. owner authority 有两条精确来源：parser/grounder 已给出的 typed `OwnerSymbol`，或定义文件 stem / immediate package directory 与请求 owner tail
+   相同。后者统一覆盖常见 package/module/type 布局；不遍历任意祖先目录，不用源码正文、用户原文或文件排序猜 owner；
+4. canonical source:line 去重后必须恰好一处才返回 `definition_only`。错误 owner 为 unproven；同一限定 owner 下两个 bare definition 为
+   ambiguous/fail-closed。文件布局无法表达 owner 且 parser 没有 OwnerSymbol 时继续要求模型补证，系统不猜；
+5. 该 proof 只允许 `principal_span_waiver=no_directed_path` 越过“端点是否存在”一关，不向 call graph 添加节点/边，也不改变
+   `AnalyzeCallChainEvidenceGraph` 的 directed/reverse/shared-frontier 结果。最终边界和解释仍由模型产生；
+6. 语言矩阵覆盖项目全部 read languages 的限定形：Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C++、Ruby、Swift、Lua、Proto、ArkTS、
+   Cangjie；C 的 free-function identity 本来就是 exact short symbol，既有车道不变。另钉 typed owner metadata 与错误 owner/双定义歧义；工具级 e2e
+   把 r165 的 `Run @ internal/analysis/gate/gate.go` 原形直接送入 no-path completion，证明不再需要 crossfile-exists 绕路。
+
+定向 tests、`go test ./internal/types ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B270-QUALIFIEDDEFENDPOINT1=S37v-implemented/full-tests-pass/pending-production-replay`；
+下一项=`EVAL-B262-TRANSITIVEHOPDEPTH1`；B272 继续开放。JSON 教学=`unchanged`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 仍开放。runtime artifact 被显式排除，Trace 显式窗、因果投影、自动补齐、
+根因排序、唤醒链、窗内可消除量及双维根因分析=`untouched`。

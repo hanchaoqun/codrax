@@ -80,3 +80,65 @@ func TestAnalyzeCallChainEndpointExistence_AllExecutableLanguageSurfaces(t *test
 		})
 	}
 }
+
+func TestAnalyzeCallChainEndpointExistence_QualifiesUniqueBareDefinitionFromSourceScope(t *testing.T) {
+	tests := []struct {
+		name, file, endpoint, local string
+	}{
+		{"go package", "internal/analysis/gate/gate.go", "gate.Run", "Run"},
+		{"java type file", "src/Gate.java", "Gate.run", "run"},
+		{"kotlin type file", "src/Gate.kt", "Gate.run", "run"},
+		{"cpp namespace file", "src/gate.cc", "Gate::Run", "Run"},
+		{"rust module file", "src/gate.rs", "gate::run", "run"},
+		{"python module file", "src/gate.py", "gate.run", "run"},
+		{"javascript module file", "src/gate.js", "gate.run", "run"},
+		{"typescript module file", "src/gate.ts", "gate.run", "run"},
+		{"ruby owner file", "lib/gate.rb", "Gate#run", "run"},
+		{"swift type file", "Sources/Gate.swift", "Gate.run", "run"},
+		{"lua module file", "src/gate.lua", "gate.run", "run"},
+		{"proto service file", "proto/Gate.proto", "Gate.Run", "Run"},
+		{"arkts module file", "entry/src/gate.ets", "gate.run", "run"},
+		{"cangjie package dir", "src/gate/entry.cj", "gate.run", "run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evidence := []EvidenceItem{{
+				Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: tt.local,
+				AnchorSymbol: tt.local, Source: tt.file, LineStart: 20,
+				GroundingStatus: GroundingGrounded,
+			}}
+			got := AnalyzeCallChainEndpointExistence(evidence, tt.endpoint, tt.endpoint)
+			if !got.StartProven || !got.EndProven || got.StartAmbiguous || got.EndAmbiguous ||
+				got.StartProof != CallChainEndpointExistenceDefinitionOnly || got.EndProof != CallChainEndpointExistenceDefinitionOnly {
+				t.Fatalf("unique scoped bare definition did not prove %q: %+v", tt.endpoint, got)
+			}
+		})
+	}
+}
+
+func TestAnalyzeCallChainEndpointExistence_ScopedBareDefinitionFailsClosed(t *testing.T) {
+	ownerStamped := []EvidenceItem{{
+		Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "run", OwnerSymbol: "Gate",
+		Source: "src/pipeline.py", LineStart: 8, GroundingStatus: GroundingGrounded,
+	}}
+	if got := AnalyzeCallChainEndpointExistence(ownerStamped, "Gate.run", "Gate.run"); !got.StartProven || !got.EndProven || got.StartAmbiguous || got.EndAmbiguous {
+		t.Fatalf("typed owner metadata should qualify a unique local definition independent of file naming: %+v", got)
+	}
+
+	wrongOwner := []EvidenceItem{{
+		Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "Run",
+		Source: "internal/analysis/worker/worker.go", LineStart: 20,
+		GroundingStatus: GroundingGrounded,
+	}}
+	if got := AnalyzeCallChainEndpointExistence(wrongOwner, "gate.Run", "gate.Run"); got.StartProven || got.EndProven {
+		t.Fatalf("same-tail definition outside the requested owner scope must not prove an endpoint: %+v", got)
+	}
+
+	ambiguous := []EvidenceItem{
+		{Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "run", Source: "a/Gate.java", LineStart: 10, GroundingStatus: GroundingGrounded},
+		{Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "run", Source: "b/Gate.java", LineStart: 20, GroundingStatus: GroundingGrounded},
+	}
+	if got := AnalyzeCallChainEndpointExistence(ambiguous, "Gate.run", "Gate.run"); !got.StartAmbiguous || !got.EndAmbiguous || got.StartProven || got.EndProven {
+		t.Fatalf("multiple scoped bare definitions must remain ambiguous: %+v", got)
+	}
+}
