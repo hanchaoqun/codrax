@@ -26,10 +26,11 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 		facts = types.DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts, &ctx.AnalysisIR.RequestModel)
 	}
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
-		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
-		compactMemberSetRows:   structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
-		compactShadowedRows:    structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
-		requestModel:           aggregateFactRenderRequestModel(ctx),
+		omitExcludedCandidates:   aggregateFactPromptOmitExcludedCandidates(ctx),
+		compactMemberSetRows:     structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
+		compactShadowedRows:      structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
+		principalContractIndexes: structuredAggregatePrincipalContractIndexes(ctx, facts),
+		requestModel:             aggregateFactRenderRequestModel(ctx),
 	})
 }
 
@@ -83,10 +84,11 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 }
 
 type aggregateFactRenderOptions struct {
-	omitExcludedCandidates bool
-	compactMemberSetRows   map[int]bool
-	compactShadowedRows    map[int]bool
-	requestModel           *types.RequestModel
+	omitExcludedCandidates   bool
+	compactMemberSetRows     map[int]bool
+	compactShadowedRows      map[int]bool
+	principalContractIndexes map[int]bool
+	requestModel             *types.RequestModel
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -140,6 +142,11 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		}
 		if origins := renderAggregateEvidenceOrigins(types.AnswerAggregateFactEvidenceOrigins(fact, opts.requestModel)); origins != "" {
 			fmt.Fprintf(&b, ", evidence_origin=[%s]", origins)
+		}
+		if types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
+			!opts.principalContractIndexes[i] &&
+			!types.AnswerAggregateFactAuthorizesPrincipalContract(fact, opts.requestModel) {
+			fmt.Fprintf(&b, ", fact_authority=`advisory_model_inference`, principal_contract=`not_authorized`")
 		}
 		if fact.Unit != "" {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
@@ -402,6 +409,7 @@ func structuredAggregateCompactPrincipalMemberSetIndexes(ctx *types.AgentContext
 	if len(refs) == 0 {
 		return nil
 	}
+	authoritative := structuredAggregatePrincipalContractIndexes(ctx, facts)
 	out := make(map[int]bool, len(refs))
 	for _, ref := range refs {
 		fact := ref.Fact
@@ -413,10 +421,42 @@ func structuredAggregateCompactPrincipalMemberSetIndexes(ctx *types.AgentContext
 			len(fact.Members) == 0 {
 			continue
 		}
+		if !authoritative[ref.Index] {
+			continue
+		}
 		out[ref.Index] = true
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func structuredAggregatePrincipalContractIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
+	out := map[int]bool{}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for idx, fact := range facts {
+		if types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+			out[idx] = true
+		}
+	}
+	if rm == nil {
+		return out
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return out
+	}
+	for _, set := range types.CompileEnumerationDisplaySets(rm, plan) {
+		if set.FactIndex < 0 || set.FactIndex >= len(facts) {
+			continue
+		}
+		if types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, facts[set.FactIndex], set) {
+			out[set.FactIndex] = true
+		}
 	}
 	return out
 }

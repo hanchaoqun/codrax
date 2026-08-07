@@ -230,6 +230,61 @@ func TestMechanismRelationComponentBoundaryIsWiredIntoFinalizerPromptAA3(t *test
 	}
 }
 
+func TestDisconnectedTypedComponentsDoNotPromoteSoftExplorerPathToRequiredAnswerAA3(t *testing.T) {
+	mu := types.NewMutableState("explain the end-to-end call chain")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "proposed end-to-end path",
+		Value:   "4",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Factory", "Parser", "Registry", "Plugin"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqCallChain),
+			},
+		}},
+		Mutable: mu,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "edge-a", Kind: types.EvidenceRelationship,
+				Source: "a.go", LineStart: 10, AnchorKind: types.AnchorCall,
+				Subject: "Factory", Object: "Parser", GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "edge-b", Kind: types.EvidenceRegistration,
+				Source: "b.go", LineStart: 20, AnchorKind: types.AnchorDefinition,
+				Subject: "Registry", Object: "Plugin", GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"inter_component_bridge_status=`unproven_between_components`",
+		"cross_component_execution_order_status=`unproven`",
+		"## Advisory Model-Inferred Member Sets",
+		"fact_authority=`advisory_model_inference`",
+		"principal_contract=`not_authorized`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("soft disconnected-path boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, banned := range []string{
+		"## Required Principal Member Set",
+		"Use this lane as the principal member slate",
+		"Every member listed below MUST appear verbatim",
+	} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("soft explorer path was promoted by %q:\n%s", banned, prompt)
+		}
+	}
+}
+
 func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

@@ -89,6 +89,9 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue
 		}
+		if !AnswerAggregateFactAuthorizesPrincipalContract(fact, &rm) {
+			continue
+		}
 		for memberIdx, member := range fact.Members {
 			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member, supportEvidence, requireTargetProof)
 			if !ok {
@@ -130,6 +133,10 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	}
 	seen := map[string]bool{}
 	for _, set := range CompileEnumerationDisplaySets(&rm, plan) {
+		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) ||
+			!EnumerationDisplaySetAuthorizesPrincipalContract(&rm, plan.StableAggregateFacts[set.FactIndex], set) {
+			continue
+		}
 		for _, row := range set.Rows {
 			entry := enumerationDisplayRowSupportEntry(row)
 			key := strings.ToLower(strings.TrimSpace(entry.Text)) + "\x00" + strings.ToLower(strings.TrimSpace(entry.Location))

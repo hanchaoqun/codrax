@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestEnumerationDisplaySetAuthorizesPrincipalContract_ExactRowsButNeverInventsRelationAuthority(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "enum types",
+		Value:   "2",
+		Members: []string{"Intent", "Scenario"},
+	}
+	set := EnumerationDisplaySet{Rows: []EnumerationDisplayRow{
+		{Member: "Intent", HasCitation: true, Source: "analysis_ir.go", LineStart: 10},
+		{Member: "Scenario", HasCitation: true, Source: "analysis_ir.go", LineStart: 20},
+	}}
+	plain := &RequestModel{Intent: IntentEnumerate, Predicates: SemanticPredicates{IsCategoryEnumeration: true}}
+	if !EnumerationDisplaySetAuthorizesPrincipalContract(plain, fact, set) {
+		t.Fatal("ordinary enumeration with exact support for every row should be answer-grade")
+	}
+
+	relation := *plain
+	relation.Predicates.IsRelationalLookup = true
+	if EnumerationDisplaySetAuthorizesPrincipalContract(&relation, fact, set) {
+		t.Fatal("individually cited nodes must not prove a relation/call-chain contract")
+	}
+}
+
 func TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

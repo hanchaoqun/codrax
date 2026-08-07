@@ -145,7 +145,7 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 		// typed evidence origins with authority beyond an illustrative model
 		// claim.  This is the same authority boundary used by the aggregate
 		// carrier normalizer.
-		if !preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(set.EvidenceOrigins) {
+		if !principalEnumerationDisplaySetAuthorizesSystemCarrier(ctx, set) {
 			continue
 		}
 		rows := principalEnumerationRenderableSupplementRows(principalEnumerationMissingRows(doc, set))
@@ -157,6 +157,21 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 		}
 	}
 	return appended
+}
+
+func principalEnumerationDisplaySetAuthorizesSystemCarrier(ctx *types.BusContext, set types.EnumerationDisplaySet) bool {
+	if ctx == nil {
+		return false
+	}
+	facts := preEmitStableAggregateFacts(ctx)
+	if set.FactIndex < 0 || set.FactIndex >= len(facts) {
+		return false
+	}
+	var rm *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	return types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, facts[set.FactIndex], set)
 }
 
 // appendOrMergePrincipalEnumerationMissingSupplement makes the append-only

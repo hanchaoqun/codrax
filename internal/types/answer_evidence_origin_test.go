@@ -527,3 +527,38 @@ func TestAnswerAggregateFactEvidenceOrigins_DefaultsToModelClaimAdvisoryForOrdin
 		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
+
+func TestAnswerAggregateFactAuthorizesPrincipalContract_RejectsPureInferenceButKeepsTypedAuthority(t *testing.T) {
+	soft := AnswerAggregateFact{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "inferred path",
+		Value:   "2",
+		Members: []string{"A", "B"},
+	}
+	if AnswerAggregateFactAuthorizesPrincipalContract(soft, nil) {
+		t.Fatal("pure system_inference must not authorize a principal hard contract")
+	}
+
+	grounded := soft
+	grounded.SupportRefs = []string{"A @ a.go:10", "B @ b.go:20"}
+	if !AnswerAggregateFactAuthorizesPrincipalContract(grounded, &RequestModel{Intent: IntentEnumerate}) {
+		t.Fatal("exact current-source support should authorize the principal contract")
+	}
+	if !AnswerAggregateFactAuthorizesPrincipalContract(grounded, nil) {
+		t.Fatal("exact current-source support must remain authoritative for compatibility callers without AnalysisIR")
+	}
+	externalOnly := &RequestModel{ExternalObservationPolicy: &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"只分析 trace，不分析代码"},
+	}}
+	if AnswerAggregateFactAuthorizesPrincipalContract(grounded, externalOnly) {
+		t.Fatal("an explicit external-only boundary must outrank current-source support refs")
+	}
+
+	typedRelation := soft
+	typedRelation.Provenance = TypedRelationPrincipalMemberSetAggregateProvenance
+	if !AnswerAggregateFactAuthorizesPrincipalContract(typedRelation, nil) {
+		t.Fatal("system-verified typed relation marker should authorize the principal contract")
+	}
+}

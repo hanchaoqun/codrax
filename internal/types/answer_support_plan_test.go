@@ -3399,6 +3399,11 @@ func TestBuildAnswerSupportPlan_ChangeImpactUsesAggregateMemberSetAsPrincipalLan
 				"internal/types/answer_semantic_view_helpers.go:17-18",
 				"internal/types/answer_semantic_view_helpers.go:122",
 			},
+			SupportRefs: []string{
+				"internal/agent/analyzer.go:1935",
+				"internal/types/answer_semantic_view_helpers.go:17",
+				"internal/types/answer_semantic_view_helpers.go:122",
+			},
 		}},
 		SurfaceEvidence: []EvidenceItem{unrelated},
 		FacetCoverage: &FacetCoverageContract{
@@ -4023,6 +4028,7 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetCoAnchorsGroundedSameFi
 			Value:       "1",
 			Members:     []string{"LiteralMatcher"},
 			SupportRefs: []string{"LiteralMatcher: src/matcher.rs:7"},
+			Provenance:  TypedRelationPrincipalMemberSetAggregateProvenance,
 		}},
 		SurfaceEvidence: []EvidenceItem{
 			{
@@ -4120,6 +4126,7 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetRejectsUnsafeRelationEq
 			Value:       "1",
 			Members:     []string{"LiteralMatcher"},
 			SupportRefs: []string{"LiteralMatcher: src/matcher.rs:7"},
+			Provenance:  TypedRelationPrincipalMemberSetAggregateProvenance,
 		}},
 		SurfaceEvidence: []EvidenceItem{
 			{
@@ -4228,10 +4235,11 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPrefersRelationSlateOve
 				Members: []string{"aggregator", "compiler"},
 			},
 			{
-				Kind:    AnswerAggregateMemberSet,
-				Label:   "subpackage entry functions",
-				Value:   "2",
-				Members: []string{"aggregator → Aggregate", "compiler → Compile"},
+				Kind:       AnswerAggregateMemberSet,
+				Label:      "subpackage entry functions",
+				Value:      "2",
+				Members:    []string{"aggregator → Aggregate", "compiler → Compile"},
+				Provenance: TypedRelationPrincipalMemberSetAggregateProvenance,
 			},
 		},
 		SurfaceEvidence: []EvidenceItem{
@@ -4274,10 +4282,11 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPrefersRelationSlateOve
 func TestBuildAnswerSupportPlan_GenericAggregateMemberSetRelationEvidenceRequiresLeftScope(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
-			Kind:    AnswerAggregateMemberSet,
-			Label:   "scoped scoring helpers",
-			Value:   "2",
-			Members: []string{"priority.Score", "subject.Score"},
+			Kind:       AnswerAggregateMemberSet,
+			Label:      "scoped scoring helpers",
+			Value:      "2",
+			Members:    []string{"priority.Score", "subject.Score"},
+			Provenance: TypedRelationPrincipalMemberSetAggregateProvenance,
 		}},
 		SurfaceEvidence: []EvidenceItem{
 			{

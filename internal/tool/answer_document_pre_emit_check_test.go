@@ -979,6 +979,7 @@ func TestPreCheckCallChainItemCitationRoleAlignment_SkipsChangeImpactSourcePrinc
 		Members: []string{
 			"internal/agent/analyzer.go:1935",
 		},
+		SupportRefs: []string{"internal/agent/analyzer.go:1935"},
 	}})
 	mu.SetInvestigationComplete("aggregate member set emitted")
 	mu.AppendEvidence([]types.EvidenceItem{{
@@ -1800,10 +1801,11 @@ func TestPreCheckSourceInventoryCandidateUniverseCoverage_RequiresCoverageOrCave
 func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFamily(t *testing.T) {
 	mu := types.NewMutableState("relation aggregate handoff routed as architecture")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "agents that can invoke subagents",
-		Value:   "1",
-		Members: []string{"explorer"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "agents that can invoke subagents",
+		Value:      "1",
+		Members:    []string{"explorer"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("structured relation member set accepted")
 	ctx := &types.BusContext{
@@ -1842,11 +1844,12 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 func TestPreCheckRelationMemberSetAnswerShape_RequiresSingletonCarrierForTypedRelation(t *testing.T) {
 	mu := types.NewMutableState("which workers can invoke capability Y")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "workers that can invoke capability Y",
-		Value:   "1",
-		Members: []string{"WorkerA"},
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "workers that can invoke capability Y",
+		Value:      "1",
+		Members:    []string{"WorkerA"},
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("typed relation singleton member set accepted")
 	ctx := &types.BusContext{
@@ -1896,11 +1899,12 @@ func TestPreCheckRelationMemberSetAnswerShape_RequiresSingletonCarrierForTypedRe
 func TestPreCheckRelationMemberSetAnswerShape_AcceptsPrincipalSectionItems(t *testing.T) {
 	mu := types.NewMutableState("which packages declare sources")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "package declarations",
-		Value:   "2",
-		Members: []string{"demo.app", "demo.cart"},
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "package declarations",
+		Value:      "2",
+		Members:    []string{"demo.app", "demo.cart"},
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("package declaration set accepted")
 	ctx := &types.BusContext{
@@ -1970,11 +1974,12 @@ func TestPreCheckRelationMemberSetAnswerShape_SkipsMechanismOnlyPlainMemberSet(t
 func TestPreCheckRelationMemberSetAnswerShape_RelationSurfaceSingletonRequiresCarrier(t *testing.T) {
 	mu := types.NewMutableState("explain relation member surface")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "caller relation",
-		Value:   "1",
-		Members: []string{"Worker -> Helper"},
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "caller relation",
+		Value:      "1",
+		Members:    []string{"Worker -> Helper"},
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("relation surface singleton member set accepted")
 	ctx := &types.BusContext{
@@ -2009,10 +2014,11 @@ func TestPreCheckRelationMemberSetAnswerShape_RelationSurfaceSingletonRequiresCa
 func TestPreCheckAggregateMemberSetCoverage_AcceptsCodeIdentityProjection(t *testing.T) {
 	mu := types.NewMutableState("subagent call-chain aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:  types.AnswerAggregateMemberSet,
-		Label: "subagent调用链节点",
-		Value: "2",
-		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "subagent调用链节点",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 		Members: []string{
 			"ExplorerAgent (LLM调用propose_sub_agents)",
 			"ProposeSubAgents工具.Execute (验证提案结构)",
@@ -2054,10 +2060,11 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsCodeIdentityProjection(t *tes
 func TestRunPreEmitChecks_ExplicitPrincipalMemberSetHardForScalarCompression(t *testing.T) {
 	mu := types.NewMutableState("subagent call-chain aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:  types.AnswerAggregateMemberSet,
-		Label: "subagent调用链节点",
-		Value: "2",
-		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "subagent调用链节点",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 		Members: []string{
 			"ExplorerAgent (LLM调用propose_sub_agents)",
 			"SubAgentRuntime.Run (编排层入口)",
@@ -2114,6 +2121,10 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *t
 			"codrax/internal/types/evidence.go: EvidenceKind（11种分类）",
 			"codrax/internal/types/violation_registry.go: ViolKindRegistry（单点注册表）",
 		},
+		SupportRefs: []string{
+			"codrax/internal/types/evidence.go:11",
+			"codrax/internal/types/violation_registry.go:1",
+		},
 	}, {
 		Kind:  types.AnswerAggregateMemberSet,
 		Label: "opencode 防幻觉机制",
@@ -2121,6 +2132,7 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *t
 		Members: []string{
 			"opencode/packages/opencode/src/agent/prompt/scout.txt: 文本层面引用要求",
 		},
+		SupportRefs: []string{"opencode/packages/opencode/src/agent/prompt/scout.txt:1"},
 	}})
 	mu.AppendEvidence([]types.EvidenceItem{{
 		ID:              "ev-evidence-kind",
@@ -2210,8 +2222,8 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageAdvisoryForNarrative(t *test
 		Kind: types.BlockSummary,
 		Text: "这是机制说明，不是穷举清单。",
 	}}}
-	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
-		t.Fatal("test setup should have aggregate coverage hints")
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("soft narrative inference belongs only in the advisory prompt lane, not the complete-principal repair contract: %+v", hints)
 	}
 	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
 		t.Fatalf("narrative aggregate coverage should be advisory at emit-time, got %+v", hints)
@@ -2346,16 +2358,34 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotSystemAuthorSoftInference(t 
 			t.Fatalf("model-owned soft inference gained system authority: %+v", block)
 		}
 	}
+	missingDoc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "Only grounded independent component facts are reported.",
+	}}}
+	if preEmitAggregateMemberSetCoverageHardGate(ctx) {
+		t.Fatal("soft system_inference must not activate the member-set hard gate")
+	}
+	if hints := preCheckAggregateMemberSetCoverage(missingDoc, ctx); len(hints) != 0 {
+		t.Fatalf("soft inference must not create a MUST-render roster: %+v", hints)
+	}
+	if hints := preCheckRelationMemberSetAnswerShape(missingDoc, ctx); len(hints) != 0 {
+		t.Fatalf("soft inference must not create a hard relation-table shape: %+v", hints)
+	}
+	if preEmitLabelSupportedByAggregateMemberSet("Logger::log", types.AnswerBlockItem{Label: "Logger::log"}, types.Citation{}, ctx) {
+		t.Fatal("soft inference must not exempt an item label from grounded identifier checks")
+	}
 }
 
 func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *testing.T) {
 	mu := types.NewMutableState("list classes and package declarations")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "package declarations",
-		Value:   "2",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
-		Members: []string{"demo.app", "demo.cart"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "package declarations",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"demo.app", "demo.cart"},
 		SupportRefs: []string{
 			"demo.app @ main.cj:6",
 			"demo.cart @ cart/Cart.cj:4",
@@ -3042,6 +3072,7 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForExhaustiveEnumeration
 			"pkg/a.go: HandleA",
 			"pkg/b.go: HandleB",
 		},
+		SupportRefs: []string{"pkg/a.go:1", "pkg/b.go:1"},
 	}})
 	mu.SetInvestigationComplete("member set handoff ready")
 	ctx := &types.BusContext{
@@ -5144,6 +5175,7 @@ func TestPreCheckRelationMemberSetAnswerShape_RequiresStructuredRowsForMultiMemb
 			"aggregator → Aggregate",
 			"compiler → Compile",
 		},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("structured relation member set accepted")
 	ctx := &types.BusContext{Mutable: mu}
@@ -5211,10 +5243,11 @@ func TestPreCheckRelationMemberSetAnswerShape_AcceptsMarkdownTableTextRows(t *te
 func TestPreCheckAggregateMemberSetCoverage_MarkdownTableHiddenItemsCannotInventRows(t *testing.T) {
 	mu := types.NewMutableState("inventory every declaration kind")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "declaration kinds",
-		Value:   "2",
-		Members: []string{"KindAlpha", "KindBeta"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "declaration kinds",
+		Value:      "2",
+		Members:    []string{"KindAlpha", "KindBeta"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("member set collected")
 	ctx := &types.BusContext{Mutable: mu}
@@ -5615,10 +5648,11 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsCompositeRelationSplitRows(t 
 func TestPreCheckAggregateMemberSetCoverage_CompositeRelationRequiresSameLeftAxis(t *testing.T) {
 	mu := types.NewMutableState("composite relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "internal/analysis subpackages and entry functions",
-		Value:   "2",
-		Members: []string{"perftriage → MergePerfBundles + CorroborateStallFiles", "stopcond → ShouldStop"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "internal/analysis subpackages and entry functions",
+		Value:      "2",
+		Members:    []string{"perftriage → MergePerfBundles + CorroborateStallFiles", "stopcond → ShouldStop"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{Mutable: mu}
@@ -6110,10 +6144,11 @@ func TestNormalizeInvisibleOutOfRangeCitationRefs_DetachesPresentationOnlyCarrie
 func TestRunPreEmitChecks_CitationCarrierLeadsWithoutShortCircuit(t *testing.T) {
 	mut := types.NewMutableState("citation carrier failure")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "mechanisms",
-		Value:   "1",
-		Members: []string{"PreEmitCheck"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "mechanisms",
+		Value:      "1",
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"PreEmitCheck"},
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	ctx := &types.BusContext{Mutable: mut}

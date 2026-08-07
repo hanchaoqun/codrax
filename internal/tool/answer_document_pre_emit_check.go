@@ -3968,19 +3968,7 @@ func preEmitAggregateMemberSetCanAuthorizeSystemCarrier(ctx *types.BusContext, f
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 	}
-	return preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(types.AnswerAggregateFactEvidenceOrigins(fact, rm))
-}
-
-func preEmitEvidenceOriginsAuthorizeSystemPrincipalCarrier(origins []types.AnswerEvidenceOrigin) bool {
-	for _, origin := range origins {
-		switch origin {
-		case types.AnswerEvidenceOriginUnknown, types.AnswerEvidenceOriginSystemInference:
-			continue
-		default:
-			return true
-		}
-	}
-	return false
+	return types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm)
 }
 
 // preEmitPrimaryMemberCarrierIndex returns one model-authored primary block
@@ -5445,6 +5433,19 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	var missing []missingScalar
 	seen := make(map[string]bool)
 	for idx, fact := range facts {
+		// A member_set retained from model inference is useful advisory context,
+		// but its numeric Value must not reopen a hard principal-contract path
+		// after the member roster itself was correctly kept soft. Count questions
+		// still receive exact member-set values when the set has typed authority.
+		if fact.Kind == types.AnswerAggregateMemberSet {
+			var rm *types.RequestModel
+			if ctxOpt[0].AnalysisIR != nil {
+				rm = &ctxOpt[0].AnalysisIR.RequestModel
+			}
+			if !types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+				continue
+			}
+		}
 		if !preEmitAggregateFactRequiresVisibleValue(ctxOpt[0], facts, idx, fact) {
 			continue
 		}
@@ -6090,11 +6091,15 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	if len(facts) == 0 {
 		return nil
 	}
-	principalRefs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	forceHard := preEmitAggregateMemberSetCoverageHardGate(ctxOpt...)
+	// This checker emits a complete-principal-roster repair recipe. Keep that
+	// contract evidence-authorized even when its eventual gate would be soft;
+	// retained model inference is rendered once in the advisory prompt lane and
+	// must not acquire a second, contradictory "preserve every member" voice.
+	principalRefs := preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx, facts)
 	if len(principalRefs) == 0 {
 		return nil
 	}
-	forceHard := preEmitAggregateMemberSetCoverageHardGate(ctxOpt...)
 	// Source-inventory principal rows have a typed, row-shaped contract. The
 	// finalizer prompt tells the model to render those rows as items/cells, and
 	// the deterministic post-emit reviewer consumes the same carrier. Do not
@@ -6860,6 +6865,12 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 		if types.HasPrincipalOriginSpecificMemberSetForRequest(&rm, facts) {
 			return true
 		}
+		// A request shape cannot promote an already-retained illustrative model
+		// set into a hard contract. If principal facts exist but none has typed
+		// authority, their coverage remains advisory.
+		if len(preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)) > 0 {
+			return false
+		}
 	}
 	return types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		types.RequiresRelationMemberSetHandoff(rm)
@@ -6869,7 +6880,7 @@ func preEmitHasExplicitPrincipalMemberSetForRequest(ctx *types.BusContext, facts
 	if len(facts) == 0 {
 		return false
 	}
-	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	refs := preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx, facts)
 	for _, ref := range refs {
 		if types.NormalizeAnswerAggregateRole(ref.Fact.Role) == types.AnswerAggregateRolePrincipalAnswer {
 			return true
@@ -6885,6 +6896,31 @@ func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []t
 		return types.PrincipalAggregateMemberSetFactRefs(facts)
 	}
 	return types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+}
+
+func preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	if len(refs) == 0 {
+		return nil
+	}
+	var rm *types.RequestModel
+	sets := map[int]types.EnumerationDisplaySet{}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+		if plan := answerSurfacePlan(ctx); plan != nil {
+			for _, set := range types.CompileEnumerationDisplaySets(rm, plan) {
+				sets[set.FactIndex] = set
+			}
+		}
+	}
+	out := make([]types.AnswerAggregateFactRef, 0, len(refs))
+	for _, ref := range refs {
+		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) ||
+			types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, ref.Fact, sets[ref.Index]) {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func preEmitPrincipalRelationMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
@@ -7095,9 +7131,23 @@ func preEmitPrincipalRelationShapeMemberSetFactRefs(ctx *types.BusContext, facts
 	// labels, while relation-surface aggregate members carry their own structural
 	// relation shape. Do not inspect aggregate labels, raw requests, or prose.
 	if ctx != nil && ctx.AnalysisIR != nil && types.RequiresRelationMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
-		return preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+		return preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx, facts)
 	}
-	return preEmitPrincipalRelationMemberSetFactRefs(ctx, facts)
+	refs := preEmitPrincipalRelationMemberSetFactRefs(ctx, facts)
+	if len(refs) == 0 {
+		return nil
+	}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	out := refs[:0]
+	for _, ref := range refs {
+		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 type preEmitAggregateCountClaim struct {
@@ -10592,7 +10642,7 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 	if len(facts) == 0 {
 		return false
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts) {
+	for _, ref := range preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx, facts) {
 		fact := ref.Fact
 		for _, member := range fact.Members {
 			if preEmitAggregateMemberLabelMatches(label, member) {

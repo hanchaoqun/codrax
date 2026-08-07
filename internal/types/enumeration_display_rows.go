@@ -74,6 +74,30 @@ type EnumerationDisplayRowAttribute struct {
 	Location string
 }
 
+// EnumerationDisplaySetAuthorizesPrincipalContract is the contextual
+// companion to AnswerAggregateFactAuthorizesPrincipalContract. A normal
+// enumeration may become answer-grade when every accepted member has an exact
+// typed source coordinate, even if the model omitted parallel support_refs.
+// Relation/call-chain requests are deliberately excluded: individually cited
+// nodes still do not prove their relation, direction, order, or bridge.
+func EnumerationDisplaySetAuthorizesPrincipalContract(rm *RequestModel, fact AnswerAggregateFact, set EnumerationDisplaySet) bool {
+	if AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+		return true
+	}
+	if rm != nil && RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	if AnswerAggregateFactHasRelationMembers(fact) || len(fact.Members) == 0 || len(set.Rows) != len(fact.Members) {
+		return false
+	}
+	for _, row := range set.Rows {
+		if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // ShouldCompileEnumerationDisplaySetsForRequest reports whether accepted
 // aggregate member rows may become deterministic visible principal rows for
 // this request shape.

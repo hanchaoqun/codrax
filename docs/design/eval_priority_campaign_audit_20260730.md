@@ -23480,3 +23480,44 @@ origin，不扫描用户输入、模型 thinking 或 final prose。Trace 显式�
 状态：`EVAL-B245-AGGSUPPDUP1=S37f-implemented/tests-pass`；`EVAL-B236-PHASEBRIDGE1=next`；
 `sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；模型答案所有权=`preserved`；
 下一步=`commit+push, typed cross-component support-lane boundary`。
+
+### 123.228 S37g：模型推测路径与已证 principal contract 分权
+
+`EVAL-B236-PHASEBRIDGE1` 深审确认是一个跨阶段权限泄漏，而不只是 C++ 答案叙述过强。r153 的 factory、ownership、call 等局部 typed 事实分别成立，
+系统也已经发布 `inter_component_bridge_status=unproven_between_components`；但探索阶段提交的两组无 `support_refs` 的路径 `member_set` 仍被多个下游
+消费面当作“完整 principal slate”：finalizer prompt 写成 Required Member Set，support plan 把每个成员编入 principal lane，extractor 把它列为 closure
+义务，pre-emit 又可经 member coverage、relation shape、scalar value 与 enum-label exemption 多条路径硬化。换言之，同一事实一面被 evidence binding 正确标成
+`system_inference / Soft / Illustrative`，另一面又因模型写了 `role=principal_answer` 被系统提升为必答、必保留、可豁免校验的权威合同，正是会诱导模型跨越
+未证组件边界的合同自冲突。
+
+本批建立语言无关、消费面共享的两级 typed authority：
+
+1. `AnswerAggregateFactAuthorizesPrincipalContract` 成为基础权限单源。纯 `unknown/system_inference` 事实保留但不能驱动 MUST-render、hard gate、
+   hallucination exemption 或 system-authored principal block；completion 工具验证后的 typed relation marker 与 source-inventory typed marker 可直接授权；
+2. 关系/调用链请求采用更严格规则：逐个节点有真实定义或坐标并不能证明集合成员关系、方向、顺序或跨组件 bridge，必须存在系统验证的
+   `typed_relation_principal_member_set`。因此“两个局部组件各自有证据 + 模型提出一条完整路径”只能进入 advisory，不能因路径字符串看起来合理而铸权；
+3. 普通枚举保留系统自动补齐能力：若 structured enumeration display set 的每一席都有精确 source、line 与 citation，整组可成为 answer-grade。
+   这条规则不适用于 relation/call-chain。fact 自带精确 `support_refs` 时，即使兼容调用方暂缺 AnalysisIR 也能授权；明确 external-only / “不分析代码”
+   typed boundary 始终优先，源码坐标不会被误重解释为外部工件权威；
+4. finalizer 把无权威集合集中输出在 `Advisory Model-Inferred Member Sets`：明确它们是调查候选，可采用、限定、修订或舍弃，不是 required roster，
+   也不是 relation/order/bridge proof。结构化 aggregate 同时标记 `fact_authority=advisory_model_inference`、
+   `principal_contract=not_authorized`，减少模型在多段相反指令之间自行消歧的心智负担；
+5. Required Member Set、Principal Enumeration Rows、answer support lane、extractor principal slate/closure suppression、aggregate compact、relation recipe
+   全部读取同一 authority；普通 exact-row 枚举继续进入 required lane，soft path 不再挤掉模型自己的 closure reasoning；
+6. pre-emit/system compiler 同步封口：soft set 不能触发 complete-member hard gate、relation-table shape、member-set scalar/count preservation、enum-label
+   grounding exemption，也不能由 aggregate normalizer 或 missing-row supplement 铸成系统块。这里没有把 soft checker 的“complete principal”文案降成日志继续保留，
+   而是彻底让它只经统一 advisory lane 出现，避免第二套隐性合同；
+7. 精确回归构造两个彼此断开的 typed relation component，再加入模型推测的跨组件路径。prompt 必须同时保留两个
+   `unproven_between_components` 边界与 advisory 集合，禁止生成 Required Member Set、principal support obligation 或 MUST 文案。另钉普通逐席
+   file:line 枚举、typed relation、external-only、soft system carrier、scalar value 旁路、relation shape、label exemption及 pre-emit→persist 幂等。
+
+本批不读取用户原文、模型 thinking、最终 prose 或语言关键字做门控；没有删除、替换或改写模型答案，也没有替模型决定两片局部事实能否构成完整调用链。
+系统只把证据等级与组件边界准确送给模型。JSON schema、native object/array 与四操作 patch 教学未新增副本或相反指令；`go test ./...` 全绿。
+
+Trace 显式时间窗、系统自动补齐、因果投影、根因排序、唤醒链、窗内可消除量以及“真实耗时贡献 / 规则内可消除量”双维根因分析均未改动。
+两条独立守护继续开放并列入下一次恰好两例回放：sequence display message 参数不得污染 typed endpoint identity；所有支持语言的
+labelled/unlabelled flowchart edge 均不得绕过 strict relation anchor。
+
+状态：`EVAL-B236-PHASEBRIDGE1=S37g-implemented/full-tests-pass/replay-next`；
+`EVAL-B245-AGGSUPPDUP1=closed-by-shared-authority`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；下一步=`commit+push+r154 exactly-two replay`。

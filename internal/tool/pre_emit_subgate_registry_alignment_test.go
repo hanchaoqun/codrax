@@ -238,11 +238,12 @@ func TestPreEmitCarrierAdvisoryDoesNotSkipMemberSetHardLane(t *testing.T) {
 	members := []string{"AnalyzerAgent", "ExplorerAgent", "ExtractorAgent", "FinalizerAgent"}
 	mu := types.NewMutableState("step-0 append-and-continue guard")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "agent list",
-		Value:   "4",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
-		Members: members,
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "agent list",
+		Value:      "4",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    members,
 	}})
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{Mutable: mu}

@@ -1757,6 +1757,7 @@ func TestExtractor_BuildPrompt_ChangeImpactAggregateMemberSetSkipsAnswerSymbol(t
 		Members: []string{
 			"internal/agent/analyzer.go:1935-1949",
 		},
+		SupportRefs: []string{"internal/agent/analyzer.go:1935"},
 	}})
 	mu.SetInvestigationComplete("aggregate member set emitted")
 	ctx := &types.AgentContext{

@@ -782,7 +782,7 @@ func suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx *types.AgentCon
 	if rm.Predicates.IsHistoryLookup {
 		return false
 	}
-	return len(structuredAggregatePrincipalMemberSetRefs(ctx, facts)) > 0
+	return len(structuredAggregatePrincipalContractIndexes(ctx, facts)) > 0
 }
 
 func renderExtractorPrincipalAggregateSlate(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
@@ -793,9 +793,16 @@ func renderExtractorPrincipalAggregateSlate(ctx *types.AgentContext, facts []typ
 	if len(refs) == 0 {
 		return ""
 	}
+	authoritative := structuredAggregatePrincipalContractIndexes(ctx, facts)
+	if len(authoritative) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("- principal aggregate member_set obligations:\n")
 	for _, ref := range refs {
+		if !authoritative[ref.Index] {
+			continue
+		}
 		fact := ref.Fact
 		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue

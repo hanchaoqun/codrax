@@ -719,11 +719,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	mut := types.NewMutableState("list public symbols")
 	mut.SetInvestigationComplete("complete public set; variables such as defaultExternalArtifactFloor were excluded")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "public functions",
-		Value:   "1",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
-		Members: []string{"Eval"},
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "public functions",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
 	}, {
 		Kind:     types.AnswerAggregateExcluded,
 		Label:    "excluded variables",
@@ -2275,6 +2276,12 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 			"gate.Run (9 checks)",
 			"contract_check (violRegistry)",
 		},
+		SupportRefs: []string{
+			"SelfConsistencyReviewer @ internal/a.go:10",
+			"SemanticQualityReviewer @ internal/b.go:20",
+			"gate.Run (9 checks) @ internal/gate.go:30",
+			"contract_check (violRegistry) @ internal/contract.go:40",
+		},
 	}})
 	mut.RetainInvestigationAggregateFacts()
 	ctx := &types.AgentContext{
@@ -2575,14 +2582,21 @@ func TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring
 		Mutable: mut,
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "## Required Principal Member Set") {
-		t.Errorf("BuildInitialInstruction must include the principal_member_set_contract section; got\n%s", prompt)
+	if !strings.Contains(prompt, "## Advisory Model-Inferred Member Sets") {
+		t.Errorf("BuildInitialInstruction must expose ungrounded member sets as advisory context; got\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "member=`LayerB (boundary)`") {
-		t.Errorf("BuildInitialInstruction must include verbatim members in principal rows; got\n%s", prompt)
+	if strings.Contains(prompt, "## Required Principal Member Set") ||
+		strings.Contains(prompt, "Use this lane as the principal member slate") {
+		t.Errorf("pure system_inference must not become a required contract or principal support lane; got\n%s", prompt)
 	}
-	if strings.Contains(prompt, "  - `LayerB (boundary)`") {
-		t.Errorf("BuildInitialInstruction must not duplicate principal members inside contract bullets; got\n%s", prompt)
+	for _, want := range []string{
+		"fact_authority=`advisory_model_inference`",
+		"principal_contract=`not_authorized`",
+		"advisory set \"X layers\"",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("advisory member-set prompt missing %q; got\n%s", want, prompt)
+		}
 	}
 }
 

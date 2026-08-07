@@ -597,10 +597,11 @@ func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testin
 	oracle := &stubOracle{known: map[string]int{}}
 	mut := types.NewMutableState("package colon label from aggregate member set")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "internal/analysis subpackages",
-		Value:   "1",
-		Members: []string{"counterfactual: Expand"},
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "internal/analysis subpackages",
+		Value:       "1",
+		Members:     []string{"counterfactual: Expand"},
+		SupportRefs: []string{"internal/analysis/counterfactual/expander.go:59"},
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	ctx := &types.BusContext{Mutable: mut}
@@ -622,7 +623,7 @@ func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testin
 	}
 }
 
-func TestPreCheckEnumLabel_AggregateMemberSetDirectLabelNoCitationNoOracle(t *testing.T) {
+func TestPreCheckEnumLabel_SoftAggregateMemberSetDirectLabelStillNeedsGrounding(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	mut := types.NewMutableState("principal mechanism labels from aggregate member set")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -643,8 +644,8 @@ func TestPreCheckEnumLabel_AggregateMemberSetDirectLabelNoCitationNoOracle(t *te
 			}},
 		}},
 	}
-	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
-		t.Fatalf("direct principal member_set labels should not require item text, citation_ref, or graph oracle support; got %v", hints)
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); len(hints) == 0 {
+		t.Fatal("a model-inferred member_set must not exempt an otherwise ungrounded label from the identifier oracle")
 	}
 }
 
@@ -692,10 +693,11 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCita
 func TestPreCheckItemCitationAlignment_AggregateMemberSetColonUsesTypedEvidenceCandidate(t *testing.T) {
 	mut := types.NewMutableState("colon aggregate package label citation drift")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "internal/analysis subpackages",
-		Value:   "1",
-		Members: []string{"counterfactual: Expand"},
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "internal/analysis subpackages",
+		Value:       "1",
+		Members:     []string{"counterfactual: Expand"},
+		SupportRefs: []string{"internal/analysis/counterfactual/expander.go:59"},
 	}})
 	mut.SetInvestigationComplete("accepted aggregate member set")
 	mut.AppendEvidence([]types.EvidenceItem{{

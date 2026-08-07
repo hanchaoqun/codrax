@@ -134,6 +134,54 @@ func AnswerAggregateFactPrimaryEvidenceOrigin(fact AnswerAggregateFact, rm *Requ
 	return origins[0]
 }
 
+// AnswerAggregateFactAuthorizesPrincipalContract reports whether an aggregate
+// fact has typed authority beyond a retained model inference. A
+// system_inference fact remains useful advisory context, but its Soft /
+// Illustrative claim binding cannot drive MUST-render contracts, hard answer
+// gates, hallucination exemptions, or system-authored principal blocks.
+//
+// The two system provenance markers below are attached only after deterministic
+// structured matching; accepting them here preserves exact typed-relation and
+// source-inventory row contracts without deriving authority from prose.
+func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
+		return true
+	}
+	// In a relation/call-chain request, individually true nodes and locations
+	// do not prove set membership, direction, order, or a bridge. Only the
+	// completion tool's exact typed-relation marker above can authorize the
+	// principal relation contract.
+	if rm != nil && RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	// Exact file:line support is itself the precise current-source witness. Some
+	// pre-emit compatibility callers do not retain AnalysisIR, so requiring a
+	// request model merely to recognize that coordinate would make authority
+	// depend on orchestration plumbing rather than on the evidence. An explicit
+	// external-only boundary still wins and keeps current-source refs out.
+	if answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+		if rm != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+			return false
+		}
+		return true
+	}
+	for _, origin := range AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		switch origin {
+		case AnswerEvidenceOriginUnknown, AnswerEvidenceOriginSystemInference:
+			continue
+		case AnswerEvidenceOriginCurrentSource:
+			if answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+				return true
+			}
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func answerAggregateFactHasExactCurrentSourceSupportRef(fact AnswerAggregateFact) bool {
 	for _, ref := range fact.SupportRefs {
 		if answerSupportRefHasSourceLine(ref) {

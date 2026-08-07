@@ -6519,12 +6519,18 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &rm)
-	if len(refs) == 0 {
+	allRefs := types.PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &rm)
+	if len(allRefs) == 0 {
 		return ""
 	}
-	if sets := answerDocPrincipalEnumerationSets(ctx, plan); len(sets) > 0 {
-		return renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx, refs, sets)
+	sets := answerDocPrincipalEnumerationSets(ctx, plan)
+	refs, advisoryRefs := answerDocPartitionPrincipalMemberSetRefs(allRefs, &rm, sets)
+	if len(refs) == 0 {
+		return renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs)
+	}
+	if len(sets) > 0 {
+		return renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx, refs, sets) +
+			renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs)
 	}
 
 	type renderedFact struct {
@@ -6590,6 +6596,45 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		for _, member := range rf.members {
 			fmt.Fprintf(&b, "  - `%s`\n", member)
 		}
+	}
+	b.WriteString("\n")
+	b.WriteString(renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs))
+	return b.String()
+}
+
+func answerDocPartitionPrincipalMemberSetRefs(refs []types.AnswerAggregateFactRef, rm *types.RequestModel, sets []types.EnumerationDisplaySet) (authoritative, advisory []types.AnswerAggregateFactRef) {
+	setAuthority := make(map[int]bool, len(sets))
+	for _, set := range sets {
+		setAuthority[set.FactIndex] = true
+	}
+	for _, ref := range refs {
+		if setAuthority[ref.Index] || types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+			authoritative = append(authoritative, ref)
+		} else {
+			advisory = append(advisory, ref)
+		}
+	}
+	return authoritative, advisory
+}
+
+func renderAnswerDocAdvisoryPrincipalMemberSets(refs []types.AnswerAggregateFactRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Advisory Model-Inferred Member Sets\n\n")
+	b.WriteString("- These structured sets were retained from exploration but carry only `system_inference` / illustrative authority. They are investigation candidates, not a required answer roster, not proof of relation or order, and not permission to join independently grounded components.\n")
+	b.WriteString("- Use, qualify, revise, or omit them according to the grounded evidence and the typed component/flow boundary. A `role=principal_answer` value here records the investigation's proposed slate; it does not create a MUST-render or hard-validation contract.\n")
+	for _, ref := range refs {
+		label := strings.TrimSpace(ref.Fact.Label)
+		if label == "" {
+			label = fmt.Sprintf("aggregate_facts[%d]", ref.Index)
+		}
+		fmt.Fprintf(&b, "- advisory set %q (%d candidate member(s))", label, len(ref.Fact.Members))
+		if members := renderAggregateStringList(ref.Fact.Members, 24); members != "" {
+			fmt.Fprintf(&b, ": %s", members)
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -7581,13 +7626,13 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		b.WriteString("- Observation-only runtime/log/trace answers: direct artifact observations are authoritative for error type, message, stack/span/timing, artifact-local line/order, and literal log content. Model-authored aggregate facts with `kind=behavior_outcome` or `kind=error_granularity_verdict` are supporting synthesis unless they carry explicit support refs or current-source proof; do not promote caller-owned values, variable provenance, or upstream data construction from those aggregate facts into a final root-cause fact.\n")
 	}
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
-	b.WriteString("- Facts marked `role=principal_answer` are answer payloads even when they have no file:line citation: preserve principal `total_count`, `unique_count`, `grouped_count`, `bucket_count`, `scalar_value`, `negative_search`, and `negative_observation` values with their typed dimensions, or explain the boundary in a caveat instead of dropping them.\n")
+	b.WriteString("- Facts marked `role=principal_answer` and backed by a non-illustrative typed evidence origin are answer payloads. A fact marked `fact_authority=advisory_model_inference` is retained exploration synthesis: use it as a candidate, but do not treat it as a required roster or as proof of a relation/path merely because its model-authored role says principal.\n")
 	if aggregateFactPromptOmitExcludedCandidates(ctx) {
 		b.WriteString("- The active typed exclusion policy keeps concrete excluded candidates out of the answer surface. Excluded categories and counts may be used as scope boundaries; omitted `excluded[]` names are intentionally not part of the visible answer.\n")
 	}
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
 	b.WriteString("- `kind=negative_observation` is the typed lane for a verified zero-result non-repo observation, such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. Use its origin/target-or-query/scope/result_count/searched_at dimensions; do not rewrite it as repo search and do not invent file:line citations.\n")
-	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
+	b.WriteString("- For evidence-authorized `member_set` rows, `role=principal_answer` marks the concrete principal slate. Pure `system_inference` sets remain advisory regardless of that model-authored role. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	b.WriteString("- Grounded definition evidence from read files and the requested source scope is the detail/citation authority for those principal members. Aggregate facts organize the slate/counts; they must not cause you to drop richer per-member summaries already present in the evidence pool or typed exploration enrichment rows.\n")
 	if rows != "" {
 		b.WriteString("- Because principal enumeration rows are available, this prompt renders the rich member/citation list exactly once in `Principal Enumeration Rows`; aggregate metadata below keeps only non-conflicting audit dimensions. If a supporting aggregate is shadowed by authoritative principal rows, its concrete value/count/member fields are intentionally hidden and must not be reconstructed.\n")
@@ -7603,7 +7648,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Member labels with no citable source-location handoff should remain uncited rather than borrowing an adjacent citation.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer rows marked `role=principal_answer` for the principal list. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer evidence-authorized rows marked `role=principal_answer`. For `fact_authority=advisory_model_inference`, let grounded typed evidence and component/flow boundaries decide instead of preserving the proposed slate by force. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
 	if rows != "" {
 		b.WriteString(rows)
 		b.WriteString("## Aggregate Fact Metadata\n\n")
@@ -7618,7 +7663,17 @@ func answerDocPrincipalEnumerationSets(ctx *types.AgentContext, plan *types.Answ
 	if ctx == nil || ctx.AnalysisIR == nil || plan == nil {
 		return nil
 	}
-	return types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	out := sets[:0]
+	for _, set := range sets {
+		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) {
+			continue
+		}
+		if types.EnumerationDisplaySetAuthorizesPrincipalContract(&ctx.AnalysisIR.RequestModel, plan.StableAggregateFacts[set.FactIndex], set) {
+			out = append(out, set)
+		}
+	}
+	return out
 }
 
 func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *types.AnswerSurfacePlan) string {
@@ -7752,10 +7807,21 @@ func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
 }
 
 func answerDocPrincipalRelationMemberSetRefs(ctx *types.AgentContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	var rm *types.RequestModel
+	var refs []types.AnswerAggregateFactRef
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return types.PrincipalRelationMemberSetFactRefs(facts)
+		refs = types.PrincipalRelationMemberSetFactRefs(facts)
+	} else {
+		rm = &ctx.AnalysisIR.RequestModel
+		refs = types.PrincipalRelationMemberSetFactRefsForRequest(facts, rm)
 	}
-	return types.PrincipalRelationMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+	out := refs[:0]
+	for _, ref := range refs {
+		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func answerDocHasMultiMemberAggregateRef(refs []types.AnswerAggregateFactRef) bool {
