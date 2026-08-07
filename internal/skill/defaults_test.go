@@ -685,6 +685,28 @@ func TestExploreSkill_CoverageBeforeCompletionIsLimitedToStructuralCoverageOblig
 	}
 }
 
+func TestExploreSkill_CallChainFrontierHandoffSeparatesSiblingAndReverseEdges(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"CALL-CHAIN FRONTIER HANDOFF",
+		"sibling-edge SET",
+		"exact caller, callee, and callsite",
+		"reverse or parallel direct call",
+		"a definition row or waiver rationale cannot substitute for the edge",
+		"bounded semantic descent, not exhaustive traversal",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("explore-skill call-chain frontier guidance missing %q:\n%s", want, corpus)
+		}
+	}
+}
+
 func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

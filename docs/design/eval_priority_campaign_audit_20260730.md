@@ -23943,3 +23943,27 @@ runner 唯一缺失 regex `analyzerGraphForNormalize` 不是假红：最终答�
 
 状态：`EVAL-B260-DUPARRAYKEY1=S37o-implemented/full-tests-pass`；`EVAL-B261-REVERSEEDGEHANDOFF1=next-P1`；
 模型答案所有权=`preserved`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量与双维根因分析=`untouched`。
+
+### 123.245 S37p：调用链 frontier 按真实边交接，兄弟集合不再冒充有序链
+
+`EVAL-B261-REVERSEEDGEHANDOFF1` 与 `EVAL-B262-TRANSITIVEHOPDEPTH1` 共用一个调查期根因，按软教学修复：
+
+1. `CALL-CHAIN COVERAGE` 明确区分“同一 caller body 中的 sibling-edge set”与“caller→helper→helper 的有序路径”。每条已读源码、且对答案
+   load-bearing 的 direct call 都应以 exact caller/callee/callsite 独立发出 typed call evidence；不能把 definitions、源码邻接或 waiver rationale 当关系边；
+2. `no_directed_path` 前若源码存在解释边界的 reverse/parallel direct call，调查者先按真实方向独立发证。completion 后的提示也只允许 finalizer 展示
+   已有自身 typed call edge 的反向/并行关系，避免再次把 `Run -> RunWith` 说成 `RunWith -> Run`；
+3. 对关键调用链采用 bounded semantic descent：只沿已证且携带所问 value/control flow 的 helper frontier 一层一层下钻，遇 requested sink、已证边界或
+   external/dynamic handoff 即停。它不是“把所有 callee 全读完”的新穷举硬门，也不按 `analyzerGraphForNormalize` 等当前样例名字拟合；
+4. 本批只改 explorer workflow 与 completion typed field/note 教学，不新增 emit-time rejection，不扫描用户原文、模型 thinking/final prose，也不由系统从定义邻接
+   推断或代写调用边。模型继续决定哪些真实边构成解释、如何总结以及最终结论；
+5. 回归钉住 sibling-set、exact caller/callee/callsite、reverse/parallel 独立发证、definition/rationale 不可替边及 bounded descent 六个合同词面；
+   no-directed-path completion pin 同时要求“只有自身 typed edge 才能展示反向/并行关系”。
+
+Trace runtime family、显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及“真实耗时贡献 / 规则内可消除量”双维根因分析未触碰。
+JSON shape-first 与 S37o duplicate-array carrier 保持单源；没有新增 JSON 教学副本。
+
+定向 `go test ./internal/skill ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B261-REVERSEEDGEHANDOFF1=S37p-implemented/full-tests-pass`；
+`EVAL-B262-TRANSITIVEHOPDEPTH1=S37p-implemented/pending-production-replay`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。

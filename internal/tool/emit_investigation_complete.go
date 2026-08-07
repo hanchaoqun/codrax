@@ -213,7 +213,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					"reason": {
 						"type": "string",
 						"enum": ["endpoints_directly_adjacent", "no_intermediate_user_code", "platform_bridge_intermediates", "inlined_call", "runtime_dispatched_call", "external_module_continuation", "no_directed_path"],
-						"description": "endpoints_directly_adjacent = source and sink are on one dispatch/wrapper statement. no_intermediate_user_code = only plumbing lies between them. platform_bridge_intermediates = the hop is an FFI/JNI/cgo/cross-language runtime bridge. inlined_call = compiler/JIT inlining removes a separate frame. runtime_dispatched_call = interface/virtual/closure/reflection dispatch has no static edge. external_module_continuation = intermediates live outside this repo. no_directed_path = both exact endpoints were inspected but accepted typed call edges do not reach the sink from the source; report the nearest proven path and any reverse/parallel edge separately."
+						"description": "endpoints_directly_adjacent = source and sink are on one dispatch/wrapper statement. no_intermediate_user_code = only plumbing lies between them. platform_bridge_intermediates = the hop is an FFI/JNI/cgo/cross-language runtime bridge. inlined_call = compiler/JIT inlining removes a separate frame. runtime_dispatched_call = interface/virtual/closure/reflection dispatch has no static edge. external_module_continuation = intermediates live outside this repo. no_directed_path = both exact endpoints were inspected but accepted typed call edges do not reach the sink from the source; before completion emit every observed direct reverse/parallel call as its own typed call evidence row, then report the nearest proven path and endpoint boundary separately."
 					},
 					"rationale": {
 						"type": "string",
@@ -2941,7 +2941,7 @@ func appendPrincipalSpanWaiverCompletionNote(ctx *types.BusContext) {
 		}
 	}
 	ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
-		"model-declared typed call-chain boundary: principal_span_waiver=no_directed_path for `%s` -> `%s`. The accepted call-edge graph did not establish that direction; keep the nearest proven path and any reverse/parallel relationship separate, and do not turn endpoint definitions into a call edge.",
+		"model-declared typed call-chain boundary: principal_span_waiver=no_directed_path for `%s` -> `%s`. The accepted call-edge graph did not establish that direction; keep the nearest proven path and endpoint boundary separate. Show a reverse/parallel relationship only when its own typed call edge is present, and do not turn endpoint definitions into a call edge.",
 		startHint, endHint))
 	ctx.Mutable.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
 		Lane:       types.DowngradeLaneContractChain,

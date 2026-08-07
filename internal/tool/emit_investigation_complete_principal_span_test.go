@@ -181,7 +181,7 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 	if !res.Success || !mut.IsInvestigationComplete() {
 		t.Fatalf("typed no_directed_path boundary should close model-owned investigation: %+v", res)
 	}
-	for _, want := range []string{"principal_span_waiver=no_directed_path", "do not turn endpoint definitions into a call edge"} {
+	for _, want := range []string{"principal_span_waiver=no_directed_path", "Show a reverse/parallel relationship only when its own typed call edge is present", "do not turn endpoint definitions into a call edge"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q: %s", want, res.Summary)
 		}
