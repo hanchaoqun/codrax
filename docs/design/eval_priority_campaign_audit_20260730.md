@@ -24385,3 +24385,54 @@ JSON recovery 未触发，JSON schema/教学保持单源；模型答案所有权
 `EVAL-B275-SIBLINGCONCURRENCY1=S37w.1-soft-guidance-implemented`；下一优先级仍为
 `EVAL-B273-TYPEDDIAGRAMRECIPE1`，随后 B272/B274；JSON 教学=`unchanged`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
+
+### 123.261 r168：B262 上下文分支已生产见证；单一 helper oracle 过硬，exact sink 边界仍未进入读取闭包
+
+r168 在 `main@a5a54f6af` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与数据只输出
+`data_json_strict_ids`。runner 1/2 PASS；人工 1/2。JSON 案 46s，一轮 `custom_transform`、零 repair、零拒绝，最终严格输出
+`{"ids":["u1","u3"]}`；教学、schema、执行计划和终态投影一致，没有 JSON 自愈或合同冲突信号。
+
+Go 案 196s。生产日志明确发射
+`typed direct-call frontier source="buildAnalysisIR" sink="gate.Run" emitted=24 total=235`，且模型随后用 grep 主动搜索
+`analyzerGraphForNormalize`，证明 S37w.1 的真实接线和早段 helper/sink relevance 均已生效。模型最终选择规范化、放大、编译、风险、计划、绑定与
+`gate.RunWith` 作为关键步骤，没有把 `analyzerGraphForNormalize` 写入答案。runner 首个失败断言恰是要求该 helper 必须出现；在一个含 235 个 direct call
+的 orchestration body 中，把某个 helper 固定成“关键中间函数”唯一答案，已经从结构验收越界成模型选材接管。该 regex 撤为人工/advisory 审计；保留两条真正的
+结构 oracle：`buildAnalysisIR -> gate.RunWith` 的可达边、`gate.Run -> RunWith` 的 endpoint boundary 边。
+
+人工失败仍成立，但根因不是 B262：本轮三个 `read_file` 都只覆盖 `analyzer.go`，`gate.go:135` 从未进入 read closure。模型从预读/repo graph 知道
+`gate.Run` 定义与 wrapper 概念，却没有读 exact callsite，也没有发射 `gate.Run -> RunWith` 关系证据；最终披露“两者关系需要进一步探索”。现有
+`callChainReadParserRelationHandoffDowngrade` 只对“AST-grade + exact callsite 已读 + principal roster 两端唯一”硬触发，本轮正确 fail-open，不能把未读全仓图
+直接铸成证据。立案 `EVAL-B276-ENDPOINTBOUNDARYFRONTIER1`：调查初始上下文缺少 exact sink 自身与 source 的 reverse/shared-frontier 软导航。
+
+状态：`runner=1/2 PASS`；`human=1/2`；`EVAL-B262=S37w.1-production-branch-witnessed/context-supply-closed`；
+`qf analyzerGraphForNormalize exact oracle=retired-as-overfit`；`EVAL-B276=confirmed/immediate`；JSON 教学=`consistent/no-change`；
+模型答案所有权=`preserved`。Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和双维根因分析未触碰；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 继续作为开放守护项。
+
+### 123.262 S37x：exact endpoint reverse/shared-frontier 只作软导航，已读后才进入 typed 关系交接
+
+`EVAL-B276-ENDPOINTBOUNDARYFRONTIER1` 按“未读图导航 / 已读证据确权”两段式施工：
+
+1. 入口仍只接受 typed `QFCallChain + CallChainEndpointProfile.Active()`，source/sink 都必须由共享全语言 qualified resolver 唯一解析到 function/method；歧义、缺失、
+   multi-repo 和 runtime artifact 全部旁路。raw user objective、模型 thinking/final prose、case ID 不参与判断；
+2. source direct frontier 仍取 exact source body 的 `tree_sitter` / `cangjie_parser` AST-grade call rows。新增 endpoint-boundary 只检查 exact sink body，且不会罗列任意
+   sink 内调用：只保留 `sink -> exact source` 反向边，或 `sink` 与 source direct frontier 指向同一 callee 的 shared-frontier 边；source 已有 exact
+   source→sink direct row 时不额外发射边界表；
+3. 边界最多 8 行，明确标为 advisory/navigation metadata。它只告诉 Explorer 应读哪个 exact boundary line，以及为什么可能是 wrapper、reverse edge、shared
+   implementation 或 no-path 的判定边界；禁止倒转箭头、等同端点或将行直接视为答案证据；
+4. 只有模型实际 `read_file` 到 exact relation line 后，既有 `callChainReadParserRelationHandoffDowngrade` 才能以 precise signal 要求
+   `evidence_kind=relationship + anchor_kind=call + exact caller/callee/source/line`。系统不创建 EvidenceItem、不写 Mermaid、不代替模型回答或结论；
+5. source frontier 大函数披露同步改为 `endpoint-relevant/first/middle/last sample`，与实际采样策略一致，避免教学自身失真；
+6. 真实仓库图 pin 现在同时要求早段 helper、source→`gate.RunWith` 和 endpoint-boundary `gate.Run -> RunWith @ gate.go:135` 导航；Cangjie 正例证明
+   `cangjie_parser` 同路，负例覆盖 regex fallback、无关 sink call、sink 歧义、已有 direct source→sink。`. / :: / -> / #` 表面共用兼容器，既有 15 语言
+   source/sink resolver matrix 保持；
+7. eval 撤掉 `analyzerGraphForNormalize` 单名硬 regex，只保留 reachable edge 与 boundary edge。此变化降低答案过拟合，不降低证据门：boundary edge 仍必须由模型读取并
+   发射 typed relation 才能通过结构 oracle。
+
+定向 frontier/全语言 resolver 测试、`go test ./internal/agent -count=1` 与 `go test ./...` 全绿。下一步严格并发 2 生产回放 QF + 一例异构语言或写模式，分别验证
+边界导航是否促成 read→typed edge，以及源码 call-chain 改动没有污染其他模式。JSON 教学保持单源；显式时间窗 Trace、因果投影、系统补齐、根因排序、唤醒链、
+窗内可消除量和双维根因分析均未进入本路径。
+
+状态：`EVAL-B276=S37x-implemented/full-tests-pass/pending-production-replay`；`EVAL-B262=closed`；
+下一优先级=`EVAL-B273-TYPEDDIAGRAMRECIPE1`，随后 B272/B274；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。

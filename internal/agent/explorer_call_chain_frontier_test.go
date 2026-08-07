@@ -159,10 +159,95 @@ func TestRenderExplorerCallChainDirectCallFrontier_RepositoryGraphPublishesEarly
 		"Typed Direct-call Frontier (advisory)",
 		"analyzerGraphForNormalize",
 		"gate.RunWith",
+		"Typed Endpoint-boundary Frontier (advisory)",
+		"`gate.Run` -> `RunWith`",
+		"Read the exact boundary line",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("repository graph frontier missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderExplorerCallChainDirectCallFrontier_PublishesOnlyRelevantExactSinkBoundary(t *testing.T) {
+	file := &repomap.FileInfo{
+		RelPath: "src/pipeline.cj", Language: repomap.LangCangjie, Package: "pipeline",
+		Symbols: []repomap.Symbol{
+			{Name: "start", Kind: "function", File: "src/pipeline.cj", Line: 10, EndLine: 30},
+			{Name: "finish", Kind: "function", File: "src/pipeline.cj", Line: 40, EndLine: 60},
+			{Name: "shared", Kind: "function", File: "src/pipeline.cj", Line: 70, EndLine: 80},
+			{Name: "unrelated", Kind: "function", File: "src/pipeline.cj", Line: 90, EndLine: 100},
+		},
+		Relations: []repomap.Relation{
+			{Kind: "call", File: "src/pipeline.cj", Line: 20, ToEP: repomap.RelationEndpoint{Name: "shared"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceCangjieParser},
+			{Kind: "call", File: "src/pipeline.cj", Line: 45, ToEP: repomap.RelationEndpoint{Name: "shared"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceCangjieParser},
+			{Kind: "call", File: "src/pipeline.cj", Line: 50, ToEP: repomap.RelationEndpoint{Name: "unrelated"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceCangjieParser},
+			{Kind: "call", File: "src/pipeline.cj", Line: 55, ToEP: repomap.RelationEndpoint{Name: "regex_only"}, Confidence: repotypes.ConfidenceRegexSalvage, Provenance: repotypes.ProvenanceRegexFallback},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repomap.FileInfo{file})
+	ctx := callChainFrontierContext("pipeline::start")
+	ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Sink = "pipeline::finish"
+	got := renderExplorerCallChainDirectCallFrontier(ctx, graph)
+	for _, want := range []string{
+		"Typed Endpoint-boundary Frontier (advisory)",
+		"`pipeline::finish` -> `shared`",
+		"shares callee `shared`",
+		"navigation metadata, not answer evidence",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("endpoint boundary frontier missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"pipeline::finish` -> `unrelated", "regex_only"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("endpoint boundary frontier admitted unrelated/noisy row %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestExplorerCallChainEndpointBoundaryRows_PreciseBoundaries(t *testing.T) {
+	makeGraph := func(sinkRelations []repomap.Relation, duplicateSink bool) *repomap.Graph {
+		files := []*repomap.FileInfo{{
+			RelPath: "src/pipeline.go", Language: repomap.LangGo, Package: "pipeline",
+			Symbols: []repomap.Symbol{
+				{Name: "start", Kind: "function", File: "src/pipeline.go", Line: 1, EndLine: 10},
+				{Name: "finish", Kind: "function", File: "src/pipeline.go", Line: 20, EndLine: 30},
+				{Name: "shared", Kind: "function", File: "src/pipeline.go", Line: 40, EndLine: 45},
+			},
+			Relations: append([]repomap.Relation{{Kind: "call", File: "src/pipeline.go", Line: 5, ToEP: repomap.RelationEndpoint{Name: "shared"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter}}, sinkRelations...),
+		}}
+		if duplicateSink {
+			files = append(files, &repomap.FileInfo{RelPath: "other/finish.go", Language: repomap.LangGo, Package: "other", Symbols: []repomap.Symbol{{Name: "finish", Kind: "function", File: "other/finish.go", Line: 1, EndLine: 5}}})
+		}
+		return repomap.BuildGraph(t.TempDir(), files)
+	}
+	sourceRows := []explorerCallChainDirectCallFrontierRow{{Source: "src/pipeline.go", Line: 5, Caller: "start", Callee: "shared"}}
+	ast := []repomap.Relation{{Kind: "call", File: "src/pipeline.go", Line: 25, ToEP: repomap.RelationEndpoint{Name: "shared"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter}}
+	if got := explorerCallChainEndpointBoundaryRows(makeGraph(ast, false), sourceRows, "start", "finish"); len(got) != 1 || got[0].Kind != "shared_frontier" {
+		t.Fatalf("AST shared frontier should be published, got %+v", got)
+	}
+	regex := []repomap.Relation{{Kind: "call", File: "src/pipeline.go", Line: 25, ToEP: repomap.RelationEndpoint{Name: "shared"}, Confidence: repotypes.ConfidenceRegexSalvage, Provenance: repotypes.ProvenanceRegexFallback}}
+	if got := explorerCallChainEndpointBoundaryRows(makeGraph(regex, false), sourceRows, "start", "finish"); len(got) != 0 {
+		t.Fatalf("regex relation must stay out of typed boundary navigation, got %+v", got)
+	}
+	if got := explorerCallChainEndpointBoundaryRows(makeGraph(ast, true), sourceRows, "start", "finish"); len(got) != 0 {
+		t.Fatalf("ambiguous exact sink must fail open, got %+v", got)
+	}
+	directRows := append(append([]explorerCallChainDirectCallFrontierRow(nil), sourceRows...), explorerCallChainDirectCallFrontierRow{Source: "src/pipeline.go", Line: 6, Caller: "start", Callee: "finish"})
+	if got := explorerCallChainEndpointBoundaryRows(makeGraph(ast, false), directRows, "start", "finish"); len(got) != 0 {
+		t.Fatalf("already-direct source-to-sink path should not add boundary navigation, got %+v", got)
+	}
+}
+
+func TestExplorerEndpointSurfacesCompatible_AllSupportedSeparators(t *testing.T) {
+	for _, endpoint := range []string{"pipeline.shared", "pipeline::shared", "pipeline->shared", "pipeline#shared"} {
+		if !explorerEndpointSurfacesCompatible(endpoint, "pipeline.shared") {
+			t.Fatalf("supported endpoint separator should normalize: %q", endpoint)
+		}
+	}
+	if explorerEndpointSurfacesCompatible("other.shared", "pipeline.shared") {
+		t.Fatal("different qualified owners must not be equated")
 	}
 }
 

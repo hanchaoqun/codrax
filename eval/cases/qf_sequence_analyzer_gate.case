@@ -10,7 +10,9 @@ QUESTION="请用 Mermaid 时序图展示 analyzer.go 里 buildAnalysisIR 到 gat
 EXPECT_CONTAINS="buildAnalysisIR gate.Run"
 EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)
 (normalizer\.Normalize|compiler\.Compile|hdp\.Plan|binder\.BindByRelevance|RecomputeBudget)'
-EXPECT_MATCHES_TEXT_REGEX='buildAnalysisIR.*analyzerGraphForNormalize.*analyzer\.go:[0-9]+
-buildAnalysisIR.*gate\.RunWith.*analyzer\.go:[0-9]+
+# Key-intermediate selection remains model-owned: requiring one specific early
+# helper overfits a 235-call orchestration body. The structural oracle keeps
+# the actual reachable edge and the exact endpoint boundary edge.
+EXPECT_MATCHES_TEXT_REGEX='buildAnalysisIR.*gate\.RunWith.*analyzer\.go:[0-9]+
 gate\.Run([^A-Za-z0-9_]|$).*RunWith.*gate\.go:[0-9]+'
 EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer 系统按已验证证据补充 System-verified"

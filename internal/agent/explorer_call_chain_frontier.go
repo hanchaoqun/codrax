@@ -17,6 +17,12 @@ import (
 // calls are load-bearing for the user's requested explanation.
 const explorerCallChainDirectCallFrontierLimit = 24
 
+// explorerCallChainEndpointBoundaryFrontierLimit keeps exact-endpoint
+// adjacency small.  It is only a navigation aid for reading a possible
+// reverse/shared-frontier boundary; it is never evidence or a completion
+// requirement.
+const explorerCallChainEndpointBoundaryFrontierLimit = 8
+
 type explorerCallChainDirectCallFrontierRow struct {
 	Source       string
 	Line         int
@@ -24,6 +30,12 @@ type explorerCallChainDirectCallFrontierRow struct {
 	Callee       string
 	TargetSource string
 	Resolved     bool
+}
+
+type explorerCallChainEndpointBoundaryRow struct {
+	Boundary explorerCallChainDirectCallFrontierRow
+	Peer     *explorerCallChainDirectCallFrontierRow
+	Kind     string
 }
 
 // renderExplorerCallChainDirectCallFrontier gives Explorer a bounded,
@@ -61,10 +73,12 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 		return ""
 	}
 	sink := strings.TrimSpace(rm.CallChainEndpointProfile.Sink)
-	rows, total := explorerCallChainDirectCallFrontierRows(graph, fi, sourceDef, source, sink)
+	allRows := explorerCallChainASTDirectCallRows(graph, fi, sourceDef, source)
+	rows, total := explorerCallChainDirectCallFrontierRowsFromAll(allRows, sink)
 	if len(rows) == 0 {
 		return ""
 	}
+	boundaryRows := explorerCallChainEndpointBoundaryRows(graph, allRows, source, sink)
 	logging.Debug("[explorer] typed direct-call frontier source=%q sink=%q emitted=%d total=%d", source, sink, len(rows), total)
 
 	var b strings.Builder
@@ -82,7 +96,21 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 			row.Source, row.Line, row.Caller, row.Callee, target)
 	}
 	if total > len(rows) {
-		fmt.Fprintf(&b, "\nShown %d of %d parser-owned direct calls using a deterministic first/middle/last sample; use the source body or a scoped `repo_map(view=\"relation_map\")` pass when another branch is relevant.\n", len(rows), total)
+		fmt.Fprintf(&b, "\nShown %d of %d parser-owned direct calls using a deterministic endpoint-relevant/first/middle/last sample; use the source body or a scoped `repo_map(view=\"relation_map\")` pass when another branch is relevant.\n", len(rows), total)
+	}
+	if len(boundaryRows) > 0 {
+		b.WriteString("\n### Typed Endpoint-boundary Frontier (advisory)\n\n")
+		fmt.Fprintf(&b, "The exact requested sink `%s` has the AST-authored adjacent calls below. They are shown only because they either point back to the exact source or share a direct callee with the source frontier. Read the exact boundary line before describing a wrapper, reverse edge, shared implementation, or `no_directed_path` result. These rows are navigation metadata, not answer evidence; do not reverse an arrow, equate endpoints, or omit a load-bearing boundary edge after you have read it.\n\n", sink)
+		b.WriteString("| Exact sink boundary row | Why it may matter |\n")
+		b.WriteString("|-------------------------|-------------------|\n")
+		for _, item := range boundaryRows {
+			why := "calls the exact source endpoint"
+			if item.Kind == "shared_frontier" && item.Peer != nil {
+				why = fmt.Sprintf("shares callee `%s` with `%s:%d` `%s` -> `%s`", item.Boundary.Callee, item.Peer.Source, item.Peer.Line, item.Peer.Caller, item.Peer.Callee)
+			}
+			fmt.Fprintf(&b, "| `%s:%d` `%s` -> `%s` | %s |\n",
+				item.Boundary.Source, item.Boundary.Line, item.Boundary.Caller, item.Boundary.Callee, why)
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -124,8 +152,17 @@ func explorerUniqueCallChainSourceDefinition(graph *repomap.Graph, source string
 }
 
 func explorerCallChainDirectCallFrontierRows(graph *repomap.Graph, fi *repomap.FileInfo, sourceDef *repomap.Symbol, source, sink string) ([]explorerCallChainDirectCallFrontierRow, int) {
+	return explorerCallChainDirectCallFrontierRowsFromAll(explorerCallChainASTDirectCallRows(graph, fi, sourceDef, source), sink)
+}
+
+func explorerCallChainDirectCallFrontierRowsFromAll(rows []explorerCallChainDirectCallFrontierRow, sink string) ([]explorerCallChainDirectCallFrontierRow, int) {
+	total := len(rows)
+	return explorerSampleDirectCallFrontierRows(rows, explorerCallChainDirectCallFrontierLimit, sink), total
+}
+
+func explorerCallChainASTDirectCallRows(graph *repomap.Graph, fi *repomap.FileInfo, sourceDef *repomap.Symbol, source string) []explorerCallChainDirectCallFrontierRow {
 	if graph == nil || fi == nil || sourceDef == nil || sourceDef.Line <= 0 || sourceDef.EndLine < sourceDef.Line {
-		return nil, 0
+		return nil
 	}
 	rows := make([]explorerCallChainDirectCallFrontierRow, 0)
 	seen := make(map[string]bool)
@@ -165,8 +202,73 @@ func explorerCallChainDirectCallFrontierRows(graph *repomap.Graph, fi *repomap.F
 		}
 		return rows[i].Callee < rows[j].Callee
 	})
-	total := len(rows)
-	return explorerSampleDirectCallFrontierRows(rows, explorerCallChainDirectCallFrontierLimit, sink), total
+	return rows
+}
+
+// explorerCallChainEndpointBoundaryRows identifies a narrow, parser-owned
+// navigation seam around the exact sink.  Unlike the source frontier it does
+// not publish arbitrary sink-body calls: a row must either call the exact
+// source (a reverse edge) or share an exact direct callee with the source
+// frontier.  This is a soft hint only.  Explorer must read the callsite before
+// it can become typed evidence, at which point the existing read/parser
+// handoff contract applies.
+func explorerCallChainEndpointBoundaryRows(graph *repomap.Graph, sourceRows []explorerCallChainDirectCallFrontierRow, source, sink string) []explorerCallChainEndpointBoundaryRow {
+	if graph == nil || len(sourceRows) == 0 || strings.TrimSpace(source) == "" || strings.TrimSpace(sink) == "" {
+		return nil
+	}
+	for _, row := range sourceRows {
+		if explorerEndpointSurfacesCompatible(row.Callee, sink) {
+			return nil
+		}
+	}
+	fi, sinkDef, ok := explorerUniqueCallChainSourceDefinition(graph, sink)
+	if !ok {
+		return nil
+	}
+	sinkRows := explorerCallChainASTDirectCallRows(graph, fi, sinkDef, sink)
+	if len(sinkRows) == 0 {
+		return nil
+	}
+	out := make([]explorerCallChainEndpointBoundaryRow, 0, explorerCallChainEndpointBoundaryFrontierLimit)
+	seen := make(map[string]bool)
+	for i := range sinkRows {
+		boundary := sinkRows[i]
+		item := explorerCallChainEndpointBoundaryRow{Boundary: boundary}
+		if explorerEndpointSurfacesCompatible(boundary.Callee, source) {
+			item.Kind = "reverse_endpoint"
+		} else {
+			for j := range sourceRows {
+				if explorerEndpointSurfacesCompatible(boundary.Callee, sourceRows[j].Callee) {
+					peer := sourceRows[j]
+					item.Kind = "shared_frontier"
+					item.Peer = &peer
+					break
+				}
+			}
+		}
+		if item.Kind == "" {
+			continue
+		}
+		key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s", boundary.Source, boundary.Line, boundary.Caller, boundary.Callee))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+		if len(out) >= explorerCallChainEndpointBoundaryFrontierLimit {
+			break
+		}
+	}
+	return out
+}
+
+func explorerEndpointSurfacesCompatible(left, right string) bool {
+	left = explorerNormalizeEndpointSurface(left)
+	right = explorerNormalizeEndpointSurface(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return strings.EqualFold(left, right) || types.CallChainEndpointCompatible(left, right)
 }
 
 func explorerCallChainRelationCalleeSurface(fi *repomap.FileInfo, rel repomap.Relation, target *repomap.Symbol) string {
