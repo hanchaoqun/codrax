@@ -22,12 +22,13 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
 	}
+	findingContract := strings.TrimSpace(renderTraceFindingContract(ctx))
 	authority := answerDocRuntimeTraceGuidanceView(ctx)
 	// A generic runtime/log observation ledger can compile an empty projection
 	// partition. Only an actual typed trace source may activate this trace-only
 	// synthesis handoff; raw request or artifact prose never participates.
 	if !authority.RuntimeTrace {
-		return ""
+		return findingContract
 	}
 	ledger := answerDocObservationLedger(ctx)
 	set := types.CompileTraceCausalProjectionSet(ledger)
@@ -40,7 +41,7 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	// causal synthesis merely because exploration happened to collect a causal
 	// row; explicit typed windows and causal/relation scopes remain authorized.
 	if !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
-		return ""
+		return findingContract
 	}
 	var claims []types.AnswerRelationClaim
 	if ctx.Mutable != nil {
@@ -49,7 +50,7 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	handoff := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
 		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), claims,
 	)
-	return strings.TrimSpace(handoff + renderTraceFindingContract(ctx))
+	return strings.TrimSpace(handoff + findingContract)
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {

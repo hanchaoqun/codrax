@@ -10,8 +10,8 @@ import (
 )
 
 // prepareTraceFindingContract activates typed findings only for an actual
-// runtime-trace finalizer dispatch. Ordinary source-code and log-only answers
-// retain their historical answer-document schema.
+// runtime-trace finalizer dispatch. Ordinary source-code, log-only, and narrow
+// runtime fact answers retain their historical answer-document schema.
 func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil
@@ -20,7 +20,12 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 		return nil
 	}
 	authority := answerDocRuntimeTraceGuidanceView(ctx)
-	if !authority.RuntimeTrace {
+	// The guidance view is evidence-derived and therefore may remain false when
+	// trace parsing/querying produced no publication-grade row. The typed
+	// preflight/direct attachment is still sufficient to require an unresolved
+	// finding for a causal trace analysis; otherwise the visible short-root-
+	// cause section disappears exactly when the trace evidence is incomplete.
+	if !authority.RuntimeTrace && !traceFindingHasTraceCarrier(ctx) {
 		return nil
 	}
 	ledger := answerDocObservationLedger(ctx)
@@ -29,7 +34,12 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
 	}
-	if !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
+	// An explicit bounded-fact request (for example "list this TID's state")
+	// must not be widened into a root-cause conclusion. Undecided trace shapes
+	// are allowed here only because the carrier check above proves that this is
+	// an actual trace run; an empty candidate set then fails closed to
+	// trace_finding.unresolved.
+	if decided, allowed := types.RuntimeTraceReportShapeAuthority(requestModel); decided && !allowed {
 		return nil
 	}
 	ceiling := "proven"
@@ -42,6 +52,22 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	}
 	ctx.Mutable.SetTraceFindingContract(contract)
 	return nil
+}
+
+func traceFindingHasTraceCarrier(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if ctx.RuntimeArtifactPreflight.HasTraceArtifact() ||
+		strings.TrimSpace(ctx.AttachedHitrace) != "" ||
+		strings.TrimSpace(ctx.AttachedHitraceSource) != "" ||
+		ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	return ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.PerfTrace != nil
 }
 
 func renderTraceFindingContract(ctx *types.AgentContext) string {
