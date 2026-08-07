@@ -12596,7 +12596,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
-		hint := answerDocOptionalDiagramCallEdgePatchHint(true)
+		hint := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -12670,15 +12670,19 @@ func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult
 	return !diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(result)
 }
 
-func answerDocOptionalDiagramCallEdgePatchHint(alreadyPatching bool) string {
+func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyPatching bool) string {
 	prefix := "Your last `emit_answer_document` call was rejected"
 	if alreadyPatching {
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 	}
-	return prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence. " +
+	hint := prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence, or its typed edge metadata no longer matches the visible Mermaid arrows. " +
 		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains a copy-ready optional typed diagram capsule when one can be built: either copy that capsule's Mermaid body AND complete `edge_anchors_json` unchanged, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
-		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch. Do not write free-form prose outside the tool call."
+		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch."
+	if payload := answerDocMechanismCopyReadyRepairPayload(ctx); payload != "" {
+		hint += " To minimize reconstruction work, the verified capsule is repeated here; copy BOTH parts byte-for-byte if you retain the diagram:\n\n" + payload
+	}
+	return hint + " Do not write free-form prose outside the tool call."
 }
 
 func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
@@ -12844,7 +12848,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// the model's behalf; required diagrams and mixed/non-diagram violations
 	// stay on their existing correction lanes.
 	if hasPatchBase && answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
-		hint = answerDocOptionalDiagramCallEdgePatchHint(false)
+		hint = answerDocOptionalDiagramCallEdgePatchHint(ctx, false)
 		reasonKey = "optional-diagram-call-edge"
 		diagramCallEdgePatchRecovery = true
 		e.preferPatchNext = true

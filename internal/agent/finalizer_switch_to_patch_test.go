@@ -514,7 +514,7 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 
 func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstReject(t *testing.T) {
 	e := &answerDocumentEvaluator{}
-	ctx := ctxWithAnswerPatchBase()
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	obs := LoopObservation{LastToolResult: &types.ToolResult{
 		ToolName: "emit_answer_document",
 		Success:  false,
@@ -537,6 +537,10 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 		"copy-ready optional typed diagram capsule",
 		"remove_block_ids",
 		types.AnswerDocumentPatchOperationTeaching,
+		"verified capsule is repeated here",
+		"participant n1 as Orchestrator.runAnalyzePhase",
+		"n1->>n2: call",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
 	} {
 		if !strings.Contains(got.Hint, want) {
 			t.Errorf("first-reject optional diagram hint missing %q:\n%s", want, got.Hint)

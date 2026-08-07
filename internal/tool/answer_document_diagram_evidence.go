@@ -30,6 +30,7 @@ const (
 	diagramCallEdgeIssueDuplicateParticipant  = "duplicate_participant_identity"
 	diagramCallEdgeIssueMissingAnchor         = "missing_call_anchor"
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
+	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
@@ -90,6 +91,12 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		parsedEdges := documentEdges
 		if block.Diagram != nil {
 			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
+		}
+		visibleBodyEdgeKeys := make(map[string]bool, len(parsedEdges))
+		if block.Kind == types.BlockDiagram && block.Diagram != nil {
+			for _, edge := range parsedEdges {
+				visibleBodyEdgeKeys[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+			}
 		}
 		if strictBodyCoverage {
 			effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
@@ -185,6 +192,24 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 		}
 		for _, anchor := range block.EdgeAnchors {
+			// Diagram-local edge metadata describes the visible body, not a
+			// hidden replacement graph. Keep optional visuals free to show any
+			// faithful subset of the evidence, including a node-only subset with
+			// no anchors, while rejecting the inverse drift where typed anchors
+			// survive after every corresponding arrow was deleted. Sibling
+			// structured carriers remain legal and are checked through the unique
+			// body-edge ownership lane above.
+			if block.Kind == types.BlockDiagram && block.Diagram != nil &&
+				!visibleBodyEdgeKeys[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					FromSymbol: diagramEvidenceEndpointSymbol(anchor.FromNode, labels),
+					ToSymbol:   diagramEvidenceEndpointSymbol(anchor.ToNode, labels),
+					Relation:   diagramAnchorRelation(anchor),
+				})
+				continue
+			}
 			relation := diagramAnchorRelation(anchor)
 			if relation == types.DiagramRelCallback {
 				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)

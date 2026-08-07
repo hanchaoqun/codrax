@@ -25682,3 +25682,47 @@ r189 证明模型已看到 sample completeness，却把“任务是计算型”�
 状态：`EVAL-B298=S37az-implemented/full-suite-pass/pending-production-replay`；
 `decision-scope=per-material`；`guidance=soft`；`hard-gate=unchanged`；`prompt-budget=<62KB`；
 模型答案所有权=`preserved`；Trace=`unchanged`。
+
+### 123.312 r190：JSON 零修复闭环；C++ 暴露 diagram metadata ghost 与多行证据折叠
+
+在 `main@05f2051d7` 上严格并发 2 跑 `data_json_strict_ids` 与 `sr_cpp_virtual_chain`，runner 2/2 PASS，人工 1 PASS / 1 FAIL：
+
+1. JSON 38s、1 round、0 repair。planner 对 `instructions.md` 逐材料选择 `planner_distilled`，携带“仅 JSON、字段 ids”和“active id 保持源序”两条具体 notes；
+   对 `users.json` 选择 `script_consumed`，脚本真实 `json_load` 后过滤。最终严格输出 `{"ids":["u1","u3"]}`，S37az 获得干净生产正证，
+   `EVAL-B298` 关闭；
+2. JSON evaluator 思考中仍出现“instructions.md 未覆盖”，原因是运行时 `required_material_count=1` 只计 executable 消费材料，而原 coverage contract 同时显示
+   planner-distilled 规则材料。typed terminal 为 complete 且无 violation，故这是 context 口径观察项，不用输出/用户关键词硬门干预；
+3. C++ 136s，首次答案把 `SinkRegistry.create -> ConsoleSink` 的 factory registration 画成 direct call，typed validator 正确拒绝；模型随后声称只移除该边，
+   实际把三条已证调用箭头一并删掉，仅保留 participants/Notes，却继续提交 `L->S`、`L->F`、`MS->SR` 三条 `edge_anchors`。旧 validator 只做
+   visible-body-edge -> typed-anchor 单向检查，metadata -> visible-body-edge 反向闭包缺失，因而接受用户可见零关系、隐藏 metadata 三关系的图；
+4. C++ 正文另有两处事实扩张：`flush` 实为 `level >= kError` 条件调用，却被说成写后必调；`"console"` 的真实选择依据是
+   `SinkRegistry::create` 中的字符串分支，答案却说成 `ConsoleSink.name()` 的返回值。explorer 原始 evidence 已知道两者，但 finalizer Primary Evidence
+   把 conditional 多行事实折为第 38 行 call，把 registration 多行事实折为第 15 行 signature，丢掉 guard/branch 的可见承载。这不是单纯模型波动，立
+   `EVAL-B319=typed-evidence-span-collapse`；
+5. runner oracle 只要求 Logger/write、registry/console、多态词面，因此没有发现空图和两处机制错误。人工 verdict 必须为 FAIL；不扩充单 case
+   `EXPECT_*` 去拟合，而以通用 typed carrier/validator 修复。
+
+状态：`EVAL-B298=production-positive/closed`；`EVAL-B318=diagram-anchor-body-bijection-confirmed`；
+`EVAL-B319=typed-evidence-span-collapse-confirmed/pending`；`runner=2/2 PASS`；`human=1/2 PASS`；
+模型答案所有权=`preserved`；Trace=`not-entered`。
+
+### 123.313 S37ba：source diagram 的可见边与本地 typed anchor 建立双向闭包
+
+`EVAL-B318` 采用跨语言、非完备性硬门的最小架构修复：
+
+1. `DiagramCallEdgeEvidenceMismatches` 新增精确结构诊断 `typed_anchor_without_visible_edge`。source diagram 的本地 `edge_anchors` 必须在同一 Mermaid body
+   中拥有同向可见边；这是 schema 字段与解析后 Mermaid AST 的等值检查，不扫描用户输入、模型推理或最终答案词面；
+2. 约束不要求可选图覆盖 sibling principal evidence：node-only 子图仍合法，但必须不携带隐藏边 metadata；非 diagram 的 sibling carrier 仍可为唯一图体边
+   提供 typed owner。由此保持“可选子集”而拒绝“metadata ghost”，没有把图强制成全量调用图；
+3. optional diagram 第一次/后续 call-edge reject 仍由模型选择“复制已证 capsule”或“删除可选图”，系统不修改 Mermaid/正文/结论；repair hint 在可取得时
+   重复同一份 copy-ready body + `edge_anchors_json`，降低模型从长 prompt 手工重构产生第三张图和重复成文失败的概率；
+4. 回归遍历项目全部可执行语言：Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie；Proto 保持声明式
+   边界。另钉 body edge 无 anchor、anchor 无 body edge、错误 sibling anchor 双诊断与 exact capsule repair；
+5. `QFRootCauseTrace` 在函数入口继续独立退出，并新增 metadata/body 不匹配负隔离 pin。显式时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、
+   性能根因双维与系统/模型答案所有权均未进入本改动；
+6. 聚焦测试首次发现一个旧 fixture 同时包含“可见边无匹配 anchor”和“错误 anchor 无可见边”，更新为一次返回两条真实诊断；聚焦复跑全绿，完整
+   `go test ./... -count=1` 作为提交门执行。
+
+状态：`EVAL-B318=S37ba-implemented/full-suite-pass`；`signal=typed-schema+parsed-mermaid-ast`；
+`optional-subset=preserved`；`system-rewrite=none`；`raw-prose-scan=none`；`Trace=isolated`；
+下一批=`EVAL-B319 typed evidence span`，不得在本提交夹带。

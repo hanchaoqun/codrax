@@ -1026,6 +1026,12 @@ func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceFlowStaysOnRuntimeAuthori
 			Kind: types.DiagramFlow, Language: "mermaid",
 			Body: "flowchart TD\n  Frame --> Wakeup\n",
 		},
+		// Runtime causal projection has an independent typed authority. Even a
+		// source-diagram metadata/body mismatch must not route it through the
+		// source call-edge gate.
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Host", ToNode: "Target", RelationKind: types.DiagramRelCall,
+		}},
 	}}}
 	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}, nil); len(got) != 0 {
 		t.Fatalf("runtime trace diagram must retain its independent causal authority: %+v", got)
@@ -1300,6 +1306,19 @@ func TestDiagramCallEdgeEvidenceMismatches_OptionalDiagramSubsetAcrossExecutable
 				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
 			if len(got) != 0 {
 				t.Fatalf("%s sibling typed call must not create optional-diagram completeness pressure: %+v", tc.language, got)
+			}
+
+			// Metadata cannot claim a hidden relation that the model removed from
+			// the visible Mermaid body. This is the inverse of completeness: a
+			// node-only optional subset remains valid only when it carries no
+			// diagram-local edge metadata.
+			doc.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+			}}
+			got = DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueAnchorWithoutBodyEdge {
+				t.Fatalf("%s diagram-local metadata-only edge must fail closed: %+v", tc.language, got)
 			}
 		})
 	}
@@ -1633,8 +1652,9 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFail
 		FromNode: "A", ToNode: "Other", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition,
 	}}
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
-		t.Fatalf("a non-matching guard anchor must not hide an unanchored DAG edge: %+v", got)
+	if len(got) != 2 || got[0].Issue != diagramCallEdgeIssueMissingAnchor ||
+		got[1].Issue != diagramCallEdgeIssueAnchorWithoutBodyEdge {
+		t.Fatalf("a non-matching guard anchor must neither hide the unanchored DAG edge nor survive as metadata-only authority: %+v", got)
 	}
 }
 
@@ -2090,4 +2110,31 @@ func TestRunPreEmitChecks_OptionalDiagramSubsetDoesNotCreateHardCompletenessGate
 			t.Fatalf("a grounded sibling call omitted from an optional visual must not create a hard completeness reject: %+v", hints)
 		}
 	}
+}
+
+func TestRunPreEmitChecks_DiagramAnchorWithoutVisibleEdgeIsRejected(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "metadata-only", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant A as Alpha.Run\n  participant B as Beta.Run\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	mut := types.NewMutableState("metadata-only diagram edge")
+	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil,
+		&types.BusContext{Mutable: mut})
+	for _, hint := range hints {
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
+			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssueAnchorWithoutBodyEdge) {
+			hard, _ := splitPreEmitHintsByGate(hints)
+			if len(hard) == 1 {
+				return
+			}
+		}
+	}
+	t.Fatalf("metadata-only diagram edge must be rejected with one precise hard repair: %+v", hints)
 }
