@@ -23174,3 +23174,35 @@ ClaimForm 与 relation enum，不按 C++、factory 或某个 eval type 特判。
 状态：`EVAL-B236-PHASEBRIDGE1=S36y-implemented/package-tests-pass`；`EVAL-B235-CITEREBIND1=closed`；
 模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`；下一步=`full-tests+commit+push+r150`。
+
+### 123.217 r150：segment carrier 生产回放与 patch 修复路由错位
+
+r150 按固定并发 2 回放 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 2/2 PASS，人工严格审计 1/2；Python 最终答案通过，
+C++ 因把未证的 factory→Logger bridge 写成一条完整链而失败。
+
+Python 侧确认 `EVAL-B235-CITEREBIND1` 已生产闭环：`@register("json")` 的模型提交引用保持在精确
+`pipeline/plugins.py:17`，未再被定义 fallback 改绑；B233 的 `resolve returns cls()` 也继续支撑“查表后实例化”结论。最终答案对目标类、lookup、
+callback、MRO/super 协作链和 decorator 作用均正确。但成文耗时 429s、5 次 reject，暴露两个确定性系统 GAP：
+
+1. `EVAL-B237-PATCHSCOPE1`：历史名为 `ViolDiagramCallEdgeUnproven` 的 violation family 同时覆盖 diagram body 和任意 block 的
+   `edge_anchors[]`。当 diagram 已删除、只剩 `ordered_list` 中两个未证 direct-call anchor 时，repair metadata 仍只有 family kind；finalizer
+   因而继续选择 `answer_doc.patch_optional_diagram_call_edge`，错误宣称“只因可选 diagram 被拒”，引导模型反复删除已经不存在的图。最优根修是
+   producer 从实际 mismatch.BlockID 发布 typed `offending_block_kinds`，optional-diagram lane 只在唯一违规族且所有 offending block 均为
+   `kind=diagram` 时启用；缺失、mixed 或 non-diagram 必须走通用 patch-local 修复。不能从 error prose、用户输入或模型文本猜位置；
+2. `EVAL-B238-PATCHDELETE1`：patch schema 虽有 `remove_block_ids`，但初始 switch-to-patch 与通用 correction 教学只列
+   `unchanged_block_ids/replace_blocks/add_blocks`，没有说明已有可选块必须显式 remove，省略不代表删除。模型随后一次把
+   `replace_blocks` 发成 JSON-encoded malformed string。最优方案是不复制 JSON schema，只补一个统一操作语义：keep/replace/add/remove 各自用途，
+   特别说明 intentional deletion 使用 `remove_block_ids`；字段类型仍只由 tool schema 决定。
+
+C++ 侧确认 S36y 的 `entry_role`、`relation_segment_class`、component index 非顺序以及跨 component 执行/值交接 unproven 均进入真实
+finalizer prompt；但模型仍在 summary/ordered list 中把多个真实片段拼成一条未证端到端链。故 `EVAL-B236-PHASEBRIDGE1` 从 implemented 调整为
+`partial`：下一步应从同一 support plan 结构化拆分 directed-hop principal lane 与 binding/control/value-flow sibling lane，并保留 component 边界；
+不得扫描或重写模型正文，不得系统替模型下结论。可选图中的未证边被硬门诚实拒绝，模型最后自行删图，不是系统代写。
+
+两条跨批红线继续显式守护：sequence display message 参数不得污染 typed endpoint identity；C++ labelled/unlabelled flowchart 逻辑箭头均不得
+绕过同向 typed relation anchor。JSON 教学保持单源、减少模型心智；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及
+“真实耗时贡献 / 规则内可消除量”双维根因分析未触碰。
+
+状态：`EVAL-B235-CITEREBIND1=closed/production-replay`；`EVAL-B236-PHASEBRIDGE1=partial`；
+`EVAL-B237-PATCHSCOPE1=P0/P1-next`；`EVAL-B238-PATCHDELETE1=P1-same-batch`；runner=`2/2 PASS`；human=`1/2`；
+模型答案所有权=`preserved`；下一步=`typed repair scope + minimal patch operation teaching, tests, commit/push, two-case replay`。
