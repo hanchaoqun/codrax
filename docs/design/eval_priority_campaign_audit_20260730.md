@@ -24863,3 +24863,45 @@ runner=`2/2 PASS`、human=`0.5/2`；模型答案所有权=`preserved`；Trace �
 
 状态：`EVAL-B292/B293=S37ag-implemented/full-tests-pass`；`EVAL-B294/B295=next-P1`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
+
+### 123.280 r177：copy-ready 去重/扩容转正；Python 合法单行 import 被硬门漏认
+
+r177 在 `main@e552db5c2` 上严格并发 2，运行 QF `qf_sequence_analyzer_gate` 与 write-plan `patch_python_typo`。runner 2/2 PASS；人工为 QF
+partial、Python PASS。QF 234s、单 Explorer、5 read、一次 Finalizer reject；S37ag 两项均有 production positive witness：
+
+1. copy-ready 与最终 Mermaid 包含 20 条唯一 typed call edge，覆盖 `buildAnalysisIR` 的 11 条 fan-out 与 `gate.RunWith` 的 9 条 check fan-out；
+   r176 的重复 `n1->>n2` 与重复 anchor 消失，`gate.RunWith`/后部 checks 不再被前 8 条截掉，B292/B293 关闭；
+2. 最终答案不再声称存在 `buildAnalysisIR -> gate.Run` 路径，明确实际入口为 `gate.RunWith`。但 Explorer 已读
+   `gate.go:134-143`，其中 line 135 明确是 `Run -> RunWith`，却只发 `Run@134` definition 与 `RunWith@143` definition，没有另发 line 135 call row；
+   Finalizer 因而把已读事实说成“Run 与 RunWith 关系需要进一步验证”。B291 的 endpoint citation 修复没有权限从 summary/source text 猜造缺失边，保持待真实 typed
+   call-row witness；下一步应收窄 Explorer 证据教学，要求同一已读定义体内的调用另发 relationship row，仍允许合法 leaf endpoint 无 incident edge；
+3. 图本身已正确表达两个 fan-out，但 prose 仍把 `buildAnalysisIR` 的 sibling calls 称作“中间处理函数/依次调用”。不再出现 r176 的“20 hops”强错误，B294
+   风险下降但未关闭。最优方案仍是从 typed edge graph 计算 `single_linear_path=false`、component/fan-in/fan-out degree 等软上下文，绝不扫描或改写答案正文。
+
+Python 最终 ChangePlan 精确只改 `main.py:20` 的 `retrun -> return`，验收与行为 probe 正确；但过程存在确定性
+`EVAL-B296-PYSEMICOLONIMPORT1=P0-process`：Planner 首次发合法 Python
+`import main; result = main.greet(...); assert ...`，coupling hard gate 按物理行整体取第一个 token，将 `main;` 判为非法模块，连续四次报告“没有 import main”；
+第二次 Planner dispatch 改成多行后立刻通过。该硬门的输入是结构化 `verification_probes[].code`，本应精确解析合法语言语法；当前 parser/合同自冲突导致约 100s
+额外延迟。runner 的 `finalizer_rejects=0` 没覆盖 planner structured rejects，后续另记 telemetry 缺口但不与语义修复混批。
+
+状态：`EVAL-B292/B293=production-positive/closed`；`EVAL-B291=pending-explorer-call-row`；`EVAL-B294=P1-open`；
+`EVAL-B295=P1-open`；`EVAL-B296=P0-immediate`；runner=`2/2 PASS`、human=`1.5/2`；模型答案所有权=`preserved`；Trace 全能力=`unchanged`。
+
+### 123.281 S37ah：Python probe coupling 精确支持分号分隔 simple_stmt
+
+本批只修 B296 的语言解析，不放松 probe 必须导入 changed production module 的 hard gate：
+
+1. `pythonImportDeclarations` 在每条物理行内先用窄 lexical splitter 识别 Python 合法的分号分隔 simple statements，再把每个 statement 交给既有
+   `import` / `from ... import ...` parser。`import main; result=...` 因而精确产出 module `main`；
+2. splitter 跟踪单引号、双引号、三引号、反斜杠转义与 outside-string comment。`payload='x; import widget; y'` 中的文本不能铸 import authority；
+   这避免为了修生产样例把任意 `; import ...` 子串变成硬门凭证；
+3. changed file/module target、`changed_symbol_refs`、repo scope 与 provider `Covers` 逻辑完全不变。没有从 request、planner thinking、rationale 或最终计划 prose
+   推断导入；JavaScript/Ruby/Java/Go provider 未改；
+4. 回归同时钉住合法 `import widget; result=...` 通过，以及 quoted semicolon 中的伪 import 不可见。既有多行 Python changed-module positive 与 copied
+   implementation negative 保持。
+
+聚焦回归与完整 `go test ./internal/tool` 均已绿；上一相邻提交已跑全仓且本批只改该包的私有 parser/test，随后提交推送。模型仍决定是否发 probe、测什么行为与
+最终改动；系统只让 hard gate 与合法 Python 语法一致。JSON schema/教学无需增加字段或例外，Trace 路由完全未触碰。
+
+状态：`EVAL-B296=S37ah-implemented/internal-tool-full-pass`；`EVAL-B291/B294/B295=queued`；
+模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 能力=`unchanged`。

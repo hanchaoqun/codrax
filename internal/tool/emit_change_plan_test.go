@@ -1103,6 +1103,41 @@ func TestEmitChangePlan_AcceptsPythonProbeImportingChangedTargetModule(t *testin
 	}
 }
 
+func TestEmitChangePlan_AcceptsPythonProbeWithSemicolonSeparatedImport(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix widget behavior",
+		"summary": "Modify widget and verify the changed production module with a legal semicolon-separated Python probe.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "update the value"}
+		],
+		"verification_probes": [
+			{"id": "module_behavior", "language": "python", "code": "import widget; result = widget.VALUE; assert result == 42", "changed_symbol_refs": ["path:widget.py"]}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("legal semicolon-separated changed-module import must be accepted, got: %s", res.Summary)
+	}
+}
+
+func TestPythonImportDeclarationsDoNotReadQuotedSemicolonsAsImports(t *testing.T) {
+	imports := pythonImportDeclarations("payload = 'x; import widget; y'; import safe\nmessage = \"from fake import value; still text\"")
+	if _, ok := imports["safe"]; !ok {
+		t.Fatalf("real semicolon-separated import missing: %+v", imports)
+	}
+	for _, forbidden := range []string{"widget", "fake", "fake.value"} {
+		if _, ok := imports[forbidden]; ok {
+			t.Fatalf("quoted text minted Python import %q: %+v", forbidden, imports)
+		}
+	}
+}
+
 func TestEmitChangePlan_AcceptsExtraPythonProbeWhenAnotherProbeImportsChangedTarget(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

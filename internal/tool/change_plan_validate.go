@@ -2122,9 +2122,72 @@ func pythonImportDeclarations(code string) map[string]struct{} {
 	out := map[string]struct{}{}
 	lines := strings.Split(code, "\n")
 	for _, line := range lines {
-		parsePythonImportDeclaration(line, out)
+		for _, statement := range splitPythonSimpleStatements(line) {
+			parsePythonImportDeclaration(statement, out)
+		}
 	}
 	return out
+}
+
+// splitPythonSimpleStatements recognizes Python's legal semicolon-separated
+// simple_stmt form without treating semicolons inside quoted values as code.
+// Probe coupling is a hard gate, so this lexer stays deliberately narrow: it
+// only separates physical-line statements and strips an outside-string
+// comment. It does not infer imports from arbitrary probe prose.
+func splitPythonSimpleStatements(line string) []string {
+	statements := make([]string, 0, 2)
+	start := 0
+	var quote byte
+	triple := false
+	escaped := false
+	end := len(line)
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if triple {
+				if ch == quote && i+2 < len(line) && line[i+1] == quote && line[i+2] == quote {
+					quote = 0
+					triple = false
+					i += 2
+				}
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"':
+			quote = ch
+			if i+2 < len(line) && line[i+1] == ch && line[i+2] == ch {
+				triple = true
+				i += 2
+			}
+		case '#':
+			end = i
+			i = len(line)
+		case ';':
+			if statement := strings.TrimSpace(line[start:i]); statement != "" {
+				statements = append(statements, statement)
+			}
+			start = i + 1
+		}
+	}
+	if start < end {
+		if statement := strings.TrimSpace(line[start:end]); statement != "" {
+			statements = append(statements, statement)
+		}
+	}
+	return statements
 }
 
 func parsePythonImportDeclaration(line string, out map[string]struct{}) {
