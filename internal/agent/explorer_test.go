@@ -12565,6 +12565,29 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 			t.Fatalf("discover-sink evidence guide missing %q:\n%s", want, discoverGuide)
 		}
 	}
+	discoverPath := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			SinkMode: types.CallChainSinkResolutionDiscoverPath,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}}
+	discoverPathGuide := renderExplorerCallChainEdgeEvidenceGuide(discoverPath)
+	for _, want := range []string{
+		"Role-bound path discovery starts without code-identity authority",
+		"each direct downstream invocation that advances the requested boundary",
+		"emit every such invocation as its own grounded call-edge item",
+		"continue through wrappers, policy, retry, or transport helpers",
+		"do not turn a conceptual role label into a code identity",
+	} {
+		if !strings.Contains(discoverPathGuide, want) {
+			t.Fatalf("discover-path edge handoff missing %q:\n%s", want, discoverPathGuide)
+		}
+	}
+	if strings.Contains(discoverPathGuide, "Dynamic destination discovery needs a separate typed selection fact") {
+		t.Fatalf("role-bound static path must not inherit runtime-selection teaching:\n%s", discoverPathGuide)
+	}
 
 	rootCauseTrace := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:   types.IntentRootCause,

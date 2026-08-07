@@ -6914,6 +6914,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		if !topology.singleLinearGraph {
 			b.WriteString("- The relation inventory is not one linear hop chain. Do not turn its relation count into a hop count or list sibling fan-out/fan-in edges as consecutive intermediates. If `typed_flow_path[...]` records are present, only those records authorize their own ordered subset; otherwise keep the listed directed edges as a graph/boundary.\n")
 		}
+		b.WriteString("- These topology fields describe only the shape of grounded directed relations. `fan_out_present` means one node has multiple outgoing typed relations; `weak_components` and `disconnected_present` describe graph connectivity. None of them proves concurrent/parallel execution, temporal order, a join, or runtime convergence. State those semantics only when separate typed control-flow, concurrency, or runtime evidence establishes them.\n")
 	}
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
 	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")

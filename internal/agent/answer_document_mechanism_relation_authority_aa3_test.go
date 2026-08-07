@@ -496,6 +496,9 @@ func TestMechanismRelationAuthorityPublishesTypedFanOutTopologyAA3(t *testing.T)
 		"relation inventory is not one linear hop chain",
 		"Do not turn its relation count into a hop count",
 		"sibling fan-out/fan-in edges as consecutive intermediates",
+		"topology fields describe only the shape of grounded directed relations",
+		"None of them proves concurrent/parallel execution, temporal order, a join, or runtime convergence",
+		"separate typed control-flow, concurrency, or runtime evidence",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed fan-out topology missing %q:\n%s", want, got)

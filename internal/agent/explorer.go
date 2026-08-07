@@ -1911,6 +1911,9 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	if ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
 		guide += "- Dynamic destination discovery needs a separate typed selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
 	}
+	if ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverPathActive() {
+		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
+	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
 }
 

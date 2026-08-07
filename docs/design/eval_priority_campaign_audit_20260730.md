@@ -25244,3 +25244,29 @@ r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 状态：`EVAL-B304=S37ao-implemented/affected-package-suite-pass`；
 `convergence-authority=monotonic-per-lane`；`new-typed-evidence=upgrade-supported`；
 模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
+
+### 123.295 S37ap：拓扑只授权拓扑；角色路径逐条直接调用落证
+
+本批同时处理 B268 与 B305，只增强模型收到的精准上下文，不新增成文硬门或系统结论：
+
+1. `Current-Source Mechanism Relation Authority` 已发布 `fan_out_present`、`weak_components`、`disconnected_present` 等 typed graph
+   指标，但旧指导只禁止把非线性图硬串成线性 hop，没有明确禁止把 fan-out 叙述成“并行执行”、把 component 汇合叙述成“运行时汇聚”。r183 Rust 是继
+   B268 后第二个相同生产误读；
+2. 现在在同一 typed topology block 就地声明其权限：fan-out 只表示一个节点有多个 outgoing typed relation，component/disconnected 只表示图连通性；这些字段均不证明
+   concurrent/parallel execution、temporal order、join 或 runtime convergence。上述语义只有独立 typed control-flow、concurrency 或 runtime evidence 才可支持；
+3. 这是模型软指导，不扫描正文中的“并行/汇聚”等词，不拒绝、删除或改写模型答案，也不把图拓扑直接升级成系统结论。若代码确有 goroutine/thread/task/async/join 等
+   独立证据，模型仍可据证判断并发；
+4. `Call-edge Evidence Handoff` 对 `discover_path` 增加专属但跨语言的短指导：角色边界初始不携带代码身份；当 principal method 已读时，逐个检查推进请求边界的
+   direct downstream invocation，并把每条各自发成 grounded call-edge，沿 wrapper/policy/retry/transport helper 继续，直到抵达请求角色或明确 evidence boundary；不能在
+   第一个已证 helper 停下，也不能把概念角色标签铸成代码身份；
+5. 该指导由 `DiscoverPathActive()` 这一 typed enum 选择，不读原始问题关键词、模型 thinking/答案、文件扩展名或语言名。真正 `discover` 的 runtime selection
+   教学仍只在其原车道出现，`discover_path` 负 pin 保证不继承；普通 RootCauseTrace/显式窗 trace 继续拿不到 source-call endpoint 指导；
+6. 行为统一覆盖 Go、Java、Kotlin、JavaScript/TypeScript/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 等可执行源码；不为
+   `dispatchOnce/fetch`、Rust fan-out 或某个 eval 类型拟合。测试钉住拓扑权限句、role-bound 逐边落证、runtime-selection 隔离与 Trace no-leak；完整
+   `go test ./internal/agent -count=1` 全绿（6.550s）；
+7. 本批没有更改 relation evidence 的硬校验、Mermaid 自愈、JSON schema/repair、Trace query/投影/补采或 write mode。最终“是否并发、完整链到哪里、关键优化方向是什么”仍由模型
+   基于精确上下文作结论。
+
+状态：`EVAL-B268=S37ap-soft-context-implemented/pending-production-replay`；
+`EVAL-B305=S37ap-soft-context-implemented/pending-production-replay`；
+`hard-prose-scan=none`；模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
