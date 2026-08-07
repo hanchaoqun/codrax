@@ -1053,7 +1053,7 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsCallAndGuardForSameCompo
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCallMustAppearInDiagram(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatches_OptionalDiagramMayShowTypedPrincipalSubset(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
 			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
@@ -1076,10 +1076,43 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCallMustAppearInDiagram(
 		diagramEvidenceTestCall("Service.handle", "Repository.count"),
 		diagramEvidenceTestCall("Service.handle", "Repository.insert"),
 	}
-	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssuePrincipalMiss ||
-		got[0].FromSymbol != "Service.handle" || got[0].ToSymbol != "Repository.insert" {
-		t.Fatalf("a typed call between model-selected principal hops must remain visible in the diagram: %+v", got)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("an optional diagram may faithfully show one grounded principal edge while sibling prose carries another: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CopyReadySequenceSubsetSurvivesSiblingPrincipalCall(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{
+				{Label: "Logger::log", CitationRef: 0},
+				{Label: "ConsoleSink::write", CitationRef: 1},
+			},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n  participant n1 as Logger.log\n  participant n2 as Sink.write\n  n1->>n2: call\n",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "n1", ToNode: "n2", RelationKind: types.DiagramRelCall,
+			}},
+		},
+	}, Citations: []types.Citation{
+		{File: "src/logger.cpp", Line: 36},
+		{File: "include/logx/console_sink.hpp", Line: 10},
+	}}
+	first := diagramEvidenceTestCall("Logger.log", "Sink.write")
+	first.Source, first.LineStart = "src/logger.cpp", 36
+	second := diagramEvidenceTestCall("ConsoleSink.write", "std.fputs")
+	second.Source, second.LineStart = "include/logx/console_sink.hpp", 10
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{first, second}); len(got) != 0 {
+		t.Fatalf("the exact copy-ready typed subset must pass even when sibling prose cites another grounded call: %+v", got)
 	}
 }
 
@@ -1111,7 +1144,7 @@ func TestDiagramCallEdgeEvidenceMismatches_NonPrincipalTypedCallDoesNotExpandDia
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecutableLanguages(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatches_OptionalDiagramSubsetAcrossExecutableLanguages(t *testing.T) {
 	tests := []struct {
 		language string
 		caller   string
@@ -1141,7 +1174,7 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 			continue // Proto is declarative and has no source invocation edge.
 		}
 		if !covered[language] {
-			t.Fatalf("supported executable language %q has no principal call-diagram completeness fixture", language)
+			t.Fatalf("supported executable language %q has no optional call-diagram subset fixture", language)
 		}
 	}
 	for _, tc := range tests {
@@ -1151,9 +1184,9 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 					ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
 					FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
 					ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
-					// The visible item is intentionally an edge-shaped presentation,
-					// not an exact endpoint identity. Completeness must come from its
-					// typed citation_ref and never from parsing model-authored prose.
+					// The sibling principal row is intentionally edge-shaped and
+					// citation-backed. It must not force an optional node-only visual
+					// to claim that it is an exhaustive graph.
 					Items: []types.AnswerBlockItem{{
 						Label: tc.caller + " → " + tc.callee, CitationRef: 0,
 					}},
@@ -1168,8 +1201,8 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 			}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
 			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
-			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssuePrincipalMiss {
-				t.Fatalf("%s principal typed call must remain visible in the diagram: %+v", tc.language, got)
+			if len(got) != 0 {
+				t.Fatalf("%s sibling typed call must not create optional-diagram completeness pressure: %+v", tc.language, got)
 			}
 		})
 	}
@@ -1933,7 +1966,7 @@ func TestRunPreEmitChecks_DuplicateParticipantIdentityGivesSingleExecutableRepai
 	}
 }
 
-func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) {
+func TestRunPreEmitChecks_OptionalDiagramSubsetDoesNotCreateHardCompletenessGate(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
 			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
@@ -1951,20 +1984,13 @@ func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) 
 			},
 		},
 	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
-	mut := types.NewMutableState("principal path diagram completeness")
+	mut := types.NewMutableState("optional diagram subset")
 	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Service.handle", "Repository.insert")})
 	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil,
 		&types.BusContext{Mutable: mut})
 	for _, hint := range hints {
-		if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
-			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssuePrincipalMiss) &&
-			strings.Contains(hint.ExpectedShape, "Service.handle") &&
-			strings.Contains(hint.ExpectedShape, "Repository.insert") {
-			hard, _ := splitPreEmitHintsByGate(hints)
-			if len(hard) == 1 && hard[0].Kind == types.ViolDiagramCallEdgeUnproven {
-				return
-			}
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven {
+			t.Fatalf("a grounded sibling call omitted from an optional visual must not create a hard completeness reject: %+v", hints)
 		}
 	}
-	t.Fatalf("principal typed call omitted from diagram must be wired to the hard typed gate: %+v", hints)
 }

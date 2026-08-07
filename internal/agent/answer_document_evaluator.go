@@ -6745,6 +6745,13 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	}
 	facts := answerDocStableAggregateFacts(ctx)
 	relationRefs := types.PrincipalRelationMemberSetFactRefsForRequest(facts, &rm)
+	// Relation-looking member labels and exact per-member coordinates do not
+	// prove the set's direction, order, membership, or cross-component bridge.
+	// Reuse the same principal-contract authority as every other finalizer and
+	// validator consumer so this advisory handoff cannot call a soft model
+	// inference "required" after the structured aggregate section rejected that
+	// upgrade.
+	relationRefs, _ = answerDocPartitionPrincipalMemberSetRefs(relationRefs, &rm, nil)
 	if !answerDocShouldRenderRelationSurfaceHandoff(rm, rows, relationRefs) {
 		return ""
 	}
@@ -6753,11 +6760,11 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	b.WriteString("## Relation Role Handoff (Advisory)\n\n")
 	b.WriteString("- The rows below come only from structured exploration carriers: accepted `EvidenceItem` fields and typed relation surfaces. They do not parse raw user text or free-form investigation prose.\n")
 	b.WriteString("- Advisory boundary: these rows can help preserve relation roles during answer-writing, but they are not a system-authored final answer set. Do not invent principal members from them.\n")
-	b.WriteString("- Role priority: principal relation `member_set` facts are the answer-member carrier; principal enumeration rows / support lanes add richer notes and citations; role=`qualifying_gate` rows constrain which members qualify; role=`registration_or_binding` and role=`registry_identity_chain` rows prove population or identity; dispatcher/runtime/tool-registration/helper rows explain support flow and must not replace qualifying members.\n")
+	b.WriteString("- Role priority: evidence-authorized principal relation `member_set` facts are the answer-member carrier; advisory model-inferred sets remain candidates only. Principal enumeration rows / support lanes add richer notes and citations; role=`qualifying_gate` rows constrain which members qualify; role=`registration_or_binding` and role=`registry_identity_chain` rows prove population or identity; dispatcher/runtime/tool-registration/helper rows explain support flow and must not replace qualifying members.\n")
 	if len(relationRefs) > 0 {
 		b.WriteString("- A principal relation `member_set` is already present above. That required member set is the answer-member carrier; use these rows only for per-member explanation, boundaries, and citations.\n")
-	} else if types.RequiresRelationMemberSetHandoff(rm) {
-		b.WriteString("- This typed relation request still expects a model-authored `aggregate_facts.member_set`; if none is present, disclose the missing structured handoff instead of substituting dispatcher/helper rows as answer members.\n")
+	} else if types.PrincipalMemberSetRequiresTypedRelationAuthority(rm) {
+		b.WriteString("- No evidence-authorized principal relation `member_set` is active. A model-authored set becomes the answer-member carrier only after the completion layer attaches exact typed-relation authority; until then keep it advisory, preserve component boundaries, and do not substitute dispatcher/helper rows or individually true nodes as a proved path.\n")
 	} else {
 		b.WriteString("- No hard principal relation `member_set` is active for this dispatch. Keep the direct answer aligned with the user's requested relation, and separate qualifying members from dispatchers, registries, helpers, runtimes, or other supporting roles.\n")
 	}

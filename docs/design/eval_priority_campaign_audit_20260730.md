@@ -23572,3 +23572,53 @@ Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链�
 `EVAL-B246-CALLSEGCONTRACT1=S37h-implemented/full-tests-pass`；
 `EVAL-B247-SEQUENCECALLBACK1=S37h-implemented/full-tests-pass`；模型答案所有权=`preserved`；
 JSON 教学=`single-source/preserved`；下一步=`commit+push+r155 exactly-two replay`。
+
+### 123.231 r155：runner 2/2 转绿，但 copy-ready 子图与 relation handoff 仍自冲突
+
+r155 在 `main@3d86ae796` 上继续严格并发 2，仅运行 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 2/2 PASS；人工审计为 1/2。
+两例均无 strict JSON decode、字符串恢复或答案消失，说明本轮不是 JSON 畸形或 schema 教学问题。
+
+Python 一次成文成功，核心解析链、`JsonPlugin`、decorator 注册时机与 MRO 均正确；但模型没有选择 optional diagram，因此
+`EVAL-B247-SEQUENCECALLBACK1` 仍只有 production-shaped 单测，没有本轮真实模型图验收。最终把 decorator 写入关系的引用落到 lookup 行，属于引用覆盖
+瑕疵，暂不按 Python 符号硬拟合。
+
+C++ 已明确 virtual/dynamic dispatch，并把 setup selection 与 log-time dispatch 分成两个 sibling 列表，runner 从 r154 FAIL 转 PASS；但人工仍判 fail：
+
+1. 模型摘要继续称 Logger 构造直接经过 `make_sink/SinkRegistry::create`，而源码只证明构造器接收 `unique_ptr<Sink>`；未证跨组件 bridge 仍被叙成直接链；
+2. 第一稿自绘图含未证 vtable bridge 和未配对 reply，被 typed validator 拒绝正确；第二稿逐字复制系统给出的单边 copy-ready sequence capsule
+   `Logger.log -> Sink.write`，却被同一 validator 以正文另一条 `ConsoleSink.write -> std.fputs` 没有入图为由再次拒绝。系统把“可见边真实性”错误扩成
+   “可选图必须完备复制正文所有 principal calls”，记 `EVAL-B248-OPTDIAGCOMP1`；
+3. prompt 前面已把模型路径 set 标成 `advisory_model_inference/not_authorized`，后面的 `Relation Role Handoff` 却仍称它是 required answer-member
+   carrier。该面只按 relation-looking principal role 取 refs，没有复用 S37g/S37h 共享 authority，记 `EVAL-B249-RELHANDOFFAUTH1`。
+
+状态：`runner=2/2 PASS`；`human=1/2`；`EVAL-B236-PHASEBRIDGE1=partial/remaining-consumer-found`；
+`EVAL-B247-SEQUENCECALLBACK1=implemented/production-unexercised`；`EVAL-B248-OPTDIAGCOMP1=confirmed/immediate`；
+`EVAL-B249-RELHANDOFFAUTH1=confirmed/immediate`；`sequence-display-parameter-identity=open`；
+`all-language-flowchart-relation-anchor=open`。
+
+### 123.232 S37i：可见边真实性与可选图完备性分权，relation handoff 接回共享 authority
+
+`EVAL-B248-OPTDIAGCOMP1`、`EVAL-B249-RELHANDOFFAUTH1` 同批按 typed authority 根修：
+
+1. source diagram hard gate 继续要求**每一条可见 body edge**都有 schema-valid relation owner；call/callback/register/type/value/logical relation 仍需同向
+   citable typed evidence，未证 edge、关系改名逃门、重复 participant identity 等原有 fail-closed 规则全部保留；
+2. 删除“正文 principal call 必须全部出现在 optional diagram”的 completeness reject。可选图允许忠实展示 typed 关系的子集，未画的真实边继续由 sibling
+   prose/list 承载；遗漏不是虚假关系，不能驱动 hard gate。由此系统生成的 copy-ready body + anchors 原样提交即可通过，不再出现“系统教通过、系统又拒绝”；
+3. 该规则按 QFCallChain/diagram kind/typed evidence 决定，不解析用户原文、模型 thinking、最终 prose 或 C++ 符号。回归覆盖 Go、Python、JS、TS、Java、
+   Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie；Proto 继续保持声明式边界，不被铸成调用；
+4. 新增 r155 生产同形 sequence pin：正文另有 `ConsoleSink.write -> std.fputs` 精确调用证据时，单边 copy-ready
+   `Logger.log -> Sink.write` 必须一次通过；同时现有所有 visible-edge authority 测试保持；
+5. `renderAnswerDocRelationSurfaceHandoff` 先经 `answerDocPartitionPrincipalMemberSetRefs`/共享 principal-contract authority 过滤。关系/调用链中，逐席
+   file:line 和 relation-looking labels 均不能铸造 required carrier；只有 completion 层的 `typed_relation_principal_member_set` marker 可授权；
+6. handoff 文案同步改为“evidence-authorized principal relation set”。无 marker 时明确 soft set 仅为 advisory、必须保留 component boundary，不得用 individually
+   true nodes、dispatcher/helper rows 拼成已证 path。测试同时钉住有 marker 的普通关系集合仍保留 precedence；
+7. 系统没有删除、替换、补写模型正文或图，也没有降低为 prose 关键词校验。它只统一系统自己生产的 authoring capsule、authority handoff 与 hard validator。
+   JSON schema/native array-object/patch 四操作教学未新增副本。
+
+定向测试与 `go test ./...` 全绿。Trace root-cause runtime family 仍在 source diagram
+contract 入口明确排除；显式时间窗、系统自动补齐、因果投影、根因排序、唤醒链、窗内可消除量与“真实耗时贡献 / 规则内可消除量”双维分析未触碰。
+
+状态：`EVAL-B248-OPTDIAGCOMP1=S37i-implemented/full-tests-pass`；
+`EVAL-B249-RELHANDOFFAUTH1=S37i-implemented/full-tests-pass`；`EVAL-B236-PHASEBRIDGE1=consumer-closed/replay-next`；
+`EVAL-B247-SEQUENCECALLBACK1=implemented/production-unexercised`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；下一步=`full tests, commit+push, next exactly-two replay`。

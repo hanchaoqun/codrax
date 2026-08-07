@@ -26,18 +26,11 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	Relation   types.DiagramRelationKind
 }
 
-type diagramVisibleCallEdge struct {
-	fromSymbol string
-	toSymbol   string
-	label      string
-}
-
 const (
 	diagramCallEdgeIssueDuplicateParticipant  = "duplicate_participant_identity"
 	diagramCallEdgeIssueMissingAnchor         = "missing_call_anchor"
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
-	diagramCallEdgeIssuePrincipalMiss         = "principal_call_edge_missing"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
@@ -51,7 +44,11 @@ const (
 // an evidence claim regardless of the surrounding answer family, so it always
 // needs one same-direction citable call-site record. QFCallChain additionally
 // gets strict typed-relation ownership for every source-diagram body edge and
-// principal-path completeness.
+// visible-edge ownership. An optional diagram may be a faithful subset of
+// the grounded relations carried by sibling prose/list blocks: omitting a
+// true edge from a visual is not a false relation claim. Keeping completeness
+// out of this hard gate also ensures that a system-authored copy-ready diagram
+// capsule is accepted unchanged by the same validator.
 //
 // Runtime/root-cause trace diagrams, including explicit time-window causal
 // projections and their automatic supplements, use a separate runtime
@@ -76,9 +73,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	strictBodyEdgeKeys := diagramEvidenceStrictBodyEdgeKeys(doc, strictSourceCallChain)
 	bodyEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	var out []DiagramCallEdgeEvidenceMismatch
-	var visibleCallEdges []diagramVisibleCallEdge
-	hasStrictSourceDiagram := false
-	strictCallDiagramID := ""
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
 		labels := documentLabels
@@ -98,10 +92,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
 		}
 		if strictBodyCoverage {
-			hasStrictSourceDiagram = true
-			if strictCallDiagramID == "" {
-				strictCallDiagramID = block.ID
-			}
 			effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
@@ -170,11 +160,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				if !requiresCallAuthority {
 					continue
 				}
-				visibleCallEdges = append(visibleCallEdges, diagramVisibleCallEdge{
-					fromSymbol: fromSymbol,
-					toSymbol:   toSymbol,
-					label:      edge.Label,
-				})
 				if !callAnchorKeys[key] {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID:    block.ID,
@@ -273,64 +258,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				FromSymbol: fromSymbol,
 				ToSymbol:   toSymbol,
 			})
-		}
-	}
-	if strictSourceCallChain && hasStrictSourceDiagram {
-		principalMissing := make(map[string]bool)
-		for _, required := range diagramPrincipalPathCitationCallEvidence(doc, evidence) {
-			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, requiredAnchors, required) {
-				continue
-			}
-			fromSymbol := strings.TrimSpace(required.Subject)
-			toSymbol := strings.TrimSpace(required.Object)
-			if toSymbol == "" {
-				toSymbol = strings.TrimSpace(required.AnchorSymbol)
-			}
-			key := diagramEvidenceEdgeKey(fromSymbol, toSymbol)
-			if key == "\x00" || principalMissing[key] {
-				continue
-			}
-			principalMissing[key] = true
-			out = append(out, DiagramCallEdgeEvidenceMismatch{
-				BlockID:    strictCallDiagramID,
-				Issue:      diagramCallEdgeIssuePrincipalMiss,
-				FromNode:   fromSymbol,
-				ToNode:     toSymbol,
-				FromSymbol: fromSymbol,
-				ToSymbol:   toSymbol,
-			})
-		}
-		principalSymbols := diagramPrincipalPathItemSymbols(doc)
-		for _, fromSymbol := range principalSymbols {
-			for _, toSymbol := range principalSymbols {
-				key := diagramEvidenceEdgeKey(fromSymbol, toSymbol)
-				if fromSymbol == toSymbol || principalMissing[key] {
-					continue
-				}
-				requiredCalls := diagramCallEvidenceForEndpoints(evidence, requiredAnchors, fromSymbol, toSymbol)
-				if len(requiredCalls) == 0 {
-					continue
-				}
-				visible := false
-				for _, required := range requiredCalls {
-					if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, requiredAnchors, required) {
-						visible = true
-						break
-					}
-				}
-				if visible {
-					continue
-				}
-				principalMissing[key] = true
-				out = append(out, DiagramCallEdgeEvidenceMismatch{
-					BlockID:    strictCallDiagramID,
-					Issue:      diagramCallEdgeIssuePrincipalMiss,
-					FromNode:   fromSymbol,
-					ToNode:     toSymbol,
-					FromSymbol: fromSymbol,
-					ToSymbol:   toSymbol,
-				})
-			}
 		}
 	}
 	return out
@@ -472,190 +399,6 @@ func diagramTypedValueEndpointMatches(evidenceEndpoint, diagramEndpoint string) 
 	return evidenceEndpoint == diagramEndpoint ||
 		types.CallChainEndpointCompatible(evidenceEndpoint, diagramEndpoint) ||
 		types.CallChainEndpointCompatible(diagramEndpoint, evidenceEndpoint)
-}
-
-// diagramCallEvidenceForEndpoints resolves a model-selected principal pair to
-// the same typed call records used by the visible-edge lane. Returning the
-// records (rather than comparing raw labels) lets class/actor presentations be
-// checked through diagramVisibleEdgesContainSpecificCall without inventing a
-// second alias policy.
-func diagramCallEvidenceForEndpoints(evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, fromSymbol, toSymbol string) []types.EvidenceItem {
-	definitions := make([]types.EvidenceItem, 0, len(evidence))
-	for _, ev := range evidence {
-		if types.ClaimFormOf(ev) == types.ClaimDefinitionFact {
-			definitions = append(definitions, ev)
-		}
-	}
-	var out []types.EvidenceItem
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		proof := make([]types.EvidenceItem, 0, len(definitions)+1)
-		proof = append(proof, ev)
-		proof = append(proof, definitions...)
-		if diagramCallEdgeHasTypedEvidence(proof, requiredAnchors, fromSymbol, toSymbol, "") {
-			out = append(out, ev)
-		}
-	}
-	return out
-}
-
-// diagramPrincipalPathCitationCallEvidence resolves the citations selected by
-// model-owned principal path rows back to their citable typed call records.
-// This is the citation-carrier completeness lane: a row label may be an exact
-// node identity or a presentation such as `caller -> callee`, but neither the
-// label nor item prose is parsed to make a hard-gate decision. File + call-site
-// line are precise typed fields. If one citation names multiple distinct call
-// directions, the row is ambiguous and this lane deliberately declines to
-// guess.
-func diagramPrincipalPathCitationCallEvidence(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem) []types.EvidenceItem {
-	if doc == nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []types.EvidenceItem
-	for i := range doc.Blocks {
-		block := &doc.Blocks[i]
-		if block.SurfaceRole != types.SurfacePrincipal || block.Kind == types.BlockDiagram ||
-			!types.AnswerBlockKindRendersStructuredItems(block.Kind) ||
-			!diagramBlockCarriesFacet(block, types.FacetPrincipalPathEdge) ||
-			!diagramBlockCarriesClaimForm(block, types.ClaimCallEdge) {
-			continue
-		}
-		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			citation := doc.Citations[item.CitationRef]
-			matches := diagramCitationCallEvidenceMatches(citation, evidence)
-			if len(matches) != 1 {
-				continue
-			}
-			match := matches[0]
-			key := diagramTypedCallEvidenceKey(match)
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, match)
-		}
-	}
-	return out
-}
-
-func diagramCitationCallEvidenceMatches(citation types.Citation, evidence []types.EvidenceItem) []types.EvidenceItem {
-	if strings.TrimSpace(citation.File) == "" || citation.Line <= 0 {
-		return nil
-	}
-	byDirection := make(map[string]types.EvidenceItem)
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-			ev.LineStart != citation.Line || !preEmitPathMatches(ev.Source, citation.File) {
-			continue
-		}
-		key := diagramTypedCallEvidenceKey(ev)
-		if key != "" {
-			byDirection[key] = ev
-		}
-	}
-	if len(byDirection) != 1 {
-		return nil
-	}
-	for _, ev := range byDirection {
-		return []types.EvidenceItem{ev}
-	}
-	return nil
-}
-
-func diagramTypedCallEvidenceKey(ev types.EvidenceItem) string {
-	fromSymbol := strings.TrimSpace(ev.Subject)
-	toSymbol := strings.TrimSpace(ev.Object)
-	if toSymbol == "" {
-		toSymbol = strings.TrimSpace(ev.AnchorSymbol)
-	}
-	if fromSymbol == "" || toSymbol == "" {
-		return ""
-	}
-	return diagramEvidenceEdgeKey(fromSymbol, toSymbol)
-}
-
-func diagramVisibleEdgesContainSpecificCall(edges []diagramVisibleCallEdge, evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, required types.EvidenceItem) bool {
-	proof := make([]types.EvidenceItem, 0, len(evidence)+1)
-	proof = append(proof, required)
-	for _, ev := range evidence {
-		if types.ClaimFormOf(ev) == types.ClaimDefinitionFact {
-			proof = append(proof, ev)
-		}
-	}
-	for _, edge := range edges {
-		if diagramCallEdgeHasTypedEvidence(proof, requiredAnchors, edge.fromSymbol, edge.toSymbol, edge.label) {
-			return true
-		}
-	}
-	return false
-}
-
-// diagramPrincipalPathItemSymbols returns only model-selected, structured
-// principal hop identities. This is the narrow completeness boundary: a
-// citable call edge is required in the diagram only when BOTH endpoints were
-// already selected by the model into a principal_path_edge item carrier.
-// Summary/item prose and the raw request are deliberately ignored.
-func diagramPrincipalPathItemSymbols(doc *types.AnswerDocumentV2) []string {
-	if doc == nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for i := range doc.Blocks {
-		block := &doc.Blocks[i]
-		if block.SurfaceRole != types.SurfacePrincipal || block.Kind == types.BlockDiagram ||
-			!types.AnswerBlockKindRendersStructuredItems(block.Kind) ||
-			!diagramBlockCarriesFacet(block, types.FacetPrincipalPathEdge) ||
-			!diagramBlockCarriesClaimForm(block, types.ClaimCallEdge) {
-			continue
-		}
-		for _, item := range block.Items {
-			symbol := strings.TrimSpace(item.Label)
-			key := strings.ToLower(symbol)
-			if symbol == "" || seen[key] || !types.IsCodeIdentitySurface(symbol) {
-				continue
-			}
-			seen[key] = true
-			out = append(out, symbol)
-		}
-	}
-	return out
-}
-
-func diagramBlockCarriesFacet(block *types.AnswerBlock, facet types.AnswerFacetKind) bool {
-	if block == nil {
-		return false
-	}
-	want := string(facet)
-	for _, got := range block.FacetIDs {
-		if strings.TrimSpace(got) == want {
-			return true
-		}
-	}
-	for _, use := range block.ClaimUses {
-		if strings.TrimSpace(use.FacetID) == want {
-			return true
-		}
-	}
-	return false
-}
-
-func diagramBlockCarriesClaimForm(block *types.AnswerBlock, claim types.ClaimForm) bool {
-	if block == nil {
-		return false
-	}
-	for _, use := range block.ClaimUses {
-		if use.ClaimForm == claim {
-			return true
-		}
-	}
-	return false
 }
 
 func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, relations map[types.DiagramRelationKind]bool, hasTypedCallEvidence bool) bool {

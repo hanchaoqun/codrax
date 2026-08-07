@@ -54,6 +54,7 @@ func TestRenderAnswerDocRelationSurfaceHandoffPrincipalMemberSetWins(t *testing.
 		Members:     []string{"Worker -> Helper"},
 		SupportRefs: []string{"Worker: internal/worker.go:42"},
 		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Provenance:  types.TypedRelationPrincipalMemberSetAggregateProvenance,
 	}})
 	mu.SetInvestigationComplete("relation member set accepted")
 	ctx := &types.AgentContext{
@@ -87,6 +88,53 @@ func TestRenderAnswerDocRelationSurfaceHandoffPrincipalMemberSetWins(t *testing.
 	}
 	if !strings.Contains(got, "use these rows only for per-member explanation") {
 		t.Fatalf("advisory boundary missing:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocRelationSurfaceHandoffSoftCallChainSetRemainsAdvisory(t *testing.T) {
+	mu := types.NewMutableState("How does Logger reach the console sink?")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "complete call chain",
+		Members: []string{"Logger.log", "Sink.write", "ConsoleSink.write", "std.fputs"},
+		SupportRefs: []string{
+			"Logger.log @ src/logger.cpp:36",
+			"Sink.write @ include/logx/sink.hpp:8",
+			"ConsoleSink.write @ include/logx/console_sink.hpp:10",
+			"std.fputs @ include/logx/console_sink.hpp:11",
+		},
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("model proposed a path")
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "call", Kind: types.EvidenceRelationship,
+			Source: "src/logger.cpp", LineStart: 36, AnchorKind: types.AnchorCall,
+			Subject: "Logger.log", Object: "Sink.write", Predicate: "calls",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocRelationSurfaceHandoff(ctx)
+	for _, forbidden := range []string{
+		"That required member set is the answer-member carrier",
+		"A principal relation `member_set` is already present above",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("soft call-chain set was upgraded by relation handoff via %q:\n%s", forbidden, got)
+		}
+	}
+	for _, want := range []string{
+		"No evidence-authorized principal relation `member_set` is active",
+		"keep it advisory",
+		"preserve component boundaries",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("soft call-chain boundary missing %q:\n%s", want, got)
+		}
 	}
 }
 
