@@ -23297,3 +23297,32 @@ C++ labelled/unlabelled flowchart 均需 typed relation anchor 的既有守护�
 状态：`EVAL-B239-BLOCKCARD1=S37a-implemented/full-tests-pass`；`EVAL-B240-CITEREF1=next`；
 `EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
 下一步=`commit+push, exact member support_ref rebind`。
+
+### 123.221 S37b：supporting member 的唯一 explicit support_ref 可安全回绑
+
+`EVAL-B240-CITEREF1` 已根修。深挖确认系统原有 `normalizePrincipalAggregateItemCitationRefsWithContext` 只消费 principal aggregate；
+`supporting_coverage` 的逐成员 `support_refs` 虽已进入 finalizer prompt，也被 destructive-detach keep gate 识别，却没有主动 citation repair 通道。
+因此 r151 中模型已经选择 `sink_->write`，系统仍可能把其引用留在相邻 `SinkRegistry::create`，形成“上下文精确、最终引用错误”的消费断点。
+
+本批新增 citation-only 单调通道，接在 generic candidate repair 之后、principal/source-inventory 更具体权威之前：
+
+1. 只遍历 stable `member_set` 且 role 为 `principal_answer` 或 `supporting_coverage` 的 content-bearing facts；`audit_ledger` 与 role-less facts 不提供
+   可见引用权威；
+2. item **label** 必须通过既有共享 member↔support-ref 命名权威精确绑定，不读取 item text、用户原文、模型 thinking 或渲染后答案。像
+   `sink_->write`、`make_sink`、`SinkRegistry::create` 可匹配；`Logger constructor injection` 不得借裸 `Logger` member 证明新增的注入断言；
+3. 只接受 `preEmitAggregateSupportExplicit`，即 member 自带位置或 named per-member support_ref；generic/bare positional inferred refs 不进入主动回绑。
+   全部匹配 facts 合并后必须恰好一个规范化 file:line；同名成员落在两个文件/行时 fail-closed；
+4. 当前 citation 若已直接证明 exact rich source syntax，或同时证明 label 与第二个可见 item axis，则保持，不被单坐标 member ref 降级；否则只改
+   `citation_ref` 并复用/追加 canonical citation，item label/text/claim/排序不变；
+5. 端到端 full-emit pin 从真实 supporting fact、错误相邻 citation 起步，必须经生产 normalize 接线落到 `src/logger.cpp:36`；删除接线或把角色重新
+   收窄为 principal 会直接失败。另钉 audit-only、扩写标签与双位置同名三条负臂。
+
+该机制基于语言无关的 aggregate member/support-ref 结构，适用于 Go/Python/Java/Kotlin/C/C++/Rust/JS/TS/ArkTS/Cangjie 等所有已支持语言，
+没有增加 C++/factory 专用字符串规则。复杂条目同时需要定义、调用、值交接多个引用的能力仍归 `EVAL-B230-CITEMULTIREF1`，本批不把单引用 schema
+偷偷解释成多证据结论。`go test ./...` 全绿。
+
+JSON schema/四操作教学未改；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析未触碰。sequence display
+message 参数隔离与 C++ labelled/unlabelled flowchart relation authority 继续作为回放守护项。
+
+状态：`EVAL-B240-CITEREF1=S37b-implemented/full-tests-pass`；`EVAL-B239-BLOCKCARD1=implemented/full-tests-pass`；
+`EVAL-B236-PHASEBRIDGE1=partial/replay-next`；模型答案所有权=`preserved`；下一步=`commit+push+r152-two-case-replay`。

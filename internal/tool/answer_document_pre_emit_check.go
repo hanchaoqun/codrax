@@ -10871,6 +10871,95 @@ func preEmitCitationMatchesAnyMemberSetExplicitSupportRef(pctx *preEmitCheckCont
 	return false
 }
 
+// normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext
+// repairs citation metadata for a model-authored item whose exact label names
+// one member of an accepted principal_answer or supporting_coverage member_set.
+// The target must resolve to exactly one explicit typed member location across
+// the entire stable fact set. Audit-only facts, positional/generic inferred
+// refs, duplicate labels with different locations, and prose-expanded labels
+// stand down. The visible item and its conclusion remain model-authored.
+func normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockRendersItemSurface(block.Kind) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			label := strings.TrimSpace(item.Label)
+			if label == "" {
+				continue
+			}
+			target, ok := preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx, label)
+			if !ok {
+				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				current := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+				if preEmitCitationLocationKey(current) == preEmitCitationLocationKey(target) {
+					continue
+				}
+				text := preEmitItemNonLabelSurface(*item)
+				if preEmitCitationDirectlySupportsExactRichLabelWithContext(pctx, label, current) ||
+					(preEmitItemCitationAlignedWithContext(pctx, label, text, current) &&
+						preEmitCitationSupportsVisibleItemAttributeWithContext(pctx, label, text, current)) {
+					// Preserve a model-selected citation that proves both the exact
+					// label and a second visible item axis. A one-coordinate member
+					// support ref must not weaken richer direct evidence.
+					continue
+				}
+			}
+			ref := appendOrReusePreEmitCitation(doc, target)
+			if ref < 0 || ref == item.CitationRef {
+				continue
+			}
+			item.CitationRef = ref
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx *preEmitCheckContext, label string) (types.Citation, bool) {
+	if pctx == nil || strings.TrimSpace(label) == "" {
+		return types.Citation{}, false
+	}
+	seen := map[string]bool{}
+	var candidates []types.Citation
+	for _, fact := range pctx.stableAggregateFactsForCheck() {
+		if !preEmitContentBearingMemberSetFact(fact) {
+			continue
+		}
+		for memberIdx, member := range fact.Members {
+			if !preEmitItemLabelNamesAggregateMember(label, member) {
+				continue
+			}
+			source, line, kind, ok := preEmitAggregateMemberSupportLocationClassified(fact, memberIdx, member)
+			if !ok || kind != preEmitAggregateSupportExplicit || strings.TrimSpace(source) == "" || line <= 0 {
+				continue
+			}
+			cit := pctx.canonicalCitation(types.Citation{File: source, Line: line})
+			key := preEmitCitationLocationKey(cit)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, cit)
+		}
+	}
+	if len(candidates) != 1 {
+		return types.Citation{}, false
+	}
+	return candidates[0], true
+}
+
 func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, memberIdx int, member string, cit types.Citation) bool {
 	if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
 		return false

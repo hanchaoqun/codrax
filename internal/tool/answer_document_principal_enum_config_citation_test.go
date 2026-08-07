@@ -204,6 +204,92 @@ func TestNormalizePrincipalAggregateItemCitationRefs_CallChainUsesExactSupportRo
 	}
 }
 
+func TestNormalizeContentBearingAggregateItemCitationRefs_UsesSupportingCoverageExactRows(t *testing.T) {
+	mu := types.NewMutableState("supporting aggregate citation")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "runtime path", Value: "3",
+			Role:    types.AnswerAggregateRoleSupportingCoverage,
+			Members: []string{"sink_->write", "make_sink", "Logger"},
+			SupportRefs: []string{
+				"sink_->write @ src/logger.cpp:36",
+				"make_sink @ src/registry.cpp:30",
+				"Logger @ src/logger.cpp:25",
+			},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "audit only", Value: "1",
+			Role: types.AnswerAggregateRoleAuditLedger, Members: []string{"audit_symbol"},
+			SupportRefs: []string{"audit_symbol @ audit/generated.go:99"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+	}}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "path", Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "sink", Label: "sink_->write", CitationRef: 0},
+				{ID: "factory", Label: "make_sink", CitationRef: 0},
+				{ID: "expanded", Label: "Logger constructor injection", CitationRef: 0},
+				{ID: "audit", Label: "audit_symbol", CitationRef: 0},
+			},
+		}},
+		Citations: []types.Citation{{File: "src/registry.cpp", Line: 15}},
+	}
+
+	pctx := newPreEmitCheckContext(ctx)
+	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, pctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want two exact supporting rows only: blocks=%+v citations=%+v", fixed, doc.Blocks, doc.Citations)
+	}
+	want := []types.Citation{{File: "src/logger.cpp", Line: 36}, {File: "src/registry.cpp", Line: 30}}
+	for i, expected := range want {
+		item := doc.Blocks[0].Items[i]
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef] != expected {
+			t.Fatalf("item[%d]=%+v citation_pool=%+v want=%+v", i, item, doc.Citations, expected)
+		}
+	}
+	// A label that adds an unproved constructor-injection assertion is not the
+	// exact `Logger` member, and audit-ledger rows never grant visible citation
+	// authority. Both retain the model-selected citation for later validation.
+	for _, idx := range []int{2, 3} {
+		if got := doc.Blocks[0].Items[idx].CitationRef; got != 0 {
+			t.Fatalf("item[%d] unexpectedly rebound through non-exact/audit authority: %+v", idx, doc.Blocks[0].Items[idx])
+		}
+	}
+}
+
+func TestNormalizeContentBearingAggregateItemCitationRefs_AmbiguousLocationsFailClosed(t *testing.T) {
+	mu := types.NewMutableState("ambiguous supporting aggregate citation")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "left", Value: "1",
+			Role: types.AnswerAggregateRoleSupportingCoverage, Members: []string{"resolve"},
+			SupportRefs: []string{"resolve @ src/a.go:10"},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "right", Value: "1",
+			Role: types.AnswerAggregateRoleSupportingCoverage, Members: []string{"resolve"},
+			SupportRefs: []string{"resolve @ src/b.go:20"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "path", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{
+			ID: "resolve", Label: "resolve", CitationRef: 0,
+		}}}},
+		Citations: []types.Citation{{File: "src/current.go", Line: 7}},
+	}
+
+	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, nil); fixed != 0 ||
+		doc.Blocks[0].Items[0].CitationRef != 0 || len(doc.Citations) != 1 {
+		t.Fatalf("ambiguous supporting locations must fail closed: fixed=%d doc=%+v", fixed, doc)
+	}
+}
+
 func TestNormalizePrincipalAggregateItemCitationRefs_AmbiguousLabelStandsDown(t *testing.T) {
 	mu := types.NewMutableState("ambiguous rows")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

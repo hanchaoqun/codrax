@@ -758,6 +758,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
 	}
+	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext", fixed)
+		logging.Warning("[%s] bound %d item citation_ref value(s) to unique explicit aggregate member support", toolName, fixed)
+	}
 	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizePrincipalAggregateItemCitationRefsWithContext", fixed)
 		logging.Warning("[%s] bound %d item citation_ref value(s) to exact principal aggregate support rows", toolName, fixed)
