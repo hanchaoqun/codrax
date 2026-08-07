@@ -24180,3 +24180,36 @@ discover-empty、且 `exact_targets` 除 source 后恰有一个唯一代码端�
 状态：`EVAL-B269-NAMEDENDPOINTDISCOVER1=S37t-implemented/full-tests-pass/pending-production-replay`；
 `EVAL-B262-TRANSITIVEHOPDEPTH1=next-P1`；模型答案所有权=`preserved`；JSON teaching=`unchanged`；
 Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因分析=`untouched`。
+
+### 123.254 r165：方向边界转正，但限定定义不认端点、唯一引用候选仍被软放行
+
+r165 在 `main@d66d49e41` 上严格并发 2，仅运行 `qf_sequence_analyzer_gate` 与
+`read_combo_answer_document_tools`。runner 1/2 PASS；人工 0/2，两个 runner 结果都不能单独代表答案正确性。
+
+调用链案中，Analyzer 第一份成功 payload 已直接发出 `source=buildAnalysisIR, sink=gate.Run, sink_mode=exact`，因此 S37t 新 admission
+分支本轮没有触发，不能虚称分支已生产闭环；但主结果已转正。Explorer 读取 `gate.go` 后正确区分
+`buildAnalysisIR -> gate.RunWith` 与真实反向包装边 `gate.Run -> RunWith`，typed `no_directed_path`、最终摘要、Mermaid 和 caveat
+方向一致，没有再制造 `RunWith -> Run`。这证明 B269 所保护的目标语义成立。
+
+该案同时确认三个未闭项：
+
+1. `EVAL-B270-QUALIFIEDDEFENDPOINT1`（P0/P1）：端点存在性 gate 不把已读且 grounded 的裸定义 `Run @ internal/analysis/gate/gate.go:134`
+   解析为 typed exact endpoint `gate.Run`。模型重复发定义仍被判 unresolved，直到额外构造 `scope=crossfile/assertion=exists` 才通过，形成 22 轮、
+   7 次 completion、322s。根修应复用语言/文件作用域与既有 endpoint compatibility，把 package/module/type 限定身份和本地定义做唯一绑定；同名歧义必须
+   fail-open，不能要求模型伪造调用边，也不能按 Go 或 `gate.Run` 特判；
+2. `EVAL-B271-UNIQUECITEREBIND1`（P0）：Finalizer 的 9 条 hop citation 全部错移一位。pre-emit 已逐条算出唯一正确 typed candidate，
+   却只发 soft advisory，随后接受可见错误引用。最优方案是只在同一 item role/edge 获得唯一 grounded candidate 时确定性重绑 `citation_ref`；零/多候选不改，
+   不扫描用户原文、thinking 或自由正文，不新增模型重试，更不改 label/text/结论；
+3. `EVAL-B262-TRANSITIVEHOPDEPTH1` 仍开放：答案保留 7 个主要 direct call，却继续漏 runner 要求的
+   `analyzerGraphForNormalize`。这是 load-bearing helper frontier 供给不足，不能用 helper 名硬塞。
+
+AnswerDocument 案没有 malformed JSON、strict recovery、patch string carrier、答案消失或成文拒绝；表和 Mermaid 均保留。但最终把源码中的“首次或完整
+重写用 full emit；少量 retry 编辑优先 patch”压扁成“首次固定 full、retry 固定 patch”的二选一，且只引用两个 `Name()` 定义，没有引用 Description/调度
+证据；混用 label+cells 与 cells-only 后第二表行首列为空。立 `EVAL-B272-COMPROLECALIBER1`（P1）：让 typed comparison attribute support lane
+把适用条件及其引用送给模型，并审计混合表行形；系统不得代写比较结论，也不应因该观察新增 prose 硬门。
+
+处置顺序冻结：B271（错误引用且可零重试确定性修）→ B270（端点身份/churn）→ B262（通用 helper frontier）→ B272（比较条件/表面）。
+`EVAL-B269-NAMEDENDPOINTDISCOVER1=implemented/positive-production-outcome/admission-branch-unwitnessed`；
+JSON 教学=`single-source/no-r165-shape-failure`；模型答案所有权=`preserved`；两条开放守护
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 保持在账。本批无 runtime artifact，Trace 显式窗、因果投影、自动补齐、
+根因排序、唤醒链、窗内可消除量和双维根因分析均未触碰。
