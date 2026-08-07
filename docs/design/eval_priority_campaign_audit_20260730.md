@@ -24097,3 +24097,27 @@ write 控制案 149s：仅把 `main.go` 的 `retrun` 改为 `return`，applied-t
 `EVAL-B267-PIPELINESTAGEROSTER1=open/P1`；`EVAL-B265-READCALLNOTCARRIED1=next-P1`；
 `sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。
 本批未选择 Trace case，既不宣称 Trace 生产闭环，也未改动显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量或双维根因分析。
+
+### 123.251 S37s：已读 AST 调用关系必须由模型携带进 typed evidence
+
+`EVAL-B265-READCALLNOTCARRIED1` 在 investigation completion 边界做结构化交接，修复的是一类“模型读到并列入调用链 roster、却只发 definitions”的关系丢失：
+
+1. 仅对源码 call-chain 形生效。候选必须同时满足：模型已经发出 grounded principal `member_set`；caller/callee 唯一落到其中两个不同成员；repo graph
+   关系为 `tree_sitter` 或 `cangjie_parser` 的 AST-grade `call`；exact callsite 行属于本轮 read closure；现有 evidence 中没有同 source/line/direction
+   的 citable `ClaimCallEdge`。任一条件不成立即旁路；
+2. completion 在 principal member-set 的 interior-span shortcut 之前检查该精确 join。命中后只发 `RepairEmitEvidence`，列出 exact
+   `source:line caller -> callee`，要求 Explorer 自己补发 relationship/call evidence；系统不从 repomap 自动铸造 EvidenceItem，不修改 roster、图、prose 或最终结论；
+3. 匹配按 typed endpoint identity 做唯一性解析，支持 `. / :: / # / ->` 等既有跨语言表面；同名多成员、缺 caller/callee、递归自边均 fail-open，禁止猜身份。
+   候选最多 8 条，且先按 read file 筛掉未读文件，避免 completion 对大仓全关系扫描；
+4. regex fallback 明确不能驱动硬 completion gate；未读的 repository-wide parser relation 也不能驱动。Cangjie parser 与 tree-sitter 共用同一条精确车道，
+   不是 Rust `collect_files -> walk` 的 case/type 拟合；
+5. 附加 log/hitrace/trace_query 的 runtime artifact 调查显式旁路该源码 roster 合同，避免干扰带具体时间窗的 Trace 因果投影、自动补齐、根因排序、唤醒链、
+   窗内可消除量和“真实耗时贡献 / 规则内可消除量”双维分析。源码结构 `IntentTrace` 仍可正常使用该规则，两种 trace 语义不再混淆；
+6. wiring pin 证明 exact endpoint reachability 已成立时，该 gate 仍先于 member-set span shortcut 运行；正例钉住 r162 同形 Rust bare call，Cangjie `::` 端点钉住
+   手写 parser；负例覆盖 exact edge 已存在、regex、未读、runtime Trace、歧义/缺端点。JSON schema/教学没有新增副本。
+
+定向 `TestCallChainReadParserRelationHandoffDowngrade*`、`go test ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B265-READCALLNOTCARRIED1=S37s-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B267-PIPELINESTAGEROSTER1=next-P1`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。

@@ -3650,6 +3650,9 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := callChainReadParserRelationHandoffDowngrade(ctx, closure, aggregateFacts, evidence); downgrade != "" {
+			return downgrade
+		}
 	}
 	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, aggregateFacts, evidence) {
 		logging.Info("[emit_investigation_complete] call-chain closure gates satisfied by principal aggregate member_set")
@@ -12643,6 +12646,179 @@ type callChainMissingQualifiedCall struct {
 	Name string
 	Line int
 	Text string
+}
+
+type callChainReadParserRelationGap struct {
+	Source string
+	Line   int
+	Caller string
+	Callee string
+}
+
+// callChainReadParserRelationHandoffDowngrade prevents a model-owned
+// principal call-chain roster from closing over parser-authored calls that the
+// investigation already read but never carried into typed evidence.  The join
+// is deliberately narrow: both endpoints must resolve uniquely to distinct
+// members of one grounded principal member_set, the relation must come from an
+// AST-grade parser, and its exact callsite line must be in this run's read
+// closure.  The system only asks Explorer to emit the missing edge; it neither
+// mints evidence nor writes the eventual call-chain conclusion.
+func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if (rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain) ||
+		types.IsProjectOrientationQuestion(rm) || types.RuntimeArtifactContextActiveFromBus(ctx) {
+		return ""
+	}
+	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil || len(graph.FileIndex) == 0 {
+		return ""
+	}
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
+	if len(refs) == 0 {
+		refs = types.PrincipalAggregateMemberSetFactRefs(aggregateFacts)
+	}
+	var memberSets [][]string
+	for _, ref := range refs {
+		fact := ref.Fact
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) < 2 ||
+			!aggregateMemberSetAllMembersUsable(fact, support) {
+			continue
+		}
+		memberSets = append(memberSets, append([]string(nil), fact.Members...))
+	}
+	if len(memberSets) == 0 {
+		return ""
+	}
+
+	files := make([]string, 0, len(graph.FileIndex))
+	for file := range graph.FileIndex {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	const maxGaps = 8
+	gaps := make([]callChainReadParserRelationGap, 0, maxGaps)
+	seen := make(map[string]bool)
+	for _, file := range files {
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		fileSource := canonicalRelationSourcePath(fi.RelPath)
+		if fileSource == "" {
+			fileSource = canonicalRelationSourcePath(file)
+		}
+		if fileSource == "" || !closure.HasRead(fileSource) {
+			continue
+		}
+		for i := range fi.Relations {
+			rel := &fi.Relations[i]
+			if rel.Kind != "call" || rel.Line <= 0 ||
+				(rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser) {
+				continue
+			}
+			source := canonicalRelationSourcePath(rel.File)
+			if source == "" {
+				source = canonicalRelationSourcePath(fi.RelPath)
+			}
+			if source == "" || !closure.HasReadLine(source, rel.Line) {
+				continue
+			}
+			caller := qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, rel.Line))
+			callee := callRelationTargetName(graph, fi, rel)
+			if caller == "" || callee == "" {
+				continue
+			}
+			matched := false
+			for _, members := range memberSets {
+				callerIndex, callerOK := callChainUniqueMemberEndpointIndex(members, caller)
+				calleeIndex, calleeOK := callChainUniqueMemberEndpointIndex(members, callee)
+				if callerOK && calleeOK && callerIndex != calleeIndex {
+					matched = true
+					break
+				}
+			}
+			if !matched || callChainTypedEvidenceContainsExactParserRelation(evidence, source, rel.Line, caller, callee) {
+				continue
+			}
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s", source, rel.Line, caller, callee))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			gaps = append(gaps, callChainReadParserRelationGap{Source: source, Line: rel.Line, Caller: caller, Callee: callee})
+			if len(gaps) >= maxGaps {
+				break
+			}
+		}
+		if len(gaps) >= maxGaps {
+			break
+		}
+	}
+	if len(gaps) == 0 {
+		return ""
+	}
+	files = files[:0]
+	keywords := make([]string, 0, 2*len(gaps))
+	for _, gap := range gaps {
+		files = append(files, gap.Source)
+		keywords = append(keywords, gap.Caller, gap.Callee)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairEmitEvidence,
+		Files:     dedupStringsPreserveOrder(files),
+		Keywords:  dedupStringsPreserveOrder(keywords),
+		Rationale: "grounded principal call-chain members contain AST-proven calls on already-read lines that are missing from typed call-edge evidence",
+		Origin:    "pre_complete.call_chain_read_parser_relation_handoff",
+		Stage:     string(types.StageExplore),
+	})
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — already-read parser call relations lack typed handoff.\n\n")
+	b.WriteString("A grounded principal call-chain member_set contains both endpoints of the AST-authored calls below, and their exact callsite lines are already in this run's read closure, but no equivalent citable call-edge EvidenceItem was emitted. Re-emit each load-bearing edge with evidence_kind=relationship, anchor_kind=call, exact caller/callee, source, and line_start; then retry. Definitions, member notes, read_file memory, and completion reason prose do not replace the edge.\n\n")
+	for _, gap := range gaps {
+		fmt.Fprintf(&b, "  - %s:%d `%s` -> `%s`\n", gap.Source, gap.Line, gap.Caller, gap.Callee)
+	}
+	return b.String()
+}
+
+func callChainUniqueMemberEndpointIndex(members []string, endpoint string) (int, bool) {
+	match := -1
+	for i, member := range members {
+		base := types.NormalizedSurfaceSymbolTail(member)
+		if !types.CallChainEndpointCompatible(member, endpoint) &&
+			(base == "" || !types.CallChainEndpointCompatible(base, endpoint)) {
+			continue
+		}
+		if match >= 0 {
+			return -1, false
+		}
+		match = i
+	}
+	return match, match >= 0
+}
+
+func callChainTypedEvidenceContainsExactParserRelation(evidence []types.EvidenceItem, source string, line int, caller, callee string) bool {
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge ||
+			canonicalRelationSourcePath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		from := strings.TrimSpace(item.OwnerSymbol)
+		if from == "" {
+			from = strings.TrimSpace(item.Subject)
+		}
+		to := strings.TrimSpace(item.Object)
+		if to == "" {
+			to = strings.TrimSpace(item.AnchorSymbol)
+		}
+		if types.CallChainEndpointCompatible(from, caller) && types.CallChainEndpointCompatible(to, callee) {
+			return true
+		}
+	}
+	return false
 }
 
 // callChainQualifiedIntermediateDowngrade closes the gap that the coarse

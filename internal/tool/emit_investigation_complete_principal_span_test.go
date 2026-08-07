@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -838,6 +839,132 @@ func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdv
 	}
 	if !found {
 		t.Fatalf("residual qualified calls should remain visible as advisory repair, got %+v", closure.PendingRepairs())
+	}
+}
+
+func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBeEmitted(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "main-run", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "main", Predicate: "calls", Object: "run", AnchorSymbol: "run", Source: "src/main.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		{ID: "run-collect", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "run", Predicate: "calls", Object: "walker::collect_files", AnchorSymbol: "walker::collect_files", Source: "src/main.rs", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+		{ID: "run-index", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "run", Predicate: "calls", Object: "index_file", AnchorSymbol: "index_file", Source: "src/main.rs", LineStart: 23, GroundingStatus: types.GroundingGrounded},
+		{ID: "index-match", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "index_file", Predicate: "calls", Object: "Matcher::is_match", AnchorSymbol: "Matcher::is_match", Source: "src/main.rs", LineStart: 30, GroundingStatus: types.GroundingGrounded},
+		{ID: "collect-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "collect_files", Subject: "collect_files", Source: "src/walker.rs", LineStart: 4, GroundingStatus: types.GroundingGrounded},
+		{ID: "walk-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "walk", Subject: "walk", Source: "src/walker.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+	}
+	mut := types.NewMutableState("opaque call-chain request")
+	mut.AppendEvidence(evidence)
+	mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"src/walker.rs": {
+			RelPath: "src/walker.rs", Language: "rust", Package: "walker",
+			Symbols: []repotypes.Symbol{
+				{Name: "collect_files", Kind: "function", File: "src/walker.rs", Line: 4, EndLine: 8},
+				{Name: "walk", Kind: "function", File: "src/walker.rs", Line: 10, EndLine: 30},
+			},
+			Relations: []repotypes.Relation{{Kind: "call", File: "src/walker.rs", Line: 6, ToEP: repotypes.RelationEndpoint{Name: "walk"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "rust_ast_call"}},
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Complexity: types.ComplexityComplex, PredicateAxis: types.AxisCall,
+		Predicates:               types.SemanticPredicates{IsCrossComponent: true},
+		CallChainEndpointProfile: orderedCallChainEndpoints("main", "Matcher::is_match"),
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"main", "Matcher::is_match"}, PrimaryEntities: []string{"main", "Matcher::is_match"}},
+	}}}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "cross-module call-chain nodes", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"main", "run", "walker::collect_files", "walk", "index_file", "Matcher::is_match"},
+		SupportRefs: []string{"src/main.rs:10", "src/main.rs:20", "src/main.rs:20", "src/walker.rs:10", "src/main.rs:23", "src/main.rs:30"},
+	}}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"src/walker.rs": true})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{"src/walker.rs": true})
+
+	got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence)
+	if !strings.Contains(got, "src/walker.rs:6 `walker::collect_files` -> `walk`") {
+		t.Fatalf("already-read AST call between principal roster members must be handed off, got:\n%s", got)
+	}
+	foundRepair := false
+	for _, repair := range closure.ActiveRepairs() {
+		if repair.Origin == "pre_complete.call_chain_read_parser_relation_handoff" && repair.Kind == types.RepairEmitEvidence {
+			foundRepair = true
+		}
+	}
+	if !foundRepair {
+		t.Fatalf("missing exact emit-evidence repair: %+v", closure.ActiveRepairs())
+	}
+	seedReadFileHistory(ctx, "src/walker.rs", 4,
+		"pub fn collect_files(root: &str) -> Vec<String> {",
+		"let mut out = Vec::new();",
+		"walk(root, &mut out);",
+		"out",
+		"}",
+	)
+	refreshClosureReadSnapshot(ctx, mut.EvidenceClosure())
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, mut.EvidenceClosure(), facts, evidence); got == "" {
+		t.Fatalf("refreshed production closure should retain the already-read parser relation")
+	}
+	view := buildCompletionPreflightView(ctx, "", "", evidence, facts, nil)
+	if got := preCompleteContractCheckWithEvidence(ctx, "", evidence, facts); !strings.Contains(got, "already-read parser call relations lack typed handoff") {
+		t.Fatalf("pre-complete wiring must run the parser-relation handoff before the member_set span shortcut; effective_facts=%+v got:\n%s", view.EffectiveAggregateFacts, got)
+	}
+
+	withEdge := append(append([]types.EvidenceItem(nil), evidence...), types.EvidenceItem{
+		ID: "collect-walk", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "walker::collect_files", Predicate: "calls", Object: "walk", AnchorSymbol: "walk",
+		Source: "src/walker.rs", LineStart: 6, GroundingStatus: types.GroundingGrounded,
+	})
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, withEdge); got != "" {
+		t.Fatalf("equivalent citable call edge should close the handoff gap, got:\n%s", got)
+	}
+}
+
+func TestCallChainReadParserRelationHandoffDowngrade_PreciseBoundaries(t *testing.T) {
+	makeFixture := func(provenance string, read bool, intent types.Intent, members []string) (*types.BusContext, *types.EvidenceClosure, []types.AnswerAggregateFact, []types.EvidenceItem) {
+		evidence := []types.EvidenceItem{
+			{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "start", Predicate: "calls", Object: "finish", Source: "src/pipeline.cj", LineStart: 2, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "collect", Subject: "collect", Source: "src/pipeline.cj", LineStart: 4, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "walk", Subject: "walk", Source: "src/pipeline.cj", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		}
+		mut := types.NewMutableState("opaque")
+		mut.AppendEvidence(evidence)
+		mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{"src/pipeline.cj": {
+			RelPath: "src/pipeline.cj", Language: "cangjie", Package: "demo",
+			Symbols:   []repotypes.Symbol{{Name: "collect", Kind: "function", File: "src/pipeline.cj", Line: 4, EndLine: 8}, {Name: "walk", Kind: "function", File: "src/pipeline.cj", Line: 10, EndLine: 20}},
+			Relations: []repotypes.Relation{{Kind: "call", File: "src/pipeline.cj", Line: 6, ToEP: repotypes.RelationEndpoint{Name: "walk"}, Confidence: repotypes.ConfidenceAST, Provenance: provenance, ResolvedBy: "fixture"}},
+		}}})
+		ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: intent, Complexity: types.ComplexityComplex, PredicateAxis: types.AxisCall,
+			Predicates:               types.SemanticPredicates{IsCrossComponent: true},
+			CallChainEndpointProfile: orderedCallChainEndpoints("start", "finish"),
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"start", "finish"}},
+		}}}
+		closure := types.NewEvidenceClosure("")
+		if read {
+			closure.SetReadSet(map[string]bool{"src/pipeline.cj": true})
+		}
+		facts := []types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet, Label: "chain", Role: types.AnswerAggregateRolePrincipalAnswer, Members: members, SupportRefs: []string{"src/pipeline.cj:4", "src/pipeline.cj:10"}}}
+		return ctx, closure, facts, evidence
+	}
+
+	ctx, closure, facts, evidence := makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "walk"})
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); !strings.Contains(got, "`demo::collect` -> `walk`") {
+		t.Fatalf("Cangjie AST-grade relation should use the language-neutral handoff, got:\n%s", got)
+	}
+	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceRegexFallback, true, types.IntentTrace, []string{"demo::collect", "walk"})
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
+		t.Fatalf("regex fallback is noisy and must not drive a completion hard gate, got:\n%s", got)
+	}
+	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, false, types.IntentTrace, []string{"demo::collect", "walk"})
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
+		t.Fatalf("unread parser relation must not be promoted from repository-wide graph state, got:\n%s", got)
+	}
+	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "walk"})
+	ctx.AttachedHitrace = "sched_switch: runtime trace"
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
+		t.Fatalf("runtime Trace investigation is outside the source-code roster contract, got:\n%s", got)
+	}
+	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "other::collect"})
+	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
+		t.Fatalf("ambiguous or absent roster endpoint must fail open instead of guessing identity, got:\n%s", got)
 	}
 }
 
