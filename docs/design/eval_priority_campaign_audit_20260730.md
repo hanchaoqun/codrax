@@ -24978,3 +24978,28 @@ QF partial、Python PASS：
 状态：`EVAL-B295=S37aj-implemented/full-suite-pass/closed`；`EVAL-B297=P1-observe`；
 模型答案所有权=`preserved`；JSON 修复=`preserved + semantic-postcondition`；
 Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
+
+### 123.285 r179：普通 Cangjie 表格零回归；strict JSON 再现规则材料消费心智 gap
+
+r179 在 `main@590a962be` 上严格并发 2，运行 `cangjie_repomap_fixture` 与 `data_json_strict_ids`。runner 2/2 PASS，人工 2/2 PASS；
+Cangjie 57s、data 61s：
+
+1. Cangjie 一次 Finalizer emit 即通过，精确输出 `Cart@extend`、`native_add@foreign func`、`Bridge/Cart/App@public class`，每行的
+   package/file/line 与 typed source-inventory 一致，无重复段落、无错误 coverage caveat。Analyzer 本轮
+   `has_per_member_table=false`，最终 table 是模型在普通弹性载体中的自主选择；这证明 S37aj 没有把“集合里含 table”的普通枚举硬化，但不能虚记为
+   sole-table 删除拒绝臂的 production witness；该拒绝臂当前由事务集成 pin 覆盖；
+2. Explorer thinking 一度把 3 文件 Cangjie fixture 误称为 DAML，随后 `source_inventory` typed row-set 与最终答案均正确，没有把该自然语言噪声铸成证据。
+   依照“证明为模型波动可遗留”的原则，只记录不加关键词教学/硬门；
+3. strict JSON 最终字节面仅为 `{"ids":["u1","u3"]}`，无代码围栏或说明；材料覆盖、active filter、源顺序与
+   `json_only/explanation_allowed=false` 均正确；
+4. 过程再次固定发生 1 次 `required_material_scheduling` repair：计划将 `instructions.md` 声明为 `script_consumed`，首个
+   `custom_transform` 的 `input_paths` 也含该文件，但 script 只执行 `json_load('users.json')`，没有 `read_text('instructions.md')`；精确 checker 拒绝后模型
+   才补读规则文件。相同 gap 在此前多次 `data_json_strict_ids` 回放复现，确认
+   `EVAL-B298-DATARULECONSUMPTION1=P1-high-ROI`，不是 JSON 畸形或结果错误；
+5. B298 不能通过删除/软化 required-material hard gate 修复，否则规则文件可能只列名不生效。下一步审计 typed material role、usage_mode 与 action/script
+   consumer 的单一权威：优先让 planner 选择与真实消费一致的结构，或对已经由可信 planner-distillation 消费的规则材料使用精确 typed lane；禁止从脚本文本/最终 JSON
+   关键词猜“规则已使用”，也禁止系统替模型更改计算结论。
+
+状态：`EVAL-B295=closed/tests-positive + ordinary-carrier-production-negative-regression`；`EVAL-B298=P1-next`；
+runner=`2/2 PASS`、human=`2/2`；模型答案所有权=`preserved`；JSON 最终合同=`correct`；
+Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
