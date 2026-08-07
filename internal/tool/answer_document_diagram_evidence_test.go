@@ -127,6 +127,47 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyIsNotACallEdge(t *testin
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceMessagePayloadCannotPolluteSiblingEndpointIdentity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "value-flow", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "resolve", ToNode: "JsonPlugin instance", RelationKind: types.DiagramRelReturn,
+			}},
+		},
+		{
+			ID: "sequence", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: strings.Join([]string{
+					"sequenceDiagram",
+					"  participant RP as run_pipeline",
+					"  participant RSV as resolve",
+					`  RP->>RSV: resolve("json")`,
+				}, "\n"),
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "RP", ToNode: "RSV", RelationKind: types.DiagramRelCall,
+			}},
+		},
+	}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("run_pipeline", "resolve"),
+		{
+			Kind: types.EvidenceDirect, Subject: "resolve", Object: "JsonPlugin instance",
+			Source: "plugins/registry.py", LineStart: 31, AnchorKind: types.AnchorReturn,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("sequence message arguments must not rewrite a sibling typed endpoint: %+v", got)
+	}
+	labels := diagramEvidenceNodeLabels(doc.Blocks[1].Diagram.Body, types.DiagramSequence)
+	if got, exists := labels["resolve"]; exists {
+		t.Fatalf("message payload minted a node declaration resolve=%q", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotHideReverseCallAnchor(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"

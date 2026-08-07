@@ -335,6 +335,31 @@ func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *tes
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RepairsJSONEscapedQuotesInsideQuotedLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    make_sink["make_sink<br/>(kind=\"console\")"] --> guard{"kind == \"console\"?"}`,
+		`    guard -->|"kind=\"console\""| console[ConsoleSink]`,
+	}, "\n")
+	want := strings.Join([]string{
+		"flowchart TD",
+		`    make_sink["make_sink<br/>(kind=&quot;console&quot;)"] --> guard{"kind == &quot;console&quot;?"}`,
+		`    guard -->|"kind=&quot;console&quot;"| console[ConsoleSink]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if got != want {
+		t.Fatalf("quoted-label quote repair mismatch:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("quoted-label quote repair must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+	edges := ParseEdges(got)
+	if len(edges) != 2 || edges[0].From != "make_sink" || edges[0].To != "guard" ||
+		edges[1].From != "guard" || edges[1].To != "console" {
+		t.Fatalf("quote repair changed topology: %+v", edges)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_RepairsBracketedTraceNodeLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

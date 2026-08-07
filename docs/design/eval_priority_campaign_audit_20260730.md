@@ -22382,3 +22382,40 @@ root-cause 图的独立 authority 均未修改。`EVAL-B209-COOPPATH1` 继续开
 状态：`EVAL-B213-MERMLABEL1=closed-by-r139-production-replay`；
 `EVAL-B208-POLYCOMPOSE1=S36c-implemented/targeted-tests-pass/pending-exact-two-replay`；
 `EVAL-B209-COOPPATH1=P1/next`；JSON malformed=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.192 B205 r140 + S36e：sequence 消息污染 typed identity；浏览器 Mermaid 引号生产失败与等价自愈
+
+`064516f1f` 构建后的严格双并行回放 runner 为 2/2 PASS，但人工为 0/2：
+
+- C++：107s、0 次 finalizer reject。S36c 的 5 条 typed recipe 被直接消费，首次实现零成文拒绝并保留 flowchart；但正文把
+  `level >= kError` 的 `flush` 门误述成整个 write 路径门，并把未知 sink 的单一 `nullptr` 返回误述成“返回空或抛出”。客户打开
+  `20260806-180304.063-69087.html` 时图无法渲染；
+- Python：114s、2 次 finalizer reject。首稿结构块逐字携带 `run_pipeline -> resolve` call、
+  `resolve -> JsonPlugin instance` return、`register -> JsonPlugin` register，系统却把时序消息
+  `RP->>RSV: resolve("json")` 中的显示参数误铸为 document alias `resolve -> json`，继而把自己的正确 recipe 报成
+  `resolve(json)`/`run_pipeline -> resolve(json)` 未证。模型在修复轮删除 metadata 与整图，最终文字缩成三行并漏 cooperative MRO。
+
+确认并排期如下：
+
+1. `EVAL-B215-SEQMSGLABEL1=P0/S36e-implemented`：sequence 身份只来自 participant/actor 声明，消息正文中的括号、参数和字符串永不进入
+   node-label registry；实际 Mermaid body 的精确头声明优先于可能漂移的 semantic kind，无头恢复片段才回退 typed kind。生产形 pin 让时序图
+   与 sibling structured return anchor 共存，证明 `resolve("json")` 不会改写 `resolve` endpoint；
+2. `EVAL-B216-MERMQUOTE1=P0/S36e-implemented`：`NormalizeSourceForMarkdown` 对已经使用双引号包裹的 node/decision/pipe label，
+   把内部 JSON 风格 `\"` 与裸内部双引号统一编码为显示等价的 `&quot;`，保留外层引号、节点 ID、边与拓扑。修复发生在 Markdown/HTML
+   共用源码归一化层，不读取语言、case、请求或答案词义，也不生成/删除图。完整客户图在内置 Mermaid.js 11.12.0 上的对照为：原文
+   `Parse error on line 2`，只经该归一化后 `parse=ok`；HTML pin 还保证浏览器拿到 `&amp;quot;`，不再拿到 `\&#34;`；
+3. `EVAL-B217-FLOWUNLABELED1=P1/open`：C++ flowchart 的无标签逻辑箭头仍可绕过 sequence/call_dag 的严格 body-to-anchor 覆盖。
+   后续按所有 source relation 图的统一显式边合同审计，不能按本 fixture 的节点名或 C++ 关键词补丁；
+4. `EVAL-B218-FACTVALUE1=P2/open`：typed guard/absence 证据虽然在上下文中，模型仍可能把 guard 作用域或单一失败行为写宽。
+   应从结构化事实的主体、谓词、对象与作用域改善软引导/承载，禁止扫描最终 prose 后替换模型结论；
+5. `EVAL-B209-COOPPATH1=P1/open` 保持独立：从 parser-authored base order、override 与 exact cooperative-super 关系构造 typed path，
+   不按 Python/Java/ArkTS/Cangjie 或样例名拟合。
+
+自愈边界：等价字符编码可自动修复；节点、边、关系和结论均由模型拥有。若规范化后 Mermaid.js 仍拒绝，HTML 现有 catch 车道继续显示原始图源与
+错误，不得吞掉整份答案。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链与可消除量的独立 runtime authority 本批未修改。
+
+状态：`EVAL-B208-POLYCOMPOSE1=replay-partial/C++-zero-reject`；
+`EVAL-B215-SEQMSGLABEL1=S36e-implemented/focused-pass`；
+`EVAL-B216-MERMQUOTE1=S36e-implemented/focused-pass/bundled-parser-production-witness-pass`；
+`EVAL-B217-FLOWUNLABELED1=P1-open`；`EVAL-B218-FACTVALUE1=P2-open`；
+模型答案所有权=`preserved`；Trace=`not-touched`。

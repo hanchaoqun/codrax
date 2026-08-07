@@ -1846,7 +1846,9 @@ func normalizeFlowchartVisibleLabel(label string, forceQuote bool) (string, bool
 	suffix := label[len(label)-suffixLen:]
 	normalized, lineBreakChanged := normalizeFlowchartLabelLineBreaks(trimmed)
 	if flowchartLabelAlreadyQuoted(normalized) {
-		if !lineBreakChanged {
+		var quoteChanged bool
+		normalized, quoteChanged = normalizeFlowchartQuotedLabelQuotes(normalized)
+		if !lineBreakChanged && !quoteChanged {
 			return label, false
 		}
 		return prefix + normalized + suffix, true
@@ -1855,6 +1857,25 @@ func normalizeFlowchartVisibleLabel(label string, forceQuote bool) (string, bool
 		return label, false
 	}
 	return prefix + quoteFlowchartLabel(normalized) + suffix, true
+}
+
+// normalizeFlowchartQuotedLabelQuotes keeps the outer Mermaid label quotes
+// while converting inner double quotes to the HTML entity form accepted by
+// Mermaid.js. LLMs commonly emit JSON-style \" escaping inside an already
+// quoted node label; Mermaid does not consistently treat that backslash as a
+// quote escape, so an otherwise valid diagram can fail in the browser. The
+// entity is display-equivalent and survives Markdown/HTML escaping intact.
+func normalizeFlowchartQuotedLabelQuotes(label string) (string, bool) {
+	if len(label) < 2 || label[0] != '"' || label[len(label)-1] != '"' {
+		return label, false
+	}
+	inner := label[1 : len(label)-1]
+	normalized := strings.ReplaceAll(inner, `\"`, `&quot;`)
+	normalized = strings.ReplaceAll(normalized, `"`, `&quot;`)
+	if normalized == inner {
+		return label, false
+	}
+	return `"` + normalized + `"`, true
 }
 
 func flowchartLabelShapeSource(label, open, close string, forceQuote bool) string {

@@ -237,6 +237,30 @@ func TestRenderMarkdownHTMLNormalizesFlowchartNodeLabelForBrowserMermaid(t *test
 	}
 }
 
+func TestRenderMarkdownHTMLRepairsEscapedQuotesForBrowserMermaid(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		`    make_sink["make_sink<br/>(kind=\"console\")"] --> guard{"kind == \"console\"?"}`,
+		"```",
+	}, "\n"))
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	for _, want := range []string{
+		`make_sink[&#34;make_sink&lt;br/&gt;(kind=&amp;quot;console&amp;quot;)&#34;]`,
+		`guard{&#34;kind == &amp;quot;console&amp;quot;?&#34;}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("browser Mermaid handoff missing repaired label %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `\&#34;console\&#34;`) {
+		t.Fatalf("JSON-style quote escape survived into browser Mermaid source:\n%s", got)
+	}
+}
+
 func TestRenderMarkdownHTMLNormalizesPathLikeFlowchartNodeIDs(t *testing.T) {
 	body := []byte(strings.Join([]string{
 		"```mermaid",

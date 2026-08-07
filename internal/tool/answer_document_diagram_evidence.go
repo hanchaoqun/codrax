@@ -78,7 +78,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		labels := documentLabels
 		strictBodyCoverage := false
 		if block.Kind == types.BlockDiagram && block.Diagram != nil {
-			labels = diagramEvidenceNodeLabels(block.Diagram.Body)
+			labels = diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 			strictBodyCoverage = strictSourceCallChain &&
 				(block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG)
 		}
@@ -647,14 +647,22 @@ func diagramEvidenceEdgeKey(from, to string) string {
 	return strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
 }
 
-func diagramEvidenceNodeLabels(body string) map[string]string {
+func diagramEvidenceNodeLabels(body string, kind types.DiagramKind) map[string]string {
 	candidates := make(map[string]map[string]bool)
+	sequenceSyntax := diagramEvidenceUsesSequenceSyntax(body, kind)
 	for _, line := range strings.Split(body, "\n") {
 		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
 			diagramEvidenceAddNodeLabelCandidate(candidates, decl)
 		}
-		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
-			diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+		// Parentheses/brackets in a sequence message are payload, not node
+		// declarations: `A->>B: resolve("json")` must not mint a document
+		// alias `resolve -> json`. Sequence identities come exclusively from
+		// participant/actor declarations; flow-family diagrams keep the node
+		// declaration parser.
+		if !sequenceSyntax {
+			for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+			}
 		}
 	}
 	out := make(map[string]string)
@@ -683,12 +691,15 @@ func diagramEvidenceDocumentNodeLabels(doc *types.AnswerDocumentV2) map[string]s
 		if block.Diagram == nil {
 			continue
 		}
+		sequenceSyntax := diagramEvidenceUsesSequenceSyntax(block.Diagram.Body, block.Diagram.Kind)
 		for _, line := range strings.Split(block.Diagram.Body, "\n") {
 			for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
 				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
 			}
-			for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
-				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+			if !sequenceSyntax {
+				for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+					diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+				}
 			}
 		}
 	}
@@ -702,6 +713,25 @@ func diagramEvidenceDocumentNodeLabels(doc *types.AnswerDocumentV2) map[string]s
 		}
 	}
 	return out
+}
+
+// diagramEvidenceUsesSequenceSyntax gives the exact Mermaid body declaration
+// precedence over the semantic diagram family. The two normally agree, but a
+// recovered/malformed document may carry kind=sequence with a flowchart body.
+// Falling back to the typed kind keeps declaration-less partial sequence
+// bodies conservative without letting message payloads become node labels.
+func diagramEvidenceUsesSequenceSyntax(body string, kind types.DiagramKind) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		if keyword := mermaidcompat.FirstKeywordIn(line); keyword != "" {
+			return keyword == "sequenceDiagram"
+		}
+		break
+	}
+	return kind == types.DiagramSequence
 }
 
 func diagramEvidenceDocumentEdges(doc *types.AnswerDocumentV2) []mermaidcompat.Edge {
