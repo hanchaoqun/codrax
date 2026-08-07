@@ -310,7 +310,6 @@ func TestExtractConcreteValues_LanguageAwareKinds(t *testing.T) {
 	ReadOnly
 	NonEvidenceTool
 }
-
 var _ Tool = (*ExecCommand)(nil)
 
 func (t *ExecCommand) Execute(ctx *BusContext) error {
@@ -339,6 +338,37 @@ func (t *ExecCommand) Execute(ctx *BusContext) error {
 			t.Errorf("expected kind %q in results, got kinds=%v", want, ks)
 		}
 	}
+}
+
+func TestExtractConcreteValues_ConditionAndDeclarationTypesAreNotConstructorBindings(t *testing.T) {
+	src := `void Logger::log(Level level, const std::string& message) {
+    if (level >= Level::kError) {
+        sink_->flush();
+    }
+}`
+	entries := extractConcreteValues(src, repotypes.LangCpp)
+	hasConditional := false
+	for _, entry := range entries {
+		if isBindsKind(entry.kind) {
+			t.Fatalf("enum/declaration type minted a constructor binding: %+v", entries)
+		}
+		if entry.kind == "conditional" && strings.Contains(entry.value, "Level::kError") {
+			hasConditional = true
+		}
+	}
+	if !hasConditional {
+		t.Fatalf("real typed conditional was lost: %+v", entries)
+	}
+}
+
+func TestExtractConcreteValues_ConstructorPassingCallStillBinds(t *testing.T) {
+	entries := extractConcreteValues(`registry.Register(NewHandler(deps))`, repotypes.LangGo)
+	for _, entry := range entries {
+		if isBindsKind(entry.kind) && strings.Contains(entry.value, "NewHandler(deps)") {
+			return
+		}
+	}
+	t.Fatalf("real constructor-passing call was lost: %+v", entries)
 }
 
 func TestExtractConcreteValues_NoLangSkipsNewKinds(t *testing.T) {

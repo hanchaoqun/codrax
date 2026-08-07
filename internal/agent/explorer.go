@@ -18127,9 +18127,17 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 					//   Python: Xxx() where Xxx is capitalized (class instantiation)
 					hasConstructor := false
 					for _, token := range strings.Fields(inner) {
-						clean := strings.Trim(token, ",()")
+						rawToken := strings.Trim(token, ",")
+						clean := strings.Trim(rawToken, ",()")
+						// A NewXxx/Capitalized identifier is a constructor
+						// only when this argument actually contains its call
+						// opener. Without this structural byte, C/C++ enum
+						// constants (`Level::kError`) and declaration parameter
+						// types (`Level level`) were falsely minted as
+						// `binds ONLY` rows.
+						hasCallOpener := strings.Contains(rawToken, "(")
 						// Go: NewXxx or newXxx factory
-						if strings.HasPrefix(clean, "New") && len(clean) > 3 {
+						if strings.HasPrefix(clean, "New") && len(clean) > 3 && hasCallOpener {
 							hasConstructor = true
 							break
 						}
@@ -18145,7 +18153,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 						}
 						// Python/JS: CapitalizedClass() — bare class instantiation
 						// Only if the token is a standalone capitalized identifier
-						if len(clean) > 1 && clean[0] >= 'A' && clean[0] <= 'Z' &&
+						if len(clean) > 1 && clean[0] >= 'A' && clean[0] <= 'Z' && hasCallOpener &&
 							!strings.ContainsAny(clean, "\"'`=") {
 							hasConstructor = true
 							break

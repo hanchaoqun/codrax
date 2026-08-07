@@ -22789,3 +22789,27 @@ Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链�
 状态：`EVAL-B225-CITATIONPATCHCONFLICT1=S36p-closed/full-tests-pass/wiring-pinned`；
 `EVAL-B226-CONDITIONCLASS1=P1-next`；`EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；
 模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.205 S36q：构造器传参扫描不得把枚举常量/声明类型铸成 binding
+
+`EVAL-B226-CONDITIONCLASS1` 已根修。r144 C++ prompt 未出现 S36j 的 same-owner lexical-order 胶囊，直接原因是 concrete-value scanner 把
+`if (level >= Level::kError)` 产成 `Logger.log binds ONLY level >= Level::kError`，而不是只保留语言级 `conditional`。深层机制是通用
+constructor-passing detector 在 outer `(...)` 的参数中只要看到任意大写 token 就判为 class instantiation；它没有要求该 token 自己带调用括号。
+因此受影响的不只是本例：C/C++ namespace enum、Java/Kotlin enum、Swift type member、以及函数签名里的大写参数类型均可能成为伪 binding。
+
+本批收窄构造器资格：
+
+- `NewXxx`/大写 class token 必须在同一参数 token 上具有真实 `(` call opener；
+- Go `&Xxx{...}` 与 Java/JS `new Xxx(...)` 两条已有独立语法臂保持；
+- `Level::kError`、`Level level` 等无调用形只退出 binding lane，原有 language-aware conditional/guard 提取不受影响；
+- `registry.Register(NewHandler(deps))` 正向 pin 保持 `binds ONLY`，避免用“删掉全部 binding”掩盖假阳性。
+
+这是 scanner 的通用语法资格修复，不按 Logger、kError、C++ 或题目关键词分支。它只减少错误的 soft evidence，不新增 hard gate；更没有扫描用户输入、
+模型输出或最终 prose。正确的 `conditional` 将重新进入 `guard_condition` typed 行，并与 parser-authored call row 通过 S36l 的无歧义 owner alias 合并，
+使 S36j 的同 owner 词法顺序胶囊能够给模型提供 line-order 事实；系统仍不把词法顺序扩张成 guard control-scope 或替模型写结论。
+
+验证：C++ 条件/声明类型负 pin、Go constructor-passing 正 pin、language-aware kinds 套件、`go test ./internal/agent` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B226-CONDITIONCLASS1=S36q-closed/full-tests-pass`；
+`EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；下一步=`r145-two-case-replay`；
+模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。
