@@ -22604,3 +22604,35 @@ r142 C++ 的精确输入因此呈现为 line 36 `Logger.log -> Sink.write`、lin
 状态：`EVAL-B218-FACTVALUE1=S36j-closed/typed-order-advisory`；
 `CONTROL-SCOPE-RELATION=P2-open/parser-authored-only`；`EVAL-B209-COOPPATH1=P1-next`；
 模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.199 S36k：cooperative delegation 先保留 exact-super 事实，再与声明 owner roster 做候选组合
+
+`EVAL-B209-COOPPATH1` 第一阶段已落地，目标是补足图层表达但不把 MRO/trait 候选硬化为直接调用。施工分两层：
+
+1. explorer 从 repomap 已缓存的 parser relation 中提升 `repomap_cooperative_call`。资格必须同时满足：call relation、AST/Cangjie parser
+   provenance、已读精确 call line、可定位到 enclosing callable、caller 与 callee operation 同名，以及 extractor-specific receiver 已被 parser
+   精确标成显式 `super`/`super()`。输出端点保持 `Owner.operation -> super.operation`，不解析源码文本、不读取模型 summary，也不猜
+   `super` 下一跳的具体 owner；
+2. finalizer 将该事实与 parser-authored direct base declaration order、各 base 的 citable 同名方法定义、可选 registration/binding 并置为
+   `Typed cooperative-method rosters (candidate-only)`。每席显式带 `runtime_mro_status=unproven`、`typed_super_delegations=N/M` 和
+   `cooperative_path_status=candidate_only`。安全画法只允许声明结构使用 `type_relation`，已证 super 调用保持原端点；禁止把
+   `BaseA.operation -> BaseB.operation` 画成 call，除非另有 exact typed call edge 命名这两个 owner。
+
+全支持语言矩阵再次复核并冻结失败关闭边界：
+
+- 可由现有 parser receiver 精确统一消费：Python、Java、JavaScript、TypeScript、ArkTS、Kotlin、Swift、Cangjie；
+- Rust 的 `super` 是模块路径而非基类分派，已有负 pin 明确拒绝提升；
+- Go 的 embedding 调用已有独立 typed receiver+embedding 事实，不冒充 cooperative-super；C 无继承；Proto 是声明面；
+- C++ 的显式 `Base::operation` 需要“enclosing owner 的已证 inheritance + qualified receiver”合取后才能提升；Ruby 的隐式 `super`
+  当前 extractor 没有 call relation；Lua prototype 没有统一的语言级 super carrier。这三类继续开放，不能靠字符串 `super` 或相邻定义猜造。
+
+回归覆盖 Python exact-read 正向、不同 operation 排除、未读行排除、六个 extractor family 正向、普通 receiver/regex/Rust-module-super
+负向，以及三基类 roster 的 source ordinal、两条 exact-super 与零 owner-to-owner 假边。此次只新增消费者与确定性 evidence producer；
+`extract_*.go` 输出未变化，因此不伪 bump extractor cache version。
+
+验证：聚焦 types/explorer/finalizer 测试全绿；`go test ./...` 全绿。
+
+状态：`EVAL-B209-COOPPATH1=S36k-partial/exact-super-and-roster-landed`；
+`EVAL-B209-RUBY-IMPLICIT-SUPER=P2-open`；`EVAL-B209-CPP-QUALIFIED-BASE=P2-open`；
+`EVAL-B209-LUA-PROTOTYPE=P3-advisory`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。

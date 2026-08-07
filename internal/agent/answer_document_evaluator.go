@@ -3011,8 +3011,10 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	}
 	registrations := make([]answerDocRuntimeTargetRelationRow, 0)
 	structural := make([]answerDocRuntimeTargetRelationRow, 0)
+	methodDefinitions := make([]answerDocRuntimeTargetRelationRow, 0)
 	valueFlowCandidates := make([]answerDocRuntimeTargetRelationRow, 0)
 	callbacks := make([]answerDocRuntimeTargetRelationRow, 0)
+	cooperativeDelegations := make([]answerDocRuntimeTargetRelationRow, 0)
 	calls := make([]answerDocRuntimeTargetRelationRow, 0)
 	seen := make(map[string]struct{})
 	for _, original := range pool {
@@ -3024,7 +3026,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		if item.Kind == types.EvidenceRegistration && strings.TrimSpace(item.Subject) == "" && strings.TrimSpace(item.Object) != "" {
 			item.Subject = strings.TrimSpace(item.AnchorSymbol)
 		}
-		if !item.IsCitable() || strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
+		if !item.IsCitable() || strings.TrimSpace(item.Subject) == "" {
 			continue
 		}
 		id := answerDocEvidenceIdentity(item)
@@ -3033,6 +3035,15 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		}
 		row := answerDocRuntimeTargetRelationRow{item: item}
 		switch {
+		case types.ClaimFormOf(item) == types.ClaimDefinitionFact && !types.IsRepoMapTypeRelationEvidence(item):
+			if owner, operation := answerDocDispatchEndpointParts(firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject)); owner != "" && operation != "" {
+				row.family = "method_definition"
+				methodDefinitions = append(methodDefinitions, row)
+				seen[id] = struct{}{}
+			}
+			continue
+		case strings.TrimSpace(item.Object) == "":
+			continue
 		case types.ClaimFormOf(item) == types.ClaimRegistrationEdge:
 			row.family = "registration_or_binding"
 			registrations = append(registrations, row)
@@ -3045,6 +3056,9 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 			(types.ClaimFormOf(item) == types.ClaimReturnFact || types.ClaimFormOf(item) == types.ClaimAssignmentFact):
 			row.family = "value_or_factory_flow"
 			valueFlowCandidates = append(valueFlowCandidates, row)
+		case item.Producer == types.EvidenceProducerRepoMapCooperativeCall && types.ClaimFormOf(item) == types.ClaimCallEdge:
+			row.family = "cooperative_delegation"
+			cooperativeDelegations = append(cooperativeDelegations, row)
 		case types.ClaimFormOf(item) == types.ClaimCallEdge:
 			row.family = "static_call"
 			calls = append(calls, row)
@@ -3134,6 +3148,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	appendBounded(structural, 8)
 	appendBounded(valueFlows, 6)
 	appendBounded(callbacks, 6)
+	appendBounded(cooperativeDelegations, 6)
 	appendBounded(calls, answerDocRuntimeTargetRelationCapsuleLimit)
 	if len(ordered) == 0 {
 		return ""
@@ -3167,10 +3182,187 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		b.WriteString("\n")
 		b.WriteString(compositions)
 	}
+	if compositions := renderAnswerDocCooperativeMethodRosters(registrations, structural, methodDefinitions, cooperativeDelegations); compositions != "" {
+		b.WriteString("\n")
+		b.WriteString(compositions)
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 const answerDocRuntimeDispatchCompositionLimit = 4
+
+const answerDocCooperativeMethodRosterLimit = 4
+
+// renderAnswerDocCooperativeMethodRosters composes parser-authored declared
+// base order, citable method definitions and exact explicit-super calls. The
+// roster remains candidate-only: direct base declaration order plus super
+// syntax does not universally prove a language's full runtime MRO.
+func renderAnswerDocCooperativeMethodRosters(
+	registrations, structural, definitions, delegations []answerDocRuntimeTargetRelationRow,
+) string {
+	type rosterEntry struct {
+		typeRelation types.EvidenceItem
+		definition   types.EvidenceItem
+		delegation   *types.EvidenceItem
+		owner        string
+		operation    string
+	}
+	type roster struct {
+		candidate  string
+		operation  string
+		entries    []rosterEntry
+		binding    *types.EvidenceItem
+		delegators int
+	}
+
+	definitionByOwnerOperation := make(map[string]types.EvidenceItem)
+	definitionOperationNames := make(map[string]string)
+	for _, row := range definitions {
+		owner, operation := answerDocDispatchEndpointParts(firstNonEmptyAnswerDocString(row.item.OwnerSymbol, row.item.Subject))
+		if owner == "" || operation == "" {
+			continue
+		}
+		key := strings.ToLower(owner) + "\x00" + strings.ToLower(operation)
+		if _, exists := definitionByOwnerOperation[key]; !exists {
+			definitionByOwnerOperation[key] = row.item
+			definitionOperationNames[key] = operation
+		}
+	}
+	delegationByOwnerOperation := make(map[string]types.EvidenceItem)
+	for _, row := range delegations {
+		owner, operation := answerDocDispatchEndpointParts(firstNonEmptyAnswerDocString(row.item.OwnerSymbol, row.item.Subject))
+		if owner == "" || operation == "" {
+			continue
+		}
+		key := strings.ToLower(owner) + "\x00" + strings.ToLower(operation)
+		if _, exists := delegationByOwnerOperation[key]; !exists {
+			delegationByOwnerOperation[key] = row.item
+		}
+	}
+	lookupOwnerOperation := func(items map[string]types.EvidenceItem, owner, operationKey string) (types.EvidenceItem, bool) {
+		for key, item := range items {
+			parts := strings.SplitN(key, "\x00", 2)
+			if len(parts) == 2 && parts[1] == operationKey && answerDocDispatchIdentityCompatible(parts[0], owner) {
+				return item, true
+			}
+		}
+		return types.EvidenceItem{}, false
+	}
+
+	structuralByCandidate := make(map[string][]types.EvidenceItem)
+	var candidateOrder []string
+	for _, row := range structural {
+		candidate := strings.TrimSpace(row.item.Subject)
+		if candidate == "" || strings.TrimSpace(row.item.Object) == "" || row.item.RelationOrdinal <= 0 {
+			continue
+		}
+		key := strings.ToLower(candidate)
+		if _, exists := structuralByCandidate[key]; !exists {
+			candidateOrder = append(candidateOrder, key)
+		}
+		structuralByCandidate[key] = append(structuralByCandidate[key], row.item)
+	}
+	var rosters []roster
+	for _, candidateKey := range candidateOrder {
+		typeRows := structuralByCandidate[candidateKey]
+		if len(typeRows) < 2 {
+			continue
+		}
+		sort.SliceStable(typeRows, func(i, j int) bool { return typeRows[i].RelationOrdinal < typeRows[j].RelationOrdinal })
+		operationCounts := make(map[string]int)
+		operationNames := make(map[string]string)
+		for _, typeRow := range typeRows {
+			base := strings.TrimSpace(typeRow.Object)
+			for key := range definitionByOwnerOperation {
+				parts := strings.SplitN(key, "\x00", 2)
+				if len(parts) != 2 || !answerDocDispatchIdentityCompatible(parts[0], base) {
+					continue
+				}
+				operationCounts[parts[1]]++
+				operationNames[parts[1]] = firstNonEmptyAnswerDocString(definitionOperationNames[key], parts[1])
+			}
+		}
+		var operations []string
+		for operation, count := range operationCounts {
+			if count >= 2 {
+				operations = append(operations, operation)
+			}
+		}
+		sort.Strings(operations)
+		for _, operationKey := range operations {
+			candidate := roster{candidate: strings.TrimSpace(typeRows[0].Subject), operation: operationNames[operationKey]}
+			for _, typeRow := range typeRows {
+				base := strings.TrimSpace(typeRow.Object)
+				definition, ok := lookupOwnerOperation(definitionByOwnerOperation, base, operationKey)
+				if !ok {
+					continue
+				}
+				entry := rosterEntry{typeRelation: typeRow, definition: definition, owner: base, operation: operationKey}
+				if delegation, ok := lookupOwnerOperation(delegationByOwnerOperation, base, operationKey); ok {
+					delegationCopy := delegation
+					entry.delegation = &delegationCopy
+					candidate.delegators++
+				}
+				candidate.entries = append(candidate.entries, entry)
+			}
+			if len(candidate.entries) < 2 {
+				continue
+			}
+			for i := range registrations {
+				if answerDocDispatchIdentityCompatible(registrations[i].item.Object, candidate.candidate) {
+					binding := registrations[i].item
+					candidate.binding = &binding
+					break
+				}
+			}
+			rosters = append(rosters, candidate)
+			if len(rosters) >= answerDocCooperativeMethodRosterLimit {
+				break
+			}
+		}
+		if len(rosters) >= answerDocCooperativeMethodRosterLimit {
+			break
+		}
+	}
+	if len(rosters) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("### Typed cooperative-method rosters (candidate-only)\n\n")
+	b.WriteString("Each roster preserves declared base order, independent method definitions, and any exact explicit-super calls. It does not turn the roster into direct owner-to-owner invocation edges or claim a fully resolved runtime MRO.\n\n")
+	for i, candidate := range rosters {
+		fmt.Fprintf(&b, "- candidate `%d`: declared_type=`%s`; operation=`%s`; runtime_mro_status=`unproven`",
+			i+1, answerDocCallChainInline(candidate.candidate), answerDocCallChainInline(candidate.operation))
+		if candidate.binding != nil {
+			fmt.Fprintf(&b, "; binding_candidate=`%s -> %s` [%s] @ %s",
+				answerDocCallChainInline(candidate.binding.Subject), answerDocCallChainInline(candidate.binding.Object),
+				answerDocCallChainInline(answerDocEvidenceIdentity(*candidate.binding)), answerDocCallChainInline(candidate.binding.DisplayLocation(true)))
+		}
+		b.WriteString("\n")
+		for _, entry := range candidate.entries {
+			fmt.Fprintf(&b, "  %d. declared_owner=`%s`; type_relation=[%s] @ %s; method_definition=`%s.%s` [%s] @ %s",
+				entry.typeRelation.RelationOrdinal,
+				answerDocCallChainInline(entry.owner),
+				answerDocCallChainInline(answerDocEvidenceIdentity(entry.typeRelation)),
+				answerDocCallChainInline(entry.typeRelation.DisplayLocation(true)),
+				answerDocCallChainInline(entry.owner),
+				answerDocCallChainInline(entry.operation),
+				answerDocCallChainInline(answerDocEvidenceIdentity(entry.definition)),
+				answerDocCallChainInline(entry.definition.DisplayLocation(true)))
+			if entry.delegation != nil {
+				fmt.Fprintf(&b, "; cooperative_delegation=`%s -> %s` [%s] @ %s",
+					answerDocCallChainInline(entry.delegation.Subject), answerDocCallChainInline(entry.delegation.Object),
+					answerDocCallChainInline(answerDocEvidenceIdentity(*entry.delegation)), answerDocCallChainInline(entry.delegation.DisplayLocation(true)))
+			}
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "  - typed_super_delegations=`%d/%d`; cooperative_path_status=`candidate_only`\n",
+			candidate.delegators, maxInt(0, len(candidate.entries)-1))
+	}
+	b.WriteString("\n- Safe rendering: use `type_relation` edges for the declared-type roster and keep every proven `owner.operation -> super.operation` call as that exact call. Do not draw `BaseA.operation -> BaseB.operation` as a direct call unless a separate typed call edge names those exact owners. A sequence diagram may use a Note for candidate MRO order; an ordered list may describe the roster with `runtime_mro_status=unproven`. The model decides whether additional binding/runtime evidence proves the selected path.\n")
+	return strings.TrimRight(b.String(), "\n")
+}
 
 // renderAnswerDocRuntimeDispatchCompositions joins only exact typed relation
 // rows already present in the runtime-target capsule. The join is deliberately

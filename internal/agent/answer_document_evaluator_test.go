@@ -1074,6 +1074,47 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicDispatchCompo
 	}
 }
 
+func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedCooperativeMethodRoster(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-register", Kind: types.EvidenceRegistration, Subject: `@register("json")`, Predicate: "registers", Object: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 17, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+		{ID: "E-base-3", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "BasePlugin", Source: "pipeline/plugins.py", LineStart: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 3},
+		{ID: "E-base-1", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "TimestampMixin", Source: "pipeline/plugins.py", LineStart: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 1},
+		{ID: "E-base-2", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "ValidationMixin", Source: "pipeline/plugins.py", LineStart: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 2},
+		{ID: "E-def-base", Kind: types.EvidenceMechanism, Subject: "BasePlugin.handle", Source: "pipeline/base.py", LineStart: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+		{ID: "E-def-validation", Kind: types.EvidenceMechanism, Subject: "ValidationMixin.handle", Source: "pipeline/base.py", LineStart: 30, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+		{ID: "E-def-timestamp", Kind: types.EvidenceMechanism, Subject: "TimestampMixin.handle", Source: "pipeline/base.py", LineStart: 39, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+		{ID: "E-super-validation", Kind: types.EvidenceRelationship, Subject: "ValidationMixin.handle", OwnerSymbol: "ValidationMixin.handle", Predicate: "cooperative_super_call", Object: "super.handle", Source: "pipeline/base.py", LineStart: 33, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Producer: types.EvidenceProducerRepoMapCooperativeCall},
+		{ID: "E-super-timestamp", Kind: types.EvidenceRelationship, Subject: "TimestampMixin.handle", OwnerSymbol: "TimestampMixin.handle", Predicate: "cooperative_super_call", Object: "super.handle", Source: "pipeline/base.py", LineStart: 42, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Producer: types.EvidenceProducerRepoMapCooperativeCall},
+	}}
+
+	got := renderAnswerDocRuntimeTargetRelationCapsule(ctx)
+	for _, want := range []string{
+		"family=`cooperative_delegation` relation=`cooperative_super_call` subject=`ValidationMixin.handle` object=`super.handle` [E-super-validation] @ pipeline/base.py:33",
+		"### Typed cooperative-method rosters (candidate-only)",
+		"declared_type=`JsonPlugin`; operation=`handle`; runtime_mro_status=`unproven`",
+		"binding_candidate=`@register(\"json\") -> JsonPlugin` [E-register] @ pipeline/plugins.py:17",
+		"1. declared_owner=`TimestampMixin`",
+		"2. declared_owner=`ValidationMixin`",
+		"3. declared_owner=`BasePlugin`",
+		"cooperative_delegation=`TimestampMixin.handle -> super.handle` [E-super-timestamp] @ pipeline/base.py:42",
+		"typed_super_delegations=`2/2`; cooperative_path_status=`candidate_only`",
+		"Do not draw `BaseA.operation -> BaseB.operation` as a direct call unless a separate typed call edge names those exact owners",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed cooperative roster missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"TimestampMixin.handle -> ValidationMixin.handle",
+		"ValidationMixin.handle -> BasePlugin.handle",
+		"runtime_mro_status=`proven`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("cooperative roster minted unsupported concrete MRO edge/status %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventingGuardScope(t *testing.T) {
 	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
 		{ID: "E-flush", Kind: types.EvidenceRelationship, Subject: "Logger.log", OwnerSymbol: "Logger.log", Predicate: "calls", Object: "Sink.flush", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},

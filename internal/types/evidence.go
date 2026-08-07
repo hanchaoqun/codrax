@@ -33,6 +33,7 @@ const (
 const (
 	EvidenceProducerRepoMapStructuralRelation  = "repomap_structural_relation"
 	EvidenceProducerRepoMapImplementerRelation = "repomap_implementer_relation"
+	EvidenceProducerRepoMapCooperativeCall     = "repomap_cooperative_call"
 )
 
 // IsRepoMapTypeRelationEvidence reports whether item is a deterministic type

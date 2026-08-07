@@ -13669,6 +13669,8 @@ type concreteValuesResult struct {
 
 const runtimeTargetStructuralRelationLimit = 24
 
+const runtimeTargetCooperativeCallLimit = 16
+
 // runtimeTargetStructuralRelationFiles separates exact read authority from
 // the volatile concrete-value frontier. filesToScan is intentionally narrowed
 // as exploration focus moves, which is appropriate for broad literal scans;
@@ -13891,6 +13893,157 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 	b.WriteString("\n")
 	result.markdown = b.String()
 	return result
+}
+
+// buildRuntimeTargetCooperativeCalls promotes only parser-authored explicit
+// super/base-delegation calls whose enclosing callable invokes the same
+// operation. The target remains `super.<operation>`: the parser proves the
+// delegation syntax, but it does not by itself prove the concrete next owner
+// selected by a language's MRO/trait/runtime rules.
+func (e *explorerEvaluator) buildRuntimeTargetCooperativeCalls(
+	graph *repomap.Graph,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+) concreteValuesResult {
+	if e == nil || graph == nil || !e.runtimeTargetStructuralRelationsActive() {
+		return concreteValuesResult{}
+	}
+	type row struct {
+		item       types.EvidenceItem
+		resolvedBy string
+	}
+	rows := make([]row, 0)
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
+	for file := range filesToScan {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		fi, ok := graph.FileIndex[file]
+		if !ok || fi == nil {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if !runtimeTargetExplicitSuperCall(rel) {
+				continue
+			}
+			source := canonicalExplorerPath(rel.File)
+			if source == "" {
+				source = canonicalExplorerPath(fi.RelPath)
+			}
+			if source == "" || rel.Line <= 0 {
+				continue
+			}
+			if closure != nil {
+				if !closure.HasReadLine(source, rel.Line) {
+					continue
+				}
+			} else if !readSetContains(readSet, source) {
+				continue
+			}
+			owner := runtimeTargetEnclosingCallable(fi, rel.Line)
+			if owner == nil || !strings.EqualFold(strings.TrimSpace(owner.Name), strings.TrimSpace(rel.ToEP.Name)) {
+				continue
+			}
+			ownerType := firstNonEmptyString(owner.Receiver, owner.Parent)
+			if ownerType == "" {
+				continue
+			}
+			subject := ownerType + "." + strings.TrimSpace(owner.Name)
+			object := "super." + strings.TrimSpace(rel.ToEP.Name)
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s:%s", source, rel.Line, subject, object, rel.ResolvedBy))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Subject:      subject,
+				Predicate:    "cooperative_super_call",
+				Object:       object,
+				Source:       source,
+				LineStart:    rel.Line,
+				LineEnd:      rel.Line,
+				Confidence:   rel.Confidence,
+				Producer:     types.EvidenceProducerRepoMapCooperativeCall,
+				Summary:      fmt.Sprintf("parser-authored cooperative delegation: `%s` calls `%s` (extractor=%s)", subject, object, rel.ResolvedBy),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorCall,
+				AnchorSymbol: strings.TrimSpace(rel.ToEP.Name),
+				OwnerSymbol:  subject,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item, resolvedBy: rel.ResolvedBy})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		return rows[i].item.Subject < rows[j].item.Subject
+	})
+	if len(rows) > runtimeTargetCooperativeCallLimit {
+		rows = rows[:runtimeTargetCooperativeCallLimit]
+	}
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Cooperative Delegations (parser grounded)\n\n")
+	b.WriteString("These rows prove an explicit same-operation call through the language's super/base dispatch syntax. The target remains `super.<operation>` because the concrete next implementation still depends on the declared hierarchy and language runtime/MRO rules.\n\n")
+	b.WriteString("| Evidence | File:Line | Current owner | Delegation target | Extractor |\n")
+	b.WriteString("|----------|-----------|---------------|-------------------|-----------|\n")
+	for _, entry := range rows {
+		item := entry.item
+		result.evidence = append(result.evidence, item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` |\n",
+			item.ID, item.Source, item.LineStart, item.Subject, item.Object, entry.resolvedBy)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+func runtimeTargetExplicitSuperCall(rel repotypes.Relation) bool {
+	if rel.Kind != "call" || strings.TrimSpace(rel.ToEP.Name) == "" ||
+		(rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser) {
+		return false
+	}
+	receiver := strings.ToLower(strings.TrimSpace(rel.ToEP.Receiver))
+	switch strings.TrimSpace(rel.ResolvedBy) {
+	case "python_ast_attribute_call":
+		return receiver == "super()" || receiver == "super"
+	case "java_method_invocation", "js_ast_member_call", "kotlin_ast_navigation_call",
+		"swift_ast_navigation_call", "cangjie_token_call":
+		return receiver == "super"
+	default:
+		return false
+	}
+}
+
+func runtimeTargetEnclosingCallable(fi *repotypes.FileInfo, line int) *repotypes.Symbol {
+	if fi == nil || line <= 0 {
+		return nil
+	}
+	var best *repotypes.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Kind != "method" && sym.Kind != "function" || sym.Line <= 0 || sym.Line > line ||
+			(sym.EndLine > 0 && line > sym.EndLine) {
+			continue
+		}
+		if best == nil || sym.Line > best.Line ||
+			(sym.Line == best.Line && sym.EndLine > 0 && (best.EndLine <= 0 || sym.EndLine < best.EndLine)) {
+			best = sym
+		}
+	}
+	return best
 }
 
 func (e *explorerEvaluator) runtimeTargetStructuralRelationsActive() bool {
@@ -14505,6 +14658,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// directed-call gate by itself.
 	structuralRelationFiles := runtimeTargetStructuralRelationFiles(filesToScan, readSet)
 	structuralRelations := e.buildRuntimeTargetStructuralRelations(graph, structuralRelationFiles, readSet, closure)
+	cooperativeCalls := e.buildRuntimeTargetCooperativeCalls(graph, structuralRelationFiles, readSet, closure)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -15093,6 +15247,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	if structuralRelations.markdown != "" {
 		b.WriteString(structuralRelations.markdown)
 	}
+	if cooperativeCalls.markdown != "" {
+		b.WriteString(cooperativeCalls.markdown)
+	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
 	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
 		"Rows whose Fact column starts with `calls →` surface cross-component " +
@@ -15497,6 +15654,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// of whether synthesis succeeds. The downstream rankEvidenceByRelevance
 	// + formatEvidenceItems(limit=18) handles its own selection.
 	cvEvidence := append([]types.EvidenceItem(nil), structuralRelations.evidence...)
+	cvEvidence = append(cvEvidence, cooperativeCalls.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}

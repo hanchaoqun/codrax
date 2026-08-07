@@ -210,6 +210,72 @@ func TestBuildRuntimeTargetStructuralRelations_RequiresExactReadLine(t *testing.
 	}
 }
 
+func TestBuildRuntimeTargetCooperativeCalls_PromotesExactReadSameOperationSuperCall(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "pipeline/base.py", Language: repotypes.LangPython,
+		Symbols: []repotypes.Symbol{
+			{Name: "TimestampMixin", Kind: "class", File: "pipeline/base.py", Line: 36, EndLine: 43},
+			{Name: "handle", Kind: "method", Parent: "TimestampMixin", File: "pipeline/base.py", Line: 39, EndLine: 42},
+			{Name: "helper", Kind: "method", Parent: "TimestampMixin", File: "pipeline/base.py", Line: 45, EndLine: 48},
+		},
+		Relations: []repotypes.Relation{
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "handle", Receiver: "super()"}, File: "pipeline/base.py", Line: 42, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_ast_attribute_call"},
+			// An explicit super call to a different operation is real source
+			// evidence but is not a cooperative same-operation handoff.
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "close", Receiver: "super()"}, File: "pipeline/base.py", Line: 47, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_ast_attribute_call"},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"pipeline/base.py": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/base.py": {{Start: 39, End: 42}}})
+
+	got := eval.buildRuntimeTargetCooperativeCalls(graph, map[string]bool{"pipeline/base.py": true}, map[string]bool{"pipeline/base.py": true}, closure)
+	if len(got.evidence) != 1 {
+		t.Fatalf("exact same-operation super call must reach typed handoff once: %+v", got.evidence)
+	}
+	item := got.evidence[0]
+	if item.Subject != "TimestampMixin.handle" || item.Predicate != "cooperative_super_call" ||
+		item.Object != "super.handle" || item.OwnerSymbol != "TimestampMixin.handle" ||
+		item.Producer != types.EvidenceProducerRepoMapCooperativeCall || types.ClaimFormOf(item) != types.ClaimCallEdge || !item.IsCitable() {
+		t.Fatalf("unexpected cooperative delegation evidence: %+v", item)
+	}
+	for _, want := range []string{"## Typed Cooperative Delegations", "`TimestampMixin.handle`", "`super.handle`", "concrete next implementation still depends"} {
+		if !strings.Contains(got.markdown, want) {
+			t.Fatalf("cooperative delegation markdown missing %q:\n%s", want, got.markdown)
+		}
+	}
+}
+
+func TestRuntimeTargetExplicitSuperCall_SupportedExtractorMatrixAndStandDown(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		resolvedBy string
+		receiver   string
+		provenance string
+		want       bool
+	}{
+		{name: "python", resolvedBy: "python_ast_attribute_call", receiver: "super()", provenance: repotypes.ProvenanceTreeSitter, want: true},
+		{name: "java", resolvedBy: "java_method_invocation", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: true},
+		{name: "javascript-typescript-arkts", resolvedBy: "js_ast_member_call", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: true},
+		{name: "kotlin", resolvedBy: "kotlin_ast_navigation_call", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: true},
+		{name: "swift", resolvedBy: "swift_ast_navigation_call", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: true},
+		{name: "cangjie", resolvedBy: "cangjie_token_call", receiver: "super", provenance: repotypes.ProvenanceCangjieParser, want: true},
+		{name: "ordinary receiver", resolvedBy: "java_method_invocation", receiver: "service", provenance: repotypes.ProvenanceTreeSitter, want: false},
+		{name: "regex cannot authorize", resolvedBy: "java_method_invocation", receiver: "super", provenance: repotypes.ProvenanceRegexFallback, want: false},
+		{name: "rust module super is not base dispatch", resolvedBy: "rust_ast_scoped_call", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: false},
+		{name: "unknown extractor", resolvedBy: "future_guess", receiver: "super", provenance: repotypes.ProvenanceTreeSitter, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rel := repotypes.Relation{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "handle", Receiver: tc.receiver}, Confidence: repotypes.ConfidenceAST, Provenance: tc.provenance, ResolvedBy: tc.resolvedBy}
+			if got := runtimeTargetExplicitSuperCall(rel); got != tc.want {
+				t.Fatalf("runtimeTargetExplicitSuperCall(%+v)=%v, want %v", rel, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGetConcreteValuesCached_RebuildsWhenExactReadCoverageExpands(t *testing.T) {
 	file := &repotypes.FileInfo{
 		RelPath:  "pipeline/plugins.py",
