@@ -24905,3 +24905,28 @@ Python 最终 ChangePlan 精确只改 `main.py:20` 的 `retrun -> return`，验�
 
 状态：`EVAL-B296=S37ah-implemented/internal-tool-full-pass`；`EVAL-B291/B294/B295=queued`；
 模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 能力=`unchanged`。
+
+### 123.282 S37ai：typed relation graph 披露真实拓扑；已读调用不再只埋进 definition summary
+
+本批处理 r177 的 B291 输入缺口与 B294 软上下文，不新增答案硬门：
+
+1. `Current-Source Mechanism Relation Authority` 在保留 source fact 数量、callsite 数量和 relation recipes 的同时，对精确
+   `(from,to,relation)` 唯一边构造 typed graph census：`unique_endpoint_relations/nodes/weak_components/max_out_degree/max_in_degree`，并给出
+   `fan_out_present/fan_in_present/disconnected_present/single_linear_relation_graph`。该计算不读 endpoint 显示参数、用户文本、model thinking 或 final prose，
+   不做别名/相似度/关键词推断；
+2. 当图不是单线性时，Finalizer 获得明确软指导：relation count 是边清单，不是 hop count；sibling fan-out/fan-in 不能排成连续中间步骤；存在
+   `typed_flow_path[]` 时只有各自 path 授权其有序子集。系统不删除模型段落、不改写“链/根因”等结论，也不因模型措辞直接拒绝；
+3. 拓扑判定严格：一个弱连通分量、`edges=nodes-1`、唯一 source/sink、其余节点入出度均为 1 才标
+   `single_linear_relation_graph=true`。fan-out 与 disconnected 两个负臂有机械 pin，重复 source location 先沿 S37ag 的可视唯一边去重；
+4. Explorer PHASE 2 增加跨语言、与语法关键字无关的证据 authoring 提醒：若已经 read/targeted-grep 到函数体中的 load-bearing direct invocation，定义事实与
+   callsite 必须发成两个 items，call row 使用 exact caller/callee/call-site line；不得只把调用写进 definition summary。该句同时明确“不是每个定义都必须有
+   incident edge”，leaf/无已观察调用合法、不得猜造 unsupported edge；
+5. 这不会自动从 `gate.go:135` 铸边，也不会把 definition@134 变为 call citation。只有下一次 Explorer 实际发出 grounded
+   `gate.Run -> RunWith@135` 后，S37af/B291 才能获得 production witness。系统仍不代替模型决定最终解释。
+
+聚焦与完整 `go test ./internal/agent ./internal/skill` 均已绿；下一步提交推送，再严格并发 2 回放 QF 与一条 JSON/read 或异构语言案。B295 patch op
+合同矛盾保持下一独立批，禁止顺手把 soft table presentation 变成硬答案门。
+
+状态：`EVAL-B294=S37ai-implemented/affected-packages-pass/pending-replay`；
+`EVAL-B291=S37ai-soft-input-fix/pending-explorer-witness`；`EVAL-B295=next-P1`；
+模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 显式窗/因果投影/自动补齐/双维根因=`unchanged`。

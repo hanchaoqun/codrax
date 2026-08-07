@@ -418,6 +418,53 @@ func TestMechanismRelationRequiredDiagramCarriesBroadTypedRelationSurfaceAA3(t *
 	}
 }
 
+func TestMechanismRelationAuthorityPublishesTypedFanOutTopologyAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "a", Kind: types.EvidenceRelationship, Source: "src/a.go", LineStart: 10, AnchorKind: types.AnchorCall, Subject: "Root", Object: "Left", GroundingStatus: types.GroundingGrounded},
+			{ID: "b", Kind: types.EvidenceRelationship, Source: "src/a.go", LineStart: 11, AnchorKind: types.AnchorCall, Subject: "Root", Object: "Right", GroundingStatus: types.GroundingGrounded},
+			{ID: "c", Kind: types.EvidenceRelationship, Source: "src/a.go", LineStart: 12, AnchorKind: types.AnchorCall, Subject: "Right", Object: "Leaf", GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"typed_relation_graph: unique_endpoint_relations=3",
+		"nodes=4",
+		"weak_components=1",
+		"max_out_degree=2",
+		"fan_out_present=true",
+		"single_linear_relation_graph=false",
+		"relation inventory is not one linear hop chain",
+		"Do not turn its relation count into a hop count",
+		"sibling fan-out/fan-in edges as consecutive intermediates",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed fan-out topology missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestMechanismRelationGraphTopologyRecognizesOnlyExactLinearGraphAA3(t *testing.T) {
+	linear, ok := answerDocMechanismRelationGraphTopology([]answerDocMechanismRelationEdge{
+		{from: "A", to: "B", relation: types.DiagramRelCall},
+		{from: "B", to: "C", relation: types.DiagramRelCall},
+	})
+	if !ok || !linear.singleLinearGraph || linear.weakComponents != 1 || linear.fanOutPresent || linear.fanInPresent {
+		t.Fatalf("linear topology misclassified: %+v ok=%t", linear, ok)
+	}
+	disconnected, ok := answerDocMechanismRelationGraphTopology([]answerDocMechanismRelationEdge{
+		{from: "A", to: "B", relation: types.DiagramRelCall},
+		{from: "C", to: "D", relation: types.DiagramRelCall},
+	})
+	if !ok || disconnected.singleLinearGraph || !disconnected.disconnected || disconnected.weakComponents != 2 {
+		t.Fatalf("disconnected topology misclassified: %+v ok=%t", disconnected, ok)
+	}
+}
+
 func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsAA3(t *testing.T) {
 	grounded := func(id string, kind types.EvidenceKind, anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
 		return types.EvidenceItem{

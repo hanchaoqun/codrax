@@ -47,6 +47,26 @@ func TestExploreSkillOutputFormatStaysToolFirst(t *testing.T) {
 	}
 }
 
+func TestExploreSkillKeepsDefinitionAndObservedCallAsSeparateTypedFacts(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	workflow := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"emit that invocation as its own `evidence_kind=relationship`, `anchor_kind=call` item",
+		"do not leave the observed edge only inside a definition item's summary",
+		"not a requirement that every definition have an incident edge",
+		"unsupported edges must never be invented",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("explore relation-authoring guidance missing %q", want)
+		}
+	}
+}
+
 func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

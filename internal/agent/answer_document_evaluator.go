@@ -6818,6 +6818,18 @@ type answerDocMechanismRecipeRow struct {
 	typed  types.DiagramEdgeAnchor
 }
 
+type answerDocMechanismRelationTopology struct {
+	uniqueEdges       int
+	nodes             int
+	weakComponents    int
+	maxOutDegree      int
+	maxInDegree       int
+	fanOutPresent     bool
+	fanInPresent      bool
+	disconnected      bool
+	singleLinearGraph bool
+}
+
 func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || !answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
 		return ""
@@ -6880,6 +6892,16 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	fmt.Fprintf(&b,
 		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), status)
+	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
+		fmt.Fprintf(&b,
+			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
+			topology.uniqueEdges, topology.nodes, topology.weakComponents,
+			topology.maxOutDegree, topology.maxInDegree, topology.fanOutPresent,
+			topology.fanInPresent, topology.disconnected, topology.singleLinearGraph)
+		if !topology.singleLinearGraph {
+			b.WriteString("- The relation inventory is not one linear hop chain. Do not turn its relation count into a hop count or list sibling fan-out/fan-in edges as consecutive intermediates. If `typed_flow_path[...]` records are present, only those records authorize their own ordered subset; otherwise keep the listed directed edges as a graph/boundary.\n")
+		}
+	}
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
 	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
 	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
@@ -7020,6 +7042,84 @@ func answerDocMechanismUniqueVisualEdges(edges []answerDocMechanismRelationEdge)
 		out = append(out, edge)
 	}
 	return out, duplicates
+}
+
+func answerDocMechanismRelationGraphTopology(edges []answerDocMechanismRelationEdge) (answerDocMechanismRelationTopology, bool) {
+	unique, _ := answerDocMechanismUniqueVisualEdges(edges)
+	if len(unique) == 0 {
+		return answerDocMechanismRelationTopology{}, false
+	}
+	nodes := make(map[string]bool, len(unique)*2)
+	indegree := make(map[string]int, len(unique)*2)
+	outdegree := make(map[string]int, len(unique)*2)
+	adjacent := make(map[string]map[string]bool, len(unique)*2)
+	for _, edge := range unique {
+		nodes[edge.from] = true
+		nodes[edge.to] = true
+		outdegree[edge.from]++
+		indegree[edge.to]++
+		if adjacent[edge.from] == nil {
+			adjacent[edge.from] = make(map[string]bool)
+		}
+		if adjacent[edge.to] == nil {
+			adjacent[edge.to] = make(map[string]bool)
+		}
+		adjacent[edge.from][edge.to] = true
+		adjacent[edge.to][edge.from] = true
+	}
+	topology := answerDocMechanismRelationTopology{
+		uniqueEdges: len(unique),
+		nodes:       len(nodes),
+	}
+	for node := range nodes {
+		if outdegree[node] > topology.maxOutDegree {
+			topology.maxOutDegree = outdegree[node]
+		}
+		if indegree[node] > topology.maxInDegree {
+			topology.maxInDegree = indegree[node]
+		}
+	}
+	topology.fanOutPresent = topology.maxOutDegree > 1
+	topology.fanInPresent = topology.maxInDegree > 1
+	visited := make(map[string]bool, len(nodes))
+	for root := range nodes {
+		if visited[root] {
+			continue
+		}
+		topology.weakComponents++
+		visited[root] = true
+		queue := []string{root}
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			for next := range adjacent[current] {
+				if visited[next] {
+					continue
+				}
+				visited[next] = true
+				queue = append(queue, next)
+			}
+		}
+	}
+	topology.disconnected = topology.weakComponents > 1
+	if topology.weakComponents == 1 && len(unique) == len(nodes)-1 && !topology.fanOutPresent && !topology.fanInPresent {
+		sources := 0
+		sinks := 0
+		valid := true
+		for node := range nodes {
+			switch {
+			case indegree[node] == 0 && outdegree[node] == 1:
+				sources++
+			case indegree[node] == 1 && outdegree[node] == 0:
+				sinks++
+			case indegree[node] == 1 && outdegree[node] == 1:
+			default:
+				valid = false
+			}
+		}
+		topology.singleLinearGraph = valid && sources == 1 && sinks == 1
+	}
+	return topology, true
 }
 
 func renderAnswerDocMechanismRelationComponentBoundary(
