@@ -25134,3 +25134,27 @@ r182 的 Rust production replay 否证了 S37al 首版收账：relation authorit
 
 状态：`EVAL-B299=S37am-full-suite-pass/pending-second-production-replay`；
 `r182-rust=production-negative/not-closed`；模型答案所有权=`preserved`；Trace/JSON=`unchanged`。
+
+### 123.291 r182：runner 双绿不等于图层与引用完备；长耗时来自 Analyzer 而非成文重试
+
+r182 在 `main@45434ad9b` 上严格并发 2，运行 Rust `sr_rust_cross_module_chain` 与 C++
+`sr_cpp_virtual_chain`。runner 2/2 PASS，人工两项均 partial：
+
+1. Rust 文字结论和五条 source call 引用正确，但 relation authority 与最终 Mermaid 仍把
+   `walker::collect_files` 和 `collect_files` 拆成两个节点。模型尝试补 `walker::collect_files -> collect_files` 虚构桥时被 validator 正确拒绝，patch
+   随后保留系统断图；因此 S37al 没有 production positive，真实原因及 S37am 修正见 §123.290；
+2. C++ 正确分开两段已证组件：构造阶段 `make_sink -> SinkRegistry::create -> ConsoleSink`，写入阶段
+   `Logger::log -> sink_->write -> ConsoleSink::write -> stderr`；也诚实披露两段之间只有构造注入事实、没有同一直接调用边；
+3. C++ 仍只能记 partial：最终没有 Mermaid，两个条目的 source reference 被系统移除，并追加泛化 coverage caveat。故本轮没有实际构造无标签
+   flowchart 箭头，不能把既有“无标签逻辑箭头可绕严格关系锚”观察项虚记为已验证或关闭；
+4. 300s 时延不是“成文校验未通过”重试：Finalizer 一轮、零 reject。主要成本在 Analyzer 六轮：模型先发
+   `discover + non-empty sink`，再把预扫描发现的 `ConsoleSink` 当 current-request exact identity，最后改用 mechanism 才完成；其中还有约 87s 与 37s 的模型等待。
+   Explorer 读取四文件后，因 `ConsoleSink` 实例化成员缺独立 grounded row 发生一次 completion repair；
+5. 当前 typed contract 已明确规定：`discover` 必须空 sink，只有用户当前请求已命名 destination identity 才可 `exact`。这条门防止 pre-scan 候选被预选为答案，不能为
+   C++ 单例放松。记 `EVAL-B301-DISCOVERSINKRETRY1=P1-observe`；先用另一异构 discover-sink 案验证是否稳定复现，再决定是否缩短 repair hint 或减少 Analyzer 心智；
+6. JSON 教学本批没有变化。后续仍坚持 schema/typed obligation 单源、减少重复自然语言教学；不扫描用户原文、模型 thinking 或最终正文做新的硬门；
+7. Trace 路由、query、投影编译、答案 supplement 均未修改。显式时间窗、Trace 因果投影、自动补采、根因排序、唤醒链、窗内可消除量和“真实占时/规则可消除”双维根因保持原合同，系统没有替换模型结论。
+
+状态：`r182 runner=2/2 PASS`、`human=partial+partial`；
+`EVAL-B299=S37am-fixed/pending-second-production-replay`；`EVAL-B301=P1-observe/no-gate-relaxation`；
+`cpp-unlabeled-flowchart-bypass=open/not-exercised`；模型答案所有权=`preserved`；Trace/JSON=`unchanged`。
