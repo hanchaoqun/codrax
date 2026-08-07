@@ -116,6 +116,14 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
 	return json.RawMessage(schema)
 }
 
+func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.RawMessage {
+	parameters := t.Parameters()
+	if ctx != nil && ctx.Mutable != nil {
+		parameters = projectTraceFindingContract(parameters, ctx.Mutable.TraceFindingContract(), true)
+	}
+	return parameters
+}
+
 // emitAnswerDocumentPatchParams mirrors AnswerDocumentV2Patch
 // one-to-one for JSON unmarshalling. CitationRef and AnswerBlockItem
 // fields use the same FlexInt typed approach as the V2 emit so
@@ -131,6 +139,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
 	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
 	ReplaceSnippets              []emitCodeSnippetV2                `json:"replace_snippets,omitempty"`
+	ReplaceTraceFinding          *types.TraceFindingV1              `json:"replace_trace_finding,omitempty"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -287,6 +296,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
 	mutation := types.NewPartialMutation(patch)
+	finding, findingErr := resolveTraceFindingForEmit(ctx, p.ReplaceTraceFinding, true)
+	if findingErr != nil {
+		return failEmit(t.Name(), now, "replace_trace_finding rejected: %v", findingErr)
+	}
 	dropExplicitlyRemovedModelDiagrams := false
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
@@ -320,19 +333,20 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}
 			}
-			return persistMergedAnswerDocumentWithAttachmentPolicy(
+			return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
 				ctx,
 				t.Name(),
 				types.MutationPartial,
 				mutation.Summary(),
 				merged,
+				finding,
 				now,
 				dropExplicitlyRemovedModelDiagrams,
 			)
 		}
 	}
 
-	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+	return ApplyAndPersistMutationWithFinding(ctx, t.Name(), mutation, prev, finding, now)
 }
 
 // preservePatchReplacementStableItemCitationRefs repairs a precise patch-only

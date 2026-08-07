@@ -376,6 +376,11 @@ type MutableState struct {
 	// ResetAnswerDocumentV2 at per-task entry so stale state cannot
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
+	// traceFindingV1 is committed under the same lock as answerDocumentV2.
+	// It remains a separate analysis artifact and never changes the document
+	// wire schema used by ordinary read requests.
+	traceFindingV1       *TraceFindingV1
+	traceFindingContract *TraceFindingContract
 
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
@@ -3364,11 +3369,96 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	m.traceFindingV1 = nil
+	m.lastEmitFromPatch = (kind == MutationPartial)
+	m.lastRejectedAnswerDocumentV2 = nil
+	m.degradedRecoveredAnswerDocumentV2 = nil
+}
+
+// SetFinalAnswerArtifactsWithMutation atomically replaces both final-answer
+// artifacts. Validation must finish before this commit boundary is entered.
+func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, artifacts *FinalAnswerArtifactsV1) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if artifacts == nil {
+		m.answerDocumentV2 = nil
+		m.traceFindingV1 = nil
+		m.lastEmitFromPatch = false
+		m.lastRejectedAnswerDocumentV2 = nil
+		m.degradedRecoveredAnswerDocumentV2 = nil
+		return
+	}
+	m.answerDocumentV2 = cloneAnswerDocumentV2(&artifacts.Document)
+	m.traceFindingV1 = cloneTraceFindingV1(artifacts.TraceFinding)
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
 	// A validated emit supersedes any earlier degraded recovery snapshot
 	// (XGAP-FIX ⑤): the prose defenses must scan the shipped document.
 	m.degradedRecoveredAnswerDocumentV2 = nil
+}
+
+// FinalAnswerArtifacts returns a defensive snapshot from one read lock.
+func (m *MutableState) FinalAnswerArtifacts() *FinalAnswerArtifactsV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.answerDocumentV2 == nil {
+		return nil
+	}
+	return &FinalAnswerArtifactsV1{
+		Document:     *cloneAnswerDocumentV2(m.answerDocumentV2),
+		TraceFinding: cloneTraceFindingV1(m.traceFindingV1),
+	}
+}
+
+// TraceFinding returns a defensive copy of the accepted typed finding.
+func (m *MutableState) TraceFinding() *TraceFindingV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceFindingV1(m.traceFindingV1)
+}
+
+// SetTraceFindingContract enables typed finding output for a batch child run.
+// A nil contract disables the feature without changing ordinary read schemas.
+func (m *MutableState) SetTraceFindingContract(contract *TraceFindingContract) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if contract == nil {
+		m.traceFindingContract = nil
+		return
+	}
+	copy := *contract
+	copy.PrimaryCandidateIDs = append([]string(nil), contract.PrimaryCandidateIDs...)
+	copy.ContributorCandidateIDs = append([]string(nil), contract.ContributorCandidateIDs...)
+	copy.AcceptedEvidenceIDs = append([]string(nil), contract.AcceptedEvidenceIDs...)
+	m.traceFindingContract = &copy
+}
+
+func (m *MutableState) TraceFindingContract() *TraceFindingContract {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.traceFindingContract == nil {
+		return nil
+	}
+	copy := *m.traceFindingContract
+	copy.PrimaryCandidateIDs = append([]string(nil), m.traceFindingContract.PrimaryCandidateIDs...)
+	copy.ContributorCandidateIDs = append([]string(nil), m.traceFindingContract.ContributorCandidateIDs...)
+	copy.AcceptedEvidenceIDs = append([]string(nil), m.traceFindingContract.AcceptedEvidenceIDs...)
+	return &copy
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -3503,6 +3593,8 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFindingV1 = nil
+	m.traceFindingContract = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -3522,6 +3614,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFindingV1 = nil
 	m.lastEmitFromPatch = false
 }
 

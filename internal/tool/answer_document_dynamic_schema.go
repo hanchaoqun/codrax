@@ -83,6 +83,86 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 	return out
 }
 
+// projectTraceFindingContract adds the typed sidecar only for explicitly
+// activated batch child runs. Ordinary read requests retain byte-identical
+// canonical schemas.
+func projectTraceFindingContract(schema json.RawMessage, contract *types.TraceFindingContract, patch bool) json.RawMessage {
+	if contract == nil || !contract.Required {
+		return schema
+	}
+	var root map[string]any
+	if err := json.Unmarshal(schema, &root); err != nil {
+		return schema
+	}
+	properties, _ := root["properties"].(map[string]any)
+	if properties == nil {
+		return schema
+	}
+	name := "trace_finding"
+	if patch {
+		name = "replace_trace_finding"
+	}
+	properties[name] = traceFindingJSONSchema(contract)
+	if !patch {
+		required, _ := root["required"].([]any)
+		required = append(required, name)
+		root["required"] = required
+	}
+	out, err := json.Marshal(root)
+	if err != nil {
+		return schema
+	}
+	return out
+}
+
+func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any {
+	primaryIDs := append([]string(nil), contract.PrimaryCandidateIDs...)
+	contributorIDs := append([]string(nil), contract.ContributorCandidateIDs...)
+	decision := func(ids []string) map[string]any {
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"candidate_id":         map[string]any{"type": "string", "enum": ids},
+				"status":               map[string]any{"type": "string", "enum": []string{"proven", "supported_candidate"}},
+				"token":                map[string]any{"type": "object"},
+				"subject_role":         map[string]any{"type": "string"},
+				"upstream_role":        map[string]any{"type": "string"},
+				"causal_shape":         map[string]any{"type": "string"},
+				"phase":                map[string]any{"type": "string"},
+				"rank":                 map[string]any{"type": "integer"},
+				"tier":                 map[string]any{"type": "string"},
+				"board_fingerprint":    map[string]any{"type": "string"},
+				"normalized_event_key": map[string]any{"type": "string"},
+				"normalized_stack_key": map[string]any{"type": "string"},
+				"magnitude":            map[string]any{"type": "object"},
+				"evidence_refs":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
+				"confidence":           map[string]any{"type": "string"},
+			},
+			"required": []string{"candidate_id", "status", "token", "subject_role", "causal_shape", "phase", "evidence_refs"},
+		}
+	}
+	return map[string]any{
+		"type":        "object",
+		"description": "Structured conclusion for this trace. Choose only the injected candidate and evidence ids; do not infer it from answer prose.",
+		"properties": map[string]any{
+			"schema_version":        map[string]any{"type": "integer", "enum": []int{types.TraceFindingSchemaVersion}},
+			"finding_id":            map[string]any{"type": "string"},
+			"analysis_key":          map[string]any{"type": "string"},
+			"artifact":              map[string]any{"type": "object"},
+			"scope":                 map[string]any{"type": "object"},
+			"revision":              map[string]any{"type": "object"},
+			"symptom":               map[string]any{"type": "object"},
+			"primary_cause":         decision(primaryIDs),
+			"contributors":          map[string]any{"type": "array", "items": decision(contributorIDs)},
+			"unresolved":            map[string]any{"type": "object"},
+			"evidence_refs":         map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
+			"counter_evidence_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
+			"coverage":              map[string]any{"type": "object"},
+		},
+		"required": []string{"schema_version", "finding_id", "analysis_key", "artifact", "scope", "revision", "symptom", "evidence_refs", "coverage"},
+	}
+}
+
 // projectSourceInventoryPrincipalTableItems makes the dispatch-projected
 // schema tell the whole truth about source-inventory tables. A generic table
 // may be carried entirely by block.text, but an authoritative source inventory
