@@ -25308,3 +25308,29 @@ r184 在 `main@e15a99c82` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 `EVAL-B305=partial-visible-chain/typed-gap-remains`；`EVAL-B308=P1-next`；
 `EVAL-B268/B309=model-adherence-observe/no-hard-prose-gate`；runner=`2/2 PASS`、human=`partial+partial`；
 模型答案所有权=`preserved`；Trace/JSON-repair/Write=`production-positive-or-unchanged`。
+
+### 123.297 S37aq：role-bound 路径获得 RequiredFiles 多源码 parser 前沿，但不获得端点权威
+
+本批修复 B308，严格遵守“嘈声信号只做软指导”：
+
+1. 既有 `Typed Direct-call Frontier` 只在 exact/discover profile 能唯一解析 source definition 时工作；`discover_path` 的 source/sink 按设计均空，故即使
+   repomap 已从 RequiredFiles 解析到 `send -> dispatchOnce`，Explorer 也看不到 parser 压缩行，只能自己从长 read output 转写；
+2. 新增 `Typed Role-bound Direct-call Frontier (advisory)`：只在 `QFCallChain + DiscoverPathActive` 下读取
+   `AnalysisIR.EvidencePlan.RequiredFiles`，逐个命中 graph 的文件；只接纳 function/method 边界内、`relation_kind=call` 且 provenance 为 tree-sitter AST 或
+   Cangjie parser 的直接调用；regex salvage、路径字符串、request/model prose 与 runtime artifact 均不参与；
+3. RequiredFiles 是 Analyzer 导航提示，可能不全或带噪，所以该前沿逐字声明“不是 answer evidence、不是 endpoint selection、不是 required member list”。它不会自动发
+   EvidenceItem、不会改变 endpoint profile、不会参与 completion/answer hard gate；模型仍需读取精确行、选择推进用户边界的调用并逐边落证；
+4. 多文件候选按 canonical file/source line/caller/callee 稳定排序，总量上限复用 24；超限时用 per-file round-robin，使一个大 orchestration file 不能吃掉所有
+   sibling file 席位。每行保留 caller/callee、源位置与解析到的 target source，未解析目标明确标为需读行，不猜类型；
+5. callable 展示从 parser `Receiver/Parent + Name` 构造：Go/Java/Kotlin/JS/TS/ArkTS/Python 等保持 `Owner.method`，Rust/C++/Cangjie 保持
+   `Owner::method`。语言只决定无损展示分隔符，不决定是否发边；所有语言共用 AST/provenance/边界条件；
+6. TS production 同形测试把 `run -> client.fetchUser`、`HttpTransport.send -> this.dispatchOnce`、
+   `HttpTransport.dispatchOnce -> fetch` 分布在两个 RequiredFiles，三行全部进入同一软前沿；另有无 RequiredFiles stand-down 与 raw objective 改写不影响输出的负 pin；
+7. 首次完整 agent 回归由 prompt glossary tripwire 拒绝可见文案中的内部词 `analyzer/RequiredFiles`。没有扩白名单；改成面向任务的
+   “typed source-file navigation hints selected for this investigation”，避免内部管线泄漏和额外模型心智。随后 `go test ./internal/agent -count=1` 全绿（6.678s）；
+8. 本批没有改 JSON 教学/schema、relation/diagram/答案硬校验、模型正文、Trace query/投影/补采、read 路由或 write mode。目标是提供更精确、更少心智负担的
+   source context，不是替模型判断哪条边是主链。
+
+状态：`EVAL-B308=S37aq-implemented/agent-suite-pass/pending-production-replay`；
+`signal=typed-required-files+AST-call/soft-only`；`hard-gate=none`；
+模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。

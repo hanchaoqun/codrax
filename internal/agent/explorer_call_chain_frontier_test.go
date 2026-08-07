@@ -22,6 +22,83 @@ func callChainFrontierContext(source string) *types.AgentContext {
 	}}}
 }
 
+func roleBoundCallChainFrontierContext(requiredFiles ...string) *types.AgentContext {
+	return &types.AgentContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				SinkMode: types.CallChainSinkResolutionDiscoverPath,
+			},
+		},
+		EvidencePlan: types.EvidencePlan{RequiredFiles: requiredFiles},
+	}}
+}
+
+func TestRenderExplorerRoleBoundDirectCallFrontier_UsesTypedRequiredFilesAsSoftMultiSourceNavigation(t *testing.T) {
+	mainFile := &repomap.FileInfo{
+		RelPath: "packages/cli/src/main.ts", Language: repomap.LangArkTS,
+		Symbols: []repomap.Symbol{{Name: "run", Kind: "function", File: "packages/cli/src/main.ts", Line: 4, EndLine: 19}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "packages/cli/src/main.ts", Line: 12,
+			ToEP:       repomap.RelationEndpoint{Name: "fetchUser", Receiver: "client"},
+			Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_member_call",
+		}},
+	}
+	transportFile := &repomap.FileInfo{
+		RelPath: "packages/core/src/transport.ts", Language: repomap.LangArkTS,
+		Symbols: []repomap.Symbol{
+			{Name: "send", Kind: "method", Parent: "HttpTransport", File: "packages/core/src/transport.ts", Line: 20, EndLine: 33},
+			{Name: "dispatchOnce", Kind: "method", Parent: "HttpTransport", File: "packages/core/src/transport.ts", Line: 35, EndLine: 42},
+		},
+		Relations: []repomap.Relation{
+			{Kind: "call", File: "packages/core/src/transport.ts", Line: 23, ToEP: repomap.RelationEndpoint{Name: "dispatchOnce", Receiver: "this"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_member_call"},
+			{Kind: "call", File: "packages/core/src/transport.ts", Line: 40, ToEP: repomap.RelationEndpoint{Name: "fetch"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_call"},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repomap.FileInfo{mainFile, transportFile})
+	ctx := roleBoundCallChainFrontierContext(
+		"packages/cli/src/main.ts",
+		"packages/core/src/transport.ts",
+		"tsconfig.base.json",
+	)
+	got := renderExplorerCallChainDirectCallFrontier(ctx, graph)
+	for _, want := range []string{
+		"Typed Role-bound Direct-call Frontier (advisory)",
+		"conceptual boundaries and deliberately selects no code endpoint",
+		"typed source-file navigation hints selected for this investigation",
+		"Source-file hints may be incomplete or noisy",
+		"not answer evidence, not an endpoint selection, and not a required member list",
+		"packages/cli/src/main.ts:12",
+		"`run` -> `client.fetchUser`",
+		"packages/core/src/transport.ts:23",
+		"`HttpTransport.send` -> `this.dispatchOnce`",
+		"packages/core/src/transport.ts:40",
+		"`HttpTransport.dispatchOnce` -> `fetch`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("role-bound multi-source frontier missing %q:\n%s", want, got)
+		}
+	}
+
+	ctx.Objective = "unrelated prose naming a different function"
+	if other := renderExplorerCallChainDirectCallFrontier(ctx, graph); other != got {
+		t.Fatalf("role-bound frontier must not depend on raw objective prose:\nA=%s\nB=%s", got, other)
+	}
+}
+
+func TestRenderExplorerRoleBoundDirectCallFrontier_RequiresTypedFileHints(t *testing.T) {
+	graph := repomap.BuildGraph(t.TempDir(), []*repomap.FileInfo{{
+		RelPath: "src/main.go", Language: repomap.LangGo,
+		Symbols:   []repomap.Symbol{{Name: "main", Kind: "function", File: "src/main.go", Line: 1, EndLine: 3}},
+		Relations: []repomap.Relation{{Kind: "call", File: "src/main.go", Line: 2, ToEP: repomap.RelationEndpoint{Name: "run"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter}},
+	}})
+	if got := renderExplorerCallChainDirectCallFrontier(roleBoundCallChainFrontierContext(), graph); got != "" {
+		t.Fatalf("role-bound frontier must stand down without typed RequiredFiles: %s", got)
+	}
+}
+
 func TestRenderExplorerCallChainDirectCallFrontier_PublishesBoundedASTNavigationWithoutMintingEvidence(t *testing.T) {
 	file := &repomap.FileInfo{
 		RelPath: "internal/agent/analyzer.go", Language: repomap.LangGo, Package: "agent",

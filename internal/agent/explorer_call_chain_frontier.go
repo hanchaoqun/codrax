@@ -39,10 +39,11 @@ type explorerCallChainEndpointBoundaryRow struct {
 }
 
 // renderExplorerCallChainDirectCallFrontier gives Explorer a bounded,
-// parser-owned view of direct calls inside the uniquely resolved source
-// endpoint. It addresses a context gap where the model read a very large
-// source function but began its roster hundreds of lines after an early,
-// load-bearing helper.
+// parser-owned view of direct calls. Exact/discover profiles use the uniquely
+// resolved source endpoint. discover_path has no endpoint authority, so it
+// receives a multi-source navigation frontier from typed RequiredFiles only.
+// It addresses a context gap where the model read source but omitted an early,
+// load-bearing helper from its grounded edge handoff.
 //
 // This is deliberately SOFT:
 //   - activation comes only from the typed source-code call-chain profile;
@@ -66,6 +67,9 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 	if types.ResolveQuestionFamily(rm) != types.QFCallChain ||
 		rm.CallChainEndpointProfile == nil || !rm.CallChainEndpointProfile.Active() {
 		return ""
+	}
+	if rm.CallChainEndpointProfile.DiscoverPathActive() {
+		return renderExplorerRoleBoundDirectCallFrontier(ctx, graph)
 	}
 	source := strings.TrimSpace(rm.CallChainEndpointProfile.Source)
 	fi, sourceDef, ok := explorerUniqueCallChainSourceDefinition(graph, source)
@@ -114,6 +118,159 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// renderExplorerRoleBoundDirectCallFrontier keeps role-bound endpoint
+// discovery model-owned while reducing parser-to-model transcription loss.
+// EvidencePlan.RequiredFiles is an analyzer navigation hint, not endpoint or
+// answer authority, so this surface is explicitly advisory and never feeds a
+// hard gate. Rows are limited to AST/Cangjie-parser direct calls and remain
+// ungrounded until Explorer reads the source line and emits evidence.
+func renderExplorerRoleBoundDirectCallFrontier(ctx *types.AgentContext, graph *repomap.Graph) string {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil {
+		return ""
+	}
+	rows := explorerRoleBoundRequiredFileCallRows(graph, ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	total := len(rows)
+	rows = explorerSampleRoleBoundCallRows(rows, explorerCallChainDirectCallFrontierLimit)
+	if len(rows) == 0 {
+		return ""
+	}
+	logging.Debug("[explorer] typed role-bound direct-call frontier files=%d emitted=%d total=%d",
+		len(ctx.AnalysisIR.EvidencePlan.RequiredFiles), len(rows), total)
+
+	var b strings.Builder
+	b.WriteString("### Typed Role-bound Direct-call Frontier (advisory)\n\n")
+	b.WriteString("This investigation names conceptual boundaries and deliberately selects no code endpoint. From the typed source-file navigation hints selected for this investigation, the repository parser found the direct-call candidates below. Source-file hints may be incomplete or noisy: these rows are not answer evidence, not an endpoint selection, and not a required member list. Read a relevant source line before keeping its edge; emit one grounded call-edge item per load-bearing invocation, continue across the helper bodies that advance the requested boundary, and stop at the requested role or a precise evidence boundary. Sibling calls are not concurrent, temporally ordered, or one callee-to-callee chain without separate typed control-flow/concurrency evidence.\n\n")
+	b.WriteString("| Source line | Parser-owned candidate | Resolved current-repo target |\n")
+	b.WriteString("|-------------|------------------------|------------------------------|\n")
+	for _, row := range rows {
+		target := "unresolved syntax surface; inspect the line"
+		if row.Resolved {
+			target = "`" + row.TargetSource + "`"
+		}
+		fmt.Fprintf(&b, "| `%s:%d` | `%s` -> `%s` | %s |\n",
+			row.Source, row.Line, row.Caller, row.Callee, target)
+	}
+	if total > len(rows) {
+		fmt.Fprintf(&b, "\nShown %d of %d parser-owned direct calls using a deterministic per-file round-robin sample. Inspect a scoped source body or `repo_map(view=\"relation_map\")` only when another branch is relevant.\n", len(rows), total)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func explorerRoleBoundRequiredFileCallRows(graph *repomap.Graph, requiredFiles []string) []explorerCallChainDirectCallFrontierRow {
+	if graph == nil || len(requiredFiles) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(requiredFiles))
+	seenFiles := make(map[string]bool, len(requiredFiles))
+	for _, raw := range requiredFiles {
+		file := canonicalExplorerPath(raw)
+		if file == "" || seenFiles[file] {
+			continue
+		}
+		seenFiles[file] = true
+		files = append(files, file)
+	}
+	sort.Strings(files)
+
+	rows := make([]explorerCallChainDirectCallFrontierRow, 0)
+	seenRows := make(map[string]bool)
+	for _, file := range files {
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if (sym.Kind != "function" && sym.Kind != "method") || sym.Line <= 0 || sym.EndLine < sym.Line {
+				continue
+			}
+			caller := explorerCallChainCallableSurface(fi, sym)
+			for _, row := range explorerCallChainASTDirectCallRows(graph, fi, sym, caller) {
+				key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s", row.Source, row.Line, row.Caller, row.Callee))
+				if seenRows[key] {
+					continue
+				}
+				seenRows[key] = true
+				rows = append(rows, row)
+			}
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Source != rows[j].Source {
+			return rows[i].Source < rows[j].Source
+		}
+		if rows[i].Line != rows[j].Line {
+			return rows[i].Line < rows[j].Line
+		}
+		if rows[i].Caller != rows[j].Caller {
+			return rows[i].Caller < rows[j].Caller
+		}
+		return rows[i].Callee < rows[j].Callee
+	})
+	return rows
+}
+
+func explorerCallChainCallableSurface(fi *repomap.FileInfo, sym *repomap.Symbol) string {
+	if sym == nil {
+		return ""
+	}
+	name := strings.TrimSpace(sym.Name)
+	owner := strings.TrimSpace(sym.Receiver)
+	if owner == "" {
+		owner = strings.TrimSpace(sym.Parent)
+	}
+	if owner == "" || name == "" {
+		return name
+	}
+	separator := "."
+	if fi != nil {
+		switch fi.Language {
+		case repomap.LangRust, repomap.LangCpp, repomap.LangCangjie:
+			separator = "::"
+		}
+	}
+	return owner + separator + name
+}
+
+// explorerSampleRoleBoundCallRows gives each typed RequiredFile a chance to
+// contribute before taking a second row from any file. It keeps the soft
+// frontier bounded without allowing one large orchestration file to hide all
+// sibling files.
+func explorerSampleRoleBoundCallRows(rows []explorerCallChainDirectCallFrontierRow, limit int) []explorerCallChainDirectCallFrontierRow {
+	if len(rows) <= limit || limit <= 0 {
+		return append([]explorerCallChainDirectCallFrontierRow(nil), rows...)
+	}
+	byFile := make(map[string][]explorerCallChainDirectCallFrontierRow)
+	var files []string
+	for _, row := range rows {
+		if _, ok := byFile[row.Source]; !ok {
+			files = append(files, row.Source)
+		}
+		byFile[row.Source] = append(byFile[row.Source], row)
+	}
+	sort.Strings(files)
+	out := make([]explorerCallChainDirectCallFrontierRow, 0, limit)
+	for ordinal := 0; len(out) < limit; ordinal++ {
+		added := false
+		for _, file := range files {
+			fileRows := byFile[file]
+			if ordinal >= len(fileRows) {
+				continue
+			}
+			out = append(out, fileRows[ordinal])
+			added = true
+			if len(out) == limit {
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out
 }
 
 func explorerUniqueCallChainSourceDefinition(graph *repomap.Graph, source string) (*repomap.FileInfo, *repomap.Symbol, bool) {
