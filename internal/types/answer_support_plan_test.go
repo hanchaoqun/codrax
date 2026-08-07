@@ -451,6 +451,56 @@ func TestBuildAnswerSupportPlan_CallChainStepBackboneKeepsTypedClaimRoles(t *tes
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainPromotesOwnedGuardAndConnectedFactoryReturn(t *testing.T) {
+	grounded := func(item EvidenceItem) EvidenceItem {
+		item.Scope = ScopeLine
+		item.GroundingStatus = GroundingGrounded
+		return item
+	}
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{
+			{Name: "Logger.log", File: "src/logger.cpp", Line: 36, SurfaceText: "Logger.log calls Sink.write"},
+			{Name: "Logger.log", File: "src/logger.cpp", Line: 38, SurfaceText: "Logger.log calls Sink.flush"},
+			{Name: "make_sink", File: "src/registry.cpp", Line: 32, SurfaceText: "make_sink calls SinkRegistry.create"},
+		},
+		SurfaceEvidence: []EvidenceItem{
+			grounded(EvidenceItem{ID: "write", Kind: EvidenceRelationship, Source: "src/logger.cpp", LineStart: 36, AnchorKind: AnchorCall, Subject: "Logger.log", Object: "Sink.write"}),
+			grounded(EvidenceItem{ID: "flush", Kind: EvidenceRelationship, Source: "src/logger.cpp", LineStart: 38, AnchorKind: AnchorCall, Subject: "Logger.log", Object: "Sink.flush"}),
+			grounded(EvidenceItem{ID: "factory-call", Kind: EvidenceRegistration, Source: "src/registry.cpp", LineStart: 32, AnchorKind: AnchorCall, Subject: "make_sink", Object: "SinkRegistry.create"}),
+			grounded(EvidenceItem{ID: "flush-guard", Kind: EvidenceConditional, Source: "src/logger.cpp", LineStart: 37, AnchorKind: AnchorCondition, AnchorSymbol: "level", OwnerSymbol: "Logger.log", Condition: "level >= Level::kError", Summary: "WRONG: every write flushes"}),
+			grounded(EvidenceItem{ID: "factory-return", Kind: EvidenceConcrete, Source: "src/registry.cpp", LineStart: 18, AnchorKind: AnchorReturn, AnchorSymbol: "ConsoleSink", Subject: "SinkRegistry::create", Predicate: "returns", Object: "std::make_unique<ConsoleSink>()", Summary: "WRONG: selected by ConsoleSink.name"}),
+			grounded(EvidenceItem{ID: "unrelated-guard", Kind: EvidenceConditional, Source: "src/unrelated.cpp", LineStart: 9, AnchorKind: AnchorCondition, OwnerSymbol: "Logger.log", Condition: "debug"}),
+			grounded(EvidenceItem{ID: "unrelated-return", Kind: EvidenceConcrete, Source: "src/unrelated.cpp", LineStart: 10, AnchorKind: AnchorReturn, Subject: "OtherFactory::create", Object: "DebugSink"}),
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentTrace}, plan)
+	lane := answerSupportLaneByKind(got, SupportLaneCurrentCodePath)
+	if lane == nil {
+		t.Fatalf("missing current call-chain support lane: %+v", got)
+	}
+	byID := make(map[string]AnswerSupportEntry)
+	for _, entry := range lane.Entries {
+		byID[entry.EvidenceID] = entry
+	}
+	guard, guardOK := byID["flush-guard"]
+	if !guardOK || guard.ClaimForm != ClaimGuardCondition || guard.Location != "src/logger.cpp:37" ||
+		!strings.Contains(guard.Text, "level >= Level::kError") {
+		t.Fatalf("principal caller-owned guard lost exact typed support: %+v", lane.Entries)
+	}
+	selection, selectionOK := byID["factory-return"]
+	if !selectionOK || selection.ClaimForm != ClaimReturnFact || selection.Location != "src/registry.cpp:18" ||
+		!strings.Contains(selection.Text, "ConsoleSink") {
+		t.Fatalf("connected factory return lost exact typed support: %+v", lane.Entries)
+	}
+	joined := answerSupportLaneText(lane)
+	for _, forbidden := range []string{"WRONG: every write flushes", "WRONG: selected by ConsoleSink.name", "src/unrelated.cpp", "DebugSink"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("unrelated/free-form evidence leaked into principal lane via %q:\n%s", forbidden, joined)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlan_CallChainKeepsObservationsOutOfPrincipalPath(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		ExternalObservationSeeds: []ExternalObservationSeed{

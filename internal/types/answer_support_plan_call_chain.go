@@ -72,13 +72,170 @@ func selectCallChainSupportEntries(rm RequestModel, plan *AnswerSurfacePlan) []A
 	endpoints := callChainRequestedEndpointHints(rm)
 	stepEntries := callChainStepBackboneEntries(plan)
 	evidenceEntries := callChainSurfaceEvidenceEntries(rm, plan)
+	var base []AnswerSupportEntry
 	if callChainPreferSurfaceEvidence(rm, stepEntries, evidenceEntries) {
-		return callChainCondenseSupportEntries(evidenceEntries, endpoints, callChainSupportEntryLimit)
+		base = evidenceEntries
+	} else if len(stepEntries) > 0 {
+		base = stepEntries
+	} else {
+		base = evidenceEntries
 	}
-	if len(stepEntries) > 0 {
-		return callChainCondenseSupportEntries(stepEntries, endpoints, callChainSupportEntryLimit)
+
+	// StepBackbone is intentionally path-shaped, so exact non-hop facts such as
+	// a caller-local guard or connected factory return may not have their own
+	// step. They are nevertheless principal support for explaining the selected
+	// path. Add only typed, citable rows connected to an already-selected path
+	// member; never infer control from line adjacency or free-form summaries.
+	extras := callChainPrincipalControlSelectionEntries(plan, base)
+	if len(extras) >= callChainSupportEntryLimit {
+		return callChainCondenseSupportEntries(extras, endpoints, callChainSupportEntryLimit)
 	}
-	return callChainCondenseSupportEntries(evidenceEntries, endpoints, callChainSupportEntryLimit)
+	base = callChainCondenseSupportEntries(base, endpoints, callChainSupportEntryLimit-len(extras))
+	return appendUniqueCallChainSupportEntries(base, extras...)
+}
+
+func callChainPrincipalControlSelectionEntries(plan *AnswerSurfacePlan, base []AnswerSupportEntry) []AnswerSupportEntry {
+	if plan == nil || len(base) == 0 {
+		return nil
+	}
+	evidence := callChainTypedEvidenceItemsForStepEnrichment(plan)
+	principal := callChainEvidenceOwnedBySupportEntries(base, evidence)
+	if len(principal) == 0 {
+		return nil
+	}
+
+	type principalOwner struct {
+		name   string
+		source string
+	}
+	var owners []principalOwner
+	var selectionPool []EvidenceItem
+	var endpoints []string
+	for _, item := range principal {
+		switch ClaimFormOf(item) {
+		case ClaimCallEdge:
+			selectionPool = append(selectionPool, item)
+			endpoints = append(endpoints, item.Subject, item.Object)
+			if owner := strings.TrimSpace(item.Subject); owner != "" {
+				owners = append(owners, principalOwner{name: owner, source: normalizeAnswerSupportPath(item.Source)})
+			}
+		case ClaimRegistrationEdge:
+			selectionPool = append(selectionPool, item)
+			endpoints = append(endpoints, item.Subject, item.Object)
+		}
+	}
+
+	for _, item := range evidence {
+		if !item.IsCitable() {
+			continue
+		}
+		switch ClaimFormOf(item) {
+		case ClaimAssignmentFact, ClaimReturnFact:
+			selectionPool = append(selectionPool, item)
+		case ClaimRegistrationEdge:
+			if callChainEvidenceTouchesAnyEndpoint(item, endpoints) {
+				selectionPool = append(selectionPool, item)
+			}
+		}
+	}
+	selection := CallChainDiscoverySelectionEvidence(selectionPool)
+	for _, item := range selection {
+		if subject := strings.TrimSpace(item.Subject); subject != "" {
+			owners = append(owners, principalOwner{name: subject, source: normalizeAnswerSupportPath(item.Source)})
+		}
+	}
+
+	var out []AnswerSupportEntry
+	for _, item := range evidence {
+		if !item.IsCitable() || ClaimFormOf(item) != ClaimGuardCondition || strings.TrimSpace(item.OwnerSymbol) == "" {
+			continue
+		}
+		itemSource := normalizeAnswerSupportPath(item.Source)
+		for _, owner := range owners {
+			if owner.source != "" && itemSource != owner.source {
+				continue
+			}
+			if !CallChainEndpointCompatible(item.OwnerSymbol, owner.name) {
+				continue
+			}
+			if entry, ok := callChainPrincipalSupportEntryForEvidence(item); ok {
+				out = appendUniqueCallChainSupportEntries(out, entry)
+			}
+			break
+		}
+	}
+	for _, item := range selection {
+		if entry, ok := callChainPrincipalSupportEntryForEvidence(item); ok {
+			out = appendUniqueCallChainSupportEntries(out, entry)
+		}
+	}
+	return appendUniqueCallChainSupportEntries(nil, append(base, out...)...)[len(base):]
+}
+
+func callChainEvidenceOwnedBySupportEntries(base []AnswerSupportEntry, evidence []EvidenceItem) []EvidenceItem {
+	ids := make(map[string]bool)
+	locations := make(map[string]bool)
+	for _, entry := range base {
+		if id := strings.TrimSpace(entry.EvidenceID); id != "" {
+			ids[id] = true
+			continue
+		}
+		if source := normalizeAnswerSupportPath(entry.Source); source != "" && entry.LineStart > 0 {
+			locations[fmt.Sprintf("%s:%d", source, entry.LineStart)] = true
+		}
+	}
+	var out []EvidenceItem
+	for _, item := range evidence {
+		id := strings.TrimSpace(item.ID)
+		location := fmt.Sprintf("%s:%d", normalizeAnswerSupportPath(item.Source), item.LineStart)
+		if (id != "" && ids[id]) || locations[location] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func callChainEvidenceTouchesAnyEndpoint(item EvidenceItem, endpoints []string) bool {
+	for _, surface := range []string{item.Subject, item.Object} {
+		for _, endpoint := range endpoints {
+			if CallChainEndpointCompatible(surface, endpoint) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func callChainPrincipalSupportEntryForEvidence(item EvidenceItem) (AnswerSupportEntry, bool) {
+	text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+	if text == "" {
+		return AnswerSupportEntry{}, false
+	}
+	return answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)), true
+}
+
+func appendUniqueCallChainSupportEntries(dst []AnswerSupportEntry, entries ...AnswerSupportEntry) []AnswerSupportEntry {
+	seen := make(map[string]bool, len(dst)+len(entries))
+	key := func(entry AnswerSupportEntry) string {
+		if id := strings.TrimSpace(entry.EvidenceID); id != "" {
+			return "id:" + id
+		}
+		return fmt.Sprintf("surface:%s:%d:%s:%s:%s",
+			normalizeAnswerSupportPath(entry.Source), entry.LineStart, entry.ClaimForm,
+			strings.TrimSpace(entry.Subject), strings.TrimSpace(entry.Object))
+	}
+	for _, entry := range dst {
+		seen[key(entry)] = true
+	}
+	for _, entry := range entries {
+		k := key(entry)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		dst = append(dst, entry)
+	}
+	return dst
 }
 
 func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry {

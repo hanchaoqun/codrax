@@ -25754,3 +25754,55 @@ r189 证明模型已看到 sample completeness，却把“任务是计算型”�
 状态：`EVAL-B319=S37bb-implemented/full-suite-pass/pending-production-replay`；
 `authority=typed-anchor+grounded-span`；`summary-authority=unchanged/none`；`system-answer-rewrite=none`；
 `raw-prose-hard-gate=none`；`Trace=isolated`。
+
+### 123.315 r191：入口修复生产生效；principal support/citation 仍压低 guard 与 factory return
+
+在干净 `main@407284fa1` 上严格并发 2 跑 `sr_cpp_virtual_chain` 与真实东湖显式帧窗，runner 2/2 PASS，人工 1 FAIL / 1 PASS：
+
+1. C++ 90s。S37bb 首次生产触发：explorer 第一批把 line 37 guard + line 38 flush call 合成 conditional/call，tool 精确拒绝；下一轮按
+   教学重发 `conditional/condition@37 + relationship/call@38`，两行均 grounded。factory 的 concrete return@18 也进入 typed enrichment；
+2. 但 finalizer 的 `Current grounded call chain` 仍只含 call/definition/registration backbone；guard@37 与 return@18 落在
+   `Typed Exploration Enrichment Facts`。submission checklist 已提示分行引用，模型仍把 guard 写成“决定是否输出”，把 flush 写成“写后立即刷新”，
+   并让 citation repair 以同名 `SinkRegistry.create` 的 call site@32 替换 factory return@18。runner 宽 oracle 未发现，人工必须 FAIL；
+3. 因此 `EVAL-B319` 判 process-positive/partial，新立 `EVAL-B320-CALLCONTROLPRINCIPALLANE1=P1` 与
+   `EVAL-B321-SELECTIONCITATIONOWNERSHIP1=P1`，同根为“精确非 hop 事实未进入 principal support authority”。最优解不是扫描答案句子或恢复 summary
+   权威，而是从现有 typed evidence 构造两类受限补充：系统 stamped OwnerSymbol 与 principal caller 同源匹配的 guard；由 principal call endpoint
+   连接且通过 `CallChainDiscoverySelectionEvidence` 的 assignment/initializer/return/registration。两类保留自身 file:line/ClaimForm，作为 support fact，
+   不铸造额外 call edge、不推断 guard 控制哪条 call；
+4. C++ optional diagram 首稿含未证 virtual-dispatch edges，validator 正确拒绝；patch 删除图并保留两块 prose。该次 1 个成文拒绝是合法证据门，
+   不是合同自冲突，也不是 S37ba metadata ghost 回归；但模型删除可选图后事实错误仍在，说明根因确在 support/citation 而非 Mermaid；
+5. 东湖 Trace 196s，显式窗 34579.472865..34579.587805 在两次 trace_query 中保持。最终正文含
+   frame causality=unproven/absent、实际时间与规则可消除双轴、CookieMonsterCl 23.994ms / NetworkService 19.041ms 排序、
+   ThreadPoolForeg→NetworkService→CookieMonsterCl→目标四节点链、四态、代表窗、IO/供给边界及完整系统因果投影；人工 PASS；
+6. 本批给 Trace 新记两个 P2：`EVAL-B322-TRACEINTERNALPROMPTLABEL1`（模型逐字复制“目标等待发生次数 prompt 状态”，内部构造名污染用户面）；
+   `EVAL-B323-TRACEPRESSURECALIBRATION1`（CPU 604.528 cpu·ms/density 5.26 与 IO 551.600 有口径但没有同 trace 基线/分位，无法回答高低）。
+   两者只能通过 typed user-facing label/calibration 软上下文优化，不以答案关键词硬门；同物理工件双 alias 重复仍归既有 B316；
+7. r191 无 JSON 畸形/repair、无 unavailable tool、无系统替答。Trace 因果投影/自动补齐/根因选举/唤醒链/窗内可消除量和模型原有 6 blocks 均保留。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B319=production-positive/partial`；`EVAL-B320+B321=P1-next/same-root`；
+`EVAL-B322+B323=P2-filed`；`EVAL-B316=P2-open`；Trace 隔离=`production-positive`；
+模型答案所有权=`preserved`；`raw-prose-hard-gate=none`。
+
+### 123.316 S37bc：principal call-chain lane 保留同主调 guard 与连通 selection 的独立引用权
+
+`EVAL-B320-CALLCONTROLPRINCIPALLANE1` 与 `EVAL-B321-SELECTIONCITATIONOWNERSHIP1` 在 answer-support plan 单点合批：
+
+1. `selectCallChainSupportEntries` 仍先按原规则选择 StepBackbone 或 surface evidence 作为 principal path，不改变 hop 顺序、端点选择或 diagram authority；
+   随后仅追加最多 lane budget 内的 typed non-hop support，不把 enrichment 全量提升；
+2. guard 追加门要求：row citable、ClaimForm=guard_condition、系统 grounding 后 stamped `OwnerSymbol` 非空、owner 与已选 principal call caller
+   code-identity compatible，且 source file 相同。该门不读 condition/summary/答案词面来选成员，也不因 line 37/38 邻接推断“guard 控制 flush”；它只保证
+   finalizer 看见 `Logger.log guard IF level>=... @ line37` 这一独立事实并能单独引用；
+3. selection 追加复用 `CallChainDiscoverySelectionEvidence`，输入仅由已选 principal call/registration 及候选 assignment/initializer/return 组成；
+   额外 registration 还必须与 principal endpoint 相接。故 `SinkRegistry::create returns ConsoleSink @ line18` 获得 principal support/citation ownership，
+   unrelated factory return、同名异文件 guard、空端点或 ungrounded row 均不能提升；
+4. 新 entries 继续使用 `EvidenceAuthoritativeSurfaceText`，不恢复 model-authored Summary。原 path entries 先按 limit 压缩，再为精确 control/selection facts
+   预留席位；dedupe 优先 EvidenceID，没有 typed ID 时才使用 source/line/ClaimForm/endpoint 结构键，不靠 label 近似；
+5. 回归按 r191 同形构造 Logger write/flush、line37 guard、make_sink→factory call、line18 concrete return，并注入错误 summary、异文件同名 guard 和无关 return。
+   测试钉住 guard/return 的 ClaimForm 与独立 file:line，错误 summary/无关 facts 不进入 lane；既有 call-chain、Cangjie/ArkTS/C++ 等 selection 连接测试不变；
+6. 聚焦、完整 `go test ./internal/types ./internal/agent -count=1` 与全仓 `go test ./... -count=1` 均通过。本批不改 emit_answer_document 文本、citation repair 算法、
+   JSON repair/教学、Mermaid validator、Trace query/投影/补采、read/write controller；系统没有修改模型结论。
+
+状态：`EVAL-B320+B321=S37bc-implemented/full-suite-pass/pending-production-replay`；
+`principal-hop-order=unchanged`；`non-hop-authority=typed+connected`；`summary-authority=none`；
+`system-answer-rewrite=none`；`raw-prose-hard-gate=none`；Trace=`unchanged`。
