@@ -25058,3 +25058,33 @@ r180 在 `main@5237564d8` 上严格并发 2，运行 `data_json_strict_ids` 与 
 状态：`EVAL-B298=S37ak-production-negative/P1-open/precise-gate-retained`；
 `unsafe-global-rule-auto-distill=rejected/not-shipped`；runner=`2/2 PASS`、human=`2/2`；
 模型答案所有权=`preserved`；JSON 最终合同=`correct`；Trace 全能力=`unchanged`。
+
+### 123.288 r181：Trace 全链保持但候选措辞越权；copy-ready 图未复用 typed 限定身份桥
+
+r181 在 `main@435edb98b` 上严格并发 2，运行显式窗 `trace_query_wakeup_causal_runnable` 与 Rust
+`sr_rust_cross_module_chain`。runner 2/2 PASS；人工两项均 partial：
+
+1. Trace 使用 1.000..1.010s 显式用户窗并实际调用 4 次 `trace_query`。最终模型正文、系统补齐与投影共同保留
+   `net-300 -> worker-200 -> app-100`，app sleep 10.000ms、worker runnable 8.300ms、app 自身 runnable 0.020ms，以及
+   `priority_inversion_candidate` 的根因排序与锁/优先级修向；「主要时间占用」和「窗内可消除量」两轴分别发布，未相加或互相替代；
+2. Trace 能力未回归：用户窗没有被状态查询合同降级，因果投影、自动补采、根因排序、唤醒链、代表窗、有效归因与两类修复视角均在。系统内容位于模型正文之后并明确标记来源，没有删除或替换模型结论；
+3. 但模型正文存在权限内冲突：typed row 和 Finalizer prompt 只授权“已测得 8.300ms 的优先级反转候选”，且末尾 caveat 明确
+   `holder/waiter` 未证、`validation_candidate`；首句却称“主要阻塞原因是优先级反转”，中段再称“典型反转”并建议优先级继承。结构字段
+   `trace_causal_claim_caliber=bounded_window_candidate` 是对的，证明系统给模型的上下文精准，错误发生在模型没有让全部 prose 服从该权限。依用户红线，不扫描
+   “典型/反转”等正文关键词做硬门，也不由系统改写首句；记 `EVAL-B300-TRACECANDIDATEPROSE1=P1-observe`，跨异构 trace 观察是否稳定复现；
+4. Rust 文字答案与五条 source call citation 正确：`main -> run`、`run -> walker::collect_files`、`collect_files -> walk`、
+   `run -> index_file`、`index_file -> Matcher.is_match`；walker 文件收集角色与 Literal/RegexLike runtime selection 也有 typed 证据；
+5. Rust 图层却暴露确定性 `EVAL-B299-QUALIFIEDNODEBRIDGE1=P0`：emit evidence 已把入站调用精确归一为
+   `run -> walker::collect_files`，函数体内调用精确为 `collect_files -> walk`，并有唯一 `src/walker.rs:4` definition；strict validator 已实现并有测试的
+   “exact qualified inbound endpoint + unique source-local definition”桥，允许读者友好地画 `walker::collect_files -> walk`。但 relation authority renderer
+   直接拿 `item.Subject/Object` 建图，未消费同一桥，copy-ready capsule 因而生成两个节点、两个 component；
+6. 模型照 prose 试图把断口连接成 `walker::collect_files -> collect_files -> walk`，新增的第一条边没有调用事实，被 validator 正确拒绝。patch 删除伪边后
+   Mermaid 可渲染但仍是断图。这里 validator 没错；错误是系统教学/copy-ready payload 与 validator 可接受的 typed identity projection 不同源，造成 1 次
+   “成文校验未通过”及读者可见的误导图；
+7. 最优修复不做 Rust、`walker` 或 `::` 特判，也不剥限定名前缀。应把现有 fail-closed 身份桥下沉为共享 typed resolver：只有限定入口已是 citable call endpoint、
+   短名有唯一 citable definition、内层 caller 只出现在该 definition source、OwnerSymbol 无冲突时，才把短 caller 投影为限定显示身份；歧义、多定义、跨源同名均保持断开。
+   relation topology、copy-ready aliases 与 validator 必须消费同一 resolver；Java/Go/C/C++/Python/Rust/ArkTS/Cangjie 等语言统一适用。
+
+状态：`EVAL-B299=P0-next/generalized-typed-identity-bridge`；`EVAL-B300=P1-observe/no-prose-hard-gate`；
+runner=`2/2 PASS`、human=`partial+partial`；模型答案所有权=`preserved`；JSON 教学=`unchanged`；
+Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`production-positive`。
