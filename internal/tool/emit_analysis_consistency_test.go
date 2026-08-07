@@ -123,10 +123,13 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if _, ok := prop.Properties["sink_mode"]; !ok {
 		t.Fatal("call_chain_endpoints is missing sink_mode")
 	}
-	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered"} {
+	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered", "discover_path"} {
 		if !strings.Contains(prop.Description, want) {
 			t.Fatalf("call_chain_endpoints description must pin %q: %s", want, prop.Description)
 		}
+	}
+	if !strings.Contains(prop.Description, types.CallChainEndpointProfileTeaching) {
+		t.Fatalf("call_chain_endpoints schema must consume the single teaching source: %s", prop.Description)
 	}
 }
 

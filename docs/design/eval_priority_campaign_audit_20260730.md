@@ -25195,3 +25195,27 @@ r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 `EVAL-B303-ROLEBOUNDENDPOINT1=P0-next`；`EVAL-B304-CONVERGEDLANEREOPEN1=P1-next`；
 `EVAL-B305-LOADBEARINGCALLEDGEOMISSION1=P1-next`；runner=`2/2 PASS`、human=`partial+fail`；
 模型答案所有权=`preserved-but-required-anchor-tainted`；Trace/JSON=`unchanged`。
+
+### 123.293 S37an：角色边界路径拥有独立 typed 车道，不再把 Analyzer 猜测铸成端点权威
+
+本批修复 B303，保持 exact 路径与运行时实现 discovery 的既有严格语义：
+
+1. `CallChainEndpointProfile` 在原有同一个 mode 枚举中新增 `discover_path`。它只允许 `source=""/sink=""`，表示当前请求给出的是
+   “CLI 入口/最终网络发送”一类概念边界，两个代码身份都必须由 grounded source evidence 发现；它本身不携带任何方向端点硬权威；
+2. `exact` 仍要求当前请求逐字提供两个代码身份；`discover` 仍要求当前请求逐字提供 source、sink 留空，并专用于“该 source 运行时落到哪个
+   implementation/class/handler”。因此真正的 runtime selection 证据门没有被放松，也没有把 role-bound 静态路径误装成 runtime selection；
+3. 归一化只消费 typed `requestMentioned` provenance 和枚举/字段形态：exact 两个候选不能同时取得 current-request code-identity provenance，或 discover
+   source 没有该 provenance 时，确定性清空 Analyzer 候选并转为 `discover_path`。不读取用户原文关键词、模型 thinking、最终正文或语言名，不为
+   `main`、`HttpTransport`、TypeScript 等样例写特判；
+4. `discover_path` 不进入 `CallChainRequestedEndpointHints`，不生成 required mechanism anchor，也不触发
+   `callChainDiscoverySelectionRequired`。r183 中错误猜出的 `main` 因而不能再迫使 Finalizer 把真实 `run` 标签改错；
+5. Analyzer skill 与 `emit_analysis` JSON schema 共用 `CallChainEndpointProfileTeaching` 单一教学源，三种互斥形态一次说明，减少模型在重复、略有差异的
+   JSON 教学之间切换。wire 层仍 fail-loud 拒绝 `discover_path` 携带任一候选端点，防止新车道被反向当作猜测逃生口；
+6. 正臂覆盖 r183 同形“两个角色边界+两个 Analyzer 猜测”一次 emit 即归一、显式 `discover_path` 直达，以及 named source + semantic runtime sink
+   仍正确归入 `discover`；负臂钉住 discover_path 携带端点必拒、discover 猜测 source 必清空、无 required anchor/selection authority；
+7. 聚焦 `internal/types`、`internal/tool`、`internal/skill` 回归通过。该批不改 Explorer/Finalizer answer mutation、Trace query/投影/补采、JSON
+   repair、Mermaid renderer 或 write mode；模型答案所有权和显式窗 Trace 全能力保持不变。生产关闭仍等待 r184 的 TS 异构回放。
+
+状态：`EVAL-B303=S37an-implemented/focused-suite-pass/pending-production-replay`；
+`endpoint-authority=typed-current-request-only`；`JSON-teaching=single-source`；
+模型答案所有权=`preserved`；Trace/Write/Read=`unchanged`。

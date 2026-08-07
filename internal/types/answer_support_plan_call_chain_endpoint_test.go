@@ -62,14 +62,45 @@ func TestNormalizeCallChainEndpointProfileDemotesAnalyzerDiscoveredSink(t *testi
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Source.run", Sink: "Rust implementation"},
 		[]string{"Source.run"},
-	); got != nil || reason == "" {
-		t.Fatalf("free-form semantic role is not a code endpoint: profile=%+v reason=%q", got, reason)
+	); got == nil || !got.DiscoverSinkActive() || got.Source != "Source.run" || reason == "" {
+		t.Fatalf("named source plus semantic destination role should use runtime discovery: profile=%+v reason=%q", got, reason)
 	}
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Resolved.entry", Sink: "Resolved.run"},
 		[]string{"Source.run"},
-	); got != nil || reason == "" {
-		t.Fatalf("analyzer-resolved source and sink must not mint exact direction: profile=%+v reason=%q", got, reason)
+	); got == nil || !got.DiscoverPathActive() || reason == "" {
+		t.Fatalf("analyzer-resolved source and sink must become authority-free path discovery: profile=%+v reason=%q", got, reason)
+	}
+}
+
+func TestNormalizeCallChainEndpointProfile_RoleBoundPathCarriesNoEndpointAuthority(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "main", Sink: "HttpTransport", SinkMode: CallChainSinkResolutionExact},
+		[]string{"@app/core"},
+	)
+	if profile == nil || !profile.DiscoverPathActive() || reason == "" {
+		t.Fatalf("pre-scan endpoint guesses must normalize to discover_path: profile=%+v reason=%q", profile, reason)
+	}
+	rm := RequestModel{CallChainEndpointProfile: profile, AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)}}
+	if source, sink, ok := CallChainOrderedEndpointHints(rm); ok || source != "" || sink != "" {
+		t.Fatalf("role-bound path must not mint ordered endpoint authority: %q %q %t", source, sink, ok)
+	}
+	if got := CallChainRequestedEndpointHints(rm); len(got) != 0 {
+		t.Fatalf("role-bound path must not publish guessed endpoint hints: %v", got)
+	}
+	anchors := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
+	if len(anchors) != 0 {
+		t.Fatalf("role-bound path must not create required answer anchors: %+v", anchors)
+	}
+}
+
+func TestNormalizeCallChainEndpointProfile_DiscoverSourceRequiresCurrentRequestProvenance(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "Invented.entry", SinkMode: CallChainSinkResolutionDiscover},
+		[]string{"plugin loading"},
+	)
+	if profile == nil || !profile.DiscoverPathActive() || reason == "" {
+		t.Fatalf("unproven discover source must lose hard authority: profile=%+v reason=%q", profile, reason)
 	}
 }
 

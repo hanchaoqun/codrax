@@ -1091,6 +1091,64 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainRoleBoundEndpointsNormalizeToDiscoverPath(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "从 CLI 入口到底层 HTTP 重试发送的完整调用链是怎样的？"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["CLI","HTTP","retry","call chain"],
+		"entities":["main","HttpTransport"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"main","sink":"HttpTransport","sink_mode":"exact"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("role-bound call-chain endpoints should normalize without retry: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverPathActive() || profile.Source != "" || profile.Sink != "" {
+		t.Fatalf("pre-scan guesses must not survive as endpoint authority: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "normalized to discover_path") {
+		t.Fatalf("authority removal must remain auditable: %q", res.Summary)
+	}
+	anchors := types.CompileRequiredMechanismAnchors(*mu.RequestModel(), types.AnswerContract{}, types.QFCallChain, nil)
+	if len(anchors) != 0 {
+		t.Fatalf("role-bound path must not hard-require guessed answer anchors: %+v", anchors)
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainAcceptsExplicitDiscoverPathWithoutRuntimeSelectionAuthority(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释从命令入口到最终网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":[],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"","sink":"","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil || !mu.RequestModel().CallChainEndpointProfile.DiscoverPathActive() {
+		t.Fatalf("explicit discover_path should persist as an authority-free call-chain profile: success=%t summary=%q model=%+v", res.Success, res.Summary, mu.RequestModel())
+	}
+	if callChainDiscoverySelectionRequired(&types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: *mu.RequestModel()}}) {
+		t.Fatal("discover_path must not inherit runtime implementation selection proof")
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainRejectsDiscoverModeWithNamedSink(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -1114,6 +1172,31 @@ func TestEmitAnalysis_SourceCallChainRejectsDiscoverModeWithNamedSink(t *testing
 	}
 	if mu.RequestModel() != nil {
 		t.Fatalf("rejected endpoint shape must not persist after silently dropping the sink: %+v", mu.RequestModel())
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainRejectsDiscoverPathWithCandidateEndpoints(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释从命令入口到网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":["main"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"main","sink":"","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, `discover_path requires source="" and sink=""`) {
+		t.Fatalf("discover_path candidate identity must fail loud: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected discover_path shape must not persist: %+v", mu.RequestModel())
 	}
 }
 

@@ -26,7 +26,7 @@ type AnswerRequiredAnchor struct {
 //     deliberately too noisy to create a hard publication obligation.
 //   - QFCallChain additionally consumes the precise ordered endpoint profile:
 //     its source is authoritative in exact/discover mode, while its sink is
-//     authoritative only in exact mode.
+//     authoritative only in exact mode; discover_path contributes no anchor.
 //   - AnswerContract.MustIncludeTerms contributes kind information so tool
 //     names and file stems are not treated as source symbols.
 //

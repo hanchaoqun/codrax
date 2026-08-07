@@ -24,6 +24,10 @@ func validateCallChainEndpointWireShape(
 	if profile.SinkMode == types.CallChainSinkResolutionDiscover && strings.TrimSpace(profile.Sink) != "" {
 		return "call_chain_endpoints sink_mode=discover requires sink=\"\"; when the current request names that destination, keep the sink and use sink_mode=exact"
 	}
+	if profile.SinkMode == types.CallChainSinkResolutionDiscoverPath &&
+		(strings.TrimSpace(profile.Source) != "" || strings.TrimSpace(profile.Sink) != "") {
+		return "call_chain_endpoints sink_mode=discover_path requires source=\"\" and sink=\"\"; role-bound path endpoints must be selected from grounded exploration, not carried as analyzer candidates"
+	}
 	if destination, ok := callChainUniqueExactDestination(profile, exactTargets); ok {
 		return "call_chain_endpoints sink_mode=discover contradicts typed exact_targets: after removing source \"" +
 			strings.TrimSpace(profile.Source) + "\", the unique named destination is \"" + destination +

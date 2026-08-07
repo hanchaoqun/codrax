@@ -475,11 +475,11 @@ func buildEmitAnalysisSchema() {
 			},
 			"call_chain_endpoints": map[string]any{
 				"type":        "object",
-				"description": "Ordered source-code call-chain endpoints. Set source to the caller/start. Use sink_mode=exact with a non-empty sink only when the current request already names the destination identity. Use sink_mode=discover with sink=\"\" when the user asks which implementation/class/handler is reached; a pre-scan candidate must not be preselected as the answer. Grounded exploration then identifies the destination. This is the ONLY field whose endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
+				"description": types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
 				"properties": map[string]any{
-					"source":    map[string]string{"type": "string", "description": "Caller/start endpoint copied from a current-request identity; empty when not applicable."},
-					"sink":      map[string]string{"type": "string", "description": "Exact current-request destination identity in exact mode; empty in discover mode and when not applicable."},
-					"sink_mode": map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact when the request names the destination; discover when destination identity is what the user asks the investigation to find."},
+					"source":    map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover; empty in discover_path and when not applicable."},
+					"sink":      map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_path and when not applicable."},
+					"sink_mode": map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime destination to find; discover_path=both role-bound endpoint identities to find."},
 				},
 				"required":             []string{"source", "sink", "sink_mode"},
 				"additionalProperties": false,
@@ -2815,9 +2815,9 @@ func validateSourceCallChainEndpointDeclaration(
 		return ""
 	}
 	if !profile.Active() {
-		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source plus either exact mode with a sink or discover mode with an empty sink; entities and exact_targets are unordered identity sets and cannot supply call direction"
+		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source plus an exact sink or discover-mode empty sink, unless sink_mode=discover_path leaves both source and sink empty for grounded role-bound endpoint discovery; entities and exact_targets are unordered identity sets and cannot supply call direction"
 	}
-	if profile.DiscoverSinkActive() {
+	if profile.DiscoverSinkActive() || profile.DiscoverPathActive() {
 		return ""
 	}
 	exactEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
