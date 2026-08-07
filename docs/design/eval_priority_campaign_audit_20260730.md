@@ -24814,3 +24814,52 @@ endpoint-existence 首拒、S37af 是否将末跳引用稳定到 135 且 Mermaid
 状态：`EVAL-B291=S37af-implemented/full-tests-pass/pending-production-replay`；`EVAL-B288=S37ae-pending-replay`；
 `EVAL-B284=next-P1`；`EVAL-B290=P2-soft-context`；模型答案所有权=`preserved`；JSON 教学=`single-source/reduced`；
 Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
+
+### 123.278 r176：endpoint existence 收敛转正；系统 copy-ready 图自带重复边并截断承重关系
+
+r176 在 `main@9f8feacda` 上严格并发 2，运行 QF `qf_sequence_analyzer_gate` 与 Cangjie inventory
+`cangjie_repomap_fixture`。runner 2/2 PASS；人工为 QF FAIL、Cangjie partial。QF 从 r175 的 474s 降至 266s，单 Explorer、5 次 read、4 次
+completion，证明 S37ae 对 scoped bare definition 的 identity 闭包生效；但最终答案仍不可接受：
+
+1. 源码真相为 `gate.Run@134` 调用 `RunWith@135`，答案却多次把 `RunWith` 说成 `Run` 的零选项包装，方向反转；同时把
+   `buildAnalysisIR` 对 21 个 callee 的 sibling fan-out 叙述为“20 directed hops/完整调用路径”。既有 `ordered_path_authority=listed_edges_only`
+   软提示没有让模型区分“列出的边”和“有序链”，记 `EVAL-B294-LISTEDEDGETOPOLOGY1`；后续应从 typed relation graph 编译 star/fan-out、path、
+   disconnected 等拓扑事实供模型判断，不能扫描或改写答案正文；
+2. 更严重的系统自冲突来自 copy-ready payload：同一 `buildAnalysisIR -> analyzerGraphForNormalize` 因两个 source location 被发成两条相同 Mermaid
+   箭头和两个相同 anchor；系统又要求 Finalizer 原样复制，因此重复不是模型波动。根因为 authority 以 location 区分源证据，图生成却未转换为 endpoint-pair
+   cardinality。记 `EVAL-B292-COPYREADYPAIRDEDUP1=P0`；
+3. copy-ready capsule 在去重前固定截前 8 条，重复边还占据容量，最终只给出 7 个唯一关系，`gate.RunWith` 与其余承重关系全部缺席。required 与 optional
+   diagram 共用 8 条上限，记 `EVAL-B293-REQUIREDDIAGRAMTRUNC1=P1`；最优方案是保留源事实完整计数，按精确 `(from,to,relation)` 生成唯一可视边，只有 final
+   typed `DiagramPlan.Required` 才使用更宽但仍有界的容量；
+4. S37af 没有获得 production witness。Explorer 把“Run 调用 RunWith”只写进 definition summary，没有发独立 `AnchorCall` typed edge；因此引用仍合法地停在
+   definition@134。系统不能从自然语言 summary 猜造 call edge 或把 134 改成 135。后续给 Explorer 的 soft 证据教学应要求“定义中的调用另发 call row”，但
+   leaf endpoint 没有 incident edge 仍是合法形，禁止加统一硬门。
+
+Cangjie 的 typed inventory 本身完全正确：`extend Cart@30`、`foreign native_add@6`、三个 public class 与 package/file/line 均精确。两次 Finalizer
+reject 暴露 `EVAL-B295-PATCHREQUIREDKINDDRIFT1`：首稿 required table 的 item label 不精确；patch 用未知 replace IDs 新增三段并删除旧 table，normalizer
+将其接受为 add，required block kind 从 table 漂为 section。后续只发 soft coverage advisory，却在 inventory authority complete 时追加“覆盖可能不充分”的泛化
+caveat，形成重复且误导的答案。应在 patch admission 以 typed before/after required-kind census 阻止结构降级，不能靠最终文本 caveat 掩盖。
+
+状态：`EVAL-B288=S37ae-production-positive/closed`；`EVAL-B291=pending-real-call-row-witness`；
+`EVAL-B292=P0-immediate`；`EVAL-B293=P1-same-batch`；`EVAL-B294=P1-design`；`EVAL-B295=P1-confirmed`；
+runner=`2/2 PASS`、human=`0.5/2`；模型答案所有权=`preserved`；Trace 全能力=`unchanged`。
+
+### 123.279 S37ag：源事实与可视关系分层；required diagram 不再继承可选图八边截断
+
+本批合并修复 B292/B293，判据全部来自 typed evidence 与 final `AnswerSemanticView`：
+
+1. authority 继续按 source/location 统计并披露每一条 grounded relation fact，不删除多调用点证据；进入 Mermaid authoring capsule 后才按精确
+   `(from,to,relation)` 去重。端点或关系不同绝不合并，不做大小写、别名、相似度或自然语言推断；
+2. 去重发生在容量裁剪之前，同一 endpoint relation 的多个 callsite 不再挤掉其它关系。copy-ready recipe 内再设同键防御去重，防止未来其它调用者绕过
+   capsule；`source_relation_duplicates_collapsed_for_visual` 明确区分“源证据仍在”和“一条可视箭头”；
+3. 可选图继续保持 8 条紧凑上限；只有 final typed `DiagramPlan.Required=true` 使用 32 条有界上限。该信号由 Analyzer/AnswerContract 编译，不读取用户原文、
+   model thinking 或 final prose。r176 的 21 条唯一关系可完整进入 copy-ready payload；超过 32 条仍披露 unique omitted count，避免无界 prompt 膨胀；
+4. 回归钉住两个生产同形：9 条 source facts 中前两条为同 endpoint/relation 时，可选图仍得到 8 条唯一箭头/anchor；21 条 required call edges 全部输出，
+   不出现 optional-eight 截断。既有 sequence 非消息关系省略、多关系歧义、断开 component 与 no-diagram 车道保持；
+5. 不新增/改写最终结论，不改变关系证据门、JSON schema 或 Trace 路由。B294 的 fan-out/path typed topology 与 B295 patch required-kind 漂移继续独立施工，
+   避免把显示载体修复扩大为模型答案接管。
+
+定向 `go test ./internal/agent ./internal/types` 与全仓 `go test ./...` 均已绿；下一步提交推送，再严格并发 2 回放 QF 与异构模式。
+
+状态：`EVAL-B292/B293=S37ag-implemented/full-tests-pass`；`EVAL-B294/B295=next-P1`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。

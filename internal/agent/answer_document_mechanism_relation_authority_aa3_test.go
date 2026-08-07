@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -324,6 +325,96 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 	if strings.Contains(got, "edge_recipe[1]") || strings.Contains(got, "node_alias[n1]") {
 		t.Fatalf("copy-ready diagram intent must not receive duplicate per-edge JSON teaching:\n%s", got)
+	}
+}
+
+func TestMechanismRelationCopyReadyDeduplicatesVisualPairBeforeOptionalLimitAA3(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			ID: "first-callsite", Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 10, AnchorKind: types.AnchorCall,
+			Subject: "Root", Object: "Target0", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "second-callsite-same-pair", Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 11, AnchorKind: types.AnchorCall,
+			Subject: "Root", Object: "Target0", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	for i := 1; i <= 7; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID: fmt.Sprintf("edge-%d", i), Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 20 + i, AnchorKind: types.AnchorCall,
+			Subject: "Root", Object: fmt.Sprintf("Target%d", i), GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			}},
+		},
+		EvidenceItems: evidence,
+	}
+
+	if got := answerDocMechanismCopyReadyRelationLimit(ctx); got != answerDocMechanismOptionalRelationLimit {
+		t.Fatalf("optional relation limit=%d, want %d", got, answerDocMechanismOptionalRelationLimit)
+	}
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=9",
+		"participant n9 as Target7",
+		"source_relation_duplicates_collapsed_for_visual=1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("deduplicated optional visual missing %q:\n%s", want, got)
+		}
+	}
+	if arrows := strings.Count(got, "->>"); arrows != 8 {
+		t.Fatalf("copy-ready arrow count=%d, want 8 unique endpoint relations:\n%s", arrows, got)
+	}
+	if anchors := strings.Count(got, `"relation_kind":"call"`); anchors != 8 {
+		t.Fatalf("copy-ready anchor count=%d, want 8 unique endpoint relations:\n%s", anchors, got)
+	}
+}
+
+func TestMechanismRelationRequiredDiagramCarriesBroadTypedRelationSurfaceAA3(t *testing.T) {
+	evidence := make([]types.EvidenceItem, 0, 21)
+	for i := 1; i <= 21; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID: fmt.Sprintf("edge-%d", i), Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 100 + i, AnchorKind: types.AnchorCall,
+			Subject: "Root", Object: fmt.Sprintf("Target%02d", i), GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramSequence,
+			}},
+		},
+		EvidenceItems: evidence,
+	}
+
+	if got := answerDocMechanismCopyReadyRelationLimit(ctx); got != answerDocMechanismRequiredRelationLimit {
+		t.Fatalf("required relation limit=%d, want %d", got, answerDocMechanismRequiredRelationLimit)
+	}
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=21",
+		"participant n22 as Target21",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("required copy-ready diagram missing %q:\n%s", want, got)
+		}
+	}
+	if arrows := strings.Count(got, "->>"); arrows != 21 {
+		t.Fatalf("required copy-ready arrow count=%d, want 21:\n%s", arrows, got)
+	}
+	if strings.Contains(got, "additional unique typed relation") {
+		t.Fatalf("21-edge required diagram must not inherit the optional eight-edge truncation:\n%s", got)
 	}
 }
 

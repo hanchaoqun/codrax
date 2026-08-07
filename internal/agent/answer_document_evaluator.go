@@ -6889,7 +6889,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		renderAnswerDocMechanismRelationAuthoringCapsule(
 			&b,
 			edges,
-			8,
+			answerDocMechanismCopyReadyRelationLimit(ctx),
 			answerDocMechanismCopyReadyDiagramKind(ctx),
 		)
 	}
@@ -6924,6 +6924,17 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if b == nil || len(edges) == 0 || limit <= 0 {
 		return
 	}
+	// Source authority and visual authority have different cardinalities. Two
+	// grounded call sites may prove the same directed endpoint relation; they
+	// remain distinct in the source-fact counters above, but a diagram has one
+	// visible arrow for that exact (from, to, relation) tuple. Collapse those
+	// duplicates before bounding so repeated call sites cannot consume the
+	// compact view and hide unrelated typed relations.
+	visualEdges := edges
+	collapsedVisualDuplicates := 0
+	if copyReadyKind != types.DiagramNone {
+		visualEdges, collapsedVisualDuplicates = answerDocMechanismUniqueVisualEdges(edges)
+	}
 	aliases := make([]answerDocMechanismAliasRow, 0, limit*2)
 	aliasFor := func(identity string) string {
 		for _, row := range aliases {
@@ -6936,7 +6947,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		return alias
 	}
 
-	bounded := edges
+	bounded := visualEdges
 	if len(bounded) > limit {
 		bounded = bounded[:limit]
 	}
@@ -6984,9 +6995,31 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		b.WriteString("- A validator-compatible diagram body and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, copy both unchanged; do not compose a different story graph.\n")
 		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
-	if len(edges) > len(bounded) {
-		fmt.Fprintf(b, "- (%d additional typed relation(s) omitted only from this compact authoring view)\n", len(edges)-len(bounded))
+	if collapsedVisualDuplicates > 0 {
+		fmt.Fprintf(b, "- source_relation_duplicates_collapsed_for_visual=%d; source facts remain counted above, while the diagram keeps one arrow per exact typed endpoint relation.\n", collapsedVisualDuplicates)
 	}
+	if len(visualEdges) > len(bounded) {
+		fmt.Fprintf(b, "- (%d additional unique typed relation(s) omitted only from this compact authoring view)\n", len(visualEdges)-len(bounded))
+	}
+}
+
+func answerDocMechanismUniqueVisualEdges(edges []answerDocMechanismRelationEdge) ([]answerDocMechanismRelationEdge, int) {
+	if len(edges) == 0 {
+		return nil, 0
+	}
+	out := make([]answerDocMechanismRelationEdge, 0, len(edges))
+	seen := make(map[string]bool, len(edges))
+	duplicates := 0
+	for _, edge := range edges {
+		key := edge.from + "\x00" + edge.to + "\x00" + string(edge.relation)
+		if seen[key] {
+			duplicates++
+			continue
+		}
+		seen[key] = true
+		out = append(out, edge)
+	}
+	return out, duplicates
 }
 
 func renderAnswerDocMechanismRelationComponentBoundary(
@@ -7214,6 +7247,7 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 	}
 	omitted := map[string]bool{}
 	out := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+	seenVisualRelation := make(map[string]bool, len(recipes))
 	for _, recipe := range recipes {
 		key := recipe.from + "\x00" + recipe.to
 		representable := true
@@ -7227,6 +7261,11 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 			omitted[string(recipe.edge.relation)] = true
 			continue
 		}
+		visualKey := key + "\x00" + string(recipe.edge.relation)
+		if seenVisualRelation[visualKey] {
+			continue
+		}
+		seenVisualRelation[visualKey] = true
 		out = append(out, recipe)
 	}
 	omittedKinds := make([]string, 0, len(omitted))
@@ -7256,6 +7295,22 @@ func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.Diagr
 		return view.DiagramPlan.Kind
 	}
 	return types.DiagramNone
+}
+
+const (
+	answerDocMechanismOptionalRelationLimit = 8
+	answerDocMechanismRequiredRelationLimit = 32
+)
+
+// Required diagrams need enough room for a broad but still bounded typed
+// relation surface. This reads the final typed presentation contract, not the
+// request text or answer prose. Optional diagrams retain the compact limit.
+func answerDocMechanismCopyReadyRelationLimit(ctx *types.AgentContext) int {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Required {
+		return answerDocMechanismRequiredRelationLimit
+	}
+	return answerDocMechanismOptionalRelationLimit
 }
 
 func answerDocMechanismRelationAuthorityApplies(rm types.RequestModel) bool {
