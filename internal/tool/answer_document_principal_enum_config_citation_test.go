@@ -110,3 +110,113 @@ func TestNormalizePrincipalEnumerationRowBlocks_MarkdownTableDoesNotInventCitati
 		t.Fatalf("non-file rows invented citation authority: blocks=%+v citations=%+v", doc.Blocks, doc.Citations)
 	}
 }
+
+func TestNormalizePrincipalAggregateItemCitationRefs_CallChainUsesExactSupportRows(t *testing.T) {
+	mu := types.NewMutableState("call chain")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("logger", "Logger::log", "src/logger.cpp", 29, "entry"),
+		enumEvidence("sink", "sink_->write", "src/logger.cpp", 36, "virtual call"),
+		enumEvidence("console", "ConsoleSink::write", "include/logx/console_sink.hpp", 10, "override"),
+		enumEvidence("guard", "kind==\"console\" guard", "src/registry.cpp", 17, "selection"),
+		enumEvidence("return", "ConsoleSink return", "src/registry.cpp", 18, "factory return"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "完整调用路径", Value: "3",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Logger::log", "sink_->write", "ConsoleSink::write"},
+			SupportRefs: []string{
+				"src/logger.cpp:29", "src/logger.cpp:36", "include/logx/console_sink.hpp:10",
+			},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "运行时 sink 选择链路", Value: "2",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"kind==\"console\" guard", "ConsoleSink return"},
+			SupportRefs: []string{"src/registry.cpp:17", "src/registry.cpp:18"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID: "path", Kind: types.BlockOrderedList, Title: "完整调用路径",
+				Items: []types.AnswerBlockItem{
+					{ID: "logger", Label: "Logger::log", CitationRef: 0},
+					{ID: "sink", Label: "sink_->write", CitationRef: 1},
+					{ID: "console", Label: "ConsoleSink::write", CitationRef: -1},
+				},
+			},
+			{
+				ID: "select", Kind: types.BlockOrderedList, Title: "运行时 sink 选择链路",
+				Items: []types.AnswerBlockItem{
+					{ID: "guard", Label: "kind==\"console\" guard", CitationRef: 0},
+					{ID: "return", Label: "ConsoleSink return", CitationRef: 99},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "wrong.cpp", Line: 1},
+			{File: "include/logx/console_sink.hpp", Line: 11},
+		},
+	}
+
+	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed != 5 {
+		t.Fatalf("fixed=%d, want every exact principal item rebound: blocks=%+v citations=%+v", fixed, doc.Blocks, doc.Citations)
+	}
+	want := []types.Citation{
+		{File: "src/logger.cpp", Line: 29},
+		{File: "src/logger.cpp", Line: 36},
+		{File: "include/logx/console_sink.hpp", Line: 10},
+		{File: "src/registry.cpp", Line: 17},
+		{File: "src/registry.cpp", Line: 18},
+	}
+	items := append(append([]types.AnswerBlockItem{}, doc.Blocks[0].Items...), doc.Blocks[1].Items...)
+	for i, item := range items {
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef] != want[i] {
+			t.Fatalf("item[%d]=%+v citation=%+v want=%+v", i, item, doc.Citations, want[i])
+		}
+	}
+	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed != 0 {
+		t.Fatalf("citation binding must be idempotent, fixed=%d", fixed)
+	}
+
+	// Production-wiring pin: the complete pre-emit chain must invoke the
+	// citation-only aggregate binder after weaker generic label candidates.
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			doc.Blocks[bi].Items[ii].CitationRef = 0
+		}
+	}
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, newPreEmitCheckContext(ctx))
+	items = append(append([]types.AnswerBlockItem{}, doc.Blocks[0].Items...), doc.Blocks[1].Items...)
+	for i, item := range items {
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef].File != want[i].File || doc.Citations[item.CitationRef].Line != want[i].Line {
+			t.Fatalf("pre-emit wiring item[%d]=%+v citation=%+v want=%+v", i, item, doc.Citations, want[i])
+		}
+	}
+}
+
+func TestNormalizePrincipalAggregateItemCitationRefs_AmbiguousLabelStandsDown(t *testing.T) {
+	mu := types.NewMutableState("ambiguous rows")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{Kind: types.AnswerAggregateMemberSet, Label: "left", Value: "2", Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"Run", "Left"}, SupportRefs: []string{"a.go:10", "a.go:11"}},
+		{Kind: types.AnswerAggregateMemberSet, Label: "right", Value: "2", Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"Run", "Right"}, SupportRefs: []string{"b.go:20", "b.go:21"}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentTrace}}}
+	doc := &types.AnswerDocumentV2{
+		Blocks:    []types.AnswerBlock{{ID: "generic", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "run", Label: "Run", CitationRef: 0}}}},
+		Citations: []types.Citation{{File: "keep.go", Line: 1}},
+	}
+	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed != 0 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("ambiguous unscoped member must stand down: fixed=%d doc=%+v", fixed, doc)
+	}
+}

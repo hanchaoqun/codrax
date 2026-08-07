@@ -1357,6 +1357,75 @@ func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, 
 	return changed
 }
 
+// normalizePrincipalAggregateItemCitationRefsWithContext binds an exact
+// model-authored item label to the file:line carried by the corresponding
+// principal aggregate member. Unlike normalizePrincipalEnumerationRowBlocks,
+// this citation-only lane is available to mechanism/call-chain answers too:
+// it changes metadata only and never grants permission to add, remove, or
+// rewrite visible rows.
+//
+// The match is deliberately exact and unique after block scoping. We do not
+// inspect item prose, the raw request, model thoughts, or rendered answer text;
+// ambiguous duplicate member labels stand down rather than borrowing an
+// adjacent citation.
+func normalizePrincipalAggregateItemCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return 0
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return 0
+	}
+	sets := types.CompileEnumerationCitationSupportSets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return 0
+	}
+	allRows := principalEnumerationAllRows(sets)
+	allIndex := principalEnumerationExactLabelRowIndex(sets)
+	changed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !principalEnumerationBlockCanCarryRows(*block) {
+			continue
+		}
+		rows := allRows
+		index := allIndex
+		if scopedRows, _ := principalEnumerationPruneRowsForBlockAtWithMode(doc, bi, sets); len(scopedRows) > 0 {
+			rows = scopedRows
+			index = principalEnumerationExactLabelRowIndex([]types.EnumerationDisplaySet{{
+				ID:    "citation-only-scoped-block",
+				Label: strings.TrimSpace(block.Title),
+				Rows:  rows,
+			}})
+		}
+		if len(index) == 0 {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			row, ok := index[normalizeEnumerationDisplayTableKey(item.Label)]
+			if !ok || !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				continue
+			}
+			surface := types.AnswerBlockItemVisibleSurface(*item)
+			if principalEnumerationSurfaceHasExplicitLocation(surface) &&
+				!principalEnumerationCandidateLocationCompatible(surface, row) {
+				continue
+			}
+			if principalEnumerationItemCitationCompatible(*item, doc, row) {
+				continue
+			}
+			ref := appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart})
+			if ref < 0 || item.CitationRef == ref {
+				continue
+			}
+			item.CitationRef = ref
+			changed++
+		}
+	}
+	return changed
+}
+
 func principalEnumerationAllRows(sets []types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
 	var rows []types.EnumerationDisplayRow
 	for _, set := range sets {

@@ -758,6 +758,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
 	}
+	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizePrincipalAggregateItemCitationRefsWithContext", fixed)
+		logging.Warning("[%s] bound %d item citation_ref value(s) to exact principal aggregate support rows", toolName, fixed)
+	}
 	// Source-inventory row identity is more specific than the generic
 	// candidate-role / label candidate lanes above. Apply it after those
 	// repairs so a same-name declaration in another family cannot overwrite an

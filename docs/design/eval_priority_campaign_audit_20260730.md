@@ -22759,3 +22759,33 @@ S36o 在 `internal/mermaidcompat.ParseEdges` 的共享语法层先识别 `partic
 `EVAL-B225-CITATIONPATCHCONFLICT1=P0-next`；`EVAL-B226-CONDITIONCLASS1=P1-next`；
 `EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
 Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.204 S36p：principal aggregate 的逐成员 support_ref 成为全答案家族的 citation metadata authority
+
+`EVAL-B225-CITATIONPATCHCONFLICT1` 已根修。r144 C++ 的 explorer 已提交两个 `role=principal_answer` member set，并且
+`members[]` 与 `support_refs[]` 等长逐位对齐；例如 `sink_->write -> src/logger.cpp:36`、`std::fputc -> console_sink.hpp:12`、
+`ConsoleSink return -> registry.cpp:18`。但旧实现存在消费域裂缝：
+
+- enumeration display compiler 能读取该精确信号并绑定引用；
+- ordinary call-chain/mechanism 因不允许系统增删可见枚举行而跳过 display compiler；
+- 通用 label 候选面对虚函数声明/调用行或同 owner 多调用时可能有多个候选，只能 soft audit，不能唯一修复；
+- 第一稿同时有 diagram 硬错时，patch 合同正确要求“只修 diagram、其余 block 不动”，于是 citation soft advisory 被继承到最终答案。
+
+本批新增 citation-only consumer `normalizePrincipalAggregateItemCitationRefsWithContext`，复用
+`CompileEnumerationCitationSupportSets` 的 typed row/location contract，但明确不取得任何 visible-row authoring 权限：
+
+1. 仅消费已保留、`role=principal_answer` 的 aggregate member set 与其 parser/evidence 验证后的 support location；
+2. 先按现有 typed block/set scope 收窄，再对 `items[].label` 做唯一 exact member identity 匹配；不读 item prose、用户原文、模型思考或渲染后答案；
+3. 正确处理错绑、缺失和越界 `citation_ref`，只追加/复用 `citations[]` 并重绑整数元数据，不修改 label/text/cells、块结构或结论；
+4. 同名 member 跨多个未定界 set 指向不同位置时 fail-closed；item 自带显式位置却与 typed row 冲突时也站下；
+5. 接线位于较弱的通用 label/candidate 修复之后、精确 source-inventory row-id 修复之前，后者仍拥有更具体的最终权限。
+
+回归覆盖非枚举 call-chain 的五种位置：有效但错绑、缺失、越界、block-title 定界，以及未定界重名歧义站下；并通过完整
+`normalizeAnswerDocumentForPreEmit` 生产接线 pin，避免只测 helper、删除挂点仍绿。修复后即使下一轮 patch 只移除/修复 optional diagram，继承的
+非图块已经携带正确 citation metadata，不再产生“两个合同各自合理、组合后冻结错误”的冲突。
+
+验证：聚焦 citation consumer/接线测试全绿；`go test ./...` 全绿。无 JSON schema/教学变更，不降低 diagram typed evidence 门，不修改模型答案。
+
+状态：`EVAL-B225-CITATIONPATCHCONFLICT1=S36p-closed/full-tests-pass/wiring-pinned`；
+`EVAL-B226-CONDITIONCLASS1=P1-next`；`EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；
+模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。
