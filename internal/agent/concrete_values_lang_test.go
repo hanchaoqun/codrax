@@ -340,6 +340,26 @@ func (t *ExecCommand) Execute(ctx *BusContext) error {
 	}
 }
 
+func TestExtractConcreteValues_ReturnCallCoversExecutableLanguageMatrix(t *testing.T) {
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		if lang == repotypes.LangProto {
+			// Proto is a declarative schema language and has no executable
+			// return statement; its value carriers are handled by the proto
+			// declaration pass rather than this function-body extractor.
+			continue
+		}
+		t.Run(lang, func(t *testing.T) {
+			entries := extractConcreteValues("return factory()", lang)
+			for _, entry := range entries {
+				if entry.kind == concreteValueKindReturns && entry.value == "factory()" {
+					return
+				}
+			}
+			t.Fatalf("%s lost the language-neutral call return carrier: %+v", lang, entries)
+		})
+	}
+}
+
 func TestExtractConcreteValues_ConditionAndDeclarationTypesAreNotConstructorBindings(t *testing.T) {
 	src := `void Logger::log(Level level, const std::string& message) {
     if (level >= Level::kError) {

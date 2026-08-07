@@ -23043,3 +23043,39 @@ flowchart 关系锚、B234 端点权威及 JSON 单源均保持。下一批进�
 `EVAL-B233-RETURNBODY1=P1-next`；`EVAL-B234-RELENDPOINT1=closed`；
 模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
+
+### 123.213 S36w：跨语言 return/value carrier 以 typed callable owner 精确晋级
+
+`EVAL-B233-RETURNBODY1` 已定位为“解析成功、相关性筛选丢失”，而不是 Python parser 不认识 `return cls()`。统一
+`extractConcreteValues` 已能从函数体产生 `returns + exact expression`，但旧筛选仅自动保留字符串、bool/nil；数字、调用、构造、复合值等
+非字面量即使位于已读目标函数，也必须碰巧命中自由文本 notes 才能进入 `EvidenceConcrete`。r148 因而只把插件 content-type 字符串交给
+finalizer，精确的 `Registry.resolve returns cls()` 在系统内被提前丢弃。
+
+S36w 使用跨语言、typed-only 的相关性晋级：
+
+1. 非字面量 return 只有在同一源文件存在 Tier-1 grounded typed evidence，且其 `Subject/OwnerSymbol/AnchorSymbol` 精确指向该 return 的
+   enclosing callable 时才保留；call-site 行只允许 caller/owner 授权，callee `Object/AnchorSymbol` 不能反向授权未读 callee body；
+2. 当 typed evidence 只有短方法名、源码同文件存在多个同名 qualified owner 时 fail-closed，避免 `Alpha.create` 的证据把
+   `Beta.create` 的 return 一并提升；完整 qualified identity 则可直接匹配；
+3. concrete-value cache key 加入上述 grounded callable-owner 投影，并排除 `concrete_values/bridge_literal` 自身，解决“早轮先缓存空结果、
+   后轮 emit_evidence 已证明 owner 但缓存不重建”的时序 gap，同时避免自反馈失效；
+4. authoritative evidence surface 在没有 snippet 时不再把精确 Object 抹成泛化的 `return statement`，而是发布
+   `Registry.resolve returns cls()`；finalizer 的 typed enrichment 与 dynamic-target capsule 还从同一 return Object 发布
+   `expression_form=call_result`。该标签只说明表达式发生了调用，不宣称实际运行时类型、注册选择或最终实例身份，结论仍由模型给出；
+5. JSON tool schema、edge anchor schema、validator 与 answer renderer 均未增加字段或新门。`expression_form` 只是 typed prompt
+   guidance，不读取用户原文、模型 reasoning 或最终答案，不触发 hard reject，也不替换模型可见正文。
+
+回归覆盖：缓存先空后因 typed owner 变化而重建、`Registry.resolve -> cls()` 完整 EvidenceConcrete、同文件同名 owner 歧义 fail-closed、
+return authoritative surface 保留 exact expression、finalizer 同时获得 expression 与 `call_result`；并遍历 authoritative
+`SupportedReadLanguages` 中全部 14 种可执行语言（Go/Python/JavaScript/TypeScript/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/ArkTS/Cangjie）。
+Proto 无可执行 return 语句，继续由声明型 schema carrier 负责，不伪造函数体语义。`go test ./internal/types ./internal/agent` 与
+`go test ./...` 全绿。
+
+本批同时保持两条跨批防回归：sequence 显示消息参数不得进入 typed endpoint identity；C++ flowchart 的 labelled/unlabelled 逻辑箭头
+不得绕过同向 typed relation authority。Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量以及“真实耗时贡献 / 规则内
+可消除量”双维根因分析均未触碰。
+
+状态：`EVAL-B233-RETURNBODY1=S36w-implemented/full-tests-pass/replay-next`；
+`EVAL-B232-DISCONNECTAUTH1=closed`；`EVAL-B234-RELENDPOINT1=closed`；
+`EVAL-B229-COPYGRAPH1=model-watch/no-harder-gate`；模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
+下一步=`commit+push+r149-two-case-replay`。

@@ -40,9 +40,15 @@ func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string 
 		if snippet != "" {
 			return prependEvidenceKind(includeKind, item, snippet)
 		}
+		returnOwner := strings.TrimSpace(firstNonEmptySurfaceString(item.Subject, item.OwnerSymbol, item.AnchorSymbol))
+		returned := strings.TrimSpace(item.Object)
 		switch {
-		case locationName != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s return statement", locationName))
+		case returnOwner != "" && returned != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s returns %s", returnOwner, returned))
+		case returned != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("returns %s", returned))
+		case returnOwner != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s return statement", returnOwner))
 		case strings.TrimSpace(item.AnchorSymbol) != "":
 			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s return statement", strings.TrimSpace(item.AnchorSymbol)))
 		}

@@ -3250,6 +3250,9 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		if row.family == "declared_type_relation" && item.RelationOrdinal > 0 {
 			fmt.Fprintf(&b, " declared_order=`%d`", item.RelationOrdinal)
 		}
+		if form := answerDocReturnExpressionForm(item); form != "" {
+			fmt.Fprintf(&b, " expression_form=`%s`", form)
+		}
 		b.WriteString("\n")
 	}
 	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime. A callback-handoff row proves only that a receiving API was given a callable value, not that it later executed.\n")
@@ -7726,6 +7729,9 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 				surface = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, surface)
 			}
 			fmt.Fprintf(&b, ": %s", surface)
+			if form := answerDocReturnExpressionForm(fact.item); form != "" {
+				fmt.Fprintf(&b, " expression_form=`%s`", form)
+			}
 			if role := answerDocEvidenceRoleTag(fact.item); role != "" {
 				fmt.Fprintf(&b, " (%s)", role)
 			}
@@ -7948,6 +7954,50 @@ func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
 		return "boundary_or_exclusion_fact"
 	}
 	return ""
+}
+
+// answerDocReturnExpressionForm adds a small typed interpretation aid for a
+// deterministic return row. It reads only the structured return Object and is
+// prompt guidance, never an answer-side gate. The deliberately narrow
+// classifier distinguishes an invocation result such as `cls()` / `new Foo()`
+// / `Box::new()` from a bare class or function reference without claiming the
+// runtime concrete type or replacing the model's conclusion.
+func answerDocReturnExpressionForm(item types.EvidenceItem) string {
+	if item.AnchorKind != types.AnchorReturn || strings.TrimSpace(item.Object) == "" {
+		return ""
+	}
+	expression := strings.TrimSpace(item.Object)
+	for {
+		trimmed := expression
+		for _, prefix := range []string{"await ", "try ", "try? ", "try! ", "new "} {
+			if strings.HasPrefix(trimmed, prefix) {
+				expression = strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+				break
+			}
+		}
+		if expression == trimmed {
+			break
+		}
+	}
+	open := strings.IndexByte(expression, '(')
+	close := strings.LastIndexByte(expression, ')')
+	if open <= 0 || close <= open {
+		return ""
+	}
+	callee := strings.TrimSpace(expression[:open])
+	if callee == "" || strings.ContainsAny(callee, " \t\r\n=,+*/%&|!?:") {
+		// `::` is a valid Rust/C++/Cangjie qualifier. Restore that case after
+		// rejecting other conditional/operator-shaped expressions.
+		if !strings.Contains(callee, "::") || strings.ContainsAny(strings.ReplaceAll(callee, "::", ""), " \t\r\n=,+*/%&|!?:") {
+			return ""
+		}
+	}
+	last := callee[len(callee)-1]
+	if !((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') ||
+		(last >= '0' && last <= '9') || last == '_' || last == '$' || last == '>' || last == ']') {
+		return ""
+	}
+	return "call_result"
 }
 
 func answerDocEnrichmentEvidenceLabel(item types.EvidenceItem) string {

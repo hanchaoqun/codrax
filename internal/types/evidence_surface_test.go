@@ -1815,6 +1815,21 @@ func TestEvidenceAuthoritativeSurfaceText_DefinitionWithoutSnippetStaysNeutral(t
 	}
 }
 
+func TestEvidenceAuthoritativeSurfaceText_ReturnKeepsExactExpression(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceConcrete,
+		AnchorKind:   AnchorReturn,
+		AnchorSymbol: "resolve",
+		Subject:      "Registry.resolve",
+		Predicate:    "returns",
+		Object:       "cls()",
+	}
+
+	if got := EvidenceAuthoritativeSurfaceText(item, false); got != "Registry.resolve returns cls()" {
+		t.Fatalf("authoritative return surface=%q, want exact structured return expression", got)
+	}
+}
+
 func TestEvidenceAuthoritativeSurfaceText_NeverFallsBackToFreeformSummary(t *testing.T) {
 	item := EvidenceItem{
 		Kind:    EvidenceMechanism,

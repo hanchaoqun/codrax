@@ -1001,7 +1001,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 		"family=`declared_type_relation` relation=`inheritance` subject=`JsonPlugin` object=`TimestampMixin` [E-inherit-1] @ pipeline/plugins.py:8 declared_order=`1`",
 		"family=`declared_type_relation` relation=`inheritance` subject=`JsonPlugin` object=`ValidationMixin` [E-inherit-2] @ pipeline/plugins.py:8 declared_order=`2`",
 		"family=`declared_type_relation` relation=`inheritance` subject=`JsonPlugin` object=`BasePlugin` [E-inherit-3] @ pipeline/plugins.py:8 declared_order=`3`",
-		"family=`value_or_factory_flow` relation=`returns` subject=`resolve` object=`cls()` [E-return] @ pipeline/registry.py:19",
+		"family=`value_or_factory_flow` relation=`returns` subject=`resolve` object=`cls()` [E-return] @ pipeline/registry.py:19 expression_form=`call_result`",
 		"family=`static_call` relation=`calls` subject=`run_pipeline` object=`resolve` [E-call] @ pipeline/runner.py:15",
 		"only `family=static_call` is a source-level invocation edge",
 		"neither alone proves that the registry selected that type at runtime",
@@ -1026,6 +1026,52 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 	for _, noise := range []string{"CsvPlugin.content_type", "text/csv"} {
 		if strings.Contains(capsule, noise) {
 			t.Fatalf("unconnected value fact consumed runtime-target capsule budget %q:\n%s", noise, capsule)
+		}
+	}
+}
+
+func TestAnswerDocReturnExpressionForm_CrossLanguageCallResults(t *testing.T) {
+	for _, expression := range []string{
+		"cls()",                    // Python / Ruby
+		"new JsonPlugin()",         // Java / Kotlin / ArkTS / TypeScript
+		"std::make_unique<Sink>()", // C++
+		"Box::new(worker)",         // Rust
+		"await factory.create()",   // ArkTS / JavaScript
+		"Handler()",                // Cangjie / Swift / Go-style factory
+	} {
+		item := types.EvidenceItem{AnchorKind: types.AnchorReturn, Object: expression}
+		if got := answerDocReturnExpressionForm(item); got != "call_result" {
+			t.Fatalf("return expression %q classified as %q, want call_result", expression, got)
+		}
+	}
+	for _, expression := range []string{"JsonPlugin", "handler", `"json"`, "42", "(left, right)"} {
+		item := types.EvidenceItem{AnchorKind: types.AnchorReturn, Object: expression}
+		if got := answerDocReturnExpressionForm(item); got != "" {
+			t.Fatalf("non-call return expression %q must remain unclassified, got %q", expression, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocTypedExplorationEnrichment_ReturnKeepsExpressionAndForm(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "E-return", Kind: types.EvidenceConcrete, Subject: "Registry.resolve",
+			Predicate: "returns", Object: "cls()", Source: "pipeline/registry.py",
+			LineStart: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn,
+			Producer: "concrete_values",
+		}},
+	}
+	got := renderAnswerDocTypedExplorationEnrichment(ctx, false)
+	for _, want := range []string{
+		"lane=value_fact label=`Registry.resolve` @ pipeline/registry.py:19",
+		"Registry.resolve returns cls()",
+		"expression_form=`call_result`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed return context missing %q:\n%s", want, got)
 		}
 	}
 }

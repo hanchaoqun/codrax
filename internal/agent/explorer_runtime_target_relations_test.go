@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -400,6 +402,77 @@ func TestGetConcreteValuesCached_RebuildsWhenExactReadCoverageExpands(t *testing
 	}
 	if !foundJSON {
 		t.Fatalf("newly read JsonPlugin relation missing after cache rebuild: %+v", second.evidence)
+	}
+}
+
+func TestGetConcreteValuesCached_RebuildsWhenTypedReturnOwnerAppears(t *testing.T) {
+	repoRoot := t.TempDir()
+	rel := "pipeline/registry.py"
+	abs := filepath.Join(repoRoot, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("class Registry:\n    def resolve(self, key):\n        cls = REGISTRY[key]\n        return cls()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := &repotypes.FileInfo{
+		RelPath:  rel,
+		Language: repotypes.LangPython,
+		Symbols: []repotypes.Symbol{{
+			Name: "resolve", Kind: "method", Parent: "Registry", File: rel, Line: 2, EndLine: 4,
+		}},
+	}
+	graph := repomap.BuildGraph(repoRoot, []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	readSet := map[string]bool{rel: true}
+
+	first := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, nil)
+	for _, item := range first.evidence {
+		if item.Producer == "concrete_values" && item.Object == "cls()" {
+			t.Fatalf("non-literal return must not be retained before typed owner authority: %+v", first.evidence)
+		}
+	}
+
+	eval.structuredEvidence = []types.EvidenceItem{{
+		ID:              "E-resolve-def",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          rel,
+		LineStart:       2,
+		LineEnd:         2,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "resolve",
+		Subject:         "Registry.resolve",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        "explorer.emit_evidence",
+	}}
+	second := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, nil)
+	found := false
+	for _, item := range second.evidence {
+		if item.Producer == "concrete_values" && item.Subject == "Registry.resolve" &&
+			item.Predicate == "returns" && item.Object == "cls()" && item.AnchorKind == types.AnchorReturn {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("typed same-file owner must invalidate the cache and retain exact call return: %+v", second.evidence)
+	}
+}
+
+func TestConcreteReturnOwnerHasTypedAuthority_FailsClosedOnAmbiguousShortOwner(t *testing.T) {
+	values := []concreteValue{
+		{file: "src/factory.ext", method: "Alpha.create", kind: concreteValueKindReturns, value: "buildAlpha()"},
+		{file: "src/factory.ext", method: "Beta.create", kind: concreteValueKindReturns, value: "buildBeta()"},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Scope: types.ScopeLine, Source: "src/factory.ext", LineStart: 1,
+		AnchorKind: types.AnchorDefinition, Subject: "create", GroundingStatus: types.GroundingGrounded,
+	}}
+	sets := concreteReturnOwnerIdentitySets(values)
+	for _, value := range values {
+		if concreteReturnOwnerHasTypedAuthority(value, evidence, sets) {
+			t.Fatalf("ambiguous short owner must not authorize qualified sibling return: %+v", value)
+		}
 	}
 }
 

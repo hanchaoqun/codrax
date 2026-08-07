@@ -14504,6 +14504,13 @@ type chainAnchorInfo struct {
 // mutates over the explore loop and freezing a closure-aware snapshot
 // would serve stale filters to a later caller.
 //
+// The cache key also includes the citable typed callable-owner projection.
+// Return-expression retention uses that projection to keep a non-literal
+// return (for example `return cls()`) only when exploration has already
+// established the owning callable in the same source file. Without the typed
+// projection in the key, a pre-emit cache fill would remain stale after a
+// later emit_evidence call established the owner.
+//
 // subject (CGEC C2) is the answer-subject classification produced by
 // the analyzer. When non-Unknown the chain ranker scores each chain
 // terminal against the expected subject kind and re-orders chains so
@@ -14515,7 +14522,8 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 	if ctx == nil {
 		ctx = context.TODO()
 	}
-	coverageKey := concreteValuesReadCoverageKey(readSet, closure)
+	coverageKey := concreteValuesReadCoverageKey(readSet, closure) +
+		concreteReturnOwnerAuthorityCoverageKey(e.structuredEvidence)
 	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey {
 		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
 		if ctx.Err() != nil {
@@ -14528,6 +14536,46 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 		return *e.cachedConcreteValues
 	}
 	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot, e.answerSubject.Confidence, e.pendingSubRepos)
+}
+
+// concreteReturnOwnerAuthorityCoverageKey returns the exact typed dependency
+// that non-literal return retention consumes. It deliberately excludes rows
+// emitted by concrete_values itself so rebuilding the cache cannot create a
+// self-invalidating feedback loop. Only Tier-1 grounded, source-local evidence
+// participates; model prose and investigation notes never enter this key.
+func concreteReturnOwnerAuthorityCoverageKey(evidence []types.EvidenceItem) string {
+	if len(evidence) == 0 {
+		return ""
+	}
+	rows := make([]string, 0, len(evidence))
+	seen := make(map[string]struct{}, len(evidence))
+	for _, item := range evidence {
+		if item.GroundingStatus != types.GroundingGrounded ||
+			item.Producer == "concrete_values" || item.Producer == "bridge_literal" {
+			continue
+		}
+		source := canonicalExplorerPath(item.Source)
+		if source == "" {
+			continue
+		}
+		for _, surface := range concreteReturnOwnerAuthoritySurfaces(item) {
+			identity := concreteCallableIdentity(surface)
+			if identity == "" {
+				continue
+			}
+			row := source + "\x00" + identity
+			if _, ok := seen[row]; ok {
+				continue
+			}
+			seen[row] = struct{}{}
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.Strings(rows)
+	return "\x00typed-return-owners\n" + strings.Join(rows, "\n") + "\n"
 }
 
 func concreteValuesReadCoverageKey(readSet map[string]bool, closure *types.EvidenceClosure) string {
@@ -14561,6 +14609,110 @@ func concreteValuesReadCoverageKey(readSet map[string]bool, closure *types.Evide
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func concreteReturnOwnerAuthoritySurfaces(item types.EvidenceItem) []string {
+	switch item.AnchorKind {
+	case types.AnchorCall, types.AnchorCallback:
+		// A call-site anchor names the callee in AnchorSymbol/Object. Those
+		// fields do not prove that the callee body in this file was the focus;
+		// only the typed caller/owner may authorize a same-file return row.
+		return []string{item.OwnerSymbol, item.Subject}
+	case types.AnchorDefinition, types.AnchorReturn, types.AnchorAssignment,
+		types.AnchorInitializer, types.AnchorCondition:
+		return []string{item.OwnerSymbol, item.Subject, item.AnchorSymbol}
+	default:
+		return nil
+	}
+}
+
+func concreteCallableIdentity(raw string) string {
+	raw = strings.TrimSpace(strings.Trim(raw, "`"))
+	if raw == "" {
+		return ""
+	}
+	if idx := strings.Index(raw, "("); idx >= 0 {
+		raw = raw[:idx]
+	}
+	raw = strings.TrimSpace(strings.TrimLeft(raw, "*&"))
+	raw = strings.ReplaceAll(raw, "::", ".")
+	raw = strings.ReplaceAll(raw, "->", ".")
+	raw = strings.ReplaceAll(raw, "#", ".")
+	raw = strings.Trim(raw, ".")
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func concreteReturnOwnerIdentitySets(values []concreteValue) map[string]map[string]struct{} {
+	out := make(map[string]map[string]struct{})
+	for _, value := range values {
+		if value.kind != concreteValueKindReturns {
+			continue
+		}
+		identity := concreteCallableIdentity(value.method)
+		tail := types.NormalizedSurfaceSymbolTail(value.method)
+		file := canonicalExplorerPath(value.file)
+		if identity == "" || tail == "" || file == "" {
+			continue
+		}
+		key := file + "\x00" + tail
+		set := out[key]
+		if set == nil {
+			set = make(map[string]struct{})
+			out[key] = set
+		}
+		set[identity] = struct{}{}
+	}
+	return out
+}
+
+// concreteReturnOwnerHasTypedAuthority keeps an arbitrary bounded return
+// expression only when a Tier-1 typed row establishes the owning callable in
+// the same source file. A short owner surface is accepted only when that leaf
+// is unique among extracted return owners in the file; two qualified
+// same-named methods therefore fail closed instead of cross-authorizing each
+// other. This is a relevance projection, not a new semantic conclusion.
+func concreteReturnOwnerHasTypedAuthority(
+	value concreteValue,
+	evidence []types.EvidenceItem,
+	ownerSets map[string]map[string]struct{},
+) bool {
+	if value.kind != concreteValueKindReturns {
+		return false
+	}
+	file := canonicalExplorerPath(value.file)
+	methodIdentity := concreteCallableIdentity(value.method)
+	methodTail := types.NormalizedSurfaceSymbolTail(value.method)
+	if file == "" || methodIdentity == "" || methodTail == "" {
+		return false
+	}
+	for _, item := range evidence {
+		if item.GroundingStatus != types.GroundingGrounded ||
+			item.Producer == "concrete_values" || item.Producer == "bridge_literal" ||
+			canonicalExplorerPath(item.Source) != file {
+			continue
+		}
+		for _, surface := range concreteReturnOwnerAuthoritySurfaces(item) {
+			surfaceIdentity := concreteCallableIdentity(surface)
+			if surfaceIdentity == "" {
+				continue
+			}
+			if surfaceIdentity == methodIdentity {
+				return true
+			}
+			if types.NormalizedSurfaceSymbolTail(surface) != methodTail {
+				continue
+			}
+			methodQualified := strings.Contains(methodIdentity, ".")
+			surfaceQualified := strings.Contains(surfaceIdentity, ".")
+			if methodQualified && surfaceQualified {
+				continue
+			}
+			if len(ownerSets[file+"\x00"+methodTail]) == 1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // applyChainPromotion is the CGEC chain-promotion enforcer. Given an
@@ -15355,11 +15507,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// 1. Registrations — always kept (rule A)
 	// 2. Short string returns from pre-scanned/read/frontier files — always kept (rule B1)
 	// 3. Short string returns from other files — only if receiver is in notes (rule B2)
-	// 4. Values referencing symbols from the investigation notes (rule C)
+	// 4. Non-literal returns whose same-file callable owner is established by
+	//    Tier-1 typed evidence — kept without consulting prose (rule B3)
+	// 5. Values referencing symbols from the investigation notes (rule C)
 	var relevant []concreteValue
+	returnOwnerSets := concreteReturnOwnerIdentitySets(allValues)
 	// Per-rule counters for observability: split B1 by which file-set
 	// triggered retention so the active-frontier path stays visible.
-	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip int
+	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntB3Owner, cntC, cntLongSkip int
 	for i, v := range allValues {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}
@@ -15405,6 +15560,12 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 					continue
 				}
 			}
+			if !isStringLit && !isBoolOrNil &&
+				concreteReturnOwnerHasTypedAuthority(v, e.structuredEvidence, returnOwnerSets) {
+				relevant = append(relevant, v)
+				cntB3Owner++
+				continue
+			}
 		}
 		// Keep values referencing noted symbols
 		for _, word := range strings.Fields(v.value) {
@@ -15417,8 +15578,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 
-	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/frontier=%d, B2/notes-recv=%d, C/notes-word=%d, longSkip=%d)",
-		len(allValues), len(relevant), cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip)
+	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/frontier=%d, B2/notes-recv=%d, B3/typed-owner=%d, C/notes-word=%d, longSkip=%d)",
+		len(allValues), len(relevant), cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntB3Owner, cntC, cntLongSkip)
 
 	valueIndex := newConcreteValueReceiverIndex(allValues, graph)
 
