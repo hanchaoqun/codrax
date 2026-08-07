@@ -25358,3 +25358,50 @@ C++ 真实回放连续几轮均未发 Mermaid，因而没有生产形 witness，
 
 状态：`EVAL-B217-FLOWUNLABELED1=implementation-closed/focused-reverified/production-witness-pending`；
 `language-special-case=none`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
+
+### 123.299 r185：generic flow 对照通过；C++ 关系门生效但 discover_path 丢失动态分派组合上下文
+
+在 `main@b584a5ee8` 上严格并行 2 个 eval：`sr_cpp_virtual_chain` 与 `qf_diagram_pipeline`，runner 2/2 PASS，人工判定为 partial/pass：
+
+1. generic pipeline flow 120s，Analyzer/Explorer/Finalizer=`1/1/1`，finalizer reject=`0`。首稿保留 Mermaid、四个主 stage、职责与引用；普通
+   QFGeneric mechanism flow 的 Request/FinalAnswer/preStages 展示边没有被 source-call body ownership 误伤，S36h 的负边界生产成立；
+2. C++ 136s，Analyzer/Explorer/Finalizer=`1/1/2`，completion repair=`1`、finalizer reject/patch=`1/1`。模型首稿把
+   `Sink -->> ConsoleSink` 动态派发画成 call，并用 class-only alias 表达三条真实方法调用；validator 精确报出三条 `call_edge_unproven`，patch 只删 optional
+   diagram，正文与 caveat 保留。关系门方向正确，但本轮仍是 sequence 而非无标签 flowchart，故 B217 生产见证继续 `not-exercised`；
+3. C++ 正文仍有模型事实越界：把整段称为“两次多态分发”，并把 stdio 写成“无缓冲直接落盘”。源码注释确实给出 stderr/unbuffered，但不支持把普通
+   `fputs/fputc` 称为第二次多态分派，也不证明持久化落盘。现有正文不能靠 raw-output 关键词扫描或系统替写纠正；
+4. 深查 prompt/evidence 发现决定性系统断链 `EVAL-B310-DISCOVERPATHRELATIONCAPSULE1=P1`：parser 已产生
+   `ConsoleSink -> Sink` inheritance，grounded call rows 已有 `Logger.log -> Sink.write` 与 `ConsoleSink.write -> fputs/fputc`，concrete-value lane 也有
+   factory return；但 `renderAnswerDocCallChainTargetDiscovery` 只在 `DiscoverSinkActive()` 发布 typed relation capsule。该请求因两个边界都是概念角色而被正确
+   归一为 `discover_path`，恰好拿不到“static call + type relation + implementation-body call 分开表达”的 candidate-only 配方；
+5. 这不是缺少证据，也不是 C++ extractor 特例。相同断链会影响任何以概念角色询问完整路径、且中间含 interface/trait/base、factory/registration/value-flow 的
+   Go/Java/Kotlin/ArkTS/C/C++/Rust/Python/Cangjie 等场景；应扩展同源 typed 软上下文，不能放松关系 hard gate；
+6. completion 的一次返工另暴露 `EVAL-B311-QUALIFIEDMEMBERSUPPORT1=P2-observe`：方法定义行已读，但模型只发 class definition evidence，member_set
+   为满足支持锚把 `Logger::log/Sink::write/ConsoleSink::write/fputs` 降成 `Logger::log/write/write/fputs`。最终主答案仍用限定名，故本轮先观察，不与 B310 混批；
+7. generic flow 的系统补充表与问题直接相关、明确声明不替换模型答案，未发现“系统接管结论”；JSON 恢复未触发。Trace/Write 未进入两案。
+
+状态：runner=`2/2 PASS`；human=`partial+pass`；
+`EVAL-B217=implementation-closed/production-unlabeled-flow-not-exercised`；
+`EVAL-B310=P1-confirmed/next`；`EVAL-B311=P2-observe`；模型答案所有权=`preserved`。
+
+### 123.300 S37as：discover_path 获得同源 typed relation capsule，不获得端点或结论权威
+
+`EVAL-B310-DISCOVERPATHRELATIONCAPSULE1` 已按 endpoint authority 与 relation evidence 分层根修：
+
+1. `renderAnswerDocCallChainTargetDiscovery` 现在只对两种真正需要关系组合的 typed profile 发射：`discover` 保持原有 runtime-target 文案字节语义，
+   `discover_path` 新增 `Call-chain role-bound relation composition`；exact 和非 call-chain 继续站下；
+2. discover_path 明确说明当前请求只给概念边界、没有预选代码端点。它让模型自行从 grounded evidence 选择两端和推进边界的关系，并声明 capsule 不能把 parser
+   candidate 提升成 endpoint、required hop 或最终结论；
+3. 两种 profile 复用同一个 `renderAnswerDocRuntimeTargetRelationCapsule`。因此 parser-authored inheritance/implements/embedding、grounded static call、
+   registration/binding、assignment/return、callback 与 cooperative delegation 的角色不会因 endpoint profile 不同而丢失；所有关系仍保持自身 typed 语义；
+4. 当“静态接收者调用 + candidate type relation + candidate 同名实现体 call”三者齐备时，既有 candidate-only composition 现在也可到达 discover_path。
+   安全图法仍是：静态 call 与实现体 call 分两条；sequence 用 Note 表示未证 dispatch boundary，architecture/call-DAG 只能用已有 type/register relation；
+   `runtime_selection_status=conditional`，最终是否选中该实现仍由模型判断；
+5. 新回归用生产同形 typed facts 钉住 capsule、dynamic-dispatch composition、conditional 权限、无 source endpoint/Exact Boundary 泄漏；既有 discover 正向合同保持。
+   实现没有读取用户原文、模型 thinking、最终答案或语言名，没有新增 reject/normalizer/答案改写；
+6. 聚焦 `go test ./internal/agent` 全绿（5.993s）；完整 `go test ./...` 全绿，覆盖 tool、tracequery、tracediag、hitraceconv、types、writeflow 等共享面。
+   Trace 明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和双维度根因分析未变；JSON schema/repair 与 write mode 未变。
+
+状态：`EVAL-B310=S37as-implemented/full-suite-pass/pending-production-replay`；
+`endpoint-authority=unchanged`；`relation-capsule=typed-soft-context`；`hard-prose-gate=none`；
+模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。

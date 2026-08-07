@@ -977,6 +977,54 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetD
 	}
 }
 
+func TestAnswerDocumentEvaluator_DiscoverPathReceivesTypedRelationCompositionWithoutEndpointAuthority(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				SinkMode: types.CallChainSinkResolutionDiscoverPath,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "E-static", Kind: types.EvidenceRelationship, Subject: "Logger.log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+			{ID: "E-type", Kind: types.EvidenceRelationship, Subject: "ConsoleSink", Predicate: "inheritance", Object: "Sink", Source: "include/logx/console_sink.hpp", LineStart: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation},
+			{ID: "E-impl", Kind: types.EvidenceRelationship, Subject: "ConsoleSink.write", Predicate: "calls", Object: "std::fputs", Source: "include/logx/console_sink.hpp", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+			{ID: "E-return", Kind: types.EvidenceConcrete, Subject: "SinkRegistry.create", Predicate: "returns", Object: "std::make_unique<ConsoleSink>()", Source: "src/registry.cpp", LineStart: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Call-chain role-bound relation composition",
+		"endpoint mode: `discover_path`",
+		"not preselected code endpoints",
+		"do not promote a parser candidate into an endpoint, required hop, or final conclusion",
+		"### Typed relation capsule (bounded, no synthetic edges)",
+		"family=`declared_type_relation` relation=`inheritance` subject=`ConsoleSink` object=`Sink` [E-type] @ include/logx/console_sink.hpp:8",
+		"### Typed dynamic-dispatch compositions (candidate-only)",
+		"static_call=`Logger.log -> Sink.write` [E-static] @ src/logger.cpp:36",
+		"type_relation=`ConsoleSink -> Sink` [E-type] @ include/logx/console_sink.hpp:8",
+		"implementation_body_call=`ConsoleSink.write -> std::fputs` [E-impl] @ include/logx/console_sink.hpp:11",
+		"runtime_selection_status=`conditional`",
+		"keep `static_call` and `implementation_body_call` as separate call edges",
+		"The model decides whether the binding and current request prove a selected runtime target",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("discover_path relation composition missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"## Call-chain runtime target discovery",
+		"grounded source endpoint:",
+		"## Typed Call-Chain Endpoint Boundary",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("discover_path must not inherit endpoint authority %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWithoutSyntheticCall(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

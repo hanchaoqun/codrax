@@ -2845,15 +2845,24 @@ func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) str
 }
 
 func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
 	profile := ctx.AnalysisIR.RequestModel.CallChainEndpointProfile
+	if !profile.DiscoverSinkActive() && !profile.DiscoverPathActive() {
+		return ""
+	}
 	var b strings.Builder
-	b.WriteString("## Call-chain runtime target discovery\n\n")
-	fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
-	b.WriteString("- destination mode: `discover`; no preselected sink has answer authority\n")
-	b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
+	if profile.DiscoverSinkActive() {
+		b.WriteString("## Call-chain runtime target discovery\n\n")
+		fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
+		b.WriteString("- destination mode: `discover`; no preselected sink has answer authority\n")
+		b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
+	} else {
+		b.WriteString("## Call-chain role-bound relation composition\n\n")
+		b.WriteString("- endpoint mode: `discover_path`; the request supplied conceptual path boundaries, not preselected code endpoints\n")
+		b.WriteString("- Select both endpoint identities and the relations that advance the requested boundary from grounded evidence. The typed rows below are composition aids only: they do not promote a parser candidate into an endpoint, required hop, or final conclusion.\n")
+	}
 	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
 	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")
 	b.WriteString("- A diagram is optional unless the Required Answer Blocks section explicitly requires one. If the dynamic boundary cannot be drawn without turning a binding, return, inheritance, or method-owner relation into a call arrow, omit the diagram and use a grounded ordered list, table, or prose section instead.\n")
