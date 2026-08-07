@@ -24329,3 +24329,59 @@ Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链�
 `EVAL-B273-TYPEDDIAGRAMRECIPE1=next-P1`；`EVAL-B272-COMPROLECALIBER1=open/P1`；
 `EVAL-B274-TERMINALEFFECTCALIBER1=observe/P1`；模型答案所有权=`preserved`；JSON schema/教学=`unchanged`；
 `sequence-display-parameter-identity` 与 `all-language-flowchart-relation-anchor`=`open guards`。
+
+### 123.259 r167：双轴 Trace 结构转正但模型越过候选口径；direct-call frontier 抽样未对齐 typed sink
+
+r167 在 `main@2a7d88f32` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与真实窗口
+`trace_query_donghu_real_frame_multicausal`。runner 1/2 PASS；人工 0/2。两案分别暴露确定性上下文供给问题与模型在精确信号下仍越界的波动，禁止混成同一种修法。
+
+Go 案 203s。`no_directed_path` 主边界已正确落地：最终答案分别展示
+`buildAnalysisIR -> gate.RunWith @ analyzer.go:2667` 与 `gate.Run -> RunWith @ gate.go:135`，没有再把共享实现写成
+`RunWith -> Run` 或伪造 `buildAnalysisIR -> gate.Run`。一次成文拒绝只要求 structured list 保留 exact source/sink labels，patch 后正常发射。
+但答案继续漏 `analyzerGraphForNormalize @ analyzer.go:1866`，runner 因该早段 helper 缺失失败；同时把同一 caller 函数体中的
+`compiler.Compile`、`binder.BindByRelevance`、`gate.RunWith` 说成“并行调用”。typed call edges 只证明 caller→callee 和源码行顺序，不证明并发；这是
+`EVAL-B275-SIBLINGCONCURRENCY1`，应走软口径提示，不能扫描答案里的“并行”二字做硬门。
+
+对 B262 的真实仓库图复算发现：`buildAnalysisIR` body 有 235 条 AST-grade direct calls，旧 first/middle/last 采样虽保留
+`analyzerGraphForNormalize`，却没有保留 typed sink `gate.Run` 的邻近真实调用 `gate.RunWith`。因此 S37w 的 parser 与唯一 source 解析正确，gap 在于大函数抽样未把
+analyzer-owned typed sink 纳入 relevance；仅 synthetic wiring pin 无法证明真实图选材。生产日志此前也没有独立 frontier emission witness，不能把本轮漏项虚记为
+“模型明确收到且忽略”。
+
+Trace 案 175s，runner PASS 但人工 FAIL。正面结果是模型正文首次完整包含用户要求的两个独立根因维度：
+
+1. “主要时间占用 / 关键路径候选”给出目标线程 running/runnable/sleep 墙钟分区、各线程资源占用和需要探索的新修向；
+2. “Trace 因果投影 / 窗内可消除量”按既有规则给出优先级候选、IO、供给折算的有效归因和不可相加边界；显式窗、根因排序、唤醒链、代表窗与确定性补采均在；
+3. 系统生成内容位于模型正文之后，只作 typed 对账、覆盖边界和观测核对，没有删除、替换或代写模型结论。
+
+但模型把 `priority_inversion_candidate` 扩写成“同一锁”“低优先级线程持锁/阻塞高优先级线程”，把
+`VerifyClass ...` 语义 span 写成“T7 持有类验证锁”，并由 CPU/IO pressure 分直接断言“双重竞争”。本轮 finalizer prompt 已明确给出
+`candidate_mechanism_authority=lower_priority_dependency_only`、`holder_waiter_authority=not_provided_by_candidate_seat`、候选不证明同步 blocker/锁对象；
+最终系统覆盖边界也如实把锁与优先级写成待验证方向。因而这是模型在精确上下文下未遵守口径，不是上下文缺失或系统改写。按用户红线，本轮只记
+`model-variance/high-impact`，不新增关键词/自由 prose 扫描硬门；后续异构 Trace replay 若稳定复现，再考虑进一步压缩并前置 typed decision capsule，而不是系统接管结论。
+
+状态：`runner=1/2 PASS`；`human=0/2`；`EVAL-B262=partial/production-outcome-negative/sampling-gap-confirmed`；
+`EVAL-B275-SIBLINGCONCURRENCY1=confirmed/soft-guidance-same-batch`；Trace 双维结构=`covered`；Trace 候选机理越权=`model-variance/observe`；
+JSON recovery 未触发，JSON schema/教学保持单源；模型答案所有权=`preserved`。两条开放守护
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 保持开放。
+
+### 123.260 S37w.1：typed sink relevance 优先于大函数通用抽样，sibling edge 不自生并发语义
+
+`EVAL-B262-TRANSITIVEHOPDEPTH1` 的生产回放补强保持 frontier 为软导航，不把模型结论系统化：
+
+1. direct-call frontier 继续只由 typed `CallChainEndpointProfile.Source/Sink` 与 parser AST rows 驱动，不读取用户原文、模型 thinking/final prose 或 eval case ID；
+2. 大函数截断前先按 typed sink 计算 endpoint vicinity：exact qualified identity 最高；同 owner 且 operation leaf 为稳定前缀的 option-bearing/wrapper sibling 只作为
+   navigation vicinity。`gate.RunWith` 可因此在 sink=`gate.Run` 时存活；不同 owner 的 `other.RunWith` 得分为零。vicinity 不铸 endpoint equivalence、不造 call edge、
+   不证明 source→sink 可达；
+3. 相关候选、早段、尾段和中段样本选完后仍按 source line 排序展示。提示明确：同 caller 的 sibling edges 不是并发关系，也不是 callee→callee 链；只有另有
+   control-flow/concurrency evidence 才能使用并发措辞；
+4. 新真实仓库图 pin 直接加载当前 repomap graph，要求 `buildAnalysisIR` frontier 同时保留早段 `analyzerGraphForNormalize` 与 typed-sink 邻近
+   `gate.RunWith`；不再只靠理想化 synthetic graph。另钉 exact endpoint 高于 sibling、不同 owner 不相关；
+5. 发射时新增 debug witness：source、sink、emitted/total，下一次生产回放可以区分“frontier 未接线”和“模型收到后未消费”，避免 M4 状态误判；
+6. runtime artifact 与真实 multi-repo 旁路不变。显式时间窗 Trace、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和双维根因分析均未进入此代码路径。
+
+定向真实图/endpoint tests、`go test ./internal/agent -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B262=S37w.1-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B275-SIBLINGCONCURRENCY1=S37w.1-soft-guidance-implemented`；下一优先级仍为
+`EVAL-B273-TYPEDDIAGRAMRECIPE1`，随后 B272/B274；JSON 教学=`unchanged`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -44,6 +45,7 @@ func TestRenderExplorerCallChainDirectCallFrontier_PublishesBoundedASTNavigation
 		"Typed Direct-call Frontier (advisory)",
 		"not answer evidence and not a required member list",
 		"select only calls that are load-bearing",
+		"sibling edges from the same caller are not concurrent",
 		"analyzerGraphForNormalize",
 		"dynamicGate.Run",
 		"unresolved syntax surface; inspect the line",
@@ -137,5 +139,43 @@ func TestBuildInitialInstruction_WiresTypedDirectCallFrontier(t *testing.T) {
 	needle := "b.WriteString(renderExplorerCallChainDirectCallFrontier(ctx, sr.Graph))"
 	if !strings.Contains(string(source), needle) {
 		t.Fatalf("production BuildInitialInstruction wiring missing %q", needle)
+	}
+}
+
+func TestRenderExplorerCallChainDirectCallFrontier_RepositoryGraphPublishesEarlyHelper(t *testing.T) {
+	packageDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
+	graph, err := repomap.BuildOrLoadGraph(repoRoot, "buildAnalysisIR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := callChainFrontierContext("buildAnalysisIR")
+	ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Sink = "gate.Run"
+	got := renderExplorerCallChainDirectCallFrontier(ctx, graph)
+	for _, want := range []string{
+		"Typed Direct-call Frontier (advisory)",
+		"analyzerGraphForNormalize",
+		"gate.RunWith",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repository graph frontier missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestExplorerEndpointVicinityScore_PrioritizesTypedEndpointWithoutEquatingUnrelatedOwners(t *testing.T) {
+	for _, candidate := range []string{"gate.RunWith", "gate::RunWith", "gate->RunWith", "gate#RunWith"} {
+		if got := explorerEndpointVicinityScore(candidate, "gate.Run"); got <= 0 {
+			t.Fatalf("same-owner typed sibling vicinity should be navigable for %q, score=%d", candidate, got)
+		}
+	}
+	if got := explorerEndpointVicinityScore("other.RunWith", "gate.Run"); got != 0 {
+		t.Fatalf("different owner must not gain sibling vicinity, score=%d", got)
+	}
+	if got := explorerEndpointVicinityScore("gate.Run", "gate.Run"); got <= explorerEndpointVicinityScore("gate.RunWith", "gate.Run") {
+		t.Fatalf("exact endpoint must outrank sibling vicinity, exact=%d sibling=%d", got, explorerEndpointVicinityScore("gate.RunWith", "gate.Run"))
 	}
 }

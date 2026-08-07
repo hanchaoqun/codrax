@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -59,14 +60,16 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 	if !ok {
 		return ""
 	}
-	rows, total := explorerCallChainDirectCallFrontierRows(graph, fi, sourceDef, source)
+	sink := strings.TrimSpace(rm.CallChainEndpointProfile.Sink)
+	rows, total := explorerCallChainDirectCallFrontierRows(graph, fi, sourceDef, source, sink)
 	if len(rows) == 0 {
 		return ""
 	}
+	logging.Debug("[explorer] typed direct-call frontier source=%q sink=%q emitted=%d total=%d", source, sink, len(rows), total)
 
 	var b strings.Builder
 	b.WriteString("### Typed Direct-call Frontier (advisory)\n\n")
-	fmt.Fprintf(&b, "The repository parser found the following direct-call candidates inside the uniquely resolved source endpoint `%s` at `%s:%d-%d`. This is a bounded navigation frontier, not answer evidence and not a required member list. Read the relevant lines, select only calls that are load-bearing for the requested path/order/mechanism, and emit grounded call-edge evidence for the calls you keep. Do not claim every row is important, reachable to the requested sink, or part of one linear chain.\n\n",
+	fmt.Fprintf(&b, "The repository parser found the following direct-call candidates inside the uniquely resolved source endpoint `%s` at `%s:%d-%d`. This is a bounded navigation frontier, not answer evidence and not a required member list. Read the relevant lines, select only calls that are load-bearing for the requested path/order/mechanism, and emit grounded call-edge evidence for the calls you keep. Rows retain source-line order; sibling edges from the same caller are not concurrent or a callee-to-callee chain unless separate control-flow/concurrency evidence proves that relation. Do not claim every row is important, reachable to the requested sink, or part of one linear chain.\n\n",
 		source, canonicalExplorerPath(sourceDef.File), sourceDef.Line, sourceDef.EndLine)
 	b.WriteString("| Source line | Parser-owned candidate | Resolved current-repo target |\n")
 	b.WriteString("|-------------|------------------------|------------------------------|\n")
@@ -120,7 +123,7 @@ func explorerUniqueCallChainSourceDefinition(graph *repomap.Graph, source string
 	return nil, nil, false
 }
 
-func explorerCallChainDirectCallFrontierRows(graph *repomap.Graph, fi *repomap.FileInfo, sourceDef *repomap.Symbol, source string) ([]explorerCallChainDirectCallFrontierRow, int) {
+func explorerCallChainDirectCallFrontierRows(graph *repomap.Graph, fi *repomap.FileInfo, sourceDef *repomap.Symbol, source, sink string) ([]explorerCallChainDirectCallFrontierRow, int) {
 	if graph == nil || fi == nil || sourceDef == nil || sourceDef.Line <= 0 || sourceDef.EndLine < sourceDef.Line {
 		return nil, 0
 	}
@@ -163,7 +166,7 @@ func explorerCallChainDirectCallFrontierRows(graph *repomap.Graph, fi *repomap.F
 		return rows[i].Callee < rows[j].Callee
 	})
 	total := len(rows)
-	return explorerSampleDirectCallFrontierRows(rows, explorerCallChainDirectCallFrontierLimit), total
+	return explorerSampleDirectCallFrontierRows(rows, explorerCallChainDirectCallFrontierLimit, sink), total
 }
 
 func explorerCallChainRelationCalleeSurface(fi *repomap.FileInfo, rel repomap.Relation, target *repomap.Symbol) string {
@@ -203,7 +206,7 @@ func explorerCallChainRelationCalleeSurface(fi *repomap.FileInfo, rel repomap.Re
 // explorerSampleDirectCallFrontierRows preserves source order after selecting
 // a deterministic first/middle/last sample. Resolved current-repo calls are
 // selected first; unresolved syntax surfaces only fill spare capacity.
-func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFrontierRow, limit int) []explorerCallChainDirectCallFrontierRow {
+func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFrontierRow, limit int, sink string) []explorerCallChainDirectCallFrontierRow {
 	if limit <= 0 || len(rows) == 0 {
 		return nil
 	}
@@ -225,9 +228,30 @@ func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFron
 			selected[index] = true
 		}
 	}
+	type relevantIndex struct {
+		index int
+		score int
+	}
+	relevant := make([]relevantIndex, 0)
+	for i := range rows {
+		if score := explorerEndpointVicinityScore(rows[i].Callee, sink); score > 0 {
+			relevant = append(relevant, relevantIndex{index: i, score: score})
+		}
+	}
+	sort.SliceStable(relevant, func(i, j int) bool {
+		if relevant[i].score != relevant[j].score {
+			return relevant[i].score > relevant[j].score
+		}
+		return relevant[i].index < relevant[j].index
+	})
+	for _, item := range relevant {
+		add(item.index)
+	}
 	// Early helpers are the common omission, while tail calls carry the named
-	// sink/boundary. Middle samples prevent a long source body from becoming a
-	// head/tail-only view.
+	// sink/boundary. Typed sink-vicinity rows above survive before this generic
+	// sample; vicinity is navigation only and never mints endpoint equivalence.
+	// Middle samples prevent a long source body from becoming a head/tail-only
+	// view.
 	for i := 0; i < len(resolved) && i < 10; i++ {
 		add(resolved[i])
 	}
@@ -253,4 +277,52 @@ func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFron
 		out = append(out, rows[index])
 	}
 	return out
+}
+
+func explorerEndpointVicinityScore(candidate, sink string) int {
+	candidate = explorerNormalizeEndpointSurface(candidate)
+	sink = explorerNormalizeEndpointSurface(sink)
+	if candidate == "" || sink == "" {
+		return 0
+	}
+	if strings.EqualFold(candidate, sink) {
+		return 4
+	}
+	cOwner, cLeaf := explorerEndpointOwnerLeaf(candidate)
+	sOwner, sLeaf := explorerEndpointOwnerLeaf(sink)
+	if cLeaf == "" || sLeaf == "" {
+		return 0
+	}
+	if cOwner != "" && strings.EqualFold(cOwner, sOwner) {
+		if strings.EqualFold(cLeaf, sLeaf) {
+			return 4
+		}
+		cLower, sLower := strings.ToLower(cLeaf), strings.ToLower(sLeaf)
+		if strings.HasPrefix(cLower, sLower) || strings.HasPrefix(sLower, cLower) {
+			return 3
+		}
+	}
+	if strings.EqualFold(cLeaf, sLeaf) {
+		return 2
+	}
+	return 0
+}
+
+func explorerNormalizeEndpointSurface(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	for _, separator := range []string{"::", "->", "#"} {
+		endpoint = strings.ReplaceAll(endpoint, separator, ".")
+	}
+	return strings.Trim(endpoint, ".")
+}
+
+func explorerEndpointOwnerLeaf(endpoint string) (string, string) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return "", ""
+	}
+	if at := strings.LastIndex(endpoint, "."); at >= 0 {
+		return strings.TrimSpace(endpoint[:at]), strings.TrimSpace(endpoint[at+1:])
+	}
+	return "", endpoint
 }
