@@ -25584,3 +25584,38 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 状态：`EVAL-B314=S37aw-implemented/full-suite-pass/pending-production-html-replay`；
 `visible-html=12-of-N+explicit-expand`；`lossless-ledger=preserved`；`model-blocks=byte-preserved`；
 `EVAL-B316=P2-filed/needs-precise-physical-identity`；Trace 显式窗/投影/补齐/双维=`preserved`。
+
+### 123.307 r188：C++ 双副本交付正确；JSON 规则材料重复消费与 write 动作双权威获得生产证据
+
+在 `main@fb97af228` 上严格并发 2 个 eval：`github_issue_nlohmann_long_double` 与 `data_json_strict_ids`，runner/human 均 2/2 PASS：
+
+1. C++ 157s，只把实现头和 single-include 头中的 `%.*lg` 各改为 `%.*Lg`；测试文件字节不变。`make check` 实际编译并执行，ChangeReport
+   同时把两个生产路径标为 project-runner target-behavior covered，最终 verified 可信；
+2. 但首轮 controller 处于 `ModePlan + ready_to_plan`，projected tool schema 已正确移除 `apply_plan/verify_batch`，静态
+   `write-controller-skill` 却仍逐字枚举完整十动作，并继续讲 apply。模型因此提交 `apply_plan` 后才收到
+   `workflow_action_not_in_mode`。记 `EVAL-B317-WRITECONTROLLERMODEAUTH1=P1`：同一系统对同一 dispatch 给出相反合同；
+3. Planner 首次 fixed-string 查询把正则转义当字面量，读预算撤下 grep 后又调用两次不可用 grep；结构化 edit 的 byte mismatch repair 最终恢复正确行，
+   没有错误落盘。这部分先记通用 tool-surface/查询心智效率观察，禁止为 C++ 或 `%.*lg` 加特判；
+4. JSON 51s，最终严格字节为 `{"ids":["u1","u3"]}`。但 planner thinking 已逐字复述完整 `instructions.md`，仍把它声明为
+   `script_consumed` 且首个动作只读 `users.json`，固定触发一次 `required_material_scheduling` repair。该同形跨 r173/r179/r180/r188 重复，
+   `EVAL-B298-DATATEXTUSAGEMODE1` 继续为 P1，不再归模型随机波动；
+5. 两案均无成文校验拒绝、无畸形 JSON/恢复、无系统代写模型答案。Trace 未进入；显式时间窗、因果投影、补采、根因排序、唤醒链、窗内可消除量与双维根因不变。
+
+施工顺序：S37ax 先消除 B317 的模式动作双权威；S37ay 再把 text material 的候选完整度和 usage-mode 选择以 typed soft context
+单源发布，保留材料完整性 hard gate，不从文件名/用户或模型 prose 推断规则角色。
+
+### 123.308 S37ax：write controller 动作列表与 projected schema 共用同一 typed authority
+
+`EVAL-B317-WRITECONTROLLERMODEAUTH1` 已完成架构根修：
+
+1. `renderWriteControllerActionContract` 每次 dispatch 直接调用 `writeflow.WorkflowActionsForMode(ctx.Mode)`，把 mode 与当前 action enum 放入动态上下文；
+   `ModePlan` 不出现 apply/verify，`ModeVerify` 只出现 verify/ask/finish/block，`ModeApply` 保持完整集合；
+2. 工具 `ParametersFor`、strict JSON repair、runtime defense-in-depth 与 prompt 现在都读取同一函数。静态 skill 删除完整动作全集的手抄清单，改为服从当前
+   projected enum；apply/verify 教学也只在该动作出现在 schema 时生效；
+3. 旧 tripwire 曾强制静态 skill 必须包含十个动作名，客观上守住了矛盾。现已改成钉住 projected-enum 单源，并新增 plan/apply 动态正负臂；不是删校验降杆；
+4. 聚焦 `go test ./internal/agent ./internal/skill ./internal/tool ./internal/writeflow -count=1` 与完整 `go test ./... -count=1` 全绿。该批不扫描用户请求/模型输出，不改变工作流动作语义、
+   计划/应用/终验状态，不修改答案，也不进入 JSON data 或 Trace 路径。
+
+状态：`EVAL-B317=S37ax-implemented/full-suite-pass/pending-production-replay`；
+`contract-authority=WorkflowActionsForMode`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`；
+Trace 显式窗/投影/补齐/双维=`unchanged`；`EVAL-B298=S37ay-next`。

@@ -40,8 +40,27 @@ func (e *writeControllerEvaluator) BuildInitialInstruction(ctx *types.AgentConte
 	if len(sections) == 0 {
 		return "## Write workflow controller\n\nNo typed write artifacts are available yet. Emit a conservative block decision with reason_code=no_typed_context."
 	}
+	sections = append(sections, renderWriteControllerActionContract(ctx))
 	sections = append(sections, "## Controller contract\n\nEmit exactly one emit_write_workflow_decision call. The system routes only by the typed action enum and validated payload; explanatory prose is trace-only.")
 	return "\n\n" + strings.Join(sections, "\n\n")
+}
+
+// renderWriteControllerActionContract keeps the prose view of the controller
+// action surface on the same typed authority as the projected tool schema.
+// A static superset here is actively misleading: ModePlan deliberately hides
+// apply/verify from the JSON schema, and presenting those names in prose makes
+// a structurally impossible action look available to the model.
+func renderWriteControllerActionContract(ctx *types.AgentContext) string {
+	mode := types.ModeRead
+	if ctx != nil {
+		mode = ctx.Mode.Normalize()
+	}
+	actions := writeflow.WorkflowActionsForMode(mode)
+	names := make([]string, 0, len(actions))
+	for _, action := range actions {
+		names = append(names, string(action))
+	}
+	return fmt.Sprintf("## Available controller actions\n\n- mode: %s\n- action enum: %s\n- Choose exactly one action from this projected enum. Actions absent here are unavailable in this dispatch.", mode, strings.Join(names, ", "))
 }
 
 func (e *writeControllerEvaluator) ShouldStop(_ llm.Response, _ int) bool { return e.emitSeen }

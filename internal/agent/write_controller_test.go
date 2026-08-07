@@ -41,7 +41,7 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 		Budget: types.WriteWorkflowBudget{MaxBatches: 5, MaxExplorationRounds: 2},
 	})
 	eval := &writeControllerEvaluator{}
-	got := eval.BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	got := eval.BuildInitialInstruction(&types.AgentContext{Mutable: mut, Mode: types.ModePlan}, nil)
 	for _, want := range []string{
 		"## Typed write task",
 		"ship workflow controller",
@@ -50,9 +50,17 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 		"## Priority write context pack",
 		"emit_write_workflow_decision",
 		"typed action enum",
+		"## Available controller actions",
+		"mode: plan",
+		"action enum: explore_code, plan_batch",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("controller prompt missing %q:\n%s", want, got)
+		}
+	}
+	for _, unavailable := range []string{"apply_plan", "verify_batch"} {
+		if strings.Contains(got, "action enum: "+unavailable) || strings.Contains(actionContractSection(got), unavailable) {
+			t.Fatalf("controller prompt advertises mode-masked action %q:\n%s", unavailable, got)
 		}
 	}
 	for _, banned := range []string{
@@ -65,6 +73,39 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 	} {
 		if strings.Contains(strings.ToLower(got), banned) {
 			t.Fatalf("controller prompt contains prose-routing smell %q:\n%s", banned, got)
+		}
+	}
+}
+
+func actionContractSection(prompt string) string {
+	start := strings.Index(prompt, "## Available controller actions")
+	if start < 0 {
+		return ""
+	}
+	section := prompt[start:]
+	if end := strings.Index(section[len("## Available controller actions"):], "\n\n## "); end >= 0 {
+		return section[:len("## Available controller actions")+end]
+	}
+	return section
+}
+
+func TestWriteControllerActionContractUsesModeProjectedSchemaAuthority(t *testing.T) {
+	plan := renderWriteControllerActionContract(&types.AgentContext{Mode: types.ModePlan})
+	for _, want := range []string{"mode: plan", "explore_code", "plan_batch", "finish", "block"} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("plan action contract missing %q:\n%s", want, plan)
+		}
+	}
+	for _, banned := range []string{"apply_plan", "verify_batch"} {
+		if strings.Contains(plan, banned) {
+			t.Fatalf("plan action contract contains masked %q:\n%s", banned, plan)
+		}
+	}
+
+	apply := renderWriteControllerActionContract(&types.AgentContext{Mode: types.ModeApply})
+	for _, want := range []string{"mode: apply", "plan_batch", "apply_plan", "verify_batch"} {
+		if !strings.Contains(apply, want) {
+			t.Fatalf("apply action contract missing %q:\n%s", want, apply)
 		}
 	}
 }

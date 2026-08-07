@@ -82,6 +82,7 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 		"typed workflow action",
 		"action is the only controller routing signal",
 		"emit_write_workflow_decision",
+		"projected action enum",
 		"explore_code",
 		"plan_batch",
 		"apply_plan",
@@ -89,13 +90,15 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 		"append_batch",
 		"split_batch",
 		"replan_batch",
-		"ask_user",
 		"finish",
 		"block",
 	} {
 		if !strings.Contains(corpus, want) {
 			t.Fatalf("write-controller skill missing %q:\n%s", want, corpus)
 		}
+	}
+	if strings.Contains(corpus, "explore_code, plan_batch, apply_plan, verify_batch") {
+		t.Fatalf("write-controller skill must not duplicate the full mode-dependent action enum:\n%s", corpus)
 	}
 	for _, banned := range []string{
 		"keyword",
