@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 )
 
 const maxRequiredMechanismAnchors = 6
@@ -202,6 +203,12 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 	}
 	present := map[string]struct{}{}
 	var cellTexts []string
+	// Edge anchors intentionally carry Mermaid node IDs. Resolve those IDs
+	// through node declarations so an already-grounded typed diagram endpoint
+	// is not forced into a duplicate list row merely because its local alias is
+	// short. Only declaration syntax enters this index: sequence message text
+	// and edge labels are payload and must never mint endpoint identity.
+	diagramLabels := answerDocumentDiagramNodeLabels(doc)
 	for _, block := range doc.Blocks {
 		recordAnchorSurface(present, block.Title)
 		relationLabelCarrier := answerBlockCarriesTypedIdentityRelation(block)
@@ -219,6 +226,12 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 		for _, edge := range block.EdgeAnchors {
 			recordAnchorSurface(present, edge.FromNode)
 			recordAnchorSurface(present, edge.ToNode)
+			if label := diagramLabels[strings.ToLower(strings.TrimSpace(edge.FromNode))]; label != "" {
+				recordAnchorSurface(present, label)
+			}
+			if label := diagramLabels[strings.ToLower(strings.TrimSpace(edge.ToNode))]; label != "" {
+				recordAnchorSurface(present, label)
+			}
 		}
 	}
 	var missing []AnswerRequiredAnchor
@@ -241,6 +254,68 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 		missing = append(missing, anchor)
 	}
 	return missing
+}
+
+// answerDocumentDiagramNodeLabels returns only globally unambiguous local-ID
+// to visible-identity mappings. Edge anchors may be carried by a sibling block,
+// so the registry is document-wide; a reused ID with different labels is
+// deliberately omitted. Sequence identities come exclusively from
+// participant/actor declarations. In particular, `A->>B: resolve(json)` is a
+// message payload and cannot turn resolve/json into endpoint identities.
+func answerDocumentDiagramNodeLabels(doc *AnswerDocumentV2) map[string]string {
+	if doc == nil {
+		return nil
+	}
+	candidates := map[string]map[string]struct{}{}
+	add := func(decl mermaidcompat.NodeDecl) {
+		key := strings.ToLower(strings.TrimSpace(decl.Ident))
+		label := strings.TrimSpace(decl.Label)
+		if key == "" || label == "" {
+			return
+		}
+		if candidates[key] == nil {
+			candidates[key] = map[string]struct{}{}
+		}
+		candidates[key][label] = struct{}{}
+	}
+	for _, block := range doc.Blocks {
+		if block.Diagram == nil {
+			continue
+		}
+		sequence := block.Diagram.Kind == DiagramSequence || mermaidBodyUsesSequenceSyntax(block.Diagram.Body)
+		for _, line := range strings.Split(block.Diagram.Body, "\n") {
+			for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
+				add(decl)
+			}
+			if sequence {
+				continue
+			}
+			for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+				add(decl)
+			}
+		}
+	}
+	out := map[string]string{}
+	for key, labels := range candidates {
+		if len(labels) != 1 {
+			continue
+		}
+		for label := range labels {
+			out[key] = label
+		}
+	}
+	return out
+}
+
+func mermaidBodyUsesSequenceSyntax(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		return strings.HasPrefix(line, "sequencediagram")
+	}
+	return false
 }
 
 // answerBlockCarriesTypedIdentityRelation reports whether the model explicitly

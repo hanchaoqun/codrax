@@ -24540,3 +24540,49 @@ PI holder/waiter 越权=`model-variance/repeated/observe`。JSON 教学=`unchang
 `EVAL-B281=S37z-implemented/full-tests-pass/pending-production-replay`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`preserved`；
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
+
+### 123.267 r171：源码坐标采样转正；Trace 双向 frame 语义生效但模型仍越过三条 typed 上限
+
+r171 在 `main@07baf555e` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与真实东湖显式窗
+`trace_query_donghu_real_frame_multicausal`。runner 2/2 PASS；人工为 QF partial、Trace FAIL。QF 282s、1 次成文拒绝/1 次 patch；Trace
+165s、finalizer 首轮通过。
+
+QF 的 S37z 生产目标成立：Explorer 覆盖 `Normalize/Amplify/InferScenario/Compile/Evaluate/Plan/RecomputeBudget/Bind` 等长函数中段阶段；最终正文和
+Mermaid 均保持两个独立入边在 `gate.RunWith` 收敛，并明确不存在 `buildAnalysisIR -> gate.Run` 有向路径。剩余一次拒绝不是证据或结论错误：
+`buildAnalysisIR` 已作为 sequence participant 的可见身份及 typed/evidence-validated edge 端点出现，但机制端点普查只读取
+`edge_anchors.from_node=IR`，没有把 alias 解析回 participant identity，遂强迫 ordered list 冗余追加同一端点。该 gap 与“显示消息参数污染 typed
+endpoint identity”同属节点身份解析边界：只应从 Mermaid 节点声明解析 typed edge 使用的 alias，sequence message/payload 必须保持不可见。
+
+Trace 的 `frame_evidence_status=absent` 双向解释已进入 finalizer 尾部，模型不再断言“没有丢帧”；显式窗、5 次 windowed+pid 查询、唤醒链、根因排序、
+代表窗、自动补齐和“实际占时 / 现规则可消”双轴均未回退。但模型仍写“无法及时响应 VSync 截止时间”，没有对应 target-bound frame/deadline
+凭证；并将同方向候选直接求和为约 43ms/28ms，违反 typed `direction_subtotal_authority=not_provided_without_exact_fold`；又把无
+`absolute_level` 的压力值定性为“中等”，违反 final tail 的 `aggregate_absolute_level_authority=not_provided`。三条精确提示均已紧邻 emit，继续重复教学
+收益低，先按 `model-variance/high-impact/repeated` 留证，不新增答案原文硬门、不由系统改写结论。后续优先用异构模型/用例观察是否稳定复现；若需产品增强，
+只能提升 typed carrier 的可消费形，不能扫描 prose。
+
+状态：`EVAL-B280=production-positive/closed`；`EVAL-B281=production-positive/closed`；
+`EVAL-B282-DIAGRAMENDPOINTALIAS1=confirmed/immediate`；Trace 三项越界=`model-variance/repeated/observe`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`preserved`；
+`sequence-display-parameter-identity` 将与 B282 同批收窄；`all-language-flowchart-relation-anchor`=`open guard`。
+
+### 123.268 S37aa：typed diagram 端点 alias 进入结构普查；显示消息参数继续隔离
+
+本批修复 `EVAL-B282-DIAGRAMENDPOINTALIAS1`，目标是消除“图已精确表达端点，列表仍被迫重复端点”的无效成文重试，不降低图关系证据门：
+
+1. `MissingRequiredMechanismAnchors` 仍只消费结构字段；在原有 block title、item label、typed single-edge label、table cell、edge anchor ID 之外，新增
+   document-wide Mermaid node declaration索引。只有 typed `edge_anchors` 实际引用的 alias 才把其可见 node identity 计入端点普查；自由 prose 不进入；
+2. sequence 身份只来自 `participant/actor ... as ...` 声明，`A->>B: resolve(json)` 的 message、operation 和参数完全不解析为节点。该边界与
+   `mermaidcompat.ParseEdges` 现有“先识别 participant、消息 payload 不铸端点”规则同向，关闭 r140 所见显示参数污染 typed identity 的 guard；
+3. flow/architecture/call-DAG 使用相同的 Mermaid node declaration parser，因而不依赖源语言关键字。测试覆盖 Go、Java、Python、ArkTS、Cangjie、
+   Rust、C++ identity；同一 alias 在不同图映射到多个 label 时整键 fail-closed，不猜选；
+4. pre-emit repair 教学与执行面同步：合法承载形现在明确为 standalone structured label、typed single-edge label、或 typed diagram edge 的 declared visible
+   node identity；并显式说明 sequence message/parameters 不是端点。没有第二套 JSON schema、没有扫描用户输入/模型思考/答案 prose；
+5. 该变更只让已存在的 typed diagram 结构满足同一 required-anchor 义务，不生成节点、边、证据或结论。`DiagramCallEdgeEvidenceMismatches` 仍独立要求
+   same-direction typed evidence，因此伪造 participant/edge 不能借本修复逃过关系证据门。
+
+定向 `internal/types`、`internal/tool` 以及 types/tool/orchestrator 三层套件已通过；下一步跑 full suite、提交推送，再严格并发 2 回放 QF 与异构
+data/write/Trace。人工重点看 QF finalizer reject 是否由 1 降 0，以及所有语言 flowchart 的无标签逻辑边是否仍存在绕过严格 relation anchor 的独立 gap。
+
+状态：`EVAL-B282=S37aa-implemented/full-tests-pass/pending-production-replay`；
+`sequence-display-parameter-identity=closed-by-declaration-only-parser`；`all-language-flowchart-relation-anchor=open guard`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/aligned`；Trace 因果投影/自动补齐=`unchanged`。

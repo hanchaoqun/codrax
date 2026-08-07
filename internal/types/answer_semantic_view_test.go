@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // ── B1-T1 AnswerBlockKind 闭枚举 ───────────────────────────────────
 
@@ -445,6 +448,75 @@ func TestMissingRequiredMechanismAnchors_TypedRelationLabelsCarryExactEndpoints(
 	missing := MissingRequiredMechanismAnchors(doc, required)
 	if len(missing) != 1 || missing[0].Text != "gate.Run" {
 		t.Fatalf("qualified sibling endpoint must not satisfy gate.Run, missing=%+v", missing)
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_TypedDiagramAliasesCarryDeclaredEndpointsOnly(t *testing.T) {
+	required := []AnswerRequiredAnchor{
+		{Text: "buildAnalysisIR", Kind: ContractTermSymbol},
+		{Text: "gate.RunWith", Kind: ContractTermSymbol},
+	}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "diagram", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant IR as buildAnalysisIR",
+			"  participant RW as gate.RunWith",
+			"  IR->>RW: resolve(json)",
+		}, "\n")},
+		EdgeAnchors: []DiagramEdgeAnchor{{FromNode: "IR", ToNode: "RW", RelationKind: DiagramRelCall, ClaimForm: ClaimCallEdge}},
+	}}}
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("typed diagram aliases should carry declared endpoint identities, missing=%+v", missing)
+	}
+
+	// Message payload is display text, not endpoint identity. The same typed
+	// edge must not satisfy an unrelated exact anchor merely because the
+	// operation appears after the sequence message colon.
+	messageOnly := []AnswerRequiredAnchor{{Text: "resolve", Kind: ContractTermSymbol}}
+	if missing := MissingRequiredMechanismAnchors(doc, messageOnly); len(missing) != 1 {
+		t.Fatalf("sequence message payload minted endpoint identity: %+v", missing)
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_TypedFlowchartAliasesCarryLanguageNeutralEndpoints(t *testing.T) {
+	for _, identity := range []string{
+		"Go.Service.Run", "JavaService.run", "PythonService.run", "ArkTSService.run",
+		"cangjie::Service::run", "rust::service::run", "CppService::run",
+	} {
+		t.Run(identity, func(t *testing.T) {
+			doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+				ID: "flow", Kind: BlockDiagram,
+				Diagram: &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+					"flowchart TD",
+					"  A[\"" + identity + "\"] --> B[\"Sink.write\"]",
+				}, "\n")},
+				EdgeAnchors: []DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: DiagramRelCall, ClaimForm: ClaimCallEdge}},
+			}}}
+			if missing := MissingRequiredMechanismAnchors(doc, []AnswerRequiredAnchor{{Text: identity, Kind: ContractTermSymbol}}); len(missing) != 0 {
+				t.Fatalf("flowchart alias lost %q: %+v", identity, missing)
+			}
+		})
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_AmbiguousDiagramAliasFailsClosed(t *testing.T) {
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{
+			ID: "d1", Kind: BlockDiagram,
+			Diagram:     &AnswerDiagramBlock{Kind: DiagramSequence, Body: "sequenceDiagram\n participant A as First.Run\n participant B as Sink.Run\n A->>B: call"},
+			EdgeAnchors: []DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: DiagramRelCall, ClaimForm: ClaimCallEdge}},
+		},
+		{
+			ID: "d2", Kind: BlockDiagram,
+			Diagram:     &AnswerDiagramBlock{Kind: DiagramSequence, Body: "sequenceDiagram\n participant A as Second.Run\n participant C as Sink.Run\n A->>C: call"},
+			EdgeAnchors: []DiagramEdgeAnchor{{FromNode: "A", ToNode: "C", RelationKind: DiagramRelCall, ClaimForm: ClaimCallEdge}},
+		},
+	}}
+	for _, identity := range []string{"First.Run", "Second.Run"} {
+		if missing := MissingRequiredMechanismAnchors(doc, []AnswerRequiredAnchor{{Text: identity, Kind: ContractTermSymbol}}); len(missing) != 1 {
+			t.Fatalf("ambiguous reused alias should not choose %q: %+v", identity, missing)
+		}
 	}
 }
 

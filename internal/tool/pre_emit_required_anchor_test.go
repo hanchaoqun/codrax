@@ -129,6 +129,37 @@ func TestRunPreEmitChecks_CallChainTypedEdgeLabelsPreserveEndpoints(t *testing.T
 	}
 }
 
+func TestPreCheckCallChainEndpoints_AcceptsTypedDiagramDeclaredIdentities(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "topology", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant IR as buildAnalysisIR",
+			"  participant RW as gate.RunWith",
+			"  IR->>RW: compile(request)",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "IR", ToNode: "RW", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{
+			{Text: "buildAnalysisIR", Kind: types.ContractTermSymbol},
+			{Text: "gate.RunWith", Kind: types.ContractTermSymbol},
+		},
+	}
+	if hints := preCheckCallChainEndpoints(doc, view); len(hints) != 0 {
+		t.Fatalf("typed evidence-validated diagram endpoints must not require duplicate list rows: %+v", hints)
+	}
+
+	view.RequiredMechanismAnchors = []types.AnswerRequiredAnchor{{Text: "compile", Kind: types.ContractTermSymbol}}
+	hints := preCheckCallChainEndpoints(doc, view)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "Sequence message text/parameters are not endpoint identity") {
+		t.Fatalf("message operation must remain outside endpoint identity and repair teaching must say so: %+v", hints)
+	}
+}
+
 func TestNormalizeAnswerDocumentForPreEmit_DoesNotAuthorRequiredMechanismAnchors(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable:  types.NewMutableState("call-chain endpoints"),
