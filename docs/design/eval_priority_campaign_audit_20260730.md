@@ -22694,3 +22694,35 @@ S36f 后遗留测试 fixture：它仍把 `MentionedEntities` 当 call-chain endp
 状态：`EVAL-B209-COOPDEF1=S36m-implemented/focused-pass`；
 `EVAL-B222-VALUE-ROLE1=P1-next`；`STALE-MENTIONED-ENDPOINT-FIXTURE=closed`；
 模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、可消除量=`not-touched`。
+
+### 123.202 S36n：decorator selector 与同 owner 返回值按 typed role 分离
+
+`EVAL-B222-VALUE-ROLE1` 的 Python 生产 witness 已根修。r143 中 `@register("json")` 和
+`JsonPlugin.content_type() -> "application/json"` 都是精确源码事实，但旧上下文只给两个散落字符串，没有携带“decorator selector”与
+“method return”两个独立角色，模型把后者替换成 registry lookup key。新方案分生产与消费两层：
+
+1. Python parser 对 `decorated_definition` 中“decorator call + 静态首个 string literal”新增 `decoration` relation，保存 exact
+   `application_surface`、`selector_literal` 和 target declaration。动态参数、缺失参数不发射；`@register("json")` 与
+   `@deprecated("legacy")` 使用同一纯语法关系，系统不凭 decorator 名称猜 registration；decorated method 同样保留 enclosing owner；
+2. explorer 只提升已读精确 decorator line、AST provenance、明确 producer 的关系，铸成
+   `repomap_decorator_application`。evidence 仍是 definition-shaped decorator application，不是 `registration_edge`；Python extractor version
+   从 7 升到 8，旧暖缓存确定性失效；
+3. finalizer 的通用消费者把 decorator application 与同 target owner 的独立 return fact并置为
+   `Typed selector/value roles (do not substitute)`。它只使用 producer、claim form、typed owner/endpoints 与 file:line，不读取 summary、用户原文、
+   模型思考或最终答案。上下文明确禁止两个值互相替代，并说明“selector 是否为 registry key”仍需 decorator implementation 的独立证据，
+   最终 binding/dispatch 结论仍归模型；
+4. 该 decorator target 同时成为 value-flow 的 typed owner-connectivity，让 `JsonPlugin.content_type` 不会因 leaf=`content_type` 与
+   target=`JsonPlugin` 不同而被 broad literal relevance filter 丢掉。
+
+跨语言边界：role-separation 消费器不按语言分支，可直接消费后续语言 producer；当前 parser-authored static selector 生产者只覆盖 Python。
+Java/Kotlin 的 Spring route annotation 已有专用 route resolver，但不是通用 annotation-selector carrier；JS/TS/ArkTS decorator、Swift attribute、
+Cangjie annotation/宏、Rust attribute 等仍需各 extractor 的 AST carrier 后才能进入同一消费者。它们记为
+`EVAL-B223-XDECOSELECT1=P2-open`，不得退回源码正则、用户关键词或模型 prose 来补。
+
+回归覆盖静态 class decorator、decorated method、动态 selector 站下、不得铸造 registry semantics、explorer exact-read 提升以及
+`json`/`application/json` 同 owner 角色分离。`go test ./internal/tool/repomap/index ./internal/agent ./internal/types` 与
+`go test ./...` 全绿。
+
+状态：`EVAL-B222-VALUE-ROLE1=S36n-implemented/python-witness-closed`；
+`EVAL-B223-XDECOSELECT1=P2-open/all-language-parser-carriers`；模型答案所有权=`preserved`；
+JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、可消除量=`not-touched`。

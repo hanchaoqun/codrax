@@ -1115,6 +1115,37 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedCooperativeMethodRos
 	}
 }
 
+func TestAnswerDocumentEvaluator_SeparatesDecoratorSelectorFromMethodReturnValue(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-decorator", Kind: types.EvidenceRelationship, Subject: `@register("json")`, Predicate: "decorator_selector_application", Object: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 17, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapDecoratorApplication},
+		{ID: "E-content-type", Kind: types.EvidenceConcrete, Subject: "JsonPlugin.content_type", Predicate: "returns", Object: `"application/json"`, Source: "pipeline/plugins.py", LineStart: 23, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
+	}}
+
+	got := renderAnswerDocRuntimeTargetRelationCapsule(ctx)
+	for _, want := range []string{
+		"family=`decorator_application` relation=`decorator_selector_application` subject=`@register(\"json\")` object=`JsonPlugin` [E-decorator] @ pipeline/plugins.py:17",
+		"family=`value_or_factory_flow` relation=`returns` subject=`JsonPlugin.content_type` object=`\"application/json\"` [E-content-type] @ pipeline/plugins.py:23",
+		"### Typed selector/value roles (do not substitute)",
+		"decorator_application=`@register(\"json\")` [E-decorator] @ pipeline/plugins.py:17",
+		"independent_method_return=`JsonPlugin.content_type -> \"application/json\"` [E-content-type] @ pipeline/plugins.py:23",
+		"Whether the selector is a registry key still depends on separate grounded evidence from the decorator implementation",
+		"The model retains ownership of the final binding/dispatch conclusion",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed selector/value role separation missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"registration_key=`json`",
+		"registration_key=`application/json`",
+		"runtime_selection_status=`proven`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("role-separation context invented a binding conclusion %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventingGuardScope(t *testing.T) {
 	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
 		{ID: "E-flush", Kind: types.EvidenceRelationship, Subject: "log", OwnerSymbol: "log", Predicate: "calls", Object: "Sink.flush", Source: "src/logger.cpp", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},

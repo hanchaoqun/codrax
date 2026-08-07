@@ -3060,6 +3060,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		return ""
 	}
 	registrations := make([]answerDocRuntimeTargetRelationRow, 0)
+	decoratorApplications := make([]answerDocRuntimeTargetRelationRow, 0)
 	structural := make([]answerDocRuntimeTargetRelationRow, 0)
 	methodDefinitions := make([]answerDocRuntimeTargetRelationRow, 0)
 	valueFlowCandidates := make([]answerDocRuntimeTargetRelationRow, 0)
@@ -3085,6 +3086,12 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		}
 		row := answerDocRuntimeTargetRelationRow{item: item}
 		switch {
+		case item.Producer == types.EvidenceProducerRepoMapDecoratorApplication &&
+			item.Predicate == "decorator_selector_application" && strings.TrimSpace(item.Object) != "":
+			row.family = "decorator_application"
+			decoratorApplications = append(decoratorApplications, row)
+			seen[id] = struct{}{}
+			continue
 		case types.ClaimFormOf(item) == types.ClaimDefinitionFact && !types.IsRepoMapTypeRelationEvidence(item):
 			if owner, operation := answerDocDispatchEndpointParts(firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject)); owner != "" && operation != "" {
 				row.family = "method_definition"
@@ -3148,13 +3155,30 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		addConnectedEndpoint(row.item.Subject)
 		addConnectedEndpoint(row.item.Object)
 	}
+	connectedValueOwners := make([]string, 0, len(decoratorApplications)+len(registrations))
+	for _, row := range registrations {
+		connectedValueOwners = append(connectedValueOwners, strings.TrimSpace(row.item.Object))
+	}
+	for _, row := range decoratorApplications {
+		addConnectedEndpoint(row.item.Subject)
+		addConnectedEndpoint(row.item.Object)
+		connectedValueOwners = append(connectedValueOwners, strings.TrimSpace(row.item.Object))
+	}
 	valueFlows := make([]answerDocRuntimeTargetRelationRow, 0, len(valueFlowCandidates))
 	for _, row := range valueFlowCandidates {
 		subjectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Subject)))
 		objectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Object)))
 		_, subjectConnected := connectedEndpointTails[subjectTail]
 		_, objectConnected := connectedEndpointTails[objectTail]
-		if !subjectConnected && !objectConnected {
+		owner, _ := answerDocDispatchEndpointParts(row.item.Subject)
+		ownerConnected := false
+		for _, candidate := range connectedValueOwners {
+			if answerDocDispatchIdentityCompatible(owner, candidate) {
+				ownerConnected = true
+				break
+			}
+		}
+		if !subjectConnected && !objectConnected && !ownerConnected {
 			continue
 		}
 		valueFlows = append(valueFlows, row)
@@ -3195,6 +3219,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	// each a bounded protected slice, then use the remaining budget for the
 	// already-ranked static prefix.
 	appendBounded(registrations, 6)
+	appendBounded(decoratorApplications, 6)
 	appendBounded(structural, 8)
 	appendBounded(valueFlows, 6)
 	appendBounded(callbacks, 6)
@@ -3236,6 +3261,64 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		b.WriteString("\n")
 		b.WriteString(compositions)
 	}
+	if roleSeparation := renderAnswerDocSelectorValueRoleSeparation(decoratorApplications, valueFlows); roleSeparation != "" {
+		b.WriteString("\n")
+		b.WriteString(roleSeparation)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderAnswerDocSelectorValueRoleSeparation(
+	decoratorApplications, valueFlows []answerDocRuntimeTargetRelationRow,
+) string {
+	type pair struct {
+		application types.EvidenceItem
+		value       types.EvidenceItem
+	}
+	var pairs []pair
+	seen := make(map[string]struct{})
+	for _, application := range decoratorApplications {
+		target := strings.TrimSpace(application.item.Object)
+		if target == "" {
+			continue
+		}
+		for _, value := range valueFlows {
+			if types.ClaimFormOf(value.item) != types.ClaimReturnFact {
+				continue
+			}
+			owner, operation := answerDocDispatchEndpointParts(value.item.Subject)
+			if owner == "" || operation == "" || !answerDocDispatchIdentityCompatible(owner, target) {
+				continue
+			}
+			key := answerDocEvidenceIdentity(application.item) + "\x00" + answerDocEvidenceIdentity(value.item)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			pairs = append(pairs, pair{application: application.item, value: value.item})
+		}
+	}
+	if len(pairs) == 0 {
+		return ""
+	}
+	if len(pairs) > 8 {
+		pairs = pairs[:8]
+	}
+	var b strings.Builder
+	b.WriteString("### Typed selector/value roles (do not substitute)\n\n")
+	b.WriteString("The same declaration owns these independent typed values. A decorator selector is not interchangeable with a method return value. Whether the selector is a registry key still depends on separate grounded evidence from the decorator implementation.\n\n")
+	for _, entry := range pairs {
+		fmt.Fprintf(&b, "- target=`%s`; decorator_application=`%s` [%s] @ %s; independent_method_return=`%s -> %s` [%s] @ %s\n",
+			answerDocCallChainInline(entry.application.Object),
+			answerDocCallChainInline(entry.application.Subject),
+			answerDocCallChainInline(answerDocEvidenceIdentity(entry.application)),
+			answerDocCallChainInline(entry.application.DisplayLocation(true)),
+			answerDocCallChainInline(entry.value.Subject),
+			answerDocCallChainInline(entry.value.Object),
+			answerDocCallChainInline(answerDocEvidenceIdentity(entry.value)),
+			answerDocCallChainInline(entry.value.DisplayLocation(true)))
+	}
+	b.WriteString("\n- Keep the two values in their typed roles when reasoning. Do not replace the selector with the return value, or the return value with the selector, merely because both belong to the same class/type. The model retains ownership of the final binding/dispatch conclusion.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 

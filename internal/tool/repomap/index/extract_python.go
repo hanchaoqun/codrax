@@ -150,7 +150,62 @@ func pyExtractDecorated(node *sitter.Node, src []byte, file, parent string) (sym
 			rels = append(rels, classRels...)
 		}
 	}
+	if len(syms) > 0 {
+		rels = append(rels, pyExtractLiteralDecoratorApplications(node, src, file, parent, syms[0].Name)...)
+	}
 	return syms, rels
+}
+
+// pyExtractLiteralDecoratorApplications records only the syntax Python's AST
+// proves: a decorator call with a static first string argument is attached to
+// one declaration. It intentionally does not call that relation a registry
+// binding; @register("json") and @deprecated("reason") have the same syntax,
+// and their runtime semantics live in the decorator implementation.
+func pyExtractLiteralDecoratorApplications(node *sitter.Node, src []byte, file, parent, target string) []types.Relation {
+	target = strings.TrimSpace(target)
+	if node == nil || target == "" {
+		return nil
+	}
+	var rels []types.Relation
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		dec := node.NamedChild(i)
+		if dec == nil || dec.Type() != "decorator" || dec.NamedChildCount() == 0 {
+			continue
+		}
+		call := dec.NamedChild(0)
+		if call == nil || call.Type() != "call" {
+			continue
+		}
+		fn := call.ChildByFieldName("function")
+		if fn == nil {
+			continue
+		}
+		decorator := strings.TrimSpace(nodeText(fn, src))
+		selector, ok := pyRoutePathArg(call, src)
+		if decorator == "" || !ok {
+			continue
+		}
+		surface := strings.TrimSpace(nodeText(dec, src))
+		if surface == "" {
+			continue
+		}
+		line := nodeLine(dec)
+		rels = append(rels, types.Relation{
+			Kind:       "decoration",
+			FromEP:     types.RelationEndpoint{Name: decorator, File: file, Line: line},
+			ToEP:       types.RelationEndpoint{Name: target, Receiver: parent, File: file, Line: line},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "python_literal_decorator_application",
+			Metadata: map[string]string{
+				"application_surface": surface,
+				"selector_literal":    selector,
+			},
+		})
+	}
+	return rels
 }
 
 func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Symbol, methods []types.Symbol, rels []types.Relation) {
@@ -199,8 +254,9 @@ func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 					methods = append(methods, s)
 				}
 			case "decorated_definition":
-				decoratedMethods, _ := pyExtractDecorated(ch, src, file, name)
+				decoratedMethods, decoratedRels := pyExtractDecorated(ch, src, file, name)
 				methods = append(methods, decoratedMethods...)
+				rels = append(rels, decoratedRels...)
 			case "expression_statement":
 				if s, ok := pyExtractClassField(ch, src, file, name); ok {
 					methods = append(methods, s)

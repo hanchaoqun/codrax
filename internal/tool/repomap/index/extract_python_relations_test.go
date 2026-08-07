@@ -42,6 +42,53 @@ class JsonPlugin(TimestampMixin, ValidationMixin, BasePlugin):
 			t.Fatalf("decorated JsonPlugin missing inheritance edge to %s: %+v", base, rels)
 		}
 	}
+	var decoration *types.Relation
+	for i := range rels {
+		if rels[i].Kind == "decoration" {
+			decoration = &rels[i]
+			break
+		}
+	}
+	if decoration == nil || decoration.FromEP.Name != "register" || decoration.ToEP.Name != "JsonPlugin" ||
+		decoration.Line != 3 || decoration.Provenance != types.ProvenanceTreeSitter ||
+		decoration.ResolvedBy != "python_literal_decorator_application" ||
+		decoration.Metadata["selector_literal"] != "json" || decoration.Metadata["application_surface"] != `@register("json")` {
+		t.Fatalf("literal decorator application lost its exact selector role: %+v", decoration)
+	}
+}
+
+func TestExtractPython_LiteralDecoratorApplicationDoesNotInventRegistrationSemantics(t *testing.T) {
+	src := []byte(`class Handler:
+    @deprecated("legacy")
+    def handle(self):
+        pass
+
+@dynamic_selector(NAME)
+class Dynamic:
+    pass
+`)
+	root, ok := parseTreeSitterIfPossible(types.LangPython, src)
+	if !ok {
+		t.Fatal("python tree-sitter parser unavailable")
+	}
+	_, _, _, rels := extractPython(root, src, "handlers.py")
+	var applications []types.Relation
+	for _, rel := range rels {
+		if rel.Kind == "decoration" {
+			applications = append(applications, rel)
+		}
+	}
+	if len(applications) != 1 {
+		t.Fatalf("only the static literal decorator should be retained: %+v", applications)
+	}
+	got := applications[0]
+	if got.FromEP.Name != "deprecated" || got.ToEP.Name != "handle" || got.ToEP.Receiver != "Handler" ||
+		got.Metadata["selector_literal"] != "legacy" || got.Metadata["application_surface"] != `@deprecated("legacy")` {
+		t.Fatalf("unexpected decorated-method relation: %+v", got)
+	}
+	if got.Kind == "registration" || got.ResolvedBy == "python_registry_binding" {
+		t.Fatalf("decorator syntax must not invent registry semantics: %+v", got)
+	}
 }
 
 func TestParseFiles_DecoratedClassesRetainEveryInheritanceRelation(t *testing.T) {

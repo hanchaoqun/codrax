@@ -229,7 +229,7 @@ const cacheFileInfosChunkSize = 1024
 var extractorVersions = map[string]int{
 	types.LangGo:         7, // local block shadowing bounds receiver identity
 	types.LangJava:       7, // nested block and declaration-order receiver authority
-	types.LangPython:     7, // decorated classes retain AST inheritance relations
+	types.LangPython:     8, // static decorator selector applications retain typed roles
 	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
 	types.LangTypeScript: 7, // nested block and declaration-order receiver authority
 	types.LangArkTS:      7, // nested block and declaration-order receiver authority via extractJS

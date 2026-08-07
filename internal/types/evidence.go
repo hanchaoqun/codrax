@@ -31,10 +31,11 @@ const (
 // so diagram validation and aggregate-member coverage cannot drift into two
 // different definitions of "parser/graph proved this type edge".
 const (
-	EvidenceProducerRepoMapStructuralRelation  = "repomap_structural_relation"
-	EvidenceProducerRepoMapImplementerRelation = "repomap_implementer_relation"
-	EvidenceProducerRepoMapCooperativeCall     = "repomap_cooperative_call"
-	EvidenceProducerRepoMapCooperativeMethod   = "repomap_cooperative_method_definition"
+	EvidenceProducerRepoMapStructuralRelation   = "repomap_structural_relation"
+	EvidenceProducerRepoMapImplementerRelation  = "repomap_implementer_relation"
+	EvidenceProducerRepoMapCooperativeCall      = "repomap_cooperative_call"
+	EvidenceProducerRepoMapCooperativeMethod    = "repomap_cooperative_method_definition"
+	EvidenceProducerRepoMapDecoratorApplication = "repomap_decorator_application"
 )
 
 // IsRepoMapTypeRelationEvidence reports whether item is a deterministic type

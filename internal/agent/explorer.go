@@ -13687,6 +13687,8 @@ const runtimeTargetCooperativeCallLimit = 16
 
 const runtimeTargetCooperativeMethodLimit = 24
 
+const runtimeTargetDecoratorApplicationLimit = 16
+
 // runtimeTargetStructuralRelationFiles separates exact read authority from
 // the volatile concrete-value frontier. filesToScan is intentionally narrowed
 // as exploration focus moves, which is appropriate for broad literal scans;
@@ -14181,6 +14183,117 @@ func (e *explorerEvaluator) buildRuntimeTargetCooperativeMethodDefinitions(
 	for _, entry := range rows {
 		result.evidence = append(result.evidence, entry.item)
 		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` |\n", entry.item.ID, entry.item.Source, entry.item.LineStart, entry.item.Subject)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+// buildRuntimeTargetDecoratorApplications promotes parser-authored decorator
+// calls whose selector is a static literal. The evidence names only the exact
+// syntactic application and target declaration; it deliberately does not call
+// every decorator a registration or infer the selector's runtime role.
+func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
+	graph *repomap.Graph,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+) concreteValuesResult {
+	if e == nil || graph == nil || !e.runtimeTargetStructuralRelationsActive() {
+		return concreteValuesResult{}
+	}
+	type row struct {
+		item       types.EvidenceItem
+		selector   string
+		resolvedBy string
+	}
+	rows := make([]row, 0)
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
+	for file := range filesToScan {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if rel.Kind != "decoration" || rel.Provenance != repotypes.ProvenanceTreeSitter ||
+				strings.TrimSpace(rel.ResolvedBy) != "python_literal_decorator_application" || rel.Line <= 0 {
+				continue
+			}
+			surface := strings.TrimSpace(rel.Metadata["application_surface"])
+			selector := strings.TrimSpace(rel.Metadata["selector_literal"])
+			target := strings.TrimSpace(rel.ToEP.Name)
+			if receiver := strings.TrimSpace(rel.ToEP.Receiver); receiver != "" && target != "" {
+				target = receiver + "." + target
+			}
+			source := canonicalExplorerPath(rel.File)
+			if source == "" {
+				source = canonicalExplorerPath(fi.RelPath)
+			}
+			if surface == "" || selector == "" || target == "" || source == "" {
+				continue
+			}
+			if closure != nil {
+				if !closure.HasReadLine(source, rel.Line) {
+					continue
+				}
+			} else if !readSetContains(readSet, source) {
+				continue
+			}
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s", source, rel.Line, surface, target))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Subject:      surface,
+				Predicate:    "decorator_selector_application",
+				Object:       target,
+				Source:       source,
+				LineStart:    rel.Line,
+				LineEnd:      rel.Line,
+				Confidence:   rel.Confidence,
+				Producer:     types.EvidenceProducerRepoMapDecoratorApplication,
+				Summary:      fmt.Sprintf("parser-authored decorator application: `%s` applies selector literal `%s` to `%s`", surface, selector, target),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorDefinition,
+				AnchorSymbol: target,
+				OwnerSymbol:  target,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item, selector: selector, resolvedBy: rel.ResolvedBy})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		return rows[i].item.Subject < rows[j].item.Subject
+	})
+	if len(rows) > runtimeTargetDecoratorApplicationLimit {
+		rows = rows[:runtimeTargetDecoratorApplicationLimit]
+	}
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Decorator Selector Applications (parser grounded)\n\n")
+	b.WriteString("These rows preserve a static decorator selector and its target declaration as separate typed roles. Decorator syntax alone does not prove registry semantics; inspect the decorator implementation before calling the selector a lookup key.\n\n")
+	b.WriteString("| Evidence | File:Line | Decorator application | Selector literal | Target declaration |\n")
+	b.WriteString("|----------|-----------|-----------------------|------------------|--------------------|\n")
+	for _, entry := range rows {
+		result.evidence = append(result.evidence, entry.item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` |\n",
+			entry.item.ID, entry.item.Source, entry.item.LineStart, entry.item.Subject, entry.selector, entry.item.Object)
 	}
 	b.WriteString("\n")
 	result.markdown = b.String()
@@ -14860,6 +14973,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	cooperativeMethods := e.buildRuntimeTargetCooperativeMethodDefinitions(
 		graph, structuralRelationFiles, readSet, closure, structuralRelations.evidence, cooperativeCalls.evidence,
 	)
+	decoratorApplications := e.buildRuntimeTargetDecoratorApplications(graph, structuralRelationFiles, readSet, closure)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -15202,7 +15316,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 	if len(allValues) == 0 {
-		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods)
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications)
 	}
 
 	// Pre-filter: strip prose-like values at the source so they
@@ -15453,6 +15567,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	if cooperativeMethods.markdown != "" {
 		b.WriteString(cooperativeMethods.markdown)
+	}
+	if decoratorApplications.markdown != "" {
+		b.WriteString(decoratorApplications.markdown)
 	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
 	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
@@ -15860,6 +15977,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	cvEvidence := append([]types.EvidenceItem(nil), structuralRelations.evidence...)
 	cvEvidence = append(cvEvidence, cooperativeCalls.evidence...)
 	cvEvidence = append(cvEvidence, cooperativeMethods.evidence...)
+	cvEvidence = append(cvEvidence, decoratorApplications.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}

@@ -294,6 +294,38 @@ func TestBuildRuntimeTargetCooperativeMethodDefinitions_RequiresTypedRosterOpera
 	}
 }
 
+func TestBuildRuntimeTargetDecoratorApplications_PreservesSelectorRoleWithoutRegistrationClaim(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "pipeline/plugins.py", Language: repotypes.LangPython,
+		Relations: []repotypes.Relation{
+			{Kind: "decoration", FromEP: repotypes.RelationEndpoint{Name: "register"}, ToEP: repotypes.RelationEndpoint{Name: "JsonPlugin"}, File: "pipeline/plugins.py", Line: 17, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_literal_decorator_application", Metadata: map[string]string{"application_surface": `@register("json")`, "selector_literal": "json"}},
+			{Kind: "decoration", FromEP: repotypes.RelationEndpoint{Name: "dynamic"}, ToEP: repotypes.RelationEndpoint{Name: "DynamicPlugin"}, File: "pipeline/plugins.py", Line: 25, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_literal_decorator_application", Metadata: map[string]string{"application_surface": "@dynamic(NAME)"}},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"pipeline/plugins.py": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/plugins.py": {{Start: 1, End: 30}}})
+
+	got := eval.buildRuntimeTargetDecoratorApplications(
+		graph, map[string]bool{"pipeline/plugins.py": true}, map[string]bool{"pipeline/plugins.py": true}, closure,
+	)
+	if len(got.evidence) != 1 {
+		t.Fatalf("only the static literal decorator application should be promoted: %+v", got.evidence)
+	}
+	item := got.evidence[0]
+	if item.Subject != `@register("json")` || item.Predicate != "decorator_selector_application" || item.Object != "JsonPlugin" ||
+		item.Producer != types.EvidenceProducerRepoMapDecoratorApplication || item.AnchorKind != types.AnchorDefinition || !item.IsCitable() {
+		t.Fatalf("unexpected typed decorator application: %+v", item)
+	}
+	for _, forbidden := range []string{"registry binding", "registration_edge", "@dynamic(NAME)"} {
+		if strings.Contains(got.markdown, forbidden) {
+			t.Fatalf("decorator syntax invented semantics or admitted a dynamic selector %q:\n%s", forbidden, got.markdown)
+		}
+	}
+}
+
 func TestMergeConcreteValuesResults_PreservesEveryDeterministicLaneWithoutLiterals(t *testing.T) {
 	merged := mergeConcreteValuesResults(
 		concreteValuesResult{markdown: "types\n", evidence: []types.EvidenceItem{{ID: "E-type"}}},
