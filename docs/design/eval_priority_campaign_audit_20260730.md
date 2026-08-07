@@ -23232,3 +23232,37 @@ flowchart 关系锚仍由既有可执行 pin 守护。
 状态：`EVAL-B237-PATCHSCOPE1=S36z-implemented/package-tests-pass`；
 `EVAL-B238-PATCHDELETE1=S36z-implemented/package-tests-pass`；`EVAL-B236-PHASEBRIDGE1=partial/replay-next`；
 模型答案所有权=`preserved`；下一步=`full-tests+commit+push+r151-two-case-replay`。
+
+### 123.219 r151：patch 路由生产闭环，块计数合同与成员引用仍有系统 GAP
+
+r151 按固定并发 2 回放 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 2/2 PASS，人工严格审计 1/2。Python 从 r150 的
+429s、5 次 reject 降为 116s、1 次 reject：唯一失败是缺少精确 `run_pipeline` principal anchor，系统从 typed
+`offending_block_kinds` 选择通用局部 patch，一次修正即通过；没有再声称“可选 diagram 被拒”，也没有把 patch 数组/对象编码成 JSON 字符串。
+因此 `EVAL-B237-PATCHSCOPE1`、`EVAL-B238-PATCHDELETE1` 完成生产闭环。
+
+C++ 虽零 reject 且 runner PASS，人工审计失败。最终答案把两段分别有证的事实——factory/guard 选择 `ConsoleSink` 与
+`Logger::log -> sink_->write -> ConsoleSink::write`——叙成完整的 factory 产物注入 Logger 路径，但仓库证据没有展示这次值交接；同时把
+runtime virtual dispatch 误称为“静态多态”，并在 summary、section、两块 ordered-list 重复同一机制。这里不是 JSON 或 Mermaid 格式失败，
+而是两个新的精确合同缺口叠加：
+
+| ID | 优先级 | 证据与机制 | 泛化修向 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B239-BLOCKCARD1` | P0/P1 | `compileGeneric` 同时发射 required `ordered_list min=1 max=1` 与 optional `ordered_list min=0 max=0`；prompt 说 exactly 1，模型 thinking 也识别 exactly 1，却提交两块；pre-emit 仅把精确 over-max 当 soft advisory 并直接接受 | 先在最终 view 单点消除 required/optional 同 kind 重叠，保证只有一个计数权威；再让显式 required `max_count>0` 的精确 over-max 进入通用 block-cardinality 修复车道。信号只取 typed block kind/count，不扫用户或模型 prose | next |
+| `EVAL-B240-CITEREF1` | P1 | finalizer 已获得 member set 的逐成员 `support_refs`，例如 `sink_->write: src/logger.cpp:36`，模型所选 item 却被修到 `src/registry.cpp:15`；`std::fputs/fputc` 也落到 `name()` 行。现有 normalizer 只把逐成员 refs 用作“是否可保留”的旁路，没有唯一成员坐标的优先回绑 | 在 generic definition fallback 之前，按 typed member identity + 唯一 explicit support_ref 做单调 rebind；多成员/多坐标歧义 fail-closed。只修 citation，不改变模型 item、事实或结论，跨语言统一 | after B239 |
+| `EVAL-B236-PHASEBRIDGE1` | P1 | typed `entry_role`、segment class 与 component boundary 已进入 prompt，但 principal 与 sibling support 仍共用 ordered-list 心智表面，模型继续把真实片段拼成未证桥 | 从同一 verified support plan 拆出 directed-hop principal lane 与 binding/control/value-flow sibling lane；保持 soft typed context，不扫描、删除或代写最终结论 | partial |
+
+`EVAL-B239-BLOCKCARD1` 是本批最高 ROI：同一种 block 在同一投影视图中同时“最多 1 个”和“无限可选”，属于系统自身合同冲突，会放大重复答案、
+降低摘要性，并让“成文校验未通过/不通过”策略失真。修复须审计全部 question family，而非只为 C++ case 删除第二块列表；required 缺失与
+required over-max 也必须区分，不能把所有 optional-richness 都硬化。
+
+`EVAL-B240-CITEREF1` 则属于系统精确上下文已具备但没有被机械层正确消费。修复只能在 exact typed member/support-ref 唯一时回绑；普通 prose
+label、相邻定义或多候选不得猜测。复杂 item 需要多引用的问题继续由 `EVAL-B230-CITEMULTIREF1` 单独承接。
+
+本轮再次验证模型答案所有权：系统只提供一致 block contract、精确 citation 和 typed support lane，不从用户原文或模型输出关键词推导结论，
+不替模型改写根因。JSON tool schema 仍为字段/类型唯一权威，patch 四操作教学仍为单一短文本。sequence display message 参数隔离、C++
+labelled/unlabelled flowchart 关系锚列为后续每批必查项；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及“真实耗时贡献 /
+规则内可消除量”双维根因分析未触碰。
+
+状态：`EVAL-B237-PATCHSCOPE1=closed/production-replay`；`EVAL-B238-PATCHDELETE1=closed/production-replay`；
+`EVAL-B239-BLOCKCARD1=confirmed/next`；`EVAL-B240-CITEREF1=confirmed`；`EVAL-B236-PHASEBRIDGE1=partial`；
+runner=`2/2 PASS`；human=`1/2`；下一步=`block-contract single authority, tests, commit/push`。
