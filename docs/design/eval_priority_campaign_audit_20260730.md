@@ -23804,3 +23804,30 @@ JSON shape-first 教学与 patch 四操作合同未改动。
 状态：`EVAL-B255-CALLANCHORAUTH1=S37l-implemented/full-tests-pass`；
 `EVAL-B256-CITATIONMONOTONE1=S37l-implemented/full-tests-pass`；`EVAL-B257-WRITEEXACTRETRY1=next`；
 模型答案所有权=`preserved`；`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.240 S37m：首个合法 WriteAnalysisIR 原位校准，禁止单行问题触发整包重写
+
+`EVAL-B257-WRITEEXACTRETRY1` 复用既有 `repairWriteAnalysisIRQuality`，修正的是启用时序而非再造一套合同：
+
+1. write analyzer 成功发出 schema-valid IR 后，若 quality check 只发现 exact contract 缺少 typed grounding 或 placement 不完整，立即在该首个 IR 上执行
+   item-local repair；不再清空 `Mutable.WriteAnalysisIR`、不再调用第二次 LLM；
+2. repair 只把命中的 hard operator 降为 `satisfies`，或移除无效 placement 并降为 `satisfies`，同时写入
+   `quality_repaired:*` source tag。其余 behavior contracts、constraints、expected outcomes、scope anchors、pitfalls、risk、task 与 phase proposal 均按 clone
+   字节保留；
+3. schema decode、必填字段缺失、工具 emit 失败等**不可确定修复**的错误仍走原有最多两次重试；no-emit 仍直接 fallback。此次没有把所有 write-analyzer
+   错误都软化，也没有降低 planner/verify 的 typed contract 消费；
+4. 回归把原来的“首稿失败、二稿补 comparator”改为“首稿一行 authority 不足、一次 dispatch 原位降权”，并钉住 constraints/outcomes/pitfalls 不丢；
+   另一个两合同用例钉住 grounded hard contract 保持 hard，仅 ungrounded 行软化，scope/phase/task 均保留；普通 emit rejection 仍有两次 retry pin；
+5. 本批不扫描模型 thinking、最终答案、Mermaid、代码语言或 case 字符串。quality check 仍使用原有结构化 contract 字段、typed evidence_ref/comparator，
+   以及“expected 整值是否与 raw_request 逐字相同”的既有 grounding lane；没有新增用户关键词分类或 prose hard gate。
+
+这项修复减少一次完整模型调用，也消除 r158 中“为修一行删除全部 12 条合同”的通道；系统只校准证据权限，不替模型改 task summary、outcomes、计划或
+最终结论。JSON shape-first 共享教学保持不变。
+
+Trace runtime family、显式窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量和双维根因分析未触碰。
+
+定向回归、`go test ./internal/orchestrator -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B257-WRITEEXACTRETRY1=S37m-implemented/full-tests-pass`；
+`EVAL-B254-COMPINVROUTE1=open/P1`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。

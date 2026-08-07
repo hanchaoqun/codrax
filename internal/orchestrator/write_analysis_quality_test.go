@@ -310,66 +310,31 @@ func TestRepairWriteAnalysisIRQualitySoftensInvalidPlacementContract(t *testing.
 	}
 }
 
-func TestRunWriteAnalyzePhaseRetriesUngroundedExactContract(t *testing.T) {
+func TestRunWriteAnalyzePhaseRepairsUngroundedExactContractWithoutWholeIRRetry(t *testing.T) {
 	readIR := dagIR(types.AnswerContract{Language: "en"})
 	dispatchCount := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentWriteAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			dispatchCount++
-			if dispatchCount == 1 {
-				ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
-					RawRequest: "Array([]) fails while Matrix([]) works",
-					Task:       types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix array empty"},
-					Risk:       types.WriteRiskProfile{Overall: types.RiskBandLow},
-					Constraints: []types.WriteConstraint{{
-						Kind: "preserve_behavior", Target: "Matrix([])", Note: "keep the working baseline unchanged",
-					}},
-					ExpectedOutcomes: []string{"keep `(status = callback()) != 0` unchanged"},
-					BehaviorContracts: []types.WriteBehaviorContract{{
-						ID:       "shape",
-						Kind:     types.WriteBehaviorInvariant,
-						Polarity: types.WriteBehaviorPolarityExpected,
-						Subject:  "Array([]).shape",
-						Operator: types.WriteBehaviorOpEquals,
-						Expected: "()",
-						Required: true,
-					}},
-				}, PhaseProposal: types.PhaseProposal{Split: "single"}, PitfallsApplied: []string{"shape_regression"}})
-				return &agent.StageOutput{StageReport: "bad exact contract"}, nil
-			}
-			hint := ctx.Mutable.AnalyzerRetryHint()
-			for _, want := range []string{
-				"under-grounded",
-				"## Previous structured payload (repair base)",
-				`"summary": "fix array empty"`,
-				"keep `(status = callback()) != 0` unchanged",
-				`"target": "Matrix([])"`,
-				`"applicable_pitfalls": [`,
-			} {
-				if !strings.Contains(hint, want) {
-					t.Fatalf("retry hint should preserve %q in the canonical repair base, got %q", want, hint)
-				}
-			}
 			ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
 				RawRequest: "Array([]) fails while Matrix([]) works",
 				Task:       types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix array empty"},
 				Risk:       types.WriteRiskProfile{Overall: types.RiskBandLow},
+				Constraints: []types.WriteConstraint{{
+					Kind: "preserve_behavior", Target: "Matrix([])", Note: "keep the working baseline unchanged",
+				}},
+				ExpectedOutcomes: []string{"keep `(status = callback()) != 0` unchanged"},
 				BehaviorContracts: []types.WriteBehaviorContract{{
 					ID:       "shape",
 					Kind:     types.WriteBehaviorInvariant,
 					Polarity: types.WriteBehaviorPolarityExpected,
 					Subject:  "Array([]).shape",
 					Operator: types.WriteBehaviorOpEquals,
-					Expected: "(0,)",
-					Comparator: &types.WriteBehaviorComparator{
-						Subject:     "Matrix([])",
-						Relation:    types.WriteBehaviorComparatorRegressionBaseline,
-						EvidenceRef: "issue:matrix-empty-baseline",
-					},
+					Expected: "()",
 					Required: true,
 				}},
-			}})
-			return &agent.StageOutput{StageReport: "good comparator contract"}, nil
+			}, PhaseProposal: types.PhaseProposal{Split: "single"}, PitfallsApplied: []string{"shape_regression"}})
+			return &agent.StageOutput{StageReport: "one under-grounded exact contract"}, nil
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
@@ -383,18 +348,23 @@ func TestRunWriteAnalyzePhaseRetriesUngroundedExactContract(t *testing.T) {
 
 	used, err := o.runWriteAnalyzePhase()
 	if err != nil {
-		t.Fatalf("write analysis retry should recover, got %v", err)
+		t.Fatalf("deterministic contract calibration should recover, got %v", err)
 	}
-	if used != 2 || dispatchCount != 2 {
-		t.Fatalf("used=%d dispatch=%d, want 2 retry attempts", used, dispatchCount)
+	if used != 1 || dispatchCount != 1 {
+		t.Fatalf("used=%d dispatch=%d, want one write-analyzer dispatch", used, dispatchCount)
 	}
 	got := mu.WriteAnalysisIR()
-	if got == nil || len(got.Request.BehaviorContracts) != 1 || got.Request.BehaviorContracts[0].Comparator == nil {
-		t.Fatalf("final IR should carry comparator-grounded contract: %+v", got)
+	if got == nil || len(got.Request.BehaviorContracts) != 1 ||
+		got.Request.BehaviorContracts[0].Operator != types.WriteBehaviorOpSatisfies {
+		t.Fatalf("final IR should preserve and soften only the ungrounded contract: %+v", got)
+	}
+	if got.Request.Task.Summary != "fix array empty" || len(got.Request.Constraints) != 1 ||
+		len(got.Request.ExpectedOutcomes) != 1 || len(got.PitfallsApplied) != 1 {
+		t.Fatalf("quality calibration lost unrelated typed fields: %+v", got)
 	}
 }
 
-func TestRunWriteAnalyzePhaseRepairsFinalAttemptUngroundedContractInsteadOfFallback(t *testing.T) {
+func TestRunWriteAnalyzePhaseRepairsFirstIRUngroundedContractInsteadOfRetryOrFallback(t *testing.T) {
 	readIR := dagIR(types.AnswerContract{Language: "en"})
 	dispatchCount := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -452,10 +422,10 @@ func TestRunWriteAnalyzePhaseRepairsFinalAttemptUngroundedContractInsteadOfFallb
 
 	used, err := o.runWriteAnalyzePhase()
 	if err != nil {
-		t.Fatalf("final-attempt contract quarantine should avoid fallback error, got %v", err)
+		t.Fatalf("first-IR contract calibration should avoid retry/fallback, got %v", err)
 	}
-	if used != 2 || dispatchCount != 2 {
-		t.Fatalf("used=%d dispatch=%d, want 2 retry attempts before quarantine", used, dispatchCount)
+	if used != 1 || dispatchCount != 1 {
+		t.Fatalf("used=%d dispatch=%d, want one attempt before deterministic calibration", used, dispatchCount)
 	}
 	got := mu.WriteAnalysisIR()
 	if got == nil {

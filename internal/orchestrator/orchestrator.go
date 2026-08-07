@@ -2954,14 +2954,14 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 				} else {
 					rejectedIR = ir
 					lastErr = fmt.Errorf("write_analyzer emitted an under-grounded WriteAnalysisIR: %s", rejection)
-					if attempt+1 >= maxAttempts {
-						if repaired, repairs := repairWriteAnalysisIRQuality(ir); len(repairs) > 0 && writeAnalysisIRQualityRejection(repaired) == "" {
-							o.busCtx.Mutable.SetWriteAnalysisIR(repaired)
-							logging.Warning("[orchestrator] write_analyze final attempt had under-grounded behavior contract(s); kept repaired WriteAnalysisIR with softened contract(s): %s",
-								strings.Join(repairs, "; "))
-							o.busCtx.TaskState.LastError = ""
-							return used, nil
-						}
+					// Calibrate item-local contract authority on the first valid IR;
+					// whole-payload retries can delete unrelated typed fields.
+					if repaired, repairs := repairWriteAnalysisIRQuality(ir); len(repairs) > 0 && writeAnalysisIRQualityRejection(repaired) == "" {
+						o.busCtx.Mutable.SetWriteAnalysisIR(repaired)
+						logging.Warning("[orchestrator] write_analyze calibrated under-grounded behavior contract(s) on the first valid IR; preserved all other typed fields: %s",
+							strings.Join(repairs, "; "))
+						o.busCtx.TaskState.LastError = ""
+						return used, nil
 					}
 					o.busCtx.Mutable.SetWriteAnalysisIR(nil)
 				}
