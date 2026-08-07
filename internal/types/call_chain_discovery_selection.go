@@ -31,7 +31,7 @@ func CallChainDiscoverySelectionEvidence(evidence []EvidenceItem) []EvidenceItem
 			continue
 		}
 		switch ClaimFormOf(item) {
-		case ClaimCallEdge:
+		case ClaimCallEdge, ClaimCallbackHandoff:
 			connectionEndpoints = appendCallChainDiscoveryEndpoint(connectionEndpoints, item.Subject)
 			connectionEndpoints = appendCallChainDiscoveryEndpoint(connectionEndpoints, item.Object)
 			connectionEndpoints = appendCallChainDiscoveryEndpoint(connectionEndpoints, item.AnchorSymbol)

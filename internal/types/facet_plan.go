@@ -1123,13 +1123,13 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 	case QFCallChain:
 		return append([]FacetRequirement{
 			{Kind: FacetPrincipalPathEdge, Required: FacetHardRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			{Kind: FacetBranchGuard, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimGuardCondition}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimRegistrationEdge}},
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimGuardCondition, ClaimRegistrationEdge}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimGuardCondition, ClaimRegistrationEdge}},
 		}, common...)
 	case QFEnumeration:
 		forms := []ClaimForm{
@@ -1187,13 +1187,13 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
+					ClaimCallbackHandoff, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
 					ClaimImportEdge, ClaimRegistrationEdge}},
 			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
+					ClaimCallbackHandoff, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
 			{Kind: FacetPrincipalPathEdge, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}
 		if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion ||

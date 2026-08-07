@@ -23,6 +23,28 @@ func diagramEvidenceTestCall(subject, object string) types.EvidenceItem {
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_CallbackHandoffNeedsExactTypedDirection(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,
+		Subject: "loop.run_in_executor", Object: "plugin.handle", AnchorSymbol: "plugin.handle",
+		Source: "pipeline/runner.py", LineStart: 17, GroundingStatus: types.GroundingGrounded,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "d", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  Exec[\"loop.run_in_executor\"] -->|handoff| Plugin[\"plugin.handle\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "Exec", ToNode: "Plugin", RelationKind: types.DiagramRelCallback}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("typed callback handoff rejected: %+v", got)
+	}
+	doc.Blocks[0].EdgeAnchors[0].FromNode, doc.Blocks[0].EdgeAnchors[0].ToNode = "Plugin", "Exec"
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n  Plugin[\"plugin.handle\"] -->|handoff| Exec[\"loop.run_in_executor\"]"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramCallbackEdgeIssueNoEvidence {
+		t.Fatalf("reverse callback handoff must fail closed: %+v", got)
+	}
+}
+
 func diagramEvidenceTestDefinition(owner, operation, source string, line int) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              "ev-def-" + owner + "-" + operation,

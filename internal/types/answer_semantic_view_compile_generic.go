@@ -66,6 +66,7 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
 				ClaimCallEdge,
+				ClaimCallbackHandoff,
 				ClaimRegistrationEdge,
 				ClaimGuardCondition,
 				ClaimAssignmentFact,

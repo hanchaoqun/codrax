@@ -780,8 +780,8 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	blob := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk)}, "\n")
 	for _, want := range []string{
 		"`edge_anchors` is the OPTIONAL block-level array for diagram-edge typed anchors",
-		"relation_kind: <one of call|guard|import|precedence|contain|type_relation|observe|register|assignment|return>",
-		"`type_relation`, `register`, `assignment`, and `return` are typed-only",
+		"relation_kind: <one of " + BuildDiagramRelationKindList() + ">",
+		"`type_relation`, `register`, `callback`, `assignment`, and `return` are typed-only",
 		"PREFERRED: declare the relation directly",
 		"the sole typed relation authority",
 		"dashed reply `callee-->>caller` is a response/return, not a reverse call",

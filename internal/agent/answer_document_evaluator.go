@@ -1624,6 +1624,7 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 	types.ClaimAssignmentFact:      "assignment / config-leaf citation",
 	types.ClaimReturnFact:          "return-value citation",
 	types.ClaimCallEdge:            "call-edge citation",
+	types.ClaimCallbackHandoff:     "callback-handoff citation",
 	types.ClaimImportEdge:          "import / dependency-edge citation",
 	types.ClaimRegistrationEdge:    "registration / binding-edge citation",
 	types.ClaimLiteralValueFact:    "source literal-value citation",
@@ -2850,6 +2851,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	registrations := make([]capsuleRow, 0)
 	structural := make([]capsuleRow, 0)
 	valueFlowCandidates := make([]capsuleRow, 0)
+	callbacks := make([]capsuleRow, 0)
 	calls := make([]capsuleRow, 0)
 	seen := make(map[string]struct{})
 	for _, original := range pool {
@@ -2884,6 +2886,9 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		case types.ClaimFormOf(item) == types.ClaimCallEdge:
 			row.family = "static_call"
 			calls = append(calls, row)
+		case types.ClaimFormOf(item) == types.ClaimCallbackHandoff:
+			row.family = "callback_handoff"
+			callbacks = append(callbacks, row)
 		default:
 			continue
 		}
@@ -2906,6 +2911,10 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		addConnectedEndpoint(ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Source)
 	}
 	for _, row := range calls {
+		addConnectedEndpoint(row.item.Subject)
+		addConnectedEndpoint(row.item.Object)
+	}
+	for _, row := range callbacks {
 		addConnectedEndpoint(row.item.Subject)
 		addConnectedEndpoint(row.item.Object)
 	}
@@ -2962,6 +2971,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	appendBounded(registrations, 6)
 	appendBounded(structural, 8)
 	appendBounded(valueFlows, 6)
+	appendBounded(callbacks, 6)
 	appendBounded(calls, answerDocRuntimeTargetRelationCapsuleLimit)
 	if len(ordered) == 0 {
 		return ""
@@ -2990,7 +3000,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime.\n")
+	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime. A callback-handoff row proves only that a receiving API was given a callable value, not that it later executed.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -3690,7 +3700,7 @@ func answerSupportLaneAllowsDiagram(lane types.AnswerSupportLane) bool {
 }
 
 func diagramSupportEntrySurface(entry types.AnswerSupportEntry) string {
-	if entry.AnchorKind == types.AnchorCall {
+	if entry.AnchorKind == types.AnchorCall || entry.AnchorKind == types.AnchorCallback {
 		if subject := strings.TrimSpace(entry.Subject); subject != "" {
 			if object := strings.TrimSpace(entry.Object); object != "" {
 				return subject + " -> " + object
@@ -6197,7 +6207,7 @@ func answerDocGroundedCurrentSourceMechanismFact(item types.EvidenceItem) bool {
 		return false
 	}
 	switch item.AnchorKind {
-	case types.AnchorDefinition, types.AnchorCall, types.AnchorCondition,
+	case types.AnchorDefinition, types.AnchorCall, types.AnchorCallback, types.AnchorCondition,
 		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer,
 		types.AnchorImport, types.AnchorStringLiteral:
 		return true
@@ -6415,6 +6425,8 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 		switch item.AnchorKind {
 		case types.AnchorCall:
 			return "call_or_invocation"
+		case types.AnchorCallback:
+			return "callback_handoff"
 		case types.AnchorImport:
 			return "import_or_dependency"
 		case types.AnchorCondition:
@@ -6426,6 +6438,8 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 	switch item.AnchorKind {
 	case types.AnchorCall:
 		return "call_or_invocation"
+	case types.AnchorCallback:
+		return "callback_handoff"
 	case types.AnchorImport:
 		return "import_or_dependency"
 	case types.AnchorCondition:
@@ -6450,7 +6464,7 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 		score += 8
 	}
 	switch item.AnchorKind {
-	case types.AnchorCall, types.AnchorImport, types.AnchorCondition:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorImport, types.AnchorCondition:
 		score += 8
 	}
 	if item.GroundingStatus == types.GroundingGrounded {
@@ -7018,7 +7032,7 @@ func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
 	switch item.AnchorKind {
 	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
 		return "value_fact"
-	case types.AnchorCall, types.AnchorCondition, types.AnchorImport:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorCondition, types.AnchorImport:
 		return "chain_or_intermediate_fact"
 	}
 	if item.LoadBearingSummary || len(item.SurfaceTerms) > 0 {
@@ -12164,7 +12178,7 @@ func evidenceItemFromSupportEntry(entry types.AnswerSupportEntry) types.Evidence
 	}
 	kind := types.EvidenceDirect
 	switch entry.AnchorKind {
-	case types.AnchorCall, types.AnchorImport:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorImport:
 		kind = types.EvidenceRelationship
 	case types.AnchorCondition:
 		kind = types.EvidenceConditional
@@ -12186,7 +12200,7 @@ func evidenceItemFromSupportEntry(entry types.AnswerSupportEntry) types.Evidence
 }
 
 func diagramSupportEntryLabels(entry types.AnswerSupportEntry) []string {
-	if entry.AnchorKind == types.AnchorCall {
+	if entry.AnchorKind == types.AnchorCall || entry.AnchorKind == types.AnchorCallback {
 		subject := strings.TrimSpace(entry.Subject)
 		object := strings.TrimSpace(entry.Object)
 		if subject != "" && object != "" && subject != object {

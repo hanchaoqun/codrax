@@ -22216,3 +22216,35 @@ completion obligation。定向测试覆盖 r135 生产形、无 provenance 反�
 
 状态：`EVAL-B205-CHAINPROFILE1=S35a-implemented/targeted-tests-pass/pending-exact-two-replay`；
 `EVAL-B206-CALLSITEKEEP1=P1/next-S35b`；JSON schema/repair=`not-touched`；Trace=`not-touched`。
+
+### 123.187 S35b：callback/function-value handoff 作为跨语言一等关系，禁止兄弟 call 偷证据
+
+对 Python r135 的 `run_in_executor(None, plugin.handle, payload)` 做关系语义复核后，纠正“它是普通 invocation”的旧假设：该行只证明
+`loop.run_in_executor` 收到了 callable `plugin.handle`，不证明后者已经执行。相同形状普遍存在于 ArkTS/TS/JS 函数值、Java method reference、
+C/C++ function pointer、Go function value、Cangjie/Swift/Rust/Kotlin 闭包与其他受支持语言；继续按语言加例外会同时造成假调用边和图层缺口。
+
+S35b 增加一个共享 typed 关系族：
+
+1. `AnchorCallback=callback` 只接受“接收调用/API 的参数区间内出现非 invoked callable”的已读源码行；Subject 是接收 API，Object/AnchorSymbol
+   是同一行的 callable 表达式；definition、字符串、直接 `target(...)` 均不能通过；
+2. `ClaimCallbackHandoff=callback_handoff` 与 `DiagramRelCallback=callback` 一一映射，方向为 receiving API/dispatcher → callable；它只证明
+   callable-value transfer，不授权“已执行/直接调用”；direct call 仍必须由 `AnchorCall/ClaimCallEdge` 单独证明；
+3. 模型把 exact callback 行错标为 call 时，emit 层只在同一已读行结构可证明且该行没有 direct target call 时无损改类；随后再进入 grounder。
+   因此 `nearest_call` 不再有机会把 `plugin.handle@17` 迁到无关的 `run_batch -> run_pipeline@21`；
+4. callback handoff 加入 call-chain principal path、discover-selection 连接端点、architecture/generic mechanism、diagram evidence 与 relation capsule。
+   callback diagram anchor 需要同方向 citable typed evidence，反向、无证据或 label-only 均 fail-closed；Trace/root-cause 家族仍在 source diagram gate
+   入口跳过，本批不修改任何时间窗、因果投影或自动补齐逻辑；
+5. 跨语言结构测试覆盖 Python、ArkTS、Java method reference、C function pointer、Go function value、Cangjie；另有 direct-call 反例、错标 call
+   原行改类与 diagram 正/反向 pin。实现不读取请求、case 名、evidence summary 或最终答案原文，也不以语言关键词分支。
+
+本批同时确认并修复一处 JSON 教学合同漂移：projected schema 已含 `registration_edge`、`literal_value_fact` 等值，但 finalizer 的一处手写
+claim-form 枚举仍遗漏它们；`edge_anchors` 的另一处 prose 也手抄 relation enum。现在两个列表分别直接从 `AllClaimForms()` 与
+`AllDiagramRelationKinds()` 生成，schema 仍是字段/类型/必填唯一 authority，prose 只解释语义选择。`callback` 为 typed-only；legacy label
+解析明确禁止因 `callback` 内含 `call` 子串而把 handoff 重铸成 invocation，label-only 仍不获得 callback 权限。
+
+完整受影响套件通过：`go test ./internal/types ./internal/skill ./internal/tool/ground ./internal/tool ./internal/agent`
+（tool 165.167s、agent 4.116s，其余通过），`git diff --check` 通过。
+
+状态：`EVAL-B205-CHAINPROFILE1=S35a-implemented/full-suite-pass`；
+`EVAL-B206-CALLSITEKEEP1=S35b-implemented/full-suite-pass/pending-exact-two-replay`；
+`EVAL-B207-JSONENUMSST1=S35b-implemented/full-suite-pass`；模型答案所有权=`preserved`；Trace=`not-touched`。

@@ -40,6 +40,7 @@ const (
 	diagramTypeRelationEdgeIssueNoEvidence   = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence     = "assignment_edge_unproven"
 	diagramReturnEdgeIssueNoEvidence         = "return_edge_unproven"
+	diagramCallbackEdgeIssueNoEvidence       = "callback_handoff_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -149,6 +150,18 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 		for _, anchor := range block.EdgeAnchors {
 			relation := diagramAnchorRelation(anchor)
+			if relation == types.DiagramRelCallback {
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				if !diagramCallbackEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramCallbackEdgeIssueNoEvidence,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+				}
+				continue
+			}
 			if relation == types.DiagramRelTypeRelation {
 				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
@@ -269,6 +282,24 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramCallbackEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	if fromSymbol == "" || toSymbol == "" {
+		return false
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallbackHandoff {
+			continue
+		}
+		if diagramTypedValueEndpointMatches(ev.Subject, fromSymbol) &&
+			diagramTypedValueEndpointMatches(ev.Object, toSymbol) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramTypeRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

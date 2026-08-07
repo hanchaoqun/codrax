@@ -23,6 +23,48 @@ func buildGutterReadResult(path string, startLine int, lines []string, totalLine
 	return types.ToolResult{ToolName: "read_file", Success: true, Summary: body}
 }
 
+func TestGroundItemCallbackHandoffAcrossSupportedLanguageShapes(t *testing.T) {
+	tests := []struct {
+		name, source, line, receiver, callable string
+	}{
+		{"python", "runner.py", "await loop.run_in_executor(None, plugin.handle, payload)", "loop.run_in_executor", "plugin.handle"},
+		{"arkts", "Runner.ets", "queue.submit(worker.run, request);", "queue.submit", "worker.run"},
+		{"java_method_reference", "Runner.java", "executor.submit(this::handle);", "executor.submit", "this::handle"},
+		{"c_function_pointer", "runner.c", "register_cb(&handle_event, ctx);", "register_cb", "handle_event"},
+		{"go_function_value", "runner.go", "group.Go(worker.Run)", "group.Go", "worker.Run"},
+		{"cangjie", "runner.cj", "executor.submit(handler.process)", "executor.submit", "handler.process"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gc := &Context{LineIndex: map[string]map[int]string{tt.source: {7: tt.line}}}
+			item := types.EvidenceItem{
+				ID: "cb", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+				Source: tt.source, LineStart: 7, AnchorKind: types.AnchorCallback,
+				AnchorSymbol: tt.callable, Subject: tt.receiver, Object: tt.callable,
+			}
+			report := GroundItem(&item, gc)
+			if report.Status != types.GroundingGrounded || item.GroundingTier != types.TierLineText {
+				t.Fatalf("callback handoff not grounded: report=%+v item=%+v", report, item)
+			}
+			if got := types.ClaimFormOf(item); got != types.ClaimCallbackHandoff {
+				t.Fatalf("claim form=%q want %q", got, types.ClaimCallbackHandoff)
+			}
+		})
+	}
+}
+
+func TestGroundItemCallbackHandoffDoesNotAcceptDirectInvocation(t *testing.T) {
+	gc := &Context{LineIndex: map[string]map[int]string{"runner.py": {9: "plugin.handle(payload)"}}}
+	item := types.EvidenceItem{
+		ID: "cb", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "runner.py", LineStart: 9, AnchorKind: types.AnchorCallback,
+		AnchorSymbol: "plugin.handle", Subject: "executor.submit", Object: "plugin.handle",
+	}
+	if report := GroundItem(&item, gc); report.Status != types.GroundingUngrounded {
+		t.Fatalf("direct invocation must not satisfy callback handoff: report=%+v item=%+v", report, item)
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

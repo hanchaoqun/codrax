@@ -190,11 +190,18 @@ const (
 // headers, or config prose, but must not treat it as a definition/call/
 // assignment proof. This gives comment/doc/example evidence a first-class
 // surface instead of laundering it through initializer/assignment anchors.
+//
+// AnchorCallback covers a callable value passed as an argument to another
+// invocation: Python/JS/ArkTS/Cangjie function values, Java method references,
+// C/C++ function pointers, Go function values, Swift closures, and equivalent
+// language forms.  It proves a handoff to a receiving API, not that the
+// callback subsequently executed; direct execution remains AnchorCall.
 type AnchorKind string
 
 const (
 	AnchorDefinition    AnchorKind = "definition"
 	AnchorCall          AnchorKind = "call"
+	AnchorCallback      AnchorKind = "callback"
 	AnchorCondition     AnchorKind = "condition"
 	AnchorReturn        AnchorKind = "return"
 	AnchorAssignment    AnchorKind = "assignment"
@@ -205,7 +212,7 @@ const (
 )
 
 var allAnchorKinds = []AnchorKind{
-	AnchorDefinition, AnchorCall, AnchorCondition,
+	AnchorDefinition, AnchorCall, AnchorCallback, AnchorCondition,
 	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport,
 	AnchorStringLiteral, AnchorTextReference,
 }

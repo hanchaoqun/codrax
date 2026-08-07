@@ -44,6 +44,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
 				ClaimCallEdge,
+				ClaimCallbackHandoff,
 				ClaimRegistrationEdge,
 			},
 			Rationale: "Walk the call chain hop by hop. Each item is one function/dispatch site " +

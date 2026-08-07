@@ -49,6 +49,7 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 				ClaimDefinitionFact,
 				ClaimImportEdge,
 				ClaimCallEdge,
+				ClaimCallbackHandoff,
 				ClaimRegistrationEdge,
 				ClaimGuardCondition,
 				ClaimPrecedenceRole,

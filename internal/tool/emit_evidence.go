@@ -231,12 +231,13 @@ func (t *EmitEvidence) Description() string {
 		"(the identifier the grounder should find on that line).\n\n" +
 		"There are TWO different kind fields with different jobs:\n" +
 		"  - evidence_kind = the SEMANTIC fact shape (direct / conditional / registration / mechanism / relationship)\n" +
-		"  - anchor_kind   = the source surface at source:line_start (definition / call / condition / return / assignment / initializer / import / string_literal / text_reference)\n" +
+		"  - anchor_kind   = the source surface at source:line_start (use the schema enum above; it is the sole vocabulary authority)\n" +
 		"Never put `direct` / `conditional` / `registration` / `mechanism` / `relationship` into anchor_kind. " +
-		"Never put `definition` / `call` / `condition` / `return` / `assignment` / `initializer` / `import` / `string_literal` / `text_reference` into evidence_kind.\n\n" +
+		"Never put an anchor_kind enum value into evidence_kind.\n\n" +
 		"anchor_kind tells the grounder what KIND of code location you are pointing at:\n" +
 		"  - definition: the line is a function/type/const/var declaration\n" +
 		"  - call:       the line contains a function/method call (anchor_symbol = callee name)\n" +
+		"  - callback:   the line passes a non-invoked callable value to a receiving API; subject = receiving API, object/anchor_symbol = passed callable. This proves handoff, not execution\n" +
 		"  - condition:  the line starts an if / when / unless / switch / case / guard\n" +
 		"  - return:     the line is a return or yield\n" +
 		"  - assignment: the line assigns (:= or =)\n" +
@@ -260,6 +261,8 @@ func (t *EmitEvidence) Description() string {
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
 		"`outer()` contains `return inner(...)`, emit `subject=\"outer\"`, `predicate=\"calls\"`, " +
 		"`object=\"inner\"`.\n\n" +
+		"For callback handoff evidence, use `evidence_kind=\"relationship\"`, `anchor_kind=\"callback\"`, " +
+		"`subject` = the receiving call/API expression, and `object` + `anchor_symbol` = the callable value as written on that same line. Example: `executor.submit(worker)` becomes subject=`executor.submit`, object=`worker`; do not relabel it as a direct call to `worker`.\n\n" +
 		"Evidence entailment is bounded by the typed anchor and source span. A call-site item proves only " +
 		"that the caller invokes the callee; it does NOT prove the callee's internal guards, return value, " +
 		"side effects, or pipeline/stage ordering. A definition item proves the declaration/signature, not " +
@@ -341,15 +344,15 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"subject": map[string]any{
 							"type":        "string",
-							"description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
+							"description": "Primary semantic symbol the item is about (function name, type, key). For anchor_kind='call', subject MUST be the caller / containing function at that line. For anchor_kind='callback', subject MUST be the receiving call/API expression on that line. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
 						},
 						"predicate": map[string]any{
 							"type":        "string",
-							"description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the deterministic relation-diagram renderer picks the edge up — anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased evidence_kind.",
+							"description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the deterministic relation-diagram renderer picks the edge up — anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, passes callback, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased evidence_kind.",
 						},
 						"object": map[string]any{
 							"type":        "string",
-							"description": "Secondary symbol or value. Required for relationship and registration. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
+							"description": "Secondary symbol or value. Required for relationship and registration. For anchor_kind='call', object MUST be the callee symbol on that line. For anchor_kind='callback', object MUST be the non-invoked callable value passed to subject on that line. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
 						},
 						"source": map[string]any{
 							"type":        "string",
@@ -398,11 +401,11 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						"anchor_kind": map[string]any{
 							"type":        "string",
 							"enum":        emitAnchorKindNames(),
-							"description": "REQUIRED. Source surface at line_start, NOT the semantic evidence shape. definition = symbol declaration, call = function/method call site, condition = if/when/switch/case/guard line, return = return or yield, assignment = := or = assignment/write, initializer = field/property/member inside a struct/object/named-argument/designated/config literal, import = import/use/require statement, string_literal = source-code string/char/template literal value itself, text_reference = visible source/config/doc/comment text is itself the evidence. string_literal/text_reference must not be treated as definition/call/assignment proof. Values like direct/conditional/registration belong in evidence_kind, not here. The grounder dispatches on this so wrong anchor kinds produce confusing ungrounded verdicts.",
+							"description": "REQUIRED. Source surface at line_start, NOT the semantic evidence shape. The sibling enum is the sole allowed-value authority. call means direct invocation; callback means a non-invoked callable value passed to a receiving API and proves handoff only. string_literal/text_reference must not be treated as definition/call/assignment proof. Values like direct/conditional/registration belong in evidence_kind, not here. The grounder dispatches on this so wrong anchor kinds produce confusing ungrounded verdicts.",
 						},
 						"anchor_symbol": map[string]any{
 							"type":        "string",
-							"description": "REQUIRED. The identifier or literal value the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias. For string_literal it is the literal value without forcing symbol-definition grounding.",
+							"description": "REQUIRED. The identifier or literal value the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For callback handoff it is the passed callable expression as written, not the receiving API. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias. For string_literal it is the literal value without forcing symbol-definition grounding.",
 						},
 						"snippet": map[string]any{
 							"type":        "string",
@@ -694,6 +697,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	surfaceAlignmentRejected := make(map[int]bool)
 	groundingStart := time.Now()
 	for i := range built {
+		// A callable passed to an executor/framework is a typed handoff, not a
+		// direct invocation. Classify that exact-line shape before call-site
+		// realignment so nearest_call cannot steal the item onto a sibling call.
+		normalizeCallbackHandoffEvidence(&built[i], gc)
 		// A call row may carry the right explicit caller/callee pair but cite a
 		// nearby call to the same leaf (for example collect_files -> walk cited
 		// on walk's later recursive self-call).  Recover the exact already-read
@@ -2012,7 +2019,7 @@ func evidenceKindForAnchorShape(anchorKind types.AnchorKind, in emitEvidenceItem
 	switch anchorKind {
 	case types.AnchorCondition:
 		return types.EvidenceConditional
-	case types.AnchorCall:
+	case types.AnchorCall, types.AnchorCallback:
 		if strings.TrimSpace(in.Object) != "" {
 			return types.EvidenceRelationship
 		}
@@ -2510,6 +2517,55 @@ var callLikePredicates = map[string]bool{
 	"dispatches":   true,
 	"delegates":    true,
 	"delegates to": true,
+}
+
+// normalizeCallbackHandoffEvidence repairs the common schema-category error
+// where a model marks a callable value passed to an executor/framework as a
+// direct call. The rewrite is permitted only when the already-read exact line
+// structurally proves the receiving invocation and non-invoked callable, and
+// the same line does not also prove a direct call to that callable.
+func normalizeCallbackHandoffEvidence(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || (it.AnchorKind != types.AnchorCall && it.AnchorKind != types.AnchorCallback) {
+		return false
+	}
+	target := strings.TrimSpace(firstNonEmpty(it.AnchorSymbol, it.Object))
+	if target == "" || ground.LineHasDirectCallToTarget(gc, it.Source, it.LineStart, target) {
+		return false
+	}
+	receiver, callable, ok := ground.DetectCallbackHandoffAtLine(gc, it.Source, it.LineStart, target)
+	if !ok {
+		return false
+	}
+	// An explicitly typed callback row with contradictory endpoints stays
+	// fail-closed; only fill/canonicalise compatible identities.
+	if it.AnchorKind == types.AnchorCallback {
+		if strings.TrimSpace(it.Subject) != "" && !emitEndpointIdentityCompatible(it.Subject, receiver) {
+			return false
+		}
+		if strings.TrimSpace(it.Object) != "" && !emitEndpointIdentityCompatible(it.Object, callable) {
+			return false
+		}
+	}
+	originalKind := it.AnchorKind
+	it.AnchorKind = types.AnchorCallback
+	it.Kind = types.EvidenceRelationship
+	it.Subject = receiver
+	it.Predicate = "passes callback"
+	it.Object = callable
+	it.AnchorSymbol = callable
+	appendGroundingNoteOnce(it, fmt.Sprintf(
+		"exact source line classified %s as callback handoff %q -> %q; this proves callable-value transfer, not direct execution",
+		originalKind, receiver, callable))
+	return true
+}
+
+func emitEndpointIdentityCompatible(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return left == right || types.CallChainEndpointCompatible(left, right) || types.CallChainEndpointCompatible(right, left)
 }
 
 // normalizeCallEvidenceDirection canonicalises call-site evidence to
@@ -3516,7 +3572,7 @@ func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) 
 		return ""
 	}
 	switch it.AnchorKind {
-	case types.AnchorCall, types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer, types.AnchorStringLiteral:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer, types.AnchorStringLiteral:
 	default:
 		return ""
 	}

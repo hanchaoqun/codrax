@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,6 +35,16 @@ func TestBuildDiagramRelationKindList_SST(t *testing.T) {
 	for i := 1; i < len(parts); i++ {
 		if parts[i-1] > parts[i] {
 			t.Errorf("rendered list not sorted: pos %d (%q) > pos %d (%q)", i-1, parts[i-1], i, parts[i])
+		}
+	}
+}
+
+func TestBuildClaimFormList_SST(t *testing.T) {
+	got := BuildClaimFormList()
+	for _, form := range types.AllClaimForms() {
+		quoted := fmt.Sprintf("`%s`", form)
+		if !strings.Contains(got, quoted) {
+			t.Errorf("BuildClaimFormList missing claim form %q (output=%q)", quoted, got)
 		}
 	}
 }

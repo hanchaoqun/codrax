@@ -49,7 +49,7 @@ func (k ClaimCitationRoleIdentityKind) IsValid() bool {
 // this specific hard gate.
 func (c ClaimForm) CitationRoleIdentityKind() ClaimCitationRoleIdentityKind {
 	switch c {
-	case ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge:
+	case ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge:
 		return ClaimCitationRoleDirectedEdge
 	case ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact,
 		ClaimTextReferenceFact:

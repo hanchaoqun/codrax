@@ -1206,7 +1206,7 @@ type evidenceDiagramEdge struct {
 // model prose or user text. Relation-shaped anchors become graph edges;
 // otherwise definition anchors become a simple component spine.
 func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
-	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge); fence != "" {
+	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge); fence != "" {
 		return fence
 	}
 	return RenderDiagramNodeSetFence(EvidenceDiagramNodes(items, 8), 8)
@@ -1216,7 +1216,7 @@ func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
 // edges. The call_dag diagram kind is rendered as a flowchart because Mermaid's
 // flowchart subset is the renderer-supported, terminal-stable carrier.
 func RenderEvidenceCallDiagramFence(items []EvidenceItem) string {
-	return renderEvidenceRelationDiagramFence(items, ClaimCallEdge)
+	return renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimCallbackHandoff)
 }
 
 // RenderEvidenceSequenceDiagramFence uses the same validated call-edge
@@ -1371,6 +1371,8 @@ func evidenceDiagramRelationLabel(form ClaimForm, item EvidenceItem) string {
 	switch form {
 	case ClaimCallEdge:
 		rel = "calls"
+	case ClaimCallbackHandoff:
+		rel = "hands off"
 	case ClaimImportEdge:
 		rel = "imports"
 	case ClaimRegistrationEdge:

@@ -74,3 +74,17 @@ func BuildDiagramRelationKindList() string {
 	sort.Strings(names)
 	return strings.Join(names, " / ")
 }
+
+// BuildClaimFormList renders the canonical schema vocabulary from the same
+// typed enum used by emit_answer_document. Prompt prose must not hand-copy a
+// partial second enum: that contradiction increases model JSON failures and
+// can make a schema-valid answer look impossible to repair.
+func BuildClaimFormList() string {
+	forms := types.AllClaimForms()
+	names := make([]string, 0, len(forms))
+	for _, form := range forms {
+		names = append(names, fmt.Sprintf("`%s`", string(form)))
+	}
+	sort.Strings(names)
+	return strings.Join(names, " / ")
+}

@@ -33,6 +33,28 @@ func callTargetTestGraph(files ...*repomap.FileInfo) *repomap.Graph {
 	return g
 }
 
+func TestNormalizeCallbackHandoffEvidenceDoesNotMintDirectCall(t *testing.T) {
+	gc := &ground.Context{LineIndex: map[string]map[int]string{
+		"pipeline/runner.py": {17: "await loop.run_in_executor(None, plugin.handle, payload)"},
+	}}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "pipeline/runner.py", LineStart: 17,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "plugin.handle",
+		Subject: "run_pipeline", Predicate: "calls", Object: "plugin.handle",
+	}
+	if !normalizeCallbackHandoffEvidence(&item, gc) {
+		t.Fatal("expected exact callback argument to be reclassified")
+	}
+	if item.AnchorKind != types.AnchorCallback || item.Subject != "loop.run_in_executor" ||
+		item.Object != "plugin.handle" || item.Predicate != "passes callback" {
+		t.Fatalf("unexpected normalized callback item: %+v", item)
+	}
+	if got := types.ClaimFormOf(item); got != types.ClaimCallbackHandoff {
+		t.Fatalf("claim form=%q want %q", got, types.ClaimCallbackHandoff)
+	}
+}
+
 func TestNormalizeCallEvidenceDirectionPrefersResolvedSemanticCallee(t *testing.T) {
 	caller := &repomap.FileInfo{
 		RelPath: "VisitController.java", Language: repomap.LangJava, Package: "com.clinic",

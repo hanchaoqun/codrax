@@ -527,6 +527,10 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 			if matched, matchedOK := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
 			}
+		case types.AnchorCallback:
+			if matched, matchedOK := findCallbackHandoffLine(fileLines, it.LineStart, 2, it, gc); matchedOK {
+				lineNo = matched
+			}
 		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
 			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
@@ -920,7 +924,7 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 		return "", 0, false
 	}
 	switch it.AnchorKind {
-	case types.AnchorCall:
+	case types.AnchorCall, types.AnchorCallback:
 		return "", 0, false
 	case types.AnchorImport:
 		name := preferredSymbolName(it)
@@ -1213,6 +1217,8 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	switch it.AnchorKind {
 	case types.AnchorCall:
 		return recoveredCallAnchorConsistent(it, gc)
+	case types.AnchorCallback:
+		return recoveredCallbackAnchorConsistent(it, gc)
 	case types.AnchorStringLiteral:
 		return recoveredStringLiteralAnchorConsistent(it, gc)
 	default:
@@ -1354,6 +1360,223 @@ func recoveredCallAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	return false
 }
 
+func recoveredCallbackAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
+	return callbackHandoffEndpointsMatch(it, gc)
+}
+
+func callbackHandoffEndpointsMatch(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil || gc == nil || strings.TrimSpace(it.Subject) == "" || strings.TrimSpace(it.Object) == "" {
+		return false
+	}
+	target := strings.TrimSpace(it.AnchorSymbol)
+	if target == "" {
+		target = strings.TrimSpace(it.Object)
+	}
+	receiver, callable, ok := DetectCallbackHandoffAtLine(gc, it.Source, it.LineStart, target)
+	if !ok {
+		return false
+	}
+	return endpointIdentityCompatible(it.Subject, receiver) && endpointIdentityCompatible(it.Object, callable)
+}
+
+func endpointIdentityCompatible(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return left == right ||
+		types.CallChainEndpointCompatible(left, right) ||
+		types.CallChainEndpointCompatible(right, left)
+}
+
+// DetectCallbackHandoffAtLine proves a narrow, cross-language source shape:
+// a callable identity appears as a non-invoked argument inside another call.
+// It returns the receiving call expression and the byte-exact callable
+// expression. The result proves only a value handoff, never later execution.
+//
+// This helper deliberately uses the already-read source line and typed target;
+// it does not inspect request/final prose or language-specific keyword lists.
+// Stable punctuation covers Python/JS/ArkTS/Cangjie function values, Java
+// method references, C/C++ function pointers, Go function values, and their
+// equivalents in the other supported languages.
+func DetectCallbackHandoffAtLine(gc *Context, source string, line int, target string) (string, string, bool) {
+	if gc == nil || line <= 0 || strings.TrimSpace(target) == "" {
+		return "", "", false
+	}
+	source = canonicalContextPath(gc, source)
+	fileLines, ok := gc.LineIndex[source]
+	if !ok || isLineComment(fileLines, line, source) {
+		return "", "", false
+	}
+	raw, ok := fileLines[line]
+	if !ok || strings.TrimSpace(raw) == "" || looksLikeCallableDefinitionLine(raw) {
+		return "", "", false
+	}
+	masked := maskQuotedSourceLine(raw)
+	for _, candidate := range callbackTargetCandidates(target) {
+		for searchFrom := 0; searchFrom < len(masked); {
+			rel := strings.Index(masked[searchFrom:], candidate)
+			if rel < 0 {
+				break
+			}
+			start := searchFrom + rel
+			end := start + len(candidate)
+			searchFrom = start + 1
+			if !sourceIdentityBoundaries(masked, start, end) || sourceIdentityFollowedByCall(masked, end) {
+				continue
+			}
+			if receiver := receivingCallBeforeArgument(masked, start); receiver != "" {
+				return receiver, strings.TrimSpace(raw[start:end]), true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// LineHasDirectCallToTarget distinguishes an invocation of target from a
+// callable-value occurrence on the same source line. It is exported for the
+// emit layer's lossless AnchorCall -> AnchorCallback normalization.
+func LineHasDirectCallToTarget(gc *Context, source string, line int, target string) bool {
+	if gc == nil || line <= 0 || strings.TrimSpace(target) == "" {
+		return false
+	}
+	source = canonicalContextPath(gc, source)
+	fileLines, ok := gc.LineIndex[source]
+	if !ok {
+		return false
+	}
+	text, ok := fileLines[line]
+	if !ok {
+		return false
+	}
+	probe := &types.EvidenceItem{
+		Source: source, LineStart: line, AnchorKind: types.AnchorCall,
+		AnchorSymbol: strings.TrimSpace(target),
+	}
+	return lineCorroboratesCallSite(text, probe, gc.Graph, line)
+}
+
+func callbackTargetCandidates(target string) []string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	return []string{target}
+}
+
+func maskQuotedSourceLine(line string) string {
+	masked := []byte(line)
+	for i := 0; i < len(masked); i++ {
+		if masked[i] == '/' && i+1 < len(masked) && masked[i+1] == '/' {
+			for j := i; j < len(masked); j++ {
+				masked[j] = ' '
+			}
+			break
+		}
+		if masked[i] == '#' && (i == 0 || masked[i-1] == ' ' || masked[i-1] == '\t') {
+			for j := i; j < len(masked); j++ {
+				masked[j] = ' '
+			}
+			break
+		}
+		quote := masked[i]
+		if quote != '\'' && quote != '"' && quote != '`' {
+			continue
+		}
+		end := matchingSourceQuote(masked, i, quote)
+		if end <= i {
+			continue
+		}
+		for j := i; j <= end; j++ {
+			masked[j] = ' '
+		}
+		i = end
+	}
+	return string(masked)
+}
+
+func matchingSourceQuote(line []byte, start int, quote byte) int {
+	for i := start + 1; i < len(line); i++ {
+		if line[i] == '\\' {
+			i++
+			continue
+		}
+		if quote == '\'' && (line[i] == ' ' || line[i] == '\t' || line[i] == ',' || line[i] == '>') {
+			// A lone Rust/C++ lifetime marker such as 'a is not a string.
+			return -1
+		}
+		if line[i] == quote {
+			return i
+		}
+	}
+	return -1
+}
+
+func sourceIdentityBoundaries(line string, start, end int) bool {
+	if start < 0 || end > len(line) || start >= end {
+		return false
+	}
+	if start > 0 && isSourceIdentityByte(line[start-1]) {
+		return false
+	}
+	return end == len(line) || !isSourceIdentityByte(line[end])
+}
+
+func isSourceIdentityByte(ch byte) bool {
+	return ch == '_' || ch == '$' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9'
+}
+
+func sourceIdentityFollowedByCall(line string, end int) bool {
+	for end < len(line) && (line[end] == ' ' || line[end] == '\t' || line[end] == '?' || line[end] == '!') {
+		end++
+	}
+	return end < len(line) && line[end] == '('
+}
+
+func receivingCallBeforeArgument(line string, argumentStart int) string {
+	depth := 0
+	for i := argumentStart - 1; i >= 0; i-- {
+		switch line[i] {
+		case ')', ']', '}':
+			depth++
+		case '(', '[', '{':
+			if depth > 0 {
+				depth--
+				continue
+			}
+			if line[i] != '(' {
+				continue
+			}
+			if receiver := sourceCallIdentityBeforeParen(line, i); receiver != "" {
+				return receiver
+			}
+		}
+	}
+	return ""
+}
+
+func sourceCallIdentityBeforeParen(line string, open int) string {
+	end := open
+	for end > 0 && (line[end-1] == ' ' || line[end-1] == '\t') {
+		end--
+	}
+	start := end
+	for start > 0 {
+		ch := line[start-1]
+		if isSourceIdentityByte(ch) || ch == '.' || ch == ':' || ch == '-' || ch == '>' || ch == '?' || ch == '!' {
+			start--
+			continue
+		}
+		break
+	}
+	receiver := strings.Trim(strings.TrimSpace(line[start:end]), ".:-?>!")
+	if receiver == "" || !types.IsCodeIdentitySurface(receiver) {
+		return ""
+	}
+	return receiver
+}
+
 func snippetContradictsAnchorKind(it *types.EvidenceItem) bool {
 	if it == nil || strings.TrimSpace(it.Snippet) == "" {
 		return false
@@ -1440,6 +1663,13 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 			return 0, false
 		}
 		if isLineComment(fileLines, matchedLine, it.Source) {
+			return 0, false
+		}
+		return matchedLine, true
+	}
+	if it.AnchorKind == types.AnchorCallback {
+		matchedLine, ok := findCallbackHandoffLine(fileLines, it.LineStart, 2, it, gc)
+		if !ok || isLineComment(fileLines, matchedLine, it.Source) {
 			return 0, false
 		}
 		return matchedLine, true
@@ -2401,6 +2631,42 @@ func findCallCorroboratingLine(fileLines map[int]string, center, radius int, it 
 	return 0, false
 }
 
+// findCallbackHandoffLine locates only lines that structurally pass a
+// callable value as an argument to a receiving invocation. Unlike call-site
+// recovery it never searches for a neighbouring invocation of the same leaf,
+// so a callback reference cannot be silently rewritten into an unrelated
+// direct call.
+func findCallbackHandoffLine(fileLines map[int]string, center, radius int, it *types.EvidenceItem, gc *Context) (int, bool) {
+	if it == nil || gc == nil {
+		return 0, false
+	}
+	check := func(line int) bool {
+		if _, ok := fileLines[line]; !ok {
+			return false
+		}
+		probe := *it
+		probe.LineStart = line
+		return callbackHandoffEndpointsMatch(&probe, gc)
+	}
+	if check(center) {
+		return center, true
+	}
+	bestLine, bestDistance := 0, radius+1
+	for line := center - radius; line <= center+radius; line++ {
+		if line <= 0 || line == center || !check(line) {
+			continue
+		}
+		distance := line - center
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < bestDistance {
+			bestLine, bestDistance = line, distance
+		}
+	}
+	return bestLine, bestLine > 0
+}
+
 // ── Tier 2 ────────────────────────────────────────────────────────────
 
 // tier2SymbolTable dispatches on AnchorKind to the repomap-backed
@@ -2440,6 +2706,8 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 		}
 	}
 	switch it.AnchorKind {
+	case types.AnchorCallback:
+		return callbackHandoffEndpointsMatch(it, gc)
 	case types.AnchorTextReference, types.AnchorStringLiteral:
 		return false
 	case types.AnchorImport:
@@ -3105,6 +3373,9 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 			return fmt.Sprintf("anchor_kind %q carries a definition-shaped snippet, not a call-site snippet; re-emit with anchor_kind=%q when citing the declaration, or cite the concrete call-site line with anchor_kind=%q",
 				it.AnchorKind, types.AnchorDefinition, types.AnchorCall)
 		}
+	case types.AnchorCallback:
+		return fmt.Sprintf("anchor_kind %q requires one already-read source line where subject names the receiving call/API and object/anchor_symbol names a non-invoked callable argument; cite that handoff line, or use anchor_kind=%q only for an actual direct invocation",
+			it.AnchorKind, types.AnchorCall)
 	}
 	return ""
 }

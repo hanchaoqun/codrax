@@ -18,10 +18,10 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 	// declared constant. Adding a new ClaimForm constant requires
 	// updating the allClaimForms slice; this guard catches that
 	// drift via length comparison against the known constant count
-	// (12 as of 2026-08-05 registration-edge surface; bump this assertion if you add
+	// (13 as of 2026-08-06 callback-handoff surface; bump this assertion if you add
 	// a new ClaimForm).
-	if len(AllClaimForms()) != 12 {
-		t.Errorf("AllClaimForms length %d != 12 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
+	if len(AllClaimForms()) != 13 {
+		t.Errorf("AllClaimForms length %d != 13 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
 	}
 }
 
@@ -46,7 +46,7 @@ func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
 			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
 		}
 	}
-	for _, c := range []ClaimForm{ClaimDefinitionFact, ClaimCallEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact} {
+	for _, c := range []ClaimForm{ClaimDefinitionFact, ClaimCallEdge, ClaimCallbackHandoff, ClaimRegistrationEdge, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact} {
 		if c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should keep symbol/prose-specific validation", c)
 		}
@@ -71,7 +71,7 @@ func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
 		}
 	}
-	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
 		if !c.SupportsCitationRoleAlignment() {
 			t.Fatalf("claim form %q should support typed citation-role alignment", c)
 		}

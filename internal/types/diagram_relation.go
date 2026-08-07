@@ -64,6 +64,11 @@ const (
 	// dispatches / executes callee. Maps to ClaimCallEdge.
 	DiagramRelCall DiagramRelationKind = "call"
 
+	// DiagramRelCallback denotes a callable-value handoff from a receiving
+	// API/dispatcher to the passed callable. It does not assert that the
+	// callable executed. Maps to ClaimCallbackHandoff and is typed-only.
+	DiagramRelCallback DiagramRelationKind = "callback"
+
 	// DiagramRelGuard denotes a conditional branch edge in a flow
 	// diagram (e.g., `A -->|if x>0| B`). Maps to
 	// ClaimGuardCondition.
@@ -124,6 +129,7 @@ const (
 // excluded — it is a sentinel, not a member of the typed set.
 var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelCall,
+	DiagramRelCallback,
 	DiagramRelGuard,
 	DiagramRelImport,
 	DiagramRelPrecedence,
@@ -162,6 +168,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 	switch rk {
 	case DiagramRelCall:
 		return ClaimCallEdge
+	case DiagramRelCallback:
+		return ClaimCallbackHandoff
 	case DiagramRelGuard:
 		return ClaimGuardCondition
 	case DiagramRelImport:
@@ -193,6 +201,8 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 	switch cf {
 	case ClaimCallEdge:
 		return DiagramRelCall
+	case ClaimCallbackHandoff:
+		return DiagramRelCallback
 	case ClaimGuardCondition:
 		return DiagramRelGuard
 	case ClaimImportEdge:
@@ -285,6 +295,17 @@ func InferRelationFromLabel(label string) DiagramRelationKind {
 		return DiagramRelUnknown
 	}
 	lower := strings.ToLower(trimmed)
+	// `callback` is a typed-only relation name and lexically contains the
+	// legacy keyword `call`. Do not let that substring recast an explicit
+	// handoff label as a direct invocation. A label-only callback remains
+	// unknown/fail-closed; only relation_kind=callback can mint authority.
+	for _, token := range strings.FieldsFunc(lower, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_')
+	}) {
+		if token == string(DiagramRelCallback) {
+			return DiagramRelUnknown
+		}
+	}
 	for _, entry := range diagramRelationKeywords {
 		if strings.Contains(lower, entry.keyword) {
 			return entry.kind

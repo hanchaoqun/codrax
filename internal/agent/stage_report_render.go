@@ -403,6 +403,8 @@ func anchorKindDisplayTag(k types.AnchorKind) string {
 	switch k {
 	case types.AnchorCall:
 		return "(call site)"
+	case types.AnchorCallback:
+		return "(callback handoff)"
 	case types.AnchorDefinition:
 		return "(definition)"
 	case types.AnchorCondition:

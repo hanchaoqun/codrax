@@ -69,7 +69,7 @@ func PrincipalMemberSurfaceForEvidenceSet(item EvidenceItem, peers []EvidenceIte
 	switch form {
 	case ClaimImportEdge:
 		return relationPrincipalMemberSurface(item, peers, relationEndpointImport)
-	case ClaimCallEdge, ClaimRegistrationEdge, ClaimAssignmentFact, ClaimGuardCondition, ClaimReturnFact:
+	case ClaimCallEdge, ClaimCallbackHandoff, ClaimRegistrationEdge, ClaimAssignmentFact, ClaimGuardCondition, ClaimReturnFact:
 		return relationPrincipalMemberSurface(item, peers, relationEndpointSubjectObject)
 	case ClaimPrecedenceRole, ClaimExternalObservation:
 		return PrincipalMemberSurfaceDisplayLabel

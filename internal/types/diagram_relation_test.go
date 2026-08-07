@@ -138,6 +138,14 @@ func TestInferRelationFromLabel_DoesNotMintTypedRegistration(t *testing.T) {
 	}
 }
 
+func TestInferRelationFromLabel_DoesNotRecastTypedOnlyCallbackAsCall(t *testing.T) {
+	for _, label := range []string{"callback", "callback handoff", "passes callback"} {
+		if got := InferRelationFromLabel(label); got != DiagramRelUnknown {
+			t.Fatalf("typed-only callback label %q must not be recast as direct call, got %q", label, got)
+		}
+	}
+}
+
 func TestInferRelationFromLabel_DoesNotMintTypedTypeRelation(t *testing.T) {
 	for _, label := range []string{"inherits Base", "implements Trait", "extends Parent", "embeds Contract"} {
 		if got := InferRelationFromLabel(label); got != DiagramRelUnknown {
