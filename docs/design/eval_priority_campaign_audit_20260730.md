@@ -25443,3 +25443,30 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 `EVAL-B308=production-positive/closed`；`EVAL-B310=production-positive/context-closed`；
 `EVAL-B312=P1-confirmed/next`；`EVAL-B313=P2-confirmed/queued`；
 `EVAL-B217=implementation-closed/production-not-exercised`；模型答案所有权=`preserved`。
+
+### 123.302 S37at：JS/TS/ArkTS 接收者身份由词法 AST 贯通，不从名字或答案猜类型
+
+`EVAL-B312-RECEIVERCONSTRUCTORSELF1` 已在 parser identity 层完成根修，沿既有图解析和证据归一化链自然生效：
+
+1. JS/TS/ArkTS 共用 extractor 现在把具名 class 方法、class field 箭头函数或 static block 内的 `this.method()` 解析为
+   `Class.method`。普通嵌套 `function`、generator 或对象 method 会重新绑定 `this`，因此明确截断；箭头函数按语言语义继承外层 `this`；匿名 class
+   没有可引用的具名身份，继续 unresolved；
+2. 局部变量只在 `const receiver = new Constructor(...)` 且 Constructor 由同一词法域的具名 class 或本文件 import binding 精确授权时提升。
+   `let/var` 因可重赋值不提升；普通 factory 返回、cast、assignment、member-expression constructor 与参数传入的 `new Ctor()` 均不提升；
+3. import alias 保留“本地绑定 -> 声明身份”的映射，例如 `ApiClient as Client` 后 `new Client()` 的 receiver 是 `ApiClient`，可与定义端唯一汇合。
+   参数、局部变量和函数声明的同名遮蔽优先于外层 import/class；遮蔽后保持源 receiver，禁止仅因字符串同名借用外层类型；
+4. 这些 carrier 全部来自 tree-sitter node kind、field、词法作用域、声明顺序和 `const` token，不读取用户问题、模型 thinking/evidence summary/最终答案，
+   也不做类型名形状、后缀剥离或相似度猜测。`ResolveCallTarget -> normalizeCallEvidenceDirection -> typed relation graph` 仍是唯一消费链，系统没有新增
+   endpoint 硬门或代写模型结论；
+5. 正向矩阵钉住 JavaScript、TypeScript、ArkTS 的 `new NamedClass` 与 class `this`，以及 TS 跨文件普通 import、alias import 到唯一 method definition；
+   负向矩阵钉住动态构造器、factory result、mutable receiver、参数遮蔽、匿名 class、普通函数重绑 `this`。既有 lexical-scope 测试同时确认提升不会跨函数或 block
+   污染；
+6. extractor cache epoch 同步提升 JS `5->6`、TS/ArkTS `7->8`，避免旧暖缓存继续发射短 receiver。共享能力矩阵复核保持：Go/Java/Kotlin/Rust/C/C++/
+   Swift/Cangjie 的既有静态 receiver carrier 不变，Python/Ruby/Lua 的动态 receiver 不因本批升级，Proto 仍是声明语言负边界；没有为了 TS fixture 给其他语言造猜测；
+7. `go test ./internal/tool/repomap/index -count=1`、`go test ./internal/tool/repomap/... ./internal/tool ./internal/agent -count=1` 与
+   `go test ./... -count=1` 均通过。本批未修改 JSON schema/教学/repair、Mermaid hard gate、Analyzer endpoint profile、Trace 显式时间窗/因果投影/自动补齐/
+   根因排序/唤醒链/窗内可消除量、read/write controller 或答案正文；模型继续负责链是否完整、根因与优化方向的判断。
+
+状态：`EVAL-B312=S37at-implemented/full-suite-pass/pending-production-replay`；
+`receiver-authority=parser+lexical+immutable-only`；`raw-prose-hard-gate=none`；
+模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`；`EVAL-B313=S37au-next`。

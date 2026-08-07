@@ -395,10 +395,10 @@ func jsExtractEnum(node *sitter.Node, src []byte, file string) (types.Symbol, bo
 
 func jsExtractCalls(root *sitter.Node, src []byte, file string, typed bool) []types.Relation {
 	var rels []types.Relation
-	var receiverDeclarations lexicalReceiverAuthorities
-	if typed {
-		receiverDeclarations = jsReceiverDeclarations(root, src)
-	}
+	// JavaScript lacks declaration annotations, but `new Type(...)` is still a
+	// precise constructor binding. The shared census retains source identities
+	// for everything else, so it is safe for JS as well as TS/ArkTS.
+	receiverDeclarations := jsReceiverDeclarations(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -425,7 +425,13 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string, typed bool) []ty
 				if object := fn.ChildByFieldName("object"); object != nil {
 					receiver = strings.TrimSpace(nodeText(object, src))
 				}
-				if binding := jsReceiverBinding(receiver); binding != "" && receiverDeclarations != nil {
+				// `this` is a parser-owned receiver identity inside a named
+				// class. Resolve it directly to that class instead of leaving
+				// `this.method` disconnected from the method definition. An
+				// anonymous or malformed class stays unresolved.
+				if receiver == "this" {
+					receiver = jsEnclosingNamedClass(node, src)
+				} else if binding := jsReceiverBinding(receiver); binding != "" && receiverDeclarations != nil {
 					if receiverType, declared := lexicalReceiverTypeAt(node, binding, receiverDeclarations, jsReceiverScopeBoundary); declared && receiverType != "" {
 						receiver = receiverType
 					}
@@ -448,6 +454,7 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string, typed bool) []ty
 
 func jsReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
 	declarations := make(lexicalReceiverAuthorities)
+	constructors := jsStaticConstructorAuthorities(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		switch node.Type() {
 		case "required_parameter", "optional_parameter", "variable_declarator", "public_field_definition":
@@ -456,13 +463,115 @@ func jsReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthor
 				name = node.ChildByFieldName("name")
 			}
 			if name != nil {
+				typeName := jsDeclaredTypeName(node.ChildByFieldName("type"), src)
+				// A direct `new Type(...)` initializer is an exact AST type
+				// binding even in JavaScript and in TypeScript code that omits
+				// a redundant annotation. Do not infer from arbitrary calls,
+				// assignments, text, or constructor-looking names.
 				scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
 				scopeWide := node.Type() != "variable_declarator"
-				addScopedReceiverAuthority(declarations, scope, node, nodeText(name, src), jsDeclaredTypeName(node.ChildByFieldName("type"), src), scopeWide)
+				if typeName == "" && node.Type() == "variable_declarator" && jsConstVariableDeclarator(node) {
+					value := node.ChildByFieldName("value")
+					constructor := jsNewExpressionConstructorType(value, src)
+					if constructorType, declared := lexicalReceiverTypeAt(value, constructor, constructors, jsReceiverScopeBoundary); declared {
+						typeName = constructorType
+					}
+				}
+				addScopedReceiverAuthority(declarations, scope, node, nodeText(name, src), typeName, scopeWide)
 			}
 		}
 	})
 	return declarations
+}
+
+// jsStaticConstructorAuthorities is the precise lexical identity admission set
+// for initializer-derived receiver types. Named classes and imported bindings
+// carry stable identities; parameters, local variables and function bindings
+// are recorded as shadows so `new Ctor()` cannot borrow an outer import merely
+// because the source names match.
+func jsStaticConstructorAuthorities(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	authorities := make(lexicalReceiverAuthorities)
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		switch node.Type() {
+		case "class_declaration":
+			if name := node.ChildByFieldName("name"); name != nil {
+				if value := strings.TrimSpace(nodeText(name, src)); value != "" {
+					scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
+					addScopedReceiverAuthority(authorities, scope, node, value, value, false)
+				}
+			}
+		case "import_statement":
+			for local, declared := range jsImportedConstructorBindings(node, src) {
+				addScopedReceiverAuthority(authorities, root, node, local, declared, true)
+			}
+		case "required_parameter", "optional_parameter", "variable_declarator":
+			name := node.ChildByFieldName("pattern")
+			if name == nil {
+				name = node.ChildByFieldName("name")
+			}
+			if name != nil {
+				scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
+				addScopedReceiverAuthority(authorities, scope, node, nodeText(name, src), "", node.Type() != "variable_declarator")
+			}
+		case "function_declaration", "generator_function_declaration":
+			if name := node.ChildByFieldName("name"); name != nil {
+				scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
+				addScopedReceiverAuthority(authorities, scope, node, nodeText(name, src), "", true)
+			}
+		}
+	})
+	return authorities
+}
+
+// jsImportedConstructorBindings returns only local import bindings. For a
+// named alias (`Imported as Local`) the local source name resolves to the
+// declared identity, while namespace objects are deliberately excluded because
+// member-expression constructors require a separate qualified-name carrier.
+func jsImportedConstructorBindings(node *sitter.Node, src []byte) map[string]string {
+	out := make(map[string]string)
+	walkNamedChildren(node, true, func(child *sitter.Node) {
+		switch child.Type() {
+		case "import_specifier":
+			name := child.ChildByFieldName("name")
+			if name == nil {
+				return
+			}
+			declared := strings.TrimSpace(nodeText(name, src))
+			local := declared
+			if alias := child.ChildByFieldName("alias"); alias != nil {
+				local = strings.TrimSpace(nodeText(alias, src))
+			}
+			if local != "" && declared != "" {
+				out[local] = declared
+			}
+		case "identifier":
+			// A direct identifier child of import_clause is the default
+			// binding. Identifiers inside import_specifier are handled above.
+			if parent := child.Parent(); parent != nil && parent.Type() == "import_clause" {
+				local := strings.TrimSpace(nodeText(child, src))
+				if local != "" {
+					out[local] = local
+				}
+			}
+		}
+	})
+	return out
+}
+
+func jsConstVariableDeclarator(node *sitter.Node) bool {
+	if node == nil || node.Type() != "variable_declarator" {
+		return false
+	}
+	parent := node.Parent()
+	if parent == nil || parent.Type() != "lexical_declaration" {
+		return false
+	}
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		if child := parent.Child(i); child != nil && child.Type() == "const" {
+			return true
+		}
+	}
+	return false
 }
 
 func jsReceiverScopeBoundary(node *sitter.Node) bool {
@@ -507,4 +616,67 @@ func jsReceiverBinding(receiver string) string {
 		receiver = receiver[idx+1:]
 	}
 	return strings.TrimSpace(receiver)
+}
+
+// jsNewExpressionConstructorType returns only the direct identifier carried
+// by a `new Type(...)` AST node. Member expressions, factory calls, casts and
+// dynamic constructor values deliberately remain unresolved: this helper is
+// receiver identity authority, not a name-shape heuristic.
+func jsNewExpressionConstructorType(node *sitter.Node, src []byte) string {
+	if node == nil || node.Type() != "new_expression" {
+		return ""
+	}
+	constructor := node.ChildByFieldName("constructor")
+	if constructor == nil && node.NamedChildCount() > 0 {
+		constructor = node.NamedChild(0)
+	}
+	if constructor == nil {
+		return ""
+	}
+	switch constructor.Type() {
+	case "identifier", "type_identifier":
+		return strings.TrimSpace(nodeText(constructor, src))
+	default:
+		return ""
+	}
+}
+
+// jsEnclosingNamedClass resolves the language-defined `this` receiver from
+// tree structure only. Arrow functions preserve the surrounding `this`, while
+// ordinary functions and non-class methods bind their own receiver and must
+// stop the walk. This prevents a nested callback from borrowing class identity.
+func jsEnclosingNamedClass(node *sitter.Node, src []byte) string {
+	for current := node; current != nil; current = current.Parent() {
+		switch current.Type() {
+		case "function", "function_declaration", "function_expression", "generator_function", "generator_function_declaration":
+			return ""
+		case "method_definition":
+			body := current.Parent()
+			if body == nil || body.Type() != "class_body" {
+				return ""
+			}
+			class := body.Parent()
+			if class == nil || class.Type() != "class_declaration" {
+				return ""
+			}
+			return jsNamedClassName(class, src)
+		case "class_declaration":
+			// Class field initializers and static blocks can reach the class
+			// without crossing a method_definition. Arrow functions nested
+			// inside those constructs intentionally remain transparent.
+			return jsNamedClassName(current, src)
+		}
+	}
+	return ""
+}
+
+func jsNamedClassName(class *sitter.Node, src []byte) string {
+	if class == nil || class.Type() != "class_declaration" {
+		return ""
+	}
+	name := class.ChildByFieldName("name")
+	if name == nil {
+		return ""
+	}
+	return strings.TrimSpace(nodeText(name, src))
 }

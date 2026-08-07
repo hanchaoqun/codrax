@@ -230,9 +230,9 @@ var extractorVersions = map[string]int{
 	types.LangGo:         7, // local block shadowing bounds receiver identity
 	types.LangJava:       7, // nested block and declaration-order receiver authority
 	types.LangPython:     8, // static decorator selector applications retain typed roles
-	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
-	types.LangTypeScript: 7, // nested block and declaration-order receiver authority
-	types.LangArkTS:      7, // nested block and declaration-order receiver authority via extractJS
+	types.LangJavaScript: 6, // named-class self and imported/new constructor receiver authority
+	types.LangTypeScript: 8, // named-class self and imported/new constructor receiver authority
+	types.LangArkTS:      8, // named-class self and imported/new constructor authority via extractJS
 	types.LangCangjie:    5, // token receiver identities are brace-scope bounded
 	types.LangKotlin:     7, // nested lambda/block receiver authority
 	types.LangRuby:       4, // receiver-aware call identities

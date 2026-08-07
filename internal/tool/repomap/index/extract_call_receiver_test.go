@@ -106,6 +106,228 @@ func TestStaticLanguageReceiverTypesResolveToDefinitionEndpoints(t *testing.T) {
 	})
 }
 
+func TestJSTSArkTSConstructorAndSelfReceiversResolveToDefinitionEndpoints(t *testing.T) {
+	source := `class ApiClient {
+  fetchUser() {}
+}
+class HttpTransport {
+  send() { return this.dispatchOnce(); }
+  dispatchOnce() {}
+}
+function run() {
+  const client = new ApiClient();
+  client.fetchUser();
+}
+`
+	tests := []struct {
+		name string
+		lang string
+		file string
+		load func(t *testing.T, src []byte, file string) *types.FileInfo
+	}{
+		{
+			name: "javascript", lang: types.LangJavaScript, file: "service.js",
+			load: func(t *testing.T, src []byte, file string) *types.FileInfo {
+				root := parseSourceFor(t, types.LangJavaScript, string(src))
+				pkg, syms, _, rels := extractJS(root, src, file, false)
+				return &types.FileInfo{RelPath: file, Language: types.LangJavaScript, Package: pkg, Symbols: syms, Relations: rels}
+			},
+		},
+		{
+			name: "typescript", lang: types.LangTypeScript, file: "service.ts",
+			load: func(t *testing.T, src []byte, file string) *types.FileInfo {
+				root := parseSourceFor(t, types.LangTypeScript, string(src))
+				pkg, syms, _, rels := extractJS(root, src, file, true)
+				return &types.FileInfo{RelPath: file, Language: types.LangTypeScript, Package: pkg, Symbols: syms, Relations: rels}
+			},
+		},
+		{
+			name: "arkts", lang: types.LangArkTS, file: "service.ets",
+			load: func(t *testing.T, src []byte, file string) *types.FileInfo {
+				pkg, syms, _, rels, tier := extractArkTS(src, file)
+				if tier != 1 {
+					t.Fatalf("ArkTS tier=%d, want primary parser tier 1", tier)
+				}
+				return &types.FileInfo{RelPath: file, Language: types.LangArkTS, Package: pkg, Symbols: syms, Relations: rels}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fi := tc.load(t, []byte(source), tc.file)
+			graph := BuildGraph(t.TempDir(), []*types.FileInfo{fi})
+			want := map[string]string{
+				"fetchUser":    "ApiClient",
+				"dispatchOnce": "HttpTransport",
+			}
+			for _, rel := range fi.Relations {
+				owner, ok := want[rel.ToEP.Name]
+				if !ok || rel.Kind != "call" {
+					continue
+				}
+				if rel.ToEP.Receiver != owner {
+					t.Fatalf("%s receiver=%q, want parser-owned %q: %+v", rel.ToEP.Name, rel.ToEP.Receiver, owner, rel)
+				}
+				target := graph.ResolveCallTarget(fi, rel)
+				if target == nil || target.Name != rel.ToEP.Name || target.Parent != owner {
+					t.Fatalf("%s target=%+v, want %s.%s", rel.ToEP.Name, target, owner, rel.ToEP.Name)
+				}
+				delete(want, rel.ToEP.Name)
+			}
+			if len(want) != 0 {
+				t.Fatalf("unresolved constructor/self receiver calls=%v; relations=%+v symbols=%+v", want, fi.Relations, fi.Symbols)
+			}
+		})
+	}
+}
+
+func TestJSReceiverIdentityDoesNotGuessDynamicOrAnonymousBindings(t *testing.T) {
+	source := `class ApiClient { fetchUser() {} }
+function makeClient() { return new ApiClient(); }
+function run(Ctor) {
+  const factoryClient = makeClient();
+  const dynamicClient = new Ctor();
+  let mutableClient = new ApiClient();
+  factoryClient.fetchUser();
+  dynamicClient.fetchUser();
+  mutableClient.fetchUser();
+}
+const Anonymous = class { invoke() { return this.finish(); } finish() {} };
+`
+	src := []byte(source)
+	root := parseSourceFor(t, types.LangJavaScript, source)
+	_, _, _, rels := extractJS(root, src, "dynamic.js", false)
+	seen := map[string]bool{}
+	for _, rel := range rels {
+		if rel.Kind != "call" {
+			continue
+		}
+		switch {
+		case rel.ToEP.Name == "fetchUser" && rel.ToEP.Receiver == "factoryClient":
+			seen["factory"] = true
+		case rel.ToEP.Name == "fetchUser" && rel.ToEP.Receiver == "dynamicClient":
+			seen["dynamic"] = true
+		case rel.ToEP.Name == "fetchUser" && rel.ToEP.Receiver == "mutableClient":
+			seen["mutable"] = true
+		case rel.ToEP.Name == "finish":
+			seen["anonymous"] = true
+			if rel.ToEP.Receiver != "" {
+				t.Fatalf("anonymous-class this receiver was promoted: %+v", rel)
+			}
+		}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("dynamic/anonymous negative surfaces missing: seen=%v relations=%+v", seen, rels)
+	}
+}
+
+func TestJSClassSelfReceiverHonorsLexicalThisBoundaries(t *testing.T) {
+	source := `class Scoped {
+  run() {
+    const lexical = () => this.finish();
+    function rebound() { return this.finish(); }
+  }
+  finish() {}
+}
+`
+	src := []byte(source)
+	root := parseSourceFor(t, types.LangJavaScript, source)
+	_, _, _, rels := extractJS(root, src, "scoped.js", false)
+	want := map[int]string{3: "Scoped", 4: ""}
+	for _, rel := range rels {
+		if rel.Kind != "call" || rel.ToEP.Name != "finish" {
+			continue
+		}
+		receiver, ok := want[rel.Line]
+		if !ok {
+			continue
+		}
+		if rel.ToEP.Receiver != receiver {
+			t.Fatalf("line %d receiver=%q, want lexical-this authority %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+		}
+		delete(want, rel.Line)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing lexical-this calls=%v; relations=%+v", want, rels)
+	}
+}
+
+func TestTSImportedConstructorReceiverResolvesAcrossFiles(t *testing.T) {
+	mainSource := `import { ApiClient } from "./client";
+export function run() {
+  const client = new ApiClient();
+  client.fetchUser();
+}
+`
+	clientSource := `export class ApiClient { fetchUser() {} }
+`
+	load := func(file, source string) *types.FileInfo {
+		src := []byte(source)
+		root := parseSourceFor(t, types.LangTypeScript, source)
+		pkg, syms, _, rels := extractJS(root, src, file, true)
+		return &types.FileInfo{RelPath: file, Language: types.LangTypeScript, Package: pkg, Symbols: syms, Relations: rels}
+	}
+	mainFile := load("main.ts", mainSource)
+	clientFile := load("client.ts", clientSource)
+	graph := BuildGraph(t.TempDir(), []*types.FileInfo{mainFile, clientFile})
+	for _, rel := range mainFile.Relations {
+		if rel.Kind != "call" || rel.ToEP.Name != "fetchUser" {
+			continue
+		}
+		if rel.ToEP.Receiver != "ApiClient" {
+			t.Fatalf("imported constructor receiver=%q, want ApiClient: %+v", rel.ToEP.Receiver, rel)
+		}
+		target := graph.ResolveCallTarget(mainFile, rel)
+		if target == nil || target.Name != "fetchUser" || target.Parent != "ApiClient" || target.File != "client.ts" {
+			t.Fatalf("cross-file imported constructor target=%+v", target)
+		}
+		return
+	}
+	t.Fatalf("missing imported constructor call relation: %+v", mainFile.Relations)
+}
+
+func TestTSImportedConstructorAliasesAndShadowsRemainLexicallyExact(t *testing.T) {
+	mainSource := `import { ApiClient as Client } from "./client";
+export function aliased() { const client = new Client(); client.fetchUser(); }
+export function shadowed(Client) { const client = new Client(); client.fetchUser(); }
+export function mutable() { let client = new Client(); client.fetchUser(); }
+`
+	clientSource := `export class ApiClient { fetchUser() {} }
+`
+	load := func(file, source string) *types.FileInfo {
+		src := []byte(source)
+		root := parseSourceFor(t, types.LangTypeScript, source)
+		pkg, syms, _, rels := extractJS(root, src, file, true)
+		return &types.FileInfo{RelPath: file, Language: types.LangTypeScript, Package: pkg, Symbols: syms, Relations: rels}
+	}
+	mainFile := load("main.ts", mainSource)
+	clientFile := load("client.ts", clientSource)
+	graph := BuildGraph(t.TempDir(), []*types.FileInfo{mainFile, clientFile})
+	want := map[int]string{2: "ApiClient", 3: "client", 4: "client"}
+	for _, rel := range mainFile.Relations {
+		if rel.Kind != "call" || rel.ToEP.Name != "fetchUser" {
+			continue
+		}
+		receiver, ok := want[rel.Line]
+		if !ok {
+			continue
+		}
+		if rel.ToEP.Receiver != receiver {
+			t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+		}
+		if rel.Line == 2 {
+			target := graph.ResolveCallTarget(mainFile, rel)
+			if target == nil || target.Parent != "ApiClient" || target.Name != "fetchUser" {
+				t.Fatalf("aliased imported constructor target=%+v", target)
+			}
+		}
+		delete(want, rel.Line)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing alias/shadow receiver cases=%v relations=%+v", want, mainFile.Relations)
+	}
+}
+
 func TestRustInlineModuleCallIdentityKeepsWrapperAndCoreDistinct(t *testing.T) {
 	source := `pub fn tokenize_bytes(input: &[u8], table: &MergeTable) -> Vec<u32> {
 	vec![]
@@ -316,6 +538,10 @@ func TestNavigationReceiverBindingsStayInsideLexicalScope(t *testing.T) {
 }
 
 func TestStaticReceiverBindingsStayInsideLanguageLexicalScopes(t *testing.T) {
+	// JS-family direct named constructors are exact AST receiver authority and
+	// therefore resolve to Other. Rust/Cangjie keep the source binding until
+	// their own extractors expose an equally precise constructor carrier. In
+	// every lane the binding remains local to inferred() and cannot taint typed().
 	tests := []struct {
 		name     string
 		language string
@@ -332,7 +558,7 @@ func TestStaticReceiverBindingsStayInsideLanguageLexicalScopes(t *testing.T) {
 				_, _, _, rels := extractJS(root, src, file, true)
 				return rels
 			},
-			want: map[int]string{3: "Worker", 4: "repo"},
+			want: map[int]string{3: "Worker", 4: "Other"},
 		},
 		{
 			name: "arkts", language: types.LangArkTS, file: "service.ets",
@@ -341,7 +567,7 @@ func TestStaticReceiverBindingsStayInsideLanguageLexicalScopes(t *testing.T) {
 				_, _, _, rels, _ := extractArkTS(src, file)
 				return rels
 			},
-			want: map[int]string{3: "Worker", 4: "repo"},
+			want: map[int]string{3: "Worker", 4: "Other"},
 		},
 		{
 			name: "rust", language: types.LangRust, file: "service.rs",
@@ -556,7 +782,7 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 	// pre-change warm caches, including languages sharing one implementation.
 	floors := map[string]int{
 		types.LangJava: 7, types.LangPython: 7,
-		types.LangJavaScript: 5, types.LangTypeScript: 7, types.LangArkTS: 7,
+		types.LangJavaScript: 6, types.LangTypeScript: 8, types.LangArkTS: 8,
 		types.LangCangjie: 5, types.LangKotlin: 7, types.LangRuby: 4,
 		types.LangSwift: 6, types.LangLua: 5, types.LangRust: 6,
 		types.LangGo: 7, types.LangC: 5, types.LangCpp: 6,
