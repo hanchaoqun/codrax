@@ -25240,6 +25240,8 @@ r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 7. 聚焦 production 同形测试通过后，完整执行 `go test ./internal/types ./internal/tool -count=1`，两包全绿（types 22.314s、tool
    165.204s）。本批不修改 Analyzer JSON schema/教学、Explorer/Finalizer 内容指令、答案正文、Trace 路由/查询/投影/自动补采、Mermaid 或 write mode；模型结论仍由模型给出，系统只维护
    typed completion 状态机。
+8. 后续全仓回归的 IR delivery tripwire 抓到 `evidence_closure.go` 因新增方法从预算内增长到 2639 行（上限 2630）。没有抬高预算；将 lane-local
+   caveat/repair authority 拆到 `evidence_closure_completion_caveat.go`，主热文件降至 2579 行。ratchet、types convergence 与 production 同形 tool 测试重新全绿；行为不变。
 
 状态：`EVAL-B304=S37ao-implemented/affected-package-suite-pass`；
 `convergence-authority=monotonic-per-lane`；`new-typed-evidence=upgrade-supported`；
