@@ -22488,3 +22488,34 @@ JSON 教学同期做了单源一致性复核：
 状态：`EVAL-B219-MENTIONHARD1=S36f-closed/focused-pass`；
 `JSON-SCHEMA-SINGLE-AUTHORITY=audited/pinned`；`EVAL-B220-DYNDISPATCH1=P1-next`；
 `EVAL-B217-FLOWUNLABELED1=P1-blocked-on-B220`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.195 S36g：跨语言动态分派组合改为 typed 候选配方，C++ 静态接收者缺口闭环
+
+`EVAL-B220-DYNDISPATCH1` 已按“事实供给、模型裁决”落地，不新增图表硬门，也不把虚分派伪造成直接调用边。
+全支持语言矩阵复核覆盖 Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、Proto、ArkTS 与
+Cangjie；各语言继续由自身 parser/extractor 生产静态 call 与 inheritance/embedding/implements 等结构事实，成文层不按语言名或源码词表分支。
+
+本批增加一个通用的 `Typed dynamic-dispatch compositions (candidate-only)` 软上下文：只有当同一 typed evidence pool 中同时存在
+“静态接收者调用”“候选类型到静态类型的结构关系”“候选同名实现体的下游调用”时，才把三条各自可引用的事实并置；若另有精确
+registration/binding 行，则只作为 `binding_candidate` 附带。组合状态固定为 `runtime_selection_status=conditional`，明确要求：
+
+1. sequence 图保留静态 call 与实现体 call 两条独立边，类型到候选实现的边界用 `Note over` 表示，不铸造 message arrow；
+2. architecture/call-DAG 图可把既有结构事实写成 `relation_kind=type_relation`，把既有注册事实写成 `relation_kind=register`，两者不得改写为 call；
+3. 最终是否已证明当前请求选中了该运行时实现，仍由模型结合 binding/request 证据判断。系统不替换模型结论，也不扫描用户原文、模型思考或
+   最终答案来决定组合或发布。
+
+r141 的 C++ witness 还暴露了更上游的精确缺口：`std::unique_ptr<Sink> sink_` 是 class field，旧 receiver census 只接受参数和块内局部变量，
+导致 `sink_->write` 仍以源码变量名而不是静态类型 `Sink.write` 发出。现在 class/struct field 成为同类型词法域内的 parser-owned authority；
+仅标准 `unique_ptr/shared_ptr` 按 `operator->` 语义取首个模板类型，未知包装器保持外层声明类型，不从模板实参猜运行时目标。C++ extractor
+版本从 5 升到 6，旧暖缓存会确定性失效；正向、未知包装器负向和 emit-evidence 端到端 pin 均已补齐。
+
+失败关闭边界：缺少限定的静态 receiver owner、缺少结构关系或缺少同名实现体 call 时不输出组合；不会用普通 mentioned entity、相似度、
+最终 prose 或 Mermaid 文本补边。`EVAL-B217-FLOWUNLABELED1` 因此解除 B220 前置阻塞，下一批统一处理所有 source-relation 图 body edge 的
+typed relation ownership，不能按 C++ 单案硬补。
+
+验证：聚焦 receiver/cache/emit/composition 测试全绿；`go test ./internal/tool/repomap/index ./internal/tool ./internal/agent` 全绿；
+`go test ./...` 全绿。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量以及“真实耗时贡献/规则内可消除量”双维度
+未进入本批控制流。
+
+状态：`EVAL-B220-DYNDISPATCH1=S36g-closed/all-language-audited`；
+`EVAL-B217-FLOWUNLABELED1=P1-next/unblocked`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace=`not-touched`。

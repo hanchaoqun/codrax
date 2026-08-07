@@ -2833,7 +2833,12 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 
 const answerDocRuntimeTargetRelationCapsuleLimit = 18
 
-// renderAnswerDocRuntimeTargetRelationCapsule places the three relation
+type answerDocRuntimeTargetRelationRow struct {
+	family string
+	item   types.EvidenceItem
+}
+
+// renderAnswerDocRuntimeTargetRelationCapsule places the typed relation
 // families needed for dynamic target discovery next to each other without
 // collapsing them into a synthetic call path. Every row comes from a citable
 // typed EvidenceItem; no model prose, investigation notes, or request keyword
@@ -2844,15 +2849,11 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	if len(pool) == 0 {
 		return ""
 	}
-	type capsuleRow struct {
-		family string
-		item   types.EvidenceItem
-	}
-	registrations := make([]capsuleRow, 0)
-	structural := make([]capsuleRow, 0)
-	valueFlowCandidates := make([]capsuleRow, 0)
-	callbacks := make([]capsuleRow, 0)
-	calls := make([]capsuleRow, 0)
+	registrations := make([]answerDocRuntimeTargetRelationRow, 0)
+	structural := make([]answerDocRuntimeTargetRelationRow, 0)
+	valueFlowCandidates := make([]answerDocRuntimeTargetRelationRow, 0)
+	callbacks := make([]answerDocRuntimeTargetRelationRow, 0)
+	calls := make([]answerDocRuntimeTargetRelationRow, 0)
 	seen := make(map[string]struct{})
 	for _, original := range pool {
 		item := original
@@ -2870,13 +2871,14 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		if _, duplicate := seen[id]; duplicate {
 			continue
 		}
-		row := capsuleRow{item: item}
+		row := answerDocRuntimeTargetRelationRow{item: item}
 		switch {
 		case types.ClaimFormOf(item) == types.ClaimRegistrationEdge:
 			row.family = "registration_or_binding"
 			registrations = append(registrations, row)
-		case item.Producer == "repomap_structural_relation" &&
-			(item.Predicate == "inheritance" || item.Predicate == "embedding"):
+		case (item.Producer == types.EvidenceProducerRepoMapStructuralRelation ||
+			item.Producer == types.EvidenceProducerRepoMapImplementerRelation) &&
+			(item.Predicate == "inheritance" || item.Predicate == "embedding" || item.Predicate == "implements"):
 			row.family = "declared_type_relation"
 			structural = append(structural, row)
 		case (item.Producer == "concrete_values" || item.Producer == "bridge_literal") &&
@@ -2922,7 +2924,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		addConnectedEndpoint(row.item.Subject)
 		addConnectedEndpoint(row.item.Object)
 	}
-	valueFlows := make([]capsuleRow, 0, len(valueFlowCandidates))
+	valueFlows := make([]answerDocRuntimeTargetRelationRow, 0, len(valueFlowCandidates))
 	for _, row := range valueFlowCandidates {
 		subjectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Subject)))
 		objectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Object)))
@@ -2955,8 +2957,8 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		}
 		return false
 	})
-	ordered := make([]capsuleRow, 0, answerDocRuntimeTargetRelationCapsuleLimit)
-	appendBounded := func(rows []capsuleRow, familyCap int) {
+	ordered := make([]answerDocRuntimeTargetRelationRow, 0, answerDocRuntimeTargetRelationCapsuleLimit)
+	appendBounded := func(rows []answerDocRuntimeTargetRelationRow, familyCap int) {
 		for i, row := range rows {
 			if i >= familyCap || len(ordered) >= answerDocRuntimeTargetRelationCapsuleLimit {
 				return
@@ -3001,7 +3003,159 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		b.WriteString("\n")
 	}
 	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime. A callback-handoff row proves only that a receiving API was given a callable value, not that it later executed.\n")
+	if compositions := renderAnswerDocRuntimeDispatchCompositions(registrations, structural, calls); compositions != "" {
+		b.WriteString("\n")
+		b.WriteString(compositions)
+	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+const answerDocRuntimeDispatchCompositionLimit = 4
+
+// renderAnswerDocRuntimeDispatchCompositions joins only exact typed relation
+// rows already present in the runtime-target capsule. The join is deliberately
+// candidate-only: a static receiver call plus a declared subtype/implementer
+// and a same-operation implementation body explains how dispatch *could* be
+// represented, but it cannot prove which runtime value was selected. This is
+// soft model context, never an answer rewrite or emit-time gate.
+func renderAnswerDocRuntimeDispatchCompositions(
+	registrations, structural, calls []answerDocRuntimeTargetRelationRow,
+) string {
+	type composition struct {
+		staticCall         types.EvidenceItem
+		typeRelation       types.EvidenceItem
+		implementationCall types.EvidenceItem
+		bindingCandidate   *types.EvidenceItem
+	}
+	var compositions []composition
+	seen := make(map[string]struct{})
+	for _, staticRow := range calls {
+		staticOwner, operation := answerDocDispatchEndpointParts(staticRow.item.Object)
+		if staticOwner == "" || operation == "" {
+			continue
+		}
+		for _, typeRow := range structural {
+			child := strings.TrimSpace(typeRow.item.Subject)
+			base := strings.TrimSpace(typeRow.item.Object)
+			if child == "" || base == "" || !answerDocDispatchIdentityCompatible(staticOwner, base) {
+				continue
+			}
+			for _, implementationRow := range calls {
+				implementationOwner, implementationOperation := answerDocDispatchEndpointParts(
+					firstNonEmptyAnswerDocString(implementationRow.item.OwnerSymbol, implementationRow.item.Subject),
+				)
+				if implementationOwner == "" || implementationOperation == "" ||
+					!strings.EqualFold(operation, implementationOperation) ||
+					!answerDocDispatchIdentityCompatible(implementationOwner, child) {
+					continue
+				}
+				key := strings.ToLower(strings.Join([]string{
+					answerDocEvidenceIdentity(staticRow.item),
+					answerDocEvidenceIdentity(typeRow.item),
+					answerDocEvidenceIdentity(implementationRow.item),
+				}, "\x00"))
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				seen[key] = struct{}{}
+				candidate := composition{
+					staticCall:         staticRow.item,
+					typeRelation:       typeRow.item,
+					implementationCall: implementationRow.item,
+				}
+				for i := range registrations {
+					if answerDocDispatchIdentityCompatible(registrations[i].item.Object, child) {
+						binding := registrations[i].item
+						candidate.bindingCandidate = &binding
+						break
+					}
+				}
+				compositions = append(compositions, candidate)
+				if len(compositions) >= answerDocRuntimeDispatchCompositionLimit {
+					break
+				}
+			}
+			if len(compositions) >= answerDocRuntimeDispatchCompositionLimit {
+				break
+			}
+		}
+		if len(compositions) >= answerDocRuntimeDispatchCompositionLimit {
+			break
+		}
+	}
+	if len(compositions) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Typed dynamic-dispatch compositions (candidate-only)\n\n")
+	b.WriteString("Each row below is a lossless composition of separate typed facts. It is a diagram/explanation recipe, not proof that the candidate implementation was selected at runtime.\n\n")
+	for i, candidate := range compositions {
+		fmt.Fprintf(&b, "- candidate `%d`: static_call=`%s -> %s` [%s] @ %s; type_relation=`%s -> %s` [%s] @ %s; implementation_body_call=`%s -> %s` [%s] @ %s",
+			i+1,
+			answerDocCallChainInline(firstNonEmptyAnswerDocString(candidate.staticCall.OwnerSymbol, candidate.staticCall.Subject)),
+			answerDocCallChainInline(candidate.staticCall.Object),
+			answerDocCallChainInline(answerDocEvidenceIdentity(candidate.staticCall)),
+			answerDocCallChainInline(candidate.staticCall.DisplayLocation(true)),
+			answerDocCallChainInline(candidate.typeRelation.Subject),
+			answerDocCallChainInline(candidate.typeRelation.Object),
+			answerDocCallChainInline(answerDocEvidenceIdentity(candidate.typeRelation)),
+			answerDocCallChainInline(candidate.typeRelation.DisplayLocation(true)),
+			answerDocCallChainInline(firstNonEmptyAnswerDocString(candidate.implementationCall.OwnerSymbol, candidate.implementationCall.Subject)),
+			answerDocCallChainInline(candidate.implementationCall.Object),
+			answerDocCallChainInline(answerDocEvidenceIdentity(candidate.implementationCall)),
+			answerDocCallChainInline(candidate.implementationCall.DisplayLocation(true)),
+		)
+		if candidate.bindingCandidate != nil {
+			fmt.Fprintf(&b, "; binding_candidate=`%s -> %s` [%s] @ %s",
+				answerDocCallChainInline(candidate.bindingCandidate.Subject),
+				answerDocCallChainInline(candidate.bindingCandidate.Object),
+				answerDocCallChainInline(answerDocEvidenceIdentity(*candidate.bindingCandidate)),
+				answerDocCallChainInline(candidate.bindingCandidate.DisplayLocation(true)),
+			)
+		}
+		b.WriteString("; runtime_selection_status=`conditional`\n")
+	}
+	b.WriteString("\n- Safe diagram construction: keep `static_call` and `implementation_body_call` as separate call edges. In a sequence diagram, describe the base-to-candidate dispatch boundary with a `Note over` rather than a message arrow. In an architecture/call-DAG diagram, the subtype/implements edge may use `relation_kind=type_relation` and an exact binding may use `relation_kind=register`; neither may be recast as `call`. The model decides whether the binding and current request prove a selected runtime target.\n")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocDispatchEndpointParts(raw string) (string, string) {
+	identity := strings.TrimSpace(raw)
+	if identity == "" {
+		return "", ""
+	}
+	if idx := strings.Index(identity, "("); idx >= 0 {
+		identity = identity[:idx]
+	}
+	for _, separator := range []string{"::", "->", "#", "/"} {
+		identity = strings.ReplaceAll(identity, separator, ".")
+	}
+	identity = strings.Trim(identity, " .`*&")
+	idx := strings.LastIndex(identity, ".")
+	if idx <= 0 || idx+1 >= len(identity) {
+		return "", ""
+	}
+	return strings.TrimSpace(identity[:idx]), strings.TrimSpace(identity[idx+1:])
+}
+
+func answerDocDispatchIdentityCompatible(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return strings.EqualFold(left, right) ||
+		types.CallChainEndpointCompatible(left, right) ||
+		types.CallChainEndpointCompatible(right, left)
+}
+
+func firstNonEmptyAnswerDocString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) string {

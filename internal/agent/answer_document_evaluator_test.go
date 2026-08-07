@@ -1006,6 +1006,64 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 	}
 }
 
+func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicDispatchComposition(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "Facade.run", SinkMode: types.CallChainSinkResolutionDiscover,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "E-static", Kind: types.EvidenceRelationship, Subject: "Facade.run", OwnerSymbol: "Facade.run", Predicate: "calls", Object: "BaseSink.write", Source: "src/facade.ext", LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+			{ID: "E-type", Kind: types.EvidenceRelationship, Subject: "ConsoleSink", Predicate: "implements", Object: "BaseSink", Source: "src/console.ext", LineStart: 4, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapImplementerRelation},
+			{ID: "E-body", Kind: types.EvidenceRelationship, Subject: "ConsoleSink.write", OwnerSymbol: "ConsoleSink.write", Predicate: "calls", Object: "IO.write", Source: "src/console.ext", LineStart: 9, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+			{ID: "E-bind", Kind: types.EvidenceRegistration, Subject: "SinkFactory.create", Predicate: "binds", Object: "ConsoleSink", Source: "src/factory.ext", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"### Typed dynamic-dispatch compositions (candidate-only)",
+		"static_call=`Facade.run -> BaseSink.write` [E-static] @ src/facade.ext:20",
+		"type_relation=`ConsoleSink -> BaseSink` [E-type] @ src/console.ext:4",
+		"implementation_body_call=`ConsoleSink.write -> IO.write` [E-body] @ src/console.ext:9",
+		"binding_candidate=`SinkFactory.create -> ConsoleSink` [E-bind] @ src/factory.ext:11",
+		"runtime_selection_status=`conditional`",
+		"keep `static_call` and `implementation_body_call` as separate call edges",
+		"`relation_kind=type_relation`",
+		"The model decides whether the binding and current request prove a selected runtime target",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed dispatch composition missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"BaseSink.write -> ConsoleSink.write",
+		"Facade.run -> ConsoleSink.write",
+		"runtime_selection_status=`proven`",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("candidate composition minted an unsupported dispatch edge/status %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestRenderAnswerDocRuntimeDispatchCompositions_NoTypedOwnerJoinStandsDown(t *testing.T) {
+	calls := []answerDocRuntimeTargetRelationRow{{family: "static_call", item: types.EvidenceItem{
+		ID: "E-dynamic", Kind: types.EvidenceRelationship, Subject: "Facade.run", Predicate: "calls", Object: "receiver.write",
+		Source: "src/facade.ext", LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorCall,
+	}}}
+	structural := []answerDocRuntimeTargetRelationRow{{family: "declared_type_relation", item: types.EvidenceItem{
+		ID: "E-type", Kind: types.EvidenceRelationship, Subject: "ConsoleSink", Predicate: "implements", Object: "BaseSink",
+		Source: "src/console.ext", LineStart: 4, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+	}}}
+	if got := renderAnswerDocRuntimeDispatchCompositions(nil, structural, calls); got != "" {
+		t.Fatalf("unresolved source receiver must not be guessed into a typed dispatch composition:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf(t *testing.T) {
 	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
 		Disposition:    types.CallChainEndpointNoDirectedPath,

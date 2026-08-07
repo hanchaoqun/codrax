@@ -426,20 +426,21 @@ func cReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthori
 				scope := lexicalReceiverBindingScope(node, root, cReceiverScopeBoundary)
 				addScopedReceiverAuthority(authorities, scope, node, cDeclaratorName(declarator, src), typeName, true)
 			}
-		case "declaration":
+		case "declaration", "field_declaration":
 			scope := lexicalReceiverBindingScope(node, root, cReceiverScopeBoundary)
-			// Only block-local declarations can shadow a parameter. File/class
-			// declarations have no proven object-to-field binding for a call.
-			if scope == nil || scope.Type() != "compound_statement" {
+			// Block-local declarations can shadow parameters. A class/struct field
+			// is also exact receiver authority for methods lexically enclosed by
+			// that same type. File-level variables remain excluded: a declaration
+			// alone does not prove which external object a later call receiver
+			// denotes.
+			scopeWide := scope != nil && (scope.Type() == "class_specifier" || scope.Type() == "struct_specifier")
+			if scope == nil || (scope.Type() != "compound_statement" && !scopeWide) {
 				return
 			}
-			typeName := cDeclaredTypeName(node.ChildByFieldName("type"), src)
-			if typeName == "" {
-				typeName = cDeclaredTypeName(node, src)
-			}
+			typeName := cDeclaredReceiverTypeName(node, src)
 			for i := 0; i < int(node.NamedChildCount()); i++ {
 				if name := cDeclaratorName(node.NamedChild(i), src); name != "" {
-					addScopedReceiverAuthority(authorities, scope, node, name, typeName, false)
+					addScopedReceiverAuthority(authorities, scope, node, name, typeName, scopeWide)
 				}
 			}
 		}
@@ -453,11 +454,49 @@ func cReceiverScopeBoundary(node *sitter.Node) bool {
 	}
 	switch node.Type() {
 	case "compound_statement", "for_statement", "if_statement", "switch_statement", "while_statement",
-		"do_statement", "try_statement", "catch_clause", "function_definition", "lambda_expression":
+		"do_statement", "try_statement", "catch_clause", "function_definition", "lambda_expression",
+		"class_specifier", "struct_specifier":
 		return true
 	default:
 		return false
 	}
+}
+
+// cDeclaredReceiverTypeName returns the statically dispatched receiver type
+// owned by one C/C++ declaration. Ordinary pointers/references use their
+// declared outer type. The two standard smart-pointer templates have
+// operator-> semantics, so their first template type is the receiver target;
+// unknown wrappers remain on their declared outer type instead of guessing
+// from a nested template argument.
+func cDeclaredReceiverTypeName(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	typeNode := node.ChildByFieldName("type")
+	if typeNode == nil {
+		typeNode = node
+	}
+	var typeNames []string
+	walkNamedChildren(typeNode, true, func(child *sitter.Node) {
+		if child.Type() != "type_identifier" {
+			return
+		}
+		name := strings.TrimSpace(nodeText(child, src))
+		if name != "" {
+			typeNames = append(typeNames, name)
+		}
+	})
+	if len(typeNames) == 0 {
+		return cDeclaredTypeName(typeNode, src)
+	}
+	outer := typeNames[0]
+	switch strings.TrimSpace(outer) {
+	case "unique_ptr", "shared_ptr":
+		if len(typeNames) > 1 {
+			return typeNames[1]
+		}
+	}
+	return outer
 }
 
 func cDeclaredTypeName(node *sitter.Node, src []byte) string {

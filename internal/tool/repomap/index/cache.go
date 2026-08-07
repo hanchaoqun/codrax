@@ -241,7 +241,7 @@ var extractorVersions = map[string]int{
 	types.LangProto:      2,
 	types.LangRust:       7, // inline-module callable identity and scoped-path resolution
 	types.LangC:          5, // block-local declarations shadow parameter receiver identity
-	types.LangCpp:        5, // block-local declarations shadow parameter receiver identity
+	types.LangCpp:        6, // class fields carry parser-owned static receiver identity
 }
 
 type cacheFileInfosManifest struct {

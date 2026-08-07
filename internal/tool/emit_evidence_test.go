@@ -4129,6 +4129,51 @@ func TestEmitEvidence_CallOwnerSymbolKeepsParserQualifiedPackageIdentity(t *test
 	}
 }
 
+func TestEmitEvidence_CppVirtualCallKeepsStaticReceiverMethodIdentity(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/logger.cpp", 36, "sink_->write(line);")
+	loggerFile := &repomap.FileInfo{
+		RelPath: "src/logger.cpp", Language: repomap.LangCpp, Package: "logx",
+		Symbols: []repomap.Symbol{
+			{Name: "Logger", Kind: "class", File: "src/logger.cpp", Line: 20, EndLine: 52},
+			{Name: "log", Kind: "method", Parent: "Logger", File: "src/logger.cpp", Line: 29, EndLine: 40},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "src/logger.cpp", Line: 36,
+			ToEP:       repomap.RelationEndpoint{Name: "write", Receiver: "Sink"},
+			Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "cpp_ast_field_call",
+		}},
+	}
+	sinkFile := &repomap.FileInfo{
+		RelPath: "include/logx/sink.hpp", Language: repomap.LangCpp, Package: "logx",
+		Symbols: []repomap.Symbol{
+			{Name: "Sink", Kind: "class", File: "include/logx/sink.hpp", Line: 7, EndLine: 14},
+			{Name: "write", Kind: "method", Parent: "Sink", File: "include/logx/sink.hpp", Line: 10, EndLine: 10, Arity: 1},
+		},
+	}
+	sinkFile.Symbols[1].ID = repomap.MakeSymbolID(repomap.LangCpp, "logx", "Sink", "write", 1)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			loggerFile.RelPath: loggerFile,
+			sinkFile.RelPath:   sinkFile,
+		},
+		MethodIndex: map[repomap.MethodKey]*repomap.Symbol{
+			{Pkg: "logx", Receiver: "Sink", Name: "write"}: &sinkFile.Symbols[1],
+		},
+	})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"Logger::log","predicate":"calls","object":"sink_->write","source":"src/logger.cpp","line_start":36,"summary":"virtual call through the held sink","anchor_kind":"call","anchor_symbol":"write","snippet":"sink_->write(line);"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("C++ virtual call should ground, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Subject != "Logger.log" || got[0].OwnerSymbol != "Logger.log" ||
+		got[0].Object != "Sink.write" || got[0].AnchorSymbol != "Sink.write" {
+		t.Fatalf("virtual call must preserve parser-owned static receiver identity: %+v", got)
+	}
+}
+
 func TestEmitEvidence_SparseGroundedCallStampsQualifiedCallerAndPredicate(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

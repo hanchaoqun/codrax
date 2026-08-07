@@ -190,6 +190,52 @@ void local_call(void) { Other *worker; worker->run(); }
 	}
 }
 
+func TestCppClassFieldSmartPointerCarriesStaticDispatchType(t *testing.T) {
+	src := []byte(`#include <memory>
+class Sink { public: virtual void write() = 0; };
+class Logger {
+ public:
+  void log() { sink_->write(); }
+ private:
+  std::unique_ptr<Sink> sink_;
+};
+`)
+	root := parseSourceFor(t, types.LangCpp, string(src))
+	_, _, _, rels := extractCCpp(root, src, "logger.cpp", types.LangCpp)
+	for _, rel := range rels {
+		if rel.Kind == "call" && rel.ToEP.Name == "write" {
+			if rel.ToEP.Receiver != "Sink" {
+				t.Fatalf("class-field virtual call receiver=%q, want parser-owned static type Sink: %+v", rel.ToEP.Receiver, rel)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing sink_->write call relation: %+v", rels)
+}
+
+func TestCppClassFieldUnknownWrapperDoesNotGuessNestedReceiverType(t *testing.T) {
+	src := []byte(`class Sink { public: void write(); };
+template <typename T> class Holder { public: T *operator->(); };
+class Logger {
+ public:
+  void log() { sink_->write(); }
+ private:
+  Holder<Sink> sink_;
+};
+`)
+	root := parseSourceFor(t, types.LangCpp, string(src))
+	_, _, _, rels := extractCCpp(root, src, "logger.cpp", types.LangCpp)
+	for _, rel := range rels {
+		if rel.Kind == "call" && rel.ToEP.Name == "write" {
+			if rel.ToEP.Receiver != "Holder" {
+				t.Fatalf("unknown wrapper receiver=%q, want declared outer type Holder rather than guessed Sink: %+v", rel.ToEP.Receiver, rel)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing sink_->write call relation: %+v", rels)
+}
+
 func TestNavigationReceiverCensusIgnoresInitializerTypes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -513,7 +559,7 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 		types.LangJavaScript: 5, types.LangTypeScript: 7, types.LangArkTS: 7,
 		types.LangCangjie: 5, types.LangKotlin: 7, types.LangRuby: 4,
 		types.LangSwift: 6, types.LangLua: 5, types.LangRust: 6,
-		types.LangGo: 7, types.LangC: 5, types.LangCpp: 5,
+		types.LangGo: 7, types.LangC: 5, types.LangCpp: 6,
 	}
 	for language, floor := range floors {
 		if got := extractorVersions[language]; got < floor {
