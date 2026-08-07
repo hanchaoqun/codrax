@@ -795,6 +795,28 @@ func TestCompileEnumeration_PrincipalListAllowsAllFacetPrincipalForms(t *testing
 	}
 }
 
+func TestCompileEnumeration_PerMemberTableHasNoDeleteToListEscape(t *testing.T) {
+	ir := irForEnumeration()
+	ir.RequestModel.Predicates.HasPerMemberTable = true
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	var carrier *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if containsString(view.RequiredBlocks[i].FacetIDs, string(FacetEnumerationItem)) {
+			carrier = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if carrier == nil {
+		t.Fatalf("typed per-member carrier missing: %+v", view.RequiredBlocks)
+	}
+	if carrier.Kind != BlockTable || len(carrier.AlternativeKinds) != 0 || !carrier.Required || carrier.SurfaceRoleHint != SurfacePrincipal {
+		t.Fatalf("has_per_member_table must require one principal table with no list/section escape: %+v", carrier)
+	}
+}
+
 func containsClaimForm(items []ClaimForm, want ClaimForm) bool {
 	for _, item := range items {
 		if item == want {

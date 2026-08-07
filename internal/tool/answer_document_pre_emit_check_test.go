@@ -4799,6 +4799,39 @@ func TestPreCheckSourceInventoryExtraneousPrincipalItems_AcceptsAdmittedGrounded
 	}
 }
 
+func TestPreCheckSourceInventoryExtraneousPrincipalItems_ComparisonMatrixKeepsDimensionRows(t *testing.T) {
+	ctx, _ := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
+	ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = true
+	ctx.AnalysisIR.RequestModel.Predicates.IsCrossComponent = true
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/extend.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{
+			{
+				ID: "members", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				FacetIDs: []string{string(types.FacetEnumerationItem)},
+				Items:    []types.AnswerBlockItem{{ID: "extend", Label: "extend String", CitationRef: 0}},
+			},
+			{
+				ID: "comparison", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+				FacetIDs: []string{string(types.FacetEnumerationItem)},
+				Columns:  []string{"dimension", "left", "right"},
+				Items: []types.AnswerBlockItem{
+					{ID: "timing", Label: "timing dimension", Cells: []string{"timing dimension", "first", "retry"}},
+					{ID: "shape", Label: "output-shape dimension", Cells: []string{"output-shape dimension", "full", "delta"}},
+				},
+			},
+		},
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("typed comparison matrix dimension rows are not source members and must survive: %+v", hints)
+	}
+
+	ctx.AnalysisIR.RequestModel.Predicates.IsCrossComponent = false
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) == 0 {
+		t.Fatal("ordinary source-inventory table must keep rejecting non-roster rows")
+	}
+}
+
 func TestPreEmitSourceInventoryHardRowsForBlock_DecoratorMarkerOutranksDisplayFallback(t *testing.T) {
 	sets := []types.EnumerationDisplaySet{
 		{

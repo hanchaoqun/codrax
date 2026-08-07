@@ -23672,3 +23672,80 @@ Trace root-cause runtime family、显式窗、因果投影、自动补齐、根�
 状态：`EVAL-B250-ORPHANEDGE1=S37j-implemented/full-tests-pass`；模型答案所有权=`preserved`；
 JSON 教学=`single-source/preserved`；`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；
 下一步=`full tests, commit+push, broaden prioritized exactly-two eval to read/write modes`。
+
+### 123.235 r157 选例：从 source call-chain 回放扩展到 read/write 异构高风险面
+
+完成 r156/S37j 后，不再用同一 C++/Python pair 或稳定单行 typo 刷绿。下一批按六轴排序：客户影响、近期改动邻接、历史人工失败、模式多样性、oracle
+真实性、运行成本。选定严格并发 2：
+
+| 优先级 | case | 模式 | 高 ROI 覆盖 | 选择理由 |
+|---|---|---|---|---|
+| P0/P1 | `read_combo_answer_document_tools` | read | AnswerDocument JSON、full emit / retry patch 条件、Mermaid + table、源码 literal 与 finalizer 上下文 | 历史 runner PASS 但人工曾 FAIL：一次把 patch 偏好说成绝对规则，一次发生 20 次 source-inventory 过探；又与近期 diagram/patch JSON 合同直接相邻 |
+| P0/P1 | `github_issue_napi_force_wasi_env_symptom` | write/apply | TypeScript symptom-only 定位、环境变量布尔语义、native/WASI fallback、测试不可绕过、plan→apply→verify | 真实上游问题且在本战役几乎未生产回放；比 plan-only typo 更能发现写模式上下文、计划、验证与 replan 系统 gap |
+
+暂缓项：简单 `patch_*_typo` 已多次稳定通过，仅作低成本能力探针；`trace_query_donghu_real_frame_multicausal` 已有近期显式窗/因果投影生产闭环，且
+S37i/S37j 未触碰 runtime trace authority，本轮不重复消耗客户大 trace，但继续列为跨域 guard。`qf_sequence_analyzer_gate` 历史高危但已密集回放，待
+all-language flowchart/sequence 两条开放守护完成后再做收益更高的统一验收。
+
+验收仍人工读取全过程和最终答案：JSON decode/repair、context 精度、Explorer/Planner 过探、成文拒绝、系统补写、write worktree/diff/test、模型结论所有权
+分别审计；runner PASS 不替代人工正确性。
+
+### 123.236 r157：读模式删掉用户要求的表，写模式正确降级但暴露 JSON 心智负担
+
+r157 在 `main@a5e307914` 上严格并发 2，仅运行 `read_combo_answer_document_tools` 与
+`github_issue_napi_force_wasi_env_symptom`。runner 1/2 PASS；人工判定 read=fail、write=uncertain。
+
+读模式的 literal、full emit / retry patch 语义与最终 Mermaid 基本正确，但用户明确要求的对比表消失。首稿已经输出表，随后发生 4 次确定性
+finalizer reject：source-inventory 越界门把 `Name() 字面量`、结构体类型、Description、适用时机、输出形式等比较维度逐行当成“complete typed
+principal row set 外的伪成员”。模型先改列、再把两个工具改成行，仍被同一门拒绝，最后删除整张表才通过。深层是两个系统 gap：
+
+1. `EVAL-B251-PERMEMBERTABLE1`：analyzer 已发出 typed `has_per_member_table=true`，但 enumeration Required Block 仍允许
+   ordered_list / bullet_list / section 替代表格；因此删除用户要求的表是合法 escape；
+2. `EVAL-B252-COMPMATRIXAXIS1`：complete source roster 只描述实体轴，extraneous-row checker 却把比较矩阵的维度轴也解释成实体轴。它没有读取
+   typed comparison output，形成“表必须表达横向比较 / 横向维度不得出现”的合同冲突。
+
+该案还产生 19 轮探索、3 次 broad source lens 与 36% context。analyzer 把有界的“两工具 literal + 生命周期 + 图表比较”路由成 repo-wide
+function/method/type source inventory，候选面扩至上千 current-source records；记 `EVAL-B254-COMPINVROUTE1` 为 P1 泛化观察项。它涉及 source
+inventory 与 bounded comparison/mechanism 的路由边界，不能按两个工具名硬修，本批先不动。
+
+写模式的一行补丁正确：raw truthiness 改为 `=== 'true' || === 'error'`；repo-owned Python oracle 通过。Node runtime 不可用，计划里的
+`tests/js-binding.test.ts` 六条断言没有真实执行，因此最终 `unverified/proof_weak` 是诚实能力边界，不是代码失败或验证账本丢证据。报告把精确
+Make prerequisite 记为 `declared_project_check/source_static`，proof ledger 保持 weak，没有冒充 target behavior。人工因此记 uncertain，而非把 runner
+FAIL 误判成错误补丁。
+
+写前分析另有 `EVAL-B253-WRITEJSONCARRIER1`：`behavior_contracts[]` 首次作为 malformed JSON string 发射，strict recovery 正确拒绝并要求 native
+array，重试后恢复完整字段；随后 exact-contract grounding 再触发一次外层重试。未发生答案消失，但 write-analysis 是当前少数未在第一条教学和 tool
+description 共用 shape-first carrier 的结构化阶段，增加了可避免的模型心智与时延。
+
+状态：`runner=1/2 PASS`；`human=0/1/1(pass/fail/uncertain)`；
+`EVAL-B251-PERMEMBERTABLE1=confirmed/immediate`；`EVAL-B252-COMPMATRIXAXIS1=confirmed/immediate`；
+`EVAL-B253-WRITEJSONCARRIER1=confirmed/immediate`；`EVAL-B254-COMPINVROUTE1=open/P1-observation`；
+模型答案所有权=`preserved`；Trace production=`not exercised in r157`。
+
+### 123.237 S37k：typed table 无删除逃生口，比较矩阵双轴分权，write-analysis JSON 单源
+
+r157 的三项确定性 gap 按 schema/typed authority 同批根修：
+
+1. enumeration compiler 直接消费 `RequestModel.Predicates.HasPerMemberTable`。该 closed boolean 为真时，principal enumeration carrier 必须是
+   `kind=table`，不再保留 list/section 替代形；模型仍完全拥有表格内容与结论，但 retry 不能靠删表签绿；
+2. source-inventory extraneous checker 新增比较矩阵双轴边界。只有同时具备 typed `has_per_member_table` 与编译后的
+   `AnswerRequestedOutputComparison`，table 中不匹配 source roster 的行才作为 comparison-dimension row 保留。普通 inventory table 仍按 complete
+   roster fail-closed；真实 member 的 completeness、row-id、citation 与 family partition 校验全部保持；
+3. 上述判据只读 schema boolean、compiled requested output 与 block kind；不读用户原文、模型 thinking、block title/item text 或最终成文，不按
+   `emit_answer_document`、TypeScript 或中文维度词拟合；
+4. `WriteAnalysisJSONShapeFirstTeaching` 成为 write-analysis skill 首条 workflow 与 `emit_write_analysis.Description()` 的共享常量；skill prompt 内只发射一次，
+   不在 OutputFormat 重复。
+   它一次说明 object/array carrier：`behavior_contracts[]`、constraints/outcomes/pitfalls/phases 均为 native arrays，entry 为 native objects，修复时不得
+   为过 schema 删除字段；没有复制一份漂移的 retry 合同；
+5. 回归钉住：typed per-member enumeration 只接受 principal table；typed comparison matrix 的 timing/output-shape 维度行必须保留；去掉 comparison
+   signal 后相同行继续被 ordinary source-inventory hard gate 拒绝；skill 与 tool description 必须字节共享 JSON shape-first 常量。
+
+本批没有系统补写、删改或替换模型正文/表格/结论，只修复系统自己的 required shape、authority interpretation 与 JSON 教学。Trace root-cause
+runtime family、显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量和“真实耗时贡献 / 规则内可消除量”双维分析不在改动分支。
+
+`go test ./...` 全绿；去除 skill 内重复 JSON 教学后，`go test ./internal/types ./internal/skill ./internal/tool` 再次全绿。
+
+状态：`EVAL-B251-PERMEMBERTABLE1=S37k-implemented/full-tests-pass`；
+`EVAL-B252-COMPMATRIXAXIS1=S37k-implemented/full-tests-pass`；`EVAL-B253-WRITEJSONCARRIER1=S37k-implemented/full-tests-pass`；
+`EVAL-B254-COMPINVROUTE1=open/P1`；`sequence-display-parameter-identity=open`；
+`all-language-flowchart-relation-anchor=open`；下一步=`commit+push, r158 exactly-two replay`。

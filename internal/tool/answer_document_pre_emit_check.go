@@ -6395,6 +6395,7 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		if !strict || len(rows) == 0 {
 			continue
 		}
+		comparisonMatrix := preEmitSourceInventoryComparisonMatrixAllowsDimensionRows(ctx, block)
 		var extra []string
 		for _, item := range block.Items {
 			if principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows) {
@@ -6416,6 +6417,17 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 			if principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
 				continue
 			}
+			// A typed per-member comparison table has two orthogonal axes:
+			// principal entities and comparison dimensions. The closed source
+			// roster governs the entity axis, but labels such as lifecycle,
+			// output shape, or timing are legitimate dimension rows rather than
+			// extra source members. This exemption requires both the typed table
+			// demand and the compiled comparison output; it never scans request,
+			// title, item prose, or final-answer text. Completeness and exact-row
+			// binding still validate every real principal member elsewhere.
+			if comparisonMatrix {
+				continue
+			}
 			label := strings.TrimSpace(item.Label)
 			if label == "" {
 				label = strings.TrimSpace(strings.Join(item.Cells, " | "))
@@ -6435,6 +6447,24 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		})
 	}
 	return hints
+}
+
+// preEmitSourceInventoryComparisonMatrixAllowsDimensionRows separates the
+// entity and dimension axes of a typed comparison matrix. HasPerMemberTable by
+// itself also describes ordinary inventory tables, while comparison output by
+// itself may be prose-led; requiring both prevents either signal from silently
+// weakening the complete source-member roster. Both inputs are closed schema
+// fields. Free-form request/model/answer text is intentionally absent.
+func preEmitSourceInventoryComparisonMatrixAllowsDimensionRows(ctx *types.BusContext, block types.AnswerBlock) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || block.Kind != types.BlockTable ||
+		!ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable {
+		return false
+	}
+	contract := types.CompileAnswerIntentContract(
+		ctx.AnalysisIR.RequestModel,
+		&ctx.AnalysisIR.AnswerContract,
+	)
+	return contract.HasOutput(types.AnswerRequestedOutputComparison)
 }
 
 // preCheckSourceInventoryExactRowBinding is the precise hard lane for a known

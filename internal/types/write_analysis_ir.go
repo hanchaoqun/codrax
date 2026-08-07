@@ -1,5 +1,11 @@
 package types
 
+// WriteAnalysisJSONShapeFirstTeaching is the single compact carrier rule used
+// by the write-analysis skill and emit tool. It is intentionally stated before
+// semantic contract guidance so models do not spend a retry deciding whether
+// behavior_contracts and sibling structured fields are arrays or strings.
+const WriteAnalysisJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. scope_anchors[], constraints[], expected_outcomes[], behavior_contracts[], applicable_pitfalls[], and phase_proposal.phases[] are native JSON arrays, never quoted or escaped JSON strings. task, risk, phase_proposal, constraints[] entries, behavior_contracts[] entries, and phase_proposal.phases[] entries are native JSON objects; scope_anchors[], expected_outcomes[], and applicable_pitfalls[] entries are strings. Preserve every intended entry when repairing shape; do not delete a field merely to make decoding pass."
+
 // WriteAnalysisIR is the write-mode peer to AnalysisIR. It captures
 // what the user wants to do as a code-modification task, framed in
 // write-task vocabulary (kind / scope / risk / constraints) rather

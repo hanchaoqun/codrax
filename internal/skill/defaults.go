@@ -1340,6 +1340,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 		Name: "write-analysis-skill",
 		Goal: "Characterise the user's code-change request as a structured task description (kind / scope / risk / constraints / outcomes) so the planner has clear, framing-correct context. Read the request and inspect the repository enough to ground your judgement, then call emit_write_analysis exactly once.",
 		Workflow: []string{
+			types.WriteAnalysisJSONShapeFirstTeaching,
 			"Read the user's request from the active context. The request describes a code change, not a question — your job is to characterise the work, not investigate code in depth.",
 			"Inspect the repository lightly to ground your classification: call repo_map for an overview — and when the change centres on a named existing file, repo_map(view=\"edit_impact\", target_file=\"<path>\") to see what an edit there would ripple into before judging scope and risk — then read_file or list_files on directories the request mentions. Cap pre-scan at 1-2 rounds — deeper planning happens after this classification.",
 			"Decide the task category (feature / bugfix / refactor / test / docs / config / misc) based on what the change actually does. A new function added to fix wrong behaviour is bugfix; a new function added to extend capability is feature; renaming or restructuring without behaviour change is refactor.",

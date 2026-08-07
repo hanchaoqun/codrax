@@ -15,6 +15,13 @@ func newTestBusForWriteAnalysis() *types.BusContext {
 	}
 }
 
+func TestEmitWriteAnalysis_DescriptionSharesJSONShapeFirstTeaching(t *testing.T) {
+	description := (&EmitWriteAnalysis{}).Description()
+	if !strings.HasPrefix(description, types.WriteAnalysisJSONShapeFirstTeaching) {
+		t.Fatalf("emit tool must lead with the shared JSON carrier rule: %q", description)
+	}
+}
+
 // TestEmitWriteAnalysis_HappyPath verifies a fully-populated emit
 // stores a normalised IR with all enums canonicalised.
 func TestEmitWriteAnalysis_HappyPath(t *testing.T) {

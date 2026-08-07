@@ -235,6 +235,32 @@ func TestWriteAnalysisSkillTeachesOneGroundingLaneBeforeExactContracts(t *testin
 	}
 }
 
+func TestWriteAnalysisSkillPinsNativeJSONCarriersBeforeSemanticGuidance(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill): %v", err)
+	}
+	if len(sk.Workflow) == 0 || sk.Workflow[0] != types.WriteAnalysisJSONShapeFirstTeaching {
+		t.Fatalf("write-analysis JSON carrier rule must be the first workflow instruction: %+v", sk.Workflow)
+	}
+	surface := sk.Goal + "\n" + sk.OutputFormat + "\n" + allWorkflowBodies(sk)
+	if got := strings.Count(surface, types.WriteAnalysisJSONShapeFirstTeaching); got != 1 {
+		t.Fatalf("write-analysis JSON carrier rule must appear exactly once in the skill prompt, got %d", got)
+	}
+	for _, want := range []string{
+		"behavior_contracts[]",
+		"native JSON arrays",
+		"never quoted or escaped JSON strings",
+		"do not delete a field merely to make decoding pass",
+	} {
+		if !strings.Contains(surface, want) {
+			t.Fatalf("write-analysis JSON teaching missing %q:\n%s", want, surface)
+		}
+	}
+}
+
 func TestWriteAnalysisSkillCalibratesMutationRiskWithoutWeakeningApproval(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

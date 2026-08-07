@@ -62,24 +62,36 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
 	}
+	principalCarrier := BlockRequirement{
+		Kind:                 BlockOrderedList,
+		AlternativeKinds:     []AnswerBlockKind{BlockTable, BlockBulletList, BlockSection},
+		MinCount:             1,
+		MaxCount:             0, // no bucket / member count assumption
+		Required:             true,
+		FacetIDs:             []string{string(FacetEnumerationItem)},
+		AcceptableClaimForms: acceptableClaimForms,
+		Rationale: "The enumeration itself. Each item names the member with its authoritative " +
+			"file:line. Use an ordered_list, table, bullet_list, or section with items depending on which is clearest; " +
+			"a table is preferred when members have multiple attributes. Order is alphabetic OR " +
+			"meaningful (e.g. precedence) — describe which in the summary block.",
+		SurfaceRoleHint: SurfacePrincipal,
+	}
+	// HasPerMemberTable is the analyzer's closed typed declaration that the
+	// requested member payload needs a table. Keeping list/section alternatives
+	// here let a rejected table be deleted while the final answer still passed
+	// the structural contract. Do not infer this requirement from request or
+	// answer prose: only the schema boolean narrows the carrier kind.
+	if ir != nil && ir.RequestModel.Predicates.HasPerMemberTable {
+		principalCarrier.Kind = BlockTable
+		principalCarrier.AlternativeKinds = nil
+		principalCarrier.Rationale = "The requested per-member comparison/attribute payload must remain a table with structured items. " +
+			"Keep principal member identities and their grounded attributes visible; do not replace or delete the table on retry."
+	}
 	view.RequiredBlocks = []BlockRequirement{
 		requireSummaryBlock(
 			"Describe what the list enumerates and the terminal criterion used to pick the items, " +
 				"so the reader understands what kind of item each row is and why these belong (and none of the others)."),
-		{
-			Kind:                 BlockOrderedList,
-			AlternativeKinds:     []AnswerBlockKind{BlockTable, BlockBulletList, BlockSection},
-			MinCount:             1,
-			MaxCount:             0, // no bucket / member count assumption
-			Required:             true,
-			FacetIDs:             []string{string(FacetEnumerationItem)},
-			AcceptableClaimForms: acceptableClaimForms,
-			Rationale: "The enumeration itself. Each item names the member with its authoritative " +
-				"file:line. Use an ordered_list, table, bullet_list, or section with items depending on which is clearest; " +
-				"a table is preferred when members have multiple attributes. Order is alphabetic OR " +
-				"meaningful (e.g. precedence) — describe which in the summary block.",
-			SurfaceRoleHint: SurfacePrincipal,
-		},
+		principalCarrier,
 	}
 	view.OptionalBlocks = []BlockRequirement{
 		{
