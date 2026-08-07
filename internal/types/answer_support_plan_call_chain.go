@@ -85,6 +85,7 @@ func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry 
 	if plan == nil || len(plan.StepBackbone) == 0 {
 		return nil
 	}
+	typedItems := callChainTypedEvidenceItemsForStepEnrichment(plan)
 	out := make([]AnswerSupportEntry, 0, len(plan.StepBackbone))
 	for _, anchor := range plan.StepBackbone {
 		text := callChainStepSupportText(anchor)
@@ -105,9 +106,72 @@ func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry 
 				fmt.Sprintf("%s:%d", entry.Source, entry.LineEnd),
 			)
 		}
+		if item, ok := callChainUniqueTypedEvidenceForStepAnchor(anchor, typedItems); ok {
+			// Keep the step backbone's ordered display text, but do not discard
+			// the exact ClaimForm/endpoint identity already available at the
+			// same source coordinate. Without this join, assignments and guards
+			// become indistinguishable from invocation hops downstream.
+			orderedText := entry.Text
+			orderedDetail := entry.Detail
+			orderedLocation := entry.Location
+			orderedEquivalents := append([]string(nil), entry.EquivalentLocations...)
+			entry = answerSupportEntryForEvidence(item, orderedText, orderedDetail)
+			entry.Location = orderedLocation
+			for _, loc := range orderedEquivalents {
+				entry.EquivalentLocations = appendAnswerSupportEquivalentLocation(entry.EquivalentLocations, loc)
+			}
+		}
 		out = append(out, entry)
 	}
 	return out
+}
+
+func callChainTypedEvidenceItemsForStepEnrichment(plan *AnswerSurfacePlan) []EvidenceItem {
+	if plan == nil {
+		return nil
+	}
+	if len(plan.DriftBoundedSurfaceItems) > 0 {
+		return DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems)
+	}
+	// StepBackbone already selected the visible row. Read the complete typed
+	// surface pool only to recover metadata at that same exact coordinate;
+	// facet candidate filtering is for membership selection and must not erase
+	// the ClaimForm of a member that is already in the backbone.
+	return plan.SurfaceEvidence
+}
+
+func callChainUniqueTypedEvidenceForStepAnchor(anchor StepSurfaceAnchor, items []EvidenceItem) (EvidenceItem, bool) {
+	file := normalizeAnswerSupportPath(anchor.File)
+	if file == "" || anchor.Line <= 0 || len(items) == 0 {
+		return EvidenceItem{}, false
+	}
+	var atLocation []EvidenceItem
+	for _, item := range items {
+		if normalizeAnswerSupportPath(item.Source) != file || item.LineStart != anchor.Line {
+			continue
+		}
+		atLocation = append(atLocation, item)
+	}
+	if len(atLocation) == 1 {
+		return atLocation[0], true
+	}
+	name := strings.TrimSpace(anchor.Name)
+	if name == "" {
+		return EvidenceItem{}, false
+	}
+	var matched []EvidenceItem
+	for _, item := range atLocation {
+		for _, surface := range []string{item.Subject, item.Object, item.AnchorSymbol, item.OwnerSymbol} {
+			if callChainEndpointCompatible(surface, name) {
+				matched = append(matched, item)
+				break
+			}
+		}
+	}
+	if len(matched) != 1 {
+		return EvidenceItem{}, false
+	}
+	return matched[0], true
 }
 
 func callChainSurfaceEvidenceEntries(rm RequestModel, plan *AnswerSurfacePlan) []AnswerSupportEntry {

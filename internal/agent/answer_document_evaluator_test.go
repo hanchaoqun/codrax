@@ -2871,6 +2871,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 		"Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations",
 		"presentation instructions, not conclusion authority",
 		"Allowed block kinds: summary, ordered_list, diagram",
+		"[entry_role=`typed_step_backbone`]",
 		"`RequestModel`",
 		"internal/agent/analyzer.go:616",
 		"`gate.Run`",

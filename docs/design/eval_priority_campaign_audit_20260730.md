@@ -23139,3 +23139,38 @@ JSON schema/教学、Mermaid 合同与 Trace 能力未变。sequence display mes
 状态：`EVAL-B235-CITEREBIND1=S36x-implemented/tool-suite-pass`；`EVAL-B236-PHASEBRIDGE1=P1-next`；
 模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
+
+### 123.216 S36y：断连关系按 typed segment 呈现，StepBackbone 不再抹平 ClaimForm
+
+`EVAL-B236-PHASEBRIDGE1` 深挖后确认有两个同根层次。B232 虽已发布 connected components，但只给 component 成员与一句 prose
+边界；component 序号没有显式说明“不是时间顺序”，relation class 也未公开。更关键的是，QFCallChain 支持计划优先消费有序
+`StepBackbone` 时，只保留 display text/location，丢掉同坐标 `SurfaceEvidence` 的 ClaimForm。r149 的构造 assignment、level guard、真实 call
+因此在 **Current grounded call chain** 中外观完全相同，都像 principal hop；这与上方 component 边界互相削弱，模型遂把 value/guard facts 与
+factory/runtime 片段顺序拼接。
+
+S36y 以 typed carrier 收口，不增加答案正文校验：
+
+1. StepBackbone 的成员与顺序仍是唯一选择结果；系统只在同一规范化文件、同一精确起始行找到唯一 EvidenceItem 时，把
+   `EvidenceID/ClaimForm/Subject/Object/AnchorKind` 等 typed metadata 回填到原 step entry。若同坐标有多个候选，再以已选 anchor 名与 typed
+   endpoint 唯一匹配；仍不唯一则 fail-closed，不猜角色。facet candidate filter 继续决定“谁入选”，但不能再抹掉已入选成员的语义类型；
+2. finalizer 的 current-chain 行显式发布 `entry_role`：`directed_hop`、`callback_handoff`、`control_fact`、`binding_fact`、
+   `value_flow_fact`、`definition_fact` 等。只有 directed hop 与原有 typed step backbone 建立有序 hop；guard/assignment/return/registration
+   只能解释同一 hop 或进入 sibling support section，不能仅凭相邻位置生成隐式桥；
+3. relation component 从同一个 recipe slice 发布 `relation_segment_class`（invocation/binding/value-flow/control/structural/observation/mixed）与
+   `internal_typed_edge_count`。多 component 时另给
+   `cross_component_execution_order_status=unproven`、`cross_component_value_handoff_status=unproven`，并明确 component index 只是稳定 ID，
+   不是 execution/phase order；建议 sibling section/bullet，禁止把 component 排成连续编号 hops；
+4. 系统仍不声称“注册一定发生在启动期”、不判定真实运行 phase，也不说组件永远不连接。模型可依据证据解释 selection/setup/runtime，
+   但只有存在 typed bridge 时才能把它们升级为一条已证端到端路径。
+
+回归覆盖：StepBackbone 精确坐标分别保留 assignment/guard/call 三类 ClaimForm；finalizer 接线输出三种 entry_role；断连 call + registration
+组件分别标为 invocation/binding，跨组件执行顺序和值交接均为 unproven，且 copy-ready Mermaid 不生成桥。`go test ./internal/types
+./internal/agent` 全绿。
+
+本批不读取用户原文、模型 thinking 或最终答案，不新增 emit/pre-emit hard reject，不系统代写/删除模型结论。它适用于所有语言的 typed
+ClaimForm 与 relation enum，不按 C++、factory 或某个 eval type 特判。JSON tool schema/教学未改；sequence display 参数与 endpoint identity
+隔离、无标签 flowchart 关系锚继续保留。
+
+状态：`EVAL-B236-PHASEBRIDGE1=S36y-implemented/package-tests-pass`；`EVAL-B235-CITEREBIND1=closed`；
+模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`；下一步=`full-tests+commit+push+r150`。

@@ -140,7 +140,13 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 		"inter_component_bridge_status=`unproven_between_components`",
 		"verified_component[1]=`n1:Factory<\"json\"> | n2:Parser.parse`",
 		"verified_component[2]=`n3:Registry | n4:Plugin`",
+		"relation_segment_class=`invocation_segment`",
+		"relation_segment_class=`binding_segment`",
+		"cross_component_execution_order_status=`unproven`",
+		"cross_component_value_handoff_status=`unproven`",
+		"component indices are stable identifiers, not execution/phase order",
 		"Present them as independently proved segments",
+		"Do not place the components as consecutive numbered hops",
 		"does NOT prove the program can never connect them",
 	} {
 		if !strings.Contains(got, want) {
@@ -150,6 +156,44 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 	for _, bridge := range []string{"n2 --> n3", "n2 -->|call| n3", "n2 -->|register| n3"} {
 		if strings.Contains(got, bridge) {
 			t.Fatalf("copy-ready flow invented a bridge %q:\n%s", bridge, got)
+		}
+	}
+}
+
+func TestCallChainSupportLanePublishesTypedEntryRolesWithoutInventingOrderAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "assign", Kind: types.EvidenceDirect,
+				Source: "src/logger.cpp", LineStart: 27, AnchorKind: types.AnchorAssignment,
+				Subject: "Logger", Object: "sink_", GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "guard", Kind: types.EvidenceConditional,
+				Source: "src/logger.cpp", LineStart: 30, AnchorKind: types.AnchorCondition,
+				Subject: "Logger.log", Condition: "level < min_level_", GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "call", Kind: types.EvidenceRelationship,
+				Source: "src/logger.cpp", LineStart: 36, AnchorKind: types.AnchorCall,
+				Subject: "Logger.log", Object: "Sink.write", GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops",
+		"Do not turn adjacent non-hop facts into implicit bridges",
+		"[entry_role=`value_flow_fact`]",
+		"[entry_role=`control_fact`]",
+		"[entry_role=`directed_hop`]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed call-chain entry role missing %q:\n%s", want, got)
 		}
 	}
 }

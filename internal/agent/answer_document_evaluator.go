@@ -6948,11 +6948,59 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 		for _, row := range component {
 			members = append(members, fmt.Sprintf("%s:%s", row.alias, row.identity))
 		}
-		fmt.Fprintf(b, "- verified_component[%d]=`%s`\n", i+1, strings.Join(members, " | "))
+		relationClass, internalEdges := answerDocMechanismComponentRelationClass(component, recipes)
+		fmt.Fprintf(b, "- verified_component[%d]=`%s`; relation_segment_class=`%s`; internal_typed_edge_count=%d\n",
+			i+1, strings.Join(members, " | "), relationClass, internalEdges)
 	}
 	if len(components) > 1 {
-		b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments, disclose the missing bridge, or investigate a citable bridge. Do not narrate them as one continuous end-to-end path.\n")
+		b.WriteString("- cross_component_execution_order_status=`unproven`; cross_component_value_handoff_status=`unproven`; component indices are stable identifiers, not execution/phase order.\n")
+		b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments in sibling sections/bullets, disclose the missing bridge, or investigate a citable bridge. Do not place the components as consecutive numbered hops. Do not narrate them as one continuous end-to-end path.\n")
 	}
+}
+
+func answerDocMechanismComponentRelationClass(
+	component []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) (string, int) {
+	members := make(map[string]bool, len(component))
+	for _, row := range component {
+		if row.alias != "" {
+			members[row.alias] = true
+		}
+	}
+	classes := make(map[string]bool)
+	edges := 0
+	for _, recipe := range recipes {
+		if !members[recipe.from] || !members[recipe.to] {
+			continue
+		}
+		edges++
+		class := "other_relation"
+		switch recipe.edge.relation {
+		case types.DiagramRelCall:
+			class = "invocation"
+		case types.DiagramRelCallback:
+			class = "callback_handoff"
+		case types.DiagramRelRegister:
+			class = "binding"
+		case types.DiagramRelAssignment, types.DiagramRelReturn:
+			class = "value_flow"
+		case types.DiagramRelGuard, types.DiagramRelPrecedence:
+			class = "control_or_order"
+		case types.DiagramRelImport, types.DiagramRelContain, types.DiagramRelTypeRelation:
+			class = "structural"
+		case types.DiagramRelObserve:
+			class = "observation"
+		}
+		classes[class] = true
+	}
+	if len(classes) != 1 {
+		return "mixed_typed_relations", edges
+	}
+	for class := range classes {
+		return class + "_segment", edges
+	}
+	return "unknown_relation_segment", edges
 }
 
 func answerDocMechanismRelationComponents(
@@ -8665,7 +8713,8 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
 	case types.QFCallChain:
 		b.WriteString("- Keep observed runtime facts, current grounded chain hops, and boundary disclosures in their own lanes.\n")
-		b.WriteString("- The current grounded call-chain lane is the principal source for ordered-list items and sequence-diagram edges. Observation entries can explain where the trace came from, but they do not add caller/callee hops unless the current grounded chain lane also contains that hop.\n")
+		b.WriteString("- Every current-chain entry below has an `entry_role` derived from typed ClaimForm/anchor fields. Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops; `callback_handoff` establishes a handoff but not execution, while control/value/binding/definition/support facts explain a hop or live in a sibling support section.\n")
+		b.WriteString("- Observation entries can explain where the trace came from, but they do not add caller/callee hops unless a `directed_hop` entry also establishes that hop. Do not turn adjacent non-hop facts into implicit bridges.\n")
 		b.WriteString("- You may use an entry's `Evidence note` to enrich that SAME hop's explanation. Do not turn nouns from the note into additional hops, targets, diagram nodes, or countable list members unless they also appear as their own lane entry.\n")
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
 		b.WriteString(renderAnswerDocCallChainDiagramSemanticsGuide())
@@ -8718,6 +8767,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 				}
 				text += " — Evidence note: " + detail
 			}
+			if plan.Family == types.QFCallChain && lane.Kind == types.SupportLaneCurrentCodePath {
+				text = fmt.Sprintf("[entry_role=`%s`] %s", answerDocCallChainSupportEntryRole(entry), text)
+			}
 			if loc := strings.TrimSpace(entry.Location); loc != "" {
 				if equivalents := renderSupportEntryEquivalentLocations(entry.EquivalentLocations); equivalents != "" {
 					fmt.Fprintf(&b, "- %s (`%s`; equivalent typed anchors: %s)\n", text, loc, equivalents)
@@ -8731,6 +8783,31 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func answerDocCallChainSupportEntryRole(entry types.AnswerSupportEntry) string {
+	switch entry.ClaimForm {
+	case types.ClaimCallEdge:
+		return "directed_hop"
+	case types.ClaimCallbackHandoff:
+		return "callback_handoff"
+	case types.ClaimGuardCondition:
+		return "control_fact"
+	case types.ClaimRegistrationEdge:
+		return "binding_fact"
+	case types.ClaimAssignmentFact, types.ClaimReturnFact, types.ClaimLiteralValueFact:
+		return "value_flow_fact"
+	case types.ClaimDefinitionFact:
+		return "definition_fact"
+	case types.ClaimExternalObservation:
+		return "observation_fact"
+	case types.ClaimImportEdge, types.ClaimPrecedenceRole:
+		return "structural_or_order_fact"
+	}
+	if entry.ClaimForm == types.ClaimUnknown && entry.EvidenceID == "" && entry.Producer == "" {
+		return "typed_step_backbone"
+	}
+	return "supporting_fact"
 }
 
 // renderAnswerDocCallChainDiagramSemanticsGuide is soft authoring guidance for

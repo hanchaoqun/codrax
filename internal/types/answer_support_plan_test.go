@@ -424,6 +424,33 @@ func TestBuildAnswerSupportPlan_CallChainCompilesCurrentPathLaneFromStepBackbone
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainStepBackboneKeepsTypedClaimRoles(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{
+			{Name: "Logger", File: "src/logger.cpp", Line: 27, SurfaceText: "Logger stores sink_"},
+			{Name: "Logger.log", File: "src/logger.cpp", Line: 30, SurfaceText: "Logger.log checks level"},
+			{Name: "Logger.log", File: "src/logger.cpp", Line: 36, SurfaceText: "Logger.log calls Sink.write"},
+		},
+		SurfaceEvidence: []EvidenceItem{
+			{ID: "assign", Kind: EvidenceDirect, Source: "src/logger.cpp", LineStart: 27, AnchorKind: AnchorAssignment, Subject: "Logger", Object: "sink_", GroundingStatus: GroundingGrounded},
+			{ID: "guard", Kind: EvidenceConditional, Source: "src/logger.cpp", LineStart: 30, AnchorKind: AnchorCondition, Subject: "Logger.log", Condition: "level < min_level_", GroundingStatus: GroundingGrounded},
+			{ID: "call", Kind: EvidenceRelationship, Source: "src/logger.cpp", LineStart: 36, AnchorKind: AnchorCall, Subject: "Logger.log", Object: "Sink.write", GroundingStatus: GroundingGrounded},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentTrace}, plan)
+	lane := answerSupportLaneByKind(got, SupportLaneCurrentCodePath)
+	if lane == nil || len(lane.Entries) != 3 {
+		t.Fatalf("current path lane=%+v, want 3 ordered entries", lane)
+	}
+	want := []ClaimForm{ClaimAssignmentFact, ClaimGuardCondition, ClaimCallEdge}
+	for i, form := range want {
+		if lane.Entries[i].ClaimForm != form || lane.Entries[i].EvidenceID == "" {
+			t.Fatalf("entry[%d]=%+v, want typed claim_form=%q with evidence identity", i, lane.Entries[i], form)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlan_CallChainKeepsObservationsOutOfPrincipalPath(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		ExternalObservationSeeds: []ExternalObservationSeed{
