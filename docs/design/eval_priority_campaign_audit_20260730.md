@@ -23400,3 +23400,56 @@ labelled/unlabelled flowchart relation-anchor 旁路仍保持为独立待闭环�
 状态：`EVAL-B242-OPTDIAGCONV1=S37d-implemented/full-tests-pass`；`EVAL-B241-MEMLOCREF1=implemented/full-tests-pass`；
 `EVAL-B236-PHASEBRIDGE1=partial/replay-next`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
 下一步=`commit+push+r153 exactly-two replay`。
+
+### 123.225 r153：首次 patch 路由命中，但 copy-ready recipe 自身违反 validator
+
+r153 继续固定并发 2 回放同一 C++/Python 异构 call-chain 对。runner 2/2 PASS，但人工 1/2，且成文 reject 反升为 Python 3 次、C++ 2 次，不能
+宣称 S37d 生产闭环。
+
+首次 full reject 的 typed selector 与 patch-only tool surface 均正确命中；模型也明确读到了“copy capsule 或 remove”二选一。但深审发现两个系统
+自冲突：
+
+1. `answerDocFixOnlyDirective` 在专用 patch 提示之前又加了“用 `emit_answer_document` 完整重发上一 payload，仅改字段”的指令，随后同一段文字才要求
+   `emit_answer_document_patch`。这是同一轮工具/载荷合同互斥的确定性红线，记 `EVAL-B244-RETRYCONFLICT1`；
+2. C++ 第二轮模型逐字复制系统的 copy-ready sequence capsule。capsule 对同一 `SinkRegistry::create -> ConsoleSink` 端点绘制三条 `->>` message，
+   分别标 `register/guard/return`，anchors 也完整复制；validator 随即把三个 visible sequence message 判成缺 call authority。也就是说“系统教的正确形”
+   被“系统自己的 hard validator”拒绝，记 `EVAL-B243-RECIPESELF1`。这不是模型波动，也不是 JSON 畸形。
+
+人工答案另确认两项后续债：
+
+- `EVAL-B245-AGGSUPPDUP1`：C++ 已有两块模型主列表，`normalizeAggregateMemberSetCarriers` 又 materialize 8 行并在 persist 前追加多个 system
+  supplement block，最终出现重复清单。系统补证越过“已有 roster 代表性”边界，显著降低摘要性；
+- `EVAL-B236-PHASEBRIDGE1`：prompt 已明确 `inter_component_bridge_status=unproven_between_components`，模型仍把 factory return、构造函数签名与
+  `Logger::sink_` ownership 拼成已证注入链。C++ 最终仍失败；Python 核心结论正确，但 `JsonPlugin.handle` 引用落到 class declaration，不能独立证明
+  callback/MRO 复合说明。
+
+`EVAL-B241-MEMLOCREF1` 本轮没有进入生产验收：C++ 前两次 completion 的 member 坐标和 refs 正确，但 `member_notes` 行为强度门认为 definition 坐标
+不足以证明责任，要求重试；模型最终移除 refs/坐标后作为 soft `system_inference` 接受。因此不是 S37c 回归，也不能把它记作 production-closed。
+
+状态：`runner=2/2 PASS`；`human=1/2`；`EVAL-B243-RECIPESELF1=P0/P1-confirmed/immediate`；
+`EVAL-B244-RETRYCONFLICT1=P0/P1-confirmed/immediate`；`EVAL-B245-AGGSUPPDUP1=P1-confirmed`；
+`EVAL-B236-PHASEBRIDGE1=partial`；`EVAL-B241-MEMLOCREF1=implemented/production-unexercised`。
+
+### 123.226 S37e：copy-ready visual 子集与 patch 提示合同消歧
+
+`EVAL-B243-RECIPESELF1`、`EVAL-B244-RETRYCONFLICT1` 已同批根修：
+
+1. typed relation capsule 继续完整列出 call/callback/register/guard/assignment/return/type 等事实与 component boundary；copy-ready **visual** 不再谎称
+   能承载全部关系。Sequence 只允许 invocation/callback message，call-DAG 只允许 call；guard/register/return/assignment/type 等保持 sibling prose/Note
+   事实，不强制转换成 message arrow；
+2. 同一 alias endpoint pair 若存在多个 relation kinds，copy-ready visual 全部省略该歧义 pair，避免一条可见箭头同时被多个 typed authority 争用。
+   Mermaid body、参与节点与 `edge_anchors_json` 从同一个过滤后 recipe slice 生成，保证两面闭包一致；并显式披露 omitted count/kinds，模型无需猜；
+3. flow/architecture 原有可表达关系保持；无可表达 edge 时不生成伪图，只建议保留 prose/Notes 或省略 optional diagram。该策略按 diagram family 与 typed
+   relation enum 决定，不看语言、类名、用户原文或模型输出；
+4. optional-diagram 专用 full-reject 一旦选择 patch recovery，后续不再经过 full-payload `answerDocFixOnlyDirective`。测试同时要求出现 patch tool、共享
+   四操作/native JSON 教学、capsule/remove 二选一，并负钉不得出现“完整重发 emit_answer_document”；required diagram 仍不能得到 remove 建议；
+5. 新 mixed-relation sequence 测试构造 call + 同端点 register/guard/return：copy-ready body/anchors 只能保留 call，三种非 message 关系必须只出现在
+   omitted disclosure/full capsule，不得进入可复制图。定向及 `go test ./...` 全绿。
+
+系统仍不自动删除/改写 diagram，不替模型选择结论；只是保证自己给出的可复制载体不会与 hard validator 自相矛盾。JSON schema 未复制，patch 教学仍
+单源。Trace 全部 runtime authority 与显式窗/因果投影能力未触碰。sequence display 参数隔离、callback exact endpoint 以及所有语言 labelled/unlabelled
+flowchart relation authority 仍是独立待闭环项，不能因 visual 过滤暂时不触发而销账。
+
+状态：`EVAL-B243-RECIPESELF1=S37e-implemented/full-tests-pass`；`EVAL-B244-RETRYCONFLICT1=S37e-implemented/full-tests-pass`；
+`EVAL-B245-AGGSUPPDUP1=next`；`EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；
+下一步=`commit+push, system supplement de-dup / support-lane split`。

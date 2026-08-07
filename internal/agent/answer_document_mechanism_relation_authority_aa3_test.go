@@ -266,6 +266,58 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 }
 
+func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsAA3(t *testing.T) {
+	grounded := func(id string, kind types.EvidenceKind, anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			ID: id, Kind: kind, Source: "src/registry.cpp", LineStart: line,
+			AnchorKind: anchor, Subject: subject, Object: object,
+			GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				RequiredKind: types.DiagramSequence,
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			grounded("call", types.EvidenceRelationship, types.AnchorCall, "Logger.log", "Sink.write", 10),
+			grounded("register", types.EvidenceRegistration, types.AnchorDefinition, "SinkRegistry::create", "ConsoleSink", 20),
+			grounded("guard", types.EvidenceConditional, types.AnchorCondition, "SinkRegistry::create", "ConsoleSink", 21),
+			grounded("return", types.EvidenceDirect, types.AnchorReturn, "SinkRegistry::create", "ConsoleSink", 22),
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"participant n1 as Logger.log",
+		"participant n2 as Sink.write",
+		"n1->>n2: call",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		"visual_omitted_relation_count=3",
+		"omitted_relation_kinds=`guard,register,return`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sequence visual subset missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"participant n3 as SinkRegistry::create",
+		"participant n4 as ConsoleSink",
+		"n3->>n4: register",
+		"n3->>n4: guard",
+		"n3->>n4: return",
+		`"relation_kind":"register"`,
+		`"relation_kind":"guard"`,
+		`"relation_kind":"return"`,
+	} {
+		if strings.Contains(got[strings.Index(got, "#### Copy-ready optional typed diagram"):], forbidden) {
+			t.Fatalf("copy-ready sequence taught non-message relation %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestMechanismRelationAuthorityDoesNotSuggestDiagramWithoutTypedPresentationIntentAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

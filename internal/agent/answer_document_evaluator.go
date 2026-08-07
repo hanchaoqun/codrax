@@ -6919,7 +6919,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("- A complete diagram body and anchor array follow from the same typed recipe set. If you include a diagram, copy both unchanged; do not compose a different story graph. You may omit this optional diagram.\n")
+		b.WriteString("- A validator-compatible diagram body and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, copy its body and anchors unchanged; do not compose a different story graph.\n")
 		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 	if len(edges) > len(bounded) {
@@ -7078,8 +7078,16 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 			return
 		}
 	}
-	anchors := make([]types.DiagramEdgeAnchor, 0, len(recipes))
-	for _, recipe := range recipes {
+	diagramRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
+	if len(diagramRecipes) == 0 {
+		b.WriteString("\n- No typed relation in this capsule can be represented unambiguously by the selected Mermaid family. Keep these facts in prose/notes or omit the optional diagram; do not coerce them into call arrows.\n")
+		return
+	}
+	usedAliases := make(map[string]bool, len(diagramRecipes)*2)
+	anchors := make([]types.DiagramEdgeAnchor, 0, len(diagramRecipes))
+	for _, recipe := range diagramRecipes {
+		usedAliases[recipe.from] = true
+		usedAliases[recipe.to] = true
 		anchors = append(anchors, recipe.typed)
 	}
 	anchorJSON, err := json.Marshal(anchors)
@@ -7088,27 +7096,83 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This is an optional authoring aid derived only from the typed recipes above. Copy the Mermaid body and the complete `edge_anchors_json` together, or omit the diagram. Keep disconnected components disconnected; do not invent story/actor bridges.\n\n")
+	b.WriteString("- This optional authoring aid contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Copy the Mermaid body and the complete `edge_anchors_json` together, or omit the diagram. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	if len(omittedKinds) > 0 {
+		fmt.Fprintf(b, "- visual_omitted_relation_count=%d; omitted_relation_kinds=`%s`; these remain sibling prose/Note facts, not message arrows.\n",
+			len(recipes)-len(diagramRecipes), strings.Join(omittedKinds, ","))
+	}
+	b.WriteString("\n")
 	b.WriteString("```mermaid\n")
 	if kind == types.DiagramSequence {
 		b.WriteString("sequenceDiagram\n")
 		for _, row := range aliases {
+			if !usedAliases[row.alias] {
+				continue
+			}
 			fmt.Fprintf(b, "  participant %s as %s\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 		}
-		for _, recipe := range recipes {
+		for _, recipe := range diagramRecipes {
 			fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
 		}
 	} else {
 		b.WriteString("flowchart TD\n")
 		for _, row := range aliases {
+			if !usedAliases[row.alias] {
+				continue
+			}
 			fmt.Fprintf(b, "  %s[\"%s\"]\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 		}
-		for _, recipe := range recipes {
+		for _, recipe := range diagramRecipes {
 			fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
 		}
 	}
 	b.WriteString("```\n")
 	fmt.Fprintf(b, "- edge_anchors_json=`%s`\n", anchorJSON)
+}
+
+// answerDocMechanismCopyReadyRecipes narrows the full typed relation capsule
+// to relations the selected Mermaid family can express without changing their
+// meaning. Sequence messages are invocation/handoff carriers, not a generic
+// drawing syntax for guards, registrations, assignments, factory returns, or
+// type relationships. Call DAGs are narrower still. A repeated endpoint pair
+// with multiple relation kinds is omitted from a copy-ready body because the
+// diagram parser cannot assign one visible arrow to several competing typed
+// authorities. The full relation capsule remains available for prose/notes.
+func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, kind types.DiagramKind) ([]answerDocMechanismRecipeRow, []string) {
+	if len(recipes) == 0 {
+		return nil, nil
+	}
+	pairKinds := make(map[string]map[types.DiagramRelationKind]bool, len(recipes))
+	for _, recipe := range recipes {
+		key := recipe.from + "\x00" + recipe.to
+		if pairKinds[key] == nil {
+			pairKinds[key] = map[types.DiagramRelationKind]bool{}
+		}
+		pairKinds[key][recipe.edge.relation] = true
+	}
+	omitted := map[string]bool{}
+	out := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+	for _, recipe := range recipes {
+		key := recipe.from + "\x00" + recipe.to
+		representable := true
+		switch kind {
+		case types.DiagramSequence:
+			representable = recipe.edge.relation == types.DiagramRelCall || recipe.edge.relation == types.DiagramRelCallback
+		case types.DiagramCallDAG:
+			representable = recipe.edge.relation == types.DiagramRelCall
+		}
+		if !representable || len(pairKinds[key]) != 1 {
+			omitted[string(recipe.edge.relation)] = true
+			continue
+		}
+		out = append(out, recipe)
+	}
+	omittedKinds := make([]string, 0, len(omitted))
+	for relation := range omitted {
+		omittedKinds = append(omittedKinds, relation)
+	}
+	sort.Strings(omittedKinds)
+	return out, omittedKinds
 }
 
 func answerDocMechanismMermaidLabel(identity string) string {
@@ -12632,7 +12696,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint = "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate. Re-emit `emit_answer_document` using only the already-provided grounded evidence: cite a file:line only when that line directly corroborates the visible literal or step; otherwise leave the item uncited and explain the evidence boundary in `summary`. Do NOT call `read_file`, `grep`, or any other tool to repair this; use the existing citations, evidence, and seeds only."
 		}
 	}
-	if repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
+	if !optionalDiagramPatchRecovery && repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
 		hint = answerDocFixOnlyDirective(repair.Fields, hasPatchBase) + " " + hint
 	}
 	// Catastrophic-regression override: when the tool flagged

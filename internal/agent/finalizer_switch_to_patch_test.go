@@ -146,6 +146,9 @@ func TestEmitAnswerDocumentRejectSignal_FirstRejectPrefersPatchWhenDraftAvailabl
 			t.Fatalf("patch-first hint missing %q:\n%s", want, got.Hint)
 		}
 	}
+	if strings.Contains(got.Hint, "Re-emit `emit_answer_document` with the FULL previous payload") {
+		t.Fatalf("optional diagram patch hint must not carry the contradictory full-emit directive:\n%s", got.Hint)
+	}
 	if strings.Contains(got.Hint, "paste the FULL previous payload") {
 		t.Fatalf("patch-first hint must not ask for full-payload paste:\n%s", got.Hint)
 	}
