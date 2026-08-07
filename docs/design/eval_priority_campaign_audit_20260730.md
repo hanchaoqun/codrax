@@ -25334,3 +25334,27 @@ r184 在 `main@e15a99c82` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 状态：`EVAL-B308=S37aq-implemented/agent-suite-pass/pending-production-replay`；
 `signal=typed-required-files+AST-call/soft-only`；`hard-gate=none`；
 模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
+
+### 123.298 S37ar：无标签 flowchart 关系门复核——实现已闭环，缺口收窄为生产见证
+
+按 r184 遗留项重新逐层核对 `mermaidcompat.ParseEdges`、source diagram body ownership、typed relation/evidence 合取、跨语言 identity 与
+RootCauseTrace 排除边界后，确认需要纠正“仍待代码修复”的表述：`EVAL-B217-FLOWUNLABELED1` 已由 §123.196/S36h 在实现层根修，当前未完成的是
+C++ 真实回放连续几轮均未发 Mermaid，因而没有生产形 witness，不能据此反向声称 hard gate 仍可绕过。
+
+1. `QFCallChain` 是精确的 source-relation family 信号；模型选择 flow、architecture、sequence 或 call_dag 时，每一条由 Mermaid parser 识别的
+   可见 body edge 都必须有同向 `edge_anchors[]` 的 canonical `relation_kind` 所有者。箭头是否带 label 不参与资格判断，因此裸 `A --> B` 不再是逃逸面；
+2. semantic `call_dag` 在 QFGeneric/QFArchitecture/QFRoleLookup 等非 runtime family 也保持全 body ownership。普通 generic flow/architecture
+   示意图不被错误扩域为 source-call 硬门，避免把无关展示箭头强行解释为调用；
+3. typed enum 本身不能铸造证据：call、type/register/callback/value-flow 及 guard/import/precedence/observe 等逻辑关系继续分别要求同向、可引用的
+   typed EvidenceItem；contain 在缺少精确 directed carrier 时 fail-closed。sequence 只豁免与正向 invocation 结构配对的 dashed reply；
+4. 语言不进入 hard-gate 分支。现有可执行矩阵覆盖 Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、
+   Cangjie；Proto 保持声明语言负边界。`::`、`.`、`_` 等仅由统一 endpoint identity/解析器处理；
+5. 聚焦复验通过：flow/architecture 无锚负臂、跨 family semantic call_dag、跨语言同向 call 不得藏在 guard 锚、inline-code identity，以及 Mermaid
+   flowchart parser 对 C++/Rust/Cangjie `::`、节点 label 内 `->`、无标签 `-->` 的区分均全绿；
+6. 本次没有重复改生产实现，也没有增加 C++/节点名/答案原文关键词规则。下一批严格并行 2：`sr_cpp_virtual_chain` 用作 source-call 生产见证，
+   `qf_diagram_pipeline` 用作 generic flow 不被误伤的对照。若 C++ 再次不画图，只能记 `not-exercised`，不得虚销 production witness；
+7. Trace 明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双维度根因分析完全不进入该 source-code validator；JSON schema/repair、
+   write mode 与模型答案所有权均未变化。
+
+状态：`EVAL-B217-FLOWUNLABELED1=implementation-closed/focused-reverified/production-witness-pending`；
+`language-special-case=none`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
