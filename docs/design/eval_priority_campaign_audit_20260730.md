@@ -23967,3 +23967,55 @@ JSON shape-first 与 S37o duplicate-array carrier 保持单源；没有新增 JS
 状态：`EVAL-B261-REVERSEEDGEHANDOFF1=S37p-implemented/full-tests-pass`；
 `EVAL-B262-TRANSITIVEHOPDEPTH1=S37p-implemented/pending-production-replay`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.246 r161：反向边生产闭环；Rust 显示限定名把真实 call edge 连续拒绝
+
+r161 在 `main@a16c38dc8` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与 Rust
+`sr_rust_cross_module_chain`。runner 0/2 PASS；人工两项均 fail。没有 Trace/system supplement 接管模型结论。
+
+sequence 案确认 `EVAL-B261-REVERSEEDGEHANDOFF1` 生产闭环：Explorer 读取 `gate.go` 后发出独立 typed
+`gate.Run -> RunWith @ :135`，最终 summary/list/diagram 都保持真实方向，并诚实说明 `buildAnalysisIR -> gate.Run` 是 no-directed-path；finalizer 只因
+模型画了无 typed return fact 的 reply 拒绝一次，删除该 reply 后通过。相比 r160 的 3 次成文拒绝与反向事实错误，关系证据交接已经生效。
+
+但 `EVAL-B262-TRANSITIVEHOPDEPTH1` 仍开放：Explorer 把 `buildAnalysisIR` 内的 direct caller roster 当作完整处理顺序，没有打开
+`analyzerSymbolResolver` 函数体，因而仍漏 `analyzerSymbolResolver -> analyzerGraphForNormalize`。S37p 的软 frontier 教学没有稳定改变该行为；
+下一步不能按 helper 名继续叠 prompt，应评估由 typed relation frontier 生成“已证 helper 尚有 load-bearing body edge”的上下文方案，同时保持有界而非全图穷举。
+
+Rust 案发现新确定性 `EVAL-B264-DISPLAYQUALCALLER1`（P0/P1）：调查已正确发出
+`run -> walker::collect_files @ main.rs:20`、`collect_files -> walk @ walker.rs:6`、唯一 `collect_files` definition 以及其余调用链；答案事实链本可成立。
+Mermaid 为读者把 caller 显示成 `walker::collect_files`，strict validator 却只拿该显示 label 与 inner typed Subject=`collect_files` 做全限定恒等比较，未消费
+同一 evidence pool 中的 exact inbound qualified endpoint 与唯一 source-local definition。于是同一条真实边连续 7 次被判
+`call_edge_unproven`；模型反复改 node id/alias 完全无效，最终触发 `answer_document_retry_state_recovered` 降级。该 FAIL 不是 Mermaid 语法、边方向或证据缺失，
+而是 presentation identity 泄漏进 typed endpoint authority。
+
+降级稿保住了核心链，但 structured checks 被跳过后出现两个次级质量症状：`index_file -> is_match` 项拿错相邻 citation_ref，以及把 walker 的“普通文件收集”
+扩写成“只搜索源代码文件”。先根修 B264 让正常校验车道存活；只有修后仍复现才拆成独立 gap，当前不把降级级联重复立案。
+
+状态：`runner=0/2 PASS`；`human=0/2`；`EVAL-B261-REVERSEEDGEHANDOFF1=production-closed`；
+`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；`EVAL-B264-DISPLAYQUALCALLER1=confirmed/immediate`；
+`sequence-display-parameter-identity=unit-pin-green/production-unverified`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.247 S37q：显示限定 caller 只在 typed 三证唯一汇合时绑定
+
+`EVAL-B264-DISPLAYQUALCALLER1` 在 diagram relation authority 内根修，不放宽 call edge：
+
+1. 新增 qualified-caller presentation bridge。只有 accepted evidence 同时包含：（a）显示限定名本身是某条 citable call edge 的 exact typed endpoint；
+   （b）其短 operation 只有一条 citable definition；（c）inner direct call 的 Subject 等于该 operation、Source 与唯一 definition 相同，且 target 与图中 target
+   全身份相等，才允许 `module::function` / `Type.method` 等 reader-facing label 代表 parser-owned short caller；
+2. 多定义、同名 inner caller 跨 source、parser OwnerSymbol 冲突、缺 exact inbound qualified endpoint、不同 owner 或 prefix sibling 全部继续 fail-closed。
+   绑定完全来自 EvidenceItem fields 与 source coordinates，不从文件名推 module/package，不扫描 Mermaid 消息词面、用户原文、模型 thinking/final prose；
+3. qualified separator 单源扩为 `. / :: / # / ->`，与 `AnswerCodeIdentitySurfacesCompatible` 的跨语言集合对齐。Go/Java/Kotlin/ArkTS、Rust/C++/Cangjie、
+   receiver/member 及 slash-shaped typed surfaces 共用同一结构规则，不按语言或 case ID 分支；
+4. 正向回归复刻 r161 的 `run -> walker::collect_files`、`collect_files -> walk` 与唯一 definition 三证，并覆盖五种限定符；五个负例分别钉住缺 inbound、
+   wrong qualified endpoint、duplicate definition、same short caller in another source、conflicting parser owner；
+5. sequence message parameter identity 的现有 pin 同批保持全绿，但本批没有带参数 production witness，故不能虚销；C++/各语言无标签 flowchart 逻辑箭头绕过
+   strict anchor 的开放守护也不是本 witness，继续留账。
+
+系统没有修改 diagram、节点 label、边或结论，只校正自己的 typed identity 比对。Trace runtime family、显式窗、自动补齐、因果投影、根因排序、唤醒链、
+窗内可消除量和“真实耗时贡献 / 规则内可消除量”双维根因分析均未触碰。
+
+定向 display/sequence identity 回归、`go test ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B264-DISPLAYQUALCALLER1=S37q-implemented/full-tests-pass`；
+`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。

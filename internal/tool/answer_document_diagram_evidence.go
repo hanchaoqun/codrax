@@ -794,6 +794,19 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		return true
 	}
 
+	// A module/class-qualified display label can name a callable whose own
+	// body evidence is necessarily short (for example an inbound Rust call
+	// targets walker::collect_files while the call inside walker.rs is recorded
+	// as collect_files -> walk). Join those two typed surfaces only when the
+	// accepted evidence itself closes the identity: the exact qualified caller
+	// is a citable call endpoint, one unique citable definition binds the short
+	// operation to the inner call's source file, and no same-named inner caller
+	// appears in another source. This preserves reader-friendly qualification
+	// without inferring ownership from a file path, Mermaid prose, or language.
+	if diagramCallEdgeHasUniqueInboundQualifiedCaller(evidence, fromSymbol, toSymbol) {
+		return true
+	}
+
 	// A grounded call site can carry the exact callee operation as a short
 	// symbol (Object=schedule / AnchorSymbol=schedule) while a diagram uses the
 	// definition-qualified endpoint VisitService.schedule. Accept that lossless
@@ -844,6 +857,76 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+func diagramCallEdgeHasUniqueInboundQualifiedCaller(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	fromOperation := diagramEvidenceQualifiedOperation(fromSymbol)
+	if diagramEvidenceQualifiedOwner(fromSymbol) == "" || fromOperation == "" || toSymbol == "" {
+		return false
+	}
+	// Qualification must already exist as an exact typed call endpoint. A
+	// model-authored display prefix cannot create its own owner authority.
+	if !diagramEvidenceContainsExactCallEndpoint(evidence, fromSymbol) {
+		return false
+	}
+
+	type definitionLocation struct {
+		source string
+		line   int
+	}
+	definitions := make(map[definitionLocation]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimDefinitionFact ||
+			strings.TrimSpace(ev.AnchorSymbol) != fromOperation {
+			continue
+		}
+		source := strings.TrimSpace(ev.Source)
+		if source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		definitions[definitionLocation{source: source, line: ev.LineStart}] = true
+	}
+	if len(definitions) != 1 {
+		return false
+	}
+	var definitionSource string
+	for location := range definitions {
+		definitionSource = location.source
+	}
+
+	found := false
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+			strings.TrimSpace(ev.Subject) != fromOperation {
+			continue
+		}
+		if !diagramEvidenceExactCallTargetMatches(ev, toSymbol) {
+			continue
+		}
+		owner := strings.TrimSpace(ev.OwnerSymbol)
+		if owner != "" && owner != fromOperation &&
+			!types.AnswerCodeIdentitySurfacesEquivalent(owner, fromSymbol) {
+			return false
+		}
+		// The unique definition is the source-local binding. Seeing the same
+		// short caller in another file makes the qualification ambiguous.
+		if strings.TrimSpace(ev.Source) != definitionSource {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func diagramEvidenceExactCallTargetMatches(ev types.EvidenceItem, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	return types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(ev.Object), target) ||
+		types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(ev.AnchorSymbol), target)
 }
 
 // diagramCallAnchorHasTypedEvidence routes explicit edge anchors through the
@@ -1076,7 +1159,7 @@ func diagramEvidenceQualifiedOperation(symbol string) string {
 func diagramEvidenceQualifiedSplit(symbol string) (string, int, int) {
 	symbol = strings.TrimSpace(symbol)
 	cut, width := -1, 0
-	for _, separator := range []string{"::", ".", "#"} {
+	for _, separator := range []string{"::", "->", ".", "#", "/"} {
 		if idx := strings.LastIndex(symbol, separator); idx > cut {
 			cut, width = idx, len(separator)
 		}

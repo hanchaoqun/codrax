@@ -605,6 +605,103 @@ func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerBindingSupportsUnqualifi
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedDisplayCallerBridgesThroughTypedInboundEndpoint(t *testing.T) {
+	for _, qualified := range []string{
+		"walker::collect_files",
+		"walker.collect_files",
+		"Walker#collect_files",
+		"walker/collect_files",
+		"walker->collect_files",
+	} {
+		t.Run(qualified, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "rust-call", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramCallDAG, Language: "mermaid",
+					Body: "flowchart TD\n  wc[\"" + qualified + "\"] -->|calls| wf[\"walk\"]\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "wc", ToNode: "wf", RelationKind: types.DiagramRelCall,
+					ClaimForm: types.ClaimCallEdge,
+				}},
+			}}}
+			inbound := diagramEvidenceTestCall("run", qualified)
+			inbound.Source = "src/main.rs"
+			inbound.LineStart = 20
+			inner := diagramEvidenceTestCall("collect_files", "walk")
+			inner.Source = "src/walker.rs"
+			inner.LineStart = 6
+			inner.OwnerSymbol = "collect_files"
+			inner.AnchorSymbol = "walk"
+			definition := diagramEvidenceTestDefinition("", "collect_files", "src/walker.rs", 4)
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{inbound, inner, definition}); len(got) != 0 {
+				t.Fatalf("typed inbound qualification plus unique source-local definition must preserve display identity: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedDisplayCallerBridgeFailsClosedOnAmbiguity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "rust-call", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramCallDAG, Language: "mermaid",
+			Body: "flowchart TD\n  wc[\"walker::collect_files\"] -->|calls| wf[\"walk\"]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "wc", ToNode: "wf", RelationKind: types.DiagramRelCall,
+			ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	inbound := diagramEvidenceTestCall("run", "walker::collect_files")
+	inbound.Source = "src/main.rs"
+	inbound.LineStart = 20
+	inner := diagramEvidenceTestCall("collect_files", "walk")
+	inner.Source = "src/walker.rs"
+	inner.LineStart = 6
+	inner.OwnerSymbol = "collect_files"
+	inner.AnchorSymbol = "walk"
+	definition := diagramEvidenceTestDefinition("", "collect_files", "src/walker.rs", 4)
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+
+	tests := []struct {
+		name     string
+		evidence []types.EvidenceItem
+	}{
+		{name: "no exact qualified inbound endpoint", evidence: []types.EvidenceItem{inner, definition}},
+		{name: "wrong qualified inbound endpoint", evidence: []types.EvidenceItem{
+			diagramEvidenceTestCall("run", "other::collect_files"), inner, definition,
+		}},
+		{name: "duplicate short definition", evidence: []types.EvidenceItem{
+			inbound, inner, definition, diagramEvidenceTestDefinition("", "collect_files", "other/walker.rs", 4),
+		}},
+		{name: "same short caller in another source", evidence: []types.EvidenceItem{
+			inbound, inner, definition, func() types.EvidenceItem {
+				other := inner
+				other.ID = "other-inner"
+				other.Source = "other/walker.rs"
+				return other
+			}(),
+		}},
+		{name: "conflicting parser owner", evidence: []types.EvidenceItem{
+			inbound, func() types.EvidenceItem {
+				other := inner
+				other.OwnerSymbol = "other::collect_files"
+				return other
+			}(), definition,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DiagramCallEdgeEvidenceMismatches(doc, view, tc.evidence)
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+				t.Fatalf("ambiguous display qualification must fail closed: %+v", got)
+			}
+		})
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerShortCalleeFailsClosedOnIdentityConflict(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
