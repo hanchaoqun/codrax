@@ -25112,3 +25112,25 @@ Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除
 
 状态：`EVAL-B299=S37al-implemented/full-suite-pass/pending-production-replay`；
 `EVAL-B300=P1-observe/no-system-rewrite`；模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 全能力=`unchanged`。
+
+### 123.290 S37am：角色说明伴生行退出 declaration identity census
+
+r182 的 Rust production replay 否证了 S37al 首版收账：relation authority 仍发布两 component，copy-ready 仍把
+`walker::collect_files` 与 `collect_files` 拆开。逐条 EvidenceItem 审计定位到一个更底层的 typed-role 混淆：
+
+1. 模型发出的真实 definition 位于 `src/walker.rs:4`；`autoPairRoleDescriptionEvidence` 又从其上一行 doc comment 生成
+   `producer=auto_pair_role_description`、line 3、`predicate=documents` 的说明伴生行。伴生行复用 `AnchorDefinition/ClaimDefinitionFact` 只是为了让角色说明保持 citable，
+   其代码注释明确说 downstream 可按 producer 归因/过滤；它不是第二个源码 declaration；
+2. S37al resolver 初版只看 ClaimForm 与 `(source,line)`，因此把 line 3/4 当两个定义并按歧义 fail-closed。这个失败方向是安全的，但使 production 修复无效；r182
+   仍发生一次成文拒绝，模型最终复制断开的系统图，不能记 positive；
+3. 本批将 producer 名上收为 `types.EvidenceProducerAutoPairRoleDescription` 单源常量；auto-pair producer 与 identity resolver 共用该常量。resolver 的
+   definition identity census 精确排除这个 typed 说明 producer，但它仍留在证据池中供角色/WHAT 解释、citation 与 support coverage 使用；
+4. 不按相邻行、注释内容、predicate 文本或文件扩展名猜“同一定义”。任何非该明确 producer 的第二 definition，无论相邻与否，仍触发歧义；跨 source 同短 caller、两个
+   限定 owner 与冲突 OwnerSymbol 的负臂也不变；
+5. production 同形测试现在同时放入 doc-comment 伴生行和真实 definition，仍必须解析为
+   `run -> walker::collect_files -> walk`；五分隔符正臂、真实多定义等负臂与 agent copy-ready 集成 pin 全绿；
+6. 聚焦测试通过后再次执行 `go test ./...`，全仓通过，包含转换、Mermaid、repomap、tracequery/tracediag 与 writeflow。下一步重新构建并回放 Rust；只有生产图三节点
+   单 component 且零相关 reject 才关闭 B299。
+
+状态：`EVAL-B299=S37am-full-suite-pass/pending-second-production-replay`；
+`r182-rust=production-negative/not-closed`；模型答案所有权=`preserved`；Trace/JSON=`unchanged`。

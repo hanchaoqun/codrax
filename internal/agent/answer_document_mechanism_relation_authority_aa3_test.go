@@ -346,6 +346,12 @@ func TestMechanismRelationCopyReadyDiagramSharesQualifiedCallableIdentityAA3(t *
 		Source: "src/walker.rs", LineStart: 4, AnchorKind: types.AnchorDefinition,
 		AnchorSymbol: "collect_files", GroundingStatus: types.GroundingGrounded,
 	}
+	description := definition
+	description.ID = "description"
+	description.LineStart = 3
+	description.Predicate = "documents"
+	description.Producer = types.EvidenceProducerAutoPairRoleDescription
+	description.DerivedFrom = []string{definition.ID}
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
@@ -353,7 +359,7 @@ func TestMechanismRelationCopyReadyDiagramSharesQualifiedCallableIdentityAA3(t *
 				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
 			}},
 		},
-		EvidenceItems: []types.EvidenceItem{inbound, inner, definition},
+		EvidenceItems: []types.EvidenceItem{inbound, inner, definition, description},
 	}
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)

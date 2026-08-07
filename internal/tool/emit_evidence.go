@@ -5186,7 +5186,7 @@ func autoPairRoleDescriptionEvidence(built []types.EvidenceItem, gc *ground.Cont
 			Scope:           types.ScopeLine,
 			Confidence:      it.Confidence,
 			DerivedFrom:     []string{it.ID},
-			Producer:        "auto_pair_role_description",
+			Producer:        types.EvidenceProducerAutoPairRoleDescription,
 			GroundingStatus: types.GroundingGrounded,
 			GroundingTier:   types.TierLineText,
 			GroundingNote:   "auto-paired from leading doc comment",

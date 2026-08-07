@@ -98,6 +98,7 @@ func ResolveUniqueQualifiedCallEndpoint(evidence []EvidenceItem, short string) (
 	definitions := make(map[definitionLocation]bool)
 	for _, item := range evidence {
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimDefinitionFact ||
+			strings.TrimSpace(item.Producer) == EvidenceProducerAutoPairRoleDescription ||
 			strings.TrimSpace(item.AnchorSymbol) != operation {
 			continue
 		}

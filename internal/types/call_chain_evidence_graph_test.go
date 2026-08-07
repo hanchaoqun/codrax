@@ -31,8 +31,14 @@ func TestResolveUniqueQualifiedCallEndpoint_UsesOnlyTypedInboundDefinitionBridge
 				AnchorSymbol: "collect_files", Source: "src/walker.rs", LineStart: 4,
 				Scope: ScopeLine, GroundingStatus: GroundingGrounded,
 			}
+			description := definition
+			description.ID = "description"
+			description.LineStart = 3
+			description.Predicate = "documents"
+			description.Producer = EvidenceProducerAutoPairRoleDescription
+			description.DerivedFrom = []string{definition.ID}
 			got, ok := ResolveUniqueQualifiedCallEndpoint(
-				[]EvidenceItem{inbound, inner, definition}, "collect_files",
+				[]EvidenceItem{inbound, inner, definition, description}, "collect_files",
 			)
 			if !ok || got != qualified {
 				t.Fatalf("typed bridge resolved (%q,%t), want (%q,true)", got, ok, qualified)

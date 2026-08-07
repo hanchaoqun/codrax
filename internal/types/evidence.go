@@ -36,6 +36,11 @@ const (
 	EvidenceProducerRepoMapCooperativeCall      = "repomap_cooperative_call"
 	EvidenceProducerRepoMapCooperativeMethod    = "repomap_cooperative_method_definition"
 	EvidenceProducerRepoMapDecoratorApplication = "repomap_decorator_application"
+	// EvidenceProducerAutoPairRoleDescription marks a doc-comment companion
+	// emitted beside one grounded definition. It carries role/WHAT context but
+	// is not a second declaration identity and must not make a unique-definition
+	// resolver ambiguous.
+	EvidenceProducerAutoPairRoleDescription = "auto_pair_role_description"
 )
 
 // IsRepoMapTypeRelationEvidence reports whether item is a deterministic type
