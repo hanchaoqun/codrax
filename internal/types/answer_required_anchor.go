@@ -20,8 +20,12 @@ type AnswerRequiredAnchor struct {
 // CompileRequiredMechanismAnchors converts analyzer-visible exact anchors into
 // a final-answer structural obligation. It intentionally consumes only typed
 // RequestModel / AnswerContract fields:
-//   - AnalyzerHints.MentionedEntities and ExactTargets name exact current-turn
-//     endpoints already validated upstream.
+//   - AnalyzerHints.ExactTargets names exact current-turn identities already
+//     validated upstream. MentionedEntities remains exploration context and is
+//     deliberately too noisy to create a hard publication obligation.
+//   - QFCallChain additionally consumes the precise ordered endpoint profile:
+//     its source is authoritative in exact/discover mode, while its sink is
+//     authoritative only in exact mode.
 //   - AnswerContract.MustIncludeTerms contributes kind information so tool
 //     names and file stems are not treated as source symbols.
 //
@@ -44,7 +48,7 @@ func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, f
 	if !requiredMechanismAnchorsEnabled(rm, family) {
 		return nil
 	}
-	ordered, mentioned := mechanismAnchorMentionedSet(rm, subRepoNames)
+	ordered, exact := mechanismAnchorHardCandidateSet(rm, family, subRepoNames)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -68,7 +72,7 @@ func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, f
 		if key == "" {
 			return
 		}
-		if _, ok := mentioned[key]; !ok {
+		if _, ok := exact[key]; !ok {
 			return
 		}
 		if _, dup := seen[key]; dup {
@@ -129,7 +133,7 @@ func requiredMechanismAnchorsEnabled(rm RequestModel, family QuestionFamily) boo
 	}
 }
 
-func mechanismAnchorMentionedSet(rm RequestModel, subRepoNames []string) ([]string, map[string]struct{}) {
+func mechanismAnchorHardCandidateSet(rm RequestModel, family QuestionFamily, subRepoNames []string) ([]string, map[string]struct{}) {
 	// Repository / project identifiers are not eligible mechanism anchors.
 	// They look identifier-shaped to InferContractTermKind (which yields
 	// ContractTermSymbol) but they have no code definition site; promoting
@@ -164,8 +168,11 @@ func mechanismAnchorMentionedSet(rm RequestModel, subRepoNames []string) ([]stri
 	for _, text := range rm.AnalyzerHints.ExactTargets {
 		add(text)
 	}
-	for _, text := range rm.AnalyzerHints.MentionedEntities {
-		add(text)
+	if family == QFCallChain && rm.CallChainEndpointProfile.Active() {
+		add(rm.CallChainEndpointProfile.Source)
+		if rm.CallChainEndpointProfile.ExactActive() {
+			add(rm.CallChainEndpointProfile.Sink)
+		}
 	}
 	return ordered, seen
 }

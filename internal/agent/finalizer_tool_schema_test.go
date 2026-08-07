@@ -98,6 +98,62 @@ func TestFinalizerToolSchemas_DocumentBlocksUseOneSchemaNearCarrierTeaching(t *t
 	}
 }
 
+func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradictory(t *testing.T) {
+	agent := finalizerSchemaTestAgent()
+	sk := finalizerSchemaTestSkill()
+	mut := types.NewMutableState("retry finalizer dispatch")
+	mut.SetRetryState(&types.RetryState{
+		Attempt:      1,
+		PrevEmitJSON: []byte(`{"blocks":[{"id":"s1","kind":"summary","text":"kept"}]}`),
+	})
+	ctx := &types.AgentContext{Mutable: mut}
+
+	var patchSchema *llm.ToolSchema
+	for _, schema := range agent.buildToolSchemas(sk, ctx) {
+		if schema.Name == "emit_answer_document_patch" {
+			s := schema
+			patchSchema = &s
+			break
+		}
+	}
+	if patchSchema == nil {
+		t.Fatal("retry dispatch must expose emit_answer_document_patch")
+	}
+	// The full tool owns the one compact carrier teaching. The patch tool's
+	// projected function schema must express its delta containers structurally,
+	// not copy another prose schema that can drift or contradict the full tool.
+	for _, duplicate := range []string{
+		types.AnswerDocumentJSONShapeFirstTeaching,
+		"native JSON array",
+		"JSON-encoded string",
+	} {
+		if strings.Contains(patchSchema.Description, duplicate) {
+			t.Fatalf("patch description must not duplicate JSON carrier teaching %q:\n%s", duplicate, patchSchema.Description)
+		}
+	}
+	var paramsSchema struct {
+		Properties map[string]struct {
+			Type  string `json:"type"`
+			Items struct {
+				Type string `json:"type"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(patchSchema.Parameters, &paramsSchema); err != nil {
+		t.Fatalf("decode patch schema: %v", err)
+	}
+	for _, field := range []string{
+		"unchanged_block_ids", "replace_blocks", "add_blocks", "remove_block_ids",
+		"replace_citations", "append_citations", "replace_missing_requested_roles",
+		"replace_caveats", "replace_snippets",
+	} {
+		property, ok := paramsSchema.Properties[field]
+		if !ok || property.Type != "array" || property.Items.Type == "" {
+			t.Fatalf("patch field %q must carry its array/item shape structurally: %+v", field, property)
+		}
+	}
+}
+
 func finalizerSchemaTestAgent() *BaseAgent {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.EmitAnswerDocument{})

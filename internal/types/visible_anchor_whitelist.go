@@ -137,8 +137,8 @@ const MaxVisibleAnchorWhitelistEntries = 60
 // Order discipline:
 //
 //   - Required entries follow the AnswerRequiredAnchor slice's order
-//     (user-mention sequence preserved upstream by
-//     mechanismAnchorMentionedSet).
+//     (precise ExactTargets / ordered call-chain endpoint sequence preserved
+//     upstream by mechanismAnchorHardCandidateSet).
 //   - Groundable entries are sorted by (GroundingTier ascending,
 //     Symbol ascending) so the highest-confidence anchors lead. Tier
 //     ascending puts Tier 1 / 2 (high confidence) before Recovered /

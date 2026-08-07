@@ -22454,3 +22454,37 @@ root-cause 图的独立 authority 均未修改。`EVAL-B209-COOPPATH1` 继续开
 `EVAL-B216-MERMQUOTE1=closed-by-client-artifact-and-bundled-parser`；
 `EVAL-B219-MENTIONHARD1=P0-next`；`EVAL-B220-DYNDISPATCH1=P1-designed`；
 `EVAL-B217-FLOWUNLABELED1=P1-blocked-on-B220`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.194 S36f：硬锚来源收窄到精确 typed 车道，JSON 教学单源复核
+
+`EVAL-B219-MENTIONHARD1` 已按红线根修。`CompileRequiredMechanismAnchors` 不再把
+`AnalyzerHints.MentionedEntities` 合并进硬锚候选：普通实体枚举继续留在探索与成文软上下文，但不能再经
+`InferContractTermKind` 把参数名、配置值或字面量（本次 witness 为 `kind` / `json`）猜成代码符号并触发发布拒绝。
+硬锚现在只来自：
+
+1. `AnalyzerHints.ExactTargets`；
+2. `QFCallChain` 的精确 typed `CallChainEndpointProfile`：exact 模式携带 source+sink，discover 模式仅携带
+   source，未知 sink 不得由普通 mentions 补铸；
+3. `AnswerContract.MustIncludeTerms` 仍只提供 kind，且必须与上述精确候选同 key 才能进入硬锚。
+
+该方案修的是信号来源而不是隐藏最终答案词面：不扫描用户原文、模型思考或模型最终 prose，不改模型结论，也不删除普通实体上下文。
+新增回归同时钉住 generic/architecture 的 noisy-mentioned 排除、call-chain exact/discover 两臂、路径上下文排除、sub-repo 名称过滤以及
+runtime current-source 精确目标保留。由此 r141 的 Python 场景只会要求 `run_pipeline`，不会再强迫模型为 `kind` / `json`
+制造独立列表项。
+
+JSON 教学同期做了单源一致性复核：
+
+- full emit 的 compact `JSON SHAPE FIRST` 只在 schema-near tool description 出现一次，projected schema 以
+  `blocks.type=array` 结构给出真实类型；静态 finalizer skill 只声明“projected schema 是唯一字段/type/required/enum 权威”，不复制第二份
+  字段清单；
+- retry patch 不复制 full carrier 教学，`unchanged_block_ids`、`replace_blocks`、`add_blocks`、删除列表与 citation 列表均由
+  function schema 的 `type=array + items.type` 表达；新增组合 pin 防止 prose 与 schema 将来各自演化为矛盾合同；
+- lossless JSON-string repair、不可全量恢复时拒绝伪正常并保留可识别模型文本的既有降级边界未改。r141 两案的 tool JSON/recovery
+  指标均为零，故本批不把 Mermaid quoted-label 故障误判为 JSON tool-call 畸形，也不为单案添加重复教学。
+
+验证：`go test ./internal/types ./internal/agent ./internal/tool` 全绿。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量
+以及“真实耗时贡献/规则内可消除量”双维度均未进入本批控制流。
+
+状态：`EVAL-B219-MENTIONHARD1=S36f-closed/focused-pass`；
+`JSON-SCHEMA-SINGLE-AUTHORITY=audited/pinned`；`EVAL-B220-DYNDISPATCH1=P1-next`；
+`EVAL-B217-FLOWUNLABELED1=P1-blocked-on-B220`；模型答案所有权=`preserved`；Trace=`not-touched`。

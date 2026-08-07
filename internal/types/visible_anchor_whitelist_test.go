@@ -23,9 +23,9 @@ func TestBuildVisibleAnchorWhitelist_NilSafe(t *testing.T) {
 }
 
 // TestBuildVisibleAnchorWhitelist_RequiredPreservesOrder pins user-
-// mention sequence: AnswerRequiredAnchor[] order is sourced from
-// mechanismAnchorMentionedSet which preserves the order the entities
-// appeared in the raw request. The whitelist must keep that order.
+// typed sequence: AnswerRequiredAnchor[] order is sourced from
+// mechanismAnchorHardCandidateSet, which preserves exact-target / endpoint
+// order without reading raw request prose. The whitelist must keep that order.
 func TestBuildVisibleAnchorWhitelist_RequiredPreservesOrder(t *testing.T) {
 	view := &AnswerSemanticView{
 		RequiredMechanismAnchors: []AnswerRequiredAnchor{

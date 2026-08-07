@@ -268,14 +268,14 @@ func TestBuildAnswerSemanticView_RequestedCandidateRolesPropagated(t *testing.T)
 	}
 }
 
-func TestBuildAnswerSemanticView_RequiredMechanismAnchorsFromTypedMentionedLanes(t *testing.T) {
+func TestBuildAnswerSemanticView_RequiredMechanismAnchorsFromTypedExactLane(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{
 			Intent:   IntentExplain,
 			Scenario: ScenarioArchitectureExplain,
 			AnalyzerHints: AnalyzerHints{
-				MentionedEntities: []string{"runTaskGraph", "helperCandidate"},
-				ExactTargets:      []string{"emit_evidence"},
+				MentionedEntities: []string{"helperCandidate", "kind", "json"},
+				ExactTargets:      []string{"runTaskGraph", "emit_evidence"},
 			},
 		},
 		AnswerContract: AnswerContract{
@@ -292,17 +292,14 @@ func TestBuildAnswerSemanticView_RequiredMechanismAnchorsFromTypedMentionedLanes
 		t.Fatal("view nil")
 	}
 	got := view.RequiredMechanismAnchors
-	if len(got) != 3 {
-		t.Fatalf("required anchors len=%d want 3: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("required anchors len=%d want 2: %+v", len(got), got)
 	}
 	if got[0].Text != "runTaskGraph" || got[0].Kind != ContractTermSymbol {
 		t.Fatalf("first anchor = %+v, want runTaskGraph symbol", got[0])
 	}
 	if got[1].Text != "emit_evidence" || got[1].Kind != ContractTermToolName {
 		t.Fatalf("second anchor = %+v, want emit_evidence tool_name", got[1])
-	}
-	if got[2].Text != "helperCandidate" || got[2].Kind != ContractTermSymbol {
-		t.Fatalf("third anchor = %+v, want helperCandidate symbol", got[2])
 	}
 }
 

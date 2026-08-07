@@ -4,7 +4,7 @@ import "testing"
 
 // TestCompileRequiredMechanismAnchors_FiltersProjectNames is the F1
 // regression for the 2026-05-16 architectural-comparison finalize
-// loop. The analyzer's MentionedEntities include "codrax" /
+// loop. The analyzer's ExactTargets include "codrax" /
 // "opencode" — repository names that look identifier-shaped to
 // InferContractTermKind but have no code definition site. Without
 // the sub-repo-name filter, CompileRequiredMechanismAnchors promotes
@@ -22,7 +22,7 @@ func TestCompileRequiredMechanismAnchors_FiltersProjectNames(t *testing.T) {
 		Scenario:   ScenarioArchitectureExplain,
 		Predicates: SemanticPredicates{IsCrossComponent: true},
 		AnalyzerHints: AnalyzerHints{
-			MentionedEntities: []string{"codrax", "opencode", "Orchestrator"},
+			ExactTargets: []string{"codrax", "opencode", "Orchestrator"},
 		},
 	}
 	contract := AnswerContract{}
@@ -78,7 +78,7 @@ func TestCompileRequiredMechanismAnchors_FilterIsCaseInsensitive(t *testing.T) {
 		Predicates: SemanticPredicates{IsCrossComponent: true},
 		AnalyzerHints: AnalyzerHints{
 			// Mixed case to verify requiredAnchorKey's ToLower normalises.
-			MentionedEntities: []string{"Codrax", "OpenCode"},
+			ExactTargets: []string{"Codrax", "OpenCode"},
 		},
 	}
 	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFArchitecture,
@@ -145,6 +145,7 @@ func TestCompileRequiredMechanismAnchors_RuntimeCurrentSourceRequiredKeepsAnchor
 		},
 		AnalyzerHints: AnalyzerHints{
 			MentionedEntities: []string{"TraceQueryPlanner"},
+			ExactTargets:      []string{"TraceQueryPlanner"},
 			RequiredFileHints: []RequiredFileHint{{
 				Path:       "internal/tracequery/query.go",
 				Confidence: 0.9,
@@ -168,8 +169,9 @@ func TestCompileRequiredMechanismAnchors_CallChainKeepsEndpointsAcrossRelationFl
 		},
 		AnalyzerHints: AnalyzerHints{
 			Kind:              string(ReqCallChain),
-			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go", "kind"},
 		},
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 	}
 	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
 	if len(got) != 2 {
@@ -195,9 +197,44 @@ func TestCompileRequiredMechanismAnchors_CallChainFiltersPathContextNotQualified
 				"StageOutput.AnalysisIR",
 			},
 		},
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "gate.Run", Sink: "StageOutput.AnalysisIR"},
 	}
 	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
 	if len(got) != 2 || got[0].Text != "gate.Run" || got[1].Text != "StageOutput.AnalysisIR" {
 		t.Fatalf("call-chain path context must not become endpoints; qualified symbols must survive: %+v", got)
+	}
+}
+
+func TestCompileRequiredMechanismAnchors_CallChainDiscoverUsesOnlyPreciseSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqCallChain),
+			MentionedEntities: []string{"run_pipeline", "register", "kind", "json"},
+		},
+		CallChainEndpointProfile: &CallChainEndpointProfile{
+			Source:   "run_pipeline",
+			SinkMode: CallChainSinkResolutionDiscover,
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
+	if len(got) != 1 || got[0].Text != "run_pipeline" {
+		t.Fatalf("discover-mode hard anchors must contain only the precise source; noisy mentions cannot be promoted: %+v", got)
+	}
+}
+
+func TestCompileRequiredMechanismAnchors_GenericMentionedEntitiesStaySoft(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"kind", "json", "helperCandidate"},
+			ExactTargets:      []string{"runTaskGraph"},
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFArchitecture, nil)
+	if len(got) != 1 || got[0].Text != "runTaskGraph" {
+		t.Fatalf("only exact typed targets may become generic hard anchors: %+v", got)
 	}
 }
