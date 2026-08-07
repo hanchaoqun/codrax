@@ -39,16 +39,17 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	// projection materializer. A bounded fact request must not be widened into
 	// causal synthesis merely because exploration happened to collect a causal
 	// row; explicit typed windows and causal/relation scopes remain authorized.
-	if len(set.Projections) == 0 || !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
+	if !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
 		return ""
 	}
 	var claims []types.AnswerRelationClaim
 	if ctx.Mutable != nil {
 		claims = ctx.Mutable.StableInvestigationRelationClaims()
 	}
-	return renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
+	handoff := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
 		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), claims,
 	)
+	return strings.TrimSpace(handoff + renderTraceFindingContract(ctx))
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {

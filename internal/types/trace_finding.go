@@ -6,14 +6,30 @@ const TraceFindingSchemaVersion = 1
 // TraceFindingContract is injected by a trace-batch child run. Ordinary read
 // requests leave it disabled and therefore keep the historical tool schema.
 type TraceFindingContract struct {
-	Required                bool     `json:"required"`
-	CandidateSetID          string   `json:"candidate_set_id"`
-	FindingSchemaVersion    int      `json:"finding_schema_version"`
-	PrimaryCandidateIDs     []string `json:"primary_candidate_ids"`
-	ContributorCandidateIDs []string `json:"contributor_candidate_ids"`
-	AcceptedEvidenceIDs     []string `json:"accepted_evidence_ids"`
-	RegistryHash            string   `json:"registry_hash"`
-	CausalCeiling           string   `json:"causal_ceiling"`
+	Required                bool                      `json:"required"`
+	CandidateSetID          string                    `json:"candidate_set_id"`
+	FindingSchemaVersion    int                       `json:"finding_schema_version"`
+	PrimaryCandidateIDs     []string                  `json:"primary_candidate_ids"`
+	ContributorCandidateIDs []string                  `json:"contributor_candidate_ids"`
+	Candidates              []TraceFindingCandidateV1 `json:"candidates,omitempty"`
+	AcceptedEvidenceIDs     []string                  `json:"accepted_evidence_ids"`
+	RegistryHash            string                    `json:"registry_hash"`
+	CausalCeiling           string                    `json:"causal_ceiling"`
+	Artifact                TraceFindingArtifact      `json:"artifact"`
+	Scope                   TraceFindingScope         `json:"scope"`
+	Symptom                 TraceSymptomSummary       `json:"symptom"`
+	FindingID               string                    `json:"finding_id"`
+	AnalysisKey             string                    `json:"analysis_key"`
+	ContractHash            string                    `json:"contract_hash"`
+}
+
+// TraceFindingCandidateV1 is a deterministic candidate snapshot compiled
+// from one trace's typed rank/projection records. The finalizer may choose a
+// candidate, but it may not rewrite these system-owned fields.
+type TraceFindingCandidateV1 struct {
+	PrimaryEligible     bool               `json:"primary_eligible"`
+	ContributorEligible bool               `json:"contributor_eligible"`
+	Decision            TraceCauseDecision `json:"decision"`
 }
 
 type TraceCausalStatus string

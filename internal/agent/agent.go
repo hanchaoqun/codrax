@@ -2093,6 +2093,11 @@ func compactEvidenceCheckpointLabel(item types.EvidenceItem) string {
 // debug-gated logging so the same trace can be reproduced on demand by
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
+	if b.name == types.AgentFinalizer {
+		if err := prepareTraceFindingContract(ctx); err != nil {
+			return nil, err
+		}
+	}
 	// Pre-flight watchdog around the first schema build — kept here
 	// so the diag trace's tool_schemas phase remains observable from
 	// outside the loop. The actual schemas used in each iter are

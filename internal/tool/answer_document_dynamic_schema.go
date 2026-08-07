@@ -119,12 +119,27 @@ func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any
 	primaryIDs := append([]string(nil), contract.PrimaryCandidateIDs...)
 	contributorIDs := append([]string(nil), contract.ContributorCandidateIDs...)
 	decision := func(ids []string) map[string]any {
+		statuses := []string{"proven", "supported_candidate"}
+		if contract.CausalCeiling == "unproven" {
+			statuses = []string{"supported_candidate"}
+		}
 		return map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"candidate_id":         map[string]any{"type": "string", "enum": ids},
-				"status":               map[string]any{"type": "string", "enum": []string{"proven", "supported_candidate"}},
-				"token":                map[string]any{"type": "object"},
+				"candidate_id": map[string]any{"type": "string", "enum": ids},
+				"status":       map[string]any{"type": "string", "enum": statuses},
+				"token": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"token":         map[string]any{"type": "string"},
+						"lane":          map[string]any{"type": "string"},
+						"additivity":    map[string]any{"type": "string"},
+						"subject_kind":  map[string]any{"type": "string"},
+						"fix_direction": map[string]any{"type": "string"},
+						"registry_hash": map[string]any{"type": "string", "enum": []string{contract.RegistryHash}},
+					},
+					"required": []string{"token", "lane", "additivity", "subject_kind", "registry_hash"},
+				},
 				"subject_role":         map[string]any{"type": "string"},
 				"upstream_role":        map[string]any{"type": "string"},
 				"causal_shape":         map[string]any{"type": "string"},
@@ -134,30 +149,85 @@ func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any
 				"board_fingerprint":    map[string]any{"type": "string"},
 				"normalized_event_key": map[string]any{"type": "string"},
 				"normalized_stack_key": map[string]any{"type": "string"},
-				"magnitude":            map[string]any{"type": "object"},
-				"evidence_refs":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
-				"confidence":           map[string]any{"type": "string"},
+				"magnitude": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"value":              map[string]any{"type": "number"},
+						"unit":               map[string]any{"type": "string"},
+						"additivity":         map[string]any{"type": "string"},
+						"caliber":            map[string]any{"type": "string"},
+						"window_duration_ms": map[string]any{"type": "number"},
+					},
+					"required": []string{"value", "unit", "additivity", "caliber"},
+				},
+				"evidence_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
+				"confidence":    map[string]any{"type": "string"},
 			},
-			"required": []string{"candidate_id", "status", "token", "subject_role", "causal_shape", "phase", "evidence_refs"},
+			"required": []string{"candidate_id", "status", "token", "subject_role", "causal_shape", "phase", "evidence_refs", "confidence"},
 		}
 	}
 	return map[string]any{
 		"type":        "object",
 		"description": "Structured conclusion for this trace. Choose only the injected candidate and evidence ids; do not infer it from answer prose.",
 		"properties": map[string]any{
-			"schema_version":        map[string]any{"type": "integer", "enum": []int{types.TraceFindingSchemaVersion}},
-			"finding_id":            map[string]any{"type": "string"},
-			"analysis_key":          map[string]any{"type": "string"},
-			"artifact":              map[string]any{"type": "object"},
-			"scope":                 map[string]any{"type": "object"},
-			"revision":              map[string]any{"type": "object"},
-			"symptom":               map[string]any{"type": "object"},
-			"primary_cause":         decision(primaryIDs),
-			"contributors":          map[string]any{"type": "array", "items": decision(contributorIDs)},
-			"unresolved":            map[string]any{"type": "object"},
+			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceFindingSchemaVersion}},
+			"finding_id":     map[string]any{"type": "string", "enum": []string{contract.FindingID}},
+			"analysis_key":   map[string]any{"type": "string", "enum": []string{contract.AnalysisKey}},
+			"artifact": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"artifact_id":   map[string]any{"type": "string", "enum": []string{contract.Artifact.ArtifactID}},
+					"content_hash":  map[string]any{"type": "string", "enum": []string{contract.Artifact.ContentHash}},
+					"display_label": map[string]any{"type": "string", "enum": []string{contract.Artifact.DisplayLabel}},
+				},
+				"required": []string{"artifact_id", "content_hash"},
+			},
+			"scope": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"profile_family": map[string]any{"type": "string", "enum": []string{contract.Scope.ProfileFamily}},
+					"target_role":    map[string]any{"type": "string", "enum": []string{contract.Scope.TargetRole}},
+					"phase":          map[string]any{"type": "string", "enum": []string{contract.Scope.Phase}},
+				},
+				"required": []string{"profile_family", "target_role", "phase"},
+			},
+			"revision": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"codrax_commit": map[string]any{"type": "string"},
+					"contract_hash": map[string]any{"type": "string", "enum": []string{contract.ContractHash}},
+				},
+				"required": []string{"contract_hash"},
+			},
+			"symptom": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind":  map[string]any{"type": "string", "enum": []string{contract.Symptom.Kind}},
+					"value": map[string]any{"type": "number"},
+					"unit":  map[string]any{"type": "string"},
+				},
+				"required": []string{"kind"},
+			},
+			"primary_cause": decision(primaryIDs),
+			"contributors":  map[string]any{"type": "array", "items": decision(contributorIDs)},
+			"unresolved": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"reason":    map[string]any{"type": "string"},
+					"raw_label": map[string]any{"type": "string"},
+				},
+				"required": []string{"reason"},
+			},
 			"evidence_refs":         map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
 			"counter_evidence_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
-			"coverage":              map[string]any{"type": "object"},
+			"coverage": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"complete": map[string]any{"type": "boolean"},
+					"caveats":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
+				"required": []string{"complete"},
+			},
 		},
 		"required": []string{"schema_version", "finding_id", "analysis_key", "artifact", "scope", "revision", "symptom", "evidence_refs", "coverage"},
 	}

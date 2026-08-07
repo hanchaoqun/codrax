@@ -4,6 +4,7 @@ package tracefinding
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -24,6 +25,18 @@ func Validate(finding *types.TraceFindingV1, contract *types.TraceFindingContrac
 	if finding.SchemaVersion != wantVersion {
 		return fmt.Errorf("trace_finding schema_version=%d, want %d", finding.SchemaVersion, wantVersion)
 	}
+	if contract.FindingID != "" && finding.FindingID != contract.FindingID {
+		return fmt.Errorf("trace_finding finding_id=%q, want %q", finding.FindingID, contract.FindingID)
+	}
+	if contract.AnalysisKey != "" && finding.AnalysisKey != contract.AnalysisKey {
+		return fmt.Errorf("trace_finding analysis_key=%q, want %q", finding.AnalysisKey, contract.AnalysisKey)
+	}
+	if contract.ContractHash != "" && finding.Revision.ContractHash != contract.ContractHash {
+		return fmt.Errorf("trace_finding revision.contract_hash does not match candidate contract")
+	}
+	if contract.Artifact.ArtifactID != "" && finding.Artifact.ArtifactID != contract.Artifact.ArtifactID {
+		return fmt.Errorf("trace_finding artifact_id does not match candidate contract")
+	}
 	acceptedEvidence := stringSet(contract.AcceptedEvidenceIDs)
 	for _, ref := range finding.EvidenceRefs {
 		if !acceptedEvidence[ref] {
@@ -39,6 +52,9 @@ func Validate(finding *types.TraceFindingV1, contract *types.TraceFindingContrac
 		if err := validateDecision(*finding.PrimaryCause, stringSet(contract.PrimaryCandidateIDs), acceptedEvidence, contract); err != nil {
 			return fmt.Errorf("primary_cause: %w", err)
 		}
+	}
+	if finding.Unresolved != nil && len(finding.Contributors) > 0 {
+		return fmt.Errorf("unresolved trace_finding cannot contain contributors")
 	}
 	contributorIDs := stringSet(contract.ContributorCandidateIDs)
 	seen := map[string]bool{}
@@ -69,12 +85,21 @@ func ValidateStored(finding *types.TraceFindingV1) error {
 	if (finding.PrimaryCause == nil) == (finding.Unresolved == nil) {
 		return fmt.Errorf("trace_finding must contain exactly one of primary_cause or unresolved")
 	}
+	if finding.Unresolved != nil && len(finding.Contributors) > 0 {
+		return fmt.Errorf("unresolved trace_finding cannot contain contributors")
+	}
+	seen := map[string]bool{}
 	if finding.PrimaryCause != nil {
 		if err := validateStoredDecision(*finding.PrimaryCause); err != nil {
 			return fmt.Errorf("primary_cause: %w", err)
 		}
+		seen[finding.PrimaryCause.CandidateID] = true
 	}
 	for i, decision := range finding.Contributors {
+		if seen[decision.CandidateID] {
+			return fmt.Errorf("contributors[%d]: duplicate candidate_id %q", i, decision.CandidateID)
+		}
+		seen[decision.CandidateID] = true
 		if err := validateStoredDecision(decision); err != nil {
 			return fmt.Errorf("contributors[%d]: %w", i, err)
 		}
@@ -120,7 +145,57 @@ func validateDecision(decision types.TraceCauseDecision, eligible, acceptedEvide
 	if contract.CausalCeiling == "unproven" && decision.Status == types.TraceCausalProven {
 		return fmt.Errorf("status proven exceeds causal ceiling unproven")
 	}
+	if len(contract.Candidates) > 0 {
+		candidate, ok := contractCandidate(contract.Candidates, decision.CandidateID)
+		if !ok {
+			return fmt.Errorf("candidate_id %q has no deterministic candidate snapshot", decision.CandidateID)
+		}
+		if err := validateCandidateSnapshot(decision, candidate.Decision); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func contractCandidate(candidates []types.TraceFindingCandidateV1, id string) (types.TraceFindingCandidateV1, bool) {
+	for _, candidate := range candidates {
+		if candidate.Decision.CandidateID == id {
+			return candidate, true
+		}
+	}
+	return types.TraceFindingCandidateV1{}, false
+}
+
+func validateCandidateSnapshot(got, want types.TraceCauseDecision) error {
+	if got.Token != want.Token ||
+		got.SubjectRole != want.SubjectRole || got.UpstreamRole != want.UpstreamRole ||
+		got.CausalShape != want.CausalShape || got.Phase != want.Phase ||
+		got.Rank != want.Rank || got.Tier != want.Tier ||
+		got.BoardFingerprint != want.BoardFingerprint ||
+		got.NormalizedEventKey != want.NormalizedEventKey ||
+		got.NormalizedStackKey != want.NormalizedStackKey {
+		return fmt.Errorf("candidate_id %q rewrites system-owned candidate fields", got.CandidateID)
+	}
+	if !reflect.DeepEqual(got.Magnitude, want.Magnitude) {
+		return fmt.Errorf("candidate_id %q rewrites system-owned magnitude", got.CandidateID)
+	}
+	if !sameStringSet(got.EvidenceRefs, want.EvidenceRefs) {
+		return fmt.Errorf("candidate_id %q evidence_refs do not match the deterministic candidate", got.CandidateID)
+	}
+	return nil
+}
+
+func sameStringSet(a, b []string) bool {
+	left, right := stringSet(a), stringSet(b)
+	if len(left) != len(right) {
+		return false
+	}
+	for value := range left {
+		if !right[value] {
+			return false
+		}
+	}
+	return true
 }
 
 func stringSet(values []string) map[string]bool {

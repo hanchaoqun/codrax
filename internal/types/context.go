@@ -3441,6 +3441,7 @@ func (m *MutableState) SetTraceFindingContract(contract *TraceFindingContract) {
 	copy := *contract
 	copy.PrimaryCandidateIDs = append([]string(nil), contract.PrimaryCandidateIDs...)
 	copy.ContributorCandidateIDs = append([]string(nil), contract.ContributorCandidateIDs...)
+	copy.Candidates = cloneTraceFindingCandidates(contract.Candidates)
 	copy.AcceptedEvidenceIDs = append([]string(nil), contract.AcceptedEvidenceIDs...)
 	m.traceFindingContract = &copy
 }
@@ -3457,8 +3458,25 @@ func (m *MutableState) TraceFindingContract() *TraceFindingContract {
 	copy := *m.traceFindingContract
 	copy.PrimaryCandidateIDs = append([]string(nil), m.traceFindingContract.PrimaryCandidateIDs...)
 	copy.ContributorCandidateIDs = append([]string(nil), m.traceFindingContract.ContributorCandidateIDs...)
+	copy.Candidates = cloneTraceFindingCandidates(m.traceFindingContract.Candidates)
 	copy.AcceptedEvidenceIDs = append([]string(nil), m.traceFindingContract.AcceptedEvidenceIDs...)
 	return &copy
+}
+
+func cloneTraceFindingCandidates(in []TraceFindingCandidateV1) []TraceFindingCandidateV1 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]TraceFindingCandidateV1, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Decision.EvidenceRefs = append([]string(nil), in[i].Decision.EvidenceRefs...)
+		if in[i].Decision.Magnitude != nil {
+			magnitude := *in[i].Decision.Magnitude
+			out[i].Decision.Magnitude = &magnitude
+		}
+	}
+	return out
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
