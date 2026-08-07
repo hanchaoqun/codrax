@@ -25272,3 +25272,39 @@ r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 状态：`EVAL-B268=S37ap-soft-context-implemented/pending-production-replay`；
 `EVAL-B305=S37ap-soft-context-implemented/pending-production-replay`；
 `hard-prose-scan=none`；模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
+
+### 123.296 r184：角色端点车道生产正向；精确上下文仍被模型越过，且无源端点拿不到 parser frontier
+
+r184 在 `main@e15a99c82` 上严格并发 2，运行 Rust `sr_rust_cross_module_chain` 与 TypeScript
+`sr_ts_workspace_chain`。runner 2/2 PASS，人工均为 partial：
+
+1. 发布前第二次 `go test ./...` 全仓通过，覆盖 `hitraceconv`、`mermaidcompat`、`orchestrator`、`repomap`、`tracequery/tracediag`、read/write
+   等共享面；`make` 构建 revision `e15a99c823ac` 成功。第一次全仓回归唯一红是 §123.294 已记录并已拆分修正的热文件 ratchet；没有抬预算；
+2. TS 为 B303/S37an production positive：Analyzer 仍先发 `discover(source=run)`，但 current-request provenance 判定精确移除该猜测并记录
+   `normalized to discover_path`。最终没有 required `main` 锚、没有 runtime target selection lane，真实函数名保持 `run`；Analyzer/Explorer/Finalizer 从
+   r183 的 10/20/4 轮降至 3/7/2，墙钟从 512s 降至 158s；
+3. TS 的答案层显著恢复：`run -> ApiClient.fetchUser -> HttpTransport.send -> HttpTransport.dispatchOnce -> fetch` 五个角色全部可见，alias
+   精确保持 `"@app/core": ["packages/core/src/index.ts"]`，不再扩成不存在的 wildcard；`blocks` 被模型误发成 JSON string 时，既有严格恢复臂成功还原，最终答案未消失；
+4. 但 typed call graph 仍只有三组件：`run -> client.fetchUser`；`ApiClient.fetchUser -> HttpTransport.send ->
+   retry.{maxAttempts,nextDelay}`；`HttpTransport.dispatchOnce -> fetch`。Explorer 已读 `transport.ts:23` 的
+   `this.dispatchOnce(...)` 却未发 `send -> dispatchOnce`，也未发 `client = new ApiClient` 的 receiver binding；Finalizer 明确读到
+   `weak_components=3/disconnected_present=true` 仍在 prose 宣称“完整链”；
+5. S37ap 的 role-bound 逐边落证句确已进入 Explorer prompt，证明不是教学未接线；但当前 parser-owned `Typed Direct-call Frontier` 只接受唯一 exact
+   source endpoint，`discover_path` 的 source 为空会整体不发布。因此系统只给了行为指导，没有把 RequiredFiles 中 AST 已知的
+   `HttpTransport.send -> dispatchOnce` 候选压缩成可消费 typed navigation row。这是新的泛化上下文 gap `EVAL-B308-ROLEBOUNDMULTISOURCEFRONTIER1=P1`；
+6. TS 正文另有两处模型事实错误：把 `resp.status < 500` 说成“成功”（源码语义仅为 4xx/其他 <500 立即返回），并称重试耗尽“抛出最后错误”（源码
+   `return lastError`）。Finalizer 已收到 condition 与 return fact，预算仅 21%，不是上下文缺失或预算不足；记
+   `EVAL-B309-RETURNGUARDPROSE1=P1-observe/model-adherence`，禁止扫描输出词面或系统代写修正；
+7. TS 的可选 diagram 虚构 `send -> dispatchOnce`、Retry return 等未证边，被现有 typed validator 正确拒绝；patch 删除图后保留文字答案。一次
+   `member_set_support_refs` 补证正确定位到 `fetchUser` definition，S37ao 的“selection 已收敛后被 form 重开”没有再出现，但该单调臂本轮没有直接触发，不能虚记 production close；
+8. Rust 的五条调用边、限定身份桥、引用与 Mermaid 全部正确，Finalizer 零拒绝；但模型再次说“run 分叉出两条并行路径”。S37ap 的新句已在同一
+   Finalizer prompt 中逐字说明 topology 不证明 concurrent/parallel/order/join，模型仍越过。该信号因此归为上下文充分后的模型遵循度波动；维持 B268 观察，不新增
+   正文关键词硬门、不让系统改写模型结论；
+9. 下一批 **S37aq** 只补 B308：在 `discover_path` 下，从 typed `EvidencePlan.RequiredFiles` 的 AST/Cangjie-parser 高置信 relation 中构造
+   bounded multi-source direct-call frontier，仍明确是 navigation、非 evidence/required list；Analyzer RequiredFiles 是嘈声信号，所以只能驱动软上下文，绝不驱动硬门。统一跨 Go/Java/Kotlin/ArkTS/C/C++/Rust/Python/Cangjie 等 parser 支持语言；
+10. 已知 C++/flowchart “无标签逻辑箭头可绕 relation anchor”保持独立 P1，未被本轮 Rust/TS 假关闭；在 S37aq 后进入统一图边权限审计。
+
+状态：`EVAL-B303=production-positive/closed`；`EVAL-B304=implemented/full-suite-pass/not-production-fired`；
+`EVAL-B305=partial-visible-chain/typed-gap-remains`；`EVAL-B308=P1-next`；
+`EVAL-B268/B309=model-adherence-observe/no-hard-prose-gate`；runner=`2/2 PASS`、human=`partial+partial`；
+模型答案所有权=`preserved`；Trace/JSON-repair/Write=`production-positive-or-unchanged`。
