@@ -23622,3 +23622,53 @@ contract 入口明确排除；显式时间窗、系统自动补齐、因果投�
 `EVAL-B249-RELHANDOFFAUTH1=S37i-implemented/full-tests-pass`；`EVAL-B236-PHASEBRIDGE1=consumer-closed/replay-next`；
 `EVAL-B247-SEQUENCECALLBACK1=implemented/production-unexercised`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
 `sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；下一步=`full tests, commit+push, next exactly-two replay`。
+
+### 123.233 r156：S37i 生产闭环，optional diagram 删除后的孤儿 anchor 造成额外拒绝
+
+r156 在 `main@30d6a9990` 上继续严格并发 2，仅运行 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 2/2 PASS，人工 2/2 PASS；
+两例 `strict_decode_remap/carrier/element_shape=0`，没有畸形 JSON、字符串恢复、答案消失或 JSON 教学冲突。
+
+C++ 从 r155 的 2 次 finalizer reject 降至 0，一次成文。prompt 的 Relation Role Handoff 正确写明无 evidence-authorized principal relation set，
+模型也把 setup selection 与 log-time dispatch 分为两个阶段，使用“依赖注入 + virtual dispatch”解释，不再声称 Logger 构造器直接调用 factory。
+这同时给 `EVAL-B248-OPTDIAGCOMP1`、`EVAL-B249-RELHANDOFFAUTH1` 和 B236 剩余消费面提供了生产闭环。
+
+Python 最终答案正确给出 `JsonPlugin`、`run_pipeline -> resolve`、REGISTRY lookup、decorator load-time binding 与 executor callback，引用覆盖足够；但有 2 次
+成文拒绝：
+
+1. 第一稿没有复制系统 copy-ready capsule，而是自绘包含 lookup/assignment/return/callback 的五边连续 sequence；typed validator 拒绝未证 call、错误
+   assignment 方向是正确行为，不属于 capsule 自拒；
+2. patch 随后删除唯一 diagram，却把旧 `run_pipeline -> resolve`、`loop -> handle` edge anchors 搬进 ordered_list。整份文档已没有 typed diagram body，
+   这些 anchors 无 node alias 可绑定，却继续作为隐形关系声明触发 `callback_handoff_unproven`，产生第二次无价值重试，记
+   `EVAL-B250-ORPHANEDGE1`。
+
+本轮 Python 并未逐字复制 callback capsule，因此 `EVAL-B247-SEQUENCECALLBACK1` 仍是 production-shaped 单测覆盖，不能宣称生产验收。第二拒绝中的
+`loop -> handle` 是模型留在无图 list 上的缩写 anchor，不是 sequence display message 参数改写；`sequence-display-parameter-identity` 继续独立开放。
+
+状态：`runner=2/2 PASS`；`human=2/2`；`EVAL-B248-OPTDIAGCOMP1=production-closed`；
+`EVAL-B249-RELHANDOFFAUTH1=production-closed`；`EVAL-B236-PHASEBRIDGE1=production-closed`；
+`EVAL-B247-SEQUENCECALLBACK1=implemented/production-unexercised`；`EVAL-B250-ORPHANEDGE1=confirmed/immediate`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.234 S37j：无 typed diagram 时机械清理孤儿 edge anchors
+
+`EVAL-B250-ORPHANEDGE1` 按结构生命周期根修，而不是按 Python、`loop` 或 callback 拟合：
+
+1. 新增 `normalizeOrphanDiagramEdgeAnchors`。若 AnswerDocument 中不存在任何 `kind=diagram` 且带 typed `Diagram` payload 的 block，清除各 block 上全部
+   `edge_anchors`；此时没有 body edge/node alias 可供它们拥有，保留只会制造不可见关系主张；
+2. 只要仍存在任一 typed diagram，normalizer 完全不动作；因此 ordered_list/summary 为 sibling diagram 携带 anchors 的既有 schema 车道保持，不能借本批
+   绕过 visible-edge authority；
+3. 该 pass 置于 alias/claim-form normalization 之前，并进入统一 pre-emit mechanical repair telemetry：
+   `normalizeOrphanDiagramEdgeAnchors×N`。模型删除 optional diagram 后可一次接受，无需再理解端点兼容或发第二个 patch；
+4. 回归直接复刻 r156 第二 patch：summary + ordered_list、零 diagram、call/callback 两个旧 anchors，必须清除 2 个；另钉 sibling diagram 存在时
+   anchors 字节保留；集成测试要求 repair count 入账；
+5. 系统不删除或修改模型正文、结论、引用、Mermaid body，也不把非法 visible edge 变成合法。若 diagram 仍在，所有 call/callback/register/type/value/
+   logical relation typed gates 原样 fail-closed。
+
+修复只消费 AnswerDocument schema/typed block presence，不扫描用户原文、模型 thinking 或最终 prose。JSON native array/object 与 patch 四操作教学未复制。
+Trace root-cause runtime family、显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及双维根因分析未触碰。
+
+定向测试与 `go test ./...` 全绿。
+
+状态：`EVAL-B250-ORPHANEDGE1=S37j-implemented/full-tests-pass`；模型答案所有权=`preserved`；
+JSON 教学=`single-source/preserved`；`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`；
+下一步=`full tests, commit+push, broaden prioritized exactly-two eval to read/write modes`。

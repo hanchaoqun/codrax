@@ -7,6 +7,34 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// normalizeOrphanDiagramEdgeAnchors removes diagram-only metadata after the
+// model intentionally removes every typed diagram block. Edge anchors may live
+// on a sibling prose/list block while they own endpoints in another diagram,
+// but with no diagram anywhere in the document there is no body alias or
+// visible relation left to own. Keeping those orphan anchors would turn a
+// successful optional-diagram removal into a second, invisible relation claim
+// and an avoidable hard retry.
+//
+// This is a structural JSON repair only: it never edits answer prose, diagram
+// source, citations, conclusions, or relation metadata while any typed diagram
+// remains present.
+func normalizeOrphanDiagramEdgeAnchors(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockDiagram && doc.Blocks[i].Diagram != nil {
+			return 0
+		}
+	}
+	removed := 0
+	for i := range doc.Blocks {
+		removed += len(doc.Blocks[i].EdgeAnchors)
+		doc.Blocks[i].EdgeAnchors = nil
+	}
+	return removed
+}
+
 func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 	if doc == nil {
 		return 0

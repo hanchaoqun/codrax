@@ -738,6 +738,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeInvisibleOutOfRangeCitationRefs", fixed)
 		logging.Warning("[%s] detached %d invisible out-of-range citation_ref carrier(s)", toolName, fixed)
 	}
+	if fixed := normalizeOrphanDiagramEdgeAnchors(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeOrphanDiagramEdgeAnchors", fixed)
+		logging.Warning("[%s] detached %d orphan diagram edge anchor(s) after all typed diagram blocks were removed", toolName, fixed)
+	}
 	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
