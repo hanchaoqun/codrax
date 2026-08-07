@@ -149,6 +149,46 @@ func EvidenceSetContainsSameClaimRole(items []EvidenceItem, expected EvidenceIte
 	return false
 }
 
+// UniqueGroundedClaimRoleForExactEndpoint returns the one grounded typed
+// relation that both uses an allowed claim form and names label as an exact
+// subject/object endpoint. It is the structure-only fallback for list/table
+// rows whose model-authored label is an endpoint but whose visible prose does
+// not carry an explicit arrow. The helper never reads the user request or
+// interprets relation words in answer prose. Multiple source locations remain
+// ambiguous and therefore fail closed instead of choosing a citation.
+func UniqueGroundedClaimRoleForExactEndpoint(items []EvidenceItem, allowed []ClaimForm, label string) (EvidenceItem, bool) {
+	label = strings.Trim(strings.TrimSpace(label), "`\"'")
+	if label == "" || len(allowed) == 0 {
+		return EvidenceItem{}, false
+	}
+	var candidate EvidenceItem
+	candidateSet := false
+	locationKey := ""
+	for _, ev := range items {
+		if ev.GroundingStatus == GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		form := ClaimFormOf(ev)
+		if !claimFormAllowed(form, allowed) || form.CitationRoleIdentityKind() != ClaimCitationRoleDirectedEdge {
+			continue
+		}
+		if !codeSurfaceMatches(label, ev.Subject) && !codeSurfaceMatches(label, ev.Object) {
+			continue
+		}
+		key := strings.TrimSpace(ev.Source) + ":" + fmt.Sprintf("%d", ev.LineStart)
+		if !candidateSet {
+			candidate = ev
+			candidateSet = true
+			locationKey = key
+			continue
+		}
+		if key != locationKey {
+			return EvidenceItem{}, false
+		}
+	}
+	return candidate, candidateSet
+}
+
 // SameEvidenceClaimRole compares two evidence items at the typed claim
 // role level. It is stricter than "same line" and weaker than "same
 // evidence ID": two independently emitted items may describe the same

@@ -1584,6 +1584,26 @@ func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *t
 	}
 }
 
+func TestValidateCallChainItemCitationRoleAlignment_EndpointOnlyLabelRejectsDefinition(t *testing.T) {
+	mut := types.NewMutableState("endpoint-only relation")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{AnchorKind: types.AnchorDefinition, Subject: "gate.Run", Source: "gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+		{AnchorKind: types.AnchorCall, Subject: "gate.Run", Object: "gate.RunWith", Source: "gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "gate.go", Line: 134}},
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{ID: "gate", Label: "gate.Run", CitationRef: 0}},
+		}},
+	}
+	vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut)
+	if len(vs) != 1 || !strings.Contains(vs[0].Detail, "gate.Run -> gate.RunWith") || !strings.Contains(vs[0].Repair, "gate.go:135") {
+		t.Fatalf("post-emit validator should preserve typed endpoint/citation alignment: %+v", vs)
+	}
+}
+
 func TestValidateCallChainItemCitationRoleAlignment_IgnoresBoundaryCooccurrence(t *testing.T) {
 	mut := types.NewMutableState("boundary explanation")
 	mut.AppendEvidence([]types.EvidenceItem{

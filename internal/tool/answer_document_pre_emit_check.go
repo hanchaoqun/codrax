@@ -2954,6 +2954,20 @@ func preEmitUniqueTypedClaimRoleCitationForItemWithContext(pctx *preEmitCheckCon
 		candidates = append(candidates, cit)
 	}
 	if len(candidates) != 1 {
+		// A row-local endpoint label plus one unique grounded directed relation
+		// is still precise even when the model omitted the recommended arrow in
+		// visible text. This fallback consumes only the structured label and typed
+		// evidence; it never infers a call/import relation from prose.
+		if ev, ok := types.UniqueGroundedClaimRoleForExactEndpoint(pctx.evidenceItems(), forms, label); ok {
+			return pctx.canonicalCitation(types.Citation{
+				File:          ev.Source,
+				Line:          ev.LineStart,
+				LineEnd:       ev.LineEnd,
+				Scope:         ev.Scope,
+				SectionPath:   ev.SectionPath,
+				FileRoleLabel: ev.FileRoleLabel,
+			}), true
+		}
 		return types.Citation{}, false
 	}
 	return candidates[0], true
@@ -3732,6 +3746,9 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 				continue
 			}
 			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence)
+			if !ok {
+				expected, ok = types.UniqueGroundedClaimRoleForExactEndpoint(allEvidence, forms, item.Label)
+			}
 			if !ok {
 				continue
 			}

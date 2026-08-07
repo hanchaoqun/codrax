@@ -48,7 +48,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				ClaimCallbackHandoff,
 				ClaimRegistrationEdge,
 			},
-			Rationale: "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line. " +
+			Rationale: "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line in the list citation. " +
 				"When evidence forms disconnected segments, keep them visibly separate and do not imply an execution order, value handoff, or bridge between them.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
@@ -65,7 +65,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 			},
 			Rationale: diagramRequirementRationale(plan, DiagramSequence,
 				"A sequence diagram showing the chain visually — actor-to-actor edges "+
-					"matching the ordered list. Use Mermaid sequenceDiagram form."),
+					"matching the ordered list. Use Mermaid sequenceDiagram form. Keep source file:line citations in the ordered list; diagram messages should describe the relation without duplicating source positions."),
 		})
 	}
 	view.OptionalBlocks = []BlockRequirement{

@@ -24787,3 +24787,30 @@ S37ae 延续同一 typed identity 原则，不增加新推断源：
 
 状态：`EVAL-B288=S37ae-implemented/full-tests-pass/pending-production-replay`；`EVAL-B291=next-P1`；`EVAL-B284=queued`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 能力=`unchanged`。
+
+### 123.277 S37af：item citation 只按 typed 关系端点纠偏；Mermaid 不再重复承载源码位置
+
+B291 深审确认已有显式 `A -> B` 条目的同边引用校验，r175 漏网不是证据门完全缺失，而是模型把
+`gate.Run` 放在结构化 item label、把“调用 gate.RunWith”写进自然语言 text，未发显式 arrow。继续把“调用/uses”等正文词加入硬门会违反本战役红线，给 item
+恢复嵌套 claim schema 又会增加 JSON 心智。因此本批采用更窄且可泛化的 typed 修复：
+
+1. 新增唯一 `UniqueGroundedClaimRoleForExactEndpoint`：只读取 item 的结构化 label 与 grounded `EvidenceItem` 的 Subject/Object、ClaimForm、Source/Line；label
+   必须精确等于关系端点，且所有匹配证据只能落在一个 source location，才允许把 citation_ref 纠正到该关系行。它不读取用户输入、model thinking、item text 或
+   Mermaid message，也不解释“调用/uses/依赖”等词；
+2. r175 同形 `label=gate.Run + block claim_form=call_edge + definition@134 + call edge@135` 会唯一重绑到 135。若同端点有多条调用位置则 fail-closed，不猜选；定义
+   evidence 永远不能升级为 call edge。既有显式 arrow 的 same caller→callee 校验仍是更强首选；
+3. pre-emit normalizer、pre-emit hard check 与 post-emit contract check 共用同一 types helper，避免“修复器认为可修、终验认为不可证”或反向漂移。边界说明行
+   `label=user-side filter` 不等于任一 typed endpoint，继续不触发；
+4. 全语言 exact endpoint matrix 覆盖 Go、Java、Kotlin、C、C++、Rust、Python、JavaScript、TypeScript、Ruby、Swift、Lua、Proto、ArkTS、Cangjie；该逻辑
+   不含语言关键字或 parser 特判；
+5. Mermaid 不新增 citation schema，也不解析/改写 diagram body。单源 schema 教学与 call-chain block rationale 统一改为：关系身份由
+   `edge_anchors[]` 承载，源码位置只放 ordered-list/table 的 citation_ref；diagram message 不重复 file:line。这样减少模型两处抄行号产生分叉，同时保留模型对图与
+   结论的所有权。
+
+定向 `go test ./internal/types ./internal/tool ./internal/orchestrator` 与全仓 `go test ./...` 全绿。下一步提交推送并严格并发 2 回放 QF + Cangjie/其它异构案：验收 S37ae 是否消除
+endpoint-existence 首拒、S37af 是否将末跳引用稳定到 135 且 Mermaid 不再重复错误位置。若模型仍在 diagram message 自行写 file:line，只记为 soft teaching
+遵循度，禁止扫描自由 body 建硬门。B284 全语言 labelled/unlabelled logical relation authority 随后进入设计施工。
+
+状态：`EVAL-B291=S37af-implemented/full-tests-pass/pending-production-replay`；`EVAL-B288=S37ae-pending-replay`；
+`EVAL-B284=next-P1`；`EVAL-B290=P2-soft-context`；模型答案所有权=`preserved`；JSON 教学=`single-source/reduced`；
+Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。

@@ -167,6 +167,60 @@ func TestSameEvidenceClaimRole_RejectsDefinitionForCallEdge(t *testing.T) {
 	}
 }
 
+func TestUniqueGroundedClaimRoleForExactEndpoint_AllExecutableLanguages(t *testing.T) {
+	endpoints := []string{
+		"pkg.Run",                  // Go
+		"Service.run",              // Java
+		"Worker.invoke",            // Kotlin
+		"dispatch",                 // C
+		"Engine::run",              // C++
+		"worker::run",              // Rust
+		"Pipeline.run",             // Python
+		"handler.run",              // JavaScript
+		"Controller.execute",       // TypeScript
+		"Runner#run",               // Ruby
+		"Runner.run",               // Swift
+		"module.run",               // Lua
+		"GreeterService/SayHello",  // Proto/RPC
+		"Index.aboutToAppear",      // ArkTS
+		"demo.pipeline.Runner.run", // Cangjie
+	}
+	for i, endpoint := range endpoints {
+		ev := EvidenceItem{
+			ID:              endpoint,
+			AnchorKind:      AnchorCall,
+			Subject:         endpoint,
+			Object:          "sharedTarget",
+			Source:          "src/sample",
+			LineStart:       i + 1,
+			GroundingStatus: GroundingGrounded,
+		}
+		got, ok := UniqueGroundedClaimRoleForExactEndpoint([]EvidenceItem{ev}, []ClaimForm{ClaimCallEdge}, endpoint)
+		if !ok || got.ID != endpoint {
+			t.Fatalf("exact endpoint %q was not preserved: ok=%v got=%+v", endpoint, ok, got)
+		}
+	}
+}
+
+func TestUniqueGroundedClaimRoleForExactEndpoint_FailsClosedOnMultipleLocationsAndDefinition(t *testing.T) {
+	call := EvidenceItem{
+		AnchorKind: AnchorCall, Subject: "gate.Run", Object: "gate.RunWith",
+		Source: "gate.go", LineStart: 135, GroundingStatus: GroundingGrounded,
+	}
+	duplicate := call
+	duplicate.LineStart = 140
+	definition := EvidenceItem{
+		AnchorKind: AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "gate.Run",
+		Source: "gate.go", LineStart: 134, GroundingStatus: GroundingGrounded,
+	}
+	if _, ok := UniqueGroundedClaimRoleForExactEndpoint([]EvidenceItem{call, duplicate, definition}, []ClaimForm{ClaimCallEdge}, "gate.Run"); ok {
+		t.Fatal("multiple relation locations must remain ambiguous")
+	}
+	if _, ok := UniqueGroundedClaimRoleForExactEndpoint([]EvidenceItem{definition}, []ClaimForm{ClaimCallEdge}, "gate.Run"); ok {
+		t.Fatal("a definition must not be promoted into a call role")
+	}
+}
+
 func TestClaimForm_LabelSurfaceKindAllRegisteredFormsClassified(t *testing.T) {
 	for _, c := range AllClaimForms() {
 		kind := c.LabelSurfaceKind()

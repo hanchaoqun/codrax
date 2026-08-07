@@ -975,6 +975,64 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsShiftedSibling
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsEndpointOnlyLabelToUniqueCallsite(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{{
+				ID: "gate", Label: "gate.Run",
+				Text: "入口函数调用共享实现。", CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/analysis/gate/gate.go", Line: 134}},
+	}
+	mut := types.NewMutableState("call-chain endpoint-only label")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			ID: "def", Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 134,
+			AnchorKind: types.AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "gate.Run",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "call", Kind: types.EvidenceRelationship, Source: "internal/analysis/gate/gate.go", LineStart: 135,
+			AnchorKind: types.AnchorCall, Subject: "gate.Run", Object: "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("unique typed endpoint relation should repair the citation, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Citations[doc.Blocks[0].Items[0].CitationRef]; got.Line != 135 {
+		t.Fatalf("endpoint-only row remained on definition instead of callsite: %+v", got)
+	}
+	if hints := preCheckCallChainItemCitationRoleAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("repaired row should satisfy typed role alignment: %+v", hints)
+	}
+}
+
+func TestPreCheckCallChainItemCitationRoleAlignment_EndpointOnlyLabelRejectsDefinitionWithoutUniqueRepair(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{ID: "gate", Label: "gate.Run", CitationRef: 0}},
+		}},
+		Citations: []types.Citation{{File: "gate.go", Line: 134}},
+	}
+	mut := types.NewMutableState("endpoint-only relation")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{AnchorKind: types.AnchorDefinition, Subject: "gate.Run", Source: "gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+		{AnchorKind: types.AnchorCall, Subject: "gate.Run", Object: "gate.RunWith", Source: "gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
+	})
+	hints := preCheckCallChainItemCitationRoleAlignment(doc, nil, &types.BusContext{Mutable: mut})
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "gate.Run -> gate.RunWith") || !strings.Contains(hints[0].ExpectedShape, "gate.go:135") {
+		t.Fatalf("typed endpoint fallback should reject the definition citation: %+v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotGuessDuplicateAlignedCallEdges(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

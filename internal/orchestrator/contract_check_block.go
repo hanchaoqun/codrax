@@ -1646,6 +1646,9 @@ func validateCallChainItemCitationRoleAlignmentContext(ctx context.Context, doc 
 			}
 			expected, ok := idx.claimRoleMentionedByItemSurface(item, forms)
 			if !ok {
+				expected, ok = types.UniqueGroundedClaimRoleForExactEndpoint(idx.items, forms, item.Label)
+			}
+			if !ok {
 				continue
 			}
 			cit := doc.Citations[item.CitationRef]
