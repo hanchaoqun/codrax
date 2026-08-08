@@ -1626,6 +1626,31 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_DeterministicSourceQualifiedCallerKeepsFileAxis(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Main[ReadModeMainStageBindings] --> Stages[AllMainStages]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Main", ToNode: "Stages", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	call := diagramEvidenceTestCall("internal/types/stage_binding.go:ReadModeMainStageBindings", "AllMainStages")
+	call.Source = "internal/types/stage_binding.go"
+	call.Producer = "dataflow.lowerer.go"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("exact deterministic source-qualified caller must bind its bare diagram symbol: %+v", got)
+	}
+
+	call.Source = "internal/types/other.go"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("same tail under a different source axis must fail closed: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsGroundedPrecedence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

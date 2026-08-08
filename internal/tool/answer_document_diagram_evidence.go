@@ -816,7 +816,7 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
 			continue
 		}
-		if !types.AnswerCodeIdentitySurfacesEquivalent(ev.Subject, fromSymbol) {
+		if !diagramCallEvidenceEndpointMatches(ev, ev.Subject, fromSymbol) {
 			continue
 		}
 		// Object is the typed fully-qualified callee surface, while
@@ -825,8 +825,8 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		// AnchorSymbol=Normalize). Both are closed typed fields of the SAME
 		// grounded call-site record, so either exact surface may label the
 		// destination node without introducing fuzzy/prefix matching.
-		if types.AnswerCodeIdentitySurfacesEquivalent(ev.Object, toSymbol) ||
-			types.AnswerCodeIdentitySurfacesEquivalent(ev.AnchorSymbol, toSymbol) {
+		if diagramCallEvidenceEndpointMatches(ev, ev.Object, toSymbol) ||
+			diagramCallEvidenceEndpointMatches(ev, ev.AnchorSymbol, toSymbol) {
 			return true
 		}
 	}
@@ -910,6 +910,14 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+func diagramCallEvidenceEndpointMatches(item types.EvidenceItem, raw, surface string) bool {
+	if types.AnswerCodeIdentitySurfacesEquivalent(raw, surface) {
+		return true
+	}
+	projected, ok := types.DeterministicSourceQualifiedEvidenceSymbol(item, raw)
+	return ok && types.AnswerCodeIdentitySurfacesEquivalent(projected, surface)
 }
 
 func diagramCallEdgeHasUniqueInboundQualifiedCaller(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

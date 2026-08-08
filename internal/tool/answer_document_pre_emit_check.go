@@ -3827,7 +3827,14 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if pctx == nil {
 		return nil
 	}
-	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, pctx.evidenceItems())
+	evidence := pctx.evidenceItems()
+	if view != nil && view.RelationAxis == types.AxisFlow {
+		if pctx.groundCtx == nil && pctx.ctx != nil {
+			pctx.groundCtx = ground.BuildContext(pctx.ctx)
+		}
+		evidence = preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, pctx.groundCtx)
+	}
+	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
 	if len(mismatches) == 0 {
 		return nil
 	}
@@ -3918,6 +3925,108 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return hints
+}
+
+// preEmitEvidenceWithGroundedDiagramPrecedence closes the evidence-authoring
+// handoff for an explicit typed flow without manufacturing an answer or a
+// relation. The model must first declare relation_kind=precedence on a visible
+// diagram edge. Only then may this helper test that exact endpoint pair against
+// an already accepted, bounded source range. The normal grounder remains the
+// sole authority: both endpoints must occur in source order inside one
+// comma-separated source carrier. Request text, model reasoning, rendered
+// prose, and Mermaid labels beyond the structured endpoint identity are never
+// scanned for authority.
+//
+// The derived row is local to this pre-emit validation pass. It is not written
+// to MutableState, the evidence ledger, or the answer document, so it cannot
+// become a system-authored conclusion or outlive the exact draft it validates.
+func preEmitEvidenceWithGroundedDiagramPrecedence(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, gc *ground.Context) []types.EvidenceItem {
+	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace ||
+		view.RelationAxis != types.AxisFlow || gc == nil {
+		return evidence
+	}
+	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(mismatches) == 0 {
+		return evidence
+	}
+	type sourceRange struct {
+		source string
+		start  int
+		end    int
+	}
+	ranges := make([]sourceRange, 0, len(evidence))
+	seenRanges := make(map[string]bool)
+	for _, item := range evidence {
+		if !item.IsCitable() || strings.TrimSpace(item.Source) == "" ||
+			item.LineStart <= 0 || item.LineEnd <= item.LineStart ||
+			item.LineEnd-item.LineStart > 64 {
+			continue
+		}
+		candidate := sourceRange{
+			source: strings.TrimSpace(item.Source),
+			start:  item.LineStart,
+			end:    item.LineEnd,
+		}
+		key := fmt.Sprintf("%s\x00%d\x00%d", candidate.source, candidate.start, candidate.end)
+		if seenRanges[key] {
+			continue
+		}
+		seenRanges[key] = true
+		ranges = append(ranges, candidate)
+	}
+	sort.SliceStable(ranges, func(i, j int) bool {
+		leftWidth := ranges[i].end - ranges[i].start
+		rightWidth := ranges[j].end - ranges[j].start
+		if leftWidth != rightWidth {
+			return leftWidth < rightWidth
+		}
+		if ranges[i].source != ranges[j].source {
+			return ranges[i].source < ranges[j].source
+		}
+		return ranges[i].start < ranges[j].start
+	})
+	if len(ranges) == 0 {
+		return evidence
+	}
+
+	out := append([]types.EvidenceItem(nil), evidence...)
+	seenPairs := make(map[string]bool)
+	for _, mismatch := range mismatches {
+		if mismatch.Issue != diagramSemanticRelationIssueNoEvidence ||
+			mismatch.Relation != types.DiagramRelPrecedence {
+			continue
+		}
+		from := strings.TrimSpace(mismatch.FromSymbol)
+		to := strings.TrimSpace(mismatch.ToSymbol)
+		pairKey := from + "\x00" + to
+		if from == "" || to == "" || seenPairs[pairKey] {
+			continue
+		}
+		seenPairs[pairKey] = true
+		for _, span := range ranges {
+			item := types.EvidenceItem{
+				ID:           "preemit-precedence-" + types.StableEvidenceID(types.EvidenceItem{Subject: from, Object: to, Source: span.source, LineStart: span.start, LineEnd: span.end}),
+				Kind:         types.EvidenceRelationship,
+				Subject:      from,
+				Predicate:    "precedes",
+				Object:       to,
+				Source:       span.source,
+				LineStart:    span.start,
+				LineEnd:      span.end,
+				Producer:     "answer.pre_emit.source_precedence",
+				AnchorKind:   types.AnchorPrecedence,
+				AnchorSymbol: from,
+				Scope:        types.ScopeLineRange,
+			}
+			ground.GroundItem(&item, gc)
+			if item.GroundingStatus != types.GroundingGrounded || types.ClaimFormOf(item) != types.ClaimPrecedenceRole {
+				continue
+			}
+			out = append(out, item)
+			break
+		}
+	}
+	return out
 }
 
 func preEmitDiagramMismatchBlockKinds(doc *types.AnswerDocumentV2, mismatches []DiagramCallEdgeEvidenceMismatch) []types.AnswerBlockKind {

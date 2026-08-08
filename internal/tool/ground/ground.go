@@ -1778,9 +1778,11 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 }
 
 // findPrecedenceAnchorLine verifies a bounded source-order assertion without
-// interpreting prose. Both typed endpoints must occur inside the cited range,
-// Subject must occur before Object, and pure comment matches do not count.
-// No nearest-symbol recovery is attempted for this relation: moving either
+// interpreting prose. Both typed endpoints must occur inside one delimited,
+// comma-separated source carrier in the cited range, Subject must occur before
+// Object, and pure comment matches do not count. Requiring a shared container
+// rejects the much weaker "A happened to be written above B elsewhere in this
+// function" shape. No nearest-symbol recovery is attempted: moving either
 // endpoint would change the asserted order.
 func findPrecedenceAnchorLine(fileLines map[int]string, it *types.EvidenceItem) (int, bool) {
 	if it == nil || it.LineStart <= 0 {
@@ -1799,65 +1801,309 @@ func findPrecedenceAnchorLine(fileLines map[int]string, it *types.EvidenceItem) 
 	if end-start > 64 {
 		return 0, false
 	}
-	subjectLine, subjectColumn := 0, -1
-	objectLine, objectColumn := 0, -1
+	var source strings.Builder
+	lineOffsets := make(map[int]int, end-start+1)
+	lexState := precedenceLexState{}
 	for lineNo := start; lineNo <= end; lineNo++ {
 		line, ok := fileLines[lineNo]
-		if !ok || isLineComment(fileLines, lineNo, it.Source) {
-			continue
+		if !ok {
+			return 0, false
 		}
-		if subjectLine == 0 {
-			subjectColumn = precedenceEndpointColumn(line, subject)
-			if subjectColumn >= 0 {
-				subjectLine = lineNo
-			}
+		lineOffsets[lineNo] = source.Len()
+		if !isLineComment(fileLines, lineNo, it.Source) {
+			source.WriteString(precedenceStripComments(line, it.Source, &lexState))
 		}
-		if objectLine == 0 {
-			objectColumn = precedenceEndpointColumn(line, object)
-			if objectColumn >= 0 {
-				objectLine = lineNo
-			}
-		}
+		source.WriteByte('\n')
 	}
-	if subjectLine == 0 || objectLine == 0 || subjectLine > objectLine ||
-		(subjectLine == objectLine && subjectColumn >= objectColumn) {
+	text := source.String()
+	subjectOffset, subjectWidth := precedenceEndpointOffset(text, subject, 0)
+	if subjectOffset < 0 {
 		return 0, false
+	}
+	objectOffset, objectWidth := precedenceEndpointOffset(text, object, subjectOffset+subjectWidth)
+	if objectOffset < 0 || !precedenceDelimitedCarrierContains(text, it.Source,
+		subjectOffset, subjectOffset+subjectWidth, objectOffset, objectOffset+objectWidth) {
+		return 0, false
+	}
+	subjectLine := start
+	for lineNo := start; lineNo <= end; lineNo++ {
+		if lineOffsets[lineNo] <= subjectOffset {
+			subjectLine = lineNo
+		}
 	}
 	return subjectLine, true
 }
 
-func precedenceEndpointColumn(line, endpoint string) int {
+func precedenceEndpointOffset(text, endpoint string, start int) (int, int) {
 	candidates := []string{strings.TrimSpace(endpoint)}
 	if short := lastDotSegment(endpoint); short != "" && short != endpoint {
 		candidates = append(candidates, short)
 	}
 	best := -1
+	bestWidth := 0
 	for _, candidate := range candidates {
-		if column := boundedEndpointColumn(line, candidate); column >= 0 && (best < 0 || column < best) {
-			best = column
+		if column := boundedEndpointColumnFrom(text, candidate, start); column >= 0 && (best < 0 || column < best) {
+			best, bestWidth = column, len(candidate)
 		}
 	}
-	return best
+	return best, bestWidth
 }
 
 func boundedEndpointColumn(line, candidate string) int {
+	return boundedEndpointColumnFrom(line, candidate, 0)
+}
+
+func boundedEndpointColumnFrom(line, candidate string, start int) int {
 	candidate = strings.TrimSpace(candidate)
-	if candidate == "" {
+	if candidate == "" || start < 0 || start >= len(line) {
 		return -1
 	}
-	for start := 0; start < len(line); {
-		column := strings.Index(line[start:], candidate)
+	for cursor := start; cursor < len(line); {
+		column := strings.Index(line[cursor:], candidate)
 		if column < 0 {
 			return -1
 		}
-		column += start
+		column += cursor
 		end := column + len(candidate)
 		if stringLiteralFragmentBoundaryOK(line, column, end, candidate) {
 			return column
 		}
-		start = column + 1
+		cursor = column + 1
 	}
 	return -1
+}
+
+type precedenceDelimiterPair struct {
+	open  int
+	close int
+}
+
+type precedenceLexState struct {
+	blockComment bool
+	quote        byte
+	escaped      bool
+}
+
+// precedenceStripComments blanks comment bytes while preserving columns.
+// Endpoint lookup therefore cannot mint a hard relation from a commented-out
+// list. The small lexer is language-neutral for C-style comments and enables
+// hash/dash comments only on source families where those tokens are comments.
+// Strings remain byte-visible and are ignored later by the delimiter scanner.
+func precedenceStripComments(line, source string, state *precedenceLexState) string {
+	if state == nil || line == "" {
+		return line
+	}
+	out := []byte(line)
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if state.blockComment {
+			out[i] = ' '
+			if ch == '*' && i+1 < len(line) && line[i+1] == '/' {
+				out[i+1] = ' '
+				state.blockComment = false
+				i++
+			}
+			continue
+		}
+		if state.quote != 0 {
+			if state.escaped {
+				state.escaped = false
+				continue
+			}
+			if ch == '\\' && state.quote != '`' {
+				state.escaped = true
+				continue
+			}
+			if ch == state.quote {
+				state.quote = 0
+			}
+			continue
+		}
+		if quote := precedenceQuoteStart(line, i, source); quote != 0 {
+			state.quote = quote
+			continue
+		}
+		if ch == '/' && i+1 < len(line) {
+			switch line[i+1] {
+			case '/':
+				for j := i; j < len(out); j++ {
+					out[j] = ' '
+				}
+				return string(out)
+			case '*':
+				out[i], out[i+1] = ' ', ' '
+				state.blockComment = true
+				i++
+				continue
+			}
+		}
+		if precedenceHashLineCommentSource(source) && ch == '#' ||
+			precedenceDashLineCommentSource(source) && ch == '-' && i+1 < len(line) && line[i+1] == '-' {
+			for j := i; j < len(out); j++ {
+				out[j] = ' '
+			}
+			return string(out)
+		}
+	}
+	// Single/double quoted literals do not cross physical lines in the source
+	// families supported here. Backtick literals may, so retain only that state.
+	if state.quote != '`' {
+		state.quote = 0
+		state.escaped = false
+	}
+	return string(out)
+}
+
+func precedenceHashLineCommentSource(source string) bool {
+	switch strings.ToLower(filepath.Ext(source)) {
+	case ".py", ".rb", ".sh", ".bash", ".zsh", ".yaml", ".yml", ".toml":
+		return true
+	default:
+		return false
+	}
+}
+
+func precedenceDashLineCommentSource(source string) bool {
+	switch strings.ToLower(filepath.Ext(source)) {
+	case ".lua", ".sql":
+		return true
+	default:
+		return false
+	}
+}
+
+func precedenceQuoteStart(text string, index int, source string) byte {
+	if index < 0 || index >= len(text) {
+		return 0
+	}
+	ch := text[index]
+	if ch == '"' || ch == '`' {
+		return ch
+	}
+	if ch != '\'' {
+		return 0
+	}
+	// Rust lifetimes use the same leading byte as character literals. In .rs
+	// source, an identifier following ' without an immediate closing quote is
+	// a lifetime, not a string opener; treating it as a quote would hide every
+	// subsequent delimiter and reject valid generic ordered carriers.
+	if strings.EqualFold(filepath.Ext(source), ".rs") && index+1 < len(text) &&
+		(text[index+1] == '_' || text[index+1] >= 'A' && text[index+1] <= 'Z' || text[index+1] >= 'a' && text[index+1] <= 'z') &&
+		(index+2 >= len(text) || text[index+2] != '\'') {
+		return 0
+	}
+	return ch
+}
+
+func precedenceDelimitedCarrierContains(text, source string, subjectStart, subjectEnd, objectStart, objectEnd int) bool {
+	pairs := precedenceDelimiterPairs(text, source)
+	best := precedenceDelimiterPair{open: -1, close: len(text) + 1}
+	for _, pair := range pairs {
+		if pair.open < subjectStart && subjectEnd <= objectStart && objectEnd <= pair.close &&
+			pair.close-pair.open < best.close-best.open {
+			best = pair
+		}
+	}
+	if best.open < 0 {
+		return false
+	}
+	return precedenceCarrierHasTopLevelComma(text[best.open+1:best.close], source,
+		subjectEnd-best.open-1, objectStart-best.open-1)
+}
+
+func precedenceDelimiterPairs(text, source string) []precedenceDelimiterPair {
+	type opener struct {
+		char byte
+		pos  int
+	}
+	stack := make([]opener, 0, 8)
+	pairs := make([]precedenceDelimiterPair, 0, 8)
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && quote != '`' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if opener := precedenceQuoteStart(text, i, source); opener != 0 {
+			quote = opener
+			continue
+		}
+		switch ch {
+		case '(', '[', '{':
+			stack = append(stack, opener{char: ch, pos: i})
+		case ')', ']', '}':
+			if len(stack) == 0 || !precedenceDelimitersMatch(stack[len(stack)-1].char, ch) {
+				continue
+			}
+			open := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			pairs = append(pairs, precedenceDelimiterPair{open: open.pos, close: i})
+		}
+	}
+	return pairs
+}
+
+func precedenceDelimitersMatch(open, close byte) bool {
+	return open == '(' && close == ')' || open == '[' && close == ']' || open == '{' && close == '}'
+}
+
+func precedenceCarrierHasTopLevelComma(content, source string, subjectEnd, objectStart int) bool {
+	if subjectEnd < 0 || objectStart < subjectEnd || objectStart > len(content) {
+		return false
+	}
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < objectStart; i++ {
+		ch := content[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && quote != '`' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if opener := precedenceQuoteStart(content, i, source); opener != 0 {
+			quote = opener
+			continue
+		}
+		switch ch {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if i >= subjectEnd && depth == 0 {
+				return true
+			}
+		case ';':
+			if i >= subjectEnd && depth == 0 {
+				return false
+			}
+		}
+	}
+	return false
 }
 
 func configSurfaceAllowsLooseLineGrounding(it *types.EvidenceItem) bool {

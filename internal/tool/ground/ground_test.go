@@ -277,7 +277,7 @@ func TestGroundItem_Tier1PrecedenceRequiresBoundedSourceOrder(t *testing.T) {
 	}
 	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	forward := &types.EvidenceItem{
-		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 10, LineEnd: 14,
 		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
 		Subject: "StageAnalyze", Object: "StageExplore",
 	}
@@ -287,7 +287,7 @@ func TestGroundItem_Tier1PrecedenceRequiresBoundedSourceOrder(t *testing.T) {
 	}
 
 	reversed := &types.EvidenceItem{
-		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 10, LineEnd: 14,
 		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageExplore",
 		Subject: "StageExplore", Object: "StageAnalyze",
 	}
@@ -295,6 +295,64 @@ func TestGroundItem_Tier1PrecedenceRequiresBoundedSourceOrder(t *testing.T) {
 	if reversed.GroundingStatus == types.GroundingGrounded || reversed.GroundingStatus == types.GroundingRecovered {
 		t.Fatalf("reverse source order must not ground: %+v", reversed)
 	}
+}
+
+func TestGroundItem_Tier1PrecedenceRejectsArbitraryStatementOrder(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("pipeline.go", 20, []string{
+			"func run() {",
+			"    StageAnalyze()",
+			"    helper(x, y)",
+			"    StageExplore()",
+			"}",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	item := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 20, LineEnd: 24,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	GroundItem(item, gc)
+	if item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered {
+		t.Fatalf("unrelated statements written in sequence must not mint precedence: %+v", item)
+	}
+}
+
+func TestGroundItem_Tier1PrecedenceIgnoresCommentedListAndAcceptsRustLifetime(t *testing.T) {
+	t.Run("commented list", func(t *testing.T) {
+		history := []types.ToolResult{buildGutterReadResult("pipeline.go", 30, []string{
+			"var stages = []Stage{",
+			"    noop(), // StageAnalyze, StageExplore",
+			"}",
+		}, 100)}
+		item := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 30, LineEnd: 32,
+			AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+			Subject: "StageAnalyze", Object: "StageExplore",
+		}
+		GroundItem(item, &Context{LineIndex: buildLineIndex(history, "")})
+		if item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered {
+			t.Fatalf("comment text must not mint precedence: %+v", item)
+		}
+	})
+
+	t.Run("rust lifetime", func(t *testing.T) {
+		history := []types.ToolResult{buildGutterReadResult("pipeline.rs", 40, []string{
+			"fn stages<'a>() -> Vec<Stage<'a>> {",
+			"    vec![StageAnalyze, StageExplore]",
+			"}",
+		}, 100)}
+		item := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Source: "pipeline.rs", LineStart: 40, LineEnd: 42,
+			AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+			Subject: "StageAnalyze", Object: "StageExplore",
+		}
+		GroundItem(item, &Context{LineIndex: buildLineIndex(history, "")})
+		if item.GroundingStatus != types.GroundingGrounded {
+			t.Fatalf("Rust lifetime must not hide an explicit ordered carrier: %+v", item)
+		}
+	})
 }
 
 func TestGroundItem_Tier1ConditionKeepsTypedGuardLine(t *testing.T) {

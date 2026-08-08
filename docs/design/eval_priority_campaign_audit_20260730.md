@@ -26997,3 +26997,42 @@ case/action 名补丁解决。
 `flow-edge-trigger=typed-axis-only`；`precedence-grounding=bounded-source-order`；
 `flow-handoff-cap=128/coverage-disclosed`；`raw-prose-scan=none`；
 `system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.366 r215：flow 压缩生效；确定性身份错拒与无关整图恢复制造 8 次成文失败
+
+在 `main@218aa8b3e` 上继续严格并发恰好两个同案回放。runner 为 1 PASS / 1 FAIL，人工仍 0/2：
+
+1. B357 获得生产闭环。logic 案相关 flow finding `24,689 -> 128`，`complete=false` 明示；diagram 案 `86/86 complete=true`。跨阶段上下文不再携一万六千余行；
+2. logic 案的第一轮关系拒绝合理，但 required-diagram recovery 从 evidence pool 任选 `NewFinalizerAgent -> NewBaseAgent` 生成 copy-ready 整图，模型照提示把用户要求的主 pipeline 图替换为无关 helper 图。立 `EVAL-B360-FLOWRECOVERYRELEVANCE1=P0/REDLINE`：typed flow 可以得到逐边事实 recipe，系统不得用任意局部关系充当整个主图的强制替代；
+3. diagram 案存在精确同向 call row `ev-d462c467f52d224f`，其 stable endpoint 是 `internal/types/stage_binding.go:ReadModeMainStageBindings`；Mermaid 节点是裸 `ReadModeMainStageBindings`。validator 未消费 deterministic producer + exact source 的 lossless 投影，连续误报 `call_edge_unproven`。立 `EVAL-B359-FLOWSOURCEIDENTITY1=P0/HIGH`；
+4. Explorer 看见 precedence 教学但没有发 pairwise rows，最终 hard gate 无法利用已读 `AllMainStages` 列表。更深一层，S37ce grounder 只验证任意 bounded range 中 A 写在 B 前，尚不能区分明确有序列表与函数内两个无关 statement。立 `EVAL-B361-PRECEDENCEPROOFCARRIER1=P1/HIGH`；
+5. 8 次同类 reject 触发 force-stop，degraded recovery 保留上版草稿并把最后一轮 `<think>` 原文附到客户答案。立 `EVAL-B362-DEGRADEDTHINKDISCLOSURE1=P0/REDLINE`：降级可披露模型格式/校验失败并保留可验证内容，但不得把内部 thinking 当答案字符串或事实来源；
+6. 本轮不是 malformed JSON。JSON 教学不应为关系身份/校验合同问题背锅；继续保持 schema 单源、最小心智，不通过 request/thinking/summary/final prose 关键词硬门；
+7. 两案无 Trace 查询。上述 gap 与修复全部属于 current-source 图形车道；`QFRootCauseTrace` 继续提前排除。显式窗与系统补采不变，Trace 主因仅可由 typed on-chain 席产生，邻近/背景只能支撑额外排查方向。
+
+状态：runner=`1/2 PASS`；human=`0/2`；
+`EVAL-B357=production-closed`；`EVAL-B359=P0-confirmed`；
+`EVAL-B360=P0-confirmed`；`EVAL-B361=P1-confirmed`；
+`EVAL-B362=P0-confirmed/next-degraded-safety-batch`；
+`finalizer-reject=1+8`；`malformed-json=none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.367 S37cf：typed source 身份 lossless 对齐；flow 恢复不再用无关局部关系替主图
+
+按 B359–B361 同根收口，保持模型的关系与结论所有权：
+
+1. deterministic dataflow lowerer 的稳定 endpoint `source:Symbol` 只在 producer 前缀为 `dataflow.lowerer.` 且 `source:` 与 EvidenceItem.Source 精确一致时投影回 `Symbol`。模型 producer、异文件同尾名、任意 qualified prose 均不能使用该 bridge；
+2. call-edge validator 与 relation-authority renderer 共用上述 exact 投影，解决“prompt 已交付同向 typed call、hard gate 却拒绝”的合同自冲突，不增加模糊/后缀匹配；
+3. typed `AxisFlow` 不再收到系统构造的 copy-ready 整图或 repair-time 强制复制 payload。逐边 typed recipe 继续可见，模型自行选择主图、子集或边界披露；普通 call-chain/architecture 车道保持既有 copy-ready 能力；
+4. precedence grounder 收窄：两端除严格 source order 外，还必须位于同一个明确 delimiter carrier，且中间存在 top-level comma。函数内任意 statements、反序、纯注释、缺失区间、超过 64 行仍 fail-closed；
+5. 当且仅当最终草稿已用结构化 `relation_kind=precedence` 声明边、AnswerSemanticView 为 typed `AxisFlow`、且现有 citable evidence 已携同一已读 bounded range 时，pre-emit 可构造一次临时候选交由同一 grounder 验证。通过的临时 row 不写 MutableState、不写 evidence ledger、不改 answer document，也不替模型画边；
+6. mechanism authority 接入 `AnchorPrecedence`，避免 Explorer 已铸 row 在后续关系 capsule 中静默丢失；
+7. 回归覆盖 exact deterministic identity 正/反臂、typed-flow 无整图替换、显式列表 precedence、任意 statement order 与行尾注释伪列表拒绝、Rust lifetime 正臂、runtime Trace 排除。`go test ./... -count=1` 全绿，覆盖 data/write、hitraceconv、tracequery、tracediag、mermaid/render 与所有 repomap 语言；
+8. 本批不扫描用户原话、模型 thinking、summary、答案 prose 或 Mermaid label 词义，不处理 B362 降级内容，且不进入 Trace 因果编译/投影/答案 mutation。
+
+状态：`EVAL-B359=S37cf-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B360=S37cf-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B361=S37cf-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B362=open/next`；`model-conclusion-owner=unchanged`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；
+Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。

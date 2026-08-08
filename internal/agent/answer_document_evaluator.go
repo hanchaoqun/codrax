@@ -6870,8 +6870,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		if !relation.IsValid() {
 			continue
 		}
-		from := strings.TrimSpace(item.Subject)
-		to := strings.TrimSpace(item.Object)
+		from := answerDocMechanismEvidenceEndpoint(item, item.Subject)
+		to := answerDocMechanismEvidenceEndpoint(item, item.Object)
 		if relation == types.DiagramRelCall {
 			// A call-site may carry a reader-friendly module/type-qualified
 			// callee while the same callable's body necessarily uses its short
@@ -6961,6 +6961,14 @@ func answerDocMechanismRelationKind(item types.EvidenceItem) types.DiagramRelati
 		return types.DiagramRelTypeRelation
 	}
 	return types.RelationForClaimForm(types.ClaimFormOf(item))
+}
+
+func answerDocMechanismEvidenceEndpoint(item types.EvidenceItem, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if projected, ok := types.DeterministicSourceQualifiedEvidenceSymbol(item, raw); ok {
+		return projected
+	}
+	return raw
 }
 
 func renderAnswerDocMechanismRelationAuthoringCapsule(
@@ -7417,6 +7425,15 @@ func answerDocMechanismMermaidLabel(identity string) string {
 // while the effective call-chain contract taught sequenceDiagram).
 func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.DiagramKind {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	// A typed flow answer asks the model to select the principal transfer
+	// topology. A bounded arbitrary source relation (for example one helper
+	// call inside Finalizer) is valid evidence but is not a replacement for
+	// that requested flow. Keep per-edge recipes available as facts, while
+	// withholding the system-authored whole-diagram capsule and its repair-time
+	// copy command. This is driven only by the schema-valid axis.
+	if view != nil && view.RelationAxis == types.AxisFlow {
+		return types.DiagramNone
+	}
 	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
 		return view.DiagramPlan.Kind
 	}
@@ -7471,7 +7488,7 @@ func answerDocGroundedCurrentSourceMechanismFact(item types.EvidenceItem) bool {
 	switch item.AnchorKind {
 	case types.AnchorDefinition, types.AnchorCall, types.AnchorCallback, types.AnchorCondition,
 		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer,
-		types.AnchorImport, types.AnchorStringLiteral:
+		types.AnchorImport, types.AnchorPrecedence, types.AnchorStringLiteral:
 		return true
 	default:
 		return false

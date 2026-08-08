@@ -1439,6 +1439,32 @@ func (e EvidenceItem) IsCitable() bool {
 	return e.Scope.IsLineShaped()
 }
 
+// DeterministicSourceQualifiedEvidenceSymbol projects the stable
+// `source:Symbol` identity emitted by the cross-language dataflow lowerers
+// back to its exact code-symbol suffix. The projection is deliberately narrow:
+// it requires the deterministic producer namespace and a byte-exact normalized
+// Source prefix. Model-authored subjects, same-tail symbols in another file,
+// and arbitrary qualified strings cannot use this bridge.
+func DeterministicSourceQualifiedEvidenceSymbol(item EvidenceItem, raw string) (string, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(item.Producer), "dataflow.lowerer.") {
+		return "", false
+	}
+	source := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(item.Source), `\`, "/"), "./")
+	raw = strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/"), "./")
+	if source == "" || raw == "" {
+		return "", false
+	}
+	prefix := source + ":"
+	if !strings.HasPrefix(raw, prefix) {
+		return "", false
+	}
+	symbol := strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+	if symbol == "" {
+		return "", false
+	}
+	return symbol, true
+}
+
 func (e EvidenceItem) SalienceLockedForScoring() bool {
 	return e.Salience.IsLocked()
 }

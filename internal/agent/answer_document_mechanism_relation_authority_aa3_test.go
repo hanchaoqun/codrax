@@ -52,6 +52,29 @@ func TestMechanismRelationAuthorityDoesNotTurnIndependentFactsIntoPathAA3(t *tes
 	}
 }
 
+func TestMechanismRelationAuthorityTypedFlowDoesNotOfferArbitraryWholeDiagram(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "helper-call", Kind: types.EvidenceRelationship,
+			Subject: "NewFinalizerAgent", Predicate: "calls", Object: "NewBaseAgent",
+			Source: "internal/agent/finalizer.go", LineStart: 30,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "NewBaseAgent",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "edge_recipe[1]") {
+		t.Fatalf("typed helper relation must remain available as a factual recipe:\n%s", got)
+	}
+	if strings.Contains(got, "Copy-ready optional typed diagram") || strings.Contains(got, "edge_anchors_json=") {
+		t.Fatalf("typed flow must not receive an arbitrary whole-diagram replacement capsule:\n%s", got)
+	}
+}
+
 func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
