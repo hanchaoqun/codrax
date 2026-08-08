@@ -113,8 +113,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
-				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels, evidence)
 				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label)
 				// In a sequence diagram Mermaid's dashed -->> operator is a
 				// response/return lane, not a second source-code invocation in
@@ -212,8 +212,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
 					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
 					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
-					FromSymbol: diagramEvidenceEndpointSymbol(anchor.FromNode, labels),
-					ToSymbol:   diagramEvidenceEndpointSymbol(anchor.ToNode, labels),
+					FromSymbol: diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence),
+					ToSymbol:   diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence),
 					Relation:   diagramAnchorRelation(anchor),
 				})
 				continue
@@ -221,8 +221,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			relation := diagramAnchorRelation(anchor)
 			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if relation == types.DiagramRelCallback {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramCallbackEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramCallbackEdgeIssueNoEvidence,
@@ -233,8 +233,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelTypeRelation {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramTypeRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramTypeRelationEdgeIssueNoEvidence,
@@ -245,8 +245,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelRegister {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramRegistrationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramRegistrationEdgeIssueNoEvidence,
@@ -257,8 +257,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelAssignment || relation == types.DiagramRelReturn {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramValueFlowEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
 					issue := diagramAssignmentEdgeIssueNoEvidence
 					if relation == types.DiagramRelReturn {
@@ -280,8 +280,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				if strictBodyEdgeKeys[anchorKey] {
 					continue
 				}
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
@@ -298,8 +298,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			if strictBodyEdgeKeys[anchorKey] {
 				continue
 			}
-			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
-			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 			if diagramCallAnchorHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, anchor, parsedEdges) {
 				continue
 			}
@@ -758,15 +758,94 @@ func diagramEvidenceAddNodeLabelCandidate(dst map[string]map[string]bool, decl m
 	dst[key][label] = true
 }
 
-func diagramEvidenceEndpointSymbol(node string, labels map[string]string) string {
+func diagramEvidenceEndpointSymbol(node string, labels map[string]string, evidenceOpt ...[]types.EvidenceItem) string {
 	node = strings.TrimSpace(node)
 	if node == "" {
 		return ""
 	}
 	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
-		return diagramEvidenceLabelSymbol(label)
+		fallback := diagramEvidenceLabelSymbol(label)
+		if len(evidenceOpt) == 0 {
+			return fallback
+		}
+		candidates := diagramEvidenceLabelIdentityCandidates(label)
+		matched := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			if !diagramEvidenceIdentityAppearsExactly(evidenceOpt[0], candidate) {
+				continue
+			}
+			equivalent := false
+			for _, existing := range matched {
+				if types.AnswerCodeIdentitySurfacesEquivalent(existing, candidate) {
+					equivalent = true
+					break
+				}
+			}
+			if !equivalent {
+				matched = append(matched, candidate)
+			}
+		}
+		if len(matched) == 1 {
+			return matched[0]
+		}
+		if len(matched) > 1 {
+			// More than one distinct typed identity in the same label is an
+			// ambiguity, not permission to let display order choose authority.
+			return ""
+		}
+		return fallback
 	}
 	return node
+}
+
+// diagramEvidenceLabelIdentityCandidates preserves every exact code identity
+// carried by a Mermaid presentation label. A label may put a human-facing
+// value before the canonical source identity (`analyze<br/>StageAnalyze`) or a
+// source location after it (`buildAnalysisIR<br/>analyzer.go:1820`). The
+// candidates remain inert until one unique identity is present in citable
+// typed evidence; neither position, casing, language, nor prose similarity
+// chooses the endpoint.
+func diagramEvidenceLabelIdentityCandidates(label string) []string {
+	parts := []string{strings.TrimSpace(label)}
+	normalized := strings.NewReplacer("<br/>", "\n", "<br>", "\n", `\n`, "\n").Replace(label)
+	parts = append(parts, strings.Split(normalized, "\n")...)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		candidate := strings.TrimSpace(part)
+		if symbol, _, ok := types.ParseAnswerSupportRefMemberLocation(candidate); ok && strings.TrimSpace(symbol) != "" {
+			candidate = strings.TrimSpace(symbol)
+		}
+		candidate = diagramEvidenceExactInlineCodeIdentity(candidate)
+		if candidate == "" || types.HasCodeOrConfigPathSuffix(candidate) ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(candidate, candidate) {
+			continue
+		}
+		duplicate := false
+		for _, existing := range out {
+			if existing == candidate {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func diagramEvidenceIdentityAppearsExactly(evidence []types.EvidenceItem, candidate string) bool {
+	for _, item := range evidence {
+		if !item.IsCitable() {
+			continue
+		}
+		for _, endpoint := range []string{item.Subject, item.Object, item.AnchorSymbol, item.OwnerSymbol} {
+			if types.AnswerCodeIdentitySurfacesEquivalent(endpoint, candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // diagramEvidenceLabelSymbol removes only the deterministic presentation

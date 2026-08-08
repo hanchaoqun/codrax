@@ -27598,3 +27598,28 @@ B377 carrier 审计与第一安全层落地：
 `EVAL-B377=soft-boundary-correct/hard-carrier-not-authorized`；
 `finalizer-reject=20+11`；`malformed-json=root-cause-none`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.392 S37cv：Mermaid 多表面标签由 citable typed identity 唯一消歧
+
+关闭 B379 的 endpoint 首段污染，不把 label prose 升格成证据：
+
+1. 保留现有 Mermaid node declaration parser 与 alias ownership。节点标签现在可解析多个 exact code-identity candidate，例如
+   `analyze<br/>StageAnalyze`、`Pipeline::Analyzer<br/>pipeline.cc:42`、ArkTS/Cangjie/Rust/Java/Python 的相应 native identity；source path/location 段不参与身份候选；
+2. 候选本身不带权威。只有 candidate 与本轮 citable EvidenceItem 的结构化 `Subject` / `Object` / `AnchorSymbol` / `OwnerSymbol` 完整 identity 等价时才可选中；
+   不读取用户请求、模型 reasoning/summary/final prose、Mermaid edge message、语言、大小写习惯、段位、文件名或相似度；
+3. 恰好一个 distinct typed identity family 命中时，validator 与 pre-emit source-precedence helper 共用该 canonical endpoint。无命中保留原首段兼容行为；两个不同 typed identity
+   同时命中时返回 ambiguity 并 fail-closed，禁止展示顺序替系统裁定；
+4. identity 等价只允许已有跨语言 separator 归一化（`. / :: / # / -> /`）；短尾兼容、owner 推导与 call direction 继续走各自更严格的既有 typed gate，
+   本批不扩大它们；
+5. R224 精确红转绿 pin：`A[analyze<br/>StageAnalyze] -> E[explore<br/>StageExplore]` 在 grounded `StageAnalyze -> StageExplore` precedence 下通过；
+   `AlphaStage<br/>BetaStage` 两个 distinct evidence 命中时拒绝；
+6. 端到端 helper pin 使用完整 `AllMainStages` 返回 slice 与四个 definition rows，证明同类多表面标签可从严格 model-visible read context 派生
+   Analyze→Explore→Extract→Finalize 三条相邻 precedence，而不是采信 Explorer 手写的非相邻汇总；
+7. `go test ./... -count=1` 全绿，覆盖 read/write/data、orchestrator、hitraceconv、tracequery/tracediag、render/mermaid 与全语言 repomap；
+8. 本批只修 typed diagram endpoint resolution，不自动添加/删除图边、不改 AnswerDocument、不替模型结论、不增加 JSON 字段/教学或重试预算。
+   `QFRootCauseTrace` 仍在 source diagram validator 入口排除；Trace 显式窗、自动补采、因果投影、链上根因和链外背景边界不变。
+
+状态：`EVAL-B379=S37cv-implemented/full-suite-pass/pending-production-replay`；
+`multi-surface-label=typed-evidence-unique`；`multiple-distinct-match=fail-closed`；
+`all-main-stages=adjacent-precedence-recoverable`；`json-schema=unchanged`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

@@ -54,6 +54,56 @@ func TestPreEmitEvidenceWithGroundedDiagramPrecedenceUsesExplicitListCarrier(t *
 	}
 }
 
+func TestPreEmitEvidenceWithGroundedDiagramPrecedenceResolvesValueThenIdentityLabels(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[analyze<br/>StageAnalyze] --> E[explore<br/>StageExplore]\n  E --> X[extract<br/>StageExtract]\n  X --> F[finalize<br/>StageFinalize]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "E", ToNode: "X", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "X", ToNode: "F", RelationKind: types.DiagramRelPrecedence},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		ID: "all-main-stages", Kind: types.EvidenceDirect,
+		Subject: "AllMainStages", Source: "pipeline.go", LineStart: 1, LineEnd: 8,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "AllMainStages",
+		Scope: types.ScopeLineRange, GroundingStatus: types.GroundingGrounded,
+	}}
+	for i, stage := range []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"} {
+		evidence = append(evidence, types.EvidenceItem{
+			ID: stage, Kind: types.EvidenceDirect,
+			Subject: stage, Source: "pipeline.go", LineStart: 3 + i,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: stage,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	gc := &ground.Context{LineIndex: map[string]map[int]string{
+		"pipeline.go": {
+			1: "func AllMainStages() []PipelineStage {",
+			2: "    return []PipelineStage{",
+			3: "        StageAnalyze,",
+			4: "        StageExplore,",
+			5: "        StageExtract,",
+			6: "        StageFinalize,",
+			7: "    }",
+			8: "}",
+		},
+	}}
+
+	augmented := preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, gc)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, augmented); len(got) != 0 {
+		t.Fatalf("value+identity labels should reuse the bounded ordered source carrier: %+v", got)
+	}
+	if len(augmented) != len(evidence)+3 {
+		t.Fatalf("derived evidence count=%d, want %d", len(augmented), len(evidence)+3)
+	}
+}
+
 func TestPreEmitEvidenceWithGroundedDiagramPrecedenceExpandsCitedDefinitionToReturnedCarrier(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

@@ -1724,6 +1724,61 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsGroundedPrecedence(t 
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowResolvesDisplayValueAndCanonicalIdentity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[analyze<br/>StageAnalyze] --> E[explore<br/>StageExplore]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorPrecedence,
+		Subject: "StageAnalyze", Object: "StageExplore", AnchorSymbol: "StageAnalyze",
+		Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("a unique typed identity in a value+identity label must authorize the edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_LabelWithTwoTypedIdentitiesFailsClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "ambiguous", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[AlphaStage<br/>BetaStage] --> E[SinkStage]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorPrecedence,
+			Subject: "AlphaStage", Object: "SinkStage", AnchorSymbol: "AlphaStage",
+			Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorPrecedence,
+			Subject: "BetaStage", Object: "SinkStage", AnchorSymbol: "BetaStage",
+			Source: "pipeline.go", LineStart: 21, LineEnd: 22,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence {
+		t.Fatalf("two distinct typed identities in one label must remain ambiguous: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "binding", Kind: types.BlockDiagram,
