@@ -92,6 +92,11 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"direction_subtotal_authority=`not_provided_without_exact_fold`",
 		"leader_subject=`worker-200`",
 		"cross_row_addition=`not_authorized_without_exact_typed_relation`",
+		"final_synthesis_scope: principal_root_cause_population=`typed_on_chain_only`",
+		"adjacent_and_background_role=`supporting_context_and_additional_investigation_only`",
+		"actual_occupancy_and_existing_rule_eliminable=`separate_decision_axes`",
+		"frame_claim_scope=`selected_window_observations_only`",
+		"out_of_window_marker_role=`navigation_only`",
 		"does not prove physical independence",
 		"does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling",
 	} {
@@ -268,6 +273,45 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 	}
 	if strings.Contains(got, "micro-worker") || strings.Contains(got, "2.202") {
 		t.Fatalf("interior drilldown seat displaced requested-window direction authority:\n%s", got)
+	}
+}
+
+func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t *testing.T) {
+	inWindow := true
+	candidate := types.TraceCausalProjectionNode{
+		EvidenceID: "candidate", Subject: "CookieMonsterCl-59843",
+		TypeToken: "priority_inversion_candidate", StateKind: "runnable",
+		Rank: 1, EffectiveImpactMS: 23.994, FixDirection: "lock_priority",
+		ChainDepth: 1, ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+	}
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 10, WindowEndTs: 10.1,
+		RankedSeats:   []types.TraceCausalProjectionNode{candidate},
+		OnChainCauses: []types.TraceCausalProjectionNode{candidate},
+		AdjacentCauses: []types.TraceCausalProjectionNode{{
+			EvidenceID: "adjacent", Subject: "background-7", Rank: 2,
+			EffectiveImpactMS: 99, ChainRelevance: "adjacent", WithinRequestedWindow: &inWindow,
+		}},
+	}
+	got := renderTraceFinalSynthesisScope(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "absent")
+	for _, want := range []string{
+		"principal_root_cause_population=`typed_on_chain_only`",
+		"adjacent_and_background_role=`supporting_context_and_additional_investigation_only`",
+		"candidate_subject=`CookieMonsterCl-59843`; effective_attribution=23.994ms",
+		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
+		"holder_waiter_authority=`not_provided_by_candidate_seat`",
+		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
+		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
+		"frame_evidence_status=`absent`",
+		"out_of_window_marker_role=`navigation_only`",
+		"frame_boundary_completion_deadline_authority=`not_provided`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("final synthesis scope missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "background-7") || strings.Contains(got, "99.000") || strings.Contains(got, "lock_priority") {
+		t.Fatalf("adjacent seat or uncalibrated registry direction leaked into final scope:\n%s", got)
 	}
 }
 

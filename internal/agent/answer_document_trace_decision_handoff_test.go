@@ -110,8 +110,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"subject=`Cookie-150`; kind=`s_sleep`; window_projection=44.836ms",
 		"span=`ParseCards`; total=18.500ms; occurrences=12; member_max=3.200ms",
 		"axis_B_existing_rule_eliminable",
-		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; fix_direction=`lock_priority`",
+		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; validation_direction=`priority_or_dependency_supply`",
 		"impact_phase=`pre_wakeup_dependency`",
+		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"candidate_mechanism_authority=`lower_priority_dependency_only`",
 		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
@@ -135,6 +136,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(axisA, "kind=`priority_inversion_candidate`") {
 		t.Fatalf("priced composite seat leaked into actual-time axis:\n%s", axisA)
+	}
+	if strings.Contains(got, "rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; fix_direction=`lock_priority`") {
+		t.Fatalf("unconfirmed priority candidate leaked the registry lock bucket into model context:\n%s", got)
 	}
 }
 
@@ -161,6 +165,8 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 	)
 	for _, want := range []string{
 		"rank=#1; subject=`CookieMonsterCl-59843`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms",
+		"validation_direction=`priority_or_dependency_supply`",
+		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"candidate_mechanism_authority=`lower_priority_dependency_only`",
 		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
 		"holder_waiter_authority=`not_provided_by_candidate_seat`",
@@ -176,6 +182,9 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 	if strings.Contains(ordinary, "candidate_mechanism_authority=") ||
 		strings.Contains(ordinary, "holder_waiter_authority=") {
 		t.Fatalf("ordinary runnable lock-priority row was inferred into a typed candidate:\n%s", ordinary)
+	}
+	if !strings.Contains(ordinary, "fix_direction=`lock_priority`") {
+		t.Fatalf("ordinary non-candidate direction must remain verbatim:\n%s", ordinary)
 	}
 }
 

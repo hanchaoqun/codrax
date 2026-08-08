@@ -84,7 +84,8 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalCompactAuthorityLedger(set))
 	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(answerDocObservationLedger(ctx).Records)))
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
-	b.WriteString("- Preserve directed wakeup/path semantics and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
+	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
 }
 
@@ -214,9 +215,13 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 		}
 		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`single_published_leader_only`; direction_subtotal_authority=`not_provided_without_exact_fold`. Do not sum same-direction seats merely because their labels share a direction.\n", label)
 		for _, node := range leaders {
-			fmt.Fprintf(&b, "  - fix_direction=`%s`; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
-				strings.TrimSpace(node.FixDirection), node.Rank, strings.TrimSpace(node.Subject),
-				node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+			key, value, ok := traceDecisionModelFacingDirection(node)
+			if !ok {
+				continue
+			}
+			fmt.Fprintf(&b, "  - %s=`%s`", key, value)
+			fmt.Fprintf(&b, "; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
+				node.Rank, strings.TrimSpace(node.Subject), node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
 			if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
 				fmt.Fprintf(&b, "; leader_state_kind=`%s`", stateKind)
 			}
@@ -236,8 +241,44 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
 				b.WriteString("; impact_phase=`pre_wakeup_dependency`; post_wakeup_delay_authority=`not_provided_by_this_seat`")
 			}
+			traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
 			b.WriteString("\n")
 		}
+	}
+	return b.String()
+}
+
+// renderTraceFinalSynthesisScope is the last, compact population/authority
+// reminder before the model writes. It composes only typed projection lanes
+// and frame status. It does not scan or rewrite prose and it does not choose a
+// root cause; its job is to prevent a long evidence appendix from obscuring
+// the already-established semantic ceiling.
+func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvidenceStatus string) string {
+	if len(set.Projections) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("- final_synthesis_scope: principal_root_cause_population=`typed_on_chain_only`; adjacent_and_background_role=`supporting_context_and_additional_investigation_only`; actual_occupancy_and_existing_rule_eliminable=`separate_decision_axes`.\n")
+	seen := make(map[string]bool)
+	emitted := 0
+	for _, projection := range set.Projections {
+		for _, node := range traceDecisionEliminableSeats(projection, 8) {
+			if emitted >= 3 || !traceDecisionNodeIsPriorityInversionCandidate(node) {
+				continue
+			}
+			key := traceDecisionNodeIdentity(node)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			fmt.Fprintf(&b, "  - candidate_subject=`%s`; effective_attribution=%.3fms", strings.TrimSpace(node.Subject), node.EffectiveImpactMS)
+			traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
+			b.WriteString("\n")
+			emitted++
+		}
+	}
+	if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
+		fmt.Fprintf(&b, "  - frame_claim_scope=`selected_window_observations_only`; frame_evidence_status=`%s`; out_of_window_marker_role=`navigation_only`; frame_boundary_completion_deadline_authority=`not_provided`.\n", frameEvidenceStatus)
 	}
 	return b.String()
 }

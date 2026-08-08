@@ -27835,3 +27835,28 @@ Trace=`triple-excluded/unchanged/on-chain-only`。
 `EVAL-B369=partial/open`；`finalizer-reject=11+7`；
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.400 S37cz：Trace 候选 claim envelope 与最终合成范围单源收敛
+
+按 r228 的 B384/B385 合批施工，保持模型结论所有权：
+
+1. `traceDecisionWritePriorityCandidateClaimEnvelope` 成为未确认优先级候选的单一模型输入语义源。每个 typed candidate 席只发布
+   `measured_lower_priority_dependency_supply_candidate`、有效归因与 validation caliber；`synchronous_blocker`、`holder_waiter` 均明确未提供，
+   `pre_wakeup_dependency` 席另明确只覆盖下游唤醒前的依赖供给，不能铸成 post-wakeup preemption/dispatch delay；
+2. 候选席的 registry 内部属性仍保持 `FixDirection=lock_priority`，根因编译、排序、方向分组、数值和 deterministic 报告零变化；但 Finalizer 模型输入面不再裸发该诱导词，
+   改发 `validation_direction=priority_or_dependency_supply`。普通非候选席仍逐字携带原 fix direction，避免全局改名或破坏锁争用等已证家族；
+3. `renderTraceFinalSynthesisScope` 在最终 prompt 尾部从 typed projection 重放三条边界：principal root population 仅 `typed_on_chain_only`；adjacent/background 仅
+   supporting context 与额外排查；实际占用与现规则可消量是两条不同决策轴。最多三条 candidate envelope 按 typed seat identity 去重，不扫描任何自然语言；
+4. 帧证据为 `absent|unavailable` 时，同一尾部明确 `out_of_window_marker_role=navigation_only`，并把 frame boundary/completion/deadline authority 保持为 not provided。
+   窗内状态、代表性窗口、自动补采和已证帧因果能力均未关闭；有 typed frame authority 的车道不会触发该负臂；
+5. 新回归覆盖 production-shaped `CookieMonsterCl priority_inversion_candidate`：Finalizer 同时看见 23.994ms、pre-wakeup scope、holder/waiter/post-wakeup 未证；
+   负 pin 证明该候选行不再出现 `fix_direction=lock_priority`。普通 runnable 的同名 registry 桶仍保持原 token，证明没有按词或类型扩大修复；
+6. 最终 scope 回归同时放入 99ms adjacent 行，证明它不进入 candidate/root 人口；frame absent 回归证明窗外 marker 只作导航。实现不读取用户请求、thinking、summary、
+   final prose、case 名或语言，不新增 AnswerDocument JSON 字段、不做硬门、不自动改写/删除模型答案；
+7. `go test ./... -count=1` 在最终代码上全绿，覆盖 cmd、read/data/write、agent/orchestrator、hitraceconv、tracequery/tracediag、render/mermaid、repomap 全语言与 writeflow。
+
+状态：`EVAL-B384=S37cz-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B385=S37cz-implemented/full-suite-pass/pending-production-replay`；
+`model-facing-candidate-direction=priority_or_dependency_supply`；
+`registry/rank/value/projection=unchanged`；`trace-root-population=typed-on-chain-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

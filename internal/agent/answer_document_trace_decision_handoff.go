@@ -169,21 +169,14 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				if relationRef := types.TraceAnswerRelationMemberRef(node); relationRef != "" {
 					fmt.Fprintf(&b, "; relation_member_ref=`%s`", relationRef)
 				}
-				if node.FixDirection != "" {
-					fmt.Fprintf(&b, "; fix_direction=`%s`", node.FixDirection)
-				}
+				traceDecisionWriteModelFacingDirection(&b, node)
 				if node.ImpactMS > 0 && node.ImpactMS != node.EffectiveImpactMS {
 					fmt.Fprintf(&b, "; window_projection=%.3fms", node.ImpactMS)
 				}
 				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
 				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWritePhase(&b, node)
-				if traceDecisionNodeIsPriorityInversionCandidate(node) {
-					b.WriteString("; candidate_mechanism_authority=`lower_priority_dependency_only`; synchronous_blocker_authority=`not_provided_by_candidate_seat`; holder_waiter_authority=`not_provided_by_candidate_seat`; conclusion_caliber=`validation_candidate`")
-					if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
-						b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`; post_wakeup_preemption_authority=`not_provided_by_this_seat`")
-					}
-				}
+				traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
 				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
 			}
@@ -873,6 +866,51 @@ func traceDecisionNodeIsPriorityInversionCandidate(node types.TraceCausalProject
 		return true
 	default:
 		return false
+	}
+}
+
+// traceDecisionWriteModelFacingDirection keeps the registry's internal
+// grouping token from becoming a stronger mechanism claim in model context.
+// A measured priority-inversion candidate without a typed holder/waiter row is
+// a priority/dependency SUPPLY validation direction, not proof of a lock.
+// Ranking, projection grouping, values, and deterministic report rendering
+// continue to consume node.FixDirection unchanged.
+func traceDecisionWriteModelFacingDirection(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil {
+		return
+	}
+	key, value, ok := traceDecisionModelFacingDirection(node)
+	if ok {
+		fmt.Fprintf(b, "; %s=`%s`", key, value)
+	}
+}
+
+func traceDecisionModelFacingDirection(node types.TraceCausalProjectionNode) (key, value string, ok bool) {
+	if strings.TrimSpace(node.FixDirection) == "" {
+		return "", "", false
+	}
+	if traceDecisionNodeIsPriorityInversionCandidate(node) {
+		return "validation_direction", "priority_or_dependency_supply", true
+	}
+	return "fix_direction", strings.TrimSpace(node.FixDirection), true
+}
+
+// traceDecisionWritePriorityCandidateClaimEnvelope is the single concise
+// model-facing semantic envelope for an unconfirmed candidate seat. It reads
+// typed node fields only and remains prompt-only: no user/model/final prose is
+// inspected, no gate consumes the words, and no answer is authored or edited.
+func traceDecisionWritePriorityCandidateClaimEnvelope(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil || !traceDecisionNodeIsPriorityInversionCandidate(node) {
+		return
+	}
+	b.WriteString("; claim_envelope=`measured_lower_priority_dependency_supply_candidate`")
+	b.WriteString("; candidate_mechanism_authority=`lower_priority_dependency_only`")
+	b.WriteString("; synchronous_blocker_authority=`not_provided_by_candidate_seat`")
+	b.WriteString("; holder_waiter_authority=`not_provided_by_candidate_seat`")
+	b.WriteString("; conclusion_caliber=`validation_candidate`")
+	if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
+		b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`")
+		b.WriteString("; post_wakeup_preemption_authority=`not_provided_by_this_seat`")
 	}
 }
 
