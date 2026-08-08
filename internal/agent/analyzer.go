@@ -150,6 +150,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if externalObservationFirstTurnHintForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExternalObservationFirstShortcut(ctx.TurnRouteHint)))
 	}
+	if structuredWriteRouteForAnalyzer(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerStructuredWriteRouteShortcut(ctx)))
+	}
 
 	// Pre-inject a repo_map task_map view so the analyzer starts its
 	// first iteration with structural context already visible. Without
@@ -218,6 +221,56 @@ func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {
 		return false
 	}
 	return ctx.TurnRouteHint.ExternalObservationFirst()
+}
+
+// structuredWriteRouteForAnalyzer consumes only the pipeline mode and the
+// schema-validated current-turn route. It is a prompt/navigation boundary, not
+// an answer classifier or hard gate: emit_analysis remains model-owned and the
+// later write phases still own task kind, scope, risk, and outcomes.
+func structuredWriteRouteForAnalyzer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	if ctx.Mode.IsWrite() {
+		return true
+	}
+	return strings.TrimSpace(ctx.TurnRouteHint.Route) == "write"
+}
+
+func renderAnalyzerStructuredWriteRouteShortcut(ctx *types.AgentContext) string {
+	mode := ""
+	route := "write"
+	operation := ""
+	writeIntent := ""
+	if ctx != nil {
+		if normalized := ctx.Mode.Normalize(); normalized.IsWrite() {
+			mode = safeAnalyzerHintValue(string(normalized))
+		}
+		if value := safeAnalyzerHintValue(ctx.TurnRouteHint.Route); value != "" {
+			route = value
+		}
+		operation = safeAnalyzerHintValue(ctx.TurnRouteHint.Operation)
+		writeIntent = safeAnalyzerHintValue(ctx.TurnRouteHint.WriteIntent)
+	}
+	var b strings.Builder
+	b.WriteString("## Structured Write Route Classification Boundary\n\n")
+	b.WriteString("The pipeline has already selected a write-phase dispatch (")
+	if mode != "" {
+		fmt.Fprintf(&b, "mode=%s, ", mode)
+	}
+	fmt.Fprintf(&b, "route=%s", route)
+	if operation != "" {
+		fmt.Fprintf(&b, ", operation=%s", operation)
+	}
+	if writeIntent != "" {
+		fmt.Fprintf(&b, ", write_intent=%s", writeIntent)
+	}
+	b.WriteString("). This typed route is navigation context, not answer evidence and not a substitute for `emit_analysis`. ")
+	b.WriteString("Classify the current change goal now and call `emit_analysis` without a repository pre-scan; the later write phases will inspect source, determine task kind/scope/risk, and build or verify the proposed change. ")
+	b.WriteString("Do not treat the requested edit, patch, plan, apply, or verification artifact itself as a read-side architecture explanation, source declaration inventory, field-value lookup, history lookup, runtime trace, diagnostic report, or diagram request. For an ordinary bounded change, `scenario=generic` is normally the faithful read-classifier posture; select a specialized read scenario/profile only when the current request independently asks for that additional read answer. ")
+	b.WriteString("Before/after edit tokens are not `field_value_profile` literals, and candidate files or symbols needed by the later write stage are not by themselves a `source_inventory_profile`, `change_impact_profile`, completeness obligation, or diagram contract. Preserve exact named files/symbols as entities or required-file hints when justified, but leave optional read-only profiles absent unless their own typed meaning is explicitly part of the current request. ")
+	b.WriteString("The model still owns every emitted structured classification field; this boundary only prevents the already-selected write route from being reinterpreted as a different read task.\n\n")
+	return b.String()
 }
 
 func renderAnalyzerExternalObservationFirstShortcut(hint types.TurnRouteHint) string {

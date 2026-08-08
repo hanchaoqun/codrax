@@ -467,6 +467,71 @@ func TestAnalyzerPrompt_ExternalObservationTurnHintSkipsRepoOverview(t *testing.
 	}
 }
 
+func TestAnalyzerPrompt_StructuredWriteModeSkipsReadPrescanAndProfiles(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Mode:      types.ModePlan,
+		Objective: "make the requested bounded repository change",
+		RepoRoot:  ".",
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	for _, want := range []string{
+		"Structured Write Route Classification Boundary",
+		"mode=plan, route=write",
+		"call `emit_analysis` without a repository pre-scan",
+		"`scenario=generic`",
+		"Before/after edit tokens are not `field_value_profile` literals",
+		"leave optional read-only profiles absent",
+		"model still owns every emitted structured classification field",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("write-route shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("typed write route must skip read-side repo overview prescan; got:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_StructuredTurnRouteWriteWorksBeforeModePromotion(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Mode:      types.ModeRead,
+		Objective: "perform the selected change",
+		RepoRoot:  ".",
+		TurnRouteHint: types.TurnRouteHint{
+			Route:       "write",
+			Operation:   "change_repository",
+			WriteIntent: "code_change",
+			Confidence:  0.94,
+		},
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	for _, want := range []string{
+		"Structured Write Route Classification Boundary",
+		"route=write",
+		"operation=change_repository",
+		"write_intent=code_change",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("turn-route write shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "mode=read") {
+		t.Fatalf("pending write route must not publish a contradictory read mode:\n%s", got)
+	}
+
+	ac.TurnRouteHint.Route = "repo"
+	got = (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	if strings.Contains(got, "Structured Write Route Classification Boundary") {
+		t.Fatalf("ordinary read route must not inherit write classification guidance:\n%s", got)
+	}
+}
+
 func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "record_trace_20260526174055.systrace")

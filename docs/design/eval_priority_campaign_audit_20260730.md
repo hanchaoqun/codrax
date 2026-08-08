@@ -26168,3 +26168,27 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 `authority=bounded-conceptual-members/model-owned`；`source-inventory=support-only`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write=`codepath-unchanged`；
 `EVAL-B328=P1-open`。
+
+### 123.332 S37bl：typed write route 收窄前置分类心智，不再把改动产物当读模式主题
+
+`EVAL-B328-WRITEROUTEANALYZERSCOPE1` 在 analyzer 初始指令层使用既有精确信号补齐软边界：
+
+1. `PipelineMode.IsWrite()`（plan/apply/verify）或 schema-validated `TurnRouteHint.Route=write` 任一成立时，analyzer 进入专用 write-route classification
+   shortcut；显式 CLI write 与 REPL structured auto-route 两条入口同构覆盖；
+2. 该 shortcut 要求不做 read-side repo overview/prescan，直接完成 `emit_analysis`。后续写阶段仍负责读取源码、判 task kind/scope/risk、生成/验证计划；
+   这减少了同一文件在两个分类层重复探索，也不修改 L1 的 read scheduler body；
+3. 教学只说明语义边界：改动/patch/plan/apply/verify 产物本身不是 architecture、source inventory、field-value、history、runtime trace、diagnostic 或 diagram
+   读答案；普通有界改动通常使用 generic 场景。若当前请求独立要求上述读答案，模型仍可显式选择对应 typed profile；
+4. before/after edit tokens 不再被教成 field-value literal，候选文件/符号也不自动成为 source inventory/change-impact/completeness/diagram。精确命名目标仍可进入
+   entities/required-file hints；所有 classification 字段继续由模型发射，系统不自动改写 intent/scenario 或写答案；
+5. 判定只读 PipelineMode 与 TurnRouteHint route/operation/write-intent；不扫描用户问题、模型 thinking/summary/答案，不按 typo、文件名、语言或用例特判，
+   因而覆盖 Go/Java/Kotlin/ArkTS/Cangjie/C/C++/Rust/Python/JS/TS 等写请求；
+6. 首次 agent 全包测试由 prompt glossary tripwire 精确拦住新提示里的内部类型名；实现随后改为“structured classification fields”，并同步移除具体内部阶段称呼。
+   最终 `go test ./internal/agent ./internal/orchestrator ./internal/skill -count=1` 全绿；
+7. runtime artifact / external-observation shortcut 保持更高优先级，带 trace/log 的写请求不会被新臂关闭已有 artifact 分类；Trace query、显式时间窗因果投影、
+   自动补齐、链上根因资格与窗内可消除量均未修改。
+
+状态：`EVAL-B328=S37bl-implemented/agent+orchestrator+skill-suite-pass/pending-production-replay`；
+`route-signal=typed-mode-or-turn-route`；`guidance=soft/model-owned`；
+`repo-prescan=skipped-for-write-classifier`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace/JSON=`unchanged`。
