@@ -1519,6 +1519,29 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAcceptsSameDirectionTypedLogic
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ChainedFlowEdgesRetainTypedOwnership(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[StageAnalyze] --> E[StageExplore] --> X[StageExtract] --> F[StageFinalize]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "E", ToNode: "X", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "X", ToNode: "F", RelationKind: types.DiagramRelPrecedence},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride, Subject: "StageAnalyze", Object: "StageExplore", AnchorSymbol: "StageExplore", Source: "internal/types/enums.go", LineStart: 33, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride, Subject: "StageExplore", Object: "StageExtract", AnchorSymbol: "StageExtract", Source: "internal/types/enums.go", LineStart: 34, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride, Subject: "StageExtract", Object: "StageFinalize", AnchorSymbol: "StageFinalize", Source: "internal/types/enums.go", LineStart: 35, GroundingStatus: types.GroundingGrounded},
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, evidence); len(got) != 0 {
+		t.Fatalf("legal Mermaid chains must expose every typed visible edge: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "binding", Kind: types.BlockDiagram,

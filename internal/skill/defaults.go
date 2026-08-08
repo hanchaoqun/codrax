@@ -486,23 +486,21 @@ If the user section includes an Exact Resolution Contract block, you MUST also f
     - ` + "`call_dag`" + ` (dispatch / hop chain / fan-out) → ` + "`flowchart TD`" + ` by default; prefer vertical layout when labels are long
   REMINDER: ` + "`diagram.kind`" + ` carries the LEFT column (` + "`flow`" + `/` + "`sequence`" + `/` + "`architecture`" + `/` + "`call_dag`" + `); the RIGHT column is what goes inside ` + "`diagram.body`" + `. Do NOT confuse these two layers.
 
-- Mermaid syntax (preferred form) — wrap the diagram in a fenced code block whose opening line is exactly three backticks followed by the word mermaid (the closing line is three backticks alone). The supported subset is FLOWCHART (direction LR / TD / RL / BT) and SEQUENCEDIAGRAM only. Other Mermaid block types (classDiagram / stateDiagram / erDiagram / gantt / mindmap / gitGraph / C4Context / architecture-beta / journey / pie) and the ` + "`subgraph`" + ` nesting construct are NOT in the rendering subset; if you emit them the renderer leaves the block as source and users read raw mermaid syntax instead of an aligned diagram. The fence itself is REQUIRED — a bare body without the surrounding fence prints as raw text. Concrete examples (copy the EXACT shape, including the opening ` + "```" + `mermaid line and the closing ` + "```" + `):
+- Mermaid syntax (preferred form) — inside a structured ` + "`diagram`" + ` block, ` + "`diagram.body`" + ` is the RAW Mermaid source only. Do NOT add opening/closing Markdown fences: the renderer adds them. The supported subset is FLOWCHART (direction LR / TD / RL / BT) and SEQUENCEDIAGRAM; flowchart ` + "`subgraph ... end`" + ` grouping is accepted and is flattened only for the narrow terminal renderer while the persisted Mermaid source retains the grouping. Other Mermaid block types (classDiagram / stateDiagram / erDiagram / gantt / mindmap / gitGraph / C4Context / architecture-beta / journey / pie) are outside the rendering subset. Concrete ` + "`diagram.body`" + ` examples (copy only the source lines shown, with no fences):
 
-    ` + "```mermaid" + `
     flowchart TD
         analyzer --> explorer
         explorer --> validate
         explorer --> reconcile
         validate --> finalize
         reconcile --> finalize
-    ` + "```" + `
 
-    ` + "```mermaid" + `
     sequenceDiagram
         client->>service: dispatch
         service-->>client: evidence
         client->>renderer: compose
-    ` + "```" + `
+
+  Only the legacy fallback where Mermaid is embedded directly inside a summary/section ` + "`text`" + ` field uses an explicit ` + "```mermaid" + ` fence. Prefer the structured ` + "`diagram`" + ` block whenever the contract permits it.
 
   In this sequence example, ` + "`->>`" + ` is an invocation and needs a same-direction typed call anchor when the answer family is a grounded call chain. ` + "`-->>`" + ` is a response/return presentation edge only because it mirrors the already-drawn opposite invocation; it does NOT declare a reverse source-code call and must not receive a reverse call anchor. A standalone ` + "`-->>`" + ` does not self-declare as a reply.
 

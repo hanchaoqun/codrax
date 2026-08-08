@@ -60,42 +60,160 @@ func ParseEdges(body string) []Edge {
 		if sequenceBody && len(SequenceParticipantDeclarations(line)) > 0 {
 			continue
 		}
-		var from, to, label, operator string
-		var ok bool
 		if sequenceBody {
-			from, to, operator, ok = splitSequenceEdgeLine(line)
-		} else {
-			from, to, label, operator, ok = SplitEdgeLine(line)
-		}
-		if !ok {
-			continue
-		}
-		if sequenceBody {
+			from, to, operator, ok := splitSequenceEdgeLine(line)
+			if !ok {
+				continue
+			}
+			label := ""
 			if target, message, found := splitSequenceEdgeTargetMessage(to); found {
 				to = target
-				if label == "" {
-					label = message
-				}
+				label = message
 			}
-		}
-		var fromLabel, toLabel, fromShape, toShape string
-		from, fromLabel, fromShape = ParseNodeTokenWithShape(from)
-		to, toLabel, toShape = ParseNodeTokenWithShape(to)
-		if from == "" || to == "" {
+			edges = appendParsedEdge(edges, from, to, label, operator)
 			continue
 		}
-		edges = append(edges, Edge{
-			From:      from,
-			To:        to,
-			Label:     label,
-			Operator:  operator,
-			FromLabel: fromLabel,
-			ToLabel:   toLabel,
-			FromShape: fromShape,
-			ToShape:   toShape,
-		})
+		// Mermaid permits a compact flow chain such as A --> B --> C.  Each
+		// hop is a visible relation and therefore has to survive as its own
+		// parsed edge.  SplitEdgeLine intentionally retains its historical
+		// single-edge API for normalizers and legacy callers; the evidence
+		// parser uses the complete chain view here.
+		for _, edge := range splitFlowchartEdgeChainLine(line) {
+			edges = appendParsedEdge(edges, edge.from, edge.to, edge.label, edge.operator)
+		}
 	}
 	return edges
+}
+
+type flowchartEdgeTokens struct {
+	from     string
+	to       string
+	label    string
+	operator string
+}
+
+func appendParsedEdge(edges []Edge, from, to, label, operator string) []Edge {
+	var fromLabel, toLabel, fromShape, toShape string
+	from, fromLabel, fromShape = ParseNodeTokenWithShape(from)
+	to, toLabel, toShape = ParseNodeTokenWithShape(to)
+	if from == "" || to == "" {
+		return edges
+	}
+	return append(edges, Edge{
+		From:      from,
+		To:        to,
+		Label:     label,
+		Operator:  operator,
+		FromLabel: fromLabel,
+		ToLabel:   toLabel,
+		FromShape: fromShape,
+		ToShape:   toShape,
+	})
+}
+
+// splitFlowchartEdgeChainLine decomposes one Mermaid flow statement into all
+// of its directed hops. It is syntax-only: quoted/node-shape arrow bytes stay
+// protected by findFlowchartEdgeOperator, and an unprotected semicolon ends
+// the statement instead of accidentally bridging two independent statements.
+func splitFlowchartEdgeChainLine(line string) []flowchartEdgeTokens {
+	operators := []string{"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->"}
+	idx, operator := findFlowchartEdgeOperator(line, operators)
+	if idx < 0 {
+		return nil
+	}
+	from := strings.TrimSpace(line[:idx])
+	tail := strings.TrimSpace(line[idx+len(operator):])
+	if from == "" || tail == "" {
+		return nil
+	}
+
+	var out []flowchartEdgeTokens
+	for from != "" && tail != "" {
+		label := ""
+		if strings.HasPrefix(tail, "|") {
+			if end := strings.Index(tail[1:], "|"); end >= 0 {
+				label = strings.TrimSpace(tail[1 : end+1])
+				tail = strings.TrimSpace(tail[end+2:])
+			}
+		}
+		nextAt, nextOperator := findFlowchartEdgeOperator(tail, operators)
+		semicolonAt := findFlowchartStatementSeparator(tail)
+		if semicolonAt >= 0 && (nextAt < 0 || semicolonAt < nextAt) {
+			to := strings.TrimSpace(tail[:semicolonAt])
+			if to != "" {
+				out = append(out, flowchartEdgeTokens{from: from, to: to, label: label, operator: operator})
+			}
+			break
+		}
+		if nextAt < 0 {
+			to := strings.TrimSpace(tail)
+			if to != "" {
+				out = append(out, flowchartEdgeTokens{from: from, to: to, label: label, operator: operator})
+			}
+			break
+		}
+		to := strings.TrimSpace(tail[:nextAt])
+		if to == "" {
+			break
+		}
+		out = append(out, flowchartEdgeTokens{from: from, to: to, label: label, operator: operator})
+		from = to
+		operator = nextOperator
+		tail = strings.TrimSpace(tail[nextAt+len(nextOperator):])
+	}
+	return out
+}
+
+func findFlowchartStatementSeparator(line string) int {
+	var quote byte
+	escaped := false
+	depthSquare, depthParen, depthBrace := 0, 0, 0
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' || ch == '`' {
+			quote = ch
+			continue
+		}
+		switch ch {
+		case '[':
+			depthSquare++
+		case ']':
+			if depthSquare > 0 {
+				depthSquare--
+			}
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '{':
+			depthBrace++
+		case '}':
+			if depthBrace > 0 {
+				depthBrace--
+			}
+		case ';':
+			if depthSquare == 0 && depthParen == 0 && depthBrace == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // splitSequenceEdgeLine selects the first arrow in source order and leaves

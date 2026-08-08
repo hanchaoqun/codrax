@@ -761,6 +761,33 @@ func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkillDiagramBodyTeachingMatchesProjectedSchemaAndRenderer(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	for _, want := range []string{
+		"`diagram.body` is the RAW Mermaid source only",
+		"Do NOT add opening/closing Markdown fences",
+		"`subgraph ... end` grouping is accepted",
+		"legacy fallback where Mermaid is embedded directly inside a summary/section `text` field",
+	} {
+		if !strings.Contains(sk.OutputFormat, want) {
+			t.Fatalf("answer-document-skill diagram teaching missing %q:\n%s", want, sk.OutputFormat)
+		}
+	}
+	for _, stale := range []string{
+		"The fence itself is REQUIRED",
+		"`subgraph` nesting construct are NOT in the rendering subset",
+	} {
+		if strings.Contains(sk.OutputFormat, stale) {
+			t.Fatalf("answer-document-skill retained contradictory diagram teaching %q", stale)
+		}
+	}
+}
+
 func TestFinalizerSkillPatchTeachingUsesCanonicalFourOperationSemantics(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

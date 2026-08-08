@@ -81,6 +81,43 @@ func TestParseEdges_FlowchartPipeLabelDoesNotRewriteEndpointLabels(t *testing.T)
 	}
 }
 
+func TestParseEdges_FlowchartChainPreservesEveryVisibleHop(t *testing.T) {
+	body := `flowchart TD
+  A["StageAnalyze"] --> E["StageExplore"] --> X["StageExtract"] --> F["StageFinalize"]`
+	edges := ParseEdges(body)
+	if len(edges) != 3 {
+		t.Fatalf("edge count=%d, want 3: %+v", len(edges), edges)
+	}
+	want := [][2]string{{"A", "E"}, {"E", "X"}, {"X", "F"}}
+	for i := range want {
+		if edges[i].From != want[i][0] || edges[i].To != want[i][1] {
+			t.Fatalf("edge[%d]=%s->%s, want %s->%s: %+v", i, edges[i].From, edges[i].To, want[i][0], want[i][1], edges)
+		}
+	}
+}
+
+func TestParseEdges_FlowchartChainKeepsPerHopLabelsAndProtectedArrowBytes(t *testing.T) {
+	body := `flowchart LR
+  A["holder->run; still label"] -->|first -> display| B["target::run"] -.->|second| C["done"]`
+	edges := ParseEdges(body)
+	if len(edges) != 2 {
+		t.Fatalf("edge count=%d, want 2: %+v", len(edges), edges)
+	}
+	if edges[0].From != "A" || edges[0].To != "B" || edges[0].Label != "first -> display" || edges[0].Operator != "-->" {
+		t.Fatalf("first chained edge corrupted: %+v", edges[0])
+	}
+	if edges[1].From != "B" || edges[1].To != "C" || edges[1].Label != "second" || edges[1].Operator != "-.->" {
+		t.Fatalf("second chained edge corrupted: %+v", edges[1])
+	}
+}
+
+func TestParseEdges_FlowchartSemicolonDoesNotBridgeIndependentStatements(t *testing.T) {
+	edges := ParseEdges("flowchart TD\n  A --> B; C --> D")
+	if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" {
+		t.Fatalf("semicolon-separated statement was treated as one chain: %+v", edges)
+	}
+}
+
 func TestParseEdges_SequenceMessageColonStillParses(t *testing.T) {
 	body := "sequenceDiagram\n  participant A as service::handle\n  participant B as repo::count\n  A->>B: count(key: value)\n"
 	edges := ParseEdges(body)

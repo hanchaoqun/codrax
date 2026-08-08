@@ -25942,3 +25942,53 @@ Trace=`typed-runtime-scopes-isolated`；JSON=`unchanged`。
 `decision=explicit-typed-model-owned`；`nil=fail-loud`；`quote=true-arm-only/verbatim-validated`；
 `raw-request-keyword-gate=none`；`answer-prose-scan=none`；`system-answer-rewrite=none`；
 Trace/JSON/write=`full-suite-isolated`。
+
+### 123.322 r194：写计划答案正确但 analyzer 过度建模；Mermaid 合法链丢失前两跳权威
+
+在干净 `main@746891cd6` 上严格并发 2 跑 `patch_python_typo` 与 `qf_diagram_pipeline`，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. Python write plan 92s，最终计划仅包含 `main.py` 一行 `retrun -> return`，Python dry-build 与 acceptance test 合理，plan mode 没有修改源码；
+2. 但 analyzer 用了 3 次 emit：先把明确 change plan 误分为 read-style `return_value/root_cause/scalar`，又两次发出只适用于 source
+   field/member/config lookup 的 `field_value_profile`，分别因 quote 缺 target、target 不是 owner-qualified surface 被 typed validator 拒绝。analysis skill
+   已明确禁止把 edit/typo token 当 field value，模型仍犯错；结合 r192 Go write 的一次分类 correction，新立
+   `EVAL-B328-WRITEROUTEANALYZERSCOPE1=P1`。最优方案只允许消费既有 structured TurnPolicy/write route 来收窄 read-only optional profile 教学，不能扫描请求关键词，
+   不能改 read scheduler L1，也不能让系统代替模型分类；
+3. Mermaid read 130s，最终用户面正确列出 Analyze→Explore→Extract→Finalize 四阶段、职责和精确引用；节点 `\\n` 经窄 source repair 改为
+   `<br/>`，没有改变节点、边或结论；
+4. 首稿 body 使用合法 Mermaid 链 `A --> E --> X --> F`，并逐条发出三条 `precedence` anchor。旧 `ParseEdges` 遇到链式语法时递归覆盖前一跳，
+   只保留最后 `X -> F`，导致 validator 将 `A -> E`、`E -> X` 误报 `typed_anchor_without_visible_edge`。模型第二轮没有修正文，而是删除全部
+   edge anchors 后通过；可见图正确但结构化关系权威被迫降级，新立 `EVAL-B329-MERMAIDCHAINEDGEAST1=P1`；
+5. 同轮还亲验 `EVAL-B330-DIAGRAMBODYTEACHINGDRIFT1=P1`：静态 finalizer teaching 要求 `diagram.body` 带 fence、声称 subgraph 不受支持，
+   projected schema 却要求 raw body，renderer 也已有 subgraph flatten shim。该自相矛盾会增加 JSON/图表格式心智，不能以模型本轮偶然选对 schema 收账；
+6. 本批无 Trace 输入。新增长期审计不变量：显式时间窗 Trace 中只有 typed `on_chain` 席位有主因/根因排序资格；`adjacent/background` 即使数值更大或
+   时间更近，也只能是背景支撑和新增排查方向。该权限必须来自结构化链相关性，不得扫描用户原文、模型 thinking/summary/最终答案词面；系统仍不得替写模型结论。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B328=P1-filed`；`EVAL-B329+B330=P1-confirmed/next`；
+`mermaid-visible-answer=correct`；`typed-edge-authority=degraded`；`JSON=not-entered/teaching-drift-found`；
+`Trace=not-entered/chain-only-root-invariant-filed`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`。
+
+### 123.323 S37bg：Mermaid 链逐跳 AST 与 diagram.body 教学恢复单一真相
+
+`EVAL-B329-MERMAIDCHAINEDGEAST1` 与 `EVAL-B330-DIAGRAMBODYTEACHINGDRIFT1` 在共享 Mermaid syntax/skill 层合批：
+
+1. `mermaidcompat.ParseEdges` 对 flowchart 一行链式语法逐跳展开，`A --> E --> X --> F` 现在产出三条有序 edge；旧
+   `SplitEdgeLine` 的 single-edge API 保留给 normalizer 与 legacy caller，不用全仓语义变更换取本次修复；
+2. 新 parser 只读 Mermaid 结构。节点 shape/引号内的 C/C++ `holder->run`、label 内的箭头与分号保持受保护；每跳 pipe label/operator 独立保留；
+   unprotected semicolon 仍终止当前 statement，不能把两条独立语句桥接为一条链；
+3. AnswerDocument e2e pin 用三条 typed precedence evidence + 三条 anchors + 一行 chained body，钉住不再产生 metadata-only reject；原有
+   “节点图携带隐藏 anchor”反例继续 fail-closed，未放宽 typed relation/evidence 权限；
+4. answer-document skill 改为与 projected schema 同形：structured `diagram.body` 只放 raw Mermaid source、不带 fence，renderer 负责加 fence；
+   flowchart `subgraph ... end` 明确受支持，窄终端通过既有 flatten shim 渲染，持久化源码保留 grouping。只有把 Mermaid 直接嵌入 legacy
+   summary/section text 时才需要显式 fence；
+5. 新 teaching pin 同时要求 raw-body/subgraph 正形，并负钉旧的 `fence REQUIRED` / `subgraph NOT supported` 两句。没有新增第二套 JSON 字段、enum、
+   repair payload 或模型答案 normalizer；source repair 仍只修语法，不改图语义或正文结论；
+6. 聚焦 `internal/mermaidcompat`、`internal/skill`、`internal/tool` 全部通过；完整 `go test ./... -count=1` 全绿，包含
+   `hitraceconv`、`orchestrator`、`tracequery`、`tracediag`、`dataworkflow` 与 `writeflow`；
+7. 本批不改 Trace query、因果投影、自动补采、根因排序、唤醒链、窗内可消除量、read/write controller 或 JSON decode。链上主因权限与
+   adjacent/background 背景权限保持独立，不由图表 parser 推断。
+
+状态：`EVAL-B329+B330=S37bg-implemented/full-suite-pass/pending-production-replay`；
+`parser=structured-chain-decomposition`；`hidden-anchor=still-fail-closed`；
+`diagram-json-teaching=projected-schema-aligned`；`raw-prose-scan=none`；`system-answer-rewrite=none`；
+Trace/JSON/write=`codepath-unchanged/full-suite-isolated`；`EVAL-B328=P1-open`。
