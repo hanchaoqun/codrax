@@ -558,6 +558,75 @@ func TestQCECompoundInventoryPrincipalSiblingSurvivesStrictTypeRoster(t *testing
 	}
 }
 
+func TestQCECompoundInventoryImplicitPrincipalSiblingSurvivesStrictFunctionRoster(t *testing.T) {
+	mu := types.NewMutableState("列出两组不同结构角色的声明")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Label: "decorated type declarations",
+			Value: "1",
+			// Role is intentionally omitted. Enumeration requests normalize this
+			// complete grounded member_set to principal_answer.
+			Members:     []string{"PageRoot"},
+			SupportRefs: []string{"PageRoot: pages/Page.ets:5"},
+		},
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "source inventory principal rows",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Provenance:  types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			Members:     []string{"renderHeader"},
+			SupportRefs: []string{"renderHeader: pages/Page.ets:12"},
+		},
+	})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleFunction,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "renderHeader", Role: types.AnswerCandidateRoleFunction,
+				File: "pages/Page.ets", Line: 12, Language: "arkts",
+				SurfaceTerms:  []string{"builder function"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"decorated type declarations", "builder functions"},
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "pages/Page.ets", Line: 5, Quote: "struct PageRoot"}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "decorated-types",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "page-root", Label: "PageRoot", CitationRef: 0,
+			}},
+		}},
+	}
+	if !principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, doc.Blocks[0].Items[0]) {
+		t.Fatal("implicit request-normalized principal member_set must back its compound-inventory sibling")
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("strict function roster must not veto an accepted implicit-principal type bucket: %+v", hints)
+	}
+}
+
 // Review findings 7 + 11 — the single cross-package naming authority binds
 // decorated members to base-named refs, never binds generic/empty labels,
 // and same-base siblings do not cross-bind a base-named ref (full decorated

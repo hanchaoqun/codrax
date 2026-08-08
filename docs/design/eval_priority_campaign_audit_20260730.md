@@ -26342,3 +26342,46 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 状态：runner=`2/2 PASS`；human=`2/2 PASS`；data=`one-round/zero-repair/strict-output`；
 write=`single-line-patch/zero-contract-conflict`；`EVAL-B337=P2-observe/no-impact-witness`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
+
+### 123.340 r203：ArkTS 多 bucket 不同声明角色触发互斥 hard contract；Cangjie 行集正确
+
+在 `main@a0495271a` 上严格并发 2 跑 `arkts_repomap` 与 `cangjie_repomap`，runner 1 PASS / 1 FAIL，人工同判：
+
+1. ArkTS extractor/repo lens 实际完整产出 4 个 `@Entry` 类型（Index、ParentComponent、StyledPage、ListPage）和 2 个 `@Builder`
+   函数（defaultHeader、GlobalCard），六行均有 exact file:line；Explorer 的两个 complete `member_set` 与 finalizer 的 Principal Enumeration Rows 也完整；
+2. 失败发生在同一 finalizer 的两个 typed authority 自相矛盾：aggregate/display-set 合同要求六行全部进入主答案；全局
+   `source_inventory_profile.target_roles=[function]` 编译出的 strict roster 却把四个 type row 标成 `audit/non_principal_role`，连续两次硬拒并要求模型删除；
+3. 模型首稿已正确提交四条 `@Entry` 结构行与引用，但按 hard repair 删除后，最终只剩“@Entry 页面入口（4 个）”空标题和四条孤立 citation，runner 精确报
+   4 条 typed inventory row 缺失。该问题是确定性系统合同冲突，不是 extractor 漏解析、ArkTS 语法不足、JSON 畸形或模型波动；
+4. 冷读定位到 strict compound-inventory rescue 的双重角色判断：先用 `preEmitContentBearingMemberSetFact` 要求模型显式写
+   `role=principal_answer`，再用 `AnswerAggregateFactRoleForRequest` 做 request-aware principal 判定。生产模型合法省略 role，后者已规范化为 principal 并编译
+   Principal Enumeration Rows，前者却提前否决，形成“同一成员必带又必删”；新立 `EVAL-B340-COMPOUNDINVENTORYIMPLICITROLE1=P0`；
+5. Cangjie 最终 14 行清单正确：2 extend、2 个同名 `native_add` 分别绑定 Bridge.cj/demo.bridge 与 07_foreign_ffi.cj/demo.ffi、8 public class
+   逐行 package/file/line 完整；`EVAL-B332` 的同名声明文件轴保持；
+6. Cangjie 过程有一次 member/count 不一致的合理拒绝，以及一次 member/support-ref 形修复，最终 finalizer reject=0。记
+   `EVAL-B341-MEMBERSETCARRIERCHURN1=P2-observe`，先跨语言观察，不为 Cangjie/extend 或符号词形加提示/硬门；
+7. 本批无 Trace 输入，且失败/修复方向均不进入 Trace query、显式窗、投影、补采、根因排序或答案 mutation。
+
+状态：runner=`1/2 PASS`；human=`1/2 PASS`；`EVAL-B340=P0-confirmed/immediate`；
+`EVAL-B341=P2-observe`；ArkTS extractor=`complete`；Cangjie typed rows=`complete`；
+`contract-conflict=same-principal-rows-required+rejected`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`。
+
+### 123.341 S37bp：strict compound inventory 统一服从 request-aware principal role
+
+`EVAL-B340-COMPOUNDINVENTORYIMPLICITROLE1` 在 source-inventory 最终 pre-emit 单点根修：
+
+1. `principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember` 不再先要求 aggregate fact 的原始 `Role` 非空；它直接要求
+   `kind=member_set + members 非空 + AnswerAggregateFactRoleForRequest(...)=principal_answer`，与 Principal Enumeration Rows 编译器使用同一角色权威；
+2. 模型显式写 principal 与合法省略 role 的 complete enumeration set 因而同构；显式 supporting/audit、role-less 但 request-aware 降级为 supporting 的 set
+   仍不能扩张 strict roster。不是关闭或放松 extraneous-row hard gate；
+3. 该边界覆盖任何“一个请求多个 bucket、不同 bucket 落在 type/function/method/constant/field 等不同 parser role”的语言和构造组合，未读取
+   `@Entry`、ArkTS、Cangjie、装饰器、成员名、文件名、用户请求、model thinking/summary 或最终答案；
+4. 新回归构造 function strict roster + role 省略的 grounded type principal bucket，要求 helper 与完整 pre-emit 均接受；原有
+   explicit principal foreign-function sibling 正例、supporting member-set 不得救活泄漏行的负例继续同包运行；
+5. 聚焦回归通过，完整 `go test ./internal/tool -count=1` 169.521s 全绿。系统不生成成员、不改变计数/引用、不修改模型答案，只消除两个 typed
+   authority 对同一成员的相反命令；
+6. 本批不改 repomap extractor、语言识别、Mermaid/JSON/write/data 或 Trace 计算。下一步从干净 commit 严格并发 2 复放 ArkTS+Cangjie。
+
+状态：`EVAL-B340=S37bp-implemented/full-tool-suite-pass/pending-production-replay`；
+`role-authority=AnswerAggregateFactRoleForRequest-single-source`；`supporting-widening=still-denied`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write/data=`unchanged`。

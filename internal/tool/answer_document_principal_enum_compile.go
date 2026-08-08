@@ -425,7 +425,15 @@ func principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx *types
 	}
 	rm := &ctx.AnalysisIR.RequestModel
 	for _, fact := range preEmitStableAggregateFacts(ctx) {
-		if !preEmitContentBearingMemberSetFact(fact) ||
+		// This strict-lane rescue must use the same contextual role authority
+		// that compiled Principal Enumeration Rows. A model may legally omit
+		// fact.Role; AnswerAggregateFactRoleForRequest then classifies the
+		// complete member_set as principal for an enumeration request. Requiring
+		// an explicitly authored role first creates two conflicting contracts:
+		// the row compiler requires the member while the strict source-role
+		// roster rejects it. Explicit supporting/audit facts remain excluded by
+		// the request-aware principal check below.
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
 			types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer {
 			continue
 		}
