@@ -1448,6 +1448,8 @@ func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
 		"Architecture Role / Output Handoff",
 		"typed output artifact",
 		"evidence_kind=\"mechanism\"",
+		"A type or carrier field roster proves field membership only",
+		"source-stated exclusions or separately consumed fields",
 		"role/output facts enrich sections",
 	} {
 		if !strings.Contains(prompt, want) {

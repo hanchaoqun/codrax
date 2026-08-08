@@ -26846,3 +26846,33 @@ case/action 名补丁解决。
 `EVAL-B353=P1-confirmed/next-soft-context-batch`；
 `mermaid-renderability=pass/source-repair-syntax-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.361 S37cc：架构职责不是单一角色，字段 roster 不是全量 transfer
+
+`EVAL-B353-ARCHROLEFLOWAUTH1` 以三阶段共享的软上下文闭环，不增加答案 hard reject、normalizer 或 mutation：
+
+1. Analyzer 完整字段合同明确：多个 stage/component/actor/carrier 的逐成员 responsibility、handoff 或 data-flow 是 architecture/member-set，
+   不是“从一个 clue 选出另一个 single literal”的 role-locate。除非用户另行要求一个 principal winner，必须保持
+   `is_role_locate_lookup=false` 与 `answer_role_profile.is_role_binding_requested=false`；
+2. `answer_role_profile` 同源补齐 architecture/workflow roster 反例：component 的 responsibility/input/output/state-carrier/handoff 是该成员的属性，
+   不应铸成全题唯一 `required_candidate_roles=[agent]`。这只降低模型误分类概率，不由系统重写 schema-valid 的模型判断；
+3. Explorer 的既有 Architecture Role/Output Handoff 增加 data-flow 证据口径：关闭调查前要核对 producer、merge/transfer boundary 与 consumer；
+   type/carrier 字段清单只有 membership 权限，不能证明每个字段都跨过同一 merge path 或存进 destination；
+4. 源码明确指出不流转或由另一 consumer 单独消费的字段，必须作为独立 handoff boundary 保留。Explorer 应为实际准备绘制的 transfer 发
+   grounded relation/flow evidence，不能从两个字段 roster 的相似性自行铸边；
+5. Finalizer Diagram Contract 复用同一边界：field roster 只 ground node；transfer arrow 需要 producer+merge/transfer+consumer 证据。一个 merge function
+   不授权 whole-carrier universal arrow；缺关系证据时留在 prose/caveat，由模型决定图形，不由系统重画；
+6. 三层均为 prompt/typed-evidence guidance，不读取用户请求、model thinking/summary/最终答案做运行时门，不按 `FinalAnswer`、`BusContext`、Go 或该
+   eval case 特判，因而同样覆盖任意语言与任意 carrier/dataflow 架构；
+7. 回归钉住 Analyzer 的 single-winner 边界、Explorer 的 roster≠transfer/exclusion 教学与 Finalizer 的 transfer evidence 边界。聚焦
+   `go test ./internal/skill ./internal/agent -count=1` 与完整 `go test ./... -count=1` 均通过；
+8. 本批不改 AnswerDocument blocks/edge schema，不新增基于 Mermaid label 的硬门，不扫描边标签猜关系，也不替模型删除、替换或补写答案。现有 precise
+   typed relation hard gates 与 presentation-only 逃生臂不扩权；生产正确性由下一次同案+异构案恰好 2 跑人审；
+9. Trace 路径未改。显式窗、因果投影、系统补采、唤醒链、根因排序、实际占时/规则可消双轴不变；主因仍只能从 typed on-chain 席产生，邻近与背景只能
+   支撑额外排查方向。
+
+状态：`EVAL-B353=S37cc-implemented/full-suite-pass/pending-production-replay`；
+`classification=architecture-member-set-not-single-role`；
+`flow-authority=field-membership<producer+transfer+consumer`；
+`explicit-exclusion=preserved`；`hard-answer-gate=none`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

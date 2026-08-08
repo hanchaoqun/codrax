@@ -1016,6 +1016,8 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 		"`items[].candidate_role` is ONE scalar category for the principal item",
 		"ordinary member→attribute tables",
 		"Do not list all relation endpoints or displayed columns as required_candidate_roles",
+		"asking for several named stages, components, actors, or carriers plus each member's responsibility, handoff, or data flow is NOT a role-locate lookup",
+		"architecture/workflow rosters that ask for each component's responsibility, input/output, state carrier, or handoff",
 		"Do NOT emit `source_inventory_profile` merely because a call-chain / dispatch / trace / relation-flow answer will mention key functions or files",
 	} {
 		if !strings.Contains(rendered, want) {

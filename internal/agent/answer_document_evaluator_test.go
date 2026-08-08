@@ -4035,6 +4035,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"async `-)` / `--)`, and lost-message `-x` / `--x`",
 		"not decoration or an escape from edge evidence",
+		"a field roster grounds node membership only",
+		"One merge function does not prove that every source field is stored in the destination",
 		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",
 		"## Diagram Seeds",
 		"### Grounded Labeling",
