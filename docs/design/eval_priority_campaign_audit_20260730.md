@@ -27448,6 +27448,33 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
 
+### 123.399 r228：写模式闭环通过；Trace 候选权限与窗外帧预览仍被模型越权扩写
+
+在 `main@87a167d0f` 上严格并发恰好两个异构用例：显式窗 Donghu 多因 Trace + Go 单行 typo 写模式。runner 2/2 PASS，人工 1/2：
+
+1. `patch_go_typo` 完整通过。模型只计划 `main.go` 一行 patch，隔离 worktree 中经 `git apply` 落地，原 fixture 不变；medium auto-safe、patch review、
+   `go test -json ./...`、ChangeReport passed 与 finish/all_verified 全部有 typed 工件。无 replan、无 JSON 修复、无验证域清空；
+2. Trace 的系统数据面正确：5 次 `trace_query` 覆盖 5 个维度族；显式窗、PID/thread 目标、五态闭账、唤醒路径、链上根因榜、实际占用/规则可消双轴、因果投影均在；
+   根因榜首 CookieMonsterCl、#2 NetworkService、#3 ThreadPoolForeg 都是 typed on-chain，adjacent/background 只留参考，没有被 deterministic 投影加冕；
+3. 模型却把 `CookieMonsterCl priority_inversion_candidate` 写成“runnable 时持有主线程需要的锁，导致主线程在唤醒后仍等待释放”。typed handoff 明确给出
+   `candidate_mechanism_authority=lower_priority_dependency_only`、`holder_waiter_authority=not_provided`、`impact_phase=pre_wakeup_dependency`、
+   `post_wakeup_preemption_authority=not_provided`，因此这是确定的机理越权，不是证据缺失或模型措辞等价；
+4. 同一答案又用窗外 `Choreographer#onVsync 34579.595130` 解释所选窗的“实际渲染完成/共同推迟”。最终 typed boundary 已给出 `frame_evidence_status=absent`、
+   `frame_boundary_authority=not_provided`、`out_of_window_artifact_preview=navigation_only`，所以这也是明确越权；
+5. 新确认 `EVAL-B384-TRACECLAIMENVELOPE1=P0/HIGH`：Finalizer 同时看到候选席的 registry `fix_direction=lock_priority` 和“没有 holder/waiter 证据”，前者给弱模型一个过强机理词根，
+   后者虽准确但被忽略。最优修复不是扫描答案关键词，也不是系统代写，而是从同一 typed 席位生成短 claim envelope：已证仅为下游唤醒前的低优先级依赖供给与有效归因；锁 holder/waiter、
+   synchronous blocker、post-wakeup dispatch delay 均未证。candidate 席在模型输入面只发 validation direction，不再裸发 `lock_priority` 诱导词；
+6. 新确认 `EVAL-B385-TRACEFRAMEPREVIEWCLAIM1=P1/HIGH`：selected-window 规则本身正确，但最终边界信息过长且分散。与 B384 同批在最终 prompt 尾部合成一个 typed checklist，重放
+   `frame absent/unavailable -> 窗外 marker 仅导航`；同时明确主因人口只来自 typed on-chain、adjacent/background 仅作额外排查、实际占用与规则可消不可互代；
+7. 本批方案保持 prompt-only：不读取/扫描用户原始输入、thinking、summary、最终答案、case 名或关键词；不新增硬门、不自动改写/删除模型答案、不改变根因排序、数值、链路、自动补采、
+   Trace 因果投影或写模式。系统只压缩并提高已有精确信号的显著性，结论继续由模型给出。
+
+状态：runner=`2/2 PASS`；human=`1/2`；
+`EVAL-B384=P0-confirmed/next`；`EVAL-B385=P1-confirmed/co-batch`；
+`trace-root-population=typed-on-chain-correct`；`adjacent-background=correct-support-only`；
+`trace-mechanism-overclaim=confirmed`；`out-of-window-frame-overclaim=confirmed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
 ### 123.398 S37cy：participant role 正向教学、双身份重试指纹与架构权威源去陈腐
 
 按 r227 的优先级将 B383(P0) 与同根低风险 B382/B381 补强合批：
