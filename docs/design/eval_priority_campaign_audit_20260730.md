@@ -27860,3 +27860,34 @@ Trace=`triple-excluded/unchanged/on-chain-only`。
 `model-facing-candidate-direction=priority_or_dependency_supply`；
 `registry/rank/value/projection=unchanged`；`trace-root-population=typed-on-chain-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.401 r229：候选权限仅部分收敛；跨线程 frame 视图、字段身份与 deadline 权限暴露新 GAP
+
+在 `main@8d3ae3b62` 上严格并发恰好两个 Trace 用例：Donghu 显式窗多因回放 + frame=77 跨线程 timeline/flow。runner 2/2 PASS，人工 0/2：
+
+1. Donghu 案中 S37cz 的候选 envelope 有可见效果：答案不再宣称 CookieMonsterCl 是已证锁 holder，并逐字披露
+   `holder_waiter_authority=not_provided_by_candidate_seat`。但模型仍把主线程 84.358ms sleep 解释为等待下一帧 vsync/Binder 回复，把 CookieMonsterCl 称为
+   “等待 vsync 的直接依赖项”，并断言其 Runnable 延迟帧渲染；这些机理均没有 typed 席位权限；
+2. 同案又用窗外 `Choreographer#onVsync 34579.595130` 和窗前 RenderThread marker 解释所选窗的帧起点、同步和完成。最终 handoff 已给出
+   `frame_evidence_status=absent`、frame boundary/completion/deadline not provided 与窗外仅导航，因此 B385 生产回放仍失败；
+3. 该失败不是 deterministic 主因人口错位。根因榜首/#2/#3 仍来自 typed on-chain，adjacent/background 没有被投影加冕；实际占用与规则可消双轴也在。模型越权发生在
+   正确席位之上的机理扩写。Finalizer Trace 上下文约 62K tokens，重复区块较多；继续增加关键词提示或答案原文硬门只会加重心智；
+4. frame=77 案的 11 次 `trace_query` 显示，`frame_timeline`/`frame_flow` 先选中 app-20 后只返回 UI 两段；后续 `event_search`/`span_window` 也持续被同一目标收窄，
+   RSUniRenderThre-2096 与 gpu-300 无法进入完整 typed frame 视图。模型最终依赖 raw trace 行 7–10 才拼出四段；
+5. 新确认 `EVAL-B386-TRACECROSSTHREADSCOPE1=P0/HIGH`。跨线程视图必须把 target 作为 anchor selector，而不是成员过滤器：
+   `frame_timeline|frame_flow` 的成员普查覆盖同一显式选择窗内所有线程；root-cause bundle、thread states 等目标视图继续保持精确 PID/TID 收窄。该修复不扩大链上主因人口；
+6. 新确认 `EVAL-B387-TRACESPANFIELDIDENTITY1=P1/HIGH`。最终答案把 `app-20` 写成 CPU 20、把 `gpu-300` 写成 CPU 300，而原始行 CPU 分别为 1、2。
+   模型输入需要逐字段携带 `comm/pid/tid/cpu`，禁止从展示名后缀推断；完整 frame timeline 可以包含 GPU 背景 lane，但无 typed causal edge 时仍不得加冕；
+7. 新确认 `EVAL-B388-TRACEDEADLINECALIBER1=P1/HIGH`。答案在 `frame_flow_causality=unproven`、`frame_boundary_authority=not_provided` 下，仍以固定 60Hz/16.67ms
+   判为 `janky frame (1/1)`。deadline/refresh-rate 只能消费 typed trace authority；缺失时只报告 40ms 观测跨度和各段时长；
+8. 新确认 `EVAL-B389-TRACEFINALCONTEXTCOMPLIANCE1=P1/HIGH`。精确 final synthesis scope 已在场但未被可靠遵守；根修应按 typed carrier 对 Trace prompt 语义去重、
+   收窄到决策必需信息，并保留单源边界。不得扫描用户原始输入、thinking、summary/final prose，不做关键词硬门，不由系统替写或删除模型答案；
+9. 本轮无成文拒绝、无 malformed JSON、无答案修复。runner oracle 未覆盖字段身份、跨线程完整性和 deadline authority，2/2 均为假阳性。
+
+状态：runner=`2/2 PASS(false-positive)`；human=`0/2`；
+`EVAL-B384=partial/claim-wording-improved/mechanism-overclaim-open`；
+`EVAL-B385=partial/out-of-window-overclaim-open`；
+`EVAL-B386=P0-confirmed/next`；`EVAL-B387=P1-confirmed/co-batch`；
+`EVAL-B388=P1-confirmed`；`EVAL-B389=P1-confirmed/design-before-code`；
+`trace-root-population=typed-on-chain-correct`；`adjacent-background=support-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
