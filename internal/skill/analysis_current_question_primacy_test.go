@@ -195,6 +195,8 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 func TestAnalysisSkill_CompletenessIncludesWholeMechanismPaths(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	for _, want := range []string{
+		"REQUIRED typed decision",
+		"{required:false, source_quote:\"\"}",
 		"whole requested mechanism path",
 		"complete path",
 		"full path",
@@ -202,10 +204,26 @@ func TestAnalysisSkill_CompletenessIncludesWholeMechanismPaths(t *testing.T) {
 		"完整调用路径",
 		"load-bearing steps, guards, and branches",
 		"not automatically a request for an exhaustive inventory",
+		"never omit the decision object",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("analysis completeness teaching missing %q", want)
 		}
+	}
+}
+
+func TestAnalysisSkill_CompletenessIsNotListedAsOptional(t *testing.T) {
+	out := analysisSkillPrompt(t)
+	start := strings.Index(out, "Optional fields:")
+	if start < 0 {
+		t.Fatal("analysis prompt missing Optional fields section")
+	}
+	end := strings.Index(out[start:], "Search planning")
+	if end < 0 {
+		t.Fatal("analysis prompt Optional fields section has no terminator")
+	}
+	if optional := out[start : start+end]; strings.Contains(optional, "completeness_obligation") {
+		t.Fatalf("required completeness decision is still advertised as optional: %q", optional)
 	}
 }
 

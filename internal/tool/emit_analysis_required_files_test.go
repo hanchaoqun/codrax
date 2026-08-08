@@ -109,6 +109,7 @@ func TestEmitAnalysisExecute_RepairsRequiredFilesStringEntries(t *testing.T) {
 			"requested_scope": "not_applicable",
 			"confidence": 0.7
 		},
+		"completeness_obligation": {"required": false, "source_quote": ""},
 		"required_files": ["eval/fixtures/runtime_path_panic.log"],
 		"external_observation_policy": {
 			"artifact_citation_mode": "external_only",
@@ -650,6 +651,7 @@ func TestEmitAnalysisExecute_ProjectsRuntimeArtifactPathFromRequest(t *testing.T
 			"requested_scope": "unspecified",
 			"confidence": 0.8
 		},
+		"completeness_obligation": {"required": false, "source_quote": ""},
 		"external_observation_policy": {
 			"artifact_citation_mode": "external_only",
 			"confidence": 0.95,

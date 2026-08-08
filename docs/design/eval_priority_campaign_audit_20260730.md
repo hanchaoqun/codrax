@@ -25917,3 +25917,28 @@ Trace=`typed-runtime-scopes-isolated`；JSON=`unchanged`。
 状态：`EVAL-B326=S37be-implemented/full-suite-pass`；
 `identity=syntax+exact-grounded-snippet`；`compact-relation=strict/preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace/JSON/write=`unchanged`。
+
+### 123.321 S37bf：completeness 从 optional 提升为一次显式 typed 决策
+
+`EVAL-B325-COMPLETENESSSIGNALOPTIONAL1` 在 analyzer 单源 schema/skill/execute 三面闭环：
+
+1. `completeness_obligation` 不再列于 optional 字段；每次 `emit_analysis` 必须显式发一个对象。普通问题统一发
+   `{required:false, source_quote:""}`，只有用户确实要求全量/完整机制路径时才发 `required:true` 与当前问题中的 verbatim quote；
+2. JSON tool schema 的 root `required[]`、字段 description、analysis skill 的 required-field 清单和 Completeness axis 共用同一语义形。
+   这减少了“模型理解完整路径、却忘记 optional carrier”的心智分叉，也没有另造第二套 completeness enum/JSON 教学；
+3. `EmitAnalysis.Execute` 同构检查对象 presence。漏字段 fail-loud 并要求补发 false/true 臂，不把 nil 偷偷解释成 false；否则 r193 的遗漏仍会
+   无声关闭 explorer/finalizer 的 typed coverage lane。true 臂继续由既有 exact source-quote validator 验证，false 臂归一为 nil runtime obligation；
+4. 该硬门只读一个 schema-validated typed 字段是否存在，不扫描用户问题中的“完整/全部”关键词，不扫描 model thinking、summary、答案或 JSON 文本内容来
+   决定 true/false。完整性判断仍由 analyzer 模型作出；系统不补成员、不写答案、不替模型下结论；
+5. fixture helper 与 10 个直接 execute 回归均显式补 false 臂，保留各自原本要测试的 causal breadth、history/current-source、required-files repair、
+   缺失 sibling profile、local-model scalar repair 与 runtime source-exclusion 合同；required-field schema pin 同步更新，未用兼容默认掩盖旧调用；
+6. 新回归钉住 schema 必填、skill 不得再把 completeness 列为 optional、false 教学字节形、缺失对象在一个完全普通且没有 completeness 词的请求上仍按
+   typed presence 拒绝。`go test ./internal/skill -count=1`、完整 `go test ./internal/tool -count=1` 与
+   `go test ./... -count=1` 全绿；
+7. Trace 的 runtime artifact/question scopes 与 `CompletenessObligationIsMechanismCoverageOnly` 隔离逻辑未改。全仓 tracequery/tracediag 通过，显式时间窗
+   因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双维性能根因不受影响；dataworkflow/JSON-only 与 writeflow 也全绿。
+
+状态：`EVAL-B325=S37bf-implemented/full-suite-pass/pending-production-replay`；
+`decision=explicit-typed-model-owned`；`nil=fail-loud`；`quote=true-arm-only/verbatim-validated`；
+`raw-request-keyword-gate=none`；`answer-prose-scan=none`；`system-answer-rewrite=none`；
+Trace/JSON/write=`full-suite-isolated`。

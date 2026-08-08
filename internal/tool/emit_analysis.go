@@ -870,7 +870,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"completeness_obligation": map[string]any{
 				"type":        "object",
-				"description": "Optional. Use when the user explicitly demands an EXHAUSTIVE answer — phrases that signal universal coverage of the answer set or whole requested mechanism path (e.g. quantifiers like 'all'/'every'/'all the' in any language, or explicit completeness markers like 'complete list'/'exhaustive'/'full inventory'/'complete path'/'full path'/'完整路径'/'完整调用路径'). Decision rule: if the question would NOT be considered fully answered while one valid member or one load-bearing path step/guard/branch is still missing, set required=true and copy the verbatim trigger phrase into source_quote. A full mechanism/call path is coverage over that path, not automatically an inventory of every nearby declaration or callee. Distinct from enumeration_boundary which carries a count. Leave omitted when the user is satisfied with a representative subset, a top-N, or any partial answer.",
+				"description": "Required typed decision. Always emit this object. Set required=false and source_quote=\"\" when the user does not demand exhaustive coverage. Set required=true only when the user explicitly demands an EXHAUSTIVE answer — phrases that signal universal coverage of the answer set or whole requested mechanism path (e.g. quantifiers like 'all'/'every'/'all the' in any language, or explicit completeness markers like 'complete list'/'exhaustive'/'full inventory'/'complete path'/'full path'/'完整路径'/'完整调用路径') — and copy the verbatim trigger phrase into source_quote. Decision rule: if the question would NOT be considered fully answered while one valid member or one load-bearing path step/guard/branch is still missing, use the true arm. A full mechanism/call path is coverage over that path, not automatically an inventory of every nearby declaration or callee. Distinct from enumeration_boundary which carries a count.",
 				"properties": map[string]any{
 					"required":     map[string]any{"type": "boolean"},
 					"source_quote": map[string]any{"type": "string", "description": "Verbatim phrase from the current request that signals the completeness demand."},
@@ -914,7 +914,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "call_chain_endpoints",
+			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "completeness_obligation", "call_chain_endpoints",
 		},
 	}
 
@@ -1254,6 +1254,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	var p emitAnalysisParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
 		return *decodeFailure, err
+	}
+	// The completeness decision is deliberately presence-required. A nil
+	// profile is not equivalent to false: r193 showed that a model can
+	// understand a complete-path request while simply omitting the optional
+	// carrier, which silently disables every downstream typed coverage lane.
+	// This is a single structured-field presence check; it never scans the
+	// request, model prose, thinking, or answer for completeness keywords.
+	if p.CompletenessObligation == nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: completeness_obligation is required; emit required=false with source_quote=\"\" when exhaustive coverage is not requested, or required=true with a verbatim current-request source_quote when it is",
+			Timestamp: time.Now(),
+		}, nil
 	}
 	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 

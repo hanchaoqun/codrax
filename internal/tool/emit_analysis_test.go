@@ -60,6 +60,10 @@ const v4DefaultsJSON = `,
 		"mode": "not_applicable",
 		"item_kind": "not_applicable",
 		"confidence": 0.7
+	},
+	"completeness_obligation": {
+		"required": false,
+		"source_quote": ""
 	}
 `
 
@@ -130,6 +134,9 @@ func withRequiredAnswerRoleProfile(payload string) string {
 		} else {
 			obj["history_selection_profile"] = json.RawMessage(`{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.7}`)
 		}
+	}
+	if _, ok := obj["completeness_obligation"]; !ok {
+		obj["completeness_obligation"] = json.RawMessage(`{"required":false,"source_quote":""}`)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -508,7 +515,8 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		"runtime_artifact_scope_profile":{"requested_scope":"full_artifact","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
 		"runtime_target_profile":{"declaration":"no_named_target","confidence":0.95},
 		"runtime_question_profile":{"scope":"causal_diagnosis","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
-		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.95}
+		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.95},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	ctx := &types.BusContext{Mutable: types.NewMutableState(raw)}
 	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
@@ -661,6 +669,61 @@ func TestEmitAnalysisRuntimeQuestionSchemaPinsFactFamilyConditional(t *testing.T
 	elseRequired := elseNot["required"].([]any)
 	if !reflect.DeepEqual(elseRequired, []any{"fact_families"}) {
 		t.Fatalf("non-bounded scopes must forbid fact_families: %#v", elseRequired)
+	}
+}
+
+func TestEmitAnalysisSchemaRequiresExplicitCompletenessDecision(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &root); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	required, _ := root["required"].([]any)
+	if !slices.Contains(required, any("completeness_obligation")) {
+		t.Fatalf("root required fields omit completeness_obligation: %#v", required)
+	}
+	properties := root["properties"].(map[string]any)
+	profile := properties["completeness_obligation"].(map[string]any)
+	description, _ := profile["description"].(string)
+	for _, want := range []string{
+		"Required typed decision",
+		"required=false",
+		"source_quote=\"\"",
+		"whole requested mechanism path",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("completeness schema description missing %q: %q", want, description)
+		}
+	}
+}
+
+func TestEmitAnalysisRejectsMissingCompletenessDecisionWithoutScanningRequest(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := map[string]json.RawMessage{}
+	if err := json.Unmarshal([]byte(withV4Required(`{
+		"intent":"explain",
+		"scenario":"generic",
+		"complexity":"simple",
+		"keywords":["status"],
+		"entities":["service"],
+		"question_kind":"mechanism"
+	}`)), &payload); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	delete(payload, "completeness_obligation")
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	mut := types.NewMutableState("ordinary status question with no completeness words")
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mut}, raw)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "completeness_obligation is required") {
+		t.Fatalf("missing typed decision must fail by field presence, got success=%t summary=%q", res.Success, res.Summary)
 	}
 }
 
@@ -1870,7 +1933,8 @@ func TestEmitAnalysis_RouteBackedHistoryExplanationPreservesMixedLane(t *testing
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable","confidence":0.9},
 		"runtime_target_profile":{"declaration":"not_applicable","confidence":0.9},
 		"runtime_question_profile":{"scope":"not_applicable","confidence":0.9},
-		"history_selection_profile":{"mode":"latest_one","item_kind":"merge","source_quote":"latest integration","confidence":0.9}
+		"history_selection_profile":{"mode":"latest_one","item_kind":"merge","source_quote":"latest integration","confidence":0.9},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(ctx, payload)
 	if err != nil || !res.Success {
@@ -3728,7 +3792,8 @@ func TestEmitAnalysis_Execute_ErrorGranularitySuppressesContextualEnumerationBou
 		"enumeration_boundary": {
 			"declared_count": 1,
 			"source_quote": "exactly one item is missing the anchor_kind field"
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 
 	res, mu := runEmitAnalysisPayload(t, objective, payload)
@@ -4061,7 +4126,8 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"historical_regression": false,
 			"current_version_check": false,
 			"confidence": 0.7
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
@@ -4154,7 +4220,8 @@ func TestEmitAnalysis_Execute_RejectsMissingAnswerRoleProfile(t *testing.T) {
 			"historical_regression": false,
 			"current_version_check": false,
 			"confidence": 0.7
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -4201,7 +4268,8 @@ func TestEmitAnalysis_Execute_RejectsMissingErrorGranularityProfile(t *testing.T
 		"answer_role_profile": {
 			"is_role_binding_requested": false,
 			"confidence": 0.7
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -4312,7 +4380,8 @@ func TestEmitAnalysis_Execute_SchemaNormalizesLocalModelScalarArtifacts(t *testi
 		"enumeration_boundary": {
 			"declared_count": "0",
 			"source_quote": ""
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -5993,7 +6062,8 @@ func TestEmitAnalysis_RedundantToolNameTypeFieldPreservesExternalObservationPoli
 			"exclusion_kind": "explicit_user_exclusion",
 			"current_source_exclusion_quote": "只分析这份 trace，不分析代码",
 			"confidence": 0.95
-		}
+		},
+		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -6569,7 +6639,8 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 				"artifact_citation_mode": "external_only",
 				"current_source_exclusion_quote": "只分析这份 trace，不分析代码",
 				"confidence": 0.95
-			}
+			},
+			"completeness_obligation":{"required":false,"source_quote":""}
 		}`
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu,

@@ -80,6 +80,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"runtime_target_profile":         true,
 		"runtime_question_profile":       true,
 		"history_selection_profile":      true,
+		"completeness_obligation":        true,
 		"call_chain_endpoints":           true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
