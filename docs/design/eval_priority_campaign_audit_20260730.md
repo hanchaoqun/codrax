@@ -27348,3 +27348,29 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 状态：`EVAL-B374=S37co-implemented/eval-runner-contracts-pass`；
 `oracle=mermaid-fence-local-structural-edge-count`；`production-hard-gate=unchanged`；
 `raw-prose-scan=eval-fence-only/not-production`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.382 r221：零边 false PASS 关闭；宽泛 support plan 再次污染有序流权威
+
+在 `main@10ce12e28` 上严格并发恰好两个同案回放。runner 与人工均 0/2，失败原因已从隐性内容退化变成显式 `mermaid_edges:0<1`：
+
+1. B374 获得生产闭环。两个答案最终 Mermaid 都只有节点、没有结构边，新 eval oracle 稳定拒绝；它没有进入生产 validator，也没有迫使系统补边或替模型写答案；
+2. `qf_diagram_pipeline` 从 r220 的 483 秒/6 reject 降至 129 秒/2 reject。四阶段名称与职责基本准确，但 Explorer 只把 `AllMainStages` 签名行铸成 definition，未把
+   返回 slice 的相邻值读入 grounding line map；pre-emit precedence 恢复无法证明 Analyze→Explore→Extract→Finalize，validator 正确拒绝，模型最终删成零边；
+3. 立 `EVAL-B375-FLOWCARRIERSCOPE1=P1/HIGH`：当前 flow completion 只检查“本轮存在任意 operation carrier”。stage→agent assignment 已满足存在性，不能证明用户所问的
+   ordered carrier 已经读取。修复必须依赖 typed operation provenance、精确 source action 与 relation role，不能用实体得分、case/文件名或用户/模型原文做硬门；
+4. `qf_logic_view_read_pipeline` 从 665 秒/9 reject 降至 403 秒/4 reject。R220 的三条 short↔qualified call 错拒未重现，B372 的实现与套件有效；但本轮模型没有重发完全相同的
+   三边图，因此生产闭环仍保守记 partial；
+5. logic 案只拥有一条模型发出的 operation：`runAnalyzePhase -> AnalysisIR` assignment。authority 却再次发出 21 条无关 `typed_flow_path`，包括 agent write-policy helper；
+   原因是当前存在宽泛 AnswerSupportPlan，S37cn 的 no-plan fallback 没有执行。自动 dataflow 关系进入 support plan 后反向扩大 principal authority；
+6. 因此 B373/B368 仍是 partial。根修形是：principal ordered authority 无论 support plan 是否存在，都必须与本轮 `explorer.emit_evidence` 发出的 citable current-source
+   operation scope 取交集；自动关系与其它 support entries 保留为 enrichment/background，但不能单独加冕路径；
+7. logic 正文仍把若干局部证据扩成完整组件流，且图为零边，人工失败。validator 对无证 assignment/observe/precedence 的四次拒绝均正确；不能为减少重试放松关系权限；
+8. 两案没有 malformed JSON。diagram 首稿的 `blocks` JSON-string 由既有容错解析恢复，没有丢答案。没有 request/thinking/summary/final prose 硬门，也没有系统替写模型结论；
+9. 两案无 Trace 查询。B373/B375 继续显式排除 `QFRootCauseTrace`。Trace 显式窗、系统补采、因果投影、链上根因、唤醒链、根因排序、窗内可消除量与双维耗时结论不变；
+   邻近/背景信息只能作为额外排查方向，不能进入主因席。
+
+状态：runner=`0/2 FAIL(honest-zero-edge-oracle)`；human=`0/2`；
+`EVAL-B374=production-closed`；`EVAL-B372=implementation-closed/production-partial`；
+`EVAL-B373=partial/support-plan-bypass-confirmed`；`EVAL-B368=partial`；
+`EVAL-B375=P1-confirmed/audit-before-code`；`finalizer-reject=2+4`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
