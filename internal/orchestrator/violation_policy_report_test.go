@@ -41,13 +41,22 @@ func TestViolationPolicyCoverageReportPinsExplicitHardRows(t *testing.T) {
 			hard = append(hard, row)
 		}
 	}
-	if len(hard) != 2 ||
-		hard[0].Kind != types.ViolDiagramCallEdgeUnproven ||
-		hard[1].Kind != types.ViolCallChainEndpointOmitted {
-		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed call-chain hard rows; got %+v", hard)
+	if len(hard) != 3 ||
+		hard[0].Kind != types.ViolRequiredDiagramEdgeAbsent ||
+		hard[1].Kind != types.ViolDiagramCallEdgeUnproven ||
+		hard[2].Kind != types.ViolCallChainEndpointOmitted {
+		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed diagram hard rows; got %+v", hard)
 	}
 	for _, row := range hard {
-		if row.DefaultSeverity != types.SeverityHigh || !row.DefaultRetryEligible || row.FallbackTarget != FallbackFinalizerOnly {
+		if row.DefaultSeverity != types.SeverityHigh || !row.DefaultRetryEligible {
+			t.Fatalf("typed diagram hard row policy drifted: %+v", row)
+		}
+	}
+	if hard[0].FallbackTarget != FallbackBackToExplore || hard[0].FixableByAgents[0] != types.AgentExplorer {
+		t.Fatalf("required-zero-edge row must collect evidence upstream: %+v", hard[0])
+	}
+	for _, row := range hard[1:] {
+		if row.FallbackTarget != FallbackFinalizerOnly {
 			t.Fatalf("typed call-chain hard row policy drifted: %+v", row)
 		}
 	}

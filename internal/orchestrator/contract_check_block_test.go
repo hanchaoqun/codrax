@@ -335,6 +335,113 @@ func TestDiagramEdgeSupport_NoDiagramPlanSkipped(t *testing.T) {
 	}
 }
 
+func TestDiagramEdgeSupport_RequiredRelationDiagramWithoutEdgesBacktracksToExplore(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind: types.DiagramRelPrecedence,
+				Min:  1,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "flow",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramFlow,
+			Language: "mermaid",
+			Body:     "flowchart LR\n  A[\"Analyze\"]\n  B[\"Explore\"]",
+		},
+	}}}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolRequiredDiagramEdgeAbsent {
+		t.Fatalf("required relation diagram with nodes only must fire the typed zero-edge violation: %+v", vs)
+	}
+	if got := vs[0].RepairLocusOverride; got != types.LocusExplore {
+		t.Fatalf("repair locus=%q, want explore", got)
+	}
+	if got := FallbackTargetForViolation(vs[0]); got != FallbackBackToExplore {
+		t.Fatalf("fallback=%q, want back_to_explore", got)
+	}
+	if profile := types.ViolationProfileFor(vs[0].Kind, false); !profile.RetryEligible {
+		t.Fatalf("precise required-zero-edge violation must be retry eligible: %+v", profile)
+	}
+}
+
+func TestDiagramEdgeSupport_OptionalOrRelationFreeDiagramDoesNotDemandAnEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "architecture",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramArchitecture,
+			Language: "mermaid",
+			Body:     "flowchart LR\n  A[\"Component A\"]\n  B[\"Component B\"]",
+		},
+	}}}
+	cases := []*types.AnswerSemanticView{
+		{
+			Family: types.QFGeneric,
+			DiagramPlan: &types.DiagramFacetGraph{
+				Required: false,
+				Kind:     types.DiagramArchitecture,
+				EdgeRelations: []types.DiagramEdgeRelationContract{{
+					Kind: types.DiagramRelContain,
+					Min:  1,
+				}},
+			},
+		},
+		{
+			Family: types.QFGeneric,
+			DiagramPlan: &types.DiagramFacetGraph{
+				Required: true,
+				Kind:     types.DiagramArchitecture,
+				EdgeRelations: []types.DiagramEdgeRelationContract{{
+					Kind: types.DiagramRelContain,
+					Min:  0,
+				}},
+			},
+		},
+	}
+	for _, view := range cases {
+		for _, v := range validateDiagramEdgeSupport(doc, view) {
+			if v.Kind == types.ViolRequiredDiagramEdgeAbsent {
+				t.Fatalf("optional/relation-free diagram must not trigger zero-edge backtrack: %+v", v)
+			}
+		}
+	}
+}
+
+func TestDiagramEdgeSupport_RuntimeTraceExcludedFromSourceFlowBacktrack(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFRootCauseTrace,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind: types.DiagramRelPrecedence,
+				Min:  1,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "trace",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramFlow,
+			Language: "mermaid",
+			Body:     "flowchart LR\n  W[\"Trace window\"]",
+		},
+	}}}
+	for _, v := range validateDiagramEdgeSupport(doc, view) {
+		if v.Kind == types.ViolRequiredDiagramEdgeAbsent {
+			t.Fatalf("runtime Trace projection must stay outside source-flow zero-edge backtracking: %+v", v)
+		}
+	}
+}
+
 // ── R4.3 deepening: per-edge endpoint grounding ─────────────
 
 func diagramFlowView() *types.AnswerSemanticView {

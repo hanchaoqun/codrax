@@ -819,6 +819,13 @@ func init() {
 		},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolRequiredDiagramEdgeAbsent, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseCoverage,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		SchemaDescriptionFragment: "A required non-runtime diagram whose typed edge-relation contract has a positive minimum MUST contain at least one structural Mermaid edge backed by citable directed relation evidence; nodes alone do not satisfy that contract, and an unproven edge must not be invented.",
+		FixableByAgents:           []AgentName{AgentExplorer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramCallEdgeUnproven, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,

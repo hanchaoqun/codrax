@@ -316,6 +316,26 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 		return nil
 	}
 	edges := parseMermaidEdges(body)
+	if plan.Required &&
+		view.Family != types.QFRootCauseTrace &&
+		diagramPlanRequiresStructuralEdge(plan) &&
+		len(edges) == 0 {
+		return []types.Violation{{
+			Kind: types.ViolRequiredDiagramEdgeAbsent,
+			Detail: fmt.Sprintf(
+				"required diagram block id=%q has zero structural Mermaid edges while its typed relation contract requires at least one",
+				diagramBlock.ID),
+			Repair:     types.FlowOperationEvidenceEmissionGuide,
+			ClusterKey: blockClusterKey(diagramBlock.ID, "required_diagram_edges"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "required relation diagram has no structural edge",
+				Confidence: 1,
+			},
+			Stage:               string(types.StageFinalize),
+			RepairLocusOverride: types.LocusExplore,
+		}}
+	}
 	if len(edges) == 0 {
 		return nil
 	}
@@ -360,6 +380,18 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	// endpoints. Plus each DiagramFacetGraph.EdgeRelations contract
 	// with Min>0 must be met by at least Min labelled edges.
 	return validateDiagramRelationLegality(doc, view, diagramBlock, edges)
+}
+
+func diagramPlanRequiresStructuralEdge(plan *types.DiagramFacetGraph) bool {
+	if plan == nil {
+		return false
+	}
+	for _, relation := range plan.EdgeRelations {
+		if relation.Min > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramKindRequiresGroundedEndpoints(kind types.DiagramKind) bool {

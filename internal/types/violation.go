@@ -418,6 +418,16 @@ const (
 	// edge represents". Stage="finalize". SOFT-by-default.
 	ViolDiagramEdgeUnsupported ViolationKind = "diagram_edge_unsupported"
 
+	// ViolRequiredDiagramEdgeAbsent fires when a non-runtime-trace answer has
+	// a REQUIRED diagram contract whose typed EdgeRelations contain a positive
+	// minimum, but the emitted Mermaid body contains zero structural edges.
+	// A nodes-only flow/sequence/call-DAG cannot satisfy a relation contract.
+	// This validator reads only typed diagram contracts, the typed question
+	// family, and parsed Mermaid structure; it never scans user or model prose.
+	// Recovery belongs to Explore because a model must not invent a relation
+	// merely to satisfy presentation shape. Stage="finalize". HARD-by-default.
+	ViolRequiredDiagramEdgeAbsent ViolationKind = "required_diagram_edge_absent"
+
 	// ViolDiagramCallEdgeUnproven fires whenever a non-runtime-trace answer
 	// declares a structured relation_kind=call edge without a citable typed
 	// call-site EvidenceItem with the exact same Subject -> Object direction.
@@ -1121,6 +1131,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolBlockCoverageMissing,
 		ViolPrincipalClaimUseMissing,
 		ViolDiagramEdgeUnsupported,
+		ViolRequiredDiagramEdgeAbsent,
 		ViolDiagramCallEdgeUnproven,
 		ViolCallChainEndpointOmitted,
 		ViolDiagramEdgeLabelMismatch,

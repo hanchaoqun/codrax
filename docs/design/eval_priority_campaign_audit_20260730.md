@@ -27395,3 +27395,25 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `principal-ordered-path=explorer-authored-operation-scope`；
 `automatic-relations=background-and-edge-recipes-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.384 S37cq：必需关系图零边改为 typed 上游补证，不再终态放行
+
+关闭 R221 “生产合同允许 nodes-only flow 出厂”的结构漏臂，同时避免让 Finalizer 为满足形状虚构关系：
+
+1. 新增 `required_diagram_edge_absent`。仅当 `DiagramPlan.Required=true`、typed `EdgeRelations[].Min>0`，且 Mermaid 结构解析结果为 0 条边时触发；
+   判断不读取用户原话、模型 thinking/summary/final prose、edge label 词义、实体相似度、语言、case 或文件名关键词；
+2. 触发条件由“图 kind 白名单”进一步泛化为“typed 关系最小数为正”。因此它覆盖所有当前及未来真正要求关系边的 flow/sequence/call-DAG 合同，
+   但不误伤 optional 图、`Min=0` 的纯组件/容器图或只有节点也具备解释价值的关系自由图；
+3. 该 violation 为精确信号、默认 HARD，repair locus 固定为 Explore。系统要求补读 producer/transfer/consumer 或其它实际 relation site，随后仍由模型决定图和结论；
+   系统不自动画边、不把自动 dataflow 当模型选中的主路径、不删除或替写模型正文。若源码不能证明关系，必须保留 unproven boundary，不能为过门造边；
+4. 现有 `diagram_edge_unsupported` 继续负责“已有边但 endpoint/relation 不受支持”的 finalizer-local 软披露；新 kind 只负责“必需关系图根本没有结构边”，
+   两者不再用一个软合同混淆不同修复归属；
+5. pin 覆盖 required+Min>0+zero-edge → `BackToExplore`、optional 不触发、required+Min=0 不触发，以及 violation policy / registry / producer 完整性；
+6. `QFRootCauseTrace` 明确排除。Trace 显式窗、系统自动补采、因果投影、根因排序、唤醒链、窗内可消除量与真实占时/规则可消双维结论保持原合同；
+   Trace 主因仍只允许 typed on-chain 席，邻近区域和背景信息只能进入额外排查方向，不能加冕主因；
+7. 本批不增加 JSON 字段或互斥形状。教学只复用 violation registry 的单一 schema fragment 与既有 `FlowOperationEvidenceEmissionGuide`，降低模型心智和合同漂移风险。
+
+状态：`EVAL-B375=S37cq-feedback-loop-implemented/full-suite-pass/pending-production-replay`；
+`required-relation-diagram-zero-edge=typed-hard/back-to-explore`；
+`optional-or-relation-free-diagram=unchanged`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

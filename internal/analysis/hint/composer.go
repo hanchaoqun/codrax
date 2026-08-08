@@ -418,6 +418,12 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// match the family contract's required diagram kind, OR an
 		// edge in the diagram has no supporting evidence.
 		return "Set `diagram.kind` to the SEMANTIC family the contract expects (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body`. If the family contract is too strict for this answer, drop the diagram block instead of fabricating edges."
+	case types.ViolRequiredDiagramEdgeAbsent:
+		// The typed diagram contract requires a relation, but the answer has
+		// only nodes. Recovery belongs upstream: reuse the same operation-level
+		// teaching source as Explorer completion instead of inventing a second
+		// JSON vocabulary or asking Finalizer to fabricate an arrow.
+		return types.FlowOperationEvidenceEmissionGuide
 	case types.ViolDiagramCallEdgeUnproven:
 		return "For every structured `relation_kind=call` edge, preserve the exact direction of a grounded call-site EvidenceItem `Subject -> Object`. If an arrow is only observation, containment, or ordering, use that non-call relation instead. Remove pseudo-sequential edges between sibling operations and do not use a function definition to prove call direction."
 	case types.ViolCallChainEndpointOmitted:

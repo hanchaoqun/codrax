@@ -405,6 +405,11 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		types.ViolPathDepthInsufficient:  "Tier 2 call-chain depth completeness; fires alone when distinct function mentions fall short of entry+exit+mid",
 		types.ViolCardinalityShort:       "Tier 2 declared-count cardinality completeness; fires alone when answer items < EnumerationBoundary.DeclaredCount",
 		types.ViolEntityParityImbalanced: "Tier 2 comparison sampling-parity completeness; fires alone on lopsided per-bucket evidence",
+		// A required relationship-bearing diagram with no structural edge is a
+		// complete, typed failure on its own. It deliberately backtracks to
+		// Explore for relation evidence rather than coalescing with finalizer-local
+		// endpoint/label symptoms or asking the model to invent an edge.
+		types.ViolRequiredDiagramEdgeAbsent: "required non-runtime relation diagram has zero parsed structural edges; standalone typed explore backtrack",
 	}
 
 	for _, kind := range types.AllViolationKinds() {

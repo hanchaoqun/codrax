@@ -211,6 +211,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	// V2 carrier kinds (B2 1:1 mapping rollout).
 	types.ViolPrincipalClaimUseMissing:        true,
 	types.ViolDiagramEdgeUnsupported:          true,
+	types.ViolRequiredDiagramEdgeAbsent:       true,
 	types.ViolDiagramCallEdgeUnproven:         true,
 	types.ViolCallChainEndpointOmitted:        true,
 	types.ViolUncertaintyBlockMissing:         true,
@@ -430,6 +431,12 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 			kind:           types.ViolDiagramEdgeUnsupported,
 			mustContain:    []string{"diagram.kind", "SEMANTIC family", "diagram.body"},
 			mustNotContain: []string{"shape=value", "shape=explanation"},
+		},
+		{
+			name:           "required_diagram_edge_absent",
+			kind:           types.ViolRequiredDiagramEdgeAbsent,
+			mustContain:    []string{"producer", "transfer or merge boundary", "consumer", "instead of inventing"},
+			mustNotContain: []string{"shape=", "case", "language"},
 		},
 		{
 			name:           "uncertainty_block_missing",
