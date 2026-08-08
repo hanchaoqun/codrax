@@ -27212,3 +27212,24 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `EVAL-B366=P1-confirmed/high-ROI-next`；`EVAL-B368=P1-confirmed/high-ROI-next`；
 `EVAL-B371=P1-confirmed/separate-batch`；`finalizer-reject=6+5`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.376 S37ck：flow 存在性与当前问题 ordered authority 分权
+
+先关闭 B368 的“全仓 somewhere 有 flow 即当前问题已有有序路径”确权臂，不放松关系校验器：
+
+1. `ordered_path_authority=typed_flow_paths_present` 不再直接消费全部 `FlowFindings`。新投影同时读取 analyzer 的 typed `SourceScopeProfile` 与最终 `AnswerSupportPlan`；
+   测试、fixture、示例等辅助路径在 production scope 下只能留作探索背景，不能获得当前机制主路径权威；
+2. 一条 flow 若要进入 principal ordered authority，必须满足：没有 `UnsupportedReason`、路径至少两个节点、路径中可识别源码角色均在请求 scope 内，并且
+   要么精确 replay support-lane `EvidenceID`，要么有序路径首尾两端都绑定到结构化 support surface。只命中一个常见文件/符号不再足以把整条路径加冕；
+3. optional enrichment 仍保留原来的宽松单点关联，用于背景解释；新 predicate 只服务 stronger ordered-authority claim，避免为消除噪声而删除可能有用的辅助线索；
+4. 没有编译出的 support lane 时保持既有行为，避免把本批变成新的完成硬门。下一批再独立处理 Explorer 对 operation-level producer/transfer/consumer 载体的探索充分性；
+5. `suppressUnstructuredClosureReasonForTypedMechanism` 与最终 authority 使用同一 context-scoped flow predicate，防止一处显示 `unproven`、另一处仍因无关 flow 压掉模型探索结论；
+6. 红转绿 pin 覆盖 production scope 排除 test helper、单文件宽重叠拒绝、双端结构绑定正臂、EvidenceID replay 正臂，以及原有无 support-plan 兼容臂；
+7. 本批不读取用户原话、模型 thinking/summary/final prose 或 Mermaid label，不改模型答案、不补边、不删边，也不改变 JSON schema。Trace family 没有进入该 source-mechanism authority；
+   显式窗、系统补采、因果投影、根因排序、唤醒链、窗内可消除量和双维耗时结论不变。Trace 主因仍只允许 typed on-chain 席，邻近/背景只作额外排查方向。
+
+状态：`EVAL-B368=S37ck-authority-half-implemented/tests-pass`；
+`flow-existence!=principal-ordered-authority`；`source-scope=typed-only`；
+`support-link=evidence-id-or-both-endpoints`；`background-enrichment=preserved`；
+`EVAL-B366=open/next-operation-carrier-batch`；`EVAL-B369=open`；`EVAL-B371=open`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

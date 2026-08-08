@@ -99,7 +99,7 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 			},
 		},
 		FlowFindings: []types.FlowFindingDigest{
-			{ID: "supported", Path: []string{"readEvent", "parseTraceMark", "classifySpan"}},
+			{ID: "supported", Path: []string{"readEvent", "parseTraceMark", "classifySpan"}, EvidenceIDs: []string{"edge"}},
 			{ID: "unsupported", Path: []string{"A", "B"}, UnsupportedReason: "missing edge"},
 		},
 	}
@@ -125,6 +125,65 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 	}
 	if strings.Contains(got, "`A -> B`") {
 		t.Fatalf("unsupported flow finding must not receive path authority:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthorityDoesNotCrownAuxiliaryFlowForProductionScopeAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis:      types.AxisFlow,
+			AnalyzerHints:      types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "pipeline-definition", Kind: types.EvidenceDirect,
+			Source: "internal/orchestrator/topology.go", LineStart: 24,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "pipelineTopology",
+			Subject: "pipelineTopology", GroundingStatus: types.GroundingGrounded,
+		}},
+		FlowFindings: []types.FlowFindingDigest{{
+			ID: "unrelated-test-helper",
+			Path: []string{
+				"internal/agent/extractor_test.go:TestBuildPrompt",
+				"internal/agent/write_analyzer.go:writeAnalyzerEvaluator.BuildInitialInstruction",
+			},
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "ordered_path_authority=`unproven`") {
+		t.Fatalf("auxiliary flow must not authorize a production mechanism path:\n%s", got)
+	}
+	if strings.Contains(got, "typed_flow_path[") || strings.Contains(got, "TestBuildPrompt") {
+		t.Fatalf("auxiliary flow leaked into principal mechanism authority:\n%s", got)
+	}
+}
+
+func TestOrderedFlowAuthorityRequiresBothSupportedEndpointsOrEvidenceIDAA3(t *testing.T) {
+	scope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{
+				{EvidenceID: "producer-edge", Source: "src/producer.go", LineStart: 10, Subject: "Produce", AnchorSymbol: "Produce"},
+				{EvidenceID: "consumer-edge", Source: "src/consumer.go", LineStart: 20, Subject: "Consume", AnchorSymbol: "Consume"},
+			},
+		}},
+	}, true, extractorValueRankDiagnostic)
+	findings := []types.FlowFindingDigest{
+		{ID: "one-loose-file-hit", Path: []string{"src/producer.go:Produce", "UnrelatedHelper"}},
+		{ID: "both-endpoints", Path: []string{"src/producer.go:Produce", "src/consumer.go:Consume"}},
+		{ID: "evidence-replay", Path: []string{"OpaqueA", "OpaqueB"}, EvidenceIDs: []string{"producer-edge"}},
+	}
+
+	got := answerDocSupportedMechanismFlowPathsForScope(findings, scope, types.RequestModel{})
+	if len(got) != 2 {
+		t.Fatalf("ordered authority should keep exact endpoint/evidence linkage only, got %+v", got)
+	}
+	if strings.Join(got[0], " -> ") != "src/producer.go:Produce -> src/consumer.go:Consume" {
+		t.Fatalf("loose single-file overlap received ordered authority: %+v", got)
+	}
+	if strings.Join(got[1], " -> ") != "OpaqueA -> OpaqueB" {
+		t.Fatalf("support EvidenceID replay was lost: %+v", got)
 	}
 }
 

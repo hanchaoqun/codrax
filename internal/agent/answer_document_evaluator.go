@@ -4781,7 +4781,7 @@ func suppressUnstructuredClosureReasonForTypedMechanism(ctx *types.AgentContext)
 			return true
 		}
 	}
-	return len(answerDocSupportedMechanismFlowPaths(ctx.FlowFindings)) > 0
+	return len(answerDocSupportedMechanismFlowPathsForContext(ctx)) > 0
 }
 
 func renderAnswerDocUnifiedIntentContract(ctx *types.AgentContext) string {
@@ -6903,7 +6903,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if acceptedFacts == 0 {
 		return ""
 	}
-	typedPaths := answerDocSupportedMechanismFlowPaths(ctx.FlowFindings)
+	typedPaths := answerDocSupportedMechanismFlowPathsForContext(ctx)
 	status := "unproven"
 	switch {
 	case len(typedPaths) > 0:
@@ -7496,9 +7496,48 @@ func answerDocGroundedCurrentSourceMechanismFact(item types.EvidenceItem) bool {
 }
 
 func answerDocSupportedMechanismFlowPaths(findings []types.FlowFindingDigest) [][]string {
+	return answerDocSupportedMechanismFlowPathsForScope(findings, nil, types.RequestModel{})
+}
+
+// answerDocSupportedMechanismFlowPathsForContext distinguishes a dataflow
+// engine result that exists somewhere in the repository from an ordered path
+// that is relevant to the current principal support surface.  The former is
+// useful exploration background; only the latter may set
+// ordered_path_authority=typed_flow_paths_present.
+//
+// The filter consumes typed request scope and structured support lanes only.
+// It never scans the user's request or model-authored prose.  When no support
+// lane constrains the answer, no endpoint-link requirement is invented; the
+// typed/default production source-scope boundary still applies.
+func answerDocSupportedMechanismFlowPathsForContext(ctx *types.AgentContext) [][]string {
+	if ctx == nil {
+		return nil
+	}
+	rm := types.RequestModel{}
+	if ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
+	return answerDocSupportedMechanismFlowPathsForScope(
+		ctx.FlowFindings,
+		supportLaneScopeForContext(ctx, true),
+		rm,
+	)
+}
+
+func answerDocSupportedMechanismFlowPathsForScope(
+	findings []types.FlowFindingDigest,
+	supportScope *supportLaneScope,
+	rm types.RequestModel,
+) [][]string {
 	out := make([][]string, 0)
 	for _, finding := range findings {
 		if strings.TrimSpace(finding.UnsupportedReason) != "" {
+			continue
+		}
+		if !answerDocFlowFindingWithinRequestedSourceScope(finding, rm) {
+			continue
+		}
+		if supportScope != nil && !supportScope.allowsOrderedFlowFinding(finding) {
 			continue
 		}
 		path := finding.Path
@@ -7519,6 +7558,35 @@ func answerDocSupportedMechanismFlowPaths(findings []types.FlowFindingDigest) []
 		}
 	}
 	return out
+}
+
+// answerDocFlowFindingWithinRequestedSourceScope rejects only nodes that carry
+// a deterministic repository path classified outside the analyzer's typed
+// source scope. Symbol-only nodes remain eligible; absence of a file surface is
+// not converted into proof or rejection.
+func answerDocFlowFindingWithinRequestedSourceScope(finding types.FlowFindingDigest, rm types.RequestModel) bool {
+	scope := types.SourceScopeProduction
+	if rm.SourceScopeProfile != nil {
+		if rm.SourceScopeProfile.RequestedScope != "" {
+			scope = rm.SourceScopeProfile.RequestedScope
+		}
+		if rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal {
+			scope = types.SourceScopeAll
+		}
+	}
+	for _, group := range [][]string{finding.Path, finding.Hops, finding.Sources, finding.Sinks} {
+		for _, raw := range group {
+			file := supportLaneScopeFileKey(raw)
+			if file == "" || !strings.Contains(file, "/") {
+				continue
+			}
+			role := types.ClassifySourcePathRole(file)
+			if role != types.SourcePathRoleUnknown && !types.SourceScopeAllowsPathRole(scope, role) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []answerDocRelationSurfaceRow, relationRefs []types.AnswerAggregateFactRef) bool {
@@ -8741,6 +8809,37 @@ func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {
 		}
 	}
 	return false
+}
+
+// allowsOrderedFlowFinding is deliberately stricter than allowsFlowFinding.
+// One matching file or symbol is sufficient to retain a row as optional
+// exploration context, but it cannot authorize a principal ordered path.  For
+// that stronger claim the finding must either replay a support-lane EvidenceID
+// or bind both ordered endpoints to the structured principal support surface.
+func (s *supportLaneScope) allowsOrderedFlowFinding(ff types.FlowFindingDigest) bool {
+	if s == nil || !s.constrain {
+		return true
+	}
+	for _, id := range ff.EvidenceIDs {
+		if s.hasEvidenceID(id) {
+			return true
+		}
+	}
+	path := ff.Path
+	if len(path) < 2 {
+		path = ff.Hops
+	}
+	if len(path) < 2 {
+		return false
+	}
+	return s.matchesOrderedFlowEndpoint(path[0]) && s.matchesOrderedFlowEndpoint(path[len(path)-1])
+}
+
+func (s *supportLaneScope) matchesOrderedFlowEndpoint(raw string) bool {
+	if s == nil {
+		return false
+	}
+	return s.hasAnchor(raw) || s.hasFile(raw)
 }
 
 func (s *supportLaneScope) hasLocation(source string, line int) bool {
