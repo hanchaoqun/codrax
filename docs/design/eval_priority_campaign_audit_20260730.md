@@ -27141,3 +27141,47 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `relation-repair=typed-mismatch-union/surgical/no-answer-mutation`；
 `EVAL-B366=open`；`EVAL-B368=open/audit-before-code`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.373 r218：外科修复生产闭环；line_range 绕过语义 grounder
+
+在 `main@6fed0074b` 上严格并发恰好两个同案回放。runner 2/2 PASS；人工 1/2：
+
+1. `qf_diagram_pipeline` 的首次失败只列出 `AllMainStages -> StageAnalyze`。模型按 S37ci 新提示只删除该失败边，保留
+   `StageAnalyze -> StageExplore -> StageExtract -> StageFinalize` 三条已通过 precedence 边，最终核心图与代码一致；
+2. 因此 `EVAL-B365`、`EVAL-B367` 获得生产闭环。仍有 3 次成文拒绝：一次 patch 漏必填 `kind`，后续重写短暂复活无权边，属于 JSON 教学/修复心智成本观察项，不能用答案关键词硬门补；
+3. 该案在完整且已接受的核心答案后又附一份几乎逐字重复的“系统保留内容 / 第一稿答案（校验前参考）”。立
+   `EVAL-B369-REVIEWDRAFTDUP1=P1`：先审计 typed review carrier 的发布条件；禁止通过 prose 相似度硬删，也禁止系统重写模型结论；
+4. `qf_logic_view_read_pipeline` 虽按新合同显式发 `predicate_axis=flow`，最终仍是无箭头节点图，正文继续把
+   `EvidenceItems` 误归给 `WriteAnalysisIR`、把 no-tool draft recovery helper 误称 Finalize 核心路径，人工失败；
+5. 深因不是 relation gate 过严：Explorer 只读了 stage binding/context 与 enums 前 80 行，未跟随 `AllMainStages()` 到 117-124 行返回值；handoff 被 recovery/test/helper 流污染，仍缺请求所需 operation-level producer/transfer/consumer owner，B366/B368 保持开放；
+6. 更严重的是 Explorer 发出 `scope=line_range + anchor_kind=precedence + source=enums.go:33-36`，而 33-36 只是四个 const 声明。
+   `GroundItemScoped` 的 range 车道只检查 range 存在，完全绕开 line 车道的 AnchorKind 语义验证；于是同一模型只需把 `scope=line` 改成
+   `line_range`，即可从任意块伪造 call/callback/precedence/guard/return/assignment/import/literal 权威。立
+   `EVAL-B370-LINERANGERELATIONBYPASS1=P0/REDLINE`；B364 的 line-scope 修复仍正确，但 range-scope 臂重新打开；
+7. 两案均未调用 Trace。后续修复只消费 typed Scope/AnchorKind/source range，不扫描 request、thinking、summary、final prose 或 Mermaid label；
+   不进入 Trace 编译/投影。显式窗、自动补采、唤醒链、根因排序和两类耗时结论不变；主因只来自 typed on-chain 席，邻近/背景只能作额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`1/2`；
+`EVAL-B365=production-closed`；`EVAL-B367=production-closed`；
+`EVAL-B369=P1-confirmed/audit-before-code`；
+`EVAL-B370=P0-confirmed/redline/next`；
+`EVAL-B366=open`；`EVAL-B368=open`；`finalizer-reject=3+8`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.374 S37cj：line_range 只提供边界，关系语义统一复用 AnchorKind grounder
+
+关闭 B370，保持 ordinary block evidence 的既有范围语义：
+
+1. `scope=line_range` 不再因“文件/范围存在”直接给有方向语义的 AnchorKind 加权威。call、callback、condition、return、assignment、initializer、import、precedence、string literal
+   统一进入既有 `GroundItem` 精确语义 grounder；触发只读 typed `AnchorKind`，与语言、case、文件名及模型文本无关；
+2. precedence 保留完整原 range 交给 ordered-value grounder，必须在最多 64 行内同时证明两端点顺序与共同 returned/bound value carrier；const/enum/type 声明组继续拒绝；
+3. 其余 line-local anchor 仅在原 source、原 range 内逐行验证。nearest recovery 只有最终锚仍落在原边界内才可接受，禁止跨文件或逃出 range 偷换证据；
+4. 语义 range 限 256 行，防止“整文件范围里总能找到某个同名符号”的宽授权和无界扫描。成功只赋语义 grounding status/tier/snippet，保留模型原 citation range；
+5. `EvidenceDirect + AnchorDefinition + scope=line_range` 等普通多行定义块继续走 `TierLineRange`，本批不把所有 block 证据错误收紧成单行；
+6. 红转绿 pin 覆盖：const 声明不能铸 precedence、不存在的 call 不能铸 call、returned ordered value 正臂、range 内真实 call 正臂且 citation 边界不被改写、ordinary definition block 行为不变；
+7. 本批不改变 final answer、不自动造边/删边，不扫描用户或模型原文；也不改 analyzer、flow rank 或 Trace family。B366/B368/B369 后续分批处理。
+
+状态：`EVAL-B370=S37cj-implemented/full-suite-pass/pending-production-replay`；
+`semantic-line-range=typed-anchor-grounder/source-and-range-confined`；
+`ordinary-line-range=unchanged`；`all-languages=shared-anchor-contract`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

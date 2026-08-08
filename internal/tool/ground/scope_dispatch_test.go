@@ -62,6 +62,104 @@ func TestGroundItemScoped_DispatchesByScope(t *testing.T) {
 	}
 }
 
+func TestGroundScopeLineRange_DirectedRelationCannotBypassAnchorGrounder(t *testing.T) {
+	newContext := func(source string, lines map[int]string) *Context {
+		return &Context{LineIndex: map[string]map[int]string{source: lines}}
+	}
+
+	t.Run("const declaration range cannot mint precedence", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Scope: types.ScopeLineRange,
+			Source: "pipeline.go", LineStart: 33, LineEnd: 36,
+			AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+			Subject: "StageAnalyze", Object: "StageFinalize",
+		}
+		rep := GroundItemScoped(it, newContext("pipeline.go", map[int]string{
+			33: `StageAnalyze PipelineStage = "analyze"`,
+			34: `StageExplore PipelineStage = "explore"`,
+			35: `StageExtract PipelineStage = "extract"`,
+			36: `StageFinalize PipelineStage = "finalize"`,
+		}))
+		if rep.Status != types.GroundingUngrounded {
+			t.Fatalf("declaration range bypassed precedence shape validation: item=%+v report=%+v", it, rep)
+		}
+	})
+
+	t.Run("returned ordered value range keeps precedence", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Scope: types.ScopeLineRange,
+			Source: "pipeline.go", LineStart: 10, LineEnd: 15,
+			AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+			Subject: "StageAnalyze", Object: "StageFinalize",
+		}
+		rep := GroundItemScoped(it, newContext("pipeline.go", map[int]string{
+			10: "func stages() []Stage {",
+			11: "    return []Stage{",
+			12: "        StageAnalyze,",
+			13: "        StageExplore,",
+			14: "        StageFinalize,",
+			15: "    }",
+		}))
+		if rep.Status != types.GroundingGrounded {
+			t.Fatalf("explicit ordered value range should remain grounded: item=%+v report=%+v", it, rep)
+		}
+	})
+
+	t.Run("line range cannot mint absent call", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Scope: types.ScopeLineRange,
+			Source: "owner.go", LineStart: 20, LineEnd: 22,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "Target",
+			Subject: "owner", Predicate: "calls", Object: "Target",
+		}
+		rep := GroundItemScoped(it, newContext("owner.go", map[int]string{
+			20: "func owner() {",
+			21: "    Other()",
+			22: "}",
+		}))
+		if rep.Status != types.GroundingUngrounded {
+			t.Fatalf("line range existence must not authorize a missing call: item=%+v report=%+v", it, rep)
+		}
+	})
+
+	t.Run("call inside cited range keeps semantic grounding", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Kind: types.EvidenceRelationship, Scope: types.ScopeLineRange,
+			Source: "owner.go", LineStart: 20, LineEnd: 23,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "Target",
+			Subject: "owner", Predicate: "calls", Object: "Target",
+		}
+		rep := GroundItemScoped(it, newContext("owner.go", map[int]string{
+			20: "func owner() {",
+			21: "    prepare()",
+			22: "    Target()",
+			23: "}",
+		}))
+		if rep.Status != types.GroundingGrounded || rep.AdjustedLine != 22 {
+			t.Fatalf("call inside cited range should remain grounded at its actual anchor: item=%+v report=%+v", it, rep)
+		}
+		if it.LineStart != 20 || it.LineEnd != 23 || it.Scope != types.ScopeLineRange {
+			t.Fatalf("semantic validation must preserve the model's citation boundary: item=%+v", it)
+		}
+	})
+
+	t.Run("non-relation block range keeps structural grounding", func(t *testing.T) {
+		it := &types.EvidenceItem{
+			Kind: types.EvidenceDirect, Scope: types.ScopeLineRange,
+			Source: "owner.go", LineStart: 20, LineEnd: 22,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "owner",
+		}
+		rep := GroundItemScoped(it, newContext("owner.go", map[int]string{
+			20: "func owner() {",
+			21: "    Other()",
+			22: "}",
+		}))
+		if rep.Status != types.GroundingGrounded || rep.Tier != types.TierLineRange {
+			t.Fatalf("ordinary block range should retain structural grounding: item=%+v report=%+v", it, rep)
+		}
+	})
+}
+
 // TestGroundScopeFile_RoleConsistency pins the path-shape consistency
 // rule: FileRoleConfigCanonical requires LooksLikeConfigFilePath;
 // FileRoleManifest requires a known manifest filename.

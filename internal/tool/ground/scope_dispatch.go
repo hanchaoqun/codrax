@@ -133,6 +133,19 @@ func groundScopeLineRange(it *types.EvidenceItem, gc *Context) Report {
 			return rep
 		}
 	}
+	// A range proves only that a source block exists. It must not turn a
+	// directed semantic claim (call, precedence, assignment, etc.) into a
+	// grounded relationship merely because that block exists. Reuse the
+	// line anchor grounder for those claims, keeping the original citation
+	// range only after an actual anchor inside that range has been found.
+	//
+	// This deliberately keys off the typed AnchorKind rather than Kind,
+	// Subject/Object prose, or a language-specific spelling. The same rule
+	// therefore applies to every supported language and every relationship
+	// family that uses these precise anchors.
+	if lineRangeRequiresSemanticAnchor(it.AnchorKind) {
+		return groundSemanticAnchorInLineRange(it, gc)
+	}
 	// LineRange grounded — Tier-1 is "any line in the range present in
 	// the read_file gutter index"; absent that, the range is still
 	// considered grounded structurally because the file existed.
@@ -143,6 +156,102 @@ func groundScopeLineRange(it *types.EvidenceItem, gc *Context) Report {
 	rep.Tier = it.GroundingTier
 	rep.Note = it.GroundingNote
 	return rep
+}
+
+const maxSemanticAnchorLineRangeLines = 256
+
+func lineRangeRequiresSemanticAnchor(kind types.AnchorKind) bool {
+	switch kind {
+	case types.AnchorCall,
+		types.AnchorCallback,
+		types.AnchorCondition,
+		types.AnchorReturn,
+		types.AnchorAssignment,
+		types.AnchorInitializer,
+		types.AnchorImport,
+		types.AnchorPrecedence,
+		types.AnchorStringLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
+func groundSemanticAnchorInLineRange(it *types.EvidenceItem, gc *Context) Report {
+	originalStart, originalEnd, originalSource := it.LineStart, it.LineEnd, it.Source
+	if gc == nil || originalEnd-originalStart+1 > maxSemanticAnchorLineRangeLines {
+		return rejectSemanticAnchorLineRange(it, originalStart,
+			fmt.Sprintf("scope=line_range semantic anchor requires a read, bounded range of at most %d lines", maxSemanticAnchorLineRangeLines))
+	}
+
+	// Precedence is inherently a range-shaped assertion. Its existing
+	// grounder validates both endpoint order and the shared returned/bound
+	// value carrier across the complete range; shrinking it to one line
+	// would destroy the evidence being checked.
+	if it.AnchorKind == types.AnchorPrecedence {
+		candidate := *it
+		candidate.Scope = types.ScopeLine
+		GroundItem(&candidate, gc)
+		if semanticRangeCandidateAccepted(&candidate, originalSource, originalStart, originalEnd) {
+			return acceptSemanticAnchorLineRange(it, &candidate, originalStart, originalEnd)
+		}
+		return rejectSemanticAnchorLineRange(it, originalStart,
+			"scope=line_range precedence requires both endpoints in source order inside one explicit returned/bound value carrier")
+	}
+
+	// All other semantic anchors are line-local. Probe only cited lines and
+	// accept recovery only when the resolved anchor remains in the original
+	// source and range. This prevents nearest-symbol recovery from silently
+	// escaping the evidence boundary.
+	for line := originalStart; line <= originalEnd; line++ {
+		candidate := *it
+		candidate.Scope = types.ScopeLine
+		candidate.LineStart = line
+		candidate.LineEnd = 0
+		GroundItem(&candidate, gc)
+		if semanticRangeCandidateAccepted(&candidate, originalSource, originalStart, originalEnd) {
+			return acceptSemanticAnchorLineRange(it, &candidate, originalStart, originalEnd)
+		}
+	}
+	return rejectSemanticAnchorLineRange(it, originalStart,
+		fmt.Sprintf("scope=line_range contains no grounded %s anchor inside the cited range", it.AnchorKind))
+}
+
+func semanticRangeCandidateAccepted(candidate *types.EvidenceItem, source string, start, end int) bool {
+	if candidate == nil || candidate.Source != source || candidate.LineStart < start || candidate.LineStart > end {
+		return false
+	}
+	return candidate.GroundingStatus == types.GroundingGrounded || candidate.GroundingStatus == types.GroundingRecovered
+}
+
+func acceptSemanticAnchorLineRange(it, candidate *types.EvidenceItem, start, end int) Report {
+	it.GroundingStatus = candidate.GroundingStatus
+	it.GroundingTier = candidate.GroundingTier
+	it.GroundingNote = fmt.Sprintf("scope=line_range semantic %s anchor verified at %s:%d within %d-%d",
+		it.AnchorKind, it.Source, candidate.LineStart, start, end)
+	it.Snippet = candidate.Snippet
+	it.AnchorSymbol = candidate.AnchorSymbol
+	return Report{
+		ItemID:       it.ID,
+		Status:       it.GroundingStatus,
+		Tier:         it.GroundingTier,
+		OriginalLine: start,
+		AdjustedLine: candidate.LineStart,
+		Note:         it.GroundingNote,
+	}
+}
+
+func rejectSemanticAnchorLineRange(it *types.EvidenceItem, originalLine int, note string) Report {
+	it.GroundingStatus = types.GroundingUngrounded
+	it.GroundingTier = ""
+	it.GroundingNote = note
+	return Report{
+		ItemID:       it.ID,
+		Status:       it.GroundingStatus,
+		OriginalLine: originalLine,
+		AdjustedLine: originalLine,
+		Note:         note,
+	}
 }
 
 // groundScopeSection validates a named schema section anchor. Stage 4
