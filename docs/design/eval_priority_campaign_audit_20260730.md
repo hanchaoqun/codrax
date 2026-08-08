@@ -26095,3 +26095,29 @@ Trace 因果投影/自动补齐/双维分析=`unchanged`；`EVAL-B333=P2-open`�
 `guidance=typed-caliber-soft`；`shared-resource-upgrade=exact-identity-or-edge`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace 计算/投影=`unchanged`；JSON/read/write=`unchanged`。
+
+### 123.329 r197：链外资源推断软约束生产闭环；JSON 严格正常路径保持零修复
+
+在指纹 `main@7f7e7eff4` 上严格并发 2 跑 `trace_query_wakeup_background_demotion` 与 `data_json_strict_ids`，runner 与人工均 2/2 PASS：
+
+1. Trace 最终只把已证唤醒链 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 上的 threadpool-400 IO wait 11ms
+   列为主因；logger-900 的 19.5ms/7.175ms 背景量仍完整可见，但 Chain total 与 Attribution 均为 `—`；
+2. 模型明确 logger 无 wakeup dependency、不改变链上判断，未再从时间共现、同属 IO 或 pressure score 推断共享设备/缓存/锁竞争，也未把
+   19.5ms 与 11ms 自行相加。`EVAL-B334=S37bj-production-positive/closed`，B331 显示权限继续稳定；
+3. Trace 的两个性能根因维度同时保留：目标 app-100 的 20ms 睡眠/链式占用解释实际丢时，11ms IO wait 与后续 runnable 段承载现有规则可折算/可消除方向。
+   邻近与背景只进入额外排查方向，不能因数值更大或时间更近获得主因资格；
+4. Explorer 首轮并发 4 个模型请求视图，系统在 explore→extract 边界自动补采 1 个 `critical_blocking_calls` 视图。补采只发布 typed 证据，未替换、删除或
+   重写模型结论；显式时间窗、因果投影、自动补齐、根因排序、唤醒链与窗内可消除量均保持；
+5. 唯一 exploration completion reject 的根因是模型把一个 `aggregate_fact` 的 `unit=confidence` 错拆成独立 JSON object。精确 schema 一次性指出该项
+   `kind` 与 `label` 缺失，下一轮修正后完成。这不是互斥合同；finalizer `answer_contract_check` 全 section 0 violation、reject=0、repair=0，
+   “成文校验未通过”次数为 0；
+6. JSON 用例 34s 一轮完成：`instructions.md` 为 `planner_distilled`，`users.json` 为 `script_consumed`，最终严格输出
+   `{"ids":["u1","u3"]}`，`repair_rounds=0`、warnings=0。它是 JSON 单源教学正常路径的生产正证，但不含畸形 JSON，不能据此关闭 malformed repair/degrade；
+7. B333 仍为 P2：模型把内核等待点解释为页缓存等待大体有据，但具体设备、文件系统或 cache-miss 只能作为调查方向，当前 trace 未证具体底层资源。
+   不为此扫描答案词面或增设 hard gate。
+
+状态：runner=`2/2 PASS`；human=`2/2 PASS`；
+`EVAL-B334=production-positive/closed`；`EVAL-B331=closed/stable`；`EVAL-B333=P2-open`；
+`completion-reject=malformed-typed-payload/one-repair/not-contract-conflict`；`finalizer-reject=0`；
+JSON=`strict-normal-path-production-positive/malformed-not-covered`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；模型答案所有权=`preserved`。
