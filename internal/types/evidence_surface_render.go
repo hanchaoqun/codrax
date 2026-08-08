@@ -79,6 +79,10 @@ func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string 
 		if snippet != "" {
 			return prependEvidenceKind(includeKind, item, snippet)
 		}
+	case AnchorPrecedence:
+		if subject := strings.TrimSpace(item.Subject); subject != "" && strings.TrimSpace(item.Object) != "" {
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s precedes %s", subject, strings.TrimSpace(item.Object)))
+		}
 	case AnchorStringLiteral:
 		if snippet != "" {
 			return prependEvidenceKind(includeKind, item, snippet)
@@ -257,6 +261,10 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s imports %s", subject, object))))
 		case name != "":
 			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("import anchor for %s", name))))
+		}
+	case AnchorPrecedence:
+		if subject != "" && object != "" {
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s precedes %s", subject, object))))
 		}
 	case AnchorStringLiteral:
 		if name != "" {

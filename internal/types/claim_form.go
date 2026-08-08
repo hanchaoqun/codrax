@@ -274,6 +274,7 @@ func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
 //     AnchorAssignment → ClaimAssignmentFact
 //     AnchorInitializer → ClaimAssignmentFact
 //     AnchorImport        → ClaimImportEdge
+//     AnchorPrecedence    → ClaimPrecedenceRole
 //     AnchorStringLiteral → ClaimLiteralValueFact
 //     AnchorTextReference → ClaimTextReferenceFact
 //     AnchorDefinition    → ClaimDefinitionFact
@@ -328,6 +329,8 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 		return ClaimAssignmentFact
 	case AnchorImport:
 		return ClaimImportEdge
+	case AnchorPrecedence:
+		return ClaimPrecedenceRole
 	case AnchorStringLiteral:
 		return ClaimLiteralValueFact
 	case AnchorTextReference:

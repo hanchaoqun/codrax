@@ -1899,21 +1899,30 @@ func renderExplorerRepoMapNavigationPrimer(ctx *types.AgentContext) string {
 // those edges. The selector is the closed question-family enum. No request,
 // closure, answer, label, or thinking prose is scanned.
 func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil ||
-		types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFCallChain {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	guide := "### Call-edge Evidence Handoff\n\n" +
+	rm := ctx.AnalysisIR.RequestModel
+	var guide string
+	if rm.PredicateAxis == types.AxisFlow {
+		guide += "### Ordered-flow Evidence Handoff\n\n" +
+			"When a bounded source span explicitly orders stages, handlers, middleware, rules, transforms, or other flow members, preserve each adjacent directed pair as its own grounded `emit_evidence` row: use `evidence_kind=relationship`, `anchor_kind=precedence`, the earlier exact endpoint in `subject`, the later exact endpoint in `object`, `anchor_symbol` equal to the earlier endpoint, and the smallest already-read `line_start..line_end` range containing both endpoints. The grounder accepts only source-position order inside that bounded range; summaries, ordinal wording, definitions elsewhere, and model reasoning cannot create this relation. This proves source order only, not invocation, runtime execution, containment, or causality. Use call/callback/assignment/return anchors instead when those are the actual transfer relation.\n" +
+			"This is a cross-language carrier for ordered arrays/slices, pipeline declarations, middleware lists, rule chains, and equivalent constructs in Go, Java/Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and the other supported source languages.\n\n"
+	}
+	if types.ResolveQuestionFamily(rm) != types.QFCallChain {
+		return guide
+	}
+	guide += "### Call-edge Evidence Handoff\n\n" +
 		"A repo_map call/relation row is navigation until the source line is read. When a read source span verifies a load-bearing direct invocation in the requested path, emit one grounded `emit_evidence` item for that invocation before closing: use `evidence_kind=relationship`, `predicate=calls`, the exact enclosing caller in `subject`, the exact callee surface in `object`, `anchor_kind=call`, the exact callee operation in `anchor_symbol`, `scope=line`, and the read `source` / `line_start` / `snippet`.\n" +
 		"- Preserve every distinct operation even when several messages share the same class/actor endpoints; for example, two calls from one service to one repository are two call-edge evidence rows.\n" +
 		"- A function definition, a read-coverage row, a path member_set, or closure prose does not prove caller-to-callee direction and must not substitute for the call-site row. Emit guards/conditions separately from calls.\n" +
 		"- A grounded `anchor_kind=call` relationship is normalized from the exact parser/read-line relation even when a sparse first emit omits caller/predicate fields; do not re-emit it merely to guess an owner. If the tool reports a real identity conflict, correct the same source/line/fact once and consume the amendment result.\n" +
 		"- When you read an exact requested endpoint definition while deciding a no-path boundary, inspect its bounded body/read span and emit every relevant incoming or outgoing direct invocation actually verified there, even when it establishes a reverse, parallel, or disjoint relationship rather than the requested path. If the inspected evidence supports no incident call edge, leave the endpoint definition-only; do not invent a no-call fact.\n" +
 		"- Use owner-qualified endpoints only when the parser/read source resolves that identity. For dynamic or ambiguous receivers, preserve the exact source receiver/operation and disclose the boundary instead of guessing a class.\n"
-	if ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
+	if rm.CallChainEndpointProfile.DiscoverSinkActive() {
 		guide += "- Dynamic destination discovery needs a separate typed selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
 	}
-	if ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverPathActive() {
+	if rm.CallChainEndpointProfile.DiscoverPathActive() {
 		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
 	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
@@ -13103,7 +13112,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	stopParseSection = startExplorerParseSectionWatchdog(ctx, "rank_evidence")
 	rankedEvidence := rankEvidenceByRelevanceWithSubject(e.userQuestion, e.structuredEvidence, readSet, e.answerSubject, rankGraph, e.predicateAxis)
-	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
+	allRankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
+	rankedFindings, flowCoverage := compactRankedFlowFindings(allRankedFindings, explorerFlowFindingHandoffCap)
+	if !flowCoverage.Complete {
+		logging.Debug("[explorer] compacted ranked flow findings: emitted=%d total=%d complete=false cap=%d",
+			flowCoverage.Emitted, flowCoverage.Total, explorerFlowFindingHandoffCap)
+	}
 	stopParseSection()
 	if err := explorerParseContextErr(ctx, "rank_evidence"); err != nil {
 		return nil, err
@@ -13303,7 +13317,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		answerContract,
 		16,
 	)
-	canonicalReport := renderExplorerStageReport(
+	canonicalReport := renderExplorerStageReportWithFlowCoverage(
 		irQuestionKind(ctx),
 		irQuestionFamily(ctx),
 		irExactResolutionContract(ctx),
@@ -13311,6 +13325,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		answerChains,
 		nil, // symbols: deferred to Turn B
 		rankedFindings,
+		flowCoverage,
 		readFilesList,
 		e.isEnumerationQuery,
 		stageObservations...,
@@ -13369,6 +13384,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			RuntimeObservationOnlyCompletion: runtimeObservationOnlyCompletion,
 			EvidenceItems:                    handoffEvidence,
 			FlowFindings:                     rankedFindings,
+			FlowFindingsTotal:                flowCoverage.Total,
+			FlowFindingsComplete:             flowCoverage.Complete,
 			TerminalEvidenceCount:            terminalEvidenceCount,
 		}
 		// Cross-window accumulation. When the DAG scheduler requeues

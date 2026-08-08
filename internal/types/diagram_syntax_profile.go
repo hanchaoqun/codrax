@@ -30,7 +30,7 @@ type DiagramSyntaxProfile struct {
 // source-diagram body/metadata boundary. Keep it free of JSON-significant
 // quoting so the canonical tool schema can splice it into a description
 // without maintaining a second escaped copy.
-const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a semantic call_dag, or in any grounded source call-chain diagram (flow, architecture, sequence, or call_dag), requires one same-direction edge_anchors entry with its honest relation_kind; only a dashed sequence reply structurally paired with its forward invocation is metadata-free."
+const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a semantic call_dag, or in any diagram for a typed source call-chain or flow-axis request (flow, architecture, sequence, or call_dag), requires one same-direction edge_anchors entry with its honest relation_kind; only a dashed sequence reply structurally paired with its forward invocation is metadata-free."
 
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
 // rule for explicit logical non-call edges in every non-runtime diagram family.

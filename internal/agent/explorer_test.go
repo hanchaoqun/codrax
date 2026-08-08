@@ -12601,3 +12601,34 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 		t.Fatalf("RootCauseTrace/explicit-window causal analysis must not receive source-call endpoint guidance: %q", got)
 	}
 }
+
+func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedenceCarrierOnly(t *testing.T) {
+	flow := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}}}
+	got := renderExplorerCallChainEdgeEvidenceGuide(flow)
+	for _, want := range []string{
+		"Ordered-flow Evidence Handoff",
+		"`anchor_kind=precedence`",
+		"smallest already-read `line_start..line_end` range containing both endpoints",
+		"proves source order only, not invocation, runtime execution, containment, or causality",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed flow guide missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Call-edge Evidence Handoff") {
+		t.Fatalf("non-call typed flow must not inherit call-chain teaching:\n%s", got)
+	}
+
+	definition := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisDefine,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}}}
+	if got := renderExplorerCallChainEdgeEvidenceGuide(definition); got != "" {
+		t.Fatalf("ordinary architecture presentation must not receive ordered-flow teaching: %q", got)
+	}
+}

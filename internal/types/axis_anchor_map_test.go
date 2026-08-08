@@ -27,6 +27,7 @@ func TestPredicateAxisToAnchorKinds_KnownPairs(t *testing.T) {
 		{AxisCondition, AnchorCondition},
 		{AxisImplement, AnchorDefinition},
 		{AxisFlow, AnchorCallback},
+		{AxisFlow, AnchorPrecedence},
 	}
 	for _, tc := range cases {
 		got := PredicateAxisToAnchorKinds(tc.axis)
@@ -50,7 +51,7 @@ func TestPredicateAxisToAnchorKinds_FlowRejectsDefinitionOnly(t *testing.T) {
 	for _, kind := range got {
 		hasDefinition = hasDefinition || kind == AnchorDefinition
 		hasTransfer = hasTransfer || kind == AnchorCall || kind == AnchorCallback ||
-			kind == AnchorAssignment || kind == AnchorInitializer || kind == AnchorReturn
+			kind == AnchorAssignment || kind == AnchorInitializer || kind == AnchorReturn || kind == AnchorPrecedence
 	}
 	if hasDefinition || !hasTransfer {
 		t.Fatalf("AxisFlow allowed set = %v; want transfer anchors and no definition-only authority", got)

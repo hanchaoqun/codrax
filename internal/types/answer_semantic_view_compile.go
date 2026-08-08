@@ -96,6 +96,7 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applyErrorGranularityProfile(view, ir)
 	applyPresentationContract(view, ir, plan)
 	applyCappedRequiredBlockKindAuthority(view)
+	view.RelationAxis = ir.RequestModel.PredicateAxis
 	view.SourceInventoryRowIdentityAvailable = plan != nil &&
 		plan.SourceInventoryObservation.IsActive() &&
 		ir.RequestModel.SourceInventoryProfile != nil &&

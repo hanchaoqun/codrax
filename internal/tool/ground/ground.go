@@ -956,7 +956,7 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 		return "", 0, false
 	}
 	switch it.AnchorKind {
-	case types.AnchorCall, types.AnchorCallback:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorPrecedence:
 		return "", 0, false
 	case types.AnchorImport:
 		name := preferredSymbolName(it)
@@ -1686,6 +1686,9 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 		}
 		return findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
 	}
+	if it.AnchorKind == types.AnchorPrecedence {
+		return findPrecedenceAnchorLine(fileLines, it)
+	}
 	if it.AnchorKind == types.AnchorStringLiteral {
 		return findStringLiteralAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol, it.Source)
 	}
@@ -1772,6 +1775,89 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 		return 0, false
 	}
 	return matchedLine, true
+}
+
+// findPrecedenceAnchorLine verifies a bounded source-order assertion without
+// interpreting prose. Both typed endpoints must occur inside the cited range,
+// Subject must occur before Object, and pure comment matches do not count.
+// No nearest-symbol recovery is attempted for this relation: moving either
+// endpoint would change the asserted order.
+func findPrecedenceAnchorLine(fileLines map[int]string, it *types.EvidenceItem) (int, bool) {
+	if it == nil || it.LineStart <= 0 {
+		return 0, false
+	}
+	subject := strings.TrimSpace(it.Subject)
+	object := strings.TrimSpace(it.Object)
+	if subject == "" || object == "" || strings.EqualFold(subject, object) {
+		return 0, false
+	}
+	start := it.LineStart
+	end := it.LineEnd
+	if end < start {
+		return 0, false
+	}
+	if end-start > 64 {
+		return 0, false
+	}
+	subjectLine, subjectColumn := 0, -1
+	objectLine, objectColumn := 0, -1
+	for lineNo := start; lineNo <= end; lineNo++ {
+		line, ok := fileLines[lineNo]
+		if !ok || isLineComment(fileLines, lineNo, it.Source) {
+			continue
+		}
+		if subjectLine == 0 {
+			subjectColumn = precedenceEndpointColumn(line, subject)
+			if subjectColumn >= 0 {
+				subjectLine = lineNo
+			}
+		}
+		if objectLine == 0 {
+			objectColumn = precedenceEndpointColumn(line, object)
+			if objectColumn >= 0 {
+				objectLine = lineNo
+			}
+		}
+	}
+	if subjectLine == 0 || objectLine == 0 || subjectLine > objectLine ||
+		(subjectLine == objectLine && subjectColumn >= objectColumn) {
+		return 0, false
+	}
+	return subjectLine, true
+}
+
+func precedenceEndpointColumn(line, endpoint string) int {
+	candidates := []string{strings.TrimSpace(endpoint)}
+	if short := lastDotSegment(endpoint); short != "" && short != endpoint {
+		candidates = append(candidates, short)
+	}
+	best := -1
+	for _, candidate := range candidates {
+		if column := boundedEndpointColumn(line, candidate); column >= 0 && (best < 0 || column < best) {
+			best = column
+		}
+	}
+	return best
+}
+
+func boundedEndpointColumn(line, candidate string) int {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return -1
+	}
+	for start := 0; start < len(line); {
+		column := strings.Index(line[start:], candidate)
+		if column < 0 {
+			return -1
+		}
+		column += start
+		end := column + len(candidate)
+		if stringLiteralFragmentBoundaryOK(line, column, end, candidate) {
+			return column
+		}
+		start = column + 1
+	}
+	return -1
 }
 
 func configSurfaceAllowsLooseLineGrounding(it *types.EvidenceItem) bool {
@@ -2744,6 +2830,8 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 		return false
 	case types.AnchorImport:
 		return graphMatchImport(it, gc)
+	case types.AnchorPrecedence:
+		return false
 	case types.AnchorCondition:
 		return lineContainsAnyKeyword(it, gc, conditionKeywords)
 	case types.AnchorReturn:

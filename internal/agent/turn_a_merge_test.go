@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -71,6 +72,25 @@ func TestMergeTurnAArtifactsWithPrior_AccumulatesAcrossWindows(t *testing.T) {
 	}
 	if got.TerminalEvidenceCount != 3 {
 		t.Errorf("TerminalEvidenceCount = %d, want 3 (max must not regress)", got.TerminalEvidenceCount)
+	}
+}
+
+func TestMergeTurnAArtifactsWithPrior_BoundsFlowSlateAndPreservesCoverage(t *testing.T) {
+	priorFlows := make([]types.FlowFindingDigest, 0, 100)
+	currentFlows := make([]types.FlowFindingDigest, 0, 100)
+	for i := 0; i < 100; i++ {
+		priorFlows = append(priorFlows, types.FlowFindingDigest{ID: fmt.Sprintf("p-%03d", i), Path: []string{fmt.Sprintf("P%d", i), "Sink"}})
+		currentFlows = append(currentFlows, types.FlowFindingDigest{ID: fmt.Sprintf("c-%03d", i), Path: []string{fmt.Sprintf("C%d", i), "Sink"}})
+	}
+	got := mergeTurnAArtifactsWithPrior(
+		&types.TurnAArtifacts{FlowFindings: priorFlows, FlowFindingsTotal: 500},
+		types.TurnAArtifacts{FlowFindings: currentFlows, FlowFindingsTotal: 700},
+	)
+	if len(got.FlowFindings) != explorerFlowFindingHandoffCap {
+		t.Fatalf("merged flow findings=%d, want cap=%d", len(got.FlowFindings), explorerFlowFindingHandoffCap)
+	}
+	if got.FlowFindingsTotal != 700 || got.FlowFindingsComplete {
+		t.Fatalf("merged coverage=%d complete=%v, want total=700 incomplete", got.FlowFindingsTotal, got.FlowFindingsComplete)
 	}
 }
 

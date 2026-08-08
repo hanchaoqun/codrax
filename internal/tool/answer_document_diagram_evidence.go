@@ -60,6 +60,13 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
+	// AxisFlow is a schema-validated request relation, not a keyword guess.
+	// In that lane a visible arrow is itself the requested transfer claim, so
+	// deleting edge_anchors cannot turn the same factual topology into a
+	// metadata-free presentation escape. Ordinary architecture/definition
+	// diagrams retain the legacy presentation-only lane. Runtime trace was
+	// excluded above and keeps its independent causal projection authority.
+	strictSourceRelationBody := strictSourceCallChain || view.RelationAxis == types.AxisFlow
 	// Identity ambiguity is diagnosed before edge authority. Otherwise the
 	// same typed endpoint declared under multiple aliases can turn every valid
 	// edge into a misleading missing-anchor report and send the model through
@@ -72,7 +79,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	requiredAnchors := view.RequiredMechanismAnchors
 	documentLabels := diagramEvidenceDocumentNodeLabels(doc)
 	documentEdges := diagramEvidenceDocumentEdges(doc)
-	strictBodyEdgeKeys := diagramEvidenceStrictBodyEdgeKeys(doc, strictSourceCallChain)
+	strictBodyEdgeKeys := diagramEvidenceStrictBodyEdgeKeys(doc, strictSourceRelationBody)
 	bodyEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	var out []DiagramCallEdgeEvidenceMismatch
 	for i := range doc.Blocks {
@@ -87,7 +94,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			// body edge in either lane needs one schema-validated relation owner.
 			// Runtime trace diagrams were excluded above and retain their own
 			// authority.
-			strictBodyCoverage = diagramRequiresTypedBodyOwnership(block.Diagram.Kind, strictSourceCallChain)
+			strictBodyCoverage = diagramRequiresTypedBodyOwnership(block.Diagram.Kind, strictSourceRelationBody)
 		}
 		parsedEdges := documentEdges
 		if block.Diagram != nil {

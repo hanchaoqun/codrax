@@ -1585,6 +1585,70 @@ func TestDiagramCallEdgeEvidenceMismatches_GenericPresentationFlowWithoutTypedAn
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowCannotDropRelationOwnership(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart TD\n  Producer[Producer] --> Consumer[Consumer]\n",
+		},
+	}}}
+	flowView := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	got := DiagramCallEdgeEvidenceMismatches(doc, flowView, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("typed flow body edge must retain a relation owner after metadata deletion: %+v", got)
+	}
+
+	// The same parsed carrier remains presentation-only for an ordinary
+	// definition/architecture request. The hard boundary is the typed axis,
+	// never label vocabulary or raw request/answer prose.
+	defineView := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisDefine}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, defineView, nil); len(got) != 0 {
+		t.Fatalf("non-flow architecture presentation must keep the legacy optional lane: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Producer[Producer.Run] --> Consumer[Consumer.Run]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Producer", ToNode: "Consumer", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("Producer.Run", "Consumer.Run")}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("same-direction owned typed flow edge must pass: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsGroundedPrecedence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[StageAnalyze] --> E[StageExplore]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorPrecedence,
+		Subject: "StageAnalyze", Object: "StageExplore",
+		Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("grounded source-order carrier must authorize precedence edge: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "binding", Kind: types.BlockDiagram,

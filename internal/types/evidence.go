@@ -204,6 +204,12 @@ const (
 // C/C++ function pointers, Go function values, Swift closures, and equivalent
 // language forms.  It proves a handoff to a receiving API, not that the
 // callback subsequently executed; direct execution remains AnchorCall.
+//
+// AnchorPrecedence covers an explicit ordered source carrier whose bounded
+// cited span places Subject before Object: ordered arrays/slices, pipeline
+// declarations, middleware lists, rule chains, and equivalent constructs in
+// every supported language. It proves only relative source order, not a call,
+// runtime execution, containment, or causality.
 type AnchorKind string
 
 const (
@@ -215,13 +221,14 @@ const (
 	AnchorAssignment    AnchorKind = "assignment"
 	AnchorInitializer   AnchorKind = "initializer"
 	AnchorImport        AnchorKind = "import"
+	AnchorPrecedence    AnchorKind = "precedence"
 	AnchorStringLiteral AnchorKind = "string_literal"
 	AnchorTextReference AnchorKind = "text_reference"
 )
 
 var allAnchorKinds = []AnchorKind{
 	AnchorDefinition, AnchorCall, AnchorCallback, AnchorCondition,
-	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport,
+	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport, AnchorPrecedence,
 	AnchorStringLiteral, AnchorTextReference,
 }
 

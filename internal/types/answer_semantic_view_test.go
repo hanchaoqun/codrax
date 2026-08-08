@@ -57,6 +57,18 @@ func TestBuildAnswerSemanticView_NilInputReturnsNil(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSemanticView_PreservesTypedRelationAxis(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{PredicateAxis: AxisFlow}}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil || view.RelationAxis != AxisFlow {
+		t.Fatalf("relation axis = %q, want %q", view.RelationAxis, AxisFlow)
+	}
+	clone := cloneAnswerSemanticView(view)
+	if clone == nil || clone.RelationAxis != AxisFlow {
+		t.Fatalf("cloned relation axis = %q, want %q", clone.RelationAxis, AxisFlow)
+	}
+}
+
 func TestBuildAnswerSemanticView_SourceInventoryRowIdentityUsesTypedPlan(t *testing.T) {
 	ir := &AnalysisIR{RequestModel: RequestModel{
 		Intent: IntentEnumerate,

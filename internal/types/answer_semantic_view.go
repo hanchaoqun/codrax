@@ -26,6 +26,17 @@ type AnswerSemanticView struct {
 	// Drives WHICH compile_<family>.go produced this view.
 	Family QuestionFamily
 
+	// RelationAxis preserves the analyzer's schema-validated principal
+	// relation for downstream structured-answer contracts. Hard validators may
+	// use this enum together with parsed carriers (for example Mermaid body
+	// edges), but must never rediscover it from request or answer prose.
+	//
+	// In particular, AxisFlow means that visible arrows are the principal
+	// value/state/control-transfer claims of the answer rather than optional
+	// presentation decoration. QFRootCauseTrace remains on its independent
+	// runtime causal authority and is explicitly excluded by those validators.
+	RelationAxis PredicateAxis
+
 	// SourceInventoryRowIdentityAvailable exposes the two source-inventory
 	// partition/row identity carriers only on dispatches backed by a typed
 	// source-inventory observation. Keeping it in the semantic view lets the

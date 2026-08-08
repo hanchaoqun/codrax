@@ -386,6 +386,13 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		flowFindings := extractorTranscriptFlowFindings(ta.FlowFindings, supportScope)
 		if len(flowFindings) > 0 {
 			b.WriteString("### Dataflow findings (source → sink chains)\n\n")
+			flowTotal := ta.FlowFindingsTotal
+			if flowTotal == 0 {
+				flowTotal = len(ta.FlowFindings)
+			}
+			if flowTotal > len(ta.FlowFindings) {
+				fmt.Fprintf(&b, "*(ranked handoff retained %d of %d relevant paths; coverage is not exhaustive)*\n\n", len(ta.FlowFindings), flowTotal)
+			}
 			ffMax := len(flowFindings)
 			if ffMax > extractorMaxFlowFindings {
 				fmt.Fprintf(&b, "*(showing top %d of %d)*\n\n", extractorMaxFlowFindings, ffMax)

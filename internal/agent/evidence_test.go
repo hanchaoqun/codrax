@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -658,6 +659,40 @@ func TestRankFindingsByRelevance_KeepsUnsupportedAsLastResort(t *testing.T) {
 	}
 	if ranked[0].UnsupportedReason == "" {
 		t.Fatalf("expected unsupported fallback, got %+v", ranked[0])
+	}
+}
+
+func TestCompactRankedFlowFindings_PreservesEndpointDiversityAndDisclosesCoverage(t *testing.T) {
+	findings := []types.FlowFindingDigest{
+		{ID: "ab-1", Path: []string{"A", "x1", "B"}},
+		{ID: "ab-2", Path: []string{"A", "x2", "B"}},
+		{ID: "ab-3", Path: []string{"A", "x3", "B"}},
+		{ID: "cd-1", Path: []string{"C", "D"}},
+		{ID: "ef-1", Path: []string{"E", "F"}},
+	}
+	got, coverage := compactRankedFlowFindings(findings, 4)
+	if coverage.Emitted != 4 || coverage.Total != 5 || coverage.Complete {
+		t.Fatalf("coverage = %+v, want emitted=4 total=5 incomplete", coverage)
+	}
+	ids := make(map[string]bool)
+	for _, finding := range got {
+		ids[finding.ID] = true
+	}
+	for _, want := range []string{"ab-1", "ab-2", "cd-1", "ef-1"} {
+		if !ids[want] {
+			t.Fatalf("diversity-preserving selection missed %q: %+v", want, got)
+		}
+	}
+	if ids["ab-3"] {
+		t.Fatalf("third duplicate endpoint pair displaced a distinct pair: %+v", got)
+	}
+}
+
+func TestCompactRankedFlowFindings_NoCompactionKeepsByteOrder(t *testing.T) {
+	findings := []types.FlowFindingDigest{{ID: "first"}, {ID: "second"}}
+	got, coverage := compactRankedFlowFindings(findings, 128)
+	if !reflect.DeepEqual(got, findings) || !coverage.Complete || coverage.Total != 2 || coverage.Emitted != 2 {
+		t.Fatalf("unbounded selection drift: got=%+v coverage=%+v", got, coverage)
 	}
 }
 

@@ -358,7 +358,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"subject": map[string]any{
 							"type":        "string",
-							"description": "Primary semantic symbol the item is about (function name, type, key). For anchor_kind='call', subject MUST be the caller / containing function at that line. For anchor_kind='callback', subject MUST be the receiving call/API expression on that line. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
+							"description": "Primary semantic symbol the item is about (function name, type, key). For anchor_kind='call', subject MUST be the caller / containing function at that line. For anchor_kind='callback', subject MUST be the receiving call/API expression on that line. For anchor_kind='precedence', subject MUST be the earlier endpoint in the cited bounded source range. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
 						},
 						"predicate": map[string]any{
 							"type":        "string",
@@ -366,7 +366,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"object": map[string]any{
 							"type":        "string",
-							"description": "Secondary symbol or value. Required for relationship and registration. For anchor_kind='call', object MUST be the callee symbol on that line. For anchor_kind='callback', object MUST be the non-invoked callable value passed to subject on that line. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
+							"description": "Secondary symbol or value. Required for relationship and registration. For anchor_kind='call', object MUST be the callee symbol on that line. For anchor_kind='callback', object MUST be the non-invoked callable value passed to subject on that line. For anchor_kind='precedence', object MUST be the later endpoint in the same cited bounded source range. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
 						},
 						"source": map[string]any{
 							"type":        "string",

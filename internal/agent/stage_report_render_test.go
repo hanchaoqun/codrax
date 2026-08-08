@@ -119,6 +119,24 @@ func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
 	}
 }
 
+func TestRenderExplorerStageReport_DisclosesFlowCompaction(t *testing.T) {
+	got := renderExplorerStageReportWithFlowCoverage(
+		"mechanism", "architecture", nil, nil, nil, nil,
+		[]types.FlowFindingDigest{{ID: "f1", Path: []string{"A", "B"}}},
+		flowFindingCoverage{Emitted: 1, Total: 42, Complete: false},
+		nil, false,
+	)
+	for _, want := range []string{
+		"flow_findings: 1",
+		"flow_findings_total: 42",
+		"flow_findings_complete: false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stage report missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderExplorerStageReport_RendersExternalObservationsSeparately(t *testing.T) {
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInput{
 		MCPResponses: []types.MCPResponse{{

@@ -74,6 +74,26 @@ func renderExplorerStageReport(
 	isEnumeration bool,
 	observations ...types.ObservationRecord,
 ) string {
+	return renderExplorerStageReportWithFlowCoverage(
+		questionKind, questionFamily, exactResolution, evidence, chains, symbols,
+		findings, flowFindingCoverage{Emitted: len(findings), Total: len(findings), Complete: true},
+		readFiles, isEnumeration, observations...,
+	)
+}
+
+func renderExplorerStageReportWithFlowCoverage(
+	questionKind string,
+	questionFamily string,
+	exactResolution *types.ExactResolutionContract,
+	evidence []types.EvidenceItem,
+	chains []types.AnswerChain,
+	symbols []types.AnswerSymbol,
+	findings []types.FlowFindingDigest,
+	flowCoverage flowFindingCoverage,
+	readFiles []string,
+	isEnumeration bool,
+	observations ...types.ObservationRecord,
+) string {
 	var b strings.Builder
 
 	externalObservations := externalObservationsForStageReport(observations)
@@ -86,7 +106,16 @@ func renderExplorerStageReport(
 	fmt.Fprintf(&b, "- external_observations: %d\n", len(externalObservations))
 	fmt.Fprintf(&b, "- answer_chains: %d\n", len(chains))
 	fmt.Fprintf(&b, "- answer_symbols: %d\n", len(symbols))
-	fmt.Fprintf(&b, "- flow_findings: %d\n", len(findings))
+	if flowCoverage.Total < len(findings) {
+		flowCoverage.Total = len(findings)
+	}
+	if flowCoverage.Emitted != len(findings) {
+		flowCoverage.Emitted = len(findings)
+	}
+	flowCoverage.Complete = flowCoverage.Emitted == flowCoverage.Total
+	fmt.Fprintf(&b, "- flow_findings: %d\n", flowCoverage.Emitted)
+	fmt.Fprintf(&b, "- flow_findings_total: %d\n", flowCoverage.Total)
+	fmt.Fprintf(&b, "- flow_findings_complete: %v\n", flowCoverage.Complete)
 	fmt.Fprintf(&b, "- files_read: %d\n", len(readFiles))
 	b.WriteString("\n")
 

@@ -1181,6 +1181,96 @@ func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest
 	return result
 }
 
+const explorerFlowFindingHandoffCap = 128
+
+type flowFindingCoverage struct {
+	Emitted  int
+	Total    int
+	Complete bool
+}
+
+// compactRankedFlowFindings bounds an already relevance-ordered flow slate
+// before it crosses stage boundaries. Deterministic dataflow may enumerate
+// thousands of overlapping paths in a large repository; carrying all of them
+// into every later prompt adds no authority and can crowd out the evidence the
+// model needs to answer.
+//
+// The first pass preserves endpoint-pair diversity (at most two paths per
+// pair), then fills any remaining seats in original rank order. This is a
+// structural source/sink projection: it does not inspect request text, model
+// prose, language, filename, or finding labels. Coverage is returned
+// separately so callers disclose compaction instead of presenting the retained
+// slate as exhaustive.
+func compactRankedFlowFindings(findings []types.FlowFindingDigest, limit int) ([]types.FlowFindingDigest, flowFindingCoverage) {
+	coverage := flowFindingCoverage{Total: len(findings), Complete: true}
+	if len(findings) == 0 {
+		return nil, coverage
+	}
+	if limit <= 0 || len(findings) <= limit {
+		coverage.Emitted = len(findings)
+		return findings, coverage
+	}
+
+	selected := make([]types.FlowFindingDigest, 0, limit)
+	selectedIndex := make(map[int]bool, limit)
+	pairCounts := make(map[string]int)
+	for i, finding := range findings {
+		key := flowFindingEndpointPairKey(finding)
+		if pairCounts[key] >= 2 {
+			continue
+		}
+		pairCounts[key]++
+		selected = append(selected, finding)
+		selectedIndex[i] = true
+		if len(selected) == limit {
+			break
+		}
+	}
+	for i, finding := range findings {
+		if len(selected) == limit {
+			break
+		}
+		if selectedIndex[i] {
+			continue
+		}
+		selected = append(selected, finding)
+	}
+	coverage.Emitted = len(selected)
+	coverage.Complete = coverage.Emitted == coverage.Total
+	return selected, coverage
+}
+
+func flowFindingEndpointPairKey(finding types.FlowFindingDigest) string {
+	first := func(values []string) string {
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				return strings.ToLower(value)
+			}
+		}
+		return ""
+	}
+	last := func(values []string) string {
+		for i := len(values) - 1; i >= 0; i-- {
+			if value := strings.TrimSpace(values[i]); value != "" {
+				return strings.ToLower(value)
+			}
+		}
+		return ""
+	}
+	from := first(finding.Path)
+	if from == "" {
+		from = first(finding.Sources)
+	}
+	to := last(finding.Path)
+	if to == "" {
+		to = last(finding.Sinks)
+	}
+	if from == "" && to == "" {
+		return "id\x00" + strings.ToLower(strings.TrimSpace(finding.ID))
+	}
+	return from + "\x00" + to
+}
+
 func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64 {
 	// 1. Path entity overlap.
 	allText := normalizeEntityHaystack(stripPathTokens(strings.ToLower(strings.Join(f.Path, " ") + " " +

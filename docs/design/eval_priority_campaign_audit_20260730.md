@@ -26940,3 +26940,60 @@ case/action 名补丁解决。
 `flow-findings=propagate/not-short-circuited-by-emitted-evidence`；
 `component-identity=owner-boundary-required`；`hard-answer-gate=none`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.364 r214：flow 轴生产接通，但删 metadata 可保留同一假边；precedence 合同无铸造通道
+
+在 `main@a8c0f39eb` 上严格并发恰好两个 architecture/read case：`qf_logic_view_read_pipeline` 与
+`qf_diagram_pipeline`。runner 2/2 PASS，人工 0/2：
+
+1. `AxisFlow` 两案均进入生产确定性 dataflow。logic-view 消费 6,888 evidence、产出 19,889 findings，相关性过滤后仍把 16,543 条交给 finalizer；
+   diagram 案交付 81 条。S37cd 的轴/调度接线因此有生产 witness，不能再归因于 flow 被结构性关闭；
+2. logic-view 首稿的关系 metadata 因缺同向 typed 证据被正确拒绝，模型随后显式删除全部 `edge_anchors`，却保留相同 Mermaid 箭头并通过。
+   最终仍把字段/容器 roster 扩写成“所有中间结果和证据均写入 MutableState”，且把不相关 helper 行当作写入凭证；
+3. 这确认 `EVAL-B356-FLOWEDGEOWNERSHIP1=P1/HIGH`：对于 analyzer 已 schema-valid 选择的 flow 轴，箭头就是主请求的 transfer claim；删除 metadata
+   不能使同一 topology 突然变成无事实含义的装饰。普通 define/architecture 展示图仍需保留 presentation-only 车道，不能把全仓所有箭头一刀切；
+4. 16,543 条跨阶段载体是独立的 `EVAL-B357-FLOWHANDOFFCOMPACTION1=P1/HIGH`。问题不是“更多证据总更好”：大量测试函数、远端 sink 与重复
+   source/sink 路径挤占 finalizer 心智和上下文，关键 producer/transfer/consumer 对反而不可见；
+5. diagram 案揭示更严重的合同自冲突。模型对 stage 顺序诚实选择 `relation_kind=precedence`，validator 要求同向 typed precedence row；但当时
+   `emit_evidence.anchor_kind` 没有任何通用顺序载体。`AllMainStages` 的定义与 summary 中的箭头不具关系权限，系统要求的修复在 schema 内不可表达；
+6. 立 `EVAL-B358-FLOWPRECEDENCECARRIER1=P0/REDLINE`。最优形是跨语言、仅由明确已读源码区间验证的 source-order carrier：主体和客体必须都在
+   bounded range 内且主体位置在前。它只证明声明顺序，不证明调用、运行时执行、containment 或 causality；摘要、模型解释和用户词面都不得铸造该关系；
+7. 两案各只有一次成文 reject，均非 malformed JSON。diagram 的系统阶段绑定 supplement 明示“不替代上方模型答案”，未删除或替写结论；本轮失败来自
+   typed 关系所有权逃逸、不可满足的 precedence 合同与 flow 上下文洪泛；
+8. 本轮无 Trace 查询。后续修复必须继续排除 `QFRootCauseTrace`：显式窗、系统补采、因果投影、唤醒链、根因排序、真实占时/规则可消双轴保持；
+   主因只来自 typed on-chain 席，邻近/背景只能支撑额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`0/2`；
+`EVAL-B354=production-wired/value-quality-partial`；
+`EVAL-B356=P1-confirmed`；`EVAL-B357=P1-confirmed`；`EVAL-B358=P0-confirmed`；
+`finalizer-reject=1+1/both-finite`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.365 S37ce：typed flow 的可见边不能删 owner 逃逸；顺序关系获得 bounded source carrier
+
+同批关闭 B356–B358 的同根合同，不为 pipeline fixture、特定函数名或单一语言写规则：
+
+1. `AnswerSemanticView` 显式携带 analyzer 的 schema-validated `RelationAxis`。当且仅当 source request 为 typed `AxisFlow` 时，flow/architecture/sequence/
+   call_dag 的可见 body edge 进入 relation-owner 检查；普通 `AxisDefine` 架构展示仍可无 metadata，`QFRootCauseTrace` 在入口提前排除并继续使用独立因果权限；
+2. 因而模型删除 `edge_anchors` 后保留同一 transfer topology 会得到缺 relation owner，而不是把事实边洗成装饰。系统不自动补边、不重画图、不删正文，
+   模型可选择提供 grounded relation、少画边或披露边界；
+3. 新增 `anchor_kind=precedence`，映射既有 `ClaimPrecedenceRole` 与 `DiagramRelPrecedence`。grounder 要求同一个 typed item 明确给出 earlier subject、later object、
+   `line_start..line_end`；两端都必须在最多 64 行的已读区间出现且源码位置严格有序，纯注释、反序、缺 end、nearest-symbol recovery 与 tier2 猜测均 fail-closed；
+4. Explorer 只在 typed `AxisFlow` 注入最小 authoring guide，告诉模型用 `evidence_kind=relationship + anchor_kind=precedence` 携 pairwise source order，
+   并明确该载体不证明调用、runtime、containment 或 causality。触发不扫描原始请求、thinking、summary、答案或 Mermaid label；
+5. 该载体覆盖 ordered arrays/slices、pipeline declarations、middleware lists、rule chains 等跨语言构造，适用于 Go、Java/Kotlin、JS/TS/ArkTS、C/C++、
+   Rust、Python、Ruby、Swift、Lua、Cangjie 等现有语言，而非只拟合 `AllMainStages`；
+6. deterministic flow handoff 上限为 128。输入先沿既有 relevance rank 排序，再优先保留不同 source/sink endpoint pair（每 pair 最多 2 条），剩余席按原稳定次序填充；
+   不看请求文本、模型 prose、语言、文件名或 finding label。stage report/Turn A/Extractor 显式携 `emitted/total/complete`，压缩不能伪装成完整枚举；
+7. cross-window merge 再次执行同一上限并保留最大已知 total/incomplete，避免多窗口积累重新膨胀。没有删除底层分析证据，改变的是跨 LLM 阶段的 ranked handoff；
+8. 回归钉住 typed-flow metadata deletion 负臂、普通 architecture presentation 正臂、grounded call/precedence 正臂、反序/缺范围负臂、axis clone、跨窗 cap、
+   source/sink diversity 与 coverage disclosure。相关 `types/tool/ground/agent` 套件通过；完整全仓终验随后执行；
+9. 本批不进入 Trace root 编译、投影或答案 mutation。显式时间窗和自动补齐不受影响；Trace 主因仍只允许 typed 链上席，链外邻近/背景即使数值更大也只能作为
+   支撑与新增排查方向。模型继续拥有结论与图形选择权，系统没有答案替写。
+
+状态：`EVAL-B356=S37ce-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B357=S37ce-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B358=S37ce-implemented/full-suite-pass/pending-production-replay`；
+`flow-edge-trigger=typed-axis-only`；`precedence-grounding=bounded-source-order`；
+`flow-handoff-cap=128/coverage-disclosed`；`raw-prose-scan=none`；
+`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

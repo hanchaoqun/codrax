@@ -265,6 +265,38 @@ func TestGroundItem_Tier1LineTextNormalizesToExactNeighbourAnchor(t *testing.T) 
 	}
 }
 
+func TestGroundItem_Tier1PrecedenceRequiresBoundedSourceOrder(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("pipeline.go", 10, []string{
+			"var stages = []Stage{",
+			"    StageAnalyze,",
+			"    StageExplore,",
+			"    StageFinalize,",
+			"}",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	forward := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	GroundItem(forward, gc)
+	if forward.GroundingStatus != types.GroundingGrounded || forward.GroundingTier != types.TierLineText {
+		t.Fatalf("forward precedence status=%q tier=%q note=%q", forward.GroundingStatus, forward.GroundingTier, forward.GroundingNote)
+	}
+
+	reversed := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 11, LineEnd: 12,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageExplore",
+		Subject: "StageExplore", Object: "StageAnalyze",
+	}
+	GroundItem(reversed, gc)
+	if reversed.GroundingStatus == types.GroundingGrounded || reversed.GroundingStatus == types.GroundingRecovered {
+		t.Fatalf("reverse source order must not ground: %+v", reversed)
+	}
+}
+
 func TestGroundItem_Tier1ConditionKeepsTypedGuardLine(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("flags.go", 10, []string{

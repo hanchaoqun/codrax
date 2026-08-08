@@ -1142,6 +1142,13 @@ type TurnAArtifacts struct {
 	// Turn B's chain rendering.
 	FlowFindings []FlowFindingDigest
 
+	// FlowFindingsTotal / FlowFindingsComplete disclose whether the ranked
+	// Turn-A flow slate was compacted before handoff. FlowFindings contains the
+	// retained, relevance-ordered paths; Total is the pre-compaction relevant
+	// count. Zero Total on legacy/test fixtures means len(FlowFindings).
+	FlowFindingsTotal    int
+	FlowFindingsComplete bool
+
 	// TerminalEvidenceCount is the count of EvidenceItems that Turn A's
 	// deterministic extraction pipeline identified as terminal-literal
 	// answer candidates (i.e. the items that hasTerminalEvidence /

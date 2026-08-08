@@ -40,6 +40,16 @@ func TestClaimFormOfRegistrationRequiresTypedEndpoints(t *testing.T) {
 	}
 }
 
+func TestClaimFormOfPrecedenceUsesDedicatedAnchor(t *testing.T) {
+	ev := EvidenceItem{
+		Kind: EvidenceRelationship, AnchorKind: AnchorPrecedence,
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	if got := ClaimFormOf(ev); got != ClaimPrecedenceRole {
+		t.Fatalf("precedence anchor form=%q, want %q", got, ClaimPrecedenceRole)
+	}
+}
+
 func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
 	for _, c := range []ClaimForm{ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
 		if !c.UsesNonSymbolLabelSurface() {

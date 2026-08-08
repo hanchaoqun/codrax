@@ -135,6 +135,18 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems, _ = MergeEvidenceItemsIfChanged(prior.EvidenceItems, current.EvidenceItems)
 	merged.FlowFindings, _ = MergeFlowFindingsIfChanged(prior.FlowFindings, current.FlowFindings)
+	mergedRelevantTotal := len(merged.FlowFindings)
+	merged.FlowFindings, _ = compactRankedFlowFindings(merged.FlowFindings, explorerFlowFindingHandoffCap)
+	priorTotal := prior.FlowFindingsTotal
+	if priorTotal == 0 {
+		priorTotal = len(prior.FlowFindings)
+	}
+	currentTotal := current.FlowFindingsTotal
+	if currentTotal == 0 {
+		currentTotal = len(current.FlowFindings)
+	}
+	merged.FlowFindingsTotal = max(priorTotal, currentTotal, mergedRelevantTotal)
+	merged.FlowFindingsComplete = len(merged.FlowFindings) == merged.FlowFindingsTotal
 	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {
 		merged.TerminalEvidenceCount = prior.TerminalEvidenceCount
 	}
