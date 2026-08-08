@@ -27310,3 +27310,23 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `short-endpoint=typed-call-side-unique-and-pair-preserving`；
 `qualified-owner-contract=unchanged`；`direction=preserved`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.380 S37cn：无 support-plan 不再等于 repo-wide flow 全部有序确权
+
+关闭 B373，并完成 B368 的 ordered-authority 半边：
+
+1. AnswerSupportPlan 存在且有实际约束时继续优先使用 S37ck 的 support EvidenceID / 双端 surface 边界，不改变 Extract 正常车道；
+2. 机制/flow read path 跳过 Extract、没有 support plan，或 plan 为空时，不再把 `supportScope=nil` 解释为“所有 FlowFinding 皆可加冕”。系统从本轮已接受的 citable
+   current-source operation rows 构造临时 typed scope；载体仍只包括 call/callback/assignment/initializer/return/precedence，不含 definition/field roster；
+3. 临时 scope 复用同一 stronger predicate：FlowFinding 必须 replay operation EvidenceID，或让有序路径首尾同时绑定 operation 的 exact file/symbol surface。
+   只命中一端、同仓任意 production path、test/helper/recovery 路径与无 operation 的全仓 flow 都不能产生 `typed_flow_paths_present`；
+4. 这只收窄 `ordered_path_authority` 与 typed_flow_path 发射。原 FlowFindings 仍保留在 bounded enrichment/background 面，模型可把它们作为额外排查线索，但不能当当前问题已证主路径；
+5. 回归钉住 R220 形：本轮已证 orchestrator operation 与无关 `hitraceconv -> repl test` path 并存时，authority 为 `listed_edges_only` 且不发无关 typed path；
+   exact operation EvidenceID replay 正臂仍发 `typed_flow_paths_present`；原 support-plan 双端/EvidenceID pin 保持；
+6. 该 predicate 只读 typed RequestModel source scope、citable EvidenceItem 与 FlowFinding 字段，不扫描 request、thinking、summary、final prose 或 case/file 关键词，不改模型答案；
+7. runtime Trace 不使用 source mechanism authority。Trace 显式窗、自动补采、因果投影、链上根因、邻近/背景边界和双维耗时结论不变；链外信息仍不得加冕主因。
+
+状态：`EVAL-B373=S37cn-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B368=authority-implemented/pending-production-replay`；
+`no-support-plan=typed-operation-scope`；`repo-wide-flow=background-only-unless-bound`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

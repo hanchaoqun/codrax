@@ -7517,9 +7517,27 @@ func answerDocSupportedMechanismFlowPathsForContext(ctx *types.AgentContext) [][
 	if ctx.AnalysisIR != nil {
 		rm = ctx.AnalysisIR.RequestModel
 	}
+	supportScope := supportLaneScopeForContext(ctx, true)
+	// Some read-mode paths intentionally skip Extract and therefore have no
+	// compiled AnswerSupportPlan.  Absence of that plan must not promote every
+	// repo-wide FlowFinding to principal ordered authority. Build the same
+	// evidence-ID/endpoint boundary from citable operation rows gathered in
+	// this investigation. Definitions and unrelated repository flow findings
+	// remain available to the enrichment/background renderer, but cannot crown
+	// an ordered path.
+	if supportScope == nil || !supportScope.constrain {
+		operations := types.FlowOperationEvidenceForRequest(
+			answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts),
+			rm,
+		)
+		if len(operations) == 0 {
+			return nil
+		}
+		supportScope = supportLaneScopeFromFlowOperations(operations)
+	}
 	return answerDocSupportedMechanismFlowPathsForScope(
 		ctx.FlowFindings,
-		supportLaneScopeForContext(ctx, true),
+		supportScope,
 		rm,
 	)
 }
@@ -8149,6 +8167,40 @@ type supportLaneScope struct {
 	anchors         map[string]bool
 	lanes           map[types.AnswerSupportLaneKind]bool
 	diagnosticLanes bool
+}
+
+// supportLaneScopeFromFlowOperations is the no-support-plan authority bridge.
+// It consumes only citable directed operation carriers already accepted in
+// this investigation. The ordinary support-plan path remains stronger and is
+// always preferred when present.
+func supportLaneScopeFromFlowOperations(items []types.EvidenceItem) *supportLaneScope {
+	scope := &supportLaneScope{
+		constrain:   true,
+		evidenceIDs: map[string]bool{},
+		locations:   map[string]bool{},
+		files:       map[string]bool{},
+		fileLines:   map[string][]int{},
+		anchors:     map[string]bool{},
+		lanes:       map[types.AnswerSupportLaneKind]bool{},
+	}
+	for _, item := range items {
+		for _, raw := range []string{item.ID, answerDocEvidenceIdentity(item)} {
+			scope.addEvidenceID(raw)
+		}
+		scope.addLocation(item.Source, item.LineStart)
+		for _, raw := range []string{
+			item.Subject,
+			item.Object,
+			item.AnchorSymbol,
+			item.OwnerSymbol,
+		} {
+			scope.addAnchor(raw)
+		}
+		for _, term := range item.SurfaceTerms {
+			scope.addAnchor(term)
+		}
+	}
+	return scope
 }
 
 func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportRendered bool) string {

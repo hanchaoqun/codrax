@@ -187,6 +187,64 @@ func TestOrderedFlowAuthorityRequiresBothSupportedEndpointsOrEvidenceIDAA3(t *te
 	}
 }
 
+func TestMechanismRelationAuthorityWithoutSupportPlanRejectsUnrelatedRepoFlowAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "dispatch-edge", Kind: types.EvidenceRelationship,
+			Subject: "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
+			Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+		FlowFindings: []types.FlowFindingDigest{{
+			ID: "repo-wide-unrelated",
+			Path: []string{
+				"internal/hitraceconv/input_authority.go:conversionInputStage.String",
+				"internal/repl/turn_policy_test.go:TestTurnPolicyDispatch_DataRouteBypassesSourcePipeline",
+			},
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "ordered_path_authority=`listed_edges_only`") {
+		t.Fatalf("unrelated repo flow must not receive current-question ordered authority:\n%s", got)
+	}
+	if strings.Contains(got, "typed_flow_path[") || strings.Contains(got, "conversionInputStage.String") {
+		t.Fatalf("unrelated repo-wide path leaked into principal authority:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthorityWithoutSupportPlanAcceptsOperationEvidenceReplayAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "dispatch-edge", Kind: types.EvidenceRelationship,
+			Subject: "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
+			Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+		FlowFindings: []types.FlowFindingDigest{{
+			ID:          "evidence-replay",
+			Path:        []string{"OpaqueProducer", "OpaqueConsumer"},
+			EvidenceIDs: []string{"dispatch-edge"},
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "ordered_path_authority=`typed_flow_paths_present`") ||
+		!strings.Contains(got, "typed_flow_path[1]=`OpaqueProducer -> OpaqueConsumer`") {
+		t.Fatalf("exact operation EvidenceID replay must retain ordered authority:\n%s", got)
+	}
+}
+
 func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
