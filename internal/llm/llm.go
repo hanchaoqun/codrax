@@ -20,11 +20,18 @@ type ToolCall struct {
 	Params json.RawMessage `json:"input"`
 
 	// ParamSchemaFingerprint is internal execution metadata. Agent response
-	// normalization sets it after checking Params against a concrete tool
-	// schema; execute-time compatibility repair may skip duplicate work only
-	// when the registry schema has the exact same fingerprint. It is never
-	// serialized to providers or tool history.
+	// normalization sets it after every compatibility-changed subtree has been
+	// rechecked against the concrete tool schema (unchanged calls retain the
+	// provider's schema contract); execute-time compatibility repair may skip
+	// duplicate work only when the registry schema has the exact same
+	// fingerprint. It is never serialized to providers or tool history.
 	ParamSchemaFingerprint string `json:"-"`
+	// ParamSchemaValidationError is internal execution metadata set when the
+	// complete (possibly compatibility-normalized) arguments fail the exact
+	// schema presented for this response. Keeping the precise failure on the
+	// call prevents a broader registry schema from laundering a dynamic-schema
+	// violation before execution. It is never serialized to providers/history.
+	ParamSchemaValidationError string `json:"-"`
 }
 
 // TokenUsage tracks token consumption.

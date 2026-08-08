@@ -43,7 +43,18 @@ func (e *replStructuredToolParamError) Unwrap() error {
 }
 
 func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any, scope string) error {
-	normalized := normalizeReplStructuredToolParams(tool, json.RawMessage(raw), scope)
+	normalized, report := normalizeReplStructuredToolParams(tool, json.RawMessage(raw), scope)
+	if report.Changed() {
+		if err := toolparam.ValidateRepairs(normalized, tool.Parameters, report); err != nil {
+			return &replStructuredToolParamError{
+				ToolName: tool.Name,
+				Scope:    scope,
+				RawLen:   len(raw),
+				Err:      fmt.Errorf("normalized params violate the same tool schema: %w", err),
+				Hint:     replStructuredToolRetryHint(tool),
+			}
+		}
+	}
 	if err := json.Unmarshal(normalized, dst); err == nil {
 		return nil
 	}
@@ -67,10 +78,10 @@ func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any,
 	}
 }
 
-func normalizeReplStructuredToolParams(tool llm.ToolSchema, raw json.RawMessage, scope string) json.RawMessage {
+func normalizeReplStructuredToolParams(tool llm.ToolSchema, raw json.RawMessage, scope string) (json.RawMessage, toolparam.Report) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return raw
+		return raw, toolparam.Report{}
 	}
 	candidate := json.RawMessage(trimmed)
 	var repairs []string
@@ -90,7 +101,7 @@ func normalizeReplStructuredToolParams(tool llm.ToolSchema, raw json.RawMessage,
 		logging.Warning("[repl/tool_param_compat] tool=%s scope=%s bytes=%d→%d repairs=%s",
 			tool.Name, scope, len(raw), len(candidate), stringsJoinNonEmpty(repairs, "; "))
 	}
-	return candidate
+	return candidate, report
 }
 
 func replStructuredToolRetryHint(tool llm.ToolSchema) string {

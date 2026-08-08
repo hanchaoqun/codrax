@@ -115,6 +115,39 @@ func TestNormalizeToolCallParams_MarksSchemaCheckedCallWhenUnchanged(t *testing.
 	}
 }
 
+func TestNormalizeToolCallParams_NormalizedNestedEnumViolationNeverGetsSchemaAuthority(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{"actions":{"type":"array","items":{"type":"object","properties":{
+	    "kind":{"type":"string","enum":["derive_rules"]}
+	  },"required":["kind"]}}},
+	  "required":["actions"]
+	}`)
+	calls := []llm.ToolCall{{
+		ID:     "rank-escape",
+		Name:   "emit_plan",
+		Params: json.RawMessage(`{"actions":"[{\"kind\":\"assemble_answer\"}]"}`),
+	}}
+	got := base.normalizeToolCallParams(calls, []llm.ToolSchema{{Name: "emit_plan", Parameters: schema}})
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("fixture must pass through string-to-array normalization: %s", got[0].Params)
+	}
+	if got[0].ParamSchemaFingerprint != "" {
+		t.Fatalf("schema-invalid normalized params acquired a fingerprint: %+v", got[0])
+	}
+	if !strings.Contains(got[0].ParamSchemaValidationError, "$.actions[0].kind") {
+		t.Fatalf("exact presented-schema failure was not carried to execution: %+v", got[0])
+	}
+}
+
 func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,

@@ -26616,3 +26616,24 @@ case/action 名补丁解决。
 `physical-occurrence=exact-typed`；`authority=unique-on-chain-one-way-dominance`；
 `multi-chain-domain=fail-open-preserved`；`background-never-promotes`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`。
+
+### 123.352 S37bx：兼容归一化后的 typed 子树必须复验原 schema
+
+关闭 `EVAL-B347-COMPATSCHEMAREVALIDATE1`。冷读确认问题跨越 data planner：agent 的 `ParamSchemaFingerprint` 注释宣称参数已按具体 schema 检查，但生产实现只运行
+`toolparam.Normalize` 后直接盖章；REPL structured helper 也只 `json.Unmarshal` 到 flexible draft。因而 provider 看到 `actions` 是 string 时无法校验内部 enum，系统把它还原
+为 array 后又没有复验，未来 rank action 可获得 typed 输入身份，直到更晚的 DAG guard 才被拆分。后门保证了本案没有越权执行，但不是通用工具都具有第二道语义门。
+
+1. `internal/toolparam` 新增结构化 schema validator，覆盖 Codrax 工具合同实际使用的 type、enum/const、properties/required、additionalProperties、items、尺寸/数值/字符串边界与 `allOf/if/then/else`；它只读 JSON value 与 JSON schema，不读取请求、思考、输出、错误关键词或 action 名；
+2. 生产接线使用更窄的 `ValidateRepairs`：只复验 `Normalize.Report` 标出的实际变更子树。父 array/object 被 string 解包后，其嵌套 enum/const 必须全部合法；terminal rank 的 `maxItems=0` 同样不可绕过；
+3. 复验不把一次机械修复扩大为全工具 schema 迁移。未被本次归一化改变的历史 flexible scalar/list/default 字段继续交给 owning draft/validator；key alias 只改变字段名时也不强迫其值立即切换类型。首次全包回归精确暴露这一边界，方案从“整 payload 复验”收窄为“changed subtree + nested authority”，保留既有兼容合同；
+4. REPL `unmarshalReplStructuredToolParams` 在归一化后、draft unmarshal 前调用该复验。失败返回原 scope、精确 JSON path 和同一工具 schema 的重发提示；data planner 的既有 compact structured repair 因而自然复用当前窄 rank tool，不新增第二份 JSON 教学；
+5. BaseAgent 在 response normalization 处只给复验通过的 changed subtree 盖 `ParamSchemaFingerprint`；失败把精确 `ParamSchemaValidationError` 作为不序列化的内部执行 metadata 带到 `executeTool`，在任何本地/MCP 工具调用前返回 typed `tool_params_schema_invalid`，不让更宽 registry schema清洗动态 schema 的失败；
+6. 回归覆盖：(a) string→array 后 nested enum 越界；(b) schema-valid 同形无损通过；(c) unrelated 新 required 字段不被一次子树修复升级；(d) agent 不给失败子树盖章；(e) REPL 精确错误；(f) data 当前仅允许 `derive_rules` 时，字符串 actions 中的 `assemble_answer` 被 `$.actions[1].kind` 拒绝，随后同一窄 tool 有界修成单一 derive action；
+7. `internal/toolparam`、`internal/repl`、`internal/agent` 完整套件通过。该批不删除兼容恢复、不丢有用模型字符串、不按 data action/语言/用例拟合，也不修改模型答案；只防止“修复结构后未经原合同校验却获得 typed 权威”。
+8. 本批不进入 Trace 编译/渲染。显式窗、补采、因果投影、唤醒链、根因排序、真实占时/规则可消双轴均不变；邻近/背景依然只作支撑方向，不能获得链上主因资格。
+
+状态：`EVAL-B347=S37bx-implemented/go-test-all-pass/pending-production-replay`；
+`post-normalization-authority=changed-subtree-revalidated`；
+`nested-enum/maxItems=bypass-closed`；`legacy-flex-fields=preserved`；
+`same-dynamic-schema-repair=one-bounded-round`；`raw-prose-scan=none`；
+`system-answer-rewrite=none`；待全仓回归、提交推送与 data 生产复放。

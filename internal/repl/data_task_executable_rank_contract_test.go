@@ -173,6 +173,37 @@ func TestDataTaskMalformedParamRepairKeepsNarrowedRankTool(t *testing.T) {
 	}
 }
 
+func TestDataTaskStringifiedActionsCannotBypassCurrentRankEnum(t *testing.T) {
+	rank := dataTaskExecutableRankContract{NextStage: "derive_rules", AllowedActionKinds: []string{"derive_rules"}, FutureRanks: "read_only_roadmap"}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready","actions":"[{\"kind\":\"derive_rules\"},{\"kind\":\"assemble_answer\"}]","continue_after":true,"next_batch":"continue"}`),
+		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"derive_rules"}],"continue_after":true,"next_batch":"continue"}`),
+	}}
+	planner := &llmDataTaskPlanner{adapter: adapter}
+	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool)
+	if err != nil {
+		t.Fatalf("planDataTaskWithTool: %v", err)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("future-rank member survived same-schema repair: %+v", plan.Actions)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d, want planner plus one bounded same-schema repair", len(adapter.calls))
+	}
+	for i, call := range adapter.calls {
+		if got := dataTaskToolActionKindEnum(t, call.tools[0]); !slices.Equal(got, []string{"derive_rules"}) {
+			t.Fatalf("call %d action enum=%v, want current rank only", i, got)
+		}
+	}
+	if !strings.Contains(adapter.calls[1].messages[1].Content, "$.actions[1].kind") {
+		t.Fatalf("compact repair did not receive the precise nested schema violation: %+v", adapter.calls[1].messages)
+	}
+}
+
 func TestDataTaskInitialPlannerKeepsFullDiscoveryVocabulary(t *testing.T) {
 	adapter := &scriptedChatAdapter{responses: []llm.Response{dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"material_inventory"}],"continue_after":true,"next_batch":"inspect materials"}`)}}
 	planner := &llmDataTaskPlanner{adapter: adapter}

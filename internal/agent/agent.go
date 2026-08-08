@@ -912,6 +912,37 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 	}
 }
 
+const toolRepairCodeToolParamsSchemaInvalid = "tool_params_schema_invalid"
+
+func toolParamsSchemaInvalidResult(tc llm.ToolCall, detail string) *types.ToolResult {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		detail = "arguments do not match the tool schema"
+	}
+	logging.Warning("[agent] tool %q params rejected before execution: schema violation=%s len=%d id=%s",
+		tc.Name, detail, len(tc.Params), tc.ID)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   fmt.Sprintf("not executed: tool arguments do not match the exact input schema (%s). Re-emit one native JSON object using the schema's field types, required fields, enum values, and array/object shapes.", detail),
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code:   toolRepairCodeToolParamsSchemaInvalid,
+			Hint:   "Re-emit the tool call with one complete native JSON object matching the exact tool schema.",
+			Fields: []string{"arguments"},
+			Metadata: map[string]string{
+				"kind": "json_schema_violation",
+				"tool": types.CanonicalToolName(tc.Name),
+			},
+		},
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        toolRepairCodeToolParamsSchemaInvalid,
+			PreferredNextTool: types.CanonicalToolName(tc.Name),
+			RequiredFields:    []string{"schema_valid_native_json_arguments"},
+		},
+	}
+}
+
 func toolParamsMarkupSentinelResult(tc llm.ToolCall, sentinel string) *types.ToolResult {
 	sentinel = strings.TrimSpace(sentinel)
 	if sentinel == "" {
@@ -3935,11 +3966,16 @@ func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, 
 					out = append([]llm.ToolCall(nil), calls...)
 				}
 				out[i].ParamSchemaFingerprint = fingerprint
+				out[i].ParamSchemaValidationError = ""
 			}
 			continue
 		}
 		b.observeToolParamsNormalized(ctx, call, call.Params, normalized.Params, "tool_param_schema_normalized")
-		normalized.ParamSchemaFingerprint = fingerprint
+		if normalized.ParamSchemaValidationError != "" {
+			normalized.ParamSchemaFingerprint = ""
+		} else {
+			normalized.ParamSchemaFingerprint = fingerprint
+		}
 		if out == nil {
 			out = append([]llm.ToolCall(nil), calls...)
 		}
@@ -3959,6 +3995,7 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	current := call.Params
 	var changed bool
 	var summaries []string
+	var schemaReport toolparam.Report
 	if len(schema) > 0 {
 		normalized, report := toolparam.Normalize(call.Params, schema, cfg)
 		if report.Changed() {
@@ -3969,6 +4006,7 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 			}
 			current = normalized
 			changed = true
+			schemaReport = report
 			summaries = append(summaries, report.Summary(6))
 		}
 	}
@@ -3984,6 +4022,10 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	}
 	out := call
 	out.Params = current
+	if err := toolparam.ValidateRepairs(current, schema, schemaReport); err != nil {
+		out.ParamSchemaFingerprint = ""
+		out.ParamSchemaValidationError = err.Error()
+	}
 	logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
 		b.name, call.Name, strings.Join(summaries, "; "))
 	return out, true
@@ -4254,25 +4296,30 @@ func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.To
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return tc, false
 	}
+	if schema, ok := b.toolParamSchemaFromRegistry(tc.Name); ok {
+		if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
+			return tc, false
+		}
+		return b.normalizeOneToolCallParams(tc, schema, cfg)
+	}
+	return tc, false
+}
+
+func (b *BaseAgent) toolParamSchemaFromRegistry(name string) (json.RawMessage, bool) {
+	if b == nil || b.deps == nil {
+		return nil, false
+	}
 	if b.deps.Tools != nil {
-		tl, err := b.deps.Tools.Get(tc.Name)
-		if err == nil && tl != nil {
-			schema := tl.Parameters()
-			if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
-				return tc, false
-			}
-			return b.normalizeOneToolCallParams(tc, schema, cfg)
+		if tl, err := b.deps.Tools.Get(name); err == nil && tl != nil {
+			return tl.Parameters(), true
 		}
 	}
 	if b.deps.MCPServers != nil {
-		if schema, ok := b.deps.MCPServers.SchemaForNamespaced(tc.Name); ok {
-			if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
-				return tc, false
-			}
-			return b.normalizeOneToolCallParams(tc, schema, cfg)
+		if schema, ok := b.deps.MCPServers.SchemaForNamespaced(name); ok {
+			return schema, true
 		}
 	}
-	return tc, false
+	return nil, false
 }
 
 func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
@@ -4559,7 +4606,11 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		tc = normalized
 		prescanGrepNormalized = true
 	}
-
+	if detail := strings.TrimSpace(tc.ParamSchemaValidationError); detail != "" {
+		b.observeSchemaRejected(ctx, tc, "tool_params_schema_rejected", "json_schema_violation")
+		b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", "json_schema_violation")
+		return toolParamsSchemaInvalidResult(tc, detail), nil
+	}
 	// Stage-specific pre-execution parameter validation. The
 	// analyzer's evidence-lite boundary forbids line-level grep
 	// results — pre-scan must use `files_only=true` because

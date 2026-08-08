@@ -1351,7 +1351,7 @@ func TestExecuteTool_SkipsDuplicateRegistryNormalizeWhenSchemaChecked(t *testing
 			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
 		},
 	}, nil)
-	raw := json.RawMessage(`{"sources":"Explorer","topN":"3","includeCounts":"true"}`)
+	raw := json.RawMessage(`{"sources":["Explorer"],"top_n":3,"include_counts":true}`)
 	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
 		ID:                     "compat-json",
 		Name:                   capture.Name(),
