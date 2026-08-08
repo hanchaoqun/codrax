@@ -7505,10 +7505,11 @@ func answerDocSupportedMechanismFlowPaths(findings []types.FlowFindingDigest) []
 // useful exploration background; only the latter may set
 // ordered_path_authority=typed_flow_paths_present.
 //
-// The filter consumes typed request scope and structured support lanes only.
-// It never scans the user's request or model-authored prose.  When no support
-// lane constrains the answer, no endpoint-link requirement is invented; the
-// typed/default production source-scope boundary still applies.
+// The filter consumes typed request scope and Explorer-authored operation
+// rows only. It never scans the user's request or model-authored prose. A
+// compiled support plan still governs answer blocks and enrichment, but its
+// deterministic repo-wide expansion cannot independently broaden principal
+// ordered-path authority past the operations selected in this investigation.
 func answerDocSupportedMechanismFlowPathsForContext(ctx *types.AgentContext) [][]string {
 	if ctx == nil {
 		return nil
@@ -7517,28 +7518,18 @@ func answerDocSupportedMechanismFlowPathsForContext(ctx *types.AgentContext) [][
 	if ctx.AnalysisIR != nil {
 		rm = ctx.AnalysisIR.RequestModel
 	}
-	supportScope := supportLaneScopeForContext(ctx, true)
-	// Some read-mode paths intentionally skip Extract and therefore have no
-	// compiled AnswerSupportPlan.  Absence of that plan must not promote every
-	// repo-wide FlowFinding to principal ordered authority. Build the same
-	// evidence-ID/endpoint boundary from citable operation rows gathered in
-	// this investigation. Definitions and unrelated repository flow findings
-	// remain available to the enrichment/background renderer, but cannot crown
-	// an ordered path.
-	if supportScope == nil || !supportScope.constrain {
-		operations := types.FlowOperationEvidenceForRequest(
-			answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts),
-			rm,
-		)
-		if len(operations) == 0 {
-			return nil
-		}
-		supportScope = supportLaneScopeFromFlowOperations(operations)
-	}
-	return answerDocSupportedMechanismFlowPathsForScope(
-		ctx.FlowFindings,
-		supportScope,
+	operations := types.ExplorerAuthoredFlowOperationEvidenceForRequest(
+		answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts),
 		rm,
+	)
+	if len(operations) == 0 {
+		return nil
+	}
+	operationScope := supportLaneScopeFromFlowOperations(operations)
+	return answerDocSupportedMechanismFlowPathsForScopes(
+		ctx.FlowFindings,
+		rm,
+		operationScope,
 	)
 }
 
@@ -7546,6 +7537,14 @@ func answerDocSupportedMechanismFlowPathsForScope(
 	findings []types.FlowFindingDigest,
 	supportScope *supportLaneScope,
 	rm types.RequestModel,
+) [][]string {
+	return answerDocSupportedMechanismFlowPathsForScopes(findings, rm, supportScope)
+}
+
+func answerDocSupportedMechanismFlowPathsForScopes(
+	findings []types.FlowFindingDigest,
+	rm types.RequestModel,
+	requiredScopes ...*supportLaneScope,
 ) [][]string {
 	out := make([][]string, 0)
 	for _, finding := range findings {
@@ -7555,7 +7554,14 @@ func answerDocSupportedMechanismFlowPathsForScope(
 		if !answerDocFlowFindingWithinRequestedSourceScope(finding, rm) {
 			continue
 		}
-		if supportScope != nil && !supportScope.allowsOrderedFlowFinding(finding) {
+		allowed := true
+		for _, scope := range requiredScopes {
+			if scope != nil && !scope.allowsOrderedFlowFinding(finding) {
+				allowed = false
+				break
+			}
+		}
+		if !allowed {
 			continue
 		}
 		path := finding.Path

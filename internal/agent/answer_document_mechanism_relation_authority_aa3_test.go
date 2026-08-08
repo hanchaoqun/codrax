@@ -88,6 +88,7 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		EvidenceItems: []types.EvidenceItem{
 			{
 				ID:              "edge",
+				Producer:        types.EvidenceProducerExplorerEmitEvidence,
 				Kind:            types.EvidenceRelationship,
 				Source:          "internal/tracequery/query.go",
 				LineStart:       100,
@@ -195,7 +196,8 @@ func TestMechanismRelationAuthorityWithoutSupportPlanRejectsUnrelatedRepoFlowAA3
 		}},
 		EvidenceItems: []types.EvidenceItem{{
 			ID: "dispatch-edge", Kind: types.EvidenceRelationship,
-			Subject: "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
+			Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Subject:  "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
 			Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
 			AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
 			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
@@ -226,7 +228,8 @@ func TestMechanismRelationAuthorityWithoutSupportPlanAcceptsOperationEvidenceRep
 		}},
 		EvidenceItems: []types.EvidenceItem{{
 			ID: "dispatch-edge", Kind: types.EvidenceRelationship,
-			Subject: "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
+			Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Subject:  "Orchestrator.runAnalyzePhase", Predicate: "calls", Object: "Orchestrator.dispatchStage",
 			Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
 			AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
 			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
@@ -242,6 +245,53 @@ func TestMechanismRelationAuthorityWithoutSupportPlanAcceptsOperationEvidenceRep
 	if !strings.Contains(got, "ordered_path_authority=`typed_flow_paths_present`") ||
 		!strings.Contains(got, "typed_flow_path[1]=`OpaqueProducer -> OpaqueConsumer`") {
 		t.Fatalf("exact operation EvidenceID replay must retain ordered authority:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationTraceCurrentFlow},
+				Confidence:                          0.95,
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "selected-operation", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "runAnalyzePhase", Predicate: "assigns", Object: "AnalysisIR",
+				Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
+				AnchorKind: types.AnchorAssignment, AnchorSymbol: "AnalysisIR",
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "auto-unrelated", Producer: "dataflow.lowerer.go",
+				Kind: types.EvidenceRelationship, Subject: "BaseAgent.executeTool", Predicate: "calls", Object: "validateWriteAnalyzerToolPolicy",
+				Source: "internal/agent/agent.go", LineStart: 3249,
+				AnchorKind: types.AnchorCall, AnchorSymbol: "validateWriteAnalyzerToolPolicy",
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{
+			{ID: "unrelated-auto-path", Path: []string{"internal/agent/agent.go:BaseAgent.executeTool", "internal/agent/agent.go:validateWriteAnalyzerToolPolicy"}, EvidenceIDs: []string{"auto-unrelated"}},
+			{ID: "selected-path", Path: []string{"runAnalyzePhase", "AnalysisIR"}, EvidenceIDs: []string{"selected-operation"}},
+		},
+	}
+
+	if plan := answerSupportPlan(ctx); plan == nil {
+		t.Fatal("fixture must compile a support plan so the R221 bypass arm is exercised")
+	}
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "typed_flow_path[1]=`runAnalyzePhase -> AnalysisIR`") {
+		t.Fatalf("selected operation replay must retain principal ordered authority:\n%s", got)
+	}
+	if strings.Contains(got, "typed_flow_path[2]") ||
+		strings.Contains(got, "typed_flow_path[1]=`internal/agent/agent.go:BaseAgent.executeTool") {
+		t.Fatalf("broad support plan promoted an automatic unrelated ordered path:\n%s", got)
 	}
 }
 

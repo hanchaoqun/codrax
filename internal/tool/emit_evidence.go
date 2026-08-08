@@ -199,7 +199,7 @@ type emitNegativeQuery struct {
 // the tool ingests. Exported so tests and downstream consumers
 // (filtering-pipeline doc, future grounder integration) can identify
 // the channel without grepping for a literal.
-const EmitEvidenceProducer = "explorer.emit_evidence"
+const EmitEvidenceProducer = types.EvidenceProducerExplorerEmitEvidence
 
 // EmitEvidenceSurfaceTermReviewCode marks a successful emit_evidence
 // result whose accepted facts are grounded, but whose nearby

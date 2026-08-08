@@ -62,3 +62,19 @@ func FlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) [
 func HasFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) bool {
 	return len(FlowOperationEvidenceForRequest(evidence, rm)) > 0
 }
+
+// ExplorerAuthoredFlowOperationEvidenceForRequest returns the operation rows
+// the Explorer model explicitly selected for this investigation. Parser and
+// repo-wide dataflow expansions remain valuable background evidence, but they
+// must not independently expand principal ordered-path authority merely by
+// entering a broad support plan.
+func ExplorerAuthoredFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) []EvidenceItem {
+	items := FlowOperationEvidenceForRequest(evidence, rm)
+	out := items[:0]
+	for _, item := range items {
+		if strings.TrimSpace(item.Producer) == EvidenceProducerExplorerEmitEvidence {
+			out = append(out, item)
+		}
+	}
+	return out
+}

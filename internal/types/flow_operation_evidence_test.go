@@ -49,3 +49,20 @@ func TestFlowOperationEvidenceForRequestKeepsAuxiliaryOutOfProductionCarrier(t *
 		t.Fatalf("production operation carrier was polluted by auxiliary evidence: %+v", got)
 	}
 }
+
+func TestExplorerAuthoredFlowOperationEvidenceExcludesDeterministicExpansion(t *testing.T) {
+	selected := EvidenceItem{
+		Producer: EvidenceProducerExplorerEmitEvidence,
+		Source:   "src/pipeline.go", LineStart: 10, GroundingStatus: GroundingGrounded,
+		AnchorKind: AnchorAssignment, Subject: "Producer", Object: "Carrier",
+	}
+	automatic := EvidenceItem{
+		Producer: "dataflow.lowerer.go",
+		Source:   "src/helper.go", LineStart: 20, GroundingStatus: GroundingGrounded,
+		AnchorKind: AnchorCall, Subject: "Helper", Object: "Sink",
+	}
+	got := ExplorerAuthoredFlowOperationEvidenceForRequest([]EvidenceItem{automatic, selected}, RequestModel{})
+	if len(got) != 1 || got[0].Source != selected.Source {
+		t.Fatalf("principal operation scope must retain only Explorer-selected rows: %+v", got)
+	}
+}

@@ -31,6 +31,12 @@ const (
 // so diagram validation and aggregate-member coverage cannot drift into two
 // different definitions of "parser/graph proved this type edge".
 const (
+	// EvidenceProducerExplorerEmitEvidence is the typed provenance stamped on
+	// evidence the Explorer model explicitly selected and emitted for the
+	// current investigation. Deterministic repo-wide expansion producers are
+	// intentionally distinct: they may enrich context, but cannot stand in for
+	// the model-selected principal operation surface.
+	EvidenceProducerExplorerEmitEvidence        = "explorer.emit_evidence"
 	EvidenceProducerRepoMapStructuralRelation   = "repomap_structural_relation"
 	EvidenceProducerRepoMapImplementerRelation  = "repomap_implementer_relation"
 	EvidenceProducerRepoMapCooperativeCall      = "repomap_cooperative_call"

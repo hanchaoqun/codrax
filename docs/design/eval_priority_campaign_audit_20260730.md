@@ -27374,3 +27374,24 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `EVAL-B373=partial/support-plan-bypass-confirmed`；`EVAL-B368=partial`；
 `EVAL-B375=P1-confirmed/audit-before-code`；`finalizer-reject=2+4`；
 `malformed-json=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.383 S37cp：principal ordered path 与本轮 Explorer operation provenance 绑定
+
+关闭 R221 暴露的 support-plan bypass，不删除自动关系证据：
+
+1. 统一定义 `EvidenceProducerExplorerEmitEvidence`，`emit_evidence` 的生产 stamp 与下游 authority 共用同一常量，避免字符串合同漂移；
+2. 新增 `ExplorerAuthoredFlowOperationEvidenceForRequest`：在既有 citable、directed、current-source、request-scope operation 条件上，再要求该行由本轮 Explorer
+   显式选择并通过 `emit_evidence` 发出。parser/repomap/dataflow lowerer 的自动扩展仍留在 EvidenceItems、support lane、relation recipe 与 enrichment；
+3. `answerDocSupportedMechanismFlowPathsForContext` 不再因 AnswerSupportPlan 存在与否切换两套 authority。principal `typed_flow_path` 始终必须 replay 本轮 Explorer operation
+   EvidenceID，或让首尾双端绑定该 operation scope；因此宽泛 support plan 不能把 agent helper、write-policy 或其它 repo-wide flow 加冕为当前问题主路径；
+4. AnswerSupportPlan 仍决定 principal block/support/enrichment 边界，本批只收窄更强的“有序路径已证”声明。自动关系仍可作为独立 edge recipe/背景段出现，不能作为主路径；
+5. 红转绿 pin 复现 R221：同一 architecture context 同时有 Explorer 选择的 `runAnalyzePhase -> AnalysisIR` 与自动
+   `BaseAgent.executeTool -> validateWriteAnalyzerToolPolicy`，且 support plan 非空；最终只允许前者成为 `typed_flow_path`。无 plan、EvidenceID replay、双端绑定旧臂继续覆盖；
+6. 判定只读 schema-valid Producer、EvidenceItem、FlowFinding、SourceScopeProfile，不读取 request、thinking、summary/final prose、case/文件名关键词或相似度分数；
+7. 系统不自动造/删图边、不改模型答案。`QFRootCauseTrace` 不消费该 current-source mechanism authority；Trace 显式窗、自动补采、链上根因、背景边界和双维耗时结论不变。
+
+状态：`EVAL-B373=S37cp-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B368=principal-authority-closed/pending-production-replay`；
+`principal-ordered-path=explorer-authored-operation-scope`；
+`automatic-relations=background-and-edge-recipes-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
