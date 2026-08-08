@@ -26429,3 +26429,26 @@ write=`single-line-patch/zero-contract-conflict`；`EVAL-B337=P2-observe/no-impa
 `identity=principal-display-set AND exact-observed(file,line,family)`；
 `sibling-coarse-role=admitted-without-semantic-promotion`；`unobserved/ambiguous=fail-closed`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/Mermaid/write/data=`unchanged`。
+
+### 123.344 r205：跨角色 principal 行域生产闭环；同名引用与 table cells 均零拒绝
+
+在 `main@b856edb4f` 上严格并发 2 复放 ArkTS+Cangjie，runner 与人工均 2/2 PASS：
+
+1. ArkTS 81s 完成，首稿结构化 table 直接保留 4 个 `@Entry` 类型和 2 个 `@Builder` 函数，逐行 path/line/citation 正确；r204 的“先删 table cells、
+   再要求 table、最终重复载体”完全消失，finalizer reject=0、patch=0；
+2. Cangjie 119s 完成，2 extend、2 foreign func、8 public class 全部正确；两个同名 `native_add` 分别绑定
+   `Bridge.cj:6/demo.bridge` 与 `07_foreign_ffi.cj:6/demo.ffi`，正文位置、package 和 inline citation 三者一致；r204 的 7 次 row-id/family 往返拒绝归零；
+3. 两案都由模型首稿成文，系统只做既有 citation quote 的 current-source 修复和只读 typed coverage stamp；没有增加/删除成员、替换引用选择、改写总结或接管结论；
+4. ArkTS 模型把完整 `blocks[]` 数组 JSON-encoded 成单一字符串，既有 flat-mode tolerance 路径无损恢复 5 blocks/6 citations，零重试且所有 typed oracle 通过。
+   这是“可确定修复则修复”的生产正例；因为内容完整恢复，不需要向用户伪装成降级答案，也不应新增关键词硬门；
+5. ArkTS analyzer pre-scan 曾在自然语言思考中误判“无 .ets”，但该 provisional prose 没有进入 typed absence authority；后续 source-inventory lens 找到完整
+   thirdparty/corpus 行并成为最终权威。先记上下文质量观察，不在缺少错误消费 witness 时硬化分类；
+6. Cangjie analyzer 有一次合理拒绝：模型给 exclusion policy 填了非请求原文的 source quote，精确 verbatim gate 要求移除可选错误字段，随后正常完成；该拒绝不属于
+   相互矛盾合同，也没有进入 finalizer；
+7. 本批无 Trace 输入且没有修改 Trace 路径。链上主因资格、邻近/背景只能支撑额外方向、显式时间窗、自动补齐、唤醒链、根因排序、双维根因与窗内可消除量均保持隔离。
+
+状态：runner=`2/2 PASS`；human=`2/2 PASS`；
+`EVAL-B340=production-closed`；`EVAL-B342=production-positive/closed`；
+`finalizer-reject=0+0`；`same-name-citation-binding=correct`；
+`json-blocks-string-recovery=lossless-production-positive/no-retry`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
