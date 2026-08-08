@@ -1100,6 +1100,8 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		}
 		paths = append(paths, repairEmitEvidenceItemConstraintSidecars(items[i], i)...)
 	}
+	items, adjacentPaths := repairEmitEvidenceAdjacentItemMetadataFragments(items)
+	paths = append(paths, adjacentPaths...)
 	if len(items) == 1 {
 		for _, field := range emitEvidenceItemOnlyCompatFields {
 			value, exists := probe[field]
@@ -1132,6 +1134,81 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		return raw, nil, false
 	}
 	return patched, paths, true
+}
+
+// repairEmitEvidenceAdjacentItemMetadataFragments repairs a narrow malformed-
+// JSON shape produced by some function-calling models: an optional item field
+// is emitted as the next array object instead of as a member of the evidence
+// object immediately before it, for example:
+//
+//	[{"kind":"direct", ...}, {"salience":"load_bearing"}]
+//
+// The repair is lossless only when the fragment contains exclusively known
+// item-metadata fields, follows a substantive evidence object, and none of the
+// fields already exists on that object. Every other shape is left untouched so
+// strict decode/per-item validation remains fail-loud rather than guessing an
+// owner. The rule is language- and content-agnostic; it never reads request or
+// answer prose.
+func repairEmitEvidenceAdjacentItemMetadataFragments(items []map[string]json.RawMessage) ([]map[string]json.RawMessage, []string) {
+	if len(items) < 2 {
+		return items, nil
+	}
+	allowed := make(map[string]bool, len(emitEvidenceItemOnlyCompatFields))
+	for _, field := range emitEvidenceItemOnlyCompatFields {
+		allowed[field] = true
+	}
+	out := make([]map[string]json.RawMessage, 0, len(items))
+	outIndexes := make([]int, 0, len(items))
+	var paths []string
+	for index, item := range items {
+		if len(item) == 0 || !emitEvidenceMetadataOnlyFragment(item, allowed) || len(out) == 0 {
+			out = append(out, item)
+			outIndexes = append(outIndexes, index)
+			continue
+		}
+		previous := out[len(out)-1]
+		if !emitEvidenceSubstantiveItem(previous, allowed) {
+			out = append(out, item)
+			outIndexes = append(outIndexes, index)
+			continue
+		}
+		conflict := false
+		for field := range item {
+			if _, exists := previous[field]; exists {
+				conflict = true
+				break
+			}
+		}
+		if conflict {
+			out = append(out, item)
+			outIndexes = append(outIndexes, index)
+			continue
+		}
+		ownerIndex := outIndexes[len(outIndexes)-1]
+		for field, value := range item {
+			previous[field] = value
+			paths = append(paths, fmt.Sprintf("items[%d].%s->items[%d].%s", index, field, ownerIndex, field))
+		}
+	}
+	return out, paths
+}
+
+func emitEvidenceMetadataOnlyFragment(item map[string]json.RawMessage, allowed map[string]bool) bool {
+	for field := range item {
+		if !allowed[field] {
+			return false
+		}
+	}
+	return len(item) > 0
+}
+
+func emitEvidenceSubstantiveItem(item map[string]json.RawMessage, metadata map[string]bool) bool {
+	for field := range item {
+		if !metadata[field] {
+			return true
+		}
+	}
+	return false
 }
 
 // repairEmitEvidenceRedundantSupportRefs absorbs one recurring cross-tool

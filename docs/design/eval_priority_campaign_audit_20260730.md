@@ -26233,3 +26233,43 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 状态：`EVAL-B336=S37bkm2-implemented/types+tool+orchestrator-suite-pass/pending-production-replay`；
 `authority=conceptual-mechanism>model-added-source-facets`；`explicit-source-scope=preserved`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write=`unchanged`。
+
+### 123.335 r200：B336 v2 生产闭环；Trace 暴露状态区间/折算值口径竞争
+
+在 `main@0c30426a8` 上严格并发 2 跑 `qf_diagram_pipeline` 与显式窗 `trace_query_wakeup_background_demotion`，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. 图表 case 133s 完成，explorer 仅 1 次 `investigation_complete` 且零拒绝，source lens 从 r199 的 9 降为 1；四 stage、职责和 Mermaid 三边完整，
+   finalizer 一轮接受。`EVAL-B336=S37bkm2-production-positive/closed`；
+2. 图表首次 `emit_evidence` 发出 13 个主体对象与 13 个独立 `salience` 对象交替排列。JSON 语法合法，但 item metadata 结构碎裂；系统保住主体证据，
+   模型仍误以为有 schema 错误并重发一轮。新记 `EVAL-B338-EVIDENCEMETADATAFRAGMENT1=P2`；
+3. Trace 的主因权限正确：`threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链完整，链上 threadpool io_wait 11ms 加冕；logger 的
+   19.5ms 状态墙钟和 7ms 折算背景值均保留，但 Chain/Attribution 为 `—`，不因邻近或数值更大进入根因；
+4. 新确认 `EVAL-B339-TRACESTATEINTERVALCALIBER1=P1`：模型把 threadpool 的 11ms io_wait（2.003..2.014）与 wakeup 后 1ms runnable
+   （2.014..2.015）合称“12ms D/IO 等待”，Mermaid 同样写 12ms；又把 logger 的 7ms effective/background 折算值写成实测 iowait，和 typed
+   19.5ms 状态墙钟冲突；
+5. B339 有两个上游上下文竞争源：analysis `sub_topics` 自带未证 12ms 结论却在 finalizer 只标“必须覆盖”；typed projection 同时发布 cumulative occupancy 与
+   effective attribution，但最终尾部没有重申两者不可互换，也没有重申 wakeup→sched-in 属于 runnable 而非继续 IO wait；
+6. 最优方案不扫描或修改答案原文：sub-topic summary 明确降为 planning-only topic coverage；Trace 最终 typed boundary 携带 state interval 与 value caliber，
+   明确 effective attribution 是排序/可消量、cumulative/occurrence 才是实测状态量。模型继续拥有诊断、优先级与措辞；
+7. 本轮无“成文校验未通过”，finalizer reject=0、repair=0。系统生成投影本身数值正确，错误位于模型正文和其输入口径竞争，不可用 answer mutation 掩盖。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B336=production-positive/closed`；`EVAL-B338=P2-confirmed/next-small-batch`；
+`EVAL-B339=P1-confirmed/next`；`trace-root-eligibility=typed-on-chain-only/stable`；
+`off-chain=background-only/stable`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.336 S37bn：无歧义 item-metadata JSON 碎片原位并回前项
+
+`EVAL-B338` 在 `emit_evidence` 既有 schema compatibility 层增加最窄安全修复：
+
+1. 仅当一个数组对象只含 `salience/load_bearing_summary/context_role_hint/diagram_role_hint` 闭集字段、紧邻一个 substantive evidence item，且前项没有
+   同名字段时，才把 metadata 原值并回前项并删除碎片对象；
+2. leading metadata、前项也是 metadata、字段冲突、包含任何事实/定位/未知字段的对象全部保持原状，继续由 strict decode/per-item validation fail loud；
+3. 修复记录原始数组索引的 `items[i].field->items[j].field` 路径，便于诊断；不读字段值语义、请求、模型 thinking/summary、答案、语言、源码名或路径；
+4. e2e 回归使用两个主体项与两个相邻 metadata fragments，要求最终恰好两条 evidence、salience/context role 原值保留；负臂钉住 leading/conflicting
+   fragments 不修复；原有多项 top-level salience 歧义仍 fail loud；
+5. 本批只修工具调用 JSON 载体，不更改 evidence fact、grounding、completion、AnswerDocument、Mermaid、write 或 Trace 投影/根因权限。
+
+状态：`EVAL-B338=S37bn-implemented/internal-tool-suite-pass/pending-production-replay`；
+`repair=adjacent-closed-metadata-only/no-conflict`；`ambiguous=fail-loud`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`；`EVAL-B339=P1-next`。

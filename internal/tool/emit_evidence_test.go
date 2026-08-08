@@ -306,6 +306,70 @@ func TestEmitEvidence_MovesSingleTopLevelSalienceIntoOnlyItem(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_MergesAdjacentMetadataOnlyFragmentsIntoPriorItems(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{"kind":"direct","subject":"Alpha","source":"internal/agent/foo.go","line_start":12,"summary":"Alpha proof","anchor_kind":"definition","anchor_symbol":"Alpha"},
+			{"salience":"load_bearing"},
+			{"kind":"direct","subject":"Beta","source":"internal/agent/foo.go","line_start":30,"summary":"Beta proof","anchor_kind":"definition","anchor_symbol":"Beta"},
+			{"salience":"supporting","context_role_hint":"related_context"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unambiguous adjacent metadata fragments should be repaired, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 {
+		t.Fatalf("metadata fragments must not become evidence rows, got %d: %+v", len(got), got)
+	}
+	if got[0].Salience != types.SalienceLoadBearing {
+		t.Fatalf("first adjacent salience was not preserved: %+v", got[0])
+	}
+	if got[1].Salience != types.SalienceSupporting || got[1].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("second adjacent metadata fragment was not preserved: %+v", got[1])
+	}
+}
+
+func TestRepairEmitEvidenceAdjacentMetadataFragmentsReportsOriginalIndexes(t *testing.T) {
+	items := []map[string]json.RawMessage{
+		{"kind": json.RawMessage(`"direct"`)},
+		{"salience": json.RawMessage(`"load_bearing"`)},
+		{"context_role_hint": json.RawMessage(`"related_context"`)},
+	}
+	got, paths := repairEmitEvidenceAdjacentItemMetadataFragments(items)
+	if len(got) != 1 {
+		t.Fatalf("two adjacent metadata fragments should merge into one substantive item: %+v", got)
+	}
+	joined := strings.Join(paths, ",")
+	for _, want := range []string{
+		"items[1].salience->items[0].salience",
+		"items[2].context_role_hint->items[0].context_role_hint",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("repair audit paths missing %q: %v", want, paths)
+		}
+	}
+}
+
+func TestRepairEmitEvidenceAdjacentMetadataFragmentsFailsClosedOnAmbiguousOwner(t *testing.T) {
+	items := []map[string]json.RawMessage{
+		{"salience": json.RawMessage(`"context"`)},
+		{"kind": json.RawMessage(`"direct"`), "salience": json.RawMessage(`"supporting"`)},
+		{"salience": json.RawMessage(`"load_bearing"`)},
+	}
+	got, paths := repairEmitEvidenceAdjacentItemMetadataFragments(items)
+	if len(got) != len(items) || len(paths) != 0 {
+		t.Fatalf("leading or conflicting metadata fragments must stay fail-loud, got len=%d paths=%v", len(got), paths)
+	}
+}
+
 func TestEmitEvidence_InfersMissingAnchorSymbolFromExactLineGraph(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
