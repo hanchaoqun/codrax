@@ -26687,3 +26687,34 @@ case/action 名补丁解决。
 `reference-scope=model-owned/typed-explicit`；`complete=true=>source-path+domain-key`；
 `subset=false-preserved`；`candidate-census=soft-only`；`raw-prose-scan=none`；
 `system-answer-rewrite=none`；Trace=`codepath-unchanged`。
+
+### 123.355 r210：完整参考域生产闭环；action kind 与 params 仍是分裂合同
+
+在 `main@ce338dfb6` 上严格并发 2 复放 `data_multifile_reference_projection` 与
+`trace_query_donghu_real_frame_multicausal`，runner 与人工均为 2/2 PASS：
+
+1. data 的 S37by 生产闭环。planner 从首批开始显式发出并持续携带 `complete_reference=true`、`reference_path=targets.csv`、
+   `reference_key_field=target_id`；终态 output graph 为 `reference_complete_required=true`、`reference_complete=true`、
+   `reference_projected=true`、`zero_filled_count=1`，最终只输出 `17,0,5`；
+2. 补零不是系统从文件名、用户原文或答案文本猜出的业务结论。模型先用 typed output contract 选择完整 reference universe，执行器再按同域 key 与稳定行序投影；
+   `complete_reference=false` 的 subset 车道没有变化，candidate census 继续只是 soft guidance；
+3. data 仍用了 11 rounds、2 repairs。模型先后给 `filter_records` 塞入不存在的 `source_filter_field`，又给 `join_records` 塞入
+   `lookup_specs/lookup_specs_json`；运行时 owning action validator 均正确 fail-closed，并返回该 kind 的 canonical 参数集合，故没有错误动作或答案逃逸；
+4. 新立 `EVAL-B349-ACTIONPARAMSCHEMA1=P1`：动态 schema 已按当前 DAG rank 收窄 `actions[].kind`，但同一个 action object 的
+   `params` 仍是 `additionalProperties:true`，并在通用描述中同时展示跨 kind 的 `filters/left_fields/lookup_specs/...`。也就是说系统精确选择了动作类型，却仍把其它动作的参数
+   教给同一 JSON 槽；模型只能到执行阶段才知道参数归属，造成可避免的多轮修复；
+5. 最优方案不是放宽 runtime validator、吞掉未知字段或为本 case 写提示。应由 data action 的单一 typed capability/parameter registry 同时生成运行时允许集合、
+   planner schema 与 compact repair schema；每个 `kind` 只暴露自己的 `params.properties`，`additionalProperties=false`，并保留必要的真实 JSON array/object 类型。
+   若现有 runtime 允许同义 alias，则 schema 也必须从同一 registry 明确表达，不能在 prompt 手抄第二份清单；
+6. Trace 再次验证显式窗、系统补采、wakeup path、链上根因排序、实际时间占用与规则可消量双轴均完整。同一 VerifyClass 物理 occurrence 仍只有
+   `E25(+3)` 一个链上语义席；#1/#2/#3 主因全部为 typed on-chain。数值更大的邻近 runnable、CPU/IO、页缓存和块设备背景行只作支撑与新排查方向，未因邻近或规模进入根因；
+7. `frame_evidence_status=absent` 只限制具体 frame/deadline 因果，不撤销窗口内已证唤醒链。模型仍把
+   `priority_inversion_candidate` 条件性延伸到 lock/PI 修向，但系统 typed boundary 已明确 holder/waiter 未证；按模型服从波动观察，不扫描、硬拒或替写正文；
+8. 两案 finalizer reject 均为 0，无 malformed answer、无系统答案替换。下一施工批先验证 parameter registry 是否已经存在可复用的单源；只有能保持所有 action
+   现有兼容类型与 runtime fail-closed 时才落地 B349，否则先记债进入异构 read/write 批，不为降低一例轮数制造第二份合同。
+
+状态：runner=`2/2 PASS`；human=`2/2 PASS`；
+`EVAL-B348=production-closed`；`EVAL-B346=production-remains-closed`；
+`EVAL-B349=P1-confirmed/architecture-audit-next`；`data-rounds=11`；`data-repairs=2`；
+`trace-root=typed-on-chain-only`；`adjacent/background=reference-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
