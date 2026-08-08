@@ -26273,3 +26273,24 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 状态：`EVAL-B338=S37bn-implemented/internal-tool-suite-pass/pending-production-replay`；
 `repair=adjacent-closed-metadata-only/no-conflict`；`ambiguous=fail-loud`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`；`EVAL-B339=P1-next`。
+
+### 123.337 S37bo：Trace 状态区间、实测占用与有效归因分轴进入最终上下文
+
+`EVAL-B339-TRACESTATEINTERVALCALIBER1` 在 analyzer planning 与 finalizer typed tail 两层收紧，但不增加答案硬门或 mutation：
+
+1. analysis skill 与 `emit_analysis` schema 同源明确：`sub_topics[].summary` 是当前问题的 planning scope/question，不是答案或证据；不得填入用户未给出的
+   派生数量、区间、因果结论或实现事实；
+2. finalizer 的 multi-topic 结构块把原有“必须覆盖每项”补齐为“只覆盖 topic，不继承 provisional detail”：每个数量、区间、状态、因果与实现主张都必须从 grounded
+   evidence/typed runtime row 重算；该说明适用于 runtime/source/history 等所有多主题答案；
+3. Trace 最终 typed decision boundary 新增 scheduler-state 区间语义：typed wakeup 结束前一 sleep/io_wait 段，wakeup 到下一次 sched-in 是 runnable_wait；禁止把
+   两段合成并继续命名为 IO/D/sleep；
+4. 同一尾部把 measured occupancy/cumulative duration 与 effective attribution 分轴：后者是已发布排序/可消量，存在不同实测占用时不得称作实际等待/状态时长；
+5. 方向 leader 行携带 `leader_state_kind`、`leader_measured_state_occupancy` 与 typed occurrence interval；另对 cumulative 与 effective 不同的状态行发
+   bounded `state_value_authority`（每工件最多 8 行、typed identity 去重），例如 logger 19.5ms 实测状态与 7ms effective 明确并置；
+6. 所有判据只读 projection typed fields、状态 enum、数值和时间端点；不扫描请求、sub-topic 字面、model thinking/summary/答案，也不删除、替换或纠正正文；
+7. 聚焦回归钉住 11ms leader state/interval 载体、19.5ms vs 7ms distinct 行、相等值静默负臂、多主题 planning-only 提示以及模型答案所有权。
+
+状态：`EVAL-B339=S37bo-implemented/agent+skill+tool-suite-pass/pending-production-replay`；
+`state-interval=wakeup-ends-wait/post-wakeup-runnable`；
+`value-caliber=measured-occupancy!=effective-attribution`；`subtopics=planning-only`；
+`raw-prose-hard-gate=none`；`answer-mutation=none`；Trace 根因/投影计算/自动补采=`unchanged`。

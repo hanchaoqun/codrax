@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -67,6 +68,9 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
+	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
+	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
+	b.WriteString(renderTraceFinalStateValueAuthority(set))
 	switch {
 	case hasActual && hasEliminable:
 		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule eliminable impact, and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
@@ -213,6 +217,15 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			fmt.Fprintf(&b, "  - fix_direction=`%s`; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
 				strings.TrimSpace(node.FixDirection), node.Rank, strings.TrimSpace(node.Subject),
 				node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+			if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
+				fmt.Fprintf(&b, "; leader_state_kind=`%s`", stateKind)
+			}
+			if measured := traceFinalMeasuredStateOccupancy(node); measured > 0 {
+				fmt.Fprintf(&b, "; leader_measured_state_occupancy=%.3fms", measured)
+			}
+			if node.StartTs > 0 && node.EndTs > node.StartTs {
+				fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
+			}
 			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
 				role := "supporting_query_window"
 				if traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
@@ -227,6 +240,60 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 		}
 	}
 	return b.String()
+}
+
+// renderTraceFinalStateValueAuthority surfaces only typed rows where the
+// measured state duration and published effective attribution differ. The
+// compact distinction is deliberately prompt-only: it gives the model exact
+// caliber without inspecting or rewriting its prose. Rows are bounded and
+// deduped by typed identity so exploratory duplicates cannot flood the tail.
+func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) string {
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		pool := make([]types.TraceCausalProjectionNode, 0,
+			len(projection.RankedSeats)+len(projection.OnChainCauses)+len(projection.BackgroundCauses))
+		pool = append(pool, projection.RankedSeats...)
+		pool = append(pool, projection.OnChainCauses...)
+		pool = append(pool, projection.BackgroundCauses...)
+		seen := map[string]bool{}
+		emitted := 0
+		for _, node := range pool {
+			identity := traceDecisionNodeIdentity(node)
+			if seen[identity] {
+				continue
+			}
+			seen[identity] = true
+			stateKind := strings.TrimSpace(node.StateKind)
+			measured := traceFinalMeasuredStateOccupancy(node)
+			effective := node.EffectiveImpactMS
+			if stateKind == "" || measured <= 0 || effective <= 0 || math.Abs(measured-effective) < 0.0005 {
+				continue
+			}
+			fmt.Fprintf(&b, "- state_value_authority artifact=`%s`; subject=`%s`; state_kind=`%s`; measured_state_occupancy=%.3fms; effective_attribution=%.3fms; relation=`distinct_do_not_substitute`; row_identity=`%s`",
+				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)),
+				traceDecisionPromptScalar(stateKind), measured, effective, traceDecisionPromptScalar(identity))
+			if node.StartTs > 0 && node.EndTs > node.StartTs {
+				fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
+			}
+			b.WriteString("\n")
+			emitted++
+			if emitted >= 8 {
+				break
+			}
+		}
+	}
+	return b.String()
+}
+
+func traceFinalMeasuredStateOccupancy(node types.TraceCausalProjectionNode) float64 {
+	if node.CumulativeImpactMS > 0 {
+		return node.CumulativeImpactMS
+	}
+	return node.ImpactMS
 }
 
 type traceFinalBlockingRelation struct {

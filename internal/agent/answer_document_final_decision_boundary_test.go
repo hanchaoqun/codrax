@@ -82,6 +82,10 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"selected_window_authority artifact=`customer.systrace`; selected_window=`10.000000..10.020000`",
 		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
 		"frame_boundary_authority=`not_provided`",
+		"scheduler_state_interval_authority=`typed_state_segments`",
+		"time from wakeup until the next sched-in is runnable_wait",
+		"trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`",
+		"never call it an actual wait/state duration",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
 		"direct_blocking_decision=`not_established`",
 		"fix_direction_summary_authority=`single_published_leader_only`",
@@ -108,6 +112,35 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	bounded := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if strings.Contains(bounded, "## Final Trace Decision Boundary") {
 		t.Fatalf("bounded fact request was widened into trace synthesis:\n%s", bounded)
+	}
+}
+
+func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAttribution(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace",
+		BackgroundCauses: []types.TraceCausalProjectionNode{{
+			EvidenceID: "logger-bg", Subject: "logger-900", StateKind: "d_sleep",
+			ImpactMS: 7, CumulativeImpactMS: 19.5, EffectiveImpactMS: 7,
+			StartTs: 2.0005, EndTs: 2.020,
+		}},
+	}
+	got := renderTraceFinalStateValueAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"subject=`logger-900`",
+		"state_kind=`d_sleep`",
+		"measured_state_occupancy=19.500ms",
+		"effective_attribution=7.000ms",
+		"relation=`distinct_do_not_substitute`",
+		"occurrence_interval=`2.000500..2.020000`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("state-value authority missing %q:\n%s", want, got)
+		}
+	}
+
+	projection.BackgroundCauses[0].EffectiveImpactMS = 19.5
+	if got := renderTraceFinalStateValueAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}); got != "" {
+		t.Fatalf("equal measured/effective values need no distinction row: %s", got)
 	}
 }
 

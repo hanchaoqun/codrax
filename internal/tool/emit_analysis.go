@@ -458,11 +458,11 @@ func buildEmitAnalysisSchema() {
 			"language":      stringProp{Type: "string", Enum: []string{"zh", "en"}},
 			"sub_topics": map[string]any{
 				"type":        "array",
-				"description": "Independent sub-topics in the user's question. Empty for single-topic questions. Do NOT split topics with causal dependencies.",
+				"description": "Independent planning scopes from the user's question. Empty for single-topic questions. Do NOT split topics with causal dependencies, and do not put derived quantities or provisional conclusions in the summary.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"summary":  map[string]string{"type": "string", "description": "One-sentence sub-topic description"},
+						"summary":  map[string]string{"type": "string", "description": "One-sentence planning topic/question, not an answer or evidence claim"},
 						"entities": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Code entities for this sub-topic"},
 					},
 					"required": []string{"summary"},

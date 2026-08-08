@@ -860,6 +860,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			b.WriteString("## Answer Structure (multi-topic)\n\n")
 			b.WriteString("The user asked about multiple topics. " +
 				"Your principal blocks MUST address each one with a clearly labeled section (use `section` blocks per topic OR a single `summary` block whose text carries one labeled section per topic):\n\n")
+			b.WriteString("The sub-topic summaries below are model-authored planning labels, not evidence or accepted conclusions. Preserve their topic coverage, but recompute every quantity, interval, state, causal claim, and implementation fact from grounded evidence or typed runtime rows; never copy a provisional detail merely because it appears in a sub-topic summary.\n\n")
 			for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
 				fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
 			}

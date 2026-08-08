@@ -369,6 +369,20 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_PrecedesFieldRules(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_SubTopicsRemainPlanningScopesNotProvisionalAnswers(t *testing.T) {
+	cfg := BuildAnalysisSkill()
+	out := analysisSkillPrompt(t) + "\n" + strings.Join(cfg.Workflow, "\n")
+	for _, want := range []string{
+		"A sub-topic summary is a planning scope, not an answer",
+		"do not insert a derived quantity, interval, causal conclusion, or implementation claim",
+		"planning scopes/questions, not provisional answers or derived factual claims",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("sub-topic planning boundary missing %q", want)
+		}
+	}
+}
+
 func TestAnalysisSkill_CurrentQuestionPrimacy_R6Audit(t *testing.T) {
 	// The skill prompt is LLM-facing — internal pipeline jargon
 	// must stay out of the new rule. Window the audit to just the

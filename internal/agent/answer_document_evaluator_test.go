@@ -5867,6 +5867,8 @@ func TestAnswerDocumentEvaluator_RuntimeOnlyMultiTopicDoesNotDemandRepoCitations
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Answer Structure (multi-topic)",
+		"model-authored planning labels, not evidence or accepted conclusions",
+		"recompute every quantity, interval, state, causal claim, and implementation fact",
 		"preserve the attached-artifact provenance in each section",
 		"do not invent current-repo citations",
 		"only when a separate typed current-source anchor directly supports that section",
