@@ -291,10 +291,10 @@ type RequestModel struct {
 	// action-direction is the question about?". Used by the
 	// evidence ranker to bias items whose AnchorKind matches the
 	// axis (AxisCall × AnchorCall → 1.5x; AxisCall × AnchorDefinition
-	// → 0.7x). Populated by analyzer_predicate.go::reconcilePredicateAxis
-	// from a verb-cue table; zero-value (AxisUnknown) disables the
-	// axis boost entirely and preserves historical ranking for
-	// questions without a clear verb cue.
+	// → 0.7x). Emitted through the schema-validated analyzer contract;
+	// zero-value (AxisUnknown) is the required explicit sentinel that
+	// disables the axis boost and preserves historical ranking for
+	// questions without a clear action relation.
 	PredicateAxis PredicateAxis `json:"predicate_axis,omitempty"`
 
 	// DiagramHint is the analyzer LLM's optional suggestion for the

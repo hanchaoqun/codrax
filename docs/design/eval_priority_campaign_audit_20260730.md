@@ -27089,3 +27089,55 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `precedence-authority=ordered-value-only`；`single-line-definition=bounded-forward-read-only`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；
 Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
+
+### 123.371 r217：有序值载体生产闭环；修复提示导致已通过关系被整图删除
+
+在 `main@e6051ef43` 上严格并发恰好两个同案回放。runner 2/2 PASS，人工仍 0/2：
+
+1. `qf_diagram_pipeline` 从 r216 的 20 次 reject / 829 秒 / degraded 降到 3 次 reject / 149 秒 / 正常成文；
+   `StageAnalyze -> StageExplore -> StageExtract -> StageFinalize` 三条内部 precedence 边在 returned slice 上通过，确认 B363/B364 的生产接线与权限收窄均生效；
+2. 该案只剩 `Request -> StageAnalyze` 与 `StageFinalize -> AnswerDocumentV2` 两条无 typed authority 的边，但修复回合先删除全部 anchors，随后删除全部箭头，
+   最终 Mermaid 只剩六个孤立节点。runner 只检查 stage 名与 Mermaid fence，因而误签 PASS。立
+   `EVAL-B367-SURGICALRELATIONREPAIR1=P1/HIGH`：validator 已拥有精确 mismatch pair，却未明确告诉模型“未列边已通过本关系门，必须保留”；
+3. `qf_logic_view_read_pipeline` 本轮 analyzer 正确发出 `predicate_axis=flow`，说明 B365 是 schema/教学漂移而非轴完全断线。schema enum 已包含 flow，
+   但字段描述仍只列 call/register/define/return/configure/condition/implement，且顶层 required 与 analyzer 的 required-field 教学均把 predicate_axis 标为 optional；
+4. logic 案的 strict relation gate 正确拒绝不存在的 `runReadPipeline()` 调用和未证的 Agent -> Mutable assignment；模型随后删图中所有边，却在节点与正文继续保留
+   不存在的 `runReadPipeline()`，并断言各 agent 向 MutableState 写入具体产物。关系门只约束结构化箭头，不能代替准确的 source context；
+5. flow findings 已从 24,689 压到 128，coverage 诚实披露 incomplete，但 handoff 仍主要由测试、远端 helper 与不相关 source/sink pair 占据；相关 component owner、
+   调度点、赋值/返回边没有形成可供模型消费的 verified operation-level subset。立 `EVAL-B368-FLOWCONTEXTRELEVANCE1=P1/HIGH`，先审计 rank/scope，
+   不以本 case 的名字、文件或最终文本做加权；
+6. 两案均无 malformed JSON、无系统答案替写、无 raw request/thinking/summary/final prose 硬门。stage-binding supplement 明说不替代模型答案；它不能修复模型正文中的
+   虚构 owner，也未改动模型结论；
+7. 两案均无 Trace 查询。后续 JSON/diagram 合同只消费 schema-valid typed fields，并继续排除 `QFRootCauseTrace`；显式窗、自动补采、因果投影、唤醒链、根因排序、
+   真实占时/规则可消双轴不变。Trace 主因只允许 typed on-chain 席，邻近/背景只能作为额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`0/2`；
+`EVAL-B363=production-closed`；`EVAL-B364=production-closed`；
+`EVAL-B365=P1-confirmed/schema-teaching-drift`；`EVAL-B366=P1-confirmed`；
+`EVAL-B367=P1-confirmed`；`EVAL-B368=P1-confirmed/audit-before-code`；
+`finalizer-reject=3+5`；`malformed-json=none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.372 S37ci：JSON 关系轴单源显式化；关系修复只动失败边
+
+按 B365/B367 的共同合同面施工，不处理尚未完成 rank/scope 审计的 B366/B368：
+
+1. `predicate_axis` 继续使用原 schema-valid enum，但从 optional 改为每个 `emit_analysis` JSON 都必须显式提供；无明确 action relation 时发空 enum 哨兵，
+   而不是依赖字段缺失。schema 顶层 required、required-field 教学与可选字段清册同步，消除一处 JSON 自相矛盾；
+2. schema 的字段级最小教学补齐 `flow`，并复用既有语言无关定义：value/state/control 从 producer 经 transfer/merge boundary 到 consumer 的有序移动。
+   没有文件名、case 名、语言名或用户关键词表；Go、Java/Kotlin、JS/TS/ArkTS、C/C++、Rust、Python、Swift、Cangjie 等共享同一 enum；
+3. 空 axis 仍是合法显式值，ordinary 非关系问题不被强迫成 flow/call；source call-chain 的既有 typed reconcile 保持。没有根据答案文本自动推断轴，也没有系统替模型选择轴；
+4. relation validator 已经返回精确失败 pair。本批在同一 typed mismatch 提示上增加外科式边界：只修改所有本轮 relation-gate hints 列出的边；
+   未被任何该类 hint 列出的可见边与 anchor 已通过本关系门，必须保留。多种 relation kind 同轮失败时以全部 hint 的并集为失败集，避免单 hint 错称其它失败边已通过；
+5. 系统不自动补/删/重画 Mermaid，不改变 model block，不从 request、thinking、summary、final prose 或 edge label 猜关系。模型仍可纠正、删除失败 pair 或披露证据边界；
+6. 回归钉住 schema required 集、enum/教学单源、flow 定义、typed repair metadata 与外科式提示。相关 tool/skill/agent/types 包通过，`go test ./... -count=1` 全绿，
+   覆盖 data/write、hitraceconv、tracequery、tracediag、mermaid/render 与 repomap 全语言面；
+7. 本批不进入 Trace family、因果编译、投影或答案 mutation。显式窗、自动补采、唤醒链、根因排序与两类耗时结论保持；主因只来自 typed on-chain 席，
+   邻近/背景只作额外排查方向。
+
+状态：`EVAL-B365=S37ci-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B367=S37ci-implemented/full-suite-pass/pending-production-replay`；
+`predicate-axis=required-explicit-or-empty/schema-single-source`；
+`relation-repair=typed-mismatch-union/surgical/no-answer-mutation`；
+`EVAL-B366=open`；`EVAL-B368=open/audit-before-code`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

@@ -3823,6 +3823,8 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 	}}
 }
 
+const diagramRelationSurgicalRepairInstruction = " Only edge pairs listed by the relation-gate hints for this draft failed this relation gate; preserve every visible edge and anchor not listed by any of those hints. Correct or remove only the listed edge pairs."
+
 func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if pctx == nil {
 		return nil
@@ -3851,7 +3853,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
 			ExpectedShape: "declare each exact typed call endpoint under one Mermaid alias; reuse that one alias on every body edge, and set edge_anchors[].from_node/to_node to the verbatim alias IDs used by the body. Remove the duplicate participant declaration rather than renaming the typed endpoint: " +
-				strings.Join(parts, "; "),
+				strings.Join(parts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason: "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
 		}}
 	}
@@ -3891,7 +3893,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Field:               "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, typeRelationMismatches),
-			ExpectedShape:       "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; "),
+			ExpectedShape:       "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason:              "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
 		})
 	}
@@ -3900,7 +3902,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Field:               "blocks[].edge_anchors[relation_kind=assignment|return] AND blocks[kind=diagram].diagram.body",
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, valueFlowMismatches),
-			ExpectedShape:       "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; "),
+			ExpectedShape:       "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason:              "assignment, initialization, and factory return are value-flow relations rather than source invocations. Their typed relation kinds preserve runtime-target selection without inventing a call edge; labels and prose never create this authority.",
 		})
 	}
@@ -3910,7 +3912,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, logicalRelationMismatches),
 			ExpectedShape: types.GroundedSourceDiagramRelationEvidenceContract + " Do not relabel an unproved call, dispatch, binding, or value-flow edge as a logical relation: " +
-				strings.Join(logicalRelationParts, "; "),
+				strings.Join(logicalRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason: "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
 		})
 	}
@@ -3920,7 +3922,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, otherMismatches),
 			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge; restore the matching evidence-backed arrow or remove stale metadata instead of emitting a hidden metadata-only graph. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with a forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses a declared type relation, observation, containment, or ordering rather than a direct invocation, use the matching non-call typed relation instead of inventing call authority; add missing anchors, restore matching evidence-backed body edges, or remove/correct unsupported visible edges/stale anchors: " +
-				strings.Join(otherParts, "; "),
+				strings.Join(otherParts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason: "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
 		})
 	}

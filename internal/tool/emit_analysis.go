@@ -848,7 +848,7 @@ func buildEmitAnalysisSchema() {
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
-				"description": "Action-direction axis of the question (call / register / define / return / configure / condition / implement). For a source-code question_kind=call_chain emit call; the tool repairs an omitted axis from that typed kind but rejects an explicitly conflicting axis. Empty when no other clear action exists. Used by the evidence ranker to bias items whose anchor matches the axis.",
+				"description": "Required action-direction axis of the question (call / register / define / return / configure / condition / implement / flow). Use flow for ordered movement of value, state, or control across producers, transfer or merge boundaries, and consumers. For a source-code question_kind=call_chain emit call; the tool repairs an empty axis from that typed kind but rejects an explicitly conflicting axis. Empty only when no clear action relation exists. Used by the evidence ranker to bias items whose anchor matches the axis.",
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
@@ -912,6 +912,7 @@ func buildEmitAnalysisSchema() {
 		},
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
+			"predicate_axis",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
 			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "completeness_obligation", "call_chain_endpoints",
@@ -5500,7 +5501,7 @@ func validateConfidenceRange(intentConf, compConf, kindConf float64) string {
 	return ""
 }
 
-// parsePredicateAxis coerces the optional predicate_axis enum string
+// parsePredicateAxis coerces the required predicate_axis enum string
 // into a typed PredicateAxis. Empty string is a legitimate "no axis
 // extracted" signal (AxisUnknown). An unrecognised non-empty value
 // is rejected so a typo cannot silently downgrade to AxisUnknown

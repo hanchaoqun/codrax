@@ -7605,6 +7605,15 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignmentCarriesActualOffendingBlockKind
 	if len(hints) != 1 {
 		t.Fatalf("expected one unproved call-edge hint, got %+v", hints)
 	}
+	for _, want := range []string{
+		"Only edge pairs listed by the relation-gate hints for this draft failed this relation gate",
+		"preserve every visible edge and anchor not listed by any of those hints",
+		"Correct or remove only the listed edge pairs",
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("diagram relation repair must be surgical; missing %q in %q", want, hints[0].ExpectedShape)
+		}
+	}
 	hints = appendPreEmitHints(nil, types.ViolDiagramCallEdgeUnproven, hints)
 	repair := emitFixHintsRepair(hints)
 	if repair == nil {

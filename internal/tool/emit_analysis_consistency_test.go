@@ -65,7 +65,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	wantRequired := map[string]bool{
 		"intent": true, "scenario": true, "complexity": true,
 		"keywords": true, "entities": true,
-		"question_kind": true,
+		"question_kind": true, "predicate_axis": true,
 		// v4 fail-loud additions: every classification carries its own
 		// confidence; the predicates object is the cross-language
 		// replacement for the deleted prose-cue tables and must be
@@ -214,6 +214,39 @@ func TestEmitAnalysisSchemaIncludesHistorySelectionProfile(t *testing.T) {
 	for _, field := range []string{"mode", "item_kind", "confidence"} {
 		if !slices.Contains(prop.Required, field) {
 			t.Fatalf("history_selection_profile.required=%v missing %s", prop.Required, field)
+		}
+	}
+}
+
+func TestEmitAnalysisSchemaRequiresPredicateAxisAndTeachesFlow(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	if !slices.Contains(parsed.Required, "predicate_axis") {
+		t.Fatalf("predicate_axis must be explicit in every analyzer JSON object; required=%v", parsed.Required)
+	}
+	propRaw, ok := parsed.Properties["predicate_axis"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"predicate_axis\"")
+	}
+	var prop struct {
+		Enum        []string `json:"enum"`
+		Description string   `json:"description"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("predicate_axis property is not valid JSON schema: %v", err)
+	}
+	if !reflect.DeepEqual(prop.Enum, skill.AnalysisPredicateAxisValues()) {
+		t.Fatalf("predicate_axis enum drift: schema=%v contract=%v", prop.Enum, skill.AnalysisPredicateAxisValues())
+	}
+	for _, want := range []string{"flow", "value", "state", "control", "Empty only when"} {
+		if !strings.Contains(prop.Description, want) {
+			t.Fatalf("predicate_axis schema teaching missing %q in %q", want, prop.Description)
 		}
 	}
 }
