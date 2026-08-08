@@ -27545,3 +27545,26 @@ B377 carrier 审计与第一安全层落地：
 `EVAL-B378=P0-confirmed/next`；`finalizer-reject=1+3`；
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.390 S37cu：typed-flow 展示车道与关系所有权改为同一语义边界
+
+关闭 B378 的确定性合同自冲突，不降低关系证据门：
+
+1. `GroundedSourceDiagramRelationEvidenceContract` 继续作为 prompt、动态 schema、pre-emit repair 与 skill 的单一词源；删除“任何无 metadata 图都可视作 presentation-only”的无条件表述；
+2. 新边界明确为：只有 semantic view 没把 arrow 分类为当前所求 source relation 时，图才可省略 typed relation owner。schema-valid typed source call-chain / flow-axis 中，
+   每条可见 arrow 始终是 principal relation claim，不能删除 `edge_anchors` 逃进展示车道；
+3. 该词面现在与 `GroundedSourceDiagramEdgeOwnershipContract`、`AnswerSemanticView.RelationAxis` 注释以及 production validator 完全一致。模型遇到无证边时只能选择：
+   使用已有 citable typed relation recipe、继续补读真实 operation site、删除不受支持的可见边，或披露 unproven boundary；不会再被系统诱导做必然失败的“只删 metadata”修复；
+4. 普通 `QFGeneric` / 非 flow-axis architecture 的 presentation-only 图保持原行为，不新增关系硬门；判定仍只读 typed semantic view、parsed Mermaid structure 与 schema-valid anchors，
+   不扫描用户请求、thinking、summary、final prose、edge label 词义、case 名、语言或实体相似度；
+5. 新负 pin 同时要求 relation contract 保留 typed-flow 例外、禁止旧无条件逃逸句回归，并与 body-ownership contract 的 `flow-axis request` 边界相互钉住；
+6. `go test ./... -count=1` 全绿，覆盖 read/write/data、orchestrator、hitraceconv、tracequery/tracediag、render/mermaid 与全语言 repomap；
+7. 本批不自动生成/删除图边、不修改 AnswerDocument、不替模型结论，也不增加 JSON 字段或重试预算。下一次同案 replay 验收模型不再走 metadata 自冲突；
+8. runtime/root-cause Trace 仍在 source diagram validator 入口提前排除，继续使用独立 typed causal authority。显式时间窗、自动补采、因果投影、链上根因、唤醒链、
+   根因排序、窗内可消除量及真实占时/规则可消双维不变；邻近区域和背景信息仍只能作为额外排查方向。
+
+状态：`EVAL-B378=S37cu-implemented/full-suite-pass/pending-production-replay`；
+`typed-flow-arrow=principal-relation/owner-required`；
+`ordinary-presentation-diagram=unchanged`；`json-schema=unchanged`；
+`retry-budget=unchanged`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

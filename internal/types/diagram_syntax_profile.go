@@ -36,11 +36,13 @@ const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a
 // rule for explicit logical non-call edges in every non-runtime diagram family.
 // Keep this separate from the body-ownership sentence: relation_kind records
 // what the model claims an edge means, while a citable typed EvidenceItem is
-// the authority that may prove it. A presentation-only diagram that declares no
-// typed relation remains outside this evidence assertion. Runtime/root-cause
-// trace diagrams use their own causal relation authority and are intentionally
-// outside this contract.
-const GroundedSourceDiagramRelationEvidenceContract = "In every non-runtime diagram family, an explicit guard/import/precedence/observe relation_kind requires one same-direction citable typed EvidenceItem of the matching claim form; relation_kind alone is not evidence. A guard edge is enclosing callable -> condition identity (or an explicit typed conditional object). Containment has no edge-level claim form, so use Mermaid subgraph/grouping instead of a contain arrow. Presentation-only diagrams that declare no typed relation remain outside this evidence assertion."
+// the authority that may prove it. A presentation-only diagram may omit typed
+// relations only when the semantic view does not classify its arrows as the
+// requested source relation. In particular, typed source call-chain and
+// AxisFlow arrows cannot shed their owners to enter that lane. Runtime/root-
+// cause trace diagrams use their own causal relation authority and are
+// intentionally outside this contract.
+const GroundedSourceDiagramRelationEvidenceContract = "In every non-runtime diagram family, an explicit guard/import/precedence/observe relation_kind requires one same-direction citable typed EvidenceItem of the matching claim form; relation_kind alone is not evidence. A guard edge is enclosing callable -> condition identity (or an explicit typed conditional object). Containment has no edge-level claim form, so use Mermaid subgraph/grouping instead of a contain arrow. A diagram may omit typed relations only when the semantic view does not classify its arrows as the requested source relation. In a typed source call-chain or flow-axis request, every visible arrow remains a principal relation claim and cannot drop edge_anchors to become presentation-only."
 
 func DiagramSyntaxProfileFor(kind DiagramKind) DiagramSyntaxProfile {
 	switch kind {

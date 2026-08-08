@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDiagramSyntaxProfilesCoverAllDiagramKinds(t *testing.T) {
 	for _, kind := range AllDiagramKinds() {
@@ -66,5 +69,23 @@ func TestDiagramKindUsesCodeEndpointsComesFromProfile(t *testing.T) {
 		if got != want {
 			t.Fatalf("DiagramKindUsesCodeEndpoints(%q) = %v, want %v", kind, got, want)
 		}
+	}
+}
+
+func TestGroundedSourceDiagramContractsDoNotOfferTypedFlowMetadataEscape(t *testing.T) {
+	for _, want := range []string{
+		"semantic view does not classify its arrows as the requested source relation",
+		"typed source call-chain or flow-axis request",
+		"cannot drop edge_anchors to become presentation-only",
+	} {
+		if !strings.Contains(GroundedSourceDiagramRelationEvidenceContract, want) {
+			t.Fatalf("relation contract is missing typed-flow ownership boundary %q: %s", want, GroundedSourceDiagramRelationEvidenceContract)
+		}
+	}
+	if strings.Contains(GroundedSourceDiagramRelationEvidenceContract, "Presentation-only diagrams that declare no typed relation remain outside") {
+		t.Fatalf("relation contract still exposes the unqualified metadata escape: %s", GroundedSourceDiagramRelationEvidenceContract)
+	}
+	if !strings.Contains(GroundedSourceDiagramEdgeOwnershipContract, "flow-axis request") {
+		t.Fatalf("body ownership contract lost the matching typed-flow boundary: %s", GroundedSourceDiagramEdgeOwnershipContract)
 	}
 }
