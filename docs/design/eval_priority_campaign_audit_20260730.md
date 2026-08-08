@@ -27469,3 +27469,24 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `preemit-postcontract=single-typed-derivation`；`derived-evidence=invocation-local/not-persisted`；
 `document-change=revalidate/fail-closed`；`json-teaching=unchanged`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.387 S37cs：FRCAP 用 typed visible-carrier identity 去掉同稿整页重复
+
+关闭 B369 的本轮复现形，不删除不同模型稿件：
+
+1. 根因不是 renderer 普通去重失效，而是旧门只比较 `firstDraft == out.FinalAnswer`。FRCAP 恢复同一首稿后追加 residual system caveat，字符串自然不同，
+   于是系统把完整首稿再次附在“系统保留内容 / 第一稿答案”下；
+2. 首次 Finalizer 输出现在同时快照 model-visible typed carrier：`AnswerDocumentV2 + accepted AnswerDisplayAttachments`。比较不读正文词义、用户请求、模型 thinking/summary，
+   也不依赖标题、关键词或相似度；
+3. 最终出厂前，若 FRCAP/其它恢复路径的当前 typed carrier 与首稿快照字节一致，只省略重复 first-draft attachment。已经追加的 residual typed caveat 保持在主答案中，
+   主正文、顺序、引用、图和结论均不改写；
+4. 任一结构块、字段或 recovered model attachment 不同，identity 立即失效，继续保留首稿参考。测试覆盖“同 carrier + 系统 caveat 不重复”与“不同 doc 仍保留首稿”两臂；
+5. 快照只在本任务 scheduler local 生命周期内使用，不进入 evidence ledger、prompt、memory 或跨任务 Mutable 权威；它是 presentation dedup，不是事实/结论 gate；
+6. `attachFirstDraftReference` 拆出热文件到独立职责文件，`orchestrator.go` 从 9145 降到 9104 行，没有抬高 IR delivery ratchet；
+7. `go test ./... -count=1` 全绿，含 truncation、caveat replay、FRCAP、read/write/data、trace/conversion、Mermaid 与全语言 repomap 包；
+8. 本批不接触 Trace relation authority。显式窗因果投影和系统补采不变；链上 typed 证据仍是唯一主因来源，邻近区域与背景只作为额外排查方向。
+
+状态：`EVAL-B369=S37cs-implemented/full-suite-pass/pending-production-replay`；
+`dedup=typed-visible-carrier-identity`；`distinct-model-content=preserved`；
+`residual-caveat=preserved`；`hot-file-ratchet=green`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。

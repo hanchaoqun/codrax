@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,39 @@ import (
 	answertool "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type finalizeVisibleCarrierSnapshot struct {
+	Document    *types.AnswerDocumentV2         `json:"document"`
+	Attachments []types.AnswerDisplayAttachment `json:"attachments,omitempty"`
+}
+
+// finalizeRepairVisibleCarrierSnapshot captures the model-visible structured
+// carrier without the later string-channel caveats. It is used only to avoid
+// attaching the same first draft below itself after FRCAP restored that exact
+// carrier and then appended a residual system note. Different documents or
+// recovered model attachments remain distinct and are never suppressed.
+func finalizeRepairVisibleCarrierSnapshot(mut *types.MutableState) []byte {
+	if mut == nil {
+		return nil
+	}
+	doc := mut.AnswerDocumentV2()
+	attachments := mut.AnswerDisplayAttachments()
+	if doc == nil && len(attachments) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(finalizeVisibleCarrierSnapshot{
+		Document:    doc,
+		Attachments: attachments,
+	})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func finalizeRepairVisibleCarrierMatches(snapshot []byte, mut *types.MutableState) bool {
+	return len(snapshot) > 0 && bytes.Equal(snapshot, finalizeRepairVisibleCarrierSnapshot(mut))
+}
 
 // finalize_repair_draft_ledger.go — FRCAP (§29.12,
 // docs/design/real_trace_campaign_20260705.md, 2026-07-10).

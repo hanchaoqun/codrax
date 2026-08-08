@@ -92,7 +92,7 @@ func TestCAVSTRDisclosureSurvivesFirstDraftAttachment(t *testing.T) {
 	// re-rendered from the doc.
 	o.attachFirstDraftReference(out, "第一稿正文（内容不同）。", []types.Violation{{
 		Kind: types.ViolBlockCoverageMissing, Detail: "x",
-	}}, true)
+	}}, true, nil)
 
 	if !strings.Contains(out.FinalAnswer, "第一稿答案") {
 		t.Fatalf("attachment must have re-rendered (test premise):\n%s", out.FinalAnswer)

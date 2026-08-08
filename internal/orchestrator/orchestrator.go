@@ -4638,6 +4638,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
 	var firstFinalizeDraft string
+	var firstFinalizeCarrierSnapshot []byte
 	var firstFinalizeConcerns []types.Violation
 	firstFinalizeRejectedForRewrite := false
 	preFinalizeExtractCompleted := false
@@ -5686,6 +5687,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		lastFinalize = out
 		if strings.TrimSpace(firstFinalizeDraft) == "" {
 			firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)
+			firstFinalizeCarrierSnapshot = finalizeRepairVisibleCarrierSnapshot(o.busCtx.Mutable)
 		}
 		if out.SkipAnswerChecks {
 			logging.Warning("[orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=%s",
@@ -6759,7 +6761,7 @@ contractFailureBreak:
 		// reference region never duplicates it — the appendix's one-line
 		// note replaces it.
 		if repairArbitrationNote == "" {
-			o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
+			o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite, firstFinalizeCarrierSnapshot)
 		}
 	}
 	// S3' ② (§29.47.1): mechanical cross-check findings on the SHIPPED
@@ -7830,39 +7832,6 @@ func (o *Orchestrator) injectInconclusiveForStuckHypotheses(stuckNodeID string) 
 	logging.Info("[scheduler/stuck] validate %s: injected %d inconclusive verdict(s) (evidence stable across retries)",
 		stuckNodeID, len(injected))
 	return len(injected)
-}
-
-func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDraft string, concerns []types.Violation, rejectedForRewrite bool) {
-	if o == nil || out == nil {
-		return
-	}
-	// This is the only final-answer path that may show a full
-	// "first draft" reference. It must be reserved for an actually
-	// rejected draft that caused a later finalizer rewrite. Soft
-	// concerns on an accepted first draft are surfaced as caveats or
-	// notes, not by duplicating the answer under a comparison panel.
-	if !rejectedForRewrite {
-		return
-	}
-	firstDraft = strings.TrimSpace(firstDraft)
-	finalAnswer := strings.TrimSpace(out.FinalAnswer)
-	if firstDraft == "" || finalAnswer == "" || firstDraft == finalAnswer {
-		return
-	}
-	lang := ""
-	if o.busCtx != nil {
-		lang = o.busCtx.Language
-	}
-	body := firstDraft
-	if note := draftConcernSummary(lang, concerns, true); note != "" {
-		body = note + "\n\n" + body
-	}
-	o.appendAnswerDisplayAttachment(out, types.AnswerDisplayAttachment{
-		Kind:   types.AnswerDisplayAttachmentMarkdown,
-		Title:  draftReferenceTitle(lang),
-		Body:   body,
-		Source: "orchestrator.first_finalize_draft",
-	})
 }
 
 func (o *Orchestrator) attachDraftReviewNote(out *agent.StageOutput, title string, concerns []types.Violation) {
