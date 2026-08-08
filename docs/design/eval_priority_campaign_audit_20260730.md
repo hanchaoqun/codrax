@@ -26809,3 +26809,40 @@ case/action 名补丁解决。
 `candidate-authority=soft-only`；`contract-mutation=none`；
 `duplicate-domain=not-falsely-advertised`；`phase2=requires-heterogeneous-witness`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.360 r212：reference 正确直达但候选臂未命中；逻辑图把字段存在误升为全量数据流
+
+在 `main@52cd6d29a` 上严格并发恰好两个 case：`data_multifile_reference_projection` 与
+`qf_logic_view_read_pipeline`。runner 2/2 PASS，人工为 data PASS / read-architecture FAIL：
+
+1. data 182s 完成，最终严格纯文本为 `17,0,5`。四条 contribution 为 GroupA=`10+7`、GroupB=`4`、GroupC=`5`；inactive r3 与
+   unmapped r6 没有进入贡献，reconcile 与 complete-reference grounding 均 pass，targets 中 GroupX 的槽位正确补零；
+2. 本轮模型从一开始就显式选择 `reference_key_field=canonical_label`，没有发生 `reference_ledger_domain_mismatch`，日志和终态均没有
+   `reference_domain_field_candidates`。因此 `EVAL-B351/S37cb` 只能记 production no-witness，不能把“最终答对”虚报成 candidate 修复臂闭环；
+3. data 共 10 rounds、2 repairs、5 action failures，主要是 DAG rank 与输入依赖的规划噪声；没有 `tool_params_schema_invalid`、foreign param 或
+   unknown-key witness，故 `EVAL-B349/S37bz` 同样是 no-witness，不能反向判定参数单源无效；
+4. 逻辑视图 236s，Explorer 1 次 completion、Finalizer 1 轮成文、零 reject；Mermaid source repair 只把 raw `\\n` 换为 `<br/>`，图可渲染且
+   节点/边语义未被系统改写。四个主阶段和大部分职责与 `StageBinding` 一致；
+5. 但用户要求的核心 data-flow 有确定性事实错误：模型把 Finalizer 的 `StageOutput`（节点标签明确含 `FinalAnswer`）画成经
+   `applyStageOutput` 写入 `BusContext`。源码 `StageOutput.FinalAnswer` 与 `applyStageOutput` 的注释明确相反：该字段不由 apply 捕获，而由 read scheduler
+   直接消费并写入 task result。正文又把 `StageBinding.Terminal=true` 误述为“写入 BusContext”；
+6. Analyzer 的 typed 误分类放大了问题：它把“简要说明各组件责任”解释为 single-winner role binding，发出
+   `is_role_locate_lookup=true + required_candidate_roles=[agent]`；系统随后把本来是 architecture mechanism/member-set 的问题编译成
+   `family=role_lookup/minimal_scalar_role_locate`，强制一个无关的 `AllMainStages` scalar 与单 citation。这里不是 JSON 畸形，而是 schema 合法的语义误选；
+7. Finalizer 已看见 StageOutput/BusContext 字段 roster 与源码池，但 roster 只证明字段存在，不证明每个字段都经同一 merge path 流转。现关系校验对没有
+   typed edge metadata 的 architecture 边保留 presentation-only 逃生臂，因而“字段存在 → 全部写入”的错误边没有被发现。runner 也只检查名称与 Mermaid 形态，
+   未覆盖边的事实真值；
+8. 新立 `EVAL-B353-ARCHROLEFLOWAUTH1=P1`。最优方案不新增答案硬改：Analyzer 软教学明确 component/stage roster 的职责、接力与 data-flow 不等于
+   从线索中选一个角色；只有用户另行要求一个 principal winner 时才启用 role lookup。Explorer/Finalizer 软教学要求数据流图读取并携带
+   producer/merge/consumer 或 typed relation/flow 证据，字段 roster 不得自行铸造全量 transfer；源码明确排除的字段必须保留边界；
+9. 本批不按 `FinalAnswer`、`BusContext` 或该 fixture 符号写硬规则，不扫描用户原文、model thinking/summary/最终答案作门，也不由系统重画 Mermaid、删除正文
+   或替模型下结论。先落通用软上下文与结构 pin，再用同一 logic-view + 异构 read case 严格恰好 2 跑验证；
+10. 本批无 Trace 输入且不修改 Trace 路径。显式时间窗、因果投影、自动补齐、唤醒链、根因排序、实际占时/规则可消双轴保持；主因资格仍只来自 typed
+    on-chain 席，邻近与背景只能作为支撑和额外排查方向，不能因规模或时间接近进入根因答案。
+
+状态：runner=`2/2 PASS`；human=`data PASS / architecture FAIL`；
+`EVAL-B351=S37cb-implemented/production-no-witness`；
+`EVAL-B349=S37bz-implemented/production-no-witness`；
+`EVAL-B353=P1-confirmed/next-soft-context-batch`；
+`mermaid-renderability=pass/source-repair-syntax-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
