@@ -6,9 +6,10 @@ import "testing"
 // for every builtin tool. Adding a new tool that doesn't compile here is
 // the intended way to force a deliberate read/write decision.
 //
-// After the 2026-04-14 simplification the codrax pipeline is read-only:
-// apply_patch and run_tests were deleted, so no builtin tool is classified
-// as a filesystem write anymore.
+// The builtin registry below is the read-only observation surface shared by
+// analysis and bounded write exploration. Write Auto Pilot mutations use its
+// isolated-worktree apply/verify channels rather than classifying one of these
+// observation tools as a filesystem write.
 func TestBuiltinIsWriteClassification(t *testing.T) {
 	cases := []struct {
 		name    string

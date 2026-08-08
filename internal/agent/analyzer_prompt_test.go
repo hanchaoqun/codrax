@@ -141,6 +141,9 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 	}
 	for _, want := range []string{
 		"explicitly names participant identities",
+		"whose connection the requested view asks to show",
+		"even when it is also a component, state carrier, container, or context object",
+		"whose connection the requested view does not ask to show",
 		"omit participants",
 		"never invent placeholders",
 		"never edge evidence",

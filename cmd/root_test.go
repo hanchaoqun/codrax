@@ -14,6 +14,30 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestRootHelpSeparatesReadModeFromWriteAutoPilot(t *testing.T) {
+	long := rootCmd.Long
+	normalized := strings.Join(strings.Fields(long), " ")
+	for _, want := range []string{
+		"By default Codrax runs a read-mode code-analysis pipeline",
+		"does not modify repository source files",
+		"separate write Auto Pilot",
+		"isolated",
+		"never merges to main automatically",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("root help missing architecture boundary %q:\n%s", want, long)
+		}
+	}
+	for _, stale := range []string{
+		"Codrax runs a read-only code-analysis pipeline",
+		"codrax is a read-only analysis tool",
+	} {
+		if strings.Contains(normalized, stale) {
+			t.Fatalf("root help collapses the whole product into the read lane via %q", stale)
+		}
+	}
+}
+
 func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 	got := normalizeCompatArgs([]string{
 		"-repo", ".",

@@ -430,7 +430,7 @@ type appContext struct {
 	markdownPreviewConfig   preview.Config
 	outputDumpDir           string
 	outputDumpMax           int
-	replPasteFoldMinChars   int // 0 → repl.DefaultPasteFoldMinChars
+	replPasteFoldMinChars   int  // 0 → repl.DefaultPasteFoldMinChars
 	replReadRunAutoResume   bool // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	chitchatResponder       repl.ChitchatResponder
 	chitchatClassifier      repl.ChitchatClassifier
@@ -555,8 +555,12 @@ var app appContext
 var rootCmd = &cobra.Command{
 	Use:   "codrax [request]",
 	Short: "AI-powered code analysis and implementation pipeline",
-	Long: `Codrax runs a read-only code-analysis pipeline with 6 layers and 4
-agents (analyze → explore → extract → finalize).
+	Long: `By default Codrax runs a read-mode code-analysis pipeline with 4 main
+agents (analyze → explore → extract → finalize) and does not modify repository
+source files. Code-change requests can enter the separate write Auto Pilot via
+--mode=write or a structured REPL write route; that lane uses an isolated
+worktree plus deterministic risk, approval, fingerprint, and verification
+gates, and never merges to main automatically.
 
 When invoked with a request, runs the pipeline once and exits.
 When invoked with no arguments, enters interactive REPL mode.

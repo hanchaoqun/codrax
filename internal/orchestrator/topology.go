@@ -9,11 +9,11 @@ import (
 // pipelineTopology is the hardcoded 4-stage × 4-agent main pipeline.
 // Each entry names the agent and skill bound to the stage.
 //
-// Before the 2026-04-14 simplification this topology lived in
-// config/orchestrator.yaml alongside 5 extra write-pipeline stages
-// and priority-weighted transition tables. Both are gone — the
-// orchestrator now walks the DAG produced by the analyzer and only
-// needs agent/skill lookups per stage.
+// Before the 2026-04-14 simplification this read topology lived in
+// config/orchestrator.yaml beside legacy YAML-owned write transitions and
+// priority-weighted tables. Those configuration-owned transitions are gone.
+// The current write Auto Pilot is a separate typed controller/worktree lane;
+// it does not turn this four-stage read topology into a write path.
 //
 // Conditional pre-stages (log_triage + perf_triage) live in
 // preStages below and are dispatched once each before analyze when

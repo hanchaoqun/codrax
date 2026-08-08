@@ -379,10 +379,10 @@ type emitFixHint struct {
 	// must be built ONLY from model-controlled deficit state — never from
 	// counters or text the reject handler itself mutates per round.
 	SameCauseFingerprint string
-	// DiagramRelationFailurePairs identifies parsed canonical endpoint pairs
-	// that failed source-relation authority. Each value is a stable hash that
-	// intentionally ignores relation kind, allowing the finalizer to recognise
-	// call -> precedence -> assignment relabel churn without reading prose.
+	// DiagramRelationFailurePairs identifies exact canonical-symbol and parsed-
+	// alias endpoint pairs that failed source-relation authority. Each stable
+	// hash intentionally ignores relation kind, allowing the finalizer to
+	// recognise call -> precedence -> assignment churn without reading prose.
 	DiagramRelationFailurePairs []string
 }
 
@@ -3941,18 +3941,22 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 }
 
 func diagramRelationFailurePairFingerprints(mismatches []DiagramCallEdgeEvidenceMismatch) []string {
-	seen := make(map[string]struct{}, len(mismatches))
-	keys := make([]string, 0, len(mismatches))
+	seen := make(map[string]struct{}, len(mismatches)*2)
+	keys := make([]string, 0, len(mismatches)*2)
 	for _, mismatch := range mismatches {
-		key := strings.TrimSpace(mismatch.BlockID) + "\x00" +
-			strings.TrimSpace(mismatch.FromSymbol) + "\x00" +
-			strings.TrimSpace(mismatch.ToSymbol)
-		if _, ok := seen[key]; ok {
-			continue
+		blockID := strings.TrimSpace(mismatch.BlockID)
+		identities := []string{
+			"symbol\x00" + blockID + "\x00" + strings.TrimSpace(mismatch.FromSymbol) + "\x00" + strings.TrimSpace(mismatch.ToSymbol),
+			"alias\x00" + blockID + "\x00" + strings.TrimSpace(mismatch.FromNode) + "\x00" + strings.TrimSpace(mismatch.ToNode),
 		}
-		seen[key] = struct{}{}
-		sum := sha256.Sum256([]byte(key))
-		keys = append(keys, hex.EncodeToString(sum[:8]))
+		for _, identity := range identities {
+			if _, ok := seen[identity]; ok {
+				continue
+			}
+			seen[identity] = struct{}{}
+			sum := sha256.Sum256([]byte(identity))
+			keys = append(keys, hex.EncodeToString(sum[:8]))
+		}
 	}
 	sort.Strings(keys)
 	return keys

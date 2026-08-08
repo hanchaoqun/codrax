@@ -27448,6 +27448,41 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
 
+### 123.398 S37cy：participant role 正向教学、双身份重试指纹与架构权威源去陈腐
+
+按 r227 的优先级将 B383(P0) 与同根低风险 B382/B381 补强合批：
+
+1. B383 不在答案侧屏蔽 `read-only`，而是修正生产权威源。`PipelineStage` 顶部注释现在明确：默认 read-mode 四阶段不修改源码；Codrax 同时有独立 write
+   Auto Pilot，其 typed stages 与 worktree/risk/approval gates 在同文件声明；
+2. Agent registry 注释改为同时描述四个 read agents、条件 pre-stage agents 与 write analyzer/controller/planner/coder/verifier；read topology 注释只说明 legacy
+   YAML-owned transitions 被删除，并明确当前 write Auto Pilot 是独立 typed controller/worktree lane；builtin tool 测试只声称该 registry 是 read-only observation surface，
+   不再声称整个 pipeline 无写能力；
+3. CLI 长帮助现在先说明默认 read-mode 的只读边界，再说明 `--mode=write`/REPL structured write route、隔离 worktree、risk/approval/fingerprint/verification gates
+   以及不自动 merge main。新增 help pin 同时要求两条 lane 均在场，并禁止旧 whole-product read-only 句回归；
+4. `PipelineStage.IsWrite` 既有行为 pin 继续覆盖 write/read stage 闭集；新增 source-authority pin 直接钉住 `enums.go` 顶部叙事必须同时出现 default read lane 与 write
+   Auto Pilot lane，防止代码行为仍正确而模型可读注释再次漂移；
+5. B382 只扩充既有 `AnalysisDiagramParticipantPlanningContract` 单源：当前所求关系/数据/控制流要求展示某 named participant 的连接时，一律
+   `incident_required`，即使它同时是 component、state carrier、container 或 context object；`context_only` 仅用于请求不要求其连接的外围边界。该规则仍为 soft
+   planning，不读取原始请求做 runtime hard validation；
+6. B381 对每个 typed mismatch 同时铸造两类 exact hash：`block+canonical-symbol pair` 与 `block+verbatim parsed alias pair`。relation_kind 不进入任一指纹；
+   canonical label 因括号/引号漂移时 alias 轴可命中，alias 被改名时 canonical 轴可命中。两轴都是 parser/typed mismatch 字段，不做 substring、模糊、大小写或语言归一；
+7. 新回归复刻 r227：`Dispatch→BuildCtx` alias 保持、canonical symbol 从 qualified name 漂成带括号/引号形时，恰好共享 alias 指纹；call→precedence relabel
+   仍共享全部 identity；ToolRepair metadata 与 evaluator strike/reset 路径保持 typed；
+8. 三项均不自动生成/删除/重标图边，不修改 AnswerDocument，不替模型结论，不新增生产硬门或 retry budget，也不扫描 thinking/summary/final prose；
+9. runtime/root-cause Trace 仍在 source diagram validator 入口排除，participant carrier 保持三重排除。显式窗、自动补采、因果投影、唤醒链、根因排序、窗内可消除量、
+   真实占时/规则可消双维及“根因只来自 typed on-chain，链外仅背景”不变；
+10. 针对性 cmd/types/skill/tool/agent/orchestrator 回归全绿；随后 `go test ./... -count=1` 全绿，覆盖 read/write/data、全语言 repomap、
+    render/mermaid、hitraceconv、tracequery/tracediag。
+
+状态：`EVAL-B382=S37cy-implemented/pending-production-replay`；
+`EVAL-B381=S37cy-dual-identity-implemented/pending-production-replay`；
+`EVAL-B383=S37cy-implemented/pending-production-replay`；
+`architecture-authority=read+write-scoped`；
+`participant-role=connection-required=>incident_required`；
+`relation-retry-key=canonical-symbol+verbatim-alias`；
+`full-suite=pass`；`production-hard-gate=unchanged`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged/on-chain-only`。
+
 ### 123.396 S37cx：participant JSON 单源教学与 typed endpoint-pair 重试收敛
 
 针对 r226 的 B380/B381 同批落地，但两项权限保持分离：

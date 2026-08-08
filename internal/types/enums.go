@@ -1,8 +1,9 @@
 package types
 
-// PipelineStage represents a stage in the orchestration pipeline.
-// After the 2026-04-14 simplification codrax is a read-only
-// analysis tool: four stages, four agents, one deterministic DAG.
+// PipelineStage represents a stage in the orchestration pipeline. The default
+// read-mode lane has four main stages and is read-only with respect to source
+// files. Codrax also has a separate write Auto Pilot lane whose typed stages
+// and worktree/risk/approval gates are declared below.
 type PipelineStage string
 
 const (

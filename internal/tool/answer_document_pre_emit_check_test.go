@@ -8964,11 +8964,11 @@ func TestDiagramRelationFailurePairFingerprintIgnoresRelationRelabel(t *testing.
 
 	callKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{call})
 	precedenceKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{precedence})
-	if len(callKeys) != 1 || !reflect.DeepEqual(callKeys, precedenceKeys) {
+	if len(callKeys) != 2 || !reflect.DeepEqual(callKeys, precedenceKeys) {
 		t.Fatalf("relation relabel must preserve endpoint-pair identity: call=%v precedence=%v", callKeys, precedenceKeys)
 	}
 	combined := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{call, precedence})
-	if len(combined) != 1 || combined[0] != callKeys[0] {
+	if !reflect.DeepEqual(combined, callKeys) {
 		t.Fatalf("same pair under two relation kinds must dedupe: %v", combined)
 	}
 
@@ -8976,7 +8976,31 @@ func TestDiagramRelationFailurePairFingerprintIgnoresRelationRelabel(t *testing.
 		Kind:                        types.ViolDiagramCallEdgeUnproven,
 		DiagramRelationFailurePairs: combined,
 	}})
-	if repair == nil || repair.Metadata[types.ToolRepairMetaDiagramRelationFailurePairs] != callKeys[0] {
+	if repair == nil || repair.Metadata[types.ToolRepairMetaDiagramRelationFailurePairs] != strings.Join(callKeys, ",") {
 		t.Fatalf("typed pair fingerprint missing from repair metadata: %+v", repair)
+	}
+}
+
+func TestDiagramRelationFailurePairFingerprintSurvivesCanonicalLabelDrift(t *testing.T) {
+	first := DiagramCallEdgeEvidenceMismatch{
+		BlockID: "flow", FromNode: "Dispatch", ToNode: "BuildCtx",
+		FromSymbol: "dispatchStage", ToSymbol: "ctxbuilder.BuildAgentContext",
+		Issue: diagramCallEdgeIssueNoEvidence, Relation: types.DiagramRelCall,
+	}
+	second := first
+	second.FromSymbol = `(("dispatchStage)`
+	second.ToSymbol = `(("ctxbuilder)`
+	second.Relation = types.DiagramRelPrecedence
+
+	firstKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{first})
+	secondKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{second})
+	shared := 0
+	for _, left := range firstKeys {
+		if slices.Contains(secondKeys, left) {
+			shared++
+		}
+	}
+	if shared != 1 {
+		t.Fatalf("stable parsed alias must preserve exactly one repeat identity across canonical label drift: first=%v second=%v", firstKeys, secondKeys)
 	}
 }

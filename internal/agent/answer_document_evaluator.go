@@ -126,9 +126,9 @@ type answerDocumentEvaluator struct {
 	memberSetRejectFingerprintStrikes map[string]int
 
 	// diagramRelationFailurePairStrikes recognises relation-kind relabel churn
-	// for the same parsed canonical endpoint pair within this finalizer
-	// dispatch. The producer hashes only typed block/endpoint identity; the
-	// evaluator never scans request, model prose, Mermaid labels, or answers.
+	// for the same exact canonical-symbol or parsed-alias endpoint pair within
+	// this finalizer dispatch. The evaluator never scans request, model prose,
+	// Mermaid label meaning, or answers.
 	diagramRelationFailurePairStrikes map[string]int
 	diagramRelationFailureRepeated    bool
 

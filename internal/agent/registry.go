@@ -52,14 +52,12 @@ func (r *Registry) List() []types.AgentName {
 // If it returns nil, the default adapter from Dependencies is used.
 type LLMResolver func(name types.AgentName) llm.Adapter
 
-// RegisterDefaults registers all agent types. After the 2026-04-14
-// simplification the codrax pipeline is read-only: four agents
-// drive the analyze → explore → extract → finalize flow. The
-// log_triager is additionally registered as a conditional pre-stage
-// agent whose Guard in internal/orchestrator/topology.go decides
-// per Run whether it dispatches (fires only when AttachedLog is
-// non-empty). If resolver is non-nil, each agent gets its own LLM
-// adapter; otherwise all agents share deps.LLM.
+// RegisterDefaults registers both lanes: four main read-mode agents drive the
+// analyze → explore → extract → finalize flow, conditional pre-stage agents
+// enrich that read lane, and the write analyzer/controller/planner/coder/
+// verifier agents remain inert unless write Auto Pilot is selected. If
+// resolver is non-nil, each agent gets its own LLM adapter; otherwise all
+// agents share deps.LLM.
 //
 // triageSettings + perfSettings carry the per-stage tuning for
 // log_triager and perf_triager respectively. Pass zero-value structs

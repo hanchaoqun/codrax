@@ -1,6 +1,31 @@
 package types
 
-import "testing"
+import (
+	"os"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func TestPipelineStageSourceNarrativePreservesWriteLane(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	raw, err := os.ReadFile(strings.TrimSuffix(file, "pipeline_stage_test.go") + "enums.go")
+	if err != nil {
+		t.Fatalf("read enums.go: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{"default", "read-mode lane", "write Auto Pilot lane", "worktree/risk/approval gates"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("PipelineStage authority comment missing %q", want)
+		}
+	}
+	if strings.Contains(text, "codrax is a read-only analysis tool") {
+		t.Fatal("PipelineStage authority comment must not erase the separate write lane")
+	}
+}
 
 // TestPipelineStage_IsWrite pins the write-mode stage membership.
 // Drift here silently reactivates read-mode artifact propagation
