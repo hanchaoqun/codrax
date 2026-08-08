@@ -41,9 +41,10 @@ const (
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
-// edges against the accepted evidence pool. An explicit relation_kind=call is
-// an evidence claim regardless of the surrounding answer family, so it always
-// needs one same-direction citable call-site record. QFCallChain additionally
+// edges against the accepted evidence pool. An explicit relation_kind is an
+// evidence claim regardless of the surrounding answer family: call and every
+// logical guard/import/precedence/contain/observe relation always need their
+// same-direction citable typed authority. QFCallChain additionally
 // gets strict typed-relation ownership for every source-diagram body edge and
 // visible-edge ownership. An optional diagram may be a faithful subset of
 // the grounded relations carried by sibling prose/list blocks: omitting a
@@ -211,6 +212,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
+			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if relation == types.DiagramRelCallback {
 				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
@@ -263,10 +265,29 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				}
 				continue
 			}
+			if diagramStrictLogicalRelationNeedsEvidence(relation) {
+				// Strict source diagrams validate the same typed anchor while
+				// walking the visible body edge above. All other non-runtime
+				// families still treat an explicit relation_kind as a factual
+				// assertion: a schema-valid enum is not its own evidence.
+				if strictBodyEdgeKeys[anchorKey] {
+					continue
+				}
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+						Relation: relation,
+					})
+				}
+				continue
+			}
 			if relation != types.DiagramRelCall {
 				continue
 			}
-			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if strictBodyEdgeKeys[anchorKey] {
 				continue
 			}

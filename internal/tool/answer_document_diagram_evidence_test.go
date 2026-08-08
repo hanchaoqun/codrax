@@ -1542,6 +1542,49 @@ func TestDiagramCallEdgeEvidenceMismatches_ChainedFlowEdgesRetainTypedOwnership(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_GenericFlowExplicitLogicalRelationNeedsTypedEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[StageAnalyze] --> E[StageExplore]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+	if len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence ||
+		got[0].Relation != types.DiagramRelPrecedence ||
+		got[0].FromSymbol != "StageAnalyze" || got[0].ToSymbol != "StageExplore" {
+		t.Fatalf("an explicit generic-flow precedence assertion must not self-authorize: %+v", got)
+	}
+
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride,
+		Subject: "StageAnalyze", Object: "StageExplore", AnchorSymbol: "StageExplore",
+		Source: "internal/types/enums.go", LineStart: 119,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("same-direction typed precedence evidence must authorize a generic-flow relation: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_GenericPresentationFlowWithoutTypedAnchorStaysOutsideEvidenceGate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "concept", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Input --> Output\n",
+		},
+	}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(got) != 0 {
+		t.Fatalf("a generic presentation-only flow must not become a source relation claim: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "binding", Kind: types.BlockDiagram,
@@ -1974,7 +2017,7 @@ func TestDiagramCallEdgeEvidenceMismatches_ActivatedReplyKeepsStructuralRole(t *
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatches_GenericLogicalRelationsRemainAvailable(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatches_GenericLogicalRelationEnumsDoNotSelfAuthorize(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,
 		types.DiagramRelImport,
@@ -1986,9 +2029,10 @@ func TestDiagramCallEdgeEvidenceMismatches_GenericLogicalRelationsRemainAvailabl
 			doc := diagramEvidenceTestDoc("A", "B")
 			doc.Blocks[0].EdgeAnchors[0].RelationKind = relation
 			doc.Blocks[0].EdgeAnchors[0].ClaimForm = types.ClaimFormForRelation(relation)
-			if got := DiagramCallEdgeEvidenceMismatches(doc,
-				&types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(got) != 0 {
-				t.Fatalf("generic typed %s relation must not be recast as a source call: %+v", relation, got)
+			got := DiagramCallEdgeEvidenceMismatches(doc,
+				&types.AnswerSemanticView{Family: types.QFGeneric}, nil)
+			if len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence || got[0].Relation != relation {
+				t.Fatalf("generic typed %s relation must require its own evidence instead of self-authorizing or being recast as a call: %+v", relation, got)
 			}
 		})
 	}

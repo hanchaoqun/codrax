@@ -33,12 +33,14 @@ type DiagramSyntaxProfile struct {
 const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a semantic call_dag, or in any grounded source call-chain diagram (flow, architecture, sequence, or call_dag), requires one same-direction edge_anchors entry with its honest relation_kind; only a dashed sequence reply structurally paired with its forward invocation is metadata-free."
 
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
-// rule for logical non-call edges in the strict source-diagram lane. Keep this
-// separate from the ownership sentence: relation_kind records what the model
-// claims an edge means, while a citable typed EvidenceItem is the authority
-// that may prove it. Runtime/root-cause trace diagrams use their own causal
-// relation authority and are intentionally outside this contract.
-const GroundedSourceDiagramRelationEvidenceContract = "In that strict source-diagram lane, every guard/import/precedence/observe anchor also requires one same-direction citable typed EvidenceItem of the matching claim form; relation_kind alone is not evidence. A guard edge is enclosing callable -> condition identity (or an explicit typed conditional object). Containment has no edge-level claim form, so use Mermaid subgraph/grouping instead of a contain arrow."
+// rule for explicit logical non-call edges in every non-runtime diagram family.
+// Keep this separate from the body-ownership sentence: relation_kind records
+// what the model claims an edge means, while a citable typed EvidenceItem is
+// the authority that may prove it. A presentation-only diagram that declares no
+// typed relation remains outside this evidence assertion. Runtime/root-cause
+// trace diagrams use their own causal relation authority and are intentionally
+// outside this contract.
+const GroundedSourceDiagramRelationEvidenceContract = "In every non-runtime diagram family, an explicit guard/import/precedence/observe relation_kind requires one same-direction citable typed EvidenceItem of the matching claim form; relation_kind alone is not evidence. A guard edge is enclosing callable -> condition identity (or an explicit typed conditional object). Containment has no edge-level claim form, so use Mermaid subgraph/grouping instead of a contain arrow. Presentation-only diagrams that declare no typed relation remain outside this evidence assertion."
 
 func DiagramSyntaxProfileFor(kind DiagramKind) DiagramSyntaxProfile {
 	switch kind {

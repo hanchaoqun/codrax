@@ -26452,3 +26452,28 @@ write=`single-line-patch/zero-contract-conflict`；`EVAL-B337=P2-observe/no-impa
 `finalizer-reject=0+0`；`same-name-citation-binding=correct`；
 `json-blocks-string-recovery=lossless-production-positive/no-retry`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
+
+### 123.345 S37br：显式逻辑 relation_kind 在所有非 Trace 图族统一服从 typed 证据
+
+继续冷读 `EVAL-B284-LOGICALRELATIONAUTH1` 后先划清两个不可混用的图语义：`member_set.members[]` 是集合，数组顺序不证明流程先后；普通
+generic flow 若没有声明任何 typed relation，只是模型的展示载体，不能因节点名、边标签或用户/答案词面被系统升级为源码关系硬合同。本批只修复已经足够精确且
+可泛化的一半：模型主动发出的 `edge_anchors[].relation_kind` 是结构化事实声明，不能在 QFGeneric/QFArchitecture 等非 call-chain 家族自我确权。
+
+1. `DiagramCallEdgeEvidenceMismatches` 对所有非 `QFRootCauseTrace` family 统一验证显式
+   `guard/import/precedence/contain/observe`：必须存在同方向、同端点、同 ClaimForm 的 citable `EvidenceItem`；一个 schema 合法 enum 不再等于证据；
+2. strict source call/call-DAG 的 body-edge 循环仍是唯一校验席，通用 anchor 循环按已消费 edge key 跳过，避免同一错误发两次拒绝；call/callback/type/register/
+   assignment/return 的既有独立权限不变；
+3. `GroundedSourceDiagramRelationEvidenceContract` 改为单源描述“所有非 runtime 显式 typed logical relation”，schema、修复提示和测试继续引用同一常量，未复制
+   第二份 JSON 教学；`contain` 仍因没有 edge-level ClaimForm 只能用 Mermaid subgraph/grouping，而不能靠 enum 造边；
+4. 正臂覆盖 generic flow 的 `precedence`：无 EvidenceItem 必须报 `semantic_relation_edge_unproven`，同向
+   `ClaimPrecedenceRole` 后接受；矩阵臂覆盖五种 logical relation 均不得自确权；负臂钉住 generic presentation flow 无 typed anchor 时不被误套源码合同；
+5. 这不是把所有 Mermaid 箭头硬化。若未来要把 generic 图的无标签边也作为源码事实审计，必须先由 typed request/surface contract 给出“该图是 grounded source
+   relation graph”的精确 discriminator，并让上游产生真实关系证据；不能从图标题、边 label、问题或答案关键词猜。当前 source call family 与 semantic
+   call_dag 的无标签 body edge 已由既有 strict ownership 关闭，普通展示图保持可用；
+6. Runtime/Trace 在函数入口继续完全旁路：显式时间窗、因果投影、系统补齐、唤醒链、根因排序、窗内可消除量和“链上才可作为根因、邻近/背景只作支撑方向”
+   不进入本合同。系统不生成边、不删除图、不替换模型总结或结论。
+
+状态：`EVAL-B284-explicit-typed-relation=S37br-implemented/full-suite-pass`；
+`generic-untyped-presentation=not-a-hard-claim/by-design`；`source-call-unlabeled-body=already-strict`；
+`member_set-order=never-promoted`；`raw-request/model/output-scan=none`；`system-answer-rewrite=none`；
+Trace 因果投影/自动补齐=`unchanged`；`go test ./... -count=1=PASS`；待提交推送与异构源码+显式窗生产回放。
