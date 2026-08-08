@@ -5814,6 +5814,10 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 	}
 	groundingReport, groundingCandidate, groundingApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
 	groundingMismatch := groundingApplicable && groundingReport.Violated()
+	var referenceDomainFieldCandidates []dataworkflow.ReferenceDomainFieldCandidate
+	if groundingApplicable && groundingReport.LedgerDomainMismatch {
+		referenceDomainFieldCandidates = dataTaskReferenceDomainFieldCandidates(repoRoot, result, groundingCandidate)
+	}
 	if strings.TrimSpace(groundingCandidate.Path) != "" {
 		// The grounding resolver consumes only an explicit typed declaration.
 		// Preserve that declaration even when the check is inapplicable; only
@@ -5839,26 +5843,62 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 		}
 	}
 	return dataworkflow.OutputProjectionGraphInput{
-		Output:                        firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
-		Coverage:                      dataTaskWorkflowCoverageContract(repoRoot, records, current),
-		AnswerPresent:                 dataworkflow.ResultAnswerPresent(result),
-		ProjectionArtifactPresent:     dataworkflow.ResultHasAssembleAnswerArtifact(result),
-		ReconcilePresent:              result.Reconcile != nil,
-		ReconcileGroups:               reconcileGroups,
-		PlanHasCustomTransform:        dataTaskPlanHasCustomTransform(current),
-		ReferenceGapPresent:           referenceGap.Present && referenceGap.Declared,
-		ReferenceCandidatePresent:     strings.TrimSpace(referenceGap.Candidate.Path) != "",
-		ReferenceCandidateDeclared:    referenceGap.Declared,
-		ReferenceCandidatePath:        referenceGap.Candidate.Path,
-		ReferenceCandidateField:       referenceGap.Candidate.Field,
-		ReferenceGroundingEvaluated:   groundingApplicable,
-		ReferenceKeyCount:             referenceGap.Candidate.KeyCount,
-		AnswerItemCount:               answerItems,
-		ReferenceGroundingMismatch:    groundingMismatch,
-		ReferenceCardinalityMismatch:  groundingReport.CardinalityMismatch,
-		ReferenceLedgerDomainMismatch: groundingReport.LedgerDomainMismatch,
-		ReferenceMismatchCount:        len(groundingReport.Mismatches),
+		Output:                         firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
+		Coverage:                       dataTaskWorkflowCoverageContract(repoRoot, records, current),
+		AnswerPresent:                  dataworkflow.ResultAnswerPresent(result),
+		ProjectionArtifactPresent:      dataworkflow.ResultHasAssembleAnswerArtifact(result),
+		ReconcilePresent:               result.Reconcile != nil,
+		ReconcileGroups:                reconcileGroups,
+		PlanHasCustomTransform:         dataTaskPlanHasCustomTransform(current),
+		ReferenceGapPresent:            referenceGap.Present && referenceGap.Declared,
+		ReferenceCandidatePresent:      strings.TrimSpace(referenceGap.Candidate.Path) != "",
+		ReferenceCandidateDeclared:     referenceGap.Declared,
+		ReferenceCandidatePath:         referenceGap.Candidate.Path,
+		ReferenceCandidateField:        referenceGap.Candidate.Field,
+		ReferenceGroundingEvaluated:    groundingApplicable,
+		ReferenceKeyCount:              referenceGap.Candidate.KeyCount,
+		AnswerItemCount:                answerItems,
+		ReferenceGroundingMismatch:     groundingMismatch,
+		ReferenceCardinalityMismatch:   groundingReport.CardinalityMismatch,
+		ReferenceLedgerDomainMismatch:  groundingReport.LedgerDomainMismatch,
+		ReferenceDomainFieldCandidates: referenceDomainFieldCandidates,
+		ReferenceMismatchCount:         len(groundingReport.Mismatches),
 	}
+}
+
+// dataTaskReferenceDomainFieldCandidates enumerates alternative fields on the
+// same declared reference source whose byte values intersect the accumulated
+// contribution group domain. This is soft repair context only: it does not
+// choose a field, mutate the contract, synthesize a plan, or bypass grounding.
+// Restricting candidates to row-unique fields mirrors the current complete
+// projection executor's one-field key-universe capability; repeating lookup
+// fields require a future explicit slot-identity/lookup-field contract rather
+// than being advertised as executable today.
+func dataTaskReferenceDomainFieldCandidates(repoRoot string, result dataquery.Result, declared dataquery.ReferenceKeyCandidate) []dataworkflow.ReferenceDomainFieldCandidate {
+	path := strings.TrimSpace(declared.Path)
+	if path == "" {
+		return nil
+	}
+	runner := dataquery.ActionRunner{RepoRoot: strings.TrimSpace(repoRoot), Seed: result}
+	groupKeys := dataTaskContributionGroupKeys(result.Contributions)
+	var out []dataworkflow.ReferenceDomainFieldCandidate
+	for _, candidate := range dataTaskReferenceCandidatesForPath(runner, path, nil, groupKeys) {
+		if strings.EqualFold(strings.TrimSpace(candidate.Field), strings.TrimSpace(declared.Field)) ||
+			candidate.KeyCount <= 0 ||
+			candidate.ExistingMatchCount <= 0 ||
+			candidate.KeyCount != candidate.NonEmptyRowCount {
+			continue
+		}
+		out = append(out, dataworkflow.ReferenceDomainFieldCandidate{
+			Path:               strings.TrimSpace(candidate.Path),
+			Field:              strings.TrimSpace(candidate.Field),
+			KeyCount:           candidate.KeyCount,
+			NonEmptyRowCount:   candidate.NonEmptyRowCount,
+			ExistingMatchCount: candidate.ExistingMatchCount,
+			MissingCount:       candidate.MissingCount,
+		})
+	}
+	return out
 }
 
 // dataTaskOutputReferenceProjectionGap reports a reference-projection

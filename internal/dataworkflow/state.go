@@ -223,29 +223,44 @@ type LedgerDependency struct {
 }
 
 type OutputProjectionGraph struct {
-	Required                      bool     `json:"required,omitempty"`
-	StrictContract                bool     `json:"strict_contract,omitempty"`
-	AnswerPresent                 bool     `json:"answer_present,omitempty"`
-	ProjectionArtifactPresent     bool     `json:"projection_artifact_present,omitempty"`
-	ReconcilePresent              bool     `json:"reconcile_present,omitempty"`
-	ReconcileGroups               int      `json:"reconcile_groups,omitempty"`
-	ReferenceCompleteRequired     bool     `json:"reference_complete_required,omitempty"`
-	ReferenceComplete             bool     `json:"reference_complete,omitempty"`
-	ReferenceCandidatePresent     bool     `json:"reference_candidate_present,omitempty"`
-	ReferenceCandidateDeclared    bool     `json:"reference_candidate_declared,omitempty"`
-	ReferenceCandidatePath        string   `json:"reference_candidate_path,omitempty"`
-	ReferenceCandidateField       string   `json:"reference_candidate_field,omitempty"`
-	ReferenceGroundingEvaluated   bool     `json:"reference_grounding_evaluated,omitempty"`
-	ReferenceKeyCount             int      `json:"reference_key_count,omitempty"`
-	AnswerItemCount               int      `json:"answer_item_count,omitempty"`
-	ReferenceGroundingMismatch    bool     `json:"reference_grounding_mismatch,omitempty"`
-	ReferenceCardinalityMismatch  bool     `json:"reference_cardinality_mismatch,omitempty"`
-	ReferenceLedgerDomainMismatch bool     `json:"reference_ledger_domain_mismatch,omitempty"`
-	ReferenceMismatchCount        int      `json:"reference_mismatch_count,omitempty"`
-	Status                        string   `json:"status,omitempty"`
-	ReasonCode                    string   `json:"reason_code,omitempty"`
-	ProducesActions               []string `json:"produces_actions,omitempty"`
-	MissingPrerequisites          []string `json:"missing_prerequisites,omitempty"`
+	Required                       bool                            `json:"required,omitempty"`
+	StrictContract                 bool                            `json:"strict_contract,omitempty"`
+	AnswerPresent                  bool                            `json:"answer_present,omitempty"`
+	ProjectionArtifactPresent      bool                            `json:"projection_artifact_present,omitempty"`
+	ReconcilePresent               bool                            `json:"reconcile_present,omitempty"`
+	ReconcileGroups                int                             `json:"reconcile_groups,omitempty"`
+	ReferenceCompleteRequired      bool                            `json:"reference_complete_required,omitempty"`
+	ReferenceComplete              bool                            `json:"reference_complete,omitempty"`
+	ReferenceCandidatePresent      bool                            `json:"reference_candidate_present,omitempty"`
+	ReferenceCandidateDeclared     bool                            `json:"reference_candidate_declared,omitempty"`
+	ReferenceCandidatePath         string                          `json:"reference_candidate_path,omitempty"`
+	ReferenceCandidateField        string                          `json:"reference_candidate_field,omitempty"`
+	ReferenceGroundingEvaluated    bool                            `json:"reference_grounding_evaluated,omitempty"`
+	ReferenceKeyCount              int                             `json:"reference_key_count,omitempty"`
+	AnswerItemCount                int                             `json:"answer_item_count,omitempty"`
+	ReferenceGroundingMismatch     bool                            `json:"reference_grounding_mismatch,omitempty"`
+	ReferenceCardinalityMismatch   bool                            `json:"reference_cardinality_mismatch,omitempty"`
+	ReferenceLedgerDomainMismatch  bool                            `json:"reference_ledger_domain_mismatch,omitempty"`
+	ReferenceDomainFieldCandidates []ReferenceDomainFieldCandidate `json:"reference_domain_field_candidates,omitempty"`
+	ReferenceMismatchCount         int                             `json:"reference_mismatch_count,omitempty"`
+	Status                         string                          `json:"status,omitempty"`
+	ReasonCode                     string                          `json:"reason_code,omitempty"`
+	ProducesActions                []string                        `json:"produces_actions,omitempty"`
+	MissingPrerequisites           []string                        `json:"missing_prerequisites,omitempty"`
+}
+
+// ReferenceDomainFieldCandidate is a soft, byte-derived repair carrier for a
+// declared reference field whose values do not intersect the contribution
+// group domain. It never changes the declared output contract or grants
+// projection authority: the planner/model must still inspect and emit the
+// field it chooses, and the normal executor/grounding gates re-verify it.
+type ReferenceDomainFieldCandidate struct {
+	Path               string `json:"path,omitempty"`
+	Field              string `json:"field,omitempty"`
+	KeyCount           int    `json:"key_count,omitempty"`
+	NonEmptyRowCount   int    `json:"non_empty_row_count,omitempty"`
+	ExistingMatchCount int    `json:"existing_match_count,omitempty"`
+	MissingCount       int    `json:"missing_count,omitempty"`
 }
 
 type WorkflowProgress struct {

@@ -200,6 +200,9 @@ func TestReferenceGroundingLedgerDomainMismatchOpensTypedAlignmentRepair(t *test
 	if state.NextStage != dataworkflow.StageRepairReferenceDomain {
 		t.Fatalf("state=%+v, want reference-domain alignment stage", state)
 	}
+	if got := state.OutputProjectionGraph.ReferenceDomainFieldCandidates; len(got) != 1 || got[0].Field != "target_id" || got[0].ExistingMatchCount != 3 {
+		t.Fatalf("domain candidates=%+v, want the same-source target_id overlap as soft repair context", got)
+	}
 	for _, want := range []string{
 		string(dataquery.DataActionComputeContribs),
 		string(dataquery.DataActionReconcile),
@@ -270,6 +273,9 @@ func TestContestedReferenceDomainVerdictSurvivesAnswerlessFailedRepair(t *testin
 		!graph.ReferenceLedgerDomainMismatch ||
 		graph.ReferenceCandidateField != "target_id" {
 		t.Fatalf("graph=%+v, want the contested target_id domain verdict retained after failed repair", graph)
+	}
+	if got := graph.ReferenceDomainFieldCandidates; len(got) != 1 || got[0].Field != "canonical_label" || got[0].ExistingMatchCount != 2 || got[0].MissingCount != 1 {
+		t.Fatalf("domain candidates=%+v, want measured canonical_label overlap as soft repair context", got)
 	}
 	if state.NextStage != dataworkflow.StageRepairReferenceDomain {
 		t.Fatalf("NextStage=%q allowed=%v, want reference-domain alignment to remain reachable", state.NextStage, state.AllowedNextActions)

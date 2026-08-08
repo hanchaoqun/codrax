@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -21,25 +22,26 @@ const (
 )
 
 type OutputProjectionGraphInput struct {
-	Output                        dataquery.OutputContract
-	Coverage                      dataquery.CoverageContract
-	AnswerPresent                 bool
-	ProjectionArtifactPresent     bool
-	ReconcilePresent              bool
-	ReconcileGroups               int
-	PlanHasCustomTransform        bool
-	ReferenceGapPresent           bool
-	ReferenceCandidatePresent     bool
-	ReferenceCandidateDeclared    bool
-	ReferenceCandidatePath        string
-	ReferenceCandidateField       string
-	ReferenceGroundingEvaluated   bool
-	ReferenceKeyCount             int
-	AnswerItemCount               int
-	ReferenceGroundingMismatch    bool
-	ReferenceCardinalityMismatch  bool
-	ReferenceLedgerDomainMismatch bool
-	ReferenceMismatchCount        int
+	Output                         dataquery.OutputContract
+	Coverage                       dataquery.CoverageContract
+	AnswerPresent                  bool
+	ProjectionArtifactPresent      bool
+	ReconcilePresent               bool
+	ReconcileGroups                int
+	PlanHasCustomTransform         bool
+	ReferenceGapPresent            bool
+	ReferenceCandidatePresent      bool
+	ReferenceCandidateDeclared     bool
+	ReferenceCandidatePath         string
+	ReferenceCandidateField        string
+	ReferenceGroundingEvaluated    bool
+	ReferenceKeyCount              int
+	AnswerItemCount                int
+	ReferenceGroundingMismatch     bool
+	ReferenceCardinalityMismatch   bool
+	ReferenceLedgerDomainMismatch  bool
+	ReferenceDomainFieldCandidates []ReferenceDomainFieldCandidate
+	ReferenceMismatchCount         int
 }
 
 func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjectionGraph {
@@ -94,30 +96,42 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 			string(dataquery.DataActionAssembleAnswer),
 		}
 	}
+	domainCandidates := append([]ReferenceDomainFieldCandidate(nil), input.ReferenceDomainFieldCandidates...)
+	for i := range domainCandidates {
+		domainCandidates[i].Path = strings.TrimSpace(domainCandidates[i].Path)
+		domainCandidates[i].Field = strings.TrimSpace(domainCandidates[i].Field)
+	}
+	sort.SliceStable(domainCandidates, func(i, j int) bool {
+		if domainCandidates[i].Path != domainCandidates[j].Path {
+			return domainCandidates[i].Path < domainCandidates[j].Path
+		}
+		return domainCandidates[i].Field < domainCandidates[j].Field
+	})
 	return OutputProjectionGraph{
-		Required:                      required,
-		StrictContract:                strict,
-		AnswerPresent:                 answerPresent,
-		ProjectionArtifactPresent:     projectionArtifactPresent,
-		ReconcilePresent:              reconcilePresent,
-		ReconcileGroups:               input.ReconcileGroups,
-		ReferenceCompleteRequired:     referenceCompleteRequired,
-		ReferenceComplete:             referenceComplete,
-		ReferenceCandidatePresent:     input.ReferenceCandidatePresent,
-		ReferenceCandidateDeclared:    referenceDeclared,
-		ReferenceCandidatePath:        strings.TrimSpace(input.ReferenceCandidatePath),
-		ReferenceCandidateField:       strings.TrimSpace(input.ReferenceCandidateField),
-		ReferenceGroundingEvaluated:   input.ReferenceGroundingEvaluated,
-		ReferenceKeyCount:             input.ReferenceKeyCount,
-		AnswerItemCount:               input.AnswerItemCount,
-		ReferenceGroundingMismatch:    input.ReferenceGroundingMismatch,
-		ReferenceCardinalityMismatch:  input.ReferenceCardinalityMismatch,
-		ReferenceLedgerDomainMismatch: input.ReferenceLedgerDomainMismatch,
-		ReferenceMismatchCount:        input.ReferenceMismatchCount,
-		Status:                        status,
-		ReasonCode:                    reason,
-		ProducesActions:               cleanStrings(produces),
-		MissingPrerequisites:          cleanStrings(missing),
+		Required:                       required,
+		StrictContract:                 strict,
+		AnswerPresent:                  answerPresent,
+		ProjectionArtifactPresent:      projectionArtifactPresent,
+		ReconcilePresent:               reconcilePresent,
+		ReconcileGroups:                input.ReconcileGroups,
+		ReferenceCompleteRequired:      referenceCompleteRequired,
+		ReferenceComplete:              referenceComplete,
+		ReferenceCandidatePresent:      input.ReferenceCandidatePresent,
+		ReferenceCandidateDeclared:     referenceDeclared,
+		ReferenceCandidatePath:         strings.TrimSpace(input.ReferenceCandidatePath),
+		ReferenceCandidateField:        strings.TrimSpace(input.ReferenceCandidateField),
+		ReferenceGroundingEvaluated:    input.ReferenceGroundingEvaluated,
+		ReferenceKeyCount:              input.ReferenceKeyCount,
+		AnswerItemCount:                input.AnswerItemCount,
+		ReferenceGroundingMismatch:     input.ReferenceGroundingMismatch,
+		ReferenceCardinalityMismatch:   input.ReferenceCardinalityMismatch,
+		ReferenceLedgerDomainMismatch:  input.ReferenceLedgerDomainMismatch,
+		ReferenceDomainFieldCandidates: domainCandidates,
+		ReferenceMismatchCount:         input.ReferenceMismatchCount,
+		Status:                         status,
+		ReasonCode:                     reason,
+		ProducesActions:                cleanStrings(produces),
+		MissingPrerequisites:           cleanStrings(missing),
 	}
 }
 

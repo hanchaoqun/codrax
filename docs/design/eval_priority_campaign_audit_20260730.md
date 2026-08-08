@@ -26790,3 +26790,22 @@ case/action 名补丁解决。
 `diagnostic-authority=last-contested-projection-retained`；
 `new-answer-clears-by-typed-index`；`wrong-answer-published=no`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.359 S37cb：reference 域冲突发布同源 value-set 候选，不替模型选列
+
+落实 `EVAL-B351-REFERENCEFIELDROLE1` 的第一阶段，严格停在 soft guidance 边界：
+
+1. reference 声明列与 contribution group_key 零交集时，系统已能 fail-closed，但旧 state 只给“重算 contributions 或改 reference 字段”二选一，没有发布同一 source 中哪些列与 ledger 域实际相交；模型必须从压缩 artifact 样本猜，r211 因而继续选择 `target_id`；
+2. 新增 `reference_domain_field_candidates` typed carrier。候选只从声明 reference path 的真实记录列、累计 contribution group keys 与逐值集合交集计算，携 path/field/key_count/non_empty_row_count/existing_match_count/missing_count；不读列名语义、用户原文、模型思考、错误文本或预期答案；
+3. 只发布当前执行器可表达的 row-unique 字段（`key_count == non_empty_row_count`）。重复 domain 值虽然可能是合法业务关系，但现一字段 projection 会去重，故不能假装为可执行候选；该形继续 fail-open，留给未来显式 slot-identity/lookup-field 双载体，而不是本批暗改语义；
+4. 候选即使唯一也只是 soft repair context。系统不修改 output contract、不重写 action params、不合成业务 plan、不执行投影；模型仍需检查后显式发出选择，executor 与 grounding 再按同一 typed 合同复验；
+5. 正反向回归使用同一三行 source：(a) 声明 `canonical_label`、contribution groups 为 T1/T2/T3 时，state 发布 `target_id` 且 overlap=3；(b) 声明 `target_id`、groups 为 GroupA/B/C 时，发布 `canonical_label`，overlap=2、missing=1。两臂仍保持 `reference_ledger_domain_mismatch` 与 compute/reconcile/assemble 修复面，候选没有获得 hard authority；
+6. continuation/repair 教学只增加一条载体解释，明确候选为 byte-derived measured overlap 与 soft repair candidate。JSON schema、action runtime validation、输出 completion gate 不变；没有为 targets/GroupA/具体答案写规则；
+7. B351 的第二阶段（重复 domain 值下拆分稳定 slot identity 与 contribution lookup field）继续开放，需异构 case 证明需求后再扩协议；当前先避免为一个 fixture 过度设计。
+8. 本批不进入 Trace。显式窗、因果投影、自动补采、唤醒链、根因排序、真实占时/规则可消双轴不变；链外邻近/背景仍只能作排查支撑，不能被 value-set 候选或规模提升为主因。
+
+状态：`EVAL-B351=S37cb-phase1-implemented/go-test-all-pass/pending-production-replay`；
+`candidate-source=typed-reference-bytes+contribution-domain`；
+`candidate-authority=soft-only`；`contract-mutation=none`；
+`duplicate-domain=not-falsely-advertised`；`phase2=requires-heterogeneous-witness`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
