@@ -26294,3 +26294,29 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 `state-interval=wakeup-ends-wait/post-wakeup-runnable`；
 `value-caliber=measured-occupancy!=effective-attribution`；`subtopics=planning-only`；
 `raw-prose-hard-gate=none`；`answer-mutation=none`；Trace 根因/投影计算/自动补采=`unchanged`。
+
+### 123.338 r201：Trace 状态/归因口径生产闭环；JSON 碎片修复保持无回归但未命中畸形臂
+
+在 `main@480977f95` 上严格并发 2 复放 `qf_diagram_pipeline` 与显式窗
+`trace_query_wakeup_background_demotion`，runner 与人工均 2/2 PASS：
+
+1. Trace 模型正文只把已证唤醒链 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 上的
+   threadpool IO wait 11.000ms 列为根因，并把其后 2.014..2.015 的 1.000ms runnable 明确列为次要调度供给项；不再合写成
+   “12ms D/IO 等待”；
+2. logger-900 在模型正文中保持链外独立上下文：实测 D-state 为 2.000500..2.020500、19.500ms；typed tail 同时披露
+   effective attribution 7.350ms 及 `distinct_do_not_substitute`，模型没有再把 7.350ms 称为实际 iowait；
+3. 链上主根因、邻近与背景三种权限维持：非链上的 logger 即使实测占用大于 11ms 也只能进入背景区，不获得根因排序、加冕或跨行求和权限；
+   模型明确其“与 app-100 所在唤醒链无交集，对本窗口结论无影响”；
+4. finalizer 收到的只是 typed scheduler-state/value-caliber 边界与投影行，最终摘要、主因判断、优先级和优化方向均由模型成文；系统未删除、替换、
+   重写或接管结论。显式时间窗、三次 trace_query、自动补齐、因果投影、根因排序和窗内可消除量保持；成文校验拒绝、repair、unavailable 均为 0；
+5. QF 用例 111s 完成，四个主 stage、职责和 Mermaid 流程完整，explorer completion/finalizer 均零拒绝。该轮首次
+   `emit_evidence` 提交的是 10 个完整对象，系统按既有 role-description 规则正常扩成 13 条，没有出现 r200 的相邻 metadata-only fragment；
+6. 因此 `EVAL-B338` 本轮只能记为 production no-regression：单元/e2e 已覆盖真实 repair positive/ambiguous fail-loud，但本轮模型没有生成畸形载体，不能把
+   “未触发”虚报成 production repair-path 闭环；后续只在自然复现或专门 transport fixture 命中时关账，不诱导模型再次犯错；
+7. 本轮所有判断均来自 typed tool payload、trace row、日志计数和人工阅读最终答案；没有用用户问题、model thinking/summary 或最终答案关键词作硬门。
+
+状态：runner=`2/2 PASS`；human=`2/2 PASS`；
+`EVAL-B339=production-positive/closed`；`EVAL-B338=implemented+production-no-regression/exact-malformed-replay-pending`；
+`trace-root-eligibility=typed-on-chain-only/stable`；`off-chain=background-only/stable`；
+`state-interval+value-caliber=production-positive`；`finalizer-reject=0`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；模型答案所有权=`preserved`。
