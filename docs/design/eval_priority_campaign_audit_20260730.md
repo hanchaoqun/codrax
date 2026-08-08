@@ -27288,3 +27288,25 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `EVAL-B374=P1-confirmed/eval-only`；`EVAL-B368=partial`；
 `finalizer-reject=9+6`；`malformed-json=none`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.379 S37cm：短 endpoint 只从同侧唯一 typed call identity 投影
+
+关闭 B372，不降低 call relation 的方向与 owner 真实性：
+
+1. strict diagram validator 保留 exact/FQ identity 为首选。仅当图中 from/to 两端都是无 owner 的短 operation 名时，才启用 typed short projection；任一端已经 qualified 时仍走原
+   required-anchor、OwnerSymbol、definition 与 inbound-binding 合同，不能借本批绕过；
+2. 短名候选只来自 citable `ClaimCallEdge` 的结构化 `Subject` / `Object` / `AnchorSymbol`，并按 source-side 与 target-side 分开解析。它不读取 source path 猜 owner，
+   不读 Mermaid message 词义、用户请求、thinking、summary 或 final prose；
+3. 同一侧所有兼容候选必须属于一个 identity family。`Orchestrator.dispatchStage` 与短 `dispatchStage` 可无损共存；若同时存在 `Alpha.run` 与 `Beta.run`，
+   即使都带短 `run` anchor 也立即 fail-closed；
+4. 两端分别唯一后仍必须由同一条 citable evidence row 同向连接，禁止把一条证据的 caller 与另一条证据的 callee 拼成系统新边。反向边继续拒绝；
+5. 红转绿 pin 使用语言中立 endpoint：FQ call row 可授权唯一短名 flow edge；反向拒绝；同尾多 owner 拒绝。既有 qualified caller/callee、缺 definition、错误 OwnerSymbol、
+   多 callsite、不同 qualified target 与 contrary AnchorSymbol 全套 fail-closed pin 一并通过，证明没有回退旧红线；
+6. `go test ./... -count=1` 全绿，覆盖 data/write、hitraceconv、tracequery/tracediag、render/mermaid、repomap 全语言面。实现只扩展
+   evidence→validator 的 typed presentation identity，不改 AnswerDocument、不自动补边/删边、不替模型写结论；
+7. runtime Trace 在 validator 入口仍按 `QFRootCauseTrace` 提前排除。Trace 显式窗、自动补采、因果投影、链上根因、邻近/背景边界及双维耗时结论不变。
+
+状态：`EVAL-B372=S37cm-implemented/full-suite-pass/pending-production-replay`；
+`short-endpoint=typed-call-side-unique-and-pair-preserving`；
+`qualified-owner-contract=unchanged`；`direction=preserved`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

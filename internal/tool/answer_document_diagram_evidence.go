@@ -831,6 +831,34 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		}
 	}
 
+	// Grounding may preserve an enclosing owner on a call row while a compact
+	// architecture/flow diagram uses the operation name alone (for example
+	// Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage is displayed as
+	// runAnalyzePhase -> dispatchStage).  The call row already proves the
+	// direction; this lane only reconciles its presentation identity.  Accept
+	// the short spelling when every citable endpoint on the same side that is
+	// compatible with it belongs to one identity family.  Two qualified owners
+	// with the same operation tail remain incompatible and fail closed.
+	//
+	// This is intentionally side-aware and pair-preserving.  It does not infer
+	// owners from source paths, labels, request text, or prose, and a source-side
+	// match plus an unrelated target-side match cannot mint a new edge.
+	if diagramEvidenceQualifiedOwner(fromSymbol) == "" &&
+		diagramEvidenceQualifiedOwner(toSymbol) == "" &&
+		diagramCallEndpointHasUniqueTypedProjection(evidence, fromSymbol, true) &&
+		diagramCallEndpointHasUniqueTypedProjection(evidence, toSymbol, false) {
+		for _, ev := range evidence {
+			if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+				!types.AnswerCodeIdentitySurfacesCompatible(ev.Subject, fromSymbol) {
+				continue
+			}
+			if types.AnswerCodeIdentitySurfacesCompatible(ev.Object, toSymbol) ||
+				types.AnswerCodeIdentitySurfacesCompatible(ev.AnchorSymbol, toSymbol) {
+				return true
+			}
+		}
+	}
+
 	// A same-language call site can be normalized to short in-file names
 	// (`Run -> RunWith`) while the answer uses the exact user endpoint owner
 	// (`gate.Run -> gate.RunWith`). Preserve that qualified presentation only
@@ -910,6 +938,53 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+// diagramCallEndpointHasUniqueTypedProjection reports whether one diagram
+// endpoint has exactly one lossless identity family on the selected side of
+// the citable call graph. Qualified spellings with language-native separators
+// are one family when they are equivalent; a qualified spelling and its short
+// final operation are also one family. Distinct qualified owners are not.
+func diagramCallEndpointHasUniqueTypedProjection(evidence []types.EvidenceItem, surface string, sourceSide bool) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	candidates := make([]string, 0, 2)
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !types.AnswerCodeIdentitySurfacesCompatible(raw, surface) {
+			return
+		}
+		for _, existing := range candidates {
+			if types.AnswerCodeIdentitySurfacesEquivalent(existing, raw) {
+				return
+			}
+		}
+		candidates = append(candidates, raw)
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if sourceSide {
+			add(ev.Subject)
+			continue
+		}
+		add(ev.Object)
+		add(ev.AnchorSymbol)
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	for i := range candidates {
+		for j := i + 1; j < len(candidates); j++ {
+			if !types.AnswerCodeIdentitySurfacesCompatible(candidates[i], candidates[j]) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func diagramCallEvidenceEndpointMatches(item types.EvidenceItem, raw, surface string) bool {

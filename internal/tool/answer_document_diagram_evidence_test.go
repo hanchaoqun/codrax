@@ -1626,6 +1626,56 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowUniquelyProjectsShortCallEndpoints(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Run[runAnalyzePhase] --> Dispatch[dispatchStage]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Run", ToNode: "Dispatch", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	call := diagramEvidenceTestCall("Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage")
+	call.AnchorSymbol = "dispatchStage"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("one citable qualified call row must authorize its unique short presentation: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n  Dispatch[dispatchStage] --> Run[runAnalyzePhase]\n"
+	doc.Blocks[0].EdgeAnchors[0].FromNode = "Dispatch"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("short presentation must preserve typed call direction: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowShortEndpointOwnerAmbiguityFailsClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Run[run] --> Sink[consume]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Run", ToNode: "Sink", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	first := diagramEvidenceTestCall("Alpha.run", "Sink.consume")
+	first.AnchorSymbol = "consume"
+	second := diagramEvidenceTestCall("Beta.run", "Sink.consume")
+	second.ID = "ev-beta-run"
+	second.Source = "internal/other.go"
+	second.LineStart = 20
+	second.AnchorSymbol = "consume"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{first, second}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("same-tail operations under distinct qualified owners must remain ambiguous: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DeterministicSourceQualifiedCallerKeepsFileAxis(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,
