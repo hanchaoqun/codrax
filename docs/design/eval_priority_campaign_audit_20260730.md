@@ -27417,3 +27417,33 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `required-relation-diagram-zero-edge=typed-hard/back-to-explore`；
 `optional-or-relation-free-diagram=unchanged`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.385 r222：零边补证门未触发；同一关系权威跨阶段丢失且一条边掩盖全图孤立
+
+在 `main@e133dfac6` 上严格并发恰好两个同案回放。runner 2/2 PASS，但人工完整正确 0/2（partial + fail）：
+
+1. `qf_diagram_pipeline` 最终正确画出 `Analyze -> Explore -> Extract -> Finalize` 三条 `precedence` 边，职责与引用也基本准确；因此不是模型无法给出答案；
+2. pre-emit 通过严格已读 `AllMainStages` 相邻源码，在本地构造 `answer.pre_emit.source_precedence` typed evidence 并接受三条边；post-finalizer 随后只读取
+   `mut.EmittedEvidence()`，看不到这份明确标为“局部、不写回 Mutable/evidence/doc”的派生权威，连续两次拒绝完全相同的稿件。立
+   `EVAL-B376-PREEMITPOSTCONTRACTPARITY1=P0/HIGH`：同一答案、同一 exact relation 不能在 pre-emit 通过后被下游同类合同判成无证；
+3. B376 的根修不能把系统派生关系写成普通 Explorer/model evidence，也不能扩大到另一份答案。应建立绑定 AnswerDocument 身份/hash 与 exact
+   `(block, from, to, relation)` 的 typed validation receipt；post-contract 仅对字节/结构身份一致的文档消费。文档变化、关系变化或 endpoint 变化必须失效并重新验证；
+4. FRCAP 虽保住正确首稿，却把与主正文相同的整份答案再次附在“系统保留内容 / 第一稿答案（校验前参考）”下，并宣称仍需验证。B369 再次复现。
+   修复只做 identity-aware presentation dedup：主正文与 retained draft 相同则不重复附件；存在不同模型原文时仍保留，绝不改写、删减或替换模型结论；
+5. `qf_logic_view_read_pipeline` 的 Analyzer 正确给出 `predicate_axis=flow` 与 required architecture 图；Explorer 只有一条 call 和一条 assignment。
+   Finalizer 完整图的无证关系被 5 次正确拒绝，最后只剩 `runAnalyzePhase -> dispatchStage`，其余请求组件全部孤立；
+6. 现有 case oracle 只要求 Mermaid 至少一条边，所以一条局部边可掩盖 required flow 图对请求关系覆盖不足。立
+   `EVAL-B377-RELATIONDIAGRAMCOVERAGE1=P1/HIGH`。根修不得按实体相似度、请求/答案关键词或任意 edge count 硬门；应先审计现有 typed
+   requested mechanism anchors/roles 是否足以表达必须参与关系的结构席。若 carrier 不足，先补 typed coverage obligation，再让 Explorer 补证或披露 unproven boundary；
+7. S37cq 的 `required_diagram_edge_absent` 本轮未获得生产触发 witness，因为两份最终图都至少有一条结构边；其 required+Min>0+zero-edge 分支仍由单测和全仓套件闭合。
+   这不否定实现，但说明它只解决“完全零边”，不能覆盖“有一条无关/局部真边却整体失真”；
+8. 两案没有 malformed JSON、没有 Trace 查询，也没有读取 request/thinking/summary/final prose 做硬门。B376/B369/B377 均须继续显式隔离
+   `QFRootCauseTrace`：显式窗 Trace 因果投影、系统补采、根因排序、唤醒链、窗内可消除量和真实占时/规则可消双维保持不变；主因只能来自 typed on-chain 席，
+   邻近区域和背景信息只能作为额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`0/2 full(partial+fail)`；
+`EVAL-B375=implementation-closed/no-production-trigger-this-run`；
+`EVAL-B376=P0-confirmed/high-ROI-next`；`EVAL-B369=P1-reproduced`；
+`EVAL-B377=P1-confirmed/design-before-code`；`finalizer-contract-fail=2+5`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
