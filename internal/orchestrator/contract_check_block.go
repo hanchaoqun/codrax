@@ -2295,10 +2295,10 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 // path uses, so V2 block validators see the same Tier 1-2 truth
 // table as the contract.must_include / must_exclude oracles.
 func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
-	return runV2BlockOraclesWithOracleContext(context.TODO(), doc, view, mut, oracle, nil)
+	return runV2BlockOraclesWithOracleContext(context.TODO(), doc, view, mut, oracle, nil, nil)
 }
 
-func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle, denials *types.TypedDenialSet) []types.Violation {
+func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle, denials *types.TypedDenialSet, bus *types.BusContext) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -2322,7 +2322,7 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeSupport(doc, view) }) {
 		return out
 	}
-	if !appendIfLive(func() []types.Violation { return validateDiagramCallEdgeEvidenceAlignment(doc, view, mut) }) {
+	if !appendIfLive(func() []types.Violation { return validateDiagramCallEdgeEvidenceAlignment(doc, view, mut, bus) }) {
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateUncertaintyBlockPresence(doc, view) }) {
@@ -2385,11 +2385,15 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	return out
 }
 
-func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, bus *types.BusContext) []types.Violation {
 	if mut == nil {
 		return nil
 	}
-	mismatches := tool.DiagramCallEdgeEvidenceMismatches(doc, view, mut.EmittedEvidence())
+	evidence := mut.EmittedEvidence()
+	if bus != nil {
+		evidence = tool.DiagramEvidenceForValidation(bus, doc, view, evidence)
+	}
+	mismatches := tool.DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
 	if len(mismatches) == 0 {
 		return nil
 	}

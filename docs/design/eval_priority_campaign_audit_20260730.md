@@ -27447,3 +27447,25 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `EVAL-B377=P1-confirmed/design-before-code`；`finalizer-contract-fail=2+5`；
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.386 S37cr：pre-emit 与 post-contract 复用同一份严格读集关系权威
+
+关闭 B376，不把系统派生关系持久化成模型证据：
+
+1. 新增 `DiagramEvidenceForValidation` 作为 diagram relation validation 的单一派生入口。它只针对调用时传入的 exact AnswerDocument、typed edge anchors、
+   `AnswerSemanticView` 与严格 model-visible read context，复用既有 bounded grounded precedence 算法；
+2. pre-emit 仍在本地验证模型已经声明的 exact `relation_kind=precedence`；post-contract 现在通过 production `BusContext` 对持久化后的同一文档重新执行同一算法，
+   不再只读 `mut.EmittedEvidence()` 而遗失前序已经接受的 typed 权威；
+3. 本批没有把派生行写入 Mutable、Evidence ledger 或 AnswerDocument，也没有缓存跨稿 verdict。文档换边、换 endpoint、换方向时，派生入口只验证新稿；测试钉住
+   `StageAnalyze -> StageExplore` 在严格返回值 carrier 上通过，而反向 `StageExplore -> StageAnalyze` 立即失败；
+4. 该实现比持久 receipt 更窄：不引入 receipt 生命周期、hash 漂移或系统证据扩权；正确性来自两个阶段调用同一个纯 typed derivation。ground context 使用同一
+   TurnA/read_file/pre-read immutable bytes，且现有 request-local cache 避免重复构建成本；
+5. 既有 call/callback/assignment/return/type/register/logical relation 的方向与证据门未放松。只有已经被该 bounded source-precedence 规则证明的 exact 边从“前过后拒”恢复为一致通过；
+6. `go test ./... -count=1` 全绿，覆盖 read/write/data、hitraceconv、tracequery/tracediag、Mermaid 与 repomap 全语言包；不增加 JSON 字段、教学或重试提示；
+7. `QFRootCauseTrace` 在共享 helper 与 diagram validator 均保持提前排除。显式窗 Trace 因果投影、系统补采、唤醒链、根因排序、窗内可消除量及真实占时/规则可消双维不变；
+   Trace 主因仍只能来自 typed on-chain 席，邻近区域与背景只作为额外排查方向。
+
+状态：`EVAL-B376=S37cr-implemented/full-suite-pass/pending-production-replay`；
+`preemit-postcontract=single-typed-derivation`；`derived-evidence=invocation-local/not-persisted`；
+`document-change=revalidate/fail-closed`；`json-teaching=unchanged`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

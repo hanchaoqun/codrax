@@ -258,7 +258,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				stampUngroundedEvidenceDenials(o.busCtx.TypedDenials, mut, oracle)
 				result.Violations = append(result.Violations,
 					trace.run("v2_block_oracles", func() []types.Violation {
-						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle, o.busCtx.TypedDenials)
+						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle, o.busCtx.TypedDenials, o.busCtx)
 					})...)
 				result.Violations = append(result.Violations,
 					trace.run("source_inventory_absence_bound", func() []types.Violation {

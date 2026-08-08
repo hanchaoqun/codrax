@@ -3939,9 +3939,12 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 // prose, and Mermaid labels beyond the structured endpoint identity are never
 // scanned for authority.
 //
-// The derived row is local to this pre-emit validation pass. It is not written
-// to MutableState, the evidence ledger, or the answer document, so it cannot
+// The derived row is local to one validation invocation. It is not written to
+// MutableState, the evidence ledger, or the answer document, so it cannot
 // become a system-authored conclusion or outlive the exact draft it validates.
+// Post-finalizer validation must call DiagramEvidenceForValidation below with
+// the persisted draft so the same deterministic authority is re-derived rather
+// than silently losing a relation that this pre-emit pass already accepted.
 func preEmitEvidenceWithGroundedDiagramPrecedence(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, gc *ground.Context) []types.EvidenceItem {
 	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace ||
 		view.RelationAxis != types.AxisFlow || gc == nil {
@@ -4054,6 +4057,22 @@ func preEmitEvidenceWithGroundedDiagramPrecedence(doc *types.AnswerDocumentV2, v
 		}
 	}
 	return out
+}
+
+// DiagramEvidenceForValidation returns the complete evidence pool for
+// validating the exact diagram relations declared by doc. It deliberately
+// re-derives bounded source precedence from the same strict model-visible read
+// context used by pre-emit validation instead of persisting system-authored
+// evidence. This keeps pre-emit and post-finalizer contracts in parity while
+// binding every derived row to the document passed to this invocation.
+//
+// Runtime/root-cause Trace is excluded inside the shared helper and keeps its
+// independent typed causal projection authority.
+func DiagramEvidenceForValidation(ctx *types.BusContext, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem) []types.EvidenceItem {
+	if ctx == nil {
+		return evidence
+	}
+	return preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, ground.BuildContext(ctx))
 }
 
 func preEmitDiagramMismatchBlockKinds(doc *types.AnswerDocumentV2, mismatches []DiagramCallEdgeEvidenceMismatch) []types.AnswerBlockKind {
