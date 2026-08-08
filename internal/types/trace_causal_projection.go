@@ -2180,11 +2180,13 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
 	})
 	classified = traceCausalProjectionDedupeSemanticAliasPublications(classified)
+	classified = traceCausalProjectionConvergeSemanticPhysicalSeats(classified)
 	classified = traceCausalProjectionDedupeNodes(classified)
 	sort.SliceStable(semantic, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(semantic[i], semantic[j], pathIndex)
 	})
 	semantic = traceCausalProjectionDedupeSemanticAliasPublications(semantic)
+	semantic = traceCausalProjectionConvergeSemanticPhysicalSeats(semantic)
 	semantic = traceCausalProjectionDedupeNodes(semantic)
 	out := TraceCausalProjection{
 		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
@@ -5641,6 +5643,119 @@ func traceCausalProjectionDedupeSemanticAliasPublications(nodes []TraceCausalPro
 		}
 	}
 	return out
+}
+
+// traceCausalProjectionConvergeSemanticPhysicalSeats closes the authority-lane
+// split of one exact semantic occurrence. The same physical span can be
+// published by a targeted chain/rank query and again by a broad context query;
+// query-window and producer provenance are properties of those observations,
+// not a second occurrence. When exactly one typed on-chain publication exists,
+// it owns the display seat and absorbs only exact-identity off-chain mirrors.
+// This is deliberately one-way: a background row can never mint chain/root
+// authority, and two independently on-chain query domains remain separate
+// rather than being adjudicated here. All evidence ids and locators survive.
+func traceCausalProjectionConvergeSemanticPhysicalSeats(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	type group struct {
+		members []int
+		onChain []int
+	}
+	groups := make(map[string]*group, len(nodes))
+	for i, node := range nodes {
+		key := traceCausalProjectionSemanticPhysicalOccurrenceKey(node)
+		if key == "" {
+			continue
+		}
+		g := groups[key]
+		if g == nil {
+			g = &group{}
+			groups[key] = g
+		}
+		g.members = append(g.members, i)
+		if traceCausalProjectionNodeOnChain(node) {
+			g.onChain = append(g.onChain, i)
+		}
+	}
+
+	drop := make(map[int]bool)
+	for _, g := range groups {
+		if len(g.members) < 2 || len(g.onChain) != 1 {
+			continue
+		}
+		survivorAt := g.onChain[0]
+		survivor := &nodes[survivorAt]
+		for _, at := range g.members {
+			if at == survivorAt {
+				continue
+			}
+			// Only a weaker lane is absorbed. A future second on-chain shape is
+			// protected by the group-level len(onChain)==1 guard above.
+			traceCausalProjectionAbsorbSemanticPhysicalEvidence(survivor, nodes[at])
+			drop[at] = true
+		}
+	}
+	if len(drop) == 0 {
+		return nodes
+	}
+	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(drop))
+	for i, node := range nodes {
+		if !drop[i] {
+			out = append(out, node)
+		}
+	}
+	return out
+}
+
+// traceCausalProjectionSemanticPhysicalOccurrenceKey is intentionally
+// independent of query window, rank board, causality and relevance. Those are
+// analysis-view authorities; physical identity is the exact typed host,
+// semantic identity and occurrence interval. No fuzzy timestamps and no
+// span-name-only folding are allowed.
+func traceCausalProjectionSemanticPhysicalOccurrenceKey(node TraceCausalProjectionNode) string {
+	if !traceCausalProjectionSemanticPublication(node) ||
+		!TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) ||
+		strings.TrimSpace(node.SpanName) == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		traceCausalProjectionCanonicalNode(node.Subject),
+		strings.TrimSpace(node.SpanName),
+		traceCausalProjectionCanonicalNode(node.SpanKind),
+		traceCausalProjectionCanonicalNode(node.SpanCategory),
+		traceCausalProjectionCanonicalNode(node.SpanSubcategory),
+		traceCausalProjectionCanonicalNode(node.SemanticClass),
+		traceCausalProjectionCanonicalNode(node.TypeToken),
+		strconv.FormatFloat(node.StartTs, 'g', -1, 64),
+		strconv.FormatFloat(node.EndTs, 'g', -1, 64),
+		strconv.Itoa(node.ProcessTGID),
+	}, "\x00")
+}
+
+func traceCausalProjectionAbsorbSemanticPhysicalEvidence(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode) {
+	if survivor == nil {
+		return
+	}
+	seen := make(map[string]bool, 1+len(survivor.MergedEvidenceIDs))
+	for _, id := range append([]string{survivor.EvidenceID}, survivor.MergedEvidenceIDs...) {
+		if key := traceCausalProjectionCanonicalNode(id); key != "" {
+			seen[key] = true
+		}
+	}
+	for _, id := range append([]string{loser.EvidenceID}, loser.MergedEvidenceIDs...) {
+		id = strings.TrimSpace(id)
+		key := traceCausalProjectionCanonicalNode(id)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		survivor.MergedEvidenceIDs = append(survivor.MergedEvidenceIDs, id)
+	}
+	survivor.SupportRefs = appendUniqueObservationStrings(survivor.SupportRefs, loser.SupportRefs...)
+	if survivor.LineStart <= 0 && loser.LineStart > 0 {
+		survivor.LineStart, survivor.LineEnd = loser.LineStart, loser.LineEnd
+	}
 }
 
 func traceCausalProjectionSemanticAliasPublicationKey(node TraceCausalProjectionNode) string {

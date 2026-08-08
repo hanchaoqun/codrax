@@ -2,6 +2,7 @@ package types
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,48 @@ func TestTraceCausalProjectionSemanticAliasDedupePreservesDistinctIntervalsAndQu
 					projection.SemanticSpans, projection.OnChainCauses)
 			}
 		})
+	}
+}
+
+func TestTraceCausalProjectionExactSemanticOccurrenceUsesSingleTypedChainSeatAcrossQueryViews(t *testing.T) {
+	chain := semanticAliasRecord("chain", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.000000, 10.200000)
+	background := semanticAliasRecord("background", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.050000, 10.250000)
+	for i, note := range background.RichNotes {
+		switch {
+		case strings.HasPrefix(note, "chain_relevance="):
+			background.RichNotes[i] = "chain_relevance=background"
+		case strings.HasPrefix(note, "causality="):
+			background.RichNotes[i] = "causality=background"
+		}
+	}
+
+	projection := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{background, chain}})
+	if len(projection.OnChainCauses) != 1 || len(projection.BackgroundCauses) != 0 {
+		t.Fatalf("one exact physical occurrence with one typed chain authority must occupy only the chain seat: on=%+v background=%+v",
+			projection.OnChainCauses, projection.BackgroundCauses)
+	}
+	if len(projection.SemanticSpans) != 1 || projection.SemanticSpans[0].ChainRelevance != "on_chain" {
+		t.Fatalf("semantic display copy must inherit the same chain-authoritative seat: %+v", projection.SemanticSpans)
+	}
+	for _, node := range []TraceCausalProjectionNode{projection.OnChainCauses[0], projection.SemanticSpans[0]} {
+		if node.EvidenceID != "chain" || len(node.MergedEvidenceIDs) != 1 || node.MergedEvidenceIDs[0] != "background" {
+			t.Fatalf("chain seat must retain the weaker query-view evidence without letting it mint another lane: %+v", node)
+		}
+	}
+}
+
+func TestTraceCausalProjectionSemanticPhysicalSeatDoesNotAdjudicateTwoChainDomains(t *testing.T) {
+	a := semanticAliasRecord("chain-a", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.000000, 10.200000)
+	b := semanticAliasRecord("chain-b", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.050000, 10.250000)
+
+	projection := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{a, b}})
+	if len(projection.OnChainCauses) != 2 || len(projection.SemanticSpans) != 2 {
+		t.Fatalf("two independently typed chain domains require upstream adjudication and must remain lossless: on=%+v semantic=%+v",
+			projection.OnChainCauses, projection.SemanticSpans)
 	}
 }
 

@@ -26579,3 +26579,40 @@ case/action 名补丁解决。
 `initial-discovery-vocabulary=preserved`；`strict-DAG-admission=unchanged`；
 `malformed-json-repair=same-narrow-schema`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`codepath-unchanged`。
+
+### 123.350 r208：rank 单源已到生产，但兼容修复可越过 schema；语义物理事件跨视图双席
+
+在 `main@0b7100e7c` 上严格并发 2 复放 `trace_query_donghu_real_frame_multicausal` 与
+`data_multifile_reference_projection`，runner 2/2 PASS，人工均为 PARTIAL：
+
+1. Trace 保留用户显式窗 `34579.472865..34579.587805`、typed 唤醒链与四类链上可消除席。主根因只从链上选举，邻近/背景 CPU、IO、块设备和页缓存行没有因数值大或时间接近进入根因；
+2. Trace 最终同时给出真实墙钟占用/关键路径候选与现规则可消量；`frame_evidence_status=absent` 只限制“具体丢帧因果未证”，没有把已证窗口链降成背景。模型正文也保留该口径边界；
+3. B344/S37bu 生产闭环：模型查询与系统补采的同一 VerifyClass occurrence 收敛为 `E24(+1)`，证明 producer provenance 不再分裂物理事件；
+4. 新立 `EVAL-B346-TRACEPHYSICALSEAT1=P1`：同一精确 `T7@ZeusThreadPo-61839 / VerifyClass ...` occurrence 仍以 `E24(+1)` 链上根因排序#10和 `E43` 背景非根因双席发布，确定性优化表也重复两行。分叉来自不同 query view 的 relevance/query-domain，不是附件别名；一份报告因此对一个物理事件同时给出相反因果位置；
+5. B346 最优方案是 exact physical occurrence 身份与 analysis-view authority 分层：只有 subject、typed semantic identity、精确起止区间一致且恰有一个 typed on-chain 席时，链席单向吸收弱席并保留所有 E#/locator；两个独立链域不得由显示层裁决，1µs 不同事件不得合并；背景永远不能反向铸造根因权威；
+6. data 最终严格输出 `17,0,5`，rules/decisions/contributions/resolutions/consumed 与 reconcile 均正确。模型明确读到 `allowed_action_kinds` 与 `future_ranks=read_only_roadmap`，controller 也没有执行越 rank action；
+7. B345 生产为 partial：模型两次把 `actions` 编码为 JSON string，兼容层无损还原数组；该变换发生在 provider schema 边界之后，数组内部的未来 rank kind 因而未获得本地 schema 复验，最后由 deterministic staging 拆分。新立 `EVAL-B347-COMPATSCHEMAREVALIDATE1=P1`；
+8. B347 不是关闭兼容恢复，也不是按 data action 特判。任何 string→array/object、key alias、enum alias 等结构归一化在获得 typed/fingerprint authority 前，必须对同一原始 schema 复验；失败应走有界结构修复或精确 typed error，不能静默成为 schema-valid 输入。现 controller 后门仍保证安全，但其他工具未必都有第二层 DAG guard；
+9. 两案无 finalizer reject、无系统答案替写。data 有一次 planner repair、10 轮与 3 个 action-failed 记账，其中部分是成功的 deterministic split/defer 被计作 failed；该指标口径另作 P2 观察，不与 B347 混修。
+
+状态：runner=`2/2 PASS`；human=`Trace PARTIAL / data PARTIAL`；
+`EVAL-B344=production-closed`；`EVAL-B345=production-partial`；
+`EVAL-B346=P1-confirmed/next`；`EVAL-B347=P1-confirmed/separate-batch`；
+`trace-root=typed-on-chain-only`；`adjacent/background=never-promoted`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.351 S37bw：精确语义 occurrence 只保留一个 typed 因果席
+
+关闭 `EVAL-B346-TRACEPHYSICALSEAT1` 的跨 query-view 双席形：
+
+1. 在 semantic alias 同域去重之后、新旧 generic aggregation 之前增加物理席收敛。物理键只读 typed subject、span name/kind/category/subcategory/class/type、精确 `StartTs/EndTs` 与 process TGID；query window、rank board、causality/relevance 属于分析视图，不再被误当第二个物理 occurrence；
+2. 收敛只在一个物理组“恰有一个 typed on-chain publication”时生效。该链席吸收 adjacent/background 镜像的 EvidenceID 与 SupportRefs；弱席不能把自身 rank、数值、因果词或背景结论写回强席，也绝不从背景反向铸链；
+3. 若同一 occurrence 存在两个独立 on-chain query domain，编译器保持两席并 fail-open 交由上游目标/链域裁决，避免显示层跨目标选边。不同 subject、语义类型、起止时间（包括 1µs 差异）继续保持独立；不按 span 名、文件名或最终答案去重；
+4. classified 与 `SemanticSpans` 两份编译副本使用同一规则，因此链树、背景段、确定性优化表和证据索引看到同一个 EvidenceID seat；所有被吸收 E# 与 locator 仍可审计；
+5. 新回归钉住“背景记录先到、链记录后到、查询窗不同”的顺序不敏感正臂，并钉住两个独立链域不得被裁掉。原 B344 不同 query-domain 负例仍保留：没有唯一链 authority 时，纯 alias 层不跨域吞行；
+6. 聚焦 `internal/types` 与完整 `internal/tool` 套件通过。未改 trace_query 计算、根因排序、唤醒链、窗内可消量、frame 证据、显式窗或自动补采；只是让同一精确事件不再同时冒充链上根因与背景。
+
+状态：`EVAL-B346=S37bw-implemented/types+tool-suite-pass/pending-production-replay`；
+`physical-occurrence=exact-typed`；`authority=unique-on-chain-one-way-dominance`；
+`multi-chain-domain=fail-open-preserved`；`background-never-promotes`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`。
