@@ -27185,3 +27185,30 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `semantic-line-range=typed-anchor-grounder/source-and-range-confined`；
 `ordinary-line-range=unchanged`；`all-languages=shared-anchor-contract`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.375 r219：range 绕过生产关闭；flow authority 被无关路径占满
+
+在 `main@05b6c55b5` 上严格并发恰好两个回放。runner 2/2 PASS，人工 1/2：
+
+1. `qf_diagram_pipeline` 中 Explorer 本轮只发 definition/literal/initializer，未发 precedence；旧版会把 `enums.go:33-36` const 声明范围接纳为关系，
+   本轮该伪关系已完全消失，证明 B370 生产关闭；
+2. 真实顺序仍可由已读 `AllMainStages()` returned slice 恢复，最终 3 条主 stage precedence 边正确。由于模型忽略 Ordered-flow handoff、首轮又把无 typed anchor 的箭头当 presentation-only，
+   经 6 次拒绝和第二次 finalizer 才收敛，说明 B363 载体可达但 authored relation 不稳定；不得重新放宽声明组权限；
+3. 正确核心答案之后再次完整附加“系统保留内容 / 第一稿答案（校验前参考）”，B369 第二次生产 witness；重复草稿与正常答案事实几乎相同，仍制造视觉噪声和潜在冲突；
+4. `qf_logic_view_read_pipeline` 的 B370 行为也正确：21 条无证 assignment/call/observe/precedence 全被拒，最终 Mermaid 只能退成无箭头组件布局；
+5. 人工仍判失败。用户问的是 Analyzer/Explorer/Extractor/Finalizer 与 Mutable/BusContext 的数据流，Explorer 却只读 Orchestrator struct、topology、BusContext 字段和 Explorer
+   一个预算 helper，没有追到真实 stage output/apply/consumer 操作；正文遂误称 Orchestrator 按 `preStages` 调四主阶段、BusContext 是唯一通道、Extractor 生成 AnswerChains、Finalizer 生成 StageReports/Signals；
+6. typed handoff 自相矛盾：同一 authority 块诚实写 `grounded_callsite_facts=0; explicit_typed_directed_relations=0`，却又写
+   `ordered_path_authority=typed_flow_paths_present`。其 128/24816 flow paths 头部是 test、recovery、budget helper 和跨文件宽路径，与请求的 operation-level producer/transfer/consumer 无关；
+7. 因此 B366/B368 提升为下一 correctness 批：先审计 FlowFinding 的 scope/rank/authority 铸造，按 typed requested entities、已读 production source、operation endpoint 与 path locality
+   选择相关子集；no relevant path 必须是 typed unavailable/absent，不能用“全仓 somewhere 有 flow”冒充当前问题已有 ordered authority。不得按 case 名、文件名或答案关键词拟合；
+8. 邻接代码审计另立 `EVAL-B371-LINERANGEEXISTENCEAUTH1=P1/HIGH`：ordinary line_range 的注释承诺 total-line/gutter 验证，但实现仍可在没有任何 range line witness 时直接给 `TierLineRange`。
+   与 B370 分批，避免把 directed relation 修复和普通 block citation 收紧混为一批；
+9. 两案均未调用 Trace。所有后续 flow 筛选继续显式排除 runtime Trace family；Trace 显式窗、自动补采、因果投影、唤醒链、根因排序与双维耗时结论不变；
+   主因只允许 typed on-chain 席，邻近/背景只能作为额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`1/2`；
+`EVAL-B370=production-closed`；`EVAL-B369=P1-reproduced`；
+`EVAL-B366=P1-confirmed/high-ROI-next`；`EVAL-B368=P1-confirmed/high-ROI-next`；
+`EVAL-B371=P1-confirmed/separate-batch`；`finalizer-reject=6+5`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
