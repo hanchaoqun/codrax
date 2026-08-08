@@ -12609,6 +12609,9 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
 	}}}
 	got := renderExplorerCallChainEdgeEvidenceGuide(flow)
+	if !strings.Contains(got, types.FlowOperationEvidenceEmissionGuide) {
+		t.Fatalf("typed flow explorer and completion repair must share one operation guide:\n%s", got)
+	}
 	for _, want := range []string{
 		"Ordered-flow Evidence Handoff",
 		"`anchor_kind=precedence`",

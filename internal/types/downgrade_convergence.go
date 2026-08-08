@@ -79,6 +79,12 @@ const (
 	// call chain has no citable registration/assignment/return fact; a repeated
 	// no-progress close converges with an explicit boundary instead of looping.
 	DowngradeLaneCallChainDiscoverySelection DowngradeLane = "call_chain_discovery_selection"
+	// DowngradeLaneFlowOperationCarrier is the source-flow evidence lane. A
+	// typed AxisFlow investigation that has only definitions/field rosters gets
+	// one focused opportunity to materialize a real producer/transfer/consumer
+	// operation. A repeated no-progress close converges with an explicit
+	// unproven-flow boundary rather than becoming a retry storm.
+	DowngradeLaneFlowOperationCarrier DowngradeLane = "flow_operation_carrier"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete

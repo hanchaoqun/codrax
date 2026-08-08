@@ -27233,3 +27233,26 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `support-link=evidence-id-or-both-endpoints`；`background-enrichment=preserved`；
 `EVAL-B366=open/next-operation-carrier-batch`；`EVAL-B369=open`；`EVAL-B371=open`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.377 S37cl：typed flow 定义清单不能冒充 operation-level 探索闭环
+
+关闭 B366 的第一层“Explorer 带着 definitions/fields 就宣布 flow 已充分”，同时限制为一次聚焦补证而非无限硬门：
+
+1. 新增语言无关 `FlowOperationEvidence` 载体，只接受 citable current-source 的 call、callback、assignment、initializer、return、precedence，且必须有明确 subject/object。
+   definition、type/field roster、condition、literal、runtime artifact 与缺一端的行均不能证明数据移动；
+2. `predicate_axis=flow + resolved + current-source` 在首次 completion 时若零 operation carrier，系统只要求一次 producer → transfer/merge → consumer 的聚焦 source pass。
+   该触发只读 schema-valid axis、result kind、source policy 与 typed evidence，不读 request/thinking/reason/summary/final prose，也不按语言、case、文件名或实体得分硬门；
+3. production scope 下 test/fixture/example operation 不能满足该载体；显式 auxiliary/all scope 仍可。source role 来自跨语言 deterministic path classifier，覆盖 Go、Java/Kotlin、
+   JS/TS/ArkTS、C/C++、Rust、Python、Swift、Cangjie 等既有矩阵；
+4. Explorer 初始教学、completion repair 和测试共用 `FlowOperationEvidenceEmissionGuide` 一个语义源。JSON schema 仍是字段/enum 唯一权威；本批没有再造 JSON 形状、互斥字段组合或第二套示例；
+5. 首次缺证返回 typed repair lane `flow_operation_carrier`，允许 repo_map/grep/read_file/emit_evidence 聚焦补证。下一次若新增精确 operation row 立即关闭并清理旧 caveat/repair；
+   若无新进展，第二次 completion 即带 typed `operation-level flow remains unproven` 边界收敛，不制造“成文校验未通过”或 Explorer 重试风暴；
+6. 该边界只限制系统对证据强度的描述，不替模型写数据流结论、图或优化建议。模型仍可总结已证独立组件，并明确哪些 transfer 未证；系统不自动补/删答案；
+7. `IntentTrace` 与 `QFRootCauseTrace` 明确排除，避免 source-flow 完成门进入 runtime Trace。Trace 显式窗、自动补采、因果投影、根因排序、唤醒链、窗内可消除量与双维耗时结论不变；
+   主因只允许 typed on-chain 席，邻近/背景只能作为附加排查方向，不能通过 operation carrier 进入主因席。
+
+状态：`EVAL-B366=S37cl-implemented/tests-pass/pending-production-replay`；
+`flow-operation-carrier=citable/directed/current-source/request-scope`；
+`definition-only=one-focused-repair-then-typed-boundary`；`json-teaching=single-source`；
+`EVAL-B368=authority-half-implemented/pending-replay`；`EVAL-B369=open`；`EVAL-B371=open`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

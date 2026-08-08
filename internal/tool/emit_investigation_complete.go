@@ -2173,6 +2173,37 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("runtime target selection remains unproven: no citable registration, assignment/initializer, or factory-return fact connected the discovered destination to the typed call path; the model must keep the destination conditional and may still summarize the proven static calls")
 	}
+	flowOperationMissing := resultKind == "resolved" && justification == "" &&
+		flowOperationEvidenceRequired(ctx) &&
+		!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel)
+	if !flowOperationMissing && ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowOperationCarrier)
+		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
+	}
+	if flowOperationMissing {
+		queueFlowOperationCarrierRepair(ctx)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: preCompleteDowngradeSummary(
+					"emit_investigation_complete rejected: the typed flow investigation contains no citable operation-level transfer. Definitions and carrier-field rosters establish identities only. Do one focused source pass over the producer, transfer/merge boundary, and consumer; emit each verified directed operation, or retry completion with the transfer explicitly left unproven."),
+				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+					Code:   "flow_operation_carrier_evidence",
+					Hint:   types.FlowOperationEvidenceEmissionGuide,
+					Fields: []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
+					Metadata: map[string]string{
+						"repair_origin": "emit_investigation_complete.flow_operation_carrier",
+						"lane":          string(types.DowngradeLaneFlowOperationCarrier),
+					},
+				}),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
+		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
+	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil
@@ -3151,7 +3182,7 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold
-	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection {
+	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier {
 		exactThreshold = 2
 	}
 	if lane == types.DowngradeLaneCompletionForm {
@@ -3195,6 +3226,32 @@ func queueCallChainDiscoverySelectionRepair(ctx *types.BusContext) {
 		Rationale:     "a discover-sink call chain needs one citable typed registration, assignment/initializer, or factory-return fact connected to the current call path before the runtime destination can be stated as proven",
 		Origin:        "emit_investigation_complete.call_chain_discovery_selection",
 		DowngradeLane: types.DowngradeLaneCallChainDiscoverySelection,
+		Stage:         string(types.StageExplore),
+	})
+}
+
+func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.PredicateAxis == types.AxisFlow &&
+		rm.Intent != types.IntentTrace &&
+		types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&
+		(rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource())
+}
+
+func queueFlowOperationCarrierRepair(ctx *types.BusContext) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return
+	}
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairExpandSearch,
+		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
+		Subject:       "flow_operation_carrier",
+		Rationale:     types.FlowOperationEvidenceEmissionGuide,
+		Origin:        "emit_investigation_complete.flow_operation_carrier",
+		DowngradeLane: types.DowngradeLaneFlowOperationCarrier,
 		Stage:         string(types.StageExplore),
 	})
 }

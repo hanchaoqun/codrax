@@ -1,0 +1,64 @@
+package types
+
+import "strings"
+
+// FlowOperationEvidenceEmissionGuide is the single semantic teaching source
+// shared by the explorer's completion repair and tests. The emit_evidence JSON
+// schema remains the authority for field names and enum values.
+const FlowOperationEvidenceEmissionGuide = "Read the operation sites that actually move the requested value/state/control: producer, transfer or merge boundary, and consumer. Emit one citable row per verified directed operation with exact subject/object and the matching anchor_kind (call, callback, assignment, initializer, return, or precedence). Definitions, type/field rosters, and nearby helper paths remain context only. If the inspected source cannot prove a transfer, preserve that as an unproven boundary instead of inventing an edge."
+
+// FlowOperationEvidence returns citable current-source directed operations.
+// It is intentionally relevance-neutral: the hard completion safeguard may
+// test whether *any* operation-level carrier exists, but must not hard-gate on
+// noisy entity/ranker overlap. Current-question relevance remains a separate
+// typed support/ranking concern downstream.
+func FlowOperationEvidence(evidence []EvidenceItem) []EvidenceItem {
+	out := make([]EvidenceItem, 0)
+	for _, item := range evidence {
+		if !item.IsCitable() ||
+			RuntimeArtifactPathKind(item.Source) != "" ||
+			strings.TrimSpace(item.Source) == "" ||
+			strings.TrimSpace(item.Subject) == "" ||
+			strings.TrimSpace(item.Object) == "" ||
+			!PredicateAxisHasMatchingAnchor(AxisFlow, item) {
+			continue
+		}
+		switch item.Origin {
+		case ClaimOriginLog, ClaimOriginPerf:
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func HasFlowOperationEvidence(evidence []EvidenceItem) bool {
+	return len(FlowOperationEvidence(evidence)) > 0
+}
+
+// FlowOperationEvidenceForRequest additionally applies the analyzer's typed
+// principal source scope. A test/example operation may be useful context for a
+// production question, but cannot satisfy its operation-carrier safeguard.
+func FlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) []EvidenceItem {
+	items := FlowOperationEvidence(evidence)
+	scope := SourceScopeProduction
+	if rm.SourceScopeProfile != nil {
+		if rm.SourceScopeProfile.RequestedScope != "" {
+			scope = rm.SourceScopeProfile.RequestedScope
+		}
+		if rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal {
+			scope = SourceScopeAll
+		}
+	}
+	out := items[:0]
+	for _, item := range items {
+		if SourceScopeAllowsPathRole(scope, ClassifySourcePathRole(item.Source)) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func HasFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) bool {
+	return len(FlowOperationEvidenceForRequest(evidence, rm)) > 0
+}
