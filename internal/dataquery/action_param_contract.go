@@ -134,6 +134,9 @@ var dataActionParamContracts = map[DataActionKind]dataActionParamContract{
 			{Canonical: "output_mode", Aliases: []string{"mode"}},
 		},
 	},
+	DataActionComputeContribs: {
+		Allowed: computeContributionAllowedParams,
+	},
 }
 
 func actionParamSet(keys ...string) map[string]bool {
@@ -158,6 +161,54 @@ func actionParamKeys(params map[string]string) []string {
 	return keys
 }
 
+// DataActionAcceptedParamKeys returns the exact parameter-key vocabulary
+// accepted at the typed action admission boundary. The returned vocabulary
+// includes compatibility aliases because they are valid input declarations;
+// the executor subsequently normalizes them to the canonical keys in the same
+// contract. Action families without a published fail-closed contract return
+// ok=false rather than acquiring a guessed planner-only allowlist.
+func DataActionAcceptedParamKeys(kind DataActionKind) (keys []string, ok bool) {
+	contract, ok := dataActionParamContracts[normalizeDataActionKind(kind)]
+	if !ok {
+		return nil, false
+	}
+	seen := make(map[string]struct{}, len(contract.Allowed))
+	for key := range contract.Allowed {
+		if key = strings.TrimSpace(key); key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	for _, group := range contract.AliasGroups {
+		if key := strings.TrimSpace(group.Canonical); key != "" {
+			seen[key] = struct{}{}
+		}
+		for _, alias := range group.Aliases {
+			if alias = strings.TrimSpace(alias); alias != "" {
+				seen[alias] = struct{}{}
+			}
+		}
+	}
+	keys = make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys, true
+}
+
+// DataActionKindsWithParamContracts enumerates only action families whose
+// executor rejects unknown parameter keys. It is deliberately derived from
+// the owning runtime registry so planner schemas cannot drift into a second
+// source of truth.
+func DataActionKindsWithParamContracts() []DataActionKind {
+	kinds := make([]DataActionKind, 0, len(dataActionParamContracts))
+	for kind := range dataActionParamContracts {
+		kinds = append(kinds, kind)
+	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+	return kinds
+}
+
 // applyDataActionParamContract is the common admission-to-execution boundary
 // for action families that have published a parameter contract. It uses only
 // the typed action kind and parameter keys; question, rule, and answer prose do
@@ -166,6 +217,12 @@ func applyDataActionParamContract(action DataAction) (DataAction, error) {
 	contract, ok := dataActionParamContracts[normalizeDataActionKind(action.Kind)]
 	if !ok {
 		return action, nil
+	}
+	// Keep the compute family's established typed repair guidance while its
+	// accepted key set is now owned by the common registry used by planner
+	// schema projection. This remains the only admission call site.
+	if normalizeDataActionKind(action.Kind) == DataActionComputeContribs {
+		return action, validateComputeContributionActionParams(action)
 	}
 	params := make(map[string]string, len(action.Params))
 	for key, value := range action.Params {

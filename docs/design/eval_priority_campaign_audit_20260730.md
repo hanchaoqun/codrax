@@ -26718,3 +26718,32 @@ case/action 名补丁解决。
 `EVAL-B349=P1-confirmed/architecture-audit-next`；`data-rounds=11`；`data-repairs=2`；
 `trace-root=typed-on-chain-only`；`adjacent/background=reference-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.356 S37bz：action kind 与参数键从同一 runtime contract 投影
+
+关闭 `EVAL-B349-ACTIONPARAMSCHEMA1` 的分裂合同，不为某个 data fixture 或参数名写专用提示：
+
+1. 冷读确认 `internal/dataquery/action_param_contract.go` 已是 filter/value-distribution/mapping-candidate/join/qualify 五个 action 的运行时 unknown-key
+   fail-closed 权威；`compute_contributions` 另有同等级 allowlist。旧 planner 没有消费这些 typed 集合，`actions[].params` 全局
+   `additionalProperties=true`，且通用描述混列 `filters/left_fields/lookup_specs/...`，因此 schema 会给 join 教 enrich 参数，再由 runtime 拒绝；
+2. 本批把 compute 的既有 allowlist登记进同一 runtime registry，并导出只读、排序、返回副本的 accepted-key view。compute 原有“include 成员应改
+   operation=include，count 只计行”的精确错误提示保留；未知 key 仍在 action 执行前 fail-closed，不吞字段、不猜语义；
+3. `emit_data_task_plan` 从该 runtime registry 生成按 `kind` 条件生效的 `params.properties` 与 `additionalProperties=false`。兼容 alias 也从同一 alias group
+   自动进入 schema，随后仍由 executor 归一到 canonical；native array/object 值继续允许，参数值的细分类型仍由 owning action parser 校验；
+4. 因而 `join_records + lookup_specs`、`filter_records + source_filter_field`、`compute_contributions + include` 在模型工具 schema 边界即被拒；
+   join 的 `left_fields_json/right_key/type`、filter 的 native `filters:[...]` 等既有合法兼容形继续通过。没有 action 名、文件名、业务字段或用户/答案 prose 扫描；
+5. continuation/repair 的当前 rank schema 在收窄 `kind.enum` 后同步删除所有 future-kind 条件分支。例如 derive-rules-only schema 不再暗藏
+   join/compute/custom-transform 参数教学；compact JSON repair 复用同一窄 tool，因此首次调用和修复调用不会看到不同合同；
+6. 对尚无 runtime unknown-key contract 的 action，planner `params` 明确保留 fail-open，而不是根据 prompt/scaffold 反向拼一个假 allowlist。新立
+   `EVAL-B350-ACTIONPARAMCOVERAGE1=P1`：当前 20 个 action family 中只有 6 个具有完整 key-admission 权威；其余 family 可能仍会静默忽略模型虚构参数。
+   后续应逐 family 把 executor 实际消费键与 alias 收归同一 registry，再自动获得 schema；不能从 scaffold 示例或源码 grep 结果直接硬化；
+7. 回归覆盖 runtime registry 防可变泄漏、canonical/alias 正臂、三类 foreign/phantom key 负臂、uncontracted fail-open、initial 全 discovery vocabulary、
+   continuation/repair 同一窄 schema，以及原 custom-transform script 条件仍可按 kind 精确定位。完整 `go test ./... -count=1` 首轮通过；末次 rank-branch
+   精简后再次运行相关包与全仓终验；
+8. 本批不进入 Trace/read/write 结论路径，不修改最终答案。显式窗、因果投影、自动补齐、唤醒链、根因排序、真实占时/规则可消双轴保持不变；Trace 主因仍只能来自
+   typed 链上席，邻近/背景只能支撑额外排查方向。
+
+状态：`EVAL-B349=S37bz-implemented/go-test-all-pass/pending-production-replay`；
+`param-key-authority=runtime-registry-single-source`；`structured-values=preserved`；
+`current-rank-schema=future-branches-pruned`；`uncontracted-actions=fail-open`；
+`EVAL-B350=P1-filed`；`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

@@ -8068,9 +8068,6 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	if len(paths) == 0 {
 		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionComputeContribs, "input_paths", "at least one executable record artifact path", action.InputPaths)
 	}
-	if err := validateComputeContributionActionParams(action); err != nil {
-		return DataArtifact{}, nil, nil, err
-	}
 	groupKeyFields := computeContributionGroupKeyFields(action)
 	groupKeyConst := strings.TrimSpace(action.Params["group_key"])
 	// group_key_literal — the deterministic completion lane's collision-free

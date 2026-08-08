@@ -3,12 +3,14 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 )
 
 func dataTaskToolActionKindEnum(t *testing.T, tool llm.ToolSchema) []string {
@@ -64,8 +66,11 @@ func TestDataTaskExecutableRankNarrowsToolAndPromptFromSameState(t *testing.T) {
 	if got := dataTaskToolActionKindEnum(t, tool); !slices.Equal(got, rank.AllowedActionKinds) {
 		t.Fatalf("tool action enum=%v, rank=%v", got, rank.AllowedActionKinds)
 	}
-	if strings.Contains(string(tool.Parameters), `"reconcile_artifacts"`) || strings.Contains(string(tool.Parameters), `"assemble_answer"`) {
-		t.Fatalf("current-rank tool schema leaked future executable kinds: %s", tool.Parameters)
+	for _, futureKind := range []string{`"join_records"`, `"compute_contributions"`, `"reconcile_artifacts"`, `"assemble_answer"`, `"custom_transform"`} {
+		if !strings.Contains(string(tool.Parameters), futureKind) {
+			continue
+		}
+		t.Fatalf("current-rank tool schema leaked future executable kind %s: %s", futureKind, tool.Parameters)
 	}
 
 	prompt := dataTaskContinuationPromptWithRuntimeViewAndRank("continue", "/repo", TurnPolicy{Route: RouteData}, nil, view, rank)
@@ -214,6 +219,83 @@ func TestDataTaskInitialPlannerKeepsFullDiscoveryVocabulary(t *testing.T) {
 	for _, want := range []string{"material_inventory", "derive_rules", "compute_contributions", "reconcile_artifacts", "assemble_answer"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("initial tool action enum=%v, missing %q", got, want)
+		}
+	}
+}
+
+func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
+	base := `{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[%s]}`
+	tests := []struct {
+		name    string
+		action  string
+		wantErr string
+	}{
+		{
+			name:   "join canonical structured keys",
+			action: `{"kind":"join_records","params":{"left_fields":["id"],"right_fields":["id"],"join_type":"inner"}}`,
+		},
+		{
+			name:   "join compatibility alias remains admitted",
+			action: `{"kind":"join_records","params":{"left_fields_json":"[\"id\"]","right_key":"id","type":"left"}}`,
+		},
+		{
+			name:    "join rejects enrich-only lookup specs",
+			action:  `{"kind":"join_records","params":{"lookup_specs":[{"lookup_path":"labels.csv"}]}}`,
+			wantErr: "lookup_specs",
+		},
+		{
+			name:    "filter rejects invented field selector",
+			action:  `{"kind":"filter_records","params":{"source_filter_field":"active"}}`,
+			wantErr: "source_filter_field",
+		},
+		{
+			name:   "filter native structured carrier remains admitted",
+			action: `{"kind":"filter_records","params":{"filters":[{"field":"active","op":"eq","value":true}]}}`,
+		},
+		{
+			name:    "compute rejects phantom include key",
+			action:  `{"kind":"compute_contributions","params":{"include":"id"}}`,
+			wantErr: "include",
+		},
+		{
+			name:   "uncontracted action remains fail open",
+			action: `{"kind":"derive_fields","params":{"future_runtime_owned_key":{"nested":true}}}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := json.RawMessage([]byte(fmt.Sprintf(base, tc.action)))
+			err := toolparam.Validate(raw, dataTaskPlanTool.Parameters)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("schema rejected runtime-admitted action params: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("schema err=%v, want rejected key %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDataTaskNarrowedAndRepairToolsKeepSameParamContract(t *testing.T) {
+	rank := dataTaskExecutableRankContract{
+		NextStage:          "normalize_or_enrich_entities",
+		AllowedActionKinds: []string{"join_records"},
+		FutureRanks:        "read_only_roadmap",
+	}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"join_records","params":{"lookup_specs":[]}}]}`)
+	if err := toolparam.Validate(raw, tool.Parameters); err == nil || !strings.Contains(err.Error(), "lookup_specs") {
+		t.Fatalf("narrow/repair tool lost runtime parameter contract: %v", err)
+	}
+	for _, foreign := range []string{`"filter_records"`, `"compute_contributions"`, `"custom_transform"`} {
+		if strings.Contains(string(tool.Parameters), foreign) {
+			t.Fatalf("join-only schema still teaches foreign action %s: %s", foreign, tool.Parameters)
 		}
 	}
 }

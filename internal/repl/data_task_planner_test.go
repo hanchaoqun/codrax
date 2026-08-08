@@ -2906,10 +2906,20 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 	actions, _ := properties["actions"].(map[string]any)
 	items, _ := actions["items"].(map[string]any)
 	allOf, _ := items["allOf"].([]any)
-	if len(allOf) != 1 {
-		t.Fatalf("actions item conditional=%+v, want one kind-conditioned script contract", allOf)
+	var conditional map[string]any
+	for _, raw := range allOf {
+		candidate, _ := raw.(map[string]any)
+		ifBranch, _ := candidate["if"].(map[string]any)
+		ifProperties, _ := ifBranch["properties"].(map[string]any)
+		kind, _ := ifProperties["kind"].(map[string]any)
+		if kind["const"] == "custom_transform" {
+			conditional = candidate
+			break
+		}
 	}
-	conditional, _ := allOf[0].(map[string]any)
+	if conditional == nil {
+		t.Fatalf("actions item conditionals=%+v, missing custom_transform script contract", allOf)
+	}
 	thenBranch, _ := conditional["then"].(map[string]any)
 	required, _ := thenBranch["required"].([]any)
 	if len(required) != 1 || required[0] != "script" {

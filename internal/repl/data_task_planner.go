@@ -328,7 +328,7 @@ var dataTaskPlanTool = llm.ToolSchema{
           "params": {
             "type":"object",
             "additionalProperties": true,
-            "description":"Domain-neutral action parameters. Scalars may be strings/numbers/booleans. For arrays or objects, pass real JSON arrays/objects such as field_specs, filters, left_fields, right_fields, lookup_specs, mapping_specs, resolutions, or rules; do not stringify nested JSON unless you intentionally use an existing *_json string field."
+            "description":"Domain-neutral action parameters. Use only keys admitted for the selected action kind. Scalars may be strings/numbers/booleans; pass arrays/objects as real JSON rather than adding an extra JSON-string layer unless an existing *_json field is intentionally used."
           },
           "success_criteria": {"type":"array", "items":{"type":"string"}}
         },
@@ -397,6 +397,74 @@ var dataTaskPlanTool = llm.ToolSchema{
   },
   "required": ["status", "output_contract"]
 }`),
+}
+
+func init() {
+	tool, err := dataTaskPlanToolWithRuntimeParamContracts(dataTaskPlanTool)
+	if err != nil {
+		panic(err)
+	}
+	dataTaskPlanTool = tool
+}
+
+// dataTaskPlanToolWithRuntimeParamContracts projects the executor's existing
+// fail-closed parameter-key contracts into conditional JSON schema branches.
+// Values remain flexible because the draft layer intentionally accepts native
+// arrays/objects and serializes them losslessly for the owning executor. Only
+// key admission becomes strict here. Action families without a runtime
+// contract retain the open params object; inventing a planner-only allowlist
+// would create the same split authority this adapter is meant to remove.
+func dataTaskPlanToolWithRuntimeParamContracts(tool llm.ToolSchema) (llm.ToolSchema, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters, &schema); err != nil {
+		return llm.ToolSchema{}, fmt.Errorf("decode data task plan schema for action parameter contracts: %w", err)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing properties object")
+	}
+	actions, ok := properties["actions"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing actions object")
+	}
+	items, ok := actions["items"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing action items object")
+	}
+	allOf, _ := items["allOf"].([]any)
+	for _, kind := range dataquery.DataActionKindsWithParamContracts() {
+		keys, ok := dataquery.DataActionAcceptedParamKeys(kind)
+		if !ok || len(keys) == 0 {
+			continue
+		}
+		paramProperties := make(map[string]any, len(keys))
+		for _, key := range keys {
+			paramProperties[key] = map[string]any{}
+		}
+		allOf = append(allOf, map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{"kind": map[string]any{"const": string(kind)}},
+				"required":   []any{"kind"},
+			},
+			"then": map[string]any{
+				"properties": map[string]any{
+					"params": map[string]any{
+						"type":                 "object",
+						"properties":           paramProperties,
+						"additionalProperties": false,
+						"description":          fmt.Sprintf("Parameter keys accepted by the typed %s executor; compatibility aliases are normalized to the same canonical contract.", kind),
+					},
+				},
+			},
+		})
+	}
+	items["allOf"] = allOf
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return llm.ToolSchema{}, fmt.Errorf("encode data task plan schema with action parameter contracts: %w", err)
+	}
+	tool.Parameters = raw
+	return tool, nil
 }
 
 // dataTaskExecutableRankContract is the small, typed projection of the
@@ -482,6 +550,24 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 		kind["enum"] = enum
 		actions["description"] = "Actions for the current executable workflow rank only. Future ranks are read-only roadmap context."
 	}
+	// The base schema contains kind-conditioned parameter and script branches.
+	// Once the executable enum is narrowed, remove branches for future kinds as
+	// well; otherwise the JSON schema itself would continue teaching parameters
+	// for actions that the same call cannot emit.
+	allowedSet := make(map[string]bool, len(rank.AllowedActionKinds))
+	for _, allowed := range rank.AllowedActionKinds {
+		allowedSet[strings.TrimSpace(allowed)] = true
+	}
+	if allOf, ok := items["allOf"].([]any); ok {
+		filtered := make([]any, 0, len(allOf))
+		for _, branch := range allOf {
+			conditionedKind, conditioned := dataTaskActionConditionalKind(branch)
+			if !conditioned || allowedSet[conditionedKind] {
+				filtered = append(filtered, branch)
+			}
+		}
+		items["allOf"] = filtered
+	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
 		return llm.ToolSchema{}, fmt.Errorf("encode data task plan schema for executable rank: %w", err)
@@ -493,6 +579,28 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 		marshalInlineJSON(rank.AllowedActionKinds))
 	tool.Parameters = raw
 	return tool, nil
+}
+
+func dataTaskActionConditionalKind(raw any) (string, bool) {
+	branch, ok := raw.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	ifBranch, ok := branch["if"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	properties, ok := ifBranch["properties"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	kind, ok := properties["kind"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	value, ok := kind["const"].(string)
+	value = strings.TrimSpace(value)
+	return value, ok && value != ""
 }
 
 func appendDataTaskExecutableRankContract(b *strings.Builder, rank dataTaskExecutableRankContract) {
@@ -610,7 +718,7 @@ Hard rules:
 - Each actions[] batch contains one dependency-ready DAG rank. Actions in that array may share inputs that already exist, but one action must not consume an action id or output_artifact produced by a sibling in the same array. Emit the ready producer rank now with continue_after=true; after it executes, the workflow exposes real artifact fields and dispatches the dependent rank. This is not one-action-only: independent actions over already-materialized inputs may remain in the same rank.
 - Action outputs are reusable read-only JSON materials after their producing batch executes. A later-batch action can list an earlier action id or output_artifact in input_paths and read it with json_load(path) or json_records(path), or let typed actions consume it as structured records. Use these materialized artifacts for stepwise DAG convergence instead of rebuilding all raw files in each step. Previous result.artifact_access is the authoritative access catalog for generated artifacts: it lists aliases, json_shape, fields, field_samples, and access_hint. Workflow ledger handles such as workflow_entity_resolutions, workflow_rule_coverage, workflow_contributions, and workflow_decision_records are also read-only JSON artifacts when present; consume them directly instead of trying to recreate accumulated ledgers from prose. Follow artifact_access before writing script code; for array-shaped artifacts use json_records(alias) or iterate json_load(alias) as a list, and never call .get() on the top-level array. Do not invent field names that are absent from artifact_access.fields; use field_samples only as objective examples, not as complete data; use derive_fields/enrich_records/join_records first to materialize missing fields. Do not ask the user to clarify the internal shape of a system-generated artifact; inspect/read that artifact or use json_records(path).
 - Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use extract_records when you need bounded generic records from selected structured or text materials. extract_records is a materialization/sample action: set params.limit (or params.max_records) to the number of records the next typed stage actually needs; if the downstream calculation requires the full local file, request a large bounded limit and verify row_count/sample_count before treating it as complete.
-- Params can carry structured JSON arrays/objects directly. Prefer params.field_specs, params.filters, params.left_fields, params.right_fields, params.lookup_specs, params.mapping_specs, params.resolutions, and params.rules as real arrays/objects. Use *_json only when you already have a valid serialized JSON string. Do not spend repair budget on escaping nested JSON strings when a structured param can represent the same data.
+- Params can carry structured JSON arrays/objects directly. Use only keys belonging to the selected action kind, as constrained by the tool schema and that action's instruction below. Use *_json only when you already have a valid serialized JSON string; do not spend repair budget on escaping nested JSON strings when a native structured param is admitted.
 - Use derive_rules when task rules, constraints, examples, or prior distilled notes should become auditable rule_coverage records before calculation. Params can include rules (array of {id,text,status,notes,evidence_refs,output_field} or newline text) or rules_json. If later rows/contributions/entity_resolutions will cite rule_refs, give each rule a stable generic ID using "RULE_ID: rule text" or rules[].id, then cite exactly that ID. When a rule dictates the exact field/key name the final answer object must use, copy that name verbatim into that rule's output_field; assemble_answer consumes it as the typed output schema for deterministic field naming. Never invent an output_field the rule material does not state.
 - Use derive_fields when an existing record artifact needs generic derived columns before filtering, joining, or aggregation. Provide input_path or one input_paths item, output_artifact, and params.field_specs as an array. Each spec can include source_field, source_fields, target_field, operation, pattern, group, replacement, value, default, default_field, mapping, multiplier, divisor, separator, start, length, and cases. Supported operation values are copy, trim, lower, upper, regex_extract, regex_replace, parse_number, map, substring, prefix, suffix, year, extract_year, concat, join_fields, coalesce, first_non_empty, constant, case_when, multiply, divide, add, and subtract. The arithmetic operations (multiply/divide/add/subtract) combine two or more numeric source_fields per row with exact decimal arithmetic into target_field (e.g. line_amount = qty * unit_price via operation="multiply", source_fields=["qty","unit_price"]); use them instead of inventing pre-computed fields or hardcoding per-row constants. For case_when, provide cases as an array of {"filters":[{"field":"...","op":"eq|in|gt|gte|lt|lte|not_empty|empty","value":"..."}],"value_field":"..."} or {"filters":[...],"value":"..."}, plus optional default/default_field; all fields must already exist on the one input artifact. Record artifacts already preserve generic source locator fields such as _source_path, _source_index, _source_line, _source_locator, source_index, source_line, source_locator, row_index, and line; do not copy a reserved locator field to the same reserved target. If a later action needs a non-reserved alias, copy/parse the real locator source into a non-reserved target such as row_index or row_locator. Never use constant to invent row/source/line/index fields; constant is only for genuinely fixed labels or flags. parse_number extracts a decimal token from any string; optional multiplier/divisor can normalize an objective numeric unit when the user/material defines the conversion. concat/coalesce use source_fields and are for generic field composition only. This action is field-level and domain-neutral; it does not decide business rules.
 - Use extract_fields when one or more same-schema text/record artifacts need structured fields materialized from text before filtering, joining, or aggregation, especially when only matched rows should continue. Provide input_paths (or one input_path), output_artifact, and params.field_specs or params.extract_specs as an array of source_field, target_field, operation, pattern, and group specs. Plain text materials expose their content as source_field="text" (content/body/raw_text are accepted as text aliases). A directory input is exposed as one text record per regular child file with text, file_name, file_path, and source locator fields; use this for objective text evidence sets, extracted OCR/text folders, snippet folders, or other same-schema local text collections without writing a custom directory script. Multiple plain-text inputs default to document/file scope, one output row per input file; set params.record_scope="line" only when each line should be extracted as its own row. When a text field contains multiple numeric tokens, do not use unanchored operation=parse_number for a target metric; use regex_extract with a context pattern and capture group, or first group/split the text so the numeric source field has one candidate. Use params.required_fields to keep only rows where the extracted fields needed downstream are non-empty, or include_unmatched=true when diagnostics need all rows. This action applies the same declared extraction specs to every input and emits one merged structured artifact; split different schemas into separate actions. It is generic text-to-record materialization; the model supplies the regex/parse specs from observed material shape, and the system preserves source locators.
