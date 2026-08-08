@@ -27515,3 +27515,33 @@ B377 carrier 审计与第一安全层落地：
 `hard-participant-contract=not-authorized/carrier-insufficient`；
 `json-schema=unchanged`；`broad-entities=not-consumed`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.389 r223：关系权威与同稿去重闭环；typed-flow 暴露 metadata 逃逸合同自冲突
+
+在 `main@d9dac9361` 上严格并发恰好两个同案回放。runner 与人工均为 1/2：
+
+1. `qf_diagram_pipeline` 的四个主 stage、职责、引用与 3 条 `precedence` 边全部正确。pre-emit 依据严格已读 `AllMainStages` 返回 carrier 接受三边后，
+   post-contract 对相同 AnswerDocument 复用同一 typed derivation，不再发生“前过后拒”；B376 获得生产闭环；
+2. diagram 案唯一一次成文拒绝来自模型额外给两个 conditional pre-stage 画了无证 `precedence` 边。surgical repair 只删除这两条，主图三边完整保留；这是精确证据门正常工作，
+   不是合同漂移；
+3. 两案最终可见答案都没有“系统保留内容 / 第一稿答案”整页重复。日志中的“第一稿答案”只是首稿交互展示，不是最终 attachment；B369 的 typed visible-carrier dedup
+   获得生产闭环；
+4. B377 soft checklist 按设计生效。diagram 案把四个主 stage 列为 incident、pre-stage 列为 no-incident；logic 案诚实列出全部 named participants 无 incident relation。
+   系统没有据此 reject、自动补边或替模型写结论；
+5. `qf_logic_view_read_pipeline` 最终 0 边、runner 诚实 FAIL。Explorer 读了 14 个文件，但只形成两个互不连通的局部 assignment segment，没有形成所请求组件间的已证流；
+   正文仍把局部事实扩写成完整组件流，人工失败；
+6. 新确认 `EVAL-B378-FLOWPRESENTATIONESCAPECONFLICT1=P0/REDLINE`：同一 Finalizer 合同一边说“presentation-only diagram 删除 typed relation 可退出证据门”，
+   另一边又对 schema-valid `AxisFlow` 明确要求每条可见 arrow 都有 `edge_anchors` owner。模型照前一句删 metadata 后立即被后一句拒绝，第三次修复只能删光全部箭头；
+7. 该冲突直接造成 logic 案 3 次成文拒绝、393 秒耗时。它不是模型波动、JSON 畸形、Mermaid parser 失败或证据 gate 过严；正确方向是统一单源合同边界，
+   typed source call-chain / flow-axis 不能通过删 metadata 进入 presentation-only lane，普通非关系展示图仍保留无 anchor 车道；
+8. B377 hard participant contract 仍不授权。PrimaryEntities 只是 soft shortlist，不能因本轮空图就把每个概念名硬化成必须 incident 的 endpoint；后续继续收集跨语言/异构 flow
+   witness，再决定是否需要新增 typed participant-role carrier；
+9. 两案无 malformed JSON、无 request/thinking/summary/final prose 关键词硬门、无系统替写模型结论，也没有 Trace 查询。B378 修复必须继续排除 runtime Trace 独立因果权限：
+   显式窗、自动补采、因果投影、根因排序、唤醒链、窗内可消除量和真实占时/规则可消双维不变；主因只来自 typed on-chain 席，邻近/背景只能作为额外排查方向。
+
+状态：runner=`1/2 PASS`；human=`1/2(pass+fail)`；
+`EVAL-B376=production-closed`；`EVAL-B369=production-closed`；
+`EVAL-B377=soft-layer-production-proved/hard-carrier-not-authorized`；
+`EVAL-B378=P0-confirmed/next`；`finalizer-reject=1+3`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
