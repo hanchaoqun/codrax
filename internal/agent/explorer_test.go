@@ -12607,6 +12607,10 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		Intent:        types.IntentExplain,
 		PredicateAxis: types.AxisFlow,
 		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "ArkRunner", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "cj::Pipeline", Role: types.DiagramParticipantContextOnly},
+		}},
 	}}}
 	got := renderExplorerCallChainEdgeEvidenceGuide(flow)
 	if !strings.Contains(got, types.FlowOperationEvidenceEmissionGuide) {
@@ -12618,6 +12622,10 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		"smallest already-read `line_start..line_end` range containing the carrier and both endpoints",
 		"Const/enum/type declaration groups, arbitrary sibling statements",
 		"proves source order only, not invocation, runtime execution, containment, or causality",
+		"incident_required=[ArkRunner]",
+		"context_only=[cj::Pipeline]",
+		"planning only, never edge evidence",
+		"carry an explicit unproven boundary",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed flow guide missing %q:\n%s", want, got)
@@ -12634,5 +12642,15 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 	}}}
 	if got := renderExplorerCallChainEdgeEvidenceGuide(definition); got != "" {
 		t.Fatalf("ordinary architecture presentation must not receive ordered-flow teaching: %q", got)
+	}
+
+	traceFlow := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "render-thread", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}}}
+	if got := renderExplorerCallChainEdgeEvidenceGuide(traceFlow); strings.Contains(got, "Typed participant obligations") || strings.Contains(got, "render-thread") {
+		t.Fatalf("runtime trace participant must not enter source-flow guidance: %q", got)
 	}
 }

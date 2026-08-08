@@ -10,6 +10,9 @@ func TestEffectiveDiagramContract_DropsHardRequirementWithoutSupport(t *testing.
 		Required:       true,
 		Minimum:        1,
 		PreferredKinds: []DiagramKind{DiagramArchitecture, DiagramFlow},
+		Participants: []DiagramParticipantHint{
+			{Identity: "StageA", Role: DiagramParticipantIncidentRequired},
+		},
 	}
 	got := EffectiveDiagramContract(base, nil)
 	if got == nil {
@@ -20,6 +23,10 @@ func TestEffectiveDiagramContract_DropsHardRequirementWithoutSupport(t *testing.
 	}
 	if !base.Required {
 		t.Fatal("base contract must stay immutable")
+	}
+	got.Participants[0].Identity = "mutated"
+	if base.Participants[0].Identity != "StageA" {
+		t.Fatalf("effective contract aliased participant slice: %+v", base.Participants)
 	}
 }
 

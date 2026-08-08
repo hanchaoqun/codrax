@@ -1907,6 +1907,7 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	if rm.PredicateAxis == types.AxisFlow {
 		guide += "### Ordered-flow Evidence Handoff\n\n" +
 			types.FlowOperationEvidenceEmissionGuide + "\n" +
+			renderExplorerFlowParticipantObligations(rm) +
 			"When one bounded source span contains an explicit ordered VALUE carrier for stages, handlers, middleware, rules, transforms, or other flow members, preserve each adjacent directed pair as its own grounded `emit_evidence` row: use `evidence_kind=relationship`, `anchor_kind=precedence`, the earlier exact endpoint in `subject`, the later exact endpoint in `object`, `anchor_symbol` equal to the earlier endpoint, and the smallest already-read `line_start..line_end` range containing the carrier and both endpoints. Returned/bound arrays, slices, tuples, middleware lists, and rule chains qualify. Const/enum/type declaration groups, arbitrary sibling statements, comments, summaries, ordinal wording, and model reasoning do not. This proves source order only, not invocation, runtime execution, containment, or causality. Use call/callback/assignment/return anchors instead when those are the actual transfer relation.\n" +
 			"This is one cross-language carrier contract for Go, Java/Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and the other supported source languages.\n\n"
 	}
@@ -1927,6 +1928,34 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
 	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
+}
+
+func renderExplorerFlowParticipantObligations(rm types.RequestModel) string {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.DiagramHint == nil || len(rm.DiagramHint.Participants) == 0 {
+		return ""
+	}
+	var incident []string
+	var context []string
+	for _, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		if identity == "" || !participant.Role.IsValid() {
+			continue
+		}
+		switch participant.Role {
+		case types.DiagramParticipantIncidentRequired:
+			incident = append(incident, identity)
+		case types.DiagramParticipantContextOnly:
+			context = append(context, identity)
+		}
+	}
+	if len(incident) == 0 && len(context) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Typed participant obligations (planning only, never edge evidence): incident_required=%v; context_only=%v. Inspect a real operation incident to each incident_required participant or carry an explicit unproven boundary; never connect context_only participants merely for visual completeness.\n",
+		incident, context,
+	)
 }
 
 func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {

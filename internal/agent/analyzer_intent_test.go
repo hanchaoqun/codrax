@@ -1671,7 +1671,7 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 	mut := types.NewMutableState("trace how request dispatch reaches the handler")
 	mut.SetRequestModel(types.RequestModel{
 		RawRequest:    "trace how request dispatch reaches the handler",
-		Intent:        types.IntentTrace,
+		Intent:        types.IntentExplain,
 		Scenario:      types.ScenarioArchitectureExplain,
 		Complexity:    types.ComplexityModerate,
 		PredicateAxis: types.AxisCall,
@@ -1680,7 +1680,13 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 			Entities: []string{"Dispatch", "Handler"},
 			Kind:     "call_chain",
 		},
-		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG, Required: true},
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramCallDAG, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Dispatch", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "Handler", Role: types.DiagramParticipantContextOnly},
+			},
+		},
 	})
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
 
@@ -1702,6 +1708,34 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 	}
 	if ir.AnswerContract.Diagram.RequiredKind != types.DiagramCallDAG {
 		t.Fatalf("Diagram.RequiredKind = %q, want call_dag", ir.AnswerContract.Diagram.RequiredKind)
+	}
+	if len(ir.AnswerContract.Diagram.Participants) != 2 || ir.AnswerContract.Diagram.Participants[0].Identity != "Dispatch" {
+		t.Fatalf("Diagram.Participants = %+v, want analyzer roles propagated", ir.AnswerContract.Diagram.Participants)
+	}
+	ir.RequestModel.DiagramHint.Participants[0].Identity = "mutated"
+	if ir.AnswerContract.Diagram.Participants[0].Identity != "Dispatch" {
+		t.Fatalf("Diagram contract aliased RequestModel participant slice: %+v", ir.AnswerContract.Diagram.Participants)
+	}
+}
+
+func TestBuildAnalysisIR_RuntimeTraceDoesNotImportSourceDiagramParticipantRoles(t *testing.T) {
+	mut := types.NewMutableState("why did render-thread miss this frame")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest:    "why did render-thread miss this frame",
+		Intent:        types.IntentTrace,
+		Scenario:      types.ScenarioRootCause,
+		Complexity:    types.ComplexityModerate,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "render-thread", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	})
+	ir, err := buildAnalysisIR(&types.AgentContext{Stage: types.StageAnalyze, Mutable: mut})
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.Diagram != nil && len(ir.AnswerContract.Diagram.Participants) != 0 {
+		t.Fatalf("runtime trace imported source participant roles into causal diagram contract: %+v", ir.AnswerContract.Diagram.Participants)
 	}
 }
 

@@ -223,6 +223,7 @@ func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {
 		diagram := *in.Diagram
 		diagram.PreferredKinds = append([]DiagramKind(nil), in.Diagram.PreferredKinds...)
 		diagram.Reasons = append([]string(nil), in.Diagram.Reasons...)
+		diagram.Participants = append([]DiagramParticipantHint(nil), in.Diagram.Participants...)
 		out.Diagram = &diagram
 	}
 	if in.ExactResolution != nil {

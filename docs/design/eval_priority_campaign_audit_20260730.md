@@ -27653,3 +27653,30 @@ B377 carrier 审计与第一安全层落地：
 `eval-mermaid-one-edge-oracle=insufficient`；`finalizer-reject=6+8`；
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.394 S37cw：最小 typed participant-role 载体贯通，但暂不升级硬门
+
+关闭 B377 的“只有嘈声 PrimaryEntities、没有精确关系参与者规划载体”第一阶段，不越权补边或接管答案：
+
+1. 在既有可选 `diagram_hint` 内增加 `participants[]`，没有新造平行 JSON 根。每项只有 `identity` 和一个闭集 role：
+   `incident_required` 表示当前所求关系视图必须找到一个真实 incident relation，否则由模型显式披露 unproven boundary；`context_only` 表示视觉边界/容器/上下文，
+   禁止为连通性强塞入路径；
+2. Analyzer schema 限定最多 12 项、identity 非空且至多 160 rune、case-insensitive 去重、role 严格 enum。participants 仅在“当前请求明确点名参与者并要求 source relation/data/control-flow visual”时填写；
+   不得加入推测 helper、文件、邻近 symbol 或 runtime/trace subject；
+3. `DiagramHint -> DiagramContract -> AnswerSurfacePlan` 完整复制并做 slice defensive copy。Explorer 收到同一 typed obligations，优先调查每个 `incident_required` 的真实 operation site；
+   Finalizer 同时看到 obligation 和当前 citable relation incidence，缺席时只能继续取证或披露 unproven，不能把规划 identity 当 edge evidence；
+4. 旧 PrimaryEntities checklist 保留为无 typed carrier 时的 soft fallback，继续明确“不具 completeness authority”。typed carrier 也仍是 soft planning/coverage guidance；本批没有新增 pre-emit、contract.Check、
+   renderer 或 eval production hard reject，避免 analyzer 身份尚未由 source evidence 落地时误杀答案；
+5. 所有 visible edge 仍必须由独立 citable typed EvidenceItem 证明。participant 字段不能生成、补齐、删除、改 relation_kind 或证明任意 arrow；模型继续拥有关系选择、unproven 披露和最终结论；
+6. 不读取用户请求、thinking、summary、final prose、Mermaid label、case 名、语言、文件名、实体相似度或 edge count。identity incidence 只在已有 typed participant 字段与 grounded relation endpoint 之间使用既有跨语言 code-identity separator 兼容；
+7. C++ `Pipeline::Analyzer`、ArkTS `ArkRunner`、Cangjie `cj.mod.Consumer` 的同一测试证明语言中立；context-only 与 no-incident 分席，不会被统一连成一条假链；
+8. runtime/root-cause Trace 有三重排除：DiagramContract 编译不复制 source participant roles，Explorer 不发该指导，Finalizer incidence 不渲染。显式窗、自动补采、因果投影、唤醒链、根因排序、
+   窗内可消除量、真实占时/规则可消双维与“主因只能来自 typed on-chain、链外只作背景”全部不变；
+9. `go test ./... -count=1` 全绿，覆盖 read/write/data、analysis、orchestrator、hitraceconv、tracequery/tracediag、render/mermaid 和全语言 repomap。下一步在同案恰好并发两个生产回放中验证
+   Analyzer 是否稳定填写、Explorer 是否减少无证补边、Finalizer 是否保留 honest unproven；在此之前不授权 hard backtrack。
+
+状态：`EVAL-B377=S37cw-soft-typed-carrier-implemented/full-suite-pass/pending-production-replay`；
+`json-root=diagram_hint/reused`；`participant-roles=incident_required|context_only`；
+`production-hard-gate=none`；`edge-authority=unchanged/citable-typed-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace=`triple-excluded/unchanged/on-chain-only`。

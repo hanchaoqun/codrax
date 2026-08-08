@@ -47,7 +47,9 @@ func sampleAnalysisIR() AnalysisIR {
 			},
 			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
 			PredicateAxis: AxisCall,
-			DiagramHint:   &DiagramHint{Kind: DiagramCallDAG},
+			DiagramHint: &DiagramHint{Kind: DiagramCallDAG, Participants: []DiagramParticipantHint{
+				{Identity: "explorer", Role: DiagramParticipantIncidentRequired},
+			}},
 			ErrorGranularityProfile: &ErrorGranularityProfile{
 				IsGranularityQuestion: true,
 				SourceQuotes:          []string{"停止"},
@@ -111,6 +113,9 @@ func sampleAnalysisIR() AnalysisIR {
 				PreferredKinds: []DiagramKind{DiagramCallDAG, DiagramSequence},
 				ScopeHint:      DiagramScopeOverall,
 				Reasons:        []string{"trace_intent", "axis_call"},
+				Participants: []DiagramParticipantHint{
+					{Identity: "explorer", Role: DiagramParticipantIncidentRequired},
+				},
 			},
 			ExactResolution: &ExactResolutionContract{
 				TargetKind:              SubjectFunctionName,

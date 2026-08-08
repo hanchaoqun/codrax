@@ -3021,7 +3021,10 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"exact_targets": ["Dispatch", "Handler"],
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"Dispatch", "sink":"Handler"},
-		"diagram_hint": {"kind": "call_dag", "required": false}
+		"diagram_hint": {"kind": "call_dag", "required": false, "participants": [
+			{"identity":"Dispatch", "role":"incident_required"},
+			{"identity":"Handler", "role":"context_only"}
+		]}
 	}`
 
 	tool := &EmitAnalysis{}
@@ -3042,8 +3045,43 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 	if rm.DiagramHint.Kind != types.DiagramCallDAG {
 		t.Fatalf("DiagramHint.Kind = %q, want %q", rm.DiagramHint.Kind, types.DiagramCallDAG)
 	}
+	if len(rm.DiagramHint.Participants) != 2 ||
+		rm.DiagramHint.Participants[0] != (types.DiagramParticipantHint{Identity: "Dispatch", Role: types.DiagramParticipantIncidentRequired}) ||
+		rm.DiagramHint.Participants[1] != (types.DiagramParticipantHint{Identity: "Handler", Role: types.DiagramParticipantContextOnly}) {
+		t.Fatalf("DiagramHint.Participants = %+v, want typed roles preserved", rm.DiagramHint.Participants)
+	}
 	if !strings.Contains(res.Summary, "diagram_hint=call_dag") {
 		t.Fatalf("summary missing diagram hint echo: %q", res.Summary)
+	}
+}
+
+func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
+	required := true
+	tests := []struct {
+		name string
+		hint *emitDiagramHintParam
+		want string
+	}{
+		{
+			name: "unknown role",
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: []emitDiagramParticipantParam{{Identity: "StageA", Role: "required"}}},
+			want: "is not recognised",
+		},
+		{
+			name: "duplicate identity",
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: []emitDiagramParticipantParam{
+				{Identity: "ArkRunner", Role: "incident_required"},
+				{Identity: " arkrunner ", Role: "context_only"},
+			}},
+			want: "duplicates",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, reason := parseDiagramHint(tc.hint); got != nil || !strings.Contains(reason, tc.want) {
+				t.Fatalf("parseDiagramHint()=(%+v,%q), want nil reason containing %q", got, reason, tc.want)
+			}
+		})
 	}
 }
 

@@ -1556,8 +1556,55 @@ func (s DiagramScope) IsValid() bool {
 // axes separate prevents an advisory family suggestion from becoming a
 // hard answer-shape obligation.
 type DiagramHint struct {
-	Kind     DiagramKind `json:"kind"`
-	Required bool        `json:"required"`
+	Kind         DiagramKind              `json:"kind"`
+	Required     bool                     `json:"required"`
+	Participants []DiagramParticipantHint `json:"participants,omitempty"`
+}
+
+// DiagramParticipantRole is the analyzer-authored presentation role for one
+// explicitly named diagram participant. It is intentionally not evidence and
+// cannot mint an edge. The distinction lets downstream agents spend their
+// investigation budget on the participants the current request actually asks
+// to relate without forcing containers or visual context onto a fabricated
+// path.
+type DiagramParticipantRole string
+
+const (
+	// DiagramParticipantIncidentRequired means the requested relationship view
+	// is incomplete unless this participant is touched by at least one grounded
+	// relation or is disclosed as an explicit unproven boundary.
+	DiagramParticipantIncidentRequired DiagramParticipantRole = "incident_required"
+
+	// DiagramParticipantContextOnly means the request names this participant as
+	// a visual boundary, container, or context node but does not require a
+	// relation incident to it. It must never be forced into a path merely to make
+	// the diagram look connected.
+	DiagramParticipantContextOnly DiagramParticipantRole = "context_only"
+)
+
+func AllDiagramParticipantRoles() []DiagramParticipantRole {
+	return []DiagramParticipantRole{
+		DiagramParticipantIncidentRequired,
+		DiagramParticipantContextOnly,
+	}
+}
+
+func (r DiagramParticipantRole) IsValid() bool {
+	for _, declared := range AllDiagramParticipantRoles() {
+		if r == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// DiagramParticipantHint names one current-request participant and the role
+// its diagram surface must play. Identity is analyzer-authored typed planning
+// input, not source authority: exact code endpoints and every visible edge
+// still require independently grounded evidence.
+type DiagramParticipantHint struct {
+	Identity string                 `json:"identity"`
+	Role     DiagramParticipantRole `json:"role"`
 }
 
 // DiagramContract is the finalizer-facing presentation contract for
@@ -1573,6 +1620,10 @@ type DiagramContract struct {
 	PreferredKinds []DiagramKind `json:"preferred_kinds,omitempty"`
 	ScopeHint      DiagramScope  `json:"scope_hint,omitempty"`
 	Reasons        []string      `json:"reasons,omitempty"`
+	// Participants is copied from DiagramHint after strict schema/enum
+	// validation. It remains a presentation/investigation obligation only;
+	// evidence validators must never treat it as relation authority.
+	Participants []DiagramParticipantHint `json:"participants,omitempty"`
 }
 
 type ExactResolutionContextPolicy string

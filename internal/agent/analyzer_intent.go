@@ -565,7 +565,16 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 		PreferredKinds: preferred,
 		ScopeHint:      scope,
 		Reasons:        reasons,
+		Participants:   sourceDiagramParticipantHints(rm),
 	}
+}
+
+func sourceDiagramParticipantHints(rm types.RequestModel) []types.DiagramParticipantHint {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.DiagramHint == nil || len(rm.DiagramHint.Participants) == 0 {
+		return nil
+	}
+	return append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
 }
 
 func mapDiagramMinimum(required bool) int {

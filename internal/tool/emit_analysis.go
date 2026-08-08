@@ -377,8 +377,14 @@ type emitAnswerSubjectParam struct {
 // family that best matches the question, while the deterministic
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
-	Kind     string `json:"kind"`
-	Required *bool  `json:"required"`
+	Kind         string                        `json:"kind"`
+	Required     *bool                         `json:"required"`
+	Participants []emitDiagramParticipantParam `json:"participants,omitempty"`
+}
+
+type emitDiagramParticipantParam struct {
+	Identity string `json:"identity"`
+	Role     string `json:"role"`
 }
 
 type emitEnumerationBoundaryParam struct {
@@ -852,10 +858,23 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly.",
+				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. `participants` is optional and only for explicitly named participants in a requested source relationship/data/control-flow visual; it is planning guidance, never edge evidence. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly.",
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request; false for an optional structural aid."},
+					"participants": map[string]any{
+						"type":        "array",
+						"maxItems":    12,
+						"description": "Optional named-participant obligations for a requested source relationship view. Include only participants explicitly named as part of that view; do not add inferred helpers, files, nearby symbols, or trace/runtime subjects. role=incident_required means the final relationship view must either touch the participant with grounded typed evidence or disclose it as unproven; role=context_only means it is a boundary/container/context node that must not be forced into a path.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"identity": map[string]any{"type": "string", "minLength": 1, "maxLength": 160, "description": "One explicitly named participant identity; keep its current-request/code surface, without adding a file location or prose description."},
+								"role":     map[string]any{"type": "string", "enum": []string{"incident_required", "context_only"}},
+							},
+							"required": []string{"identity", "role"},
+						},
+					},
 				},
 				"required": []string{"kind", "required"},
 			},
@@ -5538,7 +5557,34 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 	if p.Required == nil {
 		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false"
 	}
-	return &types.DiagramHint{Kind: kind, Required: *p.Required}, ""
+	if len(p.Participants) > 12 {
+		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view"
+	}
+	participants := make([]types.DiagramParticipantHint, 0, len(p.Participants))
+	seen := make(map[string]bool, len(p.Participants))
+	for i, raw := range p.Participants {
+		identity := strings.TrimSpace(raw.Identity)
+		if identity == "" {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is empty", i)
+		}
+		if len([]rune(identity)) > 160 {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is longer than 160 characters", i)
+		}
+		role := types.DiagramParticipantRole(strings.TrimSpace(raw.Role))
+		if !role.IsValid() {
+			return nil, fmt.Sprintf(
+				"diagram_hint.participants[%d].role = %q is not recognised — use incident_required or context_only",
+				i, raw.Role,
+			)
+		}
+		key := strings.ToLower(identity)
+		if seen[key] {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity duplicates %q", i, identity)
+		}
+		seen[key] = true
+		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role})
+	}
+	return &types.DiagramHint{Kind: kind, Required: *p.Required, Participants: participants}, ""
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

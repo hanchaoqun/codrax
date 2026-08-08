@@ -4031,6 +4031,17 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	if len(dc.Reasons) > 0 {
 		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
 	}
+	if len(dc.Participants) > 0 {
+		b.WriteString("- Typed participant obligations:\n")
+		for _, participant := range dc.Participants {
+			identity := strings.TrimSpace(participant.Identity)
+			if identity == "" || !participant.Role.IsValid() {
+				continue
+			}
+			fmt.Fprintf(&b, "  - `%s`: `%s`\n", identity, participant.Role)
+		}
+		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
+	}
 	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
 	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
 		fmt.Fprintf(&b, "- The required kind is authoritative: set `diagram.kind=%s` and use the matching Mermaid body syntax for that semantic family.\n", requiredKind)

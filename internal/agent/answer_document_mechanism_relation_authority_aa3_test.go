@@ -291,6 +291,45 @@ func TestMechanismRelationAuthoritySoftParticipantCoverageIsLanguageNeutralAA3(t
 	}
 }
 
+func TestMechanismRelationAuthorityTypedParticipantRolesStaySoftAndLanguageNeutralAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+				{Identity: "Pipeline::Analyzer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "ArkRunner", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "cj.mod.Consumer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "SharedContext", Role: types.DiagramParticipantContextOnly},
+			}},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "cpp-ark", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "Pipeline.Analyzer", Predicate: "calls", Object: "ArkRunner",
+				Source: "src/pipeline.cpp", LineStart: 20, AnchorKind: types.AnchorCall, AnchorSymbol: "ArkRunner",
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "typed_named_participant_relation_coverage: incident=[Pipeline::Analyzer ArkRunner]; no_incident_typed_relation=[cj.mod.Consumer]; context_only=[SharedContext]") {
+		t.Fatalf("typed cross-language participant roles were not surfaced:\n%s", got)
+	}
+	for _, want := range []string{"planning/coverage guidance", "not relation evidence", "disclose that participant as an unproven boundary", "Keep `context_only` participants outside the path"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed participant authority boundary missing %q:\n%s", want, got)
+		}
+	}
+
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	if got := renderAnswerDocMechanismRelationAuthority(ctx); strings.Contains(got, "typed_named_participant_relation_coverage") {
+		t.Fatalf("runtime trace must stay on its independent causal authority lane:\n%s", got)
+	}
+}
+
 func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

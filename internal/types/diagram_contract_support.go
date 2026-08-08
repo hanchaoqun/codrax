@@ -14,6 +14,9 @@ func EffectiveDiagramContract(contract *DiagramContract, supportedKinds []Diagra
 		return nil
 	}
 	out := *contract
+	out.PreferredKinds = append([]DiagramKind(nil), contract.PreferredKinds...)
+	out.Reasons = append([]string(nil), contract.Reasons...)
+	out.Participants = append([]DiagramParticipantHint(nil), contract.Participants...)
 	if out.Required && (out.RequiredKind == DiagramNone || !out.RequiredKind.IsValid()) {
 		out.RequiredKind = firstConcreteDiagramKindInContract(out.PreferredKinds)
 	}
