@@ -27680,3 +27680,33 @@ B377 carrier 审计与第一安全层落地：
 `production-hard-gate=none`；`edge-authority=unchanged/citable-typed-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace=`triple-excluded/unchanged/on-chain-only`。
+
+### 123.395 r226：typed participant 载体安全生效，但单源教学漏线导致漏发/占位身份与重试振荡
+
+在 `main@2b55f35cc` 上严格并发恰好两个同案回放。runner 2/2 PASS，人工 0/2：
+
+1. S37cw 的载体贯通和权限边界正确生效。`qf_diagram_pipeline` 的 Explorer/Finalizer 收到同一 typed participant obligations，coverage 诚实显示
+   `incident=[]`、`no_incident_typed_relation=[Stage 1..4]`、`context_only=[codrax read-mode pipeline]`；这些规划身份没有生成、证明或放行任何边；
+2. 但 Analyzer 的精简教学仍只讲 `diagram_hint.kind/required`，没有讲新 `participants`。`qf_logic_view_read_pipeline` 因此完全漏发 participants，尽管请求明确点名
+   analyzer、explorer、extractor、finalizer、Mutable、BusContext；`qf_diagram_pipeline` 则把“4 个主 stage”错误展开为未点名的 `Stage 1`…`Stage 4` 占位身份；
+3. 新确认 `EVAL-B380-DIAGRAMPARTICIPANTTEACHING1=P1/HIGH`。这是 schema 与用户可见 Analyzer 合同不同源，不是 JSON decode 或模型随机波动。最优修复是把 participant
+   规则并入既有 `diagram_hint` 单一教学源：只在当前关系/数据流图请求明确点名 identity 时逐字复制；未点名时省略；禁止 `Stage 1`、`Actor A`、`component N`
+   等占位符。不得新增第二个 JSON 根或完整示例，减少模型心智；
+4. 两案最终图分别只保留一条和两条真实局部 call。diagram 案缺失 StageAnalyze→StageExplore→StageExtract→StageFinalize 主链；logic 案中四个 agent、Mutable、BusContext
+   全部孤立，正文却扩写成完整数据流。`mermaid_edge_count>=1` 再次给出确定性假阳性；
+5. 两案分别 11/7 次成文拒绝。相同 unsupported endpoint pair 被模型在 call、precedence、missing-anchor 间重标，validator 每次均正确拒绝，但修复提示没有识别
+   “同 pair 在本 dispatch 已跨 relation family 失败”。新确认 `EVAL-B381-RELATIONRETRYOSCILLATION1=P1/HIGH`：应以 parsed block+canonical endpoint pair+
+   typed violation family 做重试状态；重复失败时明确要求继续取得新的 typed evidence、否则删除该可见 pair，不能靠换 relation_kind 重试；
+6. B381 不能自动删边、改 edge、补 relation、增加证据、重写 AnswerDocument 或放松现有 relation gate。状态只能来自 typed validator violation 与 accepted evidence ledger，
+   不读取用户请求、thinking、summary、final prose、edge label 词义、case 名、语言、实体相似度或任意 edge count；
+7. B379 在生产继续闭环：错误与修复均使用 canonical endpoint，无 display-label identity 污染。diagram 案最终仍附出近乎重复的第一稿，B369 保持 partial/open，不能用正文
+   相似度或关键词硬删；
+8. 本批无 malformed JSON、无系统替写模型答案、无 Trace 查询。runtime/root-cause Trace 仍与 source diagram carrier 隔离：显式时间窗、自动补采、因果投影、唤醒链、
+   根因排序、窗内可消除量、真实占时/规则可消双维不变；根因只允许 typed on-chain 席，邻近区域和背景信息只能作为额外排查方向。
+
+状态：runner=`2/2 PASS(false-positive)`；human=`0/2`；
+`EVAL-B377=carrier-safe/teaching-partial`；`EVAL-B380=P1-confirmed/next`；
+`EVAL-B381=P1-confirmed/design-before-code`；`EVAL-B379=production-closed`；
+`EVAL-B369=partial/open`；`finalizer-reject=11+7`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
