@@ -5693,7 +5693,6 @@ func traceCausalProjectionSemanticAliasPublicationKey(node TraceCausalProjection
 		traceCausalProjectionCanonicalNode(node.FamilyFoldCaliber),
 		strings.Join(node.FamilyMemberRoster, "\x02"),
 		within,
-		strconv.FormatBool(node.SystemSupplement),
 	}, "\x00")
 }
 

@@ -26507,7 +26507,7 @@ locator 当身份，因而重复发布；后续 V4 又会把“相近数值 + �
 
 1. 新增 semantic alias publication 精确 key：typed role/subject/predicate/object、span name/kind/category/subcategory/class/type、精确
    `StartTs/EndTs`、`QueryWindowStartTs/EndTs`、链凭证/分支/深度、各数值口径、rank board/fix direction、window membership 与 supplement
-   必须全部一致；SupportRefs 和 source line 不参与物理事件等价；
+   必须全部一致；SupportRefs、source line 以及“模型查询/系统补采”的 producer provenance 不参与物理事件等价；
 2. alias fold 在旧 generic dedupe 之前运行。胜者数值与权限不变，所有被合并的 EvidenceID 进入 `MergedEvidenceIDs`，所有物理 locator 进入
    `SupportRefs`；不铸造 ×N、SUM 或新的可消除量；
 3. timed semantic row 的 generic base key 同样服从上述精确身份，避免旧去重在 alias fold 之后按 locator 或缺失 query domain 再次误吞；无完整发生区间的
@@ -26523,4 +26523,29 @@ locator 当身份，因而重复发布；后续 V4 又会把“相近数值 + �
 状态：`EVAL-B344=S37bt-implemented`；`semantic-alias=exact-typed/lossless`；
 `distinct-semantic-occurrence/query-domain=preserved`；`scheduler-V4=unchanged`；
 `trace-root=typed-on-chain-only`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
-`go test ./internal/types -count=1=PASS`；`go test ./... -count=1=PASS`；待独立提交推送与并发 2 生产回放。
+`go test ./internal/types -count=1=PASS`；`go test ./... -count=1=PASS`；首轮生产回放发现 producer provenance 仍错误分裂同一事件，见下一节。
+
+### 123.348 r207 / S37bu：补采 provenance 不得分裂物理 span；data planner 的 DAG-rank 教学冲突
+
+在 `main@2c52825db` 上严格并发 2 复放 `trace_query_donghu_real_frame_multicausal` 与
+`data_multifile_reference_projection`，runner 2/2 PASS，人工均为 PARTIAL：
+
+1. Trace 的显式窗、4 次 windowed trace_query、根因排序、唤醒链、实际占用/现规则可消除双轴和系统补采均完整；主根因仍只来自 typed 链上席，◇/▒ 没有因数值或
+   时间邻近越权。S37bs 覆盖边界已生产转绿：明确“typed 链只支持所选窗口链上候选与可消量、不证明具体丢帧；无链凭证观察仍只能邻近/背景”；
+2. B344 首轮回放未闭环：E26（模型查询）与 E27（系统补采）具有同一 host/语义身份、精确发生区间、查询窗、链凭证、rank/value 与 locator，却仍各占一席。唯一
+   分叉字段是 `SystemSupplement`；它是 producer provenance，不是物理事件身份。`S37bu` 从 exact key 删除该字段，正臂改为“模型记录 + 系统补采记录”仍合一，
+   两份 EvidenceID/locator 继续保留；不同时间、查询域、权限车道仍不合并；
+3. Trace 模型正文总体分层正确，但把背景块设备/页锁描述为“通过链式依赖影响”时缺少逐边 holder/waiter 权限，且 exploration completion 先因 member_set 非数值、再因
+   缺少 member_set 被拒两次。确定性尾部已披露 holder/waiter 未证；当前不扫描/重写模型 prose，分别记软上下文服从和结构教学观察；
+4. data 案最终 `17,0,5`、15 条实体归一、4 条贡献、13 条规则、reconcile=pass 全部正确，严格纯输出无污染；但 9 轮、4 次 action failure、1 次 repair。系统状态已给
+   精确 `allowed_next_actions`/`next_stage`，模型仍反复把后续 DAG rank（filter/reconcile/assemble）与当前 rank 一起发出，再被 hard gate 拒绝；
+5. 新立 `EVAL-B345-DATARANKTEACH1=P1`：这是教学/执行合同心智冲突，不是 JSON 畸形或模型随机算错。最优方案不是放宽 DAG gate，也不是按 action 名拟合；应由单一
+   typed next-rank carrier 同时驱动 tool schema/prompt 示例/repair hint，只向模型暴露当前可发的 action rank，把完整后续链保留在只读状态摘要，避免“教学全链、校验单 rank”；
+6. r207 无 finalizer reject、无 malformed JSON 恢复、无系统答案改写。Trace analyzer 首次多发未知 `type` 字段并因 exclusion policy 补了第三轮，记 JSON/schema 教学
+   精简观察；未证明与 data rank 同根，不合并硬修。
+
+状态：runner=`2/2 PASS`；human=`Trace PARTIAL / data PARTIAL`；
+`EVAL-B344=S37bu-implemented/pending-replay`；`EVAL-B345=P1-filed/next`；
+`trace-root=typed-on-chain-only`；`adjacent/background=never-promoted`；
+`finalizer-reject=0+0`；`data-action-failed=4`；`data-rounds=9`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

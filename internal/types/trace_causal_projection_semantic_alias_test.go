@@ -51,6 +51,7 @@ func TestTraceCausalProjectionDedupesExactSemanticSpanAcrossAttachmentAliases(t 
 		34579.495841, 34579.496126, 34579.472865, 34579.587805)
 	b := semanticAliasRecord("E25", "donghu_tieba_frame.systrace:5552-5572", 5552,
 		34579.495841, 34579.496126, 34579.472865, 34579.587805)
+	b.SystemSupplement = true
 
 	projection := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{a, b}})
 	if len(projection.SemanticSpans) != 1 || len(projection.OnChainCauses) != 1 {
