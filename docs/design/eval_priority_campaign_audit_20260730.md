@@ -26192,3 +26192,44 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 `route-signal=typed-mode-or-turn-route`；`guidance=soft/model-owned`；
 `repo-prescan=skipped-for-write-classifier`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace/JSON=`unchanged`。
+
+### 123.333 r199：write-route 核心生产通过；架构成员降级仍有 completeness+const-set 同义漏臂
+
+在 `main@7ca78556c` 上严格并发 2 复放 r198 的 Java write + QF diagram，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. Java 从 86s 降至 53s。typed write-route shortcut 进入 analyzer prompt，首轮不再构建 repo overview 或调用 prescan，直接 emit；scenario 从
+   `architecture_explain` 修正为 `generic`，source_inventory/field_value/change_impact/completeness/diagram 等 read-only profile 均未发射；
+2. 模型 broad intent 仍选 `root_cause`，emit 以既有 write-mode tolerance 接受并提示后续写阶段负责 change framing。write analyzer 与 planner 均正确，最终仍是
+   `Main.java:16` 单行 patch。B328 的重复探索/错 profile 核心闭环；新记 `EVAL-B337-WRITEROUTEINTENTTAXONOMY1=P2-observe`，不为 enum 标签做系统硬改；
+3. 图表最终四 stage、职责与 Mermaid 三边正确，finalizer 一轮接受、reject=0。B336 v1 将 579s/19 lens 降到 295s/9 lens，但仍有 20 轮完成尝试，不能关闭；
+4. r199 analyzer 的漂移形不同于 r198：没有 declared_count，而是 `completeness=true`；同时幻造 `requires_const_set=true` 与 requested `values`。已有防线把
+   const-set/type facet 当 genuine declaration inventory 的保留信号，因此 source inventory 又获得 repo-wide completion 权；
+5. 新冷读结论：conceptual architecture mechanism 的更高层 typed 互斥必须覆盖 declared-count 与 active-completeness 两种有界集合载体；当 required diagram、
+   explain/architecture/mechanism、非 category/count/relational 均成立时，模型附加的 const-set/values 不得反向提升权限。只有显式 typed source scope 能改回声明清单；
+6. 循环全部发生在 explorer completion，不是 Mermaid/JSON/finalizer 合同冲突，也没有“成文校验未通过”。系统未删除、替换或重写模型答案；
+7. 本批无 Trace 输入，Trace query/显式时间窗/因果投影/自动补齐/链上根因资格/唤醒链/窗内可消除量与链外背景隔离均未改。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B328=core-production-positive`；`EVAL-B337=P2-observe`；
+`EVAL-B336=v1-production-partial/v2-next`；`EVAL-B329+B330=closed/stable`；
+`finalizer-reject=0`；`completion-loop=typed-authority-gap`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.334 S37bkm2：概念架构有界集合同时覆盖 count 与 completeness 载体
+
+`EVAL-B336` v2 将同一高层任务形的两个 typed 表达统一到一个权限边界：
+
+1. bounded diagram member 条件现在要求 `IntentExplain + ReqMechanism + ScenarioArchitectureExplain + required non-none diagram`，集合边界可由
+   `declared_count>0` 或 active `completeness_obligation` 任一承载，并排除 scalar/role/history/diagnostic/category/count/relational；
+2. 在该形中 source inventory 永远只是 supporting navigation/evidence；model-added `requires_const_set`、type-underlying 或 `values` 不再覆盖概念机制权限。
+   这修的是 authority precedence，不删除这些源码事实，也不修改模型的 completeness/diagram/结论；
+3. genuine source declaration inventory 的精确逃生臂保持：显式 `SourceScopeProfile` 仍保留 source-inventory principal authority；`IntentEnumerate`、可选 diagram、
+   非 mechanism、category/count/relational 形也不落入本臂；
+4. 所有判据均为 schema enum/boolean/integer/object-presence，不读取 source quote 内容、rationale、用户请求、model thinking/summary/答案、成员名、语言或路径；
+5. types 回归增加 completeness+const-set+values 正形及 explicit source scope 反形；EmitAnalysis e2e 使用无 declared_count 的 active completeness 形，要求
+   source profile 被移除而模型的 completeness 与 required diagram 原样保留；
+6. 本批不改 Mermaid/JSON/AnswerDocument/write/Trace 计算，也不由系统生成答案。
+
+状态：`EVAL-B336=S37bkm2-implemented/types+tool+orchestrator-suite-pass/pending-production-replay`；
+`authority=conceptual-mechanism>model-added-source-facets`；`explicit-source-scope=preserved`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write=`unchanged`。

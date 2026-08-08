@@ -184,13 +184,15 @@ func SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm RequestMod
 		return false
 	}
 	boundedDiagramMembers := rm.Intent == IntentExplain &&
-		rm.EnumerationBoundary != nil &&
-		rm.EnumerationBoundary.DeclaredCount > 0 &&
+		NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqMechanism &&
+		((rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) ||
+			rm.CompletenessObligation.IsActive()) &&
 		rm.DiagramHint != nil &&
 		rm.DiagramHint.Required &&
 		rm.DiagramHint.Kind != DiagramNone &&
 		!rm.Predicates.IsCategoryEnumeration &&
-		!rm.Predicates.IsCountQuestion
+		!rm.Predicates.IsCountQuestion &&
+		!rm.Predicates.IsRelationalLookup
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup ||
 		rm.Predicates.IsHistoryLookup ||
@@ -200,8 +202,8 @@ func SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm RequestMod
 		return false
 	}
 	if sourceInventoryHasExplicitTypedScope(rm.SourceScopeProfile) ||
-		profile.RequiresConstSet ||
-		(profile.TypeUnderlying != "" && profile.TypeUnderlying != SourceInventoryTypeUnderlyingUnknown) {
+		(!boundedDiagramMembers && (profile.RequiresConstSet ||
+			(profile.TypeUnderlying != "" && profile.TypeUnderlying != SourceInventoryTypeUnderlyingUnknown))) {
 		return false
 	}
 	return true

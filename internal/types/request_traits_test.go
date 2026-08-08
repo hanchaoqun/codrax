@@ -2345,8 +2345,9 @@ func TestArchitectureMemberExplanation_DemotesIncidentalSourceInventory(t *testi
 	}
 
 	boundedDiagram := RequestModel{
-		Intent:   IntentExplain,
-		Scenario: ScenarioArchitectureExplain,
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
 		Predicates: SemanticPredicates{
 			IsCategoryEnumeration: false,
 			HasPerMemberTable:     false,
@@ -2384,6 +2385,39 @@ func TestArchitectureMemberExplanation_DemotesIncidentalSourceInventory(t *testi
 	genuineSourceInventory.Intent = IntentEnumerate
 	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(genuineSourceInventory) {
 		t.Fatal("an explicit source declaration enumeration must retain inventory authority")
+	}
+
+	completenessDiagram := boundedDiagram
+	completenessDiagram.EnumerationBoundary = nil
+	completenessDiagram.CompletenessObligation = &CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all principal members",
+	}
+	completenessDiagram.SourceInventoryProfile = &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleConstant, AnswerCandidateRoleType},
+		RequiresConstSet:  true,
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldSummary,
+			SourceInventoryFieldValues,
+		},
+		SourceQuotes: []string{"all principal members"},
+		Confidence:   0.82,
+	}
+	if !SourceInventoryLaneConflictsWithArchitectureMemberExplanation(completenessDiagram) ||
+		!SourceInventoryCompletionIsSupportOnly(completenessDiagram) {
+		t.Fatal("model-added const/value facets must not override a bounded architecture mechanism diagram")
+	}
+
+	explicitSourceScope := completenessDiagram
+	explicitSourceScope.SourceScopeProfile = &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
+		SourceQuotes:   []string{"all repository source"},
+	}
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(explicitSourceScope) {
+		t.Fatal("an explicit typed source scope must still preserve declaration-inventory authority")
 	}
 }
 
