@@ -26876,3 +26876,38 @@ case/action 名补丁解决。
 `flow-authority=field-membership<producer+transfer+consumer`；
 `explicit-exclusion=preserved`；`hard-answer-gate=none`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.362 r213：角色分类复正但 flow 合同不可满足；函数内顺序被套成端点可达
+
+在 `main@37fd3db3b` 上严格并发 2 复放 `qf_logic_view_read_pipeline` 与
+`qf_sequence_analyzer_gate`，runner 为 1 PASS / 1 FAIL，人工为 0/2：
+
+1. S37cc 的分类半边生产生效。逻辑图案从旧轮的 `is_role_locate_lookup=true / is_scalar_answer=true / required_candidate_roles=[agent]`
+   恢复为三项 false/空，family 回到 architecture，耗时从 236s 降到 138s；这证明“多个组件及各自职责/输入输出”不是单一角色 lookup；
+2. 但逻辑图最终仍错误：把 `tryAutoRepairFinalizerAnswerDocument` 这个违规后修复 helper 当成 Finalizer 组件；把
+   `BuildAgentContext -> BusContext` 画成“构建 AgentContext”，实际方向恰好相反；又从 BusContext/Mutable 向四阶段画出无 typed transfer 权限的全量虚线；
+3. 深层根因不是模型少读一句提示，而是系统合同自相矛盾。当前 `predicate_axis` 只有 call/register/define/return/configure/condition/implement，
+   数据流请求被模型合法铸成 `define`；`dataflowIntent` 对 `IntentExplain` 进入 lookup，随后显式 `SkipFindings=true`。本轮因此恒为
+   `flow_findings=0`，而 S37cc 新教学同时要求用 producer/merge-or-transfer/consumer 与 `FlowFindings` 证明箭头。系统要求一个本车道按设计不生成的载体；
+4. 立 `EVAL-B354-ARCHCOMPONENTFLOWCLOSURE1=P1`。最优方案是新增语言无关、schema-validated 的 flow/transfer typed axis，并从该轴驱动关系证据搜集、
+   排序、闭包与最终关系提示；不从用户原文或模型答案扫“flow/数据流”等关键词。组件身份还必须由 stage binding/topology/constructor 等边界证据确认，名字里含某阶段的 helper 只能是候选；
+5. flow 轴不能把任意定义、字段 roster 或相邻 helper 升成关系。箭头至少要有同向 producer/call/assignment/return/callback/transfer 证据；
+   architecture presentation 可以在证据不足时少画边或披露边界，不能为了满足图数量伪造关系。模型仍负责最终组件解释与结论，系统只供给 typed 事实；
+6. sequence 案正确发现 `buildAnalysisIR` 不会调用 `gate.Run`：真实结构是 `buildAnalysisIR -> gate.RunWith` 与
+   `gate.Run -> gate.RunWith` 两条汇聚边。第 9 轮使用 `no_directed_path` 是诚实边界，不能为过 runner oracle 伪造反向/不存在路径；
+7. 该答案仍漏掉请求中的“关键中间函数”：它只抽取函数入口附近的 detectLanguage/analyzerGraphForNormalize/log merge/oracle 与最终 gate，
+   没有覆盖 buildAnalysisIR 函数体内 normalizer/compiler/HDP/binder/recompute 等有序主干。探索先后 5 次 completion 失败，说明“单函数体内按源码顺序列调用”
+   被错误套进了跨函数 source-to-sink reachability 合同；
+8. 立 `EVAL-B355-INTRAPROCSEQUENCEAUTH1=P1`。最优边界是保留 endpoint 不可达披露，同时由 typed sequence scope 记录 owner function 与其按源码位置排序的
+   direct operations；它与 call-chain path 分轨。不能把实体提及序当调用序，也不能通过答案 regex 强迫模型说出某个函数名；
+9. sequence 唯一一次“成文校验未通过”是模型首稿把 diagram block 的 `kind` 留空，第二稿按同一 schema 修正；没有发现两份相反 JSON 教学或系统合同冲突。
+   该次应计为普通 payload-shape 波动，不据此新增硬 normalizer 或答案接管；
+10. 本批不进入 Trace 编译/投影。显式窗、自动补采、唤醒链、根因排序、实际占时与规则可消双轴保持不变；只有 typed 链上席能获根因资格，
+    邻近/背景只可作为额外排查方向。没有 raw request/final answer/thinking 扫描硬门，也没有系统删除、重写或替换模型结论。
+
+状态：runner=`1/2`；human=`0/2`；
+`EVAL-B353=classification-production-closed/flow-authority-partial`；
+`EVAL-B354=P1-confirmed/next`；`EVAL-B355=P1-confirmed/after-B354`；
+`flow_findings=structurally-disabled-on-current-architecture-lane`；
+`sequence=no-directed-path-correct/middle-operations-incomplete`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
