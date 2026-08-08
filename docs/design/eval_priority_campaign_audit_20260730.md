@@ -26768,3 +26768,25 @@ case/action 名补丁解决。
 `EVAL-B351=P1-filed/typed-compatible-field-first`；
 `EVAL-B352=P1-confirmed/next`；`wrong-answer-published=no`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.358 S37ca：失败批不得抹掉仍在争议中的 answer-projection 权威
+
+关闭 `EVAL-B352-FAILRESULTAUTH1` 的终态诊断降格，不改变完成/发布红线：
+
+1. 冷读确认不是主状态机没识别 mismatch。r211 round 22 后 live graph 已精确发布 `reference_key_field=target_id`、
+   `reference_grounding_evaluated=true`、`reference_ledger_domain_mismatch=true` 与 `repair_reference_domain_alignment`；round 23 的
+   assemble 执行失败后，latest-result 选择却拿失败批的 partial/空 answer 重建 output graph，才退化成 `incomplete_reference/canonical_label`；
+2. 保留原 `dataTaskCompletionAnswerSelection` 字节语义：被 evaluator contest 的 fallback answer 仍不能满足 completion、不能发布，也不能被 validator proposal 当成已完成结果。错误的
+   `17,4,5` 继续 fail-closed；
+3. 新增窄的 `dataTaskOutputProjectionAuthoritySelection`，只供 workflow state/output graph 使用。若最后一个 answer-bearing lineage 仍被 typed answer-face contest，它继续作为“正在被修的投影”提供诊断；更新的失败/空答批只追加 action failure、partial artifacts 与执行记录，不能清空原 grounding verdict；
+4. 权威清除仍是 typed/index-based：只有 contest 之后产生的新 answer-bearing result，或显式 answer-face re-evaluation，才能替换/清除旧投影。没有读取错误文本、模型思考、用户请求或答案关键词；
+5. 回归构造完整 reference source、错误 target-id 域答案、typed `repair_node(assemble_answer)`，再追加一个 answerless failed repair。断言 completion selector 仍返回空答/不可发布，而 state 保留
+   `reference_grounding_mismatch + reference_ledger_domain_mismatch + target_id`，并继续开放 compute/reconcile/assemble 三条修复动作；
+6. 这是诊断权威与完成权威分轨，不是系统替模型修值或替写答案。B351 的 compatible-field carrier 仍独立开放；本批没有把 `canonical_label` 自动写进 plan，也没有从 fixture 数字/列名猜结论；
+7. 本批不进入 Trace 编译、查询或成文路径。显式时间窗、因果投影、自动补采、唤醒链、根因排序、真实占时/规则可消双轴不变；链外邻近/背景证据仍不得进入主因席。
+
+状态：`EVAL-B352=S37ca-implemented/go-test-all-pass/pending-production-replay`；
+`completion-authority=contested-answer-rejected`；
+`diagnostic-authority=last-contested-projection-retained`；
+`new-answer-clears-by-typed-index`；`wrong-answer-published=no`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

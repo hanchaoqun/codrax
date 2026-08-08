@@ -497,6 +497,23 @@ func dataTaskCompletionAnswerSelection(repoRoot string, records []dataTaskWorkfl
 	return current, result
 }
 
+// dataTaskOutputProjectionAuthoritySelection selects the answer-bearing
+// lineage whose output projection is still under typed review. Unlike the
+// completion selection above, a contested fallback is deliberately retained:
+// it MUST NOT satisfy completion or publish, but it remains the exact answer
+// that the grounding validator rejected. A later failed/answerless repair
+// batch may contribute action diagnostics and partial artifacts, but it must
+// not erase that live reference-domain/cardinality verdict from workflow state.
+// Only a newer answer-bearing result can displace the contested projection.
+func dataTaskOutputProjectionAuthoritySelection(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, dataquery.Result) {
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
+	output := dataTaskWorkflowOutputContract(records, current)
+	if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback {
+		return sel.Plan, sel.Result
+	}
+	return current, result
+}
+
 func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
 	var completionFallback dataworkflow.EvaluationFallbackCandidate
 	// Completion single authority (DL-C, ledger §7.12): the completion
@@ -4160,7 +4177,7 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 	guardViolations := dataTaskWorkflowGuardViolations(records)
 	var outputGraphInput *dataworkflow.OutputProjectionGraphInput
 	if latestPlan, latestResult, ok := latestDataTaskResultWithPlan(records); ok {
-		answerPlan, answerResult := dataTaskCompletionAnswerSelection(repoRoot, records, latestPlan, latestResult)
+		answerPlan, answerResult := dataTaskOutputProjectionAuthoritySelection(repoRoot, records, latestPlan, latestResult)
 		exact := dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot, records, answerPlan, answerResult)
 		outputGraphInput = &exact
 	}

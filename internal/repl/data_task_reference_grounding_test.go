@@ -211,6 +211,80 @@ func TestReferenceGroundingLedgerDomainMismatchOpensTypedAlignmentRepair(t *test
 	}
 }
 
+// A failed answer repair commonly records a partial, answerless Result after
+// the evaluator has already contested the previous projection. Completion
+// must stay closed, but the live/terminal state must continue to describe the
+// precise rejected projection instead of degrading to a generic
+// incomplete-reference graph sourced from the failed partial batch.
+func TestContestedReferenceDomainVerdictSurvivesAnswerlessFailedRepair(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	wrong := referenceGroundingResult("17,4,5", map[string]string{
+		"GroupA": "17",
+		"GroupB": "4",
+		"GroupC": "5",
+	})
+	wrong.OutputContract.ReferenceKeyField = "target_id"
+	wrong.Reconcile = &dataquery.ReconcileReport{Status: "pass", Groups: []dataquery.ReconcileGroup{
+		{GroupKey: "GroupA", Metric: "total_value", Actual: "17"},
+		{GroupKey: "GroupB", Metric: "total_value", Actual: "4"},
+		{GroupKey: "GroupC", Metric: "total_value", Actual: "5"},
+	}}
+	wrong.Reconcile.ExpectedAnswer = "17,4,5"
+	wrong.Reconcile.ActualAnswer = "17,4,5"
+	wrong.Artifacts = []dataquery.DataArtifact{{ID: "final_answer", Kind: string(dataquery.DataActionAssembleAnswer)}}
+	answerPlan := dataquery.TaskPlan{
+		Status:           "ready",
+		CoverageContract: referenceGroundingContract(),
+		OutputContract:   wrong.OutputContract,
+		Actions: []dataquery.DataAction{{
+			ID:   "final_answer",
+			Kind: dataquery.DataActionAssembleAnswer,
+		}},
+	}
+	contest := &dataquery.Evaluation{
+		Status:     dataquery.EvalRepairNode,
+		ActionID:   "final_answer",
+		ActionKind: string(dataquery.DataActionAssembleAnswer),
+		Confidence: "high",
+	}
+	partial := wrong
+	partial.Answer = ""
+	partial.Artifacts = nil
+	failedPlan := answerPlan
+	failedPlan.Actions[0].ID = "repair_final_answer"
+	records := []dataTaskWorkflowRecord{
+		{Plan: answerPlan, Result: &wrong, Evaluation: contest},
+		{Plan: failedPlan, Result: &partial, Err: "assemble_answer reference projection could not be resolved"},
+	}
+
+	// The completion selector intentionally refuses the contested answer.
+	completionPlan, completionResult := dataTaskCompletionAnswerSelection(root, records, failedPlan, partial)
+	if strings.TrimSpace(completionResult.Answer) != "" || completionPlan.Actions[0].ID != "repair_final_answer" {
+		t.Fatalf("completion selection=%q/%+v, contested answer must remain non-publishable", completionResult.Answer, completionPlan.Actions)
+	}
+
+	state := dataTaskWorkflowState(root, records, failedPlan)
+	graph := state.OutputProjectionGraph
+	if graph.Status != dataworkflow.OutputProjectionStatusGroundingMismatch ||
+		!graph.ReferenceGroundingEvaluated ||
+		!graph.ReferenceLedgerDomainMismatch ||
+		graph.ReferenceCandidateField != "target_id" {
+		t.Fatalf("graph=%+v, want the contested target_id domain verdict retained after failed repair", graph)
+	}
+	if state.NextStage != dataworkflow.StageRepairReferenceDomain {
+		t.Fatalf("NextStage=%q allowed=%v, want reference-domain alignment to remain reachable", state.NextStage, state.AllowedNextActions)
+	}
+	for _, want := range []string{
+		string(dataquery.DataActionComputeContribs),
+		string(dataquery.DataActionReconcile),
+		string(dataquery.DataActionAssembleAnswer),
+	} {
+		if !slices.Contains(state.AllowedNextActions, want) {
+			t.Fatalf("allowed=%v, retained verdict lost repair action %s", state.AllowedNextActions, want)
+		}
+	}
+}
+
 // The live eval uses a generated key-list alias (target_list) as the typed
 // assemble_answer reference_path. The alias itself has no authority, but its
 // single source lineage points back to targets.csv; grounding must re-read
