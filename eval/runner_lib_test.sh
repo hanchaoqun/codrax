@@ -39,6 +39,19 @@ assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" analyzer_dispatches)" "2" 
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" string_metric)" "0" "metric int non-numeric fallback"
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" missing_key)" "0" "missing metric int fallback"
 
+node_only_mermaid='```mermaid
+flowchart TD
+  Analyze[Analyze]
+  Explore[Explore]
+```'
+edge_mermaid='```mermaid
+flowchart TD
+  Analyze[Analyze] --> Explore[Explore]
+  Explore -.-> Extract[Extract]
+```'
+assert_eq "$(eval_mermaid_edge_count "$node_only_mermaid")" "0" "node-only Mermaid must expose zero eval edges"
+assert_eq "$(eval_mermaid_edge_count "$edge_mermaid")" "2" "Mermaid eval edge counter must stay fence-local and structural"
+
 cat >"$tmp/repair-metrics.txt" <<'METRICS'
 repair_plan_lines=2
 data_repair_rounds=3
@@ -1983,6 +1996,34 @@ EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='user_guide\.html'
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/operation-terminal.case")" "typed_operation_terminal" \
   "operation terminal case oracle surface"
+
+cat >"$tmp/mermaid-edge.case" <<'CASE'
+ID="mermaid_edge"
+NAME="mermaid edge"
+QUESTION="draw a flow"
+EXPECT_MERMAID_MIN_EDGES=1
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/mermaid-edge.case")" "mermaid_edge_count" \
+  "Mermaid edge case oracle surface"
+
+cat >"$tmp/fake-codrax-node-only-mermaid" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo '```mermaid'
+echo 'flowchart TD'
+echo '  Analyze[Analyze]'
+echo '  Explore[Explore]'
+echo '```'
+echo 'node-only diagram answer has enough content'
+SH
+chmod +x "$tmp/fake-codrax-node-only-mermaid"
+CODRAX_BIN="$tmp/fake-codrax-node-only-mermaid" EVAL_RESULTS_ROOT="$tmp/mermaid-edge-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/mermaid-edge.case" 1 >/dev/null || fail "Mermaid edge wire eval failed to run"
+mermaid_edge_dir="$(eval_latest_result_dir "$tmp/mermaid-edge-results" mermaid_edge 00000000-000000 || true)"
+[[ -n "$mermaid_edge_dir" ]] || fail "Mermaid edge wire result dir missing"
+if ! grep -qF 'mermaid_edges:0<1' "$mermaid_edge_dir/run-1.verdict"; then
+  fail "run.sh did not reject a node-only explicit Mermaid flow case"
+fi
 
 cat >"$tmp/fake-codrax-operation-terminal" <<'SH'
 #!/usr/bin/env bash

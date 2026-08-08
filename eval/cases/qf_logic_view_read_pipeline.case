@@ -9,4 +9,5 @@ QUESTION="请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架�
 EXPECT_CONTAINS="analyzer explorer extractor finalizer Mutable BusContext"
 EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))
 (AnalysisIR|EvidenceItems|AnswerDocument|Mutable|BusContext)'
+EXPECT_MERMAID_MIN_EDGES=1
 EXPECT_NOT_CONTAINS="Spring Django"

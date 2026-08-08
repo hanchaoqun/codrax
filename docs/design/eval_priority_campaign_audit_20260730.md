@@ -27330,3 +27330,21 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `EVAL-B368=authority-implemented/pending-production-replay`；
 `no-support-plan=typed-operation-scope`；`repo-wide-flow=background-only-unless-bound`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.381 S37co：显式 Mermaid 关系图 eval 不再把零边节点板签绿
+
+关闭 B374，严格限制在 eval harness：
+
+1. 新增 case-level `EXPECT_MERMAID_MIN_EDGES`。它只统计最终可见答案显式 ` ```mermaid` fence 内的结构箭头，不扫描 fence 外正文、edge label 词义或用户请求；
+2. `qf_diagram_pipeline` 与 `qf_logic_view_read_pipeline` 都显式要求至少 1 条边。节点、stage 词和 Mermaid fence 仍满足其它 oracle，但零边时现在稳定报
+   `mermaid_edges:0<1`，不再产生 R220 的 false PASS；
+3. 这是测试 oracle，不接入 production answer validator、analyzer、Explorer、Finalizer 或 renderer。生产仍只由 typed relation/evidence 合同判断箭头真实性，
+   不会为了过 eval 自动补边、保留假边或关键词拟合答案；
+4. parallel/manual summary 的 declared oracle surface 新增 `mermaid_edge_count`，人工审计能看出该 case 不是只靠 `answer_contains`/regex；
+5. shell pin 覆盖 node-only=0、solid+dashed edge=2、case oracle surface 与 run.sh wire false-pass 反例。`bash -n` 与 `eval/runner_lib_test.sh` 全绿；
+6. Trace case 未启用此新字段。显式窗 Trace 因果投影、系统补采、链上根因和背景边界不受影响；若未来某 Trace case 明确要求图，可由 case 自己选择该 eval oracle，
+   仍不会改变 production 因果权限。
+
+状态：`EVAL-B374=S37co-implemented/eval-runner-contracts-pass`；
+`oracle=mermaid-fence-local-structural-edge-count`；`production-hard-gate=unchanged`；
+`raw-prose-scan=eval-fence-only/not-production`；`system-answer-rewrite=none`；Trace=`unchanged`。

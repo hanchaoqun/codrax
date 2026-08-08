@@ -14,4 +14,5 @@ NAME="diagram — Mermaid read-mode pipeline flow"
 QUESTION="请用 Mermaid 流程图画出 codrax read-mode pipeline 的 4 个主 stage，并在图后简要说明每个 stage 负责什么。"
 EXPECT_CONTAINS="analyze explore extract finalize"
 EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))'
+EXPECT_MERMAID_MIN_EDGES=1
 EXPECT_NOT_CONTAINS="Spring Django"

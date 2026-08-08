@@ -482,6 +482,9 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_CONTAINS=' "$file"; then
     eval_case_oracle_surface_add "answer_contains"
   fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MERMAID_MIN_EDGES=' "$file"; then
+    eval_case_oracle_surface_add "mermaid_edge_count"
+  fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_PRINCIPAL_(CONTAINS|NOT_CONTAINS|MATCHES_REGEX|MATCHES_TEXT_REGEX)=' "$file"; then
     eval_case_oracle_surface_add "principal_answer"
   fi
@@ -496,6 +499,24 @@ eval_case_oracle_surface() {
   fi
 
   echo "${surfaces:-basic_output}"
+}
+
+# eval_mermaid_edge_count <answer-text>
+#
+# Counts visible edge statements only inside explicit ```mermaid fences. This
+# is an eval-oracle helper, not a production answer validator: it prevents a
+# case that explicitly asks for a relationship/flow diagram from passing with
+# a node-only graph merely because the Mermaid fence and expected labels exist.
+# The grammar is deliberately structural and language-neutral; it does not
+# inspect edge labels or answer prose.
+eval_mermaid_edge_count() {
+  local text="${1:-}"
+  LC_ALL=C awk '
+    /^[[:space:]]*```mermaid[[:space:]]*$/ { in_mermaid=1; next }
+    in_mermaid && /^[[:space:]]*```[[:space:]]*$/ { in_mermaid=0; next }
+    in_mermaid && /(-->|-\.->|==>|->>|-->>|-\)|--\)|-x|--x)/ { count++ }
+    END { print count + 0 }
+  ' <<<"$text"
 }
 
 eval_count_pattern() {

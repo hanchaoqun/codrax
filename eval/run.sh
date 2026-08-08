@@ -100,6 +100,7 @@ EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
+EXPECT_MERMAID_MIN_EDGES="${EXPECT_MERMAID_MIN_EDGES:-}"
 EXPECT_PRINCIPAL_CONTAINS="${EXPECT_PRINCIPAL_CONTAINS:-}"
 EXPECT_PRINCIPAL_NOT_CONTAINS="${EXPECT_PRINCIPAL_NOT_CONTAINS:-}"
 EXPECT_PRINCIPAL_MATCHES_REGEX="${EXPECT_PRINCIPAL_MATCHES_REGEX:-}"
@@ -979,6 +980,23 @@ write_verdict() {
       fi
     done
     IFS="$old_ifs"
+  fi
+
+  # Eval-only structural oracle for cases that explicitly require a relation
+  # diagram. Production answer validation remains typed and independent; this
+  # check only keeps the harness from signing a node-only Mermaid block green.
+  if [[ -n "$EXPECT_MERMAID_MIN_EDGES" ]]; then
+    if ! [[ "$EXPECT_MERMAID_MIN_EDGES" =~ ^[0-9]+$ ]]; then
+      pass=0
+      reasons+=("invalid_mermaid_min_edges:${EXPECT_MERMAID_MIN_EDGES}")
+    else
+      local mermaid_edges
+      mermaid_edges="$(eval_mermaid_edge_count "$cleaned")"
+      if (( mermaid_edges < EXPECT_MERMAID_MIN_EDGES )); then
+        pass=0
+        reasons+=("mermaid_edges:${mermaid_edges}<${EXPECT_MERMAID_MIN_EDGES}")
+      fi
+    fi
   fi
 
   # EVAL-B1-R11/E1 (2026-07-30): optional principal-answer checks run
