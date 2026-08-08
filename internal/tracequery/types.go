@@ -3326,8 +3326,14 @@ type PacingIdleSummary struct {
 type TraceSpanSummary struct {
 	SourcePath string    `json:"source_path,omitempty"`
 	Thread     ThreadRef `json:"thread"`
-	Kind       string    `json:"kind,omitempty"`
-	Name       string    `json:"name,omitempty"`
+	// CPU is the opening endpoint's ftrace header CPU. CPUKnown separates a
+	// real CPU 0 from converter-authored trace-mark rows whose source CPU is
+	// unavailable; consumers must never infer CPU from Thread.PID or a comm
+	// suffix such as app-20.
+	CPU      int    `json:"cpu,omitempty"`
+	CPUKnown bool   `json:"cpu_known,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Name     string `json:"name,omitempty"`
 	// SpanPID is the trace-mark payload pid of the opening B row (`B|{pid}|…`)
 	// — the emitter's OWN pid-namespace process id, which for a containerized
 	// process differs from the row-header host Thread.TGID (§18.E emission
@@ -5198,6 +5204,9 @@ type FrameTimelineResult struct {
 type FrameTimelineItem struct {
 	Index                   int                 `json:"index"`
 	Thread                  ThreadRef           `json:"thread,omitempty"`
+	CPU                     int                 `json:"cpu,omitempty"`
+	CPUKnown                bool                `json:"cpu_known,omitempty"`
+	CPUStatus               string              `json:"cpu_status,omitempty"`
 	TargetScope             string              `json:"target_scope,omitempty"`
 	ProcessID               int                 `json:"process_id,omitempty"`
 	ProcessMembershipSource string              `json:"process_membership_source,omitempty"`
@@ -5242,6 +5251,9 @@ const (
 
 type FramePhaseSummary struct {
 	Thread                  ThreadRef `json:"thread,omitempty"`
+	CPU                     int       `json:"cpu,omitempty"`
+	CPUKnown                bool      `json:"cpu_known,omitempty"`
+	CPUStatus               string    `json:"cpu_status,omitempty"`
 	TargetScope             string    `json:"target_scope,omitempty"`
 	ProcessID               int       `json:"process_id,omitempty"`
 	ProcessMembershipSource string    `json:"process_membership_source,omitempty"`

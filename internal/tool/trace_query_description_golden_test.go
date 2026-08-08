@@ -145,6 +145,17 @@ package tool
 // gate. The strict two-case B4 replay (trace churn + write verification) is
 // the prescribed live-eval weigh after this batch.
 //
+// EVOLUTION RECORD (EVAL-B386/B387, 2026-08-08): ONE terminal sentence from
+// traceQueryFrameCrossThreadScopeContract is appended after the existing
+// format-support block. It teaches only the new typed view geometry:
+// frame_timeline/frame_flow thread selectors elect an anchor while member
+// enumeration remains cross-thread; explicit process scope stays a proven
+// membership filter. The identical sentence is injected into Parameters
+// from the same constant. This avoids the r229 dispatch loop in which a UI
+// target silently removed RS/GPU members; it does not add a view, relation,
+// root-cause seat, note-key hard gate, or prose classifier. The r229 frame
+// case plus one heterogeneous case is the required live-eval weigh.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

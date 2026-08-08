@@ -27891,3 +27891,32 @@ Trace=`triple-excluded/unchanged/on-chain-only`。
 `EVAL-B388=P1-confirmed`；`EVAL-B389=P1-confirmed/design-before-code`；
 `trace-root-population=typed-on-chain-correct`；`adjacent-background=support-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.402 S37da：跨线程 frame 成员普查、lane 字段身份与 deadline caliber 根修
+
+按 r229 的 B386/B387/B388 合批施工，严格隔离 root-cause 目标视图与跨线程 frame 视图：
+
+1. `frameTimelineMemberQuery` 把一个旧 Query 字段承担的两种身份拆开：在 `frame_timeline|frame_flow` 的默认 thread scope 下，PID/thread 只作为 anchor selector，
+   span 成员普查清除线程过滤并覆盖同一 selected window 的所有线程；显式 `target_scope=process` 继续按 TGID/trace-mark SpanPID 精确约束进程成员；
+2. `span_window`、`frame_window/render_pipeline`、`thread_timeline`、`wakeup_chain`、`root_cause_rank`、`frame_root_cause_bundle` 的目标过滤合同均未改变。
+   因此本修复不会把 RS/GPU 或其他跨线程 frame 成员扩大成根因人口；主因仍只来自 typed on-chain 席，adjacent/background 仍只作额外排查；
+3. `TraceSpanSummary -> FramePhaseSummary -> FrameTimelineItem` 新增并贯通 opening endpoint 的 `CPU/CPUKnown/CPUStatus`。CPU 0 由 `CPUKnown=true`
+   与不可用零值区分；converter-authored unavailable 继续 fail-closed，绝不把零值伪装为 CPU 0；
+4. Span、frame phase、frame item 三个模型可见面统一发布 `comm/tid/tgid/cpu`。`ThreadRef.PID` 明确以 `tid=` 命名，不再把 `app-20`、`gpu-300`
+   这种展示名放在 CPU 位置附近让模型猜字段；RS 样例真实身份被还原为 `comm=RSUniRenderThre tid=2096 tgid=1716 cpu=0`；
+5. `FrameTimelineResult` 同位追加 typed caveat：`frame_deadline_authority=not_provided`、`refresh_rate_authority=not_provided`，并明确 timeline extent/phase duration
+   是观测值，不单独构成 deadline 或 jank verdict。系统不代替模型下结论；当未来有 typed deadline/refresh authority 时应消费该独立权威，而不是固定假设 60Hz；
+6. TraceQuery Description 与 Parameters 从同一常量发布一条 frame scope 教学，既有 byte golden 按 ritual 加 EVOLUTION RECORD 后重钉。没有新增 JSON 根、完整示例、第二份词源、
+   原文关键词扫描或答案硬门；
+7. 新引擎回归复刻 r229：输入一个 inherited app-20 target，单次 `frame_flow(frame=77)` 必须返回 Expected、doFrame、RS RenderFrame、GPU completion 四项，
+   CPU 精确为 1/1/0/2，且带 anchor-only/all-threads、deadline/refresh unavailable 披露；进程 scope 与既有无目标 cross-thread 测试继续通过；
+8. 最终代码上 `go test ./internal/tracequery ./internal/tool ./internal/tracediag -count=1` 全绿；`go test ./... -count=1` 全绿，覆盖转换、read/write/data、
+   agent/orchestrator、render/mermaid、全语言 repomap、tracequery/tracediag 与 writeflow。
+
+状态：`EVAL-B386=S37da-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B387=S37da-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B388=S37da-caliber-disclosure-implemented/pending-production-replay`；
+`EVAL-B389=open/design-before-code`；
+`frame-thread-selector=anchor-only`；`frame-members=selected-window-cross-thread`；
+`process-scope=unchanged/proven-membership`；`root-cause-views=unchanged/on-chain-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`。

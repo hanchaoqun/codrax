@@ -10318,6 +10318,8 @@ func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary
 	span := TraceSpanSummary{
 		SourcePath: source,
 		Thread:     threadRefFromEvent(start),
+		CPU:        start.CPU,
+		CPUKnown:   true,
 		Kind:       kind,
 		Name:       start.SpanName,
 		// LCK-2 (§18.E): the opening B row's payload pid — the emitter's OWN
@@ -10338,6 +10340,7 @@ func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary
 			continue
 		}
 		span.CPUStatus = TraceMarkCPUStatusUnavailable
+		span.CPUKnown = false
 		reason := strings.TrimSpace(ev.PluginFields.TraceMarkerCPUReason)
 		if reason != "" && !strings.Contains(","+span.CPUReason+",", ","+reason+",") {
 			if span.CPUReason != "" {
@@ -10363,6 +10366,8 @@ func traceSpanFromCompletedAsyncInterval(ev Event, source string) (TraceSpanSumm
 	span := TraceSpanSummary{
 		SourcePath:    source,
 		Thread:        threadRefFromEvent(ev),
+		CPU:           ev.CPU,
+		CPUKnown:      interval.StartCPUStatus == TraceAsyncIntervalCPUStatusKnown,
 		Kind:          "async",
 		Name:          ev.SpanName,
 		SpanPID:       ev.SpanPID,
@@ -21183,7 +21188,8 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
-	spans, caveats, spanCompaction := findSpanWindowsCompacted(idx, q, q.Limit)
+	memberQ, anchorOnly := frameTimelineMemberQuery(q)
+	spans, caveats, spanCompaction := findSpanWindowsCompacted(idx, memberQ, q.Limit)
 	if spanCompaction != nil {
 		res.Compactions = append(res.Compactions, *spanCompaction)
 	}
@@ -21207,6 +21213,9 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		}
 		res.Items = append(res.Items, FramePhaseSummary{
 			Thread:                  span.Thread,
+			CPU:                     span.CPU,
+			CPUKnown:                span.CPUKnown,
+			CPUStatus:               span.CPUStatus,
 			TargetScope:             span.TargetScope,
 			ProcessID:               processID,
 			ProcessMembershipSource: span.ProcessMembershipSource,
@@ -21217,7 +21226,7 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 			DurationMs:              span.DurationMs,
 			StartLine:               span.StartLine,
 			EndLine:                 span.EndLine,
-			Summary:                 fmt.Sprintf("%s phase %s span %q lasted %.3fms", threadLabel(span.Thread), phase, span.Name, span.DurationMs),
+			Summary:                 fmt.Sprintf("%s phase %s span %q lasted %.3fms", frameLaneIdentity(span.Thread, span.CPU, span.CPUKnown, span.CPUStatus), phase, span.Name, span.DurationMs),
 		})
 	}
 	sort.SliceStable(res.Items, func(i, j int) bool {
@@ -21243,8 +21252,44 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 	if len(res.Items) == 0 {
 		res.Caveats = append(res.Caveats, "no complete frame/render-like trace spans matched the selected filters")
 	}
+	if anchorOnly {
+		res.Caveats = append(res.Caveats, "frame_member_scope=selected_window_all_threads; target_selector_role=anchor_only; frame_timeline/frame_flow preserve the typed target for anchor resolution but do not use it to remove peer-thread frame spans")
+	}
 	res.Caveats = append(res.Caveats, caveats...)
 	return res
+}
+
+// frameTimelineMemberQuery separates two different identities that used to
+// share one Query field: the target thread is an anchor candidate, while a
+// frame timeline is a cross-thread population. Process scope remains an
+// explicit membership filter; thread scope on frame_timeline/frame_flow is
+// anchor-only. Target-bound scheduler/root-cause views never call this helper.
+func frameTimelineMemberQuery(q Query) (Query, bool) {
+	if q.TargetScope == TargetScopeProcess {
+		return q, false
+	}
+	switch CanonicalViewName(q.View) {
+	case "frame_timeline", "frame_flow":
+	default:
+		return q, false
+	}
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) == "" && strings.TrimSpace(q.ThreadInput) == "" {
+		return q, false
+	}
+	members := q
+	members.PID = 0
+	members.Thread = ""
+	members.ThreadInput = ""
+	members.ThreadPIDInferred = false
+	return members, true
+}
+
+func frameLaneIdentity(thread ThreadRef, cpu int, cpuKnown bool, cpuStatus string) string {
+	status := strings.TrimSpace(cpuStatus)
+	if !cpuKnown || status == TraceMarkCPUStatusUnavailable {
+		return fmt.Sprintf("comm=%q tid=%d tgid=%d cpu=unavailable", strings.TrimSpace(thread.Comm), thread.PID, thread.TGID)
+	}
+	return fmt.Sprintf("comm=%q tid=%d tgid=%d cpu=%d", strings.TrimSpace(thread.Comm), thread.PID, thread.TGID, cpu)
 }
 
 func BuildFrameTimeline(idx *Index, q Query) FrameTimelineResult {
@@ -21268,6 +21313,9 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		item := FrameTimelineItem{
 			Index:                   i + 1,
 			Thread:                  phase.Thread,
+			CPU:                     phase.CPU,
+			CPUKnown:                phase.CPUKnown,
+			CPUStatus:               phase.CPUStatus,
 			TargetScope:             phase.TargetScope,
 			ProcessID:               phase.ProcessID,
 			ProcessMembershipSource: phase.ProcessMembershipSource,
@@ -21282,7 +21330,7 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		}
 		item.Role = classifyFrameTimelineRole(phase.Name, phase.Phase)
 		item.RoleAuthority = classifyFrameTimelineRoleAuthority(phase.Name, item.Role)
-		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, threadLabel(item.Thread), item.Name, item.DurationMs)
+		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, frameLaneIdentity(item.Thread, item.CPU, item.CPUKnown, item.CPUStatus), item.Name, item.DurationMs)
 		res.Items = append(res.Items, item)
 	}
 	for i := 0; i+1 < len(res.Items); i++ {
@@ -21314,6 +21362,7 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 	}
 	res.Caveats = append(res.Caveats, frame.Caveats...)
 	res.Compactions = append(res.Compactions, frame.Compactions...)
+	res.Caveats = append(res.Caveats, "frame_deadline_authority=not_provided; refresh_rate_authority=not_provided; observed timeline extent and phase durations are measurements, not by themselves a frame-deadline or jank verdict")
 	if len(res.Items) == 0 {
 		res.Caveats = append(res.Caveats, "no frame timeline items were built; need complete frame-like trace spans")
 	}
@@ -21331,6 +21380,9 @@ func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
 			Thread:                  item.Thread,
+			CPU:                     item.CPU,
+			CPUKnown:                item.CPUKnown,
+			CPUStatus:               item.CPUStatus,
 			TargetScope:             item.TargetScope,
 			ProcessMembershipSource: item.ProcessMembershipSource,
 			Name:                    item.Name,
@@ -21352,6 +21404,9 @@ func frameTimelineSpans(frame FrameTimelineResult) []TraceSpanSummary {
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
 			Thread:                  item.Thread,
+			CPU:                     item.CPU,
+			CPUKnown:                item.CPUKnown,
+			CPUStatus:               item.CPUStatus,
 			TargetScope:             item.TargetScope,
 			ProcessMembershipSource: item.ProcessMembershipSource,
 			Name:                    item.Name,

@@ -620,6 +620,71 @@ func TestTraceQueryInheritsDroppedPIDFromTypedRuntimeTarget(t *testing.T) {
 	}
 }
 
+func TestTraceQueryFrameFlowInheritedTargetKeepsCrossThreadMembersAndTypedCPU(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "frame-cross-thread.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 7.000000: print: B|20|Expected Timeline frame=77`,
+		`app-20 (20) [001] .... 7.004000: print: E|20`,
+		`app-20 (20) [001] .... 7.005000: print: B|20|Choreographer#doFrame frame=77`,
+		`app-20 (20) [001] .... 7.016000: print: E|20`,
+		`RSUniRenderThre-2096 (1716) [000] .... 7.017000: print: B|1716|H:RenderFrame frame=77`,
+		`RSUniRenderThre-2096 (1716) [000] .... 7.030000: print: E|1716`,
+		`gpu-300 (300) [002] .... 7.031000: print: B|300|GPU completion frame=77`,
+		`gpu-300 (300) [002] .... 7.040000: print: E|300`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 20, Thread: "app", Source: "user_explicit", Confidence: 1,
+		}}}},
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path", "path": tracePath, "view": "frame_flow", "pattern": "frame=77",
+		"time_start": 7.0, "time_end": 7.05, "limit": 10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("cross-thread frame flow failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"trace_query_target_inherited=true",
+		"target_selector_role=anchor_only",
+		"frame_deadline_authority=not_provided",
+		"refresh_rate_authority=not_provided",
+		`comm="app" tid=20 tgid=20 cpu=1`,
+		`comm="RSUniRenderThre" tid=2096 tgid=1716 cpu=0`,
+		`comm="gpu" tid=300 tgid=300 cpu=2`,
+		"GPU completion frame=77",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("cross-thread frame summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	for _, bad := range []string{"CPU 20", "CPU 300", "cpu=20", "cpu=300"} {
+		if strings.Contains(res.Summary, bad) {
+			t.Fatalf("frame summary conflated pid/tid with CPU via %q:\n%s", bad, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryFrameCrossThreadScopeContractSingleSource(t *testing.T) {
+	want := traceQueryFrameCrossThreadScopeContract
+	if got := (&TraceQuery{}).Description(); strings.Count(got, want) != 1 {
+		t.Fatalf("trace_query description must publish the frame cross-thread scope contract once, count=%d", strings.Count(got, want))
+	}
+	if got := string((&TraceQuery{}).Parameters()); strings.Count(got, want) != 1 {
+		t.Fatalf("trace_query schema must publish the same frame cross-thread scope contract once, count=%d", strings.Count(got, want))
+	}
+}
+
 func TestTraceQueryRejectsExplicitPIDOnCPUGlobalEventSearch(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "global-frequency.systrace")
@@ -3000,8 +3065,8 @@ func TestTraceQueryLargeSpanKeywordAutoAnalyzesFewWindows(t *testing.T) {
 		"candidate_windows=2",
 		"DecodeBitmap",
 		"index_windowed=true",
-		"span app-20 \"DecodeBitmap\" 5.000000..5.020000",
-		"span app-20 \"DecodeBitmap\" 9.000000..9.030000",
+		"span comm=\"app\" tid=20 tgid=20 cpu=0 \"DecodeBitmap\" 5.000000..5.020000",
+		"span comm=\"app\" tid=20 tgid=20 cpu=0 \"DecodeBitmap\" 9.000000..9.030000",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("span auto-window summary missing %q:\n%s", want, res.Summary)

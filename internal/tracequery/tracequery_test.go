@@ -3159,6 +3159,45 @@ func TestFrameTimelineAndFlowViews(t *testing.T) {
 	}
 }
 
+func TestFrameTimelineThreadTargetIsAnchorNotMemberFilter(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_flow_targeted.systrace", frameFlowTrace)
+	res := Run(idx, Query{
+		View: "frame_flow", Thread: "app-20", Pattern: "frame=77",
+		TimeStart: 7.0, TimeEnd: 7.05, Limit: 10,
+	})
+	if res.FrameTimeline == nil {
+		t.Fatal("targeted cross-thread frame flow returned no timeline")
+	}
+	if len(res.FrameTimeline.Items) != 4 {
+		t.Fatalf("thread target must select an anchor without removing RS/GPU members: %+v", res.FrameTimeline.Items)
+	}
+	wantCPU := map[string]int{
+		"Expected Timeline frame=77":     1,
+		"Choreographer#doFrame frame=77": 1,
+		"H:RenderFrame frame=77":         0,
+		"GPU completion frame=77":        2,
+	}
+	for _, item := range res.FrameTimeline.Items {
+		cpu, ok := wantCPU[item.Name]
+		if !ok {
+			t.Fatalf("unexpected frame item: %+v", item)
+		}
+		if !item.CPUKnown || item.CPU != cpu {
+			t.Fatalf("frame item %q CPU=(%d,%t), want (%d,true)", item.Name, item.CPU, item.CPUKnown, cpu)
+		}
+		if !strings.Contains(item.Summary, fmt.Sprintf("cpu=%d", cpu)) ||
+			!strings.Contains(item.Summary, fmt.Sprintf("tid=%d", item.Thread.PID)) {
+			t.Fatalf("frame item identity is not explicit: %s", item.Summary)
+		}
+	}
+	if !containsSubstring(res.FrameTimeline.Caveats, "target_selector_role=anchor_only") ||
+		!containsSubstring(res.FrameTimeline.Caveats, "selected_window_all_threads") ||
+		!containsSubstring(res.FrameTimeline.Caveats, "frame_deadline_authority=not_provided") ||
+		!containsSubstring(res.FrameTimeline.Caveats, "refresh_rate_authority=not_provided") {
+		t.Fatalf("cross-thread member authority not disclosed: %+v", res.FrameTimeline.Caveats)
+	}
+}
+
 func TestWindowStatsSummarizesSmartPerfEBPFResources(t *testing.T) {
 	idx := buildTraceIndex(t, "ebpf.systrace", ebpfResourceTrace)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 8.0, TimeEnd: 8.03})
