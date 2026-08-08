@@ -26747,3 +26747,24 @@ case/action 名补丁解决。
 `param-key-authority=runtime-registry-single-source`；`structured-values=preserved`；
 `current-rank-schema=future-branches-pruned`；`uncontracted-actions=fail-open`；
 `EVAL-B350=P1-filed`；`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.357 r211：参数单源未被命中；reference 字段角色与失败终态权威分裂
+
+在 `main@da678d8ee` 上严格并发 2 复放 `data_multifile_reference_projection` 与 `patch_java_typo`，runner/human 均为一过一败：
+
+1. write 的 plan-only 结果正确：只对 `Main.java:16` 发出一个 `patch`，把 `retrun` 改成 `return`；change/slice/target path 均为 1，未应用到 fixture 仓库。计划声明后续运行 `javac Main.java`，但该 eval 只验证计划与 patch，不应把未执行编译写成已验证；
+2. data 本轮没有 `tool_params_schema_invalid`、foreign-param 或跨 kind 参数 witness，故 B349 仍是“实现全绿、生产回放未命中”，不能因该 case 失败反向判定 B349 无效；
+3. 业务计算已闭合：10 条 decisions、4 条 rules、10 条 resolutions、4 条 contributions，native contribution domain 为 GroupA/B/C=`17/4/5`，reconcile=pass。错误发生在最终完整参考投影，不是 filter/join/计算参数；
+4. round 22 的 `17,4,5` 携 `complete_reference=true / targets.csv / target_id`。typed grounding 精确发现 reference keys `T1/T2/T3` 与 contribution groups `GroupA/GroupB/GroupC` 零交集，发布 `reference_ledger_domain_mismatch=true`、`next_stage=repair_reference_domain_alignment` 与 compute/reconcile/assemble 三条合法修复车道，错误答案没有逃逸；
+5. 模型随后仍把 `target_id` 当 contribution-domain reference key，并在自由思考/计划说明中把真实三行 targets 扩写成四行/T4。现 schema 的 `reference_key_field` 描述已经要求与 contribution group_key 同域，所以这一部分首先是模型服从波动，不能扫描 prose、目标数字或文件名做硬门；
+6. 但 typed 上下文仍有泛化 gap，立 `EVAL-B351-REFERENCEFIELDROLE1=P1`：reference 文件同时含稳定槽 ID（决定身份/去重）与 contribution-domain 字段（决定值查找）时，一个 `reference_key_field` 容易被模型用错，也不能表达“槽 ID 唯一但 domain 值可重复”的完整关系。最优方案应由 source schema + contribution group domain 生成一个精确、唯一时才成立的 compatible-field typed carrier；先用于 soft guidance/repair hint，不能静默覆盖模型选择。若未来需要支持重复 domain 值，再把 slot identity 与 lookup field 拆成两个向后兼容字段，由执行器逐行投影；
+7. 另立 `EVAL-B352-FAILRESULTAUTH1=P1`：round 22 后 live state 仍是精确 domain-mismatch；round 23 的 assemble 执行失败且没有 answer，终态 state 却以该失败 partial result 覆盖最后一个 answer-bearing verdict，退化为 `incomplete_reference / canonical_label`，丢掉真实的 `reference_ledger_domain_mismatch / target_id`。这不会放过错误答案，却让客户终态诊断和后续恢复动作失真；
+8. B352 的根修是把“累计业务 ledgers”和“最后一个被验证/被拒的 answer projection authority”分轨：失败批可更新 action failure/partial artifacts，但不得抹掉仍未被成功修复的 typed output contest。清除只能来自更新的 answer-bearing result 通过同一 grounding 检查，不能靠错误文本或轮次 prose；
+9. data 共 13 data rounds、6 repair rounds、443s。多次把 3 行材料想成 4 行属于模型波动；系统精确 guard 已 fail-closed，当前不为该数值/文件做拟合。后续先修 B352 的权威保留，再以 typed compatible-field carrier评估 B351；不直接让系统代写答案或业务贡献。
+10. 本批不触碰 Trace。显式时间窗、因果投影、系统补齐、唤醒链、根因排序、真实占时/规则可消双轴保持不变；Trace 主因仍只允许 typed 链上席，邻近/背景只能支撑额外排查方向，不能因规模或时间邻近升为根因。
+
+状态：runner=`write PASS / data FAIL`；human=`write PASS / data FAIL`；
+`EVAL-B349=implementation-green/production-witness-absent`；
+`EVAL-B351=P1-filed/typed-compatible-field-first`；
+`EVAL-B352=P1-confirmed/next`；`wrong-answer-published=no`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
