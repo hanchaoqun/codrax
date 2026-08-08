@@ -27478,6 +27478,39 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace=`explicitly-excluded/unchanged/on-chain-only`。
 
+### 123.397 r227：拒绝显著收敛，但 participant role 反向与过期源码注释污染答案
+
+在 `main@4dda999ca` 上严格并发恰好两个同案回放。runner 2/2 PASS，人工 0/2：
+
+1. 性能/重试有确定改善：`qf_logic_view_read_pipeline` 从 422s/7 reject 降到 222s/2 reject；`qf_diagram_pipeline` 从 739s/11 reject
+   降到 412s/1 reject；合计 1161s/18 reject → 634s/3 reject。不能把改善全归因于单一代码臂，但 JSON 教学、精确 patch 和关系合同不再引发长震荡；
+2. diagram 案的四阶段主链 StageAnalyze→StageExplore→StageExtract→StageFinalize 首次在最终 Mermaid 中完整保留，唯一 reject 只删除两条无证 pre-stage
+   支线；这是 surgical relation gate 的正确行为；
+3. B380 named identity 教学部分生产生效：logic 案发出 analyzer/explorer/extractor/finalizer/Mutable/BusContext 六个真实 identity，diagram 案发出
+   四个真实 Stage identity，均无 `Stage 1`/`Actor A` 等占位符；
+4. 但两案把全部 participant 标为 `context_only`。新确认 `EVAL-B382-DIAGRAMPARTICIPANTROLEBOUNDARY1=P1/HIGH`：当当前关系/数据/控制流视图要求展示
+   某 participant 的连接时必须用 `incident_required`，即使该 participant 同时是 component、state carrier 或 container；`context_only` 只用于明确不要求连接的外围边界。
+   修复仍是 Analyzer soft teaching，不新增 raw-request validator 或生产硬门；
+5. logic 最终图仍只有 `runAnalyzePhase→dispatchStage→BuildAgentContext` 两条局部 call，六个所求 participant 全部孤立；正文却扩写为完整 agent→Mutable/BusContext
+   流，人工失败。runner 的 one-edge oracle 继续假阳性；
+6. B381 状态为 partial。第二轮确有与第一轮相同的 parsed alias pair，但 canonical symbol 因节点标签括号/引号形变化而漂移，导致只按 canonical symbol 的 pair hash
+   未命中，日志没有 repeat guidance。下一步应同时发 `canonical-symbol pair` 与 `verbatim parsed alias pair` 两类独立 typed hash；任一重复即提示。两者都来自 Mermaid parser/typed
+   mismatch，不做模糊、substring、大小写或语言猜测；
+7. diagram 案的主图和职责正确，但头部错误宣称“2026-04-14 后 codrax 是只读分析工具”。根因是 `internal/types/enums.go:3` 的当前源码注释本身仍这样写，Explorer
+   将其作为 direct evidence 发给模型。新确认 `EVAL-B383-STALEARCHITECTURECOMMENTAUTHORITY1=P0/HIGH`：多处 2026-04-14 遗留注释把“read-mode 主流水线只读”扩写成
+   “Codrax 整体 read-only”，已与当前 write Auto Pilot 架构冲突；必须统一收窄注释作用域并加 write-mode existence pin；
+8. B383 不是通过答案关键词屏蔽“read-only”解决。源码自身必须准确，Explorer 仍可引用准确注释；模型继续拥有结论。修复应覆盖 `internal/types/enums.go`、agent registry、
+   相关测试说明与用户可见 CLI 架构描述，保留真正只读的 shell/tool/data/trace 子车道措辞；
+9. 本批无 malformed JSON、无系统替写模型答案、无 Trace 查询。runtime/root-cause Trace 独立权限未进入路径：显式窗、自动补采、因果投影、唤醒链、根因排序、
+   窗内可消除量及真实占时/规则可消双维不变；主因只来自 typed on-chain，邻近/背景只作额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`0/2`；
+`EVAL-B380=partial/named-identity-proved`；`EVAL-B382=P1-confirmed/next`；
+`EVAL-B381=partial/dual-identity-fingerprint-needed`；
+`EVAL-B383=P0-confirmed/next`；`finalizer-reject=2+1`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
 ### 123.386 S37cr：pre-emit 与 post-contract 复用同一份严格读集关系权威
 
 关闭 B376，不把系统派生关系持久化成模型证据：
