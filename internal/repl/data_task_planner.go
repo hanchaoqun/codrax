@@ -387,6 +387,114 @@ var dataTaskPlanTool = llm.ToolSchema{
 }`),
 }
 
+// dataTaskExecutableRankContract is the small, typed projection of the
+// workflow IR that is allowed to shape the next planner call. The full
+// workflow_state_json remains available for reasoning, but this carrier is
+// the single source for the prompt's copyable instruction and the tool
+// schema's action-kind enum. Keeping those two surfaces together prevents a
+// planner from being taught a future DAG rank that the deterministic staging
+// guard will reject in the same turn.
+type dataTaskExecutableRankContract struct {
+	NextStage          string   `json:"next_stage,omitempty"`
+	AllowedActionKinds []string `json:"allowed_action_kinds"`
+	FutureRanks        string   `json:"future_ranks"`
+}
+
+func dataTaskExecutableRankContractFromState(state dataTaskWorkflowStateView) dataTaskExecutableRankContract {
+	nextStage := strings.TrimSpace(state.NextStage)
+	if nextStage == "" {
+		nextStage = strings.TrimSpace(state.ComputedNextStage())
+	}
+	seen := make(map[string]struct{}, len(state.ComputedAllowedNextActions()))
+	allowed := make([]string, 0, len(state.ComputedAllowedNextActions()))
+	for _, action := range state.ComputedAllowedNextActions() {
+		action = strings.TrimSpace(action)
+		if action == "" {
+			continue
+		}
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		seen[action] = struct{}{}
+		allowed = append(allowed, action)
+	}
+	return dataTaskExecutableRankContract{
+		NextStage:          nextStage,
+		AllowedActionKinds: allowed,
+		FutureRanks:        "read_only_roadmap",
+	}
+}
+
+func dataTaskExecutableRankContractFromRuntimeView(repoRoot string, view dataTaskWorkflowRuntimeView) dataTaskExecutableRankContract {
+	return dataTaskExecutableRankContractFromState(dataTaskWorkflowStateFromRuntimeView(repoRoot, view))
+}
+
+// dataTaskPlanToolForExecutableRank narrows only continuation/repair calls.
+// The initial planner still receives the full action vocabulary because no
+// runtime stage exists yet. When a workflow is terminal, actions[] remains a
+// valid optional field but maxItems=0 makes the no-action contract explicit.
+func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm.ToolSchema, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(dataTaskPlanTool.Parameters, &schema); err != nil {
+		return llm.ToolSchema{}, fmt.Errorf("decode data task plan schema for executable rank: %w", err)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing properties object")
+	}
+	actions, ok := properties["actions"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing actions object")
+	}
+	items, ok := actions["items"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing action items object")
+	}
+	itemProperties, ok := items["properties"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing action item properties object")
+	}
+	kind, ok := itemProperties["kind"].(map[string]any)
+	if !ok {
+		return llm.ToolSchema{}, fmt.Errorf("data task plan schema missing action kind object")
+	}
+
+	if len(rank.AllowedActionKinds) == 0 {
+		actions["maxItems"] = float64(0)
+		actions["description"] = "No executable action is available in the current workflow rank; emit a terminal status with actions empty."
+	} else {
+		enum := make([]any, 0, len(rank.AllowedActionKinds))
+		for _, action := range rank.AllowedActionKinds {
+			enum = append(enum, action)
+		}
+		kind["enum"] = enum
+		actions["description"] = "Actions for the current executable workflow rank only. Future ranks are read-only roadmap context."
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return llm.ToolSchema{}, fmt.Errorf("encode data task plan schema for executable rank: %w", err)
+	}
+	tool := dataTaskPlanTool
+	tool.Description = fmt.Sprintf("%s Current executable rank: next_stage=%s allowed_action_kinds=%s; future ranks are read-only.",
+		strings.TrimSpace(tool.Description),
+		firstNonEmptyString(rank.NextStage, "terminal"),
+		marshalInlineJSON(rank.AllowedActionKinds))
+	tool.Parameters = raw
+	return tool, nil
+}
+
+func appendDataTaskExecutableRankContract(b *strings.Builder, rank dataTaskExecutableRankContract) {
+	if b == nil {
+		return
+	}
+	raw, _ := json.Marshal(rank)
+	b.WriteString("\n## executable_next_rank\n")
+	fmt.Fprintf(b, "%s\n", raw)
+	b.WriteString("- actions[] may contain only allowed_action_kinds.\n")
+	b.WriteString("- All other ranks are read-only until allowed; do not emit them now.\n")
+	b.WriteString("- Emit one rank; put later work only in next_batch with continue_after=true.\n")
+}
+
 var dataTaskEvaluationTool = llm.ToolSchema{
 	Name:        "emit_data_task_evaluation",
 	Description: "Emit a typed data-workflow goal evaluation. This tool never executes code.",
@@ -606,7 +714,12 @@ func (p *llmDataTaskPlanner) RepairDataTaskWithRuntimeView(ctx context.Context, 
 	if !dataTaskPlanHasRuntimeShape(previous) {
 		previous = view.CurrentPlan
 	}
-	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPromptWithRuntimeView(userLine, repoRoot, policy, candidates, previous, executionError, violation, view))
+	rank := dataTaskExecutableRankContractFromRuntimeView(repoRoot, view)
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		return dataquery.TaskPlan{}, err
+	}
+	return p.planDataTaskWithTool(ctx, "data_task_repair_planner", dataTaskRepairPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, previous, executionError, violation, view, rank), tool)
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
@@ -622,7 +735,12 @@ func (p *llmDataTaskPlanner) ContinueDataTaskWithDeferred(ctx context.Context, u
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
-	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot, policy, candidates, view))
+	rank := dataTaskExecutableRankContractFromRuntimeView(repoRoot, view)
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		return dataquery.TaskPlan{}, err
+	}
+	return p.planDataTaskWithTool(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, view, rank), tool)
 }
 
 func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
@@ -799,6 +917,10 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 }
 
 func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt string) (dataquery.TaskPlan, error) {
+	return p.planDataTaskWithTool(ctx, scope, prompt, dataTaskPlanTool)
+}
+
+func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, prompt string, tool llm.ToolSchema) (dataquery.TaskPlan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -810,7 +932,7 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 			{Role: "system", Content: dataTaskPlannerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(prompt)},
 			{Role: "user", Content: prompt},
 		},
-		[]llm.ToolSchema{dataTaskPlanTool},
+		[]llm.ToolSchema{tool},
 	)
 	if err != nil {
 		return dataquery.TaskPlan{}, err
@@ -831,7 +953,7 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 				{Role: "system", Content: dataTaskPlannerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(prompt)},
 				{Role: "user", Content: dataTaskPlannerNoToolRepairPrompt(prompt, resp)},
 			},
-			[]llm.ToolSchema{dataTaskPlanTool},
+			[]llm.ToolSchema{tool},
 		)
 		if retryErr == nil {
 			resp = retryResp
@@ -841,20 +963,20 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 		}
 	}
 	call := resp.ToolCalls[0]
-	if call.Name != dataTaskPlanTool.Name {
+	if call.Name != tool.Name {
 		return dataquery.TaskPlan{}, newDataTaskPlannerUnexpectedToolError("data task planner", call.Name, nil)
 	}
 	var parsed dataTaskPlanDraft
-	if err := unmarshalReplStructuredToolParams(dataTaskPlanTool, call.Params, &parsed, "data task planner"); err != nil {
+	if err := unmarshalReplStructuredToolParams(tool, call.Params, &parsed, "data task planner"); err != nil {
 		parseErr := err
-		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskPlanTool, err, dataTaskStructuredToolRepairRequest{
+		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, tool, err, dataTaskStructuredToolRepairRequest{
 			Scope:   scope,
 			Context: prompt,
 		})
 		if repairErr != nil {
 			return dataquery.TaskPlan{}, repairErr
 		}
-		if err := unmarshalReplStructuredToolParams(dataTaskPlanTool, raw, &parsed, "data task planner"); err != nil {
+		if err := unmarshalReplStructuredToolParams(tool, raw, &parsed, "data task planner"); err != nil {
 			return dataquery.TaskPlan{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
 		}
 	}
@@ -1040,6 +1162,11 @@ func dataTaskRepairPromptWithViolation(userLine, repoRoot string, policy TurnPol
 }
 
 func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView) string {
+	rank := dataTaskExecutableRankContractFromRuntimeView(repoRoot, view)
+	return dataTaskRepairPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, previous, executionError, violation, view, rank)
+}
+
+func dataTaskRepairPromptWithRuntimeViewAndRank(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string, violation dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, rank dataTaskExecutableRankContract) string {
 	var b strings.Builder
 	if strings.TrimSpace(violation.Code) == "" {
 		violation = dataquery.ClassifyExecutionError(executionError)
@@ -1089,6 +1216,7 @@ func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnP
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
 	appendDataTaskPlanEmissionContract(&b, nil, nil)
+	appendDataTaskExecutableRankContract(&b, rank)
 	return strings.TrimSpace(b.String())
 }
 
@@ -1248,6 +1376,11 @@ func dataTaskContinuationPromptWithDeferred(userLine, repoRoot string, policy Tu
 }
 
 func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView) string {
+	rank := dataTaskExecutableRankContractFromRuntimeView(repoRoot, view)
+	return dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, view, rank)
+}
+
+func dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, rank dataTaskExecutableRankContract) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## continuation_goal\nThe previous data batch executed. Emit the next bounded emit_data_task_plan, or status=complete/blocked/needs_clarification when appropriate.\n\n")
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
@@ -1264,7 +1397,7 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
 	b.WriteString("- Prefer extending the adaptive action graph over rewriting a large script. Use previous result.artifacts to decide the next atomic action. A failed custom_transform should usually be replaced by typed prerequisite actions or by one narrow transform over a known generated artifact only when custom_transform remains allowed.\n")
-	b.WriteString("- workflow_state_json.allowed_next_actions is the structural contract for the next batch. Use only those action kinds unless you intentionally change the contract with a valid new material requirement; otherwise the plan will be rejected before execution.\n")
+	b.WriteString("- workflow_state_json.allowed_next_actions is the structural contract for the next batch. Use only those action kinds. If a newly discovered material obligation changes later work, preserve it in coverage_contract/next_batch; it does not authorize an out-of-rank action in this call.\n")
 	b.WriteString("- workflow_state_json.workflow_contract is the durable task contract. workflow_state_json.current_batch_contract is only the executable slice for the current or last batch. Do not promote batch-only helper inputs or generated artifacts into durable required_materials unless a typed structural reason requires them for the user goal.\n")
 	b.WriteString("- workflow_state_json.action_graph lists recent typed action nodes with dependency_rank, input aliases, output alias, and idempotency_key. Use it to avoid replaying the same graph edge; do not treat it as business evidence or a substitute for artifacts/ledgers.\n")
 	b.WriteString("- workflow_state_json.ledger_graph is the structural dependency contract for required validation ledgers and final projection. Use ledger statuses, missing_prerequisites, and produces_actions to choose the next legal typed action instead of inferring completion from prose or compact samples.\n")
@@ -1284,12 +1417,12 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	b.WriteString("- workflow_state_json.material_coverage_authoritative=true means required_materials, covered_required_materials, and missing_required_materials are the deterministic material coverage truth. result.artifact_access and previous_data_rounds are compact samples and may omit covered artifacts; do not infer a material is missing from a sample omission.\n")
 	b.WriteString("- Use workflow_state_json.workflow_contract.required_runner_input_paths for durable coverage truth. Use current_batch_contract.required_runner_input_paths only to understand what the last/current action batch was supposed to consume.\n")
 	b.WriteString("- workflow_state_json.artifact_graph is authoritative for generated artifact nodes and aliases. workflow_state_json.artifact_availability is a compact prompt catalog. Prefer artifact_graph when selecting generated inputs; use artifact_availability only as a short access view. Do not re-extract a covered material merely because a recent compact sample omitted an older artifact.\n")
-	b.WriteString("- Do not cross dependent DAG ranks in one batch. If you need derived/expanded/candidate/normalized fields before enrichment/join/filtering, emit only the derive_fields/expand_records/mapping_candidate/normalize_entities rank now. After those artifacts materialize with real fields, emit apply_entity_resolutions/enrich_records/join_records/filter_records as appropriate. After that, emit compute_contributions, then reconcile_artifacts, then assemble_answer.\n")
+	b.WriteString("- Do not cross dependent DAG ranks in one batch. ledger_graph may describe later derive, relation, contribution, reconcile, and answer stages, but that sequence is a read-only roadmap. Only action kinds in executable_next_rank.allowed_action_kinds are executable in this call.\n")
 	b.WriteString("- Contribution population and final reference projection are separate DAG stages: preserve qualified contributions in their native key domain and let assemble_answer apply the reference only to final output projection, unless absence is an explicit typed exclusion decision.\n")
 	b.WriteString("- If workflow_state_json.custom_transform_disabled=true, do not emit custom_transform in the next batch. This disables only free-form scripts; it is not a compute-capability failure. Continue with typed actions from allowed_next_actions/allowed_next_action_contracts until the workflow reaches contribution, reconcile, and answer assembly.\n")
 	b.WriteString("- For strict complete-reference output, carry complete_reference, reference_path, and reference_key_field through output_contract and assemble_answer; omit them for intentionally present-only summaries.\n")
 	b.WriteString("- A single scripted custom_transform with continue_after=true is an intermediate artifact node. It may produce one reusable artifact or one ledger slice, but it must not also perform reconcile/final answer assembly. If a custom transform is needed before compute/reconcile, emit only that one transform now and let the evaluator plan the next batch.\n")
-	b.WriteString("- Follow workflow_state_json.next_stage. If material_coverage_sufficient=true, do not emit another coverage-only batch (material_inventory, inspect_material, derive_rules, or extract_records without a concrete output_artifact) unless workflow_state_json.missing_required_materials names a specific new material. extract_records with output_artifact is allowed when it materializes already-covered source material or a generated payload into a reusable record artifact needed by later typed actions. If you need schema diagnostics, inspect a generated artifact alias from artifact_availability/artifact_access. Otherwise move to derive_fields, extract_fields, group_records, expand_records, filter_records, mapping_candidate, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, or assemble_answer.\n")
+	b.WriteString("- Follow executable_next_rank. After material coverage is sufficient, do not repeat coverage-only work unless missing_required_materials names a new material. Schema diagnostics must inspect a generated artifact alias; record materialization still needs a concrete output_artifact.\n")
 	b.WriteString("- artifact_graph is the cross-round access authority: older aliases remain reusable even when omitted from the latest compact sample. For array-shaped artifacts use json_records(alias), not .get() on the top-level value; field_samples are previews, and only reference fields listed by the selected artifact.\n")
 	b.WriteString("- Use result.material_set_handles as objective candidate groups only. If a group is relevant to the current data goal, expand the concrete member_paths or text_evidence_paths into the next bounded coverage/action batch before compute; do not assume the whole group is required. Same-schema local text directories can be consumed by extract_fields as one text record per child file, with text, file_name, file_path, and source locator fields, so prefer that typed path before writing custom directory traversal code.\n")
 	b.WriteString("- A custom_transform that reads many materials or emits multiple ledgers must be a final bounded transform over known inputs. If prior results have not consumed/profiled every required input, emit typed prerequisite actions first instead of another broad script.\n")
@@ -1304,6 +1437,7 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	b.WriteString("## candidate_data_files\n")
 	appendCompactCandidateDataFiles(&b, candidates)
 	appendDataTaskPlanEmissionContract(&b, nil, nil)
+	appendDataTaskExecutableRankContract(&b, rank)
 	return strings.TrimSpace(b.String())
 }
 

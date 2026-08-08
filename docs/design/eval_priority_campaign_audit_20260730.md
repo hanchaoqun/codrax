@@ -26549,3 +26549,33 @@ locator 当身份，因而重复发布；后续 V4 又会把“相近数值 + �
 `trace-root=typed-on-chain-only`；`adjacent/background=never-promoted`；
 `finalizer-reject=0+0`；`data-action-failed=4`；`data-rounds=9`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.349 S37bv：data planner 当前可执行 rank 的教学、schema 与修复单源
+
+关闭 r207 新见 `EVAL-B345-DATARANKTEACH1`。旧实现虽然在 `workflow_state_json` 发布精确
+`next_stage/allowed_next_actions/allowed_next_action_contracts`，并由 deterministic staging guard 按同一状态拒绝越 rank action，但 planner 的
+`emit_data_task_plan` 工具 schema 每轮仍暴露全部 action enum；continuation 长教学又以命令式语气列出 derive→join/filter→compute→reconcile→assemble 全链。
+模型因此会把当前 rank 和后续 rank 一次发出，再被同一系统的严格 DAG 门拒绝。这是系统教学与执行合同冲突，不是畸形 JSON，也不能靠放宽 admission 或按某个数据
+case/action 名补丁解决。
+
+1. 新增 `dataTaskExecutableRankContract`，只从运行态 `WorkflowStateView` 的 typed `NextStage/ComputedAllowedNextActions` 投影；它是 continuation/repair
+   当前可执行 rank 的唯一适配载体，不读取用户原文、模型思考、错误文本或最终答案猜阶段；
+2. continuation 与 repair 先构造同一份 rank contract，再同时交给 prompt 和动态 tool schema。`actions[].kind.enum` 只保留当前允许 action；终态无允许 action 时
+   `actions.maxItems=0`。初始 planner 尚无运行态 rank，继续保留完整动作词汇用于发现与拆图，不损伤首轮规划能力；
+3. 同一动态 tool 被原调用、一次 no-tool bounded retry、参数 unmarshal 和 malformed-JSON compact repair 全链复用。compact repair 的 tool description 也携带
+   exact next_stage/allowed kinds，避免长 context 截断后恢复器重新看到全量未来动作；系统仍只修 JSON 结构，不生成业务计划或答案；
+4. continuation 的旧命令式全链改为只读 roadmap；prompt 最末发布同一 `executable_next_rank` JSON，明确 actions 只能取当前集合、后续工作只写
+   `next_batch/continue_after=true`。移除一处重复全 action 清单，prompt compaction 上限不抬高；
+5. deterministic staging/admission、deferred queue、ledger/output projection、reconcile 与 answer assembly gate 字节不动。该批降低模型心智与合同自冲突，不让 schema
+   绕过现有安全/完整性门；
+6. 回归钉住：(a) derive_rules 状态的 prompt JSON 与 tool enum 字节同源且不暴露 reconcile/assemble；(b) production continuation；(c) production repair；
+   (d) malformed params 的第二次结构修复仍使用同一窄 schema；(e) 初始 planner 保留完整 discovery vocabulary；(f) 既有 compact-history 62KB tripwire 不放宽。
+   首次全仓回归精确发现末尾提示超过既有上限 16B；未抬阈值，等义压缩提示后 `internal/repl` 复绿，第二次 `go test ./... -count=1=PASS`；
+7. 本批不进入 Trace 代码路径。显式时间窗、因果投影、自动补齐、唤醒链、根因排序、真实占时/规则可消除双轴均不变；根因仍只能从 typed 已证链选举，邻近区域和背景
+   信息只能支撑额外排查方向，不得因数值大或时间接近进入主因答案。系统未扫描或替写模型答案。
+
+状态：`EVAL-B345=S37bv-implemented/full-suite-pass/pending-production-replay`；
+`planner-current-rank=single-typed-authority`；`future-ranks=read-only-roadmap`；
+`initial-discovery-vocabulary=preserved`；`strict-DAG-admission=unchanged`；
+`malformed-json-repair=same-narrow-schema`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
