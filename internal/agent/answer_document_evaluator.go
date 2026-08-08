@@ -4037,6 +4037,7 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	}
 	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. Assignment/return carry factory or value selection and are not calls. A flowchart arrow is not automatically a call.\n")
 	b.WriteString("- " + types.GroundedSourceDiagramRelationEvidenceContract + "\n")
+	b.WriteString("- For architecture component nodes, use the canonical identity grounded by topology/stage binding, constructor/registration, interface implementation, or execution dispatch. A repair/validation/helper function that only contains the stage name is not itself the component boundary.\n")
 	b.WriteString("- For architecture data-flow/carrier diagrams, a field roster grounds node membership only. Before drawing a transfer arrow, use grounded producer + merge/transfer + consumer evidence for that path. One merge function does not prove that every source field is stored in the destination; keep source-stated exclusions and separately consumed fields on their own handoff path or disclose them in prose.\n")
 	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block. For flow / architecture / call_dag families, default to `flowchart TD` and switch to LR / RL / BT only when that genuinely improves readability; vertical is preferred because code-bearing labels are often long. For `sequenceDiagram`, keep participant labels short and move detailed prose into messages / surrounding text because actors render horizontally. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
 	b.WriteString("- Sequence operators `->>` / `-->>`, async `-)` / `--)`, and lost-message `-x` / `--x` (including Mermaid `+` / `-` activation suffixes) are all visible structured edges. Use async/lost forms only when the same typed relation and direction are grounded; they are not decoration or an escape from edge evidence. Only a dashed `-->>` reverse edge structurally paired with a grounded forward invocation is treated as a response rather than a second call.\n")
@@ -7524,7 +7525,7 @@ func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []a
 
 func answerDocRelationRequestShape(rm types.RequestModel) bool {
 	switch rm.PredicateAxis {
-	case types.AxisCall, types.AxisRegister, types.AxisImplement, types.AxisConfigure:
+	case types.AxisCall, types.AxisRegister, types.AxisImplement, types.AxisConfigure, types.AxisFlow:
 		return true
 	}
 	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {

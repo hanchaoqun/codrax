@@ -26911,3 +26911,32 @@ case/action 名补丁解决。
 `flow_findings=structurally-disabled-on-current-architecture-lane`；
 `sequence=no-directed-path-correct/middle-operations-incomplete`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.363 S37cd：多边界 flow 成为 typed 轴，definition 证据不再关闭 transfer 调查
+
+关闭 `EVAL-B354-ARCHCOMPONENTFLOWCLOSURE1` 的结构根因，保留模型结论与图形选择权：
+
+1. `PredicateAxis` 新增语言无关的 `flow` enum，定义为 value/state/control 跨 producer、transfer/merge boundary、consumer 的有序移动；
+   它与 `call`（一次调用关系）、`return`（单个输出边）、`define`（声明/节点）分离。Analyzer 只通过 schema-validated emit 选择，运行时不扫描用户原文、thinking 或答案；
+2. analyzer 单源教学明确：组件/流水线架构若主问题是 handoff/data transfer，应发 `predicate_axis=flow`；纯声明仍用 define，源码调用链仍用 call。
+   enum 描述是结构语义而非语言/关键字表，同一能力覆盖 Go、C/C++、ArkTS/TS/JS、Cangjie、Java/Kotlin、Python、Rust、Swift 等所有 repomap 语言；
+3. flow 的 evidence authority 只接受 call/callback/assignment/initializer/return。definition 可 ground 节点但不能证明移动；axis affinity 同样提升 transfer anchors、
+   降低 definition，防止字段/类型 roster 因数量多挤掉真正边界；
+4. `dataflowIntent` 对 typed flow 强制进入 propagate，而不是 `IntentExplain -> lookup -> SkipFindings=true`。更关键的是 ParseOutput 前模型已发
+   `emit_evidence` 时，旧 fast path 会因 `structuredEvidence>0` 完全跳过 dataflow；本批对 flow 轴保持 deterministic pass 开启，并禁止 ERM 被 definition/mechanism
+   行满足后提前短路。已有 evidence 作为输入合并，结果仍由原稳定 ID 去重；
+5. 非 flow 的 explanation/lookup 快路保持原样，Trace intent 的既有 propagate 逻辑也没有改写。flow 不进入 Trace 根因选举、窗口投影或 answer mutation；
+   它只决定源码架构调查是否生成 typed transfer findings；
+6. Explorer/Finalizer 同步补齐组件身份边界：principal component 必须由 topology/stage binding、constructor/registration、interface implementation 或
+   execution dispatch 映射确认。名字里带阶段名的 repair/validation/helper 只能作支撑实现，不能顶替 canonical component；
+7. finalizer 仍不因 flow 轴自动画图或修改答案。若 findings/同向 grounded relation 不足，模型可以少画边或披露边界；系统不从 Mermaid label 猜关系，
+   不为满足图数量伪造 transfer，也不删除/替写模型段落；
+8. 回归覆盖 axis 全枚举映射、definition-only 负权限、callback/assignment affinity、explain+flow→propagate、mid-loop evidence 不短路 flow pass、
+   architecture 组件 owner 边界与 JSON/diagram 教学单源。完整 `go test ./... -count=1` 通过，含 data/write、hitraceconv、tracequery、tracediag、mermaid/render；
+9. Trace 红线保持：显式窗与自动补采继续生效，根因只从 typed 链上席排序；邻近/背景只能补充排查方向，不能因 flow 轴、规模或时间接近获得主因资格。
+
+状态：`EVAL-B354=S37cd-implemented/full-suite-pass/pending-production-replay`；
+`predicate-axis=flow/typed-schema`；`definition!=transfer-authority`；
+`flow-findings=propagate/not-short-circuited-by-emitted-evidence`；
+`component-identity=owner-boundary-required`；`hard-answer-gate=none`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

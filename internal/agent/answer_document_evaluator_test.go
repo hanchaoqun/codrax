@@ -4035,6 +4035,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"async `-)` / `--)`, and lost-message `-x` / `--x`",
 		"not decoration or an escape from edge evidence",
+		"use the canonical identity grounded by topology/stage binding",
+		"A repair/validation/helper function that only contains the stage name is not itself the component boundary",
 		"a field roster grounds node membership only",
 		"One merge function does not prove that every source field is stored in the destination",
 		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",

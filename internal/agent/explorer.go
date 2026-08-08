@@ -1090,6 +1090,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- the component anchor itself (`definition`, `registration`, `import`, or call/dispatch relation when that is the real boundary);\n")
 			b.WriteString("- the role or responsibility it performs, preferably as `evidence_kind=\"mechanism\"` with grounded subject/object fields and a concise model-authored summary;\n")
 			b.WriteString("- any typed output artifact, plan, IR, report, verdict, state transition, or handoff product it produces/consumes when the source line or doc comment names one.\n")
+			b.WriteString("Confirm principal component identity from an owning topology/stage binding, constructor/registration, interface implementation, or execution dispatch boundary. A helper whose name merely contains a stage label is supporting implementation detail until one of those owner boundaries maps it to that stage; do not substitute repair/validation helpers for the canonical component.\n")
 			b.WriteString("For a requested data-flow or carrier diagram, verify the producer, merge/transfer boundary, and consumer before closing. A type or carrier field roster proves field membership only; it does not prove that every field crosses one merge path or is stored in the destination carrier. Emit grounded relation/flow evidence for each transfer you intend the answer to draw, and preserve source-stated exclusions or separately consumed fields as separate handoff boundaries instead of folding them into a universal arrow.\n")
 			b.WriteString("Use `surface_terms` for exact artifact labels visible in the read lines, and set `load_bearing_summary=true` only when the role/output wording cannot be reconstructed from subject/object/anchor/snippet alone. These role/output facts enrich sections; they do not create extra architectural layers unless the boundary evidence also makes them principal.\n\n")
 		}
@@ -13488,12 +13489,17 @@ func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, outpu
 }
 
 func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, toolResults []types.ToolResult) {
-	if len(e.structuredEvidence) > 0 || len(e.flowFindings) > 0 {
+	requireFlowFindings := e.requiresDeterministicFlowFindings()
+	if len(e.flowFindings) > 0 || (len(e.structuredEvidence) > 0 && !requireFlowFindings) {
 		e.mergeEmittedEvidenceDelta(ctx)
 		return
 	}
 
-	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
+	// Mid-loop emit_evidence calls are merged into structuredEvidence before
+	// ParseOutput. For an explicit typed flow request, that must not suppress
+	// the deterministic flow pass: definition/node facts are input to the pass,
+	// not proof that transfer edges already exist.
+	parsed := mergeEvidenceItems(e.structuredEvidence, parseEvidenceItems(e.investigationNotes, "explorer.llm"))
 	// Merge structured items emitted via the emit_evidence tool with
 	// the markdown-parsed channel. The two sources are merged by
 	// StableEvidenceID so a single fact reported through both
@@ -13552,7 +13558,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		reqsCopy := make([]EvidenceRequirement, len(e.ermRequirements))
 		copy(reqsCopy, e.ermRequirements)
 		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial, e.complexity)
-		if ermAllSatisfied(reqsCopy) {
+		if ermAllSatisfied(reqsCopy) && !requireFlowFindings {
 			logging.Debug("[explorer] T1.1 gate: ERM all satisfied by parsed(%d)+concreteValues(%d)+mechanism(%d) — skipping dataflow.Analyze",
 				len(parsed), len(cv.evidence), len(mechEvidence))
 			// Merge mechanism evidence into structuredEvidence so it
@@ -13620,6 +13626,14 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		intent, len(result.Evidence), len(result.Findings), len(candidates))
 	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence, mechEvidence)
 	e.flowFindings = mergeFlowFindings(result.Findings)
+}
+
+// requiresDeterministicFlowFindings is the typed boundary that keeps a
+// component/value transfer request from closing on definition-only evidence.
+// It reads only the analyzer enum and never request, thinking, or answer prose.
+func (e *explorerEvaluator) requiresDeterministicFlowFindings() bool {
+	return e != nil && e.analysisIR != nil &&
+		e.analysisIR.RequestModel.PredicateAxis == types.AxisFlow
 }
 
 // toolConfidence returns the Confidence declared by the named tool.

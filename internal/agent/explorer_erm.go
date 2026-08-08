@@ -190,6 +190,8 @@ func inferPrimaryRequirementKindFromSignals(rm types.RequestModel) types.Require
 		return types.ReqConditional
 	case types.AxisCall:
 		return types.ReqCallChain
+	case types.AxisFlow:
+		return types.ReqMechanism
 	case types.AxisReturn:
 		if !rm.Predicates.IsCountQuestion {
 			return types.ReqReturnValue
@@ -230,6 +232,10 @@ func structuredRequirementReason(kind types.RequirementKind, rm types.RequestMod
 		case types.ReqCallChain:
 			if rm.PredicateAxis == types.AxisCall {
 				parts = append(parts, "predicate_axis=call")
+			}
+		case types.ReqMechanism:
+			if rm.PredicateAxis == types.AxisFlow {
+				parts = append(parts, "predicate_axis=flow")
 			}
 		case types.ReqConfigMapping:
 			if rm.PredicateAxis == types.AxisConfigure {

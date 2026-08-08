@@ -630,9 +630,9 @@ func isFieldValueIdentifier(s string) bool {
 }
 
 // PredicateAxis enumerates the action-direction axis of the user's
-// question. Extracted deterministically from verb cues in the raw
-// request ("调用" / "call" / "invoke" → AxisCall; "注册" /
-// "register" → AxisRegister; ...). Paired at the evidence ranker
+// question. Emitted by the analyzer through a schema-validated enum;
+// downstream code must not reconstruct it from raw request or answer
+// prose. Paired at the evidence ranker
 // with each item's AnchorKind via a static PredicateAxis × AnchorKind
 // affinity matrix (see internal/analysis/axis). Zero value
 // (AxisUnknown) disables the axis-aware boost and preserves
@@ -658,11 +658,17 @@ const (
 	AxisConfigure PredicateAxis = "configure"
 	AxisCondition PredicateAxis = "condition"
 	AxisImplement PredicateAxis = "implement"
+	// AxisFlow is the multi-boundary value/state/control transfer axis. It is
+	// deliberately distinct from AxisCall: a flow may be realised by calls,
+	// callbacks, assignments, and returns, while a call question asks for one
+	// invocation relation. The analyzer emits this typed enum; downstream code
+	// must not infer it from raw request or answer prose.
+	AxisFlow PredicateAxis = "flow"
 )
 
 var allPredicateAxes = []PredicateAxis{
 	AxisCall, AxisRegister, AxisDefine, AxisReturn,
-	AxisConfigure, AxisCondition, AxisImplement,
+	AxisConfigure, AxisCondition, AxisImplement, AxisFlow,
 }
 
 // AllPredicateAxes returns every declared axis in declaration

@@ -97,4 +97,12 @@ var affinityMatrix = map[types.PredicateAxis]map[types.AnchorKind]float64{
 		types.AnchorDefinition: 1.3,
 		types.AnchorCall:       1.1,
 	},
+	types.AxisFlow: {
+		types.AnchorCall:        1.3,
+		types.AnchorCallback:    1.5,
+		types.AnchorAssignment:  1.4,
+		types.AnchorInitializer: 1.2,
+		types.AnchorReturn:      1.4,
+		types.AnchorDefinition:  0.7,
+	},
 }

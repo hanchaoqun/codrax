@@ -34,6 +34,10 @@ func TestAffinityKnownCombos(t *testing.T) {
 		{"configure_vs_assignment_boost", types.AxisConfigure, types.AnchorAssignment, 1.4},
 
 		{"implement_vs_definition_boost", types.AxisImplement, types.AnchorDefinition, 1.3},
+
+		{"flow_vs_callback_boost", types.AxisFlow, types.AnchorCallback, 1.5},
+		{"flow_vs_assignment_boost", types.AxisFlow, types.AnchorAssignment, 1.4},
+		{"flow_vs_definition_demote", types.AxisFlow, types.AnchorDefinition, 0.7},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

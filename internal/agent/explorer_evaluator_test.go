@@ -2145,3 +2145,20 @@ func TestParseOutput_NoMutableStateGracefullyDegrades(t *testing.T) {
 		t.Errorf("flag=on must leave AnswerSymbols empty, got %d", len(out.AnswerSymbols))
 	}
 }
+
+func TestRequiresDeterministicFlowFindings_ReadsTypedAxisOnly(t *testing.T) {
+	flow := &explorerEvaluator{analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+	}}}
+	if !flow.requiresDeterministicFlowFindings() {
+		t.Fatal("typed flow axis must keep deterministic flow finding generation active")
+	}
+	definition := &explorerEvaluator{analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisDefine,
+	}}}
+	if definition.requiresDeterministicFlowFindings() {
+		t.Fatal("definition-only architecture must not be upgraded to flow from prose or diagram content")
+	}
+}

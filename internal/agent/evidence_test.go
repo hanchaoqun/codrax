@@ -961,6 +961,11 @@ func TestNeedsDataflowAnalysis_TypedSignals(t *testing.T) {
 			true,
 		},
 		{
+			"flow axis → propagate even for explain intent",
+			&types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow},
+			true,
+		},
+		{
 			"register axis → lookup",
 			&types.RequestModel{PredicateAxis: types.AxisRegister},
 			true,
@@ -983,6 +988,13 @@ func TestNeedsDataflowAnalysis_TypedSignals(t *testing.T) {
 				t.Errorf("got %v want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDataflowIntent_FlowAxisKeepsFindingsEnabled(t *testing.T) {
+	rm := &types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow}
+	if got := dataflowIntent(rm, nil); got != IntentPropagate {
+		t.Fatalf("dataflowIntent(flow) = %v, want propagate so findings are not skipped", got)
 	}
 }
 

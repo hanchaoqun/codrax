@@ -531,6 +531,12 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 		}
 	case types.AxisImplement:
 		prefer("axis_implement", types.DiagramArchitecture)
+	case types.AxisFlow:
+		if rm.Scenario == types.ScenarioArchitectureExplain {
+			prefer("axis_flow_architecture", types.DiagramArchitecture, types.DiagramFlow)
+		} else {
+			prefer("axis_flow", types.DiagramFlow, types.DiagramSequence)
+		}
 	}
 
 	switch rm.AnalyzerHints.Kind {

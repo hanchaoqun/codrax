@@ -1346,11 +1346,13 @@ func (d DataflowIntent) String() string {
 //
 // Decision ladder:
 //
-//	Propagate  : Intent ∈ {IntentTrace} OR
+//	Propagate  : Intent ∈ {IntentTrace} OR PredicateAxis=AxisFlow OR
 //	             PredicateAxis ∈ {AxisCall} with cross-component
 //	             signals (Predicates.IsCrossFile or IsCrossComponent).
 //	             Captures "trace this value through the system" and
-//	             "how does X invoke Y" patterns.
+//	             "how does X invoke Y" patterns. AxisFlow is the
+//	             typed multi-boundary transfer request and therefore
+//	             keeps deterministic findings enabled for explain/architecture.
 //
 //	Lookup     : Intent ∈ {IntentExplain, IntentRootCause,
 //	             IntentReturnValue, IntentEnumerate, IntentConfigQuery}
@@ -1368,6 +1370,9 @@ func (d DataflowIntent) String() string {
 func dataflowIntent(rm *types.RequestModel, items []types.EvidenceItem) DataflowIntent {
 	if rm != nil {
 		if rm.Intent == types.IntentTrace {
+			return IntentPropagate
+		}
+		if rm.PredicateAxis == types.AxisFlow {
 			return IntentPropagate
 		}
 		if rm.PredicateAxis == types.AxisCall && rm.Predicates.IsCrossComponent {

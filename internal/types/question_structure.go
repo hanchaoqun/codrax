@@ -274,7 +274,7 @@ func EffectiveQuestionBuckets(rm RequestModel) []QuestionBucket {
 
 func entityBucketInferenceDisabledByTypedAxis(rm RequestModel) bool {
 	switch rm.PredicateAxis {
-	case AxisCall:
+	case AxisCall, AxisFlow:
 		return true
 	}
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {

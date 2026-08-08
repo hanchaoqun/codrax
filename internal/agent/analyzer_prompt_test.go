@@ -1036,6 +1036,21 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 	}
 }
 
+func TestAnalysisSkill_TeachesTypedFlowAxisWithoutProseGate(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"Use `flow` when the requested principal fact is the ordered movement of value, state, or control",
+		"producers, transfer/merge boundaries, and consumers",
+		"Keep `call` for a source-code invocation relation",
+		"`define` for declarations without a requested transfer path",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis skill missing typed flow-axis boundary %q", want)
+		}
+	}
+}
+
 func TestAnalysisSkill_FieldValueRequiresRequestLiteralAndKeepsUnknownPerMemberValuesOut(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")

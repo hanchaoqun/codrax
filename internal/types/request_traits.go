@@ -563,7 +563,7 @@ func sourceOperationSiteHasTypedSurface(rm RequestModel) bool {
 		return true
 	}
 	switch rm.PredicateAxis {
-	case AxisCall, AxisRegister, AxisConfigure, AxisCondition:
+	case AxisCall, AxisRegister, AxisConfigure, AxisCondition, AxisFlow:
 		return true
 	}
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
@@ -633,7 +633,7 @@ func CompletenessObligationIsMechanismCoverageOnly(rm RequestModel) bool {
 		return false
 	}
 	switch rm.PredicateAxis {
-	case AxisCondition, AxisCall, AxisRegister:
+	case AxisCondition, AxisCall, AxisRegister, AxisFlow:
 		return true
 	}
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
@@ -1169,6 +1169,8 @@ func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 	switch rm.PredicateAxis {
 	case AxisCondition, AxisCall, AxisRegister:
 		return true
+	case AxisFlow:
+		return rm.Scenario != ScenarioArchitectureExplain
 	}
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
 	case ReqMechanism, ReqConditional, ReqRegistration:

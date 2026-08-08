@@ -77,6 +77,11 @@ func PredicateAxisToAnchorKinds(axis PredicateAxis) []AnchorKind {
 		// or `class T { method() {...} }`. Both flatten to
 		// AnchorDefinition.
 		return []AnchorKind{AnchorDefinition}
+	case AxisFlow:
+		// A transfer path may cross direct calls, deferred callback
+		// handoffs, writes, or return boundaries. Definitions alone ground
+		// nodes but never prove movement between them.
+		return []AnchorKind{AnchorCall, AnchorCallback, AnchorAssignment, AnchorInitializer, AnchorReturn}
 	}
 	return nil
 }
