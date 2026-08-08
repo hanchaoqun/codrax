@@ -232,12 +232,24 @@ var dataTaskPlanTool = llm.ToolSchema{
         "format": {"type": "string", "enum": ["plain_single_line", "csv_line", "json_only", "markdown_table", "markdown", "file_path", "freeform"]},
         "explanation_allowed": {"type": "boolean"},
         "delimiter": {"type": "string"},
-        "complete_reference": {"type": "boolean", "description": "true only when the user goal requires one output element for every key in a reference material, including zero/empty values for keys with no contributing records."},
+        "complete_reference": {"type": "boolean", "description": "Required explicit scope decision. Set true only when the user goal requires one output element for every key in a reference material, including zero/empty values for keys with no contributing records; set false for scalar, subset, or present-group output. Never omit this decision."},
         "reference_path": {"type": "string", "description": "Task source material, or an extracted alias with one unambiguous source-material lineage, that defines the final key universe when complete_reference=true. Never use a contribution, reconcile, or prior-answer artifact as that universe."},
         "reference_key_field": {"type": "string", "description": "Field in reference_path whose values map to the contribution group-key domain and whose stable order defines final output coverage when complete_reference=true. When the reference has both a display/order ID and the same domain key used by contributions, choose the contribution-domain field here; assemble_answer still preserves reference row order."}
       },
-      "required": ["format", "explanation_allowed"],
-      "description": "Typed final-output contract derived from the user's requested shape. If the user says only output JSON/CSV/a single line, set explanation_allowed=false."
+      "required": ["format", "explanation_allowed", "complete_reference"],
+      "allOf": [
+        {
+          "if": {"properties":{"complete_reference":{"const":true}}, "required":["complete_reference"]},
+          "then": {
+            "required":["reference_path", "reference_key_field"],
+            "properties": {
+              "reference_path":{"type":"string", "minLength":1},
+              "reference_key_field":{"type":"string", "minLength":1}
+            }
+          }
+        }
+      ],
+      "description": "Typed final-output contract derived from the user's requested shape. If the user says only output JSON/CSV/a single line, set explanation_allowed=false. Always make the complete-reference versus subset/present-only scope explicit; do not leave it for the executor to infer from file names or prose."
     },
     "coverage_contract": {
       "type": "object",
@@ -572,7 +584,7 @@ const dataTaskLedgerShapeTeaching = `Ledger and output-shape decision (choose th
 - Direct bounded transform: when material coverage plus the output contract are sufficient and no audit ledger is required, emit the computed answer directly. Do not add contribution, reconcile, rule, decision, or entity-resolution obligations merely because the task filters rows or returns IDs.
 - Member/list output: qualify or filter the source rows, then compute_contributions with operation=include|set, value_field=<existing member field>, and group_key=<the requested output field>; reconcile, then assemble_answer with projection=json_object. Never use operation=count when the answer must contain the member values.
 - Scalar count/total output: use count for row cardinality or add/subtract for numeric totals, then reconcile and assemble that scalar.
-- Complete-reference output is a separate shape, used only when every key from a source reference must appear (including zero/empty members). reference_path + reference_key_field activates that shape even if complete_reference is omitted: the path must be a source universe and the field values must share the contribution group_key domain. For an ordinary scalar/present-group summary, omit all three complete-reference fields; never point them at contribution, reconcile, or prior-answer artifacts.
+- Complete-reference output is a separate shape, used only when every key from a source reference must appear (including zero/empty members). Every output_contract must explicitly set complete_reference: use true together with reference_path + reference_key_field when the source reference defines the complete output universe, or false for ordinary scalar/subset/present-group output. The path must be a source universe and the field values must share the contribution group_key domain; never point them at contribution, reconcile, or prior-answer artifacts.
 - Rule-material ownership: RULE LEDGER BEFORE CALCULATION. When rule_coverage_required=true and no typed rule ledger exists yet, emit derive_rules as the first dependency rank; do not emit a terminal calculation first because the prerequisite gate will reject it before execution. When an audit rule ledger is not required and the full rule text is already present in the candidate context, use planner_distilled with concrete distilled_notes. Use script_consumed only when execution actually parses or otherwise uses the material bytes. Never read a rule file solely to satisfy coverage.
 - Set entity_resolution_required only for an actual source-to-canonical/reference mapping. Selecting, filtering, copying, or preserving IDs already present in one material is not entity resolution.
 - assemble_answer projects reconciled contribution semantics; listing an arbitrary payload in input_paths does not turn that payload into the projection source. If an existing final answer is wrong, the evaluator must emit typed repair_node for the answer action instead of declaring completion.

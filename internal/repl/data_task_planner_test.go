@@ -2886,6 +2886,23 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 		t.Fatalf("plan schema JSON: %v", err)
 	}
 	properties, _ := schema["properties"].(map[string]any)
+	outputContract, _ := properties["output_contract"].(map[string]any)
+	outputRequired, _ := outputContract["required"].([]any)
+	if !slices.Contains(outputRequired, any("complete_reference")) {
+		t.Fatalf("output_contract.required=%+v, want an explicit complete-reference versus subset scope decision", outputRequired)
+	}
+	outputAllOf, _ := outputContract["allOf"].([]any)
+	if len(outputAllOf) != 1 {
+		t.Fatalf("output_contract conditional=%+v, want one complete-reference credential contract", outputAllOf)
+	}
+	outputConditional, _ := outputAllOf[0].(map[string]any)
+	outputThen, _ := outputConditional["then"].(map[string]any)
+	outputThenRequired, _ := outputThen["required"].([]any)
+	for _, want := range []any{"reference_path", "reference_key_field"} {
+		if !slices.Contains(outputThenRequired, want) {
+			t.Fatalf("complete-reference then.required=%+v, want %s", outputThenRequired, want)
+		}
+	}
 	actions, _ := properties["actions"].(map[string]any)
 	items, _ := actions["items"].(map[string]any)
 	allOf, _ := items["allOf"].([]any)
@@ -2905,6 +2922,10 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 	}
 	if !strings.Contains(description, "prebound Python globals") || !strings.Contains(description, "never import/from-import") {
 		t.Fatalf("plan script description does not teach prebound helper use: %q", description)
+	}
+	if !strings.Contains(dataTaskLedgerShapeTeaching, "must explicitly set complete_reference") ||
+		!strings.Contains(dataTaskLedgerShapeTeaching, "false for ordinary scalar/subset/present-group output") {
+		t.Fatalf("ledger shape teaching must make complete-reference intent explicit: %s", dataTaskLedgerShapeTeaching)
 	}
 }
 

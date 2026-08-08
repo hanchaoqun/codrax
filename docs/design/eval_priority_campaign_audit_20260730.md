@@ -26637,3 +26637,53 @@ case/action 名补丁解决。
 `nested-enum/maxItems=bypass-closed`；`legacy-flex-fields=preserved`；
 `same-dynamic-schema-repair=one-bounded-round`；`raw-prose-scan=none`；
 `system-answer-rewrite=none`；待全仓回归、提交推送与 data 生产复放。
+
+### 123.353 r209：语义物理席生产闭环；complete-reference 意图可被省略后自验错误答案
+
+在 `main@0b37d5941` 上严格并发 2 复放 `trace_query_donghu_real_frame_multicausal` 与
+`data_multifile_reference_projection`，runner 为 1 PASS / 1 FAIL；人工为 Trace PASS、data FAIL：
+
+1. Trace 的 S37bw 生产闭环。同一精确 `T7@ZeusThreadPo-61839 / VerifyClass ...` occurrence 在链树、根因表、确定性语义优化表中都只剩
+   `E24(+3)` 一个 typed 链上席；跨 view 弱席的 E# 与 locator 均被吸收进索引，没有丢审计证据；
+2. 显式窗 `34579.472865..34579.587805`、系统补采、wakeup path、根因排序、代表窗与实际占时/规则可消双轴完整。主根因只从链上席产生；邻近/背景 CPU、IO、
+   页缓存和块设备行没有因数值大或时间接近进入主因答案。`frame_evidence_status=absent` 仅限制“具体丢帧因果未证”；
+3. 模型自由正文仍把 `priority_inversion_candidate` 扩写为“锁与优先级方向”，而 typed 输入没有 holder/waiter 权限。这是已知模型服从波动：系统尾部保留准确边界，
+   本批不扫描、拒绝或重写正文；
+4. data 的业务账本本身正确：四条 contribution 保留 GroupA=17、GroupB=4、GroupC=5，reconcile 也在 native contribution domain 通过。末级
+   `assemble_answer` 却按 present `group_key` 发出 `17,4,5`，没有按权威 targets 的 GroupA/GroupX/GroupC 左投影为 `17,0,5`；
+5. 深层根因不是 B347。该轮没有任何 string→array/object 兼容修复或 `tool_params_schema_invalid` witness，不能据此关闭 B347 的生产回放。真实新 gap 是
+   `EVAL-B348-REFERENCEINTENT1=P1`：planner 的 output schema 把 `complete_reference` 设为可省略；模型虽已在 typed coverage/rules 中记录“按 targets 行序”，仍可省略
+   output authority。deterministic emit-stage scaffold 随后只能合法地选择普通 present-group projection；错误答案又被写入 expected/actual，形成输出自验输出；
+6. output graph 已精确发现 `reference_candidate_path=targets.csv`、`field=canonical_label`、`key_count=3`，但 `declared=false` 时继续显示 satisfied。这一候选 census
+   不能直接硬化为 complete-reference：subset 查询即使旁边有完整字典也可以合法只要 Alpha，系统若自动补全会破坏正确答案；
+7. 最优边界是让模型用 typed 输出合同显式裁定范围，而不是由系统猜。所有 data planner 初始/continue/repair 共享的 tool schema 必须要求
+   `complete_reference=true|false`；true 时同一 schema 条件要求 source-material `reference_path` 与贡献域 `reference_key_field`，false 明确表示 scalar/subset/
+   present-only。结构候选仍只作软提示，不读取用户、规则或答案 prose 作硬门；执行器仍只消费 schema-valid typed 字段；
+8. data 本轮 14 rounds、5 repairs，包含 unsupported params、越 rank、缺 input paths 等额外模型规划噪声。S37bv 的窄 rank schema 生效在 continuation，但初始批仍可规划
+   无效字段；先关闭 correctness 权限缺失，再在后续异构重复 witness 中审计动作参数 teaching，避免按此 fixture/action 名过拟合。
+
+状态：runner=`Trace PASS / data FAIL`；human=`Trace PASS / data FAIL`；
+`EVAL-B346=production-closed`；`EVAL-B347=implementation-green/production-witness-absent`；
+`EVAL-B348=P1-confirmed/next`；`trace-root=typed-on-chain-only`；
+`adjacent/background=never-promoted`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.354 S37by：完整参考域与子集输出范围必须显式进入 typed output contract
+
+关闭 `EVAL-B348-REFERENCEINTENT1` 的 schema/教学根因，保持 subset 红线不动：
+
+1. `emit_data_task_plan.output_contract.required` 新增 `complete_reference`。它不再是“缺省 false”的隐式字段：模型必须显式选择 true 或 false；描述统一说明 true=
+   reference 全域含零/空槽，false=scalar/subset/present-group；
+2. 同一 JSON schema 用 `if/then` 约束：`complete_reference=true` 时 `reference_path` 与 `reference_key_field` 必填且非空。因而模型不能只给一个布尔口号，必须同时指出
+   原始 source universe 与和 contribution `group_key` 同域的键；生成的 contribution/reconcile/旧答案 artifact 仍无资格充当 reference；
+3. 初始 planner 与 continuation/repair 共用的 `dataTaskLedgerShapeTeaching` 改为同一显式二选一，不再教授“字段可省略但 path+key 又可隐式激活”的双重心智。
+   schema 负责形状，单一教学负责语义；没有增加 case 名、文件名、业务标签或答案数字；
+4. hard projection 仍只由 model-emitted/workflow-carried typed declaration触发。结构 census 发现 targets/dictionary/reference candidate 时仍只是 soft guidance；
+   `complete_reference=false` 的合法 subset 不被零填、不被 completion gate 拒绝，既有 batch-6 `30` 不变；
+5. schema pin 覆盖 required bool、true 分支两项 credential 与共享教学字面；既有 subset fail-open、完整参考正臂、action-local reference pair 和
+   strict DAG admission 测试不放宽。本批不让系统代算范围、不改写业务贡献、reconcile 或最终答案；
+6. Trace 代码路径完全未改。显式时间窗、因果投影、自动补齐、唤醒链、根因排序、窗内可消除量和“只有链上行可获主因资格”继续由原 typed 权限控制；邻近与背景只能作支撑方向。
+
+状态：`EVAL-B348=S37by-implemented/full-suite-pass/pending-production-replay`；
+`reference-scope=model-owned/typed-explicit`；`complete=true=>source-path+domain-key`；
+`subset=false-preserved`；`candidate-census=soft-only`；`raw-prose-scan=none`；
+`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
