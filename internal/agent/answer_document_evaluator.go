@@ -13887,8 +13887,10 @@ type answerDocumentStageData struct {
 
 // ParseOutput reads the final AnswerDocument from Mutable, renders
 // it to prose, and packages the result into a StageOutput. On a
-// zero/missing document, emits a fail-loud warning prefixed to the
-// raw last LLM content.
+// zero/missing document it recovers the strongest typed/model-visible
+// carrier available and emits an explicit degraded disclosure. Failed
+// repair-turn scratch content is never appended beside a recovered
+// structured draft.
 func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{}
 
@@ -13963,11 +13965,15 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 		prose := strings.TrimSpace(e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments))
 		if prose != "" {
-			raw := strings.TrimSpace(lastContent)
-			if raw != "" {
-				prose = prose + "\n\n" + retryStateRecoveredRawContentLabel(e.language) + "\n\n" + raw
-			}
-			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; rendered previous retry-state document with raw finalizer content (len=%d, deterministic_sections=%d)",
+			// The last assistant turn in this lane is a failed repair attempt,
+			// not a second answer carrier. Appending it previously exposed
+			// <think> blocks, schema guesses, and validator troubleshooting
+			// underneath an otherwise useful structured draft. Keep the model's
+			// earlier draft and disclose the failed validation, but do not turn
+			// repair scratch into customer-visible facts. When no structured
+			// draft exists, the independent missing-document lane below still
+			// salvages structurally cleaned visible prose or verified evidence.
+			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; rendered previous retry-state document without failed repair-turn content (discarded_len=%d deterministic_sections=%d)",
 				len(lastContent), len(materialized))
 			// XGAP-FIX ④: the recovery lane is a DEGRADED shipping lane and
 			// must say so in its typed output (the witness lane shipped
@@ -14279,16 +14285,9 @@ func answerDocumentVisibleTextLen(doc *types.AnswerDocumentV2) int {
 
 func retryStateRecoveredAnswerDocumentCaveat(lang string) string {
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
-		return "Rendered from the previous structured answer draft after the final retry failed to emit a valid answer_document; treat this as a best-effort recovery with the raw final model text shown below."
+		return "Rendered from the previous structured answer draft after the final retry failed to emit a valid answer_document; treat this as a best-effort recovery. Failed repair-turn scratch content was not included."
 	}
-	return "最终重试未能产出有效的 answer_document；这里渲染上一版结构化答案草稿作为尽力恢复，下面同时保留模型最后一轮原文。"
-}
-
-func retryStateRecoveredRawContentLabel(lang string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
-		return "**Raw final model text:**"
-	}
-	return "**模型最后一轮原文：**"
+	return "最终重试未能产出有效的 answer_document；这里渲染上一版结构化答案草稿作为尽力恢复，失败修补回合的临时推理未包含在答案中。"
 }
 
 // degradedSectionDisplayNames maps the internal snake_case section tokens

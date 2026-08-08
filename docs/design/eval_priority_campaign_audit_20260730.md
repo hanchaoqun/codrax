@@ -27036,3 +27036,20 @@ case/action 名补丁解决。
 `EVAL-B362=open/next`；`model-conclusion-owner=unchanged`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；
 Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
+
+### 123.368 S37cg：降级恢复按载体分轨，失败 repair thinking 不再进入客户答案
+
+关闭 `EVAL-B362-DEGRADEDTHINKDISCLOSURE1`，不靠关键词判断“哪句话有用”：
+
+1. 根因是 `ParseOutput` 的 retry-state 分支已经拥有上一版 `AnswerDocumentV2`，却仍把最后一条 assistant content 无条件追加为“模型最后一轮原文”。该最后回合本质是 validator repair scratch，r215 因而泄漏完整 `<think>`、schema 猜测与错误 `evidence_id` 推断；
+2. 修复按 typed carrier provenance 分轨：存在 retry-state / last-rejected structured document 时，只渲染模型先前结构化草稿、已有 citation、确定性降级板和明确降级 caveat；最后失败 repair turn 不作为第二答案载体，也不进入事实权限；
+3. 没有结构化草稿时保留既有独立 salvage 链：先尝试 no-tool draft 的 lossless/visible-string JSON 恢复；再用结构标签清洗剥离完整 `<think>`、tool-call markup 和 answer-document JSON scaffold；仍无可用模型正文时展示最多 8 条已落地可验证证据，并明确系统未补写结论；
+4. 因此用户提出的 malformed JSON 场景仍能尽量提取有用可见字符串，并披露“模型返回畸形结构、仅提取可见文本、顺序/完整性可能受限”；本批删除的是已有 structured draft 时的失败修补原文泄漏，不是关闭 JSON 自愈；
+5. 中英文 caveat 改为“上一版结构化草稿尽力恢复；失败修补回合临时推理未包含”。不把模型问题伪装成正常成功，也不把系统核验板当模型结论；
+6. 回归钉住 retry-state 与 last-rejected 两臂均不出现 `<think>`/repair note/旧“模型最后一轮原文”标签，并保持 typed degraded、skip checks、degrade reason、citation、diagram attachment 去冲突与 malformed-visible-string disclosure；
+7. 本批不扫描用户原话、模型 prose 关键词或答案结论，不改正常健康成文，不进入 Trace 编译/投影。显式窗、自动补采、根因排序、唤醒链、窗内可消除量及链上主因边界不变。
+
+状态：`EVAL-B362=S37cg-implemented/full-suite-pass/pending-production-replay`；
+`degraded-structured-draft=preserved`；`failed-repair-content=not-a-carrier`；
+`malformed-json-visible-string-salvage=preserved`；`model-failure-disclosed=yes`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。

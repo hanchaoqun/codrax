@@ -10253,7 +10253,7 @@ func writeStageBindingFixture(t *testing.T, repo string) {
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAndRawContent(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftWithoutFailedRepairContent(t *testing.T) {
 	prevDoc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{{
@@ -10290,12 +10290,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAn
 		"上一版结构化答案正文",
 		"internal/agent/agent.go:969",
 		"最终重试未能产出有效的 answer_document",
-		"模型最后一轮原文",
-		"【审计员注】patch 仍未通过。",
+		"失败修补回合的临时推理未包含在答案中",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+	if strings.Contains(out.FinalAnswer, "模型最后一轮原文") || strings.Contains(out.FinalAnswer, "【审计员注】patch 仍未通过。") {
+		t.Fatalf("failed repair-turn content must not be appended beside recovered draft:\n%s", out.FinalAnswer)
 	}
 	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil {
 		t.Fatalf("retry-state recovery should not mark rejected draft as accepted mutable document: %+v", doc)
@@ -10374,11 +10376,15 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersLastRejectedDraft
 		"最近一版结构化草稿正文",
 		"internal/agent/agent.go:970",
 		"最终重试未能产出有效的 answer_document",
-		"模型最后一轮原文",
+		"失败修补回合的临时推理未包含在答案中",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+	if strings.Contains(out.FinalAnswer, "<think>") || strings.Contains(out.FinalAnswer, "仍在修 citation_ref") ||
+		strings.Contains(out.FinalAnswer, "模型最后一轮原文") {
+		t.Fatalf("thinking/repair scratch must not leak from last rejected turn:\n%s", out.FinalAnswer)
 	}
 	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil {
 		t.Fatalf("last rejected draft recovery should not mark rejected draft as accepted mutable document: %+v", doc)
