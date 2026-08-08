@@ -25992,3 +25992,45 @@ Trace/JSON/write=`full-suite-isolated`。
 `parser=structured-chain-decomposition`；`hidden-anchor=still-fail-closed`；
 `diagram-json-teaching=projected-schema-aligned`；`raw-prose-scan=none`；`system-answer-rewrite=none`；
 Trace/JSON/write=`codepath-unchanged/full-suite-isolated`；`EVAL-B328=P1-open`。
+
+### 123.324 r195：Trace 链上选举正确但背景归因列越权；Cangjie 正确同名引用被系统改错
+
+在干净 `main@4768392f6` 上严格并发 2 跑 `trace_query_wakeup_background_demotion` 与 `cangjie_repomap`，runner 1 PASS / 1 FAIL，人工恰为 1 PASS / 1 FAIL：
+
+1. Trace runner 因单行 prose regex 未跨行匹配链名与线程名而报 FAIL；人工确认模型正文和系统因果投影均完整给出
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`，只把链上 11ms IO wait 加冕，明确把数值更大的 logger 降为无依赖背景；
+2. 因此显式时间窗、自动补齐、唤醒链、根因排序、窗内可消除量和“根因只能来自已证链”获得生产正证。真实 Trace gap 是关键指标表把
+   `有效归因` 定义为计入根因排序的影响时长，却给 typed background logger 发射 7ms；新立
+   `EVAL-B331-TRACEBACKGROUNDATTRIBUTIONDISPLAY1=P1`，只允许在非根因表面保留背景规模；
+3. 模型把已证 `fscache_page_wait_on_page_bit` 等待点扩写成具体磁盘读未完成，超过当前凭证且与后文 caveat 冲突；新立
+   `EVAL-B333-TRACEKERNELCALLSITECLAIMCALIBER1=P2`，仅以 typed caliber 软上下文约束，禁止扫描最终答案硬拒或系统代写；
+4. Cangjie typed inventory 的 2 extend / 2 foreign func / 8 public class 及可见路径均正确，但第二个同名 `native_add` 的模型原始 citation_ref
+   正确指向 corpus 文件，pre-emit 弱 aggregate support 将其改到 Bridge，再基于错误 citation 绑定 row_id，最终裁掉正确 citation；
+5. 该问题不是 Cangjie parser 或模型波动，而是系统用低权限 evidence 覆盖高权限 typed file-axis，属于答案所有权/证据保真红线；新立
+   `EVAL-B332-DUPLICATESYMBOLCITATIONFILEAXIS1=P0`，要求所有语言的同名声明均以 exact typed row identity 优先；
+6. 两案均不需要也不得读取用户请求、model thinking、summary 或最终答案关键词。r195 无 JSON 畸形/repair、无 finalizer reject、无 unavailable tool，
+   “成文校验未通过”次数为 0。
+
+状态：runner=`1 PASS / 1 FAIL`；human=`1 PASS / 1 FAIL`；
+`EVAL-B331=P1-confirmed/next`；`EVAL-B332=P0-confirmed/next`；`EVAL-B333=P2-filed`；
+Trace 链上根因权限=`production-positive`；`raw-prose-hard-gate=none`；系统引用改写=`red-line-confirmed`。
+
+### 123.325 S37bh：精确 source-inventory 行身份先于弱 aggregate citation repair
+
+`EVAL-B332-DUPLICATESYMBOLCITATIONFILEAXIS1` 在通用 typed source-inventory authority 层修复：
+
+1. pre-emit 在候选/aggregate citation repair 前，先用 structured item label、当前 citation 的 file+line 与已准入 Principal Enumeration Rows
+   铸造精确 `source_inventory_row_id`；同一坐标仍对应多个 family/identity 时 fail closed，不猜测；
+2. content-bearing aggregate repair 新增单调 keep gate：当前引用若已精确选择一个 typed inventory row，压缩后的单一同名 member support 不得覆盖它；
+   aggregate 仍可修复没有精确 row authority 的普通 item，不退役既有能力；
+3. 末尾既有 row-id citation binder 保持最终权威。即使中间其他较弱 normalizer 尝试移动同名引用，最终 citation 仍必须回到模型最初选择的 exact row；
+4. 判定只消费 model-owned principal block、typed row registry、item label、citation file/line 和 row identity；不读 request、title、item text、summary、
+   最终答案或语言/符号关键词，因而同样覆盖 Go/Java/Kotlin/ArkTS/Cangjie/C/C++/Rust/Python 等全部语言的跨文件同名声明；
+5. 回归构造两个同名 principal rows 位于不同 file/line，并故意把 aggregate compact 为只支持另一个位置；直接 repair 必须 stand down，完整 pre-emit
+   必须保留第二位置 citation 并绑定对应 row_id。既有 duplicate-label、family、fails-closed 测试同批通过；完整 `internal/tool` 套件通过；
+6. 本批不改模型可见文本、结论、清单成员、JSON/Mermaid/Trace/read/write 路径。系统只保存模型已选中的精确证据身份，不生成或替换答案内容。
+
+状态：`EVAL-B332=S37bh-implemented/internal-tool-suite-pass`；
+`authority=typed-row-id>aggregate-support`；`same-name-cross-file=preserved`；
+`raw-prose-scan=none`；`system-conclusion-rewrite=none`；Trace/JSON/write=`unchanged`；
+`EVAL-B331=P1-next`；`EVAL-B333=P2-open`。

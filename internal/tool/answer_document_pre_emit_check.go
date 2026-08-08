@@ -11115,6 +11115,18 @@ func normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWith
 			if label == "" {
 				continue
 			}
+			// A model-selected citation that identifies exactly one admitted
+			// source-inventory row is stronger than a content-bearing aggregate
+			// member support. The latter can legitimately be compacted to one
+			// same-name declaration while the principal inventory still contains
+			// several declarations in different files or families. Rewriting the
+			// citation here would destroy the file/line identity before the exact
+			// row-id binder below can preserve it. This keep gate reads only the
+			// typed principal-row registry, item label, and citation coordinates;
+			// request, title, prose, and language-specific spellings are excluded.
+			if preEmitSourceInventoryItemCitationSelectsExactRow(doc, ctx, *block, *item) {
+				continue
+			}
 			target, ok := preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx, label)
 			if !ok {
 				continue
@@ -11143,6 +11155,51 @@ func normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWith
 		}
 	}
 	return fixed
+}
+
+// preEmitSourceInventoryItemCitationSelectsExactRow reports whether the
+// item's current citation selects exactly one typed source-inventory row among
+// the rows whose structured display label matches the item. It deliberately
+// fails closed when one location still names multiple row identities.
+func preEmitSourceInventoryItemCitationSelectsExactRow(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	block types.AnswerBlock,
+	item types.AnswerBlockItem,
+) bool {
+	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) ||
+		block.SurfaceRole != types.SurfacePrincipal ||
+		!principalEnumerationBlockCanCarryRows(block) ||
+		item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+		return false
+	}
+	rows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(block, preEmitSourceInventoryTypedPrincipalSets(ctx))
+	if invalidFamily || len(rows) == 0 {
+		return false
+	}
+	matches := preEmitSourceInventoryExactLabelRows(item, rows)
+	if len(matches) == 0 {
+		return false
+	}
+	citation := doc.Citations[item.CitationRef]
+	selectedKey := ""
+	for _, row := range matches {
+		if !row.HasCitation || !preEmitCitationSameLocation(citation, types.Citation{File: row.Source, Line: row.LineStart}) {
+			continue
+		}
+		key := preEmitSourceInventoryRowAliasIdentityKey(row)
+		if key == "" {
+			key = principalEnumerationRowIdentityKey(row)
+		}
+		if key == "" {
+			continue
+		}
+		if selectedKey != "" && selectedKey != key {
+			return false
+		}
+		selectedKey = key
+	}
+	return selectedKey != ""
 }
 
 func preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx *preEmitCheckContext, label string) (types.Citation, bool) {

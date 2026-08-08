@@ -4344,6 +4344,67 @@ func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_BindsDuplicateLab
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmit_PreservesExactTypedRowCitationAcrossWeakerAggregateSupport(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	// The accepted aggregate was compacted to one same-name member. It is
+	// useful coverage evidence, but it is not allowed to override the exact
+	// file/line identity already selected for a different principal row.
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "compact declaration support", Value: "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Cart"}, SupportRefs: []string{"Cart @ cart/Cart.cj:14"},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	wantRowID := ""
+	rows := preEmitSourceInventoryRowsByIDFromSets(preEmitSourceInventoryTypedPrincipalSets(ctx))
+	preferred := preEmitSourceInventoryPreferredRowIDsByIdentity(preEmitSourceInventoryTypedPrincipalSets(ctx))
+	for id, row := range rows {
+		if row.LineStart != 30 {
+			continue
+		}
+		if preferredID := preferred[preEmitSourceInventoryRowAliasIdentityKey(row)]; preferredID != "" {
+			wantRowID = preferredID
+		} else {
+			wantRowID = id
+		}
+		break
+	}
+	if wantRowID == "" {
+		t.Fatalf("missing exact second-location typed row: %+v", rows)
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "cart/Cart.cj", Line: 14},
+			{File: "cart/Cart.cj", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "cart-at-second-location", Label: "Cart", CitationRef: 1,
+			}},
+		}},
+	}
+
+	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("weaker aggregate support rewrote exact typed-row citation: fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want original exact row citation 1", got)
+	}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	item := doc.Blocks[0].Items[0]
+	if item.SourceInventoryRowID != wantRowID {
+		t.Fatalf("source_inventory_row_id=%q, want exact second-location row %q; sets=%+v", item.SourceInventoryRowID, wantRowID, preEmitSourceInventoryTypedPrincipalSets(ctx))
+	}
+	if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) ||
+		doc.Citations[item.CitationRef].File != "cart/Cart.cj" || doc.Citations[item.CitationRef].Line != 30 {
+		t.Fatalf("full normalization lost exact second-location citation: item=%+v citations=%+v", item, doc.Citations)
+	}
+}
+
 func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_FailsClosed(t *testing.T) {
 	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{

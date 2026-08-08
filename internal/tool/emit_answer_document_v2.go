@@ -746,6 +746,14 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
+	// Capture an exact model-selected source-inventory row before any weaker
+	// candidate or aggregate citation repair can move a same-name declaration
+	// to another file/family. The row-id citation binder near the end then
+	// restores that precise identity after the generic repair lanes finish.
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
+		logging.Warning("[%s] preserved %d source_inventory_row_id value(s) from exact typed label and citation location", toolName, fixed)
+	}
 	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
