@@ -205,11 +205,12 @@ const (
 // language forms.  It proves a handoff to a receiving API, not that the
 // callback subsequently executed; direct execution remains AnchorCall.
 //
-// AnchorPrecedence covers an explicit ordered source carrier whose bounded
-// cited span places Subject before Object: ordered arrays/slices, pipeline
-// declarations, middleware lists, rule chains, and equivalent constructs in
-// every supported language. It proves only relative source order, not a call,
-// runtime execution, containment, or causality.
+// AnchorPrecedence covers an explicit ordered VALUE carrier whose bounded
+// cited span places Subject before Object: returned/bound arrays, slices,
+// tuples, middleware lists, rule chains, and equivalent constructs in every
+// supported language. A const/enum/type declaration group and arbitrary
+// sibling statement order are not value carriers. It proves only relative
+// source order, not a call, runtime execution, containment, or causality.
 type AnchorKind string
 
 const (

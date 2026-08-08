@@ -54,6 +54,80 @@ func TestPreEmitEvidenceWithGroundedDiagramPrecedenceUsesExplicitListCarrier(t *
 	}
 }
 
+func TestPreEmitEvidenceWithGroundedDiagramPrecedenceExpandsCitedDefinitionToReturnedCarrier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[StageAnalyze] --> E[StageExplore]\n  E --> X[StageExtract]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "E", ToNode: "X", RelationKind: types.DiagramRelPrecedence},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		ID: "all-main-stages", Kind: types.EvidenceDirect,
+		Subject: "AllMainStages", Source: "pipeline.go", LineStart: 10,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "AllMainStages",
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}
+	gc := &ground.Context{LineIndex: map[string]map[int]string{
+		"pipeline.go": {
+			10: "func AllMainStages() []PipelineStage {",
+			11: "    return []PipelineStage{",
+			12: "        StageAnalyze,",
+			13: "        StageExplore,",
+			14: "        StageExtract,",
+			15: "    }",
+			16: "}",
+		},
+	}}
+
+	augmented := preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, gc)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, augmented); len(got) != 0 {
+		t.Fatalf("cited definition should expose its bounded returned value carrier: %+v", got)
+	}
+	if len(augmented) != len(evidence)+2 {
+		t.Fatalf("derived evidence count=%d, want %d", len(augmented), len(evidence)+2)
+	}
+}
+
+func TestPreEmitEvidenceWithGroundedDiagramPrecedenceDoesNotExpandDeclarationGroup(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  A[StageAnalyze] --> E[StageExplore]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		ID: "stage-namespace", Kind: types.EvidenceDirect,
+		Subject: "PipelineStage", Source: "pipeline.go", LineStart: 10,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "PipelineStage",
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}
+	gc := &ground.Context{LineIndex: map[string]map[int]string{
+		"pipeline.go": {
+			10: "const (",
+			11: "    StageAnalyze PipelineStage = iota,",
+			12: "    StageExplore,",
+			13: ")",
+		},
+	}}
+
+	augmented := preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, gc)
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, augmented)
+	if len(augmented) != len(evidence) || len(got) != 1 || got[0].Relation != types.DiagramRelPrecedence {
+		t.Fatalf("declaration group must not become flow authority: evidence=%+v mismatches=%+v", augmented, got)
+	}
+}
+
 func TestPreEmitEvidenceWithGroundedDiagramPrecedenceDoesNotUseStatementOrder(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

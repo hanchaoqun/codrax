@@ -2000,7 +2000,8 @@ func precedenceDelimitedCarrierContains(text, source string, subjectStart, subje
 	best := precedenceDelimiterPair{open: -1, close: len(text) + 1}
 	for _, pair := range pairs {
 		if pair.open < subjectStart && subjectEnd <= objectStart && objectEnd <= pair.close &&
-			pair.close-pair.open < best.close-best.open {
+			pair.close-pair.open < best.close-best.open &&
+			precedenceCarrierHasOrderedValueShape(text, pair) {
 			best = pair
 		}
 	}
@@ -2009,6 +2010,89 @@ func precedenceDelimitedCarrierContains(text, source string, subjectStart, subje
 	}
 	return precedenceCarrierHasTopLevelComma(text[best.open+1:best.close], source,
 		subjectEnd-best.open-1, objectStart-best.open-1)
+}
+
+// precedenceCarrierHasOrderedValueShape separates an ordered value carrier
+// from a declaration namespace that merely happens to use delimiters and
+// commas. In particular, Go const/type groups and parameter declarations do
+// not make adjacent declarations a pipeline. Square brackets are themselves
+// an ordered collection literal surface. Brace/paren carriers need a nearby
+// value-position witness: return, assignment, a typed array/list literal, or
+// a macro collection constructor. This is source syntax only; request text,
+// comments, summaries, and answer labels never participate.
+func precedenceCarrierHasOrderedValueShape(text string, pair precedenceDelimiterPair) bool {
+	if pair.open < 0 || pair.open >= len(text) {
+		return false
+	}
+	switch text[pair.open] {
+	case '[':
+		return true
+	case '{', '(':
+	default:
+		return false
+	}
+
+	start := pair.open - 192
+	if start < 0 {
+		start = 0
+	}
+	prefix := strings.TrimSpace(text[start:pair.open])
+	if prefix == "" {
+		return false
+	}
+	// Only the current statement/expression prefix owns the carrier. A
+	// return/assignment in an earlier sibling statement must not authorize it.
+	if cut := strings.LastIndexAny(prefix, ";\n"); cut >= 0 {
+		prefix = strings.TrimSpace(prefix[cut+1:])
+	}
+	if prefix == "" {
+		return false
+	}
+	if text[pair.open] == '(' {
+		// Direct tuple values only. A call/parameter list after another token
+		// (for example `handler = func(A, B)` or `return build(A, B)`) is not
+		// itself a precedence carrier.
+		return precedencePrefixEndsWithToken(prefix, "return") || precedencePrefixEndsWithAssignment(prefix)
+	}
+	if text[pair.open] == '{' {
+		last := prefix[len(prefix)-1]
+		// []T{...}, [N]T{...}, new T[]{...}, C `= {...}`, and vec!{...}
+		// are explicit collection value constructors. A bare declaration group
+		// or a function body reaches none of these arms.
+		return last == ']' || last == '!' || precedencePrefixEndsWithAssignment(prefix) || precedencePrefixHasArrayTypeSuffix(prefix)
+	}
+	return false
+}
+
+func precedencePrefixEndsWithToken(prefix, token string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if !strings.HasSuffix(prefix, token) {
+		return false
+	}
+	start := len(prefix) - len(token)
+	return stringLiteralFragmentBoundaryOK(prefix, start, len(prefix), token)
+}
+
+func precedencePrefixEndsWithAssignment(prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix[len(prefix)-1] != '=' {
+		return false
+	}
+	if len(prefix) == 1 {
+		return true
+	}
+	before := prefix[len(prefix)-2]
+	return before != '=' && before != '!' && before != '<' && before != '>'
+}
+
+func precedencePrefixHasArrayTypeSuffix(prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if cut := strings.LastIndexAny(prefix, " \t"); cut >= 0 {
+		prefix = prefix[cut+1:]
+	}
+	open := strings.LastIndex(prefix, "[")
+	close := strings.LastIndex(prefix, "]")
+	return open >= 0 && close > open
 }
 
 func precedenceDelimiterPairs(text, source string) []precedenceDelimiterPair {

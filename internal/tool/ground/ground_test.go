@@ -319,6 +319,63 @@ func TestGroundItem_Tier1PrecedenceRejectsArbitraryStatementOrder(t *testing.T) 
 	}
 }
 
+func TestGroundItem_Tier1PrecedenceRejectsDeclarationGroupOrder(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("pipeline.go", 30, []string{
+			"const (",
+			"    StageAnalyze Stage = iota,",
+			"    StageExplore,",
+			"    StageFinalize,",
+			")",
+		}, 100),
+	}
+	item := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 30, LineEnd: 34,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	GroundItem(item, &Context{LineIndex: buildLineIndex(history, "")})
+	if item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered {
+		t.Fatalf("declaration namespace order must not mint flow precedence: %+v", item)
+	}
+}
+
+func TestGroundItem_Tier1PrecedenceAcceptsReturnedTupleCarrier(t *testing.T) {
+	history := []types.ToolResult{buildGutterReadResult("pipeline.py", 40, []string{
+		"def stages():",
+		"    return (",
+		"        StageAnalyze,",
+		"        StageExplore,",
+		"    )",
+	}, 100)}
+	item := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.py", LineStart: 40, LineEnd: 44,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	GroundItem(item, &Context{LineIndex: buildLineIndex(history, "")})
+	if item.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("returned tuple is an explicit ordered value carrier: %+v", item)
+	}
+}
+
+func TestGroundItem_Tier1PrecedenceRejectsAssignedFunctionParameterOrder(t *testing.T) {
+	history := []types.ToolResult{buildGutterReadResult("pipeline.go", 50, []string{
+		"handler = func(StageAnalyze, StageExplore) {",
+		"    run()",
+		"}",
+	}, 100)}
+	item := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "pipeline.go", LineStart: 50, LineEnd: 52,
+		AnchorKind: types.AnchorPrecedence, AnchorSymbol: "StageAnalyze",
+		Subject: "StageAnalyze", Object: "StageExplore",
+	}
+	GroundItem(item, &Context{LineIndex: buildLineIndex(history, "")})
+	if item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered {
+		t.Fatalf("function parameter order must not mint flow precedence: %+v", item)
+	}
+}
+
 func TestGroundItem_Tier1PrecedenceIgnoresCommentedListAndAcceptsRustLifetime(t *testing.T) {
 	t.Run("commented list", func(t *testing.T) {
 		history := []types.ToolResult{buildGutterReadResult("pipeline.go", 30, []string{

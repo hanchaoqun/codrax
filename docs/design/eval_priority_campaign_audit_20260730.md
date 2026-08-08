@@ -27053,3 +27053,39 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `degraded-structured-draft=preserved`；`failed-repair-content=not-a-carrier`；
 `malformed-json-visible-string-salvage=preserved`；`model-failure-disclosed=yes`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.369 r216：降级隐私闭环；precedence 生产接线仍断且声明组被误确权
+
+在 `main@9b8524c19` 上再次严格并发恰好两个 flow/read 用例。runner 为 1 PASS / 1 FAIL，人工 0/2：
+
+1. `qf_diagram_pipeline` 发生 20 次成文拒绝、耗时 829 秒，最终降级。模型在 missing owner、precedence、call、assignment 间来回修改同一三条边；每一形都被下一合同拒绝，属于系统 typed fact 生产/消费断链，不是 malformed JSON、Mermaid 语法或模型随机波动；
+2. S37cg 获得生产闭环：降级答案保留上一版结构化四阶段草稿并明确披露失败，但不再包含最后 repair 回合的 `<think>`、schema 猜测或“模型最后一轮原文”。`EVAL-B362` 关闭；
+3. S37cf 的 pre-emit 复核只枚举 `LineEnd > LineStart` 的 evidence range。生产里的 `AllMainStages` citable row 只锚定函数签名一行，returned slice 位于后续 7 行；源码已经读取、模型已经声明 precedence，但候选 carrier 不可达。立 `EVAL-B363-PRECEDENCERANGEHANDOFF1=P0/REDLINE`；
+4. Explorer 发出的 source precedence 同时揭示权限过宽：`const (...)` 中四个 stage 的声明书写顺序被当作 pipeline DAG 顺序，首项甚至写成 `StageAnalyze -> StageFinalize`。同 delimiter + top-level comma 不能区分 ordered value 与 const/enum/type namespace。立 `EVAL-B364-PRECEDENCEDECLARATIONAUTH1=P0/HIGH`；
+5. `qf_logic_view_read_pipeline` runner PASS、零成文拒绝，但人工失败。请求明确要求组件间“数据流”，analyzer 却漏发 `predicate_axis=flow`，同一事实图绕开 strict owner lane；答案再把 orchestrator 的 `applyStageOutput` 归给 Finalizer，并断言 Explorer 是唯一 Mutable 写者。分别立 `EVAL-B365-EXPLICITFLOWAXISOMISSION1=P1/HIGH` 与 `EVAL-B366-MECHANISMOWNERCONTEXT1=P1/HIGH`；
+6. logic 案证明“零拒绝”不能替代人工正确性：现有 oracle 只看组件词与 Mermaid fence，未覆盖关系 owner、调用方和可写状态边界；后续不得通过添加答案关键词 pin 来拟合，应修 typed analysis/context；
+7. 两案均无 Trace 查询。source-flow authority 继续显式排除 `QFRootCauseTrace`。Trace 显式窗、系统补采、因果投影、唤醒链、根因排序、真实占时/规则可消双轴不变；链外邻近/背景只能作为额外排查方向，不能进入主因席。
+
+状态：runner=`1/2 PASS`；human=`0/2`；
+`EVAL-B362=production-closed`；`EVAL-B363=P0-confirmed`；
+`EVAL-B364=P0-confirmed`；`EVAL-B365=P1-confirmed`；`EVAL-B366=P1-confirmed`；
+`finalizer-reject=0+20`；`malformed-json=none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
+
+### 123.370 S37ch：precedence 只认有序值；单行定义可达已读返回载体
+
+先关闭 B363/B364，不修改 analyzer 或模型结论：
+
+1. grounder 将 precedence 权威从“任意 delimiter+comma”收窄为明确 ordered VALUE carrier。`[]` collection、returned/bound tuple/list、`[]T{}`/`new T[]{}` 与 macro collection 可承载相对 source order；`const/enum/type` 声明组、参数/namespace 分组、任意 sibling statements、comments 均 fail-closed；
+2. 这只证明同一值载体内 Subject 在 Object 之前，仍不证明 invocation、runtime execution、containment 或 causality。Explorer 教学同步使用该单一合同，不再写“pipeline declarations”这类会诱导声明组误发的宽词；
+3. 当最终草稿已经显式声明 `relation_kind=precedence`、semantic view 是 typed `AxisFlow`、且现有 citable evidence 是 definition/initializer/precedence 单行锚时，pre-emit 只从该 exact line 向后枚举同一已读 source 的候选，最多 64 行；每个候选仍由同一 grounder 验证 exact endpoints、顺序、value carrier 与 comma；
+4. 临时 row 继续不写 MutableState、不进 evidence ledger、不改 answer document、不替模型画边。没有 citable anchor、向后区间缺读、声明组或错误端点均不能得到 authority；
+5. 回归新增 Go returned slice 的单行 definition 扩展正臂、Go const group 双层负臂、Python returned tuple 正臂，并保留 Rust lifetime、comment、arbitrary statements、反序与 Trace family 排除；
+6. `go test ./... -count=1` 全绿，含 data/write/hitraceconv/tracequery/tracediag/repomap 全语言面。代码没有请求/模型/答案 prose 扫描，没有系统答案重写；
+7. B365/B366 保留为下一独立批，避免把 typed source fact 接线与 analyzer/context 精度混在一个不可审计提交中。
+
+状态：`EVAL-B363=S37ch-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B364=S37ch-implemented/full-suite-pass/pending-production-replay`；
+`precedence-authority=ordered-value-only`；`single-line-definition=bounded-forward-read-only`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；
+Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。

@@ -12612,7 +12612,8 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 	for _, want := range []string{
 		"Ordered-flow Evidence Handoff",
 		"`anchor_kind=precedence`",
-		"smallest already-read `line_start..line_end` range containing both endpoints",
+		"smallest already-read `line_start..line_end` range containing the carrier and both endpoints",
+		"Const/enum/type declaration groups, arbitrary sibling statements",
 		"proves source order only, not invocation, runtime execution, containment, or causality",
 	} {
 		if !strings.Contains(got, want) {

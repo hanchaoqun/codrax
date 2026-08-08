@@ -3956,23 +3956,48 @@ func preEmitEvidenceWithGroundedDiagramPrecedence(doc *types.AnswerDocumentV2, v
 	}
 	ranges := make([]sourceRange, 0, len(evidence))
 	seenRanges := make(map[string]bool)
+	addRange := func(candidate sourceRange) {
+		if candidate.source == "" || candidate.start <= 0 || candidate.end <= candidate.start ||
+			candidate.end-candidate.start > 64 {
+			return
+		}
+		key := fmt.Sprintf("%s\x00%d\x00%d", candidate.source, candidate.start, candidate.end)
+		if seenRanges[key] {
+			return
+		}
+		seenRanges[key] = true
+		ranges = append(ranges, candidate)
+	}
 	for _, item := range evidence {
-		if !item.IsCitable() || strings.TrimSpace(item.Source) == "" ||
-			item.LineStart <= 0 || item.LineEnd <= item.LineStart ||
-			item.LineEnd-item.LineStart > 64 {
+		if !item.IsCitable() || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
 			continue
 		}
-		candidate := sourceRange{
+		base := sourceRange{
 			source: strings.TrimSpace(item.Source),
 			start:  item.LineStart,
 			end:    item.LineEnd,
 		}
-		key := fmt.Sprintf("%s\x00%d\x00%d", candidate.source, candidate.start, candidate.end)
-		if seenRanges[key] {
+		if item.LineEnd > item.LineStart {
+			addRange(base)
 			continue
 		}
-		seenRanges[key] = true
-		ranges = append(ranges, candidate)
+		// A definition/initializer evidence row commonly cites only its
+		// signature or binding line while the ordered returned/bound value
+		// starts on the following line. Expand forward only within the already
+		// read source map and the same 64-line grounding bound. The grounder
+		// still requires both exact endpoints inside one ordered VALUE carrier;
+		// const/enum groups and sibling statement order cannot pass.
+		if item.AnchorKind != types.AnchorDefinition && item.AnchorKind != types.AnchorInitializer &&
+			item.AnchorKind != types.AnchorPrecedence {
+			continue
+		}
+		fileLines := gc.LineIndex[base.source]
+		for end := base.start + 1; end <= base.start+64; end++ {
+			if _, ok := fileLines[end]; !ok {
+				break
+			}
+			addRange(sourceRange{source: base.source, start: base.start, end: end})
+		}
 	}
 	sort.SliceStable(ranges, func(i, j int) bool {
 		leftWidth := ranges[i].end - ranges[i].start
