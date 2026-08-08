@@ -27623,3 +27623,33 @@ B377 carrier 审计与第一安全层落地：
 `multi-surface-label=typed-evidence-unique`；`multiple-distinct-match=fail-closed`；
 `all-main-stages=adjacent-precedence-recoverable`；`json-schema=unchanged`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.393 r225：endpoint 身份闭环，但“任意一条真边”掩盖主关系视图空缺
+
+在 `main@55480ac6f` 上严格并发恰好两个同案回放。runner 2/2 PASS，人工 0/2：
+
+1. B379 在生产中生效。Finalizer 的错误和修复始终以 `StageAnalyze`、`StageExplore` 等 canonical endpoint 为准，不再把多段标签第一段
+   `analyze` / `explore` 当 typed identity；本批未出现 display-label endpoint 污染；
+2. `qf_diagram_pipeline` 正文宣称四个主 stage 构成 Analyze→Explore→Extract→Finalize 的单向顺序 DAG，最终 Mermaid 却只剩
+   `runAnalyzePhase -> dispatchStage`、`runReadSchedulerLoop -> dispatchExploreWindow` 和 `runReadSchedulerLoop -> StageExtract` 三个局部事实，
+   没有画出用户所求四阶段主链；
+3. `qf_logic_view_read_pipeline` 的 analyzer 准确提取 analyzer、explorer、extractor、finalizer、Mutable、BusContext 六个参与者，B377 soft checklist
+   也准确指出无 incident typed relation。模型仍把局部定义/assignment 扩写成完整 pipeline 结论，最终图只剩 `explorerEvaluator -> MutableState`
+   一条 assignment；
+4. 两案分别经历 6 次和 8 次成文拒绝。大部分尝试是模型画出无证 Start/End、dispatch→stage、容器桥或无 owner 的顺序边，随后逐步删到仅剩一条/三条真边。
+   关系证据门没有放行伪边，但当前合同没有给模型一个精确的“哪些参与者必须接入、哪些可独立披露”结构载体；
+5. runner 2/2 是确定性假阳性：现有 `mermaid_edge_count>=1` 只证明图非空，不证明 case 所求主关系已表达。人工答案均失败；不能据此宣称 flow 能力通过；
+6. 新确认 `EVAL-B377-FLOWPARTICIPANTROLE1=P1/HIGH`。最优方向不是把 PrimaryEntities 硬化：它是 analyzer 的嘈声检索 shortlist，混有概念、文件、值和邻近实体。
+   需要在既有 diagram contract 中增加 analyzer-authored、schema-valid 的参与者角色载体，至少区分 `incident_required`、`independent/context/container` 与可显式
+   `unproven` 的边界；后续 hard backtrack 只能读取这个精确载体和 parsed/typed relation coverage；
+7. 该载体必须是可选、语言中立、单源教学，并由 analyzer 当前请求结构化产生；不得扫描用户请求、thinking、summary、final prose、图标签词、case 名、语言、实体相似度或边数；
+   不得自动补边、删边、改写 AnswerDocument 或替模型下结论；
+8. eval oracle 需另行增强为 case-declared typed participant-incidence 期望，仍只用于 eval，不进入 production。B369 本轮最终附件未见重复首稿，保持 partial/open，不能用正文相似度去重；
+9. 本批无 malformed JSON、无系统答案替写、无 Trace 查询。B377 后续实现必须显式排除 `QFRootCauseTrace` 和 runtime causal authority：Trace 显式时间窗、自动补采、
+   因果投影、唤醒链、根因排序、窗内可消除量、真实占时/规则可消双维保持不变；主因只允许 typed on-chain 席，链外邻近/背景只作额外排查方向。
+
+状态：runner=`2/2 PASS(false-positive)`；human=`0/2`；
+`EVAL-B379=production-closed`；`EVAL-B377=P1-confirmed/typed-carrier-next`；
+`eval-mermaid-one-edge-oracle=insufficient`；`finalizer-reject=6+8`；
+`malformed-json=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
