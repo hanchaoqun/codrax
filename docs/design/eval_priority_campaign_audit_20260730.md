@@ -26320,3 +26320,25 @@ JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 `trace-root-eligibility=typed-on-chain-only/stable`；`off-chain=background-only/stable`；
 `state-interval+value-caliber=production-positive`；`finalizer-reject=0`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；模型答案所有权=`preserved`。
+
+### 123.339 r202：data 材料角色与 Python write 计划均零修复；宽泛前置 intent 仅保留观察
+
+在 `main@3904eef85` 上严格并发 2 跑 `data_text_filter_count` 与 `patch_python_typo`，runner 与人工均 2/2 PASS：
+
+1. data 用例 36s、单轮完成。Planner 对 `instructions.md` 逐材料选择 `planner_distilled`，携带“统计 notes.txt 中含 alpha 的行”和
+   “只输出纯数字”两条具体规则；对 `notes.txt` 选择 `script_consumed`，唯一 executable action 真实调用 `read_text('notes.txt')`；
+2. 材料完整度、最终投影和 strict `plain_single_line/explanation_allowed=false` 合同全部满足，`repair_rounds=0`、warnings=0，用户可见答案精确为
+   单字节数字 `2`。JSON/tool payload 没有畸形、相邻 metadata fragment 或恢复动作；系统没有为模型生成业务计算结论；
+3. Python write-plan 用例 59s。write analyzer 先读取并确认 `main.py:20`，controller 在 projected mode 中只选择合法 `plan_batch`；最终
+   ChangePlan 只有一个 `kind=patch` replace，把 `retrun` 改为 `return`，没有其他源码改动；
+4. write 全程无 `workflow_action_not_in_mode`、unavailable tool、plan repair、validator reject 或“成文校验未通过”；计划保留 import/greet 行为验收和
+   有界 Python probe，plan-only 没有修改 fixture 源文件；
+5. 前置 read classifier 仍把明确 write 请求发为宽泛 `intent=explain/question_kind=mechanism/predicate_axis=define`，但本轮 scenario 为 generic，且没有
+   source-inventory、field-value、change-impact、diagram、runtime 或 completeness 等 read-only profile；后续 write analysis/plan 不消费这些宽泛标签，交付未受影响；
+6. 该残余继续归 `EVAL-B337-WRITEROUTEINTENTTAXONOMY1=P2-observe`：它目前是非权威分类标签漂移，没有形成拒绝、错误范围或答案污染。不得为了 enum
+   外观由系统改写模型字段，也不扫描 typo、文件名、语言或请求/思考/答案词面；若后续异构 write 证明它驱动错误合同，再按实际消费点根修；
+7. 本批没有进入或修改 Trace 路径；显式时间窗、因果投影、自动补齐、链上根因资格、唤醒链、窗内可消除量及两维根因保持隔离。
+
+状态：runner=`2/2 PASS`；human=`2/2 PASS`；data=`one-round/zero-repair/strict-output`；
+write=`single-line-patch/zero-contract-conflict`；`EVAL-B337=P2-observe/no-impact-witness`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`codepath-unchanged`。
