@@ -136,6 +136,19 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 	if len(sk.Prohibitions) == 0 {
 		t.Error("skill Prohibitions must not be empty")
 	}
+	if count := strings.Count(sk.OutputFormat, skill.AnalysisDiagramParticipantPlanningContract); count != 1 {
+		t.Fatalf("analysis skill must carry the diagram participant SSOT exactly once, got %d", count)
+	}
+	for _, want := range []string{
+		"explicitly names participant identities",
+		"omit participants",
+		"never invent placeholders",
+		"never edge evidence",
+	} {
+		if !strings.Contains(skill.AnalysisDiagramParticipantPlanningContract, want) {
+			t.Fatalf("diagram participant SSOT missing %q", want)
+		}
+	}
 
 	// Every classification field must have its enum table rendered
 	// into OutputFormat via renderEnumTable. The header format is

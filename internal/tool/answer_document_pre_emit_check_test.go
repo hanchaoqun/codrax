@@ -8952,3 +8952,31 @@ func TestPreEmitSystemEnumerationRowSupplementBlock_UsesTypedSystemMarkerNotTitl
 		})
 	}
 }
+
+func TestDiagramRelationFailurePairFingerprintIgnoresRelationRelabel(t *testing.T) {
+	call := DiagramCallEdgeEvidenceMismatch{
+		BlockID: "flow", FromSymbol: "Pipeline::Start", ToSymbol: "Pipeline::Finish",
+		Issue: diagramCallEdgeIssueNoEvidence, Relation: types.DiagramRelCall,
+	}
+	precedence := call
+	precedence.Issue = diagramSemanticRelationIssueNoEvidence
+	precedence.Relation = types.DiagramRelPrecedence
+
+	callKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{call})
+	precedenceKeys := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{precedence})
+	if len(callKeys) != 1 || !reflect.DeepEqual(callKeys, precedenceKeys) {
+		t.Fatalf("relation relabel must preserve endpoint-pair identity: call=%v precedence=%v", callKeys, precedenceKeys)
+	}
+	combined := diagramRelationFailurePairFingerprints([]DiagramCallEdgeEvidenceMismatch{call, precedence})
+	if len(combined) != 1 || combined[0] != callKeys[0] {
+		t.Fatalf("same pair under two relation kinds must dedupe: %v", combined)
+	}
+
+	repair := emitFixHintsRepair([]emitFixHint{{
+		Kind:                        types.ViolDiagramCallEdgeUnproven,
+		DiagramRelationFailurePairs: combined,
+	}})
+	if repair == nil || repair.Metadata[types.ToolRepairMetaDiagramRelationFailurePairs] != callKeys[0] {
+		t.Fatalf("typed pair fingerprint missing from repair metadata: %+v", repair)
+	}
+}

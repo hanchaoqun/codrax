@@ -379,6 +379,11 @@ type emitFixHint struct {
 	// must be built ONLY from model-controlled deficit state — never from
 	// counters or text the reject handler itself mutates per round.
 	SameCauseFingerprint string
+	// DiagramRelationFailurePairs identifies parsed canonical endpoint pairs
+	// that failed source-relation authority. Each value is a stable hash that
+	// intentionally ignores relation kind, allowing the finalizer to recognise
+	// call -> precedence -> assignment relabel churn without reading prose.
+	DiagramRelationFailurePairs []string
 }
 
 type preEmitBlockCardinalityRelation string
@@ -3840,6 +3845,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if len(mismatches) == 0 {
 		return nil
 	}
+	failurePairs := diagramRelationFailurePairFingerprints(mismatches)
 	if mismatches[0].Issue == diagramCallEdgeIssueDuplicateParticipant {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {
@@ -3854,7 +3860,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
 			ExpectedShape: "declare each exact typed call endpoint under one Mermaid alias; reuse that one alias on every body edge, and set edge_anchors[].from_node/to_node to the verbatim alias IDs used by the body. Remove the duplicate participant declaration rather than renaming the typed endpoint: " +
 				strings.Join(parts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason: "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
+			Reason:                      "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
+			DiagramRelationFailurePairs: failurePairs,
 		}}
 	}
 	typeRelationParts := make([]string, 0, len(mismatches))
@@ -3890,20 +3897,22 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	hints := make([]emitFixHint, 0, 4)
 	if len(typeRelationParts) > 0 {
 		hints = append(hints, emitFixHint{
-			Field:               "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
-			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, typeRelationMismatches),
-			ExpectedShape:       "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:              "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
+			Field:                       "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
+			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, typeRelationMismatches),
+			ExpectedShape:               "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                      "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
+			DiagramRelationFailurePairs: failurePairs,
 		})
 	}
 	if len(valueFlowParts) > 0 {
 		hints = append(hints, emitFixHint{
-			Field:               "blocks[].edge_anchors[relation_kind=assignment|return] AND blocks[kind=diagram].diagram.body",
-			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, valueFlowMismatches),
-			ExpectedShape:       "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:              "assignment, initialization, and factory return are value-flow relations rather than source invocations. Their typed relation kinds preserve runtime-target selection without inventing a call edge; labels and prose never create this authority.",
+			Field:                       "blocks[].edge_anchors[relation_kind=assignment|return] AND blocks[kind=diagram].diagram.body",
+			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, valueFlowMismatches),
+			ExpectedShape:               "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                      "assignment, initialization, and factory return are value-flow relations rather than source invocations. Their typed relation kinds preserve runtime-target selection without inventing a call edge; labels and prose never create this authority.",
+			DiagramRelationFailurePairs: failurePairs,
 		})
 	}
 	if len(logicalRelationParts) > 0 {
@@ -3913,7 +3922,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, logicalRelationMismatches),
 			ExpectedShape: types.GroundedSourceDiagramRelationEvidenceContract + " Do not relabel an unproved call, dispatch, binding, or value-flow edge as a logical relation: " +
 				strings.Join(logicalRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason: "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
+			Reason:                      "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
+			DiagramRelationFailurePairs: failurePairs,
 		})
 	}
 	if len(otherParts) > 0 {
@@ -3923,10 +3933,29 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, otherMismatches),
 			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge; restore the matching evidence-backed arrow or remove stale metadata instead of emitting a hidden metadata-only graph. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with a forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses a declared type relation, observation, containment, or ordering rather than a direct invocation, use the matching non-call typed relation instead of inventing call authority; add missing anchors, restore matching evidence-backed body edges, or remove/correct unsupported visible edges/stale anchors: " +
 				strings.Join(otherParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason: "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
+			Reason:                      "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
+			DiagramRelationFailurePairs: failurePairs,
 		})
 	}
 	return hints
+}
+
+func diagramRelationFailurePairFingerprints(mismatches []DiagramCallEdgeEvidenceMismatch) []string {
+	seen := make(map[string]struct{}, len(mismatches))
+	keys := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		key := strings.TrimSpace(mismatch.BlockID) + "\x00" +
+			strings.TrimSpace(mismatch.FromSymbol) + "\x00" +
+			strings.TrimSpace(mismatch.ToSymbol)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		sum := sha256.Sum256([]byte(key))
+		keys = append(keys, hex.EncodeToString(sum[:8]))
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // preEmitEvidenceWithGroundedDiagramPrecedence closes the evidence-authoring
@@ -13071,6 +13100,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	seenBlockKinds := map[string]struct{}{}
 	seenOffendingBlockKinds := map[string]struct{}{}
 	cardinalityRelations := map[preEmitBlockCardinalityRelation]struct{}{}
+	diagramRelationFailurePairs := map[string]struct{}{}
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -13113,6 +13143,11 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		if h.BlockCardinalityRelation != "" {
 			cardinalityRelations[h.BlockCardinalityRelation] = struct{}{}
 		}
+		for _, pair := range h.DiagramRelationFailurePairs {
+			if pair = strings.TrimSpace(pair); pair != "" {
+				diagramRelationFailurePairs[pair] = struct{}{}
+			}
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
@@ -13142,6 +13177,14 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		for relation := range cardinalityRelations {
 			meta[types.ToolRepairMetaBlockCardinalityRelation] = string(relation)
 		}
+	}
+	if len(diagramRelationFailurePairs) > 0 {
+		pairs := make([]string, 0, len(diagramRelationFailurePairs))
+		for pair := range diagramRelationFailurePairs {
+			pairs = append(pairs, pair)
+		}
+		sort.Strings(pairs)
+		meta[types.ToolRepairMetaDiagramRelationFailurePairs] = strings.Join(pairs, ",")
 	}
 	return &types.ToolRepair{
 		Code:     "answer_doc_pre_emit_contract",

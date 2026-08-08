@@ -27448,6 +27448,36 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `malformed-json=none`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
 
+### 123.396 S37cx：participant JSON 单源教学与 typed endpoint-pair 重试收敛
+
+针对 r226 的 B380/B381 同批落地，但两项权限保持分离：
+
+1. 新增 `AnalysisDiagramParticipantPlanningContract` 作为 Analyzer prompt 与 `emit_analysis` schema 的唯一 participant 教学源；没有新增 JSON 根，仍复用可选
+   `diagram_hint.participants[]`；
+2. 单源规则只允许逐字复制当前关系/数据/控制流图请求明确点名的 participant identity。请求只给数量或泛称而没有 identity 时必须省略；明确禁止
+   `Stage 1`、`Actor A`、`Component N` 等占位身份；`incident_required` 与 `context_only` 仍只提供规划/覆盖指导，绝不成为 edge evidence；
+3. prompt pin 要求该单源只出现一次并同时包含 named-only、omit、no-placeholder、never-edge-evidence 四个边界；schema pin 要求 object 与 participant field
+   两处描述都引用同一常量，防止以后新增字段再次只改 schema、不改用户可见教学；
+4. B381 不再按 violation 文案或 relation_kind 计重试。typed relation producer 从 parsed block id 与 canonical from/to endpoint 生成 pair hash，relation kind
+   故意不进入指纹；因此同一 pair 从 call 改叫 precedence/assignment/return 仍被识别为零证据进展；
+5. pair hash 只进入内部 `ToolRepair.Metadata`，Finalizer 在本次成文过程内累计。第一次保持原 surgical repair；第二次起追加高显著性指导：改 relation_kind 或只改 anchor
+   形状不能创造证据，只能使用当前已接受 typed evidence、删除该 pair 与 anchor，或保留断开 participant 并披露 unproven boundary；所有无关 grounded edge 必须保留；
+6. 该机制不自动删除/添加/重标图边，不接受失败答案，不增加 retry budget，不扫描用户请求、thinking、summary、final prose、Mermaid message/label、case、语言、
+   实体相似度或 edge count。模型继续拥有图结构、未证披露和最终结论；
+7. 语言无关性来自 canonical typed endpoint，而不是 Java/C++/ArkTS/Cangjie/Rust/Python 特判；现有跨语言 parser/relation 权限不变；
+8. runtime/root-cause Trace 仍在 source relation validator 入口排除，B380 的 participant carrier 也维持三重 Trace 排除。显式窗、自动补采、因果投影、唤醒链、
+   根因排序、窗内可消除量及真实占时/规则可消双维不变；主因只来自 typed on-chain，邻近/背景只作额外排查方向；
+9. 全仓首轮验证唯一失败是 glossary tripwire 拦截新增用户提示里的内部词 `finalizer`；没有放宽词表，已改成 `answer-writing pass`。针对性 glossary、B380、B381
+   回归已绿；随后 `go test ./... -count=1` 全绿，覆盖 read/write/data、全语言 repomap、render/mermaid、hitraceconv、tracequery/tracediag。
+
+状态：`EVAL-B380=S37cx-implemented/pending-production-replay`；
+`EVAL-B381=S37cx-implemented/pending-production-replay`；
+`participant-teaching=prompt+schema-SSOT`；
+`relation-retry-key=typed-block+canonical-endpoint-pair/relation-kind-excluded`；
+`full-suite=pass`；`production-hard-gate=unchanged`；`retry-budget=unchanged`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace=`explicitly-excluded/unchanged/on-chain-only`。
+
 ### 123.386 S37cr：pre-emit 与 post-contract 复用同一份严格读集关系权威
 
 关闭 B376，不把系统派生关系持久化成模型证据：

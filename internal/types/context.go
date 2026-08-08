@@ -6562,6 +6562,12 @@ const (
 	// compact merge/remove repair on "over_max" without parsing ExpectedShape
 	// prose; absence means no cardinality-specific routing authority.
 	ToolRepairMetaBlockCardinalityRelation = "block_cardinality_relation"
+	// ToolRepairMetaDiagramRelationFailurePairs carries stable hashes of the
+	// parsed block + canonical endpoint pairs rejected by the typed source
+	// relation gate. Relation kind is deliberately excluded so a model cannot
+	// hide zero progress by relabelling the same unsupported pair. This is an
+	// internal retry-guidance signal, never edge evidence or answer content.
+	ToolRepairMetaDiagramRelationFailurePairs = "diagram_relation_failure_pairs"
 
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"

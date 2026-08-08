@@ -125,6 +125,13 @@ type answerDocumentEvaluator struct {
 	// successful emit clears the map.
 	memberSetRejectFingerprintStrikes map[string]int
 
+	// diagramRelationFailurePairStrikes recognises relation-kind relabel churn
+	// for the same parsed canonical endpoint pair within this finalizer
+	// dispatch. The producer hashes only typed block/endpoint identity; the
+	// evaluator never scans request, model prose, Mermaid labels, or answers.
+	diagramRelationFailurePairStrikes map[string]int
+	diagramRelationFailureRepeated    bool
+
 	// emitPatchNudgeFired latches once the LLM is observed calling
 	// emit_answer_document_patch (success or failure) — i.e. the LLM
 	// has SEEN and acted on the switch-to-patch nudge. Until that
@@ -11348,6 +11355,7 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
+		e.observeDiagramRelationFailure(obs.LastToolResult)
 		if sig := e.unexpectedFinalizerToolSignal(obs); sig.HintRequested {
 			return sig
 		}
@@ -12712,11 +12720,13 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// consistent — every fire stole one legacy reject-hint slot,
 	// so the budget tracks parity per-fire, not per-dispatch.
 	e.rejectHintsUsed++
+	hint := "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. " + types.AnswerDocumentPatchOperationTeaching + " The patch tool rejects empty patches, unknown ids, and conflicting operations, so focus only on the actual fix."
+	hint = e.appendDiagramRelationRepeatGuidance(hint)
 	return LoopSignal{
 		HintRequested:  true,
 		BypassThrottle: true,
 		HintKey:        "answer_doc.switch_to_patch",
-		Hint:           "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. " + types.AnswerDocumentPatchOperationTeaching + " The patch tool rejects empty patches, unknown ids, and conflicting operations, so focus only on the actual fix.",
+		Hint:           hint,
 	}
 }
 
@@ -12771,6 +12781,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		if hint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, true); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
+			hint = e.appendDiagramRelationRepeatGuidance(hint)
 			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 			return LoopSignal{
 				HintRequested:  true,
@@ -12786,6 +12797,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
 		hint := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
+		hint = e.appendDiagramRelationRepeatGuidance(hint)
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -12813,6 +12825,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	e.rejectHintsUsed++
 	e.preferPatchNext = true
 	hint := answerDocPatchRejectCorrectionHint(obs.LastToolResult)
+	hint = e.appendDiagramRelationRepeatGuidance(hint)
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,
@@ -12849,6 +12862,49 @@ func answerDocumentPatchRejectIsDiagramCallEdge(result *types.ToolResult) bool {
 	}
 	offendingKinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
+}
+
+func (e *answerDocumentEvaluator) observeDiagramRelationFailure(result *types.ToolResult) {
+	e.diagramRelationFailureRepeated = false
+	if result == nil {
+		return
+	}
+	if result.Success && (result.ToolName == "emit_answer_document" || result.ToolName == "emit_answer_document_patch") {
+		e.diagramRelationFailurePairStrikes = nil
+		return
+	}
+	if result.Repair == nil || strings.TrimSpace(result.Repair.Code) != "answer_doc_pre_emit_contract" || result.Repair.Metadata == nil {
+		return
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailurePairs])
+	if raw == "" {
+		return
+	}
+	if e.diagramRelationFailurePairStrikes == nil {
+		e.diagramRelationFailurePairStrikes = make(map[string]int)
+	}
+	seen := make(map[string]struct{})
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		if _, ok := seen[pair]; ok {
+			continue
+		}
+		seen[pair] = struct{}{}
+		e.diagramRelationFailurePairStrikes[pair]++
+		if e.diagramRelationFailurePairStrikes[pair] >= 2 {
+			e.diagramRelationFailureRepeated = true
+		}
+	}
+}
+
+func (e *answerDocumentEvaluator) appendDiagramRelationRepeatGuidance(hint string) string {
+	if e == nil || !e.diagramRelationFailureRepeated {
+		return hint
+	}
+	return hint + " The same typed diagram endpoint pair has already failed relation authority earlier in this answer-writing pass. Renaming its relation_kind or changing only its anchor shape cannot create evidence. Keep that visible pair only if the currently accepted typed evidence already supports it; otherwise remove that pair and its anchor, or leave the participant disconnected and disclose the boundary as unproven. Preserve every unrelated grounded edge."
 }
 
 // answerDocumentPatchRejectIsOptionalDiagramCallEdge narrows the shared
@@ -13263,6 +13319,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 		hint += " Do not write free-form prose outside the tool call."
 	}
+	hint = e.appendDiagramRelationRepeatGuidance(hint)
 	hint = sanitizeNoCitationSentinelForPrompt(hint)
 
 	// B2-F4 retry escalation: the dedup key already embeds the

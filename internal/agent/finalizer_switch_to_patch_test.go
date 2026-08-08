@@ -1003,3 +1003,40 @@ func TestFilterToolSchemas_T2_PatchFirstEnforcement(t *testing.T) {
 		}
 	})
 }
+
+func TestAnswerDocumentEvaluator_DiagramRelationRelabelRepeatGuidance(t *testing.T) {
+	const pair = "0123456789abcdef"
+	result := func(toolName string, success bool) *types.ToolResult {
+		return &types.ToolResult{
+			ToolName: toolName,
+			Success:  success,
+			Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					types.ToolRepairMetaDiagramRelationFailurePairs: pair,
+				},
+			},
+		}
+	}
+
+	e := &answerDocumentEvaluator{}
+	e.observeDiagramRelationFailure(result("emit_answer_document", false))
+	if e.diagramRelationFailureRepeated {
+		t.Fatal("first typed pair failure must not be called repeat")
+	}
+	e.observeDiagramRelationFailure(result("emit_answer_document_patch", false))
+	if !e.diagramRelationFailureRepeated {
+		t.Fatal("same typed pair across full/patch attempts must be recognised")
+	}
+	hint := e.appendDiagramRelationRepeatGuidance("repair")
+	for _, want := range []string{"same typed diagram endpoint pair", "cannot create evidence", "remove that pair", "Preserve every unrelated grounded edge"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("repeat guidance missing %q: %s", want, hint)
+		}
+	}
+
+	e.observeDiagramRelationFailure(result("emit_answer_document", true))
+	if e.diagramRelationFailureRepeated || len(e.diagramRelationFailurePairStrikes) != 0 {
+		t.Fatalf("successful structured emit must reset repeat state: repeated=%v strikes=%v", e.diagramRelationFailureRepeated, e.diagramRelationFailurePairStrikes)
+	}
+}

@@ -858,14 +858,14 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. `participants` is optional and only for explicitly named participants in a requested source relationship/data/control-flow visual; it is planning guidance, never edge evidence. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly.",
+				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantPlanningContract,
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request; false for an optional structural aid."},
 					"participants": map[string]any{
 						"type":        "array",
 						"maxItems":    12,
-						"description": "Optional named-participant obligations for a requested source relationship view. Include only participants explicitly named as part of that view; do not add inferred helpers, files, nearby symbols, or trace/runtime subjects. role=incident_required means the final relationship view must either touch the participant with grounded typed evidence or disclose it as unproven; role=context_only means it is a boundary/container/context node that must not be forced into a path.",
+						"description": skill.AnalysisDiagramParticipantPlanningContract,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -3052,6 +3053,16 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "diagram_hint=call_dag") {
 		t.Fatalf("summary missing diagram hint echo: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
+	raw, err := json.Marshal((&EmitAnalysis{}).Parameters())
+	if err != nil {
+		t.Fatalf("marshal Parameters: %v", err)
+	}
+	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantPlanningContract); count != 2 {
+		t.Fatalf("diagram participant SSOT must describe diagram_hint and participants exactly once each, got %d in %s", count, raw)
 	}
 }
 
