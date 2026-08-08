@@ -27568,3 +27568,33 @@ B377 carrier 审计与第一安全层落地：
 `ordinary-presentation-diagram=unchanged`；`json-schema=unchanged`；
 `retry-budget=unchanged`；`raw-prose-hard-gate=none`；
 `system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.391 r224：旧合同冲突退出；多表面 endpoint 错拒使正确首稿进入 31 次修复震荡
+
+在 `main@13b2cea39` 上严格并发恰好两个同案回放。runner 与人工均 0/2：
+
+1. B378 的单源词面已进入实际 Finalizer 错误。错误明确说明 typed source call-chain / flow-axis 的 arrow 不能通过删除 `edge_anchors` 进入 presentation-only；
+   R223 的无条件逃逸句不再出现。因此“同一系统合同同时教删 metadata、又硬门拒绝”已消除；
+2. 模型仍在第二轮主动删除 metadata，随后被 body ownership 正确拒绝。这是模型没有遵循当前精确提示，不是系统再次发出矛盾合同；不能为减少重试放松 typed relation 权限；
+3. `qf_diagram_pipeline` 首稿的四阶段文字、顺序和 3 条箭头本来正确，但 Mermaid 节点形为 `A[analyze<br/>StageAnalyze]`、
+   `B[explore<br/>StageExplore]` 等。现 validator 固定把标签第一段当 typed endpoint，得到 `analyze -> explore`，看不到同标签第二段 canonical identity；
+4. 因此新确认 `EVAL-B379-DIAGRAMMULTISURFACEIDENTITY1=P0/HIGH`。它不是本 case 专属：所有语言都可能用“展示值/角色名 + canonical code identity + source location”多段标签。
+   最优边界是从每段只解析 exact code identity，再由 citable typed EvidenceItem 唯一选择；无命中保留旧首段，多个 distinct typed 命中 fail-closed。禁止按段位、大小写、语言、
+   路径猜 owner，也禁止模糊/substring 匹配；
+5. B379 阻断了 S37cr 的严格 source carrier 恢复。Explorer 虽把 `AllMainStages` 四项 ordered value carrier 错手写为一条非相邻 `StageAnalyze -> StageExtract`，
+   但 model-visible read context 已包含完整相邻列表；pre-emit 本可确定性派生三条 exact precedence，前提是图 endpoint 能解析为 `Stage*`；
+6. diagram 案经历 20 次 reject、835 秒，最终删成零边；logic 案在无证 `call`/`return`/`precedence` 间反复改写 `Orchestrator -> runAnalyzePhase`，11 次 reject、590 秒后降级零边。
+   两案共 31 次拒绝，性能瓶颈是 relation identity 错拒与修复震荡，不是 SQL、JSON decode、Mermaid renderer 或 trace 转换；
+7. logic 正文仍把局部定义/assignment 扩写成完整 Orchestrator→agents 数据流，人工失败。B377 soft no-incident checklist 提供了准确边界，但模型未遵循；在真正 typed participant-role carrier
+   落地前仍禁止按 PrimaryEntities 做硬 completeness 门；
+8. B369 重新记 partial。两案 degraded/retry 车道都附出“第一稿答案”整页；主稿与首稿 typed bytes/alias IDs 不同，所以 exact-carrier dedup 合理未触发，
+   但用户可见内容近乎重复。后续只能做 AnswerDocument/diagram 的 typed semantic canonicalization（忽略局部 node alias 等非语义身份），不能扫描正文相似度或关键词删稿；
+9. logic 的 `blocks` JSON-string 被既有容错正确恢复，不是失败根因；无其它 malformed JSON、无 request/thinking/summary/final prose 硬门、无系统替写模型结论，也无 Trace 查询。
+   后续 B379 与 B369 继续排除 `QFRootCauseTrace`；Trace 显式窗、自动补采、因果投影、链上根因、唤醒链、根因排序、窗内可消除量及双维耗时保持不变，链外只作背景。
+
+状态：runner=`0/2`；human=`0/2`；
+`EVAL-B378=production-wording-closed/model-noncompliance-observed`；
+`EVAL-B379=P0-confirmed/next`；`EVAL-B369=partial/semantic-dedup-open`；
+`EVAL-B377=soft-boundary-correct/hard-carrier-not-authorized`；
+`finalizer-reject=20+11`；`malformed-json=root-cause-none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
