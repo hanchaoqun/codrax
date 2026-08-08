@@ -8932,6 +8932,70 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForArchitectureMemberExplanati
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForBoundedArchitectureDiagramMembers(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["pipeline","members","responsibility","diagram"],
+		"entities":["PipelineMember","MemberBinding"],
+		"question_kind":"mechanism",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.85,
+		"kind_confidence":0.9,
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":false,
+			"is_history_lookup":false,
+			"is_diagnostic_question":false,
+			"has_per_member_table":false
+		},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
+		"answer_subject":{"kind":"type_name","confidence":0.85},
+		"diagram_hint":{"kind":"flow","required":true},
+		"enumeration_boundary":{"declared_count":4,"source_quote":"4 principal members"},
+		"completeness_obligation":{"required":false,"source_quote":""},
+		"source_inventory_profile":{
+			"is_source_inventory":true,
+			"target_roles":["constant","type"],
+			"requested_fields":["name","summary"],
+			"source_quotes":["4 principal members"],
+			"confidence":0.8
+		}
+	}`
+	rawRequest := "Draw the 4 principal members as a flow diagram and explain each responsibility."
+	mu := types.NewMutableState(rawRequest)
+	res, err := (&EmitAnalysis{}).Execute(
+		&types.BusContext{Mutable: mu, RepoRoot: t.TempDir()},
+		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("bounded architecture diagram analysis should succeed after deterministic demotion: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile != nil {
+		t.Fatalf("incidental bounded-diagram source inventory survived emit path: %+v", rm)
+	}
+	if rm.EnumerationBoundary == nil || rm.EnumerationBoundary.DeclaredCount != 4 ||
+		rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		t.Fatalf("model-owned bounded diagram contract must survive source-inventory demotion: %+v", rm)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("normalized summary must not advertise a principal source inventory lane: %s", res.Summary)
+	}
+}
+
 func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {

@@ -165,11 +165,14 @@ func SourceInventoryLaneConflictsWithArchitectureNarrative(rm RequestModel) bool
 }
 
 // SourceInventoryLaneConflictsWithArchitectureMemberExplanation covers the
-// sibling typed form where the analyzer describes an architecture answer as
+// sibling typed forms where the analyzer describes an architecture answer as
 // an enumeration, but each principal conceptual member still needs a semantic
-// responsibility/behavior summary. A source declaration inventory is not the
-// answer universe in that form, even when code happens to encode members as
-// constants or enum values.
+// responsibility/behavior summary. This includes both an explicit per-member
+// table and a bounded diagram member set: models sometimes preserve the exact
+// requested member count and required diagram while forgetting to set the
+// redundant has_per_member_table flag. A source declaration inventory is not
+// the answer universe in either form, even when code happens to encode members
+// as constants or enum values.
 //
 // An explicit typed source scope, requested structural type/const facet, or
 // missing per-member summary keeps genuine declaration inventories out of this
@@ -180,11 +183,19 @@ func SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm RequestMod
 	if rm.Scenario != ScenarioArchitectureExplain || profile == nil || !profile.Active() {
 		return false
 	}
+	boundedDiagramMembers := rm.Intent == IntentExplain &&
+		rm.EnumerationBoundary != nil &&
+		rm.EnumerationBoundary.DeclaredCount > 0 &&
+		rm.DiagramHint != nil &&
+		rm.DiagramHint.Required &&
+		rm.DiagramHint.Kind != DiagramNone &&
+		!rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsCountQuestion
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup ||
 		rm.Predicates.IsHistoryLookup ||
 		rm.Predicates.IsDiagnosticQuestion ||
-		!rm.Predicates.HasPerMemberTable ||
+		(!rm.Predicates.HasPerMemberTable && !boundedDiagramMembers) ||
 		!profile.RequestsField(SourceInventoryFieldSummary) {
 		return false
 	}

@@ -2343,6 +2343,48 @@ func TestArchitectureMemberExplanation_DemotesIncidentalSourceInventory(t *testi
 	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(declarations) {
 		t.Fatal("name/location-only declaration inventory must remain principal")
 	}
+
+	boundedDiagram := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: false,
+			HasPerMemberTable:     false,
+		},
+		EnumerationBoundary: &RequestedEnumerationBoundary{
+			DeclaredCount: 4,
+			SourceQuote:   "four principal members",
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramFlow, Required: true},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleConstant, AnswerCandidateRoleType},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldSummary,
+			},
+			SourceQuotes: []string{"four principal members"},
+			Confidence:   0.8,
+		},
+	}
+	if !SourceInventoryLaneConflictsWithArchitectureMemberExplanation(boundedDiagram) ||
+		!SourceInventoryCompletionIsSupportOnly(boundedDiagram) {
+		t.Fatal("bounded architecture diagram members with semantic summaries must not expand into a repository declaration census")
+	}
+	if SourceInventoryPrincipalNavigationActive(boundedDiagram) || SourceInventoryPrincipalAuthorityActive(boundedDiagram) {
+		t.Fatal("bounded architecture diagram source inventory must own neither navigation nor completion")
+	}
+
+	optionalDiagram := boundedDiagram
+	optionalDiagram.DiagramHint = &DiagramHint{Kind: DiagramFlow, Required: false}
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(optionalDiagram) {
+		t.Fatal("an optional presentation preference alone must not demote a bounded declaration inventory")
+	}
+	genuineSourceInventory := boundedDiagram
+	genuineSourceInventory.Intent = IntentEnumerate
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(genuineSourceInventory) {
+		t.Fatal("an explicit source declaration enumeration must retain inventory authority")
+	}
 }
 
 func TestArchitectureInventoryShape_TypedBoundary(t *testing.T) {

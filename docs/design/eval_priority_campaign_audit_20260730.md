@@ -26121,3 +26121,50 @@ Trace 计算/投影=`unchanged`；JSON/read/write=`unchanged`。
 `completion-reject=malformed-typed-payload/one-repair/not-contract-conflict`；`finalizer-reject=0`；
 JSON=`strict-normal-path-production-positive/malformed-not-covered`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；模型答案所有权=`preserved`。
+
+### 123.330 r198：Mermaid 链修复生产通过，但有界概念集合被错误扩成全仓声明枚举
+
+在 `main@089feb80c` 上严格并发 2 跑 `patch_java_typo` 与 `qf_diagram_pipeline`，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. Java 写计划 86s，只生成 `Main.java:16` 的单行 `retrun -> return` patch，预认证通过，plan-only 没有修改源码。write analyzer 一次完成、planner
+   一次发射成功；最终计划正确；
+2. 但前置 read analyzer 仍把明确的 micro bugfix 标成 `explain/architecture_explain`。相较 r192/r194，它没有再误发 field-value profile 或触发拒绝，
+   说明教学有改善；typed intent/scenario 仍与 structured write route 不符，`EVAL-B328` 在 Java 上得到跨语言复现并保持 P1；
+3. 图表最终答案正确：四个 stage 与职责完整，`Analyze --> Explore --> Extract --> Finalize` 三跳 edge anchors 同轮通过；Mermaid source repair
+   只将节点标签中的 `\\n` 转为 `<br/>`，没有改变节点、边或结论；finalizer reject=0、repair=0。`EVAL-B329+B330=production-positive/closed`；
+4. 真实高危流程 gap 是 analyzer 同时发出 `IntentExplain + architecture_explain + declared_count=4 + required flow diagram + requested summary` 和
+   `source_inventory_profile(type,constant)`。已有架构成员降级臂只覆盖 `has_per_member_table=true`，本轮该冗余 flag 为 false，导致 source inventory
+   错误获得主完成权；
+5. completion gate 随后不认已经读取的 `AllMainStages()` 与四条 stage binding 精确证据，反复要求枚举全仓所有 constant/type，并建议与目标无关的
+   `cmd`、eval fixtures、`internal/skill` scopes；19 轮 repo_map/completion 循环、579s 后才按同类提示上限继续。新立
+   `EVAL-B336-BOUNDEDCONCEPTUALINVENTORYAUTHORITY1=P1`；
+6. B336 不是 Mermaid/JSON 格式问题，也不是模型时延波动。最优修点是共享 typed authority boundary：有界 architecture diagram member set 且需要
+   per-member semantic summary 时，source declarations 只能是 supporting navigation/evidence，不能成为仓库声明 census。判定不得读取“stage”、请求/思考/答案原文；
+7. 本批无 Trace 输入；没有修改 Trace query、显式时间窗、因果投影、自动补齐、链上根因选举、唤醒链、窗内可消除量或链外背景权限。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B329+B330=production-positive/closed`；`EVAL-B336=P1-confirmed/next`；
+`EVAL-B328=P1-cross-language-confirmed/open`；
+`diagram-finalizer-reject=0`；`completion-loop=typed-authority-misclassification/not-model-fluctuation`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.331 S37bk：有界架构图成员不再触发全仓 source-inventory 完成债
+
+`EVAL-B336-BOUNDEDCONCEPTUALINVENTORYAUTHORITY1` 在既有架构成员 typed boundary 上补齐缺失同构臂：
+
+1. `SourceInventoryLaneConflictsWithArchitectureMemberExplanation` 除原有 `has_per_member_table=true` 外，现在也识别
+   `IntentExplain + ScenarioArchitectureExplain + declared_count>0 + required non-none diagram + requested summary` 的有界成员解释形；
+2. 该形中 source inventory 自动降为 support-only：源码 declaration/constant/type 仍可用于定位和引用，但不能拥有 principal navigation、repo-wide census、
+   completion block 或 follow-up paging 权限。模型保留的 declared count、diagram contract 与最终结论均不被系统改写；
+3. genuine source declaration inventory 保持 principal：`IntentEnumerate` 不降级；可选 diagram 也不单独触发；显式 typed source scope、const-set/type-underlying
+   structural facets 与 name/location-only 清单继续走原 source-inventory 权威；
+4. 判定只读取 schema-validated intent/scenario、enumeration boundary、diagram required/kind、predicates、requested field 与 source facets；不扫描请求、模型
+   thinking/summary、答案、语言、成员名或仓库路径，适用于 Go/Java/Kotlin/ArkTS/Cangjie/C/C++/Rust/Python/JS/TS 等全部语言；
+5. types 回归钉住 support-only/无 principal navigation/无 completion authority，并以 optional diagram、IntentEnumerate 作负例；EmitAnalysis e2e 使用无
+   `has_per_member_table` 的 4-member flow 形，要求 source profile 被移除，而 enumeration boundary 与 required diagram 原样保留；
+6. 本批不改 Mermaid parser/renderer、AnswerDocument/JSON、write controller 或 Trace query/投影。系统不补写、删除或替换模型答案。
+
+状态：`EVAL-B336=S37bk-implemented/types+tool+orchestrator-suite-pass/pending-production-replay`；
+`authority=bounded-conceptual-members/model-owned`；`source-inventory=support-only`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write=`codepath-unchanged`；
+`EVAL-B328=P1-open`。
