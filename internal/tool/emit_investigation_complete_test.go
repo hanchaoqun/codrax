@@ -4430,6 +4430,83 @@ func TestEmitInvestigationComplete_RepairsDecoratedMemberSupportRefFromUniqueGro
 	}
 }
 
+func TestAggregateMemberSetSupportRefResolvesPointerReceiverCallSurface(t *testing.T) {
+	t.Parallel()
+
+	evidence := []types.EvidenceItem{{
+		ID:              "logger-write-call",
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Source:          "src/logger.cpp",
+		LineStart:       36,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "write",
+		Subject:         "Logger::log",
+		Object:          "write",
+		Predicate:       "calls",
+		Snippet:         "sink_->write(line);",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}}
+	mut := types.NewMutableState("Explain the source call path")
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{Mutable: mut}
+	fact := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "call path",
+		Members:     []string{"sink_->write()"},
+		MemberNotes: []string{"virtual call through the injected sink"},
+		SupportRefs: []string{"src/logger.cpp:36"},
+	}
+
+	if !aggregateMemberSetSupportRefsResolveMember(
+		fact,
+		fact.Members[0],
+		buildAggregateMemberSupportIndexWithEvidence(bus, evidence),
+	) {
+		t.Fatal("pointer-receiver call surface should resolve to the same grounded operation anchor")
+	}
+}
+
+func TestAggregateMemberSetSupportRefDoesNotTreatCompactRelationAsReceiverCall(t *testing.T) {
+	t.Parallel()
+
+	evidence := []types.EvidenceItem{{
+		ID:              "unrelated-callee-call",
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Source:          "src/callee.cpp",
+		LineStart:       9,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "callee",
+		Subject:         "other",
+		Object:          "callee",
+		Predicate:       "calls",
+		Snippet:         "callee();",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}}
+	mut := types.NewMutableState("Explain the source call path")
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{Mutable: mut}
+	fact := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "call path",
+		Members:     []string{"caller->callee()"},
+		SupportRefs: []string{"src/callee.cpp:9"},
+	}
+
+	if aggregateMemberSetSupportRefsResolveMember(
+		fact,
+		fact.Members[0],
+		buildAggregateMemberSupportIndexWithEvidence(bus, evidence),
+	) {
+		t.Fatal("a compact relation must not bypass caller/file-axis grounding without the exact receiver expression in the source snippet")
+	}
+}
+
 func TestEnrichCompletionAggregateFactsWithMemberSupport_SkipsAmbiguousGroundedEvidence(t *testing.T) {
 	mut := types.NewMutableState("List the matching agents")
 	evidence := []types.EvidenceItem{

@@ -25862,3 +25862,58 @@ r189 证明模型已看到 sample completeness，却把“任务是计算型”�
 `authority=typed-completeness+verbatim-quote`；`guidance=soft/model-owned`；
 `closed-member-set=no`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace=`typed-runtime-scopes-isolated`；JSON=`unchanged`。
+
+### 123.319 r193：JSON 严格输出稳定；完整路径 typed 信号仍可漏发，receiver operator 制造完成循环
+
+在干净 `main@706ddcaba` 上严格并发 2 跑 `sr_cpp_virtual_chain` 与 `data_json_strict_ids`，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. JSON 34s，一次完成、零 repair、零 strict-decode recovery。`instructions.md` 走 typed `planner_distilled`，`users.json` 走
+   `script_consumed`，最终字节形为 `{"ids":["u1","u3"]}`；没有解释文字、warning 或系统降级说明污染 JSON-only 输出。现有 JSON
+   单源教学在该异构回放上得到生产正证；本批不因没有畸形输入而宣称 malformed-recovery 全面关闭；
+2. C++ 192s。S37bd 的完整 mechanism 教学确实进入 analyzer/explorer prompt，但 analyzer 第二次成功 emit 仍没有
+   `completeness_obligation`：模型在 `sub_topics` 中写了“完整调用路径”，却没有发出 typed 覆盖载体。由于下游只消费 typed 字段、不扫描原始问题或
+   thinking，完整路径 control-fact 软清单没有启用。`EVAL-B324` 因此判 process-positive / production-partial；
+3. Explorer 已读 `Logger::log` line30/37/38，首批 evidence 把整个 body 放进 line29 definition summary，并把 line38 发成
+   `conditional + anchor_kind=call`；它没有发 line30 独立 guard，也没有按 S37bd 教学发 line37 `conditional/condition` + line38
+   `relationship/call`。finalizer 最终只在导语笼统说“错误级别额外 flush”，没有披露入口早退条件，也没有把 `level >= kError` 与 flush
+   分行引用；完整调用路径仍未满足；
+4. 新立 `EVAL-B325-COMPLETENESSSIGNALOPTIONAL1=P1`。根因不是某个 C++ token，而是 completeness 是 optional analyzer 字段：模型可理解
+   “完整/全部”却不发载体。最优方案是让 analyzer 对 typed completeness decision 显式作答（无要求时明确 false），再由既有 verbatim quote validator
+   校验 true 臂；不得在下游扫描用户原文、模型输出或答案关键词，不得按语言/fixture 特判；
+5. 完成阶段还有独立的 `EVAL-B326-RECEIVEROPERATORIDENTITY1=P1`：共享 symbol-tail normalizer 识别 `.` / `::`，却不识别
+   C/C++/PHP 风格 receiver operator `->`。因此 member `sink_->write()` 与同位置已 grounding 的 call anchor `write` 被判不等价，连续 3 次
+   completion-form 修复后，模型只能把可读成员退化成 `write` 才完成。最优修点在跨语言 code-surface identity normalizer；不能在
+   `Logger`、`sink_`、line36 或本 fixture 加例外；
+6. C++ 唯一 finalizer reject 正确：首稿可选 sequence 图把调用方、factory return、constructor injection 等未证边画成 call；validator
+   拒绝后模型只替换 diagram，保留三个正文 block，最终图仅含两条 typed call 子边。该拒绝不是 JSON/diagram 教学冲突，也没有删除模型答案；
+7. 另记 `EVAL-B327-CONDITIONALWIRINGDISCLOSURE1=P2`：factory return 与 Logger constructor initializer 分别已证，但仓内没有把两者连接起来的
+   wiring callsite；completion 已披露 runtime selection conditional，最终正文仍写成“所创建实例随后注入”的连续事实。后续只应增强 typed conditional
+   selection 的软披露材料，不能扫描正文硬拒或由系统替写结论；
+8. 本批无 Trace 输入，未修改 Trace query/显式时间窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量，也未修改 read/write controller。
+   r191 的显式时间窗生产正证继续有效；系统没有替写、删除或改写模型结论。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B324=process-positive/production-partial`；`EVAL-B325=P1-filed`；
+`EVAL-B326=P1-filed/next`；`EVAL-B327=P2-filed`；JSON=`production-positive`；
+`finalizer-reject=legitimate-typed-diagram-gate`；`raw-prose-hard-gate=none`；
+模型答案所有权=`preserved`；Trace=`not-entered/previous-isolation-positive`。
+
+### 123.320 S37be：receiver-expression 与 relation display 在精确源码行上消歧
+
+`EVAL-B326-RECEIVEROPERATORIDENTITY1` 在共享 code-surface / aggregate-support 层修复，不为 C++ fixture 设例外：
+
+1. `NormalizedSurfaceSymbolTail` 现在把 `->` 与既有 `.` / `::` / 路径分隔符同等视为 receiver operator；
+   `sink_->write()`、`logx::holder->flush()`、PHP `$registry->create()` 分别归一到 `write` / `flush` / `create`。该函数只做
+   syntax identity normalization，不推断 receiver 类型、动态 dispatch、owner 或 call edge；
+2. aggregate member relation parser 仍保留 compact `caller->callee` 支持，没有通过全局“无空格箭头都算 member access”放宽。support_ref
+   绑定遇到歧义时，只有同一精确 file:line 上存在 grounded `anchor_kind=call`、operation tail 相同，且源码 snippet 确实包含
+   `receiver->operation` 前缀，才按 receiver-expression 接受；
+3. 因此 r193 的 `sink_->write()` 可保持源码可读表面并绑定 `src/logger.cpp:36` 的 typed `write` call，不再迫使模型退化成裸
+   `write`。反例 `caller->callee()` 配上只含 `callee();` 的异文件 evidence 仍失败，不能借 tail 相同绕过 caller/file-axis；
+4. 回归覆盖 C++ namespace+pointer、PHP receiver、pointer 后继续 dot member、带空格关系箭头，以及 support_ref 正/反两臂。
+   修复不读取用户问题、model thinking、summary 或最终答案，不改变 AnswerDocument/JSON/Mermaid/Trace/read/write 逻辑，也不替模型生成结论；
+5. 聚焦 `internal/types` 与 `internal/tool` receiver-operator 回归通过；全仓验证结果记录在本批提交前的收账状态中。
+
+状态：`EVAL-B326=S37be-implemented/full-suite-pass`；
+`identity=syntax+exact-grounded-snippet`；`compact-relation=strict/preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace/JSON/write=`unchanged`。

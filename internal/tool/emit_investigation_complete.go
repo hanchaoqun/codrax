@@ -7969,11 +7969,13 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 	// as unresolved so the swapped-refs repair lane can re-derive the right
 	// location per member.
 	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
-		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
+		receiverOperationMatch := aggregateSupportLocationMatchesReceiverOperation(loc, member, support)
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) && !receiverOperationMatch {
 			return false
 		}
 		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
-			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support) ||
+			receiverOperationMatch
 	}
 	// SUPPREF-TOL rework (P0-A): a positional location that only exists via
 	// the decoration-strip retry is consumed SUCCESS-ONLY. In the baseline
@@ -7983,11 +7985,14 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 	// location-only positional ref plus a different ref that resolves the
 	// member). Same philosophy as the aggregateMemberSetMemberUsableAt
 	// positional arm: accept on match, otherwise keep falling through.
-	if loc, ok := aggregateMemberSetPositionalStripRetrySupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok &&
-		aggregateSupportLocationCompatibleWithMember(member, loc) &&
-		(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
-			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)) {
-		return true
+	if loc, ok := aggregateMemberSetPositionalStripRetrySupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
+		receiverOperationMatch := aggregateSupportLocationMatchesReceiverOperation(loc, member, support)
+		if (aggregateSupportLocationCompatibleWithMember(member, loc) || receiverOperationMatch) &&
+			(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
+				aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support) ||
+				receiverOperationMatch) {
+			return true
+		}
 	}
 	for _, ref := range fact.SupportRefs {
 		ref = strings.TrimSpace(ref)
@@ -8008,14 +8013,64 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 		if !ok {
 			continue
 		}
-		if !aggregateSupportLocationCompatibleWithMember(member, loc) || !aggregateSupportLabelMatchesMember(label, labels) {
+		receiverOperationMatch := aggregateSupportLocationMatchesReceiverOperation(loc, member, support)
+		if (!aggregateSupportLocationCompatibleWithMember(member, loc) && !receiverOperationMatch) ||
+			!aggregateSupportLabelMatchesMember(label, labels) {
 			continue
 		}
 		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
 		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
 			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) ||
 			aggregateSourceInventoryLocationMatchesLabels(loc, refLabels, support.sourceInventoryLabelsByLocation) ||
-			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, refLabels, support) {
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, refLabels, support) ||
+			receiverOperationMatch {
+			return true
+		}
+	}
+	return false
+}
+
+// aggregateSupportLocationMatchesReceiverOperation resolves the syntactic
+// ambiguity between a compact display relation (`caller->callee`) and a
+// receiver-shaped source expression (`sink_->write()`). It never decides from
+// the aggregate member alone. Acceptance requires one grounded call at the
+// exact support location whose operation tail matches and whose source snippet
+// contains the same receiver/operator prefix. This preserves strict relation
+// file-axis checks while allowing a source-faithful member expression to bind
+// its own call-site evidence.
+func aggregateSupportLocationMatchesReceiverOperation(location, member string, support aggregateMemberSupportIndex) bool {
+	member = strings.TrimSpace(member)
+	if member == "" || strings.Contains(member, " -> ") {
+		return false
+	}
+	arrow := strings.LastIndex(member, "->")
+	if arrow <= 0 || arrow+2 >= len(member) {
+		return false
+	}
+	prefix := member
+	if open := strings.Index(prefix[arrow+2:], "("); open >= 0 {
+		prefix = prefix[:arrow+2+open]
+	}
+	prefix = strings.TrimSpace(strings.TrimSuffix(prefix, "()"))
+	if prefix == "" {
+		return false
+	}
+	want := types.NormalizedSurfaceSymbolTail(member)
+	if want == "" {
+		return false
+	}
+	for _, ev := range support.byLocation[strings.TrimSpace(location)] {
+		if ev.AnchorKind != types.AnchorCall || ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		matchedTail := false
+		for _, raw := range aggregateEvidenceMemberLabels(ev) {
+			if types.NormalizedSurfaceSymbolTail(raw) == want {
+				matchedTail = true
+				break
+			}
+		}
+		if matchedTail && strings.Contains(strings.TrimSpace(ev.Snippet), prefix) {
 			return true
 		}
 	}

@@ -3887,6 +3887,16 @@ func NormalizedSurfaceSymbolTail(raw string) string {
 	if idx := strings.LastIndex(raw, "::"); idx >= 0 {
 		raw = raw[idx+2:]
 	}
+	// C/C++ member access through a pointer (and the same receiver
+	// operator in languages such as PHP) names the operation after `->`.
+	// Treat it like the already-supported `.`, `::`, and path separators
+	// so an expression-shaped surface such as `sink_->write()` resolves to
+	// the same typed operation identity as an evidence anchor `write`.
+	// This is syntax normalization only: it does not infer receiver type,
+	// dispatch target, ownership, or a call edge.
+	if idx := strings.LastIndex(raw, "->"); idx >= 0 {
+		raw = raw[idx+2:]
+	}
 	if idx := strings.LastIndexAny(raw, `/\`); idx >= 0 {
 		raw = raw[idx+1:]
 	}
