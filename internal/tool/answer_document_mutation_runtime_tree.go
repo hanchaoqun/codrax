@@ -18409,6 +18409,12 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// the focused thread, which an off-chain row does not make), and the gated
 	// legend line says where the value lives instead.
 	stanzaChainTotal bool
+	// stanzaAttribution (CHAINROOT-AUTH, 2026-08-08): a ◇/▒ stanza row with a
+	// positive EffectiveImpactMS is on the table. Its typed seat is off-chain,
+	// so the 有效归因/Attribution column (defined as the value participating in
+	// root-cause ordering) must render "—". The magnitude remains available on
+	// the window-projection and cross-thread-cumulative surfaces.
+	stanzaAttribution bool
 	// gatedProjection (GATED-CAL 件1③, §29.104.16.1 M3-c, 2026-07-16): an
 	// inversion seat whose window-projection cell value IS the gated composite
 	// is on the table — the cell wears the 构成,见明细 annotation and this
@@ -18500,6 +18506,9 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 			// CMP-3 F6 carve-out mirrored: aggregate-metric rows keep their
 			// annotated cells, so they never raise the dash's gated line.
 			flags.stanzaChainTotal = true
+		}
+		if runtimeTraceProjStanzaRowKind(row.Kind) && node.EffectiveImpactMS > 0 {
+			flags.stanzaAttribution = true
 		}
 		if runtimeTraceProjGatedCompositeProjectionCell(node) {
 			// GATED-CAL 件1③: same typed gate as the cell annotation (single
@@ -18756,6 +18765,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
 		// running StateKinds) keep their values on this arm too.
 		if node.IsTargetSelfStateRow() || node.IsContextOnlyRow() ||
+			runtimeTraceProjStanzaRowKind(row.Kind) ||
 			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash
 		}

@@ -39,7 +39,7 @@ This scaffold is for human review. The runner records typed metrics and declared
 ## Ruling
 
 - runner：1 PASS / 1 FAIL；人工：1 PASS / 1 FAIL。runner 两个方向都与人工相反，进一步证明必须审计最终答案与归一化日志。
-- `EVAL-B331-TRACEBACKGROUNDATTRIBUTIONDISPLAY1=P1-confirmed`：非链上 row 的根因归因列必须 typed-dash，背景信息保留在非根因表面。
+- `EVAL-B331-TRACEBACKGROUNDATTRIBUTIONDISPLAY1=S37bi-implemented`：非链上 row 的根因归因列已 typed-dash，背景信息保留在非根因表面，并由双语按需图例解释权限边界。
 - `EVAL-B332-DUPLICATESYMBOLCITATIONFILEAXIS1=P0-confirmed`：系统不可用弱 aggregate support 覆盖模型已选中的精确 source-inventory 文件/行。
 - `EVAL-B333-TRACEKERNELCALLSITECLAIMCALIBER1=P2-filed`：wait point 只能软提示为已证等待点，具体介质/对象/持有者仍未证。
 - 本批无 malformed JSON、无 JSON repair、无 finalizer reject、无“成文校验未通过”；显式时间窗、Trace 自动补齐、链上根因排序、唤醒链与窗内可消除量均保留，系统未替换模型主结论。

@@ -157,10 +157,16 @@ func TestDisp2StanzaChainTotalColumnDash(t *testing.T) {
 				ChainRelevance: "adjacent", ImpactMS: 10, CumulativeImpactMS: 18,
 				EffectiveImpactMS: 7, Confidence: 0.8},
 		},
+		BackgroundCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-bg",
+				Subject: "logger-9", Object: "io_wait", StateKind: "d_state",
+				ChainRelevance: "background", ImpactMS: 12, CumulativeImpactMS: 15,
+				EffectiveImpactMS: 9, Confidence: 0.8},
+		},
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	_, rows := runtimeTraceProjDetailTable(model, true)
-	var adjacent, chain []string
+	var adjacent, background, chain []string
 	for _, row := range rows {
 		if strings.Contains(row.Cells[0], "adj-5") {
 			adjacent = row.Cells
@@ -168,8 +174,11 @@ func TestDisp2StanzaChainTotalColumnDash(t *testing.T) {
 		if strings.Contains(row.Cells[0], "worker-9") {
 			chain = row.Cells
 		}
+		if strings.Contains(row.Cells[0], "logger-9") {
+			background = row.Cells
+		}
 	}
-	if len(adjacent) == 0 || len(chain) == 0 {
+	if len(adjacent) == 0 || len(background) == 0 || len(chain) == 0 {
 		t.Fatalf("fixture rows missing from the (a) table: %+v", rows)
 	}
 	// Column order: 节点[E#](0) 窗口投影(1) 链上累计(2) 有效归因(3).
@@ -179,8 +188,11 @@ func TestDisp2StanzaChainTotalColumnDash(t *testing.T) {
 	if adjacent[1] != "10.000ms" {
 		t.Fatalf("adjacent row keeps its window projection: %q", adjacent[1])
 	}
-	if adjacent[3] != "7.000ms" {
-		t.Fatalf("adjacent row keeps its attribution cell (only 链上累计 dashes): %q", adjacent[3])
+	if adjacent[3] != "—" || background[3] != "—" {
+		t.Fatalf("off-chain rows must not receive root-ranking attribution cells: adjacent=%q background=%q", adjacent[3], background[3])
+	}
+	if background[1] != "12.000ms" {
+		t.Fatalf("background row keeps its window projection: %q", background[1])
 	}
 	// Info-lossless home: the stanza row's 累计(跨线程) tag carries the value.
 	fence := runtimeTraceProjTreeFence(model, true)
@@ -196,12 +208,19 @@ func TestDisp2StanzaChainTotalColumnDash(t *testing.T) {
 	if !flags.stanzaChainTotal {
 		t.Fatalf("stanzaChainTotal flag must gate the legend line: %+v", flags)
 	}
+	if !flags.stanzaAttribution {
+		t.Fatalf("stanzaAttribution flag must gate the off-chain attribution legend line: %+v", flags)
+	}
 	blocks := runtimeTraceCausalProjectionCluster(projection, "zh", runtimeTraceProjUserFocus{})
 	found := false
 	for _, block := range blocks {
 		if strings.HasSuffix(block.ID, "_detail") &&
 			strings.Contains(block.Text, "◇/▒ 区段行不在唤醒链上,「链上累计」列为 —") {
 			found = true
+		}
+		if strings.HasSuffix(block.ID, "_detail") &&
+			!strings.Contains(block.Text, "◇/▒ 区段行不在已证唤醒链上,「有效归因」列为 —") {
+			t.Fatalf("off-chain attribution legend line missing: %s", block.Text)
 		}
 	}
 	if !found {
@@ -211,7 +230,7 @@ func TestDisp2StanzaChainTotalColumnDash(t *testing.T) {
 	control := revisit76UXAWindowlessProjection()
 	controlFlags := runtimeTraceProjDetailTableLegendFlagsFor(
 		buildRuntimeTraceProjTreeModel(control, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
-	if controlFlags.stanzaChainTotal {
+	if controlFlags.stanzaChainTotal || controlFlags.stanzaAttribution {
 		t.Fatalf("no stanza row → no gated line: %+v", controlFlags)
 	}
 }
@@ -290,7 +309,8 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	if !strings.Contains(fence, "计数当量133.200(非墙钟)") {
 		t.Fatalf("the roster's count-equivalent marker must reach the fence:\n%s", fence)
 	}
-	// (a) table: 窗口投影 == 有效归因 == published value; 链上累计 = — (G3 表列).
+	// (a) table: the published count-equivalent value remains visible in
+	// 窗口投影, while both chain-only columns are — on the adjacent seat.
 	_, rows := runtimeTraceProjDetailTable(model, true)
 	var cells []string
 	for _, row := range rows {
@@ -301,8 +321,8 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	if len(cells) == 0 {
 		t.Fatalf("count family row missing from the (a) table: %+v", rows)
 	}
-	if cells[1] != "41.671ms" || cells[3] != "41.671ms" {
-		t.Fatalf("(a) 窗口投影/有效归因 must equal the published value: %+v", cells)
+	if cells[1] != "41.671ms" || cells[3] != "—" {
+		t.Fatalf("(a) adjacent count value must stay visible without root-ranking attribution: %+v", cells)
 	}
 	if cells[2] != "—" {
 		t.Fatalf("(a) 链上累计 must be — on the adjacent seat: %+v", cells)

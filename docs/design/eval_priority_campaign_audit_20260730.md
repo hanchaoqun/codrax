@@ -26034,3 +26034,24 @@ Trace 链上根因权限=`production-positive`；`raw-prose-hard-gate=none`；�
 `authority=typed-row-id>aggregate-support`；`same-name-cross-file=preserved`；
 `raw-prose-scan=none`；`system-conclusion-rewrite=none`；Trace/JSON/write=`unchanged`；
 `EVAL-B331=P1-next`；`EVAL-B333=P2-open`。
+
+### 123.326 S37bi：Trace 链外席位保留背景量，但不再伪装成根因排序归因
+
+`EVAL-B331-TRACEBACKGROUNDATTRIBUTIONDISPLAY1` 在 Trace 投影的 typed row-kind 展示层修复：
+
+1. 关键指标表的 `有效归因/Attribution` 列继续定义为“计入根因排序的影响时长”。`adjacent` 与 `background` 两类 typed stanza row
+   无条件显示 `—`，不再因 `EffectiveImpactMS>0` 获得链上根因权限外观；on-chain cause、自因 runnable/running/IO/D 席保持原值；
+2. 信息不删除：非链上行的 `窗口投影` 保持原值，树区段继续以 `累计(跨线程)`/折算等诚实口径承载背景规模，完整 detail/evidence 仍可达；
+   count-equivalent/composite 行也保留窗口投影与非墙钟注记，只撤掉根因排序列的重复数值；
+3. 新增按需双语图例，仅当至少一条 ◇/▒ 行原本有正 `EffectiveImpactMS` 时出现，明确 Attribution 只承载已证链上根因排序影响，邻近/背景值
+   去哪里查看。无 stanza 或无正值的报告不注入额外前置块；
+4. 判定只读 `runtimeTraceProjTreeRow.Kind` 与 typed 数值，不扫描用户请求、模型 thinking/summary、答案原文、线程名、token 或窗口文本；不改变
+   `tracequery` 的值计算、链构造、root election、自动补采、模型正文或因果投影编译；
+5. 回归同时构造 positive adjacent、positive background 与 on-chain control：两个链外 row 的 Attribution 必须为 `—`，Window projection 保值，
+   on-chain Chain total 保值；count-family adjacent 同样不得在根因归因列复写数值；双语图例 gate 与无 stanza 负臂均有 pin；
+6. 本批落实长期不变量：数值更大或时间更近都不能给非链上 row 主因权限。邻近/背景只能支撑排查方向；是否据此提出新探索仍由模型判断，系统不替写结论。
+
+状态：`EVAL-B331=S37bi-implemented/internal-tool-suite-pass`；
+`root-eligibility=typed-on-chain-only`；`off-chain-magnitude=preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace 因果投影/自动补齐/双维分析=`unchanged`；`EVAL-B333=P2-open`。

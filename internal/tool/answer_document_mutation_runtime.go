@@ -1627,7 +1627,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.gatedProjection ||
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.stanzaAttribution || flags.gatedProjection ||
 			flags.scoreIOPressure || flags.scoreBlockIO || flags.countEquivalent || flags.countClamp || flags.businessSpanMention {
 			// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the ◇/▒ stanza row's
 			// gated line — present exactly when a stanza row with a cumulative
@@ -1638,6 +1638,13 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 					lines = append(lines, "- ◇/▒ 区段行不在唤醒链上,「链上累计」列为 —;其累计时长以 累计(跨线程) 口径显示于树区段行(与窗口投影相等时即窗口投影列数值)。")
 				} else {
 					lines = append(lines, "- ◇/▒ stanza rows are off the wakeup chain, so their chain-total cell is “—”; their cumulative shows on the stanza rows under the cross-thread cum caliber (equal to the window-projection cell when the two match).")
+				}
+			}
+			if flags.stanzaAttribution {
+				if zh {
+					lines = append(lines, "- ◇/▒ 区段行不在已证唤醒链上,「有效归因」列为 —;该列只承载计入"+tracefence.SeatChannelChainZH+"的链上影响。邻近/背景规模仍见「窗口投影」及树区段行的 累计(跨线程) 口径。")
+				} else {
+					lines = append(lines, "- ◇/▒ stanza rows are outside the proven wakeup chain, so Attribution is —; that column carries only on-chain impact admitted to root-cause ordering. Adjacent/background magnitude remains available in Window projection and the tree stanza's cross-thread-cumulative caliber.")
 				}
 			}
 			// GATED-CAL 件1③ (§29.104.16.1 M3-c, 2026-07-16): the inversion-seat
