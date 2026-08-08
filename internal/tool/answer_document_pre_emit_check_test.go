@@ -4791,6 +4791,111 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsGroundedSiblingPartition
 	}
 }
 
+func sourceInventoryObservedSiblingFunctionTestContext(t *testing.T) (*types.BusContext, []string) {
+	t.Helper()
+	mu := types.NewMutableState("enumerate Cangjie foreign functions and public classes")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role: types.AnswerCandidateRoleType, Complete: true, Count: 1, Total: 1,
+				Members: []types.SourceInventoryObservationMember{{
+					Name: "Bridge", Role: types.AnswerCandidateRoleType,
+					File: "src/Bridge.cj", Line: 15, Language: "cangjie",
+					SurfaceTerms:  []string{"public class", "public class Bridge"},
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			},
+			{
+				Role: types.AnswerCandidateRoleFunction, Complete: true, Count: 2, Total: 2,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "src/Bridge.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"foreign func", "foreign func native_add"}, CoverageState: types.SourceInventoryCoverageObserved},
+					{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "thirdparty/ffi.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"foreign func", "foreign func native_add"}, CoverageState: types.SourceInventoryCoverageObserved},
+				},
+			},
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "foreign func declarations", Value: "2",
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ src/Bridge.cj:6",
+			"native_add @ thirdparty/ffi.cj:6",
+		},
+		SupportRefs: []string{
+			"native_add @ src/Bridge.cj:6",
+			"native_add @ thirdparty/ffi.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			// Deliberately mirrors the production analyzer projection: the
+			// coarse target role retained only types even though the same exact
+			// repo-lens observation also carries the requested function family.
+			TargetRoles:     []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:    []string{"foreign func", "public class"},
+			RequestedFields: []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+			Confidence:      0.95,
+		},
+	}}}
+	var rowIDs []string
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		if set.Label != "foreign func declarations" {
+			continue
+		}
+		for _, row := range set.Rows {
+			rowIDs = append(rowIDs, row.RowID)
+		}
+	}
+	return ctx, rowIDs
+}
+
+func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsExactObservedSiblingRole(t *testing.T) {
+	ctx, rowIDs := sourceInventoryObservedSiblingFunctionTestContext(t)
+	if len(rowIDs) != 2 || rowIDs[0] == "" || rowIDs[1] == "" || rowIDs[0] == rowIDs[1] {
+		t.Fatalf("exact observed sibling rows did not retain distinct prompt row ids: %q", rowIDs)
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/Bridge.cj", Line: 6}, {File: "thirdparty/ffi.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "foreign-functions", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "native-add-bridge", Label: "native_add", SourceInventoryRowID: rowIDs[0], CitationRef: 0},
+				{ID: "native-add-ffi", Label: "native_add", SourceInventoryRowID: rowIDs[1], CitationRef: 1},
+			},
+		}},
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("row ids printed in Principal Enumeration Rows must remain valid across sibling parser roles: %+v", hints)
+	}
+}
+
+func TestPreCheckSourceInventoryExtraneousPrincipalItems_AcceptsObservedSiblingTableCells(t *testing.T) {
+	ctx, _ := sourceInventoryObservedSiblingFunctionTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/Bridge.cj", Line: 6}, {File: "thirdparty/ffi.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "foreign-functions", Kind: types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Columns:     []string{"file", "line", "symbol"},
+			Items: []types.AnswerBlockItem{
+				{ID: "native-add-bridge", Cells: []string{"src/Bridge.cj", "6", "native_add"}, CitationRef: 0},
+				{ID: "native-add-ffi", Cells: []string{"thirdparty/ffi.cj", "6", "native_add"}, CitationRef: 1},
+			},
+		}},
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("structured table cells that exactly identify accepted observed rows must not be rejected as extras: %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_MixedBlockAcceptsGroundedSiblingPartition(t *testing.T) {
 	ctx, extendID := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
 	if extendID == "" {

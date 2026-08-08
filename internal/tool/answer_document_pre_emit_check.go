@@ -1964,19 +1964,21 @@ func preEmitSourceInventoryRowsByIDFromSets(sets []types.EnumerationDisplaySet) 
 // preEmitSourceInventoryTypedPrincipalSets keeps the exact row IDs shown to the
 // finalizer and the synthetic global roster in one registry. Prompt rows are
 // admitted only when their typed source location/family equals a row in the
-// synthetic roster OR an exact grounded evidence identity at that source row.
-// The second arm covers accepted sibling partitions (for example Cangjie
-// `extend` rows beside a parser-owned public-class roster) without allowing
-// model labels or prose to mint aliases. The synthetic set remains present to
+// synthetic roster, an exact observed repo-lens row, OR an exact grounded
+// evidence identity at that source row. The observation arm is intentionally
+// role-independent: a multi-syntax request can yield exact rows in sibling
+// parser roles even when the analyzer's coarse target-role projection keeps
+// only one role principal (for example Cangjie `foreign func` beside types, or
+// ArkTS decorator-marked types beside functions). The aggregate row still has
+// to pass the principal display-set compiler; this arm only corroborates its
+// file/line/family identity. Model labels, request prose, block titles, and
+// answer text never mint aliases. The synthetic set remains present to
 // disambiguate equal labels across accepted partitions.
 func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
 	canonical := preEmitSourceInventoryCanonicalPrincipalSets(ctx)
-	if len(canonical) == 0 {
-		return nil
-	}
 	canonicalKeys := map[string]bool{}
 	for _, set := range canonical {
 		for _, row := range set.Rows {
@@ -1985,6 +1987,7 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 			}
 		}
 	}
+	observedKeys := preEmitSourceInventoryObservedRowAliasIdentityKeys(ctx.Mutable.SourceInventoryObservation())
 	var out []types.EnumerationDisplaySet
 	pctx := newPreEmitCheckContext(ctx)
 	if plan := answerSurfacePlan(ctx); plan != nil {
@@ -1993,6 +1996,7 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 			filtered.Rows = nil
 			for _, row := range set.Rows {
 				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
+					observedKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
 					preEmitSourceInventoryPromptRowHasExactGroundedEvidence(row, pctx) {
 					filtered.Rows = append(filtered.Rows, row)
 				}
@@ -2011,6 +2015,39 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	}
 	if !hasGlobal {
 		out = append(out, canonical...)
+	}
+	return out
+}
+
+// preEmitSourceInventoryObservedRowAliasIdentityKeys projects only exact,
+// positively observed repo-lens coordinates into the shared row registry.
+// SourceInventoryObservation is structural navigation evidence rather than
+// final-answer authority, so this key does not itself promote a row. It merely
+// corroborates the identity of a row already accepted by the principal
+// aggregate compiler. Ambiguous/needs-read/no-index rows, rows without an
+// exact source coordinate, and rows without a typed surface family cannot
+// widen the registry.
+func preEmitSourceInventoryObservedRowAliasIdentityKeys(observation types.SourceInventoryObservation) map[string]bool {
+	out := map[string]bool{}
+	if !observation.Active {
+		return out
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			if member.CoverageState != types.SourceInventoryCoverageObserved ||
+				strings.TrimSpace(member.File) == "" || member.Line <= 0 {
+				continue
+			}
+			family := types.SourceInventorySurfaceFamilyKey(member.SurfaceTerms)
+			if family == "" {
+				continue
+			}
+			location := preEmitCitationLocationKey(types.Citation{File: member.File, Line: member.Line})
+			if location == "" {
+				continue
+			}
+			out[location+"\x00"+types.SourceInventorySurfaceTermKey(family)] = true
+		}
 	}
 	return out
 }

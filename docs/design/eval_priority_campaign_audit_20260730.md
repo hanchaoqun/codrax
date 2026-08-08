@@ -26385,3 +26385,47 @@ write=`single-line-patch/zero-contract-conflict`；`EVAL-B337=P2-observe/no-impa
 状态：`EVAL-B340=S37bp-implemented/full-tool-suite-pass/pending-production-replay`；
 `role-authority=AnswerAggregateFactRoleForRequest-single-source`；`supporting-widening=still-denied`；
 `raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/write/data=`unchanged`。
+
+### 123.342 r204：S37bp 只覆盖 label 载体；prompt 与 validator 的 principal 行域仍分裂
+
+在 `main@928269d39` 上严格并发 2 复放 `arkts_repomap` 与 `cangjie_repomap`，runner 1 PASS / 1 FAIL，人工为 1 FAIL / 1 PARTIAL：
+
+1. ArkTS 首稿已用 schema 明确允许的结构化 table cells 输出 4 个 `@Entry` 和 2 个 `@Builder`，每行携带 exact path/line/symbol 与正确 citation；
+   strict extraneous gate 仍把四个 Entry cells 判为非 principal 并硬要求删除。模型改成 label-bearing section 后，另一 typed contract 又要求至少一张 table，最终形成重复
+   section+table，runner 仍报四条 Entry typed row 缺失；
+2. Cangjie 的 `Principal Enumeration Rows` 明确打印两个同名 `native_add` 的不同 row_id/file，但 pre-emit row-id gate 连续拒绝这两个 exact ID；模型尝试按提示加
+   `source_inventory_family=foreign func`，同一 validator 又声称允许 family 只有 extend/public-class 四类，形成 row-id 与 family 往返的确定性冲突，累计 7 次成文拒绝；
+3. Cangjie 最终靠删除两个 row_id 才通过。成员文本仍列对两个文件，但第二个 `native_add` 的 inline citation 错绑到第一个 `Bridge.cj:6`，与该行正文中的
+   `07_foreign_ffi.cj:6` 自相矛盾；runner 的 typed member oracle 未覆盖同名成员的显示引用绑定，因此 PASS 不能按人工正确性关账；
+4. 冷读确认 S37bp 的 request-aware role 修复方向正确但覆盖面不足。根因不是 label/cells 单一载体，而是两个 authority domain：finalizer 的 Principal Enumeration Rows
+   从已接受 principal aggregate/display set 发射；pre-emit registry 只接纳 canonical target-role 行或另一套 grounded-evidence identity。精确 repo-lens 已观察到、但落在
+   analyzer 粗粒度 sibling role 的同一行会被前者要求、后者拒绝；
+5. 新立 `EVAL-B342-PRINCIPALROWDOMAINPARITY1=P0`。最优修复不是按 ArkTS/Cangjie、装饰器或 symbol 特判，也不是关闭 strict gate，而是让 validator 对已编译
+   principal row 使用同一条精确身份认证：aggregate principal authority 与 repo-lens `coverage_state=observed + file + line + surface_family` 必须同时成立；
+6. 本批无 JSON 畸形、Mermaid 或 Trace 输入。问题完全发生在结构化 AnswerDocument 合同；没有扫描用户/模型/答案原文，也没有系统替换模型结论。
+
+状态：runner=`1/2 PASS`；human=`1 FAIL / 1 PARTIAL`；`EVAL-B340=S37bp-production-partial`；
+`EVAL-B342=P0-confirmed/immediate`；`finalizer-reject=ArkTS:2,Cangjie:7`；
+`same-name-citation-binding=Cangjie-final-wrong`；`raw-prose-hard-gate=none`；Trace=`codepath-unchanged`。
+
+### 123.343 S37bq：principal display row 与 pre-emit registry 共享精确 observed 身份域
+
+`EVAL-B342-PRINCIPALROWDOMAINPARITY1` 在 source-inventory typed registry 单点补齐跨 coarse-role 的精确观察臂：
+
+1. `preEmitSourceInventoryTypedPrincipalSets` 仍先要求行来自 principal aggregate/display-set 编译器；在身份认证层新增 repo-lens exact observed key，键仅由
+   canonical file:line 与 typed `surface_family` 组成。它不让 SourceInventoryObservation 自己加冕成员，只证明提示中已接受成员的源码坐标确为 lens 实测；
+2. observation admission 不依赖 analyzer 的单一 coarse target role。因而一个多语法清单中，type/function/method/constant/field 等 sibling role 的 exact 行只要同样处于
+   `coverage_state=observed`，就与 Principal Enumeration Rows、row-id binding、family partition 和 extraneous gate 使用同一注册表；
+3. ambiguous/needs_read/no_index、无文件、无正行号、无 surface family 的观察行不能进入；未出现在 principal aggregate compiler 的邻近/背景行也不能借 observation
+   提升为主答案。既有“ungrounded aggregate 不得铸 typed alias”负例继续通过；
+4. 回归覆盖两种载体和同名身份：模拟 target role 只有 type、repo lens 同时精确观察两个 function `native_add` 的形，要求 prompt row IDs 在 validator 中逐文件有效；
+   同一两行改用 `items[].cells=[file,line,symbol]` 的 table carrier，strict extraneous gate 必须接受。不是 label-only 补丁；
+5. 聚焦回归通过；完整 `go test ./internal/tool -count=1` 162.430s 全绿。修复不会读取 item.text、block title、请求、模型 thinking/summary、最终答案、语言名或
+   具体构造词作权限判定，也不生成、删除、重排或改写模型行；
+6. 本批不改 repo-map extractor、JSON 教学、Mermaid、write/data 或 Trace query/投影。下一步从干净提交严格并发 2 再复放 ArkTS+Cangjie，要求成文拒绝归零且
+   Cangjie 两个同名行分别绑定各自文件。
+
+状态：`EVAL-B342=S37bq-implemented/full-tool-suite-pass/pending-production-replay`；
+`identity=principal-display-set AND exact-observed(file,line,family)`；
+`sibling-coarse-role=admitted-without-semantic-promotion`；`unobserved/ambiguous=fail-closed`；
+`raw-prose-scan=none`；`system-answer-rewrite=none`；Trace/JSON/Mermaid/write/data=`unchanged`。
