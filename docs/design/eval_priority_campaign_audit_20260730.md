@@ -26051,7 +26051,47 @@ Trace 链上根因权限=`production-positive`；`raw-prose-hard-gate=none`；�
    on-chain Chain total 保值；count-family adjacent 同样不得在根因归因列复写数值；双语图例 gate 与无 stanza 负臂均有 pin；
 6. 本批落实长期不变量：数值更大或时间更近都不能给非链上 row 主因权限。邻近/背景只能支撑排查方向；是否据此提出新探索仍由模型判断，系统不替写结论。
 
-状态：`EVAL-B331=S37bi-implemented/internal-tool-suite-pass`；
+状态：`EVAL-B331=S37bi-implemented/full-suite-pass`；
 `root-eligibility=typed-on-chain-only`；`off-chain-magnitude=preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace 因果投影/自动补齐/双维分析=`unchanged`；`EVAL-B333=P2-open`。
+
+### 123.327 r196：两项 authority 修复生产闭环；背景共现仍被模型扩写成资源竞争
+
+在 `main@8b4e88ad9` 指纹二进制上严格并发 2 复放 r195 同一 Trace+Cangjie 对，runner 2/2 PASS，人工 1 PASS / 1 PARTIAL：
+
+1. Cangjie 两个 `native_add` 的最终引用分别落在 Bridge.cj:6 与 07_foreign_ffi.cj:6，正确 corpus citation 不再被弱 aggregate support
+   改写或裁掉；12 行 typed inventory、family、package、file:line 全部一致，`EVAL-B332=S37bh-production-positive/closed`；
+2. Trace logger 两条 background row 的 Window projection 19.5/7ms 均保留，Chain total/Attribution 都为 `—`，按需图例明确 Attribution 只允许
+   已证链上席；threadpool 11ms 仍为主根因，唤醒链、自动补齐、窗内可消除量与双轴结论未变，`EVAL-B331=S37bi-production-positive/closed`；
+3. 新确认 `EVAL-B334-TRACEOFFCHAINRESOURCEINFERENCE1=P1`：模型从 logger 与 threadpool 同时 D-state/IO、一个 pressure score 推断两者共享
+   IO 资源竞争并使 threadpool 变慢，还把跨线程 19.5+11 自行相加成 30.5ms。现有 trace 无共同 device/dev/inode/lock/core、资源身份或 competition edge；
+4. B334 的最优修点不是答案 normalizer/hard gate，而是收紧既有 Trace query 与 BACKGROUND AGGREGATE HEADLINE 软教学：共现、同一粗类、压力分只证明
+   背景负载；无 exact shared-resource identity 或 typed dependency/competition edge 时，只能作为独立背景和后续排查方向，禁止跨行/跨线程相加；
+5. Cangjie summary 一次把 `.cj` 清单称为 Cangjie/ArkTS，typed 成员未污染；记 `EVAL-B335-INVENTORYLANGUAGESCOPEWORD1=P2-observe`，待异构复现，
+   不按语言或词面设门；
+6. r196 无 malformed JSON/repair、无 finalizer reject、无 completion/form loop、无 unavailable tool，成文校验拒绝为 0。系统未改写模型结论。
+
+状态：runner=`2/2 PASS`；human=`1 PASS / 1 PARTIAL`；
+`EVAL-B331+B332=production-positive/closed`；`EVAL-B334=P1-confirmed/next`；
+`EVAL-B335=P2-observe`；`raw-prose-hard-gate=none`；模型答案所有权=`preserved`。
+
+### 123.328 S37bj：背景负载只在精确资源/竞争边证实时升级为因果支撑
+
+`EVAL-B334-TRACEOFFCHAINRESOURCEINFERENCE1` 复用并收紧现有两个 Trace 软教学，不新增成文硬门：
+
+1. Explorer 的 `TRACE QUERY` 既有背景纪律从“不能成为直接根因链”扩展为证据口径：时间重叠、相同粗粒度 IO/CPU 类或 pressure score 只证明
+   背景负载被观察到，不证明 shared device/dev/inode/lock/core、竞争关系或背景延长了链上原因；
+2. Finalizer 的 `BACKGROUND AGGREGATE HEADLINE` 同源补齐：只有 trace_query 发布 exact shared-resource identity 或 typed dependency/competition edge
+   时，模型才能把背景与链上原因连接；否则只称 independent background，并把共同瓶颈列为 follow-up investigation direction；
+3. 两条教学都显式复用既有 `NO CROSS-ROW DURATION SUMS` 纪律：不得把背景 row 与链上 row 相加，也不得发明 combined total。已发布 aggregate 自身的
+   typed total 仍可照录，不影响系统负载说明；
+4. 这是模型推理边界的软上下文，不扫描用户问题、model thinking/summary/最终答案，不新增 OnViolation、regex、关键词判决或答案 mutation；系统不替模型
+   决定结论，只告诉模型什么证据尚未证明；
+5. skill 回归钉住 explorer/finalizer 两面都包含 shared-resource/competition 的精确证据门、independent-background 降级形与 no-sum 句，既有
+   headline single-authority pin 保持；Trace query 值、投影、root election、自动补齐及 read/write/JSON/Mermaid 路径不改。
+
+状态：`EVAL-B334=S37bj-implemented/focused-skill-pass/pending-production-replay`；
+`guidance=typed-caliber-soft`；`shared-resource-upgrade=exact-identity-or-edge`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace 计算/投影=`unchanged`；JSON/read/write=`unchanged`。

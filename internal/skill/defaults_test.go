@@ -525,6 +525,9 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// Description C3② sentence).
 		"a rank observation note spelling projected_total_ms only echoes cumulative_impact_ms",
 		"ranking order lives on effective_impact_ms (before score)",
+		"temporal overlap, the same broad IO/CPU class, or a pressure score does NOT prove a shared device/inode/lock/core",
+		"independent background and at most a follow-up investigation direction",
+		"never add its duration to chain rows or invent a combined total",
 	} {
 		if !strings.Contains(traceTier, want) {
 			t.Fatalf("trace-gated workflow missing %q:\n%s", want, traceTier)

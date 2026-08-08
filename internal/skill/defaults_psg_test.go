@@ -282,6 +282,9 @@ func TestG13FinalizerSkillHeadlineSingleAuthority(t *testing.T) {
 		"not a deterministic-optimization span",
 		"not the target's own symptom row",
 		"decided solely by the TRACE PRIMARY-CAUSE ENTITY CONSISTENCY rule",
+		"does not prove a shared resource, contention, or that the background lengthened the on-chain cause",
+		"independent background and at most a follow-up investigation direction",
+		"do not add its duration to an on-chain row or invent a combined total",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("aggregate-headline rule missing %q:\n%s", want, item.Body)
