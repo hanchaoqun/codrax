@@ -68,7 +68,7 @@ func TestRuntimeTraceCoveragePrefersExplicitWindowStateAccountZ2(t *testing.T) {
 	if got.windowMS != 114.940 || got.running != 26.946 || got.runnable != 3.636 {
 		t.Fatalf("wider exploratory account displaced the explicit-window account: %+v", got)
 	}
-	text := runtimeTraceCoverageAuthorityText(authority, true)
+	text := runtimeTraceCoverageAuthorityText(authority, true, false)
 	if !strings.Contains(text, "窗114.940ms") || strings.Contains(text, "窗120.000ms") {
 		t.Fatalf("coverage text must bind the account to the explicit window:\n%s", text)
 	}

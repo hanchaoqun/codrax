@@ -26477,3 +26477,23 @@ generic flow 若没有声明任何 typed relation，只是模型的展示载体�
 `generic-untyped-presentation=not-a-hard-claim/by-design`；`source-call-unlabeled-body=already-strict`；
 `member_set-order=never-promoted`；`raw-request/model/output-scan=none`；`system-answer-rewrite=none`；
 Trace 因果投影/自动补齐=`unchanged`；`go test ./... -count=1=PASS`；待提交推送与异构源码+显式窗生产回放。
+
+### 123.346 r206 / S37bs：显式关系合同生产闭环；frame 未证不能抹掉窗内已证链
+
+在 `main@fdd2c6169` 上严格并发 2 复放 `sr_cpp_virtual_chain` 与
+`trace_query_donghu_real_frame_multicausal`，runner 2/2 PASS；人工为源码 PASS、Trace PARTIAL：
+
+1. C++ 案的源码事实、工厂选择、虚分派和“Logger 与 make_sink 无直接调用点”的不确定性披露均正确。模型首稿可选图混入推断连接、控制流和数据流，却把多条边都声明为 call；新合同精确拒绝一次，模型删除可选图后保留完整且有引用的 prose/list 答案。拒绝是正确证据门，不按语言、节点名或用户词面放宽；模型未按提示收窄成证据子图记为软教学观察，待跨语言重复 witness 再立硬施工件；
+2. Trace 案保留用户显式窗 `34579.472865..34579.587805`，三次 windowed `trace_query` 后首稿零拒绝。系统投影明确分出 `⛓` 链上、`◇` 邻近、`▒` 背景，主根因只从已证链上可消除席选举：CookieMonsterCl-59843 23.994ms；CPU/IO 压力没有因数值大或时间邻近进入主因榜；
+3. “主要时间占用/关键路径候选”与“窗内可消除量”两轴同时发布：目标 running/sleep 等真实占时负责新修向，优先级/IO/频率规则席负责现有规则可消量，二者不相加。`frame_evidence_status=absent` 也正确限制为没有目标绑定 frame/deadline 证明，不把所选窗直接宣称为已证丢帧；
+4. 新确认 `EVAL-B343-FRAMECHAINCALIBER1=P1`：同一系统投影已有 typed wakeup/blocking chain，覆盖边界却仍发“未获得 ... typed causal row，调度、IO、频率观察只能描述窗口背景”。这是把“未证具体 frame-drop”错误扩大为“未证所选窗链”，与同页主根因自相矛盾；
+5. `S37bs` 根修只读编译后 projection 的精确信号。`PrimaryRootCause/PrimaryRootCauses/OnChainCauses/WakeupPath` 任一存在时，覆盖边界承认 typed 链只支持“所选窗口内链上候选与可消除量”，同时保留“不证明具体丢帧因果”；没有链凭证的调度/IO/频率才保持邻近或背景。adjacent/background/standalone semantic 行不能触发该臂；
+6. 新记 `EVAL-B344-TRACESEMALIAS1=P2`：同一 VerifyClass span 因 `attached_trace.txt` 与物理 systrace 别名、行号相差 1 被发布两次（E24/E25）。下一小批按 typed span identity（host + semantic identity + exact interval + query/board domain）合并别名 publication，保留全部 EvidenceID/locator，不按 span 名单独去重；
+7. 模型自由正文另有一处 `CookieMonsterCl-59843` 写成 `-61839`，以及把同线程相互重叠的 D/io_wait/io_latency 口径相加成 24.492ms；确定性系统投影没有复制这两个错误，且已提供“不可相加”上下文。当前按模型波动/软上下文质量观察留档，不扫描最终 prose 做硬门、不让系统替写模型答案；
+8. `S37bs` 中英文精确分支回归已通过；背景-only fixture 继续走无链措辞，显式链 fixture 不再被背景措辞降权。Trace 根因选举、显式窗、补采、排序、唤醒链和数值均未改。
+
+状态：runner=`2/2 PASS`；human=`source PASS / Trace PARTIAL`；
+`EVAL-B284=production-positive/closed`；`EVAL-B343=S37bs-implemented/full-tool-suite-pass`；
+`EVAL-B344=P2-filed/next`；`trace-root=typed-on-chain-only`；
+`adjacent/background=never-promoted`；`frame-causality=still-unproven`；
+`finalizer-reject=source:1(correct),trace:0`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

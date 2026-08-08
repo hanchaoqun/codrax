@@ -1357,7 +1357,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 		}
 	}
 	coverageBlock := runtimeTraceCausalProjectionCoverageBlockForProjection(
-		input, lang, runtimeTraceProjectionSetHasCausalRows(set),
+		input, lang, runtimeTraceProjectionSetHasCausalRows(set), runtimeTraceProjectionSetHasTypedChainRows(set),
 	)
 	if len(cluster) == 0 {
 		boundary := runtimeTraceProjEmptyClusterBoundaryBlocks(set, coverageBlock, runtimeTraceCausalProjectionUseChinese(lang))
@@ -4002,10 +4002,10 @@ func runtimeTraceCausalProjectionCleanPath(path []string) []string {
 // middle is itself a run).
 
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
-	return runtimeTraceCausalProjectionCoverageBlockForProjection(input, lang, false)
+	return runtimeTraceCausalProjectionCoverageBlockForProjection(input, lang, false, false)
 }
 
-func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.ObservationLedgerInput, lang string, causalRowsPresent bool) *types.AnswerBlock {
+func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.ObservationLedgerInput, lang string, causalRowsPresent, typedChainRowsPresent bool) *types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	results := runtimeTraceCoverageResults(input)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(results, zh)
@@ -4021,7 +4021,7 @@ func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.Observat
 		!runtimeTraceCoverageHasLifecycle(authority) && len(authority.targetIdentities) == 0 {
 		return nil
 	}
-	authorityText := runtimeTraceCoverageAuthorityText(authority, zh)
+	authorityText := runtimeTraceCoverageAuthorityText(authority, zh, typedChainRowsPresent)
 	needsProjectionCoverageText := len(reasons) > 0 || authority.causalUnproven ||
 		authority.enumerationIncomplete || runtimeTraceCoverageHasLifecycle(authority)
 	text := strings.TrimSpace(authorityText)
@@ -4062,6 +4062,23 @@ func runtimeTraceProjectionSetHasCausalRows(set types.TraceCausalProjectionSet) 
 			len(projection.SemanticSpans) > 0 ||
 			len(projection.WakeupPath) > 0 ||
 			len(projection.SupportingHops) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjectionSetHasTypedChainRows is deliberately narrower than
+// the broad render-content predicate above. Only a compiled primary/on-chain
+// seat or an explicit wakeup path may authorize selected-window chain
+// conclusions in the frame-authority caveat. Adjacent/background/standalone
+// semantic rows remain context and cannot flip this wording branch.
+func runtimeTraceProjectionSetHasTypedChainRows(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		if projection.PrimaryRootCause != nil ||
+			len(projection.PrimaryRootCauses) > 0 ||
+			len(projection.OnChainCauses) > 0 ||
+			len(projection.WakeupPath) > 0 {
 			return true
 		}
 	}
@@ -4625,7 +4642,7 @@ func runtimeTraceLifecycleWindowRelationOrder(relation string) int {
 	}
 }
 
-func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh bool) string {
+func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh, typedChainRowsPresent bool) string {
 	var parts []string
 	if runtimeTraceCoverageHasLifecycle(authority) {
 		boundaries := runtimeTraceLifecycleBoundariesText(authority)
@@ -4674,7 +4691,11 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 				parts = append(parts, fmt.Sprintf("帧边权限: frame_flow_causality=unproven，relation=%s，edges=%d；这些边只表示完整 span 按时间排序后的相邻关系，没有 async cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果 flow",
 					firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
 			} else if authority.frameUnproven {
-				parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
+				if typedChainRowsPresent {
+					parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据；已发布的 typed 唤醒/阻塞链只支持所选窗口内的链上候选与可消除量，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
+				} else {
+					parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
+				}
 			} else {
 				parts = append(parts, "证据权限: causal_conclusion=unproven；当前没有 typed causal row，背景观察不能升级为确定根因")
 			}
@@ -4682,7 +4703,11 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			parts = append(parts, fmt.Sprintf("Frame-edge authority: frame_flow_causality=unproven, relation=%s, edges=%d; these edges only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier",
 				firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
 		} else if authority.frameUnproven {
-			parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence or typed causal row was produced, so scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
+			if typedChainRowsPresent {
+				parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence was produced; published typed wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts, not a specific frame-drop cause; scheduler, IO, and frequency observations without an on-chain credential remain adjacent or background context")
+			} else {
+				parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence or typed causal row was produced, so scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
+			}
 		} else {
 			parts = append(parts, "Evidence authority: causal_conclusion=unproven; without a typed causal row, background observations cannot be promoted to a definite root cause")
 		}

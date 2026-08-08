@@ -144,8 +144,50 @@ func TestTraceCausalCoverageLocalRefinementDoesNotOverridePublishedCausalRows(t 
 			ReasonCode: "trace_query_event_search_zero_match",
 		},
 	}}}
-	if block := runtimeTraceCausalProjectionCoverageBlockForProjection(input, "zh", true); block != nil {
+	if block := runtimeTraceCausalProjectionCoverageBlockForProjection(input, "zh", true, true); block != nil {
 		t.Fatalf("query-local zero match must not become a report-wide no-causal-row claim: %+v", block)
+	}
+}
+
+func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySeparate(t *testing.T) {
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View:                "frame_root_cause_bundle",
+			FrameEvidenceStatus: "absent",
+			CausalConclusion:    "unproven",
+		},
+	}}}
+	block := runtimeTraceCausalProjectionCoverageBlockForProjection(input, "zh", true, true)
+	if block == nil {
+		t.Fatal("frame authority must remain visible beside a typed chain projection")
+	}
+	for _, want := range []string{
+		"frame_causality=unproven",
+		"typed 唤醒/阻塞链只支持所选窗口内的链上候选与可消除量",
+		"无链上凭证的调度、IO、频率观察仍只能作为邻近或背景",
+		"不证明具体丢帧因果",
+	} {
+		if !strings.Contains(block.Text, want) {
+			t.Fatalf("typed chain/frame boundary missing %q:\n%s", want, block.Text)
+		}
+	}
+	if strings.Contains(block.Text, "未获得可绑定到目标的 frame/deadline 证据或 typed causal row") ||
+		strings.Contains(block.Text, "调度、IO、频率观察只能描述窗口背景") {
+		t.Fatalf("typed chain rows were demoted by the no-chain wording:\n%s", block.Text)
+	}
+
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		OnChainCauses: []types.TraceCausalProjectionNode{{Subject: "worker-7", ChainRelevance: "on_chain"}},
+	}}}
+	if !runtimeTraceProjectionSetHasTypedChainRows(set) {
+		t.Fatal("an exact on-chain seat must select the typed-chain authority wording")
+	}
+	set.Projections[0].OnChainCauses = nil
+	set.Projections[0].AdjacentCauses = []types.TraceCausalProjectionNode{{Subject: "worker-7", ChainRelevance: "adjacent"}}
+	if runtimeTraceProjectionSetHasTypedChainRows(set) {
+		t.Fatal("an adjacent-only projection must not gain typed-chain authority")
 	}
 }
 
