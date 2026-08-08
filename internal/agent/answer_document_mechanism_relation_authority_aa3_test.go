@@ -248,6 +248,49 @@ func TestMechanismRelationAuthorityWithoutSupportPlanAcceptsOperationEvidenceRep
 	}
 }
 
+func TestMechanismRelationAuthoritySoftParticipantCoverageIsLanguageNeutralAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            string(types.ReqMechanism),
+				PrimaryEntities: []string{"Pipeline::Analyzer", "ArkRunner", "cj.mod.Consumer", "DetachedStage"},
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "cpp-ark", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "Pipeline.Analyzer", Predicate: "calls", Object: "ArkRunner",
+				Source: "src/pipeline.cpp", LineStart: 20, AnchorKind: types.AnchorCall, AnchorSymbol: "ArkRunner",
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "ark-cj", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "ArkRunner", Predicate: "calls", Object: "cj::mod::Consumer",
+				Source: "entry.ets", LineStart: 30, AnchorKind: types.AnchorCall, AnchorSymbol: "cj::mod::Consumer",
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "soft_named_participant_relation_coverage: incident=[Pipeline::Analyzer ArkRunner cj.mod.Consumer]; no_incident_typed_relation=[DetachedStage]") {
+		t.Fatalf("cross-language typed participant incidence was not surfaced as soft context:\n%s", got)
+	}
+	if !strings.Contains(got, "not completeness authority") || !strings.Contains(got, "independent/unproven") {
+		t.Fatalf("soft coverage boundary must forbid synthetic completeness:\n%s", got)
+	}
+
+	// Broad/augmented Entities are search hints only; without the analyzer's
+	// original PrimaryEntities shortlist they must not create this checklist.
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = nil
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"NoiseA", "NoiseB"}
+	if got := renderAnswerDocMechanismRelationAuthority(ctx); strings.Contains(got, "soft_named_participant_relation_coverage") {
+		t.Fatalf("broad entity hints must not be promoted into relation coverage context:\n%s", got)
+	}
+}
+
 func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

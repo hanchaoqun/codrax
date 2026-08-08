@@ -27490,3 +27490,28 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `dedup=typed-visible-carrier-identity`；`distinct-model-content=preserved`；
 `residual-caveat=preserved`；`hot-file-ratchet=green`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged/on-chain-only`。
+
+### 123.388 S37ct：flow 参与者覆盖先走软 typed checklist，不把 entity shortlist 升格成硬边合同
+
+B377 carrier 审计与第一安全层落地：
+
+1. r222 的 Analyzer 发出 6 个 `PrimaryEntities` 与 `predicate_axis=flow`，但 `exact_targets=[]`，最终 semantic view 明确记录 `required_mechanism_anchors=0`。
+   因此现有硬 carrier 只证明“需要 flow 解释”，没有证明 6 个概念名都必须成为 Mermaid edge endpoint；
+2. `RequiredMechanismAnchors` 也不能直接替代：它表示 exact identity 可见性，可能含 tool/file stem，最多 6 项，并未编码 participant role、producer/transfer/consumer 位置或
+   必须 incident。把它改成“每项必须连边”会让 subgraph/container、独立状态载体与真实 unavailable 边界产生新合同冲突；
+3. 本批不新加 Analyzer JSON 字段，避免扩大 JSON 教学和模型心智。`FlowOperationEvidenceEmissionGuide` 的单一教学源补充一条软原则：named participants 是探索 checklist，
+   有关时检查各自 operation site；查不到就保持 independent/unproven，绝不造桥；
+4. Finalizer 的 `Current-Source Mechanism Relation Authority` 新增紧凑
+   `soft_named_participant_relation_coverage`：只比较 analyzer 原始 `PrimaryEntities` 与当前 citable typed relation endpoints，分别列出 incident / no-incident；
+5. 该 checklist 明文标注“not completeness authority / not permission to add an edge”。它不触发 reject、backtrack、自动补边、删边或答案改写；广义/后扩展 `Entities` 不进入，
+   用户请求、thinking、summary、final prose、Mermaid label 词义均不扫描；
+6. identity 匹配复用跨语言 typed surface compatibility，支持 `. / :: / # / ->` 等 Go、Java/Kotlin、C/C++、ArkTS/TS/JS、Cangjie、Rust、Python、Swift 常见表示。
+   测试用 C++ `Pipeline::Analyzer`、ArkTS `ArkRunner`、Cangjie `cj.mod.Consumer` 验证 incident，并把 `DetachedStage` 保持 no-incident；
+7. 这是 B377 的安全第一层，不虚称硬闭环。若生产 replay 仍把 soft no-incident 项叙述成已连接完整路径，下一步必须新增真正的 analyzer typed participant-role carrier；
+   在该 carrier 落地前，禁止用 PrimaryEntities/mentioned substring、实体相似度或任意 edge count 做硬门；
+8. Trace family 与 `IntentTrace` 均提前排除。显式窗因果投影、自动补采、链上根因和邻近/背景边界不变；Trace 根因仍只能由 typed on-chain 席确权。
+
+状态：`EVAL-B377=S37ct-soft-coverage-layer-implemented/pending-production-replay`；
+`hard-participant-contract=not-authorized/carrier-insufficient`；
+`json-schema=unchanged`；`broad-entities=not-consumed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。

@@ -6917,6 +6917,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	fmt.Fprintf(&b,
 		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), status)
+	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
 			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
