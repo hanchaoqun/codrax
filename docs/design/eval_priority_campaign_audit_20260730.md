@@ -27256,3 +27256,35 @@ Trace=`QFRootCauseTrace-explicitly-excluded/unchanged`。
 `definition-only=one-focused-repair-then-typed-boundary`；`json-teaching=single-source`；
 `EVAL-B368=authority-half-implemented/pending-replay`；`EVAL-B369=open`；`EVAL-B371=open`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`explicitly-excluded/unchanged`。
+
+### 123.378 r220：operation 聚焦补证生效；typed endpoint 交接错拒并把 PASS 图删成零边
+
+在 `main@c5cf8fb73` 上严格并发恰好两个同案回放。runner 1/2 PASS，人工 0/2：
+
+1. B366 第一层获得生产 witness。logic 案首次 completion 因只有 definition/field roster 被 typed `flow_operation_carrier` 拒绝；Explorer 随后补读真实 operation sites，
+   发出并被 grounder 正规化为 `Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage`、`Orchestrator.dispatchStage -> Orchestrator.applyStageOutput`、
+   `Orchestrator.applyStageOutput -> Mutable.SetTurnAArtifacts`。这证明“一次聚焦 operation pass”方向正确；
+2. 新 P0 断点在下游 identity 交接。Finalizer 图用短名 `runAnalyzePhase`/`dispatchStage`/`applyStageOutput`/`SetTurnAArtifacts`，证据是同一操作的 FQ surface。
+   全 evidence pool 中这些 operation 均唯一，validator 却连续 9 次报 `call_edge_unproven`，最终降级。立
+   `EVAL-B372-FLOWENDPOINTIDENTITY1=P0/REDLINE`：只允许从 citable typed call endpoint 做唯一、方向保持的 short↔qualified 投影；同尾多 owner 必须 fail-closed；
+3. 降级恢复本身按 S37cg 正确：保留上一版结构化正文/引用/图，披露最终校验失败，不包含最后 repair `<think>`。runner 因 degraded 跳过 finalizer oracle 而 FAIL，属于诚实失败；
+4. diagram 案 runner PASS 但人工失败。为通过 strict flow relation gate，模型最终删除全部 Mermaid arrows，只剩 stage 节点与条件 pre-stage subgraph。现有 oracle 只匹配
+   Mermaid fence 和 stage 词，未验证可解析 edge，误把“零边流程图”签绿。立 `EVAL-B374-DIAGRAMORACLEEDGES1=P1`；该规则只用于显式关系图 eval 的 typed oracle，
+   不得进入生产答案 raw-prose/keyword 硬门；
+5. B368 仍为 partial。S37ck 在 AnswerSupportPlan 存在时能排除 auxiliary、单端宽匹配；本轮没有 support plan，兼容臂仍把无关
+   `hitraceconv -> repl test` / agent helper 的 repo-wide FlowFinding 标成 `ordered_path_authority=typed_flow_paths_present`。立
+   `EVAL-B373-FLOWAUTHNOSUPPORT1=P0/HIGH`：无 support-plan 时也必须 replay 本轮 citable operation EvidenceID，或让有序首尾双端绑定本轮 typed operation surface；
+   否则 ordered authority=`unproven`，原 FlowFinding 仅保留背景 enrichment；
+6. 两案分别 9/6 次成文拒绝、665/483 秒，性能主要消耗在同一 typed relation 合同反复错拒，不是 SQL、JSON 或 Mermaid 渲染性能。先修 identity/authority，
+   不通过增加重试预算掩盖；
+7. B369 本轮没有以“系统保留内容 / 第一稿答案”旧形复现。typed stage/owner 补充仍较长，列为信息密度观察项，不与 P0 identity 修复混批；
+8. 全程无 malformed JSON、无 request/thinking/summary/final prose 关键词硬门、无系统替写模型结论。两案无 Trace 查询；后续短名解析与 flow authority 都继续排除
+   `QFRootCauseTrace`。Trace 显式窗、自动补采、因果投影、根因排序、唤醒链、窗内可消除量和真实占时/规则可消双轴不变；主因仍只来自 typed on-chain 席，
+   邻近/背景只能作为额外排查方向。
+
+状态：runner=`1/2 PASS`；human=`0/2`；
+`EVAL-B366=operation-pass-production-proved/downstream-open`；
+`EVAL-B372=P0-confirmed/next`；`EVAL-B373=P0-confirmed`；
+`EVAL-B374=P1-confirmed/eval-only`；`EVAL-B368=partial`；
+`finalizer-reject=9+6`；`malformed-json=none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace=`unchanged`。
