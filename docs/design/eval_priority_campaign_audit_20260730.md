@@ -26497,3 +26497,30 @@ Trace 因果投影/自动补齐=`unchanged`；`go test ./... -count=1=PASS`；�
 `EVAL-B344=P2-filed/next`；`trace-root=typed-on-chain-only`；
 `adjacent/background=never-promoted`；`frame-causality=still-unproven`；
 `finalizer-reject=source:1(correct),trace:0`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.347 S37bt：语义 span 的附件别名发布按精确物理事件身份收敛
+
+关闭 r206 新见 `EVAL-B344-TRACESEMALIAS1`。客户 Trace 同一物理 `VerifyClass` span 同时经
+`attached_trace.txt` 和实际 systrace 路径进入 observation ledger；两份 locator 行号相差 1，但 host、语义身份、发生区间和查询域完全相同。旧的通用去重把
+locator 当身份，因而重复发布；后续 V4 又会把“相近数值 + 区间重叠”当成 scheduler measurement 的边界重采样，这一规则若直接复用到语义事件，反过来可能删掉
+真实的重复 span。本批按事件类型分离两种身份，不从 span 名、文件名或最终答案文本猜测：
+
+1. 新增 semantic alias publication 精确 key：typed role/subject/predicate/object、span name/kind/category/subcategory/class/type、精确
+   `StartTs/EndTs`、`QueryWindowStartTs/EndTs`、链凭证/分支/深度、各数值口径、rank board/fix direction、window membership 与 supplement
+   必须全部一致；SupportRefs 和 source line 不参与物理事件等价；
+2. alias fold 在旧 generic dedupe 之前运行。胜者数值与权限不变，所有被合并的 EvidenceID 进入 `MergedEvidenceIDs`，所有物理 locator 进入
+   `SupportRefs`；不铸造 ×N、SUM 或新的可消除量；
+3. timed semantic row 的 generic base key 同样服从上述精确身份，避免旧去重在 alias fold 之后按 locator 或缺失 query domain 再次误吞；无完整发生区间的
+   semantic row 不获得虚构物理身份，继续 fail-open 保留；
+4. R1/V4 增加 typed 边界：两个 semantic publication 只有完整精确事件/查询身份一致才可共享席位；1µs 不同发生区间、不同查询窗、不同
+   cache outcome/chain lane/value 均保持独立。scheduler/state 的既有 line/time overlap + 3% boundary-refinement 合同字节不动；mixed semantic/rank
+   的 RANK-U seat hand-off 也保持原路；
+5. 正臂钉住 E24/E25 两个附件别名在 `SemanticSpans` 与 `OnChainCauses` 各只占一席，同时保留两份 E# 和 locator；负臂分别钉住 1µs 不同事件、不同查询域及
+   V4 near-fold 不得吞 semantic span；
+6. 本批只减少同一物理事件的重复展示，不更改链凭证、主根因排序、显式时间窗、唤醒链、系统补齐、窗内可消除量或 frame-causality。链外/邻近/背景仍不能因数值、
+   名字或时间接近升级为根因；系统没有改写模型结论。
+
+状态：`EVAL-B344=S37bt-implemented`；`semantic-alias=exact-typed/lossless`；
+`distinct-semantic-occurrence/query-domain=preserved`；`scheduler-V4=unchanged`；
+`trace-root=typed-on-chain-only`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+`go test ./internal/types -count=1=PASS`；`go test ./... -count=1=PASS`；待独立提交推送与并发 2 生产回放。

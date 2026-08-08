@@ -2179,10 +2179,12 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	sort.SliceStable(classified, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(classified[i], classified[j], pathIndex)
 	})
+	classified = traceCausalProjectionDedupeSemanticAliasPublications(classified)
 	classified = traceCausalProjectionDedupeNodes(classified)
 	sort.SliceStable(semantic, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(semantic[i], semantic[j], pathIndex)
 	})
+	semantic = traceCausalProjectionDedupeSemanticAliasPublications(semantic)
 	semantic = traceCausalProjectionDedupeNodes(semantic)
 	out := TraceCausalProjection{
 		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
@@ -5591,7 +5593,124 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 	return out
 }
 
+// traceCausalProjectionDedupeSemanticAliasPublications folds only duplicate
+// publications of one physical semantic span. Runtime attachment aliases can
+// point at the same event with different file labels and one-line-shifted
+// locators; SupportRefs/line ranges therefore cannot be physical identity.
+// Exact host + semantic identity + occurrence interval + query/authority/value
+// domain is. Distinct repeated spans, query boards, cache outcomes, chain
+// lanes, or values remain separate. Every loser EvidenceID and locator is
+// retained on the survivor for evidence-index auditability.
+func traceCausalProjectionDedupeSemanticAliasPublications(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	index := make(map[string]int, len(nodes))
+	out := make([]TraceCausalProjectionNode, 0, len(nodes))
+	for _, node := range nodes {
+		key := traceCausalProjectionSemanticAliasPublicationKey(node)
+		if key == "" {
+			out = append(out, node)
+			continue
+		}
+		at, exists := index[key]
+		if !exists {
+			index[key] = len(out)
+			out = append(out, node)
+			continue
+		}
+		survivor := &out[at]
+		seenEvidence := make(map[string]bool, 1+len(survivor.MergedEvidenceIDs))
+		for _, id := range append([]string{survivor.EvidenceID}, survivor.MergedEvidenceIDs...) {
+			if id = strings.TrimSpace(id); id != "" {
+				seenEvidence[traceCausalProjectionCanonicalNode(id)] = true
+			}
+		}
+		for _, id := range append([]string{node.EvidenceID}, node.MergedEvidenceIDs...) {
+			id = strings.TrimSpace(id)
+			canonical := traceCausalProjectionCanonicalNode(id)
+			if id == "" || seenEvidence[canonical] {
+				continue
+			}
+			seenEvidence[canonical] = true
+			survivor.MergedEvidenceIDs = append(survivor.MergedEvidenceIDs, id)
+		}
+		survivor.SupportRefs = appendUniqueObservationStrings(survivor.SupportRefs, node.SupportRefs...)
+		if survivor.LineStart <= 0 && node.LineStart > 0 {
+			survivor.LineStart, survivor.LineEnd = node.LineStart, node.LineEnd
+		}
+	}
+	return out
+}
+
+func traceCausalProjectionSemanticAliasPublicationKey(node TraceCausalProjectionNode) string {
+	if !traceCausalProjectionSemanticPublication(node) {
+		return ""
+	}
+	if !TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) {
+		return ""
+	}
+	within := "unknown"
+	if node.WithinRequestedWindow != nil {
+		within = strconv.FormatBool(*node.WithinRequestedWindow)
+	}
+	return strings.Join([]string{
+		traceCausalProjectionCanonicalNode(node.Role),
+		traceCausalProjectionCanonicalNode(node.Subject),
+		traceCausalProjectionCanonicalNode(node.Predicate),
+		traceCausalProjectionCanonicalNode(node.Object),
+		strings.TrimSpace(node.SpanName),
+		traceCausalProjectionCanonicalNode(node.SpanKind),
+		traceCausalProjectionCanonicalNode(node.SpanCategory),
+		traceCausalProjectionCanonicalNode(node.SpanSubcategory),
+		traceCausalProjectionCanonicalNode(node.SemanticClass),
+		traceCausalProjectionCanonicalNode(node.TypeToken),
+		strconv.FormatFloat(node.StartTs, 'g', -1, 64),
+		strconv.FormatFloat(node.EndTs, 'g', -1, 64),
+		strconv.FormatFloat(node.QueryWindowStartTs, 'g', -1, 64),
+		strconv.FormatFloat(node.QueryWindowEndTs, 'g', -1, 64),
+		traceCausalProjectionCanonicalNode(node.Causality),
+		traceCausalProjectionCanonicalNode(node.ChainRelevance),
+		traceCausalProjectionCanonicalNode(node.OnChainBasis),
+		traceCausalProjectionCanonicalNode(node.ChainCredentialCensus),
+		strconv.Itoa(node.ChainDepth),
+		strconv.Itoa(node.ChainBranch),
+		strconv.FormatFloat(node.ImpactMS, 'g', -1, 64),
+		strconv.FormatFloat(node.CumulativeImpactMS, 'g', -1, 64),
+		strconv.FormatFloat(node.EffectiveImpactMS, 'g', -1, 64),
+		strconv.FormatFloat(node.ActualImpactMS, 'g', -1, 64),
+		strconv.FormatFloat(node.TargetImpactMS, 'g', -1, 64),
+		strconv.FormatFloat(node.SemanticChainProjectedMS, 'g', -1, 64),
+		strings.TrimSpace(node.Value),
+		strings.TrimSpace(node.Unit),
+		strconv.Itoa(node.Rank),
+		strconv.Itoa(node.BackgroundRank),
+		traceCausalProjectionCanonicalNode(node.Tier),
+		traceCausalProjectionCanonicalNode(node.RankBoardTarget),
+		strings.TrimSpace(node.RankBoardParamsFingerprint),
+		traceCausalProjectionCanonicalNode(node.FixDirection),
+		strconv.Itoa(node.FamilyMemberCount),
+		traceCausalProjectionCanonicalNode(node.FamilyFoldCaliber),
+		strings.Join(node.FamilyMemberRoster, "\x02"),
+		within,
+		strconv.FormatBool(node.SystemSupplement),
+	}, "\x00")
+}
+
+func traceCausalProjectionSemanticPublication(node TraceCausalProjectionNode) bool {
+	return node.Role == TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span"
+}
+
 func traceCausalProjectionDedupeBaseKey(node TraceCausalProjectionNode) string {
+	// B344: timed semantic rows have a physical event identity independent of
+	// attachment filenames/line locators. Use that exact typed identity here as
+	// well as in the lossless alias fold above; otherwise this older generic
+	// dedupe can swallow a distinct query-domain publication before the
+	// presentation layer sees it. Untimed semantic rows stay on the legacy key
+	// and therefore never gain an invented occurrence identity.
+	if key := traceCausalProjectionSemanticAliasPublicationKey(node); key != "" {
+		return "semantic-publication\x00" + key
+	}
 	// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition halves are
 	// TWO ACCOUNTS of one segment set (⛓ anchored + ◇ remainder) — same
 	// Role/Subject/Predicate/Object, deliberately co-published; the dedupe key

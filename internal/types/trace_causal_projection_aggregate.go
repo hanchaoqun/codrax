@@ -343,6 +343,21 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 				continue
 			}
 			survivor := &(*buckets[ref.bucket])[ref.index]
+			// B344: R1's historical (subject, rounded value, source lines)
+			// identity describes scheduler/state republications, not semantic
+			// occurrences. Two semantic rows must agree on the complete typed
+			// event/query identity before they can share one seat. In particular,
+			// equal source lines do not authorize merging one physical span as
+			// observed under two distinct query domains. Mixed semantic/rank views
+			// retain the existing RANK-U hand-off path.
+			if traceCausalProjectionSemanticPublication(*survivor) && traceCausalProjectionSemanticPublication(node) {
+				survivorKey := traceCausalProjectionSemanticAliasPublicationKey(*survivor)
+				nodeKey := traceCausalProjectionSemanticAliasPublicationKey(node)
+				if survivorKey == "" || nodeKey == "" || survivorKey != nodeKey {
+					kept = append(kept, node)
+					continue
+				}
+			}
 			if traceCausalProjectionCanonicalNode(node.EvidenceID) != "" &&
 				traceCausalProjectionCanonicalNode(node.EvidenceID) == traceCausalProjectionCanonicalNode(survivor.EvidenceID) {
 				// The survivor's own copy in another bucket — keep it so bucket
@@ -1041,6 +1056,21 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 		// The same observation's own copy — renderers dedupe by node key; a fold
 		// here would fabricate a publication count.
 		return false
+	}
+	// B344: a semantic span is an occurrence, not a scheduler measurement
+	// boundary refinement. The generic V4 overlap/3%-near lane must therefore
+	// never fold two distinct spans merely because their envelopes overlap.
+	// Only the exact typed physical-event identity may equate them; rows without
+	// a complete interval fail open to separate publications. The earlier alias
+	// fold normally consumes exact twins and preserves every evidence locator;
+	// this arm is the presentation-layer safety net.
+	aSemantic, bSemantic := traceCausalProjectionSemanticPublication(a), traceCausalProjectionSemanticPublication(b)
+	if aSemantic || bSemantic {
+		if !aSemantic || !bSemantic {
+			return false
+		}
+		aKey, bKey := traceCausalProjectionSemanticAliasPublicationKey(a), traceCausalProjectionSemanticAliasPublicationKey(b)
+		return aKey != "" && aKey == bKey
 	}
 	if traceCausalProjectionCanonicalNode(a.Subject) != traceCausalProjectionCanonicalNode(b.Subject) ||
 		traceCausalProjectionCanonicalNode(a.Object) != traceCausalProjectionCanonicalNode(b.Object) {
