@@ -531,14 +531,14 @@ func traceDecisionWriteNodeBlockingReasonAuthority(b *strings.Builder, node type
 		return
 	}
 	if node.DStateCauseUnprovenRemainder {
-		b.WriteString("; blocking_reason_authority=`not_provided_by_this_seat`; blocked_reason_caller=`not_provided`; sibling_caller_transfer=`forbidden`")
+		b.WriteString("; blocking_reason_authority=`not_provided_by_this_seat`; blocked_reason_caller=`not_provided`; sibling_caller_transfer=`forbidden`; allowed_mechanism_scope=`measured_state_occupancy_with_unknown_blocking_reason`; not_authorized_mechanisms=`sibling_caller,irq_or_storage_cause,resource_or_holder_identity,cross_row_delay`")
 		if node.BlockedReasonWindowCount > 0 {
 			fmt.Fprintf(b, "; window_blocked_reason_records=%d; window_record_binding_to_this_seat=`not_provided`", node.BlockedReasonWindowCount)
 		}
 		return
 	}
 	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
-		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; caller_scope=`this_seat_only`; sibling_caller_transfer=`forbidden`; holder_authority=`not_provided_by_caller`", caller)
+		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; caller_scope=`this_seat_only`; sibling_caller_transfer=`forbidden`; holder_authority=`not_provided_by_caller`; allowed_mechanism_scope=`kernel_reported_wait_callsite_for_this_seat`; not_authorized_mechanisms=`sibling_or_cross_row_cause,holder_identity,resource_identity`", caller)
 	}
 }
 
@@ -923,6 +923,8 @@ func traceDecisionWritePriorityCandidateClaimEnvelope(b *strings.Builder, node t
 	}
 	b.WriteString("; claim_envelope=`measured_lower_priority_dependency_supply_candidate`")
 	b.WriteString("; candidate_mechanism_authority=`lower_priority_dependency_only`")
+	b.WriteString("; allowed_mechanism_scope=`measured_dependency_scheduler_supply_before_downstream_wakeup`")
+	b.WriteString("; not_authorized_mechanisms=`priority_inversion_occurrence,post_wakeup_delay,lock_or_holder_waiter,synchronous_blocking`")
 	b.WriteString("; synchronous_blocker_authority=`not_provided_by_candidate_seat`")
 	b.WriteString("; holder_waiter_authority=`not_provided_by_candidate_seat`")
 	b.WriteString("; conclusion_caliber=`validation_candidate`")

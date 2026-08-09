@@ -74,7 +74,7 @@ func TestResolveFrameTargetProcessScopeLocksOnlyProvenFrameMember(t *testing.T) 
 		Index: 1, Thread: ThreadRef{Comm: "ui", PID: 11, TGID: 100},
 		TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
 		Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame",
-		RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+		RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "pipeline_stage_role", Source: "trace_span_name_semantics", Confidence: 0.9},
 		StartTs:       1.001, EndTs: 1.010, StartLine: 10, EndLine: 11,
 	}}}
 	resolution := ResolveFrameTarget(nil, q, frame)
@@ -109,14 +109,14 @@ func TestResolveFrameTargetProcessScopeFailsClosedForMultipleProvenUICandidates(
 			Index: 1, Thread: ThreadRef{Comm: "ui-a", PID: 11, TGID: 100},
 			TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
 			Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame A",
-			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "pipeline_stage_role", Source: "trace_span_name_semantics", Confidence: 0.9},
 			StartTs:       1.001, EndTs: 1.010, StartLine: 10, EndLine: 11,
 		},
 		{
 			Index: 2, Thread: ThreadRef{Comm: "ui-b", PID: 12, TGID: 100},
 			TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
 			Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame B",
-			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "pipeline_stage_role", Source: "trace_span_name_semantics", Confidence: 0.9},
 			StartTs:       1.020, EndTs: 1.030, StartLine: 20, EndLine: 21,
 		},
 	}}

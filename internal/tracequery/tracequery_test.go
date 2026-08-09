@@ -2883,7 +2883,7 @@ func TestFrameRootCauseBundleResolvesUniqueUIFrameTargetAndPreviousFrameWindow(t
 	if bundle.Target.PID != 100 {
 		t.Fatalf("expected unique UI frame target pid=100, got target=%+v resolution=%+v", bundle.Target, bundle.TargetResolution)
 	}
-	if bundle.TargetResolution == nil || bundle.TargetResolution.Source != "frame_timeline_ui_unique" ||
+	if bundle.TargetResolution == nil || bundle.TargetResolution.Source != "frame_timeline_stage_anchor_unique" ||
 		bundle.TargetResolution.WindowSource != "previous_frame_end_to_current_frame_end" {
 		t.Fatalf("expected previous-frame target resolution, got %+v", bundle.TargetResolution)
 	}

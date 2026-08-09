@@ -10213,6 +10213,17 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep typed on-chain candidates eligible for the principal root-cause population; keep adjacent/background rows as support or additional investigation directions only.\n")
 			b.WriteString("- Scheduler residency and cross-subject causality hint: S, D, `io_wait`, runnable, and running are row-local measured states. A wait may explain that same subject's delay, but temporal overlap, adjacency, a shared CPU, or a shared subject name does not transfer state, caller, blocker, or causality between rows. Cross-subject or cross-row claims require the exact typed relation/fold carrier.\n")
 			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
+			for _, measurement := range view.FrameMeasurements {
+				fmt.Fprintf(&b, "- Runtime frame measurement caliber: `items=%d first_start=%.6f last_end=%.6f end_to_end_extent=%.3fms interval_union_coverage=%.3fms per_span_duration_sum=%.3fms uncovered_gap=%.3fms`. Use first-start→last-end extent for the end-to-end envelope, interval-union coverage for covered wall clock, and per-span sum only for accumulated item duration (which may double-count overlaps). Never substitute one ruler for another or infer work semantics from these interval measurements.\n",
+					measurement.ItemCount,
+					measurement.StartTs,
+					measurement.EndTs,
+					measurement.ExtentMS,
+					measurement.UnionCoverageMS,
+					measurement.SpanDurationSumMS,
+					measurement.UncoveredGapMS,
+				)
+			}
 		} else {
 			b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 			b.WriteString("- Scheduler state authority hint: a `sched_switch prev_state=S` row proves that the outgoing task entered an interruptible sleeping/blocking state; it does not by itself prove RT preemption, involuntary preemption, or a voluntary `yield`, and the next task's name is not enough to upgrade that relation. Only `R`/`R+` supports a still-runnable preemption candidate, which still requires the same switch/CPU plus a trusted priority relation before naming a higher-priority preemptor. Count wakeups only from deduplicated `sched_wakeup`/`sched_waking` rows or the typed wakeup census/chain; the number of running slices is not a wakeup count. A capped `event_search`/read subset is examples or a lower bound, never authority for `all`, `only`, `total`, exact `N`, `max`, or `min` claims.\n")
@@ -10269,6 +10280,20 @@ type runtimeTraceGuidanceView struct {
 	FrameFlowUnproven  bool
 	FrameFlowRelation  string
 	FrameFlowEdgeCount int
+	// FrameMeasurements are computed only from trace_query's typed frame-item
+	// observation intervals. They keep three different rulers separate without
+	// parsing a model-authored aggregate label or answer prose.
+	FrameMeasurements []runtimeTraceFrameMeasurement
+}
+
+type runtimeTraceFrameMeasurement struct {
+	ItemCount         int
+	StartTs           float64
+	EndTs             float64
+	ExtentMS          float64
+	UnionCoverageMS   float64
+	SpanDurationSumMS float64
+	UncoveredGapMS    float64
 }
 
 func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuidanceView {
@@ -10332,9 +10357,95 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 				view.FrameFlowEdgeCount = result.TraceEvidenceAuthority.FrameFlowEdgeCount
 			}
 		}
+		if result.TraceEvidenceAuthority.FrameItemCount > 0 {
+			if measurement, ok := answerDocRuntimeTraceFrameMeasurement(result.Observations); ok {
+				view.FrameMeasurements = append(view.FrameMeasurements, measurement)
+			}
+		}
 	}
 	view.FrequencyLimitWitnesses = answerDocDedupFrequencyLimitWitnesses(view.FrequencyLimitWitnesses, 8)
+	view.FrameMeasurements = answerDocDedupRuntimeTraceFrameMeasurements(view.FrameMeasurements, 2)
 	return view
+}
+
+type runtimeTraceInterval struct {
+	start float64
+	end   float64
+}
+
+func answerDocRuntimeTraceFrameMeasurement(records []types.ObservationRecord) (runtimeTraceFrameMeasurement, bool) {
+	intervals := make([]runtimeTraceInterval, 0, len(records))
+	seen := map[string]bool{}
+	for _, record := range records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			!strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "evidence_fact:frame_timeline_") ||
+			record.Span.EndTs <= record.Span.StartTs {
+			continue
+		}
+		key := fmt.Sprintf("%.9f/%.9f/%d/%d/%s", record.Span.StartTs, record.Span.EndTs,
+			record.Span.LineStart, record.Span.LineEnd, strings.TrimSpace(record.Subject))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		intervals = append(intervals, runtimeTraceInterval{start: record.Span.StartTs, end: record.Span.EndTs})
+	}
+	if len(intervals) == 0 {
+		return runtimeTraceFrameMeasurement{}, false
+	}
+	sort.Slice(intervals, func(i, j int) bool {
+		if intervals[i].start != intervals[j].start {
+			return intervals[i].start < intervals[j].start
+		}
+		return intervals[i].end < intervals[j].end
+	})
+	measurement := runtimeTraceFrameMeasurement{
+		ItemCount: len(intervals),
+		StartTs:   intervals[0].start,
+		EndTs:     intervals[0].end,
+	}
+	unionStart, unionEnd := intervals[0].start, intervals[0].end
+	for _, interval := range intervals {
+		measurement.SpanDurationSumMS += (interval.end - interval.start) * 1000
+		if interval.end > measurement.EndTs {
+			measurement.EndTs = interval.end
+		}
+		if interval.start <= unionEnd {
+			if interval.end > unionEnd {
+				unionEnd = interval.end
+			}
+			continue
+		}
+		measurement.UnionCoverageMS += (unionEnd - unionStart) * 1000
+		unionStart, unionEnd = interval.start, interval.end
+	}
+	measurement.UnionCoverageMS += (unionEnd - unionStart) * 1000
+	measurement.ExtentMS = (measurement.EndTs - measurement.StartTs) * 1000
+	measurement.UncoveredGapMS = math.Max(0, measurement.ExtentMS-measurement.UnionCoverageMS)
+	return measurement, true
+}
+
+func answerDocDedupRuntimeTraceFrameMeasurements(in []runtimeTraceFrameMeasurement, limit int) []runtimeTraceFrameMeasurement {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runtimeTraceFrameMeasurement, 0, len(in))
+	seen := map[string]bool{}
+	for _, measurement := range in {
+		key := fmt.Sprintf("%d/%.9f/%.9f/%.6f/%.6f/%.6f", measurement.ItemCount,
+			measurement.StartTs, measurement.EndTs, measurement.ExtentMS,
+			measurement.UnionCoverageMS, measurement.SpanDurationSumMS)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, measurement)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func answerDocDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {

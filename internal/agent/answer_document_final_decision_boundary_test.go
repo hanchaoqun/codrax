@@ -302,6 +302,8 @@ func TestTraceFinalDecisionLedgerKeepsBlockedReasonCallerOnExactPartitionSeat(t 
 		"blocking_reason_authority=`not_provided_by_this_seat`",
 		"blocked_reason_caller=`not_provided`",
 		"sibling_caller_transfer=`forbidden`",
+		"allowed_mechanism_scope=`measured_state_occupancy_with_unknown_blocking_reason`",
+		"not_authorized_mechanisms=`sibling_caller,irq_or_storage_cause,resource_or_holder_identity,cross_row_delay`",
 		"window_blocked_reason_records=17",
 		"window_record_binding_to_this_seat=`not_provided`",
 	} {
@@ -320,6 +322,8 @@ func TestTraceFinalDecisionLedgerKeepsBlockedReasonCallerOnExactPartitionSeat(t 
 		"caller_scope=`this_seat_only`",
 		"sibling_caller_transfer=`forbidden`",
 		"holder_authority=`not_provided_by_caller`",
+		"allowed_mechanism_scope=`kernel_reported_wait_callsite_for_this_seat`",
+		"not_authorized_mechanisms=`sibling_or_cross_row_cause,holder_identity,resource_identity`",
 	} {
 		if !strings.Contains(relation.String(), want) {
 			t.Fatalf("proved seat caller scope missing %q: %s", want, relation.String())
@@ -350,6 +354,8 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 		"adjacent_and_background_role=`supporting_context_and_additional_investigation_only`",
 		"candidate_subject=`CookieMonsterCl-59843`; effective_attribution=23.994ms",
 		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
+		"allowed_mechanism_scope=`measured_dependency_scheduler_supply_before_downstream_wakeup`",
+		"not_authorized_mechanisms=`priority_inversion_occurrence,post_wakeup_delay,lock_or_holder_waiter,synchronous_blocking`",
 		"holder_waiter_authority=`not_provided_by_candidate_seat`",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",

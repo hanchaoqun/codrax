@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestFrameTimelinePublishesTypedThreadRoleAuthority(t *testing.T) {
+func TestFrameTimelineKeepsSpanNameRolesAtPipelineStageCaliber(t *testing.T) {
 	frame := buildFrameTimelineFromPipeline(Query{}, FramePipelineResult{
 		Items: []FramePhaseSummary{
 			{Thread: ThreadRef{Comm: "ui", PID: 11}, Phase: "frame_schedule", Name: "Choreographer#doFrame", StartTs: 1, EndTs: 1.01},
@@ -17,13 +17,13 @@ func TestFrameTimelinePublishesTypedThreadRoleAuthority(t *testing.T) {
 		t.Fatalf("frame items missing: %+v", frame.Items)
 	}
 	ui := frame.Items[0].RoleAuthority
-	if ui == nil || ui.Role != "ui" || ui.Kind != "thread_role" ||
+	if ui == nil || ui.Role != "ui" || ui.Kind != "pipeline_stage_role" ||
 		ui.Source != "trace_span_name_semantics" || ui.Confidence <= 0 {
-		t.Fatalf("UI thread-role authority missing: %+v", ui)
+		t.Fatalf("UI stage-role authority missing: %+v", ui)
 	}
 	rs := frame.Items[1].RoleAuthority
-	if rs == nil || rs.Role != "render_service" || rs.Kind != "thread_role" {
-		t.Fatalf("render-service role authority missing: %+v", rs)
+	if rs == nil || rs.Role != "render_service" || rs.Kind != "pipeline_stage_role" {
+		t.Fatalf("render-service stage authority missing: %+v", rs)
 	}
 	marker := frame.Items[2].RoleAuthority
 	if marker == nil || marker.Role != "expected" || marker.Kind != "frame_marker_role" {
@@ -73,11 +73,12 @@ func TestFrameTargetRequiresTypedThreadRoleAuthority(t *testing.T) {
 
 	proven := unproven
 	proven.Items[0].RoleAuthority = &FrameRoleAuthority{
-		Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9,
+		Role: "ui", Kind: "pipeline_stage_role", Source: "trace_span_name_semantics", Confidence: 0.9,
 	}
 	resolution = ResolveFrameTarget(nil, q, proven)
 	if resolution.Target.PID != 11 || resolution.TargetRoleAuthority == nil ||
-		resolution.TargetRoleAuthority.Kind != "thread_role" {
-		t.Fatalf("typed UI role should lock the unique frame member: %+v", resolution)
+		resolution.TargetRoleAuthority.Kind != "pipeline_stage_role" ||
+		resolution.Source != "frame_timeline_stage_anchor_unique" {
+		t.Fatalf("typed UI stage should select only a navigation anchor: %+v", resolution)
 	}
 }

@@ -28056,3 +28056,76 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `span-label-authority=label+interval+typed-stage-only`；`caller-authority=exact-seat-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.407 r232：context 去重生效；producer 角色权限与 frame 尺仍自相矛盾
+
+在 `main@804d4627e` 上再次严格并发恰好两个生产复放 case。runner 2/2 PASS，人工 0/2 PASS：
+
+1. S37dc 的 typed 选择臂已在生产生效。两个 Finalizer prompt 都出现 compact exact guidance，旧 Binder/IO/perf/root-cause 通用清单没有重复注入；
+   Donghu 尾部也精确出现 #3 `blocked_reason_caller=not_provided`、`sibling_caller_transfer=forbidden`、aggregate 无 absolute level 和
+   `principal_root_cause_population=typed_on_chain_only`；
+2. B394 生产闭环：模型不再把 CPU 604.528 / IO 551.600 称为偏高、较重或低，只作为系统背景分数披露。系统未硬删模型文字；
+3. B392 仍失败且发现 producer 根因：`classifyFrameTimelineRoleAuthority` 仅凭 span name 把 ui/render_service/gpu 铸成 `kind=thread_role`，
+   `frameTargetRoleScore` 又把它作为 target-lock 权限。最终 guidance 同时说 name/marker 不能证明 owning-thread role，形成系统自冲突；
+4. 新确认 `EVAL-B395-FRAMEROLEAUTHORITYSOURCE1=P1/HIGH`。最优方案拆开分析锚与结论权限：name-derived ui/render_service/gpu 全部降为
+   `pipeline_stage_role`；唯一 stage 可继续作为 frame-stage navigation anchor 触发自动补采，但 target summary 必须披露 stage anchor，不能说 thread_role；
+5. frame 模型仍扩写输入处理、渲染工作量、GPU 绘制完成等内部机理。它还把四段 duration sum `4+11+13+9=37ms` 当 pipeline 包络，
+   写成不存在的 `7.040-7.003`；附件与 pre-triage 的 first-start..last-end extent 明明为 40ms。新确认
+   `EVAL-B396-FRAMEMEASUREMENTCALIBER1=P1/HIGH`：从 typed frame intervals 同位发布 extent、union coverage、span-duration sum、uncovered gap 四尺；
+6. Donghu #3 在 item 中先诚实写 caller absent，随后仍由 IRQ 推断块设备/hmfs cause，并在代表窗把 #5 的 fscache caller 重新绑给 #3；
+   两个 lower-priority dependency 席也继续被写成已发生反转和 post-wakeup CPU delay，尽管同页 caveat 否定 holder/waiter/post-wakeup authority；
+7. B393 由 caller carrier 缺失变为模型跨席机理合成残余。新确认 `EVAL-B397-TRACESEATCLAIMENVELOPE2=P1/HIGH`：最终 leader 应同位合成枚举式
+   `allowed_mechanism_scope`/`not_authorized_mechanisms`，把分散负字段收敛为一个证据机理上限；只约束证据强度，不替模型选择原因或写结论；
+8. B389 仍 partial：通用清单已去重，但 frame/Donghu 最大上下文仍约 59.8K/83.4K。下一批先修 producer 自冲突与精确尺，再复放；
+   若模型仍越权，再压缩长 Trace Decision Inputs/Observation Ledger 的重复事实，禁止直接删证据或按正文词门控；
+9. 确定性 Trace 因果投影、显式窗、自动补采、唤醒链、根因排序、窗内可消量和真实占时/现规则可消双轴全在；主因人口仍只来自 typed on-chain，
+   adjacent/background 只作 support/额外排查。B391 仍未得到实际 diagram，继续保持 pending。
+
+状态：runner=`2/2 PASS`；human=`0/2 PASS`；
+`EVAL-B394=production-closed`；
+`EVAL-B389=partial/context-list-deduped/exact-carriers-still-duplicated`；
+`EVAL-B392=partial/producer-role-conflict-confirmed`；
+`EVAL-B393=partial/caller-carrier-fixed/model-cross-seat-mechanism-open`；
+`EVAL-B395=P1-confirmed/next`；`EVAL-B396=P1-confirmed/next`；
+`EVAL-B397=P1-confirmed/next`；`EVAL-B391=pending-production-diagram-replay`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.408 S37dd：阶段锚/线程角色分权、frame 四尺与席位机理包络
+
+按 r232 的 B395/B396/B397 合批施工，修复 typed producer 与模型上下文之间的自冲突，不增加正文扫描、硬拒或系统代写：
+
+1. `classifyFrameTimelineRoleAuthority` 不再由 span/name 语义铸造 `thread_role`。name-derived ui/render_service/gpu 统一为
+   `pipeline_stage_role`，expected/actual/jank 仍是 `frame_marker_role`；summary 同位披露
+   `owning_thread_role_authority=not_provided_by_span_name`。因此阶段名可证明该 item 的分析阶段，但不能证明拥有线程是 UI/main/render-service/GPU；
+2. 自动补窗和目标导航没有被删除。`frameTargetRoleScore` 把独立 typed `thread_role` 作为高权限线程角色锚，把唯一
+   `pipeline_stage_role=ui` 作为较低权限的精确 marker-owning navigation anchor；两者都继续受唯一候选/歧义 fail-close 约束。
+   发布 source 改为 `frame_timeline_stage_anchor_unique`，不再把阶段锚伪装成 UI-thread authority；
+3. `runtimeTraceGuidanceView` 只在 `TraceEvidenceAuthority.FrameItemCount>0` 时读取同一 `ToolResult.Observations` 中
+   trace_query 发布的 typed frame-item intervals，计算并同位发布四把互不替代的尺：first-start→last-end extent、interval union coverage、
+   per-span duration sum、uncovered gap。r232 样例由此明确为 `40/37/37/3ms`，不会再把逐段求和 37ms 写成端到端包络；
+4. 四尺计算不读取模型 aggregate label、thinking、summary、final answer 或用户问题，也不按 Choreographer/GPU 等具体名拟合；区间去重、排序、
+   overlap union 和 gap 都来自 typed timestamp。它是模型上下文中的精确口径，不修改模型正文、不替模型判断性能根因；
+5. priority dependency candidate 席增加紧凑枚举式证据边界：允许的只是 downstream wakeup 前已测 dependency scheduler supply；
+   不授权“已发生优先级反转、post-wakeup delay、holder/waiter、同步阻塞”。D-state 原因未证席只允许陈述已测状态占用且 blocking reason 未知，
+   禁止借 sibling caller、IRQ/storage cause、resource/holder identity 或 cross-row delay；有 caller 的席也明确 caller 仅是该席 kernel wait callsite；
+6. 这些 claim envelope 进入现有 Trace Decision Inputs 与 final compact authority ledger 的同一 helper，只限制该证据能支撑的机理强度，
+   不选择根因、不重排席位、不生成优化结论。模型仍负责把真实占时维度与现规则可消维度综合成最终诊断；
+7. 根因人口约束保持不变：principal/root 只能来自 typed on-chain；adjacent/background 只能作为 supporting context 和额外排查方向。
+   显式时间窗、自动补齐、帧补采、唤醒链、根因排序、因果投影、窗内可消量和双轴均未改；frame temporal/unproven 权限亦未升级；
+8. 新增阶段锚与 thread-role 分权、自动目标选择、process scope、summary、frame 四尺、candidate/D-state/caller claim envelope 回归。
+   定向 `go test ./internal/tracequery ./internal/tool ./internal/agent -count=1` 全绿；冻结代码上 `go test ./... -count=1` 全绿，覆盖
+   read/write/data、agent/orchestrator、tracequery/tracediag、hitraceconv、tool、Mermaid、全语言 repomap 与 writeflow；
+9. 下一次生产复放仍严格并发两个相同高风险 Trace case：frame 检查 owning-role 与 40/37 四尺是否被模型正确消费；Donghu 检查
+   priority/D-state 席是否停止越权合成反转、post-wakeup 与 sibling caller/IRQ/storage 因果。若仍失败，再按 typed provenance 压缩重复 carrier，
+   不删精确证据、不按模型文字设门。
+
+状态：`EVAL-B395=S37dd-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B396=S37dd-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B397=S37dd-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B389=partial/context-list-deduped/exact-carriers-still-duplicated`；
+`EVAL-B391=pending-production-diagram-replay`；
+`frame-navigation=typed-stage-anchor-preserved`；`owning-thread-role=independent-thread_role-only`；
+`frame-rulers=extent|union|span-sum|gap`；`claim-envelope=typed-seat-local-soft-context`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

@@ -10,7 +10,7 @@ import (
 
 func TestTraceQueryRendersFrameRoleAuthorityAndCandidateNonRole(t *testing.T) {
 	role := &tracequery.FrameRoleAuthority{
-		Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9,
+		Role: "ui", Kind: "pipeline_stage_role", Source: "trace_span_name_semantics", Confidence: 0.9,
 	}
 	result := tracequery.Result{
 		View: "frame_root_cause_bundle",
@@ -28,7 +28,7 @@ func TestTraceQueryRendersFrameRoleAuthorityAndCandidateNonRole(t *testing.T) {
 			Target: tracequery.ThreadRef{Comm: "ui", PID: 11},
 			TargetResolution: &tracequery.FrameTargetResolution{
 				Target: tracequery.ThreadRef{Comm: "ui", PID: 11},
-				Source: "frame_timeline_ui_unique", TargetRoleAuthority: role,
+				Source: "frame_timeline_stage_anchor_unique", TargetRoleAuthority: role,
 				SelectedFrame: &tracequery.FrameTargetCandidate{
 					Thread: tracequery.ThreadRef{Comm: "ui", PID: 11},
 					Role:   "ui", RoleAuthority: role,
@@ -38,8 +38,8 @@ func TestTraceQueryRendersFrameRoleAuthorityAndCandidateNonRole(t *testing.T) {
 	}
 	summary := traceQuerySummary(result, traceQueryParams{View: result.View}, "path", "")
 	for _, want := range []string{
-		"role=ui role_kind=thread_role role_source=trace_span_name_semantics role_confidence=0.90",
-		"target_role=ui target_role_kind=thread_role",
+		"stage_role=ui role_kind=pipeline_stage_role role_source=trace_span_name_semantics role_confidence=0.90 owning_thread_role_authority=not_provided_by_span_name",
+		"target_role=ui target_role_kind=pipeline_stage_role",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, summary)

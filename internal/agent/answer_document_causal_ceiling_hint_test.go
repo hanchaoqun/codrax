@@ -6,6 +6,7 @@ package agent
 // only); absence of the authority keeps the prompt byte-identical.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -126,6 +127,38 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 	}
 	if !strings.Contains(got, "Runtime causal ceiling hint") {
 		t.Fatalf("context dedupe removed exact causal ceiling:\n%s", got)
+	}
+}
+
+func TestTypedFrameMeasurementKeepsExtentUnionAndSpanSumSeparate(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(false)
+	rows := make([]types.ObservationRecord, 0, 4)
+	for i, interval := range [][2]float64{{7.000, 7.004}, {7.005, 7.016}, {7.017, 7.030}, {7.031, 7.040}} {
+		rows = append(rows, types.ObservationRecord{
+			ID: fmt.Sprintf("frame-%d", i+1), Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", ClaimKey: fmt.Sprintf("evidence_fact:frame_timeline_%d", i+1),
+			Subject: fmt.Sprintf("tid=%d", i+1), Span: types.ObservationSpan{
+				LineStart: i*2 + 1, LineEnd: i*2 + 2, StartTs: interval[0], EndTs: interval[1],
+			},
+		})
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true, Observations: rows,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "frame_timeline", FrameItemCount: 4},
+	})
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	for _, want := range []string{
+		"Runtime frame measurement caliber",
+		"items=4 first_start=7.000000 last_end=7.040000",
+		"end_to_end_extent=40.000ms",
+		"interval_union_coverage=37.000ms",
+		"per_span_duration_sum=37.000ms",
+		"uncovered_gap=3.000ms",
+		"Never substitute one ruler for another",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed frame measurement guidance missing %q:\n%s", want, got)
+		}
 	}
 }
 

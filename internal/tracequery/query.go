@@ -20890,7 +20890,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 		selected = candidate
 	}
 	res.Target = selected.Thread
-	res.Source = "frame_timeline_ui_unique"
+	res.Source = "frame_timeline_stage_anchor_unique"
 	if q.TargetScope == TargetScopeProcess {
 		res.Source = "process_scope_frame_thread_unique"
 	}
@@ -20996,10 +20996,13 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 			continue
 		}
 		score := roleScore
-		reason := "typed_ui_thread_role"
+		reason := "typed_ui_stage_anchor"
+		if item.RoleAuthority != nil && item.RoleAuthority.Kind == "thread_role" {
+			reason = "typed_ui_thread_role"
+		}
 		if selector != "" && frameTimelineItemMatchesSelector(item, selector) {
 			score += 1000
-			reason = "exact_frame_selector_and_typed_ui_thread_role"
+			reason = "exact_frame_selector_and_" + reason
 		}
 		out = append(out, FrameTargetCandidate{
 			Thread:              item.Thread,
@@ -21037,12 +21040,22 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 }
 
 func frameTargetRoleScore(authority *FrameRoleAuthority) float64 {
-	if authority == nil || authority.Kind != "thread_role" {
+	if authority == nil {
 		return 0
 	}
 	switch strings.TrimSpace(authority.Role) {
 	case "ui":
-		return 100 * maxFloat(authority.Confidence, 0.5)
+		switch authority.Kind {
+		case "thread_role":
+			return 100 * maxFloat(authority.Confidence, 0.5)
+		case "pipeline_stage_role":
+			// A span-name-derived UI stage may anchor navigation to the
+			// exact thread that carried that marker. It does not prove that
+			// the owning thread is the process UI/main thread.
+			return 80 * maxFloat(authority.Confidence, 0.5)
+		default:
+			return 0
+		}
 	default:
 		return 0
 	}
@@ -21330,7 +21343,11 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		}
 		item.Role = classifyFrameTimelineRole(phase.Name, phase.Phase)
 		item.RoleAuthority = classifyFrameTimelineRoleAuthority(phase.Name, item.Role)
-		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, frameLaneIdentity(item.Thread, item.CPU, item.CPUKnown, item.CPUStatus), item.Name, item.DurationMs)
+		roleKind := "unavailable"
+		if item.RoleAuthority != nil && strings.TrimSpace(item.RoleAuthority.Kind) != "" {
+			roleKind = strings.TrimSpace(item.RoleAuthority.Kind)
+		}
+		item.Summary = fmt.Sprintf("frame_timeline item #%d stage_role=%s role_kind=%s phase=%s %s span %q lasted %.3fms; owning_thread_role_authority=not_provided_by_span_name", item.Index, item.Role, roleKind, item.Phase, frameLaneIdentity(item.Thread, item.CPU, item.CPUKnown, item.CPUStatus), item.Name, item.DurationMs)
 		res.Items = append(res.Items, item)
 	}
 	for i := 0; i+1 < len(res.Items); i++ {
@@ -22307,13 +22324,13 @@ func classifyFrameTimelineRoleAuthority(name, role string) *FrameRoleAuthority {
 	}
 	switch authority.Role {
 	case "ui":
-		authority.Kind = "thread_role"
+		authority.Kind = "pipeline_stage_role"
 		authority.Confidence = 0.90
 	case "render_service":
-		authority.Kind = "thread_role"
+		authority.Kind = "pipeline_stage_role"
 		authority.Confidence = 0.95
 	case "gpu":
-		authority.Kind = "thread_role"
+		authority.Kind = "pipeline_stage_role"
 		authority.Confidence = 0.85
 	case "expected", "actual", "jank":
 		authority.Kind = "frame_marker_role"

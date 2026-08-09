@@ -5175,7 +5175,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		b.WriteString("## Frame timeline\n")
 		for _, item := range result.FrameTimeline.Items {
 			roleKind, roleSource, roleConfidence := traceQueryFrameRoleAuthorityFields(item.RoleAuthority)
-			fmt.Fprintf(&b, "- frame_item index=%d role=%s role_kind=%s role_source=%s role_confidence=%.2f phase=%s %s frame_id=%s %.6f..%.6f duration=%.3fms lines=%d-%d — %s\n",
+			fmt.Fprintf(&b, "- frame_item index=%d stage_role=%s role_kind=%s role_source=%s role_confidence=%.2f owning_thread_role_authority=not_provided_by_span_name phase=%s %s frame_id=%s %.6f..%.6f duration=%.3fms lines=%d-%d — %s\n",
 				item.Index, item.Role, roleKind, roleSource, roleConfidence, item.Phase, traceQueryFrameLaneIdentity(item.Thread, item.CPU, item.CPUKnown, item.CPUStatus), sanitizeForBanner(item.FrameID), item.StartTs, item.EndTs, item.DurationMs, item.StartLine, item.EndLine, sanitizeForBanner(item.Summary))
 		}
 		for _, flow := range result.FrameTimeline.Flows {

@@ -5152,9 +5152,10 @@ type FrameTargetCandidate struct {
 }
 
 // FrameRoleAuthority separates a marker/item label from a proven thread role.
-// Kind=thread_role is the only authority that may name a selected thread UI or
-// render-service. Frame-marker roles such as expected/actual/jank describe the
-// item, not the owning thread.
+// Span-name semantics may mint frame_marker_role or pipeline_stage_role and
+// may select the exact marker-owning thread as a navigation anchor, but cannot
+// name that thread UI/main/render-service/GPU. Kind=thread_role is reserved
+// for an independent producer-owned role carrier.
 type FrameRoleAuthority struct {
 	Role       string  `json:"role,omitempty"`
 	Kind       string  `json:"kind,omitempty"`
