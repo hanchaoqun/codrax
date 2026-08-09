@@ -28547,3 +28547,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B410=P1-confirmed/next-authority-layering`；`EVAL-B406=P1-observe`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.424 S37dm：完整 report-local temporal 图缺失 metadata 的精确自愈
+
+针对 r239 的 B409 确定性拒绝施工，只恢复结构化权限 metadata，不触碰模型正文或可见 Mermaid：
+
+1. 新增 `normalizeExactReportLocalRuntimeTemporalEdgeAnchors`。候选 diagram 的可见 endpoint occurrence multiset 必须与**单一完整** report-local
+   `frame_temporal_sequence` typed edge set 完全相等；旧 validator 的 subset 权限不用于自动补齐，防止模型只画部分边却获得整份权限；
+2. 自动补齐还要求当前 block 与 sibling-carrier 的有效 anchors 均为零，且每条 parsed edge 的 relation message 精确等于 capsule 单源常量
+   `RuntimeTraceTemporalDiagramEdgeLabel`。已有部分/冲突 metadata、因果/调用 message、翻译或自由改写形一律不改，继续交原 validator fail-close；
+3. 满足条件时，按每个可见 occurrence 原方向补一个 `relation_kind=temporal + claim_form=external_observation`，不编辑 diagram body、Note、alias、块正文、
+   citations 或模型结论；修复通过现有 `pre-emit mechanical repairs` telemetry 显式披露；
+4. capsule renderer 与 normalizer 共用同一 edge-label 常量，避免教学和修复判据漂移。这个精确字段只用于 positive mechanical repair，不从用户请求、模型
+   thinking/summary/final prose 推导任何 hard gate；
+5. 新增 exact-full 缺锚转绿、typed subset 不补、因果 label 不补、partial metadata 不补、source sibling 仍硬拒五类回归。runtime block 补锚后仍由原
+   report-local typed owner 复核；source diagram、all-language call/guard contracts 没有放宽；
+6. 聚焦 tool/agent/orchestrator 测试与 `go test ./... -count=1` 无缓存全仓终验全部通过。下一步用同一 frame case 生产复放确认
+   `fin_reject=0/patch=0`，并继续 B410 的跨 stage runtime proposition authority 分层。
+
+状态：`EVAL-B409=S37dm-implemented/full-suite-pass/pending-production-replay`；
+`visible-answer-mutation=none`；`metadata-repair=exact-full-owner-only`；
+`source-sibling-gate=preserved`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

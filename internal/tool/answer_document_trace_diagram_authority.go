@@ -217,6 +217,88 @@ func reportLocalRuntimeTemporalEdgeSubset(body, typed map[string]int) bool {
 	return true
 }
 
+func reportLocalRuntimeTemporalEdgeSetEqual(left, right map[string]int) bool {
+	if len(left) == 0 || len(left) != len(right) {
+		return false
+	}
+	for key, count := range left {
+		if count <= 0 || right[key] != count {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeExactReportLocalRuntimeTemporalEdgeAnchors restores only omitted
+// metadata for a complete report-local temporal diagram. The visible diagram
+// is never edited. Recovery is deliberately narrower than the authority
+// validator: the full endpoint occurrence multiset must equal one complete
+// typed result, every visible edge must carry the capsule's exact canonical
+// temporal label, and the block must have zero local or sibling-carried
+// anchors. Subsets, mixed/source diagrams, translated or causal labels, and
+// partial/conflicting metadata stay fail-closed for the normal validator.
+func normalizeExactReportLocalRuntimeTemporalEdgeAnchors(
+	doc *types.AnswerDocumentV2,
+	pctx *preEmitCheckContext,
+) int {
+	if doc == nil || pctx == nil || pctx.ctx == nil {
+		return 0
+	}
+	edgeSets := reportLocalRuntimeTemporalEdgeSets(pctx.ctx)
+	if len(edgeSets) == 0 {
+		return 0
+	}
+	edgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	repaired := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil ||
+			len(diagramEvidenceEffectiveAnchorsForBlock(doc, i, edgeBlockCounts)) != 0 {
+			continue
+		}
+		edges := mermaidcompat.ParseEdges(block.Diagram.Body)
+		if len(edges) == 0 {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		bodyCounts := make(map[string]int, len(edges))
+		canonical := true
+		for _, edge := range edges {
+			if strings.TrimSpace(edge.Label) != types.RuntimeTraceTemporalDiagramEdgeLabel {
+				canonical = false
+				break
+			}
+			from := reportLocalRuntimeTemporalEndpoint(edge.From, labels)
+			to := reportLocalRuntimeTemporalEndpoint(edge.To, labels)
+			bodyCounts[diagramEvidenceEdgeKey(from, to)]++
+		}
+		if !canonical {
+			continue
+		}
+		matched := false
+		for _, edgeSet := range edgeSets {
+			if reportLocalRuntimeTemporalEdgeSetEqual(bodyCounts, edgeSet.counts) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		block.EdgeAnchors = make([]types.DiagramEdgeAnchor, 0, len(edges))
+		for _, edge := range edges {
+			block.EdgeAnchors = append(block.EdgeAnchors, types.DiagramEdgeAnchor{
+				FromNode:     strings.TrimSpace(edge.From),
+				ToNode:       strings.TrimSpace(edge.To),
+				RelationKind: types.DiagramRelTemporal,
+				ClaimForm:    types.ClaimFormForRelation(types.DiagramRelTemporal),
+			})
+			repaired++
+		}
+	}
+	return repaired
+}
+
 func reportLocalRuntimeTemporalBlockDeclaresTemporal(block *types.AnswerBlock) bool {
 	if block == nil {
 		return false

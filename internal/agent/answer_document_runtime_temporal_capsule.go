@@ -172,8 +172,9 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 			aliases[strings.TrimSpace(item.Subject)], answerDocMechanismMermaidLabel(label))
 	}
 	for _, edge := range edges {
-		fmt.Fprintf(&b, "  %s-->>%s: temporal adjacency (unproven)\n",
-			aliases[strings.TrimSpace(edge.Subject)], aliases[strings.TrimSpace(edge.Object)])
+		fmt.Fprintf(&b, "  %s-->>%s: %s\n",
+			aliases[strings.TrimSpace(edge.Subject)], aliases[strings.TrimSpace(edge.Object)],
+			types.RuntimeTraceTemporalDiagramEdgeLabel)
 	}
 	b.WriteString("```\n")
 	fmt.Fprintf(&b, "- edge_anchors_json=`%s`\n", anchorJSON)
