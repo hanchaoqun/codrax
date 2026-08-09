@@ -28460,3 +28460,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B407=S37dk-cross-seat-aggregation-authority-implemented/full-suite-pass/pending-production-replay`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.421 r238：分区到达但模型仍搬运；Mermaid Note 权限过载造成两次拒绝
+
+在 `main@ceb2cc51f` 上严格并发恰好两个同组 Trace case，runner 2/2 PASS，人工 0/2 PASS：
+
+1. S37dk 三项接线均真实到达：frame capsule 每个 item Note 有 thread/internal-work ceiling；Donghu wait seats 有
+   `cross_seat_aggregation_authority=forbidden`；unbound census 已整体移到独立 section 并携 transfer/binding forbidden；
+2. 新确认 `EVAL-B409-TEMPORALCAPSULECOGNITIVEOVERLOAD1=P0/HIGH`：把三项长权限串直接塞进每个 Mermaid Note 增大 copy burden。模型首稿漏全部
+   `edge_anchors`；第一次 patch 的可见 body 只有两条跨线程箭头，却复制三条 anchors（多出 t1 self-edge）；连续两次“成文校验未通过”后第三稿才成功。
+   B402 post owner 路由仍正确，新拒绝纯属 authoring 载体过重；
+3. B409 最优修正：权限与 capsule 保持同位，但 Mermaid Note 恢复短 item facts；另发一个紧邻、单源、compact `item_authority_json`，按 item/node 显式绑定
+   stage-role 与 owning-thread/internal-work ceiling。模型可复制短 Mermaid + anchors，不必把权限审计字段塞进可见图；
+4. B403 未改善：最终正文仍把 Choreographer stage 扩成输入/动画回调与提交入口，把 RenderFrame 扩成 RenderService 提交，把 GPU completion 扩成
+   硬件绘制/画面合成；
+5. B404 分区单独不足：模型仍把 ×17/×1/×1 unbound census 放进 #3 cause-unproven bullet。下一步最小权限收敛为：causal-diagnosis Finalizer 不消费
+   unbound census 具体 roster；Explorer、ledger、deterministic report/evidence index 零丢失，显式 bounded `recorded_reason/count` 查询继续可见；
+6. B407 从 wait seat 扩展为主 board 问题。模型虽不再写错误 18.119，却改把 #1+#2 写成“合计约43ms/锁与优先级43ms级”，把 #3+#5+#6 写成
+   IO约24ms。主 root seat 行必须各自同位带 `cross_seat_aggregation_authority=forbidden` 与同修向 lane=max-not-sum，不能只让 wait-callsite 辅助行携带；
+7. B402 仍 production closed；根因人口仍 typed on-chain only，background 没进入系统选举。显式时间窗、自动补采、投影、窗内可消量与双轴不变。
+
+状态：runner=`2/2 PASS`；human=`0/2 FAIL`；`EVAL-B409=P0-confirmed/next`；
+`EVAL-B403=P1-confirmed`；`EVAL-B404=P1-confirmed/finalizer-context-scope-next`；
+`EVAL-B407=P1-confirmed/root-board-authority-next`；`EVAL-B402=production-closed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
