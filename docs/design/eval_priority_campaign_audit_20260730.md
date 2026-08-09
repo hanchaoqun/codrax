@@ -29479,3 +29479,55 @@ Trace root target=`typed-on-chain-only`；adjacent/background target=`support-on
 状态：`EVAL-B435=S37ef-implemented/full-suite-pass/pending-production-replay`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`；
 `adjacent-measured-impact=preserved`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.456 r254：on-chain-only 生产闭环；Data JSON 教学反向制造 decision 前置
+
+在 `main@73783a7a8` 的不可变二进制快照上严格并发恰好两个 case：`data_basic_sum_with_rules` 与
+`trace_query_wakeup_background_demotion`。runner 1/2 PASS；Trace 人工通过带建议，Data 人工失败：
+
+1. B434/B435 生产闭环：Trace 的显式 `2.000000..2.020000` 窗、目标 `app-100`、两次模型查询、确定性补采和因果投影均在；
+   只有 typed on-chain 的 `threadpool-400 / iowait 11.000ms` 加冕 #1，三个 on-chain runnable 1ms 席随后；
+2. `logger-900` 的 19.500/7.000ms 保留为 background 原始规模，但有效归因列为 `—`、无根因序数、typed summary 无席位。
+   adjacent sleep 同样只在邻近区；B434/B435 的代码权限修复已被真实 finalizer 消费；
+3. Trace 模型正文仍出现一处越界推断：把 CPU5 的 logger 误写为与 threadpool 共享 CPU4，并在无 typed edge 时声称它对 threadpool IO 完成有
+   间接贡献。确定性投影未受影响；现有 soft hint 已禁止从时间重叠/shared CPU 转移因果，因此此项记为
+   `EVAL-B437-OFFCHAININFERENCESOFT1=P2`，只允许增强 typed relation 软教学，禁止扫描/重写模型答案或新增 prose hard gate；
+4. Data 在 `order_records_numeric.amount_num=[10,7]` 已完整物化后仍 terminal blocked。失败前 reducer 正确允许
+   `compute_contributions`；repair plan 按系统 JSON schema/教学把普通 aggregation 新声明为 `decision_records_required=true`，首 rank
+   derive_fields 提交后，该义务在下一事务生效并正确挡住 deferred compute；
+5. 任务规则明确“使用每一行”，不存在 eligibility/filter/classification 决策，也就没有可构造的 qualify/filter scaffold；同时
+   custom_transform 已禁用。系统最终形成“要求 decision → 禁 compute；没有 decision 条件 → 无 producer”的自锁，6 批、2 repair、4 action
+   failure 后带着正确值 17 失败；
+6. 新 `EVAL-B436-DECISIONTEACHINGSELFLOCK1=P0/REDLINE`：`emit_data_task_plan` schema description 和 planner prompt 均把
+   filtering/joining/aggregation 全部教成 decisions requirement，直接违反 B428 已落地的 `ProducesLedgers` / `ImpliesLedgers` 分轴。
+   这不是 B432 事务快照回归；B432 正确保证 candidate 当前可准入并让新事实在下一事务生效，错误在于系统诱导模型铸造了不真实的新事实；
+7. 最优根修是校正同一 JSON/教学边界：只有显式 eligibility、include/exclude、classification 或业务规则决定才要求 decisions；纯全量
+   sum/count/rank/group/join 只要求 contribution+reconcile。保持既有 rule-governed qualification gate，不放宽真实决策场景，也不从 request/
+   thinking/final prose 猜任务类型。
+
+状态：runner=`1/2 PASS`；Trace-human=`PASS-with-advisory`；Data-human=`FAIL/6-batches-2-repairs-4-action-failures`；
+`EVAL-B434=S37ee-production-closed`；`EVAL-B435=S37ef-production-closed`；
+`EVAL-B436=P0-confirmed/in-implementation`；`EVAL-B437=P2-confirmed/open-soft-only`；
+`finalizer-rejects=0`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.457 B436/S37eg：decision ledger 只绑定真实 item-level 决策
+
+`EVAL-B436-DECISIONTEACHINGSELFLOCK1` 已完成 JSON 教学合同修复：
+
+1. `decision_records_required` 的 tool-schema description 不再把 filtering/joining/aggregation 作为无条件触发器；新定义只覆盖显式的
+   eligibility、include/exclude、classification 或其它 item-level/business-rule 决策；
+2. initial/continuation 共用的 `dataTaskPlannerSystemPrompt` 同步使用相同边界，并在短 `Ledger and output-shape decision` 表中明确：纯
+   all-record sum/count/rank/group/join 保持 decisions=false，`compute_contributions` 虽产出派生 audit rows，但这些产品不是自己的前置；
+3. 删除 prompt 尾部第二份宽泛教学，避免模型同时接收“纯 sum 不需要 decisions”和“aggregation 必须 decisions”两份相反合同。保留真实决策
+   场景的既有路径：先 filter/qualify 物化 decision rows，再 compute；
+4. 修复只校准结构化工具教学和 schema，不读取用户请求、模型 thinking/final prose，不自动清除模型已明确提交的义务，也不放宽
+   `DecisionsGateExcludesComputeContribs`。因此业务规则确实需要资格判定时继续 fail-closed；
+5. 新负 pin 同时扫描 system prompt 与 tool schema，禁止旧宽触发词复活；正 pin 要求 schema/prompt 都说明 all-record 聚合不自造
+   decision 前置。既有 B428 产品/义务能力矩阵和 B432 pre-candidate snapshot pin 保持；`internal/repl` 全包测试通过；
+6. 本批未修改 read/write、Trace 查询、显式时间窗、系统补采、因果投影、唤醒链、根因排序或可消除量。Trace 主因继续只允许 typed
+   on-chain，邻近/背景只作支撑或额外排查方向。
+
+状态：`EVAL-B436=S37eg-implemented/full-suite-pass/pending-production-replay`；
+`decision-obligation=explicit-item-level-only`；`json-teaching=single-boundary/no-conflict`；
+`EVAL-B437=P2-next-soft-only`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

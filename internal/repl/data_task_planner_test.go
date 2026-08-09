@@ -131,6 +131,41 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 }
 
+func TestDataTaskDecisionLedgerTeachingDoesNotMakePureAggregationItsOwnPrerequisite(t *testing.T) {
+	for _, want := range []string{
+		"Decision-ledger boundary",
+		"pure all-record sum/count/ranking/grouping/join keeps it false",
+		"compute_contributions emits contribution-derived audit rows but does not make those rows a prerequisite of itself",
+	} {
+		if !strings.Contains(dataTaskPlannerSystemPrompt, want) {
+			t.Fatalf("data planner decision-ledger teaching missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true",
+		"when filtering, joining, aggregation, or item-level decisions must be auditable",
+	} {
+		if strings.Contains(dataTaskPlannerSystemPrompt, forbidden) || strings.Contains(string(dataTaskPlanTool.Parameters), forbidden) {
+			t.Fatalf("pure aggregation is still taught as a decision-ledger prerequisite: %q", forbidden)
+		}
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(dataTaskPlanTool.Parameters, &schema); err != nil {
+		t.Fatalf("unmarshal data task plan schema: %v", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	coverage, _ := properties["coverage_contract"].(map[string]any)
+	coverageProps, _ := coverage["properties"].(map[string]any)
+	decision, _ := coverageProps["decision_records_required"].(map[string]any)
+	description, _ := decision["description"].(string)
+	for _, want := range []string{"true only when", "pure all-record sum", "does not require a separate decision ledger"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("decision_records_required schema description missing %q: %q", want, description)
+		}
+	}
+}
+
 func TestDataTaskLedgerShapeTeachingSharedByInitialAndContinuationPrompts(t *testing.T) {
 	for name, prompt := range map[string]string{
 		"initial":      dataTaskPlannerSystemPrompt,
