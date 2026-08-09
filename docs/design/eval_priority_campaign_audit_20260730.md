@@ -28485,3 +28485,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B407=P1-confirmed/root-board-authority-next`；`EVAL-B402=production-closed`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.422 S37dl：轻量 JSON ceiling + 全 root-seat 不可加 + unbound census 分阶段供给
+
+针对 r238 的 B409/B404/B407 同批纠偏：
+
+1. Mermaid Note 恢复短形，只携 `item_stage_role/phase/interval/lines`。同一 report-local capsule 紧邻发布 compact
+   `item_authority_json=[{item_index,node,item_stage_role,owning_thread_role_authority,internal_work_authority}...]`；权限仍与 item/node 精确绑定，
+   但明确是 authoring guidance，不是 AnswerDocument schema 字段、也不要求进入可见图；
+2. edge anchors 仍由原 single source JSON 完整发布，runtime owner、逐 occurrence 基数与 sibling source gate 不变。此形减少 JSON/Mermaid 双重心智，修复
+   B409，而不是放松校验或在失败后系统改图；
+3. 主 `TraceRootCauseBoard` 的**每个** chain/adjacent seat 行新增 `cross_seat_aggregation_authority=forbidden`；有修向的席同位追加
+   `repair_lane_fold=max_on_chain_seat_not_sum`。故不可加权限覆盖 priority-inversion/running/D-IO/semantic 等全部 ranked seat，不再只覆盖
+   blocked_reason callsite 辅助行；
+4. unbound window inventory 改为按 typed stage/question scope 供给：Explorer 始终保留完整 census 用于调查；Finalizer 的 causal-diagnosis/relation-analysis
+   不再接收具体 unbound roster，避免把它搬进 ranked seat。显式 bounded `recorded_reason/target_wait_occurrences/count_or_duration` 与 system overview 仍保留；
+   legacy/unspecified fail-open 保留，避免无 typed profile 时静默丢信息；
+5. 完整 ledger、tool results、system supplement、deterministic report/evidence index 不删 census。这个改动只是减少 Finalizer 的非主席上下文，不改变 Trace
+   证据、系统补采或模型最终结论；
+6. 新增 compact JSON 基数/短 Note、全 root seat authority、repair lane max、causal/relation/bounded/explore scope 和 scoped summary 保留 ranked/wakeup rows
+   回归；定向 agent/context 测试通过，下一步无缓存全仓终验后独立提交推送并用同两例生产复放。
+
+7. 首轮全仓终验由 wording-lane lint 精确拦住 formatter 主函数改名后的 stale whitelist key；合法词面本身未变化。将旧函数 key 原位替换为新 key（条目数不增、
+   词面不增）后，`TestSemanticWordingLaneLint` 与 `go test ./... -count=1` 无缓存全仓终验均全绿。
+
+状态：`EVAL-B409=S37dl-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B404=S37dl-finalizer-unbound-scope-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B407=S37dl-all-root-seat-authority-implemented/full-suite-pass/pending-production-replay`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

@@ -118,6 +118,47 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	}
 }
 
+func TestTraceWaitEvidence_FinalizerScopesUnboundInventoryByTypedQuestion(t *testing.T) {
+	causal := &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeCausalDiagnosis,
+	}}}
+	if traceWaitEvidenceIncludeUnboundWindowInventory(types.StageFinalize, causal) {
+		t.Fatal("causal-diagnosis finalizer must not receive detailed unbound census roster")
+	}
+	if !traceWaitEvidenceIncludeUnboundWindowInventory(types.StageExplore, causal) {
+		t.Fatal("explorer must retain the lossless unbound inventory for investigation")
+	}
+
+	boundedReason := &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactRecordedReason},
+	}}}
+	if !traceWaitEvidenceIncludeUnboundWindowInventory(types.StageFinalize, boundedReason) {
+		t.Fatal("explicit bounded recorded-reason lookup must retain the census")
+	}
+	boundedWaker := &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactDirectWaker},
+	}}}
+	if traceWaitEvidenceIncludeUnboundWindowInventory(types.StageFinalize, boundedWaker) {
+		t.Fatal("direct-waker fact lookup does not request a blocked-reason census")
+	}
+
+	scoped := formatTraceWaitWakeEvidenceFromLedgerWithOptions(traceWaitTestLedger(), nil, traceWaitEvidenceSummaryOptions{})
+	if strings.Contains(scoped, "Unbound thread-window inventory") || strings.Contains(scoped, "seat_type=thread_window_record_inventory") {
+		t.Fatalf("scoped finalizer summary leaked unbound rows:\n%s", scoped)
+	}
+	for _, keep := range []string{
+		"seat_type=blocked_reason_callsite; caller=fscache_page_wait_o",
+		"seat_type=cause_unproven_remainder; caller=not_provided",
+		"Measured wakeup edges (sched_wakeup",
+	} {
+		if !strings.Contains(scoped, keep) {
+			t.Fatalf("scoping unbound inventory dropped ranked/wakeup evidence %q:\n%s", keep, scoped)
+		}
+	}
+}
+
 // TestTraceWaitEvidence_WakeupEdges — the waker lane: sched_wakeup edges with
 // waker/wakee/timestamp; identical republications collapse; ts order.
 func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {

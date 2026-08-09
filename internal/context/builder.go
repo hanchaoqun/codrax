@@ -223,7 +223,9 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 					censusResults = append(censusResults, bus.Mutable.SystemTraceSupplementResults()...)
 				}
 			}
-			ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedger(ledger, censusResults)
+			ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedgerWithOptions(ledger, censusResults, traceWaitEvidenceSummaryOptions{
+				includeUnboundWindowInventory: traceWaitEvidenceIncludeUnboundWindowInventory(stage, ac.AnalysisIR),
+			})
 		}
 
 		// Collect tool summaries

@@ -14,6 +14,14 @@ const (
 	answerDocRuntimeTemporalCapsuleLimit     = 2
 )
 
+type answerDocRuntimeTemporalItemAuthority struct {
+	ItemIndex                 int    `json:"item_index"`
+	Node                      string `json:"node"`
+	ItemStageRole             string `json:"item_stage_role"`
+	OwningThreadRoleAuthority string `json:"owning_thread_role_authority"`
+	InternalWorkAuthority     string `json:"internal_work_authority"`
+}
+
 // renderAnswerDocRuntimeTemporalDiagramCapsules gives the model a report-local,
 // copy-ready authoring aid for a pure temporal frame result. It deliberately
 // does not compile across trace_query calls: an earlier coarse probe and a
@@ -127,10 +135,24 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 	if err != nil {
 		return "", false
 	}
+	itemAuthorities := make([]answerDocRuntimeTemporalItemAuthority, 0, len(items))
+	for index, item := range items {
+		itemAuthorities = append(itemAuthorities, answerDocRuntimeTemporalItemAuthority{
+			ItemIndex:                 index + 1,
+			Node:                      aliases[strings.TrimSpace(item.Subject)],
+			ItemStageRole:             firstNonEmptyString(strings.TrimPrefix(strings.TrimSpace(item.Predicate), "frame_timeline_"), "item"),
+			OwningThreadRoleAuthority: "not_provided_by_this_item",
+			InternalWorkAuthority:     "not_provided_by_this_item",
+		})
+	}
+	itemAuthorityJSON, err := json.Marshal(itemAuthorities)
+	if err != nil {
+		return "", false
+	}
 
 	var b strings.Builder
 	b.WriteString("\n#### Copy-ready optional report-local temporal diagram\n\n")
-	b.WriteString("- This optional authoring aid is built from one trace result's complete typed frame-item and temporal-edge rows. Each Note's `item_stage_role` classifies that trace item only; `owning_thread_role_authority=not_provided_by_this_item` and `internal_work_authority=not_provided_by_this_item` forbid transferring the stage word into a thread role or implementation claim without a separate typed carrier. It does not prove a call, handoff, wait, completion dependency, or root cause. Copy the Mermaid body and complete `edge_anchors_json` together, or omit the diagram; do not change Notes into arrows.\n\n")
+	b.WriteString("- This optional authoring aid is built from one trace result's complete typed frame-item and temporal-edge rows. `item_authority_json` is the compact semantic ceiling for the Notes: item-stage role is not an owning-thread role or internal-work claim. It is authority guidance only, not an AnswerDocument field and not visible diagram text. The result does not prove a call, handoff, wait, completion dependency, or root cause. Copy the short Mermaid body and complete `edge_anchors_json` together, or omit the diagram; do not change Notes into arrows.\n\n")
 	b.WriteString("```mermaid\nsequenceDiagram\n")
 	for _, identity := range identities {
 		fmt.Fprintf(&b, "  participant %s as %s\n", aliases[identity], answerDocMechanismMermaidLabel(identity))
@@ -138,7 +160,7 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 	for _, item := range items {
 		role := strings.TrimPrefix(strings.TrimSpace(item.Predicate), "frame_timeline_")
 		phase := strings.TrimSpace(item.Object)
-		label := fmt.Sprintf("item_stage_role=%s; owning_thread_role_authority=not_provided_by_this_item; internal_work_authority=not_provided_by_this_item", firstNonEmptyString(role, "item"))
+		label := fmt.Sprintf("item_stage_role=%s", firstNonEmptyString(role, "item"))
 		if phase != "" {
 			label += "; phase=" + phase
 		}
@@ -155,6 +177,7 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 	}
 	b.WriteString("```\n")
 	fmt.Fprintf(&b, "- edge_anchors_json=`%s`\n", anchorJSON)
+	fmt.Fprintf(&b, "- item_authority_json=`%s`\n", itemAuthorityJSON)
 	return b.String(), true
 }
 

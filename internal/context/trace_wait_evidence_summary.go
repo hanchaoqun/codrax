@@ -314,11 +314,54 @@ var traceWaitCensusBannerRE = regexp.MustCompile(`(?m)^- blocked_reason (.+?) io
 // "sym×12(Σ38.983ms)" or "sym×12".
 var traceWaitCensusEntryRE = regexp.MustCompile(`^(.+?)×([0-9]+)(?:\(Σ([0-9.]+)ms\))?$`)
 
+type traceWaitEvidenceSummaryOptions struct {
+	includeUnboundWindowInventory bool
+}
+
+// traceWaitEvidenceIncludeUnboundWindowInventory keeps detailed thread-window
+// census rosters available for exploration and for explicitly requested
+// bounded reason/count facts, while removing them from causal-diagnosis and
+// relation-analysis finalizer context. Ranked seats remain available there;
+// the lossless ledger and deterministic report still retain the census. The
+// decision is typed request metadata only.
+func traceWaitEvidenceIncludeUnboundWindowInventory(stage types.PipelineStage, ir *types.AnalysisIR) bool {
+	if stage != types.StageFinalize || ir == nil || ir.RequestModel.RuntimeQuestionProfile == nil {
+		return true
+	}
+	profile := ir.RequestModel.RuntimeQuestionProfile
+	switch profile.Scope {
+	case types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeRelationAnalysis:
+		return false
+	case types.RuntimeQuestionScopeBoundedFactSet:
+		for _, family := range profile.FactFamilies {
+			switch family {
+			case types.RuntimeQuestionFactRecordedReason,
+				types.RuntimeQuestionFactTargetWaitOccurrences,
+				types.RuntimeQuestionFactCountOrDuration:
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
 // formatTraceWaitWakeEvidenceFromLedger renders the typed kernel
 // wait-object + wakeup-source evidence summary, or "" when the run carries
 // no such typed observations (zero-emission anti-noise). toolResults may be
 // nil; it feeds only the banner-parse census FALLBACK.
 func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolResults []types.ToolResult) string {
+	return formatTraceWaitWakeEvidenceFromLedgerWithOptions(ledger, toolResults, traceWaitEvidenceSummaryOptions{
+		includeUnboundWindowInventory: true,
+	})
+}
+
+func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
+	ledger types.ObservationLedger,
+	toolResults []types.ToolResult,
+	options traceWaitEvidenceSummaryOptions,
+) string {
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return ""
 	}
@@ -909,7 +952,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		if subjectOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more threads with blocked_reason evidence; see the measured observations)\n", subjectOverflow))
 		}
-		if len(unboundWindowRows) > 0 {
+		if options.includeUnboundWindowInventory && len(unboundWindowRows) > 0 {
 			b.WriteString("Unbound thread-window inventory (separate context; never a ranked-seat attribute):\n")
 			for _, row := range unboundWindowRows {
 				b.WriteString(row + "\n")

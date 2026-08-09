@@ -130,7 +130,7 @@ var wordingLaneRules = []wordingLaneRule{
 			// 归因) — runtimeTraceProjSupplyFoldClauseCore stays the only
 			// clause emitter (its verdict fork would be a lie for the
 			// eff==deficit seat shape anyway).
-			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedger": true,
+			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedgerWithOptions": true,
 		},
 	},
 	{
@@ -148,7 +148,7 @@ var wordingLaneRules = []wordingLaneRule{
 			// clause/decision table. The 收口 is this registration: the lint
 			// now scans ../context, so any further literal must come back
 			// through this table.
-			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedger": true,
+			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedgerWithOptions": true,
 		},
 	},
 }

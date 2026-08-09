@@ -150,7 +150,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	// gate).
 	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word published as the 中文 face with its English face in parentheses — one closed registry vocabulary behind both faces, copied verbatim as a pair (this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
 	writeRow := func(row traceBoardRow, channelWord string) {
-		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
+		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f · cross_seat_aggregation_authority=forbidden", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		if row.tgid != "" {
 			// CR-3 件③ P11: the seat's process attribution (tgid) — bare
 			// thread names stay traceable to their process on the LLM face.
@@ -168,7 +168,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			// verbatim from the single word-face source — the preamble
 			// carries the lane rule (same-direction seats = one repair lane,
 			// lane max = the direction's largest seat value).
-			line += " · 修向=" + row.fixDirection
+			line += " · 修向=" + row.fixDirection + " · repair_lane_fold=max_on_chain_seat_not_sum"
 		}
 		if row.representativeWindow != "" {
 			// CR-2 组③ P7 / F-4: the first typed occurrence window, labeled as

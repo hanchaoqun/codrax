@@ -59,6 +59,7 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 		"fold=sum_disjoint",
 		"channel=chain",
 		"confidence=0.80",
+		"cross_seat_aggregation_authority=forbidden",
 		// CR-3 件③ P11 (冷读案8): the seat's process attribution (tgid) on
 		// the LLM face — bare thread names stay traceable to their process.
 		"tgid=2916",
@@ -168,7 +169,7 @@ func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
 	// 件⑤ EVOLUTION (§29.160⑤ user ruling 2026-07-20: EN 双面并列): the row
 	// wears the zh face WITH its Table ⑦ EN face in parentheses — one pair,
 	// both halves from tracefence.FixDirectionWord (零二表).
-	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理 (frequency & thermal)"
+	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · cross_seat_aggregation_authority=forbidden · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理 (frequency & thermal) · repair_lane_fold=max_on_chain_seat_not_sum"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("the #1 seat must wear its typed direction word pair verbatim (件⑤ EN 双面), want\n%q\nin:\n%s", want, summary)
 	}
