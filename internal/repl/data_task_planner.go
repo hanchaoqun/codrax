@@ -475,9 +475,10 @@ func dataTaskPlanToolWithRuntimeParamContracts(tool llm.ToolSchema) (llm.ToolSch
 // planner from being taught a future DAG rank that the deterministic staging
 // guard will reject in the same turn.
 type dataTaskExecutableRankContract struct {
-	NextStage          string   `json:"next_stage,omitempty"`
-	AllowedActionKinds []string `json:"allowed_action_kinds"`
-	FutureRanks        string   `json:"future_ranks"`
+	NextStage                 string   `json:"next_stage,omitempty"`
+	AllowedActionKinds        []string `json:"allowed_action_kinds"`
+	FutureRanks               string   `json:"future_ranks"`
+	NativeSchemaAuthoritative bool     `json:"-"`
 }
 
 func dataTaskExecutableRankContractFromState(state dataTaskWorkflowStateView) dataTaskExecutableRankContract {
@@ -506,7 +507,13 @@ func dataTaskExecutableRankContractFromState(state dataTaskWorkflowStateView) da
 }
 
 func dataTaskExecutableRankContractFromRuntimeView(repoRoot string, view dataTaskWorkflowRuntimeView) dataTaskExecutableRankContract {
-	return dataTaskExecutableRankContractFromState(dataTaskWorkflowStateFromRuntimeView(repoRoot, view))
+	rank := dataTaskExecutableRankContractFromState(dataTaskWorkflowStateFromRuntimeView(repoRoot, view))
+	// A reducer-owned runtime, or concrete completed records supplied to the
+	// compatibility view, is precise enough to hard-enforce the computed rank.
+	// A CurrentPlan-only legacy wrapper is not: its rank remains useful prompt
+	// guidance but must not become a new hard rejection contract.
+	rank.NativeSchemaAuthoritative = view.ReducerStateAuthoritative || len(view.Records) > 0
+	return rank
 }
 
 // dataTaskPlanToolForExecutableRank narrows only continuation/repair calls.
@@ -567,6 +574,14 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 			}
 		}
 		items["allOf"] = filtered
+	}
+	// Native model JSON must be checked against the same current-rank action
+	// subtree even when compatibility normalization made no changes. Keep the
+	// opt-in scoped to actions: continuation plans intentionally inherit some
+	// top-level fields from durable workflow state, so upgrading the entire
+	// object to a new required-field contract here would be unrelated hardening.
+	if rank.NativeSchemaAuthoritative {
+		schema[replNativeValidationPropertiesSchemaKey] = []any{"actions"}
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {

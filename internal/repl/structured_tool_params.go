@@ -3,6 +3,7 @@ package repl
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+const replNativeValidationPropertiesSchemaKey = "x-codrax-native-validation-properties"
 
 type replStructuredToolParamError struct {
 	ToolName string
@@ -55,6 +58,15 @@ func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any,
 			}
 		}
 	}
+	if err := validateReplNativeSchemaProperties(normalized, tool.Parameters); err != nil {
+		return &replStructuredToolParamError{
+			ToolName: tool.Name,
+			Scope:    scope,
+			RawLen:   len(raw),
+			Err:      fmt.Errorf("params violate the exact tool schema: %w", err),
+			Hint:     replStructuredToolRetryHint(tool),
+		}
+	}
 	if err := json.Unmarshal(normalized, dst); err == nil {
 		return nil
 	}
@@ -75,6 +87,54 @@ func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any,
 		RawLen:   len(raw),
 		Err:      err,
 		Hint:     replStructuredToolRetryHint(tool),
+	}
+}
+
+// validateReplNativeSchemaProperties enforces only schema-owned subtrees that
+// explicitly opt in. This closes the gap where syntactically valid native JSON
+// bypassed a narrowed enum because ValidateRepairs correctly runs only after a
+// compatibility rewrite. It does not upgrade unrelated legacy/defaulted
+// top-level fields into new hard requirements.
+func validateReplNativeSchemaProperties(raw, schema json.RawMessage) error {
+	var schemaRoot map[string]json.RawMessage
+	if err := json.Unmarshal(schema, &schemaRoot); err != nil {
+		return nil
+	}
+	var propertyNames []string
+	if err := json.Unmarshal(schemaRoot[replNativeValidationPropertiesSchemaKey], &propertyNames); err != nil || len(propertyNames) == 0 {
+		return nil
+	}
+	var schemaProperties map[string]json.RawMessage
+	if err := json.Unmarshal(schemaRoot["properties"], &schemaProperties); err != nil {
+		return nil
+	}
+	var valueRoot map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &valueRoot); err != nil {
+		return nil
+	}
+	for _, name := range propertyNames {
+		name = strings.TrimSpace(name)
+		value, valueExists := valueRoot[name]
+		propertySchema, schemaExists := schemaProperties[name]
+		if name == "" || !valueExists || !schemaExists {
+			continue
+		}
+		if err := toolparam.Validate(value, propertySchema); err != nil {
+			return prefixReplSchemaViolationProperty(name, err)
+		}
+	}
+	return nil
+}
+
+func prefixReplSchemaViolationProperty(property string, err error) error {
+	var violation *toolparam.SchemaViolation
+	if !errors.As(err, &violation) {
+		return fmt.Errorf("$.%s: %w", property, err)
+	}
+	path := strings.TrimPrefix(strings.TrimSpace(violation.Path), "$")
+	return &toolparam.SchemaViolation{
+		Path:   "$." + property + path,
+		Reason: violation.Reason,
 	}
 }
 

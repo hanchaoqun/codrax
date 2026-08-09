@@ -29002,3 +29002,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `json-teaching=no-new-prose`；`invalid-claim-auto-drop=forbidden`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.439 r247：B424 生产闭环；data 当前 rank 的原生 JSON 校验绕过
+
+在 `main@a2c42c9fe` 的不可变二进制快照上严格并发恰好两个 case：`trace_query_wakeup_background_demotion` 与
+`data_json_strict_ids`。runner 2/2 PASS，答案人工 2/2 PASS，但 data 执行效率暴露新的确定性 gap：
+
+1. B424 完成生产闭环。Trace Explorer 只发射一次 `emit_investigation_complete`，零 completion reject；在当前没有可复制
+   relation authority 时，模型可见 schema 没有 `relation_claims`，实际调用亦未提交该字段。相较 r246 的 3 次调用/2 次拒绝，减少了两次无效 JSON 修复；
+2. Trace case 保留显式 `2.000..2.020s`、三次 `trace_query`、自动补采和最终 `Trace 因果投影`。模型把 typed 唤醒链
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 上的 `threadpool-400 io_wait 11ms` 作为主根因；
+   `logger-900` 虽有约 20ms D-state，但没有指向目标的链边，明确只作为 off-chain/background，不参与排序和加冕；
+3. 这同时复验两轴合同：真实占时可用于提示新的修复探索，规则可消量用于链上可计算优化；二者都不能绕过 on-chain 权限。
+   邻近区域、资源压力和背景等待只能支撑解释或额外排查方向，不能成为主因答案；
+4. data case 最终答案严格为 `{"ids":["u1","u3"]}`，业务语义、JSON 形状和源顺序均正确；但三行数据用了 199 秒、6 批、
+   4 次 repair 和 2 次 action failure。首批没有消费 required `instructions.md` 属于真实 material-coverage 失败；其后多次未来 rank
+   `assemble_answer/compute_contributions/filter_records` 发射则不应进入完整工作流失败；
+5. 新 `EVAL-B425-NATIVERANKSCHEMABYPASS1=P1/HIGH`：`dataTaskPlanToolForExecutableRank` 已从 typed
+   `workflow_state_json.allowed_next_actions` 将 `actions[].kind.enum` 精确收窄，但 `unmarshalReplStructuredToolParams` 只在兼容归一化改变参数时
+   调用 `ValidateRepairs`。模型直接给出语法正确的原生 JSON 时，narrowed enum 没有被本地执行，先被 Go 解码，直到后续 workflow guard
+   才拒绝，导致一次本可用 same-schema compact repair 收敛的问题升级成长 planner repair；
+6. B425 不是增加 JSON prose 教学的问题，也不能通过扫描 thinking/plan/final 字符串、静默删除越 rank action 或放宽 workflow guard 解决。
+   最优方案是 owning schema 显式标记需要原生校验的子树，仅校验 `actions`，复用相同 enum 与既有 compact repair；同时必须以 reducer
+   持久化 runtime/执行记录作为 hard authority，不能把只有历史 `CurrentPlan` 的兼容包装推断为精确 rank。
+
+状态：runner=`2/2 PASS`；answer-human=`2/2 PASS`；data-operational=`FAIL/6-batches-4-repairs-2-action-failures`；
+`EVAL-B424=production-closed`；`EVAL-B425=P1-confirmed/next`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.440 B425/S37dw：权威 runtime 下原生 JSON 与当前 rank schema 同门
+
+`EVAL-B425-NATIVERANKSCHEMABYPASS1` 已完成结构修复：
+
+1. structured-tool 解码器新增 schema-owned opt-in 元数据 `x-codrax-native-validation-properties`。它只对 schema 明确列出的顶层属性
+   子树执行 `toolparam.Validate`；B425 当前只标记 `actions`，因此原生 JSON 与兼容归一化 JSON 都必须服从同一个
+   `actions[].kind.enum`，精确 violation path 保持为 `$.actions[N].kind` 并进入既有 bounded same-schema repair；
+2. 没有把整个 data plan 升级成新的顶层 required hard gate。continuation/repair 会从 durable workflow 继承部分字段，广域 full-object
+   校验会把无关 legacy/default 行为错误硬化；未 opt-in 的工具仍保持 owning decoder 原行为；
+3. `WorkflowRuntimeView` 新增 typed `ReducerStateAuthoritative`，由非空真实 `WorkflowRuntime` 指针铸造，即使首条 record 尚未落地也能证明
+   当前 rank 来自 reducer。兼容入口若只有 `CurrentPlan`，rank 仍可作为 soft prompt/schema guidance，但不启用原生 hard validation；带真实执行
+   records 的直接视图同样具备 hard authority；
+4. 新增原生 enum 越权红臂、同 schema compact repair 绿臂、未标记 schema 不硬化、CurrentPlan-only 不铸权、真实 reducer 在首条 record 前铸权、
+   归一化 stringified array 仍不可越权等 pin。此前两个 legacy repair prompt 测试复绿，证明精确信号边界没有被兼容推断污染；
+5. 定向 `internal/repl`、`internal/dataworkflow`、`internal/dataquery` 与无缓存 `go test ./... -count=1` 全绿。本批没有扫描用户请求、
+   模型 thinking/plan/final prose，没有自动删 action、改答案或新增第二份 JSON 教学；Trace 路由、显式窗口、自动补采和因果投影未改。
+
+状态：`EVAL-B425=S37dw-implemented/full-suite-pass/pending-production-replay`；
+`native-schema-scope=explicit-actions-subtree-only`；`hard-authority=reducer-runtime-or-execution-records`；
+`legacy-current-plan-only=soft-guidance`；`json-teaching=no-new-prose`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

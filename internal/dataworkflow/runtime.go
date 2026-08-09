@@ -104,12 +104,13 @@ type WorkflowRuntimeSnapshot struct {
 }
 
 type WorkflowRuntimeView struct {
-	Records       []WorkflowRecord
-	CurrentPlan   dataquery.TaskPlan
-	DeferredQueue DeferredQueueState
-	DeferredPlan  dataquery.TaskPlan
-	DataRounds    int
-	RepairRounds  int
+	Records                   []WorkflowRecord
+	CurrentPlan               dataquery.TaskPlan
+	DeferredQueue             DeferredQueueState
+	DeferredPlan              dataquery.TaskPlan
+	DataRounds                int
+	RepairRounds              int
+	ReducerStateAuthoritative bool
 }
 
 type WorkflowRuntimeViewInput struct {
@@ -137,11 +138,12 @@ type WorkflowIterationDecision struct {
 // snapshot is authoritative whenever it carries concrete state.
 func BuildWorkflowRuntimeView(input WorkflowRuntimeViewInput) WorkflowRuntimeView {
 	out := WorkflowRuntimeView{
-		Records:      cloneWorkflowRecords(input.FallbackRecords),
-		CurrentPlan:  cloneTaskPlanValue(input.FallbackCurrent),
-		DeferredPlan: cloneTaskPlanValue(input.FallbackDeferred),
-		DataRounds:   maxRuntimeInt(input.FallbackDataRounds, 0),
-		RepairRounds: maxRuntimeInt(input.FallbackRepairRounds, 0),
+		Records:                   cloneWorkflowRecords(input.FallbackRecords),
+		CurrentPlan:               cloneTaskPlanValue(input.FallbackCurrent),
+		DeferredPlan:              cloneTaskPlanValue(input.FallbackDeferred),
+		DataRounds:                maxRuntimeInt(input.FallbackDataRounds, 0),
+		RepairRounds:              maxRuntimeInt(input.FallbackRepairRounds, 0),
+		ReducerStateAuthoritative: input.Runtime != nil,
 	}
 	if len(input.FallbackDeferred.Actions) > 0 {
 		out.DeferredQueue = NewDeferredQueue(input.FallbackDeferred)

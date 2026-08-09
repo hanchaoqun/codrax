@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
 )
@@ -206,6 +207,70 @@ func TestDataTaskStringifiedActionsCannotBypassCurrentRankEnum(t *testing.T) {
 	}
 	if !strings.Contains(adapter.calls[1].messages[1].Content, "$.actions[1].kind") {
 		t.Fatalf("compact repair did not receive the precise nested schema violation: %+v", adapter.calls[1].messages)
+	}
+}
+
+func TestDataTaskNativeActionsCannotBypassCurrentRankEnum(t *testing.T) {
+	rank := dataTaskExecutableRankContract{NextStage: "derive_rules", AllowedActionKinds: []string{"derive_rules"}, FutureRanks: "read_only_roadmap", NativeSchemaAuthoritative: true}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"assemble_answer"}],"continue_after":true,"next_batch":"continue"}`),
+		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"derive_rules"}],"continue_after":true,"next_batch":"continue"}`),
+	}}
+	planner := &llmDataTaskPlanner{adapter: adapter}
+	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool)
+	if err != nil {
+		t.Fatalf("planDataTaskWithTool: %v", err)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionDeriveRules {
+		t.Fatalf("future-rank native member survived same-schema repair: %+v", plan.Actions)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d, want planner plus one bounded same-schema repair", len(adapter.calls))
+	}
+	if !strings.Contains(adapter.calls[1].messages[1].Content, "$.actions[0].kind") {
+		t.Fatalf("compact repair did not receive the precise native schema violation: %+v", adapter.calls[1].messages)
+	}
+}
+
+func TestDataTaskCurrentPlanOnlyRankRemainsNonAuthoritative(t *testing.T) {
+	rank := dataTaskExecutableRankContractFromRuntimeView("", dataTaskWorkflowRuntimeView{
+		CurrentPlan: dataquery.TaskPlan{
+			Status:  "ready",
+			Actions: []dataquery.DataAction{{Kind: dataquery.DataActionCustomTransform}},
+		},
+	})
+	if rank.NativeSchemaAuthoritative {
+		t.Fatalf("CurrentPlan-only compatibility view must not mint hard rank authority: %+v", rank)
+	}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(tool.Parameters), replNativeValidationPropertiesSchemaKey) {
+		t.Fatalf("non-authoritative rank unexpectedly enabled native hard validation: %s", tool.Parameters)
+	}
+}
+
+func TestDataTaskReducerRuntimeRankIsAuthoritativeBeforeFirstRecord(t *testing.T) {
+	rt := dataworkflow.NewWorkflowRuntime(dataquery.TaskPlan{
+		Status:  "ready",
+		Actions: []dataquery.DataAction{{Kind: dataquery.DataActionCustomTransform}},
+	})
+	view := dataTaskWorkflowRuntimeViewFrom(rt, nil, dataquery.TaskPlan{}, dataquery.TaskPlan{}, 0, 0)
+	rank := dataTaskExecutableRankContractFromRuntimeView("", view)
+	if !rank.NativeSchemaAuthoritative {
+		t.Fatalf("live reducer runtime must carry hard rank authority before the first record: view=%+v rank=%+v", view, rank)
+	}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tool.Parameters), replNativeValidationPropertiesSchemaKey) {
+		t.Fatalf("authoritative rank did not opt actions into native validation: %s", tool.Parameters)
 	}
 }
 
