@@ -98,6 +98,37 @@ func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing
 	}
 }
 
+func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	for _, want := range []string{
+		"Typed trace context precedence",
+		"on-chain/adjacent/background population",
+		"Thread and span semantic authority",
+		"span/marker label proves its label, measured interval",
+		"does not by itself prove the internal work",
+		"not the owning thread",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compact typed trace guidance missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"Runtime Binder direction hint",
+		"Runtime IO/supply hint",
+		"Runtime perf support hint",
+		"Runtime direct-blocking hint",
+		"Runtime root-cause layering hint",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("typed trace guidance retained unrelated generic recipe %q:\n%s", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "Runtime causal ceiling hint") {
+		t.Fatalf("context dedupe removed exact causal ceiling:\n%s", got)
+	}
+}
+
 func TestRequestedDimensionTokensSupportHanRuns(t *testing.T) {
 	// NG-4 (§13.4): 中文维度标签此前 token 化为空,只有 ASCII 名维度能上
 	// 指标摘录面。Han 连续段现自成 token,两侧仍精确等值匹配。

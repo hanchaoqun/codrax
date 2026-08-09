@@ -27986,3 +27986,73 @@ Trace=`triple-excluded/unchanged/on-chain-only`。
 `unproven-frame-edge=temporal|grounded-observe`；`proved-mixed-chain=unchanged`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.405 r231：帧 verdict 生产闭环；模型仍跨越 span、席位与标尺权限
+
+在 `main@0c615e338` 上严格并发恰好两个高风险 Trace case：`trace_query_frame_timeline_flow` 与
+`trace_query_donghu_real_frame_multicausal`。runner 2/2 PASS，人工 0/2 PASS：
+
+1. B390 生产闭环。perf-triage 的单源教学明确当前 payload 无 refresh/deadline carrier，四段实测 duration 完整保留；最终答案没有固定 60Hz/16.67ms，
+   也没有 jank、丢帧或未丢帧 verdict。`EVAL-B388/B390=production-closed`；
+2. frame_timeline/frame_flow 仍返回四个跨线程成员及精确 `tid/tgid/cpu`，最终答案也披露
+   `frame_flow_causality=unproven, relation=temporal_sequence`。本轮模型没有输出图，因此 B391 的 Mermaid pre-emit 关系臂未被生产触发；
+   单测绿不能替代生产图形回放，状态维持 `partial/pending-production-diagram-replay`；
+3. 新确认 `EVAL-B392-TRACESPANSEMANTICAUTH1=P1/HIGH`。模型把 marker 名和时间区间扩写成接收同步信号、布局绘制、光栅化、硬件显示输出等内部机理，
+   又把 `frame_marker_role`/`pipeline_stage_role` 当 owning-thread role。泛化修复必须声明“label + measured interval only”：名称/阶段不自证内部工作、同步输入、
+   cross-thread handoff、硬件操作或完成语义；thread role 仍须独立 typed role carrier。不能针对 Choreographer/GPU 词面硬编码；
+4. Donghu 确定性投影继续正确守住链上人口：主根因、排序、唤醒链、窗内可消量及真实占时/现规则可消双轴都来自 typed on-chain 席，
+   adjacent/background 只在支撑面；frame absent/unproven、候选非 holder/waiter、背景分数无 absolute level 等边界均已发布；
+5. 模型仍把同一 subject 的 #5 `7.386ms/fscache_page_wait_o` caller 借给原因未证的 #3 `10.433ms` 席，并在代表窗继续声称后者有
+   17 条 caller 记录。新确认 `EVAL-B393-TRACEROWLOCALCALLERAUTH1=P1/HIGH`：最终 compact ledger 必须给方向 leader 近席携带 caller presence/absence、
+   row identity 与 `sibling_caller_transfer=forbidden`；不得按线程名或相近状态猜合并；
+6. 模型把无绝对等级标尺的 CPU 604.528 / IO 551.600 称为“偏高/较重”，并把 lower-priority dependency candidate 扩成已经发生的反转/供给不足。
+   最终 boundary 的 `aggregate_absolute_level_authority=not_provided` 与 candidate envelope 本来正确，说明问题不是事实缺失，而是 58K 级上下文中通用教学、
+   完整 handoff、ledger 与 final boundary 重复竞争；
+7. `EVAL-B389-TRACECONTEXTOVERLOAD1` 从 open 升为 confirmed。下一批由 `TraceEvidenceAuthority` 这一 typed carrier 选择 compact trace guidance，保留 scope、
+   scheduler interval/residency、thread/span role、causal/frame ceiling 和 exact witness；不再同时注入 Binder/IO/perf/root-cause 等未必相关的通用大清单。
+   这是 prompt 语义去重，不是降杆：完整 typed Trace Decision Inputs 与 final boundary 仍保留；
+8. 两案 `finalizer_reject=0`、JSON repair=0、系统正文改写=0。根修不能新增 raw question/thinking/summary/final prose 扫描，也不能由系统代写结论；
+   Trace 主因人口继续 `typed_on_chain_only`，邻近/背景继续 `supporting_context_and_additional_investigation_only`。
+
+状态：runner=`2/2 PASS`；human=`0/2 PASS`；
+`EVAL-B388=production-closed`；`EVAL-B390=production-closed`；
+`EVAL-B391=partial/pending-production-diagram-replay`；
+`EVAL-B392=P1-confirmed/next`；`EVAL-B393=P1-confirmed/next`；
+`EVAL-B389=P1-confirmed/typed-context-dedupe-next`；
+`EVAL-B394=P1/subsumed-by-B389/replay-before-escalation`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.406 S37dc：typed 上下文去重、span 语义边界与 caller 席位隔离
+
+按 r231 的 B389/B392/B393 合批施工，目标是让模型更容易消费已有精确事实，而不是增加答案接管或正文硬门：
+
+1. `runtimeTraceGuidanceView` 新增 `TypedTraceAuthority`，唯一铸点是 `ToolResult.TraceEvidenceAuthority != nil`。有 typed trace_query 权限时，
+   Runtime Trace 通用 13 项全场景清单改为 4 条紧凑边界：精确输入优先、模型结论先行、状态/跨席不可借用、thread/span 语义权限；
+   scope 与 direct frequency witness 仍保留，causal/frame ceiling 仍按原 typed 字段追加；
+2. 没有 typed authority 的 legacy perf/hitrace 车道保持原通用教学，避免仅因“像 trace”或请求词命中改变行为。选择 compact lane 不读取用户原文、
+   thinking、summary、final answer、span 名或线程名，也不新增 emit-time reject、repair 或系统答案 mutation；
+3. 新的 span 边界是语言、平台与标签无关的 soft guidance：span/marker 只证明 label、实测 interval 和显式 typed marker/stage role；它不自证内部工作、
+   同步输入、跨线程 handoff、硬件操作、completion effect 或显示语义。main/UI/render/service/hardware 等 owning-thread role 仍须独立 `thread_role` carrier；
+4. `traceDecisionWriteNodeBlockingReasonAuthority` 成为 caller 席位单源。原因未证 remainder 席发布
+   `blocking_reason_authority=not_provided_by_this_seat`、`blocked_reason_caller=not_provided`、`sibling_caller_transfer=forbidden`；
+   同窗仅存在 blocked_reason 记录时，只披露记录数并明确 `window_record_binding_to_this_seat=not_provided`；
+5. 有 caller 的席发布 `caller_scope=this_seat_only` 与相同 sibling-transfer 禁令，继续明确 kernel callsite 不是 holder。完整 Trace Decision Inputs 与
+   final compact direction leader 都消费同一 helper，因此同 subject 的 proof-partition 席不能再靠名称/状态相近借 caller；
+6. 最终 compact ledger 只给已选方向 leader 携带这条权限，不新增方向 subtotal、不重排根因、不改变有效归因。链上人口、根因排序、唤醒链、
+   显式窗、自动补采、因果投影、窗内可消量及真实占时/现规则可消双轴全部未改；
+7. 新增 compact typed guidance 正/负 pin、span 语义 pin、未证 remainder/正 caller 双臂和 sibling caller 不泄漏 pin。定向 agent 测试全绿；
+   冻结代码上 `go test ./... -count=1` 全绿，覆盖 cmd、agent/orchestrator、read/write/data、hitraceconv、tracequery/tracediag、tool、render/mermaid、
+   全语言 repomap 与 writeflow；
+8. 下一次生产复放继续恰好并发两个：frame timeline/flow 检查是否停止由标签扩写机理与 thread role；Donghu 检查 #3 未证席是否停止借 #5 caller，
+   aggregate score 是否停止无标尺判高低。B391 仍需一个实际发 diagram 的 pure-temporal 回放后才能关闭。
+
+状态：`EVAL-B389=S37dc-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B392=S37dc-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B393=S37dc-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B394=subsumed-by-B389/pending-production-replay`；
+`EVAL-B391=partial/pending-production-diagram-replay`；
+`typed-context=compact-exact`；`legacy-context=unchanged`；
+`span-label-authority=label+interval+typed-stage-only`；`caller-authority=exact-seat-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

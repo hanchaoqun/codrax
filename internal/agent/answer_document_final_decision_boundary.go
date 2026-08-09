@@ -242,6 +242,7 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 				b.WriteString("; impact_phase=`pre_wakeup_dependency`; post_wakeup_delay_authority=`not_provided_by_this_seat`")
 			}
 			traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
+			traceDecisionWriteNodeBlockingReasonAuthority(&b, node)
 			b.WriteString("\n")
 		}
 	}

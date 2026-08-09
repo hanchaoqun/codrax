@@ -276,6 +276,57 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 	}
 }
 
+func TestTraceFinalDecisionLedgerKeepsBlockedReasonCallerOnExactPartitionSeat(t *testing.T) {
+	inWindow := true
+	unproven := types.TraceCausalProjectionNode{
+		EvidenceID: "unproven-seat", Subject: "worker-60555", Rank: 3,
+		StateKind: "d_sleep", EffectiveImpactMS: 10.433, FixDirection: "io_dependency",
+		DStateCauseUnprovenRemainder: true, BlockedReasonWindowCount: 17,
+		WithinRequestedWindow: &inWindow,
+	}
+	proved := types.TraceCausalProjectionNode{
+		EvidenceID: "proved-seat", Subject: "worker-60555", Rank: 5,
+		StateKind: "io_wait", EffectiveImpactMS: 7.386, FixDirection: "io_dependency",
+		BlockedReasonCaller: "fscache_page_wait_o", WithinRequestedWindow: &inWindow,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 10, WindowEndTs: 10.1,
+		RankedSeats:   []types.TraceCausalProjectionNode{unproven, proved},
+		OnChainCauses: []types.TraceCausalProjectionNode{unproven, proved},
+	}
+	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"leader_subject=`worker-60555`",
+		"leader_effective_attribution=10.433ms",
+		"row_identity=`unproven-seat`",
+		"blocking_reason_authority=`not_provided_by_this_seat`",
+		"blocked_reason_caller=`not_provided`",
+		"sibling_caller_transfer=`forbidden`",
+		"window_blocked_reason_records=17",
+		"window_record_binding_to_this_seat=`not_provided`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("partition-seat caller boundary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "fscache_page_wait_o") {
+		t.Fatalf("sibling caller leaked into the unproven direction leader:\n%s", got)
+	}
+
+	var relation strings.Builder
+	traceDecisionWriteNodeBlockingReasonAuthority(&relation, proved)
+	for _, want := range []string{
+		"blocked_reason_caller=`fscache_page_wait_o`",
+		"caller_scope=`this_seat_only`",
+		"sibling_caller_transfer=`forbidden`",
+		"holder_authority=`not_provided_by_caller`",
+	} {
+		if !strings.Contains(relation.String(), want) {
+			t.Fatalf("proved seat caller scope missing %q: %s", want, relation.String())
+		}
+	}
+}
+
 func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t *testing.T) {
 	inWindow := true
 	candidate := types.TraceCausalProjectionNode{

@@ -504,9 +504,7 @@ func traceDecisionWriteNodeRelations(b *strings.Builder, node types.TraceCausalP
 	if node.ResourceCompletionClosure {
 		b.WriteString("; completion_relation=`resource_completion_closure_for_anchored_wait`; completion_thread_holder_authority=`not_provided`")
 	}
-	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
-		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; holder_authority=`not_provided_by_caller`", caller)
-	}
+	traceDecisionWriteNodeBlockingReasonAuthority(b, node)
 	if strings.TrimSpace(node.BlockingKind) == "" {
 		return
 	}
@@ -521,6 +519,26 @@ func traceDecisionWriteNodeRelations(b *strings.Builder, node types.TraceCausalP
 	b.WriteString("; subject_lock_role=`blocked_waiter`")
 	if peer != "" {
 		fmt.Fprintf(b, "; typed_lock_holder=`%s`", peer)
+	}
+}
+
+// traceDecisionWriteNodeBlockingReasonAuthority keeps kernel wait-callsite
+// evidence local to the exact projection seat that carries it. A sibling seat
+// may share the same subject and state family while representing the honest
+// unproven remainder; subject/name proximity never transfers a caller.
+func traceDecisionWriteNodeBlockingReasonAuthority(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil {
+		return
+	}
+	if node.DStateCauseUnprovenRemainder {
+		b.WriteString("; blocking_reason_authority=`not_provided_by_this_seat`; blocked_reason_caller=`not_provided`; sibling_caller_transfer=`forbidden`")
+		if node.BlockedReasonWindowCount > 0 {
+			fmt.Fprintf(b, "; window_blocked_reason_records=%d; window_record_binding_to_this_seat=`not_provided`", node.BlockedReasonWindowCount)
+		}
+		return
+	}
+	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; caller_scope=`this_seat_only`; sibling_caller_transfer=`forbidden`; holder_authority=`not_provided_by_caller`", caller)
 	}
 }
 
