@@ -73,6 +73,7 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Kernel-recorded wait evidence (independent typed seats):",
+		"Unbound thread-window inventory (separate context; never a ranked-seat attribute):",
 		"subject=CompThread_0-2955; seat_type=blocked_reason_callsite; caller=dma_fence_default_w",
 		"state=d_state_or_io_wait; value_ms=36.757; members=4",
 		"subject=ThreadPoolForeg-60555; seat_type=blocked_reason_callsite; caller=fscache_page_wait_o",
@@ -82,6 +83,8 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		"subject=.ugc.aweme.lite-17267; seat_type=thread_window_record_inventory; blocked_reason_records=6; seat_binding=not_provided; rank_binding=not_provided; caller_roster=fscache_page_get_an/hmfs_read",
 		"rank=#2; row_identity=trace_query:t#root_cause_rank:2",
 		"rank=#3; row_identity=trace_query:t#root_cause_rank:3",
+		"cross_seat_aggregation_authority=forbidden",
+		"ranked_seat_transfer=forbidden; cross_section_binding=forbidden",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence summary missing %q:\n%s", want, summary)
@@ -101,6 +104,17 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	}
 	if strings.Contains(summary, "Kernel-recorded wait objects") {
 		t.Fatalf("blocked_reason caller regressed to a resource-object role:\n%s", summary)
+	}
+	unboundAt := strings.Index(summary, "Unbound thread-window inventory (separate context; never a ranked-seat attribute):")
+	if unboundAt < 0 {
+		t.Fatalf("missing separate unbound inventory section:\n%s", summary)
+	}
+	if before := summary[:unboundAt]; strings.Contains(before, "seat_type=thread_window_record_inventory") ||
+		strings.Contains(before, "seat_type=thread_window_blocked_reason_census") {
+		t.Fatalf("unbound window inventory remained interleaved with ranked seats:\n%s", summary)
+	}
+	if after := summary[unboundAt:]; !strings.Contains(after, "seat_type=thread_window_record_inventory") {
+		t.Fatalf("separate unbound inventory lost its original rows:\n%s", summary)
 	}
 }
 

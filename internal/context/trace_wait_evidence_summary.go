@@ -822,6 +822,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	var b strings.Builder
 	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one independent typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
 	if len(selectedSubjects) > 0 {
+		var unboundWindowRows []string
 		b.WriteString("Kernel-recorded wait evidence (independent typed seats):\n")
 		for _, subject := range selectedSubjects {
 			f := threads[subject]
@@ -856,6 +857,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 						row.WriteString("; member_scope=this_seat_all_members; member_rebinding=forbidden")
 					}
 				}
+				row.WriteString("; cross_seat_aggregation_authority=forbidden")
 				if fact.rank > 0 {
 					fmt.Fprintf(&row, "; rank=#%d", fact.rank)
 				}
@@ -871,11 +873,13 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				fmt.Fprintf(&b, "- subject=%s; seat_type=blocked_reason_callsite_overflow; omitted_rows=%d; see=measured_observations\n", subject, hiddenFacts)
 			}
 			if f.windowCount > 0 {
-				fmt.Fprintf(&b, "- subject=%s; seat_type=thread_window_record_inventory; blocked_reason_records=%d; seat_binding=not_provided; rank_binding=not_provided", subject, f.windowCount)
+				var row strings.Builder
+				fmt.Fprintf(&row, "- subject=%s; seat_type=thread_window_record_inventory; blocked_reason_records=%d; seat_binding=not_provided; rank_binding=not_provided", subject, f.windowCount)
 				if len(f.windowCallers) > 0 {
-					b.WriteString("; caller_roster=" + strings.Join(f.windowCallers, "/"))
+					row.WriteString("; caller_roster=" + strings.Join(f.windowCallers, "/"))
 				}
-				b.WriteString("\n")
+				row.WriteString("; ranked_seat_transfer=forbidden; cross_section_binding=forbidden")
+				unboundWindowRows = append(unboundWindowRows, row.String())
 			}
 			if len(f.censusOrder) > 0 {
 				// 符号×count×Σms, ordered by count (desc) then first appearance.
@@ -899,11 +903,17 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				if f.censusTotal != "" {
 					lead += "; total_records=" + f.censusTotal
 				}
-				b.WriteString(lead + "; caller_census=" + strings.Join(segs, " / ") + "\n")
+				unboundWindowRows = append(unboundWindowRows, lead+"; caller_census="+strings.Join(segs, " / ")+"; ranked_seat_transfer=forbidden; cross_section_binding=forbidden")
 			}
 		}
 		if subjectOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more threads with blocked_reason evidence; see the measured observations)\n", subjectOverflow))
+		}
+		if len(unboundWindowRows) > 0 {
+			b.WriteString("Unbound thread-window inventory (separate context; never a ranked-seat attribute):\n")
+			for _, row := range unboundWindowRows {
+				b.WriteString(row + "\n")
+			}
 		}
 	}
 	if len(seatComps) > 0 {

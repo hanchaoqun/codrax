@@ -130,7 +130,7 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 
 	var b strings.Builder
 	b.WriteString("\n#### Copy-ready optional report-local temporal diagram\n\n")
-	b.WriteString("- This optional authoring aid is built from one trace result's complete typed frame-item and temporal-edge rows. It does not prove a call, handoff, wait, completion dependency, or root cause. Copy the Mermaid body and complete `edge_anchors_json` together, or omit the diagram; do not change Notes into arrows.\n\n")
+	b.WriteString("- This optional authoring aid is built from one trace result's complete typed frame-item and temporal-edge rows. Each Note's `item_stage_role` classifies that trace item only; `owning_thread_role_authority=not_provided_by_this_item` and `internal_work_authority=not_provided_by_this_item` forbid transferring the stage word into a thread role or implementation claim without a separate typed carrier. It does not prove a call, handoff, wait, completion dependency, or root cause. Copy the Mermaid body and complete `edge_anchors_json` together, or omit the diagram; do not change Notes into arrows.\n\n")
 	b.WriteString("```mermaid\nsequenceDiagram\n")
 	for _, identity := range identities {
 		fmt.Fprintf(&b, "  participant %s as %s\n", aliases[identity], answerDocMechanismMermaidLabel(identity))
@@ -138,7 +138,7 @@ func answerDocRuntimeTemporalDiagramCapsule(result types.ToolResult) (string, bo
 	for _, item := range items {
 		role := strings.TrimPrefix(strings.TrimSpace(item.Predicate), "frame_timeline_")
 		phase := strings.TrimSpace(item.Object)
-		label := fmt.Sprintf("role=%s", firstNonEmptyString(role, "item"))
+		label := fmt.Sprintf("item_stage_role=%s; owning_thread_role_authority=not_provided_by_this_item; internal_work_authority=not_provided_by_this_item", firstNonEmptyString(role, "item"))
 		if phase != "" {
 			label += "; phase=" + phase
 		}

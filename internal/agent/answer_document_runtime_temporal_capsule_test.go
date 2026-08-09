@@ -92,7 +92,7 @@ func TestRuntimeTemporalCapsuleRendersCompleteTypedSequence(t *testing.T) {
 		"participant t1 as ui-10",
 		"participant t2 as render-20",
 		"participant t3 as gpu-30",
-		"Note over t1: role=app; phase=Begin; interval=1.000000..1.001000; lines=10..11",
+		"Note over t1: item_stage_role=app; owning_thread_role_authority=not_provided_by_this_item; internal_work_authority=not_provided_by_this_item; phase=Begin; interval=1.000000..1.001000; lines=10..11",
 		"t1-->>t2: temporal adjacency (unproven)",
 		"t2-->>t2: temporal adjacency (unproven)",
 		"t2-->>t3: temporal adjacency (unproven)",
@@ -105,6 +105,10 @@ func TestRuntimeTemporalCapsuleRendersCompleteTypedSequence(t *testing.T) {
 		if strings.Contains(capsule, forbidden) {
 			t.Fatalf("capsule promoted non-frame/prose content %q:\n%s", forbidden, capsule)
 		}
+	}
+	if strings.Count(capsule, "; owning_thread_role_authority=not_provided_by_this_item") != 4 ||
+		strings.Count(capsule, "; internal_work_authority=not_provided_by_this_item") != 4 {
+		t.Fatalf("item-local semantic ceilings must travel with every item Note:\n%s", capsule)
 	}
 	anchors := runtimeTemporalCapsuleAnchors(t, capsule)
 	if len(anchors) != 3 || strings.Count(capsule, "-->>") != len(anchors) {

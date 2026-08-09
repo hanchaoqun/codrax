@@ -28435,3 +28435,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B407=P1-confirmed/next-seat-aggregation-authority`；`EVAL-B406=P1-observe`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.420 S37dk：frame 权限同位 + ranked/unbound wait 上下文分区
+
+按 r237 共同根因施工，目标是降低模型心智与错误邻接，不接管模型结论：
+
+1. report-local frame capsule 的每个 Note 从模糊 `role=` 改为 `item_stage_role=`，并在**同一 Note**携
+   `owning_thread_role_authority=not_provided_by_this_item` 与 `internal_work_authority=not_provided_by_this_item`。因此 UI/render/gpu 等 stage 词不再与
+   线程 identity 裸邻接；独立 typed thread-role/internal-work carrier 若将来存在，仍可单独授权，不被本 item ceiling 否定；
+2. 胶囊前言同步说明 item-stage 只分类该 trace item，不授权 owning-thread role 或内部工作。箭头、temporal anchors、report-local 完整性与 source/runtime
+   owner routing 不变；系统仍只给 copy-ready soft aid，不把图插入模型答案；
+3. wait context 不再按 subject 把 ranked seats 与 thread-window census 交错发布。它先完整发布所有独立 ranked/caller/unproven seats，随后在独立
+   `Unbound thread-window inventory` 区发布原 window inventory/census；原 count、caller roster、Σdelay、overflow 均零丢失；
+4. 每个 seat 同位追加 `cross_seat_aggregation_authority=forbidden`；unbound rows 追加
+   `ranked_seat_transfer=forbidden + cross_section_binding=forbidden`。这同时覆盖 B404 的跨席 caller 搬运与 B407 的 #3/#5 自行加总，不依赖某线程名、
+   某 caller symbol、某语言或某个数值；
+5. 新增每 item 权限基数、分区顺序、原 unbound rows 保留、ranked-seat aggregation authority 回归。定向 agent/context 测试通过；下一步跑无缓存全仓，
+   独立提交推送后用恰好两个 Trace case 复放；
+6. 不扫描用户输入、模型 thinking/summary/final prose，不删除原始证据，不改写最终答案。显式时间窗、自动补采、Trace 因果投影、根因排序、唤醒链、
+   窗内可消量及“真实占时/规则可消”双轴均未修改。
+
+状态：`EVAL-B403=S37dk-context-colocation-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B404=S37dk-ranked-vs-unbound-partition-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B407=S37dk-cross-seat-aggregation-authority-implemented/full-suite-pass/pending-production-replay`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
