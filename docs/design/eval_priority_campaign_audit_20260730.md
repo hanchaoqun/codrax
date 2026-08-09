@@ -28660,3 +28660,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `json-teaching=single-source-present-but-recovery-routing-missed`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.428 S37do：源码图调用 occurrence 预算与 required-flow 有界恢复
+
+针对 r241 的 B413/B414 完成第一批泛化施工：
+
+1. `DiagramCallEdgeEvidenceMismatches` 在原“每条可见调用必须有 typed call authority”之外，新增 occurrence 消费账：一个 distinct citable
+   call-site EvidenceItem 默认只授权一个具体可见调用 occurrence；同端点确有多个不同 grounded call site 时预算才按 distinct stable evidence identity
+   增长，重复拷贝同一 evidence row 不增长；
+2. 预算不是粗按 participant pair。对于 class/actor participant，沿用既有 exact message-operation resolver，将结构化 Mermaid message 只作为 typed
+   method identity discriminator；`VisitService.countOpenVisits` 与 `VisitService.insert` 有各自调用证据时可分别出现。方法限定端点
+   `Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage` 则始终绑定同一证据身份，不能靠四个不同参数消息把一条证据消费四次；
+3. 新 mismatch=`call_edge_occurrence_unproven` 仍归入既有 producer-owned
+   `ViolDiagramCallEdgeUnproven + offending_block_kinds=diagram`，修复提示明确要求折叠重复端点或提供 distinct call-site；判断只消费 parsed Mermaid edge、typed
+   endpoint resolver 与 EvidenceItem，不扫描用户请求、thinking、summary 或最终 prose；
+4. 深审纠正了 B413 的表层判断：required-diagram selector 并非丢失 `diagramRequired`，而是 `AxisFlow` 正确地不铸造 whole-diagram copy-ready
+   payload——只有一条局部调用证据时，系统不能把它伪装成用户所问的完整 flow。旧逻辑在 payload 为空后退回通用 patch，才形成 8 次 patch 重构；
+5. 新增 required-flow typed relation boundary 恢复车道：当 relation-only reject、required diagram、whole-diagram payload 缺席但精确 per-edge recipe
+   存在时，重复同一 typed alias/`edge_recipe`/`edge_anchor_json`，要求每条 recipe 最多使用一次；无证参与者可保持断开并由模型披露 unproven
+   boundary，禁止把局部 recipe 串成完整路径；
+6. 该恢复只给模型重复精确事实和边界，不删除 required diagram，不编辑 Mermaid/正文，不选择 stage、顺序或结论。没有 typed recipe 时仍走原 fail-close
+   通用修复；optional diagram 删除车道、完整 copy-ready 精确车道、混合 violation 与 non-diagram location 均保持；
+7. 新增一证据/双 occurrence 红臂、两个 distinct call-sites 绿臂、duplicate evidence 不增权、class participant 多 operation、full-emit/patch 两条 required-flow
+   boundary 接线测试；`internal/agent`、`internal/tool` 完整包与 `go test ./... -count=1` 无缓存全仓终验均全绿；
+8. B415 尚未用本批掩盖：Explorer 仍曾把错误 `StagePlan` member_set 宣告完整。后续要把 deterministic current-run stage roster 变成通用 provider-owned
+   typed member authority；不能通过 final prose 标签扫描、系统覆写答案或把局部调用胶囊冒充完整 stage flow 来关账。
+
+状态：`EVAL-B413=S37do-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B414=S37do-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B415=P1-confirmed/next-typed-member-authority`；
+`occurrence-budget=distinct-typed-evidence-identity`；
+`class-actor-operation-discriminator=preserved`；`all-languages=shared-structural-path`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

@@ -676,6 +676,73 @@ func TestEmitAnswerDocumentRejectSignal_RequiredDiagramRepeatsExactTypedCapsule(
 	}
 }
 
+func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryWhenWholeDiagramWithheld(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested || got.HintKey != "answer_doc.patch_required_diagram_relation_boundary" {
+		t.Fatalf("required flow without a whole-diagram capsule should use the typed boundary lane, got %+v", got)
+	}
+	for _, want := range []string{
+		"REQUIRED source diagram",
+		"use each exact relation recipe below at most once",
+		"node_alias[n1]=`Orchestrator.runAnalyzePhase`",
+		"edge_recipe[1]=`n1 -> n2`",
+		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","relation_kind":"call"}` + "`",
+		"typed relation boundary, not a complete-flow claim",
+		"does not rewrite the model's prose, ordering, or conclusion",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("typed relation-boundary hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "remove_block_ids") || strings.Contains(got.Hint, "remove the optional diagram") {
+		t.Fatalf("required boundary recovery must not offer diagram removal:\n%s", got.Hint)
+	}
+	if e.forceFullEmitNext || !e.preferPatchNext {
+		t.Fatalf("required boundary recovery must remain patch-local: forceFull=%t preferPatch=%t",
+			e.forceFullEmitNext, e.preferPatchNext)
+	}
+}
+
+func TestEmitAnswerDocumentRejectSignal_RequiredFlowUsesTypedRelationBoundaryWhenWholeDiagramWithheld(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
+	if !got.HintRequested || !strings.Contains(got.HintKey, "required-diagram-relation-boundary") {
+		t.Fatalf("first required flow reject should use the typed relation boundary lane, got %+v", got)
+	}
+	if !strings.Contains(got.Hint, "edge_recipe[1]=`n1 -> n2`") {
+		t.Fatalf("first-reject boundary lane must repeat the typed recipe:\n%s", got.Hint)
+	}
+}
+
 func TestOptionalDiagramCallEdgeRecoveryRequiresSingleTypedViolationKind(t *testing.T) {
 	result := &types.ToolResult{Repair: &types.ToolRepair{
 		Code: "answer_doc_pre_emit_contract",

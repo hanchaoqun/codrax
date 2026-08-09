@@ -23,6 +23,46 @@ func diagramEvidenceTestCall(subject, object string) types.EvidenceItem {
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCallSites(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant n1 as Orchestrator.runAnalyzePhase\n  participant n2 as Orchestrator.dispatchStage\n  n1->>n2: call\n  n1->>n2: call\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "n1", ToNode: "n2", RelationKind: types.DiagramRelCall},
+			{FromNode: "n1", ToNode: "n2", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	call := types.EvidenceItem{
+		ID: "call-1", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
+		Subject: "Orchestrator.runAnalyzePhase", Object: "Orchestrator.dispatchStage",
+		Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
+		GroundingStatus: types.GroundingGrounded,
+	}
+
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueOccurrenceUnproven {
+		t.Fatalf("one call site must own only one visible occurrence, got %+v", got)
+	}
+
+	second := call
+	second.ID = "call-2"
+	second.LineStart = 2498
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call, second}); len(got) != 0 {
+		t.Fatalf("two distinct call sites may own two visible occurrences, got %+v", got)
+	}
+
+	duplicate := call
+	duplicate.ID = "duplicate-copy"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call, duplicate}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueOccurrenceUnproven {
+		t.Fatalf("a duplicated evidence row must not increase occurrence authority, got %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallbackHandoffNeedsExactTypedDirection(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,

@@ -13021,6 +13021,20 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 				BypassBudget:   true,
 			}
 		}
+		if hint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint = e.appendDiagramRelationRepeatGuidance(hint)
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "answer_doc.patch_required_diagram_relation_boundary",
+				Hint:           hint,
+				Progress:       true,
+				BypassThrottle: true,
+				BypassBudget:   true,
+			}
+		}
 	}
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		e.rejectHintsUsed++
@@ -13177,6 +13191,31 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		" The system supplies only the verified diagram carrier and does not rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
 }
 
+// answerDocRequiredDiagramRelationBoundaryPatchHint handles a required source
+// flow whose accepted typed relation set is intentionally too narrow to mint a
+// whole-diagram capsule. Repeating the exact per-edge recipes gives the model a
+// bounded repair floor without pretending those edges form the complete flow.
+// The model still owns the visible diagram and may keep requested participants
+// disconnected with an uncertainty note; the system neither deletes the
+// required block nor authors a synthetic bridge.
+func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
+	payload := answerDocMechanismTypedRelationBoundaryRepairPayload(ctx)
+	if payload == "" {
+		return "", false
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	return prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
+		action + "; replace only the rejected diagram block, retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
+		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. " +
+		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
+		"\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
+}
+
 // answerDocMechanismCopyReadyRepairPayload reuses the exact system-rendered
 // carrier already placed in the initial finalizer prompt. Re-rendering the
 // same typed source here avoids a second JSON tutorial and keeps the retry
@@ -13204,6 +13243,20 @@ func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
 		anchorEnd = len(section) - anchorStart
 	}
 	return strings.TrimSpace(section[fenceStart : anchorStart+anchorEnd])
+}
+
+func answerDocMechanismTypedRelationBoundaryRepairPayload(ctx *types.AgentContext) string {
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	const heading = "### Typed relation authoring capsule (advisory)"
+	start := strings.Index(authority, heading)
+	if start < 0 {
+		return ""
+	}
+	section := strings.TrimSpace(authority[start:])
+	if !strings.Contains(section, "edge_recipe[") || !strings.Contains(section, "edge_anchor_json=`") {
+		return ""
+	}
+	return section
 }
 
 func answerDocumentPatchRejectBlockCardinalityKind(result *types.ToolResult) (types.AnswerBlockKind, bool) {
@@ -13336,6 +13389,11 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
 			hint = requiredHint
 			reasonKey = "required-diagram-call-edge"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		} else if boundaryHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false); ok {
+			hint = boundaryHint
+			reasonKey = "required-diagram-relation-boundary"
 			diagramCallEdgePatchRecovery = true
 			e.preferPatchNext = true
 		}

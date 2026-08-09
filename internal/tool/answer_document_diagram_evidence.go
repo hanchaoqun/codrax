@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -32,6 +33,7 @@ const (
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
 	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
+	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
@@ -111,6 +113,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
 			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
+			callOccurrenceUse := make(map[string]int)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels, evidence)
@@ -187,6 +190,25 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					continue
 				}
 				if hasTypedCallEvidence {
+					// One static call-site row proves one concrete visible call
+					// occurrence. It must not silently authorize the same arrow
+					// four times with four different message payloads. Distinct
+					// grounded call sites increase the budget; duplicated evidence
+					// records do not. This is a structural Mermaid-occurrence vs
+					// typed-evidence comparison and never reads the edge label,
+					// model prose, or request text as authority.
+					occurrenceKey, occurrenceBudget := diagramCallEdgeTypedEvidenceOccurrenceAuthority(
+						evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label,
+					)
+					callOccurrenceUse[occurrenceKey]++
+					if callOccurrenceUse[occurrenceKey] > occurrenceBudget {
+						out = append(out, DiagramCallEdgeEvidenceMismatch{
+							BlockID: block.ID, Issue: diagramCallEdgeIssueOccurrenceUnproven,
+							FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
+							FromSymbol: fromSymbol, ToSymbol: toSymbol,
+							Relation: types.DiagramRelCall,
+						})
+					}
 					continue
 				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -1018,6 +1040,80 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+// diagramCallEdgeTypedEvidenceOccurrenceAuthority returns a stable group key
+// and budget for one already-proven visible call. Exact endpoint rows win. For
+// class/actor participants, the existing exact message-operation resolver may
+// select a different call row for each operation; those rows receive distinct
+// keys. A bridge that needs definition/owner context but cannot be attributed
+// to one exact row retains a conservative one-occurrence budget.
+func diagramCallEdgeTypedEvidenceOccurrenceAuthority(
+	evidence []types.EvidenceItem,
+	requiredAnchors []types.AnswerRequiredAnchor,
+	fromSymbol, toSymbol, edgeLabel string,
+) (string, int) {
+	if !diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edgeLabel) {
+		return "unproven", 0
+	}
+	seen := make(map[string]struct{})
+	add := func(ev types.EvidenceItem) {
+		identity := types.StableEvidenceID(ev)
+		if strings.TrimSpace(identity) == "" {
+			identity = ev.Source + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + strconv.Itoa(ev.LineEnd) +
+				"\x00" + ev.Subject + "\x00" + ev.Object + "\x00" + ev.AnchorSymbol
+		}
+		seen[identity] = struct{}{}
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		fromMatches := diagramCallEvidenceEndpointMatches(ev, ev.Subject, fromSymbol) ||
+			types.AnswerCodeIdentitySurfacesCompatible(ev.Subject, fromSymbol)
+		toMatches := diagramCallEvidenceEndpointMatches(ev, ev.Object, toSymbol) ||
+			diagramCallEvidenceEndpointMatches(ev, ev.AnchorSymbol, toSymbol) ||
+			types.AnswerCodeIdentitySurfacesCompatible(ev.Object, toSymbol) ||
+			types.AnswerCodeIdentitySurfacesCompatible(ev.AnchorSymbol, toSymbol)
+		if !fromMatches || !toMatches {
+			continue
+		}
+		add(ev)
+	}
+	// Class/actor participant labels are not method endpoints. When exact
+	// endpoint matching found no row, reuse the same exact operation projection
+	// that made the edge valid above. The structured message is only an identity
+	// discriminator here; it does not create relation authority.
+	if len(seen) == 0 {
+		operation := diagramEvidenceCallLabelOperation(edgeLabel)
+		if operation != "" {
+			for _, ev := range evidence {
+				if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+					!diagramEvidenceEndpointMatchesQualifiedOwner(fromSymbol, strings.TrimSpace(ev.Subject)) ||
+					!diagramEvidenceEndpointMatchesQualifiedOwner(toSymbol, strings.TrimSpace(ev.Object)) {
+					continue
+				}
+				anchor := strings.TrimSpace(ev.AnchorSymbol)
+				if anchor == "" {
+					anchor = diagramEvidenceQualifiedOperation(strings.TrimSpace(ev.Object))
+				}
+				if diagramEvidenceQualifiedOperation(anchor) == operation {
+					add(ev)
+				}
+			}
+		}
+	}
+	if len(seen) == 0 {
+		key := "bridge\x00" + strings.ToLower(strings.TrimSpace(fromSymbol)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(toSymbol))
+		return key, 1
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return "evidence\x00" + strings.Join(keys, "\x01"), len(keys)
 }
 
 // diagramCallEndpointHasUniqueTypedProjection reports whether one diagram
