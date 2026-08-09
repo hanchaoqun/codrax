@@ -3235,6 +3235,20 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	// A flow-shaped question over an attached runtime artifact is not a
+	// current-source operation-flow investigation merely because the analyzer
+	// selected AxisFlow/IntentExplain. Keep the source-operation carrier gate
+	// only when the shared typed source-lane decision says current checkout
+	// evidence is required. This preserves mixed trace+source requests while
+	// avoiding a redundant producer/transfer/consumer source pass after typed
+	// trace_query evidence has already answered an external-only flow question.
+	// The decision reads runtime carriers and structured source obligations; it
+	// never parses request or model prose.
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(
+		types.RuntimeArtifactContextActiveFromBus(ctx),
+	) {
+		return false
+	}
 	return rm.PredicateAxis == types.AxisFlow &&
 		rm.Intent != types.IntentTrace &&
 		types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&

@@ -28597,3 +28597,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B411=P1-confirmed/next-typed-routing-fix`；
 `json-contract-conflict=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.426 S37dn：运行时 flow 与源码 operation 合同按 typed source lane 解耦
+
+针对 r240 的 B411 完成泛化施工：
+
+1. `flowOperationEvidenceRequired` 在判断 `AxisFlow/IntentExplain` 之前，先复用
+   `HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext(RuntimeArtifactContextActiveFromBus(ctx))`。attached trace/log、runtime preflight、
+   typed trace_query observation 等运行时载体在当前源码非 required 时，不再被错误要求源码 producer/transfer/consumer；
+2. 这不是按 frame、语言、用户关键词或模型正文豁免。共享 helper 用结构化 runtime carrier 构造 source-lane 决策，并让
+   `CurrentSourceLaneDecision` 中的 typed current-source obligation 优先；
+3. 普通源码 flow 仍触发 operation-carrier gate；显式 runtime+current-source 解释通过
+   `CurrentSourceExplanationProfile(trace_current_flow)` 仍触发同一 gate；既有 `IntentTrace/QFRootCauseTrace` 保护不变；
+4. 新增 M4 接线回归：`intent=explain + AxisFlow + attached hitrace + bounded runtime scope` 首次 completion 直接完成，零 repair、零
+   `PreCompleteDowngrades`；同形加 typed current-source profile 后 gate 必须保持；普通源码三组既有测试继续验证缺 operation 时降级、有 operation 时闭环、
+   无进展时带 boundary 收敛；
+5. 该修复只收窄 Explorer 的错误源码完成义务，不触碰 Finalizer、Trace 查询、显式时间窗、因果投影、自动补采或答案内容。系统仍只供给精确事实与权限，模型保留
+   总结/结论所有权；
+6. 定向 `internal/types/tool/agent/orchestrator` 回归与 `go test ./... -count=1` 无缓存全仓终验通过。下一步恰好并发两个 case：同 frame case
+   生产验证 `pre_complete_downgrades=0`，配一个源码 pipeline flow case 验证兄弟车道未被误放宽并继续人工审计上下文精度。
+
+状态：`EVAL-B411=S37dn-implemented/full-suite-pass/pending-production-replay`；
+`runtime-flow-source-gate=typed-source-lane-scoped`；`mixed-runtime-source=strict-preserved`；
+`json-contract-change=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

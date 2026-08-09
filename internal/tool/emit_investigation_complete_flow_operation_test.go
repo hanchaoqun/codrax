@@ -112,3 +112,46 @@ func TestFlowOperationCompletionGateExcludesRuntimeTraceFamily(t *testing.T) {
 		t.Fatal("runtime Trace flow must stay on its typed causal/on-chain contracts")
 	}
 }
+
+func TestFlowOperationCompletionGateExcludesAttachedRuntimeFlowWithoutCurrentSource(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AttachedHitrace = "CPU:0 [001] 7.000000: tracing_mark_write: B|20|frame=77"
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioPerformanceBottleneck
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeBoundedSelector,
+		SourceQuote:    "frame=77",
+		Confidence:     0.95,
+	}
+	if flowOperationEvidenceRequired(ctx) {
+		t.Fatal("attached runtime flow without a typed current-source obligation must not request source operation evidence")
+	}
+
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || res.Repair != nil ||
+		strings.Contains(res.Summary, "flow-operation") ||
+		strings.Contains(res.Summary, "operation-level transfer") {
+		t.Fatalf("attached runtime flow should complete on the first attempt without a source-flow repair: %+v", res)
+	}
+	if got := ctx.Mutable.EvidenceClosure().Stats().PreCompleteDowngrades; got != 0 {
+		t.Fatalf("attached runtime flow should not consume a pre-complete downgrade, got %d", got)
+	}
+}
+
+func TestFlowOperationCompletionGatePreservesMixedRuntimeCurrentSourceRequest(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AttachedHitrace = "CPU:0 [001] 7.000000: tracing_mark_write: B|20|frame=77"
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []types.CurrentSourceExplanationMode{
+			types.CurrentSourceExplanationTraceCurrentFlow,
+		},
+		SourceQuotes: []string{"trace the observed flow into current source"},
+		Confidence:   0.95,
+	}
+	if !flowOperationEvidenceRequired(ctx) {
+		t.Fatal("an explicit mixed runtime+current-source flow must retain the source operation evidence gate")
+	}
+}
