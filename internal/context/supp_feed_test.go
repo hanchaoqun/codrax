@@ -108,10 +108,11 @@ func TestSuppFeed_FinalizeFeedConsumesSupplementLane(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		// wait-object caller fact off the supplement rank record
-		"caller=dma_fence_default_w · d_state_or_io_wait 36.757ms · members=4",
-		// PROSE-RC ③ quotable census total off the supplement census record
-		"total 12 blocked_reason record(s) in its selected window, use this total verbatim",
+		// Independent wait-callsite seat off the supplement rank record.
+		"subject=CompThread_0-2955; seat_type=blocked_reason_callsite; caller=dma_fence_default_w",
+		"state=d_state_or_io_wait; value_ms=36.757; members=4",
+		// Thread-window census is explicit and cannot bind to a cause seat.
+		"seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; total_records=12",
 		// WAKE-CENSUS-D 2A window-total pair off the supplement census record
 		"gpu-token-id4-2931 → CompThread_0-2955 ×12 raw wakeup(s) in the analysis window",
 	} {

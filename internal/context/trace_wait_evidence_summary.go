@@ -121,6 +121,14 @@ package context
 // (internal/orchestrator/prose_scalar_caliber_check.go) read the tracefence
 // Table ③c single source, and the test-side containment pins tie the two
 // faces together.
+//
+// EVAL-B399-WAITSEATCONTEXTCOLLISION1 (2026-08-08): do not render multiple
+// facts, a window inventory and a census as one subject-level prose sentence.
+// Same-subject proximity repeatedly invited the model to transfer a sibling
+// caller into the cause-unproven remainder and to upgrade a kernel call-site
+// into a resource/holder. The presentation below is now one typed seat per
+// row; window inventory/census have seat_binding=not_provided. Compact enum
+// fields carry the old partition protections without historical-case prose.
 
 import (
 	"fmt"
@@ -797,40 +805,53 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	}
 
 	var b strings.Builder
-	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). A sched_blocked_reason caller names the kernel call-site/symbol where the scheduler wait was recorded; it does NOT by itself identify the resource, lock object, owner, or holder that the thread waited for. Report the caller symbol verbatim as a wait call-site. Name a waited-on object or holder only when a separate typed relation provides that identity. A share marked cause-unproven has NO kernel-recorded wait call-site, so never invent one for it. Per-thread blocked_reason record counts are keyed by the waiting thread itself, not by the trace line a record happens to print on; a per-caller Σ value is the records' own self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp. Use the named counts, totals, and remainder shares below verbatim — never re-count listed rows yourself, and never derive a share by adding or subtracting other published values (the published value already IS the share it names).\n")
+	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one independent typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
 	if len(selectedSubjects) > 0 {
-		b.WriteString("Kernel-recorded wait call-sites (sched_blocked_reason):\n")
+		b.WriteString("Kernel-recorded wait evidence (independent typed seats):\n")
 		for _, subject := range selectedSubjects {
 			f := threads[subject]
-			var parts []string
+			hiddenFacts := 0
 			for j, fact := range f.facts {
-				if j >= traceWaitEvidenceCallerCap {
-					parts = append(parts, fmt.Sprintf("(+%d more)", len(f.facts)-traceWaitEvidenceCallerCap))
-					break
+				// Cause-unproven rows never fall behind the caller cap: losing that
+				// row would make a same-subject caller look applicable to the whole
+				// account. Other rows retain the existing bounded-volume policy.
+				if j >= traceWaitEvidenceCallerCap && !fact.unproven {
+					hiddenFacts++
+					continue
 				}
-				var seg string
+				var row strings.Builder
+				fmt.Fprintf(&row, "- subject=%s; ", subject)
 				if fact.unproven {
-					seg = "cause-unproven remainder (no blocked_reason call-site backs this share)"
+					row.WriteString("seat_type=cause_unproven_remainder; caller=not_provided; caller_role=not_provided; blocking_reason_authority=not_provided_by_this_seat")
 				} else {
-					seg = "caller=" + fact.caller
+					fmt.Fprintf(&row, "seat_type=blocked_reason_callsite; caller=%s; caller_role=kernel_wait_callsite; seat_scope=this_row_only; sibling_seat_transfer=forbidden; resource_identity_authority=not_provided; holder_identity_authority=not_provided", fact.caller)
 				}
 				if fact.state != "" {
-					seg += " · " + fact.state
+					row.WriteString("; state=" + fact.state)
 				}
 				if fact.value != "" {
-					seg += " " + fact.value + "ms"
+					row.WriteString("; value_ms=" + fact.value)
 				}
 				if fact.members != "" {
-					seg += " · members=" + fact.members
+					row.WriteString("; members=" + fact.members)
 				}
-				parts = append(parts, seg)
+				if fact.unproven {
+					row.WriteString("; value_scope=this_seat_entire_published_share; caller_share_relation=outside_disjoint; arithmetic_recomposition=forbidden")
+					if fact.members != "" {
+						row.WriteString("; member_scope=this_seat_all_members; member_rebinding=forbidden")
+					}
+				}
+				b.WriteString(row.String() + "\n")
+			}
+			if hiddenFacts > 0 {
+				fmt.Fprintf(&b, "- subject=%s; seat_type=blocked_reason_callsite_overflow; omitted_rows=%d; see=measured_observations\n", subject, hiddenFacts)
 			}
 			if f.windowCount > 0 {
-				seg := fmt.Sprintf("window holds %d blocked_reason record(s)", f.windowCount)
+				fmt.Fprintf(&b, "- subject=%s; seat_type=thread_window_record_inventory; blocked_reason_records=%d; seat_binding=not_provided", subject, f.windowCount)
 				if len(f.windowCallers) > 0 {
-					seg += " (caller=" + strings.Join(f.windowCallers, "/") + ")"
+					b.WriteString("; caller_roster=" + strings.Join(f.windowCallers, "/"))
 				}
-				parts = append(parts, seg)
+				b.WriteString("\n")
 			}
 			if len(f.censusOrder) > 0 {
 				// 符号×count×Σms, ordered by count (desc) then first appearance.
@@ -850,109 +871,11 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				if f.censusOverflow > 0 {
 					segs = append(segs, fmt.Sprintf("(+%d more caller symbol(s))", f.censusOverflow))
 				}
-				lead := "kernel blocked_reason record census for THIS thread"
+				lead := fmt.Sprintf("- subject=%s; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided", subject)
 				if f.censusTotal != "" {
-					// PROSE-RC ③: the engine's own published total, verbatim —
-					// a directly quotable count (tieba 开篇 +1 漂移 witness).
-					lead += fmt.Sprintf(" — total %s blocked_reason record(s) in its selected window, use this total verbatim", f.censusTotal)
+					lead += "; total_records=" + f.censusTotal
 				}
-				parts = append(parts, lead+": "+strings.Join(segs, " / "))
-			}
-			b.WriteString("- " + subject + " — " + strings.Join(parts, "; ") + "\n")
-			// PROSE-RC ②: the cause-unproven remainder as a standalone NAMED
-			// fact (verbatim seat value, zero recompute) with the typed
-			// partition property. Iterates ALL facts — a remainder share
-			// never falls to the caller cap. The witness: prose minted
-			// "2.731ms" by subtracting the cause seats (7.702) from the
-			// remainder 10.433 the same report had already published.
-			for _, fact := range f.facts {
-				if !fact.unproven || fact.value == "" {
-					continue
-				}
-				stateWord := ""
-				if fact.state != "" {
-					stateWord = fact.state + " "
-				}
-				memberSeg := ""
-				if fact.members != "" {
-					// PROSE-RC 复放新形 (tieba 052947): the prose re-scoped
-					// "原因未证" onto ONE member segment (1.899) of the 10.433
-					// remainder — the membership property is typed
-					// (member_count), so state it: all members are jointly
-					// unproven, no single member alone is the unproven part.
-					//
-					// PROSE-RC 续批 (§29.74 R4 witness, 2026-07-14): with the
-					// subtraction lane AND the whole-seat binding lane closed,
-					// the re-derivation urge re-routed into MEMBER re-allocation
-					// — the prose bound one member segment (1.899) to the
-					// fscache proven cause and minted a derived unproven amount
-					// 8.534 = 10.433 − 1.899 (the softer "no single member alone
-					// is the unproven part" wording was present and bypassed).
-					// The membership property therefore rises to an EXPLICIT
-					// member-level prohibition in the same imperative family:
-					// the members are one indivisible unproven whole — never
-					// rebind any single member to a proven cause, never derive a
-					// new unproven amount by subtracting member values. A
-					// partition/account property statement, never a
-					// characterization of any prose (§29.53.2 边界内); bilingual
-					// so the quoted answer language cannot lose it.
-					memberSeg = fmt.Sprintf(" Its %s member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part. These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other. 这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。", fact.members)
-				}
-				// PROSE-RC-4 臂① (§29.78 第四改道向, 2026-07-14): with the
-				// subtraction, whole-seat binding and member re-allocation
-				// lanes closed, the re-derivation urge re-routed into NESTING
-				// — the prose framed the remainder seat as a TOTAL containing
-				// the hmfs caller shares (0.145+0.171) and re-subtracted them
-				// to mint "10.117" as the real unproven amount (no explicit
-				// equation, so the arithmetic arm stayed dark; the disjoint
-				// sentence was bypassed by the total framing). The fourth
-				// sister states the OUTSIDE/net account property with the
-				// account's own caller symbols named: every caller-named
-				// share lies outside this value, which is already net of
-				// every proven cause. Account property only (§29.53.2 边界内),
-				// bilingual so the quoted answer language cannot lose it.
-				var callerNames []string
-				seenName := map[string]bool{}
-				addCallerName := func(sym string) {
-					sym = strings.TrimSpace(sym)
-					if sym == "" || sym == "unknown" || seenName[sym] {
-						return
-					}
-					seenName[sym] = true
-					callerNames = append(callerNames, sym)
-				}
-				for _, pf := range f.facts {
-					addCallerName(pf.caller)
-				}
-				for _, sym := range f.censusOrder {
-					addCallerName(sym)
-				}
-				for _, sym := range f.windowCallers {
-					addCallerName(sym)
-				}
-				nameSeg := ""
-				if len(callerNames) > 0 {
-					shown := callerNames
-					if len(shown) > traceWaitEvidenceCallerCap {
-						shown = append(append([]string(nil), shown[:traceWaitEvidenceCallerCap]...), "…")
-					}
-					nameSeg = "(" + strings.Join(shown, ", ") + ")"
-				}
-				outsideSegEN := " The caller-named shares"
-				outsideSegZH := "各已证原因份额"
-				if nameSeg != "" {
-					outsideSegEN += " " + nameSeg
-					outsideSegZH += nameSeg
-				}
-				outsideSeg := outsideSegEN + " are OUTSIDE this unproven share, never nested inside it — this value is already net of every proven cause, so never treat any caller-named share as contained in this share, and never subtract caller-named share values from this value again to derive a smaller unproven amount. " + outsideSegZH + "均在本未证份额之外、绝非嵌套其中——本值已扣除全部已证原因、本身即净值;禁止把任何已证份额视作包含在本份额之内,也禁止再用本值减去已证份额值,铸造更小的新未证量。"
-				// PROSE-RC 收尾件3 (冷读姊妹形, 054419/052947): with the
-				// subtraction lane closed, the re-derivation urge re-routed
-				// into BINDING — the prose moved the whole remainder seat
-				// (value + fold attributes) under the fscache caller's name.
-				// The sister partition property closes that direction: the
-				// remainder has NO kernel-recorded caller and never belongs
-				// under any caller-named proven cause.
-				b.WriteString(fmt.Sprintf("  cause-unproven remainder fact for %s: the %scause-unproven share is %sms, and this published value already IS the entire unproven share — use it verbatim. It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause. The caller-named shares cover only the cause-proven part and are disjoint from this remainder (one account split into non-overlapping shares), so never subtract caller-share values from this remainder, and never subtract this remainder from a caller share, to derive a new unproven amount.%s%s\n", subject, stateWord, fact.value, outsideSeg, memberSeg))
+				b.WriteString(lead + "; caller_census=" + strings.Join(segs, " / ") + "\n")
 			}
 		}
 		if subjectOverflow > 0 {

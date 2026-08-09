@@ -54,7 +54,7 @@ const SectionDiagramEdgeLabelVocabulary = "Diagram-edge label vocabulary"
 // boundary for a frame diagram whose typed trace authority contains only
 // time-sorted adjacency. It intentionally talks about the structured enum,
 // not edge-label vocabulary: labels and prose never mint runtime causality.
-const RuntimeTraceTemporalDiagramRelationContract = "When the report-local typed runtime authority says frame_flow_causality=unproven and relation=temporal_sequence, a frame-flow arrow may express only measured ordering: give it relation_kind=temporal and label it temporal adjacency (unproven), or omit that arrow/the diagram. A separately grounded external-evidence attachment may keep relation_kind=observe. Do not declare call, callback, submission, handoff, wait, or completion dependency unless a separate typed causal row proves that exact relation."
+const RuntimeTraceTemporalDiagramRelationContract = "When the report-local typed runtime authority says frame_flow_causality=unproven and relation=temporal_sequence, show each thread's measured span with `Note over <participant>` when possible; a note is not a relation arrow and needs no edge anchor. Draw an arrow only for a typed temporal edge, give it relation_kind=temporal, and label it temporal adjacency (unproven). Every visible arrow occurrence needs one matching edge_anchors[] row, including a self-arrow if you choose to draw one. A separately grounded external-evidence attachment may keep relation_kind=observe. Do not declare call, callback, submission, handoff, wait, or completion dependency unless a separate typed causal row proves that exact relation."
 
 type DiagramRelationKind string
 

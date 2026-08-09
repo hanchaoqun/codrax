@@ -72,11 +72,14 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		t.Fatalf("blocked_reason typed notes must render a wait-evidence summary")
 	}
 	for _, want := range []string{
-		"Kernel-recorded wait call-sites (sched_blocked_reason):",
-		"CompThread_0-2955 — caller=dma_fence_default_w · d_state_or_io_wait 36.757ms · members=4",
-		"caller=fscache_page_wait_o · io_wait 7.386ms · members=17",
-		"cause-unproven remainder (no blocked_reason call-site backs this share) · io_wait 10.433ms · members=3",
-		"window holds 6 blocked_reason record(s) (caller=fscache_page_get_an/hmfs_read)",
+		"Kernel-recorded wait evidence (independent typed seats):",
+		"subject=CompThread_0-2955; seat_type=blocked_reason_callsite; caller=dma_fence_default_w",
+		"state=d_state_or_io_wait; value_ms=36.757; members=4",
+		"subject=ThreadPoolForeg-60555; seat_type=blocked_reason_callsite; caller=fscache_page_wait_o",
+		"state=io_wait; value_ms=7.386; members=17",
+		"subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder; caller=not_provided",
+		"state=io_wait; value_ms=10.433; members=3",
+		"subject=.ugc.aweme.lite-17267; seat_type=thread_window_record_inventory; blocked_reason_records=6; seat_binding=not_provided; caller_roster=fscache_page_get_an/hmfs_read",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence summary missing %q:\n%s", want, summary)
@@ -85,10 +88,10 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	// The consumption preamble keeps the caller in its actual role: a kernel
 	// wait call-site, never an inferred resource object or holder identity.
 	for _, want := range []string{
-		"A sched_blocked_reason caller names the kernel call-site/symbol where the scheduler wait was recorded",
-		"does NOT by itself identify the resource, lock object, owner, or holder",
-		"Name a waited-on object or holder only when a separate typed relation provides that identity",
-		"never invent one",
+		"Each row below is one independent typed seat",
+		"sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row",
+		"resource, lock, owner, holder, and root-cause identity require a separate typed relation",
+		"Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence preamble missing %q:\n%s", want, summary)
@@ -116,7 +119,7 @@ func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	if up < 0 || down < 0 || up > down {
 		t.Fatalf("wakeup edges must render in timestamp order:\n%s", summary)
 	}
-	if !strings.Contains(summary, "answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp") {
+	if !strings.Contains(summary, "When the question asks WHO woke a thread (and when), use the sched_wakeup edge below") {
 		t.Fatalf("the waker consumption preamble is missing:\n%s", summary)
 	}
 }
@@ -173,18 +176,15 @@ func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 		// Full per-caller enumeration with Σms, count desc, overflow tail —
 		// and (PROSE-RC ③) the engine's own published total verbatim in the
 		// lead, as a directly quotable count.
-		"kernel blocked_reason record census for THIS thread — total 21 blocked_reason record(s) in its selected window, use this total verbatim: fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
+		"subject=ThreadPoolForeg-60555; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; total_records=21; caller_census=fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
 		// The census keying is stated as a data label (the counter-face to
 		// attributing a record to the thread whose line it printed on), and
 		// the Σdelay caliber label is always-on (件C: self-reported delay=,
 		// may include pre-window accumulation — Σ>窗长 forms stay honest).
-		"keyed by the waiting thread itself",
+		"describe that thread's selected window",
 		"self-reported delay= field and may include pre-window accumulation",
-		// PROSE-RC-4 臂① (§29.78): the outside sentence names the census
-		// caller symbols too — the tieba prose nested exactly the census-fed
-		// hmfs shares inside the remainder seat, so the shares it must never
-		// nest are spelled out on the remainder's own fact line.
-		"The caller-named shares (fscache_page_wait_o, hmfs_read, hmfs_get_dnode) are OUTSIDE this unproven share",
+		"seat_type=cause_unproven_remainder; caller=not_provided",
+		"caller_share_relation=outside_disjoint; arithmetic_recomposition=forbidden; member_scope=this_seat_all_members; member_rebinding=forbidden",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("typed census summary missing %q:\n%s", want, summary)
@@ -219,8 +219,8 @@ func TestTraceWaitEvidence_BannerCensusFallback(t *testing.T) {
 	}}
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), results)
 	for _, want := range []string{
-		"kernel blocked_reason record census for THIS thread: dma_fence_default_w ×12",
-		"kworker/u16:3-357 — kernel blocked_reason record census for THIS thread: kthread_worker_fn ×11",
+		"subject=CompThread_0-2955; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; caller_census=dma_fence_default_w ×12",
+		"subject=kworker/u16:3-357; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; caller_census=kthread_worker_fn ×11",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("fallback census summary missing %q:\n%s", want, summary)
@@ -265,7 +265,7 @@ func TestTraceWaitEvidence_AnchorThreadNeverEvicted(t *testing.T) {
 		)
 	}
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
-	if !strings.Contains(summary, "- anchor-thread-9999 — ") {
+	if !strings.Contains(summary, "- subject=anchor-thread-9999; seat_type=thread_window_record_inventory") {
 		t.Fatalf("the anchor thread must keep its seat past the cap:\n%s", summary)
 	}
 	if !strings.Contains(summary, "more threads with blocked_reason evidence") {
@@ -387,54 +387,38 @@ func TestTraceWaitEvidence_WakerCountCapOverflow(t *testing.T) {
 	}
 }
 
-// TestTraceWaitEvidence_UnprovenRemainderFact — PROSE-RC ② (§29.57 残余):
-// the cause-unproven remainder is a standalone NAMED fact line — verbatim
-// seat value, zero recompute — carrying the typed partition property
-// (cause shares = proven part only, disjoint, never subtracted against
-// each other). Witness: prose minted "2.731ms" = 10.433 − 7.702, a
-// cross-caliber subtraction against the very value the report published.
+// TestTraceWaitEvidence_UnprovenRemainderFact — the cause-unproven remainder
+// is an independent typed seat. Compact enum fields preserve the partition,
+// membership and arithmetic boundaries without co-locating sibling caller or
+// census facts on the same subject line.
 func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
 	for _, want := range []string{
-		"cause-unproven remainder fact for ThreadPoolForeg-60555: the io_wait cause-unproven share is 10.433ms",
-		"this published value already IS the entire unproven share — use it verbatim",
-		// 收尾件3 (冷读姊妹形 054419): the subtraction ban re-routed the
-		// re-derivation urge into BINDING (the remainder seat moved whole
-		// under the fscache caller's name) — the sister property closes the
-		// binding direction too.
-		"It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause.",
-		"disjoint from this remainder",
-		"never subtract caller-share values from this remainder",
-		// 复放新形 (tieba 052947): prose re-scoped 原因未证 onto ONE member
-		// segment of the remainder — the typed membership property must be
-		// stated whenever the seat publishes member_count.
-		"Its 3 member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part.",
-		// PROSE-RC 续批 (§29.74 R4, 2026-07-14): the subtraction + whole-seat
-		// binding bans were honored and the re-derivation urge re-routed into
-		// MEMBER re-allocation — the prose bound member segment 1.899 to the
-		// fscache proven cause and minted 8.534 = 10.433 − 1.899 as a "new"
-		// unproven amount, bypassing the softer membership wording above. The
-		// explicit member-level prohibition is pinned VERBATIM in both
-		// languages (bilingual so the quoted answer language cannot lose it;
-		// mutation self-check performed: dropping either clause reds here).
-		"These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other.",
-		"这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。",
-		// PROSE-RC-4 臂① (§29.78, 2026-07-14): the fourth sister — the
-		// re-derivation urge re-routed into NESTING (the remainder seat framed
-		// as a TOTAL containing the hmfs caller shares, re-subtracted to mint
-		// 10.117 = 10.433 − 0.145 − 0.171; no explicit "=", disjoint sentence
-		// bypassed by the total framing). Pinned VERBATIM in both languages
-		// with the account's own caller symbols named (mutation self-check
-		// performed: dropping either clause or the symbol list reds here).
-		"The caller-named shares (fscache_page_wait_o) are OUTSIDE this unproven share, never nested inside it — this value is already net of every proven cause, so never treat any caller-named share as contained in this share, and never subtract caller-named share values from this value again to derive a smaller unproven amount.",
-		"各已证原因份额(fscache_page_wait_o)均在本未证份额之外、绝非嵌套其中——本值已扣除全部已证原因、本身即净值;禁止把任何已证份额视作包含在本份额之内,也禁止再用本值减去已证份额值,铸造更小的新未证量。",
+		"subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder; caller=not_provided; caller_role=not_provided; blocking_reason_authority=not_provided_by_this_seat",
+		"state=io_wait; value_ms=10.433; members=3",
+		"value_scope=this_seat_entire_published_share",
+		"caller_share_relation=outside_disjoint",
+		"member_scope=this_seat_all_members",
+		"member_rebinding=forbidden",
+		"arithmetic_recomposition=forbidden",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("unproven remainder fact missing %q:\n%s", want, summary)
 		}
 	}
-	// No remainder share on the thread → no fact line minted for it.
-	if strings.Contains(summary, "cause-unproven remainder fact for CompThread_0-2955") {
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.Contains(line, "subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder") {
+			if strings.Contains(line, "fscache_page_wait_o") || strings.Contains(line, "caller_census=") {
+				t.Fatalf("an unproven seat must not co-locate sibling caller/census evidence: %s", line)
+			}
+		}
+		if strings.Contains(line, "seat_type=thread_window_blocked_reason_census") &&
+			!strings.Contains(line, "seat_binding=not_provided") {
+			t.Fatalf("a thread-window census must remain unbound to cause seats: %s", line)
+		}
+	}
+	// No remainder share on the thread → no unproven seat minted for it.
+	if strings.Contains(summary, "subject=CompThread_0-2955; seat_type=cause_unproven_remainder") {
 		t.Fatalf("threads without an unproven share must not mint a remainder fact:\n%s", summary)
 	}
 	// The remainder fact never falls to the caller cap: push the unproven
@@ -451,23 +435,18 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 			"effective_impact_ms=3.333",
 			types.TraceNoteKeyDStateCauseUnprovenRemainder+"=true"))
 	capped := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
-	if !strings.Contains(capped, "cause-unproven remainder fact for capped-thread-77: the d_state cause-unproven share is 3.333ms") {
+	if !strings.Contains(capped, "subject=capped-thread-77; seat_type=cause_unproven_remainder; caller=not_provided") ||
+		!strings.Contains(capped, "state=d_state; value_ms=3.333") {
 		t.Fatalf("the remainder fact must never fall to the caller cap:\n%s", capped)
 	}
-	// PROSE-RC-4 臂①: past the caller cap the outside-sentence symbol list
-	// discloses its overflow instead of dropping symbols silently.
-	if !strings.Contains(capped, "The caller-named shares (cap_sym_0, cap_sym_1, cap_sym_2, cap_sym_3, cap_sym_4, …) are OUTSIDE this unproven share") {
-		t.Fatalf("the outside sentence must cap its symbol list with a disclosed overflow:\n%s", capped)
+	if !strings.Contains(capped, "seat_type=blocked_reason_callsite_overflow; omitted_rows=1") {
+		t.Fatalf("caller-seat overflow must remain explicit:\n%s", capped)
 	}
-	// A remainder WITHOUT a published member_count must not borrow the member
-	// property/prohibition sentences — the membership claims ride exactly the
-	// typed member_count signal (the capped-thread-77 seat above publishes
-	// none, while the tieba seat's member sentences co-render in the same
-	// summary, so the check is per-LINE).
+	// A remainder WITHOUT a published member_count must not invent one.
 	for _, line := range strings.Split(capped, "\n") {
-		if strings.Contains(line, "cause-unproven remainder fact for capped-thread-77") &&
-			(strings.Contains(line, "member segment") || strings.Contains(line, "成员段")) {
-			t.Fatalf("a member-less remainder must not carry the member sentences: %s", line)
+		if strings.Contains(line, "subject=capped-thread-77; seat_type=cause_unproven_remainder") &&
+			(strings.Contains(line, "members=") || strings.Contains(line, "member_scope=") || strings.Contains(line, "member_rebinding=")) {
+			t.Fatalf("a member-less remainder must not mint a member count: %s", line)
 		}
 	}
 }

@@ -89,8 +89,11 @@ func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing
 		"`frame_flow_causality=unproven`",
 		"`relation=temporal_sequence`",
 		"`edges=3`",
+		"Note over <participant>",
 		"relation_kind=temporal",
 		"temporal adjacency (unproven)",
+		"Every visible arrow occurrence needs one matching edge_anchors[] row",
+		"including a self-arrow",
 		"unless a separate typed causal row proves that exact relation",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -154,6 +157,9 @@ func TestTypedFrameMeasurementKeepsExtentUnionAndSpanSumSeparate(t *testing.T) {
 		"interval_union_coverage=37.000ms",
 		"per_span_duration_sum=37.000ms",
 		"uncovered_gap=3.000ms",
+		"only the interval complement",
+		"not scheduler latency, blocking time, efficiency, or proof that no blocking occurred",
+		"without separate typed scheduler or causal evidence",
 		"Never substitute one ruler for another",
 	} {
 		if !strings.Contains(got, want) {

@@ -28129,3 +28129,70 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `frame-rulers=extent|union|span-sum|gap`；`claim-envelope=typed-seat-local-soft-context`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.409 r233：阶段/角色与 frame 标尺闭环；gap 语义和 wait 席位仍污染结论
+
+在 `main@5a586302b` 上严格并发恰好两个高风险 Trace case：`trace_query_frame_timeline_flow` 与
+`trace_query_donghu_real_frame_multicausal`。runner 2/2 PASS，人工 0/2 PASS（均为 partial）：
+
+1. B395/B396 生产闭环。frame 结果把 name-derived ui/render_service/gpu 保持为 `pipeline_stage_role`，同位披露
+   `owning_thread_role_authority=not_provided_by_span_name`；唯一阶段锚仍完成自动目标/窗选择。最终答案按 first-start 7.000→last-end 7.040
+   报 40ms，并把 span sum/union coverage 保持为 37ms，没有再把 37ms 冒充端到端包络；
+2. 新确认 `EVAL-B398-FRAMEGAPSEMANTICCALIBER1=P1/HIGH`。模型把四尺中的 1ms 间隙解释为“无明显跨线程阻塞、流水线效率正常/正常调度延迟”。
+   `uncovered_gap` 的 typed 语义只有 envelope 内 interval complement；没有 scheduler state 或 causal connector 时，它不证明调度延迟、阻塞时长、效率、
+   “无阻塞”或 normality。修复应在同一 typed measurement soft context 同位声明权限，不能扫描模型结论硬拒；
+3. frame 首次成文出现一次校验拒绝：模型以 self-arrow 表 span，却只给跨线程箭头提供 `edge_anchor`。校验要求每个可见 arrow occurrence 有一个 owner 是正确的，
+   patch 补齐 5 个 temporal anchors 后通过。通用降心智方案是在 temporal-only sequenceDiagram 中优先用 `Note over` 表线程本地 span，只给 typed temporal edge
+   画箭头；若仍画 self-arrow，也逐 occurrence 配锚。该规则只进入单源 JSON/Mermaid 教学，不从 edge label 或正文猜权限；
+4. B397 在 priority candidate 和 D-state direction leader 上生效：Donghu 开篇把 lower-priority dependency 保持为 downstream wakeup 前供给候选，明确
+   `causal_conclusion=unproven`、无 holder/waiter/post-wakeup authority；主因人口仍只来自 typed on-chain，链外 pressure/IRQ 只作上下文；
+5. 但旧 `trace_wait_evidence_summary` 仍把同一 ThreadPool 的 10.433ms cause-unproven remainder、7.386ms fscache caller、其他 caller、window count 和 census
+   拼在一条 subject 级长句，随后再堆叠中英文防减法段。模型因此又把 fscache/hmfs caller 借给无 caller 的 10.433ms 席，并把 page_lock kernel callsite
+   升级为实际资源/holder，形成 producer 自相冲突；
+6. 新确认 `EVAL-B399-WAITSEATCONTEXTCOLLISION1=P1/HIGH`。最优泛化修复是每个 cause-unproven/caller-proven fact 独占一行 typed seat，window inventory
+   与 census 另列并带 `seat_binding=not_provided`；caller 行固定为 `kernel_wait_callsite`，resource/holder/root-cause identity 均需独立 typed relation。
+   同 subject 不能授权跨席 caller/state/mechanism 迁移，席间值禁止算术重组；删除针对历史答案改道不断累积的长篇 prose，改用少量枚举字段；
+7. 本轮 temporal 图实际产出且 patch 后渲染/关系校验通过，B391 从“无生产图”推进为 relation owner 生产有效、first-pass teaching partial；下一批补
+   Note/逐箭头锚单源教学后再复放，不能由系统代画、删图或改模型正文；
+8. 确定性 Trace 因果投影、显式时间窗、自动补齐、唤醒链、根因排序、窗内可消量及真实占时/规则可消双轴均未改变。两个模型主稿均未被系统替换；
+   新修复只提供更精确、低冲突的输入和软教学。邻近/背景仍只能作 supporting context 与额外排查方向，不能进入 principal root-cause 人口。
+
+状态：runner=`2/2 PASS`；human=`0/2 PASS(partial)`；
+`EVAL-B395=production-closed`；`EVAL-B396=production-closed`；
+`EVAL-B397=partial/typed-envelope-works/wait-summary-collision-open`；
+`EVAL-B398=P1-confirmed/next`；`EVAL-B399=P1-confirmed/next`；
+`EVAL-B391=partial/production-diagram-repaired/first-pass-teaching-open`；
+`finalizer-reject=frame:1,donghu:0`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.410 S37de：frame gap 口径、temporal 图低心智教学与 wait 独立席位
+
+按 r233 的 B398/B399 与 B391 first-pass 残余合批施工，仍只增强精确信息和软教学，不由系统形成或替换结论：
+
+1. frame 四尺的同源 typed guidance 补齐 `uncovered_gap` 权限：它只是 first-start→last-end envelope 内没有被 item intervals 覆盖的区间补集，
+   不是 scheduler latency、blocking time、efficiency，也不证明“没有阻塞”。只有独立 typed scheduler/causal evidence 才能升级这些机理或 normality 判断；
+2. 该补强只由 `TraceEvidenceAuthority.FrameItemCount>0` 和 typed observation intervals 铸造，仍是 Finalizer soft context。没有扫描用户输入、模型 thinking、
+   summary/final answer，也没有新增重试、硬拒、答案 mutation 或固定阈值；模型继续负责判断真实耗时与优化方向；
+3. `RuntimeTraceTemporalDiagramRelationContract` 单源补充低心智 authoring shape：temporal-only sequenceDiagram 优先用 `Note over <participant>` 表本线程实测 span；
+   note 不是关系箭头、不需 edge anchor。只给 typed temporal edge 画箭头，并为每个可见 arrow occurrence 提供一个匹配的 `edge_anchors[]` row；若模型选择
+   self-arrow，也必须逐箭头配锚。label 只能声明 temporal adjacency (unproven)，但校验器不扫描 raw label/正文来铸造权限；
+4. `trace_wait_evidence_summary` 删除“一线程一混合长句 + 多段历史样例防御”形，改为每个 fact 独占 typed row。blocked_reason caller 行固定发布
+   `seat_type=blocked_reason_callsite`、`caller_role=kernel_wait_callsite`、`seat_scope=this_row_only`、`sibling_seat_transfer=forbidden`，同时明确
+   resource/holder identity 不由该 caller 提供；
+5. cause-unproven remainder 独占另一行，caller/role 均 `not_provided`，并发布
+   `value_scope=this_seat_entire_published_share`、`caller_share_relation=outside_disjoint`、`arithmetic_recomposition=forbidden`；只有 typed member_count 存在时才追加
+   `member_scope=this_seat_all_members` 与 `member_rebinding=forbidden`。未证席即使越过 caller cap 也永不被裁掉；
+6. thread-window record inventory 与 blocked_reason census 各自独立成行并固定 `seat_binding=not_provided`。它们可保留完整计数、caller roster、per-caller count/Σ，
+   但不能绑定到任一 cause seat。caller/census overflow 继续显式披露；anchor thread、wakeup edge/census、supply composition 等既有能力不变；
+7. 测试覆盖 exact gap ceiling、Note-over/逐 arrow anchor 教学、同 subject 未证席不共行 sibling caller/census、census unbound、caller overflow、无 member 不铸
+   member scope、supplement feed 和既有 wakeup/census 完整性。定向 context/types/agent/tool 全绿；冻结代码上 `go test ./... -count=1` 全绿，覆盖
+   read/write/data、orchestrator、Trace 转换/查询/诊断、Mermaid、全语言 repomap 与 writeflow；
+8. 根因人口仍为 typed on-chain only；adjacent/background 仍只能是 supporting context 与额外排查方向。根因排序、唤醒链、显式时间窗、自动补齐、因果投影、
+   窗内可消量和真实占时/规则可消双轴均未改。下一批仍恰好并发 frame/Donghu 两案验证 first-pass reject 与跨席机理污染是否消失。
+
+状态：`EVAL-B398=S37de-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B399=S37de-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B391=partial/S37de-teaching-implemented/pending-first-pass-replay`；
+`wait-context=independent-typed-seats`；`thread-window-census=seat-unbound`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
