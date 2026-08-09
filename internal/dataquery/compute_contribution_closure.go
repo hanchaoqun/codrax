@@ -57,24 +57,40 @@ func validateComputeContributionActionParams(action DataAction) error {
 			unknown = append(unknown, key)
 		}
 	}
-	if len(unknown) == 0 {
-		return nil
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		allowed := make([]string, 0, len(computeContributionAllowedParams))
+		for key := range computeContributionAllowedParams {
+			allowed = append(allowed, key)
+		}
+		sort.Strings(allowed)
+		return DataActionParamError{
+			ActionKind:    DataActionComputeContribs,
+			Param:         strings.Join(unknown, ","),
+			ExpectedShape: "only supported compute_contributions parameters",
+			ActualSnippet: strings.Join(unknown, ","),
+			Message: fmt.Sprintf(
+				"compute_contributions has unsupported parameter(s) [%s]; allowed parameters are [%s]. For member/id/label lists use operation=include, set, or rank with value_field=<existing field>; operation=count counts rows and does not emit member values",
+				strings.Join(unknown, ", "), strings.Join(allowed, ", ")),
+		}
 	}
-	sort.Strings(unknown)
-	allowed := make([]string, 0, len(computeContributionAllowedParams))
-	for key := range computeContributionAllowedParams {
-		allowed = append(allowed, key)
+
+	// count never consumes value_field: each selected row contributes the
+	// literal value 1. Accepting both declarations lets a structurally valid
+	// plan say "collect these member values" while the executor silently
+	// counts rows instead. Reject that typed self-contradiction at the common
+	// admission boundary; no goal/rule/answer prose participates.
+	operation, _ := normalizeContributionOperation(action.Params["operation"])
+	if operation == "count" && strings.TrimSpace(action.Params["value_field"]) != "" {
+		return DataActionParamError{
+			ActionKind:    DataActionComputeContribs,
+			Param:         "value_field",
+			ExpectedShape: "empty when operation=count, or operation=include|set|rank when value_field members must be preserved",
+			ActualSnippet: strings.TrimSpace(action.Params["value_field"]),
+			Message:       "compute_contributions operation=count ignores value_field and only emits row-count value 1; remove value_field for a count, or use operation=include, set, or rank to preserve the declared member values",
+		}
 	}
-	sort.Strings(allowed)
-	return DataActionParamError{
-		ActionKind:    DataActionComputeContribs,
-		Param:         strings.Join(unknown, ","),
-		ExpectedShape: "only supported compute_contributions parameters",
-		ActualSnippet: strings.Join(unknown, ","),
-		Message: fmt.Sprintf(
-			"compute_contributions has unsupported parameter(s) [%s]; allowed parameters are [%s]. For member/id/label lists use operation=include, set, or rank with value_field=<existing field>; operation=count counts rows and does not emit member values",
-			strings.Join(unknown, ", "), strings.Join(allowed, ", ")),
-	}
+	return nil
 }
 
 // validateComputeContributionExpectedClosure is the deterministic completion

@@ -29108,3 +29108,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `projection-path=capability-typed`；`guaranteed-failure-action-publication=forbidden`；
 `json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.443 r249：B426 生产生效；count/value_field typed action 自相矛盾
+
+在 `main@3cab42c21` 的不可变二进制快照上严格并发恰好两个 case：`data_json_strict_ids` 与
+`trace_query_wakeup_background_demotion`。runner 1/2 PASS，人工 1/2 PASS：
+
+1. Trace case 人工通过：显式 `2.000..2.020s` 时间窗、三次 `trace_query`、自动补采与最终 `Trace 因果投影` 均保留；
+   typed wakeup chain 仍为 `threadpool-400 -> network-300 -> cookie-200 -> app-100`，第一根因只加冕链上的
+   `threadpool-400 io_wait 11ms`；
+2. `logger-900` 的 D-state/iowait 与聚合 IO 压力虽然提供较大背景数值，但答案和投影均标为 background/off-chain、
+   不参与根因排序。邻近 sleep 也只作链路上下文。这再次验证“主根因只能来自 typed on-chain 席；邻近区域和背景只支撑解释/额外排查方向”；
+3. B424 继续保持闭环：Trace completion 仅一次调用、零 reject，没有不可合法填写的 `relation_claims`；B426 也生产生效：data 在
+   contributions 缺失时没有再提前发布 reconcile/assemble，typed-only 路径最终按 contributions→reconcile→assemble 到达 complete；
+4. data 最终仍 FAIL：耗时 462 秒、16 批、5 次 repair、4 次 action failure。`compute_contributions` 的模型思考明确说明要收集
+   `id` 成员，发射 JSON 却同时携带 `operation=count`、`value_field=id`、`group_key_field=id`。执行器接受后按 count 定义把每行值固定为 `1`，
+   静默忽略 `value_field`；
+5. 因此 reconcile 合法地得到 `u1=1,u3=1`，`assemble_answer` 也只能发布
+   `[{"group_key":"u1","metric":"count","value":"1"},...]`，无法恢复原本已丢掉的成员投影语义。Evaluator 准确识别输出应为
+   `{"ids":["u1","u3"]}`，但 direct custom 已按 typed 风险禁用，后续 repair 只能反复确认“graph complete、输出形状错误”；
+6. 新 `EVAL-B427-COUNTIGNORESVALUE1=P1/HIGH`：这不是 JSON 解码失败或模型随机波动，而是 typed action 参数合同允许一个字段存在却不消费。
+   与 phantom param 同类，系统不能让“收集成员”和“仅计行数”在同一 action 中同时声明，再选择其中一项静默执行；
+7. 最优根修是公共参数准入层的精确互斥：`operation=count` 时 `value_field` 必须为空；若需保留 member/id/label 值，必须使用
+   `operation=include|set|rank`。判据只读 action enum 与参数，不读 request、rule prose、thinking、plan 文案或 final answer；不自动把 count 改写成 include，
+   决策仍归模型；
+8. 既有投影能力已经足够：正确的 include member contribution 经 reconcile 后，`assemble_answer` 可用 typed
+   `rule_coverage.output_field` 将单 metric 成员序列确定性投影为 `{"ids":[...]}`。因此不新增 case-specific `ids` 投影，也不放开脚本绕过。
+
+状态：runner=`1/2 PASS`；human=`1/2 PASS`；
+`EVAL-B424=production-closed`；`EVAL-B426=production-effective/reachability-conflict-closed`；
+`EVAL-B427=P1-confirmed/in-implementation`；
+`json-teaching=existing-single-source-sufficient`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.444 B427/S37dy：禁止 count 静默吞掉 member value_field
+
+`EVAL-B427-COUNTIGNORESVALUE1` 已完成结构修复：
+
+1. `compute_contributions` 的公共参数 admission 在 unknown-key 校验后增加 typed 互斥：标准化 operation 为 `count` 且
+   `value_field` 非空时，返回 `DataActionParamError(param=value_field)`；错误明确给出两条可执行车道——纯计数删除 value_field，成员值改用
+   `include/set/rank`；
+2. 判据与 runner 的真实执行语义同源：count 始终发射值 `1`，从未消费 value_field。修复不是从目标、instruction、rule 文本或模型答案猜
+   “这次应该是列表”，也不把 count 自动改成 include；模型仍拥有运算选择，系统只禁止同一 typed action 自相矛盾；
+3. 新增执行级红臂，复现 `group_key_field=id + operation=count + value_field=id` 在任何文件读取前 fail-closed，并验证 typed repair 指向
+   member-preserving operation；既有 unknown phantom parameter 红臂保留；
+4. 新增端到端投影绿臂：语言/字段名无关的两个 record，经 `include(value_field=id)`、reconcile、typed
+   `rule_coverage.output_field=ids` 和 `assemble_answer(json_object)` 后精确得到 `{"ids":["u1","u3"]}`。这证明既有 generalized
+   member-list 投影足够，不需要为当前 eval 新造 `ids` 特例；
+5. 定向 `internal/dataquery`、`internal/dataworkflow`、`internal/repl` 通过；无缓存全仓终验随本批提交记录。没有新增 JSON prose 教学，
+   没有扫描用户/模型原文、自动改 action 或代写答案；Trace 查询、窗口、自动补采、因果投影及 on-chain-only 根因权限未改。
+
+状态：`EVAL-B427=S37dy-implemented/full-suite-pass/pending-production-replay`；
+`count-value-field=typed-mutually-exclusive`；`member-operation=model-owned`；
+`json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

@@ -1971,6 +1971,81 @@ func TestActionRunnerComputeContributionsRejectsIgnoredParams(t *testing.T) {
 	}
 }
 
+func TestActionRunnerComputeContributionsRejectsCountWithIgnoredValueField(t *testing.T) {
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "collect_members",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"records.json"},
+			Params: map[string]string{
+				"group_key_field": "id",
+				"metric":          "count",
+				"operation":       "count",
+				"value_field":     "id",
+			},
+		}},
+	}
+	_, err := (ActionRunner{}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run succeeded, want count/value_field contradiction rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.Param != "value_field" || !strings.Contains(err.Error(), "operation=count ignores value_field") || !strings.Contains(err.Error(), "operation=include") {
+		t.Fatalf("paramErr=%+v err=%v, want typed member-preservation repair guidance", paramErr, err)
+	}
+}
+
+func TestActionRunnerMemberContributionProjectsDeclaredJSONList(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "active_users.json"), []byte(`[{"id":"u1"},{"id":"u3"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{RuleCoverage: []RuleCoverageRecord{{
+		RuleID:      LooseText("RULE_IDS"),
+		RuleText:    LooseText("project the selected member IDs"),
+		Status:      LooseText("satisfied"),
+		Notes:       LooseText("typed output field declaration"),
+		OutputField: LooseText("ids"),
+	}}}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{
+			{
+				ID:         "collect_members",
+				Kind:       DataActionComputeContribs,
+				InputPaths: []string{"active_users.json"},
+				Params: map[string]string{
+					"group_key_field": "id",
+					"metric":          "member",
+					"operation":       "include",
+					"role":            "source",
+					"value_field":     "id",
+				},
+			},
+			{ID: "reconcile_members", Kind: DataActionReconcile},
+			{ID: "assemble_members", Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "json_object", "order_by": "input"}},
+		},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want declared member-list JSON projection", res.Answer)
+	}
+}
+
 func TestActionRunnerTerminalProjectionIsIndependentFromSingleAggregateGroup(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
