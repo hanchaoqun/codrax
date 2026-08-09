@@ -111,6 +111,65 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceCallbackUsesCallbackAuthority
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceNonCallOwnerNeverAlsoRequiresCall(t *testing.T) {
+	for _, relation := range types.AllDiagramRelationKinds() {
+		if relation == types.DiagramRelCall {
+			continue
+		}
+		t.Run(string(relation), func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "typed-sequence", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+					"sequenceDiagram",
+					"  participant A as Source.Member",
+					"  participant B as Target.Member",
+					"  A->>B: typed relation",
+				}, "\n")},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: relation}},
+			}}}
+			view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+			got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+			if len(got) == 0 {
+				t.Fatalf("unsupported typed relation %q must still fail its own evidence gate", relation)
+			}
+			for _, mismatch := range got {
+				if mismatch.Issue == diagramCallEdgeIssueMissingAnchor ||
+					mismatch.Issue == diagramCallEdgeIssueNoEvidence ||
+					mismatch.Issue == diagramCallEdgeIssueOccurrenceUnproven {
+					t.Fatalf("typed non-call relation %q was also forced through call authority: %+v", relation, got)
+				}
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceAssignmentUsesAssignmentAuthority(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "assignment-sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant EA as EmitAnalysis.Execute",
+			"  participant MR as Mutable.RequestModel",
+			"  EA-->MR: SetRequestModel",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "EA", ToNode: "MR", RelationKind: types.DiagramRelAssignment}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	assignment := types.EvidenceItem{
+		ID: "assignment", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorAssignment, Subject: "EmitAnalysis.Execute", Object: "Mutable.RequestModel",
+		Source: "internal/tool/emit_analysis.go", LineStart: 2083, GroundingStatus: types.GroundingGrounded,
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{assignment}); len(got) != 0 {
+		t.Fatalf("same-direction typed assignment must own a sequence edge without call authority: %+v", got)
+	}
+
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelCall
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{assignment}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("assignment evidence must not authorize an explicitly relabelled call: %+v", got)
+	}
+}
+
 func diagramEvidenceTestDefinition(owner, operation, source string, line int) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              "ev-def-" + owner + "-" + operation,
@@ -1958,14 +2017,14 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFail
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatches_SequenceInvocationCannotUseGuardAnchor(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatches_SequenceGuardUsesGuardAuthority(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
 		FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition,
 	}}
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
-		t.Fatalf("a sequence invocation arrow must retain call authority even with a guard anchor: %+v", got)
+	if len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence || got[0].Relation != types.DiagramRelGuard {
+		t.Fatalf("a typed sequence guard must fail its own evidence gate without being recast as a call: %+v", got)
 	}
 }
 

@@ -483,15 +483,18 @@ func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, relations ma
 	}
 	switch kind {
 	case types.DiagramSequence:
-		// A callback handoff is the one non-call relation represented by a
-		// sequence message in the copy-ready typed recipe. It has its own exact
-		// callback evidence gate below and must not be reclassified as a direct
-		// invocation merely because Mermaid uses the same solid arrow operator.
-		// Type/binding/value boundaries still belong in Note-over presentation;
-		// unrelated non-call anchors cannot take an invocation out of call
-		// authority.
-		if relations[types.DiagramRelCallback] && !relations[types.DiagramRelCall] {
-			return false
+		// Mermaid sequence arrows are presentation syntax shared by calls,
+		// callbacks, value flow, registration, declared-type relationships, and
+		// other explicitly typed relations. A canonical non-call edge_anchor is
+		// therefore the relation owner; its own exact evidence gate below decides
+		// whether the edge is legal. Requiring call authority as well would make a
+		// producer-owned assignment/return/etc. recipe impossible to satisfy.
+		// With no explicit typed owner the historical fail-closed call default is
+		// preserved, and an explicit call owner always wins above.
+		for relation := range relations {
+			if relation.IsValid() && relation != types.DiagramRelCall {
+				return false
+			}
 		}
 		return true
 	case types.DiagramCallDAG:

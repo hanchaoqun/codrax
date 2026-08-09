@@ -28840,3 +28840,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `json-contract-conflict=sequence-relation-authority-confirmed`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.434 S37ds：sequence 可见边服从显式 typed relation 所有权
+
+针对 r243 的 B421 完成合同单源化根修：
+
+1. `diagramParsedEdgeRequiresCallAuthority` 不再把除 callback 外的所有 Mermaid sequence message 无条件重解释为 call。若同端点
+   `edge_anchors` 显式携带一个 canonical non-call `relation_kind`，该关系成为可见边所有者并进入其已有 exact evidence gate；显式 call 仍优先走
+   call authority，无 typed owner 的 sequence message 仍按 call fail-closed；
+2. 这不是按箭头 operator、label、用户请求或模型正文猜关系。Mermaid `->>/-->/->` 只承担可见连接，唯一结构化
+   `relation_kind` 承担语义；assignment/return 继续要求同向 value-flow fact，register/callback/type_relation 继续要求各自 typed evidence，
+   guard/import/precedence/observe/temporal 等继续要求 exact ClaimForm，contain 无 edge-level carrier 时仍拒绝；
+3. producer-owned recipe 发射 `assignment` 后，validator 不再同时索要 call；若模型把同一边改标为 call，assignment evidence 仍不能授权，继续报
+   `call_edge_unproven`。因此修复消除的是互斥合同，不是关系证据降杆；
+4. 新增全 canonical non-call relation 穷举负臂：每种关系缺自身证据时必须失败，但不得再附加 missing-call/call-unproven；新增 r243 同形
+   sequence assignment 正臂与 assignment→call relabel 负臂；既有 callback、重复 call occurrence budget、reply、alias、call-DAG 与 relation-specific
+   回归均保留；
+5. 旧“sequence guard 必须仍当 call”pin 被纠正为“guard 缺证时报 semantic guard unproven”。严格性不变，错误类型与可执行修复变为单一、可满足；
+6. 修复提示同步改为完整 non-call 家族，减少模型在 assignment/call 之间反复猜测；不暴露内部 pipeline，也没有新增第二份 JSON 教学或自由文本 hard gate；
+7. 完整 `internal/tool` 套件与 `go test ./... -count=1` 无缓存全仓终验通过。显式时间窗 Trace 使用独立 runtime authority，因果投影、自动补采、
+   链上根因选举及背景分层未改。
+
+状态：`EVAL-B421=S37ds-implemented/full-suite-pass/pending-production-replay`；
+`sequence-relation-owner=explicit-typed-anchor`；`unanchored-sequence=call-fail-closed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
