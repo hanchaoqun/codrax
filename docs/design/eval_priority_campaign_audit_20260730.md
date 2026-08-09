@@ -28907,3 +28907,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B422=P1-confirmed/design-first`；`json-teaching=consistent-this-replay`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.436 r245：participant 硬门被生产反证并回退；混合限定 endpoint 误拒进入根修
+
+在 `main@8091d497e` 的不可变二进制快照上严格并发恰好两个 case：`read_combo_pipeline_sequence_table` 与
+`patch_cpp_typo`。runner 1/2 PASS，人工 1/2 PASS：
+
+1. C++ write/plan case 人工通过：只规划 `main.cpp` 中 `retrun`→`return` 的一行 patch，路径、old/new text 与验收条件一致；没有额外文件、探测或范围扩张，
+   `g++` 只作为待执行验收条件，未伪称已运行；
+2. read case 513 秒后 FAIL，Explorer 17 轮、completion 4 次、finalizer reject 7 次、patch 6 次，最终进入
+   `degraded_answer_checks_skipped`。恢复稿虽然保留模型首稿、表格和 Mermaid，而不是由系统重写结论，但仍缺用户点名的 `Mutable`，并继续把 analyze 与 task phase
+   混述为同一 scheduler 链，人工亦判 FAIL；
+3. `EVAL-B422-FLOWCOVERAGEANYEDGE1` 的 S37dt 首版被本轮精确否证。Analyzer 的 typed `diagram_hint.participants` 自行生成
+   `Orchestrator/Agent/Analyzer/Finalizer/Tool Layer` 为 `incident_required`，这些既不是用户显式成员，也不是 Explorer 从源码铸造的闭包；completion 硬消费后要求五席
+   各有 incident relation，制造一次无关探索降级。模型规划提示即使 schema-valid 仍是嘈声信号，不能升级为 hard completion authority；
+4. 错误实现已通过 `f5d30b00b` 完整回退并推送。participant roster 恢复为 soft exploration guidance；B422 回到 design-first/open。后续只有具备明确生产者、
+   来源/选择权、逐成员 requested-attribute、exact evidence ref 和显式 unknown boundary 的新 typed carrier 才能进入 completion hard gate；不得绑定 Analyzer 自由生成实体，
+   不扫描 request/answer prose，也不得让系统代写表格或图；
+5. 新 `EVAL-B423-MIXEDENDPOINT1=P0/HIGH` 是本轮 7 次成文拒绝的主因。证据池已有三条 citable typed call，其中
+   `Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage` 完整落地；模型使用正常 Mermaid presentation：
+   `participant P as runAnalyzePhase`、`participant D as Orchestrator.dispatchStage`。现有 resolver 仅在调用两端都无 owner 时允许 unique short projection，导致
+   “短 caller + qualified callee”以及反向组合被误判 `call_edge_unproven`；即便 body、anchor 与 producer-owned recipe 同向，仍无法通过；
+6. B423 根修采用语言无关的逐端唯一解析：先在 call row 的 source/target 各自确认 compatible identity family 唯一，再要求同一条 citable evidence 同时匹配两端并保持方向。
+   不从 Mermaid 消息参数、用户问题、答案正文或语言关键词猜 owner；两个 qualified owner 共享同名方法时仍 fail-closed；
+7. 新增短 caller+限定 callee、限定 caller+短 callee、C++ `::` 等价拼写正臂，以及短 caller 对应 `Alpha.run/Beta.run` 多 owner 歧义负臂；既有双短名、反向边、
+   occurrence budget 与 exact owner 回归保持。该规则经公共 code-identity segment 解析生效于 Go/Java/Kotlin/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie 等，
+   不维护语言名单；
+8. 本批不修改 JSON 教学或恢复协议，不增加模型心智；不触碰 Trace runtime authority。显式时间窗、自动补采、因果投影、根因排序、唤醒链、窗内可消除量及
+   真实占时/规则可消双轴保持。Trace 主根因仍只能来自 typed on-chain 席，邻近区域、背景资源压力和非链事件只能作支撑或额外排查方向。
+
+状态：runner=`1/2 PASS`；human=`1/2 PASS`；
+`EVAL-B422=S37dt-falsified-and-reverted/design-first-open`；
+`EVAL-B423=S37du-implemented/targeted-tool-and-full-suite-pass/pending-production-replay`；
+`json-teaching=unchanged/single-source`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

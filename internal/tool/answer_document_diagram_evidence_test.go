@@ -1751,6 +1751,59 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowUniquelyProjectsShortCallEnd
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowUniquelyProjectsMixedQualifiedEndpoints(t *testing.T) {
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	call := diagramEvidenceTestCall("Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage")
+	call.AnchorSymbol = "dispatchStage"
+
+	tests := []struct {
+		name, caller, callee string
+	}{
+		{name: "short caller", caller: "runAnalyzePhase", callee: "Orchestrator.dispatchStage"},
+		{name: "short callee", caller: "Orchestrator.runAnalyzePhase", callee: "dispatchStage"},
+		{name: "c-plus-plus spelling", caller: "Orchestrator::runAnalyzePhase", callee: "dispatchStage"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "pipeline", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramSequence, Language: "mermaid",
+					Body: "sequenceDiagram\n  participant A as " + tc.caller + "\n  participant B as " + tc.callee + "\n  A->>B: dispatchStage(stage)\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+				}},
+			}}}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+				t.Fatalf("one grounded call row must authorize a unique mixed short/qualified presentation: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_TypedFlowMixedShortEndpointAmbiguityFailsClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant A as run\n  participant B as Sink.consume\n  A->>B: consume()\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	first := diagramEvidenceTestCall("Alpha.run", "Sink.consume")
+	second := diagramEvidenceTestCall("Beta.run", "Sink.consume")
+	second.ID = "ev-beta-run"
+	second.Source = "internal/other.go"
+	second.LineStart = 20
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{first, second}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a mixed presentation must not collapse same-tail callers under different owners: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowShortEndpointOwnerAmbiguityFailsClosed(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

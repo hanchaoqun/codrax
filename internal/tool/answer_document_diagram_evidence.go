@@ -937,28 +937,26 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	}
 
 	// Grounding may preserve an enclosing owner on a call row while a compact
-	// architecture/flow diagram uses the operation name alone (for example
-	// Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage is displayed as
-	// runAnalyzePhase -> dispatchStage).  The call row already proves the
-	// direction; this lane only reconciles its presentation identity.  Accept
-	// the short spelling when every citable endpoint on the same side that is
-	// compatible with it belongs to one identity family.  Two qualified owners
-	// with the same operation tail remain incompatible and fail closed.
+	// architecture/flow diagram uses the operation name alone on either side
+	// (for example Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage is
+	// displayed as runAnalyzePhase -> Orchestrator.dispatchStage). The call row
+	// already proves the direction; this lane only reconciles each endpoint's
+	// presentation identity. Accept a short spelling when every citable endpoint
+	// on that side that is compatible with it belongs to one identity family.
+	// Two qualified owners with the same operation tail remain incompatible and
+	// fail closed.
 	//
 	// This is intentionally side-aware and pair-preserving.  It does not infer
 	// owners from source paths, labels, request text, or prose, and a source-side
 	// match plus an unrelated target-side match cannot mint a new edge.
-	if diagramEvidenceQualifiedOwner(fromSymbol) == "" &&
-		diagramEvidenceQualifiedOwner(toSymbol) == "" &&
-		diagramCallEndpointHasUniqueTypedProjection(evidence, fromSymbol, true) &&
-		diagramCallEndpointHasUniqueTypedProjection(evidence, toSymbol, false) {
+	if diagramCallEndpointHasExactOrUniqueShortProjection(evidence, fromSymbol, true) &&
+		diagramCallEndpointHasExactOrUniqueShortProjection(evidence, toSymbol, false) {
 		for _, ev := range evidence {
 			if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-				!types.AnswerCodeIdentitySurfacesCompatible(ev.Subject, fromSymbol) {
+				!diagramCallEndpointMatchesExactOrShortProjection(ev, fromSymbol, true) {
 				continue
 			}
-			if types.AnswerCodeIdentitySurfacesCompatible(ev.Object, toSymbol) ||
-				types.AnswerCodeIdentitySurfacesCompatible(ev.AnchorSymbol, toSymbol) {
+			if diagramCallEndpointMatchesExactOrShortProjection(ev, toSymbol, false) {
 				return true
 			}
 		}
@@ -1043,6 +1041,48 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+// diagramCallEndpointHasExactOrUniqueShortProjection preserves a qualified
+// diagram endpoint only when citable call evidence carries that exact owner.
+// A bare operation may use the existing unique typed projection. This keeps a
+// mixed short/qualified presentation usable without letting a short evidence
+// endpoint mint a model-authored owner qualification.
+func diagramCallEndpointHasExactOrUniqueShortProjection(evidence []types.EvidenceItem, surface string, sourceSide bool) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	if diagramEvidenceQualifiedOwner(surface) == "" {
+		return diagramCallEndpointHasUniqueTypedProjection(evidence, surface, sourceSide)
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if diagramCallEndpointMatchesExactOrShortProjection(ev, surface, sourceSide) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramCallEndpointMatchesExactOrShortProjection(ev types.EvidenceItem, surface string, sourceSide bool) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	qualified := diagramEvidenceQualifiedOwner(surface) != ""
+	match := func(candidate string) bool {
+		if qualified {
+			return types.AnswerCodeIdentitySurfacesEquivalent(candidate, surface)
+		}
+		return types.AnswerCodeIdentitySurfacesCompatible(candidate, surface)
+	}
+	if sourceSide {
+		return match(ev.Subject)
+	}
+	return match(ev.Object) || match(ev.AnchorSymbol)
 }
 
 // diagramCallEdgeTypedEvidenceOccurrenceAuthority returns a stable group key
