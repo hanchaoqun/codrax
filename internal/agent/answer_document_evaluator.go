@@ -10341,6 +10341,10 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			types.RuntimeTraceTemporalDiagramRelationContract,
 		)
 	}
+	// B401: a copy-ready frame diagram is compiled independently from each
+	// report-local typed result. The aggregate view above is guidance only and
+	// must not lend rows between an early coarse probe and the final report.
+	b.WriteString(renderAnswerDocRuntimeTemporalDiagramCapsules(ctx))
 	b.WriteString("\n")
 	return b.String()
 }

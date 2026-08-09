@@ -28275,3 +28275,30 @@ Trace 根因人口仍为 `typed-on-chain-only`，adjacent/background 仍为 `sup
 状态：`EVAL-B400=S37dg-implemented/full-suite-pass/pending-production-replay`；
 `pretriage-finalizer-authority=typed-provenance+same-capture`；`full-ledger=lossless`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.414 S37dh：report-local typed temporal authoring capsule
+
+按 r234 的 B401 施工。它只降低模型把精确 frame rows 写成合法 Mermaid/JSON 的机械负担，不替模型生成、插入或改写答案：
+
+1. Finalizer soft context 现在可从**单个** `trace_query ToolResult` 的 `TraceEvidenceAuthority + Observations` 构造可复制的
+   `sequenceDiagram + edge_anchors_json`。参与者使用稳定 `t1/t2/...` alias；每个 frame item 只成为 `Note over`，携 typed role/phase、精确 interval
+   与 artifact line range；每个 `frame_temporal_sequence` row 才成为 `temporal adjacency (unproven)` arrow；
+2. 每个可见 arrow occurrence 与一个 `relation_kind=temporal` anchor 同源生成，self-edge 不例外。模型只能整包复制或省略可选图；系统不向
+   AnswerDocument 插图，不接管模型结论，也不在 repair 时按自己偏好重画；
+3. 构造严格 report-local：早期粗窗和后续精确窗、模型 dispatch 和系统补采、temporal result 和 proved causal result 不互相借 row。
+   去重只折叠 exact republication，不把会话级 ANY-sticky authority 用作图的事实来源；
+4. 完整性 fail-open：本结果的 unique typed frame-item/edge 数必须分别等于 authority counts；缺一行、超过 12 items/8 edges、安全字段为空、非
+   hard runtime row 或非 deterministic-query producer 时整块不发布，绝不截断后伪称完整，也不从 Summary/用户问题/模型原文补边；
+5. 非 frame row 即使与 frame row 同结果、Summary 即使出现 call/submit/wait/完成等词，也不能进入胶囊或改变 relation kind。span/name 仍只证明
+   typed item label/stage/interval，不证明内部工作、跨线程 handoff、等待、完成效应或根因；
+6. 新增完整 4-item/3-edge（含 self-edge）、箭头/anchor 等基数、混入非 frame row、Summary 噪声、缺 row、跨 report 借 row、exact republication、
+   temporal/proved sibling、缺 authority/soft row、over-cap 不截断与真实 guidance 接线回归；聚焦 agent 测试全绿；
+7. 硬门边界未变：图若出现可见 arrow，既有 validator 仍只依据 parsed Mermaid endpoints 与 typed relation enum 校验；胶囊本身是 soft authoring aid，
+   不扫描用户输入或模型 thinking/summary/final prose触发硬门；
+8. Trace 根因仍只能从 typed on-chain 席产生；temporal adjacency、邻近与 background 只能作时序/支撑/额外排查方向，不能成为主因。显式时间窗、
+   自动补采、根因排序、唤醒链、因果投影、窗内可消量和真实占时/规则可消双轴均未修改。
+
+状态：`EVAL-B401=S37dh-implemented/full-suite-pass/pending-production-replay`；
+`temporal-capsule=report-local+complete+typed-only`；`arrow-anchor-cardinality=equal`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
