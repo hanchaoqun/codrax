@@ -28907,32 +28907,3 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B422=P1-confirmed/design-first`；`json-teaching=consistent-this-replay`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
-
-### 123.436 S37dt：typed flow participant 覆盖不再由任意单边代偿
-
-针对 r244 的 B422 先完成低误伤、可泛化的第一批：
-
-1. Analyzer 的 diagram participant 单源教学明确：当 `required=true` 且当前请求点名某身份、要求图中展示其连接时，不得省略该
-   participant；仍只允许复制当前请求明确给出的身份，不从 count、generic role、模型 summary 或源码近邻发明 participant；
-2. `MissingExplorerFlowIncidentParticipants` 只读取 schema-validated `DiagramHint.Participants` 与本轮 Explorer 明确提交、可引用、符合 source scope
-   的 typed flow operation evidence。每个 `incident_required` participant 必须至少被一条真实 call/callback/assignment/initializer/return/precedence
-   关系触达；`context_only` 明确不要求连边；
-3. 参与者本身仍不是证据，也不能铸边。repo_map/parser 的仓库背景关系不能独立解除本轮覆盖义务，避免“仓里某处刚好同名的一条边”替代模型对当前问题的
-   证据选择；只有 `explorer.emit_evidence` 生产面进入该覆盖计算；
-4. 身份比较跨 Go/Java/Kotlin/ArkTS/C/C++/Rust/Python/Cangjie 等语言共用结构化 segment 规则。完整 qualified identity 必须同一；短名只在
-   当前 selected operation set 唯一解析到一个 qualified endpoint 时可覆盖；`Alpha.run` 与 `Beta.run` 同时存在时，裸 `run` fail-closed；反向用
-   裸 endpoint 证明显式 qualified participant 被禁止；
-5. 既有 `flow_operation_carrier` 有界 downgrade 继续保留：首次缺覆盖只请求一次聚焦 operation pass，重复无进展后允许带 typed
-   unproven/incomplete caveat 完成，避免不可能证明的动态边形成无限重试。系统不自动补边、不删除图、不代写结论；
-6. 没有 typed participants 的旧 flow 保持“至少一条 operation carrier”原行为。这是刻意的兼容边界：B422 后续批再设计 principal
-   bounded-flow roster 与 diagram/table 的显式关联，不能把任意 per-member table roster 猜成 diagram roster；
-7. 回归覆盖：三名 incident 中缺一则拒绝、补齐后通过；context-only 豁免；repo-map background 不代偿；同尾名 ambiguous participant 拒绝；
-   旧无 participant flow、无进展 caveat、external-only runtime flow、mixed runtime+source flow 均保持；聚焦包与无缓存全仓套件通过；
-8. Trace family 在 `flowOperationEvidenceRequired` 入口保持排除，本批不接触显式窗口、自动补采、因果投影、根因排序、唤醒链或可消除量。
-   Trace 主根因仍只来自 typed on-chain 席，邻近区域/背景信息仍只能支撑或给出额外排查方向。
-
-状态：`EVAL-B422=S37dt-partial/typed-participant-coverage-implemented`；
-`untyped-principal-flow-roster=design-open`；`context-only=no-edge-obligation`；
-`background-edge-cannot-discharge=true`；`bounded-unproven-escape=preserved`；
-`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
-Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

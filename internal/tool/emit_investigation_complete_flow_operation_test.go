@@ -31,7 +31,6 @@ func flowOperationEvidence(anchor types.AnchorKind, subject, object string, line
 		Subject: subject, Object: object, AnchorSymbol: object,
 		Source: "src/pipeline.go", LineStart: line, Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
-		Producer:        types.EvidenceProducerExplorerEmitEvidence,
 	}
 }
 
@@ -82,87 +81,6 @@ func TestEmitInvestigationComplete_FlowOperationClosesNextAttempt(t *testing.T) 
 	}
 	if !ctx.Mutable.IsInvestigationComplete() || !strings.Contains(res.Summary, "Investigation marked complete") {
 		t.Fatalf("citable operation row should close on the next attempt: %+v", res)
-	}
-}
-
-func TestEmitInvestigationComplete_FlowTypedIncidentParticipantsNeedOwnCoverage(t *testing.T) {
-	ctx := flowOperationCompletionContext([]types.EvidenceItem{
-		flowOperationEvidence(types.AnchorCall, "Pipeline.Analyze", "Pipeline.Explore", 42),
-	})
-	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
-		Kind:     types.DiagramSequence,
-		Required: true,
-		Participants: []types.DiagramParticipantHint{
-			{Identity: "Pipeline.Analyze", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "Pipeline.Explore", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "Pipeline.Finalize", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
-		},
-	}
-	tool := &EmitInvestigationComplete{}
-	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
-	if err != nil {
-		t.Fatalf("first Execute: %v", err)
-	}
-	if ctx.Mutable.IsInvestigationComplete() || res.Repair == nil ||
-		!strings.Contains(res.Summary, "Pipeline.Finalize") ||
-		strings.Contains(res.Summary, "BusContext") {
-		t.Fatalf("uncovered incident participant must request its own operation evidence while context-only stays exempt: %+v", res)
-	}
-
-	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
-		flowOperationEvidence(types.AnchorCall, "Pipeline.Explore", "Pipeline.Finalize", 57),
-	})
-	res, err = tool.Execute(ctx, flowOperationCompletionParams(t))
-	if err != nil {
-		t.Fatalf("second Execute: %v", err)
-	}
-	if !ctx.Mutable.IsInvestigationComplete() || !strings.Contains(res.Summary, "Investigation marked complete") {
-		t.Fatalf("all typed incident participants covered by Explorer-authored operations should close: %+v", res)
-	}
-}
-
-func TestEmitInvestigationComplete_FlowParserBackgroundDoesNotDischargeTypedParticipant(t *testing.T) {
-	background := flowOperationEvidence(types.AnchorCall, "Pipeline.Analyze", "Pipeline.Finalize", 42)
-	background.Producer = types.EvidenceProducerRepoMapStructuralRelation
-	ctx := flowOperationCompletionContext([]types.EvidenceItem{background})
-	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
-		Kind:     types.DiagramSequence,
-		Required: true,
-		Participants: []types.DiagramParticipantHint{
-			{Identity: "Pipeline.Analyze", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "Pipeline.Finalize", Role: types.DiagramParticipantIncidentRequired},
-		},
-	}
-	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if ctx.Mutable.IsInvestigationComplete() || res.Repair == nil ||
-		!strings.Contains(res.Summary, "Pipeline.Analyze") ||
-		!strings.Contains(res.Summary, "Pipeline.Finalize") {
-		t.Fatalf("repo-map/background relation must not silently discharge Explorer-owned participant coverage: %+v", res)
-	}
-}
-
-func TestEmitInvestigationComplete_FlowAmbiguousShortParticipantFailsClosed(t *testing.T) {
-	ctx := flowOperationCompletionContext([]types.EvidenceItem{
-		flowOperationEvidence(types.AnchorCall, "Alpha.run", "Alpha.done", 42),
-		flowOperationEvidence(types.AnchorCall, "Beta.run", "Beta.done", 57),
-	})
-	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
-		Kind:     types.DiagramSequence,
-		Required: true,
-		Participants: []types.DiagramParticipantHint{
-			{Identity: "run", Role: types.DiagramParticipantIncidentRequired},
-		},
-	}
-	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if ctx.Mutable.IsInvestigationComplete() || res.Repair == nil || !strings.Contains(res.Summary, "run") {
-		t.Fatalf("same-named qualified endpoints must not discharge one ambiguous short participant: %+v", res)
 	}
 }
 
