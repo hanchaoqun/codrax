@@ -28514,3 +28514,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B407=S37dl-all-root-seat-authority-implemented/full-suite-pass/pending-production-replay`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.423 r239：根因上下文收敛生效；可选图复制与跨阶段命题确权仍开放
+
+在 `main@3051c6add` 上严格并发恰好两个同组 Trace case，runner 2/2 PASS，人工 1/2 PASS：
+
+1. B404 生产闭环：Donghu Explorer 仍可见完整 unbound census，ledger/tool/system report 也零丢失；causal-diagnosis Finalizer 与最终根因正文不再携
+   `caller_census` roster，未再把未绑定 ×17/×1/×1 普查搬到 #3/#5 ranked seat。显式 bounded 查询保留路径未动；
+2. B407 生产闭环：每个 root seat 的 `cross_seat_aggregation_authority=forbidden` 与修向
+   `repair_lane_fold=max_on_chain_seat_not_sum` 真实到达。最终答案逐席给出 #1=23.994ms、#2=19.041ms、#3=10.433ms、#4=10.331ms，明确不可跨行
+   相加，不再发“锁方向约43ms”或“IO约24ms”；
+3. 根因人口与词权保持：主根因、排序和修向均来自 typed on-chain seats；`fscache_page_wait_o/page_lock_timeout` 等未绑定/背景观察只在背景或额外排查方向，
+   没有进入系统选举。邻近、背景、业务 span 仍不参与根因排序，Trace 因果投影、自动补采与显式时间窗保持；
+4. B409 仅部分改善：短 Mermaid + compact authority 降低了可见图负担，但模型首稿仍复制三条 report-local temporal arrows 而漏掉同一胶囊的三个
+   `edge_anchors`，触发一次“成文校验未通过”；patch 只补图块后成功。拒绝从 r238 的两次降为一次，但不能据此关账；
+5. B409 的泛化下一步不是放宽 typed temporal gate，而是对**精确匹配 report-local capsule 的结构化 diagram block**做机械 metadata 补齐：仅当可见 arrow
+   occurrence multiset 与单一完整 runtime owner 完全匹配且不存在冲突 anchors 时，补其已知 temporal anchors；改写/子集/混合/source sibling 均继续 fail-close。
+   该判断只读结构化 diagram/typed owner，不扫描用户输入、thinking、summary 或 final prose；
+6. B403 再次确认，且根因向上游扩展为 `EVAL-B410-RUNTIMEPROPOSITIONAUTHORITYLEAK1=P1/HIGH`：Finalizer 已收到精确
+   `owning_thread_role_authority/internal_work_authority=not_provided`，模型仍声称 app-20 是 UI 线程、RSUniRenderThre 是 RenderService 专用线程，进一步写
+   “UI 提交光栅任务”“GPU 硬件队列/实际绘制”。污染在 Finalizer 前已经形成：perf-triage 自由摘要、Analyzer 调查单元和 Explorer
+   `emit_investigation_complete.reason` 都把用户待证的 “UI→RenderService→GPU” 命题写成已解析事实；
+7. B410 的最优解是**上下文权威分层**，不是答案关键词硬门：用户命题/Analyzer subtopic 只作为 question/hypothesis；模型生成的 pretriage narrative 和
+   completion reason 不得升级为 Finalizer 的 fact authority；runtime principal facts 只从 typed trace rows/aggregate carriers 构造，并随字段携带
+   stage-role、thread-role、internal-work、causality 四个独立 authority。模型仍负责总结和结论，系统不删除、不替换正文；
+8. 本轮没有系统改写模型结论。唯一 patch 是模型在确定性 typed 图合同拒绝后补 metadata。后续先施工 B409 精确机械补齐并钉 source sibling fail-close，
+   再按 B410 审计各 stage 到 Finalizer 的权威消费，避免继续堆 JSON/同义教学增加模型心智。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B404=production-closed`；`EVAL-B407=production-closed`；
+`EVAL-B409=partial/one-retry/open`；`EVAL-B403=P1-confirmed`；
+`EVAL-B410=P1-confirmed/next-authority-layering`；`EVAL-B406=P1-observe`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
