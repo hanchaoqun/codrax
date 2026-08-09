@@ -3767,10 +3767,11 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 		})
 	}
 	for i, jank := range bundle.Janks {
-		summary := firstNonEmptyString(jank.Reason, "observed jank")
+		summary := firstNonEmptyString(jank.Reason, "observed slow interval")
 		notes := cloneStringSlice(jank.Tags)
-		if jank.CauseIsPreTriageModelExtraction() {
-			summary = "observed jank"
+		if jank.VerdictIsPreTriageModelExtraction() || jank.CauseIsPreTriageModelExtraction() {
+			summary = "pre-triage slow-frame candidate"
+			notes = append(notes, "verdict_authority="+string(jank.VerdictAuthority))
 			if trigger := strings.TrimSpace(jank.TriggerSpan); trigger != "" {
 				notes = append(notes, "cause_candidate_trigger="+trigger)
 			}

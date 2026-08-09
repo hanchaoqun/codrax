@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestPerfThresholdProvenanceSeparatesValidatorBudgetFromUserComparatorAA4(t *testing.T) {
+func TestPerfThresholdProvenanceKeepsPreTriageFrameVerdictUnprovenAA4(t *testing.T) {
 	mut := types.NewMutableState("比较 trace 帧时长并解释当前实现")
 	mut.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
@@ -22,17 +22,22 @@ func TestPerfThresholdProvenanceSeparatesValidatorBudgetFromUserComparatorAA4(t 
 
 	got := renderAnswerDocPerfThresholdProvenanceAuthority(ctx)
 	for _, want := range []string{
-		"validator_jank_budget_ms=16.67",
-		"authority=`deterministic_validator_constant`",
-		"duration_ms=86.111; validator_janky=true",
-		"different threshold supplied by the request",
-		"must not be renamed as Codrax's internal jank rule",
+		"Perf Frame Verdict Authority",
+		"does not carry a validator-owned device refresh rate, frame deadline, or frame budget",
+		"duration_ms=86.111; jank_verdict_authority=`pretriage_model_extraction`",
+		"not a deterministic jank/non-jank verdict",
+		"leave the verdict unproven",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("perf threshold provenance missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "duration_ms=8.000") {
-		t.Fatalf("model-supplied janky=true below the validator budget must not receive deterministic threshold authority:\n%s", got)
+	if !strings.Contains(got, "duration_ms=8.000; jank_verdict_authority=`pretriage_model_extraction`") {
+		t.Fatalf("all model-supplied janky bits must retain the same pre-triage ceiling regardless of duration:\n%s", got)
+	}
+	for _, forbidden := range []string{"validator_jank_budget_ms", "deterministic_validator_constant", "validator_janky=true"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("default frame-budget authority leaked through %q:\n%s", forbidden, got)
+		}
 	}
 }

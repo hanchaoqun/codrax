@@ -10220,9 +10220,10 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime causal ceiling hint: this run's typed evidence authority reports `causal_conclusion=unproven` — no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the system coverage block instead of overriding it.\n")
 	}
 	if view.RuntimeTrace && view.FrameFlowUnproven {
-		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: typed frame authority reports `frame_flow_causality=unproven`, `relation=%s`, `edges=%d`. Describe these as time-sorted span adjacency / temporal-sequence edges, not as a formed, confirmed, or validated cross-thread flow and not as proof of a handoff, request, submission, or completion dependency. State each span/thread observation independently. If a diagram uses arrows for layout, label the arrows `temporal adjacency (unproven)` so visual direction does not mint causal authority.\n",
+		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: typed frame authority reports `frame_flow_causality=unproven`, `relation=%s`, `edges=%d`. %s\n",
 			firstNonEmptyString(view.FrameFlowRelation, "temporal_sequence"),
 			view.FrameFlowEdgeCount,
+			types.RuntimeTraceTemporalDiagramRelationContract,
 		)
 	}
 	b.WriteString("\n")
@@ -10430,23 +10431,21 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 	if len(bundles) == 0 {
 		return ""
 	}
-	type frameAuthority struct {
+	type frameCandidate struct {
 		source     string
 		frameNo    int
 		tsMS       float64
 		durationMS float64
+		authority  types.PerfObservationAuthority
 	}
-	frames := make([]frameAuthority, 0)
+	frames := make([]frameCandidate, 0)
 	seen := map[string]bool{}
 	for _, perf := range bundles {
 		if perf == nil {
 			continue
 		}
 		for _, frame := range perf.Frames {
-			// Recompute from validator-owned constants rather than trusting the
-			// model-supplied Janky bit. This is the same comparison toPerfBundle
-			// applies when it stamps true.
-			if frame.DurationMs <= types.PerfFrameBudget60HzMs {
+			if !frame.Janky {
 				continue
 			}
 			key := fmt.Sprintf("%s\x00%d\x00%.9f\x00%.9f",
@@ -10455,11 +10454,19 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 				continue
 			}
 			seen[key] = true
-			frames = append(frames, frameAuthority{
+			authority := frame.JankAuthority
+			if authority == "" {
+				// Legacy bundles predate the validator-owned authority field. Their
+				// Janky bit was still model/constant-derived, not device-deadline
+				// authority, so preserve the conservative compatibility ceiling.
+				authority = types.PerfObservationAuthorityPreTriageModelExtraction
+			}
+			frames = append(frames, frameCandidate{
 				source:     strings.TrimSpace(perf.Meta.Source),
 				frameNo:    frame.FrameNo,
 				tsMS:       frame.TsMs,
 				durationMS: frame.DurationMs,
+				authority:  authority,
 			})
 		}
 	}
@@ -10468,19 +10475,16 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 	}
 
 	var b strings.Builder
-	b.WriteString("## Perf Threshold Provenance Authority\n\n")
-	fmt.Fprintf(&b,
-		"- validator_jank_budget_ms=%.2f; authority=`deterministic_validator_constant`; comparison=`frame.duration_ms > validator_jank_budget_ms`.\n",
-		types.PerfFrameBudget60HzMs)
-	b.WriteString("- This is the current Codrax perf-pretriage frame budget. A different threshold supplied by the request or carried only by model-authored aggregate/summary text remains a user comparison threshold; it may be answered as a scalar comparison but must not be renamed as Codrax's internal jank rule without separate current-source evidence.\n")
+	b.WriteString("## Perf Frame Verdict Authority\n\n")
+	b.WriteString("- Perf pre-triage carries measured frame durations, but this bundle does not carry a validator-owned device refresh rate, frame deadline, or frame budget. `janky=true` is therefore a navigation candidate, not a deterministic jank/non-jank verdict. Use a later typed trace_query deadline/frame authority when available; otherwise report the duration and leave the verdict unproven.\n")
 	for i, frame := range frames {
 		if i >= 8 {
-			fmt.Fprintf(&b, "- (%d additional validator-janky frame(s) omitted from this compact authority view)\n", len(frames)-i)
+			fmt.Fprintf(&b, "- (%d additional pre-triage frame candidate(s) omitted from this compact authority view)\n", len(frames)-i)
 			break
 		}
 		fmt.Fprintf(&b,
-			"- frame[%d] source=`%s`; frame_no=%d; ts_ms=%.3f; duration_ms=%.3f; validator_janky=true\n",
-			i+1, frame.source, frame.frameNo, frame.tsMS, frame.durationMS)
+			"- frame[%d] source=`%s`; frame_no=%d; ts_ms=%.3f; duration_ms=%.3f; jank_verdict_authority=`%s`\n",
+			i+1, frame.source, frame.frameNo, frame.tsMS, frame.durationMS, frame.authority)
 	}
 	b.WriteString("\n")
 	return b.String()

@@ -3834,6 +3834,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if pctx == nil {
 		return nil
 	}
+	if hints := preCheckRuntimeTraceTemporalDiagramAuthority(doc, view, pctx); len(hints) > 0 {
+		return hints
+	}
 	evidence := pctx.evidenceItems()
 	if view != nil && view.RelationAxis == types.AxisFlow {
 		if pctx.groundCtx == nil && pctx.ctx != nil {

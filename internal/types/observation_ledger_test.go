@@ -989,10 +989,12 @@ func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 				TsMs:       140,
 			}},
 			Janks: []PerfJank{{
-				StartTsMs:   200,
-				DurationMs:  120,
-				TriggerSpan: "RenderPipeline.Draw",
-				Reason:      "io",
+				StartTsMs:        200,
+				DurationMs:       120,
+				TriggerSpan:      "RenderPipeline.Draw",
+				Reason:           "io",
+				VerdictAuthority: PerfObservationAuthorityDeterministicValidator,
+				CausalAuthority:  PerfObservationAuthorityDeterministicValidator,
 			}},
 			Stalls: []PerfStall{{
 				StartTsMs:  220,
@@ -1036,23 +1038,25 @@ func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 func TestCompileObservationLedger_PreTriageJankCauseStaysCandidate(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		PerfBundle: &PerfBundle{Janks: []PerfJank{{
-			StartTsMs:       100,
-			DurationMs:      86.111,
-			TriggerSpan:     "H:RenderService:DoFrame",
-			Reason:          "heavy-compute",
-			Tags:            []string{"H:RenderService:DoFrame"},
-			CausalAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+			StartTsMs:        100,
+			DurationMs:       86.111,
+			TriggerSpan:      "H:RenderService:DoFrame",
+			Reason:           "heavy-compute",
+			Tags:             []string{"H:RenderService:DoFrame"},
+			VerdictAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+			CausalAuthority:  PerfObservationAuthorityPreTriageModelExtraction,
 		}}},
 	})
 	jank := findObservationRecord(t, ledger, "perf:jank:0")
 	if jank.ProvenanceLane != ObservationProvenanceArtifactSpan {
 		t.Fatalf("pretriage cause candidate must not mint direct-cause provenance: %+v", jank)
 	}
-	if jank.Summary != "observed jank" {
+	if jank.Summary != "pre-triage slow-frame candidate" {
 		t.Fatalf("pretriage reason must not become the principal summary: %+v", jank)
 	}
 	joined := strings.Join(jank.RichNotes, "\n")
 	for _, want := range []string{
+		"verdict_authority=pretriage_model_extraction",
 		"cause_candidate_trigger=H:RenderService:DoFrame",
 		"cause_candidate_reason=heavy-compute",
 		"cause_authority=pretriage_model_extraction",

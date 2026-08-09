@@ -358,7 +358,7 @@ func TestBuildAnswerSurfacePlanForAgentContext_TraceQueryFiltersPerfPreTriageSee
 	if plan == nil {
 		t.Fatal("surface plan is nil")
 	}
-	for _, kind := range []string{"perf_jank", "perf_stall", "perf_observation"} {
+	for _, kind := range []string{"perf_frame", "perf_stall", "perf_observation"} {
 		if externalObservationSeedKindPresent(plan.ExternalObservationSeeds, kind) {
 			t.Fatalf("trace_query runtime observations should keep perf pre-triage seeds out of principal support lane; found %s in %+v", kind, plan.ExternalObservationSeeds)
 		}
@@ -377,7 +377,7 @@ func TestBuildAnswerSurfacePlanForAgentContext_KeepsPerfPreTriageSeedsWithoutTra
 	if plan == nil {
 		t.Fatal("surface plan is nil")
 	}
-	for _, kind := range []string{"perf_jank", "perf_stall", "perf_observation"} {
+	for _, kind := range []string{"perf_frame", "perf_stall", "perf_observation"} {
 		if !externalObservationSeedKindPresent(plan.ExternalObservationSeeds, kind) {
 			t.Fatalf("perf-only runtime artifact should keep %s support seed: %+v", kind, plan.ExternalObservationSeeds)
 		}
@@ -423,10 +423,12 @@ func perfPreTriageBundleForSurfacePlanTest() *PerfBundle {
 	return &PerfBundle{
 		Meta: PerfMeta{Source: "trace"},
 		Janks: []PerfJank{{
-			StartTsMs:   34579471.722,
-			DurationMs:  3,
-			TriggerSpan: "sync_buffer_read_wi",
-			Reason:      "io",
+			StartTsMs:        34579471.722,
+			DurationMs:       3,
+			TriggerSpan:      "sync_buffer_read_wi",
+			Reason:           "io",
+			VerdictAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+			CausalAuthority:  PerfObservationAuthorityPreTriageModelExtraction,
 		}},
 		Stalls: []PerfStall{{
 			StartTsMs:  34579471.722,
@@ -644,9 +646,11 @@ func TestCollectExternalObservationSeeds_SurfacesStructuredObservations(t *testi
 func TestCollectArtifactExternalObservationSeeds_SurfacesPerfTrace(t *testing.T) {
 	perf := &PerfBundle{
 		Janks: []PerfJank{{
-			DurationMs:  52,
-			TriggerSpan: "RenderList",
-			Reason:      "heavy-compute",
+			DurationMs:       52,
+			TriggerSpan:      "RenderList",
+			Reason:           "heavy-compute",
+			VerdictAuthority: PerfObservationAuthorityDeterministicValidator,
+			CausalAuthority:  PerfObservationAuthorityDeterministicValidator,
 		}},
 		Stalls: []PerfStall{{
 			DurationMs: 140,
@@ -673,17 +677,18 @@ func TestCollectArtifactExternalObservationSeeds_SurfacesPerfTrace(t *testing.T)
 
 func TestCollectArtifactExternalObservationSeeds_PreTriageJankReasonIsNotFactSeed(t *testing.T) {
 	perf := &PerfBundle{Janks: []PerfJank{{
-		DurationMs:      52,
-		TriggerSpan:     "RenderList",
-		Reason:          "heavy-compute",
-		CausalAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+		DurationMs:       52,
+		TriggerSpan:      "RenderList",
+		Reason:           "heavy-compute",
+		VerdictAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+		CausalAuthority:  PerfObservationAuthorityPreTriageModelExtraction,
 	}}}
 	seeds := CollectArtifactExternalObservationSeeds(nil, perf, nil)
-	if len(seeds) != 1 || seeds[0].Kind != "perf_jank" {
-		t.Fatalf("jank seed missing: %+v", seeds)
+	if len(seeds) != 1 || seeds[0].Kind != "perf_frame" {
+		t.Fatalf("slow-frame candidate seed missing: %+v", seeds)
 	}
-	if !strings.Contains(seeds[0].Raw, "52.00ms jank") {
-		t.Fatalf("measured jank duration must remain visible: %+v", seeds[0])
+	if !strings.Contains(seeds[0].Raw, "52.00ms slow-frame candidate") {
+		t.Fatalf("measured slow-frame duration must remain visible: %+v", seeds[0])
 	}
 	if strings.Contains(seeds[0].Raw, "heavy-compute") {
 		t.Fatalf("pretriage reason must not become an external fact seed: %+v", seeds[0])

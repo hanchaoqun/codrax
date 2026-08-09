@@ -237,8 +237,8 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 			FrameNo: f.FrameNo, TsMs: f.TsMs, DurationMs: f.DurationMs,
 			Phase: f.Phase, Janky: f.Janky,
 		}
-		if frames[i].DurationMs > types.PerfFrameBudget60HzMs {
-			frames[i].Janky = true
+		if frames[i].Janky {
+			frames[i].JankAuthority = types.PerfObservationAuthorityPreTriageModelExtraction
 		}
 	}
 	janks := make([]types.PerfJank, len(p.Janks))
@@ -250,7 +250,8 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 		janks[i] = types.PerfJank{
 			StartTsMs: j.StartTsMs, DurationMs: j.DurationMs,
 			TriggerSpan: j.TriggerSpan, Reason: j.Reason, Tags: j.Tags,
-			CausalAuthority: causalAuthority,
+			VerdictAuthority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			CausalAuthority:  causalAuthority,
 		}
 	}
 	stalls := make([]types.PerfStall, len(p.Stalls))
@@ -347,7 +348,11 @@ func derivePerfLayer4(b *types.PerfBundle) {
 		b.Meta.Signals = append(b.Meta.Signals, s)
 	}
 	if len(b.Janks) > 0 {
-		pushSig("jank")
+		if b.HasAuthoritativeJankVerdict() {
+			pushSig("jank")
+		} else {
+			pushSig("slow-frame-candidate")
+		}
 	}
 	for _, s := range b.Stalls {
 		if s.DurationMs >= types.PerfMainThreadStallMs {
@@ -711,6 +716,7 @@ func harmonyPriorityClass(prio int) string {
 func buildEmitPerfTraceSchema() map[string]any {
 	frameSchema := map[string]any{
 		"type":                 "object",
+		"description":          "Measured frame/span sample. The current pre-triage schema has no validator-owned refresh/deadline carrier: keep janky false/omitted and preserve any literal budget/deadline as an observation for later typed verification.",
 		"additionalProperties": false,
 		"required":             []string{"duration_ms"},
 		"properties": map[string]any{
@@ -718,11 +724,12 @@ func buildEmitPerfTraceSchema() map[string]any {
 			"ts_ms":       map[string]any{"type": "number"},
 			"duration_ms": map[string]any{"type": "number", "minimum": 0},
 			"phase":       map[string]any{"type": "string", "enum": []string{"", "measure", "layout", "draw", "composite"}},
-			"janky":       map[string]any{"type": "boolean"},
+			"janky":       map[string]any{"type": "boolean", "description": "Legacy navigation classification only; it is not a typed jank verdict. Keep false/omitted in current pre-triage output."},
 		},
 	}
 	jankSchema := map[string]any{
 		"type":                 "object",
+		"description":          "Legacy slow-frame candidate carrier. It cannot prove a jank verdict or cause; current pre-triage should use frames/observations and omit janks[].",
 		"additionalProperties": false,
 		"required":             []string{"start_ts_ms", "duration_ms"},
 		"properties": map[string]any{
@@ -793,6 +800,7 @@ func buildEmitPerfTraceSchema() map[string]any {
 					"app_pid":     map[string]any{"type": "integer", "minimum": 0},
 					"signals": map[string]any{
 						"type": "array", "maxItems": 8,
+						"description": "Navigation tags only; jank/render-miss do not prove a device-deadline verdict.",
 						"items": map[string]any{
 							"type": "string",
 							"enum": []string{"jank", "cold-start-slow", "main-thread-stall", "io-block", "gc-pause", "render-miss"},
@@ -802,7 +810,7 @@ func buildEmitPerfTraceSchema() map[string]any {
 				},
 			},
 			"frames":       map[string]any{"type": "array", "maxItems": 200, "items": frameSchema},
-			"janks":        map[string]any{"type": "array", "maxItems": 50, "items": jankSchema},
+			"janks":        map[string]any{"type": "array", "maxItems": 50, "description": "Legacy slow-frame candidate list. Omit in current pre-triage; measured intervals belong in frames/observations until typed deadline authority exists.", "items": jankSchema},
 			"stalls":       map[string]any{"type": "array", "maxItems": 50, "items": stallSchema},
 			"startup":      startupSchema,
 			"observations": map[string]any{"type": "array", "maxItems": 50, "items": observationSchema},

@@ -27920,3 +27920,69 @@ Trace=`triple-excluded/unchanged/on-chain-only`。
 `frame-thread-selector=anchor-only`；`frame-members=selected-window-cross-thread`；
 `process-scope=unchanged/proven-membership`；`root-cause-views=unchanged/on-chain-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`。
+
+### 123.403 r230：跨线程/CPU 字段闭环；固定帧预算与未证时序图仍越权
+
+在 `main@f7fdb206c` 上严格并发恰好两个异构 case：`trace_query_frame_timeline_flow` 与
+`data_json_strict_ids`。runner 2/2 PASS；人工为 data PASS / Trace FAIL：
+
+1. S37da 在生产回放中完整生效。`frame_timeline` 与 `frame_flow` 各一次查询都返回 Expected Timeline、Choreographer#doFrame、
+   H:RenderFrame、GPU completion 四个跨线程成员；字段身份精确为 `tid/tgid/cpu=20/20/1,20/20/1,2096/1716/0,300/300/2`。
+   本轮没有 CPU20/CPU300，也没有因默认 thread target 把 RS/GPU 成员滤掉；B386/B387 生产闭环；
+2. Data 案 36s，一次 `custom_transform`、零 repair/failed action/JSON recovery。`instructions.md` 以 required `planner_distilled` 材料进入
+   coverage contract，`users.json` 被 action 消费，终态严格为 `{"ids":["u1","u3"]}`。这是单源规则蒸馏车道的正例，不是“未把规则文件列入 action input”导致的漏读；
+3. B388 只完成一半。`trace_query` 已明确发布 `frame_deadline_authority=not_provided`、`refresh_rate_authority=not_provided`，最终答案没有再宣称
+   “这一帧未丢帧”；但 perf-triage 的 Goal/Workflow 仍固定教授 60Hz/16.67ms，其结构化 observation 继续发“未超帧预算”，与后续 typed 权限边界冲突；
+4. 新确认 `EVAL-B390-PRETRIAGEJANKAUTH1=P0/HIGH`。当前 `toPerfBundle` 还会按 `PerfFrameBudget60HzMs` 无条件把长帧置 `Janky=true`，
+   Finalizer 又把同一常量声明成 `deterministic_validator_constant`。在没有设备 refresh/deadline authority 时，这不是确定性事实。最优方案是保留测得 duration，
+   把模型给出的 jank/trigger/reason 全部留在 navigation-candidate 权限；只有未来 schema-valid、可验证的 deadline/refresh carrier 才能铸 jank verdict；
+5. Finalizer 已收到精确的 `frame_flow_causality=unproven, relation=temporal_sequence, edges=3` 和“不得写 handoff/submission/dependency”提示，
+   但模型结构化 diagram 仍发 `app -> RS relation_kind=call`，正文/图写“提交帧”“GPU 提交/完成依赖”，零 reject 通过。系统覆盖边界随后正确披露 unproven，
+   形成同页自相矛盾；
+6. 新确认 `EVAL-B391-TRACETEMPORALEDGEOWNERSHIP1=P0/HIGH`。根修不能扫描正文或 edge label。应新增语言/平台中立的 schema-valid runtime
+   `temporal` relation owner；当报告精确满足“只有 unproven frame temporal edges、没有 typed causal row”时，可见图边只能声明 temporal，不得自报 call/callback/
+   submission authority。若同窗另有已证 wakeup/IPC/lock/official-flow，必须按 exact typed relation 席处理，禁止会话级 ANY-sticky 把真实链一起降权；
+7. B389 继续开放：帧案 Finalizer 上下文约 58.6K token，精确边界虽已被模型复述，但被早期 perf-triage 相反教学和多层通用 Trace 指令稀释。
+   后续先做 typed authority 同源与近席投影，再设计语义去重；不能通过用户请求/模型 thinking/summary/final prose 关键词硬门，也不能由系统改写模型答案；
+8. 本批两个模型主稿均未被系统删除或替换，Trace 附注只披露权限。根因资格仍只能来自 typed on-chain 席；本 frame-only 案无 root-cause/wakeup row，
+   因而不加冕任何背景/邻近信息。显式时间窗、自动补采、因果投影、根因排序、窗内可消量及真实占时/规则可消双轴均未被削弱。
+
+状态：runner=`2/2 PASS`；human=`data PASS / Trace FAIL`；
+`EVAL-B386=production-closed`；`EVAL-B387=production-closed`；
+`EVAL-B388=partial/tracequery-closed/pretriage-open`；
+`EVAL-B390=P0-confirmed/next`；`EVAL-B391=P0-confirmed/after-B390`；
+`EVAL-B389=P1-open`；`finalizer-reject=0+0`；
+`json-contract-conflict=none`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.404 S37db：帧 verdict 权限与未证时序图关系所有权收口
+
+按 r230 的 B390/B391 合批施工，修复的是值、判定和关系权限的通用边界，不接管模型结论：
+
+1. `PerfFrame.DurationMs` / `PerfJank.DurationMs` 继续作为实测值完整保留；`Janky`、`Janks[]` 成员资格和 trigger/reason/tags 分别进入 verdict/cause authority 车道。
+   `toPerfBundle` 删除 `duration > 16.67ms` 自动置 janky 的固定 60Hz 逻辑，模型发出的旧 janky/jank 形只记 `pretriage_model_extraction`；authority 为空的旧缓存也 fail-closed，不能因兼容零值铸成硬 verdict 或直接因果；
+2. perf-triage 的 Goal、Workflow 与 `emit_perf_trace` schema 同源声明：当前 payload 没有 validator-owned refresh/deadline carrier，因此始终发布实测 frame/span duration，
+   `janky=false|omitted`、省略 `janks[]`；artifact 若逐字携带 refresh/budget/deadline，只能先作为 observation 等待 typed verification，不能在 pre-triage 判 jank、丢帧或未丢帧。由此消除了 JSON schema 可选字段与教学暗示之间的权限冲突，并减少模型同时维护“固定预算+后续撤权”两套心智；
+3. ObservationProfile、ObservationLedger、AnswerClaimBinding、ExternalObservationSeed、stage report、context builder、Meta signal 派生、`PerfJankFrame` 分型和 root-cause hard facet 全部消费同一 authority。
+   未证记录统一呈现为 `slow-frame candidate`/`perf_frame`，但时长不丢；只有显式 `deterministic_validator` authority 才能升级为 `perf_jank`/硬 jank subtype。没有通过正文词、用户输入或阈值常量二次猜测；
+4. 新增 typed-only `DiagramRelTemporal=temporal`，映射为 external observation，不允许 Mermaid label 或 prose 自铸。单源合同说明：
+   `frame_flow_causality=unproven + relation=temporal_sequence` 只能用 `relation_kind=temporal` 表达实测先后；独立且有证据的背景附件仍可用 `observe`，因此“链外只能作支撑”没有被误做成“背景不能展示”；
+5. pre-emit 关系校验只读 `TraceEvidenceAuthority`、parsed Mermaid endpoint 与 schema-valid relation enum。当报告精确满足“存在未证 frame temporal edge 且 typed causal row=0”时，
+   missing/call/callback 等因果型 owner 会触发一次字段级修复；不扫描 edge label、thinking、summary、final answer 或用户原文，也不由系统补边、改边、删图、替换模型答案；
+6. 混合报告的防 ANY-sticky 臂已钉：任一被最终消费的 wakeup/IPC/lock/official-flow 结果含 `TypedCausalRowCount>0` 或 `bounded_by_typed_rows`，
+   便不启用 report-wide temporal fallback，真实 typed 链仍按各自 exact relation 校验。探索期粗窗的 unproven frame probe 不能给后续已证链降权；
+7. Trace 根因人口、排序、唤醒链、显式窗、自动补采、因果投影、窗内可消除量和“真实占时/现规则可消”双轴均未改变。系统仍只提供精确信息、权限上限和修复提示；
+   主因只能来自 typed on-chain 席，邻近/背景只能进入 supporting context 与额外排查方向，最终解释与优化结论继续由模型形成；
+8. 新增 fail-closed legacy authority、deterministic verdict 正臂、未证 temporal/observe 正臂、missing/call/callback 负臂以及“先 unproven frame、后 proved chain 不降权”回归。
+   最终冻结代码上 `go test ./... -count=1` 全绿，覆盖 cmd、read/write/data、agent/orchestrator、hitraceconv、tracequery/tracediag、render/mermaid、全语言 repomap 与 writeflow；
+9. B390/B391 进入生产回放待验。B389 仍开放：后续按 typed carrier 做 Trace prompt 语义去重与近席投影，不能靠关键词扫描或系统改稿。本批完成后恰好并发两个高风险 Trace case：
+   frame timeline/flow 复验 pure-temporal 图边权限，Donghu 显式窗复验真实 on-chain 根因和混合因果报告不被降权。
+
+状态：`EVAL-B390=S37db-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B391=S37db-implemented/full-suite-pass/pending-production-replay`；
+`EVAL-B388=tracequery+pretriage-code-closed/pending-production-replay`；
+`EVAL-B389=P1-open/typed-context-dedupe-next`；
+`frame-duration=measured-value-preserved`；`jank-verdict=explicit-authority-only`；
+`unproven-frame-edge=temporal|grounded-observe`；`proved-mixed-chain=unchanged`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

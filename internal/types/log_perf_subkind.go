@@ -346,6 +346,9 @@ func perfFrameJankMatch(item EvidenceItem, p *PerfBundle) bool {
 	// item is in the perf-attached file set. Refines later when
 	// real perf-eval data shows what Jank.TriggerSpan looks like.
 	for _, j := range p.Janks {
+		if j.VerdictIsPreTriageModelExtraction() {
+			continue
+		}
 		if j.TriggerSpan != "" && j.TriggerSpan == item.Subject {
 			return true
 		}

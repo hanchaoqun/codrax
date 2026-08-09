@@ -140,8 +140,9 @@ type PerfMeta struct {
 }
 
 // PerfObservationAuthority identifies who minted the semantic content of a
-// PerfObservation. The zero value is the legacy compatibility lane: bundles
-// persisted before this field existed keep their previous behavior.
+// PerfObservation. The zero value means unspecified authority. Consumers must
+// fail closed: measured values remain usable, but unspecified authority cannot
+// mint a jank verdict or a causal claim.
 //
 // This is intentionally validator-owned and is not exposed in the
 // emit_perf_trace tool schema. Downstream prompt projection can therefore
@@ -178,11 +179,20 @@ type PerfObservation struct {
 // FrameNo + TsMs make each frame uniquely addressable so the
 // validator can detect duplicates.
 type PerfFrame struct {
-	FrameNo    int     `json:"frame_no,omitempty"`
-	TsMs       float64 `json:"ts_ms,omitempty"`
-	DurationMs float64 `json:"duration_ms"`
-	Phase      string  `json:"phase,omitempty"` // "measure" / "layout" / "draw" / "composite" / ""
-	Janky      bool    `json:"janky,omitempty"` // DurationMs > frame budget (16.6 ms @ 60Hz)
+	FrameNo       int                      `json:"frame_no,omitempty"`
+	TsMs          float64                  `json:"ts_ms,omitempty"`
+	DurationMs    float64                  `json:"duration_ms"`
+	Phase         string                   `json:"phase,omitempty"` // "measure" / "layout" / "draw" / "composite" / ""
+	Janky         bool                     `json:"janky,omitempty"`
+	JankAuthority PerfObservationAuthority `json:"jank_authority,omitempty"`
+}
+
+// JankIsPreTriageModelExtraction reports whether Janky is a navigation
+// classification emitted by perf pre-triage rather than a deadline verdict
+// backed by an explicit device refresh/deadline authority. DurationMs remains
+// a separately measured value in either case.
+func (f PerfFrame) JankIsPreTriageModelExtraction() bool {
+	return f.Janky && f.JankAuthority != PerfObservationAuthorityDeterministicValidator
 }
 
 // PerfJank describes one slow interval with the chain of
@@ -191,12 +201,20 @@ type PerfFrame struct {
 // lane governed by CausalAuthority. Pre-triage extraction must not turn the
 // innermost tag or a best-guess reason into a proven cause.
 type PerfJank struct {
-	StartTsMs       float64                  `json:"start_ts_ms"`
-	DurationMs      float64                  `json:"duration_ms"`
-	TriggerSpan     string                   `json:"trigger_span,omitempty"`
-	Reason          string                   `json:"reason,omitempty"` // "io" / "lock" / "sync-call" / "heavy-compute" / ""
-	Tags            []string                 `json:"tags,omitempty"`
-	CausalAuthority PerfObservationAuthority `json:"causal_authority,omitempty"`
+	StartTsMs        float64                  `json:"start_ts_ms"`
+	DurationMs       float64                  `json:"duration_ms"`
+	TriggerSpan      string                   `json:"trigger_span,omitempty"`
+	Reason           string                   `json:"reason,omitempty"` // "io" / "lock" / "sync-call" / "heavy-compute" / ""
+	Tags             []string                 `json:"tags,omitempty"`
+	VerdictAuthority PerfObservationAuthority `json:"verdict_authority,omitempty"`
+	CausalAuthority  PerfObservationAuthority `json:"causal_authority,omitempty"`
+}
+
+// VerdictIsPreTriageModelExtraction reports whether membership in Janks is a
+// model-extracted slow-frame candidate rather than a typed frame-deadline
+// verdict. It is independent from the trigger/reason causal authority.
+func (j PerfJank) VerdictIsPreTriageModelExtraction() bool {
+	return j.VerdictAuthority != PerfObservationAuthorityDeterministicValidator
 }
 
 // CauseIsPreTriageModelExtraction reports whether TriggerSpan / Reason / Tags
@@ -204,7 +222,28 @@ type PerfJank struct {
 // trace-query causal result. The time interval and validator-derived Janky bit
 // remain separate measured/value lanes.
 func (j PerfJank) CauseIsPreTriageModelExtraction() bool {
-	return j.CausalAuthority == PerfObservationAuthorityPreTriageModelExtraction
+	return j.CausalAuthority != PerfObservationAuthorityDeterministicValidator
+}
+
+// HasAuthoritativeJankVerdict reports whether the bundle contains at least one
+// jank verdict minted by a deterministic validator with scenario authority.
+// Slow-frame candidates and legacy entries with unspecified authority do not
+// satisfy hard jank facets.
+func (b *PerfBundle) HasAuthoritativeJankVerdict() bool {
+	if b == nil {
+		return false
+	}
+	for _, frame := range b.Frames {
+		if frame.Janky && !frame.JankIsPreTriageModelExtraction() {
+			return true
+		}
+	}
+	for _, jank := range b.Janks {
+		if !jank.VerdictIsPreTriageModelExtraction() {
+			return true
+		}
+	}
+	return false
 }
 
 // PerfStall is a sub-event inside a PerfJank — specifically a
@@ -230,13 +269,13 @@ type PerfStartup struct {
 	FirstFrameMs  float64 `json:"first_frame_ms,omitempty"`
 }
 
-// Jank threshold constants the validator uses to populate Meta.Signals
-// and the Janky bit on PerfFrame. Kept public so callers (and the
-// finalizer prose renderer) can explain the thresholds they applied.
+// Performance comparison constants. These values are useful only after their
+// corresponding scenario authority is explicit. In particular, a 60Hz
+// comparison constant must not become a default device refresh/deadline or
+// jank verdict when the trace did not provide one.
 const (
-	// PerfFrameBudget60HzMs is the 60fps frame budget in
-	// milliseconds. Frames exceeding this are marked janky unless
-	// the device's refresh rate is explicitly reported.
+	// PerfFrameBudget60HzMs is the mathematical period of a 60fps signal in
+	// milliseconds. It is not a validator-owned default jank threshold.
 	PerfFrameBudget60HzMs = 16.67
 
 	// PerfStartupSlowColdMs is the cold-start slow threshold. Cold

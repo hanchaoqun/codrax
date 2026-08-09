@@ -238,18 +238,29 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 	}
 	for _, f := range bundle.Frames {
 		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
-		out.EvidenceSnippets = append(out.EvidenceSnippets,
-			clampProfileSnippet(fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs)))
+		snippet := fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs)
+		if f.Janky {
+			if f.JankIsPreTriageModelExtraction() {
+				snippet += fmt.Sprintf(" jank_candidate=true verdict_authority=%s", f.JankAuthority)
+			} else {
+				snippet += " janky=true"
+			}
+		}
+		out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(snippet))
 	}
 	for _, j := range bundle.Janks {
-		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
+		if j.VerdictIsPreTriageModelExtraction() {
+			out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
+		} else {
+			out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
+		}
 		if span := strings.TrimSpace(j.TriggerSpan); span != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, span)
 		}
-		if j.CauseIsPreTriageModelExtraction() {
+		if j.VerdictIsPreTriageModelExtraction() || j.CauseIsPreTriageModelExtraction() {
 			out.EvidenceSnippets = append(out.EvidenceSnippets,
-				clampProfileSnippet(fmt.Sprintf("jank %.2fms cause_candidate=%s causal_authority=%s",
-					j.DurationMs, strings.TrimSpace(j.Reason), j.CausalAuthority)))
+				clampProfileSnippet(fmt.Sprintf("slow-frame candidate %.2fms cause_candidate=%s verdict_authority=%s causal_authority=%s",
+					j.DurationMs, strings.TrimSpace(j.Reason), j.VerdictAuthority, j.CausalAuthority)))
 		} else {
 			out.EvidenceSnippets = append(out.EvidenceSnippets,
 				clampProfileSnippet(fmt.Sprintf("jank %.2fms %s", j.DurationMs, strings.TrimSpace(j.Reason))))

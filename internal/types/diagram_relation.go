@@ -50,6 +50,12 @@ import "strings"
 // rendered heading.
 const SectionDiagramEdgeLabelVocabulary = "Diagram-edge label vocabulary"
 
+// RuntimeTraceTemporalDiagramRelationContract is the single authoring
+// boundary for a frame diagram whose typed trace authority contains only
+// time-sorted adjacency. It intentionally talks about the structured enum,
+// not edge-label vocabulary: labels and prose never mint runtime causality.
+const RuntimeTraceTemporalDiagramRelationContract = "When the report-local typed runtime authority says frame_flow_causality=unproven and relation=temporal_sequence, a frame-flow arrow may express only measured ordering: give it relation_kind=temporal and label it temporal adjacency (unproven), or omit that arrow/the diagram. A separately grounded external-evidence attachment may keep relation_kind=observe. Do not declare call, callback, submission, handoff, wait, or completion dependency unless a separate typed causal row proves that exact relation."
+
 type DiagramRelationKind string
 
 const (
@@ -122,6 +128,11 @@ const (
 	// a return statement. It is typed-only: labels and prose cannot mint return
 	// authority. Maps to ClaimReturnFact.
 	DiagramRelReturn DiagramRelationKind = "return"
+
+	// DiagramRelTemporal denotes measured runtime ordering/adjacency without
+	// causality. It is typed-only and primarily serves runtime trace diagrams;
+	// edge labels cannot mint it. Maps to ClaimExternalObservation.
+	DiagramRelTemporal DiagramRelationKind = "temporal"
 )
 
 // allDiagramRelationKinds is the canonical iteration order for tests
@@ -139,6 +150,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelRegister,
 	DiagramRelAssignment,
 	DiagramRelReturn,
+	DiagramRelTemporal,
 }
 
 // AllDiagramRelationKinds returns the canonical iteration order.
@@ -179,6 +191,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 	case DiagramRelTypeRelation:
 		return ClaimDefinitionFact
 	case DiagramRelObserve:
+		return ClaimExternalObservation
+	case DiagramRelTemporal:
 		return ClaimExternalObservation
 	case DiagramRelRegister:
 		return ClaimRegistrationEdge

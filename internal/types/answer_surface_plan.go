@@ -3486,13 +3486,18 @@ func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourc
 		out = append(out, seed)
 	}
 	for _, j := range bundle.Janks {
+		kind := "perf_jank"
 		raw := fmt.Sprintf("%.2fms jank", j.DurationMs)
-		if !j.CauseIsPreTriageModelExtraction() {
+		if j.VerdictIsPreTriageModelExtraction() {
+			kind = "perf_frame"
+			raw = fmt.Sprintf("%.2fms slow-frame candidate verdict_authority=%s", j.DurationMs, j.VerdictAuthority)
+		}
+		if !j.VerdictIsPreTriageModelExtraction() && !j.CauseIsPreTriageModelExtraction() {
 			if reason := strings.TrimSpace(j.Reason); reason != "" {
 				raw = reason
 			}
 		}
-		record(ExternalObservationSeed{Kind: "perf_jank", Raw: raw, Func: strings.TrimSpace(j.TriggerSpan)})
+		record(ExternalObservationSeed{Kind: kind, Raw: raw, Func: strings.TrimSpace(j.TriggerSpan)})
 		if len(out) >= 6 {
 			return out
 		}

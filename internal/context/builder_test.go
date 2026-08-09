@@ -4277,16 +4277,18 @@ func TestFormatPerfTriageStructured_LabelsPreTriageJankCauseAsCandidate(t *testi
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
 		Janks: []types.PerfJank{{
-			StartTsMs:       100,
-			DurationMs:      86.111,
-			TriggerSpan:     "H:RenderService:DoFrame",
-			Reason:          "heavy-compute",
-			CausalAuthority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			StartTsMs:        100,
+			DurationMs:       86.111,
+			TriggerSpan:      "H:RenderService:DoFrame",
+			Reason:           "heavy-compute",
+			VerdictAuthority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			CausalAuthority:  types.PerfObservationAuthorityPreTriageModelExtraction,
 		}},
 	}
 	got := formatPerfTriageStructured(bundle, nil)
 	for _, want := range []string{
-		"cause candidates for navigation",
+		"navigation hypotheses",
+		"not frame-deadline verdicts",
 		"trigger_candidate=`H:RenderService:DoFrame`",
 		"reason_candidate=heavy-compute",
 		"causal_authority=pretriage_model_extraction",

@@ -1680,6 +1680,31 @@ func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
 	}
 }
 
+func TestPerfTriageDoesNotTeachDefault60HzJankAuthority(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	perf, err := r.Get("perf-triage-skill")
+	if err != nil {
+		t.Fatalf("perf-triage-skill missing: %v", err)
+	}
+	body := perf.Goal + "\n" + strings.Join(perf.Workflow, "\n")
+	for _, want := range []string{
+		"Frame verdict authority",
+		"current emit_perf_trace payload has no validator-owned refresh-rate/frame-deadline carrier",
+		"keep `janky` false/omitted and omit janks[]",
+		"still leave the verdict unproven here",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("perf triage frame authority teaching missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"60-fps frame budget", "16.67 ms", "exceeds ~16.6 ms"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("perf triage still teaches an authority-free default threshold %q:\n%s", forbidden, body)
+		}
+	}
+}
+
 func TestRuntimeTriageSkills_DoNotAdvertiseReadFileAsAlwaysAvailable(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

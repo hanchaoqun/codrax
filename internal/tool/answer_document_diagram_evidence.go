@@ -401,7 +401,8 @@ func diagramStrictLogicalRelationNeedsEvidence(relation types.DiagramRelationKin
 		types.DiagramRelImport,
 		types.DiagramRelPrecedence,
 		types.DiagramRelContain,
-		types.DiagramRelObserve:
+		types.DiagramRelObserve,
+		types.DiagramRelTemporal:
 		return true
 	default:
 		return false

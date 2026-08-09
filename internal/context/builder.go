@@ -4323,6 +4323,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	}
 	if len(bundle.Meta.Signals) > 0 {
 		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(bundle.Meta.Signals, ", "))
+		b.WriteString("  Perf pre-triage `jank`/`render-miss` signals are navigation tags, not device-deadline verdicts; keep measured durations separate until typed refresh/deadline authority is available.\n")
 	}
 	if bundle.IntentHint != "" {
 		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
@@ -4392,12 +4393,13 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		b.WriteString("\n")
 	}
 
-	// Janks — most actionable, list every entry up to schema cap.
+	// Slow-frame intervals — measured value lane plus separate verdict/cause
+	// authority. List every entry up to the schema cap.
 	if len(bundle.Janks) > 0 {
-		fmt.Fprintf(&b, "**Janks** (%d):\n", len(bundle.Janks))
+		fmt.Fprintf(&b, "**Slow-frame intervals** (%d):\n", len(bundle.Janks))
 		for _, j := range bundle.Janks {
-			if j.CauseIsPreTriageModelExtraction() {
-				b.WriteString("  ⚠ Jank trigger/reason/tags with `causal_authority=pretriage_model_extraction` are cause candidates for navigation, not observed or proven root causes; deterministic trace_query causal rows supersede them.\n")
+			if j.VerdictIsPreTriageModelExtraction() || j.CauseIsPreTriageModelExtraction() {
+				b.WriteString("  ⚠ Candidate membership and trigger/reason/tags with pre-triage authority are navigation hypotheses, not frame-deadline verdicts or proven root causes; deterministic trace_query frame/causal rows supersede them.\n")
 				break
 			}
 		}
@@ -4457,16 +4459,27 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		b.WriteString("\n")
 	}
 
-	// Frames — janky-only summary (full list would flood prompt).
-	jankyFrames := 0
+	// Frames — keep model-extracted candidate bits separate from explicit typed
+	// verdicts (the full list would flood the prompt).
+	jankCandidates := 0
+	authoritativeJankFrames := 0
 	for _, f := range bundle.Frames {
-		if f.Janky {
-			jankyFrames++
+		if !f.Janky {
+			continue
+		}
+		if f.JankIsPreTriageModelExtraction() {
+			jankCandidates++
+		} else {
+			authoritativeJankFrames++
 		}
 	}
-	if jankyFrames > 0 {
-		fmt.Fprintf(&b, "**Janky frames**: %d / %d (≥ %.1fms 60Hz budget)\n\n",
-			jankyFrames, len(bundle.Frames), types.PerfFrameBudget60HzMs)
+	if jankCandidates > 0 {
+		fmt.Fprintf(&b, "**Pre-triage jank candidates**: %d / %d; measured durations remain valid, but no default 60Hz/deadline verdict is minted here.\n\n",
+			jankCandidates, len(bundle.Frames))
+	}
+	if authoritativeJankFrames > 0 {
+		fmt.Fprintf(&b, "**Typed jank verdict frames**: %d / %d; consume the associated explicit scenario authority, not a default frame budget.\n\n",
+			authoritativeJankFrames, len(bundle.Frames))
 	}
 
 	// Residue
@@ -4482,7 +4495,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	// Audit legend
 	b.WriteString("Citation contract:\n")
 	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
-	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace; when causal_authority=pretriage_model_extraction their membership/causal role is a navigation candidate, not a proven root cause.\n")
+	b.WriteString("- PerfFrame `janky` and PerfJank membership emitted by pre-triage are navigation candidates unless a separate typed refresh/deadline authority proves the verdict; trigger/tags/reason retain their independent causal-authority ceiling.\n")
 	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
 	b.WriteString("- `authority=pretriage_model_extraction` observations are navigation-only until independently verified; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
 	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")

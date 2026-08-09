@@ -26,6 +26,7 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		{DiagramRelImport, ClaimImportEdge},
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
 		{DiagramRelObserve, ClaimExternalObservation},
+		{DiagramRelTemporal, ClaimExternalObservation},
 		{DiagramRelRegister, ClaimRegistrationEdge},
 		{DiagramRelAssignment, ClaimAssignmentFact},
 		{DiagramRelReturn, ClaimReturnFact},

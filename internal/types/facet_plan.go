@@ -1284,7 +1284,7 @@ func rootCauseRequiredSubKind(rm RequestModel) LogPerfSubKind {
 		if len(rm.PerfTrace.Stalls) > 0 {
 			return PerfStallFrame
 		}
-		if len(rm.PerfTrace.Janks) > 0 {
+		if rm.PerfTrace.HasAuthoritativeJankVerdict() {
 			return PerfJankFrame
 		}
 		if rm.PerfTrace.Startup != nil &&

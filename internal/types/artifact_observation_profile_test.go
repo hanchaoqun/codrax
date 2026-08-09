@@ -81,9 +81,11 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 	profile := BuildArtifactObservationProfile(nil, &PerfBundle{
 		Meta: PerfMeta{Source: "hitrace", Summary: "main thread stalls during scroll"},
 		Janks: []PerfJank{{
-			DurationMs:  48.5,
-			TriggerSpan: "RenderList",
-			Reason:      "heavy-compute",
+			DurationMs:       48.5,
+			TriggerSpan:      "RenderList",
+			Reason:           "heavy-compute",
+			VerdictAuthority: PerfObservationAuthorityDeterministicValidator,
+			CausalAuthority:  PerfObservationAuthorityDeterministicValidator,
 		}},
 		Stalls: []PerfStall{{
 			DurationMs: 125.0,

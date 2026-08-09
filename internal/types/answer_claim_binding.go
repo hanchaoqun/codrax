@@ -449,17 +449,25 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 		if frame.FrameNo == 0 {
 			target = "frame"
 		}
-		add(target, []string{fmt.Sprintf("duration_ms=%.3f phase=%s janky=%t", frame.DurationMs, frame.Phase, frame.Janky)})
+		jankAuthority := frame.JankAuthority
+		if frame.Janky && jankAuthority == "" {
+			jankAuthority = PerfObservationAuthorityPreTriageModelExtraction
+		}
+		add(target, []string{fmt.Sprintf("duration_ms=%.3f phase=%s janky=%t jank_authority=%s", frame.DurationMs, frame.Phase, frame.Janky, jankAuthority)})
 	}
 	for _, jank := range bundle.Janks {
 		target := jank.TriggerSpan
 		if target == "" {
-			target = "jank span"
+			if jank.VerdictIsPreTriageModelExtraction() {
+				target = "slow-frame interval"
+			} else {
+				target = "jank span"
+			}
 		}
-		if jank.CauseIsPreTriageModelExtraction() {
+		if jank.VerdictIsPreTriageModelExtraction() || jank.CauseIsPreTriageModelExtraction() {
 			add(target, []string{fmt.Sprintf(
-				"start_ts_ms=%.3f duration_ms=%.3f cause_candidate=%s causal_authority=%s",
-				jank.StartTsMs, jank.DurationMs, jank.Reason, jank.CausalAuthority,
+				"start_ts_ms=%.3f duration_ms=%.3f verdict_authority=%s cause_candidate=%s causal_authority=%s",
+				jank.StartTsMs, jank.DurationMs, jank.VerdictAuthority, jank.Reason, jank.CausalAuthority,
 			)})
 		} else {
 			add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f reason=%s", jank.StartTsMs, jank.DurationMs, jank.Reason)})

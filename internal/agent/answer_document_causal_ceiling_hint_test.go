@@ -88,8 +88,9 @@ func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing
 		"`frame_flow_causality=unproven`",
 		"`relation=temporal_sequence`",
 		"`edges=3`",
-		"not as a formed, confirmed, or validated cross-thread flow",
-		"`temporal adjacency (unproven)`",
+		"relation_kind=temporal",
+		"temporal adjacency (unproven)",
+		"unless a separate typed causal row proves that exact relation",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("frame-edge prompt missing %q:\n%s", want, prompt)

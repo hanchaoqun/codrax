@@ -443,16 +443,16 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 	if len(b.Meta.Signals) > 0 {
 		fmt.Fprintf(&sb, "Signals: %s\n", strings.Join(b.Meta.Signals, ", "))
 	}
-	fmt.Fprintf(&sb, "Frames: %d  Janks: %d  Stalls: %d\n",
+	fmt.Fprintf(&sb, "Frames: %d  Slow-frame candidates: %d  Stalls: %d\n",
 		len(b.Frames), len(b.Janks), len(b.Stalls))
 	for i, j := range b.Janks {
 		if i >= 3 {
-			fmt.Fprintf(&sb, "  … +%d more janks\n", len(b.Janks)-3)
+			fmt.Fprintf(&sb, "  … +%d more slow-frame candidates\n", len(b.Janks)-3)
 			break
 		}
-		if j.CauseIsPreTriageModelExtraction() {
-			fmt.Fprintf(&sb, "  jank[%d] %.1fms trigger_candidate=%s reason_candidate=%s causal_authority=%s\n",
-				i, j.DurationMs, j.TriggerSpan, j.Reason, j.CausalAuthority)
+		if j.VerdictIsPreTriageModelExtraction() || j.CauseIsPreTriageModelExtraction() {
+			fmt.Fprintf(&sb, "  slow_frame_candidate[%d] %.1fms trigger_candidate=%s reason_candidate=%s verdict_authority=%s causal_authority=%s\n",
+				i, j.DurationMs, j.TriggerSpan, j.Reason, j.VerdictAuthority, j.CausalAuthority)
 		} else {
 			fmt.Fprintf(&sb, "  jank[%d] %.1fms trigger=%s reason=%s\n",
 				i, j.DurationMs, j.TriggerSpan, j.Reason)

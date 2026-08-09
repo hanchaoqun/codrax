@@ -164,10 +164,24 @@ func TestLogPerfSubKindOf_PerfStall(t *testing.T) {
 func TestLogPerfSubKindOf_PerfJank(t *testing.T) {
 	item := EvidenceItem{Source: "view.go", Subject: "main_thread"}
 	bundle := &PerfBundle{
-		Janks: []PerfJank{{TriggerSpan: "main_thread", DurationMs: 200}},
+		Janks: []PerfJank{{
+			TriggerSpan:      "main_thread",
+			DurationMs:       200,
+			VerdictAuthority: PerfObservationAuthorityDeterministicValidator,
+		}},
 	}
 	if got := LogPerfSubKindOf(item, nil, bundle); got != PerfJankFrame {
 		t.Errorf("expected PerfJankFrame; got %q", got)
+	}
+}
+
+func TestLogPerfSubKindOf_UnspecifiedJankAuthorityDoesNotMintHardSubtype(t *testing.T) {
+	item := EvidenceItem{Source: "view.go", Subject: "main_thread"}
+	bundle := &PerfBundle{
+		Janks: []PerfJank{{TriggerSpan: "main_thread", DurationMs: 200}},
+	}
+	if got := LogPerfSubKindOf(item, nil, bundle); got == PerfJankFrame {
+		t.Fatalf("unspecified jank authority must fail closed, got %q", got)
 	}
 }
 

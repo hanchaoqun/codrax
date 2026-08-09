@@ -304,7 +304,7 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 	if frameBinding.AggregateIndex != -1 {
 		t.Fatalf("runtime perf binding should not point at aggregate_facts: %+v", frameBinding)
 	}
-	if !claimBindingHasSupport(frameBinding, "duration_ms=24.500 phase=draw janky=true") {
+	if !claimBindingHasSupport(frameBinding, "duration_ms=24.500 phase=draw janky=true jank_authority=pretriage_model_extraction") {
 		t.Fatalf("runtime perf duration support was not preserved: %+v", frameBinding.SupportRefs)
 	}
 	var sawObservation bool
@@ -328,11 +328,12 @@ func TestCompileRuntimeArtifactClaimBindings_PreTriageJankCauseIsCandidate(t *te
 			IsDiagnosticQuestion: true,
 		},
 		PerfTrace: &PerfBundle{Janks: []PerfJank{{
-			StartTsMs:       100,
-			DurationMs:      86.111,
-			TriggerSpan:     "H:RenderService:DoFrame",
-			Reason:          "heavy-compute",
-			CausalAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+			StartTsMs:        100,
+			DurationMs:       86.111,
+			TriggerSpan:      "H:RenderService:DoFrame",
+			Reason:           "heavy-compute",
+			VerdictAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+			CausalAuthority:  PerfObservationAuthorityPreTriageModelExtraction,
 		}}},
 	}
 	bindings := CompileAnswerClaimBindings(nil, &rm, nil)
@@ -347,7 +348,7 @@ func TestCompileRuntimeArtifactClaimBindings_PreTriageJankCauseIsCandidate(t *te
 		t.Fatalf("jank binding missing: %+v", bindings)
 	}
 	joined := strings.Join(found.SupportRefs, "\n")
-	for _, want := range []string{"cause_candidate=heavy-compute", "causal_authority=pretriage_model_extraction"} {
+	for _, want := range []string{"verdict_authority=pretriage_model_extraction", "cause_candidate=heavy-compute", "causal_authority=pretriage_model_extraction"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("jank binding missing candidate authority %q: %+v", want, found.SupportRefs)
 		}

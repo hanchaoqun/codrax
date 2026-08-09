@@ -43,6 +43,25 @@ func TestEmitPerfTrace_Execute_TagsRuntimeArtifactOrigin(t *testing.T) {
 	}
 	if bundle := bus.Mutable.PerfTrace(); bundle == nil || len(bundle.Frames) != 1 {
 		t.Fatalf("perf bundle missing frame: %+v", bundle)
+	} else if !bundle.Frames[0].JankIsPreTriageModelExtraction() {
+		t.Fatalf("model-emitted frame verdict must retain pre-triage authority: %+v", bundle.Frames[0])
+	}
+}
+
+func TestEmitPerfTrace_DurationAloneDoesNotMintDefault60HzJank(t *testing.T) {
+	bundle := toPerfBundle(&emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{Source: "hitrace"},
+		Frames: []emitPerfTraceFrame{{
+			FrameNo:    7,
+			DurationMs: 86.111,
+			Janky:      false,
+		}},
+	})
+	if len(bundle.Frames) != 1 {
+		t.Fatalf("frame missing: %+v", bundle)
+	}
+	if bundle.Frames[0].Janky || bundle.Frames[0].JankAuthority != "" {
+		t.Fatalf("duration without explicit deadline/refresh authority minted a jank verdict: %+v", bundle.Frames[0])
 	}
 }
 
