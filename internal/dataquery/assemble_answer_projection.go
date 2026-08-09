@@ -6,10 +6,11 @@ import (
 )
 
 func normalizeAssembleAnswerOrder(orderBy string, referenceProjected bool) (string, error) {
-	if referenceProjected && (orderBy == "" || orderBy == "group_key" || orderBy == "reference") {
+	dependency := assembleReferenceOrderDependency
+	if referenceProjected && (orderBy == "" || orderBy == "group_key" || orderBy == dependency.TriggerValue) {
 		return "input", nil
 	}
-	if orderBy != "reference" {
+	if orderBy != dependency.TriggerValue {
 		return orderBy, nil
 	}
 	return "", DataActionDependencyError{
@@ -32,15 +33,7 @@ func assembleExplicitReferencePaths(action DataAction, contract OutputContract) 
 }
 
 func assembleActionDeclaresReferencePair(action DataAction) bool {
-	if len(assembleExplicitReferencePaths(action, OutputContract{})) == 0 {
-		return false
-	}
-	return strings.TrimSpace(firstNonEmptyString(
-		action.Params["reference_key_field"],
-		action.Params["key_field"],
-		action.Params["group_key_field"],
-		action.Params["group_key"],
-	)) != ""
+	return actionParamsSatisfyDependencyGroups(action.Params, assembleReferenceOrderDependency.RequiredActionParamGroups)
 }
 
 func assembleArtifactReferenceFallbackPaths(artifacts []DataArtifact) []string {

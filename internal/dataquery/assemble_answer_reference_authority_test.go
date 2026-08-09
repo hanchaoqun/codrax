@@ -138,6 +138,42 @@ func TestAssembleAnswerReferenceOrderRejectsUnresolvedReference(t *testing.T) {
 	}
 }
 
+func TestAssembleReferenceOrderDependencyRegistryMatchesRuntimeAuthority(t *testing.T) {
+	contracts := DataActionParamDependencyContracts()
+	if len(contracts) != 1 {
+		t.Fatalf("dependency contracts=%+v, want one executor-owned contract", contracts)
+	}
+	contract := contracts[0]
+	if contract.Kind != DataActionAssembleAnswer || contract.TriggerParam != "order_by" || contract.TriggerValue != "reference" {
+		t.Fatalf("dependency contract=%+v", contract)
+	}
+	if len(contract.RequiredActionParamGroups) != 2 || !contract.OutputCompleteReferenceAlternative || !contract.ActionCompleteReferenceAlternative {
+		t.Fatalf("dependency alternatives=%+v", contract)
+	}
+	for _, tc := range []struct {
+		name   string
+		params map[string]string
+		want   bool
+	}{
+		{name: "canonical pair", params: map[string]string{"reference_path": "targets.csv", "reference_key_field": "id"}, want: true},
+		{name: "accepted aliases", params: map[string]string{"reference_paths": `["targets.csv"]`, "group_key_field": "id"}, want: true},
+		{name: "path only", params: map[string]string{"reference_path": "targets.csv"}},
+		{name: "key only", params: map[string]string{"reference_key_field": "id"}},
+		{name: "empty values", params: map[string]string{"reference_path": " ", "reference_key_field": ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			action := DataAction{Kind: DataActionAssembleAnswer, Params: tc.params}
+			if got := assembleActionDeclaresReferencePair(action); got != tc.want {
+				t.Fatalf("declares pair=%t, want %t for %+v", got, tc.want, tc.params)
+			}
+		})
+	}
+	contracts[0].RequiredActionParamGroups[0][0] = "mutated"
+	if got := DataActionParamDependencyContracts()[0].RequiredActionParamGroups[0][0]; got != "reference_paths" {
+		t.Fatalf("registry leaked mutable contract slice: %q", got)
+	}
+}
+
 // Typed action inputs are the first reference scope. An unrelated historical
 // artifact with more keys must not win merely because the old fallback ranked
 // larger key sets higher.

@@ -494,12 +494,104 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 		})
 	}
 	items["allOf"] = allOf
+	rootAllOf, _ := schema["allOf"].([]any)
+	for _, dependency := range dataquery.DataActionParamDependencyContracts() {
+		branch, ok := dataTaskPlanCrossScopeActionDependencySchema(dependency)
+		if ok {
+			rootAllOf = append(rootAllOf, branch)
+		}
+	}
+	if len(rootAllOf) > 0 {
+		schema["allOf"] = rootAllOf
+	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
 		return llm.ToolSchema{}, fmt.Errorf("encode data task plan schema with action parameter contracts: %w", err)
 	}
 	tool.Parameters = raw
 	return tool, nil
+}
+
+// dataTaskPlanCrossScopeActionDependencySchema projects executor-owned
+// dependencies whose authority may live either on an action or on the plan's
+// typed output contract. It constrains only impossible JSON combinations; it
+// never selects a parameter value or infers authority from prose.
+func dataTaskPlanCrossScopeActionDependencySchema(dependency dataquery.ActionParamDependencyContract) (map[string]any, bool) {
+	if strings.TrimSpace(string(dependency.Kind)) == "" ||
+		strings.TrimSpace(dependency.TriggerParam) == "" ||
+		strings.TrimSpace(dependency.TriggerValue) == "" ||
+		len(dependency.RequiredActionParamGroups) == 0 ||
+		!dependency.OutputCompleteReferenceAlternative {
+		return nil, false
+	}
+	groupRequirements := make([]any, 0, len(dependency.RequiredActionParamGroups))
+	for _, group := range dependency.RequiredActionParamGroups {
+		alternatives := make([]any, 0, len(group))
+		for _, key := range group {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			alternatives = append(alternatives, map[string]any{
+				"required":   []any{key},
+				"properties": map[string]any{key: map[string]any{"minLength": float64(1)}},
+			})
+		}
+		if len(alternatives) == 0 {
+			return nil, false
+		}
+		groupRequirements = append(groupRequirements, map[string]any{"anyOf": alternatives})
+	}
+	actionAuthorization := []any{map[string]any{"allOf": groupRequirements}}
+	if dependency.ActionCompleteReferenceAlternative {
+		actionAuthorization = append(actionAuthorization, map[string]any{
+			"required": []any{"complete_reference"},
+			"properties": map[string]any{
+				"complete_reference": map[string]any{"const": true},
+			},
+		})
+	}
+	actionConditional := map[string]any{
+		"if": map[string]any{
+			"required": []any{"kind", "params"},
+			"properties": map[string]any{
+				"kind": map[string]any{"const": string(dependency.Kind)},
+				"params": map[string]any{
+					"required": []any{dependency.TriggerParam},
+					"properties": map[string]any{
+						dependency.TriggerParam: map[string]any{"const": dependency.TriggerValue},
+					},
+				},
+			},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"params": map[string]any{"anyOf": actionAuthorization},
+			},
+		},
+	}
+	return map[string]any{
+		"x-codrax-action-kind": string(dependency.Kind),
+		// The output_contract=true arm already requires its canonical path/key
+		// credentials in the base schema. Only the false arm needs the action
+		// to carry an alternative typed reference authority.
+		"if": map[string]any{
+			"required": []any{"output_contract"},
+			"properties": map[string]any{
+				"output_contract": map[string]any{
+					"required":   []any{"complete_reference"},
+					"properties": map[string]any{"complete_reference": map[string]any{"const": false}},
+				},
+			},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"actions": map[string]any{
+					"items": map[string]any{"allOf": []any{actionConditional}},
+				},
+			},
+		},
+	}, true
 }
 
 // dataTaskExecutableRankContract is the small, typed projection of the
@@ -609,6 +701,22 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 			}
 		}
 		items["allOf"] = filtered
+	}
+	// Cross-scope dependencies live at the root because they can read both the
+	// action params and output_contract. Prune their future-kind branches by
+	// the same enum authority so a narrowed call does not teach an action it
+	// cannot emit.
+	if allOf, ok := schema["allOf"].([]any); ok {
+		filtered := make([]any, 0, len(allOf))
+		for _, raw := range allOf {
+			branch, _ := raw.(map[string]any)
+			conditionedKind, _ := branch["x-codrax-action-kind"].(string)
+			conditionedKind = strings.TrimSpace(conditionedKind)
+			if conditionedKind == "" || allowedSet[conditionedKind] {
+				filtered = append(filtered, raw)
+			}
+		}
+		schema["allOf"] = filtered
 	}
 	// Native model JSON must be checked against the same current-rank action
 	// subtree even when compatibility normalization made no changes. Keep the

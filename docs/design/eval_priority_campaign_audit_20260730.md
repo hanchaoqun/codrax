@@ -29393,3 +29393,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B433=P1-next`；`EVAL-B434=P1-open`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.453 B433/S37ed：assemble reference 排序的跨层 typed JSON 依赖
+
+`EVAL-B433-ASSEMBLEREFERENCEDEPENDENCY1` 已完成公共 JSON 合同修复：
+
+1. `internal/dataquery` 新增 executor-owned `ActionParamDependencyContract` registry，表达 action kind、触发参数/值、必需参数组以及
+   output/action 级 typed alternative；参数组是“组间 AND、组内 alias OR”，不读取任何用户或模型 prose；
+2. `assemble_answer(order_by=reference)` 的合同由同一 registry 定义：结构授权必须来自顶层
+   `output_contract.complete_reference=true`（其 path/key 已由既有 schema 强制）、action-local reference path+key pair，或 action-local
+   `complete_reference=true` 的显式投影车道。`normalizeAssembleAnswerOrder` 与 `assembleActionDeclaresReferencePair` 同时复用该触发值/参数组；
+3. `emit_data_task_plan` 初始化时把 registry 投影为 root-level JSON Schema 条件。当 output contract 明确
+   `complete_reference=false` 且 action 选择 reference order 时，action params 必须携带上述 action authority；r253 的
+   “scalar/present-only + reference order + 零 reference credentials”不再能通过首次 tool JSON；
+4. 系统没有把 `reference` 自动改成 `group_key/input`，没有挑选 reference path/key，也没有把某个现有 artifact 猜成完整全集。
+   实际路径存在性、字段/domain overlap 与唯一性仍由 runner fail-closed 验证，运算与输出顺序继续由模型决定；
+5. current-rank tool schema 会同步裁掉不在允许 action enum 内的 cross-scope dependency branch。因此 derive/compute 等续批不再夹带
+   future `assemble_answer` 参数教学，既维持 rank 单源，也降低 JSON 心智负担；
+6. 新 pin 覆盖 canonical pair、兼容 alias pair、仅 path/仅 key/空值、registry 防可变泄漏、base schema 跨层条件和 narrowed-rank
+   future-kind 零泄漏；`internal/dataquery`、`internal/dataworkflow`、`internal/repl` 全包测试与
+   `go test ./... -count=1` 无缓存全仓终验均通过；
+7. 本批未修改模型答案、read/write 或 Trace。显式时间窗、自动补采、Trace 因果投影与 on-chain-only 主因权限保持，背景只作支撑/额外排查。
+
+状态：`EVAL-B433=S37ed-implemented/full-suite-pass/pending-production-replay`；
+`action-param-dependency=executor-owned-schema-projection`；`reference-order=model-owned`；
+`EVAL-B434=P1-next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

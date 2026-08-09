@@ -2934,6 +2934,27 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 	if !strings.Contains(description, "prebound Python globals") || !strings.Contains(description, "never import/from-import") {
 		t.Fatalf("plan script description does not teach prebound helper use: %q", description)
 	}
+	rootAllOf, _ := schema["allOf"].([]any)
+	if len(rootAllOf) == 0 {
+		t.Fatalf("plan schema missing cross-scope action dependencies")
+	}
+	crossScopeJSON, err := json.Marshal(rootAllOf)
+	if err != nil {
+		t.Fatalf("marshal cross-scope dependencies: %v", err)
+	}
+	crossScope := string(crossScopeJSON)
+	for _, want := range []string{
+		`"complete_reference":{"const":false}`,
+		`"kind":{"const":"assemble_answer"}`,
+		`"order_by":{"const":"reference"}`,
+		`"reference_path"`,
+		`"reference_key_field"`,
+		`"complete_reference":{"const":true}`,
+	} {
+		if !strings.Contains(crossScope, want) {
+			t.Fatalf("cross-scope action dependency missing %s: %s", want, crossScope)
+		}
+	}
 	if !strings.Contains(dataTaskLedgerShapeTeaching, "must explicitly set complete_reference") ||
 		!strings.Contains(dataTaskLedgerShapeTeaching, "false for ordinary scalar/subset/present-group output") {
 		t.Fatalf("ledger shape teaching must make complete-reference intent explicit: %s", dataTaskLedgerShapeTeaching)
