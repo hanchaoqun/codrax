@@ -154,6 +154,41 @@ func TestParseEdges_SequenceParticipantLabelArrowBytesAreNotEdges(t *testing.T) 
 	}
 }
 
+func TestParseEdges_SequenceNonMessageDirectiveArrowBytesAreNotEdges(t *testing.T) {
+	body := strings.Join([]string{
+		"sequenceDiagram",
+		"  participant A",
+		"  participant B",
+		"  Note over A,B: source path A -> B is illustrative",
+		"  loop while A -> B remains pending",
+		"    A->>B: dispatch C -> D",
+		"  end",
+		"  alt A -> B is available",
+		"  else C -> D is unavailable",
+		"  end",
+	}, "\n")
+	edges := ParseEdges(body)
+	if len(edges) != 1 {
+		t.Fatalf("sequence directives minted semantic edges: %+v", edges)
+	}
+	if edges[0].From != "A" || edges[0].To != "B" || edges[0].Label != "dispatch C -> D" {
+		t.Fatalf("real sequence message changed: %+v", edges[0])
+	}
+}
+
+func TestParseEdges_SequenceDirectiveNamedParticipantMessageIsPreserved(t *testing.T) {
+	body := strings.Join([]string{
+		"sequenceDiagram",
+		"  participant Note",
+		"  participant A",
+		"  Note->>A: call()",
+	}, "\n")
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "Note" || edges[0].To != "A" || edges[0].Label != "call()" {
+		t.Fatalf("directive-named participant message was suppressed: %+v", edges)
+	}
+}
+
 func TestParseEdges_SequenceOperatorMatrixMatchesSharedRendererTable(t *testing.T) {
 	operators := []string{
 		"-->>+", "-->>-", "->>+", "->>-",

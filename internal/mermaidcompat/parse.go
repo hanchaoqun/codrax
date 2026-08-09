@@ -61,6 +61,14 @@ func ParseEdges(body string) []Edge {
 			continue
 		}
 		if sequenceBody {
+			// Sequence control/decorative statements may carry arbitrary display
+			// text, including source-language arrows such as `A -> B`.  They do
+			// not declare messages and therefore must not mint semantic edges.
+			// Match only a complete leading grammar token so a participant named
+			// `Note` can still emit the real message `Note->>A: call()`.
+			if sequenceLineIsNonMessageDirective(line) {
+				continue
+			}
 			from, to, operator, ok := splitSequenceEdgeLine(line)
 			if !ok {
 				continue
@@ -83,6 +91,40 @@ func ParseEdges(body string) []Edge {
 		}
 	}
 	return edges
+}
+
+// sequenceLineIsNonMessageDirective identifies Mermaid sequence statements
+// whose remaining bytes are presentation/control payload rather than a
+// participant-to-participant message.  It is deliberately syntax-only: no
+// user wording, model prose, source language, or endpoint name participates in
+// the decision.  A keyword is recognized only at a token boundary (end of line
+// or ASCII whitespace), preserving messages sent by participants whose names
+// happen to equal a directive.
+func sequenceLineIsNonMessageDirective(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, keyword := range []string{
+		"note",
+		"loop", "alt", "else", "opt", "par", "and", "critical", "option", "break", "rect", "end",
+		"activate", "deactivate", "autonumber",
+		"box", "link", "links", "properties", "details", "title",
+		"create", "destroy",
+	} {
+		if lower == keyword {
+			return true
+		}
+		if len(lower) > len(keyword) && lower[:len(keyword)] == keyword && isASCIIWhitespace(lower[len(keyword)]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isASCIIWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f' || ch == '\v'
 }
 
 type flowchartEdgeTokens struct {

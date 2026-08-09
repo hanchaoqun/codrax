@@ -28753,3 +28753,24 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B418=P1-confirmed/open`；`EVAL-B419=P1-confirmed/audit-first`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.431 S37dq：Mermaid sequence 非消息指令不再铸造关系边
+
+针对 r242 的 B417 完成跨语言、跨图表消费者的语法层根修：
+
+1. `mermaidcompat.ParseEdges` 在 sequence message 解析前识别完整的 Mermaid 非消息语法 token：Note、loop/alt/else/opt/par/and、
+   critical/option/break/rect/end、activate/deactivate/autonumber、box/link/links/properties/details/title、create/destroy；这些行的
+   展示/控制 payload 即使包含 `A -> B` 也不再生成 typed relation edge；
+2. 判断只匹配行首完整 grammar token（行尾或 ASCII whitespace 边界），不扫描用户请求、模型叙述或源码语言词。因而名为 `Note` 的
+   participant 仍可正常发送 `Note->>A: call()`，普通消息 label 中的 `C -> D` 也仍保留为同一消息文本；
+3. 新增回归同时钉住 Note、loop、alt、else、end 的假边负臂、directive-named participant 真消息正臂，以及既有 participant label 与
+   message label 箭头保护。所有语言共享同一 parser，无 Java/Python/C++/ArkTS/Cangjie 特判；
+4. 该修复不减少 required diagram，不放宽 typed relation/call anchor，不替模型改 Mermaid 或正文；它仅阻止解析器从 Mermaid 自身的
+   控制/展示语法中虚构证据边。显式时间窗 Trace、因果投影、自动补采、链上根因与背景分层不变；
+5. `internal/mermaidcompat`、`internal/tool`、`internal/agent`、`internal/orchestrator` 聚焦/消费包回归与
+   `go test ./... -count=1` 无缓存全仓终验通过。
+
+状态：`EVAL-B417=S37dq-implemented/full-suite-pass/pending-production-replay`；
+`sequence-non-message-directive=syntax-only`；`real-message-preserved=true`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
