@@ -28713,3 +28713,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `member-authority=model-selected-grounded-row-identity`；`repo-specific-roster=none`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.430 r242：成员身份不再漂移，但逐行属性证据与 Mermaid 非消息语法仍有硬缺口
+
+在 `main@c1754d808` 上严格并发恰好两个 case：`read_combo_pipeline_sequence_table` 与
+`patch_go_typo`。runner 1/2 PASS，人工 1/2 PASS：
+
+1. write case 人工通过：仅把 `main.go` 的 `retrun` 修为 `return`，隔离 worktree 内
+   `go test -json ./...`、`TestGreet` 与 changed-path coverage 均通过，workflow 正确进入 verified；没有 Finalizer/JSON
+   错误。planner 曾先后提交空 path 和与改动模块脱节的 standalone probe，均被现有精确门拒绝，第三次删除无关 probe 后闭环；暂记
+   `EVAL-B420-WRITEPLANPROBECHURN1=P2/observe`，属于计划效率而非正确性，不以单例加硬门；
+2. read case 的最终成员身份已恢复为 `StageAnalyze/StageExplore/StageExtract/StageFinalize`，没有再次引入 `StagePlan`；因此 B415
+   的 identity 对齐单测与生产正向车道有效，但本轮没有触发错配负臂，状态只能记为 positive production/no recurrence，不能宣称完整生产闭环；
+3. runner 的直接失败是缺少 `Mutable`，人工审计发现更一般的
+   `EVAL-B416-PERMEMBERATTRIBUTEUNDERPROOF1=P0/HIGH`：Explorer 用 identity-only `member_set` 即完成逐成员表的 principal
+   边界，没有给每个成员提交输入、输出、状态载体等逐行说明；Finalizer 因而自行补出未证/不准确属性，例如
+   `ExploreOutputRequestsFactRetry result`、`BusContext.ExtractOutput`，并漏掉明确需要的 `Mutable`；
+4. B416 最优解不是扫描表头或答案正文，也不是系统代写四行。现有 typed `HasPerMemberTable` 与
+   `SourceInventoryAttributeDemand` 已足以精确表示“逐成员属性表是 principal 要求”；在 B415 同一 current-source/load-bearing
+   车道上，应要求模型提交与 `members/support_refs` 等长且非空的 `member_notes`，由当前源码证据支撑每行属性，再由模型自行组织答案；
+5. 本轮 Finalizer 仅两次拒绝、两次 patch，较 r241 的 10 次拒绝/8 次 patch 明显改善，证明 B413 的 typed boundary recovery
+   有效但尚未闭环。新 `EVAL-B417-MERMAIDSEQUENCEDIRECTIVEEDGE1=P0/HIGH`：`mermaidcompat.ParseEdges`
+   将 `Note over RA,DS: runAnalyzePhase -> dispatchStage` 中的展示文本解析成可见消息边，进而触发错误关系锚拒绝；应在 sequence
+   语法层排除 Note/control/directive 行，同时保留名为 `Note` 的 participant 发出的真实消息；
+6. 新 `EVAL-B418-DIAGRAMANCHORALIASIDENTITY1=P1/HIGH`：图体使用 `RA/DS` 等 alias，而 typed anchor 使用完整
+   operation identity；现有 normalizer 只做 label/ident 字面映射，不能证明二者是同一 typed endpoint。后续只能基于唯一 typed relation/evidence
+   identity 做一对一归一，禁止前缀或模糊字符串匹配；
+7. 新 `EVAL-B419-STRUCTUREDTABLEHEADERLOSS1=P1`：模型把 `columns` 放在 summary block，表格遂渲染为
+   `项目/列 2/列 3/列 4/列 5`。先审计 AnswerBlock schema 与 typed table contract 是否能在不读取自由文本维度名的前提下要求显式列名；未证明前不加硬门；
+8. 施工顺序冻结：B417 先行，消除确定性的 parser 假边与无效重试；B416 次之，从 Explorer 上游补足逐行属性证据；B418/B419
+   分别在唯一 typed identity 与结构化表 schema 证明充分后施工。B414 的 occurrence budget 本轮只见正向通过，负臂由单测守住；
+9. 本批不触碰 Trace 查询、显式时间窗、因果投影、自动补采或答案合成所有权。Trace 主根因仍只能来自 typed 链上席位；邻近区域、并发压力与背景信息只能作为
+   支撑或额外排查方向，不能进入主因选举。
+
+状态：runner=`1/2 PASS`；human=`1/2 PASS`；
+`EVAL-B413=partial-production-improvement`；`EVAL-B414=unit-negative+production-positive`；
+`EVAL-B415=unit-negative+production-positive/no-recurrence`；
+`EVAL-B416=P0-confirmed/next-after-B417`；`EVAL-B417=P0-confirmed/next`；
+`EVAL-B418=P1-confirmed/open`；`EVAL-B419=P1-confirmed/audit-first`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
