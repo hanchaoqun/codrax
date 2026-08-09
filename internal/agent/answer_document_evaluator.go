@@ -4970,6 +4970,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if ledger.Empty() {
 		return ""
 	}
+	_, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
 	records := answerDocObservationPromptRecords(ctx, ledger.Records, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
 		return ""
@@ -4981,6 +4982,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString("- Prefer these origin/role/policy fields over raw tool-output shape when deciding whether a fact is principal, repairable, support-only, negative, or citation-bearing.\n\n")
 	b.WriteString("- When naming how a runtime/trace fact was obtained, use the row's `producer` exactly: say `trace_query` only for rows whose producer is `trace_query`; for `perf_trace` / `log_triage` rows say they came from attached trace/log preprocessing or runtime artifact observations.\n\n")
 	b.WriteString("- Copy path-like, date-like, URL-like, commit-like, row/line/span, and connector/resource ID literals only from exact typed detail, raw payload, or row-set references. Do not expand abbreviated display strings such as git `--stat` paths containing `...`; if exact detail is unavailable, describe the scope without inventing the literal.\n\n")
+	if supersededPreTriageNarratives > 0 {
+		fmt.Fprintf(&b, "- Same-artifact deterministic runtime queries supersede %d pre-triage free-form navigation observation(s) in this answer-writing view. Their audit records remain in the full ledger; measured perf frame/jank/stall rows and deterministic observations remain available.\n\n", supersededPreTriageNarratives)
+	}
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -6167,8 +6171,95 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 		rm = &ctx.AnalysisIR.RequestModel
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
+	records, _ = answerDocFinalizerObservationRecords(ctx, records)
 	ledger := types.ObservationLedger{Records: records}
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
+}
+
+// answerDocFinalizerObservationRecords removes only model-extracted,
+// free-form PerfObservation rows whose physical capture is also covered by a
+// deterministic runtime query. The full ledger remains lossless for audit and
+// every measured frame/jank/stall row remains present. Selection is structural:
+// PerfObservation.Authority + compiler-owned row ID + typed capture identity;
+// neither user/model prose nor observation summaries participate.
+func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) ([]types.ObservationRecord, int) {
+	if ctx == nil || (ctx.AgentName != types.AgentFinalizer && ctx.Stage != types.StageFinalize) || len(records) == 0 {
+		return records, 0
+	}
+	perf := answerDocObservationLedgerPerfBundle(ctx)
+	if perf == nil || len(perf.Observations) == 0 {
+		return records, 0
+	}
+	preTriageIDs := make(map[string]bool)
+	for i, observation := range perf.Observations {
+		if observation.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+			preTriageIDs[fmt.Sprintf("perf:observation:%d", i)] = true
+		}
+	}
+	if len(preTriageIDs) == 0 {
+		return records, 0
+	}
+	deterministic := make([]types.ObservationRecord, 0)
+	for _, record := range records {
+		if record.Origin == types.AnswerEvidenceOriginRuntimeArtifact &&
+			types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			deterministic = append(deterministic, record)
+		}
+	}
+	if len(deterministic) == 0 {
+		return records, 0
+	}
+	out := make([]types.ObservationRecord, 0, len(records))
+	omitted := 0
+	for _, record := range records {
+		if preTriageIDs[strings.TrimSpace(record.ID)] && answerDocRecordHasSameCaptureQuery(record, deterministic) {
+			omitted++
+			continue
+		}
+		out = append(out, record)
+	}
+	if omitted == 0 {
+		return records, 0
+	}
+	return out, omitted
+}
+
+func answerDocObservationLedgerPerfBundle(ctx *types.AgentContext) *types.PerfBundle {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.PerfTrace != nil {
+		return ctx.AnalysisIR.RequestModel.PerfTrace
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.PerfTrace()
+	}
+	return nil
+}
+
+func answerDocRecordHasSameCaptureQuery(record types.ObservationRecord, deterministic []types.ObservationRecord) bool {
+	wantPath := strings.TrimSpace(types.RuntimeArtifactCaptureIdentityPath(record.SourceRef))
+	wantID := strings.TrimSpace(record.SourceRef.ArtifactID)
+	for _, query := range deterministic {
+		queryPath := strings.TrimSpace(types.RuntimeArtifactCaptureIdentityPath(query.SourceRef))
+		if wantPath != "" && queryPath != "" && wantPath == queryPath {
+			return true
+		}
+		queryID := strings.TrimSpace(query.SourceRef.ArtifactID)
+		if wantPath == "" && queryPath == "" && answerDocExplicitRuntimeArtifactID(wantID) && wantID == queryID {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocExplicitRuntimeArtifactID(id string) bool {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "", "attached_trace", "trace_query", "runtime_artifact":
+		return false
+	default:
+		return true
+	}
 }
 
 func answerDocObservationPromptProjectionOptions(ctx *types.AgentContext, ledger types.ObservationLedger, limit int) types.ObservationPromptProjectionOptions {

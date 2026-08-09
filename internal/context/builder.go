@@ -4937,6 +4937,7 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
 		return modelSurfaceStageReportsForTypedFinalizer(reports, ac)
 	}
+	suppressAnalyzerRuntimeNarrative := finalizerHasDeterministicRuntimeQuery(ac)
 	if ac.AgentName == types.AgentExtractor && ac.Mutable != nil {
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && (len(ta.EvidenceItems) > 0 || strings.TrimSpace(ta.AcceptedClosureReason) != "") {
 			return nil
@@ -4945,6 +4946,17 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	filtered := make([]types.StageReport, 0, len(reports))
 	for _, report := range reports {
 		if report.Stage == ac.Stage || report.Agent == ac.AgentName {
+			continue
+		}
+		if suppressAnalyzerRuntimeNarrative &&
+			(report.Agent == types.AgentAnalyzer || report.Stage == types.StageAnalyze) {
+			// The analyzer's visible prose is a pre-query, model-authored
+			// navigation hypothesis. Once deterministic runtime query rows are
+			// present, the Finalizer already receives the analyzer's typed IR
+			// plus the exact runtime ledger; carrying this earlier prose as a
+			// third semantic lane lets a stale mechanism claim compete with the
+			// later evidence. Suppress by stage provenance only — never by
+			// scanning the report text, and never mutate the model's final answer.
 			continue
 		}
 		switch report.Agent {
@@ -4960,6 +4972,13 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 		filtered = append(filtered, report)
 	}
 	return dedupeStageReportsForPrompt(filtered, ac)
+}
+
+func finalizerHasDeterministicRuntimeQuery(ac *types.AgentContext) bool {
+	if ac == nil || ac.AgentName != types.AgentFinalizer || ac.Mutable == nil {
+		return false
+	}
+	return ac.Mutable.TraceQueryRuntimeObservationCount() > 0
 }
 
 func modelSurfaceStageReportsForTypedFinalizer(reports []types.StageReport, ac *types.AgentContext) []types.StageReport {

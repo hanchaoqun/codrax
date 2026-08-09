@@ -74,6 +74,20 @@ func (index runtimeArtifactPreflightSourceIndex) requalify(record ObservationRec
 	}
 	sourcePath := strings.TrimSpace(record.SourceRef.Path)
 	if sourcePath == "" {
+		// Perf pre-triage is compiled from the one attached trace but its
+		// bundle-level source token (for example "hitrace") is a format, not
+		// an addressable path. When run-entry preflight proves exactly one
+		// attached trace, bind these pathless records to that physical capture
+		// without rewriting their producer-local locator. This gives later
+		// prompt projections an exact same-artifact join; multiple or inline
+		// attachments deliberately fail open.
+		if !index.recordUsesUniqueAttachedPerfTrace(record) {
+			return record
+		}
+		artifact := index.attachedTraceSource
+		record.SourceRef.ArtifactID = artifact.artifactID
+		record.SourceRef.ArtifactKind = artifact.artifactKind
+		record.SourceRef.CaptureIdentityPath = artifact.path
 		return record
 	}
 	canonicalPath := canonicalRuntimeArtifactIdentityPath(sourcePath, index.repoRoot)
@@ -105,6 +119,13 @@ func (index runtimeArtifactPreflightSourceIndex) requalify(record ObservationRec
 	// trace_query publishes hard pair-atomic rows; origin enrichment must not
 	// soften those rows and silently remove them from causal projection.
 	return record
+}
+
+func (index runtimeArtifactPreflightSourceIndex) recordUsesUniqueAttachedPerfTrace(record ObservationRecord) bool {
+	return index.attachedTraceResolved &&
+		record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
+		runtimeObservationProducerIsPreTriage(record.Producer) &&
+		strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactID), "attached_trace")
 }
 
 // recordUsesAttachedTraceMaterialization recognizes only Codrax's typed

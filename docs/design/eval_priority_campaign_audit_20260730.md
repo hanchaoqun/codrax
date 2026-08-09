@@ -28248,3 +28248,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `wait-fact-identity=rank+channel+row_identity`；`census-rank-binding=not_provided`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.413 S37dg：pre-triage 叙事不再经旁路回流 Finalizer
+
+r234 精确证明，直接 `Perf Triage` 段已会在 deterministic `trace_query` 在场时抑制
+`pretriage_model_extraction` observations，但同一份自由叙事还会经 Analyzer StageReport 和 Observation Ledger 两条旁路回到
+Finalizer：
+
+1. `PerfObservation.Authority` 在 perf bundle 本身是 typed 字段，但 pathless perf ledger row 没有物理采集物身份，下游无法做
+   same-artifact join。现在仅当 run-entry preflight 证明恰好一个可寻址 attached trace 时，给 compiler-owned
+   `perf_trace + artifact_id=attached_trace` row 补 `CaptureIdentityPath`；多附件、inline 或无精确绑定均 fail-open，不猜同源；
+2. Finalizer Observation Ledger prompt projection 按 `PerfObservation.Authority` + compiler-owned `perf:observation:N` + exact capture identity 三元组
+   删去已被 same-artifact deterministic query 超越的自由导航叙事。完整 ledger 不删，`perf:frame/jank/stall`
+   测量行不删，`deterministic_validator` observation 不删；
+3. Finalizer 已有 deterministic runtime query 时，不再注入 pre-query Analyzer StageReport 的模型自由叙事。Analyzer 的 typed
+   `AnalysisIR` 、用户维度、请求类型与输出合同仍由既有结构面供给 Finalizer；Explorer 仍可把该叙事当导航信息，不影响探索和自动补采；
+4. 所有触发只读 typed producer/stage/authority/capture identity，不扫用户输入、StageReport 内容、observation summary 或最终答案原文。
+   系统不插入、删除或改写模型最终答案；
+5. 新增 unique-attachment 正向与 ambiguous fail-open、same/different-capture、pretriage/deterministic、frame 测量保留、Analyzer 有/无
+   deterministic query 回归。`go test ./internal/types ./internal/context ./internal/agent -count=1` 与 `go test ./... -count=1` 全仓终验均全绿；
+   本批独立提交推送，不与 B401 authoring capsule 混批。
+
+不变量：显式时间窗、窗选举、根因排序、唤醒链、因果投影、窗内可消量、自动补齐与“真实占时/规则可消”双轴均未改；
+Trace 根因人口仍为 `typed-on-chain-only`，adjacent/background 仍为 `support-only/additional-investigation-only`。
+
+状态：`EVAL-B400=S37dg-implemented/full-suite-pass/pending-production-replay`；
+`pretriage-finalizer-authority=typed-provenance+same-capture`；`full-ledger=lossless`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

@@ -2114,6 +2114,52 @@ func TestStageReportsForAgent_AnalyzerRetryDoesNotReadOwnReport(t *testing.T) {
 	}
 }
 
+func TestStageReportsForAgent_FinalizerDropsAnalyzerNarrativeAfterDeterministicRuntimeQuery(t *testing.T) {
+	mu := types.NewMutableState("trace question")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:test#evidence_fact:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact,
+			},
+			Subject: "typed runtime row",
+		}},
+	})
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Mutable:   mu,
+	}
+	reports := []types.StageReport{
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "pre-query mechanism narrative"},
+		{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "deterministic investigation report"},
+	}
+	got := stageReportsForAgent(reports, ac)
+	if len(got) != 1 || got[0].Agent != types.AgentExplorer {
+		t.Fatalf("finalizer must drop only the pre-query analyzer prose after typed runtime authority, got %+v", got)
+	}
+}
+
+func TestStageReportsForAgent_FinalizerKeepsAnalyzerNarrativeWithoutDeterministicRuntimeQuery(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Mutable:   types.NewMutableState("runtime question"),
+	}
+	reports := []types.StageReport{{
+		Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "navigation narrative",
+	}}
+	got := stageReportsForAgent(reports, ac)
+	if len(got) != 1 || got[0].Findings != "navigation narrative" {
+		t.Fatalf("absence of deterministic query must fail open, got %+v", got)
+	}
+}
+
 func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(t *testing.T) {
 	ac := acWithFactsAndEvidence()
 	ac.AgentName = types.AgentFinalizer

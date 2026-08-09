@@ -86,6 +86,73 @@ func TestAnswerDocObservationPromptRecords_DefaultBudgetUnchanged(t *testing.T) 
 	}
 }
 
+func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTriageNarrative(t *testing.T) {
+	perf := &types.PerfBundle{Observations: []types.PerfObservation{
+		{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Subject: "navigation"},
+		{Authority: types.PerfObservationAuthorityDeterministicValidator, Subject: "validated"},
+	}}
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PerfTrace: perf,
+		}},
+	}
+	const capture = "/captures/customer.systrace"
+	records := []types.ObservationRecord{
+		{
+			ID: "perf:frame:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "measured frame",
+		},
+		{
+			ID: "perf:observation:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "navigation",
+		},
+		{
+			ID: "perf:observation:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "validated",
+		},
+		{
+			ID: "trace_query:q#evidence_fact:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "exact query row",
+		},
+	}
+	got, omitted := answerDocFinalizerObservationRecords(ctx, records)
+	if omitted != 1 || len(got) != 3 {
+		t.Fatalf("same-capture filter omitted=%d records=%+v", omitted, got)
+	}
+	joined := ""
+	for _, record := range got {
+		joined += record.ID + "\n"
+	}
+	for _, want := range []string{"perf:frame:0", "perf:observation:1", "trace_query:q#evidence_fact:1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("required measured/deterministic row %q missing: %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "perf:observation:0") {
+		t.Fatalf("pre-triage narrative leaked after same-capture query: %s", joined)
+	}
+}
+
+func TestAnswerDocObservationPromptRecords_DifferentCaptureFailsOpen(t *testing.T) {
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{PerfTrace: &types.PerfBundle{
+			Observations: []types.PerfObservation{{Authority: types.PerfObservationAuthorityPreTriageModelExtraction}},
+		}}},
+	}
+	records := []types.ObservationRecord{
+		{ID: "perf:observation:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace", SourceRef: types.ObservationSourceRef{CaptureIdentityPath: "/captures/a.systrace"}},
+		{ID: "trace_query:q#evidence_fact:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", SourceRef: types.ObservationSourceRef{CaptureIdentityPath: "/captures/b.systrace"}},
+	}
+	got, omitted := answerDocFinalizerObservationRecords(ctx, records)
+	if omitted != 0 || len(got) != len(records) {
+		t.Fatalf("different-capture observations must fail open, omitted=%d got=%+v", omitted, got)
+	}
+}
+
 func TestRenderAnswerDocRuntimeSourceAuthority_SoftRequirementHandoff(t *testing.T) {
 	ctx := &types.AgentContext{
 		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},

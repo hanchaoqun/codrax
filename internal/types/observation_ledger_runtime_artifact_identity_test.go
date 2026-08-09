@@ -228,3 +228,57 @@ func TestCompileObservationLedger_AttachedTraceAliasFailsOpenWithoutUniqueTypedB
 		})
 	}
 }
+
+func TestCompileObservationLedger_PathlessPerfRowsBindOnlyToUniqueAttachedTrace(t *testing.T) {
+	const attached = "/repo/customer.systrace"
+	input := ObservationLedgerInput{
+		RepoRoot: "/repo",
+		RuntimeArtifactPreflight: NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+			Artifacts: []RuntimeArtifactPreflightArtifact{{
+				Kind: "trace", Source: attached, Carrier: "attachment",
+			}},
+		}),
+		PerfBundle: &PerfBundle{
+			Meta: PerfMeta{Source: "hitrace"},
+			Observations: []PerfObservation{{
+				Authority: PerfObservationAuthorityPreTriageModelExtraction,
+				Kind:      "span",
+				Subject:   "UI span",
+				Summary:   "navigation narrative",
+			}},
+		},
+	}
+	ledger := CompileObservationLedger(input)
+	if len(ledger.Records) != 1 {
+		t.Fatalf("records=%d, want one perf observation: %+v", len(ledger.Records), ledger.Records)
+	}
+	record := ledger.Records[0]
+	if got := record.SourceRef.CaptureIdentityPath; got != "customer.systrace" {
+		t.Fatalf("pathless perf row capture identity=%q, want %q", got, "customer.systrace")
+	}
+	if record.SourceRef.Path != "" {
+		t.Fatalf("producer-local path must remain pathless, got %q", record.SourceRef.Path)
+	}
+}
+
+func TestCompileObservationLedger_PathlessPerfRowsFailOpenForAmbiguousAttachments(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		RepoRoot: "/repo",
+		RuntimeArtifactPreflight: NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+			Artifacts: []RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "/repo/a.systrace", Carrier: "attachment"},
+				{Kind: "trace", Source: "/repo/b.systrace", Carrier: "attachment"},
+			},
+		}),
+		PerfBundle: &PerfBundle{Observations: []PerfObservation{{
+			Authority: PerfObservationAuthorityPreTriageModelExtraction,
+			Subject:   "ambiguous",
+		}}},
+	})
+	if len(ledger.Records) != 1 {
+		t.Fatalf("records=%d: %+v", len(ledger.Records), ledger.Records)
+	}
+	if got := ledger.Records[0].SourceRef.CaptureIdentityPath; got != "" {
+		t.Fatalf("ambiguous attachments must not bind pathless perf rows, got %q", got)
+	}
+}
