@@ -374,6 +374,10 @@ func TestPriorityInversionCandidateTypedPublicationKeepsOnChainMainOffChainBackg
 			t.Fatalf("on-chain candidate lost typed ranking field %q:\n%s", want, onNotes)
 		}
 	}
+	offNotes := strings.Join(offChain.RichNotes, "\n")
+	if !strings.Contains(offNotes, "effective_impact_ms=0.000") || strings.Contains(offNotes, "effective_impact_ms=100.000") {
+		t.Fatalf("off-chain candidate published a positive effective attribution:\n%s", offNotes)
+	}
 	if onChain.Value != "40.000" || offChain.Value != "100.000" {
 		t.Fatalf("publication rewrote raw impact values: on=%+v off=%+v", onChain, offChain)
 	}

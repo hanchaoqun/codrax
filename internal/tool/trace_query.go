@@ -4630,7 +4630,6 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		rankRows = append(rankRows, result.RootCauseRank.Items...)
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
 		for _, item := range rankRows {
-			item = traceQueryPriorityRootCauseForPublication(item)
 			occurrenceWindows := traceQueryOccurrenceWindowsCompact(item.OccurrenceWindows, 4)
 			// QH2-A 件2 站② (§29.55 观察③ 族裁延伸, 2026-07-14): a
 			// composite-score row's POSITIVE value slots never wear the ms
@@ -5550,7 +5549,7 @@ func traceQueryPriorityTopRootCauseForPublication(rank *tracequery.RootCauseRank
 		return tracequery.RootCauseRankItem{}, false
 	}
 	for _, candidate := range rank.Items {
-		item := traceQueryPriorityRootCauseForPublication(candidate)
+		item := candidate
 		effective := traceQueryRootCauseEffectiveImpact(item)
 		if item.Tier == tracequery.RootCauseTierContextOnly || item.Tier == tracequery.RootCauseTierDataGap ||
 			effective <= 0 || math.IsNaN(effective) || math.IsInf(effective, 0) {
@@ -5991,14 +5990,14 @@ func traceQueryRootCauseSpanCompact(item tracequery.RootCauseRankItem) string {
 	if item.SpanName != "" {
 		parts = append(parts, "name="+sanitizeForBanner(item.SpanName))
 	}
-	if item.EffectiveImpactMs > 0 {
+	if effective := traceQueryRootCauseEffectiveImpact(item); effective > 0 {
 		// RANKDIS-M18 复核件1 (P2, 2026-07-17): the span= echo speaks the SAME
 		// wire-arm word face as the main value slots — it used to re-dress the
 		// same number in the ms suit on the same rank line (main slot
 		// "(composite score, not wall clock)" beside span=effective_impact=
 		// 0.369ms on a block_io row). Wall-clock rows keep the legacy form
 		// byte-identically (traceQueryRankWallClockValue IS the %.3fms form).
-		parts = append(parts, "effective_impact="+traceQueryRankImpactValue(item.Type)(item.EffectiveImpactMs))
+		parts = append(parts, "effective_impact="+traceQueryRankImpactValue(item.Type)(effective))
 	}
 	if item.SemanticClass != "" {
 		parts = append(parts, "semantic_class="+sanitizeForBanner(item.SemanticClass))
@@ -6035,7 +6034,11 @@ func traceQueryRootCauseEffectiveImpact(item tracequery.RootCauseRankItem) float
 	// participation matrix already returns zero. Keep the publication boundary
 	// authoritative even for legacy/malformed rows whose raw state fields would
 	// otherwise resurrect a positive fallback after a fail-closed demotion.
-	if item.Tier == tracequery.RootCauseTierContextOnly {
+	// Background rows retain their measured occupancy and internal background-
+	// board ordering value in the engine, but they have no chain-authorized
+	// eliminable attribution. Never publish that private ordering value as an
+	// effective root-cause contribution.
+	if item.Tier == tracequery.RootCauseTierContextOnly || traceQueryRootCauseItemRelevance(item) == "background" {
 		return 0
 	}
 	return tracequery.RootCauseRankItemEffectiveImpactMs(item)
@@ -8562,16 +8565,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	lockSpanPublishedByRank := map[string]bool{}
 
 	if result.RootCauseRank != nil {
-		publishedItems := make([]tracequery.RootCauseRankItem, len(result.RootCauseRank.Items))
-		for i, item := range result.RootCauseRank.Items {
-			publishedItems[i] = traceQueryPriorityRootCauseForPublication(item)
-		}
+		publishedItems := append([]tracequery.RootCauseRankItem(nil), result.RootCauseRank.Items...)
 		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(publishedItems)
 		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
 		rankRows = append(rankRows, publishedItems...)
-		for _, item := range result.RootCauseRank.AbsorbedItems {
-			rankRows = append(rankRows, traceQueryPriorityRootCauseForPublication(item))
-		}
+		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
 		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() &&
 				!traceQuerySelfSupplyFoldSeatCapExempt(item) {
@@ -8607,10 +8605,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// obligation reads background_rank<=3, never a prose count.
 				notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyBackgroundRank, item.BackgroundRank))
 			}
-			if tier == tracequery.RootCauseTierContextOnly && !item.PeriodicSource {
+			if (tier == tracequery.RootCauseTierContextOnly && !item.PeriodicSource) ||
+				traceQueryRootCauseItemRelevance(item) == "background" {
 				// A context-only row's ZERO attribution is authoritative and must
 				// survive the positive-only note filter. Raw Impact/Cumulative are
 				// display evidence, never a fallback cause magnitude.
+				// Background rows use the same explicit sentinel: their raw
+				// occupancy remains useful context, but only an on-chain credential
+				// may publish positive effective attribution.
 				// RANKDIS-M18: a composite-score row (io_pressure sits in the
 				// closed matrix's context_only set) publishes its sentinel on
 				// the *_score twin — one row emits exactly one key family; the
@@ -8621,7 +8623,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				}
 				notes = append(notes, fmt.Sprintf("%s=%.3f", sentinelKey, 0.0))
 			}
-			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
+			notes = append(notes, traceQueryTypedRootCauseStateRichNotesForPublished(item)...)
 			notes = append(notes, traceQueryTypedRootCauseIOPressureRichNotes(item)...)
 			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
 			// attribution — the trace-published tgid plus the resolved owning
@@ -8643,7 +8645,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// impact publishes the same typed periodic notes as its backing
 			// wakeup_causal_aggregate, so the projection labels the row and the
 			// discounted attribution never shows up unexplained.
-			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, item.EffectiveImpactMs, false, item.PeriodicTimerCaller)...)
+			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, traceQueryRootCauseEffectiveImpact(item), false, item.PeriodicTimerCaller)...)
 			// VS-2 (§7.10): the rank row that fronts a running-dominant
 			// on-chain node carries the same typed supply-fold notes as its
 			// backing causal impact/aggregate, so the projection's decision
@@ -10091,7 +10093,15 @@ func traceQueryActualCaliberNote(actualImpact, actualTotal float64) string {
 }
 
 func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
-	item = traceQueryPriorityRootCauseForPublication(item)
+	return traceQueryTypedRootCauseStateRichNotesForPublished(traceQueryRootCauseForPublication(item))
+}
+
+// traceQueryTypedRootCauseStateRichNotesForPublished consumes the rank copy
+// already sealed by traceQueryPriorityResultForPublication. Keeping this
+// helper separate prevents a valid background priority row whose private
+// effective scalar was cleared from being re-validated as if zero had come
+// from the engine.
+func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCauseRankItem) []string {
 	provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
 	refined := ""
 	if item.DStateAllNonIOProven {
@@ -14606,7 +14616,11 @@ func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCau
 	if !runtimeTracePriorityInversionCandidateType(item.Type) {
 		return item
 	}
-	effective := traceQueryRootCauseEffectiveImpact(item)
+	// Priority proof is evaluated against the engine-owned value before the
+	// separate background publication caliber clears that private ordering
+	// scalar. Otherwise a valid off-chain priority observation would be
+	// mislabeled as malformed context instead of retained as background.
+	effective := tracequery.RootCauseRankItemEffectiveImpactMs(item)
 	relationProvenanceAuthorized := universe.authorizesRelation(item.PriorityRelationArtifactSources)
 	if traceQueryPriorityCoverageAuthorizesImpact(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, effective) &&
 		relationProvenanceAuthorized {
@@ -14629,6 +14643,28 @@ func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCau
 	item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs =
 		traceQueryPriorityCoverageForPublication(coverageCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
 	item.Summary = fmt.Sprintf("scheduler state retained as context: priority relation caliber %q does not authorize a finite positive inversion root", strings.TrimSpace(item.PriorityRelationCaliber))
+	return item
+}
+
+// traceQueryRootCauseForPublication applies row-level proof validation. The
+// enclosing rank publisher additionally clears a background row's private
+// ordering scalar from its wire copy; scalar readers independently return
+// zero for background so direct summary/observation helpers are equally safe.
+// This separation keeps the priority proof transform idempotent when an
+// already-published row is rendered again.
+func traceQueryRootCauseForPublication(item tracequery.RootCauseRankItem) tracequery.RootCauseRankItem {
+	return traceQueryRootCauseForPublicationInUniverse(item, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
+	return traceQueryPriorityRootCauseForPublicationInUniverse(item, universe)
+}
+
+func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
+	item = traceQueryRootCauseForPublicationInUniverse(item, universe)
+	if traceQueryRootCauseItemRelevance(item) == "background" {
+		item.EffectiveImpactMs = 0
+	}
 	return item
 }
 
@@ -14893,11 +14929,11 @@ func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRa
 	published := *rank
 	published.Items = append([]tracequery.RootCauseRankItem(nil), rank.Items...)
 	for i := range published.Items {
-		published.Items[i] = traceQueryPriorityRootCauseForPublicationInUniverse(published.Items[i], universe)
+		published.Items[i] = traceQueryRootCauseRankWireItemForPublicationInUniverse(published.Items[i], universe)
 	}
 	published.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
 	for i := range published.AbsorbedItems {
-		published.AbsorbedItems[i] = traceQueryPriorityRootCauseForPublicationInUniverse(published.AbsorbedItems[i], universe)
+		published.AbsorbedItems[i] = traceQueryRootCauseRankWireItemForPublicationInUniverse(published.AbsorbedItems[i], universe)
 	}
 	return &published
 }

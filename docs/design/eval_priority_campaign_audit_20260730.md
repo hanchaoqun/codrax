@@ -29419,3 +29419,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `action-param-dependency=executor-owned-schema-projection`；`reference-order=model-owned`；
 `EVAL-B434=P1-next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.454 B434/S37ee：背景板内部排序值泄漏为“有效归因”
+
+`EVAL-B434-TRACEDBACKGROUNDEFFECTIVE1` 已完成 typed 发布边界修复：
+
+1. r253 的 `logger-900` 在引擎中保留 `EffectiveImpactMs=7.000`，用途是 background board 内部稳定排序；它的
+   `ChainRelevance=background` 已正确进入背景层，但 tool payload/summary/observation 仍把该私有排序标量发布为
+   `effective_impact_ms=7.000`，finalizer 因而写出“有效归因 7.000ms”，与投影的 `—` 自相矛盾；
+2. `traceQueryPriorityResultForPublication` 现在在所有 sort/cap/ordinal 已完成后，对 model-readable rank 副本按精确 typed
+   `ChainRelevance/Causality=background` 清零 `EffectiveImpactMs`。引擎原值和排序不变，`ImpactMs/CumulativeImpactMs` 原始占用规模
+   不变，payload 只省略背景的正向 effective key；
+3. summary、span compact、periodic note、relation carrier 与 typed observation 共用 `traceQueryRootCauseEffectiveImpact`：背景返回 0；
+   typed observation 显式携带 `effective_impact_ms=0.000`，避免“字段缺失”又被当成未知/可回退。没有读取或扫描 request、模型
+   thinking/summary/answer prose；
+4. 发布过程拆成“一次 proof sealing + 多个只读 renderer”。此前 result 已密封后，summary/observation 又重复执行优先级证明；背景
+   effective 清零会使第二次证明误把合法背景 priority candidate 降成 `unknown_state`。现在后续 renderer 消费已密封副本，不二次
+   改型；背景仍保留原 type、raw occupancy、priority proof 和 supporting role；
+5. 新 pin 同时验证：引擎输入不被修改、背景 JSON 不含正向 effective key、raw/cumulative 仍为 19.500ms、summary 明示
+   0.000ms、typed note 为 0 且不含 7、on-chain 2.000ms 保持、背景即便排在 slice 首位也不能成为 bundle top cause；另扩展
+   priority candidate pin，背景 100.000ms 不得再发布正向 effective attribution；
+6. 本批只校准 typed 事实，不生成、替换、删除或改写模型答案；模型仍负责总结和优化建议。显式时间窗、自动补采、唤醒链和因果投影
+   数据源不变。
+
+同批冷读发现独立高危 `EVAL-B435-TRACECHAINROOTONLY1=P0-confirmed/next`：adjacent 与 background 不同，adjacent 仍可保留自己的
+邻近影响量；但三个根因入口尚未统一执行 on-chain-only 资格——frame bundle 的 `bundle_top_cause` 只看正 effective，typed observation
+仍给 adjacent rank row principal role，投影 primary admission 只拒绝空 relevance 而未拒绝 adjacent。因此“邻近参考”仍可能在上游被叫作
+top/primary root。B435 必须另批统一资格谓词，保留 adjacent 数值和专属上下文层，只撤销根因/加冕权限，不能用 prose 关键词或把邻近量
+粗暴清零。
+
+状态：`EVAL-B434=S37ee-implemented/full-suite-pass/pending-production-replay`；
+`background-effective-publication=typed-zero`；`background-raw-occupancy=preserved`；
+`EVAL-B435=P0-next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root target=`typed-on-chain-only`；adjacent/background target=`support-only/additional-investigation-only`。
