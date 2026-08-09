@@ -28355,3 +28355,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 状态：`EVAL-B402=S37di-implemented/full-suite-pass/pending-production-replay`；
 `diagram-authority-routing=block-local+typed-owner`；`source-gate=preserved-for-non-runtime-blocks`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.417 r236：pre-emit 已通，post-finalizer 仍把 temporal 图重判成 source call
+
+在 `main@8355d171f` 上严格并发恰好两个同组 Trace case，runner 2/2 PASS，人工 0/2 PASS：
+
+1. S37di 的 pre-emit 生产接线已证：frame 模型整包提交 report-local 4 item/3 edge temporal 图时没有收到同轮
+   `missing_call_anchor`，三个逐 occurrence temporal anchors 均被接受；这排除了 alias、edge 基数和 nested metadata 接线问题；
+2. 但 post-finalizer V2 oracle 仍直接调用旧 `DiagramCallEdgeEvidenceMismatches`，又按 `generic+AxisFlow` 的 source DiagramPlan 要求
+   `guard>=1`。同一 block 因而在 pre-emit 被 runtime temporal owner 接受、数毫秒后又收到三条 `missing_call_anchor` 与一条
+   `diagram_relation_label_only`；finalizer 被迫 patch，retry budget 耗尽后答案附带降级 caveat，并保留完整第一稿。runner 的
+   `fin_reject=0` 没统计这条 post-check 拒绝，不能据 runner PASS 判断合同闭环；
+3. 这是 B402 的第二消费面，不是新建白名单的理由。最优方案是把**同一个 block-local typed owner 决策**导出给 post-check：仅从 post source
+   临时视图移除已绑定 runtime block；sibling source diagram 继续走原 guard/call/relationship 合同；
+4. frame 模型仍把 `app-20`/`RSUniRenderThre`/`gpu-300` span names 扩写为 UI、RenderService、GPU 职能，并把 stage name 扩成输入处理、命令提交、
+   GPU 绘制；typed 数据只证明线程 identity、span interval 与 temporal adjacency。B403 继续确认，但在 B402 两面闭合前不继续堆 prompt；
+5. Donghu 本轮正向变化：模型未再把 `rank_binding=not_provided` census 绑定 #5，也未把 `page_lock_timeout` 扩成 holder/resource；链上排序与背景分层
+   基本保持。故 B404 单轮未复现，只降为继续观察，不把模型波动误当 production closure；
+6. Donghu 新确认 `EVAL-B406-WINDOWRELATIONCONSISTENCY1=P1`：摘要称 34579.595130 VSync 在 34579.472865..34579.587805 帧边界内，明细却正确披露
+   它超窗；另把普通 sleep 直接定性为帧节拍等待。最优方向是给 Finalizer 提供 selected-window relative position 与 state-mechanism authority 的 typed
+   字段/胶囊，不扫描答案原文做矛盾硬门；
+7. 本轮根因人口/排序仍来自 typed on-chain seats；邻近 VSync、pressure、IRQ 与 unbound census 保持背景/支撑。系统未替换模型结论；frame 的第一稿
+   保留和 caveat 来自确定性后校验冲突，正是本批需移除的额外系统干预。
+
+状态：runner=`2/2 PASS`；human=`0/2 FAIL`；
+`EVAL-B402=pre-emit-production-closed/post-check-confirmed-open`；`EVAL-B403=P1-confirmed`；
+`EVAL-B404=P1-observe/not-closed`；`EVAL-B405=P1-not-reproduced-this-run/not-closed`；
+`EVAL-B406=P1-confirmed`；`raw-prose-hard-gate=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.418 S37dj：pre/post 共用 runtime temporal block owner
+
+针对 r236 的确定性 B402 第二消费面施工：
+
+1. tool 层导出 `ReportLocalRuntimeTemporalDiagramOwnedBlockIDs`，它复用 pre-emit 的同一个 report-local 完整性、endpoint multiset 与逐 occurrence temporal
+   anchor 判定，不在 orchestrator 复制第二套语义，不读用户问题、模型 thinking/summary/final prose；
+2. post call-edge matcher 新增 runtime-context 入口，只从克隆文档移除已成功绑定的 runtime temporal blocks，再对全部剩余 blocks 调用原 source matcher；
+   sibling source diagram、未绑定 alias、缺/错/重复 anchor、mixed source/runtime 图均不获豁免；
+3. post generic DiagramPlan relation oracle 同样使用该 owner 集。若文档只含 runtime temporal block，不再要求 source `guard>=1`；若还有 source diagram，旧
+   guard/call/relationship minima 原样执行；
+4. 新增 production `runV2BlockOraclesWithOracleContext` 回归，直接钉住 runtime temporal block 不再产生
+   `ViolDiagramCallEdgeUnproven/ViolDiagramRelationLabelOnly`，同时钉住 sibling source diagram 仍产生 call-edge violation，防止用 runtime 修复放宽源码证据门；
+5. 聚焦 tool/orchestrator 与 `go test ./... -count=1` 均通过。下一步必须用同两例生产复放，确认无 post-check retry、无第一稿保留和无 diagram caveat；
+   B403/B406 在干净合同下继续人工审计，不在本批加入答案文字硬门。
+
+状态：`EVAL-B402=S37dj-pre+post-implemented/full-suite-pass/pending-production-replay`；
+`diagram-owner=single-decision-consumed-by-pre+post`；`source-sibling-gates=preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

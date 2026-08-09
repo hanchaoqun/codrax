@@ -382,6 +382,37 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	return validateDiagramRelationLegality(doc, view, diagramBlock, edges)
 }
 
+// validateDiagramEdgeSupportWithRuntimeContext keeps the generic source
+// diagram plan (including its preferred guard/call relation minima) away from
+// blocks whose exact typed owner is runtime frame-temporal evidence. Sibling
+// source diagrams remain in the cloned document and retain the old validator.
+func validateDiagramEdgeSupportWithRuntimeContext(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	bus *types.BusContext,
+) []types.Violation {
+	owned := tool.ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(bus, doc)
+	if len(owned) == 0 {
+		return validateDiagramEdgeSupport(doc, view)
+	}
+	copyDoc := *doc
+	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
+	hasRemainingDiagram := false
+	for _, block := range doc.Blocks {
+		if owned[strings.TrimSpace(block.ID)] {
+			continue
+		}
+		copyDoc.Blocks = append(copyDoc.Blocks, block)
+		if block.Kind == types.BlockDiagram {
+			hasRemainingDiagram = true
+		}
+	}
+	if !hasRemainingDiagram {
+		return nil
+	}
+	return validateDiagramEdgeSupport(&copyDoc, view)
+}
+
 func diagramPlanRequiresStructuralEdge(plan *types.DiagramFacetGraph) bool {
 	if plan == nil {
 		return false
@@ -2319,7 +2350,7 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validatePrincipalClaimUse(doc, view) }) {
 		return out
 	}
-	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeSupport(doc, view) }) {
+	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeSupportWithRuntimeContext(doc, view, bus) }) {
 		return out
 	}
 	if !appendIfLive(func() []types.Violation { return validateDiagramCallEdgeEvidenceAlignment(doc, view, mut, bus) }) {
@@ -2393,7 +2424,7 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if bus != nil {
 		evidence = tool.DiagramEvidenceForValidation(bus, doc, view, evidence)
 	}
-	mismatches := tool.DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	mismatches := tool.DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(bus, doc, view, evidence)
 	if len(mismatches) == 0 {
 		return nil
 	}

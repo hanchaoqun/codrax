@@ -14,6 +14,56 @@ type reportLocalRuntimeTemporalEdgeSet struct {
 	counts map[string]int
 }
 
+// ReportLocalRuntimeTemporalDiagramOwnedBlockIDs exposes the exact block-local
+// routing decision to post-finalizer contract validation. Pre-emit and
+// post-emit must consume this same decision; otherwise a diagram accepted as
+// runtime temporal in the tool can be reclassified as source invocation by the
+// orchestrator a few milliseconds later.
+func ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(
+	ctx *types.BusContext,
+	doc *types.AnswerDocumentV2,
+) map[string]bool {
+	if ctx == nil || doc == nil {
+		return nil
+	}
+	owned, hints := preCheckReportLocalRuntimeTemporalDiagramAuthority(doc, newPreEmitCheckContext(ctx))
+	if len(hints) > 0 || len(owned) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(owned))
+	for index := range owned {
+		if index < 0 || index >= len(doc.Blocks) {
+			continue
+		}
+		out[strings.TrimSpace(doc.Blocks[index].ID)] = true
+	}
+	return out
+}
+
+// DiagramCallEdgeEvidenceMismatchesWithRuntimeContext is the post-finalizer
+// counterpart of preCheckDiagramCallEdgeEvidenceAlignment. It removes only
+// blocks already bound to report-local runtime temporal authority, then runs
+// the unchanged source matcher over every remaining block.
+func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
+	ctx *types.BusContext,
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	evidence []types.EvidenceItem,
+) []DiagramCallEdgeEvidenceMismatch {
+	owned := ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(ctx, doc)
+	if len(owned) == 0 {
+		return DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	}
+	copyDoc := *doc
+	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
+	for _, block := range doc.Blocks {
+		if !owned[strings.TrimSpace(block.ID)] {
+			copyDoc.Blocks = append(copyDoc.Blocks, block)
+		}
+	}
+	return DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence)
+}
+
 // preCheckReportLocalRuntimeTemporalDiagramAuthority binds an optional frame
 // diagram to one trace_query result's own complete typed temporal rows. It does
 // not use the report-wide QF family or ANY-sticky session authority: those are
