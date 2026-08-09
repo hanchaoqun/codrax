@@ -11367,6 +11367,63 @@ func TestDataTaskWorkflowAllowedActionGuardUsesPriorStateNotCandidatePlan(t *tes
 	}
 }
 
+func TestDataTaskWorkflowAllowedActionGuardCandidateCannotRetroactivelyNarrowItsRank(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+		},
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"orders.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:      "orders_records",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"amount"},
+				Fields:  map[string]string{"artifact_aliases": "orders_records"},
+			}},
+		},
+	}}
+	before := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
+	if !slices.Contains(before.AllowedNextActions, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("pre-candidate allowed actions=%v, want compute_contributions", before.AllowedNextActions)
+	}
+	plan := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			// This newly proposed obligation belongs to the next committed
+			// workflow state. It cannot rewrite the rank that authorized this
+			// transaction after the schema was already emitted.
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:             "compute_total",
+			Kind:           dataquery.DataActionComputeContribs,
+			InputPaths:     []string{"orders_records"},
+			OutputArtifact: "contributions",
+			Params: map[string]string{
+				"value_field": "amount",
+				"group_key":   "total",
+				"metric":      "amount",
+			},
+		}},
+	}
+	if errText := dataTaskWorkflowAllowedNextActionGuardError("", records, plan); errText != "" {
+		t.Fatalf("candidate retroactively changed its own rank: %s", errText)
+	}
+	committed := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: plan, Result: &dataquery.Result{}})
+	after := dataTaskWorkflowState("", committed, dataquery.TaskPlan{})
+	if slices.Contains(after.AllowedNextActions, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("committed decision obligation did not shape the next rank: %v", after.AllowedNextActions)
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsTerminalRawMaterialCustomTransform(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

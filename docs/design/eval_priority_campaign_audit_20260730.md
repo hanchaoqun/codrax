@@ -29335,3 +29335,61 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `structural-relation-authority=known-lineage-disjoint`；`typed-relation-metadata=preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.451 r253：输入/lineage 修复生产闭环；候选计划反向改 rank 与背景有效口径暴露
+
+在 `main@7a9640ba5` 的不可变二进制快照上严格并发恰好两个 case：`data_basic_sum_with_rules` 与
+`trace_query_wakeup_background_demotion`。runner 2/2 PASS，最终答案人工 2/2 PASS，但 data 过程人工 FAIL：
+
+1. B430 生产闭环：首个 compute candidate 已携带 action-local `input_paths=["orders_records"]`，没有
+   `missing_action_inputs`；B431 生产闭环：全程 `resolutions=0`，没有同源工件间的自动 normalize/entities 绕路；
+2. data 最终严格输出 `17`，但仍耗时 204 秒、8 批、3 次 repair、3 次 action failure。B429 的 scalar
+   custom_transform/ledger 能力证明仍开放，本轮另暴露两项确定性合同问题；
+3. 新 `EVAL-B432-CANDIDATERANKDRIFT1=P0/REDLINE`：执行前 reducer 与 tool schema 已发布
+   `decision_next_actions=compute_contributions`；模型合法发出 compute，却在同一候选的 coverage contract 中新增
+   `rule_coverage_required/decision_records_required`。staging 将这个尚未提交的候选重新合入 workflow facts，反向把当前 rank 改成
+   prepare decisions，并以 `action_outside_allowed_next_stage` 拒绝原本获准的 compute；
+4. 最优根修是事务快照，不是 compute 特例：allowed-next-action admission 只读取候选产生前已经提交的 reducer records，与动态 tool schema
+   同源；候选自身仍接受 input/dependency/field/shape/output guards。候选成功记账后，其新义务才进入下一批 workflow facts；
+5. 新 `EVAL-B433-ASSEMBLEREFERENCEDEPENDENCY1=P1`：reconcile 已 pass 后，模型发出
+   `assemble_answer(order_by=reference)`，但 output contract 明确 `complete_reference=false`，action 也没有
+   `reference_path/reference_key_field`。runner 正确 fail-closed，JSON schema 却允许不可能组合出厂。应从 executor-owned typed dependency
+   构造 schema 条件；禁止系统自动把 reference 改成 group_key/input，也不从 prose 猜参考域；
+6. Trace 人工通过：显式 2.000..2.020s 窗、三次 trace_query、系统补齐和因果投影均在；#1 只加冕链上
+   `threadpool-400 iowait 11ms`，其后为三个链上 runnable 1ms 席。`logger-900` 的 19.5/7ms 始终位于
+   background/off-chain，投影的有效归因列为 `—`，没有进入根因排序；
+7. 新 `EVAL-B434-BACKGROUNDEFFECTIVEWORDING1=P1`：finalizer 正文仍把 logger 的 7ms 称为“有效归因”，与 typed projection 的
+   background effective=`—` 冲突。根修应消除 observation/context producer 对背景值的 effective 口径暗示，保留其窗口规模作为背景事实；
+   禁止扫描或重写模型成文；
+8. 本轮无 finalizer reject、无系统答案替换。Trace 主根因继续只能来自 typed on-chain 席；邻近区域、聚合压力与 off-chain 背景只允许
+   支撑解释或给出额外排查方向，不能因数值更大而获得根因权限。
+
+状态：runner=`2/2 PASS`；answer-human=`2/2 PASS`；data-process=`FAIL/8-batches-3-repairs-3-action-failures`；
+`EVAL-B430=S37ea-production-closed`；`EVAL-B431=S37eb-production-closed`；
+`EVAL-B432=P0-confirmed/in-implementation`；`EVAL-B433=P1-confirmed/open`；
+`EVAL-B434=P1-confirmed/open`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.452 B432/S37ec：allowed-next-action 准入绑定提交前 reducer 快照
+
+`EVAL-B432-CANDIDATERANKDRIFT1` 已完成事务边界根修：
+
+1. `dataTaskWorkflowAllowedNextActionGuardResult` 不再把尚未执行的 candidate plan 合入 rank facts；它只读取既有成功
+   workflow records，因而与生成 continuation/repair tool schema 的 reducer 快照处于同一提交代次；
+2. 修复只收窄 allowed-next-action 这一条事务权限。候选自身的 action input、字段、dependency、shape、parameter、output contract
+   仍由原 dedicated guards 校验；系统没有放宽无效 action，也没有自动执行或修改模型选择；
+3. 候选声明的新 coverage obligation 没有丢失：batch 成功后 plan 进入 records，下一次 reducer state 会正常读取它并改变 next stage/rank。
+   即“当前事务按旧快照准入，新事实从下一事务生效”，不会出现同一 candidate 既被 schema 允许又被自己反向拒绝；
+4. 新 pin 构造 pre-state 允许 `compute_contributions`、candidate 同时新增 rule/decision obligation 的精确生产形，验证当前 action
+   准入；再把 candidate 作为已提交 record 加入，验证下一 rank 确实排除 compute。既有“candidate 更窄也不得抹去已提交 workflow
+   obligations”的反向 pin 同时保持；
+5. `internal/repl`、`internal/dataworkflow`、`internal/dataquery` 定向测试及无缓存 `go test ./... -count=1` 全绿。
+   修复未读取 request、thinking、summary、answer prose 或 JSON 文本关键词，未修改模型结论；
+6. 本批未修改 Trace/read/write 行为。显式时间窗、自动补采、Trace 因果投影、根因排序、唤醒链与窗内可消除量保持；Trace
+   root 仍只来自 typed on-chain 席，邻近/background 仍只能作为支持或额外排查方向。
+
+状态：`EVAL-B432=S37ec-implemented/full-suite-pass/pending-production-replay`；
+`action-rank-admission=pre-candidate-committed-snapshot`；`candidate-obligations=next-transaction-effective`；
+`EVAL-B433=P1-next`；`EVAL-B434=P1-open`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

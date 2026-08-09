@@ -2491,7 +2491,17 @@ func dataTaskWorkflowAllowedNextActionGuardResult(repoRoot string, records []dat
 	if !dataTaskWorkflowHasSuccessfulResult(records) {
 		return dataworkflow.GuardResult{}
 	}
-	state := dataTaskWorkflowState(repoRoot, records, plan)
+	// Admit the candidate action against the reducer state that existed before
+	// this candidate was proposed. The continuation/repair tool schema is
+	// narrowed from that same committed snapshot. Folding the uncommitted
+	// candidate's coverage flags into this state lets a plan retroactively
+	// change its own action rank: for example, a currently legal
+	// compute_contributions action can set decision_records_required=true and
+	// thereby make itself illegal in the same call. Candidate-local input,
+	// dependency, shape, and output contracts are still checked by their
+	// dedicated guards. Once a batch is recorded, its coverage contract becomes
+	// part of records and can legitimately shape the next transaction.
+	state := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	if len(state.AllowedNextActions) == 0 {
 		return dataworkflow.GuardResult{}
 	}
