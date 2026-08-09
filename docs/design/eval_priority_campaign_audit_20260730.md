@@ -28865,3 +28865,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `sequence-relation-owner=explicit-typed-anchor`；`unanchored-sequence=call-fail-closed`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.435 r244：B421 不再形成互斥合同；完整 flow 仍可被单边证据提前关闭
+
+在 `main@8304122c0` 上严格并发恰好两个 case：`read_combo_pipeline_sequence_table` 与
+`data_json_strict_ids`。runner 2/2 PASS，人工 1/2 PASS：
+
+1. JSON/data case 人工通过：最终答案严格为 `{"ids":["u1","u3"]}`，没有 JSON decode、carrier、element-shape、
+   `blocks` string recovery、自由字符串抢救或降级成文。唯一一次 repair 来自 typed material coverage：首轮 action 声明
+   `instructions.md` 为 required material 却未消费，系统要求补读后第二轮完成；该门只校验结构化材料闭包，没有从模型原文猜答案；
+2. B421 没有再出现“同一 assignment 边既必须 assignment 又必须 call”的不可满足合同。本轮 source relation capsule 只携带两条
+   真实 call recipe，因此不是 assignment 正向生产针；B421 保持 full-suite closed、production no recurrence，仍不夸大为 assignment
+   生产闭环；
+3. read case 两次成文拒绝均有真实原因：首稿把 `Orchestrator -> Stage*` 标成无证 call，并把 Stage 返回 payload 标成无证 return；第一版
+   patch 又自行加入无证 `runReadSchedulerLoop -> runReadSchedulerLoop` self-call，并重复使用只有一个 occurrence 的 scheduler→dispatcher
+   调用。第三稿删除这些边后通过。与 r243 的确定性合同冲突不同，本轮是模型没有服从已给的 typed relation capsule；系统没有删除正文或代写结论；
+4. B417 继续保持生产闭环：最终 Note 中含 `StageAnalyze → ...` 和长说明，但 sequence parser 没有把 Note payload 铸成关系边；
+5. B416 有明显改善但仍是 partial：四个 stage 的 table columns、row labels、输入/输出/状态载体均已显式出现，B419 的
+   `列 2/列 3...` 症状本轮不再现；但当前 `member_notes` 仍是一列自由摘要加一个 row ref，不能表达“每成员 × 每属性”的独立 typed
+   证明，也不能表达该成员位于 scheduler 之前/之内/之后的执行边界；
+6. 新 `EVAL-B422-FLOWCOVERAGEANYEDGE1=P1/HIGH`：`flowOperationEvidenceRequired` 的 hard completion 目前只检查
+   `HasFlowOperationEvidenceForRequest`，任意一条 operation edge 即可让完整 flow 结束。本轮只形成
+   `runTaskGraph -> runReadSchedulerLoop` 与 `runReadSchedulerLoop -> executeStageRequest` 两条 task-phase call，未读取/提交
+   `AllMainStages()` 的 ordered carrier，也未证明 analyze 与 task phase 的边界；
+7. B422 的用户可见后果有两项。其一，摘要错误声称四个 stage 都由 `runReadSchedulerLoop` 经
+   `executeStageRequest` 调度，而源码中 `runAnalyzePhase` 在进入 `runTaskPhase/runTaskGraph` 前已经独立执行；其二，required
+   `sequenceDiagram` 只画两个 scheduler call，用 Note 声明四 stage 顺序，视觉上没有真正表达 analyze→finalizer 的完整时序；
+8. 最优方案冻结为“typed coverage，不扫 prose”：先设计一个可复用的 principal flow coverage carrier，把模型已选定的 bounded members、
+   每成员 requested attribute、执行/值传递关系及各自 evidence ref 分开；completion 只在该 typed roster 的 load-bearing 席位都有已证 relation
+   或显式 unproven boundary 时关闭。不能从 `entities` 模糊匹配、不能扫描请求/答案关键词、不能要求所有 repo participant 连通，也不能让系统生成表格或图；
+9. 在 B422 结构载体落地前，不用当前 case 的四个 stage/Go 名称做硬 pin，不把正常 evidence reject 放宽为自动删边。短期只保留单源
+   `FlowOperationEvidenceEmissionGuide` 与 relation capsule；长期 pin 必须覆盖不同语言、不同关系种类、部分可证/显式未知、多图表/表格不同成员集合，防止把
+   table roster 错绑到无关 diagram；
+10. 本批没有改 Trace 查询或答案合成。显式时间窗、自动补采、因果投影、根因排序、唤醒链及可消除量保持原合同：主根因只允许 typed
+    on-chain 席；邻近区域、资源压力和背景事件只能作为支撑或额外排查方向，绝不能升级为主因答案。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B421=full-suite-closed/production-no-recurrence`；`EVAL-B417=production-closed`；
+`EVAL-B416=production-improved/per-member-attribute-proof-open`；
+`EVAL-B419=production-positive/not-yet-negative-closed`；
+`EVAL-B422=P1-confirmed/design-first`；`json-teaching=consistent-this-replay`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
