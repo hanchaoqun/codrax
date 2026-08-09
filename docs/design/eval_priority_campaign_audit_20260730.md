@@ -28621,3 +28621,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `runtime-flow-source-gate=typed-source-lane-scoped`；`mixed-runtime-source=strict-preserved`；
 `json-contract-change=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.427 r241：运行时 flow 解耦闭环；源码图修复失接与调用证据重复授权
+
+在 `main@b2285642e` 上严格并发恰好两个 case：`trace_query_frame_timeline_flow` 与
+`read_combo_pipeline_sequence_table`。runner 2/2 PASS，人工 0/2 PASS：
+
+1. B411 生产闭环：frame case 的第一次 `emit_investigation_complete` 直接通过，`pre_complete_downgrades=0`，没有
+   `external_only_trace` waiver；全轮只运行两次 typed `trace_query`。外部 Trace flow 不再被误套 current-source
+   producer/transfer/consumer 合同，显式时间窗、因果投影与自动补采未改；
+2. frame 的一次 Finalizer 拒绝来自新 `EVAL-B412-RUNTIMEDIAGRAMDISPLAYIDENTITY1=P1/HIGH`：模型把 participant 显示名写成
+   `app-20 [CPU 1]` 等装饰形，validator 将整个 display label 当 endpoint identity，导致本应允许的 report-local temporal faithful
+   subset 被判 endpoint 不属于 typed set；patch 复制精确 capsule 后通过。不得用前缀/模糊匹配放宽，后续应以显式 typed node identity 与
+   display payload 分层；
+3. frame 最终答案仍把线程名扩写成 UI 主线程、RenderService 专用线程与 GPU 工作职责，尽管同席 authority 明示
+   `owning_thread_role_authority/internal_work_authority=not_provided`。它正确披露 `frame causality=unproven`，因此 B403 仍是模型语义遵循/波动，
+   不增加模型原文关键词硬门，也不让系统删除或代写模型结论；
+4. read combo 虽 runner PASS，人工失败且发生 `fin_reject=10/patch=8`、耗时 516 秒。最终表和图把 canonical read 主序列写成
+   `Analyze -> Explore -> Plan -> Finalize`，漏掉 `Extract` 并把 write/planning 概念混入 read；系统 supplement 又发布正确
+   `analyze -> explore -> extract -> finalize`，形成同页矛盾；
+5. 这不是“上下文没给够”：初始 Finalizer prompt 已逐字携带 deterministic `canonical_read_main_sequence`，也携带由同一 typed
+   EvidenceItem 渲染的 copy-ready Mermaid + `edge_anchors_json`。新 `EVAL-B413-SOURCEDIAGRAMRETRYSTORM1=P0/HIGH` 是 required diagram
+   的 patch relation-only reject 没有进入精确 capsule 恢复车道，连续走通用 `answer_doc.patch_correct`；下一批先从 typed DiagramContract
+   与 producer-owned repair metadata 重建接线，不从用户/模型原文推断；
+6. 新 `EVAL-B414-CALLEDGEOCCURRENCEREPLAY1=P0/HIGH`：唯一 citable call row 是
+   `Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage @ orchestrator.go:2485`，但最终图重复画四次同方向调用并全部被现有 gate 接受。
+   当前验证逐 edge 做“存在一个支持项”，没有消费 occurrence budget；最优修复是按结构化 parsed edge occurrence 与 distinct typed evidence identity
+   做语言无关基数核对，不能让一条静态证据无限复制授权多条具体调用宣称；
+7. 新 `EVAL-B415-CANONICALSTAGEMEMBERSHIPDRIFT1=P1/HIGH`：精确 stage roster 虽到达 prompt，但没有成为 principal table/diagram 的 typed
+   member-set authority。后续应把 deterministic current-run stage lane 编译为结构化成员权威并由行身份消费，而不是扫描最终 prose 或系统覆写错误答案；
+8. 施工优先级冻结：先 B413（消除 10 次重试、恢复单源 capsule），同批钉 B414 以阻止重复证据授权；再处理 B415 的通用 deterministic
+   roster/member-set 投影；B412 保持 P1，必须等到 identity/display 可精确分层，不做针对 `[CPU N]` 的字符串拟合。
+
+状态：runner=`2/2 PASS`；human=`0/2 PASS`；
+`EVAL-B411=production-closed`；`EVAL-B412=P1-confirmed/open`；
+`EVAL-B413=P0-confirmed/next`；`EVAL-B414=P0-confirmed/next`；
+`EVAL-B415=P1-confirmed/planned`；`EVAL-B403=P1-observe/model-semantic-adherence`；
+`json-teaching=single-source-present-but-recovery-routing-missed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
