@@ -1589,7 +1589,24 @@ func normalizeDataTaskOversizedActionBatch(plan dataquery.TaskPlan) (dataquery.T
 }
 
 func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
+	return normalizeDataTaskPlanContractFromActionsUsing(plan, dataworkflow.ImpliesLedgerObligation)
+}
+
+// normalizeDataTaskPlanContractFromActionSupport is used only to decide
+// whether an explicitly requested repair obligation is supported by the
+// emitted action DAG. A ledger product can support such an existing request
+// without becoming a new prerequisite of the action itself.
+func normalizeDataTaskPlanContractFromActionSupport(plan *dataquery.TaskPlan) bool {
+	return normalizeDataTaskPlanContractFromActionsUsing(plan, func(kind dataquery.DataActionKind, ledger dataworkflow.LedgerKind) bool {
+		return dataworkflow.ProducesLedger(kind, ledger) || dataworkflow.ImpliesLedgerObligation(kind, ledger)
+	})
+}
+
+func normalizeDataTaskPlanContractFromActionsUsing(plan *dataquery.TaskPlan, establishes func(dataquery.DataActionKind, dataworkflow.LedgerKind) bool) bool {
 	if plan == nil {
+		return false
+	}
+	if establishes == nil {
 		return false
 	}
 	changed := false
@@ -1598,19 +1615,19 @@ func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
 		if dataworkflow.IsLeafFallback(kind) {
 			continue
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerRuleCoverage) && !plan.CoverageContract.RuleCoverageRequired {
+		if establishes(kind, dataworkflow.LedgerRuleCoverage) && !plan.CoverageContract.RuleCoverageRequired {
 			plan.CoverageContract.RuleCoverageRequired = true
 			changed = true
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerDecisions) && !plan.CoverageContract.DecisionRecordsRequired {
+		if establishes(kind, dataworkflow.LedgerDecisions) && !plan.CoverageContract.DecisionRecordsRequired {
 			plan.CoverageContract.DecisionRecordsRequired = true
 			changed = true
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ContributionLedgerRequired {
+		if establishes(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ContributionLedgerRequired {
 			plan.CoverageContract.ContributionLedgerRequired = true
 			changed = true
 		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerEntityResolutions) && !plan.CoverageContract.EntityResolutionRequired {
+		if establishes(kind, dataworkflow.LedgerEntityResolutions) && !plan.CoverageContract.EntityResolutionRequired {
 			plan.CoverageContract.EntityResolutionRequired = true
 			changed = true
 		}
@@ -1624,11 +1641,7 @@ func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
 		// numeric reconcile they structurally cannot satisfy. Tying it
 		// to LedgerContributions uses the precise structural signal:
 		// reconcile what was numerically aggregated.
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ReconcileRequired {
-			plan.CoverageContract.ReconcileRequired = true
-			changed = true
-		}
-		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerReconcile) && !plan.CoverageContract.ReconcileRequired {
+		if establishes(kind, dataworkflow.LedgerReconcile) && !plan.CoverageContract.ReconcileRequired {
 			plan.CoverageContract.ReconcileRequired = true
 			changed = true
 		}
@@ -7313,7 +7326,7 @@ func constrainDataTaskRepairCoverageEscalation(previous, repaired dataquery.Task
 	mechanical.CoverageContract.ContributionLedgerRequired = false
 	mechanical.CoverageContract.EntityResolutionRequired = false
 	mechanical.CoverageContract.ReconcileRequired = false
-	normalizeDataTaskPlanContractFromActions(&mechanical)
+	normalizeDataTaskPlanContractFromActionSupport(&mechanical)
 
 	if !previous.CoverageContract.DecisionRecordsRequired && !mechanical.CoverageContract.DecisionRecordsRequired {
 		repaired.CoverageContract.DecisionRecordsRequired = false

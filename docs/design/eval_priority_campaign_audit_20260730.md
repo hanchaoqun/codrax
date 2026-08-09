@@ -29212,11 +29212,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 6. data 最终答案严格为 `17`，业务正确；但 7 批、4 次 repair、1 次 action failure、264 秒。评估态明确发布
    `decision_next_actions=compute_contributions`，模型照做后，续批 normalization 又将 `decision_records_required=true` 写入合同，admission
    随即以缺 decisions 拒绝同一动作；
-7. 新 `EVAL-B428-ACTIONSELFPRECONDITION1=P0/REDLINE`：`compute_contributions` 的执行实现只产出 contribution records，不产出
-   decision rows；capability 注册却把它列为 decisions producer。`normalizeDataTaskPlanContractFromActions` 将“动作可能产出”反向提升为“工作流必须已有”，
-   使推荐动作改变自己的前置条件。这是 typed 单源错误，不是模型波动或 JSON 教学不足；
-8. 最优根修为纠正 capability：compute 仅产生 contributions；decision producers 只保留真实产生 decision rows 的 filter/qualify，以及明确可发射
-   完整结构结果的 custom fallback。同步删除 action runner 中把 compute 当 decision producer 的手写镜像，并新增跨
+7. 新 `EVAL-B428-ACTIONSELFPRECONDITION1=P0/REDLINE`：`compute_contributions` 会产出 contributions，并从 contribution rows 派生
+   decision 审计行；真正的错误是 capability 只有“produces ledger”一轴。`normalizeDataTaskPlanContractFromActions` 将产出能力反向提升为新增工作流义务，
+   rule-governed admission 又把该义务解释为 compute 前置条件，使推荐动作改变自己的准入事实。这不是模型波动或 JSON 教学不足；
+8. 最优根修为把 typed action 的实际产出账本与动作选择隐含开启的工作流校验义务分轴：compute 保留 decisions+contributions 真实产出，但只隐含
+   contribution+reconcile 义务，不凭自身选择新增 explicit decisions 义务；repair 判断既有义务是否可满足时仍可读取真实产出能力。新增跨
    decision advisory → plan normalization → admission 的同轮可执行闭包 pin；
 9. 首批 scalar custom_transform 无法满足已声明 contribution/reconcile 合同，执行失败后才进入 typed 恢复，记为独立效率项
    `EVAL-B429-CUSTOMOUTPUTCAPABILITY1=P1/open`。后续只能基于 typed plan/script AST 或显式输出能力证明施工，不能扫描 request/thinking/final prose、
@@ -29227,5 +29227,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 状态：runner=`2/2 PASS`；answer-human=`1/2 PASS`；data-process=`FAIL/7-batches-4-repairs-1-action-failure`；
 `EVAL-B422=P1-cross-diagram-production-confirmed/design-first-open`；
 `EVAL-B428=P0-confirmed/in-implementation`；`EVAL-B429=P1-open/design-required`；
+`json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.447 B428/S37dz：动作产品与隐含工作流义务分轴
+
+`EVAL-B428-ACTIONSELFPRECONDITION1` 已完成结构修复：
+
+1. `ActionCapability` 保留 `ProducesLedgers` 真实执行产品轴，新增独立 `ImpliesLedgers` 工作流义务轴；公共
+   `ImpliesLedgerObligation` 成为 plan normalization 的单一谓词。两轴都只来自 action enum/capability registry，不读取用户请求、模型 thinking、
+   plan 文案、答案或 JSON 字符串形状；
+2. `compute_contributions` 的 runner 会由 contribution rows 派生 decision audit rows，因此其 `ProducesLedgers` 仍是
+   `[decisions, contributions]`；但选择 compute 只隐含 `[contributions, reconcile]` 校验，不再自行铸造
+   `decision_records_required=true`。已有业务/rule 合同显式要求 decisions 时，原 guard 仍要求先形成资格决定，未被放宽；
+3. derive_rules、filter/qualify、normalize/enrich、reconcile 的隐含义务按各自真实用途显式登记；assemble_answer 不再因为只是最终投影而发明数值
+   reconcile。该结构同时覆盖未来 action，不需要在 normalizer 继续手写“某 action 特例”；
+4. repair escalation 与普通 plan normalization 分开消费：普通续批只读 `ImpliesLedgers`，防止产物变成自前置；repair 判断模型已显式提出的既有义务
+   是否由当前 DAG 支持时，读取 `ProducesLedgers OR ImpliesLedgers`，因此 compute 的派生 decision rows 和旧 GAP-EVAL-D1 deterministic fallback
+   仍可使用，未破坏既有闭包；
+5. 新 pin 覆盖产品/义务分离、compute 不新增 decision 但仍新增 contribution+reconcile、qualify 的 explicit decisions、assemble 不新增 reconcile，
+   以及精确生产形：一个当前可推荐的 compute plan 经 normalization 后仍处于允许 compute 的 stage/action 集。现有 repair-duty 测试同时证明
+   已显式 decisions 义务不会被错误清除；
+6. 定向 `internal/dataworkflow`、`internal/dataquery`、`internal/repl` 与无缓存 `go test ./... -count=1` 全绿。本批未增加 JSON prose 教学，
+   未扫描或改写模型原文/答案；没有修改 read relation gate 或 B422，也没有修改 Trace 时间窗、自动补采、因果投影、唤醒链、可消除量和根因排序。
+   Trace 主根因仍仅来自 typed on-chain 席，邻近区域和背景只能支撑解释或作为额外排查方向。
+
+状态：`EVAL-B428=S37dz-implemented/full-suite-pass/pending-production-replay`；
+`action-capability=products-and-implied-obligations-separated`；
+`same-round-advisory-normalization-admission=closure-pinned`；
+`EVAL-B422=P1-design-first-open`；`EVAL-B429=P1-open/design-required`；
 `json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

@@ -36,6 +36,9 @@ func TestActionCapabilitiesExposeLedgerOutputs(t *testing.T) {
 	if !ProducesLedger(dataquery.DataActionComputeContribs, LedgerContributions) {
 		t.Fatal("compute_contributions should produce contributions")
 	}
+	if !ProducesLedger(dataquery.DataActionComputeContribs, LedgerDecisions) {
+		t.Fatal("compute_contributions should expose its derived decision audit rows")
+	}
 	if !ProducesLedger(dataquery.DataActionFilterRecords, LedgerDecisions) {
 		t.Fatal("filter_records should produce row decisions")
 	}
@@ -44,6 +47,26 @@ func TestActionCapabilitiesExposeLedgerOutputs(t *testing.T) {
 	}
 	if ProducesLedger(dataquery.DataActionFilterRecords, LedgerContributions) {
 		t.Fatal("filter_records should not be marked as producing contributions")
+	}
+}
+
+func TestActionCapabilitiesSeparateProductsFromImpliedObligations(t *testing.T) {
+	if !ProducesLedger(dataquery.DataActionComputeContribs, LedgerDecisions) {
+		t.Fatal("compute_contributions should retain its derived decision-row product")
+	}
+	if ImpliesLedgerObligation(dataquery.DataActionComputeContribs, LedgerDecisions) {
+		t.Fatal("a derived decision-row product must not become a same-action prerequisite")
+	}
+	for _, ledger := range []LedgerKind{LedgerContributions, LedgerReconcile} {
+		if !ImpliesLedgerObligation(dataquery.DataActionComputeContribs, ledger) {
+			t.Fatalf("compute_contributions should imply %s validation", ledger)
+		}
+	}
+	if !ImpliesLedgerObligation(dataquery.DataActionQualifyRecords, LedgerDecisions) {
+		t.Fatal("qualify_records should imply the explicit decisions obligation it is selected to satisfy")
+	}
+	if ImpliesLedgerObligation(dataquery.DataActionAssembleAnswer, LedgerReconcile) {
+		t.Fatal("pure answer projection must not invent numeric reconcile validation")
 	}
 }
 

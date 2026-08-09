@@ -724,7 +724,8 @@ func TestDataTaskWorkflowNextStageFallbackStopsRepeatedRelationNoProgress(t *tes
 
 func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
 	plan := dataquery.TaskPlan{
-		Status: "ready",
+		Status:           "ready",
+		CoverageContract: dataquery.CoverageContract{RuleCoverageRequired: true},
 		Actions: []dataquery.DataAction{{
 			ID:   "empty_transform",
 			Kind: dataquery.DataActionCustomTransform,
@@ -3881,6 +3882,39 @@ func TestNormalizeDataTaskPlanShapeRequiresRuleCoverageForDeriveRules(t *testing
 	}
 	if !strings.Contains(strings.Join(reasons, "\n"), "derive_rules") {
 		t.Fatalf("reasons=%v, want derive_rules normalization reason", reasons)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeComputeDoesNotMintOwnDecisionPrerequisite(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{{
+			ID:             "sum",
+			Kind:           dataquery.DataActionComputeContribs,
+			InputPaths:     []string{"orders_records"},
+			OutputArtifact: "amount_contributions",
+			Params: map[string]string{
+				"operation":         "add",
+				"value_field":       "amount",
+				"group_key_literal": "global",
+			},
+		}},
+	}
+	got, reasons := normalizeDataTaskPlanShape(plan)
+	if got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("coverage=%+v reasons=%v, compute product was promoted into a self-prerequisite", got.CoverageContract, reasons)
+	}
+	if !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage=%+v, compute must still imply contribution and reconcile validation", got.CoverageContract)
+	}
+	facts := dataworkflow.BuildStageFacts(dataworkflow.StageFactsInput{
+		MaterialCoverageSufficient: true,
+		Coverage:                   dataworkflow.CoverageContractViewFor(dataworkflow.CoverageLayerWorkflow, got.CoverageContract),
+		RuleCoverageRecords:        2,
+	})
+	allowed := dataworkflow.ActionKindsFromContracts(dataworkflow.AllowedNextActionContractsForFacts(facts))
+	if !slices.Contains(allowed, string(dataquery.DataActionComputeContribs)) {
+		t.Fatalf("normalized candidate must remain admissible under its own resulting facts: stage=%s allowed=%v coverage=%+v", dataworkflow.NextStage(facts), allowed, got.CoverageContract)
 	}
 }
 
