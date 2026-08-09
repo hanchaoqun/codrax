@@ -28531,20 +28531,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 5. B409 的泛化下一步不是放宽 typed temporal gate，而是对**精确匹配 report-local capsule 的结构化 diagram block**做机械 metadata 补齐：仅当可见 arrow
    occurrence multiset 与单一完整 runtime owner 完全匹配且不存在冲突 anchors 时，补其已知 temporal anchors；改写/子集/混合/source sibling 均继续 fail-close。
    该判断只读结构化 diagram/typed owner，不扫描用户输入、thinking、summary 或 final prose；
-6. B403 再次确认，且根因向上游扩展为 `EVAL-B410-RUNTIMEPROPOSITIONAUTHORITYLEAK1=P1/HIGH`：Finalizer 已收到精确
-   `owning_thread_role_authority/internal_work_authority=not_provided`，模型仍声称 app-20 是 UI 线程、RSUniRenderThre 是 RenderService 专用线程，进一步写
-   “UI 提交光栅任务”“GPU 硬件队列/实际绘制”。污染在 Finalizer 前已经形成：perf-triage 自由摘要、Analyzer 调查单元和 Explorer
-   `emit_investigation_complete.reason` 都把用户待证的 “UI→RenderService→GPU” 命题写成已解析事实；
-7. B410 的最优解是**上下文权威分层**，不是答案关键词硬门：用户命题/Analyzer subtopic 只作为 question/hypothesis；模型生成的 pretriage narrative 和
-   completion reason 不得升级为 Finalizer 的 fact authority；runtime principal facts 只从 typed trace rows/aggregate carriers 构造，并随字段携带
-   stage-role、thread-role、internal-work、causality 四个独立 authority。模型仍负责总结和结论，系统不删除、不替换正文；
+6. B403 再次确认；但本节把它上推成 `EVAL-B410-RUNTIMEPROPOSITIONAUTHORITYLEAK1` 的判断经 r240 深读后**证伪**。Finalizer prompt 已明确
+   Analyzer subtopic 只是 model-authored planning label、不是 evidence；runtime artifact authority 区不携 Explorer completion reason；perf-triage 自由
+   observation 也标成 navigation/advisory，只有 deterministic timestamp observation 可作事实。当前没有证据证明这些跨阶段文本被升级成 Finalizer fact authority；
+7. 因此 B410 不立施工项。B403 保持为“模型没有服从已经同席提供的
+   `owning_thread_role_authority/internal_work_authority=not_provided`”的语义遵循/波动问题：继续异构模型与多语言 case 观察，但不增加答案关键词硬门、系统改写或更多
+   同义 JSON 教学。若未来有精确反例，再按 stage-role/thread-role/internal-work/causality 分层立案；
 8. 本轮没有系统改写模型结论。唯一 patch 是模型在确定性 typed 图合同拒绝后补 metadata。后续先施工 B409 精确机械补齐并钉 source sibling fail-close，
-   再按 B410 审计各 stage 到 Finalizer 的权威消费，避免继续堆 JSON/同义教学增加模型心智。
+   再通过异构生产复放观察 B403，避免在已正确分层的上下文上继续堆 JSON/同义教学增加模型心智。
 
 状态：runner=`2/2 PASS`；human=`1/2 PASS`；
 `EVAL-B404=production-closed`；`EVAL-B407=production-closed`；
 `EVAL-B409=partial/one-retry/open`；`EVAL-B403=P1-confirmed`；
-`EVAL-B410=P1-confirmed/next-authority-layering`；`EVAL-B406=P1-observe`；
+`EVAL-B410=refuted/no-code-change`；`EVAL-B406=P1-observe`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
 
@@ -28563,9 +28562,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 5. 新增 exact-full 缺锚转绿、typed subset 不补、因果 label 不补、partial metadata 不补、source sibling 仍硬拒五类回归。runtime block 补锚后仍由原
    report-local typed owner 复核；source diagram、all-language call/guard contracts 没有放宽；
 6. 聚焦 tool/agent/orchestrator 测试与 `go test ./... -count=1` 无缓存全仓终验全部通过。下一步用同一 frame case 生产复放确认
-   `fin_reject=0/patch=0`，并继续 B410 的跨 stage runtime proposition authority 分层。
+   `fin_reject=0/patch=0`，并审计 B403 是否仍有精确的上下文权威污染来源。
 
 状态：`EVAL-B409=S37dm-implemented/full-suite-pass/pending-production-replay`；
 `visible-answer-mutation=none`；`metadata-repair=exact-full-owner-only`；
 `source-sibling-gate=preserved`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.425 r240：图合同零拒绝；外部 Trace 被误套源码 flow-operation 完备性合同
+
+在 `main@c219aee0e` 上严格并发恰好两个异构 case：`trace_query_frame_timeline_flow` 与 `data_jsonl_filter_count`。runner 2/2 PASS，人工 1/2 PASS：
+
+1. data JSONL 车道人工通过：`instructions.md` 以完整 planner-distilled 材料进入计划，`events.jsonl` 由单个 `custom_transform` 消费；最终严格单行
+   `2`，零 repair/reject。该简单过滤计数不需要强制铸造 contributions/reconcile，未发现 JSON 教学自冲突；
+2. frame 图首稿自行携带三条 temporal anchors，`fin_reject=0/patch=0`；预发射仅做已有 metadata 的 canonical normalize。B409 的“零重试”目标生产成立，
+   但本轮**没有**命中新增加的“完整图完全缺 anchors”机械补齐 positive branch，故不能把 auto-repair 宣称为生产见证闭环；
+3. frame 人工仍判失败：答案把 `app-20` 加冕为 UI 主线程、把 `RSUniRenderThre` 加冕为 RenderService 专用线程，并扩写“接收渲染任务/执行硬件绘制”职责。
+   typed trace 只证明线程名、span、时间与 temporal adjacency；`owning_thread_role_authority/internal_work_authority=not_provided`。答案虽正确披露因果未证，
+   仍越过角色和内部工作 authority；
+4. 对 Finalizer prompt、perf-triage authority 和 completion handoff 的逐项深读推翻了 §123.423 的 B410 猜测：Analyzer subtopic 已明确是 planning-only；
+   completion reason 不进入 runtime final authority；pretriage 自由 observation 只作 navigation/advisory。现有证据只支持 B403 模型语义遵循波动，不支持新增系统硬门或上下文改写；
+5. 新确认 `EVAL-B411-EXTERNALTRACEFLOWOPERATIONGATE1=P1/HIGH`：Analyzer 将该问题分类为 `intent=explain + predicate_axis=flow`，导致
+   `flowOperationEvidenceRequired` 要求 current-source producer/transfer/consumer。第一次 `emit_investigation_complete` 因零源码 operation row 被
+   DOWNGRADED；外部 trace `resolved_files=0`，模型已完成三次 typed `frame_timeline/frame_flow` 查询，仍被迫多跑一轮，最后靠
+   `evidence_floor_waiver=external_only_trace` 才完成。`pre_complete_downgrades=1`，增加约 24 秒且给模型错误调查方向；
+6. B411 最优解是复用 typed runtime-artifact context 与 `CurrentSourceLaneDecision`：当运行时工件在场且当前源码不 required 时，源码
+   flow-operation 合同不适用；普通源码 flow 以及显式 trace+当前源码混合解释继续严格要求 operation carrier。判断不得读取用户/模型原文，不能依赖模型再次声明 waiver；
+7. 这只收窄 Explorer 完成合同，不修改 Trace 查询、显式时间窗、因果投影、自动补采或最终答案。Trace 主根因仍只允许 typed on-chain seat；邻近与背景只能作支撑或
+   额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B409=no-retry-production-pass/auto-repair-positive-witness-pending`；
+`EVAL-B403=P1-observe/model-semantic-adherence`；`EVAL-B410=refuted`；
+`EVAL-B411=P1-confirmed/next-typed-routing-fix`；
+`json-contract-conflict=none`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
