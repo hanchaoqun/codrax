@@ -78,3 +78,67 @@ func ExplorerAuthoredFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm
 	}
 	return out
 }
+
+// MissingExplorerFlowIncidentParticipants returns schema-validated flow
+// participants whose requested incident relation is still absent from the
+// Explorer-authored operation handoff. Participant hints are planning
+// obligations, never evidence: this helper only checks them against citable
+// typed relations and never manufactures an edge from the hint itself.
+//
+// An empty result is intentionally ambiguous between "all covered" and "no
+// typed participant obligations"; callers that need to distinguish those
+// states can inspect DiagramHint.Participants. Context-only participants are
+// excluded because their connection was not requested. Identity comparison
+// uses the shared cross-language identity segmentation plus a unique
+// short-to-qualified bridge rather than label text, request prose, or fuzzy
+// similarity.
+func MissingExplorerFlowIncidentParticipants(evidence []EvidenceItem, rm RequestModel) []string {
+	if rm.DiagramHint == nil || len(rm.DiagramHint.Participants) == 0 {
+		return nil
+	}
+	operations := ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	seen := make(map[string]bool, len(rm.DiagramHint.Participants))
+	missing := make([]string, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		key := strings.ToLower(identity)
+		if identity == "" || seen[key] || participant.Role != DiagramParticipantIncidentRequired {
+			continue
+		}
+		seen[key] = true
+		covered := explorerFlowIncidentParticipantCovered(identity, operations)
+		if !covered {
+			missing = append(missing, identity)
+		}
+	}
+	return missing
+}
+
+func explorerFlowIncidentParticipantCovered(identity string, operations []EvidenceItem) bool {
+	participantSegments := answerCodeIdentitySegments(identity)
+	if len(participantSegments) == 0 {
+		return false
+	}
+	candidates := map[string]struct{}{}
+	for _, operation := range operations {
+		for _, endpoint := range []string{operation.Subject, operation.Object} {
+			endpointSegments := answerCodeIdentitySegments(endpoint)
+			if len(endpointSegments) == 0 {
+				continue
+			}
+			if answerCodeIdentitySegmentSlicesEqual(participantSegments, endpointSegments) {
+				candidates[strings.Join(endpointSegments, ".")] = struct{}{}
+				continue
+			}
+			// A source relation may qualify a short request identity when that
+			// qualification is unique in the selected operation set. The reverse
+			// is unsafe: an unqualified relation endpoint cannot prove the owner
+			// of an explicitly qualified participant.
+			if len(participantSegments) == 1 && len(endpointSegments) > 1 &&
+				AnswerCodeIdentitySurfacesCompatible(identity, endpoint) {
+				candidates[strings.Join(endpointSegments, ".")] = struct{}{}
+			}
+		}
+	}
+	return len(candidates) == 1
+}

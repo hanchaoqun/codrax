@@ -2173,24 +2173,40 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("runtime target selection remains unproven: no citable registration, assignment/initializer, or factory-return fact connected the discovered destination to the typed call path; the model must keep the destination conditional and may still summarize the proven static calls")
 	}
+	flowOperationRequired := flowOperationEvidenceRequired(ctx)
+	flowOperationMissingParticipants := []string(nil)
+	if flowOperationRequired {
+		flowOperationMissingParticipants = types.MissingExplorerFlowIncidentParticipants(
+			evidenceSnapshot,
+			ctx.AnalysisIR.RequestModel,
+		)
+	}
 	flowOperationMissing := resultKind == "resolved" && justification == "" &&
-		flowOperationEvidenceRequired(ctx) &&
-		!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel)
+		flowOperationRequired &&
+		(!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel) ||
+			len(flowOperationMissingParticipants) > 0)
 	if !flowOperationMissing && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowOperationCarrier)
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
 	}
 	if flowOperationMissing {
 		queueFlowOperationCarrierRepair(ctx)
+		missingParticipantSuffix := ""
+		if len(flowOperationMissingParticipants) > 0 {
+			missingParticipantSuffix = fmt.Sprintf(
+				" Typed incident_required participants without an Explorer-authored citable incident relation: %s.",
+				strings.Join(flowOperationMissingParticipants, ", "),
+			)
+		}
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(
-					"emit_investigation_complete rejected: the typed flow investigation contains no citable operation-level transfer. Definitions and carrier-field rosters establish identities only. Do one focused source pass over the producer, transfer/merge boundary, and consumer; emit each verified directed operation, or retry completion with the transfer explicitly left unproven."),
+					"emit_investigation_complete rejected: the typed flow investigation does not yet cover its citable operation-level transfer obligations. Definitions and carrier-field rosters establish identities only. Do one focused source pass over the producer, transfer/merge boundary, and consumer; emit each verified directed operation, or retry completion with the transfer explicitly left unproven." + missingParticipantSuffix),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "flow_operation_carrier_evidence",
-					Hint:   types.FlowOperationEvidenceEmissionGuide,
+					Hint:   types.FlowOperationEvidenceEmissionGuide + missingParticipantSuffix,
 					Fields: []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
 					Metadata: map[string]string{
 						"repair_origin": "emit_investigation_complete.flow_operation_carrier",
@@ -2202,7 +2218,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}, nil
 		}
 		earlyDowngradeConverged = true
-		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
+		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven or incomplete: no citable call, callback, assignment/initializer, return, or precedence row established every typed incident_required participant's requested connection; definitions and field rosters may still be summarized as independent context, but not as a complete ordered data path" + missingParticipantSuffix)
 	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
 	if evidenceWaiverReject != nil {
