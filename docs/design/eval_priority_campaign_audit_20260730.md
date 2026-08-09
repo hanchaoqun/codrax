@@ -28403,3 +28403,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `diagram-owner=single-decision-consumed-by-pre+post`；`source-sibling-gates=preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.419 r237：B402 生产闭环；typed 语义升级与跨席重组成为下一杠杆
+
+在 `main@c72fa6d15` 上严格并发恰好两个同组 Trace case，runner 2/2 PASS，人工 0/2 PASS：
+
+1. B402 两消费面生产闭环：frame 答案一次 emit 即接受，pre/post 均不再产生 `diagram_call_edge_unproven`、
+   `diagram_relation_label_only`、patch/retry、第一稿保留或错误图 caveat；模型保留 4 个 item Notes、3 条 temporal arrows 与三条逐 occurrence
+   anchors。由此确认 S37dj 的共享 typed owner 真正进入 production，而非仅测试面；
+2. source sibling 保真由 production-oracle 回归继续钉住；新代码没有按 `trace`/case/language 关键词白名单，没有把 generic source call/guard 门整体关掉；
+3. `EVAL-B403-TYPEDSEMANTICADHERENCEPLATEAU1=P1/HIGH` 在干净合同下仍复现。模型正确写出 causal unproven，却同时把
+   `app-20`、`RSUniRenderThre`、`gpu-300` 的 item stage/span name 扩成 UI 线程调度、RenderService 光栅化/绘制命令下发、GPU 画面合成，并称
+   RenderFrame 为提交入口。现有 prompt 已有远处 ceiling，但 copy-ready item Note 只带 `role=ui/render_service/gpu`，没有把
+   `item_stage_role` 与 `owning_thread_role_authority=not_provided` 同位，给模型留下跨字段迁移空间；
+4. Donghu 根因人口/顺序仍只来自 typed on-chain seats，pressure/其他进程 IO 保持背景，frame absent 正确披露；但
+   `EVAL-B404-UNBOUNDINVENTORYREBINDS1` 再次复现：同 subject 的 `thread_window_blocked_reason_census(rank_binding=not_provided)` 紧邻 #3/#5
+   ranked seats，模型把 ×17/×1/×1 roster 贴到 #3 cause-unproven 席后；
+5. 新确认 `EVAL-B407-TRACESEATRECOMPOSITION1=P1/HIGH`：模型把不可相加的 #3 10.433ms 与 #5 7.386ms 重组为“D/IO 合计有效归因
+   18.119ms”；除违反 non-additive seat 合同外，即使机械相加也应为 17.819ms。代表窗另称“主线程同步等待 CookieMonsterCl 响应”，与
+   `direct_blocking_decision=not_established` 冲突；
+6. B403/B404/B407 的共同根因不是缺更多同义警告，而是**权限字段与易误绑定值没有同位**。下一泛化批冻结为：
+   - frame item capsule 把 `item_stage_role`、thread identity、`owning_thread_role_authority`、`internal_work_authority` 同位；
+   - wait capsule 先完整发布全部 ranked seats，再在独立 `unbound_window_inventory` 区发布 census，并为 ranked seat 明示
+     `cross_seat_aggregation_authority=forbidden`；
+   - 不删原始证据，不修改模型答案，不从用户/模型/final prose 触发硬门；
+7. r236 的 B406 窗内/窗外矛盾本轮未复现，保持观察；显式时间窗仍按既裁优先保持完整 Trace 投影与自动补采。frame case 的未执行补钻 caveat
+   来自该显式窗 full-report 合同，本批不为单例擅自改窄。
+
+状态：runner=`2/2 PASS`；human=`0/2 FAIL`；`EVAL-B402=production-closed`；
+`EVAL-B403=P1-confirmed/next-context-colocation`；`EVAL-B404=P1-confirmed/next-context-partition`；
+`EVAL-B407=P1-confirmed/next-seat-aggregation-authority`；`EVAL-B406=P1-observe`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
