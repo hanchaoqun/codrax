@@ -29162,3 +29162,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `count-value-field=typed-mutually-exclusive`；`member-operation=model-owned`；
 `json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.445 r250：B427 无回归；B422 的单边闭合与标签洗白再次复现
+
+在 `main@78625d3ad` 的不可变二进制快照上严格并发恰好两个 case：`data_json_strict_ids` 与
+`read_combo_pipeline_sequence_table`。runner 2/2 PASS，人工 1/2 PASS：
+
+1. data case 一批、36 秒、零 repair/action failure，严格输出 `{"ids":["u1","u3"]}`，证明 B427 修复后 direct custom 正常车道无回归；
+   但该轮实际使用 `custom_transform`，没有发射 `compute_contributions(operation=count,value_field=...)`，所以只能记为无回归，不能把
+   B427 的 typed 红臂宣称为生产闭环；
+2. read case runner PASS、人工 FAIL。探索已经找到四个主 stage，最终表也列出 Analyze/Explore/Extract/Finalize；但摘要声称完整四阶段都由
+   `Orchestrator.runAnalyzePhase` 驱动。源码中该函数只 dispatch `StageAnalyze`，因此这是实质控制流错误；
+3. 首稿 diagram 将唯一 `runAnalyzePhase -> dispatchStage(StageAnalyze)` 和 `dispatchStage -> applyStageOutput` 证据重复画成四轮，并新增
+   `dispatchStage -> dispatchStage` self-call、`applyStageOutput -> AnalysisIR/EvidenceItems/AnswerDocument/BusContext` assignment/call。现有 typed
+   relation gate 正确拒绝了重复 call-site 和无证边；这一次“成文校验未通过”不是矛盾合同，也不是应放宽的过硬校验；
+4. patch 删除无证边后只保留两条真实 call anchor，却把 `StageAnalyze → Explore → Extract → Finalize` 写进第一条箭头的显示标签。于是结构 gate
+   看见的是一条已证调用，用户看见的却是四阶段控制流；这不是靠扫描 Mermaid 标签或答案 prose 可以修的，否则会再次违反“嘈声信号不得硬门”；
+5. B422 根因再次确认：`flowOperationEvidenceRequired` 的完成条件只要求整个答案存在任意一条 citable operation carrier，不能证明用户要求的每个
+   stage 已分别覆盖 input/output/carrier，也不能证明 roster/order 与执行关系之间的边界。单一真实边因此足以让不完整甚至错误的全流程答案闭合；
+6. occurrence budget 必须保留：同一 call-site 不得被重放成多次调用。也不得让系统自动删除关系、重写图表、摘要或结论。正确设计需要 producer-owned
+   requested-member coverage carrier，具备明确 universe/source/selection authority；成员 roster/order 与 call/assignment/return 关系分轴；每个
+   requested member × requested attribute 均标为 exact evidence 或 typed `unproven_boundary`；
+7. 未来 hard completion 只消费上述 typed carrier，不读取用户原文、模型 thinking、summary、table 或 diagram label。模型可以据证据选择循环、调度器、
+   状态转移或 unknown boundary 的表达，系统只确保“请求成员覆盖”和“关系凭证”没有被一条无关边冒充，不代写最终答案；
+8. 本轮没有修改 Trace。显式时间窗、自动补采与因果投影能力保持；Trace 主根因仍只能来自 typed on-chain 席，邻近区域/背景只允许支撑说明或额外排查方向。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B427=S37dy-no-regression/typed-red-arm-not-production-hit`；
+`EVAL-B422=P1-production-reconfirmed/label-laundering/design-first-open`；
+`call-occurrence-gate=correct-preserve`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
