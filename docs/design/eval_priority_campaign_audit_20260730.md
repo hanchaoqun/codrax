@@ -28979,3 +28979,26 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B424=P1-confirmed/typed-schema-projection-under-audit`；
 `json-teaching=no-new-prose/no-execution-time-auto-drop`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.438 B424/S37dv：按 typed authority 动态裁剪 completion JSON schema
+
+`EVAL-B424-OPTIONALRELCLAIMSCHEMA1` 已按 r246 冻结方案实现：
+
+1. Explorer 每轮展示工具前，以 `ObservationLedgerInputFromAgentContext` 编译当前 accepted typed observation ledger，再调用与
+   `emit_investigation_complete` 执行校验完全相同的 `CompileTraceAnswerRelationAuthoritiesFromLedger`；只有返回至少一个可复制 authority 时，
+   completion schema 才保留可选 `relation_claims`；
+2. 零 authority 时仅从发给模型的 `emit_investigation_complete.properties` 克隆并移除 `relation_claims`。canonical tool schema 和执行器
+   schema 不变，旧调用/恢复调用仍按超集解码；若提交 stale、自造或漂移 claim，执行器继续 exact reject，绝不静默丢字段；
+3. authority 判断只读 typed tool observations、aggregate/evidence carriers 与系统补充的统一 ledger，不读用户请求、thinking、reason、summary、
+   final answer 或工具摘要子串。普通 trace 行不等于 relation authority；后续 `trace_query` 一旦产生合法 carrier，下一轮 schema 自动恢复该字段；
+4. schema 投影不修改输入 slice 或共享 `RawMessage`；不认识/畸形 schema fail-open，避免投影器把 agent 困在无工具状态；
+5. 新增四组 pin：无 authority 隐藏字段且原 schema byte 不变；有 self-runnable two-ruler typed authority 时字段保留且 schema byte 恒等；
+   无关 background trace observation 不铸权；畸形 schema fail-open；
+6. 定向 agent、tool 包及 `go test ./... -count=1` 全绿。本批没有新增 JSON prose 教学，没有把非法数组/string 自动改成关系 claim，也没有修改
+   Trace 根因排序、显式时间窗、自动补采、因果投影、唤醒链或可消除量。模型仍负责判断和答案；系统只缩小当前无合法值的 JSON 表面。
+
+状态：`EVAL-B424=S37dv-implemented/targeted-agent-tool-and-full-suite-pass/pending-production-replay`；
+`schema-signal=typed-relation-authority-single-source`；`canonical-executor-schema=strict-superset-unchanged`；
+`json-teaching=no-new-prose`；`invalid-claim-auto-drop=forbidden`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

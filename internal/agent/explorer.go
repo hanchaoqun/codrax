@@ -7042,6 +7042,13 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	if e == nil || ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 {
 		return schemas
 	}
+	// relation_claims is an optional exact-copy lane, not an invitation to
+	// invent relation metadata. Hide it until the same typed authority compiler
+	// used by the executor can actually produce at least one copyable claim.
+	// This projection changes only the schema shown to the model; the canonical
+	// execution schema remains a strict superset and continues to reject stale
+	// or fabricated authority IDs.
+	schemas = projectExplorerCompletionRelationClaimSchema(ctx, schemas)
 	// Completion-obligation lane: the scheduler granted ONE bounded
 	// dispatch whose sole purpose is materializing the pending typed
 	// completion handoff. Default to emit-only, but let typed repair
