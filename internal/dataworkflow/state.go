@@ -90,6 +90,7 @@ func (view WorkflowStateView) Facts() StageFacts {
 		ContributionRecords:        view.ContributionRecords,
 		HasReconcile:               view.HasReconcile,
 		HasAnswer:                  view.HasAnswer,
+		CustomTransformDisabled:    view.CustomTransformDisabled,
 		ReconcileFailureStreak:     view.ReconcileFailureStreak,
 	})
 }

@@ -21,6 +21,15 @@ const (
 // describes which generic validation ledgers are required, present, blocked,
 // and which typed actions can produce them.
 func BuildLedgerGraph(facts StageFacts) LedgerGraph {
+	contributionRequired := facts.ContributionLedgerNeeded()
+	reconcileRequired := facts.ReconcileNeeded()
+	var finalProjectionProducers []dataquery.DataActionKind
+	if facts.HasReconcile {
+		finalProjectionProducers = append(finalProjectionProducers, dataquery.DataActionAssembleAnswer)
+	}
+	if !facts.CustomTransformDisabled {
+		finalProjectionProducers = append(finalProjectionProducers, dataquery.DataActionCustomTransform)
+	}
 	deps := []LedgerDependency{
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerRuleCoverage,
@@ -63,7 +72,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 		}),
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerContributions,
-			Required:        facts.ContributionLedgerRequired,
+			Required:        contributionRequired,
 			Present:         facts.ContributionRecords > 0,
 			Count:           facts.ContributionRecords,
 			Stage:           StageComputeContributions,
@@ -91,7 +100,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 		}),
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerReconcile,
-			Required:        facts.ReconcileRequired,
+			Required:        reconcileRequired,
 			Present:         facts.HasReconcile,
 			Count:           boolCount(facts.HasReconcile),
 			Stage:           StageReconcileArtifacts,
@@ -108,21 +117,21 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			Present:         facts.HasAnswer,
 			Count:           boolCount(facts.HasAnswer),
 			Stage:           StageEmitOutputContractAnswer,
-			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionAssembleAnswer},
+			ProducesActions: finalProjectionProducers,
 			DependsOn: cleanStrings([]string{
 				conditionalLedgerDependency(facts.RuleCoverageRequired, LedgerRuleCoverage),
 				conditionalLedgerDependency(facts.DecisionRecordsRequired, LedgerDecisions),
 				conditionalLedgerDependency(facts.EntityResolutionRequired, LedgerEntityResolutions),
-				conditionalLedgerDependency(facts.ContributionLedgerRequired, LedgerContributions),
-				conditionalLedgerDependency(facts.ReconcileRequired, LedgerReconcile),
+				conditionalLedgerDependency(contributionRequired, LedgerContributions),
+				conditionalLedgerDependency(reconcileRequired, LedgerReconcile),
 			}),
 			MissingPrerequisites: ledgerPrerequisites(
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
 				ledgerPrerequisite{Enabled: facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0, Value: string(LedgerRuleCoverage)},
 				ledgerPrerequisite{Enabled: facts.DecisionRecordsRequired && facts.DecisionRecords == 0, Value: string(LedgerDecisions)},
 				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied(), Value: string(LedgerEntityResolutions)},
-				ledgerPrerequisite{Enabled: facts.ContributionLedgerRequired && facts.ContributionRecords == 0, Value: string(LedgerContributions)},
-				ledgerPrerequisite{Enabled: facts.ReconcileRequired && !facts.HasReconcile, Value: string(LedgerReconcile)},
+				ledgerPrerequisite{Enabled: contributionRequired && facts.ContributionRecords == 0, Value: string(LedgerContributions)},
+				ledgerPrerequisite{Enabled: reconcileRequired && !facts.HasReconcile, Value: string(LedgerReconcile)},
 			),
 		}),
 	}

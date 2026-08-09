@@ -35,6 +35,10 @@ type StageFacts struct {
 	ReconcileRequired          bool `json:"reconcile_required,omitempty"`
 	HasReconcile               bool `json:"has_reconcile,omitempty"`
 	HasAnswer                  bool `json:"has_answer,omitempty"`
+	// CustomTransformDisabled is a typed runtime capability fact. When true,
+	// final projection cannot use the direct custom-transform lane and must
+	// materialize the ledgers required by assemble_answer instead.
+	CustomTransformDisabled bool `json:"custom_transform_disabled,omitempty"`
 	// ReconcileFailureStreak counts consecutive reconcile-action rounds
 	// that ended in a runtime failure without an intervening successful
 	// reconcile. EVALFIX-1 Gap A: at StageReconcileArtifacts the
@@ -60,6 +64,7 @@ type StageFactsInput struct {
 	ContributionRecords        int
 	HasReconcile               bool
 	HasAnswer                  bool
+	CustomTransformDisabled    bool
 	ReconcileFailureStreak     int
 }
 
@@ -78,8 +83,17 @@ func BuildStageFacts(input StageFactsInput) StageFacts {
 		ReconcileRequired:          input.Coverage.ReconcileRequired,
 		HasReconcile:               input.HasReconcile,
 		HasAnswer:                  input.HasAnswer,
+		CustomTransformDisabled:    input.CustomTransformDisabled,
 		ReconcileFailureStreak:     input.ReconcileFailureStreak,
 	}
+}
+
+func (facts StageFacts) ContributionLedgerNeeded() bool {
+	return facts.ContributionLedgerRequired || (facts.CustomTransformDisabled && !facts.HasAnswer)
+}
+
+func (facts StageFacts) ReconcileNeeded() bool {
+	return facts.ReconcileRequired || (facts.CustomTransformDisabled && !facts.HasAnswer)
 }
 
 type ActionContract struct {
@@ -100,7 +114,7 @@ func NextStage(facts StageFacts) string {
 	if facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied() {
 		return StageNormalizeOrEnrichEntities
 	}
-	if facts.ContributionLedgerRequired && facts.ContributionRecords == 0 {
+	if facts.ContributionLedgerNeeded() && facts.ContributionRecords == 0 {
 		return StagePrepareContributionInputs
 	}
 	// Required decision records are produced by filter_records/qualify_records
@@ -124,10 +138,10 @@ func NextStage(facts StageFacts) string {
 	// they take priority (same target stage, and the decisions gate keeps
 	// compute_contributions withheld until they exist). Pinned by
 	// TestEveryRequiredLedgerHasReachableProducer_NoTypedDeadlock.
-	if facts.ReconcileRequired && !facts.HasReconcile && facts.ContributionRecords == 0 {
+	if facts.ReconcileNeeded() && !facts.HasReconcile && facts.ContributionRecords == 0 {
 		return StagePrepareContributionInputs
 	}
-	if facts.ReconcileRequired && !facts.HasReconcile {
+	if facts.ReconcileNeeded() && !facts.HasReconcile {
 		return StageReconcileArtifacts
 	}
 	if ruleCoverageMissing {
@@ -173,10 +187,10 @@ func MissingValidationStages(facts StageFacts) []string {
 	if facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {
 		out = append(out, "decision_records")
 	}
-	if facts.ContributionLedgerRequired && facts.ContributionRecords == 0 {
+	if facts.ContributionLedgerNeeded() && facts.ContributionRecords == 0 {
 		out = append(out, "contribution_ledger")
 	}
-	if facts.ReconcileRequired && !facts.HasReconcile {
+	if facts.ReconcileNeeded() && !facts.HasReconcile {
 		out = append(out, "reconcile")
 	}
 	if !facts.HasAnswer {
@@ -797,6 +811,21 @@ func AllowedNextActionContractsForStageFacts(facts StageFacts, stage string) []A
 	}
 	if DecisionsGateExcludesComputeContribs(facts) {
 		contracts = filterActionContracts(contracts, dataquery.DataActionComputeContribs)
+	}
+	if facts.CustomTransformDisabled {
+		contracts = filterActionContracts(contracts, dataquery.DataActionCustomTransform)
+	}
+	// Emit-stage contracts must be executable under the same typed facts as
+	// the downstream guards. Do not advertise reconcile without contributions
+	// or assemble_answer without a reconcile report. The direct custom lane is
+	// the only projection path that can bypass those ledgers.
+	if stage == StageEmitOutputContractAnswer {
+		if facts.ContributionRecords == 0 {
+			contracts = filterActionContracts(contracts, dataquery.DataActionReconcile)
+		}
+		if !facts.HasReconcile {
+			contracts = filterActionContracts(contracts, dataquery.DataActionAssembleAnswer)
+		}
 	}
 	return contracts
 }

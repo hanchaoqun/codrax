@@ -29053,3 +29053,58 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `legacy-current-plan-only=soft-guidance`；`json-teaching=no-new-prose`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.441 r248：B425 生产生效；typed 投影 rank 与 upstream guard 自相矛盾
+
+在 `main@26d8acffe` 的不可变二进制快照上严格并发恰好两个 case：`data_json_strict_ids` 与 `patch_cpp_typo`。runner 1/2 PASS，
+人工 1/2 PASS：
+
+1. C++ write/plan 人工通过：只读取目标 `main.cpp` 并生成一条 `retrun`→`return` patch，old/new text、行号、owner anchor 与验收条件一致；
+   plan-only 没有 apply，也没有伪称已运行 `g++`。B425 对公共 structured-tool 解码边界的改动没有污染 write 模式；
+2. data case 在 388 秒后 FAIL，终态没有用户答案，3 次 repair、4 个 action failure。材料覆盖、3 条 rules 和 3 条 active/inactive decisions
+   已正确形成，但预算耗尽时 contributions、reconcile、final projection 仍未完成；
+3. B425 的生产行为已验证：模型提交当前 enum 外的原生 `derive_rules`/未来-rank action 时，工具边界立即给出精确
+   `$.actions[N].kind` same-schema repair；这些 action 没有再以可解析 JSON 绕过 schema 后进入 execution。该项升级为 production-effective，
+   但本轮因更深合同冲突不能宣称整 case 闭环；
+4. 新 `EVAL-B426-TYPEDPROJECTIONREACHABILITY1=P0/REDLINE`：rule/material 已满足、无 contributions/reconcile、direct custom 因 typed
+   runtime 风险被禁用时，状态仍进入 `emit_output_contract_answer` 并发布 `[reconcile_artifacts, assemble_answer]`。模型服从列表发射
+   `assemble_answer`，upstream-ledger guard 却必然以“requires prior reconcile”拒绝；发射 `reconcile_artifacts` 又必然因 contributions=0 拒绝；
+5. 该冲突还由既有 reference-grounding pin 反向固化：测试要求无 reconcile 的 mismatch 状态开放 `assemble_answer`，而执行器明确禁止。
+   这是系统自身同一轮“必带/必拒”，不能归因于 JSON 教学或模型不服从；
+6. 最优修复冻结为 typed capability 单源：`CustomTransformDisabled` 进入 StageFacts；direct custom 可用时，无 reconcile 的 emit 阶段只发布
+   custom projection；custom 禁用时，contributions 与 reconcile 成为 final projection 的操作前置，路由依次为
+   `prepare_contribution_inputs -> reconcile_artifacts -> emit_output_contract_answer`；每一 rank 仅发布 upstream guard 当前可执行的动作；
+7. LedgerGraph 的 required/present/missing prerequisites、final producer、decision advisory、planner enum 与 admission 必须消费同一 facts，不能只修 prompt
+   或某个 case。reference-grounding 旧 pin 改为先开放 executable reconcile、暂缓 assemble，而不是降低 grounding gate。
+
+状态：runner=`1/2 PASS`；human=`1/2 PASS`；
+`EVAL-B425=production-effective/native-rank-bypass-closed`；
+`EVAL-B426=P0-confirmed/in-implementation`；`write-mode=unaffected`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.442 B426/S37dx：投影 capability、stage、ledger 与 admission 共用事实
+
+`EVAL-B426-TYPEDPROJECTIONREACHABILITY1` 已完成结构修复：
+
+1. `StageFacts` 新增 typed `CustomTransformDisabled`，并定义 `ContributionLedgerNeeded/ReconcileNeeded` 单一谓词。显式业务合同要求仍保留；当
+   direct custom projection 被 runtime 精确信号禁用且答案尚未形成时，两条 ledger 自动成为 assemble 路径的操作前置；
+2. `NextStage`、`MissingValidationStages` 和 `BuildLedgerGraph` 同时消费上述谓词。typed-only 投影从零 ledger 开始先到
+   `prepare_contribution_inputs`，有 contributions 后到 `reconcile_artifacts`，有 reconcile 后才到 `emit_output_contract_answer`；
+3. `AllowedNextActionContractsForStageFacts` 在 emit rank 按现有 facts 过滤 guaranteed-failure action：contributions=0 不发布 reconcile，
+   `HasReconcile=false` 不发布 assemble，custom-disabled 不发布 custom。direct custom 可用且无 reconcile 时只发布 custom；已具 reconcile 时才发布 assemble；
+4. LedgerGraph 将 typed-only 所需 contributions/reconcile 标成 required 并写入 final projection prerequisites；final producer 也按 capability 生成：
+   无 reconcile 不再把 assemble 冒充当前 producer，custom 可用才列 custom，有 reconcile 才列 assemble。decision advisory、schema enum 与 admission
+   因而从同一事实闭包派生；
+5. state builder 保留 callback 对 base stage 的读取语义，但 callback 改变 capability 后重新计算 final facts/stage/contracts/snapshot，消除
+   “显示 custom disabled、路由却仍按 enabled 计算”的陈腐快照；
+6. 原 4096 态 producer-reachability 穷举加入 custom capability 轴，扩为 8192 态；新增 direct/typed-only 四阶段、ledger prerequisites、
+   callback 重算和 guaranteed-failure action 负 pin。reference-grounding 旧测试纠正为无 reconcile 时先允许 reconcile、禁止 premature assemble，grounding
+   失败本身仍保持 fail-closed；
+7. 定向 `internal/dataworkflow`、`internal/repl`、`internal/dataquery` 已通过；无缓存全仓结果随本批提交记录。本批不扫描用户/模型 prose，
+   不自动删除 action、不代写答案、不增加 JSON 教学，也不修改 Trace 查询、窗口、自动补采或因果投影。
+
+状态：`EVAL-B426=S37dx-implemented/full-suite-pass/pending-production-replay`；
+`projection-path=capability-typed`；`guaranteed-failure-action-publication=forbidden`；
+`json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

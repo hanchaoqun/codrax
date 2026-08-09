@@ -20,9 +20,9 @@ import (
 //     misdirects the planner into guaranteed guard failures.
 //
 // Both invariants are checked over an enumerated StageFacts slice: all
-// combinations of the five required flags × ledger presence (zero vs
+// combinations of the five required flags × custom-transform capability × ledger presence (zero vs
 // non-zero record counts, reconcile presence, answer presence) × entity-stage
-// materialization — 2^12 = 4096 states. Deliberately NOT enumerated:
+// materialization — 2^13 = 8192 states. Deliberately NOT enumerated:
 // MaterialCoverageSufficient is pinned true (material collection is upstream
 // of every ledger gate here). EntityStageMaterialized WAS pinned false until
 // 2026-07-19: that exclusion was exactly the audited escape lane of the
@@ -56,46 +56,32 @@ var pinLedgerUniverse = map[string]LedgerKind{
 }
 
 func pinEnumerateStageFacts() []StageFacts {
-	bools := []bool{false, true}
-	var out []StageFacts
-	for _, ruleReq := range bools {
-		for _, decisionReq := range bools {
-			for _, entityReq := range bools {
-				for _, contribReq := range bools {
-					for _, reconcileReq := range bools {
-						for _, ruleCount := range []int{0, 2} {
-							for _, decisionCount := range []int{0, 2} {
-								for _, entityCount := range []int{0, 4} {
-									for _, entityMaterialized := range bools {
-										for _, contribCount := range []int{0, 2} {
-											for _, hasReconcile := range bools {
-												for _, hasAnswer := range bools {
-													out = append(out, StageFacts{
-														MaterialCoverageSufficient: true,
-														RuleCoverageRequired:       ruleReq,
-														RuleCoverageRecords:        ruleCount,
-														DecisionRecordsRequired:    decisionReq,
-														DecisionRecords:            decisionCount,
-														EntityResolutionRequired:   entityReq,
-														EntityResolutionRecords:    entityCount,
-														EntityStageMaterialized:    entityMaterialized,
-														ContributionLedgerRequired: contribReq,
-														ContributionRecords:        contribCount,
-														ReconcileRequired:          reconcileReq,
-														HasReconcile:               hasReconcile,
-														HasAnswer:                  hasAnswer,
-													})
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
+	const axes = 13
+	out := make([]StageFacts, 0, 1<<axes)
+	for mask := 0; mask < 1<<axes; mask++ {
+		bit := func(index int) bool { return mask&(1<<index) != 0 }
+		count := func(index, present int) int {
+			if bit(index) {
+				return present
 			}
+			return 0
 		}
+		out = append(out, StageFacts{
+			MaterialCoverageSufficient: true,
+			RuleCoverageRequired:       bit(0),
+			DecisionRecordsRequired:    bit(1),
+			EntityResolutionRequired:   bit(2),
+			ContributionLedgerRequired: bit(3),
+			ReconcileRequired:          bit(4),
+			RuleCoverageRecords:        count(5, 2),
+			DecisionRecords:            count(6, 2),
+			EntityResolutionRecords:    count(7, 4),
+			EntityStageMaterialized:    bit(8),
+			ContributionRecords:        count(9, 2),
+			HasReconcile:               bit(10),
+			HasAnswer:                  bit(11),
+			CustomTransformDisabled:    bit(12),
+		})
 	}
 	return out
 }
@@ -292,6 +278,25 @@ func TestWorkflowDecisionNextActionsSubsetOfAllowed(t *testing.T) {
 						action, allowed, facts, decision.Violations)
 				}
 			}
+		}
+	}
+}
+
+// TestAllowedActionsNeverAdvertiseGuaranteedUpstreamLedgerFailure pins the
+// exact B426 contradiction: an action listed as executable must not be one
+// that the upstream-ledger guard deterministically rejects under the same
+// facts. This is independent of planner language or output prose.
+func TestAllowedActionsNeverAdvertiseGuaranteedUpstreamLedgerFailure(t *testing.T) {
+	for _, facts := range pinEnumerateStageFacts() {
+		allowed := ActionKindsFromContracts(AllowedNextActionContractsForFacts(facts))
+		if pinContains(allowed, string(dataquery.DataActionReconcile)) && facts.ContributionRecords == 0 {
+			t.Fatalf("allowed=%v advertises reconcile without contributions for facts=%+v", allowed, facts)
+		}
+		if pinContains(allowed, string(dataquery.DataActionAssembleAnswer)) && !facts.HasReconcile {
+			t.Fatalf("allowed=%v advertises assemble_answer without reconcile for facts=%+v", allowed, facts)
+		}
+		if pinContains(allowed, string(dataquery.DataActionCustomTransform)) && facts.CustomTransformDisabled {
+			t.Fatalf("allowed=%v advertises disabled custom_transform for facts=%+v", allowed, facts)
 		}
 	}
 }

@@ -122,11 +122,16 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		outputGraphInput = *input.OutputGraphInput
 	}
 	outputGraph := BuildOutputProjectionGraph(outputGraphInput)
-	facts := state.Facts()
-	state.NextStage = NextStageWithOutputProjection(facts, outputGraph)
+	baseFacts := state.Facts()
+	state.NextStage = NextStageWithOutputProjection(baseFacts, outputGraph)
 	if input.CustomTransformDisabledFunc != nil {
 		state.CustomTransformDisabled = input.CustomTransformDisabledFunc(state)
 	}
+	// The callback consumes the base stage but may change the precise runtime
+	// capability surface. Recompute final facts so next_stage, allowed actions,
+	// ledger graph, and admission all observe the same capability value.
+	facts := state.Facts()
+	state.NextStage = NextStageWithOutputProjection(facts, outputGraph)
 	state.AllowedNextActionContracts = AllowedNextActionContractsForStageFacts(facts, state.NextStage)
 	// Answer-repair lane: a typed, actionable evaluator repair_node signal on
 	// a completion-shaped state must never coexist with an empty allowed set.

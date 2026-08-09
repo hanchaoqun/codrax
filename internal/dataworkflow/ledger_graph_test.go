@@ -117,3 +117,38 @@ func TestLedgerGraphCompletionGuardReportsFinalProjection(t *testing.T) {
 		t.Fatalf("guard=%+v, want missing final projection", guard)
 	}
 }
+
+func TestLedgerGraphMirrorsTypedOnlyProjectionPrerequisites(t *testing.T) {
+	facts := StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		RuleCoverageRecords:        3,
+		CustomTransformDisabled:    true,
+	}
+	graph := BuildLedgerGraph(facts)
+	if !graph.Contributions.Required || !graph.Reconcile.Required {
+		t.Fatalf("typed-only projection did not publish operational ledgers: contributions=%+v reconcile=%+v", graph.Contributions, graph.Reconcile)
+	}
+	if graph.FirstMissing != string(LedgerContributions) || graph.NextStage != StagePrepareContributionInputs {
+		t.Fatalf("graph first/stage=%q/%q, want contributions/%q", graph.FirstMissing, graph.NextStage, StagePrepareContributionInputs)
+	}
+	if !containsString(graph.FinalProjection.MissingPrerequisites, string(LedgerContributions)) ||
+		!containsString(graph.FinalProjection.MissingPrerequisites, string(LedgerReconcile)) {
+		t.Fatalf("final projection prerequisites=%v, want contribution and reconcile", graph.FinalProjection.MissingPrerequisites)
+	}
+	if len(graph.FinalProjection.ProducesActions) != 0 {
+		t.Fatalf("final projection prematurely advertised producer=%v", graph.FinalProjection.ProducesActions)
+	}
+
+	facts.ContributionRecords = 2
+	graph = BuildLedgerGraph(facts)
+	if graph.FirstMissing != string(LedgerReconcile) || graph.NextStage != StageReconcileArtifacts {
+		t.Fatalf("post-contribution graph first/stage=%q/%q, want reconcile/%q", graph.FirstMissing, graph.NextStage, StageReconcileArtifacts)
+	}
+	facts.HasReconcile = true
+	graph = BuildLedgerGraph(facts)
+	if graph.FirstMissing != string(LedgerFinalProjection) ||
+		!containsString(graph.FinalProjection.ProducesActions, string(dataquery.DataActionAssembleAnswer)) {
+		t.Fatalf("post-reconcile final projection=%+v first=%q", graph.FinalProjection, graph.FirstMissing)
+	}
+}

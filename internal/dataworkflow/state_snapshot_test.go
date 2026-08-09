@@ -228,6 +228,43 @@ func TestBuildWorkflowStateViewUsesPreciseOutputGraphInputBeforeCompleting(t *te
 	}
 }
 
+func TestBuildWorkflowStateViewRecomputesStageAfterCustomTransformDisables(t *testing.T) {
+	contract := dataquery.CoverageContract{
+		RequiredMaterials: []dataquery.CoverageMaterial{{
+			Path:      "instructions.md",
+			Required:  true,
+			UsageMode: dataquery.MaterialUseScriptConsumed,
+		}},
+		RuleCoverageRequired: true,
+	}
+	view := BuildWorkflowStateView(WorkflowStateViewBuildInput{
+		WorkflowContract:     contract,
+		CurrentBatchContract: contract,
+		OutputContract:       dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false},
+		CoveredMaterialPaths: map[string]bool{"instructions.md": true},
+		LedgerCounts: WorkflowStateLedgerCounts{
+			RuleCoverageRecords: 3,
+		},
+		CustomTransformDisabledFunc: func(state WorkflowStateView) bool {
+			if state.NextStage != StageEmitOutputContractAnswer {
+				t.Fatalf("base stage=%q, want direct projection before capability callback", state.NextStage)
+			}
+			return true
+		},
+	})
+	if view.NextStage != StagePrepareContributionInputs {
+		t.Fatalf("final stage=%q, want typed contribution path", view.NextStage)
+	}
+	if !view.CustomTransformDisabled || !view.LedgerGraph.Contributions.Required || !view.LedgerGraph.Reconcile.Required {
+		t.Fatalf("view did not propagate final capability facts: %+v", view)
+	}
+	for _, impossible := range []string{string(dataquery.DataActionReconcile), string(dataquery.DataActionAssembleAnswer), string(dataquery.DataActionCustomTransform)} {
+		if stringSliceContains(view.AllowedNextActions, impossible) {
+			t.Fatalf("allowed=%v contains guaranteed-failure action %s", view.AllowedNextActions, impossible)
+		}
+	}
+}
+
 func TestBuildWorkflowReducerSnapshotDerivesRecordInputs(t *testing.T) {
 	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
 		ID:             "next",

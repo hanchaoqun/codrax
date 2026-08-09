@@ -49,6 +49,7 @@ func TestBuildStageFactsUsesCoverageContractViewAndCounts(t *testing.T) {
 		ContributionRecords:     5,
 		HasReconcile:            true,
 		HasAnswer:               true,
+		CustomTransformDisabled: true,
 	})
 	if !facts.MaterialCoverageSufficient ||
 		!facts.RuleCoverageRequired ||
@@ -57,7 +58,8 @@ func TestBuildStageFactsUsesCoverageContractViewAndCounts(t *testing.T) {
 		!facts.ContributionLedgerRequired ||
 		!facts.ReconcileRequired ||
 		!facts.HasReconcile ||
-		!facts.HasAnswer {
+		!facts.HasAnswer ||
+		!facts.CustomTransformDisabled {
 		t.Fatalf("facts=%+v, want coverage and terminal booleans preserved", facts)
 	}
 	if facts.RuleCoverageRecords != 2 ||
@@ -65,6 +67,49 @@ func TestBuildStageFactsUsesCoverageContractViewAndCounts(t *testing.T) {
 		facts.EntityResolutionRecords != 4 ||
 		facts.ContributionRecords != 5 {
 		t.Fatalf("facts=%+v, want ledger counts preserved", facts)
+	}
+}
+
+func TestProjectionStagePublishesOnlyCurrentlyExecutableActions(t *testing.T) {
+	customAvailable := StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		RuleCoverageRecords:        3,
+	}
+	if got := NextStage(customAvailable); got != StageEmitOutputContractAnswer {
+		t.Fatalf("custom-available stage=%q, want direct projection", got)
+	}
+	available := ActionKindsFromContracts(AllowedNextActionContractsForFacts(customAvailable))
+	if strings.Join(available, ",") != string(dataquery.DataActionCustomTransform) {
+		t.Fatalf("custom-available actions=%v, want only executable direct projection", available)
+	}
+
+	typedOnly := customAvailable
+	typedOnly.CustomTransformDisabled = true
+	if got := NextStage(typedOnly); got != StagePrepareContributionInputs {
+		t.Fatalf("typed-only stage=%q, want contribution preparation", got)
+	}
+	initial := ActionKindsFromContracts(AllowedNextActionContractsForFacts(typedOnly))
+	for _, impossible := range []string{string(dataquery.DataActionReconcile), string(dataquery.DataActionAssembleAnswer), string(dataquery.DataActionCustomTransform)} {
+		if containsString(initial, impossible) {
+			t.Fatalf("typed-only initial actions=%v advertise guaranteed-failure %s", initial, impossible)
+		}
+	}
+
+	typedOnly.ContributionRecords = 2
+	if got := NextStage(typedOnly); got != StageReconcileArtifacts {
+		t.Fatalf("post-contribution stage=%q, want reconcile", got)
+	}
+	if got := ActionKindsFromContracts(AllowedNextActionContractsForFacts(typedOnly)); len(got) != 1 || got[0] != string(dataquery.DataActionReconcile) {
+		t.Fatalf("post-contribution actions=%v, want reconcile only", got)
+	}
+
+	typedOnly.HasReconcile = true
+	if got := NextStage(typedOnly); got != StageEmitOutputContractAnswer {
+		t.Fatalf("post-reconcile stage=%q, want answer projection", got)
+	}
+	if got := ActionKindsFromContracts(AllowedNextActionContractsForFacts(typedOnly)); !containsString(got, string(dataquery.DataActionAssembleAnswer)) || containsString(got, string(dataquery.DataActionCustomTransform)) {
+		t.Fatalf("post-reconcile actions=%v, want executable assemble with custom disabled", got)
 	}
 }
 

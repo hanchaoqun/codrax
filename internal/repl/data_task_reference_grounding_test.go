@@ -158,8 +158,9 @@ func TestReferenceGroundingGuardRedOnUsurpedSlotShape(t *testing.T) {
 	}
 	if state.NextStage != dataworkflow.StageEmitOutputContractAnswer ||
 		state.Decision.Status == "complete" ||
-		!slices.Contains(state.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
-		t.Fatalf("state stage/decision/allowed=%q/%+v/%v, grounding mismatch must reopen typed answer projection", state.NextStage, state.Decision, state.AllowedNextActions)
+		!slices.Contains(state.AllowedNextActions, string(dataquery.DataActionReconcile)) ||
+		slices.Contains(state.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
+		t.Fatalf("state stage/decision/allowed=%q/%+v/%v, grounding mismatch must first expose executable reconcile and withhold assemble until its prerequisite exists", state.NextStage, state.Decision, state.AllowedNextActions)
 	}
 }
 
