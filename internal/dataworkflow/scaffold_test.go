@@ -98,6 +98,37 @@ func TestRelationActionScaffoldsRejectDuplicateSourceViews(t *testing.T) {
 	}
 }
 
+func TestRelationActionScaffoldsRejectOverlappingMixedLineage(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "mixed_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"mixed_records.json"},
+			Fields:      []string{"id", "amount", "text"},
+			SourcePaths: []string{"orders.csv", "rules.md"},
+		},
+		{
+			ID:                "amount_distribution",
+			Kind:              string(dataquery.DataActionValueDistribution),
+			NodeClass:         ArtifactNodeClassRecord,
+			Aliases:           []string{"amount_distribution.json"},
+			Fields:            []string{"id", "amount"},
+			SourcePaths:       []string{"coverage_records.json", "orders.csv"},
+			SourceRecordPaths: []string{"coverage_records.json"},
+		},
+	}
+
+	got := RelationActionScaffolds(projections, []string{
+		string(dataquery.DataActionJoinRecords),
+		string(dataquery.DataActionNormalizeEntities),
+		string(dataquery.DataActionMappingCandidate),
+	}, 8)
+	if len(got) != 0 {
+		t.Fatalf("overlapping lineage produced automatic source/reference relation: %+v", got)
+	}
+}
+
 func TestRelationActionScaffoldsKeepIndependentSourceAndReference(t *testing.T) {
 	projections := []ArtifactSchemaProjection{
 		{

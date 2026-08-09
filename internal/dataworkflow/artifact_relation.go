@@ -30,8 +30,15 @@ func ArtifactRelationsFromProjections(projections []ArtifactSchemaProjection, li
 				continue
 			}
 			baseFields, lookupFields, evidence := relationFieldsFromTypedMetadata(base, lookup, 4)
+			typedRelation := len(baseFields) > 0 && len(lookupFields) > 0
 			score := len(baseFields) + 6
-			if len(baseFields) == 0 || len(lookupFields) == 0 {
+			if !typedRelation {
+				// Common field names alone cannot grant automatic relation
+				// authority between derivative views that share a lineage root.
+				// Typed producer metadata remains authoritative above.
+				if !projectionsHaveIndependentLineage(base, lookup) {
+					continue
+				}
 				baseFields, lookupFields = structuralRelationFields(base.Fields, lookup.Fields, "", "", 4)
 				evidence = []string{"common schema key fields"}
 				score = len(baseFields)

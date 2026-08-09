@@ -29312,3 +29312,26 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `action-input-contract=capability-single-source`；`json-mind-load=duplicate-teaching-reduced`；
 `EVAL-B431=P1-confirmed/next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.450 B431/S37eb：自动结构关系要求 lineage 不重叠
+
+`EVAL-B431-RELATIONLINEAGEOVERLAP1` 已完成公共权限修复：
+
+1. 自动 relation 的权限分为两档：producer 已提供 `typed relation metadata` 时继续按 typed source/lookup 字段建立关系；仅凭共同字段名进行
+   structural relation 推断时，若两侧 lineage 均已知，则所有 root 必须互不重叠；
+2. `projectionsHaveIndependentLineage` 从“双方各有至少一个独占 root”收紧为“零共享 root”。这精确覆盖 r252：
+   `[orders.csv,rules.md]` 与 `[coverage_records.json,orders.csv]` 不能再因为两个额外 root 不同而掩盖共同 `orders.csv`，从而自铸
+   normalize/join source-reference 权限；
+3. 公共 `ArtifactRelationsFromProjections` 同步采用该判据，因此 artifact graph、prompt-only enrich scaffold 与 missing-field recovery 不再保留结构相似性旁路；
+   typed metadata 即使跨共享 lineage 仍保留，避免破坏 normalize/apply/enrich 已明确发布的合法派生关系；
+4. lineage 缺失继续 fail-open，兼容旧/外部 artifact producer；这只限制系统自动 fallback，不新增对显式 model-authored relation action 的 hard gate。
+   系统没有根据目标文本判断“是否需要实体解析”，也没有自动选择 source/reference 或业务字段；
+5. 新 pin 覆盖精确重复 source view、共享 root 且各带额外 root、完全独立 source/reference，以及共享 root 但有 typed relation metadata 的保留臂；
+   `internal/dataworkflow`、`internal/repl`、`internal/dataquery` 定向测试及无缓存 `go test ./... -count=1` 全绿；
+6. 本批未修改答案成文、read/write 路由或 Trace。显式时间窗、自动补采、Trace 因果投影、唤醒链、窗内可消除量、真实占时/规则可消双轴均保持；
+   Trace 主根因仍只能来自 typed on-chain 席，任何邻近/背景关系只允许作为支撑或额外排查方向。
+
+状态：`EVAL-B431=S37eb-implemented/full-suite-pass/pending-production-replay`；
+`structural-relation-authority=known-lineage-disjoint`；`typed-relation-metadata=preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

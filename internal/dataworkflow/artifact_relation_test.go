@@ -79,6 +79,59 @@ func TestArtifactGraphStateIncludesTypedMetadataRelation(t *testing.T) {
 	}
 }
 
+func TestArtifactGraphRejectsStructuralRelationWithOverlappingLineage(t *testing.T) {
+	state := ArtifactGraphStateFromProjections([]ArtifactSchemaProjection{
+		{
+			ID:          "mixed_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"mixed_records.json"},
+			Fields:      []string{"id", "amount", "text"},
+			SourcePaths: []string{"orders.csv", "rules.md"},
+		},
+		{
+			ID:                "amount_distribution",
+			Kind:              string(dataquery.DataActionValueDistribution),
+			NodeClass:         ArtifactNodeClassRecord,
+			Aliases:           []string{"amount_distribution.json"},
+			Fields:            []string{"id", "amount"},
+			SourcePaths:       []string{"coverage_records.json", "orders.csv"},
+			SourceRecordPaths: []string{"coverage_records.json"},
+		},
+	}, 10)
+	if len(state.Relations) != 0 {
+		t.Fatalf("overlapping derivative lineage minted structural relations: %+v", state.Relations)
+	}
+}
+
+func TestArtifactGraphKeepsTypedRelationMetadataAcrossSharedLineage(t *testing.T) {
+	state := ArtifactGraphStateFromProjections([]ArtifactSchemaProjection{
+		{
+			ID:          "base",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"base_records"},
+			Fields:      []string{"id", "raw_name"},
+			SourcePaths: []string{"orders.csv"},
+		},
+		{
+			ID:                "resolution",
+			Kind:              string(dataquery.DataActionNormalizeEntities),
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"entity_resolution"},
+			SourcePaths:       []string{"orders.csv"},
+			SourceRecordPaths: []string{"base_records"},
+			Fields:            []string{"item_id", "source_value", "canonical_id", "status"},
+			Diagnostics: map[string]string{
+				"source_fields": `["raw_name"]`,
+			},
+		},
+	}, 10)
+	if len(state.Relations) == 0 || !containsString(state.Relations[0].Evidence, "typed relation metadata") {
+		t.Fatalf("typed producer relation metadata was lost across shared lineage: %+v", state.Relations)
+	}
+}
+
 func TestArtifactGraphRelationsExcludeDiagnosticArtifacts(t *testing.T) {
 	state := ArtifactGraphStateFromProjections([]ArtifactSchemaProjection{
 		{

@@ -1305,10 +1305,12 @@ func recordActionProjections(projections []ArtifactSchemaProjection) []ArtifactS
 }
 
 // projectionsHaveIndependentLineage is a conservative fallback-authority
-// check. When both projections publish lineage, each side must own at least one
-// root absent from the other side before automatic relation work may pair them.
-// Missing lineage remains fail-open because older/external artifact producers
-// may only provide schema. This does not gate explicit model-authored actions.
+// check. When both projections publish lineage, their roots must be disjoint
+// before automatic relation work may pair them. A shared root means the pair
+// may be two derivative views of the same material even when each side also
+// carries a different extra root. Missing lineage remains fail-open because
+// older/external artifact producers may only provide schema. This does not
+// gate explicit model-authored actions.
 func projectionsHaveIndependentLineage(left, right ArtifactSchemaProjection) bool {
 	lineage := func(projection ArtifactSchemaProjection) map[string]bool {
 		values := append([]string(nil), projection.SourcePaths...)
@@ -1321,21 +1323,12 @@ func projectionsHaveIndependentLineage(left, right ArtifactSchemaProjection) boo
 	if len(leftRoots) == 0 || len(rightRoots) == 0 {
 		return true
 	}
-	leftUnique := false
 	for root := range leftRoots {
-		if !rightRoots[root] {
-			leftUnique = true
-			break
+		if rightRoots[root] {
+			return false
 		}
 	}
-	rightUnique := false
-	for root := range rightRoots {
-		if !leftRoots[root] {
-			rightUnique = true
-			break
-		}
-	}
-	return leftUnique && rightUnique
+	return true
 }
 
 func firstProjectionAlias(projection ArtifactSchemaProjection) string {
