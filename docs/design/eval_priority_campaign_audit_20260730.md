@@ -29258,3 +29258,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B422=P1-design-first-open`；`EVAL-B429=P1-open/design-required`；
 `json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.448 r252：B428 生产闭环；action 输入载体与自动关系权限暴露两项新 gap
+
+在 `main@3a6078719` 的不可变二进制快照上严格并发恰好两个 case：`data_basic_sum_with_rules` 与
+`patch_java_typo`。runner 2/2 PASS；答案人工 2/2 PASS，但 data 过程人工 FAIL：
+
+1. Java write-plan 正确定位 `Main.greet` 和 `Main.java:16` 的单行 `retrun` → `return`，验收条件写明 `javac`/`java Main`，但没有虚报已执行；
+   plan-only 车道未改源码，证明近期 data capability 改动没有污染 write 模式；
+2. data 最终严格输出 `17`。B428 已生产生效：状态发布 `decision_next_actions=compute_contributions` 后，normalization 没有再反向铸造
+   `decision_records_required=true`，日志也不再出现旧 `action_outside_allowed_next_stage` 自冲突；
+3. 但过程扩大到 10 个 data batch、5 次 repair、3 次 action failure、292 秒。7 份拒绝/修复 plan 均有可用顶层路径和明确 artifact，
+   `compute_contributions` 的 action-local `input_paths` 却持续为空，直到第五次 repair 才填入 `orders.csv`；
+4. 新 `EVAL-B430-ACTIONINPUTCARRIER1=P1/HIGH`：runtime capability 和 admission 精确要求 action-local `input_paths`，但工具 schema 对 action
+   只 required `kind`；同时 `ActionScaffold` 对单输入动作发布 singular `input_path`，而可执行 `DataAction`/tool schema 只接受 plural
+   `input_paths`。系统因此先教一个不可直接复制的载体，又允许缺字段 JSON 出厂，最后由 admission 反复拒绝；
+5. 最优根修不是把 plan 顶层多个候选文件猜填给 action，也不是扫描 thinking 中提到的文件。应让 scaffold 与 action 共用唯一 plural carrier，
+   并由 `ActionCapability.InputPaths` 单源投影 JSON Schema 的 required/minItems/maxItems，使畸形 action 在首次 tool emission 的同 schema
+   紧凑修复层被精确纠正；
+6. 反复失败后 deterministic scaffold fallback 还执行了无关 `normalize_entities`，产生 4 条 resolution。两个候选工件都源自
+   `orders.csv`，只是一个额外夹带 `rules.md`，另一个额外夹带 `coverage_records.json`；现有独立性谓词要求“两侧各有独占 root”，仍允许共享
+   root 的同源工件被误配；
+7. 新 `EVAL-B431-RELATIONLINEAGEOVERLAP1=P1/HIGH`：自动 source/reference 关系是系统自铸执行权限，必须比显式模型动作更保守；两侧 lineage
+   均已知时，只要存在共享 root 就不能由 schema 相似度自动铸造独立关系。显式 model-authored relation 仍由既有 typed admission 处理，不受此 fallback
+   收窄影响；
+8. 本轮没有扫描 request/thinking/final prose，没有自动选择业务字段或代写答案。Trace 未执行也未修改；后续继续保证显式时间窗、自动补采、
+   因果投影与根因排序，且主根因只来自 typed on-chain 席，邻近/背景只作为支撑或额外排查方向。
+
+状态：runner=`2/2 PASS`；answer-human=`2/2 PASS`；data-process=`FAIL/10-batches-5-repairs-3-action-failures`；
+`EVAL-B428=S37dz-production-closed`；`EVAL-B430=P1-confirmed/in-implementation`；
+`EVAL-B431=P1-confirmed/open`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.449 B430/S37ea：action scaffold、tool schema 与 runtime 输入合同单源对齐
+
+`EVAL-B430-ACTIONINPUTCARRIER1` 已完成结构修复：
+
+1. `ActionScaffold` 删除 singular `input_path`，所有单输入和多输入模板统一发布 action 真正可执行的 plural `input_paths`；确定性 fallback
+   也只从该载体构造 `DataAction.InputPaths`，模型不再需要在 scaffold 与 schema 之间自行翻译字段名；
+2. 既有 `ActionCapability.InputPaths` 继续作为 min/max/single-record-set 权威；`emit_data_task_plan` 的 action item schema 在初始化时由同一 registry
+   生成 kind-conditioned `required + minItems + maxItems`。compute/filter/derive 等单输入动作、join 的双输入动作和无需输入的 inventory 因而与 admission
+   共用一套数量事实；
+3. 该 schema 只约束 action-local carrier，不把 plan 顶层候选路径猜给某个动作，不选择业务数据，也不自动修模型意图。缺失/空/超量输入在首次
+   tool JSON 的同 schema 紧凑修复层显式暴露；合法 action 仍由原 admission 校验可用 alias、依赖 rank、字段和参数；
+4. 新 pin 覆盖 compute 的 exact/missing/empty/too-many、join 的 exact/too-few、inventory 无输入、参数合同与当前 rank 收窄并存，以及所有通用 scaffold
+   JSON 不再出现 singular carrier；
+5. 首次全仓终验触发 continuation prompt 62KB compaction tripwire。根因不是新约束本身，而是既有 continuation 两段重复解释 action contract/scaffold；
+   已压缩为两条单源说明，保留 exact typed context，未抬高阈值。修正后定向测试和无缓存 `go test ./... -count=1` 全绿；
+6. 本批没有新增 case/字段/语言关键词，没有扫描用户或模型 prose，也不代写答案。没有修改 read/write 路由或 Trace；显式时间窗、自动补采、因果投影、
+   唤醒链、根因排序和可消除量保持，Trace 主根因仍只允许 typed on-chain 席。
+
+状态：`EVAL-B430=S37ea-implemented/full-suite-pass/pending-production-replay`；
+`action-input-contract=capability-single-source`；`json-mind-load=duplicate-teaching-reduced`；
+`EVAL-B431=P1-confirmed/next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

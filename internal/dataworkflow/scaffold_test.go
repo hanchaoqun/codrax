@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -204,9 +205,16 @@ func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 	var kinds []string
 	for _, scaffold := range scaffolds {
 		kinds = append(kinds, scaffold.Kind)
-		if scaffold.InputPath == "" && len(scaffold.InputPaths) == 0 {
+		if len(scaffold.InputPaths) == 0 {
 			t.Fatalf("scaffold=%+v, want concrete input path hints", scaffold)
 		}
+	}
+	raw, err := json.Marshal(scaffolds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"input_path":`) || !strings.Contains(string(raw), `"input_paths":["records.json"]`) {
+		t.Fatalf("scaffold JSON must use the executable action carrier input_paths only: %s", raw)
 	}
 	for _, want := range []string{
 		string(dataquery.DataActionDeriveFields),
@@ -627,7 +635,7 @@ func TestConcreteActionFromScaffoldMaterializesValueDistribution(t *testing.T) {
 	action, ok := ConcreteActionFromScaffold(ActionScaffold{
 		Kind:       string(dataquery.DataActionValueDistribution),
 		Executable: true,
-		InputPath:  "records.json",
+		InputPaths: []string{"records.json"},
 		Fields:     []string{"_source", "status", "group"},
 		ParamsTemplate: map[string]string{
 			"fields": `["<existing field from fields>"]`,

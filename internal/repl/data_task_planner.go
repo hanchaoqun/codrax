@@ -400,21 +400,22 @@ var dataTaskPlanTool = llm.ToolSchema{
 }
 
 func init() {
-	tool, err := dataTaskPlanToolWithRuntimeParamContracts(dataTaskPlanTool)
+	tool, err := dataTaskPlanToolWithRuntimeActionContracts(dataTaskPlanTool)
 	if err != nil {
 		panic(err)
 	}
 	dataTaskPlanTool = tool
 }
 
-// dataTaskPlanToolWithRuntimeParamContracts projects the executor's existing
-// fail-closed parameter-key contracts into conditional JSON schema branches.
+// dataTaskPlanToolWithRuntimeActionContracts projects the executor's existing
+// fail-closed parameter-key and input-cardinality contracts into conditional
+// JSON schema branches.
 // Values remain flexible because the draft layer intentionally accepts native
 // arrays/objects and serializes them losslessly for the owning executor. Only
 // key admission becomes strict here. Action families without a runtime
 // contract retain the open params object; inventing a planner-only allowlist
 // would create the same split authority this adapter is meant to remove.
-func dataTaskPlanToolWithRuntimeParamContracts(tool llm.ToolSchema) (llm.ToolSchema, error) {
+func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSchema, error) {
 	var schema map[string]any
 	if err := json.Unmarshal(tool.Parameters, &schema); err != nil {
 		return llm.ToolSchema{}, fmt.Errorf("decode data task plan schema for action parameter contracts: %w", err)
@@ -456,6 +457,40 @@ func dataTaskPlanToolWithRuntimeParamContracts(tool llm.ToolSchema) (llm.ToolSch
 					},
 				},
 			},
+		})
+	}
+	// Action scaffolds and emitted actions use the same plural input_paths
+	// carrier. Project its required cardinality from dataworkflow capability
+	// metadata so a missing/oversized carrier is repaired at JSON emission,
+	// before an otherwise valid plan enters a repeated admission/repair loop.
+	for _, rawKind := range dataworkflow.SupportedActionKinds() {
+		kind := dataquery.DataActionKind(rawKind)
+		contract, ok := dataworkflow.InputPathContract(kind)
+		if !ok {
+			continue
+		}
+		inputPaths := map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string", "minLength": float64(1)},
+		}
+		if contract.Min > 0 {
+			inputPaths["minItems"] = float64(contract.Min)
+		}
+		if contract.Max > 0 {
+			inputPaths["maxItems"] = float64(contract.Max)
+		}
+		thenBranch := map[string]any{
+			"properties": map[string]any{"input_paths": inputPaths},
+		}
+		if contract.Min > 0 {
+			thenBranch["required"] = []any{"input_paths"}
+		}
+		allOf = append(allOf, map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{"kind": map[string]any{"const": string(kind)}},
+				"required":   []any{"kind"},
+			},
+			"then": thenBranch,
 		})
 	}
 	items["allOf"] = allOf
@@ -1540,10 +1575,10 @@ func dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot string,
 	b.WriteString("- workflow_state_json.output_projection_graph is the structural output-readiness contract. Use status/reason_code to distinguish an already valid answer, missing assemble_answer projection, and incomplete reference-complete projection. reference_candidate_present=true with reference_candidate_declared=false is only a structural candidate, not completion authority: compare the typed user-owned rule/material facts already read by the workflow. If they require one output slot per reference key, explicitly carry complete_reference/reference_path/reference_key_field into output_contract and assemble_answer; if the requested result is intentionally subset/present-only, leave the candidate undeclared.\n")
 	b.WriteString("- workflow_state_json.artifact_graph is the durable generated-artifact graph. Use nodes, alias_index, executable_record_aliases, relations, fields, row_count, lineage, and diagnostics to choose compatible inputs and repairs. relations list structural base/lookup key pairs and lookup value fields; use them before inventing enrich/join key fields. It is structural artifact state, not business evidence by itself.\n")
 	b.WriteString("- workflow_state_json.progress_signatures summarizes recent structural progress: action kinds, row/field/schema deltas, ledger deltas, repeated signatures, and stage movement. If repeated_signature_count grows while contribution/reconcile/final projection remain missing, choose a different typed action that changes fields, rows, ledgers, or stage state.\n")
-	b.WriteString("- workflow_state_json.allowed_next_action_contracts gives each allowed action's input/output boundary. Treat it as the action contract: single-record actions consume one record artifact, relation actions consume source/reference or two record artifacts, and contribution/reconcile/assemble actions consume existing artifacts or ledgers. Use action_scaffold for concrete field/input hints instead of repeating the full action manual.\n")
+	b.WriteString("- workflow_state_json.allowed_next_action_contracts is the exact input/output boundary for each allowed action; action_scaffold supplies concrete fields and input_paths.\n")
 	b.WriteString("- Record artifacts already preserve generic locator fields such as _source_index, _source_locator, source_index, source_locator, row_index, and line. Do not copy a reserved locator field to the same reserved target. If a later action needs a non-reserved alias, use derive_fields copy/regex_extract from a real locator source into a non-reserved target; do not use constant to create row/source/line/index fields.\n")
 	b.WriteString("- workflow_state_json.workflow_violations is the unified typed repair list. Repair the first high-severity/earliest violation by code, input_alias, missing_fields, candidate_artifacts, and repair_action_hints before repeating blocked actions.\n")
-	b.WriteString("- workflow_state_json.action_scaffold contains compact action templates built from current artifact fields. It is structural help, not a business conclusion. Scaffolds with executable=true are fully concrete system templates that can be reused as the next atomic action when they match the goal. Scaffolds without executable=true are prompt-only templates; fill their placeholders with concrete fields/params before execution. Prefer adapting a scaffold over inventing field names or a broad script, and keep the action kind inside allowed_next_actions.\n")
+	b.WriteString("- action_scaffold is structural help, not a conclusion: executable=true is copy-ready; otherwise fill its placeholders from current typed fields. Keep kind inside allowed_next_actions.\n")
 	b.WriteString("- If workflow_state_json.field_contract_violations is non-empty, repair the first listed structural violation before repeating the blocked action. Use its input_alias, missing_fields, available_field_sample, candidate_artifacts, and repair_action_hints as the typed contract. Do not repeat a filter/join/contribution action that names missing fields until a prior typed action has materialized those fields on the chosen input artifact.\n")
 	b.WriteString("- If workflow_state_json.zero_match_filter_violations is non-empty and contribution/reconcile is still required, do not join or compute from that zero-row artifact. Inspect actual field values or rerun filter_records against the non-empty input artifact with corrected filters, then continue only after a non-empty eligible candidate artifact exists or the output contract explicitly allows an all-zero result.\n")
 	b.WriteString("- If workflow_state_json.unmatched_resolution_violations is non-empty, repair apply_entity_resolutions before using that artifact downstream. Use locator-compatible keys: item_id/source_locator/_source_locator usually encode the same row identity as _source_index/source_index/row_index. Do not filter, qualify, join, or compute from an all-unmatched canonicalization artifact.\n")

@@ -38,7 +38,7 @@ func TestBuildRepeatedFailureReplacementPlanUsesConcreteScaffold(t *testing.T) {
 		Scaffolds: []ActionScaffold{{
 			Kind:       string(dataquery.DataActionValueDistribution),
 			Executable: true,
-			InputPath:  "records.json",
+			InputPaths: []string{"records.json"},
 			Fields:     []string{"status", "amount"},
 		}},
 	})
@@ -166,7 +166,7 @@ func TestBuildExecutionFailureTransitionReplacesRepeatedNodeWithScaffold(t *test
 			ActionScaffold: []ActionScaffold{{
 				Kind:       string(dataquery.DataActionValueDistribution),
 				Executable: true,
-				InputPath:  "records.json",
+				InputPaths: []string{"records.json"},
 				Fields:     []string{"status", "amount"},
 			}},
 		},

@@ -9685,7 +9685,7 @@ func TestDataTaskWorkflowStateIncludesTypedActionScaffold(t *testing.T) {
 	for _, scaffold := range state.ActionScaffold {
 		if scaffold.Kind == string(dataquery.DataActionFilterRecords) {
 			sawFilter = true
-			if scaffold.InputPath != "records" || scaffold.ParamsTemplate["filters_json"] == "" {
+			if strings.Join(scaffold.InputPaths, ",") != "records" || scaffold.ParamsTemplate["filters_json"] == "" {
 				t.Fatalf("filter scaffold=%+v, want input path and filter template", scaffold)
 			}
 		}
@@ -9693,7 +9693,7 @@ func TestDataTaskWorkflowStateIncludesTypedActionScaffold(t *testing.T) {
 			continue
 		}
 		sawCompute = true
-		if scaffold.InputPath != "records" || !strings.Contains(strings.Join(scaffold.Fields, ","), "amount") || scaffold.ParamsTemplate["value_field"] == "" {
+		if strings.Join(scaffold.InputPaths, ",") != "records" || !strings.Contains(strings.Join(scaffold.Fields, ","), "amount") || scaffold.ParamsTemplate["value_field"] == "" {
 			t.Fatalf("compute scaffold=%+v, want input path, fields, and params template", scaffold)
 		}
 	}

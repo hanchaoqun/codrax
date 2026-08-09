@@ -13,7 +13,6 @@ type ActionScaffold struct {
 	Kind           string            `json:"kind"`
 	Executable     bool              `json:"executable,omitempty"`
 	UseWhen        string            `json:"use_when,omitempty"`
-	InputPath      string            `json:"input_path,omitempty"`
 	InputPaths     []string          `json:"input_paths,omitempty"`
 	Fields         []string          `json:"fields,omitempty"`
 	CommonFields   []string          `json:"common_fields,omitempty"`
@@ -255,10 +254,7 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 			Params:         params,
 		}, true
 	case dataquery.DataActionValueDistribution:
-		inputPath := strings.TrimSpace(scaffold.InputPath)
-		if inputPath == "" && len(scaffold.InputPaths) > 0 {
-			inputPath = strings.TrimSpace(scaffold.InputPaths[0])
-		}
+		inputPath := firstActionScaffoldInput(scaffold.InputPaths)
 		fields := nonInternalScaffoldFields(scaffold.Fields)
 		if inputPath == "" || len(fields) == 0 {
 			return dataquery.DataAction{}, false
@@ -285,10 +281,7 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 			Params:         params,
 		}, true
 	case dataquery.DataActionComputeContribs:
-		inputPath := strings.TrimSpace(scaffold.InputPath)
-		if inputPath == "" && len(scaffold.InputPaths) > 0 {
-			inputPath = strings.TrimSpace(scaffold.InputPaths[0])
-		}
+		inputPath := firstActionScaffoldInput(scaffold.InputPaths)
 		if inputPath == "" || !scaffoldParamsConcrete(params, "operation", "group_key", "metric") {
 			return dataquery.DataAction{}, false
 		}
@@ -321,6 +314,15 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 	default:
 		return dataquery.DataAction{}, false
 	}
+}
+
+func firstActionScaffoldInput(paths []string) string {
+	for _, input := range paths {
+		if input = strings.TrimSpace(input); input != "" {
+			return input
+		}
+	}
+	return ""
 }
 
 func nonInternalScaffoldFields(fields []string) []string {
@@ -417,10 +419,10 @@ func DeriveFieldScaffolds(records []ArtifactSchemaProjection, limit int) []Actio
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionDeriveFields),
-			UseWhen:   "materialize a derived field on one existing record artifact before filtering, joining, or aggregating",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 16),
+			Kind:       string(dataquery.DataActionDeriveFields),
+			UseWhen:    "materialize a derived field on one existing record artifact before filtering, joining, or aggregating",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 16),
 			ParamsTemplate: map[string]string{
 				"field_specs_json": `[{"source_field":"<existing field from fields>","source_fields":["<existing field A>","<existing field B>"],"target_field":"<new field>","operation":"parse_number|extract_year|lower|upper|trim|map|regex_extract|concat|coalesce|constant|case_when","separator":" ","cases":[{"filters":[{"field":"<existing field>","op":"eq|in|gt|gte|lt|lte|not_empty","value":"<expected value>"}],"value_field":"<existing field to copy>"}],"default_field":"<optional existing fallback field>","default":"<optional fallback value>"}]`,
 			},
@@ -444,10 +446,10 @@ func GroupRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Actio
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionGroupRecords),
-			UseWhen:   "one logical record is split across multiple rows/spans and later extraction needs neighboring text from the same group",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 16),
+			Kind:       string(dataquery.DataActionGroupRecords),
+			UseWhen:    "one logical record is split across multiple rows/spans and later extraction needs neighboring text from the same group",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 16),
 			ParamsTemplate: map[string]string{
 				"group_field":  "<existing key field from fields, such as a document/page/message/block id>",
 				"text_fields":  `["<existing text-like field from fields>"]`,
@@ -474,10 +476,10 @@ func ExtractFieldScaffolds(records []ArtifactSchemaProjection, limit int) []Acti
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionExtractFields),
-			UseWhen:   "materialize structured fields from text or mixed record fields before filtering, joining, or aggregating",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 16),
+			Kind:       string(dataquery.DataActionExtractFields),
+			UseWhen:    "materialize structured fields from text or mixed record fields before filtering, joining, or aggregating",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 16),
 			ParamsTemplate: map[string]string{
 				"field_specs":     `[{"source_field":"<existing text/source field from fields>","target_field":"<new field>","operation":"regex_extract|parse_number|copy|trim","pattern":"<regex when operation is regex_extract>","group":1}]`,
 				"required_fields": `["<new field that must be non-empty for output rows>"]`,
@@ -502,10 +504,10 @@ func ExpandRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Acti
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionExpandRecords),
-			UseWhen:   "turn one multi-value field on one record artifact into multiple records before enrichment, join, or contribution calculation",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 16),
+			Kind:       string(dataquery.DataActionExpandRecords),
+			UseWhen:    "turn one multi-value field on one record artifact into multiple records before enrichment, join, or contribution calculation",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 16),
 			ParamsTemplate: map[string]string{
 				"source_field":   "<existing multi-value field from fields>",
 				"target_field":   "<expanded value field>",
@@ -800,10 +802,10 @@ func FilterRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Acti
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionFilterRecords),
-			UseWhen:   "select a smaller reusable record set using fields that already exist on one artifact",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 18),
+			Kind:       string(dataquery.DataActionFilterRecords),
+			UseWhen:    "select a smaller reusable record set using fields that already exist on one artifact",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 18),
 			ParamsTemplate: map[string]string{
 				"filters_json": `[{"field":"<existing field from fields>","op":"eq|ne|in|not_in|contains|not_contains|empty|not_empty|gt|gte|lt|lte","value":"<value>"}]`,
 			},
@@ -830,7 +832,7 @@ func ValueDistributionScaffolds(records []ArtifactSchemaProjection, limit int) [
 			Kind:       string(dataquery.DataActionValueDistribution),
 			Executable: true,
 			UseWhen:    "inspect objective field values before choosing filters, join keys, mapping params, grouping, or contribution fields",
-			InputPath:  alias,
+			InputPaths: []string{alias},
 			Fields:     clampStrings(artifact.Fields, 20),
 			ParamsTemplate: map[string]string{
 				"fields":      `["<existing field from fields>"]`,
@@ -857,10 +859,10 @@ func QualifyRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Act
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionQualifyRecords),
-			UseWhen:   "turn rule/evidence eligibility into auditable include/exclude rows before contribution calculation",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 20),
+			Kind:       string(dataquery.DataActionQualifyRecords),
+			UseWhen:    "turn rule/evidence eligibility into auditable include/exclude rows before contribution calculation",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 20),
 			ParamsTemplate: map[string]string{
 				"filters":         `[{"field":"<existing field that must pass>","op":"eq|in|not_empty|exists","value":"<value>"}]`,
 				"reject_filters":  `[{"field":"<existing field that excludes a row>","op":"eq|in|contains","value":"<value>"}]`,
@@ -890,10 +892,10 @@ func ComputeContributionScaffolds(records []ArtifactSchemaProjection, limit int)
 			continue
 		}
 		out = append(out, ActionScaffold{
-			Kind:      string(dataquery.DataActionComputeContribs),
-			UseWhen:   "compute a generic contribution ledger from one eligible artifact that already contains the value/group/filter fields",
-			InputPath: alias,
-			Fields:    clampStrings(artifact.Fields, 20),
+			Kind:       string(dataquery.DataActionComputeContribs),
+			UseWhen:    "compute a generic contribution ledger from one eligible artifact that already contains the value/group/filter fields",
+			InputPaths: []string{alias},
+			Fields:     clampStrings(artifact.Fields, 20),
 			ParamsTemplate: map[string]string{
 				"value_field":     "<existing numeric value field, or omit for count>",
 				"group_key_field": "<existing grouping field, or use group_key for a constant group>",
@@ -1053,7 +1055,7 @@ func ConservativeContributionLedgerScaffolds(records []ArtifactSchemaProjection,
 			Kind:           string(dataquery.DataActionComputeContribs),
 			Executable:     true,
 			UseWhen:        "complete a required target contribution ledger from a selected record artifact whose row count and answer shape close exactly",
-			InputPath:      alias,
+			InputPaths:     []string{alias},
 			Fields:         clampStrings(artifact.Fields, 20),
 			ParamsTemplate: params,
 			Note:           "This deterministic recovery is admitted only for filter/qualify output whose selected row count equals the existing member-set/count answer. It emits atomic sourced target contributions; otherwise no scaffold is produced and the workflow must qualify or compute the real answer ledger.",
