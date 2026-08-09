@@ -29192,3 +29192,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B422=P1-production-reconfirmed/label-laundering/design-first-open`；
 `call-occurrence-gate=correct-preserve`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.446 r251：B422 跨 flowchart 复现；compute 动作反向铸造自身前置义务
+
+在 `main@597d24aa0` 的不可变二进制快照上严格并发恰好两个 case：`qf_logic_view_read_pipeline` 与
+`data_basic_sum_with_rules`。runner 2/2 PASS；答案人工 1/2 PASS，data 另有确定性过程 gap：
+
+1. read case 人工 FAIL。用户要求 Analyzer/Explorer/Extractor/Finalizer 与 Mutable/BusContext 的架构和数据流，最终 Mermaid 只剩
+   `Orchestrator.Run -> dispatchStage`、`runAnalyzePhase -> dispatchStage` 两条真实入口调用边，其余请求节点全部断开；
+2. 正文仍过度宣称四个 Agent 必然串行、共享同一 BusContext、每阶段返回 StageOutput 并由 `applyStageOutput` 写回，且把 Extract 固定为第三阶段。
+   实际 read scheduler 会按 typed entry/work 条件跳过 Extract；roster/order 不能证明每个真实执行边界；
+3. 三次“成文校验未通过”均正确拒绝无证 call/return/assignment/precedence 关系，不是过硬或矛盾合同。首稿有完整虚构数据流，后两稿继续用
+   dotted flow 边规避 metadata；门保持 fail-closed 后模型才删到两条有证边。不得放宽 relation gate、把 dotted edge 免检或由系统删除/重写答案；
+4. B422 因而跨 `sequenceDiagram` 与 `flowchart` 两种图型生产复现。Explorer completion 的四成员关系集合只有两个 support refs，并被降为
+   supporting coverage；现有完成条件仍可由任意一条 flow operation 满足，无法证明 requested member × requested attribute/relation 完整；
+5. B422 维持 design-first：新增 producer-owned requested-member/relation coverage carrier，显式携带 universe/source；roster/order 与
+   call/assignment/return/data-flow 分轴；每个成员和请求属性必须是 exact evidence 或 typed `unproven_boundary`。完成门只消费该载体，禁止读取
+   用户原文、thinking、summary、表格、diagram label，禁止系统代写模型结论；
+6. data 最终答案严格为 `17`，业务正确；但 7 批、4 次 repair、1 次 action failure、264 秒。评估态明确发布
+   `decision_next_actions=compute_contributions`，模型照做后，续批 normalization 又将 `decision_records_required=true` 写入合同，admission
+   随即以缺 decisions 拒绝同一动作；
+7. 新 `EVAL-B428-ACTIONSELFPRECONDITION1=P0/REDLINE`：`compute_contributions` 的执行实现只产出 contribution records，不产出
+   decision rows；capability 注册却把它列为 decisions producer。`normalizeDataTaskPlanContractFromActions` 将“动作可能产出”反向提升为“工作流必须已有”，
+   使推荐动作改变自己的前置条件。这是 typed 单源错误，不是模型波动或 JSON 教学不足；
+8. 最优根修为纠正 capability：compute 仅产生 contributions；decision producers 只保留真实产生 decision rows 的 filter/qualify，以及明确可发射
+   完整结构结果的 custom fallback。同步删除 action runner 中把 compute 当 decision producer 的手写镜像，并新增跨
+   decision advisory → plan normalization → admission 的同轮可执行闭包 pin；
+9. 首批 scalar custom_transform 无法满足已声明 contribution/reconcile 合同，执行失败后才进入 typed 恢复，记为独立效率项
+   `EVAL-B429-CUSTOMOUTPUTCAPABILITY1=P1/open`。后续只能基于 typed plan/script AST 或显式输出能力证明施工，不能扫描 request/thinking/final prose、
+   自动改写模型脚本或把失败结果伪装成功；
+10. 本批未修改 Trace。显式时间窗、自动补采、因果投影、根因排序、唤醒链、窗内可消除量与真实占时/规则可消双轴保持；Trace 主根因继续只允许
+    typed on-chain 席，邻近区域与背景信息只能支撑解释或作为额外排查方向。
+
+状态：runner=`2/2 PASS`；answer-human=`1/2 PASS`；data-process=`FAIL/7-batches-4-repairs-1-action-failure`；
+`EVAL-B422=P1-cross-diagram-production-confirmed/design-first-open`；
+`EVAL-B428=P0-confirmed/in-implementation`；`EVAL-B429=P1-open/design-required`；
+`json-teaching=no-new-prose`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
