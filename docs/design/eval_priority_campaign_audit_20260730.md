@@ -28941,3 +28941,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `EVAL-B423=S37du-implemented/targeted-tool-and-full-suite-pass/pending-production-replay`；
 `json-teaching=unchanged/single-source`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.437 r246：混合 endpoint 根修生产闭环；Trace 链上根因/背景分层通过；可选 relation schema 暴露新 JSON 心智负担
+
+在 `main@2d5810692` 的不可变二进制快照上严格并发恰好两个 case：`read_combo_pipeline_sequence_table` 与
+`trace_query_wakeup_background_demotion`。runner 2/2 PASS，人工 1/2 PASS：
+
+1. `EVAL-B423-MIXEDENDPOINT1` 完成生产闭环。read case 的成文拒绝从 r245 的 7 次降至 1 次，耗时由 513 秒降至 262 秒；
+   mixed short/qualified endpoint 没有再被误拒。唯一拒绝针对模型自行加入的四条真实无证 Agent/return 边，一次 patch 删除无证边并保留四条
+   grounded call 后通过，说明 evidence gate 仍 fail-closed，而不是以放宽校验换取成功；
+2. read case runner 虽 PASS，人工仍 FAIL：表格只覆盖入口、Analyze、Finalize，遗漏 `StageExplore` 与 `StageExtract`，并把 FinalizerAgent
+   错写成 AnalyzeAgent 的“角色变化”。Finalizer 成文前上下文已经有精确
+   `canonical_read_main_sequence=analyze -> explore -> extract -> finalize`；系统末尾的 stage-binding 补充也正确且明确不替代模型回答。
+   因此 `EVAL-B422-FLOWCOVERAGEANYEDGE1` 不能归因于缺少又一段教学，而是模型没有消费已有精确信息；不得让系统重写表格、摘要或结论；
+3. B422 保持 design-first/open。后续若要形成 hard completion，必须新增 producer-owned、带来源和明确 universe 边界的 requested-member
+   coverage carrier，并逐成员携带 requested attribute、evidence ref 或 typed unknown。Analyzer 自由生成 participant、Explorer 自选 aggregate member
+   set、用户/模型原文和 stage 名称关键词均不能充当 hard authority；
+4. Trace case 人工通过。显式 `2.000..2.020` 时间窗、自动补采和 `Trace 因果投影` 均保留；模型只把 typed 已证唤醒链
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 上的 11ms io_wait 加冕为第一根因，并把链上三段各 1ms runnable
+   分别呈现为调度/算力供给方向；
+5. 同窗 `logger-900` 的 19.5ms 虽数值更长，但没有指向目标的 wakeup edge，答案明确归入 background/off-chain，未升级为主因。
+   本轮因此验证了两条并存但不混权的分析轴：真实占时/聚类可提示新的优化探索方向；现有规则可计算链上可消除量。只有 typed on-chain 席
+   可以参与根因排序和加冕，邻近区域、资源压力、背景事件只能支撑解释或形成额外排查方向；
+6. Trace 的一次 Finalizer reject 是缺少 required summary block，一次 patch 后通过，属于精确结构缺口。Explorer completion 则额外浪费两轮：
+   在不存在可复制 relation authority 时，工具 schema 仍暴露可选 `relation_claims`；模型先把 raw string 混入 typed array，strict decoder 正确拒绝；
+   重试又自造 authority ID，validator 正确拒绝；第三次删掉可选字段才通过；
+7. 新 `EVAL-B424-OPTIONALRELCLAIMSCHEMA1=P1/HIGH`：问题不是 decoder 太严，也不是应当执行时静默丢掉坏 claim，而是没有 authority 的上下文仍把
+   不可合法填写的可选字段交给模型，增加 JSON 心智和重试。最优候选方案是在 Explorer 的 context-aware schema projection 层仅依据 typed、可复制的
+   relation authority 动态裁剪：零 authority 时从发给模型的 `emit_investigation_complete` schema 移除 `relation_claims`；存在 authority 时保留。
+   canonical executor schema 仍维持超集并继续严格校验，禁止从 request、thinking、summary 或 final prose 猜测，禁止静默吞掉非法 claim；
+8. B424 进入代码前必须先确认已有 authority 单源和 report/window 作用域，补齐“无 authority 不显示字段 / 有 authority 保留字段 / schema clone
+   不污染共享缓存 / 执行器继续拒绝自造 authority”四类 pin。若只能得到会话级嘈声信号，则保持设计项，不把嘈声升级成 schema hard gate；
+9. 本批没有修改 Trace 查询、投影或答案合成，也没有用关键词扫描用户输入、模型思考或最终答案。系统仅提供精确事实、typed 约束和必要补充，模型继续拥有结论。
+
+状态：runner=`2/2 PASS`；human=`1/2 PASS`；
+`EVAL-B423=production-closed`；`EVAL-B422=P1-confirmed/context-present-model-not-consumed/design-first-open`；
+`EVAL-B424=P1-confirmed/typed-schema-projection-under-audit`；
+`json-teaching=no-new-prose/no-execution-time-auto-drop`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
