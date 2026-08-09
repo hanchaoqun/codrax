@@ -7931,6 +7931,21 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				}
 			}
 		}
+		if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(ctx, fact, evidence) {
+			for i, member := range fact.Members {
+				if aggregateMemberSetSupportRefsResolveMember(fact, member, support) {
+					continue
+				}
+				ref := ""
+				if i < len(fact.SupportRefs) {
+					ref = strings.TrimSpace(fact.SupportRefs[i])
+				}
+				return fmt.Errorf(
+					"aggregate_facts: current-source per-member table member_set %q has member %q at index %d with support_ref %q, but that row does not resolve to grounded evidence for the same member. Re-emit one exact grounded evidence id or source location per members[] row in the same order; do not use a nearby function or shared file as evidence for a different member",
+					strings.TrimSpace(fact.Label), strings.TrimSpace(member), i, ref,
+				)
+			}
+		}
 		var missing []string
 		var unresolved []string
 		for _, member := range fact.Members {
@@ -7989,6 +8004,38 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		)
 	}
 	return nil
+}
+
+// aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport activates the
+// generic row-identity contract only when all of its inputs are typed: the
+// analyzer declared a per-member table, runtime/source authority requires the
+// current checkout, the fact is a load-bearing member_set, and this turn has
+// citable current-source evidence in a real repository. It never inspects the
+// user request or answer prose. External/runtime-only rosters retain their
+// origin-specific support lanes.
+func aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(
+	ctx *types.BusContext,
+	fact types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) bool {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		!ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable ||
+		fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
+		!aggregateFactCanDefineModelOwnedCompletionBoundary(fact) ||
+		completionRepoRoot(ctx) == "" ||
+		aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx, fact) {
+		return false
+	}
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.CurrentSourceRequired {
+		return false
+	}
+	for _, item := range evidence {
+		if item.IsCitable() && strings.TrimSpace(item.Source) != "" && item.LineStart > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport binds the

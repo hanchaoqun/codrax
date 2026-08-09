@@ -115,6 +115,98 @@ func TestEmitInvestigationComplete_PerMemberTableMemberSetAccepted(t *testing.T)
 	}
 }
 
+func TestEmitInvestigationComplete_PerMemberTableCurrentSourceRowsRequireMemberAlignedEvidence(t *testing.T) {
+	repo := t.TempDir()
+	bus := perMemberTableBus(true)
+	bus.RepoRoot = repo
+	evidence := []types.EvidenceItem{
+		{
+			ID: "stage-analyze", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze",
+			Source: "internal/types/stage_binding.go", LineStart: 10, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "stage-extract", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageExtract", Subject: "StageExtract",
+			Source: "internal/types/stage_binding.go", LineStart: 12, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	bus.Mutable.AppendEvidence(evidence)
+	tool := &EmitInvestigationComplete{}
+	bad := json.RawMessage(`{
+		"reason":"stage rows complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"role":"principal_answer",
+			"label":"pipeline stages",
+			"members":["StageAnalyze","StagePlan"],
+			"support_refs":["stage-analyze","stage-extract"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, bad)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "DOWNGRADED") || bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("wrong member-to-evidence binding must remain in exploration: %+v complete=%t", res, bus.Mutable.IsInvestigationComplete())
+	}
+	for _, want := range []string{"StagePlan", "stage-extract", "same member"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("member-alignment downgrade missing %q: %s", want, res.Summary)
+		}
+	}
+
+	bus.Mutable = types.NewMutableState("q")
+	bus.Mutable.AppendEvidence(evidence)
+	good := json.RawMessage(`{
+		"reason":"stage rows complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"role":"principal_answer",
+			"label":"pipeline stages",
+			"members":["StageAnalyze","StageExtract"],
+			"support_refs":["stage-analyze","stage-extract"]
+		}]
+	}`)
+	res, err = tool.Execute(bus, good)
+	if err != nil {
+		t.Fatalf("unexpected valid error: %v", err)
+	}
+	if !res.Success || strings.Contains(res.Summary, "DOWNGRADED") || !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("member-aligned current-source rows should complete: %+v complete=%t", res, bus.Mutable.IsInvestigationComplete())
+	}
+}
+
+func TestAggregatePerMemberTableCurrentSourceSetRequiresAlignedSupportIsTypedAndScoped(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"StageAnalyze"},
+	}
+	evidence := []types.EvidenceItem{{
+		ID: "stage-analyze", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze",
+		Source: "internal/types/stage_binding.go", LineStart: 10, GroundingStatus: types.GroundingGrounded,
+	}}
+	bus := perMemberTableBus(true)
+	bus.RepoRoot = t.TempDir()
+	if !aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
+		t.Fatal("typed current-source per-member table should require aligned support")
+	}
+	bus.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = false
+	if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
+		t.Fatal("undeclared per-member table must not activate the row gate")
+	}
+	bus.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = true
+	bus.RepoRoot = ""
+	if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
+		t.Fatal("a repository-less conceptual roster must not enter current-source row alignment")
+	}
+}
+
 // absence_justification is the typed escape lane.
 func TestEmitInvestigationComplete_PerMemberTableAbsenceEscape(t *testing.T) {
 	tool := &EmitInvestigationComplete{}

@@ -28693,3 +28693,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `class-actor-operation-discriminator=preserved`；`all-languages=shared-structural-path`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.429 S37dp：逐成员表的当前源码行身份与证据逐行对齐
+
+针对 r241 的 B415 完成第二批泛化施工；不在系统内硬编码本仓 pipeline stage 名单，也不让系统代写模型结论：
+
+1. 在既有 `member_set` 完成合同上增加通用 row-identity 约束：当 Analyzer 以 typed
+   `HasPerMemberTable` 声明逐成员表、当前源码车道被 typed authority 判为 required、该 `member_set` 属于 load-bearing
+   principal completion boundary，且本轮确有可引用的当前源码行证据时，`members[i]` 必须由对齐的 `support_refs[i]` 解析到**同一成员**；
+2. 该约束解决的是“一行证据被附近但不同的成员借用”这一整类问题。成员名、语言、表标题与仓库均不特殊化；错误成员不能再靠同文件、邻近函数或另一成员的源码行通过完成门，正确成员仍由模型从已探索证据中选择并总结；
+3. 触发只消费 typed request predicate、typed runtime/current-source authority、结构化 aggregate fields 与 grounded
+   EvidenceItem。它不扫描用户请求、thinking、summary、最终答案或 Mermaid 文本，也不从这些自由文本推导 hard gate；
+4. runtime/external-only roster、带 origin-specific provenance 的 trace/log 集合、未要求逐成员表的普通问答、repo-less 概念清单及非 principal
+   supporting set 均不进入该约束。显式时间窗 Trace 查询、因果投影、自动补采、链上根因选举和背景证据分层未修改；
+5. 新增错配行降级、逐行同身份通过、typed predicate 关闭、repo-less 关闭四臂回归；聚焦测试、完整 `internal/tool`
+   包与 `go test ./... -count=1` 无缓存全仓终验通过。r242 生产复放完成后再关闭 B415；生产复放仍需人工检查最终表/图是否采用完整当前源码成员集，runner PASS 不代替答案审计。
+
+状态：`EVAL-B415=S37dp-implemented/full-suite-pass/pending-production-replay`；
+`member-authority=model-selected-grounded-row-identity`；`repo-specific-roster=none`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
