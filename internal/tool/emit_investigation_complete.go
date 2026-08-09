@@ -153,7 +153,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"member_notes": {
 							"type": "array",
-							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. For a current-source architecture/mechanism roster used to close the investigation, either omit member_notes entirely or provide exactly one non-empty note AND one grounded support_ref for every members[] entry, all in the same order; partial responsibility rosters are rejected instead of being presented as proved.",
+							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. For a current-source architecture/mechanism roster used to close the investigation, either omit member_notes entirely or provide exactly one non-empty note AND one grounded support_ref for every members[] entry, all in the same order; partial responsibility rosters are rejected instead of being presented as proved. When the typed request contract requires a current-source per-member attribute table, omission is not an exit: provide one verified non-empty member_note and one same-member grounded support_ref for every row so the requested row attributes reach the final answer instead of being inferred from identity alone.",
 							"items": {"type": "string"}
 						},
 						"excluded": {
@@ -7945,6 +7945,23 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 					strings.TrimSpace(fact.Label), strings.TrimSpace(member), i, ref,
 				)
 			}
+			if aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(ctx, fact, evidence) {
+				if len(fact.MemberNotes) != len(fact.Members) {
+					return fmt.Errorf(
+						"aggregate_facts: current-source per-member attribute table member_set %q has members=%d but member_notes=%d. Re-emit exactly one verified non-empty member_note and one same-member grounded support_ref per members[] row in the same order; an identity-only roster cannot supply the requested per-row attributes",
+						strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes),
+					)
+				}
+				for i, member := range fact.Members {
+					if strings.TrimSpace(fact.MemberNotes[i]) != "" {
+						continue
+					}
+					return fmt.Errorf(
+						"aggregate_facts: current-source per-member attribute table member_set %q has an empty member_note at index %d for member %q. Re-emit a verified row attribute note grounded by the aligned same-member support_ref; identity alone cannot prove the requested row attributes",
+						strings.TrimSpace(fact.Label), i, strings.TrimSpace(member),
+					)
+				}
+			}
 		}
 		var missing []string
 		var unresolved []string
@@ -8036,6 +8053,28 @@ func aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(
 		}
 	}
 	return false
+}
+
+// aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes tightens the
+// same typed/current-source/load-bearing lane from row identity to row
+// attribute sufficiency. AnswerIntentContract is the single typed compiler for
+// this distinction: plain enumeration remains identity-only, while a declared
+// per-member table requires one model-authored, evidence-backed note per row.
+// No requested column label or final-answer prose is inspected here.
+func aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(
+	ctx *types.BusContext,
+	fact types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) bool {
+	if !aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(ctx, fact, evidence) {
+		return false
+	}
+	contract := types.CompileAnswerIntentContractWithPreflight(
+		ctx.AnalysisIR.RequestModel,
+		&ctx.AnalysisIR.AnswerContract,
+		ctx.RuntimeArtifactPreflight,
+	)
+	return contract.SourceInventoryAttributeDemand
 }
 
 // aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport binds the

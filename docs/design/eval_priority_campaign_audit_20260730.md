@@ -28774,3 +28774,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `sequence-non-message-directive=syntax-only`；`real-message-preserved=true`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.432 S37dr：逐成员属性表必须携带逐行证据说明
+
+针对 r242 的 B416 完成 Explorer 上游证据充分性根修：
+
+1. 复用 B415 的同一精确激活面：Analyzer typed `HasPerMemberTable`、current source required、load-bearing principal
+   `member_set`、真实仓库与本轮 citable line evidence 必须同时成立；再读取单源
+   `AnswerIntentContract.SourceInventoryAttributeDemand`，确认该请求要求逐成员属性，而非普通 identity-only enumeration；
+2. B415 的成员/证据同身份检查保持先行，错误成员仍先得到精确 row-identity repair。身份全部正确后，B416 才要求
+   `len(member_notes)==len(members)` 且每项非空；每行仍必须有 B415 已校验的 same-member `support_ref`。因此正确 roster 不能再以
+   identity-only 形提前关闭调查，把输入、输出、状态载体等属性留给下游猜测；
+3. hard gate 不读取请求原文、requested dimension 的自由标签、模型 thinking/summary/final prose，也不判断 note 的自然语言词面。成员、逐行属性概括与最终
+   结论仍由模型从已读证据产生；系统既不写表格行，也不修补/替换答案；
+4. source-inventory 已提供 principal row/attribute typed observation 时，其 shadowed member_set 继续走既有单源投影，不被重复要求；外部/runtime
+   origin-specific roster、repo-less 概念清单、普通 enumeration、supporting set 与 absence exit 保持原行为；
+5. schema 教学补充唯一条件句，明确 current-source per-member attribute table 不能省略逐行 note，同时避免暴露内部 agent/管线术语；模型只需维护
+   `members/member_notes/support_refs` 三个等长数组，不增加第二份字段清册或 JSON 容器；
+6. 新增“身份/refs 正确但 notes 缺席”红臂、逐行 notes+refs 绿臂、typed predicate 关闭和 repo-less 关闭回归；完整
+   `internal/tool` 套件通过，且内部术语/提示卫生 tripwire 全绿；无缓存全仓终验结果随本批提交记录；
+7. 显式时间窗 Trace、因果投影、自动补采、根因排序、唤醒链、窗内可消除量、真实占时/规则可消双轴均未修改。Trace 主根因继续仅允许 typed
+   on-chain 席；邻近区域与背景证据仅作支撑或额外排查方向。
+
+状态：`EVAL-B416=S37dr-implemented/tool-suite-pass/pending-production-replay`；
+`attribute-demand=typed-contract-only`；`row-detail-owner=model`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。

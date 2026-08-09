@@ -169,6 +169,7 @@ func TestEmitInvestigationComplete_PerMemberTableCurrentSourceRowsRequireMemberA
 			"role":"principal_answer",
 			"label":"pipeline stages",
 			"members":["StageAnalyze","StageExtract"],
+			"member_notes":["builds the analysis input","extracts grounded evidence"],
 			"support_refs":["stage-analyze","stage-extract"]
 		}]
 	}`)
@@ -178,6 +179,49 @@ func TestEmitInvestigationComplete_PerMemberTableCurrentSourceRowsRequireMemberA
 	}
 	if !res.Success || strings.Contains(res.Summary, "DOWNGRADED") || !bus.Mutable.IsInvestigationComplete() {
 		t.Fatalf("member-aligned current-source rows should complete: %+v complete=%t", res, bus.Mutable.IsInvestigationComplete())
+	}
+}
+
+func TestEmitInvestigationComplete_PerMemberTableCurrentSourceRowsRequireAttributeNotes(t *testing.T) {
+	repo := t.TempDir()
+	bus := perMemberTableBus(true)
+	bus.RepoRoot = repo
+	evidence := []types.EvidenceItem{
+		{
+			ID: "stage-analyze", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze",
+			Source: "internal/types/stage_binding.go", LineStart: 10, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "stage-extract", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageExtract", Subject: "StageExtract",
+			Source: "internal/types/stage_binding.go", LineStart: 12, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	bus.Mutable.AppendEvidence(evidence)
+	params := json.RawMessage(`{
+		"reason":"stage identities are known but row attributes are absent",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"role":"principal_answer",
+			"label":"pipeline stages",
+			"members":["StageAnalyze","StageExtract"],
+			"support_refs":["stage-analyze","stage-extract"]
+		}]
+	}`)
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "DOWNGRADED") || bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("identity-only attribute rows must remain in exploration: %+v complete=%t", res, bus.Mutable.IsInvestigationComplete())
+	}
+	for _, want := range []string{"per-member attribute table", "members=2", "member_notes=0", "identity-only roster"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("attribute-note downgrade missing %q: %s", want, res.Summary)
+		}
 	}
 }
 
@@ -196,14 +240,23 @@ func TestAggregatePerMemberTableCurrentSourceSetRequiresAlignedSupportIsTypedAnd
 	if !aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
 		t.Fatal("typed current-source per-member table should require aligned support")
 	}
+	if !aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(bus, fact, evidence) {
+		t.Fatal("typed current-source per-member attribute table should require row notes")
+	}
 	bus.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = false
 	if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
 		t.Fatal("undeclared per-member table must not activate the row gate")
+	}
+	if aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(bus, fact, evidence) {
+		t.Fatal("undeclared per-member table must not activate the attribute-note gate")
 	}
 	bus.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = true
 	bus.RepoRoot = ""
 	if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(bus, fact, evidence) {
 		t.Fatal("a repository-less conceptual roster must not enter current-source row alignment")
+	}
+	if aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(bus, fact, evidence) {
+		t.Fatal("a repository-less conceptual roster must not require source attribute notes")
 	}
 }
 
