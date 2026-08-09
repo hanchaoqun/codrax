@@ -2051,26 +2051,24 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				classified = append(classified, node)
 				continue
 			}
-			// ISPGAP-1 件2' (§29.202 / §29.204 CHAINGUARD-F1 定谳, 2026-07-21):
-			// the primary/rank lane gains the #1a-style relevance admission
-			// gate the hop lane has carried since [P1 修正轮 2026-07-06] — an
-			// UNDECLARED-relevance rank-lane record (the chainless board form:
-			// untargeted root_cause_rank / span-unresolved frame bundle mints
-			// every row with empty Causality/ChainRelevance at full value) must
-			// never enter the primary bucket, where the ⛓ crown lanes and the
-			// depthless 链上·深度未解析 edge would claim chain identity the
-			// engine never declared (customer witness cust_runnable2_cli.txt
-			// E10: isplogcat-1225 整窗 D 144.504ms 三无席加冕 ➊). The
-			// classified copy defaults into the ▒ background seat instead —
-			// the honest, ordinal-less landing (PTS 永不静默丢); the engine's
-			// chainless ordinal fail-open (rootCauseOrdinalChannel) stays
-			// untouched. Declared rows are byte-identical.
-			if node.ChainRelevance == "" {
+			// TRACECHAINROOTONLY1: root-cause authority is stricter than
+			// carrying a rank ordinal or a root_cause_primary predicate. Only
+			// the exact typed on-chain lane may enter the primary bucket;
+			// adjacent/background rows retain their values and land on their
+			// declared context layer. This independently protects persisted or
+			// externally constructed observation ledgers even if an older
+			// producer assigned them a principal predicate.
+			if traceCausalProjectionChainRelevance(record.RichNotes) != "on_chain" {
 				node.Role = TraceCausalRoleRootCauseContext
-				node.ChainRelevance = "background"
+				if node.ChainRelevance == "" {
+					node.ChainRelevance = "background"
+				}
 				classified = append(classified, node)
 				continue
 			}
+			// ISPGAP-1's earlier empty-relevance guard is subsumed by the closed
+			// on-chain test above: empty defaults to background, while the newly
+			// covered adjacent/background declarations keep their own buckets.
 			primary = append(primary, node)
 			classified = append(classified, node)
 		case traceCausalProjectionIsRootCauseContext(record):

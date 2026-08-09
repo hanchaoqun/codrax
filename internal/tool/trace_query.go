@@ -5541,7 +5541,13 @@ func traceQueryBundleRootCauseCount(bundle *tracequery.FrameRootCauseBundle) int
 	if bundle == nil || bundle.RootCauseRank == nil {
 		return 0
 	}
-	return len(bundle.RootCauseRank.Items)
+	count := 0
+	for _, item := range bundle.RootCauseRank.Items {
+		if traceQueryRootCauseCanBePrincipal(item) {
+			count++
+		}
+	}
+	return count
 }
 
 func traceQueryPriorityTopRootCauseForPublication(rank *tracequery.RootCauseRankResult) (tracequery.RootCauseRankItem, bool) {
@@ -5550,14 +5556,27 @@ func traceQueryPriorityTopRootCauseForPublication(rank *tracequery.RootCauseRank
 	}
 	for _, candidate := range rank.Items {
 		item := candidate
-		effective := traceQueryRootCauseEffectiveImpact(item)
-		if item.Tier == tracequery.RootCauseTierContextOnly || item.Tier == tracequery.RootCauseTierDataGap ||
-			effective <= 0 || math.IsNaN(effective) || math.IsInf(effective, 0) {
+		if !traceQueryRootCauseCanBePrincipal(item) {
 			continue
 		}
 		return item, true
 	}
 	return tracequery.RootCauseRankItem{}, false
+}
+
+// traceQueryRootCauseCanBePrincipal is the single model-publication
+// eligibility rule for a root-cause seat. Adjacent/background rows may retain
+// measured impact and their own board ordinals, but only a positive finite
+// typed on-chain row may be counted, selected or emitted with principal root
+// authority. No request or answer prose participates.
+func traceQueryRootCauseCanBePrincipal(item tracequery.RootCauseRankItem) bool {
+	if item.Rank <= 0 || traceQueryRootCauseItemRelevance(item) != "on_chain" ||
+		item.Tier == tracequery.RootCauseTierContextOnly || item.Tier == tracequery.RootCauseTierDataGap ||
+		item.Tier == tracequery.RootCauseTierCaliberSide {
+		return false
+	}
+	effective := traceQueryRootCauseEffectiveImpact(item)
+	return effective > 0 && !math.IsNaN(effective) && !math.IsInf(effective, 0)
 }
 
 func traceQueryBundleBlockingCount(bundle *tracequery.FrameRootCauseBundle) int {
@@ -7658,19 +7677,6 @@ func traceQueryRootCausePositionWord(tier string, rank int, relevance string) st
 	return fmt.Sprintf("%s cause #%d", tier, rank)
 }
 
-func traceQueryRootCauseRankHasForeground(items []tracequery.RootCauseRankItem) bool {
-	for _, item := range items {
-		if item.Rank <= 0 || item.Tier == tracequery.RootCauseTierContextOnly || tracequery.RootCauseRankItemEffectiveImpactMs(item) <= 0 {
-			continue
-		}
-		switch traceQueryRootCauseItemRelevance(item) {
-		case "on_chain", "adjacent":
-			return true
-		}
-	}
-	return false
-}
-
 func traceQueryRootCauseItemRelevance(item tracequery.RootCauseRankItem) string {
 	if relevance := strings.TrimSpace(item.ChainRelevance); relevance != "" {
 		return relevance
@@ -7963,7 +7969,7 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 	if visible < len(rank.Items) {
 		status = "incomplete"
 	}
-	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election\n",
+	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=typed_on_chain_only adjacent_role=support_only background_role=support_only\n",
 		status, visible, len(rank.Items))
 	for i := 0; i < visible; i++ {
 		item := rank.Items[i]
@@ -8566,7 +8572,6 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.RootCauseRank != nil {
 		publishedItems := append([]tracequery.RootCauseRankItem(nil), result.RootCauseRank.Items...)
-		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(publishedItems)
 		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
 		rankRows = append(rankRows, publishedItems...)
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
@@ -8898,11 +8903,23 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// preserved — never blurred into root_cause_background.
 				role = types.AnswerAggregateRoleSupportingCoverage
 				provenance = types.ObservationProvenanceArtifactSpan
-			} else if hasForegroundRootCause && traceQueryRootCauseItemRelevance(item) == "background" {
+			} else if !traceQueryRootCauseCanBePrincipal(item) {
 				role = types.AnswerAggregateRoleSupportingCoverage
 				provenance = types.ObservationProvenanceArtifactSpan
-				claimKey = "root_cause_background"
-				predicate = "root_cause_background"
+				switch traceQueryRootCauseItemRelevance(item) {
+				case "adjacent":
+					claimKey = "root_cause_adjacent"
+					predicate = "root_cause_adjacent"
+				case "background":
+					claimKey = "root_cause_background"
+					predicate = "root_cause_background"
+				case "on_chain":
+					claimKey = "root_cause_context_only"
+					predicate = "root_cause_context_only"
+				default:
+					claimKey = "root_cause_unattributed"
+					predicate = "root_cause_unattributed"
+				}
 			}
 			out = append(out, types.ObservationRecord{
 				// Record identity keys on the POSITION (i+1), not the rank

@@ -110,12 +110,11 @@ func TestTraceCausalProjectionPreservesMultiLayerChainRelevance(t *testing.T) {
 	if got.PrimaryRootCause == nil || got.PrimaryRootCause.Subject != "binder-100" {
 		t.Fatalf("expected on-chain primary to remain first, got %+v", got.PrimaryRootCause)
 	}
-	if len(got.PrimaryRootCauses) != 2 {
-		t.Fatalf("expected both primary root-cause layers to be retained, got %+v", got.PrimaryRootCauses)
+	if len(got.PrimaryRootCauses) != 1 {
+		t.Fatalf("only typed on-chain rows may retain root-cause authority, got %+v", got.PrimaryRootCauses)
 	}
-	if got.PrimaryRootCauses[0].ChainRelevance != "on_chain" ||
-		got.PrimaryRootCauses[1].ChainRelevance != "adjacent" {
-		t.Fatalf("primary layers should preserve typed chain relevance: %+v", got.PrimaryRootCauses)
+	if got.PrimaryRootCauses[0].ChainRelevance != "on_chain" {
+		t.Fatalf("primary layer must be typed on-chain: %+v", got.PrimaryRootCauses)
 	}
 	if len(got.OnChainCauses) != 1 || got.OnChainCauses[0].Subject != "binder-100" {
 		t.Fatalf("on-chain cause projection missing: %+v", got.OnChainCauses)
@@ -272,10 +271,8 @@ func TestTraceCausalProjectionKeepsOnChainPrimaryAheadOfLargerBackground(t *test
 	if got.PrimaryRootCause == nil || got.PrimaryRootCause.Subject != "worker-200" {
 		t.Fatalf("on-chain root cause must stay primary even when background impact is larger, got %+v", got.PrimaryRootCause)
 	}
-	if len(got.PrimaryRootCauses) < 2 ||
-		got.PrimaryRootCauses[0].Subject != "worker-200" ||
-		got.PrimaryRootCauses[1].Subject != "logger-900" {
-		t.Fatalf("primary ordering should preserve on-chain before background: %+v", got.PrimaryRootCauses)
+	if len(got.PrimaryRootCauses) != 1 || got.PrimaryRootCauses[0].Subject != "worker-200" {
+		t.Fatalf("background rows must never occupy a root-cause seat: %+v", got.PrimaryRootCauses)
 	}
 	if len(got.OnChainCauses) != 1 || got.OnChainCauses[0].Subject != "worker-200" {
 		t.Fatalf("on-chain bucket missing selected cause: %+v", got.OnChainCauses)

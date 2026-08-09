@@ -173,7 +173,10 @@ func TestTraceQueryPeriodicSourceTypedNotes(t *testing.T) {
 
 	// Non-periodic rows carry NO periodic note (byte-stable lane).
 	worker := periodicVS1FindRecord(t, rows, "wakeup_causal_aggregate", "worker")
-	running := periodicVS1FindRecord(t, rows, "root_cause_primary", "RSUniRenderThre")
+	// The running fixture has no typed CAP/supply deficit, so the closed
+	// effective matrix correctly keeps it on-chain context rather than granting
+	// a principal seat. This test only asserts that non-periodic notes stay off.
+	running := periodicVS1FindRecord(t, rows, "root_cause_context_only", "RSUniRenderThre")
 	for _, rec := range []types.ObservationRecord{worker, running} {
 		for _, note := range rec.RichNotes {
 			if strings.HasPrefix(note, "periodic_source=") || strings.HasPrefix(note, "detected_period_ms=") || strings.HasPrefix(note, "lateness_ms=") {
@@ -192,7 +195,9 @@ func TestTraceQueryPeriodicSourceZeroEffectiveNoteSurvives(t *testing.T) {
 	result.RootCauseRank.Items[1].EffectiveImpactMs = 0
 	result.RootCauseRank.Items[1].LatenessMs = 0
 	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/r.json", "", "", time.Now())
-	rank := periodicVS1FindRecord(t, rows, "root_cause_secondary", "VSyncGenerator")
+	// A zero discounted effective value is explicit cadence context, not a
+	// positive root-cause seat.
+	rank := periodicVS1FindRecord(t, rows, "root_cause_context_only", "VSyncGenerator")
 	if periodicVS1CountNote(rank.RichNotes, "effective_impact_ms=0.000") != 1 {
 		t.Fatalf("zero discounted attribution must publish explicitly: %v", rank.RichNotes)
 	}

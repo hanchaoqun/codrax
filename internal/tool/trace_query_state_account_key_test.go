@@ -36,6 +36,8 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 				RunnableMs:        5,
 				ImpactMs:          5,
 				EffectiveImpactMs: 5,
+				Causality:         "on_wakeup_chain",
+				ChainRelevance:    "on_chain",
 				LineStart:         4,
 				LineEnd:           23,
 			}},

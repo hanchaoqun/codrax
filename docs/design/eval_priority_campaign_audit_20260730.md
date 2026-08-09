@@ -29452,3 +29452,30 @@ top/primary root。B435 必须另批统一资格谓词，保留 adjacent 数值�
 `background-effective-publication=typed-zero`；`background-raw-occupancy=preserved`；
 `EVAL-B435=P0-next`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root target=`typed-on-chain-only`；adjacent/background target=`support-only/additional-investigation-only`。
+
+### 123.455 B435/S37ef：Trace 根因席资格统一为 typed on-chain-only
+
+`EVAL-B435-TRACECHAINROOTONLY1` 已按用户红线完成三入口统一：
+
+1. 冷读确认三个独立漏口：`traceQueryPriorityTopRootCauseForPublication` 只检查正 effective，adjacent 可成为
+   `bundle_top_cause`；frame bundle 的 `root_causes` 直接取 `len(rank.Items)`，把邻近/背景都计作根因；typed observation 默认给 rank row
+   principal role，只有“存在 foreground 时的 background”才降权，导致 adjacent 与无 foreground 的 background 仍可能带 principal 权限；
+2. tool 层新增单一 `traceQueryRootCauseCanBePrincipal`：必须 `Rank>0`、非 context/data-gap/caliber-side、effective 为有限正值，并且精确 typed
+   relevance 为 `on_chain`。bundle count、top selection 与 observation role 共用该谓词；不读取用户问题或模型原文；
+3. adjacent row 仍保留 `EffectiveImpactMs`、raw/cumulative、自己的 rank channel 和全部证据，但 predicate/claim 改为
+   `root_cause_adjacent`、role 为 supporting；background 无条件使用 `root_cause_background` + supporting，不再依赖会话中是否恰好存在
+   foreground；未声明 relevance 使用 `root_cause_unattributed`，不能借空值 fail-open 成主因；
+4. `CompileTraceCausalProjection` 在 persisted-ledger 消费侧独立复核 `chain_relevance=on_chain`。旧工件或外部构造记录即便仍带
+   `root_cause_primary`，adjacent/background 也只进入各自 context bucket；其数值、证据引用和额外排查价值不丢失。这样生产者与消费者
+   两侧均守权，不能靠单点标签漂移绕过；
+5. model-facing rank preview 增加 typed authority 字段：`principal_eligibility=typed_on_chain_only`、
+   `adjacent_role=support_only`、`background_role=support_only`。这是事实权限说明，不是系统代写结论，不修改模型答案；
+6. 新 pin 覆盖同一 board 中 adjacent=9ms、background=20ms、on-chain=4ms：bundle 根因计数必须为 1、top 必须是 on-chain，adjacent 9ms
+   保留且 supporting、background effective 封为 0 且 supporting、on-chain 保持 principal；另覆盖 background-only board 永不获得 principal，
+   以及 persisted primary-labeled adjacent/background 不进入 `PrimaryRootCauses`。既有 projection 测试按新红线更新，完整
+   `internal/types`、`internal/tool` 套件与 `go test ./... -count=1` 无缓存全仓终验均通过；
+7. 本批不改变显式时间窗、自动补采、唤醒链构造、on-chain effective 计算、窗内可消量或双轴占时分析；只统一“谁有资格被模型称为根因”。
+
+状态：`EVAL-B435=S37ef-implemented/full-suite-pass/pending-production-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`；
+`adjacent-measured-impact=preserved`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
