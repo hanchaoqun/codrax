@@ -168,11 +168,23 @@ const (
 // kernel blocked_reason caller symbol (or the honest cause-unproven
 // remainder) with the record's own published magnitude, verbatim.
 type traceWaitCallerFact struct {
-	caller   string // semantic caller symbol; "" on the unproven remainder
-	state    string // the record's state/type token (record.Object)
-	value    string // published magnitude, verbatim note/record value (ms)
-	members  string // member_count note, verbatim ("" when unpublished)
-	unproven bool   // §29.50.5 cause-unproven remainder marker
+	caller      string // semantic caller symbol; "" on the unproven remainder
+	state       string // the record's state/type token (record.Object)
+	value       string // published magnitude, verbatim note/record value (ms)
+	members     string // member_count note, verbatim ("" when unpublished)
+	rank        int    // board-local typed ordinal; 0 when unpublished
+	channel     string // chain_relevance token; "" when unpublished
+	rowIdentity string // exact observation identity for audit/debug association
+	unproven    bool   // §29.50.5 cause-unproven remainder marker
+}
+
+func traceWaitCallerFactEquivalent(a, b traceWaitCallerFact) bool {
+	// Exact row IDs differ across idempotent query republications. The typed
+	// seat identity is rank/channel plus its published semantic payload; keep
+	// the first row ID only as an audit pointer.
+	a.rowIdentity = ""
+	b.rowIdentity = ""
+	return a == b
 }
 
 // traceWaitCensusEntry is one caller symbol's census account for a thread:
@@ -646,11 +658,14 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		unproven := strings.TrimSpace(notes[types.TraceNoteKeyDStateCauseUnprovenRemainder]) == "true"
 		if caller != "" || unproven {
 			fact := traceWaitCallerFact{
-				caller:   caller,
-				state:    strings.TrimSpace(record.Object),
-				members:  strings.TrimSpace(notes[types.TraceNoteKeyMemberCount]),
-				unproven: unproven,
+				caller:      caller,
+				state:       strings.TrimSpace(record.Object),
+				members:     strings.TrimSpace(notes[types.TraceNoteKeyMemberCount]),
+				channel:     strings.TrimSpace(notes[types.TraceNoteKeyChainRelevance]),
+				rowIdentity: strings.TrimSpace(record.ID),
+				unproven:    unproven,
 			}
+			fact.rank, _ = strconv.Atoi(strings.TrimSpace(notes[types.TraceNoteKeyRank]))
 			// Published magnitude, strongest lane first — verbatim strings,
 			// never recomputed (the CR-1 rule).
 			for _, v := range []string{
@@ -666,7 +681,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			f := get(subject)
 			dup := false
 			for _, have := range f.facts {
-				if have == fact {
+				if traceWaitCallerFactEquivalent(have, fact) {
 					dup = true
 					break
 				}
@@ -841,13 +856,22 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 						row.WriteString("; member_scope=this_seat_all_members; member_rebinding=forbidden")
 					}
 				}
+				if fact.rank > 0 {
+					fmt.Fprintf(&row, "; rank=#%d", fact.rank)
+				}
+				if fact.channel != "" {
+					row.WriteString("; channel=" + fact.channel)
+				}
+				if fact.rowIdentity != "" {
+					row.WriteString("; row_identity=" + fact.rowIdentity)
+				}
 				b.WriteString(row.String() + "\n")
 			}
 			if hiddenFacts > 0 {
 				fmt.Fprintf(&b, "- subject=%s; seat_type=blocked_reason_callsite_overflow; omitted_rows=%d; see=measured_observations\n", subject, hiddenFacts)
 			}
 			if f.windowCount > 0 {
-				fmt.Fprintf(&b, "- subject=%s; seat_type=thread_window_record_inventory; blocked_reason_records=%d; seat_binding=not_provided", subject, f.windowCount)
+				fmt.Fprintf(&b, "- subject=%s; seat_type=thread_window_record_inventory; blocked_reason_records=%d; seat_binding=not_provided; rank_binding=not_provided", subject, f.windowCount)
 				if len(f.windowCallers) > 0 {
 					b.WriteString("; caller_roster=" + strings.Join(f.windowCallers, "/"))
 				}
@@ -871,7 +895,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				if f.censusOverflow > 0 {
 					segs = append(segs, fmt.Sprintf("(+%d more caller symbol(s))", f.censusOverflow))
 				}
-				lead := fmt.Sprintf("- subject=%s; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided", subject)
+				lead := fmt.Sprintf("- subject=%s; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; rank_binding=not_provided", subject)
 				if f.censusTotal != "" {
 					lead += "; total_records=" + f.censusTotal
 				}

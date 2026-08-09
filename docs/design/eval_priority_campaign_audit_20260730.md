@@ -28196,3 +28196,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `wait-context=independent-typed-seats`；`thread-window-census=seat-unbound`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；`full-suite=pass`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.411 r234：独立席位/soft gap 教学到达生产，但 identity 与上下文权限仍不足
+
+在 `main@3fd41e9c0` 上严格并发恰好两个同组生产复放，runner 2/2 PASS，人工 0/2 PASS：
+
+1. S37de 的实现均进入真实 Finalizer prompt：frame 四尺同位明确 gap 非调度/阻塞/效率权限，temporal 合同包含 Note-over 和逐 arrow anchor；Donghu
+   wait summary 把 10.433ms cause-unproven、7.386ms fscache caller、0.171ms hmfs caller 与 19-record census 拆成四行，census 明确
+   `seat_binding=not_provided`。这排除了“代码未接线”的假设；
+2. B398 仍 partial。frame 最终仍把 1ms gap 写成正常线程内/跨线程通信开销、无阻塞、无排队、路径畅通，并从 span name 扩写输入/动画/布局/光栅化/
+   GPU 指令提交。Exact guidance 被看见但未被遵守，继续堆同类软句没有 ROI；
+3. 新确认 `EVAL-B400-PRETRIAGENARRATIVEAUTHORITY1=P1/HIGH`。同一 prompt 的 Observation Ledger 仍保留
+   `authority=pretriage_model_extraction` 自由叙事，内容包括“完整 UI→RenderService→GPU flow、三段首尾相接无间隙、GPU 指令完成”等；虽标 repairable/historical，
+   它仍与后续 deterministic trace_query 的 exact intervals/temporal-unproven 权限竞争。最优方案按 typed producer/provenance 分权：精确查询覆盖同一 artifact 后，
+   pretriage narrative 只保留导航索引/原始测量字段，不再作为 Finalizer 机理叙事；不得扫描叙事词面，也不得删除最终模型答案；
+4. B391 仍 partial。模型忽略 sequence Note 形，画了带三条箭头却无 `edge_anchors` 的 flowchart；validator 精确指出三条 missing anchor，随后 patch 直接删除可选图。
+   校验是正确的，但 S37de 软教学不足以降重试，`finalizer_reject=1`；
+5. 新确认 `EVAL-B401-RUNTIMETEMPORALCAPSULE1=P1/HIGH`。pure-temporal report 应从 report-local typed frame items/edges 构造 copy-ready authoring aid：稳定 node alias、
+   Mermaid body 和逐边 `relation_kind=temporal` anchors 同源输出。模型可整包复制或不画，系统不把 capsule 自动塞入答案、不替模型改稿；混合报告只含 exact temporal
+   rows，绝不能以会话 ANY-sticky 覆盖真实 wakeup/IPC/lock 边；
+6. B399 仍 partial。独立行虽然阻止了物理共行，行本身却没有 rank/channel/row_identity；同一 subject 下模型仍把 thread-window census 的 17+1 次和 #5
+   fscache caller 绑定到 #3 10.433ms 未证席，并把 page_lock kernel callsite 升为资源竞争。下一小批给每个 fact row 携稳定 typed seat identity，census 增加
+   `rank_binding=not_provided`；这是值通道，不靠正文校验；
+7. Donghu 根因人口与排序仍正确守在 typed on-chain：#1/#2/#3 等均为链上席，链外 page-cache/IRQ 只在背景段出现；但模型把背景机理升级进 #3 原因，故人工失败。
+   frame evidence absent、causal unproven、PI candidate 非 holder/waiter 均被披露；
+8. 两案系统均未删除或替换模型主稿。显式时间窗、自动补采、根因排序、唤醒链、因果投影、窗内可消量以及真实占时/规则可消双轴未改。
+
+状态：runner=`2/2 PASS`；human=`0/2 PASS`；
+`EVAL-B398=partial/exact-caliber-reached/model-overrode`；
+`EVAL-B399=partial/row-isolation-reached/stable-seat-identity-missing`；
+`EVAL-B400=P1-confirmed/next`；`EVAL-B401=P1-confirmed/after-seat-id`；
+`EVAL-B391=partial/validator-correct/capsule-missing`；
+`finalizer-reject=frame:1,donghu:0`；`raw-prose-hard-gate=none`；
+`system-answer-rewrite=none`；Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.412 S37df：wait fact 稳定席位身份小批
+
+先施工 r234 已确定且独立的 B399 identity 缺口，避免与 B400 上下文分权、B401 runtime capsule 两个较大改动互相掩盖：
+
+1. `traceWaitCallerFact` 从“subject/state/value/caller”扩为携带 typed `rank`、`chain_relevance channel` 与 exact observation `row_identity`；渲染行追加
+   `rank=#N`、`channel=...`、`row_identity=...`，使 #3 cause-unproven 与 #5 caller-proven 可直接和 Trace Decision Inputs/root-cause board 一一对齐；
+2. 去重仍按 typed seat 的 rank/channel + semantic payload，而不是 exact row ID。相同查询在不同 result scope 的幂等重发保留一个 seat，首个 row identity 仅作审计指针；
+3. thread-window record inventory 和 blocked_reason census 同时发布 `seat_binding=not_provided` 与 `rank_binding=not_provided`。它们保留真实全窗计数/roster，
+   但结构上明确不能回答“这个 #N 席的 caller/原因是什么”；没有删原始证据，也没有按用户或模型文字选择性隐藏；
+4. cause-unproven 的整份额、disjoint、不可重组、member scope 规则不变；caller 仍只代表本席 kernel wait callsite，不自证 resource/holder/root cause。
+   未证席仍绕过 caller cap，overflow/anchor/wakeup/census/supply 其他车道不变；
+5. 新增 rank→row identity、census rank-unbound、不同 row ID 幂等重发回归；定向 context/agent 测试与 `go test ./... -count=1`
+   全仓终验均通过。本批先独立提交推送，不与 B400/B401 两个更大权限面互相掩盖。
+
+状态：`EVAL-B399=S37df-seat-identity-implemented/full-suite-pass/pending-production-replay`；
+`wait-fact-identity=rank+channel+row_identity`；`census-rank-binding=not_provided`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

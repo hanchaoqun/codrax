@@ -79,7 +79,9 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		"state=io_wait; value_ms=7.386; members=17",
 		"subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder; caller=not_provided",
 		"state=io_wait; value_ms=10.433; members=3",
-		"subject=.ugc.aweme.lite-17267; seat_type=thread_window_record_inventory; blocked_reason_records=6; seat_binding=not_provided; caller_roster=fscache_page_get_an/hmfs_read",
+		"subject=.ugc.aweme.lite-17267; seat_type=thread_window_record_inventory; blocked_reason_records=6; seat_binding=not_provided; rank_binding=not_provided; caller_roster=fscache_page_get_an/hmfs_read",
+		"rank=#2; row_identity=trace_query:t#root_cause_rank:2",
+		"rank=#3; row_identity=trace_query:t#root_cause_rank:3",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence summary missing %q:\n%s", want, summary)
@@ -176,7 +178,7 @@ func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 		// Full per-caller enumeration with Σms, count desc, overflow tail —
 		// and (PROSE-RC ③) the engine's own published total verbatim in the
 		// lead, as a directly quotable count.
-		"subject=ThreadPoolForeg-60555; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; total_records=21; caller_census=fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
+		"subject=ThreadPoolForeg-60555; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; rank_binding=not_provided; total_records=21; caller_census=fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
 		// The census keying is stated as a data label (the counter-face to
 		// attributing a record to the thread whose line it printed on), and
 		// the Σdelay caliber label is always-on (件C: self-reported delay=,
@@ -219,8 +221,8 @@ func TestTraceWaitEvidence_BannerCensusFallback(t *testing.T) {
 	}}
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), results)
 	for _, want := range []string{
-		"subject=CompThread_0-2955; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; caller_census=dma_fence_default_w ×12",
-		"subject=kworker/u16:3-357; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; caller_census=kthread_worker_fn ×11",
+		"subject=CompThread_0-2955; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; rank_binding=not_provided; caller_census=dma_fence_default_w ×12",
+		"subject=kworker/u16:3-357; seat_type=thread_window_blocked_reason_census; seat_binding=not_provided; rank_binding=not_provided; caller_census=kthread_worker_fn ×11",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("fallback census summary missing %q:\n%s", want, summary)
@@ -392,7 +394,16 @@ func TestTraceWaitEvidence_WakerCountCapOverflow(t *testing.T) {
 // membership and arithmetic boundaries without co-locating sibling caller or
 // census facts on the same subject line.
 func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
-	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
+	ledgerWithRepublication := traceWaitTestLedger()
+	ledgerWithRepublication.Records = append(ledgerWithRepublication.Records,
+		traceWaitTestRecord("trace_query:replay#root_cause_rank:3", "ThreadPoolForeg-60555", "io_wait", "root_cause_tertiary", "10.433",
+			"rank=3", "effective_impact_ms=10.433",
+			types.TraceNoteKeyMemberCount+"=3",
+			types.TraceNoteKeyDStateCauseUnprovenRemainder+"=true"))
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledgerWithRepublication, nil)
+	if got := strings.Count(summary, "subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder"); got != 1 {
+		t.Fatalf("idempotent query republications must keep one typed seat, got %d:\n%s", got, summary)
+	}
 	for _, want := range []string{
 		"subject=ThreadPoolForeg-60555; seat_type=cause_unproven_remainder; caller=not_provided; caller_role=not_provided; blocking_reason_authority=not_provided_by_this_seat",
 		"state=io_wait; value_ms=10.433; members=3",
