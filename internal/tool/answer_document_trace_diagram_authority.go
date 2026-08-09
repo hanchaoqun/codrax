@@ -2,11 +2,227 @@ package tool
 
 import (
 	"fmt"
+	"html"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type reportLocalRuntimeTemporalEdgeSet struct {
+	counts map[string]int
+}
+
+// preCheckReportLocalRuntimeTemporalDiagramAuthority binds an optional frame
+// diagram to one trace_query result's own complete typed temporal rows. It does
+// not use the report-wide QF family or ANY-sticky session authority: those are
+// too coarse to distinguish a runtime frame diagram from a sibling source
+// relation diagram. The returned block indices are safe to exclude from the
+// source-call gate; every other block remains subject to that gate unchanged.
+func preCheckReportLocalRuntimeTemporalDiagramAuthority(
+	doc *types.AnswerDocumentV2,
+	pctx *preEmitCheckContext,
+) (map[int]bool, []emitFixHint) {
+	if doc == nil || pctx == nil || pctx.ctx == nil {
+		return nil, nil
+	}
+	edgeSets := reportLocalRuntimeTemporalEdgeSets(pctx.ctx)
+	if len(edgeSets) == 0 {
+		return nil, nil
+	}
+
+	owned := map[int]bool{}
+	edgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		edges := mermaidcompat.ParseEdges(block.Diagram.Body)
+		if len(edges) == 0 {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		bodyCounts := make(map[string]int, len(edges))
+		for _, edge := range edges {
+			from := reportLocalRuntimeTemporalEndpoint(edge.From, labels)
+			to := reportLocalRuntimeTemporalEndpoint(edge.To, labels)
+			bodyCounts[diagramEvidenceEdgeKey(from, to)]++
+		}
+		matched := false
+		for _, edgeSet := range edgeSets {
+			if reportLocalRuntimeTemporalEdgeSubset(bodyCounts, edgeSet.counts) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			if reportLocalRuntimeTemporalBlockDeclaresTemporal(block) {
+				return nil, []emitFixHint{reportLocalRuntimeTemporalDiagramHint(
+					block.ID,
+					"visible temporal endpoints are not a subset of any one complete report-local typed frame-temporal result",
+				)}
+			}
+			continue
+		}
+
+		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, edgeBlockCounts)
+		if issue := reportLocalRuntimeTemporalAnchorIssue(edges, anchors); issue != "" {
+			return nil, []emitFixHint{reportLocalRuntimeTemporalDiagramHint(block.ID, issue)}
+		}
+		owned[i] = true
+	}
+	return owned, nil
+}
+
+func reportLocalRuntimeTemporalEdgeSets(ctx *types.BusContext) []reportLocalRuntimeTemporalEdgeSet {
+	if ctx == nil {
+		return nil
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, 1)
+	results := append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...)
+	if ctx.Mutable != nil {
+		results = append(results, ctx.Mutable.DispatchToolResults()...)
+		results = append(results, ctx.Mutable.SystemTraceSupplementResults()...)
+	}
+	out := make([]reportLocalRuntimeTemporalEdgeSet, 0, len(results))
+	seenSets := map[string]bool{}
+	for _, result := range results {
+		authority := result.TraceEvidenceAuthority
+		if !result.Success || authority == nil || authority.FrameFlowEdgeCount <= 0 ||
+			strings.TrimSpace(authority.FrameFlowCausalConclusion) != "unproven" ||
+			strings.TrimSpace(authority.FrameFlowRelationAuthority) != "temporal_sequence" {
+			continue
+		}
+		counts := map[string]int{}
+		seenRows := map[string]bool{}
+		for _, record := range result.Observations {
+			if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+				!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+				record.GroundingPolicy != types.ClaimGroundingHard ||
+				strings.TrimSpace(record.Predicate) != "frame_temporal_sequence" ||
+				!strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "evidence_fact:") {
+				continue
+			}
+			rowKey := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%.9f\x00%.9f",
+				strings.TrimSpace(record.SourceRef.CaptureIdentityPath),
+				strings.TrimSpace(record.SourceRef.Path),
+				strings.TrimSpace(record.Subject),
+				strings.TrimSpace(record.Object),
+				record.Span.LineStart,
+				record.Span.LineEnd,
+				record.Span.StartTs,
+				record.Span.EndTs,
+			)
+			if seenRows[rowKey] {
+				continue
+			}
+			seenRows[rowKey] = true
+			from, to := strings.TrimSpace(record.Subject), strings.TrimSpace(record.Object)
+			if from == "" || to == "" {
+				continue
+			}
+			counts[diagramEvidenceEdgeKey(from, to)]++
+		}
+		rowCount := 0
+		keys := make([]string, 0, len(counts))
+		for key, count := range counts {
+			rowCount += count
+			keys = append(keys, fmt.Sprintf("%s=%d", key, count))
+		}
+		if rowCount != authority.FrameFlowEdgeCount {
+			continue
+		}
+		// The identity need only deduplicate repeated publication. Map iteration
+		// order is irrelevant to authority, so sort the multiset entries first.
+		sort.Strings(keys)
+		setKey := strings.Join(keys, "\x01")
+		if seenSets[setKey] {
+			continue
+		}
+		seenSets[setKey] = true
+		out = append(out, reportLocalRuntimeTemporalEdgeSet{counts: counts})
+	}
+	return out
+}
+
+func reportLocalRuntimeTemporalEndpoint(alias string, labels map[string]string) string {
+	alias = strings.TrimSpace(alias)
+	if label := strings.TrimSpace(labels[strings.ToLower(alias)]); label != "" {
+		return html.UnescapeString(label)
+	}
+	return html.UnescapeString(alias)
+}
+
+func reportLocalRuntimeTemporalEdgeSubset(body, typed map[string]int) bool {
+	if len(body) == 0 || len(typed) == 0 {
+		return false
+	}
+	for key, count := range body {
+		if count <= 0 || typed[key] < count {
+			return false
+		}
+	}
+	return true
+}
+
+func reportLocalRuntimeTemporalBlockDeclaresTemporal(block *types.AnswerBlock) bool {
+	if block == nil {
+		return false
+	}
+	for _, anchor := range block.EdgeAnchors {
+		if diagramAnchorRelation(anchor) == types.DiagramRelTemporal {
+			return true
+		}
+	}
+	return false
+}
+
+func reportLocalRuntimeTemporalAnchorIssue(edges []mermaidcompat.Edge, anchors []types.DiagramEdgeAnchor) string {
+	bodyCounts := map[string]int{}
+	for _, edge := range edges {
+		bodyCounts[diagramEvidenceEdgeKey(edge.From, edge.To)]++
+	}
+	anchorCounts := map[string]int{}
+	for _, anchor := range anchors {
+		key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+		if bodyCounts[key] == 0 {
+			return fmt.Sprintf("typed anchor %s->%s has no matching visible arrow", anchor.FromNode, anchor.ToNode)
+		}
+		if diagramAnchorRelation(anchor) != types.DiagramRelTemporal {
+			return fmt.Sprintf("visible runtime-temporal arrow %s->%s has relation_kind=%s instead of temporal",
+				anchor.FromNode, anchor.ToNode, firstDiagramRelationName(diagramAnchorRelation(anchor)))
+		}
+		anchorCounts[key]++
+	}
+	for key, count := range bodyCounts {
+		if anchorCounts[key] != count {
+			return fmt.Sprintf("visible runtime-temporal arrow occurrence count=%d but temporal anchor count=%d for %s",
+				count, anchorCounts[key], strings.ReplaceAll(key, "\x00", "->"))
+		}
+	}
+	return ""
+}
+
+func firstDiagramRelationName(relation types.DiagramRelationKind) string {
+	if relation == types.DiagramRelUnknown {
+		return "missing"
+	}
+	return string(relation)
+}
+
+func reportLocalRuntimeTemporalDiagramHint(blockID, issue string) emitFixHint {
+	return emitFixHint{
+		Field:               "blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body",
+		HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+		OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
+		ExpectedShape: types.RuntimeTraceTemporalDiagramRelationContract +
+			" Keep only a faithful subset of one report-local typed temporal edge set, with one relation_kind=temporal anchor per visible arrow occurrence; do not borrow endpoints across trace queries or source-code evidence.",
+		Reason: fmt.Sprintf("block=%q: %s. Runtime temporal ordering has its own typed authority and must not be upgraded into or rejected as a source-code invocation.",
+			blockID, issue),
+	}
+}
 
 // preCheckRuntimeTraceTemporalDiagramAuthority closes the structured diagram
 // half of an exact runtime authority boundary. It activates only when this

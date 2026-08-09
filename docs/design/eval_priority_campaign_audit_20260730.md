@@ -28302,3 +28302,56 @@ Trace 根因人口仍为 `typed-on-chain-only`，adjacent/background 仍为 `sup
 `temporal-capsule=report-local+complete+typed-only`；`arrow-anchor-cardinality=equal`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.415 r235：胶囊到达但 source/runtime 合同冲突；wait 身份到达但模型仍跨席
+
+在 `main@b9db65cd5` 上严格并发恰好两个同组 Trace case，runner 2/2 PASS，人工 0/2 PASS：
+
+1. B400 生产闭环：frame Finalizer prompt 不再包含 pretriage model-extraction 叙事或 Analyzer 自由 StageReport；deterministic trace_query rows、四尺、
+   temporal ceiling 与原始附件仍在。故本轮越权不能再归因于旧 pretriage 旁路；
+2. B401 生产接线成立：copy-ready capsule 含 4 个 Note、3 条 temporal arrows 和逐 occurrence 三个 `relation_kind=temporal` anchors；模型首稿实际复制
+   Note/alias/arrow 形并提交三个 anchors。`nested diagram.edge_anchors` 容错也在 pre-emit 前把 metadata 规范到 block owner；
+3. 新确认 `EVAL-B402-RUNTIMEFLOWCONTRACTROUTING1=P0/HIGH`。同一份合法 typed temporal 图仍被 source diagram gate 报三条
+   `missing_call_anchor`：semantic view 是 `Family=generic + AxisFlow`，现有 runtime temporal 特判只认 `QFRootCauseTrace`，随后 source-call strict body
+   车道把 runtime ordering 当 source invocation。系统先教 temporal、模型照做、系统再要求 call，构成确定性教学/校验自冲突；patch 最终删图；
+4. B402 最优泛化解不是把 `trace` keyword 或某 case 加白名单，而是**按 diagram block 的 typed evidence owner 路由**：一块图只有当其可见 endpoint
+   multiset 是某一个 report-local、complete、hard runtime frame-temporal result 的子集，且每个 arrow occurrence 有 temporal anchor 时，才绕过 source gate；
+   sibling source 图仍走原 gate，mixed proved causal query 不撤销该 frame result 自己的 temporal authority；
+5. frame 语义仍人工失败：模型把 app/render/gpu span name 扩写为 UI 主线程、RenderService 渲染线程、GPU 硬件线程，并声称线程间消息/垂直同步触发，
+   把 1ms gap 写成可能调度/信号传播。typed guidance 已明确 name/stage/gap 不授权这些机理，模型仍覆盖；记
+   `EVAL-B403-TYPEDSEMANTICADHERENCEPLATEAU1=P1/HIGH`，先排除 B402 合同噪声后异构复放，不继续堆同义软句；
+6. B399 的 rank/channel/row_identity 与 `seat_binding/rank_binding=not_provided` 全部真实到达 Donghu Finalizer，但模型仍把全窗
+   `fscache ×17` census 绑定到 #5 7.386ms 席，把 `page_lock_timeout` kernel callsite 扩写成“持有或等待页锁”，并把无 frame ownership 的 >8ms
+   sleep/wakeup interval 写成导致错过 Vsync。确认 `EVAL-B404-UNBOUNDINVENTORYREBINDS1=P1/HIGH` 与
+   `EVAL-B405-FRAMEABSENTPROSEOVERRIDE1=P1/HIGH`；
+7. Donghu 的正面边界：principal/root 人口仍只来自 typed on-chain，排序 #1/#2/#3/#4 等保持；pressure/IRQ 等留在背景，Trace 因果投影和
+   “主根因=已证链上单项最大可消除量（帧因果未证）”系统板未越权替换模型主稿。失败是模型正文对席位/机理/帧因果的升级，不是投影人口污染；
+8. 本轮没有系统改写或删除模型主稿；唯一删除是模型收到矛盾硬拒后的自选 patch 删除可选图。显式时间窗、自动补采、根因排序、唤醒链、因果投影、
+   窗内可消量和真实占时/规则可消双轴均未改变。
+
+状态：runner=`2/2 PASS`；human=`0/2 FAIL`；
+`EVAL-B400=production-closed`；`EVAL-B401=production-wired/blocked-by-B402`；
+`EVAL-B402=P0-confirmed/next`；`EVAL-B403=P1-confirmed/replay-after-B402`；
+`EVAL-B399=partial/identity-arrived/model-rebound`；`EVAL-B404=P1-confirmed`；`EVAL-B405=P1-confirmed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.416 S37di：按 block 的 runtime/source diagram typed owner 路由
+
+针对 B402 施工，不改 semantic family、不扫描 trace/user/model/final 文本，也不放宽 source 关系门：
+
+1. relation pre-check 先为每个 diagram block 计算 typed owner。runtime temporal owner 只来自一个 `ToolResult` 自己的
+   `TraceEvidenceAuthority(frame_flow=unproven, relation=temporal_sequence, edge_count>0)` 与同结果 hard runtime
+   `evidence_fact:frame_temporal_sequence` rows；unique row 数必须与 authority edge count 完全一致；
+2. Mermaid alias 通过 participant declaration 解到可见线程 identity；图中 endpoint occurrence multiset 必须是该单报告 typed edge multiset 的子集。
+   不读 edge label、Summary、用户问题、模型 thinking 或正文，也不把早期/后期查询拼成一个权限集；
+3. runtime-owned block 的每个可见 arrow occurrence 必须恰有一个同 alias 方向的 `relation_kind=temporal` anchor。缺 anchor、重复箭头借一个 anchor、
+   call/callback/其他 relation、metadata-only anchor 或未证 endpoint 都返回 runtime-specific 精确修复，不再误报 source call；
+4. 只把已成功绑定的 runtime block 从 source-code diagram check 的临时文档视图中移除。相邻 source diagram、call DAG、all-language repo relation 仍完整走
+   原 source evidence gate；同会话有 proved wakeup/IPC/lock result 不会撤销独立 frame result 的局部 temporal authority；
+5. 旧 `QFRootCauseTrace` 因果投影特判保留，显式时间窗与自动补采不变。新路径补 generic+AxisFlow、mixed proved sibling、runtime+source sibling、未证 alias、
+   逐 occurrence anchor 五类回归；聚焦 tool 测试已绿。
+
+状态：`EVAL-B402=S37di-implemented/full-suite-pass/pending-production-replay`；
+`diagram-authority-routing=block-local+typed-owner`；`source-gate=preserved-for-non-runtime-blocks`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

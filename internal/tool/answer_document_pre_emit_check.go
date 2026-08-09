@@ -3834,6 +3834,26 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if pctx == nil {
 		return nil
 	}
+	// Runtime temporal frame diagrams and source-code relation diagrams may
+	// coexist in one answer. Route only the blocks whose visible endpoint
+	// multiset is proved by one complete report-local trace result to the
+	// runtime authority; all sibling blocks continue through the source gate.
+	// This is independent of QF family: a bounded trace state/flow question can
+	// legitimately have Family=generic + AxisFlow without becoming source code.
+	runtimeOwned, runtimeHints := preCheckReportLocalRuntimeTemporalDiagramAuthority(doc, pctx)
+	if len(runtimeHints) > 0 {
+		return runtimeHints
+	}
+	if len(runtimeOwned) > 0 {
+		copyDoc := *doc
+		copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(runtimeOwned))
+		for i, block := range doc.Blocks {
+			if !runtimeOwned[i] {
+				copyDoc.Blocks = append(copyDoc.Blocks, block)
+			}
+		}
+		doc = &copyDoc
+	}
 	if hints := preCheckRuntimeTraceTemporalDiagramAuthority(doc, view, pctx); len(hints) > 0 {
 		return hints
 	}
