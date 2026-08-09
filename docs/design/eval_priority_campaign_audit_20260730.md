@@ -28800,3 +28800,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 `attribute-demand=typed-contract-only`；`row-detail-owner=model`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
+
+### 123.433 r243：B417 生产闭环；sequence 非 call 关系教学与校验确定性冲突
+
+在 `main@8ab98f61b` 上严格并发恰好两个 case：`read_combo_pipeline_sequence_table` 与
+`trace_query_frame_timeline_flow`。runner 1/2 PASS，人工 0/2 PASS：
+
+1. Trace case 的两个显式窗口 `frame_timeline/frame_flow` 查询正常到达，最终答案保持 `temporal_sequence_only` 与
+   `causal_conclusion=unproven`，没有把邻近/背景信息提升为根因；该请求只问 bounded frame flow，不要求 root-cause projection，因此
+   `trace_query_final_projection_blocks=0` 是正确路由，不是因果投影能力丢失；
+2. B417 生产闭环：含 8 条 `Note over` 的 sequence diagram 首次成文即通过，`finalizer_rejects=0`；Note 内的时间/阶段文字不再铸造假边，三条真实
+   temporal edge 与 anchors 保持。状态升级为 production-closed；
+3. Trace 人工仍失败：typed `item_authority_json` 对四项均明确
+   `owning_thread_role_authority=not_provided_by_this_item/internal_work_authority=not_provided_by_this_item`，模型却把 comm 扩写为
+   “UI 主线程/RenderService 渲染线程/GPU 硬件线程”，并把 causal-unproven 进一步叙述为没有 Fence/队列/回调。B403 再现为精确信号已到达后的模型语义越权；
+   不扫描这些中文词面加 hard gate，也不允许系统删改模型答案；
+4. B416 生产只算 partial：Explorer 的两个 completion 均携带等长 `members/member_notes/support_refs`，identity-only roster 不再闭环；但 notes
+   只是短标签，部分 stage 与 ref 的责任映射仍不准确，最终表仍自行补出错误输入/载体。说明“一行一个有证 note”解决载体缺席，却未证明请求的每个属性维度；后续应优先复用
+   typed source-inventory row attributes 或建立逐成员×属性的结构载体，不能检查 note prose，也不能让系统代写表；
+5. 新 `EVAL-B421-SEQUENCENONCALLCONTRACTCONFLICT1=P0/REDLINE` 是本轮主故障。producer-owned typed capsule 明确提供两条
+   `relation_kind=assignment` recipe：`EmitAnalysis.Execute -> Mutable.RequestModel` 与
+   `SetAnswerDocumentV2WithMutation -> Mutable.answerDocumentV2`；模型按 recipe 发射 sequence arrow + assignment anchor 后，
+   `diagramParsedEdgeRequiresCallAuthority` 仍把除 callback 外的所有 sequence message 当 call，报 `missing_call_anchor`；模型改成 call 后又因只有
+   assignment evidence 报 `call_edge_unproven`；
+6. B421 是同一 typed 事实在教学面“必须 assignment”、校验面“必须 call”的不可满足合同。连续 6 次成文拒绝、5 次 patch 后触发
+   `answer_document_retry_state_recovered`，系统恢复 rejected draft 并跳过 structured answer checks。最优根修是：可见边若有同端点的显式 canonical
+   non-call anchor，先由该 typed relation 所有权接管并走其既有 exact evidence gate；只有无 non-call owner 或显式含 call 时才进入 call authority；
+7. 该修复必须覆盖 assignment/return/register/callback/type_relation 及具备 exact ClaimForm 的 guard/import/precedence/observe/temporal 等全部语言共享关系，
+   不能只给当前 assignment 或 Go 节点加白名单。无 typed anchor 的 sequence message 仍 fail-closed 为 call，unsupported non-call anchor 仍由既有关系证据门拒绝；
+8. B419 再现：结构化表仍为 `项目/列 2/列 3/列 4/列 5`。模型主稿还把 Analyze 输入写成
+   `Mutable.RequestModel`、把 `Mutable.RequestModel` 说成 AnalysisIR 的存储面，系统 stage-binding supplement 给出更准信息但保持“核对补充、不替代模型答案”；
+9. 施工顺序更新：B421 作为红线 P0 先修并独立提交；再将 B416 从 row-note presence 升为 typed per-member×attribute coverage 设计；B419 继续审计
+   AnswerBlock/table schema 的结构化列名合同。B418 alias identity 尚未被本轮主故障独立验证，不并入 B421 猜修。
+
+状态：runner=`1/2 PASS`；human=`0/2 PASS`；
+`EVAL-B417=production-closed`；`EVAL-B416=partial/row-carrier-present-attribute-proof-open`；
+`EVAL-B421=P0-confirmed/next`；`EVAL-B419=P1-reproduced/open`；
+`EVAL-B403=P1-reproduced/model-semantic-adherence`；
+`json-contract-conflict=sequence-relation-authority-confirmed`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-investigation-only`。
