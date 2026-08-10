@@ -2413,3 +2413,37 @@ grounding、current-source、identity/edge 去重及 definition/call-edge 权限
 两项都只改善模型上下文/repair 指引，不修改模型答案、事实或结论，不扫描 request/final prose 作 hard gate，不触碰 RootCauseTrace、显式时间窗、双轴根因、
 因果投影或自动补齐。完整 agent/tool 通过（2.480s/161.239s）。状态均为 `implemented/full-pass/replay-next`；`iota`、per-role count 与 B99 citation drift
 按 §106 留项继续异构回放。
+
+---
+
+## §11 MERGE-AUDIT-6 增量审计(2026-08-09):466 笔(08-04→08-09)= §10 修复响应 + evaluator/图表/data-task/trace 权威四大波
+
+**范围**:b4d38cdb3..HEAD 非本席合入 466 笔。**方法**:8 主题读者+逐条 2 席否证(22 agent,wf_052e4d58-a52,多处 go test overlay 可执行判别)+全仓基线实测;只审计不修码。产出:**3 确认(1 高)+6 低+4 项指控被否证席驳回;39 项核验通过**——本审计系列开账以来同事成色最高的一轮。
+
+### §11.1 基线与修复合规总评(正面)
+
+- **main 绿**(本席实测);红线结构 pin 全绿。
+- **§10 全部高危验证正确关闭**:S6-1 内部架构文本整段退役(repo-wide grep 零残留);M5-S3-1 定界符门新增 `skipRustLifetimeOrLabel` 按语言族路由(.rs 撇号);M5-S3-2 过针冻结改绑 post-apply 探测报告(附 8ffa88f71 自动盖章/5749e5b30 套件抢占两件加固);M5-S1-1 锚门与 ExpectedShape 教学共享单一别名解析权威;M5-S5-1 方向改走 typed `CallChainEndpointProfile{source,sink}`(实体序退役);S2 族逐语言关闭。
+- **S4-3 §10.6 并置臂施工整体合规**:评判臂维持退役、嘈声扫描纯选择器、[E#] 强制、中性框架词、所有权 tripwire 未动——唯 pin ③ 缺口见 §11.2(M6-U1-1)。
+- **我方全部裁定面完好**(U5 专项 sweep):crown 前缀+限定注/CROWNCAL 臂/TWODIM 未计价占用账/closed-matrix 教学/causal_token_registry 零动;73783a7a8 on-chain 收窄与 ISPGAP-1 既裁一致;69829402d 离链推断收束保留了披露出口(维度一出口未伤)。
+- **同事账本抽检 6 条声称全实**(连续第三轮零虚账);当日 revert 对(8091d497e→f5d30b00b)取证=analyzer 铸图 participant 硬门自知误伤即回滚,END-STATE 零残留;47 笔 eval 提交仅 1 条降杆(见 U7-1 低危,有账可查)。
+
+### §11.2 确认(3 件)
+
+| # | 位置 | 问题 | 复现 |
+|---|---|---|---|
+| **M6-U3-1(高)** | `answer_document_diagram_evidence.go:377` | **T3-2 类第四例**:8304122c0 把 sequence 箭头扩到非调用关系族(register/type_relation 等)并写进教学,但这两个证据门要求**双端全限定段序相等**(`AnswerCodeIdentitySurfacesEquivalent`),没带调用车道同批刚修好的 short→qualified 唯一投影桥(2d5810692 的 B423 根修)——教学祝福的短名 participant 展示形在非调用臂上硬拒;B423 账本已证产线模型就用短形(7 连拒 513s 级联的前科姿态) | 静态(与 B423 前科逐点对照) |
+| M6-U3-2(中) | 同文件:469 | callback/value/guard 族匹配器反向病:`CallChainEndpointCompatible` 双向接受短尾冒充限定名**且无唯一性要求**——与 M6-U3-1 一收一放,同批同臂不同纪律(第三次出现"同批不同车道不同纪律"形) | 静态 |
+| M6-U1-1(中) | `orchestrator/prose_typed_reconciliation.go:69` | **S4-3 裁定 pin ③ 缺失且交付声称不实**:唯一 e2e 用的是"正确算式且值恰好 3 位全匹配"的 fixture——算式形状选择器臂在任何测试中都不是判决信号(否证席 overlay 双向实证:删臂全绿/错算式行为确实只靠该臂发射);§10.11 声称的「错误算式 e2e」不存在。行为今日完好,缺的是裁定命令的红绿 pin+交付账实 | 否证席 **overlay 双向可执行复现** |
+
+### §11.3 低危顾问(6 件)
+
+U2-3 evaluator 阶段车道权威 pin 绑 stage_binding.go 压缩源码子串(重构静默失配);U2-4 perf 帧候选改信模型 Janky 位(确定性长帧地板被移,回退了当初设防的理由);U5-1 thread_role 逃逸车道退役但教学仍承诺该凭证(不可铸词面);U5-2 有任何确定性 trace 观测即丢弃**全部** analyzer 阶段报告 prose(粗粒度抑制,含与 trace 无关的分析上下文);U6-1 新 member_notes/support_refs 拒绝车道逐行首错报告(EMITBURN 分歧);U7-1 唯一降杆 eval(contributions=4→任意正数,有文档记录,属既裁 jitter 类,建议回收紧)。
+
+### §11.4 处置建议(未动码)
+
+1. **M6-U3-1/U3-2 同批修**(高优先):非调用关系族证据门接入与调用车道同一的 side-aware exact-or-unique-short 投影助手(单源),callback/value 族补唯一性——第四例后建议把「新关系臂必须复用 `diagramCallEndpointHasExactOrUniqueShortProjection` 单点」写成结构 tripwire(census:凡 `diagram*EdgeHasTypedEvidence` 家族函数必须调用该助手或登记豁免理由)。
+2. **M6-U1-1**:补裁定命令的错算式红绿 e2e(fixture=算式内洽但操作数无 3 位匹配,如 82.1+9.1=91.2),并更正 §10.11 交付记录。
+3. 低危随批;U2-4 建议恢复确定性地板为 AND 臂;U7-1 回收紧。
+
+**方法学**:①同事修复合规连续第三轮 100%(39/39 核验通过),新缺陷数从 12→12→3 递减且首次零新域高危(唯一高危是既裁类第四例);②T3-2 类四连发定谳其为**结构性复发类**——单点助手+census tripwire(§11.4-1)是终局解,单靠逐例修复不收敛;③否证席 overlay 双向实证(删臂绿+行为依赖臂)首次同时证明"pin 缺失"与"行为完好",是 test-gap 类 finding 的黄金判别形。
