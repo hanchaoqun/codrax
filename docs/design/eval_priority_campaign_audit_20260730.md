@@ -30026,3 +30026,20 @@ analysis compiler 产物归给 Analyzer LLM。B452/B453 再次确认。最优修
 状态：`B454=implemented/pending-targeted-production-witness`；`B455=P1-confirmed/after-B452-B453`；
 `B452/B453=P1-confirmed/next-batch`；`r265-human=1/2`；`raw-prose-hard-gate=none`；
 `model-answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### B452 批次施工：required participant 获得一次 typed operation 补证机会
+
+既有 source-flow completion 只要求“至少一条 operation carrier”，因此辅助 helper call 可让 Explorer 关闭，而 required diagram 点名的
+参与者仍全无 incident relation。现新增独立 `flow_participant_coverage` typed lane：仅在 `AxisFlow + required diagram +
+incident_required participants + current-source` 时，把 citable operation 的 subject/object 与 schema-validated participant identity 做结构化
+兼容比较；只要有参与者未覆盖，就向 Explorer 返回一次聚焦的 repo_map/grep/read/emit_evidence 修复机会。
+
+该 lane 不把 participant planning identity 当 edge authority，不生成关系、不补图、不改答案。新增证据覆盖后正常关闭；相同 blocker 第二次
+无进展即以 typed unproven caveat 收敛，禁止无限 completion churn。`context_only` 永不要求连边；runtime Trace intent、RootCauseTrace、
+attached-runtime-without-current-source 继续完全绕开 source-flow participant lane。Finalizer 的 same-direction typed relation gate 未放宽。
+
+验证：新增 uncovered→repair、补入 incident operation→close、无进展→bounded caveat、context-only/Trace exclusion 四组 pin；
+`go test ./internal/types ./internal/tool -count=1` 全绿（tool 163.195s）。
+
+状态：`B452=implemented/types-tool-full-pass/pending-production-replay`；`B453=next-batch`；`B455=queued`；
+`raw-request/model-prose-hard-gate=none`；`model-edge/answer-rewrite=none`；Trace causal projection=`unchanged`。

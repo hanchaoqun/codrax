@@ -155,3 +155,105 @@ func TestFlowOperationCompletionGatePreservesMixedRuntimeCurrentSourceRequest(t 
 		t.Fatal("an explicit mixed runtime+current-source flow must retain the source operation evidence gate")
 	}
 }
+
+func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != "flow_participant_operation_evidence" ||
+		!strings.Contains(res.Summary, "Analyzer") {
+		t.Fatalf("uncovered incident participant should request one focused operation pass: %+v", res)
+	}
+	if ctx.Mutable.IsInvestigationComplete() {
+		t.Fatal("first uncovered-participant attempt must not mark investigation complete")
+	}
+	repairs := ctx.Mutable.EvidenceClosure().ActiveRepairs()
+	if len(repairs) != 1 || repairs[0].DowngradeLane != types.DowngradeLaneFlowParticipantCoverage {
+		t.Fatalf("participant repair must carry its typed lane: %+v", repairs)
+	}
+}
+
+func TestEmitInvestigationComplete_FlowParticipantCoverageClosesAfterIncidentOperation(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	if _, err := tool.Execute(ctx, flowOperationCompletionParams(t)); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorAssignment, "Analyzer", "AnalysisIR", 55),
+	})
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || !strings.Contains(res.Summary, "Investigation marked complete") {
+		t.Fatalf("incident operation should close participant coverage: %+v", res)
+	}
+}
+
+func TestEmitInvestigationComplete_FlowParticipantCoverageNoProgressConverges(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	if _, err := tool.Execute(ctx, flowOperationCompletionParams(t)); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() ||
+		!ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage) ||
+		!strings.Contains(res.Summary, "participant relation remains unproven") {
+		t.Fatalf("second no-progress close should converge with participant boundary: %+v", res)
+	}
+}
+
+func TestFlowParticipantCoverageExcludesRuntimeTraceAndContextOnlyParticipants(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantContextOnly,
+		}},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("context-only participant must not require an incident edge: %v", got)
+	}
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "render-thread", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("runtime Trace participant must stay on causal/on-chain contracts: %v", got)
+	}
+}

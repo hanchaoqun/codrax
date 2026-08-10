@@ -2681,3 +2681,15 @@ B452/B453 后 B455；§11 审计本身保持关闭。
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B454=pending-targeted-production-witness`；
 `B452/B453=next-batch`；`B455=queued`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.5 B452 独立批完成：辅助 flow edge 不再提前关闭 required participant 调查
+
+B452 已按 typed soft-repair lane 落地：required source-flow diagram 中，已有任意 operation 不再自动等同于已覆盖所有
+`incident_required` 参与者。未覆盖名单来自 schema participant roles 与 citable operation endpoints，不读 request/Mermaid/model prose；
+Explorer 获得一次聚焦补证机会，再次无进展以 typed boundary 收敛。系统不铸边、不代画、不改写结论，Finalizer 关系门保持原样。
+
+`context_only`、Trace/RootCauseTrace 与外部 runtime-only flow 均有负 pin；types/tool 全包通过。§11 继续关闭，B452 等待 production
+回放；下一独立批处理 B453 provenance/系统 supplement 权属。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B452=implemented/pending-production-replay`；`B453=next`；`B455=queued`；
+`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。

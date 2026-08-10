@@ -85,6 +85,12 @@ const (
 	// operation. A repeated no-progress close converges with an explicit
 	// unproven-flow boundary rather than becoming a retry storm.
 	DowngradeLaneFlowOperationCarrier DowngradeLane = "flow_operation_carrier"
+	// DowngradeLaneFlowParticipantCoverage is the required source-flow diagram
+	// participant lane. The analyzer-provided identities remain planning input,
+	// never edge authority; this lane gives Explorer one focused opportunity to
+	// materialize operations incident to the still-uncovered participants, then
+	// converges with an explicit boundary instead of forcing invented bridges.
+	DowngradeLaneFlowParticipantCoverage DowngradeLane = "flow_participant_coverage"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete

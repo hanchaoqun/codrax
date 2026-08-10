@@ -2204,6 +2204,38 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
 	}
+	missingFlowParticipants := flowParticipantCoverageMissing(ctx, evidenceSnapshot)
+	if len(missingFlowParticipants) == 0 && ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage)
+		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowParticipantCoverage)
+	}
+	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
+		queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowParticipantCoverage) {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: preCompleteDowngradeSummary(fmt.Sprintf(
+					"emit_investigation_complete rejected: the required source-flow diagram still has no citable operation incident to typed participant(s) %v. The current operation rows may describe real auxiliary edges, but they do not cover the requested participant slate. Do one focused pass over the corresponding source operations and emit the verified directed rows; when source cannot prove a participant relation, keep that participant explicitly unproven instead of inventing a bridge.",
+					missingFlowParticipants)),
+				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+					Code:   "flow_participant_operation_evidence",
+					Hint:   flowParticipantCoverageRepairHint(missingFlowParticipants),
+					Fields: []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
+					Metadata: map[string]string{
+						"repair_origin": "emit_investigation_complete.flow_participant_coverage",
+						"lane":          string(types.DowngradeLaneFlowParticipantCoverage),
+					},
+				}),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
+		ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+			"required source-flow participant relation remains unproven for %v: existing grounded operation rows may still be summarized, but the model must not connect these participants or claim a complete requested flow without incident typed evidence",
+			missingFlowParticipants))
+	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil
@@ -3182,7 +3214,7 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold
-	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier {
+	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier || lane == types.DowngradeLaneFlowParticipantCoverage {
 		exactThreshold = 2
 	}
 	if lane == types.DowngradeLaneCompletionForm {
@@ -3266,6 +3298,60 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext) {
 		Rationale:     types.FlowOperationEvidenceEmissionGuide,
 		Origin:        "emit_investigation_complete.flow_operation_carrier",
 		DowngradeLane: types.DowngradeLaneFlowOperationCarrier,
+		Stage:         string(types.StageExplore),
+	})
+}
+
+func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.EvidenceItem) []string {
+	if ctx == nil || ctx.AnalysisIR == nil || !flowOperationEvidenceRequired(ctx) {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) == 0 {
+		return nil
+	}
+	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
+	seen := make(map[string]bool)
+	missing := make([]string, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		key := strings.ToLower(identity)
+		if identity == "" || seen[key] || participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		seen[key] = true
+		covered := false
+		for _, operation := range operations {
+			if types.AnswerCodeIdentitySurfacesCompatible(identity, operation.Subject) ||
+				types.AnswerCodeIdentitySurfacesCompatible(identity, operation.Object) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			missing = append(missing, identity)
+		}
+	}
+	return missing
+}
+
+func flowParticipantCoverageRepairHint(missing []string) string {
+	return fmt.Sprintf(
+		"The required source-flow participant slate still lacks incident operation evidence for %v. Treat these analyzer-provided names as a bounded investigation checklist, not as edge authority. Resolve each to its real source operation, then emit only verified call/callback/assignment/initializer/return/precedence rows with exact source endpoints. If a relation cannot be proved, preserve that participant as an explicit unproven boundary.",
+		missing)
+}
+
+func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil || len(missing) == 0 {
+		return
+	}
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairExpandSearch,
+		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
+		Subject:       "flow_participants:" + strings.Join(missing, ","),
+		Rationale:     flowParticipantCoverageRepairHint(missing),
+		Origin:        "emit_investigation_complete.flow_participant_coverage",
+		DowngradeLane: types.DowngradeLaneFlowParticipantCoverage,
 		Stage:         string(types.StageExplore),
 	})
 }
