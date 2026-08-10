@@ -2928,3 +2928,12 @@ B464 仍按独立 P1 追踪 source-repair alias provenance；本轮不以放宽 
 状态：`MERGE-AUDIT-6/§11=closed`；`B462=production-closed`；`B463=blocked-by-B466`；
 `B465/B466=P0-next`；`B464=P1-queued`；`raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.21 B465 完成：reference scope 由模型显式二选一，不再接受 false+pair
+
+r270 的 3-vs-2 satisfied 根因已收窄为 planner typed 状态冲突：`complete_reference=false` 与非空 reference path/key 同时在场。
+现由 schema 与兼容解码后的精确检查共同要求 true+pair / false+no-pair 两种合法状态；冲突进入一次 bounded JSON repair，模型自行重选，系统
+不把 structural candidate 加冕为完整 reference。repl/dataworkflow/dataquery 联合回归通过，全仓复验在提交前执行。
+
+状态：`B465=implemented/pending-production-replay`；`B466=next`；`B464=P1-queued`；
+`soft-candidate-hardening=none`；`raw-prose-hard-gate=none`；Trace 车道不变。

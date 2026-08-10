@@ -30410,3 +30410,24 @@ B464 保持 P1：本轮 dotted endpoint 被 source repair 改为 `codraxNodeN`�
 状态：`B462=production-closed`；`B463=production-replay-failed/blocked-by-B466`；`B465=P0-next`；`B466=P0-next`；
 `B464=P1-after-P0`；`r270-runner=0/2`；`r270-human=0/2`；`raw-request/model-answer-prose-hard-gate=none`；
 `system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B465 独立批完成：complete-reference scope 的 typed JSON 状态不再自相矛盾
+
+r270 的 terminal 虽显示 3 个 reference key 与 2 个 answer item，但硬门没有失效：该轮 continuation plan 实际提交了
+`complete_reference=false`，同时又携带 `reference_path=target_order/reference_key_field=target_id`。前者明确选择 subset/present-only，
+后两者却是 complete universe 凭据；旧 schema 只约束 true 必须带 pair，没有约束 false 禁止 pair，因而让相反状态同时进入工作流，最终
+candidate 只能保持 soft，不能合法驱动 hard grounding。
+
+本批没有把 soft candidate 自动升级为权威，也没有从 instructions/文件名/期望答案替模型选择 scope。planner schema 现投影完整二态：
+true 必须带非空 path+field；false 时两个凭据必须为空/省略。兼容解码后再运行同一 typed consistency check；若模型提交矛盾组合，走既有一次
+compact structured-tool repair，并把精确字段矛盾与原上下文交还模型，让它选择 `true+pair` 或 `false+no-pair`。第二次仍矛盾则诚实失败。
+
+production-shape 测试固定 r270 的 `false+target_order/target_id` 首次载荷必须触发一次修复，模型改为 true+pair 后才进入 plan；true 缺任一
+凭据、false 携带凭据均拒绝，合法 subset 与 complete 两态通过。executor 对 action-local reference pair 的既有权威、reference grounding、
+零填充、reconcile 与 final projection 均未更改。
+
+验证：`go test ./internal/repl ./internal/dataworkflow ./internal/dataquery -count=1` 全绿；全仓复验在提交前执行。
+
+状态：`B465=implemented/full-suite-pass/pending-production-replay`；`B466=next`；`B464=P1-queued`；
+`soft-reference-candidate-auto-promotion=forbidden`；`model-business-scope-decision=preserved`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

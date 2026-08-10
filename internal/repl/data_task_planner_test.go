@@ -2991,6 +2991,14 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 			t.Fatalf("complete-reference then.required=%+v, want %s", outputThenRequired, want)
 		}
 	}
+	outputElse, _ := outputConditional["else"].(map[string]any)
+	outputElseProperties, _ := outputElse["properties"].(map[string]any)
+	for _, name := range []string{"reference_path", "reference_key_field"} {
+		property, _ := outputElseProperties[name].(map[string]any)
+		if property["maxLength"] != float64(0) {
+			t.Fatalf("complete_reference=false %s schema=%+v, want maxLength=0", name, property)
+		}
+	}
 	actions, _ := properties["actions"].(map[string]any)
 	items, _ := actions["items"].(map[string]any)
 	allOf, _ := items["allOf"].([]any)
@@ -3045,6 +3053,48 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 	if !strings.Contains(dataTaskLedgerShapeTeaching, "must explicitly set complete_reference") ||
 		!strings.Contains(dataTaskLedgerShapeTeaching, "false for ordinary scalar/subset/present-group output") {
 		t.Fatalf("ledger shape teaching must make complete-reference intent explicit: %s", dataTaskLedgerShapeTeaching)
+	}
+}
+
+func TestDataTaskPlannerRepairsContradictoryReferenceScopeInsteadOfSigningSoftCandidate(t *testing.T) {
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false,"reference_path":"target_order","reference_key_field":"target_id"},"actions":[{"kind":"assemble_answer"}]}`),
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":true,"reference_path":"target_order","reference_key_field":"target_id"},"actions":[{"kind":"assemble_answer"}]}`),
+	}}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "project the declared reference universe", "/repo", TurnPolicy{Route: RouteData}, nil)
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("planner calls=%d, want one compact typed repair", len(adapter.calls))
+	}
+	if !plan.OutputContract.CompleteReference || plan.OutputContract.ReferencePath != "target_order" || plan.OutputContract.ReferenceKeyField != "target_id" {
+		t.Fatalf("output contract=%+v, want repaired true+pair decision", plan.OutputContract)
+	}
+	if got := adapter.calls[1].messages[1].Content; !strings.Contains(got, "false cannot carry reference_path/reference_key_field credentials") {
+		t.Fatalf("compact repair prompt lost precise typed contradiction:\n%s", got)
+	}
+}
+
+func TestValidateDataTaskOutputDraftReferenceScopeKeepsTwoExplicitStates(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		draft   dataTaskOutputDraft
+		wantErr bool
+	}{
+		{name: "subset without credentials", draft: dataTaskOutputDraft{}},
+		{name: "complete with pair", draft: dataTaskOutputDraft{CompleteReference: true, ReferencePath: "targets.csv", ReferenceKeyField: "id"}},
+		{name: "false with pair", draft: dataTaskOutputDraft{ReferencePath: "targets.csv", ReferenceKeyField: "id"}, wantErr: true},
+		{name: "complete missing path", draft: dataTaskOutputDraft{CompleteReference: true, ReferenceKeyField: "id"}, wantErr: true},
+		{name: "complete missing field", draft: dataTaskOutputDraft{CompleteReference: true, ReferencePath: "targets.csv"}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateDataTaskOutputDraftReferenceScope(tc.draft)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v, wantErr=%t", err, tc.wantErr)
+			}
+		})
 	}
 }
 

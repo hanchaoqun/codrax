@@ -246,6 +246,12 @@ var dataTaskPlanTool = llm.ToolSchema{
               "reference_path":{"type":"string", "minLength":1},
               "reference_key_field":{"type":"string", "minLength":1}
             }
+          },
+          "else": {
+            "properties": {
+              "reference_path":{"type":"string", "maxLength":0},
+              "reference_key_field":{"type":"string", "maxLength":0}
+            }
           }
         }
       ],
@@ -1245,8 +1251,24 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 	if call.Name != tool.Name {
 		return dataquery.TaskPlan{}, newDataTaskPlannerUnexpectedToolError("data task planner", call.Name, nil)
 	}
-	var parsed dataTaskPlanDraft
-	if err := unmarshalReplStructuredToolParams(tool, call.Params, &parsed, "data task planner"); err != nil {
+	parsePlan := func(raw []byte) (dataquery.TaskPlan, error) {
+		var parsed dataTaskPlanDraft
+		if err := unmarshalReplStructuredToolParams(tool, raw, &parsed, "data task planner"); err != nil {
+			return dataquery.TaskPlan{}, err
+		}
+		if err := validateDataTaskOutputDraftReferenceScope(parsed.OutputContract); err != nil {
+			return dataquery.TaskPlan{}, &replStructuredToolParamError{
+				ToolName: tool.Name,
+				Scope:    "data task planner",
+				RawLen:   len(raw),
+				Err:      err,
+				Hint:     replStructuredToolRetryHint(tool),
+			}
+		}
+		return parsed.toPlan(), nil
+	}
+	plan, err := parsePlan(call.Params)
+	if err != nil {
 		parseErr := err
 		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, tool, err, dataTaskStructuredToolRepairRequest{
 			Scope:   scope,
@@ -1255,11 +1277,12 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 		if repairErr != nil {
 			return dataquery.TaskPlan{}, repairErr
 		}
-		if err := unmarshalReplStructuredToolParams(tool, raw, &parsed, "data task planner"); err != nil {
+		plan, err = parsePlan(raw)
+		if err != nil {
 			return dataquery.TaskPlan{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
 		}
 	}
-	return parsed.toPlan(), nil
+	return plan, nil
 }
 
 type dataTaskStructuredToolRepairRequest struct {
@@ -1942,6 +1965,32 @@ type dataTaskOutputDraft struct {
 	CompleteReference  flexiblePolicyBool   `json:"complete_reference"`
 	ReferencePath      flexiblePolicyString `json:"reference_path"`
 	ReferenceKeyField  flexiblePolicyString `json:"reference_key_field"`
+}
+
+// validateDataTaskOutputDraftReferenceScope keeps the model-owned output
+// scope decision internally coherent. A non-empty reference credential pair
+// means the model selected one complete ordered universe; complete_reference
+// must therefore be true. Conversely, true needs both credentials. The
+// validator never infers the decision from material names, instructions, or
+// answer text: an invalid typed pair is returned to the same bounded JSON
+// repair lane so the model chooses true+pair or false+no-pair explicitly.
+func validateDataTaskOutputDraftReferenceScope(d dataTaskOutputDraft) error {
+	complete := bool(d.CompleteReference)
+	path := strings.TrimSpace(string(d.ReferencePath))
+	field := strings.TrimSpace(string(d.ReferenceKeyField))
+	if complete {
+		if path == "" {
+			return fmt.Errorf("$.output_contract.reference_path: complete_reference=true requires one non-empty typed reference_path")
+		}
+		if field == "" {
+			return fmt.Errorf("$.output_contract.reference_key_field: complete_reference=true requires one non-empty typed reference_key_field")
+		}
+		return nil
+	}
+	if path != "" || field != "" {
+		return fmt.Errorf("$.output_contract.complete_reference: false cannot carry reference_path/reference_key_field credentials; set complete_reference=true with both credentials, or remove both credentials for subset/present-only output")
+	}
+	return nil
 }
 
 type dataTaskQuestionDraft struct {
