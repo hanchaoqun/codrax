@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -171,6 +172,15 @@ func dataTaskRunContinuationPlannerWithRuntimeView(ctx context.Context, continue
 }
 
 func dataTaskRepairFailureContinuationAvailable(planner DataTaskPlanner, view dataTaskWorkflowRuntimeView, repairErr error) bool {
+	if dataTaskRepairPlanParamsError(repairErr) {
+		_, _, ok := dataTaskWorkflowNextStageFallback(view.Records, view.CurrentPlan, "repair planner emitted invalid typed plan parameters")
+		if !ok {
+			_, ok = dataTaskCoverageExpansionFallback("", view.Records, view.CurrentPlan, "")
+		}
+		if ok {
+			return true
+		}
+	}
 	_, continuationReady := planner.(DataTaskContinuationPlanner)
 	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
 		CurrentPlan:              view.CurrentPlan,
@@ -183,6 +193,27 @@ func dataTaskRepairFailureContinuationAvailable(planner DataTaskPlanner, view da
 }
 
 func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error, repairDriverErrText string) (dataTaskRepairPlanResult, bool, bool, error) {
+	// A normal repair attempt and its compact retry have already run before
+	// this function is reached. If both produced parameters that fail the
+	// exact emit_data_task_plan schema, advance only from the typed workflow
+	// state. This is a candidate plan, not an answer: staging, execution, the
+	// validator chain, and evaluation remain mandatory. Do not spend another
+	// model call asking for the same structured carrier and do not infer this
+	// lane from error prose.
+	if dataTaskRepairPlanParamsError(repairErr) {
+		if plan, reason, ok := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, view.Records, view.CurrentPlan, "repair planner emitted invalid typed plan parameters"); ok {
+			return dataTaskRepairPlanResult{
+				Plan:           plan,
+				FallbackReason: reason,
+			}, true, true, nil
+		}
+		if plan, ok := dataTaskCoverageExpansionFallback(repoRoot, view.Records, view.CurrentPlan, repairDriverErrText); ok {
+			return dataTaskRepairPlanResult{
+				Plan:           plan,
+				FallbackReason: "repair planner emitted invalid typed plan parameters; converted the existing typed material contract into a bounded coverage candidate",
+			}, true, true, nil
+		}
+	}
 	continuer, continuationReady := planner.(DataTaskContinuationPlanner)
 	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
 		CurrentPlan:              view.CurrentPlan,
@@ -995,6 +1026,11 @@ func dataTaskNoEmitterScriptObservationFallback(repoRoot string, records []dataT
 func dataTaskRepairPlannerErrorAllowsContinuation(err error) bool {
 	return dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoToolCall) ||
 		dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoPlanShape)
+}
+
+func dataTaskRepairPlanParamsError(err error) bool {
+	var paramErr *replStructuredToolParamError
+	return errors.As(err, &paramErr) && paramErr != nil && paramErr.ToolName == dataTaskPlanTool.Name
 }
 
 func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []string) {

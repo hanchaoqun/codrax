@@ -2514,3 +2514,16 @@ exact-or-unique-short typed evidence 门。
 不由系统改写模型图或结论。
 
 状态：`B446=implemented/full-suite-pass/pending-production-replay`。
+
+### §11.7 r259 独立回放与后续批次
+
+§11 原三项已经关闭；r259 exact-two 又暴露两个不属于原审计项的新断层：
+
+1. `B448/P0`：data material guard 正确拒绝漏读 instructions 的脚本，但 normal+compact repair 连续输出 schema-invalid
+   `emit_data_task_plan` 参数后直接终止。已实现 exact typed param-error→workflow candidate fallback；候选仍走全部执行/校验面，系统不代答；
+2. `B447/P1`：B446 已阻止删除 relation metadata 逃逸，但 relation roster 的 exact graph authority 没有驱动缺失源码行的 pre-complete read，
+   使 Finalizer 只能证明 5/12 条 implements 边。下一批补 typed relation authority handoff，不把未读 graph 数据直接当引用；
+3. B445 本轮未被执行到，保持 production replay pending。详细过程与人工审计见 eval campaign §123.468–§123.469。
+
+状态：`MERGE-AUDIT-6=closed`；`B448=implemented/repl-suite-pass/pending-full-suite`；
+`B447=next-batch`；`raw-prose-hard-gate=none`；`model-answer-rewrite=none`。

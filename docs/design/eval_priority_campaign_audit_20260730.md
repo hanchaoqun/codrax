@@ -29740,3 +29740,38 @@ exact-two：`qf_type_relation_loop_controller` 与 `data_json_strict_ids`，同�
 
 状态：`B446=implemented/full-suite-pass/pending-production-replay`；
 `visible-edge-owner=typed-relation-axis-driven`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.468 r259：元数据逃逸关闭，但 relation roster→证据交接断裂；data repair 参数失效终止
+
+exact-two 复放 `qf_type_relation_loop_controller` 与 `data_json_strict_ids`：runner 为 `PASS/FAIL`（273s/83s），人工均 fail。
+
+1. B446 获 production partial 正证：模型删除 `edge_anchors` 后稳定触发 `missing_relation_anchor`，元数据逃逸已关闭；最终图改为正确的
+   implementer→`LoopController` 方向，但只画出 5/12 条边；
+2. 其余 7 个类型只作为孤立节点。completion 可从 RepoMap exact graph 证明完整 principal member_set，Finalizer 却只收到 Explorer 已读源码行所铸的
+   `repomap_implementer_relation`。因此同一 typed roster 在“枚举完整性”与“图边可引用权威”之间断层。登记
+   `EVAL-B447-TYPERELATIONAUTHORITYHANDOFF1=P1`：应在 completion 前按 typed relation axis 和 selected principal roster 生成精确 read demand，
+   由既有 Explorer 路径在读后铸关系证据；不得把 graph 缓存直接冒充引用，也不得按 Go/类型名/图文案特修；
+3. data 初始 `required_material_scheduling` 拒绝正确：计划声明 `users.json` 和 `instructions.md`，脚本只消费前者；随后 normal+compact repair
+   两次都给出 schema-invalid `emit_data_task_plan` 参数（一次非法 action kind，一次缺 kind），工作流在 0 个 data round 后终止；
+4. 登记 `EVAL-B448-DATAREPAIRPARAMFALLBACK1=P0`。最优边界是只识别 typed `replStructuredToolParamError` 且 tool 精确等于
+   `emit_data_task_plan`，从现有 typed workflow state 生成下一阶段候选；候选仍经过 staging、执行、validator 与 evaluator，系统不写答案；
+5. 本轮未进入 late-rule generation，故不能裁定 B445 回归或关闭。B445 保持 production-replay pending。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_type_replay_r259_20260809_manual_audit.md`。
+
+状态：`B446=production-partial/escape-closed`；`B447=P1-confirmed/next-batch`；
+`B448=P0-confirmed/in-implementation`；`B445=pending-production-replay`；
+`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
+
+### 123.469 B448：repair plan 结构参数连续失效后的 typed workflow 候选回退
+
+仅在 normal+compact repair 已结束且错误为 `replStructuredToolParamError{ToolName:"emit_data_task_plan"}` 时，系统不再发起第三次同载体
+模型调用：优先从 typed workflow next-stage 构造候选；若当前是 material scheduling gap，则把既有 required-material contract 转成有界
+`derive_rules`/`extract_records`/`inspect_material` 候选批。错误字符串相似、其他 tool 参数错误均不触发。
+
+该回退没有 script 和 terminal answer，`ContinueAfter=true`；仍进入既有 plan preparation、staging guard、ActionRunner、完整 validator 和 evaluator。
+因此它只恢复计划载体，不替模型计算或写答案。单测覆盖本次 `users.json + instructions.md` 同形、零额外 continuation LLM call、非目标 tool 与
+prose-lookalike 不触发；`internal/repl` 全包通过。
+
+状态：`B448=implemented/repl-suite-pass/pending-full-suite-and-production-replay`；
+`typed-trigger=exact-structured-tool-error`；`system-answer-rewrite=none`。

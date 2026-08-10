@@ -8526,6 +8526,69 @@ func TestDataTaskRepairPlannerContinuationRequiresTypedNoToolError(t *testing.T)
 	}
 }
 
+func TestDataTaskRepairInvalidPlanParamsAdvanceFromTypedWorkflowState(t *testing.T) {
+	planner := &stubDataTaskPlanner{}
+	current := dataquery.TaskPlan{
+		Status:     "ready",
+		Goal:       "apply the supplied instructions to every user record",
+		InputPaths: []string{"users.json", "instructions.md"},
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "users.json", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}, RuleCoverageRequired: true},
+		Script: `
+import json
+with open("users.json", "r", encoding="utf-8") as f:
+    users = json.load(f)
+emit({"answer": json.dumps(users), "output_contract": {"format": "json_only", "explanation_allowed": false}})
+`,
+	}
+	view := dataTaskWorkflowRuntimeView{
+		CurrentPlan: current,
+	}
+	repairErr := &replStructuredToolParamError{
+		ToolName: dataTaskPlanTool.Name,
+		Scope:    "data task repair planner",
+		Err:      errors.New(`$.actions[1].kind is missing`),
+	}
+
+	result, handled, ok, err := dataTaskRepairFailureContinuationWithRuntimeView(
+		context.Background(), planner, "apply instructions", "", TurnPolicy{Route: RouteData}, nil, view, repairErr, "required_material_scheduling",
+	)
+	if err != nil {
+		t.Fatalf("dataTaskRepairFailureContinuationWithRuntimeView: %v", err)
+	}
+	if !handled || !ok {
+		t.Fatalf("handled=%t ok=%t, want typed workflow fallback", handled, ok)
+	}
+	if planner.continueCalls != 0 {
+		t.Fatalf("continueCalls=%d, exact malformed repair params should not spend another model call", planner.continueCalls)
+	}
+	if !result.Plan.ContinueAfter || len(result.Plan.Actions) != 2 {
+		t.Fatalf("plan=%+v, want bounded non-terminal typed coverage actions", result.Plan)
+	}
+	if result.Plan.Actions[0].Kind != dataquery.DataActionDeriveRules || strings.Join(result.Plan.Actions[0].InputPaths, ",") != "instructions.md" {
+		t.Fatalf("first action=%+v, want typed instructions.md rule-coverage action", result.Plan.Actions[0])
+	}
+	if result.Plan.Actions[1].Kind != dataquery.DataActionExtractRecords || strings.Join(result.Plan.Actions[1].InputPaths, ",") != "users.json" {
+		t.Fatalf("second action=%+v, want typed users.json extraction action", result.Plan.Actions[1])
+	}
+	if strings.TrimSpace(result.Plan.Script) != "" || dataTaskPlanStatusLooksTerminal(result.Plan.Status) {
+		t.Fatalf("plan=%+v, typed fallback must not synthesize a terminal answer", result.Plan)
+	}
+	if result.FallbackReason == "" {
+		t.Fatal("typed workflow fallback provenance must be disclosed")
+	}
+
+	unrelated := &replStructuredToolParamError{ToolName: "emit_data_task_evaluation", Err: errors.New("bad params")}
+	if dataTaskRepairPlanParamsError(unrelated) {
+		t.Fatal("unrelated structured tool errors must not open the plan fallback lane")
+	}
+	if dataTaskRepairPlanParamsError(errors.New("emit_data_task_plan params are invalid")) {
+		t.Fatal("error prose must not open the plan fallback lane")
+	}
+}
+
 func TestDataTaskAcceptPlannerPlanRejectsEmptyShapeWithTypedError(t *testing.T) {
 	_, err := dataTaskAcceptPlannerPlan(dataquery.TaskPlan{}, "data task repair planner")
 	if err == nil {
