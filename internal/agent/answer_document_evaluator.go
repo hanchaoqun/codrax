@@ -17632,6 +17632,7 @@ type verifiedStageBindingRow struct {
 	Skill            string
 	Responsibility   string
 	PrimaryArtifacts []string
+	Terminal         bool
 	File             string
 	Line             int
 }
@@ -17650,7 +17651,11 @@ func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []ver
 	if err != nil {
 		return nil
 	}
-	lines := strings.Split(string(data), "\n")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, sourcePath, data, 0)
+	if err != nil {
+		return nil
+	}
 	bindings := types.ReadModeMainStageBindings()
 	rows := make([]verifiedStageBindingRow, 0, len(bindings))
 	for _, binding := range bindings {
@@ -17666,9 +17671,10 @@ func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []ver
 			Skill:            binding.Skill,
 			Responsibility:   binding.Responsibility,
 			PrimaryArtifacts: append([]string(nil), binding.PrimaryArtifacts...),
+			Terminal:         binding.Terminal,
 			File:             sourceRel,
 		}
-		line := verifiedStageBindingLine(lines, want)
+		line := verifiedStageBindingLine(file, fset, want)
 		if line <= 0 {
 			return nil
 		}
@@ -17693,24 +17699,110 @@ func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent str
 	}
 }
 
-func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int {
-	for i, line := range lines {
-		if !strings.Contains(line, want.StageIdent) {
+func verifiedStageBindingLine(file *ast.File, fset *token.FileSet, want verifiedStageBindingRow) int {
+	if file == nil || fset == nil {
+		return 0
+	}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
 			continue
 		}
-		window := line
-		for j := i + 1; j < len(lines) && j <= i+12; j++ {
-			window += "\n" + lines[j]
-			if strings.Contains(lines[j], "},") {
-				break
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != "builtinStageBindings" || len(value.Values) != 1 {
+				continue
 			}
-		}
-		if strings.Contains(window, want.AgentIdent) &&
-			strings.Contains(window, want.Skill) {
-			return i + 1
+			list, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok {
+				return 0
+			}
+			for _, element := range list.Elts {
+				entry, ok := element.(*ast.CompositeLit)
+				if !ok || !verifiedStageBindingEntryMatches(entry, want) {
+					continue
+				}
+				return fset.Position(entry.Pos()).Line
+			}
+			return 0
 		}
 	}
 	return 0
+}
+
+func verifiedStageBindingEntryMatches(entry *ast.CompositeLit, want verifiedStageBindingRow) bool {
+	fields := make(map[string]ast.Expr, len(entry.Elts))
+	for _, element := range entry.Elts {
+		keyed, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			return false
+		}
+		key, ok := keyed.Key.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		fields[key.Name] = keyed.Value
+	}
+	if astIdentName(fields["Stage"]) != want.StageIdent ||
+		astIdentName(fields["Agent"]) != want.AgentIdent ||
+		astStringValue(fields["Skill"]) != want.Skill ||
+		astStringValue(fields["Responsibility"]) != want.Responsibility ||
+		astBoolValue(fields["Terminal"]) != want.Terminal {
+		return false
+	}
+	return slicesEqualStrings(astStringSliceValue(fields["PrimaryArtifacts"]), want.PrimaryArtifacts)
+}
+
+func astIdentName(expr ast.Expr) string {
+	ident, _ := expr.(*ast.Ident)
+	if ident == nil {
+		return ""
+	}
+	return ident.Name
+}
+
+func astStringValue(expr ast.Expr) string {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return ""
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+func astBoolValue(expr ast.Expr) bool {
+	return astIdentName(expr) == "true"
+}
+
+func astStringSliceValue(expr ast.Expr) []string {
+	list, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(list.Elts))
+	for _, element := range list.Elts {
+		value := astStringValue(element)
+		if value == "" {
+			return nil
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func slicesEqualStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) bool {
@@ -17724,6 +17816,56 @@ func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) b
 		}
 	}
 	return false
+}
+
+// answerDocumentHasTypedReadModeStageParticipantSlate recognizes the current
+// read lane from schema-validated planning identities only. It deliberately
+// requires every canonical main-stage binding, while allowing additional
+// requested carriers such as BusContext or Mutable. Those extra participants
+// remain diagram obligations; they never become stages or relation evidence.
+func answerDocumentHasTypedReadModeStageParticipantSlate(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return false
+	}
+	participants := make([]string, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		if identity != "" && participant.Role == types.DiagramParticipantIncidentRequired {
+			participants = append(participants, identity)
+		}
+	}
+	main := types.ReadModeMainStageBindings()
+	if len(main) == 0 || len(participants) == 0 {
+		return false
+	}
+	for _, binding := range main {
+		stageIdent, agentIdent, ok := readModeStageBindingIdentifiers(binding)
+		if !ok {
+			return false
+		}
+		surfaces := []string{stageIdent, string(binding.Stage), agentIdent, string(binding.Agent)}
+		matched := false
+		for _, participant := range participants {
+			for _, surface := range surfaces {
+				if types.AnswerCodeIdentitySurfacesCompatible(participant, surface) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 // renderAnswerDocCurrentRunStageLaneAuthority gives the answer model the
@@ -17740,7 +17882,10 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	requestedWorkflow := answerDocumentHasStageWorkflowRequestedDimension(ctx) &&
 		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
 	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
-	if (!requestedWorkflow && !groundedMembership) || !answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx) {
+	typedStageParticipants := answerDocumentHasTypedReadModeStageParticipantSlate(ctx) &&
+		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
+	if (!requestedWorkflow && !groundedMembership && !typedStageParticipants) ||
+		!answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx) {
 		return ""
 	}
 	main := types.ReadModeMainStageBindings()
@@ -17885,7 +18030,7 @@ func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc 
 		}
 	}
 	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
-		if isAuthority(item.Source) && item.LineStart > 0 {
+		if isAuthority(item.Source) && item.LineStart > 0 && item.IsCitable() {
 			return true
 		}
 	}

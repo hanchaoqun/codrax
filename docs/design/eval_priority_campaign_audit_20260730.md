@@ -30151,3 +30151,30 @@ required relation completion latch 及后续成功重发清账 pin；`go test ./
 状态：`B456=implemented/full-suite-pass/pending-production-replay`；`B452=pending-replay-after-B456`；
 `B457=next-batch`；`raw-request/model-prose-hard-gate=none`；`system-field/edge/answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B457 批次施工：typed full-stage participant slate 使 producer authority 到达 Finalizer
+
+B453 已删除系统补写阶段表并把准确 producer split 放进 prompt provider，但旧触发只接受
+`RequestedAnswerDimensionStageWorkflow` 或精确 membership-definition evidence。r266 的 analyzer 已结构化提交
+`AxisFlow + required diagram + Analyzer/Explorer/Extractor/Finalizer incident_required`，并有 citable orchestrator 当前源码；
+这些精确信号没有进入旧两臂，导致 prompt authority 未到达，模型继续含混归属 TaskGraph/EvidencePlan/AnswerContract。
+
+本批新增第三个 prompt-only 触发臂：
+
+1. 只读取 `RequestModel.PredicateAxis`、`DiagramHint.Required`、schema participant identity/role、citable pipeline authority evidence，
+   不读取 request、thinking、answer 或 Mermaid 原文。
+2. 期望集合动态来自 `ReadModeMainStageBindings()`；每个 canonical main stage 必须各自被一个 `incident_required` participant 以
+   stage ident/value 或 agent ident/value 精确兼容覆盖。BusContext/Mutable 等额外 participant 被允许但仍只是图义务，不会变成阶段或边。
+3. `IntentTrace`、`QFRootCauseTrace`、非 `AxisFlow`、optional diagram、缺阶段、context-only 阶段、非 citable authority source 均
+   fail-closed。checkout Go-AST 门同时从只核 stage/agent/skill 收紧为逐 binding 核对 responsibility、primary artifacts、terminal；
+   纯格式重构仍通过，同名但 producer 语义不同的 lookalike 客户仓不会收到 Codrax 内部阶段上下文。
+4. 只增强 Finalizer 输入；系统补表保持退役，关系 evidence gate 不变，模型仍负责解释、关系选择、图和最终结论。
+
+验证：新增完整 r266-shape direct + `BuildInitialInstruction` 接线 pin、六个 typed 负臂，以及同名职责漂移拒绝/格式重构接受；
+`go test ./internal/agent -run 'TestRenderAnswerDocCurrentRunStageLaneAuthority' -count=1` 通过。
+
+全仓复验：`go test ./... -count=1` 全绿，包含 agent、tool、tracequery、tracediag、hitraceconv、dataworkflow 与 writeflow。
+
+状态：`B457=implemented/full-suite-pass/pending-production-replay`；`B453=prompt-reach-code-complete`；
+`B456/B452=pending-production-replay`；`system-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

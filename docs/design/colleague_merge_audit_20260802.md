@@ -2773,3 +2773,20 @@ participant 补证需在该 replay 中一并复核；B457 仍是下一独立批�
 状态：`MERGE-AUDIT-6/§11=closed`；`B456=implemented/full-suite-pass/pending-production-replay`；
 `B452=pending-replay-after-B456`；`B457=next`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.10 B457 独立批完成：stage authority 以 typed participant slate 到达 prompt
+
+B453 的 provider 内容与系统补表退役均正确，r266 未触发的原因是到达条件只认 requested-dimension / membership-definition 两种窄形。
+现增加精确第三臂：`AxisFlow + required DiagramHint + 四个动态 read-main binding 全覆盖 + citable pipeline source`，并继续合取
+checkout-side stage binding/conditional pre-stage AST 校验。binding 校验同时覆盖 responsibility、primary artifacts、terminal，不再只凭
+stage/agent/skill 同名放行；身份匹配复用跨语言 code-identity surface 规则，不扫用户或模型原文。
+
+该臂允许 BusContext/Mutable 等额外 participant，但不把它们铸成 stage/edge；缺阶段、context-only、非 flow、Trace、optional、
+uncitable source 全部有负 pin；同名职责漂移拒绝与纯格式重构接受也有 pin。真实 `BuildInitialInstruction` 接线已有正 pin，避免 provider 存在但生产 prompt 不消费。系统仍不补写阶段表，
+不修改答案，不放宽 relation gate。
+
+全仓 `go test ./... -count=1` 全绿。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B457=implemented/full-suite-pass/pending-production-replay`；
+`B453=prompt-reach-code-complete`；`B456/B452=pending-production-replay`；`model-answer-rewrite=none`；
+`raw-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

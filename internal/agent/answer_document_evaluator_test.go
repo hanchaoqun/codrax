@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -8494,6 +8495,116 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesExactGroundedMembershipW
 	}
 }
 
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedRequiredStageParticipants(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	ctx := &types.AgentContext{
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{
+				Kind:     types.DiagramFlow,
+				Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "internal/orchestrator/orchestrator.go",
+			LineStart:       1536,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "dispatchStage",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	if !strings.Contains(got, "canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`") ||
+		!strings.Contains(got, "language model authors only the request classification") {
+		t.Fatalf("typed full stage participant slate must activate current-run authority:\n%s", got)
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Current Run Stage-Lane Authority") {
+		t.Fatalf("stage participant authority must reach the real finalizer prompt:\n%s", prompt)
+	}
+}
+
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityTypedParticipantTriggerFailsClosed(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	base := func() *types.AgentContext {
+		return &types.AgentContext{
+			Mode:     types.ModeRead,
+			RepoRoot: repo,
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				PredicateAxis: types.AxisFlow,
+				DiagramHint: &types.DiagramHint{
+					Kind:     types.DiagramFlow,
+					Required: true,
+					Participants: []types.DiagramParticipantHint{
+						{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+						{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+						{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+						{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+					},
+				},
+			}},
+			EvidenceItems: []types.EvidenceItem{{
+				Source:          "internal/orchestrator/topology.go",
+				LineStart:       31,
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "pipelineTopology",
+				GroundingStatus: types.GroundingGrounded,
+			}},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*types.AgentContext)
+	}{
+		{name: "missing one stage", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.DiagramHint.Participants =
+				ctx.AnalysisIR.RequestModel.DiagramHint.Participants[:3]
+		}},
+		{name: "stage is context only", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.DiagramHint.Participants[3].Role = types.DiagramParticipantContextOnly
+		}},
+		{name: "wrong relation axis", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+		}},
+		{name: "trace intent", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+		}},
+		{name: "optional diagram", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.DiagramHint.Required = false
+		}},
+		{name: "uncitable authority source", mutate: func(ctx *types.AgentContext) {
+			ctx.EvidenceItems[0].GroundingStatus = types.GroundingUngrounded
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := base()
+			tc.mutate(ctx)
+			if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
+				t.Fatalf("typed trigger must fail closed:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestRenderAnswerDocCurrentRunStageLaneAuthorityRejectsLookalikeCheckout(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
@@ -8522,6 +8633,36 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityRejectsLookalikeCheckout(t *
 	}
 	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
 		t.Fatalf("lookalike customer checkout must not receive compiled Codrax authority:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityRejectsLookalikeBindingSemantics(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	path := filepath.Join(repo, "internal", "types", "stage_binding.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := types.ReadModeMainStageBindings()[0].Responsibility
+	data = []byte(strings.Replace(string(data), strconv.Quote(want), strconv.Quote("lookalike analyzer responsibility"), 1))
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "internal/types/stage_binding.go",
+			LineStart:       21,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ReadModeMainStageBindings",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
+		t.Fatalf("same-named checkout with different producer semantics must fail closed:\n%s", got)
 	}
 }
 
@@ -10264,15 +10405,27 @@ func writeStageBindingFixture(t *testing.T, repo string) {
 		"\tAgent string",
 		"\tSkill string",
 		"\tTerminal bool",
+		"\tResponsibility string",
+		"\tPrimaryArtifacts []string",
 		"}",
 		"",
 		"var builtinStageBindings = []StageBinding{",
 		"\t{Stage: StageLogTriage, Agent: AgentLogTriager, Skill: \"log-triage-skill\"},",
 		"\t{Stage: StagePerfTriage, Agent: AgentPerfTriager, Skill: \"perf-triage-skill\"},",
-		"\t{Stage: StageAnalyze, Agent: AgentAnalyzer, Skill: \"analysis-skill\"},",
-		"\t{Stage: StageExplore, Agent: AgentExplorer, Skill: \"explore-skill\"},",
-		"\t{Stage: StageExtract, Agent: AgentExtractor, Skill: \"extract-skill\"},",
-		"\t{Stage: StageFinalize, Agent: AgentFinalizer, Skill: \"answer-document-skill\", Terminal: true},",
+	}, "\n")
+	for _, binding := range types.ReadModeMainStageBindings() {
+		stageIdent, agentIdent, ok := readModeStageBindingIdentifiers(binding)
+		if !ok {
+			t.Fatalf("unexpected main stage binding: %+v", binding)
+		}
+		artifacts := make([]string, 0, len(binding.PrimaryArtifacts))
+		for _, artifact := range binding.PrimaryArtifacts {
+			artifacts = append(artifacts, strconv.Quote(artifact))
+		}
+		content += fmt.Sprintf("\n\t{Stage: %s, Agent: %s, Skill: %q, Terminal: %t, Responsibility: %q, PrimaryArtifacts: []string{%s}},",
+			stageIdent, agentIdent, binding.Skill, binding.Terminal, binding.Responsibility, strings.Join(artifacts, ", "))
+	}
+	content += "\n" + strings.Join([]string{
 		"}",
 		"",
 		"func ReadModeConditionalPreStageBindings() []StageBinding {",
