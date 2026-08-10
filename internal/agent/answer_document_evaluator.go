@@ -22,6 +22,9 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"os"
 	"path/filepath"
@@ -10310,7 +10313,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			b.WriteString("- Typed trace context precedence: use the exact `trace_query` rows and, when rendered for this request scope, the Trace Decision Inputs and final typed boundary for scenario-specific facts and authority. Do not replay unrelated generic Binder, IO, perf, priority-inversion, or root-cause recipes merely because this is a trace; preserve any on-chain/adjacent/background population and value caliber exactly as typed, then form the diagnosis yourself.\n")
 			b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep every typed on-chain candidate eligible for the principal root-cause population regardless of family, including measured priority inversion (a lower-priority on-chain dependency with typed runnable effective impact and/or a typed running compute-supply deficit, or stronger holder/waiter authority), runnable/scheduler-supply delay, compute-supply limits, D-state/IO waits, and deterministic semantic work; keep adjacent/background rows as support or additional investigation directions only.\n")
 			b.WriteString("- Scheduler residency and cross-subject causality hint: S, D, `io_wait`, runnable, and running are row-local measured states. A wait may explain that same subject's delay, but temporal overlap, adjacency, a shared CPU, a shared IRQ/waker label, the same IO/pressure family, or a shared subject name does not transfer state, caller, blocker, or causality between rows. Never call an adjacent/background row a direct or indirect contributor to an on-chain wait unless an exact typed relation/fold carrier links those subjects over compatible intervals; otherwise keep it as concurrent support or an additional investigation direction.\n")
-			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
+			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. Current span/name-derived frame rows do not provide that carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
 			for _, measurement := range view.FrameMeasurements {
 				fmt.Fprintf(&b, "- Runtime frame measurement caliber: `items=%d first_start=%.6f last_end=%.6f end_to_end_extent=%.3fms interval_union_coverage=%.3fms per_span_duration_sum=%.3fms uncovered_gap=%.3fms`. Use first-start→last-end extent for the end-to-end envelope, interval-union coverage for covered wall clock, and per-span sum only for accumulated item duration (which may double-count overlaps). `uncovered_gap` is only the interval complement inside that envelope; it is not scheduler latency, blocking time, efficiency, or proof that no blocking occurred. Never substitute one ruler for another, infer work semantics from these interval measurements, or call a gap normal/efficient without separate typed scheduler or causal evidence.\n",
 					measurement.ItemCount,
@@ -10326,7 +10329,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 			b.WriteString("- Scheduler state authority hint: a `sched_switch prev_state=S` row proves that the outgoing task entered an interruptible sleeping/blocking state; it does not by itself prove RT preemption, involuntary preemption, or a voluntary `yield`, and the next task's name is not enough to upgrade that relation. Only `R`/`R+` supports a still-runnable preemption candidate, which still requires the same switch/CPU plus a trusted priority relation before naming a higher-priority preemptor. Count wakeups only from deduplicated `sched_wakeup`/`sched_waking` rows or the typed wakeup census/chain; the number of running slices is not a wakeup count. A capped `event_search`/read subset is examples or a lower bound, never authority for `all`, `only`, `total`, exact `N`, `max`, or `min` claims.\n")
 			b.WriteString("- Scheduler residency and cross-subject causality hint: a thread in S, D, or `io_wait` is not occupying a CPU during that interval. Its wait may explain that same thread's delay, but temporal overlap, adjacency, a shared CPU/IRQ/waker label, or the same IO/pressure family alone does not prove that it directly or indirectly delayed a different thread or frame. A cross-subject claim requires a typed wakeup/IPC/lock/flow/dependency connector plus temporally compatible intervals; without it, report the two observations separately and keep their relationship unproven.\n")
-			b.WriteString("- Thread role authority hint: a comm/name match or `name_candidates` roster proves only a diagnostic thread candidate; it does not prove main-thread, UI-thread, render-thread, or render-service ownership. Use a role word only when a typed `target_role_authority`/`role_authority` carries `kind=thread_role`, and preserve its `source` and `confidence`. `frame_marker_role` and `pipeline_stage_role` describe the marker/item stage, not the owning thread. If role authority is unavailable, say candidate thread/TID instead of inventing a role.\n")
+			b.WriteString("- Thread role authority hint: a comm/name match or `name_candidates` roster proves only a diagnostic thread candidate; it does not prove main-thread, UI-thread, render-thread, or render-service ownership. Current span/name-derived frame rows do not provide a `thread_role` carrier. Retain a role word only when an independent typed `target_role_authority`/`role_authority` carries `kind=thread_role`, and preserve its `source` and `confidence`. `frame_marker_role` and `pipeline_stage_role` describe the marker/item stage, not the owning thread. If role authority is unavailable, say candidate thread/TID instead of inventing a role.\n")
 			b.WriteString("- Runtime metric snapshot hint: when one typed runtime observation row carries multiple compact metric notes such as `key=value` timings/counts/states, preserve those notes together as one metric snapshot line before the richer explanation. The snapshot complements the detailed bullets; it must not replace root-cause reasoning, caveats, or next-step guidance.\n")
 			b.WriteString("- Runtime root-cause layering hint: when the same frame/window contains runnable scheduling delay, D-state/IO dependency delay, or on-chain compute-supply limits (`compute_supply`, `low_frequency`, `cpu_affinity_or_cpuset`, CPU/core/frequency/DDR/L3 supply context), report every `tier=primary` layer explicitly instead of choosing only one. Separate direct scheduler wait/priority-inversion evidence from upstream dependency-chain IO/D-state and compute-supply evidence, tie each layer to the concrete thread/window where it appears, and keep unrelated background pressure as auxiliary context.\n")
 			b.WriteString("- Runtime priority-inversion authority hint: `lower_priority_waker` / `lower_priority_dependency` alone proves only a low-priority dependency candidate; it does NOT prove that inversion occurred or that the lower-priority thread blocked the higher-priority thread. Without a positive `effective_impact_ms` on a typed `root_cause_* -> priority_inversion_candidate|priority_inversion_runnable_wait` row, say that no priority-inversion impact was measured in this window. With that measured row, call it a priority-inversion candidate and report its effective impact; an explicit `priority_inversion_authority=confirmed_holder_waiter` may retain confirmed wording. Do not narrow measured inversion to same-CPU preemption: typed gated impact may include the lower-priority on-chain dependency's runnable time in full and a cross-CPU weak-core/compute-supply running deficit. A target-root child such as `own·runnable` is the focused thread's own ready-to-run wait, not the dependency thread's runnable state; attribute dependency runnable impact only from that dependency's own typed measured row.\n")
@@ -17904,9 +17907,55 @@ func answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx *types.AgentCon
 	if err != nil {
 		return false
 	}
-	compact := strings.Join(strings.Fields(string(data)), "")
-	want := "funcReadModeConditionalPreStageBindings()[]StageBinding{stages:=[]PipelineStage{StageLogTriage,StagePerfTriage}"
-	return strings.Contains(compact, want)
+	return stageBindingSourceDeclaresConditionalPreStages(data, []string{
+		"StageLogTriage",
+		"StagePerfTriage",
+	})
+}
+
+// stageBindingSourceDeclaresConditionalPreStages verifies the checkout-side
+// authority structurally. The previous implementation compared one compressed
+// source substring, so gofmt-only layout changes or an inserted comment could
+// silently disable the stage-lane prompt even though the typed declaration was
+// unchanged. Keep this check fail-closed, but bind it to the ordered Go AST
+// literal inside the named function instead of one spelling of its source.
+func stageBindingSourceDeclaresConditionalPreStages(data []byte, want []string) bool {
+	file, err := parser.ParseFile(token.NewFileSet(), "stage_binding.go", data, 0)
+	if err != nil {
+		return false
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil || fn.Name.Name != "ReadModeConditionalPreStageBindings" || fn.Body == nil {
+			continue
+		}
+		matched := false
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			lit, ok := node.(*ast.CompositeLit)
+			if !ok || !pipelineStageSliceType(lit.Type) || len(lit.Elts) != len(want) {
+				return true
+			}
+			for i, elt := range lit.Elts {
+				ident, ok := elt.(*ast.Ident)
+				if !ok || ident.Name != want[i] {
+					return true
+				}
+			}
+			matched = true
+			return false
+		})
+		return matched
+	}
+	return false
+}
+
+func pipelineStageSliceType(expr ast.Expr) bool {
+	array, ok := expr.(*ast.ArrayType)
+	if !ok || array.Len != nil {
+		return false
+	}
+	ident, ok := array.Elt.(*ast.Ident)
+	return ok && ident.Name == "PipelineStage"
 }
 
 func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {

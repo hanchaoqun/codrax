@@ -2588,3 +2588,22 @@ scaffold；合法的贡献 family 被早期 action 变体饿死，最终以 plan
 H7 oracle 已在独立卫生批更新：硬值改为现行 typed `0.033/49.623`，压缩面改钉非零未入榜行与
 `enumeration_status=incomplete`，并保留 `未计价占用` 双轴出口；r262 既有 production artifact 全部命中。
 状态：`H7-oracle=updated/r262-artifact-pass`。
+
+### §11.9 六项低危顾问复核与批次裁定
+
+在 §11 三项确认件和 r262 收口后，逐项对照当前生产代码复核 §11.3 的六个顾问项。结论不是“六项全部照单施工”：
+
+| 项目 | 复核结论 | 处置 |
+|---|---|---|
+| U2-3 stage-lane checkout pin | **确认**。`answerDocumentCheckoutMatchesReadModeStageLaneAuthority` 读取 checkout 后把整个函数压缩成字符串，并依赖一种源码拼写；注释/换行可让语义不变的实现静默失配 | 批 1 改为 Go AST 结构验证，只接受 `ReadModeConditionalPreStageBindings` 函数内有序的 `[]PipelineStage{StageLogTriage, StagePerfTriage}`；多项、错序、语法错误仍 fail-closed |
+| U2-4 perf 长帧地板 | **指控成立于“实现发生过变化”，但恢复建议不成立**。旧 `16.67ms@60Hz` 是无设备 refresh/deadline 权威的固定假设；当前 `Janky` 明确只作 model-extracted navigation candidate，真实 duration 仍在 `PerfBundle.Frames`、artifact profile 与 claim binding 中完整保留 | 不恢复固定 verdict 地板，也不把 duration 变成硬门。保持“时长可报告、是否丢帧未证”；只有 typed device deadline/frame authority 才能定谳 |
+| U5-1 `thread_role` 教学 | **部分准确、非行为 GAP**。span/name producer 已退役 `thread_role`，但类型仍为独立 producer-owned carrier 预留；当前教学明确写了 carrier 缺失时只能说 candidate，并未要求模型铸造该字段 | 批 1 仅补一句“当前 span-name rows 不提供该 carrier”，降低模型心智；保留未来独立 typed producer 兼容，不改 gate |
+| U5-2 Analyzer prose 抑制 | **实现属实，GAP 指控不成立**。抑制仅在 Finalizer 且已有 deterministic trace_query 时按 stage provenance 生效；Analyzer 的 typed `AnalysisIR`、请求维度和 runtime ledger 仍独立到达。保留自由 prose 会让查询前猜测与查询后事实竞争；按 prose 主题拆分反而需要噪声扫描 | 保持现状；不解析 Analyzer prose 猜“相关/无关”，不恢复第三语义通道 |
+| U6-1 member row 首错 | **确认**。normalize 层已有 EMITBURN 全错汇总，但后置 `member_notes/support_refs` evidence-resolution gate 仍在第一个 fact/row 返回，多个错位行会逐轮烧 emit | 批 2 增加同一 typed gate 内的全 payload 违规汇总；首错语义和拒绝 verdict 不变，消息一次列出所有需修行 |
+| U7-1 contributions 4→正数 | **降杆指控不成立**。production 已证明先 target join 后贡献可产生 3 条，先全量贡献后 projection 可产生 4 条；两者最终 `17,0,5`、完整 ledger、reconcile 都正确。固定 4 是内部 DAG 拟合 | 保留“正整数贡献 + 精确最终值 + reconcile=pass + terminal artifact”合同，不回退假红 oracle |
+
+批 1 已完成 U2-3，并同步澄清 U5-1：新增格式/注释重构正臂，并保留额外 conditional stage 的负臂；线程角色软教学明确当前 span/name-derived rows 不提供 `thread_role`，但保留独立 typed producer 的兼容入口。定向 `internal/agent` 通过。该实现只解析 checkout Go AST 和调整软教学，不读取用户请求、模型思考、答案 prose，不改答案或 Trace 权威。
+
+状态：`U2-3/U5-1=batch1-implemented/agent-pass`；`U6-1=batch2-next`；
+`U2-4/U5-2/U7-1=reviewed-no-production-change`；
+`raw-prose-hard-gate=none`；`model-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。

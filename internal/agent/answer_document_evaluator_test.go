@@ -5639,6 +5639,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"Thread role authority hint",
 		"does not prove main-thread, UI-thread, render-thread, or render-service ownership",
 		"`kind=thread_role`",
+		"Current span/name-derived frame rows do not provide",
 		"`frame_marker_role` and `pipeline_stage_role` describe the marker/item stage",
 		"Runtime metric snapshot hint",
 		"one metric snapshot line",
@@ -8528,6 +8529,38 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityRejectsLookalikeCheckout(t *
 	}
 	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
 		t.Fatalf("lookalike customer checkout must not receive compiled Codrax authority:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityAcceptsFormattingRefactor(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	path := filepath.Join(repo, "internal", "types", "stage_binding.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data),
+		"stages := []PipelineStage{StageLogTriage, StagePerfTriage}",
+		"stages := []PipelineStage{\n\t\t// Runtime attachments are conditional.\n\t\tStageLogTriage,\n\t\tStagePerfTriage,\n\t}", 1))
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "internal/types/stage_binding.go",
+			LineStart:       21,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ReadModeConditionalPreStageBindings",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	if !strings.Contains(got, "conditional_pre_stages=`log_triage, perf_triage`") {
+		t.Fatalf("format-only refactor must preserve typed stage-lane authority:\n%s", got)
 	}
 }
 
