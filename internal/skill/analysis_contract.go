@@ -38,9 +38,10 @@ type AnalysisEnumChoice struct {
 
 // AnalysisDiagramParticipantPlanningContract is the single teaching source
 // shared by the analyzer prompt and emit_analysis schema. Participants are a
-// soft investigation plan, so this contract intentionally teaches omission
-// instead of asking the runtime to infer identities from request prose.
-const AnalysisDiagramParticipantPlanningContract = "`participants` is optional and only for a requested source relationship/data/control-flow visual whose CURRENT request explicitly names participant identities. Copy only those named identities verbatim. Every named participant whose connection the requested view asks to show must use role=incident_required, even when it is also a component, state carrier, container, or context object; this role requires a grounded incident relation or an unproven disclosure. Use role=context_only only for an explicitly named surrounding boundary/context node whose connection the requested view does not ask to show. If the request gives only a count or generic role without naming identities, omit participants; never invent placeholders such as Stage 1, Actor A, or Component N. Participants are planning guidance only, never edge evidence."
+// soft investigation plan. Presence is explicit whenever diagram_hint itself
+// is emitted, so omission cannot silently disable downstream typed planning;
+// the runtime still never infers identities from request prose.
+const AnalysisDiagramParticipantPlanningContract = "Whenever you emit `diagram_hint`, you MUST also emit `participants`. Use an explicit empty array when the CURRENT request names no participant identities. For a requested source relationship/data/control-flow visual whose CURRENT request explicitly names participant identities, copy only those named identities verbatim. Every named participant whose connection the requested view asks to show must use role=incident_required, even when it is also a component, state carrier, container, or context object; this role requires a grounded incident relation or an unproven disclosure. Use role=context_only only for an explicitly named surrounding boundary/context node whose connection the requested view does not ask to show. If the request gives only a count or generic role without naming identities, emit participants=[]; never invent placeholders such as Stage 1, Actor A, or Component N. Participants are planning guidance only, never edge evidence."
 
 // analysisIntents is the canonical intent enum. Values match
 // types.Intent constants — keep in sync with

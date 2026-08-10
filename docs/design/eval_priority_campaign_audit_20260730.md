@@ -30277,3 +30277,19 @@ participant，却无法把 `Analyzer agent`/`Mutable (in BusContext)` 关联到 
 `B452=code-complete/replay-blocked-by-B460`；`r268-human=0/2`；`runner-qf=false-positive`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B460 批次施工：diagram_hint 内显式 participant slate 消除省略歧义
+
+Analyzer 仍可完全省略可选 `diagram_hint`；但一旦选择发射该对象，schema 现在要求同时存在 `kind`、`required`、`participants` 三个字段。
+`participants` 无点名身份时必须为 `[]`，有当前请求明确点名的 source relation/data/control-flow participant 时继续按既有 role 合同逐项填写。
+这把“没有 participant”从 silent omission 改成模型必须明确作出的 typed JSON 决定，也减少后续 B452/B457/B459 对输入是否存在的猜测。
+
+实现没有从 `entities`、request、source_quote、thinking、答案或 Mermaid 反推 roster；空数组不会触发补证，非空 participant 仍只是软探索计划，
+不能生成 EvidenceItem、edge anchor 或关系。新增 missing-fail-loud、explicit-empty-accept、named-preserve、schema required 与 Analyzer prompt SSOT pin；
+历史合法测试载荷统一显式携带空数组。`go test ./internal/tool ./internal/agent ./internal/types ./internal/skill -count=1` 与
+`go test ./... -count=1` 全绿。
+
+状态：`B460=implemented/full-suite-pass/pending-production-replay`；
+`B459/B452=pending-replay-with-explicit-participant-slate`；`B461=next-independent-batch`；
+`participant-as-relation-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
+`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

@@ -378,9 +378,9 @@ type emitAnswerSubjectParam struct {
 // family that best matches the question, while the deterministic
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
-	Kind         string                        `json:"kind"`
-	Required     *bool                         `json:"required"`
-	Participants []emitDiagramParticipantParam `json:"participants,omitempty"`
+	Kind         string                         `json:"kind"`
+	Required     *bool                          `json:"required"`
+	Participants *[]emitDiagramParticipantParam `json:"participants"`
 }
 
 type emitDiagramParticipantParam struct {
@@ -881,7 +881,7 @@ func buildEmitAnalysisSchema() {
 						},
 					},
 				},
-				"required": []string{"kind", "required"},
+				"required": []string{"kind", "required", "participants"},
 			},
 			"enumeration_boundary": map[string]any{
 				"type":        "object",
@@ -5602,12 +5602,16 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 	if p.Required == nil {
 		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false"
 	}
-	if len(p.Participants) > 12 {
+	if p.Participants == nil {
+		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities"
+	}
+	rawParticipants := *p.Participants
+	if len(rawParticipants) > 12 {
 		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view"
 	}
-	participants := make([]types.DiagramParticipantHint, 0, len(p.Participants))
-	seen := make(map[string]bool, len(p.Participants))
-	for i, raw := range p.Participants {
+	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
+	seen := make(map[string]bool, len(rawParticipants))
+	for i, raw := range rawParticipants {
 		identity := strings.TrimSpace(raw.Identity)
 		if identity == "" {
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is empty", i)

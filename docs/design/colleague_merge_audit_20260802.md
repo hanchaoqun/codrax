@@ -2844,3 +2844,13 @@ exclude decision 无法约束 contribution。新立 B461，要求 typed record �
 状态：`MERGE-AUDIT-6/§11=closed`；`B457=production-closed`；`B460=P1-next`；`B461=P0-independent`；
 `B459/B452=pending-production-replay-after-B460`；`model-edge/answer-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.15 B460 独立批完成：required diagram 不再静默省略 participant 决定
+
+`diagram_hint` 保持可选；对象在场时 `participants` 与 kind/required 同为 schema-required，未点名身份使用显式空数组。Analyzer 教学与 schema
+共享同一合同，missing/empty/named 三臂均有 pin。系统不从 request/entities 推断列表，不把 participant 变成关系证据；B452/B459 仍须由
+后续生产回放验证实际 operation 补证。全仓测试通过。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B460=implemented/full-suite-pass/pending-production-replay`；
+`B459/B452=pending-replay`；`B461=next`；`model-edge/answer-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

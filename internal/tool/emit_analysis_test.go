@@ -3068,6 +3068,11 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 
 func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	required := true
+	unknownRole := []emitDiagramParticipantParam{{Identity: "StageA", Role: "required"}}
+	duplicateIdentity := []emitDiagramParticipantParam{
+		{Identity: "ArkRunner", Role: "incident_required"},
+		{Identity: " arkrunner ", Role: "context_only"},
+	}
 	tests := []struct {
 		name string
 		hint *emitDiagramHintParam
@@ -3075,15 +3080,12 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	}{
 		{
 			name: "unknown role",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: []emitDiagramParticipantParam{{Identity: "StageA", Role: "required"}}},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &unknownRole},
 			want: "is not recognised",
 		},
 		{
 			name: "duplicate identity",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: []emitDiagramParticipantParam{
-				{Identity: "ArkRunner", Role: "incident_required"},
-				{Identity: " arkrunner ", Role: "context_only"},
-			}},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &duplicateIdentity},
 			want: "duplicates",
 		},
 	}
@@ -3118,6 +3120,48 @@ func TestEmitAnalysis_Execute_RejectsDiagramHintWithoutRequiredAuthority(t *test
 	if rm := mu.RequestModel(); rm != nil {
 		t.Fatalf("rejected analysis must not persist a request model: %+v", rm)
 	}
+}
+
+func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing.T) {
+	base := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["pipeline", "diagram"],
+		"entities": ["pipeline"],
+		"question_kind": "mechanism",
+		"diagram_hint": %s
+	}`
+
+	t.Run("missing participant slate fails loud", func(t *testing.T) {
+		mu := types.NewMutableState("draw the current pipeline")
+		payload := fmt.Sprintf(base, `{"kind":"flow","required":true}`)
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if res.Success || !strings.Contains(res.Summary, "diagram_hint.participants is missing") {
+			t.Fatalf("missing participant slate must fail loudly: %+v", res)
+		}
+		if mu.RequestModel() != nil {
+			t.Fatal("rejected analysis persisted a request model")
+		}
+	})
+
+	t.Run("explicit empty participant slate is accepted", func(t *testing.T) {
+		mu := types.NewMutableState("draw a generic pipeline")
+		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"participants":[]}`)
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if !res.Success {
+			t.Fatalf("explicit empty participant slate rejected: %s", res.Summary)
+		}
+		if hint := mu.RequestModel().DiagramHint; hint == nil || hint.Participants == nil || len(hint.Participants) != 0 {
+			t.Fatalf("DiagramHint=%+v, want present empty participant slate", hint)
+		}
+	})
 }
 
 // TestComputeAnalysisQualityProbe is a direct unit test of the
@@ -8703,7 +8747,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 		"kind_confidence": 0.92,
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"io_uring", "sink":"socket"},
-		"diagram_hint": {"kind": "call_dag", "required": true},
+		"diagram_hint": {"kind": "call_dag", "required": true, "participants": []},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -8816,7 +8860,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForArchitectureNarrative(t *te
 			"has_per_member_table":true
 		},
 		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
-		"diagram_hint":{"kind":"architecture","required":false},
+		"diagram_hint":{"kind":"architecture","required":false,"participants":[]},
 		"sub_topics":[{"summary":"stage membership"},{"summary":"stage responsibilities"}],
 		"source_inventory_profile":{
 			"is_source_inventory":true,
@@ -9009,7 +9053,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForBoundedArchitectureDiagramM
 		},
 		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
 		"answer_subject":{"kind":"type_name","confidence":0.85},
-		"diagram_hint":{"kind":"flow","required":true},
+		"diagram_hint":{"kind":"flow","required":true,"participants":[]},
 		"enumeration_boundary":{"declared_count":4,"source_quote":"4 principal members"},
 		"completeness_obligation":{"required":false,"source_quote":""},
 		"source_inventory_profile":{
@@ -9072,7 +9116,7 @@ func TestEmitAnalysis_Execute_ConceptualArchitectureDiagramOutranksModelAddedCon
 			"has_per_member_table":false
 		},
 		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
-		"diagram_hint":{"kind":"flow","required":true},
+		"diagram_hint":{"kind":"flow","required":true,"participants":[]},
 		"completeness_obligation":{"required":true,"source_quote":"all principal members"},
 		"source_inventory_profile":{
 			"is_source_inventory":true,
@@ -10444,7 +10488,7 @@ func TestEmitAnalysis_Execute_AllowsHistoryTraceDiagramWhenNonScalar(t *testing.
 		"intent_confidence": 0.91,
 		"complexity_confidence": 0.80,
 		"kind_confidence": 0.93,
-		"diagram_hint": {"kind": "flow", "required": true},
+		"diagram_hint": {"kind": "flow", "required": true, "participants": []},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,

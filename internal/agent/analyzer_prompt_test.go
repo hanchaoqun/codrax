@@ -144,7 +144,7 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 		"whose connection the requested view asks to show",
 		"even when it is also a component, state carrier, container, or context object",
 		"whose connection the requested view does not ask to show",
-		"omit participants",
+		"participants=[]",
 		"never invent placeholders",
 		"never edge evidence",
 	} {
