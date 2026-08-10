@@ -3135,3 +3135,18 @@ QFCallChain typed advisory 矩阵：callsite 只证明 exact caller→target，d
 状态：`B475=implemented/full-suite-pass/pending-production-replay`；`B473/B476/B474=pending-joint-production-replay`；
 `callsite-definition-role=typed-separated`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.37 r276：relation repair 正证与 typed authority 双源红线
+
+`main@c5f94cf49` exact-two runner 1/2、人工 0/2。B473 已获直接生产见证：required zero-edge violation 真实回到 Explore 并 dispatch；
+B476 也把补采定向到 topology/stage-binding/Run/context 权威面。QF 仍在 864 秒后输出零边图，因为 finalizer 教学把 checkout-verified
+canonical stage sequence 声明为权威，hard diagram gate 却只认 EvidenceItem precedence，不认同一 stage-lane carrier。立
+`B477-STAGEAUTHDUAL1/P0`，以共享 typed relation provider 根修 prompt/validator 双源；禁止系统代画或降级证据门。
+
+多态 runner PASS 是假绿：B475 matrix 已发布并正确标记 definition unproven，但 ordered-list 的 native/slow 两项 citation_ref 互换仍通过。
+立 `B478-ITEMCITEID1/P1`，对 structured item code identity 与 cited typed/source surface 做精确对齐；不读 free-form item text 或任何原始 prose。
+B474 因本轮未发射 wrapper call，仍无生产正证。
+
+状态：`B473=closed/direct-production-witness`；`B476=production-positive/insufficient`；`B477=P0-next`；
+`B478=P1-after-B477`；`B474=pending`；`B475=production-consumed/soft-only-insufficient`；
+`system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

@@ -30797,3 +30797,25 @@ ClaimForm/identity/source，覆盖全部支持语言；回归显式包含 Go、A
 状态：`B475=implemented/full-suite-pass/pending-production-replay`；`B473/B476/B474=pending-joint-production-replay`；
 `callsite-as-definition=forbidden`；`definition-as-invocation=forbidden`；`raw-request/model-prose-hard-gate=none`；
 `system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.491 r276：B473 获生产闭环；stage authority 双源冲突与 item 引用错配
+
+在 `main@c5f94cf49` 上 exact-two 并发 QF pipeline 图与 Python→PyO3→Rust 链。runner=`1/2`，人工=`0/2`；详见
+`eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r276_20260810_manual_audit.md`。
+
+QF 首次 finalizer 的零边图被 `required_diagram_edge_absent` 精确归给 Explore，read DAG 真实重开并 dispatch；因此 B473 的
+accepted-closure 修复取得直接生产正证，可关闭。B476 也真实把补采带到 topology/stage-binding/Run/context 四个权威面，但 864 秒、五次 Explore、
+九次 finalizer reject 后仍以零边图结束。深因不是简单“模型没画边”：同一 finalizer prompt 一方面发布 checkout-verified
+`canonical_read_main_sequence`，另一方面 diagram hard gate 只消费 EvidenceItem precedence，完全不消费该 typed stage authority，形成
+prompt/validator 双源合同。立 `B477-STAGEAUTHDUAL1/P0`：权威关系必须由同一 typed provider 同时供教学和校验，系统不代画图、不写结论。
+
+多态链的 B475 矩阵已真实发布，并正确把 native target 与 `_tokenize_slow` definition 标成 unproven；模型仍在结构化 ordered-list 中把
+native item 引到 slow callsite、slow item 引到 native callsite。现有 validator 只看到 block 允许的 claim forms，没有校验 structured item
+`label` 与 `citation_ref` 的 identity 对齐。立 `B478-ITEMCITEID1/P1`：只对 QFCallChain 的 typed code-identity label 做引用事实对齐，不读
+item free-form text，更不扫描 request/thinking/final prose。registration 虽补到 add_function 行，但 wrapper call 未发射，B474 继续 pending。
+
+状态：`B473=closed/direct-production-witness`；`B476=production-positive/insufficient`；
+`B477=P0-next`；`B478=P1-after-B477`；`B474=pending-exact-wrapper-evidence`；
+`B475=production-consumed/soft-only-insufficient`；`runner=1/2,human=0/2`；
+`system-edge/answer-conclusion-rewrite=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
