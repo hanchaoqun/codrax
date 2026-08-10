@@ -2808,3 +2808,12 @@ runner 任意 Mermaid 边计数继续仅作机械 signal，人工判定仍为失
 状态：`MERGE-AUDIT-6/§11=closed`；`B456=production-closed`；`B458=P0-next`；`B459=P1-queued`；
 `B452/B457=partial`；`model-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.12 B458 完成：标准布尔状态词不再裂域
+
+通用 filter comparator 已把 active/inactive、enabled/disabled 纳入既有 bool-like 等价层；因此 `active != inactive` 面对 `false` 时
+正确排除，而不会让错误候选集进入 contribution/reconcile。该修复覆盖 eq/ne/in/not_in 的共享比较入口，不读取 purpose/prose，
+不代选业务 filter。四值域 + decision ledger 回归及 dataquery/全仓测试全绿。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B458=implemented/full-suite-pass/pending-production-replay`；`B459=next`；
+`terminal-ledger-gates=unchanged`；`model-business-decision=none`；`raw-prose-hard-gate=none`。

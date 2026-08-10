@@ -30206,3 +30206,19 @@ QF 最终只画出 `dispatchStage -> BuildAgentContext` 与四阶段 precedence�
 状态：`B456=production-closed`；`B458=P0-next`；`B459=P1-after-B458`；
 `B452/B457=partial/blocked-by-B459`；`r267-human=0/2`；`raw-request/model-prose-hard-gate=none`；
 `system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B458 批次施工：filter value 在标准布尔状态词间统一比较
+
+根修落在 `recordFilterValueEquals` 唯一 bool-like 比较入口：在既有 true/false、yes/no、include/exclude 等值域上补齐标准
+active/inactive 与 enabled/disabled 对偶。所有 `eq/ne/in/not_in` 继续复用同一 typed comparator，因此 CSV/JSON 字段使用布尔字面量、
+计划使用状态词（或反向）时不会再裂成两个域；普通非布尔 status 字符串仍按原字节比较。
+
+新增 production witness 形回归：四行 `true,false,enabled,disabled` 经 `active ne inactive` 必须只留下 true/enabled，并产生精确
+2 include / 2 exclude decisions；filter diagnostics 的 combined_match 固定为 2。测试不读取 action purpose、instructions 或答案，系统不替
+模型选择过滤字段/运算符，只保证已选择 typed filter 的值语义一致。
+
+验证：dataquery 定向与全包通过；`go test ./... -count=1` 全绿。
+
+状态：`B458=implemented/full-suite-pass/pending-production-replay`；`B459=next`；
+`contribution/reconcile/final-answer-gates=unchanged`；`system-business-decision=none`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

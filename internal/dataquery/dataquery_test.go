@@ -3162,6 +3162,69 @@ func TestActionRunnerFilterRecordsAcceptsBoolLikeAliases(t *testing.T) {
 	}
 }
 
+// EVAL-B458-BOOLFILTERDOMAIN1: a model may express a boolean field through a
+// standard state label while the parsed CSV/JSON carrier uses true/false. The
+// typed comparator must compare their boolean values, otherwise a filter such
+// as active != inactive admits the false row and every downstream contribution
+// and reconcile ledger can become internally consistent over the wrong domain.
+func TestActionRunnerFilterRecordsNormalizesActiveInactiveBooleanDomain(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "observations.csv"), []byte("id,active,value\nr1,true,10\nr2,false,3\nr3,enabled,7\nr4,disabled,5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		CoverageContract: CoverageContract{
+			DecisionRecordsRequired: true,
+			RuleCoverageRequired:    true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:             "filter",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"observations.csv"},
+			OutputArtifact: "active_observations",
+			Params: map[string]string{
+				"filter_field": "active",
+				"filter_op":    "ne",
+				"filter_value": "inactive",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: Result{RuleCoverage: []RuleCoverageRecord{{
+		RuleID: "active-only", RuleText: "inactive rows are excluded", Status: "applied", EvidenceRefs: []string{"rules.md:1"},
+	}}}}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run active/inactive bool-domain filter: %v", err)
+	}
+	var filtered *DataArtifact
+	for i := range res.Artifacts {
+		if res.Artifacts[i].ID == "active_observations" {
+			filtered = &res.Artifacts[i]
+			break
+		}
+	}
+	if filtered == nil || filtered.RowCount != 2 {
+		t.Fatalf("Artifacts=%+v, want only true and enabled rows", res.Artifacts)
+	}
+	if got := filtered.Fields["filter_diagnostics"]; !strings.Contains(got, `"combined_match":2`) {
+		t.Fatalf("filter_diagnostics=%q, want two active-domain matches", got)
+	}
+	include, exclude := 0, 0
+	for _, decision := range res.Rows {
+		switch decision.Decision {
+		case "include":
+			include++
+		case "exclude":
+			exclude++
+		}
+	}
+	if include != 2 || exclude != 2 {
+		t.Fatalf("row decisions include=%d exclude=%d rows=%+v, want 2/2", include, exclude, res.Rows)
+	}
+}
+
 func TestActionRunnerFilterRecordsAcceptsJSONListFilterValue(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,status,amount\n1,paid,10\n2,draft,5\n3,已验收,7\n"), 0o644); err != nil {

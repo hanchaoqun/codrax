@@ -11047,9 +11047,9 @@ func recordFilterValueEquals(got, want string) bool {
 
 func parseBoolLikeValue(value string) (bool, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "t", "yes", "y", "on", "ok", "valid", "include", "included", "pass", "passed", "match", "matched":
+	case "1", "true", "t", "yes", "y", "on", "ok", "valid", "include", "included", "pass", "passed", "match", "matched", "active", "enabled":
 		return true, true
-	case "0", "false", "f", "no", "n", "off", "invalid", "exclude", "excluded", "fail", "failed", "missing", "unmatched":
+	case "0", "false", "f", "no", "n", "off", "invalid", "exclude", "excluded", "fail", "failed", "missing", "unmatched", "inactive", "disabled":
 		return false, true
 	default:
 		return false, false
