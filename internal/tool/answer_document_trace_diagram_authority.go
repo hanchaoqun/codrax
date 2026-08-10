@@ -50,9 +50,10 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	view *types.AnswerSemanticView,
 	evidence []types.EvidenceItem,
 ) []DiagramCallEdgeEvidenceMismatch {
+	stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
 	owned := ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(ctx, doc)
 	if len(owned) == 0 {
-		return DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+		return DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
 	}
 	copyDoc := *doc
 	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
@@ -61,7 +62,7 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 			copyDoc.Blocks = append(copyDoc.Blocks, block)
 		}
 	}
-	return DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence)
+	return DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
 }
 
 // preCheckReportLocalRuntimeTemporalDiagramAuthority binds an optional frame

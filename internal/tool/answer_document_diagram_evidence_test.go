@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -20,6 +21,57 @@ func diagramEvidenceTestCall(subject, object string) types.EvidenceItem {
 		AnchorKind:      types.AnchorCall,
 		Scope:           types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
+	}
+}
+
+func TestDiagramStagePrecedenceAuthorityAcceptsOnlyAdjacentReadLane(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	authority := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1]},
+		{From: rows[1], To: rows[2]},
+		{From: rows[2], To: rows[3]},
+	}
+	doc := func(fromID, fromLabel, toID, toLabel string) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "stages", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  " + fromID + "[" + fromLabel + "] --> " + toID + "[" + toLabel + "]\n"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: fromID, ToNode: toID, RelationKind: types.DiagramRelPrecedence}},
+		}}}
+	}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	for _, tc := range []struct {
+		name       string
+		fromID     string
+		fromLabel  string
+		toID       string
+		toLabel    string
+		wantReject bool
+	}{
+		{name: "stage identifiers", fromID: "A", fromLabel: "StageAnalyze", toID: "E", toLabel: "StageExplore"},
+		{name: "agent values", fromID: "A", fromLabel: "Analyzer", toID: "E", toLabel: "Explorer"},
+		{name: "reverse", fromID: "E", fromLabel: "StageExplore", toID: "A", toLabel: "StageAnalyze", wantReject: true},
+		{name: "skipped stage", fromID: "A", fromLabel: "StageAnalyze", toID: "X", toLabel: "StageExtract", wantReject: true},
+		{name: "extra participant", fromID: "B", fromLabel: "BusContext", toID: "A", toLabel: "StageAnalyze", wantReject: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DiagramCallEdgeEvidenceMismatches(doc(tc.fromID, tc.fromLabel, tc.toID, tc.toLabel), view, nil, authority)
+			if tc.wantReject && len(got) == 0 {
+				t.Fatal("unproved/non-adjacent relation must be rejected")
+			}
+			if !tc.wantReject && len(got) != 0 {
+				t.Fatalf("exact adjacent relation should pass: %+v", got)
+			}
+		})
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc("A", "StageAnalyze", "E", "StageExplore"),
+		&types.AnswerSemanticView{Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow}, nil, authority); len(got) != 0 {
+		t.Fatalf("runtime Trace must remain outside source stage authority: %+v", got)
 	}
 }
 

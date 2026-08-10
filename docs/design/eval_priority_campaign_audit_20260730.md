@@ -30819,3 +30819,25 @@ item free-form text，更不扫描 request/thinking/final prose。registration �
 `B475=production-consumed/soft-only-insufficient`；`runner=1/2,human=0/2`；
 `system-edge/answer-conclusion-rewrite=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.492 B477 完成：stage-lane 教学与关系校验改为同源 typed authority
+
+r276 的零边失败来自确定性合同分叉，而不是关系本身不存在：finalizer 已把当前 checkout 的
+`analyze -> explore -> extract -> finalize` 作为 canonical read sequence 教给模型，但 hard diagram validator 仍只接受
+Explorer 发射的 `EvidenceItem{AnchorKind=precedence}`。同一份系统上下文因此既要求模型消费阶段顺序，又在模型提交后拒绝该顺序。
+
+本批新增只读 `internal/stageauthority` provider。它同时对 checkout 中的 `builtinStageBindings`、
+`ReadModeConditionalPreStageBindings` 和 `AllMainStages` 做 Go AST 精确复核，并输出阶段/agent 声明别名、责任/工件行及恰好三条相邻
+`precedence`。finalizer 的 stage-lane 教学与 pre-emit/post-finalizer 图校验均消费该 provider；任一 binding 语义、主序列或 conditional
+membership 漂移即整体 fail-closed，不能借运行二进制中的同名常量给不匹配 checkout 授权。
+
+关系权限严格限定为 `analyze→explore`、`explore→extract`、`extract→finalize` 的相邻顺序；逆序、跨阶段跳跃、BusContext/Mutable
+额外参与者、write mode 均不获权。顺序不等于 call/data_flow/artifact transfer，系统不生成 Mermaid、不替模型写结论。QFRootCauseTrace 在
+provider bridge 前即旁路，显式时间窗、自动补齐、因果投影、链上根因选举及非链背景分层均未修改。
+
+验证覆盖 provider 正向与 checkout 漂移三负臂、stage/agent alias、逆序、跳级、额外 participant、write/Trace 隔离，以及真实 pre/post
+validator 接线；专项套件与 `go test ./... -count=1` 通过。
+
+状态：`B477=implemented/full-suite-pass/pending-production-replay`；`B478=P1-next`；
+`stage-order-as-call-or-dataflow=forbidden`；`system-diagram/answer-conclusion-authoring=none`；
+`raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

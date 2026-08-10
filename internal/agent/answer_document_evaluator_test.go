@@ -10442,6 +10442,18 @@ func writeStageBindingFixture(t *testing.T, repo string) {
 	if err := os.WriteFile(filepath.Join(dir, "stage_binding.go"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write stage binding fixture: %v", err)
 	}
+	mainStageIdents := make([]string, 0, len(types.ReadModeMainStageBindings()))
+	for _, binding := range types.ReadModeMainStageBindings() {
+		stageIdent, _, ok := readModeStageBindingIdentifiers(binding)
+		if !ok {
+			t.Fatalf("unexpected main stage binding: %+v", binding)
+		}
+		mainStageIdents = append(mainStageIdents, stageIdent)
+	}
+	enums := "package types\n\ntype PipelineStage string\n\nfunc AllMainStages() []PipelineStage {\n\treturn []PipelineStage{" + strings.Join(mainStageIdents, ", ") + "}\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "enums.go"), []byte(enums), 0o644); err != nil {
+		t.Fatalf("write stage sequence fixture: %v", err)
+	}
 }
 
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftWithoutFailedRepairContent(t *testing.T) {

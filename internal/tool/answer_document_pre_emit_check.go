@@ -3889,7 +3889,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		}
 		evidence = preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, pctx.groundCtx)
 	}
-	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, diagramVerifiedReadModeStagePrecedence(pctx.ctx, view))
 	if len(mismatches) == 0 {
 		return nil
 	}

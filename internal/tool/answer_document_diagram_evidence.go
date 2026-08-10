@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -58,9 +59,13 @@ const (
 // Runtime/root-cause trace diagrams, including explicit time-window causal
 // projections and their automatic supplements, use a separate runtime
 // relation authority and deliberately do not enter this source-code contract.
-func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem) []DiagramCallEdgeEvidenceMismatch {
+func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation) []DiagramCallEdgeEvidenceMismatch {
 	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
 		return nil
+	}
+	var stagePrecedence []stageauthority.PrecedenceRelation
+	if len(stagePrecedenceOpt) > 0 {
+		stagePrecedence = stagePrecedenceOpt[0]
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
 	// A schema-validated source relation axis, not diagram vocabulary, decides
@@ -166,7 +171,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					if requiresCallAuthority && !callAnchorKeys[key] {
 						continue
 					}
-					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
+					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) ||
+						(relation == types.DiagramRelPrecedence && diagramStagePrecedenceHasTypedAuthority(stagePrecedence, fromSymbol, toSymbol)) {
 						continue
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -340,6 +346,41 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+// diagramStagePrecedenceHasTypedAuthority consumes only the checkout-verified
+// provider rows shared with the finalizer prompt. It accepts exactly adjacent
+// read-lane order and never promotes that order to a call, data-flow, or
+// runtime-causal relation. Endpoint labels must resolve to one unique stage
+// row; prose and edge messages are not consulted.
+func diagramStagePrecedenceHasTypedAuthority(relations []stageauthority.PrecedenceRelation, fromSymbol, toSymbol string) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	if fromSymbol == "" || toSymbol == "" {
+		return false
+	}
+	matched := false
+	for _, relation := range relations {
+		if !diagramStageRowIdentityMatches(relation.From, fromSymbol) ||
+			!diagramStageRowIdentityMatches(relation.To, toSymbol) {
+			continue
+		}
+		if matched {
+			return false
+		}
+		matched = true
+	}
+	return matched
+}
+
+func diagramStageRowIdentityMatches(row stageauthority.StageRow, surface string) bool {
+	for _, alias := range row.IdentityAliases() {
+		if types.AnswerCodeIdentitySurfacesEquivalent(alias, surface) ||
+			types.AnswerCodeIdentitySurfacesCompatible(alias, surface) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramCallbackEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

@@ -22,12 +22,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"math"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -41,6 +36,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -17643,185 +17639,8 @@ func normalizedRequestedDimensionText(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-type verifiedStageBindingRow struct {
-	StageIdent       string
-	StageValue       string
-	AgentIdent       string
-	AgentValue       string
-	Skill            string
-	Responsibility   string
-	PrimaryArtifacts []string
-	Terminal         bool
-	File             string
-	Line             int
-}
-
-func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []verifiedStageBindingRow {
-	root := ""
-	if ctx != nil {
-		root = strings.TrimSpace(ctx.RepoRoot)
-	}
-	if root == "" {
-		return nil
-	}
-	sourceRel := "internal/types/stage_binding.go"
-	sourcePath := filepath.Join(root, filepath.FromSlash(sourceRel))
-	data, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return nil
-	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, sourcePath, data, 0)
-	if err != nil {
-		return nil
-	}
-	bindings := types.ReadModeMainStageBindings()
-	rows := make([]verifiedStageBindingRow, 0, len(bindings))
-	for _, binding := range bindings {
-		stageIdent, agentIdent, ok := readModeStageBindingIdentifiers(binding)
-		if !ok {
-			return nil
-		}
-		want := verifiedStageBindingRow{
-			StageIdent:       stageIdent,
-			StageValue:       string(binding.Stage),
-			AgentIdent:       agentIdent,
-			AgentValue:       string(binding.Agent),
-			Skill:            binding.Skill,
-			Responsibility:   binding.Responsibility,
-			PrimaryArtifacts: append([]string(nil), binding.PrimaryArtifacts...),
-			Terminal:         binding.Terminal,
-			File:             sourceRel,
-		}
-		line := verifiedStageBindingLine(file, fset, want)
-		if line <= 0 {
-			return nil
-		}
-		want.Line = line
-		rows = append(rows, want)
-	}
-	return rows
-}
-
 func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent string, agentIdent string, ok bool) {
-	switch binding.Stage {
-	case types.StageAnalyze:
-		return "StageAnalyze", "AgentAnalyzer", true
-	case types.StageExplore:
-		return "StageExplore", "AgentExplorer", true
-	case types.StageExtract:
-		return "StageExtract", "AgentExtractor", true
-	case types.StageFinalize:
-		return "StageFinalize", "AgentFinalizer", true
-	default:
-		return "", "", false
-	}
-}
-
-func verifiedStageBindingLine(file *ast.File, fset *token.FileSet, want verifiedStageBindingRow) int {
-	if file == nil || fset == nil {
-		return 0
-	}
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || value.Names[0].Name != "builtinStageBindings" || len(value.Values) != 1 {
-				continue
-			}
-			list, ok := value.Values[0].(*ast.CompositeLit)
-			if !ok {
-				return 0
-			}
-			for _, element := range list.Elts {
-				entry, ok := element.(*ast.CompositeLit)
-				if !ok || !verifiedStageBindingEntryMatches(entry, want) {
-					continue
-				}
-				return fset.Position(entry.Pos()).Line
-			}
-			return 0
-		}
-	}
-	return 0
-}
-
-func verifiedStageBindingEntryMatches(entry *ast.CompositeLit, want verifiedStageBindingRow) bool {
-	fields := make(map[string]ast.Expr, len(entry.Elts))
-	for _, element := range entry.Elts {
-		keyed, ok := element.(*ast.KeyValueExpr)
-		if !ok {
-			return false
-		}
-		key, ok := keyed.Key.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		fields[key.Name] = keyed.Value
-	}
-	if astIdentName(fields["Stage"]) != want.StageIdent ||
-		astIdentName(fields["Agent"]) != want.AgentIdent ||
-		astStringValue(fields["Skill"]) != want.Skill ||
-		astStringValue(fields["Responsibility"]) != want.Responsibility ||
-		astBoolValue(fields["Terminal"]) != want.Terminal {
-		return false
-	}
-	return slicesEqualStrings(astStringSliceValue(fields["PrimaryArtifacts"]), want.PrimaryArtifacts)
-}
-
-func astIdentName(expr ast.Expr) string {
-	ident, _ := expr.(*ast.Ident)
-	if ident == nil {
-		return ""
-	}
-	return ident.Name
-}
-
-func astStringValue(expr ast.Expr) string {
-	lit, ok := expr.(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return ""
-	}
-	value, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		return ""
-	}
-	return value
-}
-
-func astBoolValue(expr ast.Expr) bool {
-	return astIdentName(expr) == "true"
-}
-
-func astStringSliceValue(expr ast.Expr) []string {
-	list, ok := expr.(*ast.CompositeLit)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(list.Elts))
-	for _, element := range list.Elts {
-		value := astStringValue(element)
-		if value == "" {
-			return nil
-		}
-		out = append(out, value)
-	}
-	return out
-}
-
-func slicesEqualStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
+	return stageauthority.BindingIdentifiers(binding)
 }
 
 func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) bool {
@@ -17902,19 +17721,28 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	if ctx == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
 		return ""
 	}
+	authority, verified := stageauthority.LoadReadMode(ctx.RepoRoot)
 	requestedWorkflow := answerDocumentHasStageWorkflowRequestedDimension(ctx) &&
 		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
 	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
 	typedStageParticipants := answerDocumentHasTypedReadModeStageParticipantSlate(ctx) &&
 		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
-	if (!requestedWorkflow && !groundedMembership && !typedStageParticipants) ||
-		!answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx) {
+	if (!requestedWorkflow && !groundedMembership && !typedStageParticipants) || !verified {
 		return ""
 	}
-	main := types.ReadModeMainStageBindings()
-	pre := types.ReadModeConditionalPreStageBindings()
+	main := authority.Main
+	pre := authority.ConditionalPreStages
 	if len(main) == 0 {
 		return ""
+	}
+	mainStageNames := func(rows []stageauthority.StageRow) []string {
+		out := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if stage := strings.TrimSpace(row.StageValue); stage != "" {
+				out = append(out, stage)
+			}
+		}
+		return out
 	}
 	stageNames := func(bindings []types.StageBinding) []string {
 		out := make([]string, 0, len(bindings))
@@ -17928,7 +17756,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	var b strings.Builder
 	b.WriteString("## Current Run Stage-Lane Authority\n\n")
 	b.WriteString("- current_mode=`read`; this authority applies to the requested current read-mode workflow, not to comparisons that explicitly discuss another mode.\n")
-	fmt.Fprintf(&b, "- canonical_read_main_sequence=`%s`.\n", strings.Join(stageNames(main), " -> "))
+	fmt.Fprintf(&b, "- canonical_read_main_sequence=`%s`.\n", strings.Join(mainStageNames(main), " -> "))
 	if names := stageNames(pre); len(names) > 0 {
 		fmt.Fprintf(&b, "- conditional_pre_stages=`%s`; these run before `analyze` only when their typed attachment guards fire.\n", strings.Join(names, ", "))
 	}
@@ -17938,7 +17766,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("### Verified stage responsibilities and artifact provenance\n\n")
 	b.WriteString("- The analyze stage has a split producer boundary: the language model authors only the request classification submitted through its analysis emit tool; deterministic code then normalizes and compiles the downstream planning, evidence, hypothesis, quality, and answer contracts. Preserve that producer split; do not attribute deterministically derived artifacts directly to the language model.\n")
 	b.WriteString("- These rows are precise context for your answer. You remain the answer author: explain or diagram them when relevant, and do not present this prompt as a system-authored answer supplement.\n")
-	for i, row := range verifiedReadModeStageBindingRowsFromCheckout(ctx) {
+	for i, row := range authority.Main {
 		artifacts := make([]string, 0, len(row.PrimaryArtifacts))
 		for _, artifact := range row.PrimaryArtifacts {
 			if artifact = strings.TrimSpace(artifact); artifact != "" {
@@ -17969,69 +17797,6 @@ func answerDocumentHasGroundedReadModeMembershipAuthority(ctx *types.AgentContex
 		}
 	}
 	return false
-}
-
-func answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx *types.AgentContext) bool {
-	if len(verifiedReadModeStageBindingRowsFromCheckout(ctx)) != len(types.ReadModeMainStageBindings()) || ctx == nil {
-		return false
-	}
-	root := strings.TrimSpace(ctx.RepoRoot)
-	if root == "" {
-		return false
-	}
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash("internal/types/stage_binding.go")))
-	if err != nil {
-		return false
-	}
-	return stageBindingSourceDeclaresConditionalPreStages(data, []string{
-		"StageLogTriage",
-		"StagePerfTriage",
-	})
-}
-
-// stageBindingSourceDeclaresConditionalPreStages verifies the checkout-side
-// authority structurally. The previous implementation compared one compressed
-// source substring, so gofmt-only layout changes or an inserted comment could
-// silently disable the stage-lane prompt even though the typed declaration was
-// unchanged. Keep this check fail-closed, but bind it to the ordered Go AST
-// literal inside the named function instead of one spelling of its source.
-func stageBindingSourceDeclaresConditionalPreStages(data []byte, want []string) bool {
-	file, err := parser.ParseFile(token.NewFileSet(), "stage_binding.go", data, 0)
-	if err != nil {
-		return false
-	}
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name == nil || fn.Name.Name != "ReadModeConditionalPreStageBindings" || fn.Body == nil {
-			continue
-		}
-		matched := false
-		ast.Inspect(fn.Body, func(node ast.Node) bool {
-			lit, ok := node.(*ast.CompositeLit)
-			if !ok || !pipelineStageSliceType(lit.Type) || len(lit.Elts) != len(want) {
-				return true
-			}
-			for i, elt := range lit.Elts {
-				ident, ok := elt.(*ast.Ident)
-				if !ok || ident.Name != want[i] {
-					return true
-				}
-			}
-			matched = true
-			return false
-		})
-		return matched
-	}
-	return false
-}
-
-func pipelineStageSliceType(expr ast.Expr) bool {
-	array, ok := expr.(*ast.ArrayType)
-	if !ok || array.Len != nil {
-		return false
-	}
-	ident, ok := array.Elt.(*ast.Ident)
-	return ok && ident.Name == "PipelineStage"
 }
 
 func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {

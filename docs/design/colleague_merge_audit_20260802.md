@@ -3150,3 +3150,16 @@ B474 因本轮未发射 wrapper call，仍无生产正证。
 状态：`B473=closed/direct-production-witness`；`B476=production-positive/insufficient`；`B477=P0-next`；
 `B478=P1-after-B477`；`B474=pending`；`B475=production-consumed/soft-only-insufficient`；
 `system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.38 B477 完成：消除 current read stage authority 的 prompt/validator 双源
+
+复核确认 §11.10.37 的 P0 判断准确。旧 finalizer prompt 使用 checkout-verified stage binding/sequence，diagram gate 却只读
+EvidenceItem precedence；这会把系统明确教学的真实 `Analyzer→Explorer→Extractor→Finalizer` 顺序当成 unproven，触发重复 Explore 与删边。
+
+新增共享 `stageauthority.LoadReadMode`，结构化校验 checkout 的 binding、conditional pre-stage 与 `AllMainStages`，一次生成教学行和三条相邻
+precedence。prompt 与 pre/post diagram validator 现消费同一 provider。仅阶段/agent 的声明别名可映射；逆序、跳级、BusContext/Mutable、write
+lane 继续拒绝。该 authority 不证明内部函数调用、载体传输或运行时因果，系统不代画、不代答；Trace source gate 旁路未动。
+
+专项正反 pin 与全仓测试通过。状态：`B477=implemented/full-suite-pass/pending-production-replay`；`B478=P1-next`；
+`prompt-validator-stage-authority=single-source`；`system-edge/conclusion-synthesis=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
