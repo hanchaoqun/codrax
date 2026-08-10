@@ -45,7 +45,7 @@ var builtinStageBindings = []StageBinding{
 		Stage:          StageAnalyze,
 		Agent:          AgentAnalyzer,
 		Skill:          "analysis-skill",
-		Responsibility: "Classify the request into a RequestModel, compile AnalysisIR, and build the downstream read-mode task and answer contracts.",
+		Responsibility: "Accept the model-authored emit_analysis RequestModel classification, then deterministically normalize and compile AnalysisIR plus the downstream read-mode task and answer contracts.",
 		PrimaryArtifacts: []string{
 			"AnalysisIR",
 			"TaskGraph",

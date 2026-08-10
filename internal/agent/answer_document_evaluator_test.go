@@ -8233,7 +8233,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_FallsBackToPreservedFinalizerSurfac
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSupplement(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendVerifiedStageBindingSupplement(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
 	mu := types.NewMutableState("")
@@ -8268,22 +8268,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSuppleme
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	for _, want := range []string{
-		"系统补充：阶段绑定核对",
-		"职责和主要产物",
-		"`StageExplore` (`explore`)",
-		"`AgentExplorer` (`explorer`)",
-		"`StageExtract` (`extract`)",
-		"`AgentExtractor` (`extractor`)",
-		"`AnalysisIR`",
-		"`TaskGraph`",
-		"`EvidencePlan`",
-		"`AnswerContract`",
-		"internal/types/stage_binding.go:",
-	} {
-		if !strings.Contains(out.FinalAnswer, want) {
-			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
-		}
+	if !strings.Contains(out.FinalAnswer, "模型成文只概述了 pipeline") {
+		t.Fatalf("model-authored answer was not preserved:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：阶段绑定核对") ||
+		strings.Contains(out.FinalAnswer, "System supplement: verified stage bindings") {
+		t.Fatalf("stage authority belongs in the Finalizer prompt, not a system-authored answer suffix:\n%s", out.FinalAnswer)
 	}
 }
 
@@ -8376,7 +8366,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingWithoutGro
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWorkflowDimension(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingForRequestedWorkflowDimension(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
 	mu := types.NewMutableState("")
@@ -8415,18 +8405,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWork
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	for _, want := range []string{
-		"系统补充：阶段绑定核对",
-		"`StageExplore` (`explore`)",
-		"`AgentExplorer` (`explorer`)",
-		"`StageExtract` (`extract`)",
-		"`AgentExtractor` (`extractor`)",
-		"`AnalysisIR`",
-		"`TaskGraph`",
-	} {
-		if !strings.Contains(out.FinalAnswer, want) {
-			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
-		}
+	if !strings.Contains(out.FinalAnswer, "模型成文已经解释了 read-mode pipeline") {
+		t.Fatalf("model-authored answer was not preserved:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：阶段绑定核对") ||
+		strings.Contains(out.FinalAnswer, "System supplement: verified stage bindings") {
+		t.Fatalf("requested workflow authority must guide the model without becoming a system-authored answer suffix:\n%s", out.FinalAnswer)
 	}
 }
 
@@ -8460,6 +8444,15 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"cross-mode/background evidence",
 		"declaration namespace",
 		"cannot widen the active membership",
+		"### Verified stage responsibilities and artifact provenance",
+		"language model authors only the request classification",
+		"deterministic code then normalizes and compiles",
+		"do not attribute deterministically derived artifacts directly to the language model",
+		"stage_binding[1]: stage=`StageAnalyze` (`analyze`)",
+		"agent=`AgentAnalyzer` (`analyzer`)",
+		"primary_artifacts=`AnalysisIR, TaskGraph, EvidencePlan, AnswerContract, HypothesisSet, QualityGate`",
+		"stage_binding[4]: stage=`StageFinalize` (`finalize`)",
+		"source=`internal/types/stage_binding.go:",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stage-lane authority missing %q:\n%s", want, got)

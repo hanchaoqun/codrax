@@ -30043,3 +30043,28 @@ attached-runtime-without-current-source 继续完全绕开 source-flow participa
 
 状态：`B452=implemented/types-tool-full-pass/pending-production-replay`；`B453=next-batch`；`B455=queued`；
 `raw-request/model-prose-hard-gate=none`；`model-edge/answer-rewrite=none`；Trace causal projection=`unchanged`。
+
+#### B453 批次施工：Analyzer producer provenance 分层且系统不再补写阶段答案
+
+r263-r265 连续出现的 provenance 错误不是单纯模型波动。共享 stage binding 把“分类请求、编译分析合同、构建任务/答案合同”写成同一个
+Analyzer 动作；而 Finalizer prompt 只给主阶段 membership/order，没有给逐阶段职责、产物或模型/确定性 producer 边界。与此同时，
+最后一公里会自行追加完整阶段表，导致模型主回答遗漏被系统补表掩盖。
+
+根修分两面但保持单一权威：
+
+1. `StageAnalyze` responsibility 现在明确：模型只负责 analysis emit 中的请求分类；确定性代码负责后续规范化和编译。
+2. current-run stage authority 从已校验 checkout 的 typed rows 动态给 Finalizer 四阶段 stage/agent/skill/responsibility/artifacts/file:line，
+   并明确 membership/order 不证明内部 call edge。没有读取 request、thinking 或 final prose。
+3. 删除 `renderVerifiedStageBindingSupplement` 的最后一公里发布接线及其专用 helper。系统不再用表格补写模型漏答；模型仍须基于精确上下文
+   自己解释、总结和画图。
+4. 通用 prompt glossary hard gate 保持不变；精确内部 artifact 名只来自已核验 typed binding row，提示语使用用户可读抽象名，未新增内部
+   管线词硬编码。
+
+验证：阶段 responsibility/产物、四行 prompt authority、read/write 隔离、grounded/no-dimension、lookalike fail-closed、格式重构、
+workflow 请求下禁止中英文系统补表均有 pin；`go test ./internal/types ./internal/agent -count=1` 全绿。
+
+全仓复验 `go test ./... -count=1` 全绿。
+
+状态：`B453=implemented/full-suite-pass/pending-production-replay`；`B452=pending-production-replay`；`B455=next-batch`；
+`system-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

@@ -2693,3 +2693,25 @@ Explorer 获得一次聚焦补证机会，再次无进展以 typed boundary 收�
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B452=implemented/pending-production-replay`；`B453=next`；`B455=queued`；
 `model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.6 B453 独立批完成：阶段 provenance 前移，退役系统成文补表
+
+B453 冷读确认两处同根问题：`StageAnalyze` 的共享权威描述把模型分类与 post-emit 确定性编译合写成一个主体动作；Finalizer 虽已有
+read-mode 主阶段顺序上下文，最后一公里仍会在模型答案后追加“系统补充：阶段绑定核对”。后者会让缺失的模型推理在 runner 上表面变完整，
+也越过“系统提供精确事实、模型负责成文”的权属边界。
+
+本批把共享 `StageAnalyze` responsibility 改成显式 producer split：模型只提交请求分类，之后由确定性代码规范化并编译分析合同、任务、
+证据、假设、质量与答案合同。Finalizer prompt 的 current-run stage authority 现在从 checkout 校验后的 typed stage-binding rows 动态携带
+四阶段 agent、skill、responsibility、primary artifacts 与 source line；源码中不手抄内部类型教学，也不把阶段顺序冒充函数调用边。
+
+最后一公里阶段绑定 supplement 及其只服务于代写面的 gating/dedup helper 已删除；无论 citation 是否完整、是否请求 workflow 维度，系统均
+不再给最终答案追加该表。模型原 AnswerDocument 字节面保留，其它 runtime/read-audit/degradation supplements 未改。新增/更新 pin 覆盖
+workflow 请求、grounded membership、read/write lane 隔离、lookalike checkout fail-closed、格式重构兼容、provenance 内容与中英文
+supplement 负断言；`go test ./internal/types ./internal/agent -count=1` 全绿。
+
+全仓复验 `go test ./... -count=1` 亦全绿，包含 orchestrator、tool、tracequery、tracediag、hitraceconv、dataworkflow 与 writeflow。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B452=implemented/pending-production-replay`；
+`B453=implemented/full-suite-pass/pending-production-replay`；`B455=next`；
+`system-stage-answer-supplement=retired`；`model-answer-authority=preserved`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

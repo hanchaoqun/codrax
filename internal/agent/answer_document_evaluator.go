@@ -15237,7 +15237,6 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 
 func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
 	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
-	prose = appendAnswerSupplementDeduped(prose, renderVerifiedStageBindingSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {
@@ -17637,65 +17636,6 @@ type verifiedStageBindingRow struct {
 	Line             int
 }
 
-func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	rows := verifiedReadModeStageBindingRows(ctx, doc)
-	if len(rows) == 0 {
-		return ""
-	}
-	// The supplement is a loss-recovery surface, not a second answer. When the
-	// model already cites every canonical binding row, exact file:line coverage
-	// proves that the authority set survived finalization. Do not inspect prose
-	// or inject a duplicate system-authored explanation in that case.
-	if answerDocumentCitesEveryVerifiedStageBindingRow(doc, rows) {
-		return ""
-	}
-	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
-	var b strings.Builder
-	if zh {
-		b.WriteString("---\n\n")
-		b.WriteString("> **系统补充：阶段绑定核对**\n>\n")
-		b.WriteString("> 下表来自本次已引用或已落地源码中的阶段绑定关系，用于避免最终成文压缩时丢失执行主体、阶段职责和主要产物；它不替代上方模型答案。\n\n")
-		b.WriteString("| 阶段 | 职责和主要产物 | Agent | 技能 | 源码 |\n|---|---|---|---|---|\n")
-	} else {
-		b.WriteString("---\n\n")
-		b.WriteString("> **System supplement: verified stage bindings**\n>\n")
-		b.WriteString("> The table below is derived from source lines already cited or grounded in this run. It preserves actor bindings, stage responsibilities, and primary artifacts that can be lost during answer compression. It does not replace the model-authored answer above.\n\n")
-		b.WriteString("| Stage | Responsibility and primary artifacts | Agent | Skill | Source |\n|---|---|---|---|---|\n")
-	}
-	for _, row := range rows {
-		fmt.Fprintf(&b, "| `%s` (`%s`) | %s | `%s` (`%s`) | `%s` | `%s:%d` |\n",
-			row.StageIdent, row.StageValue, verifiedStageBindingDetailCell(row, zh), row.AgentIdent, row.AgentValue, row.Skill, row.File, row.Line)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-func answerDocumentCitesEveryVerifiedStageBindingRow(doc *types.AnswerDocumentV2, rows []verifiedStageBindingRow) bool {
-	if doc == nil || len(rows) == 0 {
-		return false
-	}
-	cited := make(map[string]bool, len(doc.Citations))
-	for _, cit := range doc.Citations {
-		file := normalizedStageBindingSourcePath(cit.File)
-		if file == "" || cit.Line <= 0 {
-			continue
-		}
-		cited[fmt.Sprintf("%s:%d", file, cit.Line)] = true
-	}
-	for _, row := range rows {
-		if !cited[fmt.Sprintf("%s:%d", normalizedStageBindingSourcePath(row.File), row.Line)] {
-			return false
-		}
-	}
-	return true
-}
-
-func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []verifiedStageBindingRow {
-	if !answerDocumentCanUseStageBindingAuthority(ctx, doc) {
-		return nil
-	}
-	return verifiedReadModeStageBindingRowsFromCheckout(ctx)
-}
-
 func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []verifiedStageBindingRow {
 	root := ""
 	if ctx != nil {
@@ -17738,31 +17678,6 @@ func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []ver
 	return rows
 }
 
-func verifiedStageBindingDetailCell(row verifiedStageBindingRow, zh bool) string {
-	var parts []string
-	if responsibility := strings.TrimSpace(row.Responsibility); responsibility != "" {
-		parts = append(parts, responsibility)
-	}
-	var artifacts []string
-	for _, artifact := range row.PrimaryArtifacts {
-		artifact = strings.TrimSpace(artifact)
-		if artifact != "" {
-			artifacts = append(artifacts, "`"+artifact+"`")
-		}
-	}
-	if len(artifacts) > 0 {
-		label := "Primary artifacts"
-		if zh {
-			label = "主要产物"
-		}
-		parts = append(parts, label+": "+strings.Join(artifacts, ", "))
-	}
-	if len(parts) == 0 {
-		return "-"
-	}
-	return strings.Join(parts, "<br>")
-}
-
 func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent string, agentIdent string, ok bool) {
 	switch binding.Stage {
 	case types.StageAnalyze:
@@ -17776,16 +17691,6 @@ func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent str
 	default:
 		return "", "", false
 	}
-}
-
-func answerDocumentCanUseStageBindingAuthority(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
-	if answerDocumentCitesStageBindingSource(doc) {
-		return true
-	}
-	if !answerDocumentHasStageWorkflowRequestedDimension(ctx) {
-		return false
-	}
-	return answerDocumentHasPipelineStageAuthoritySource(ctx, doc)
 }
 
 func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int {
@@ -17806,18 +17711,6 @@ func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int 
 		}
 	}
 	return 0
-}
-
-func answerDocumentCitesStageBindingSource(doc *types.AnswerDocumentV2) bool {
-	const sourceRel = "internal/types/stage_binding.go"
-	if doc != nil {
-		for _, cit := range doc.Citations {
-			if normalizedStageBindingSourcePath(cit.File) == sourceRel {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) bool {
@@ -17874,6 +17767,21 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("- A real stage symbol or function definition absent from both lists is cross-mode/background evidence, not a member of the current read path. You may explain it separately when relevant, but do not connect it into the read sequence or stage table without an independently grounded current-read control-flow edge.\n")
 	b.WriteString("- Evidence precedence: a declaration namespace, `AllStages`-style universe, global binding registry, or capability catalog proves existence/availability only. It cannot widen the active membership selected by these narrower mode-specific functions.\n")
 	b.WriteString("- Stage membership and stage order do not prove internal function-to-function calls. Use explicit grounded call edges for those finer mechanism claims.\n\n")
+	b.WriteString("### Verified stage responsibilities and artifact provenance\n\n")
+	b.WriteString("- The analyze stage has a split producer boundary: the language model authors only the request classification submitted through its analysis emit tool; deterministic code then normalizes and compiles the downstream planning, evidence, hypothesis, quality, and answer contracts. Preserve that producer split; do not attribute deterministically derived artifacts directly to the language model.\n")
+	b.WriteString("- These rows are precise context for your answer. You remain the answer author: explain or diagram them when relevant, and do not present this prompt as a system-authored answer supplement.\n")
+	for i, row := range verifiedReadModeStageBindingRowsFromCheckout(ctx) {
+		artifacts := make([]string, 0, len(row.PrimaryArtifacts))
+		for _, artifact := range row.PrimaryArtifacts {
+			if artifact = strings.TrimSpace(artifact); artifact != "" {
+				artifacts = append(artifacts, artifact)
+			}
+		}
+		fmt.Fprintf(&b, "- stage_binding[%d]: stage=`%s` (`%s`); agent=`%s` (`%s`); skill=`%s`; responsibility=%q; primary_artifacts=`%s`; source=`%s:%d`.\n",
+			i+1, row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill,
+			row.Responsibility, strings.Join(artifacts, ", "), row.File, row.Line)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

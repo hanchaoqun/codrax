@@ -59,7 +59,7 @@ func TestReadModeStageBindingsCarryResponsibilitiesAndArtifacts(t *testing.T) {
 	if !ok {
 		t.Fatal("StageAnalyze binding missing")
 	}
-	for _, want := range []string{"Classify", "AnalysisIR"} {
+	for _, want := range []string{"model-authored", "deterministically", "AnalysisIR"} {
 		if !strings.Contains(analyze.Responsibility, want) {
 			t.Fatalf("StageAnalyze responsibility missing %q: %q", want, analyze.Responsibility)
 		}
