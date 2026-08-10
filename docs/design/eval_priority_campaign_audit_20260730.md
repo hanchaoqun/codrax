@@ -29956,3 +29956,30 @@ auxiliary candidate 但不能自动 dispatch。`go test ./internal/dataworkflow 
 
 状态：`B451=implemented/package-suite-pass/pending-production-replay`；`B452/B453=next-batch`；
 `system-business-field-guess=none`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+### 123.476 r264：B451 production 关闭；typed repair 事实被展示字符串污染
+
+同一 exact-two 复放得到 runner `1 PASS / 1 FAIL`，人工仍为 `0/2`。B451 已出现明确 production 正证：data 不再连续自动执行
+auxiliary fallback，而是把控制权交回 evaluator/continuation planner；模型正确完成材料提取、active 过滤、canonical label enrichment，
+并实际尝试 `compute_contributions`。因此 `EVAL-B451-DATAFIRSTPRODUCER1=production-closed`。
+
+新的终止原因位于错误事实运输边界。ActionRunner 已精确知道阻断三元组
+`field=canonical_label_status, value=unmatched, locator=line:5`，但 `DataActionDependencyError -> DataTaskViolation ->
+WorkflowViolation` 只运输拼接后的 `canonical_label_status=unmatched@line:5`。模型据此把 `unmatched@line:5` 当成真实字段值；随后又在
+`record_filters_json` 中使用 `{filter_field,filter_not_equals}`，而 parser 的 canonical filter schema 是 `{field,op,value}`。
+过滤动作表面成功却未排除真实 `unmatched` 行，贡献计算持续 fail-closed，最终 9 data rounds、6 repair、0 contribution。
+
+登记 `EVAL-B454-DATAREPAIRFACTCARRIER1=P0`。根修必须面向所有 generated `*_status`：错误生产者发布独立 typed
+field/value/source_locator facts，并给出 canonical、schema-valid repair params；不得要求模型拆展示字符串，不硬编码本 case 字段或值，
+也不得由系统自动执行过滤或决定业务取舍。`qualify_records` scaffold 同步改用 canonical `filters_json/reject_filters_json` 名，减少
+alias/schema 双重心智；候选仍完整经过 planner、guard、runner、validator、evaluator。
+
+并行 QF runner 只因存在 3 条 Mermaid 调用边判 PASS。两次 relation gate 后，最终图删掉 Analyzer/Explorer/Extractor/Finalizer 与
+Mutable/BusContext 的全部数据流，只剩 `runAnalyzePhase -> dispatchStage -> BuildAgentContext/ag.Execute`；正文仍把确定性构造的
+TaskGraph/EvidencePlan/hypotheses/quality gate 归为 Analyzer LLM 直接产物。因此 B452/B453 均由 r264 再次确认，不以 runner 结果关单。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_stage_r264_20260809_manual_audit.md`。
+
+状态：`B451=production-closed`；`B454=P0-confirmed/next-batch`；`B452/B453=P1-confirmed/queued`；
+`r264-human=0/2`；`raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

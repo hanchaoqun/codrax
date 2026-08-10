@@ -2642,3 +2642,16 @@ auxiliary-only 或 producer/auxiliary 混批回到 evaluator/continuation planne
 因此系统不会猜 value/group/filter，也不删除模型可见的 typed 候选。dataworkflow/repl 全包通过，等待同 case production 回放。
 
 状态：`B451=implemented/pending-production-replay`；`B452/B453=queued`；`§11=closed`。
+
+#### §11.10.2 r264 收账：§11 保持关闭，B451 production 关闭并转出独立 repair-carrier GAP
+
+r264 exact-two 没有发现 §11 回归。B451 的 producer-bound 派发权在 production 中生效：同一 data case 不再进入 18 轮 auxiliary
+自循环，evaluator/planner 能推进到 contribution producer。随后失败来自独立的 typed error transport 缺口：精确
+field/value/locator 被拼为一个展示字符串，模型误把 locator 纳入 filter value，并同时受到 filter alias 与 canonical inner schema 不一致影响。
+该项以 `EVAL-B454-DATAREPAIRFACTCARRIER1/P0` 转入 eval campaign，不能回归记到 §11 或 B451。
+
+并行 QF 继续确认 B452/B453：runner 的任意边计数无法识别用户要求的数据流被删，以及 Analyzer model/deterministic provenance 混写。
+后续按 B454→B452/B453 排序施工；§11 审计结论及已关闭状态不重开。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B451=production-closed`；`B454=P0-next`；`B452/B453=P1-queued`；
+`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
