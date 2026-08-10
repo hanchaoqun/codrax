@@ -3056,3 +3056,16 @@ guard、assignment、return 各自单条原子 item，并读取完整初始化/�
 `B472=implemented/full-suite-pass/pending-production-replay`；`B470/B471=pending-joint-production-replay`；
 `short-name-wrapper-guess=forbidden`；`line-order-as-branch-ownership=forbidden`；
 `system-edge/relation/conclusion-synthesis=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.32 r274：B472 正证与 boundary alias 双合同冲突
+
+exact-two runner 1/2、人工 0/2。B472 的多状态 guard handoff 已真实进入 finalizer，原“硬编码 True/绕过 FFI”两错消失；但装饰形 registration
+subject 阻止 exact export join，最终 ordered member 的 wrapper/core/registration 引用又错配，新增 B474/B475 两个通用精度项。
+
+QF 的 B470 `data_flow` hard validator 正确拒绝 conceptual 边，没有回退为 call 或放宽；答案失败来自新 P0 B473：required participant 的 typed
+identity 与 Mermaid visible alias 分属两套 boundary matcher，模型在 not-visible 与 unknown/context-only 间确定性振荡 13 次并降级。施工冻结为
+B473 单 resolver → B474 registration 双端 exact authority → B475 typed member/citation 同源 → exact-two 回放后再裁 B476 operation supply。
+
+状态：`B472=partial-production-positive/original-errors-closed`；`B473=P0-next`；`B474=P0-after-B473`；
+`B475=P1-after-B474`；`B476=P1-replay-dependent`；`system-edge/relation/conclusion-synthesis=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

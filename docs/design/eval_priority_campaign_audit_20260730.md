@@ -30678,3 +30678,25 @@ Go/Java/Kotlin/JS/TS/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie 等支持语
 `short-name-wrapper-guess=forbidden`；`line-order-as-branch-ownership=forbidden`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.486 r274：B472 原始语义错误关闭；boundary alias 合同振荡导致 13 次拒绝
+
+在 `main@39a9ccf8e` 不可变二进制上 exact-two 并发 `qf_logic_view_read_pipeline + mr_poly_binding_chain`。runner=`1/2`，人工=`0/2`；
+审计见 `eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r274_20260810_manual_audit.md`。
+
+跨语言用例真实命中 B472：Explorer 按原子 JSON 分别发射 `_HAVE_NATIVE=True/False`，finalizer 收到
+`multiple_grounded_states`，摘要正确写成 import 成功走 `_fastlex`/PyO3、ImportError 回退 `_tokenize_slow`，r273 的“绕过 FFI”和“硬编码
+True”均消失。但注册 row 的 subject 仍为装饰形 `_fastlex (pymodule)`，所以 exact export join 没有误猜；最终 list 又把 wrapper/core 引用
+对调、把 `Vec<u8>` 写成 `Vec<Vec<u8>>`，registration 引到 `best_merge`。分别立 `B474/P0` registration exact endpoint 与 `B475/P1`
+typed member-role/citation 同源；不按 PyO3 词面硬门。
+
+QF 中 B470 `data_flow` schema/教学/validator 全部进入生产，三条无 exact assignment tuple 的 conceptual BusContext→stage 边被正确拒绝，说明
+新 relation 没有放宽权威。真正 P0 是 `B473-PARTBOUNDALIAS2`：模型删未证边后按 typed identity 填 boundary 会被可见 alias 校验拒绝，改用
+diagram alias 又被 typed roster 校验判 unknown/context-only；同一六 participant 在两合同间振荡 13 次、触发两次 finalizer dispatch，776s 后
+degraded 为零边图。最优根修是 boundary/diagram/repair 三面共用唯一 alias→typed identity resolver，同时保存 model-visible alias 与 typed
+identity，不造边、不放宽 incident coverage。修后再判断 `B476/P1` requested producer/transfer/consumer operation evidence 供给是否仍独立不足。
+
+状态：`B472=partial-production-positive/original-errors-closed`；`B473=P0-next`；`B474=P0-after-B473`；
+`B475=P1-after-B474`；`B476=P1-replay-dependent`；`B470/B471=production-consumed/not-yet-closed`；
+`system-edge/answer-conclusion-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
