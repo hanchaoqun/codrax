@@ -51,11 +51,19 @@ func TestRunV2BlockOracles_PreservesTypedParticipantOrExplicitUnprovenBoundary(t
 	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
 		Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
 	}}
-	if violations := runV2BlockOraclesWithOracleContext(context.Background(), doc, view, mut, nil, nil, bus); hasParticipantViolation(violations) {
+	// Exercise the production pre-emit -> MutableState persistence -> post-emit
+	// path. A direct-doc assertion alone misses clone omissions and allowed the
+	// accepted typed boundary to disappear before the orchestrator gate.
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	persisted := mut.AnswerDocumentV2()
+	if persisted == nil || len(persisted.Blocks) != 1 || len(persisted.Blocks[0].ParticipantBoundaries) != 1 {
+		t.Fatalf("participant boundary was lost across AnswerDocumentV2 persistence: %+v", persisted)
+	}
+	if violations := runV2BlockOraclesWithOracleContext(context.Background(), persisted, view, mut, nil, nil, bus); hasParticipantViolation(violations) {
 		t.Fatalf("model-authored exact unproven boundary should satisfy participant coverage without an invented edge: %+v", violations)
 	}
-	if len(doc.Blocks[0].EdgeAnchors) != 1 {
-		t.Fatalf("participant coverage check mutated model relations: %+v", doc.Blocks[0].EdgeAnchors)
+	if len(persisted.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("participant coverage check mutated model relations: %+v", persisted.Blocks[0].EdgeAnchors)
 	}
 }
 

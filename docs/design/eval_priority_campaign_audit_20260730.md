@@ -30497,3 +30497,15 @@ data 终态不再签出 `17,5`，证明 B465 的 fail-loud 方向正确；模型
 `B463=production-blocked-by-B467`；`B464/B465=pending-production-replay`；`r271-runner=1/2`；`r271-human=0/2`；
 `system-edge/answer-conclusion-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B467 独立批完成：model-authored participant boundary 穿透持久化 clone
+
+`cloneAnswerDocumentV2` 现与 `EdgeAnchors` 同级深拷贝 `ParticipantBoundaries`。修复不补 boundary、不推断 participant、不跳过任何 gate；
+它只保证 pre-emit 已接受的模型 typed 决定，经 `SetAnswerDocumentV2WithMutation -> AnswerDocumentV2` 往返后仍由 post-emit 看到。
+
+原 post-check 测试已升级为生产接线路径：先把带一条已证 incident 和一个断开 `unproven` participant 的文档持久化，再对 defensive clone
+运行 orchestrator oracle；字段存在、关系数不变且 coverage 通过。Trace family 负臂继续通过。定向三包测试全绿，全仓复验在提交前执行。
+
+状态：`B467=implemented/full-suite-pass/pending-production-replay`；`B463=pending-production-replay-after-B467`；`B468=P0-next`；
+`system-boundary/edge/answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

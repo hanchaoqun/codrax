@@ -3594,6 +3594,14 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			if len(b.EdgeAnchors) > 0 {
 				cloned.EdgeAnchors = append([]DiagramEdgeAnchor(nil), b.EdgeAnchors...)
 			}
+			// ParticipantBoundaries is a model-authored typed decision consumed
+			// by both the pre-emit and post-emit participant coverage gates. Keep
+			// it across the MutableState persistence boundary just like
+			// EdgeAnchors; dropping it makes the two chokepoints disagree about
+			// the exact same accepted document.
+			if len(b.ParticipantBoundaries) > 0 {
+				cloned.ParticipantBoundaries = CloneDiagramParticipantBoundaries(b.ParticipantBoundaries)
+			}
 			if len(b.RelationClaims) > 0 {
 				cloned.RelationClaims = CloneAnswerRelationClaims(b.RelationClaims)
 			}

@@ -2965,3 +2965,12 @@ r271 runner 1/2、人工 0/2。QF 最后一稿的 7 条 model-authored `particip
 
 状态：`B467=P0-next`；`B468=P0-after-B467`；`B463=blocked-by-B467`；`B464/B465=pending-replay`；
 `raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace 车道不变。
+
+#### §11.10.25 B467 完成：pre/post participant coverage 共用同一持久化事实
+
+`cloneAnswerDocumentV2` 已补 `ParticipantBoundaries` 深拷贝，生产形测试固定
+`model emit -> Mutable persistence -> defensive clone -> post-emit oracle` 全链。该批不创建 boundary/edge，也不放宽 coverage；
+定向 types/orchestrator/tool 联合测试全绿，全仓复验在提交前执行。
+
+状态：`B467=implemented/full-suite-pass/pending-replay`；`B463=pending-replay`；`B468=P0-next`；
+`system-edge/answer-rewrite=none`；Trace 车道不变。
