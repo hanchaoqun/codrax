@@ -30961,3 +30961,24 @@ prompt 套件。
 状态：`B481=implemented/full-suite-pass/pending-production-replay`；`B480=closed`；
 `B479/B482=P1`；`B478/B475=open`；`system-node/edge/conclusion-authoring=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.499 r280：boundary recipe 获正证；source-inventory typed 行身份在成文层断裂
+
+在 `main@0cfd16c2f` exact-two 并发 QF pipeline 图与 Cangjie source inventory。runner=`1/2`，人工=`0/2`；详见
+`eval/parallel_selected_summary_evalcampaign_boundary_cangjie_r280_20260810_manual_audit.md`。
+
+QF finalizer reject 从 r279 的 12 次降到 3 次，最终一次即按 B481 recipe 发射四个字节一致的独立节点与
+`participant_boundaries` 行，B481 获直接生产正证。答案仍未满足用户要的完整逻辑/数据流图：最终图丢掉 Explore/Extract 两条已证 stage
+precedence，四个请求 agent 只作为 disconnected boundary 出现，而正文继续概括完整固定流水线。B479 因此保持开放；后续应让 completion 与最终
+principal relation plan 消费已有 stage authority，不能把未证 BusContext/Mutable data-flow 造出来。
+
+Cangjie 失败不在 parser/repomap：lens、accepted aggregate 与 Principal Enumeration Rows 均完整且正确地给出 2 extend、2 foreign func、
+8 public class。模型 thinking 也正确复述 12 行，但 tool payload 把两条 extend 的 label/text/citation 交叉；两个同名 `native_add` 又被装饰成
+不同显示 label，绕开“仅同 label 才要求 row_id”的窄门，其中一条随后被较弱 aggregate support 重绑到错误文件。立
+`B483-ENUMROWID1/P0`：accepted source-inventory principal item 必须携带 prompt-visible typed `row_id`，由该 ID 单源绑定 family/location/citation；
+校验只读 structured item identity 与 typed registry，不读 item prose、request/thinking/final text，不由系统重写可见成员或结论。该规则按 row
+identity 泛化到全部支持语言与所有 construct family，不针对 Cangjie/native_add 特判。
+
+状态：`B481=production-positive/mechanical-gap-closed`；`B479=open/P1`；`B483=confirmed/P0-next`；
+`runner=1/2,human=0/2`；`typed-inventory-extraction=complete`；`system-visible-row/conclusion-rewrite=none`；
+`raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

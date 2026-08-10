@@ -3244,3 +3244,17 @@ context-only 与 Trace/root-cause lane 均不注入。
 
 定向、agent 全包及 `go test ./... -count=1` 回归绿。状态：`B481=implemented/pending-production-replay`；`B479/B482=P1`；
 `hard-gate=unchanged`；`raw-prose-scan=none`；`system-answer/graph-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.45 r280：B481 生产正证与 B483 typed enumeration row identity gap
+
+exact-two runner 1/2、人工 0/2。QF 的 boundary shape reject 从 12 降到 3，最终稿正确消费四条 B481 JSON/node recipe，证明该批减少模型心智且未
+放松关系门；但最终仍丢失两条已证 stage precedence，B479 继续开放，禁止以系统补边或伪共享状态 data-flow 闭合。
+
+Cangjie typed lens 与 Principal Enumeration Rows 已完整提供 12 条正确 member/family/location/package，故 runner 的三条 missing row 不是提取器
+漏识别。模型在结构化 payload 里交换两条 extend 的行内容与 citation，并用 `(bridge)/(ffi)` 装饰同名 member，绕过只对“完全相同 visible label”
+要求 row_id 的规则；后续弱 aggregate citation binder 又把 ffi 行移到 bridge 文件。确认 `B483/P0`：所有 accepted source-inventory principal
+item 统一携带 exact typed row_id，row_id 单源选择 family/location/citation；hard check 只比较 structured label/row_id 与 typed registry，不扫描
+自由文本，不由系统改写可见行或结论。适用于全部语言和构造族。
+
+状态：`B481=production-positive`；`B483=P0-next`；`B479/B482=P1`；`parser/repomap-loss=false`；
+`system-answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
