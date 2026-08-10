@@ -17832,11 +17832,10 @@ func answerDocumentHasTypedReadModeStageParticipantSlate(ctx *types.AgentContext
 		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
 		return false
 	}
-	participants := make([]string, 0, len(rm.DiagramHint.Participants))
+	participants := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
 	for _, participant := range rm.DiagramHint.Participants {
-		identity := strings.TrimSpace(participant.Identity)
-		if identity != "" && participant.Role == types.DiagramParticipantIncidentRequired {
-			participants = append(participants, identity)
+		if strings.TrimSpace(participant.Identity) != "" && participant.Role == types.DiagramParticipantIncidentRequired {
+			participants = append(participants, participant)
 		}
 	}
 	main := types.ReadModeMainStageBindings()
@@ -17851,9 +17850,14 @@ func answerDocumentHasTypedReadModeStageParticipantSlate(ctx *types.AgentContext
 		surfaces := []string{stageIdent, string(binding.Stage), agentIdent, string(binding.Agent)}
 		matched := false
 		for _, participant := range participants {
-			for _, surface := range surfaces {
-				if types.AnswerCodeIdentitySurfacesCompatible(participant, surface) {
-					matched = true
+			for _, participantSurface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
+				for _, surface := range surfaces {
+					if types.AnswerCodeIdentitySurfacesCompatible(participantSurface, surface) {
+						matched = true
+						break
+					}
+				}
+				if matched {
 					break
 				}
 			}

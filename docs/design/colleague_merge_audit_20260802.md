@@ -2817,3 +2817,15 @@ Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`�
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B458=implemented/full-suite-pass/pending-production-replay`；`B459=next`；
 `terminal-ledger-gates=unchanged`；`model-business-decision=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.13 B459 完成：展示 participant 只在软层解析为 typed entity
+
+共享 typed helper 已覆盖 B457 prompt trigger 与 B452 Explorer checklist：展示标签只有在括注前主段唯一命中 AnalyzerHints.Entities 的
+code identity 时才形成 planning alias；原生 identity 保持原样，歧义/未命中不解析。该载体不进入 evidence/grounding/edge validator，
+因此不会把 analyzer planning 名字升级为源码关系。
+
+装饰四阶段 participant 的真实 Finalizer prompt pin、装饰 Analyzer participant 的真实 operation coverage pin及歧义负臂均通过；三包和
+全仓测试全绿。§11 继续关闭，B452/B457 等待同 case production 收账。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B459=implemented/full-suite-pass/pending-production-replay`；
+`B452/B457=code-complete/pending-replay`；`model-edge/answer-rewrite=none`；`raw-prose-hard-gate=none`。

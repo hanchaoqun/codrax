@@ -8504,16 +8504,17 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedRequiredStagePartic
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:        types.IntentExplain,
 			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"Analyzer", "Explorer", "Extractor", "Finalizer", "BusContext", "Mutable"}},
 			DiagramHint: &types.DiagramHint{
 				Kind:     types.DiagramFlow,
 				Required: true,
 				Participants: []types.DiagramParticipantHint{
-					{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
-					{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
-					{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
-					{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Analyzer agent", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Explorer agent", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Extractor agent", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Finalizer agent", Role: types.DiagramParticipantIncidentRequired},
 					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
-					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable (in BusContext)", Role: types.DiagramParticipantIncidentRequired},
 				},
 			},
 		}},

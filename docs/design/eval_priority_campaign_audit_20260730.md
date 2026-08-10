@@ -30222,3 +30222,21 @@ active/inactive 与 enabled/disabled 对偶。所有 `eq/ne/in/not_in` 继续复
 状态：`B458=implemented/full-suite-pass/pending-production-replay`；`B459=next`；
 `contribution/reconcile/final-answer-gates=unchanged`；`system-business-decision=none`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B459 批次施工：typed participant 展示标签与 canonical entity 建立软身份桥
+
+新增单一 types helper `DiagramParticipantIdentitySurfaces`，只消费 schema-valid `DiagramParticipantHint` 与
+`RequestModel.AnalyzerHints.Entities`：原生 code identity 原样返回；含展示修饰的标签先取括注前主段，再要求恰好一个 typed entity 以完整
+token 边界出现。`Analyzer agent -> Analyzer`、`Mutable (in BusContext) -> Mutable` 可解析；多实体/零实体匹配 fail-closed。
+
+该 helper 只接入两处软消费者：B457 的 Finalizer stage-authority prompt 触发，以及 B452 的 Explorer participant operation 补证清单。
+它没有接入 EvidenceItem 构造、grounding、AnswerDocument edge anchor 或 relation validator，因此 participant/entity 仍不能铸边、证明调用
+方向或让无证图通过。r267 的四个装饰 stage labels 现可触发 checkout-verified authority；装饰 participant 也能由真实 `Analyzer ->
+AnalysisIR` operation 关闭补证债。
+
+验证：types 唯一/歧义/无匹配，agent 真实 prompt 接线，tool 装饰标签 incident coverage 均有 pin；
+`go test ./internal/types ./internal/agent ./internal/tool -count=1` 与 `go test ./... -count=1` 全绿。
+
+状态：`B459=implemented/full-suite-pass/pending-production-replay`；`B452/B457=code-complete/pending-replay`；
+`planning-alias-as-relation-authority=forbidden`；`system-edge/answer-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

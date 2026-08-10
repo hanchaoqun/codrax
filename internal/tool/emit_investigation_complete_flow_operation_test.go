@@ -252,6 +252,22 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageClosesAfterIncidentOpe
 	}
 }
 
+func TestFlowParticipantCoverageUsesTypedEntityAliasForDecoratedDisplayLabel(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorAssignment, "Analyzer", "AnalysisIR", 55),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Analyzer", "AnalysisIR"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Analyzer agent", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("typed entity alias should resolve the display label without minting an edge: %v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageNoProgressConverges(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
