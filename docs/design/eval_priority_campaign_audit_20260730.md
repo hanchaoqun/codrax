@@ -30573,3 +30573,30 @@ canonical schema、动态 roster 描述、repair composer 与 pre-emit expected 
 状态：`B469=implemented/full-suite-pass/pending-production-replay`；`B470=P1-after-replay`；
 `system-boundary/edge/relation-synthesis=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.485 r273：B469 生产关闭；source-flow 缺少可表达的 typed 数据流，FFI 链存在语义自矛盾
+
+exact-two 运行 `qf_logic_view_read_pipeline + mr_poly_binding_chain`，runner 为 `2/2 PASS`（450s/149s），人工为 `0/2`；
+人工审计见 `eval/parallel_selected_summary_evalcampaign_relation_poly_r273_20260810_manual_audit.md`。
+
+QF 已证明 B469 进入生产：`participant_boundaries` 以 block-level sibling 形持久化，未再被 schema-unknown quarantine，最终也没有
+degraded answer。故 `B469=production-closed`。但关系语义仍失败：Analyzer/Explorer/Extractor/Finalizer/BusContext 全部以断开节点和
+`unproven` 发货，三次成文修补把模型原先的产出/合并/传递边删除到只剩底层 assignment 与一个 scheduler call。现有 diagram relation
+枚举只有 call/assignment/return/register 等源码动作，没有“数据/状态从来源流向接收者”的 typed 关系；assignment 合同又固定为
+“assigned receiver -> concrete value/type”，与用户所求的 data-flow 箭头方向相反。该缺口跨语言成立，不能以本题 participant alias 或
+模型答案关键词硬补，故 `B470` 从观察升级为 confirmed/P1。
+
+深审同时发现 `B471/P0`：assignment/initializer grounding 当前只验证 cited line 具有赋值语法及 anchor token，没有把模型提交的
+`subject/object` 精确核对到 LHS/RHS。r273 已接受 `applyStageOutput -> output.AnalysisIR` 这类并非赋值两端的 row，后续 diagram gate 又把它
+当 typed authority。最优顺序必须先关闭假权威，再增加 data-flow 表达：共享跨语言赋值端点提取器应产出 exact receiver/value；无法解析的行
+保持 evidence row 可用于普通说明但不得授权 assignment/data_flow hard edge。随后新增 typed data-flow relation 时，只允许 assignment/
+initializer 的 `RHS -> LHS`、return 的既有精确方向及其它明确枚举映射；不读取请求/think/答案 prose，不从 participant roster 造边。
+
+跨仓 Python→PyO3→Rust 用例找到完整端点链，但摘要称“绕过 PyO3 FFI”，与后文及源码冲突；`_HAVE_NATIVE` 也被称为“硬编码 True”，忽略
+`try/except ImportError` 的完整二态。新立 `B472/P1`：typed 关系交接需要区分 export/register、FFI invocation、wrapper adaptation、core call
+与 fallback guard scope，避免“节点齐全但桥语义错误”。不得按 Python/PyO3 词面做 hard gate，也不得由系统改写模型结论。
+
+状态：`B469=production-closed`；`B470=confirmed/P1-after-B471`；`B471=P0-next`；`B472=P1-queued`；
+`r273-runner=2/2`；`r273-human=0/2`；`participant-roster-as-edge-authority=forbidden`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

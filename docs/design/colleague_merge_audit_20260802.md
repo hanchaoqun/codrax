@@ -3000,3 +3000,20 @@ evidence 与 participant identity 是否汇合；禁止以 roster 造边或把 r
 
 状态：`B468=production-closed`；`B469=implemented/full-suite-pass/pending-replay`；`B470=P1-after-replay`；
 `system-boundary/edge/relation-synthesis=none`；`raw-prose-hard-gate=none`；Trace 车道不变。
+
+#### §11.10.28 r273：boundary 载体关闭，关系表达与赋值端点权威成为下一根因
+
+r273 runner 2/2、人工 0/2。QF 不再出现 nested boundary quarantine 或 degraded 发货，模型提交的 block-level
+`participant_boundaries` 穿透全链，故 B469 生产关闭；但六个请求主体中的五个仍断开，最终图仅余底层赋值与 scheduler call，B470 确认为
+source-flow typed 表达不足，而非 B469 残留或一次模型波动。
+
+现有 `assignment` 图边方向定义为 assigned receiver→value/type，不能表达 data/state 从 producer 经 merge 到 consumer；模型若用 call/
+assignment 代替就会被正确拒绝或得到语义反向图。新增 data-flow relation 之前必须先修 B471：赋值 grounder 目前只证实“该行像赋值”，不校验
+model-authored subject/object 是否真是 LHS/RHS，已存在假 typed authority。施工顺序冻结为 B471 exact endpoint grounding → B470 typed
+data-flow relation/recipe → 异构关系回放。任何一步都不得从 participant roster、request 或答案 prose 造边。
+
+同批跨语言用例的 endpoint 链虽完整，摘要却把 PyO3 桥写成“绕过 FFI”，并把 try/except 二态写成“硬编码 True”，立 B472 追踪 typed
+bridge role 与 branch scope 交接。该项不按 Python 专名做硬门。
+
+状态：`B469=production-closed`；`B471=P0-next`；`B470=confirmed/P1-after-B471`；`B472=P1-queued`；
+`system-edge/relation/conclusion-synthesis=none`；`raw-prose-hard-gate=none`；Trace 车道不变。
