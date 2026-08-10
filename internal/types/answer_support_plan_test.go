@@ -501,6 +501,48 @@ func TestBuildAnswerSupportPlan_CallChainPromotesOwnedGuardAndConnectedFactoryRe
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainCarriesExactGuardStateWritesWithoutInferringBranchOwnership(t *testing.T) {
+	grounded := func(item EvidenceItem) EvidenceItem {
+		item.Scope = ScopeLine
+		item.GroundingStatus = GroundingGrounded
+		return item
+	}
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{{
+			Name: "FastTokenizer.tokenize", File: "bindings-py/fastlex/tokenizer.py", Line: 21,
+			SurfaceText: "FastTokenizer.tokenize calls _fastlex.tokenize_bytes",
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			grounded(EvidenceItem{ID: "call", Kind: EvidenceRelationship, Source: "bindings-py/fastlex/tokenizer.py", LineStart: 21, AnchorKind: AnchorCall, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes"}),
+			grounded(EvidenceItem{ID: "guard", Kind: EvidenceConditional, Source: "bindings-py/fastlex/tokenizer.py", LineStart: 20, AnchorKind: AnchorCondition, AnchorSymbol: "_HAVE_NATIVE", OwnerSymbol: "FastTokenizer.tokenize", Subject: "FastTokenizer.tokenize", Condition: "if _HAVE_NATIVE"}),
+			grounded(EvidenceItem{ID: "enabled", Kind: EvidenceDirect, Source: "bindings-py/fastlex/tokenizer.py", LineStart: 3, AnchorKind: AnchorAssignment, Subject: "_HAVE_NATIVE", Object: "True", Snippet: "_HAVE_NATIVE = True"}),
+			grounded(EvidenceItem{ID: "disabled", Kind: EvidenceDirect, Source: "bindings-py/fastlex/tokenizer.py", LineStart: 6, AnchorKind: AnchorAssignment, Subject: "_HAVE_NATIVE", Object: "False", Snippet: "_HAVE_NATIVE = False"}),
+			grounded(EvidenceItem{ID: "wrong-subject", Kind: EvidenceDirect, Source: "bindings-py/fastlex/tokenizer.py", LineStart: 3, AnchorKind: AnchorAssignment, Subject: "FastTokenizer.tokenize", Object: "True", Snippet: "_HAVE_NATIVE = True"}),
+			grounded(EvidenceItem{ID: "other-file", Kind: EvidenceDirect, Source: "other.py", LineStart: 1, AnchorKind: AnchorAssignment, Subject: "_HAVE_NATIVE", Object: "False", Snippet: "_HAVE_NATIVE = False"}),
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)}}, plan)
+	lane := answerSupportLaneByKind(got, SupportLaneCurrentCodePath)
+	if lane == nil {
+		t.Fatalf("missing current call-chain support lane: %+v", got)
+	}
+	byID := make(map[string]AnswerSupportEntry)
+	for _, entry := range lane.Entries {
+		byID[entry.EvidenceID] = entry
+	}
+	for _, id := range []string{"call", "guard", "enabled", "disabled"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("exact guard/state support %q missing: %+v", id, lane.Entries)
+		}
+	}
+	for _, id := range []string{"wrong-subject", "other-file"} {
+		if _, ok := byID[id]; ok {
+			t.Fatalf("non-exact guard state %q leaked into current path: %+v", id, lane.Entries)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlan_CallChainKeepsObservationsOutOfPrincipalPath(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		ExternalObservationSeeds: []ExternalObservationSeed{

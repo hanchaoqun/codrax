@@ -3040,3 +3040,19 @@ AxisFlow 得到 source-derived advisory recipe；其它 axis 不被改向。反�
 状态：`B470=implemented/full-suite-pass/pending-production-replay`；`B471=code-closed/pending-joint-replay`；`B472=P1-next`；
 `conceptual-flow-as-hard-edge=forbidden`；`system-edge/relation/conclusion-synthesis=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.31 B472 完成：跨语言 bridge role 与 branch state 精确交接
+
+按 r273 证据复核，PyO3 用例不是 endpoint 缺失或纯模型波动，而是 typed handoff 仍把 registration/assignment/return 折成宽泛角色，且没有把
+caller target 与 registered export 的精确相等关系显式交给 finalizer。现按 ClaimForm 拆分 invocation/registration/guard/assignment/return/
+literal；仅在 current-code-path lane 内做 exact registered-export join。owner-qualified registered callable 可与其独立 call subject 精确接续；
+unqualified callable 维持 unresolved，禁止短名碰撞闭桥。
+
+同批新增 fact-only scalar assignment 复算，只有同文件 guard anchor 与真实 LHS 相等时才携带状态写入；多状态明确是 alternatives/updates，
+branch-call mapping 在缺少 typed ownership 时保持 unproven。该 scalar helper 不授权任何有向 edge。Explorer JSON 教学要求 registration、call、
+guard、assignment、return 各自单条原子 item，并读取完整初始化/异常/fallback 块；不按语言名分支，不扫描答案，不由系统改写结论。
+
+专项 types/agent 与 `go test ./... -count=1` 回归通过；exact-two 回放按提交记录继续。状态：
+`B472=implemented/full-suite-pass/pending-production-replay`；`B470/B471=pending-joint-production-replay`；
+`short-name-wrapper-guess=forbidden`；`line-order-as-branch-ownership=forbidden`；
+`system-edge/relation/conclusion-synthesis=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

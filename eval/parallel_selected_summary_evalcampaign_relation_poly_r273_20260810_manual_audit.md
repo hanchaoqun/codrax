@@ -42,3 +42,11 @@ This scaffold is for human review. The runner records typed metrics and declared
 - The binding view remains `assignment` in LHS -> RHS direction, while factory/function return remains `return`; no relation is inferred from diagram labels, participant lists, request text, or answer prose.
 - AxisFlow receives source-derived advisory recipes from exact tuples, but the model still chooses whether and how to use them. The system does not add an edge to the answer or replace the model's conclusion.
 - Joint B470/B471 production replay is still required before marking the r273 QF gap closed.
+
+### B472 follow-up
+
+- `B472` code-complete: call, registration, guard, assignment, return, and literal support entries now retain distinct typed roles instead of one broad value/binding bucket.
+- An exact call-target/registered-export pair produces a soft `call_targets_registered_export` handoff. Owner-qualified registered callable identity can join an independently grounded downstream call; a short callable name remains unresolved and cannot guess a wrapper.
+- Exact scalar writes to the same-file guard symbol are carried together as state alternatives/updates. Branch-to-call ownership remains explicitly unproven without a typed carrier; line order is never used as authority.
+- Explorer teaching uses one atomic JSON evidence item per call/registration/guard/assignment/return and asks for the complete bounded initialization/fallback block. No request/answer keyword hard gate or system-authored conclusion was added.
+- Joint B470/B471/B472 exact-two replay remains required before closing the human failures recorded above.

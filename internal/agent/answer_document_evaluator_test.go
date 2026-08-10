@@ -2967,6 +2967,9 @@ func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLangua
 	for _, want := range []string{
 		"exact callee operation",
 		"`Note`, `alt`/`else`, or `opt`",
+		"registration_binding_fact",
+		"going through the registered binding, never as bypassing it",
+		"does not prove execution of the registered callable",
 		"compound condition can still contain a real invocation",
 		"dynamic dispatch is unresolved",
 		"not executable calls unless a separately grounded invocation proves that edge",

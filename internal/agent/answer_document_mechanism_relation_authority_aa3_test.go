@@ -486,13 +486,62 @@ func TestCallChainSupportLanePublishesTypedEntryRolesWithoutInventingOrderAA3(t 
 	for _, want := range []string{
 		"Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops",
 		"Do not turn adjacent non-hop facts into implicit bridges",
-		"[entry_role=`value_flow_fact`]",
-		"[entry_role=`control_fact`]",
+		"[entry_role=`assignment_state_or_binding_fact`]",
+		"[entry_role=`guard_condition_fact`]",
 		"[entry_role=`directed_hop`]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed call-chain entry role missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestCallChainTypedBridgeAndBranchHandoffUsesExactTypedJoinsOnlyAA3(t *testing.T) {
+	plan := &types.AnswerSupportPlan{
+		Family: types.QFCallChain,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{
+				{EvidenceID: "py-call", ClaimForm: types.ClaimCallEdge, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Location: "tokenizer.py:21"},
+				{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: "_fastlex", Object: "py::tokenize_bytes", Location: "lib.rs:47"},
+				{EvidenceID: "wrapper-call", ClaimForm: types.ClaimCallEdge, Subject: "py::tokenize_bytes", Object: "core::tokenize_bytes", Location: "lib.rs:42"},
+				{EvidenceID: "guard", ClaimForm: types.ClaimGuardCondition, Source: "tokenizer.py", OwnerSymbol: "FastTokenizer.tokenize", AnchorSymbol: "_HAVE_NATIVE", Location: "tokenizer.py:20"},
+				{EvidenceID: "enabled", ClaimForm: types.ClaimAssignmentFact, Source: "tokenizer.py", Subject: "_HAVE_NATIVE", Object: "True", Location: "tokenizer.py:3"},
+				{EvidenceID: "disabled", ClaimForm: types.ClaimAssignmentFact, Source: "tokenizer.py", Subject: "_HAVE_NATIVE", Object: "False", Location: "tokenizer.py:6"},
+				{EvidenceID: "nearby", ClaimForm: types.ClaimAssignmentFact, Source: "other.py", Subject: "_HAVE_NATIVE", Object: "False", Location: "other.py:1"},
+			},
+		}},
+	}
+
+	got := renderAnswerDocCallChainSemanticHandoffs(plan)
+	for _, want := range []string{
+		"Typed bridge and branch handoff (advisory)",
+		"call_target=`_fastlex.tokenize_bytes`",
+		"registered_export=`_fastlex.tokenize_bytes`",
+		"registered_callable=`py::tokenize_bytes`",
+		"downstream_execution_status=`proved_by_exact_registered_callable_call`",
+		"guard_symbol=`_HAVE_NATIVE`",
+		"True @ tokenizer.py:3 [enabled]",
+		"False @ tokenizer.py:6 [disabled]",
+		"state_coverage=`multiple_grounded_states`",
+		"branch_call_mapping_status=`unproven_without_typed_branch_ownership`",
+		"do not replace its explanation, create a call edge, or authorize a conclusion",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed bridge/branch handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "other.py:1") {
+		t.Fatalf("same-name state from another source must not join the guard:\n%s", got)
+	}
+
+	plan.Lanes[0].Entries[1].Object = "tokenize_bytes"
+	got = renderAnswerDocCallChainSemanticHandoffs(plan)
+	if !strings.Contains(got, "downstream_execution_status=`unresolved_from_unqualified_registered_callable`") {
+		t.Fatalf("short registered callable must not guess the qualified wrapper:\n%s", got)
+	}
+	if strings.Contains(got, "proved_by_exact_registered_callable_call") {
+		t.Fatalf("short-name coincidence must not close downstream execution:\n%s", got)
 	}
 }
 

@@ -12544,6 +12544,15 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 		"leave the endpoint definition-only",
 		"do not invent a no-call fact",
 		"Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie",
+		"caller-to-export invocation (`relationship/call`)",
+		"export/registry binding (`registration`)",
+		"wrapper-to-core invocation (`relationship/call`)",
+		"do not say a call bypasses a binding when its exact target is that registered export",
+		"read the complete bounded initialization/try-catch/config block",
+		"every simple write that determines the guard symbol",
+		"`direct/assignment` item with exact LHS in `subject`, exact scalar RHS in `object`",
+		"Do not infer which call belongs to which branch from line order",
+		"Keep each JSON evidence item semantically atomic",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("cross-language endpoint-local soft guide missing %q:\n%s", want, got)

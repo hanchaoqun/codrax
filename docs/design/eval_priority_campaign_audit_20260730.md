@@ -30648,3 +30648,33 @@ snippet/歧义表达均拒绝；同一 tuple 的 LHS→RHS 仍可合法声明为
 `participant-roster-as-edge-authority=forbidden`；`conceptual-flow-as-hard-edge=forbidden`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B472 独立批完成：跨边界调用、注册、guard 状态分型交接
+
+r273 的 Python→native→Rust 事实本身已经齐全，失败来自 synthesis 上下文把 registration、assignment、return 压成宽泛角色，且没有把
+“call target 与 registered export 完全相同”这一精确组合显式交给模型。模型因此一边列出 PyO3 注册与 wrapper 调用，一边在摘要写成
+“绕过 FFI”；同理，只看到 `_HAVE_NATIVE=True` 单行而忽略同一 try/except 中的 False 写入后，把条件状态误写成硬编码常量。
+
+本批不增加 Python/PyO3 专名规则，而是统一细分 `directed_hop`、`registration_binding_fact`、
+`guard_condition_fact`、`assignment_state_or_binding_fact`、`return_value_fact` 与 `literal_value_fact`。finalizer 只从
+`SupportLaneCurrentCodePath` 的 typed entries 做两类 exact join：
+
+1. call target 精确等于 `registration.subject + tail(registration.object)` 时，发布
+   `call_targets_registered_export` advisory；若 registered callable 是 owner-qualified 且存在同身份 caller 的独立 call row，再把 downstream
+   execution 标为 proved。短名只给 `unresolved_from_unqualified_registered_callable`，不靠同名函数猜 wrapper；
+2. principal guard 的 `AnchorSymbol` 与同文件 assignment LHS 精确相等、且 grounded snippet 可复算 scalar RHS 时，携带全部状态写入。
+   多写入只能表明 alternatives/updates；call 属于哪个 branch 继续是
+   `unproven_without_typed_branch_ownership`，不按行号邻近推断。
+
+scalar assignment 另有 fact-only parser，覆盖 bool/null/number/短字符串与单一 identity；它明确不能授权 diagram/data-flow relation，B471 的
+code-identity endpoint gate 保持不变。Explorer 的通用跨语言教学同步要求把 caller→export call、export registration、wrapper→core call、
+guard、各 branch call 与状态 assignment 分成原子 JSON evidence item，并读取完整 bounded initialization/try-catch/config block。教学覆盖
+Go/Java/Kotlin/JS/TS/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie 等支持语言，不扫描 request/thinking/final prose。
+
+系统只发布证据角色与限定，不写答案边、不替模型选择 bridge 结论、不修正文；QFRootCauseTrace/Trace 显式窗/自动补齐/链上主因及背景分层
+入口未改。专项 `internal/types + internal/agent` 与 `go test ./... -count=1` 已通过；exact-two 生产回放按本批提交记录继续。
+
+状态：`B472=implemented/full-suite-pass/pending-production-replay`；`B470/B471=pending-joint-production-replay`；
+`short-name-wrapper-guess=forbidden`；`line-order-as-branch-ownership=forbidden`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

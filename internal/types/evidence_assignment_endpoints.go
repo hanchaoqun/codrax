@@ -59,6 +59,107 @@ func AssignmentEvidenceEndpointsMatch(item EvidenceItem) bool {
 		assignmentEvidenceEndpointCompatible(item.Object, value)
 }
 
+// AssignmentEvidenceState returns the exact receiver and scalar state written
+// by one simple assignment/initializer.  Unlike AssignmentEvidenceEndpoints,
+// this helper deliberately accepts scalar literals such as true/false/null and
+// numbers.  Those values are useful for explaining a guard's possible input
+// states, but they are not code identities and MUST NOT authorize a directed
+// diagram/data-flow edge.
+func AssignmentEvidenceState(item EvidenceItem) (receiver, value string, ok bool) {
+	if item.AnchorKind != AnchorAssignment && item.AnchorKind != AnchorInitializer {
+		return "", "", false
+	}
+	line := stripAssignmentLineComment(firstAssignmentEvidenceLine(item.Snippet))
+	if line == "" {
+		return "", "", false
+	}
+	op, width, count := findSimpleAssignmentOperator(line)
+	if count != 1 && item.AnchorKind == AnchorInitializer {
+		op, width, count = findSimpleInitializerColon(line)
+	}
+	if count != 1 || op <= 0 || op+width >= len(line) {
+		return "", "", false
+	}
+	receiver, ok = assignmentReceiverSurface(strings.TrimSpace(line[:op]))
+	if !ok {
+		return "", "", false
+	}
+	value, ok = assignmentPrimaryStateSurface(strings.TrimSpace(line[op+width:]))
+	if !ok {
+		return "", "", false
+	}
+	return receiver, value, true
+}
+
+// AssignmentEvidenceStateMatches verifies that the typed Subject/Object are
+// the actual LHS and scalar RHS on the grounded snippet.  It is intentionally a
+// fact-only predicate: callers may publish the state beside a guard, but may
+// not treat the result as endpoint authority for a relation edge.
+func AssignmentEvidenceStateMatches(item EvidenceItem) bool {
+	receiver, value, ok := AssignmentEvidenceState(item)
+	if !ok || !assignmentEvidenceEndpointCompatible(item.Subject, receiver) {
+		return false
+	}
+	claimed := strings.TrimSpace(item.Object)
+	if claimed == value {
+		return true
+	}
+	return assignmentStateKeyword(value) && strings.EqualFold(claimed, value)
+}
+
+func assignmentPrimaryStateSurface(rhs string) (string, bool) {
+	rhs = strings.TrimSpace(strings.TrimRight(rhs, ",;}"))
+	if rhs == "" || assignmentHasTopLevelComma(rhs) || assignmentHasTopLevelValueOperator(rhs) {
+		return "", false
+	}
+	if assignmentStateKeyword(rhs) || assignmentStateNumber(rhs) || assignmentStateQuotedLiteral(rhs) {
+		return rhs, true
+	}
+	// A single code identity is also a valid state fact.  Keep the stricter
+	// relation helper as the only authority for turning it into an edge.
+	if surface := assignmentLeadingIdentity(rhs); surface != "" && surface == rhs {
+		return surface, true
+	}
+	return "", false
+}
+
+func assignmentStateKeyword(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "false", "nil", "null", "none", "undefined":
+		return true
+	default:
+		return false
+	}
+}
+
+func assignmentStateNumber(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	digits := 0
+	for i, r := range raw {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case (r == '+' || r == '-') && i == 0:
+		case r == '.' || r == '_':
+		default:
+			return false
+		}
+	}
+	return digits > 0
+}
+
+func assignmentStateQuotedLiteral(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 || len(raw) > 130 {
+		return false
+	}
+	quote := raw[0]
+	return (quote == '\'' || quote == '"' || quote == '`') && raw[len(raw)-1] == quote
+}
+
 func firstAssignmentEvidenceLine(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

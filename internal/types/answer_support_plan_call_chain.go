@@ -146,6 +146,7 @@ func callChainPrincipalControlSelectionEntries(plan *AnswerSurfacePlan, base []A
 	}
 
 	var out []AnswerSupportEntry
+	guardStateSymbols := make(map[string]map[string]bool)
 	for _, item := range evidence {
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimGuardCondition || strings.TrimSpace(item.OwnerSymbol) == "" {
 			continue
@@ -160,8 +161,31 @@ func callChainPrincipalControlSelectionEntries(plan *AnswerSurfacePlan, base []A
 			}
 			if entry, ok := callChainPrincipalSupportEntryForEvidence(item); ok {
 				out = appendUniqueCallChainSupportEntries(out, entry)
+				if symbol := callChainExactSemanticIdentity(item.AnchorSymbol); symbol != "" && itemSource != "" {
+					if guardStateSymbols[itemSource] == nil {
+						guardStateSymbols[itemSource] = make(map[string]bool)
+					}
+					guardStateSymbols[itemSource][symbol] = true
+				}
 			}
 			break
+		}
+	}
+	// A guard's exact input-state assignments explain fallback/feature-switch
+	// alternatives without becoming invocation hops.  Require the same source
+	// file, an exact typed guard symbol, and a snippet-verified scalar assignment;
+	// never infer branch ownership from line adjacency.
+	for _, item := range evidence {
+		if !item.IsCitable() || ClaimFormOf(item) != ClaimAssignmentFact || !AssignmentEvidenceStateMatches(item) {
+			continue
+		}
+		source := normalizeAnswerSupportPath(item.Source)
+		symbol := callChainExactSemanticIdentity(item.Subject)
+		if source == "" || symbol == "" || !guardStateSymbols[source][symbol] {
+			continue
+		}
+		if entry, ok := callChainPrincipalSupportEntryForEvidence(item); ok {
+			out = appendUniqueCallChainSupportEntries(out, entry)
 		}
 	}
 	for _, item := range selection {
@@ -170,6 +194,14 @@ func callChainPrincipalControlSelectionEntries(plan *AnswerSurfacePlan, base []A
 		}
 	}
 	return appendUniqueCallChainSupportEntries(nil, append(base, out...)...)[len(base):]
+}
+
+func callChainExactSemanticIdentity(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.ReplaceAll(raw, "->", ".")
+	raw = strings.ReplaceAll(raw, "::", ".")
+	raw = strings.ReplaceAll(raw, "#", ".")
+	return strings.Trim(raw, ".")
 }
 
 func callChainEvidenceOwnedBySupportEntries(base []AnswerSupportEntry, evidence []EvidenceItem) []EvidenceItem {

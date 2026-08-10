@@ -9343,11 +9343,12 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
 	case types.QFCallChain:
 		b.WriteString("- Keep observed runtime facts, current grounded chain hops, and boundary disclosures in their own lanes.\n")
-		b.WriteString("- Every current-chain entry below has an `entry_role` derived from typed ClaimForm/anchor fields. Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops; `callback_handoff` establishes a handoff but not execution, while control/value/binding/definition/support facts explain a hop or live in a sibling support section.\n")
+		b.WriteString("- Every current-chain entry below has an `entry_role` derived from typed ClaimForm/anchor fields. Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops; `callback_handoff` establishes a handoff but not execution, while guard/assignment/return/literal/registration/definition/support facts explain a hop or live in a sibling support section.\n")
 		b.WriteString("- Observation entries can explain where the trace came from, but they do not add caller/callee hops unless a `directed_hop` entry also establishes that hop. Do not turn adjacent non-hop facts into implicit bridges.\n")
 		b.WriteString("- You may use an entry's `Evidence note` to enrich that SAME hop's explanation. Do not turn nouns from the note into additional hops, targets, diagram nodes, or countable list members unless they also appear as their own lane entry.\n")
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
 		b.WriteString(renderAnswerDocCallChainDiagramSemanticsGuide())
+		b.WriteString(renderAnswerDocCallChainSemanticHandoffs(plan))
 	default:
 		b.WriteString("- Keep observed facts, current-code facts, and boundary disclosures in their own lanes.\n")
 		b.WriteString("- If a function, file, symbol, trace span, or prior-turn subject appears elsewhere in the prompt but not in a lane that allows the block kind you are writing, treat it as background only.\n\n")
@@ -9422,11 +9423,15 @@ func answerDocCallChainSupportEntryRole(entry types.AnswerSupportEntry) string {
 	case types.ClaimCallbackHandoff:
 		return "callback_handoff"
 	case types.ClaimGuardCondition:
-		return "control_fact"
+		return "guard_condition_fact"
 	case types.ClaimRegistrationEdge:
-		return "binding_fact"
-	case types.ClaimAssignmentFact, types.ClaimReturnFact, types.ClaimLiteralValueFact:
-		return "value_flow_fact"
+		return "registration_binding_fact"
+	case types.ClaimAssignmentFact:
+		return "assignment_state_or_binding_fact"
+	case types.ClaimReturnFact:
+		return "return_value_fact"
+	case types.ClaimLiteralValueFact:
+		return "literal_value_fact"
 	case types.ClaimDefinitionFact:
 		return "definition_fact"
 	case types.ClaimExternalObservation:
@@ -9450,7 +9455,7 @@ func renderAnswerDocCallChainDiagramSemanticsGuide() string {
 	return "### Cross-language call-diagram semantics\n\n" +
 		"- For an invocation edge, prefer function/method-qualified participants. The message after `:` should name the exact callee operation carried by the current grounded call-edge entry; if you show arguments, literals, selectors, or operators, copy only what the cited call site establishes. Do not substitute the caller operation or an illustrative payload.\n" +
 		"- A condition, capacity check, match arm, null guard, loop predicate, or other control decision that does not invoke a second symbol is not a call edge. In a sequence diagram render it as `Note`, `alt`/`else`, or `opt`; in a flow diagram render it as a branch. Do not manufacture a self-call to make the condition visible.\n" +
-		"- A language/runtime binding boundary (FFI, JNI, PyO3, native-module registration, generated RPC binding) is not a source-level invocation unless a grounded call row proves that exact edge. In a sequence diagram show an unproved binding transition as a `Note over` the two grounded endpoints, not an arrow. In a call-DAG/architecture diagram, use only the matching typed non-call relation carried by evidence. Keep independently grounded calls on both sides visible and qualified.\n" +
+		"- A language/runtime binding boundary (FFI, JNI, PyO3, native-module registration, generated RPC binding) is not a source-level invocation unless a grounded call row proves that exact edge. A matching `registration_binding_fact` proves that a public/exported surface is bound to a callable; therefore describe a caller targeting that exact export as going through the registered binding, never as bypassing it. It still does not prove execution of the registered callable or its downstream core call unless those calls have their own `directed_hop` rows. In a sequence diagram show an unproved binding transition as a `Note over` the two grounded endpoints, not an arrow; use the same note shape for an unproved execution transition after a proved binding. In a call-DAG/architecture diagram, use only the matching typed non-call relation carried by evidence. Keep independently grounded calls on both sides visible and qualified.\n" +
 		"- A compound condition can still contain a real invocation. Preserve the grounded caller-to-callee edge for that operation, then annotate the comparison/branch separately; never replace the callee with an abstract guard node, and never make the guard node the caller of the post-guard operation.\n" +
 		"- Preserve the source language's resolved identity: package/type/receiver qualification when known; exact receiver/member surface with an uncertainty disclosure when dynamic dispatch is unresolved. Never guess an owner merely to make the graph look uniform.\n" +
 		"- This guidance applies uniformly to Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and every other supported executable language. Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations use their typed relation class; they are not executable calls unless a separately grounded invocation proves that edge.\n" +

@@ -52,3 +52,36 @@ func TestAssignmentEvidenceEndpointsRejectsFalseOrAmbiguousAuthority(t *testing.
 		}
 	}
 }
+
+func TestAssignmentEvidenceStateMatchesScalarStatesWithoutMintingRelationEndpoints(t *testing.T) {
+	tests := []EvidenceItem{
+		{AnchorKind: AnchorAssignment, Subject: "_HAVE_NATIVE", Object: "True", Snippet: `_HAVE_NATIVE = True`},
+		{AnchorKind: AnchorAssignment, Subject: "_HAVE_NATIVE", Object: "False", Snippet: `_HAVE_NATIVE = False`},
+		{AnchorKind: AnchorAssignment, Subject: "state", Object: "null", Snippet: `state = null;`},
+		{AnchorKind: AnchorAssignment, Subject: "retryCount", Object: "3", Snippet: `retryCount = 3`},
+		{AnchorKind: AnchorInitializer, Subject: "mode", Object: `"safe"`, Snippet: `mode: "safe",`},
+	}
+	for _, item := range tests {
+		if !AssignmentEvidenceStateMatches(item) {
+			t.Fatalf("exact scalar assignment state did not match: %+v", item)
+		}
+		if AssignmentEvidenceEndpointsMatch(item) {
+			t.Fatalf("scalar state must not mint code-identity relation endpoints: %+v", item)
+		}
+	}
+}
+
+func TestAssignmentEvidenceStateRejectsModelEndpointsAndExpressions(t *testing.T) {
+	tests := []EvidenceItem{
+		{AnchorKind: AnchorAssignment, Subject: "FastTokenizer.tokenize", Object: "True", Snippet: `_HAVE_NATIVE = True`},
+		{AnchorKind: AnchorAssignment, Subject: "state", Object: "True", Snippet: `state = false`},
+		{AnchorKind: AnchorAssignment, Subject: "state", Object: "next", Snippet: `state = cond ? next : fallback`},
+		{AnchorKind: AnchorAssignment, Subject: "state", Object: "left", Snippet: `state = left + right`},
+		{AnchorKind: AnchorAssignment, Subject: "state", Object: "True"},
+	}
+	for _, item := range tests {
+		if AssignmentEvidenceStateMatches(item) {
+			t.Fatalf("false/ambiguous scalar assignment became state authority: %+v", item)
+		}
+	}
+}
