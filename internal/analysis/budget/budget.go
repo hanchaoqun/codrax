@@ -60,6 +60,25 @@ type BudgetSignals struct {
 // when termFactor/hypFactor collapse, so the uplift doesn't
 // inflate token cost on already-cheap requests.
 func Compute(rm types.RequestModel, sig BudgetSignals) types.EvidenceBudget {
+	// Chitchat carve-out (CHATFIX-1, 2026-08-10): a chitchat
+	// classification legitimately carries ZERO keywords/entities, which
+	// would scale the multiplicative budget below the quality gate's
+	// budget_sanity floor (need ≥5 files / ≥4 iters) and hard-reject a
+	// structurally fine IR — live e2e witness: the analyzer retried
+	// into the DEGRADED IR and the greeting fell back into a full
+	// explore burn, defeating the short-circuit. Mint the floor budget
+	// directly: the read pipeline short-circuits after analyze on this
+	// scenario, so these numbers have no consumer — they exist only to
+	// keep the deterministic gate green. The reply-less degenerate
+	// form takes the normal path (and the normal pipeline).
+	if rm.Scenario == types.ScenarioChitchat && rm.ChitchatReply != "" {
+		return types.EvidenceBudget{
+			MaxFiles:      5,
+			MaxBytes:      200_000,
+			MaxReactIters: 4,
+			MaxToolCalls:  8,
+		}
+	}
 	base := baseFor(rm, sig.Complexity)
 	termFactor := clamp(0.6+0.05*float64(sig.TermCount), 0.6, 2.0)
 	hypFactor := clamp(0.7+0.10*float64(sig.HypothesisCount), 0.7, 2.0)

@@ -63,6 +63,7 @@ var analysisScenarios = []AnalysisEnumChoice{
 	{string(types.ScenarioConfigTrace), "trace config → behaviour"},
 	{string(types.ScenarioPerformanceBottleneck), "find a perf hotspot"},
 	{string(types.ScenarioGeneric), "none of the above (safe fallback)"},
+	{string(types.ScenarioChitchat), "pure greeting / thanks / smalltalk with ZERO repository, code, config, log, or trace reference and no attached artifact — a conversational pleasantry only, never a question about the codebase; when chosen you MUST also emit chitchat_reply and the pipeline answers with that text directly"},
 }
 
 // analysisComplexities is the canonical complexity enum. Values match

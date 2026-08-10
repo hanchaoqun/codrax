@@ -156,6 +156,15 @@ func nonScalarExplanationRoute(rm types.RequestModel) bool {
 }
 
 func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
+	if rm.Scenario == types.ScenarioChitchat {
+		// CHATFIX-1: a chitchat classification is a terminal routing
+		// decision — the reconcile arms below only arbitrate ANALYSIS
+		// scenario families and must never pull a greeting back into
+		// the pipeline scaffold (nor vice versa: nothing promotes
+		// INTO chitchat here — only the analyzer LLM's schema enum
+		// choice mints it).
+		return rm.Scenario, ""
+	}
 	if isScalarSourceLiteralLookup(rm) {
 		return types.ScenarioGeneric,
 			"scalar source-literal lookup uses generic scenario (avoid architecture-only diagram/reconcile overhead)"
@@ -210,6 +219,16 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 		// non-diagnostic lane; do not override a deliberate root_cause
 		// classification.
 	default:
+		if rm.Scenario == types.ScenarioChitchat {
+			// 复核 F-C: this arm runs BEFORE reconcileScenario's chitchat
+			// guard and is the second Scenario writer — a contradictory
+			// emission (chitchat + diagnostic signals) resolves to the
+			// DIAGNOSTIC lane, and the analyzer-authored reply must not
+			// ride a root_cause scenario into downstream prompts (nor
+			// leave the floor-budget carve-out keyed on a stale pair).
+			changes = append(changes, "chitchat_reply cleared (diagnostic wins)")
+			rm.ChitchatReply = ""
+		}
 		changes = append(changes, "scenario→"+string(targetScenario))
 		rm.Scenario = targetScenario
 	}

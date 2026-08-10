@@ -2709,6 +2709,14 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 	if busCtx.Mutable != nil {
 		if result := busCtx.Mutable.Result(); result != "" {
 			clean := stripAgentLabels(result)
+			if busCtx.Mutable.ResultIsPlain() {
+				// CHATFIX-1 复核 F-G: plain-lane results include the
+				// analyzer-authored chitchat reply — model-owned text
+				// rendered VERBATIM (label stripping could mangle it;
+				// system fail-loud prose never carries agent labels, so
+				// the bypass is behavior-neutral there).
+				clean = result
+			}
 			if clean != "" {
 				// Plain-text fail-loud messages (set via
 				// SetResultPlain by stage hooks) bypass glamour

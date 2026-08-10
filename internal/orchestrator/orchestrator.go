@@ -4212,6 +4212,9 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		o.busCtx.TaskState.LastError = "retired write TaskGraph nodes cannot be executed by read scheduler"
 		return 0
 	}
+	if o.maybeShortCircuitChitchat(ir) { // CHATFIX-1: greeting answers after analyze, zero exploration
+		return 0
+	}
 	return o.runReadSchedulerLoop(stepBudget)
 }
 
@@ -8938,6 +8941,13 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	if o.busCtx.TaskState.LastError != "" {
 		return // failed Run; reviewer doesn't get a useful answer to read
+	}
+	if o.busCtx.Mutable != nil && o.busCtx.Mutable.ResultIsPlain() {
+		// CHATFIX-1 复核 F-D: plain-lane results (chitchat short-circuit,
+		// fail-loud hook prose) have no AnswerDocumentV2 — dispatching
+		// the reviewer would burn an LLM call on an empty FinalAnswer
+		// and distill patterns from a lane that is not an answer.
+		return
 	}
 	// Read-mode only — write modes have their own reflector path.
 	if o.busCtx.Mode != types.ModeRead && o.busCtx.Mode != "" {

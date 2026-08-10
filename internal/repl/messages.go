@@ -1301,6 +1301,16 @@ func turnPolicyClassifierFallbackHint(lang string) string {
 	return "Auto chat routing did not return a stable decision; continuing with repository analysis (fail-safe)."
 }
 
+// turnPolicyBackoffNotice (CHATFIX-1) — shown exactly once when the
+// consecutive-timeout backoff disables the per-turn classifier for
+// the rest of the session.
+func turnPolicyBackoffNotice(lang string) string {
+	if isZh(lang) {
+		return "自动路由分类器连续超时，本会话将主要跳过它直接进入仓库分析（每隔几轮自动重试一次，恢复即重新启用；期间 write/data 等自动路由可用 /write、/mode 显式进入）。可在 providers.yaml 将 agents.chitchat_classifier 路由到更快的小模型，或调大 codrax.yaml repl_turn_policy_timeout_seconds。"
+	}
+	return "The auto-routing classifier timed out on consecutive turns; mostly skipping it for this session (it retries every few turns and re-enables on success; use /write or /mode for explicit routing meanwhile). Route providers.yaml agents.chitchat_classifier to a faster small model, or raise codrax.yaml repl_turn_policy_timeout_seconds."
+}
+
 func operationUnavailableMsg(lang string, policy TurnPolicy) string {
 	kind := strings.TrimSpace(policy.OperationKind)
 	if kind == "" {

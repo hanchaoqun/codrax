@@ -52,14 +52,22 @@ type RequestModel struct {
 	// obligation does not apply and hard gates may key on it as a
 	// precise signal (len > 0 ⇒ the user explicitly named these
 	// files; forced-read coverage applies).
-	UserPinnedFiles []string    `json:"user_pinned_files,omitempty"`
-	Language        string      `json:"language"`
-	Intent          Intent      `json:"intent"`
-	Scenario        Scenario    `json:"scenario"`
-	Complexity      Complexity  `json:"complexity"`
-	TermGraph       TermGraph   `json:"term_graph"`
-	Ambiguities     []Ambiguity `json:"ambiguities,omitempty"`
-	RiskMatrix      RiskMatrix  `json:"risk_matrix"`
+	UserPinnedFiles []string `json:"user_pinned_files,omitempty"`
+	Language        string   `json:"language"`
+	Intent          Intent   `json:"intent"`
+	Scenario        Scenario `json:"scenario"`
+	// ChitchatReply carries the ANALYZER-authored greeting reply for
+	// Scenario==ScenarioChitchat — model-owned content the system
+	// renders verbatim (never system-authored), letting the read
+	// pipeline short-circuit after analyze with zero extra LLM calls.
+	// Empty on every other scenario. Chitchat WITH an empty reply is
+	// a degenerate emission: the pipeline proceeds normally
+	// (fail-open to full analysis, never a stranded turn).
+	ChitchatReply string      `json:"chitchat_reply,omitempty"`
+	Complexity    Complexity  `json:"complexity"`
+	TermGraph     TermGraph   `json:"term_graph"`
+	Ambiguities   []Ambiguity `json:"ambiguities,omitempty"`
+	RiskMatrix    RiskMatrix  `json:"risk_matrix"`
 
 	// IntentConfidence / ComplexityConfidence / KindConfidence are
 	// LLM-emitted certainty scores in [0.0, 1.0] for each
@@ -1092,6 +1100,14 @@ const (
 	ScenarioConfigTrace           Scenario = "config_trace"
 	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
 	ScenarioGeneric               Scenario = "generic"
+	// ScenarioChitchat (CHATFIX-1, customer 20260810): pure
+	// greeting/thanks/smalltalk with zero repository, code, log, or
+	// trace reference. Terminal routing decision — the read pipeline
+	// short-circuits after analyze and answers with the
+	// analyzer-authored ChitchatReply (second line of defense behind
+	// the REPL turn-policy classifier, which times out on slow
+	// self-hosted models and falls through to the pipeline).
+	ScenarioChitchat Scenario = "chitchat"
 	// Write-mode note: there is no ScenarioWriteProposal constant
 	// today. Write mode bypasses compiler.Compile entirely; the
 	// analyzer's scenario selection applies to read-mode TaskGraph

@@ -52,6 +52,7 @@ type EmitAnalysis struct {
 type emitAnalysisParams struct {
 	Intent             string                          `json:"intent"`
 	Scenario           string                          `json:"scenario"`
+	ChitchatReply      string                          `json:"chitchat_reply,omitempty"`
 	Complexity         string                          `json:"complexity"`
 	Keywords           []string                        `json:"keywords"`
 	Entities           []string                        `json:"entities"`
@@ -455,8 +456,12 @@ func buildEmitAnalysisSchema() {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"intent":        stringProp{Type: "string", Enum: skill.AnalysisIntentValues()},
-			"scenario":      stringProp{Type: "string", Enum: skill.AnalysisScenarioValues()},
+			"intent":   stringProp{Type: "string", Enum: skill.AnalysisIntentValues()},
+			"scenario": stringProp{Type: "string", Enum: skill.AnalysisScenarioValues()},
+			"chitchat_reply": map[string]any{
+				"type":        "string",
+				"description": "REQUIRED exactly when scenario=chitchat, empty otherwise: a short friendly reply (1-3 sentences, in the user's language) answering the greeting/smalltalk and briefly offering what this repository-analysis assistant can help with. It must not claim any repository, code, or runtime facts — no exploration has happened. When scenario=chitchat the pipeline answers with this text directly and skips exploration.",
+			},
 			"complexity":    stringProp{Type: "string", Enum: skill.AnalysisComplexityValues()},
 			"keywords":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
 			"entities":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
@@ -1298,6 +1303,37 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	complexity := normalizeComplexity(p.Complexity)
 	kind := normalizeQuestionKind(p.QuestionKind)
 
+	// CHATFIX-1: the analyzer-authored reply rides ONLY the chitchat
+	// scenario (precise typed pairing — a stray reply on an analysis
+	// scenario is dropped, never rendered). Computed here because the
+	// degenerate-classification gate below consumes it.
+	chitchatReply := ""
+	if scenario == types.ScenarioChitchat {
+		chitchatReply = strings.TrimSpace(p.ChitchatReply)
+		// 复核 F-A (5 镜头汇合): an attached runtime artifact means the
+		// user wants ANALYSIS regardless of greeting-shaped wording —
+		// demote at the SOURCE so no chitchat IR (and no floor budget
+		// carve-out) can ever coexist with an artifact. The orchestrator
+		// veto stays as defense in depth. Precise typed inputs only.
+		if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
+			logging.Info("[emit_analysis] chitchat scenario with attached runtime artifact — demoting to generic (analysis wins)")
+			scenario = types.ScenarioGeneric
+			chitchatReply = ""
+		}
+		// 复核 F-B (4 镜头汇合, T3-2 教学同步): a reply-less chitchat
+		// emission must be taught the RIGHT repair — the degenerate
+		// gate's keyword guidance would converge the model onto
+		// placeholder-keyword padding and a full explore burn.
+		if scenario == types.ScenarioChitchat && chitchatReply == "" {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: scenario=chitchat requires a non-empty chitchat_reply (a short friendly reply in the user's language). Re-emit with chitchat_reply filled, or reclassify to a concrete analysis scenario. Do NOT pad keywords/entities to work around this.",
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
+
 	keywords := trimStringSlice(p.Keywords)
 	entities := trimStringSlice(p.Entities)
 	subTopics := emitAnalysisSubTopics(p.SubTopics)
@@ -1333,7 +1369,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	entities = val.FilteredEntities
-	if reason := rejectDegenerateClassification(intent, kind, keywords, entities); reason != "" {
+	// CHATFIX-1: a chitchat classification with a reply is legitimately
+	// keyword-less and entity-less (there IS no code subject) — the
+	// degenerate-classification gate must not burn a retry teaching the
+	// model to pad placeholder keywords (live e2e witness: round-2
+	// reject on 「你好」 until the model invented keywords=打招呼/问候).
+	// Precise exemption: typed scenario enum + non-empty reply only;
+	// a reply-less chitchat emission still hits the gate.
+	chitchatExempt := scenario == types.ScenarioChitchat && chitchatReply != ""
+	if reason := rejectDegenerateClassification(intent, kind, keywords, entities); reason != "" && !chitchatExempt {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -1930,12 +1974,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
 
 	rm := types.RequestModel{
-		RawRequest: raw,
-		Language:   p.Language,
-		Intent:     intent,
-		Scenario:   scenario,
-		Complexity: complexity,
-		SubTopics:  sanitizedSubTopics,
+		RawRequest:    raw,
+		Language:      p.Language,
+		Intent:        intent,
+		Scenario:      scenario,
+		ChitchatReply: chitchatReply,
+		Complexity:    complexity,
+		SubTopics:     sanitizedSubTopics,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords:          keywords,
 			Entities:          entities,
@@ -6045,6 +6090,8 @@ func normalizeScenario(s string) types.Scenario {
 		return types.ScenarioConfigTrace
 	case "performance_bottleneck", "performance":
 		return types.ScenarioPerformanceBottleneck
+	case "chitchat":
+		return types.ScenarioChitchat
 	}
 	return types.ScenarioGeneric
 }

@@ -695,6 +695,16 @@ type REPL struct {
 	// the gate. See Config.ChitchatClassifier for wiring.
 	chitchatClassifier ChitchatClassifier
 
+	// CHATFIX-1: consecutive turn-policy classifier TIMEOUT streak
+	// this session. At turnPolicyTimeoutBackoffThreshold the
+	// classifier is skipped for the rest of the session (one-time
+	// notice via turnPolicyBackoffNotified); reset on any classifier
+	// success. Non-timeout errors do not count — they have their own
+	// legacy-fallback lane.
+	turnPolicyTimeoutStreak   int
+	turnPolicySkipCount       int
+	turnPolicyBackoffNotified bool
+
 	// operationEnabled gates the future independent operation/artifact
 	// route. When false, a structured route=operation is surfaced as a
 	// capability-not-enabled message and never falls through to the repo
@@ -7180,7 +7190,8 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	if activeUserMode == UserModeAuto && r.currentMode == types.ModeRead &&
-		r.chitchatClassifier != nil && r.chitchatResponder != nil {
+		r.chitchatClassifier != nil && r.chitchatResponder != nil &&
+		r.turnPolicyClassifierAvailable() {
 		// Build a compact 1-line hint from the most recent turn so
 		// the classifier can disambiguate continuation references
 		// (e.g. "expand 10" after a list_memory listing). Empty
@@ -7222,7 +7233,9 @@ func (r *REPL) dispatch(line, display string) {
 			logging.Info("[repl/turn_policy] classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					logging.Warning("[repl/turn_policy] classifier timed out: %v — falling back to pipeline", err)
+					r.turnPolicyTimeoutStreak++
+					logging.Warning("[repl/turn_policy] classifier timed out: %v — falling back to pipeline (timeout streak %d/%d)",
+						err, r.turnPolicyTimeoutStreak, turnPolicyTimeoutBackoffThreshold)
 				} else {
 					logging.Warning("[repl/turn_policy] classifier error: %v — trying legacy binary classifier fallback", err)
 				}
@@ -7231,6 +7244,12 @@ func (r *REPL) dispatch(line, display string) {
 				}
 				r.info(turnPolicyClassifierFallbackHint(r.language))
 			} else {
+				if r.turnPolicyTimeoutStreak >= turnPolicyTimeoutBackoffThreshold {
+					logging.Info("[repl/turn_policy] backoff probe succeeded — classifier re-enabled")
+				}
+				r.turnPolicyTimeoutStreak = 0
+				r.turnPolicySkipCount = 0
+				r.turnPolicyBackoffNotified = false
 				rawPolicy := policy
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
 				resolvedTurnPolicy = policy

@@ -127,6 +127,50 @@ const (
 // 120s there is the intended asymmetry, not drift.
 var turnPolicyClassifierTimeout = 10 * time.Second
 
+// turnPolicyTimeoutBackoffThreshold (CHATFIX-1, customer log
+// 2026-08-10): after this many CONSECUTIVE classifier timeouts the
+// REPL skips the classifier for the rest of the session (one-time
+// notice). On slow self-hosted models (customer: qwen first byte
+// 30s+) the classifier never answers inside its deadline, so without
+// backoff every single turn pays the full timeout as dead wait and
+// greetings still fall through to the pipeline. Any classifier
+// success resets the streak.
+const turnPolicyTimeoutBackoffThreshold = 2
+
+// turnPolicyBackoffProbeEvery: while the backoff is active, every Nth
+// skipped turn still runs the classifier as a recovery probe so a
+// transient blip cannot cost the whole session's structured routes.
+const turnPolicyBackoffProbeEvery = 5
+
+// turnPolicyClassifierAvailable reports whether the per-turn
+// classifier should run this turn. False once the session's
+// consecutive-timeout streak reaches the backoff threshold — the
+// skip is disclosed to the user exactly once (with the two remedies:
+// route agents.chitchat_classifier to a faster model, or raise
+// repl_turn_policy_timeout_seconds) and logged per turn.
+func (r *REPL) turnPolicyClassifierAvailable() bool {
+	if r.turnPolicyTimeoutStreak < turnPolicyTimeoutBackoffThreshold {
+		return true
+	}
+	// 复核 F-E: the backoff must not be irreversible — the classifier is
+	// the sole auto-mode source of the structured write/data/local
+	// routes, so a transient blip must not cost the whole session.
+	// Every turnPolicyBackoffProbeEvery-th skipped turn runs the
+	// classifier as a probe; a success resets the streak (wired at the
+	// classifier success path), a timeout re-arms the backoff.
+	r.turnPolicySkipCount++
+	if r.turnPolicySkipCount%turnPolicyBackoffProbeEvery == 0 {
+		logging.Info("[repl/turn_policy] backoff probe: retrying the classifier this turn (skip #%d)", r.turnPolicySkipCount)
+		return true
+	}
+	if !r.turnPolicyBackoffNotified {
+		r.turnPolicyBackoffNotified = true
+		r.info(turnPolicyBackoffNotice(r.language))
+	}
+	logging.Info("[repl/turn_policy] classifier skipped: %d consecutive timeouts this session (backoff active, skip #%d)", r.turnPolicyTimeoutStreak, r.turnPolicySkipCount)
+	return false
+}
+
 // singleShotRoutePolicyTimeout bounds the single-shot (non-REPL CLI)
 // route-policy classification. Split from turnPolicyClassifierTimeout
 // (attribution 2026-07, data-route failure class): reusing the REPL 10s
