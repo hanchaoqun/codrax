@@ -2854,3 +2854,18 @@ exclude decision 无法约束 contribution。新立 B461，要求 typed record �
 状态：`MERGE-AUDIT-6/§11=closed`；`B460=implemented/full-suite-pass/pending-production-replay`；
 `B459/B452=pending-replay`；`B461=next`；`model-edge/answer-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.16 B461 独立批完成：decision/contribution 复用不可变 source-row identity
+
+r268 的 eligibility 决策与 contribution 无法关联，不是既有一致性门缺失，而是同一物理行在 materialized 派生工件中被重新编号。
+现将 `_source_path/_source_index/_source_line/_source_locator` 作为一对一 record action 的不可变 typed origin carrier；显式
+`item_id_field` 保持最高优先级，缺精确 carrier 时仍 fail-open，禁止按字段值、说明文字或最终数值模糊连接。
+
+filter/qualify 的 RowDecision 与 compute 的 ContributionRecord 现从同一 helper 取 item/source/locator；expand、apply-resolution、enrich
+同步携带 origin。已有 cross-ledger gate 因此能直接拒绝“原始行已 exclude、另一派生支路却重新 contribution”的整类分支旁路。
+反例与合法 filtered-sum 正例均已转绿；dataquery/dataworkflow 包套件通过。B460 遗留的旧 schema required-set pin 也已独立重钉为
+kind/required/participants，不混入生产逻辑。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B461=implemented/full-suite-pass/pending-production-replay`；
+`B460=schema-contract-and-pin-closed/pending-replay`；`fuzzy-row-identity=forbidden`；`model-business-decision=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

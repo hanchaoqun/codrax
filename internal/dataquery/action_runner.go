@@ -3594,9 +3594,7 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 				row[originalField] = sourceValue
 			}
 			row[targetField] = value
-			row["_source"] = rel
-			row["_source_line"] = record.Line
-			row["_source_index"] = record.Index
+			stampActionRecordOriginFields(row, record, rel)
 			rows = append(rows, row)
 			expandedRows++
 		}
@@ -3701,14 +3699,11 @@ func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []stri
 		if passed {
 			decision = "include"
 		}
-		itemID := recordField(record.Fields, itemIDField)
-		if itemID == "" {
-			itemID = fmt.Sprintf("%s#%d", rel, record.Index)
-		}
+		itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
 		decisions = append(decisions, RowDecision{
 			RowID:         itemID,
-			Source:        rel,
-			SourceLocator: fmt.Sprintf("line:%d", record.Line),
+			Source:        source,
+			SourceLocator: sourceLocator,
 			Decision:      decision,
 			Reason:        reason,
 			EvidenceRef:   filterEvidenceRefs(record, rel, filterFields),
@@ -3724,9 +3719,7 @@ func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []stri
 		for key, value := range record.Fields {
 			row[key] = value
 		}
-		row["_source"] = rel
-		row["_source_line"] = record.Line
-		row["_source_index"] = record.Index
+		stampActionRecordOriginFields(row, record, rel)
 		rows = append(rows, row)
 	}
 	outputHeaders := collectJoinedRecordHeaders(rows)
@@ -3776,12 +3769,13 @@ func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []stri
 }
 
 func filterEvidenceRefs(record actionRecord, rel string, fields []string) []string {
-	refs := []string{fmt.Sprintf("%s:%d", rel, record.Line)}
+	_, _, sourceLocator := actionRecordLedgerIdentity(record, rel, "")
+	refs := []string{sourceLocator}
 	for _, field := range cleanStringSlice(fields) {
 		if strings.TrimSpace(recordField(record.Fields, field)) == "" {
 			continue
 		}
-		refs = append(refs, fmt.Sprintf("%s:%d:%s", rel, record.Line, field))
+		refs = append(refs, sourceLocator+":"+field)
 	}
 	return cleanStringList(refs)
 }
@@ -4057,14 +4051,11 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 		if eligible {
 			decision = "include"
 		}
-		itemID := recordField(record.Fields, itemIDField)
-		if itemID == "" {
-			itemID = fmt.Sprintf("%s#%d", rel, record.Index)
-		}
+		itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
 		decisions = append(decisions, RowDecision{
 			RowID:         itemID,
-			Source:        rel,
-			SourceLocator: fmt.Sprintf("line:%d", record.Line),
+			Source:        source,
+			SourceLocator: sourceLocator,
 			Decision:      decision,
 			Reason:        reason,
 			EvidenceRef:   qualificationEvidenceRefs(record, rel, statusFields, evidenceFields),
@@ -4085,9 +4076,7 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 		}
 		row[passField] = eligibleString(eligible)
 		row[reasonField] = reason
-		row["_source"] = rel
-		row["_source_line"] = record.Line
-		row["_source_index"] = record.Index
+		stampActionRecordOriginFields(row, record, rel)
 		rows = append(rows, row)
 	}
 	outputHeaders := collectJoinedRecordHeaders(rows)
@@ -5237,9 +5226,7 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 		for key, value := range base.Fields {
 			row[key] = value
 		}
-		row["_source"] = baseRel
-		row["_source_line"] = base.Line
-		row["_source_index"] = base.Index
+		stampActionRecordOriginFields(row, base, baseRel)
 		for i, spec := range specs {
 			if spec.TargetIDField != "" {
 				row[spec.TargetIDField] = ""
@@ -6485,9 +6472,7 @@ func (r ActionRunner) runEnrichRecords(action DataAction) (DataArtifact, []map[s
 		for k, v := range base.Fields {
 			row[k] = v
 		}
-		row["_source"] = baseRel
-		row["_source_line"] = base.Line
-		row["_source_index"] = base.Index
+		stampActionRecordOriginFields(row, base, baseRel)
 		for i, spec := range specs {
 			value, status, evidence := selectEnrichValueFromRecord(base, lookups[i], spec)
 			if value == "" {
@@ -8272,15 +8257,11 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 				continue
 			}
 			matched++
-			itemID := recordField(record.Fields, itemIDField)
-			if itemID == "" {
-				itemID = fmt.Sprintf("%s#%d", rel, record.Index)
-			}
+			itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
 			groupKey := firstNonEmptyString(groupKeyValue, effectiveGroupKeyConst, "all")
-			sourceLocator := fmt.Sprintf("line:%d", record.Line)
 			contributions = append(contributions, ContributionRecord{
 				ItemID:        LooseText(itemID),
-				Source:        LooseText(rel),
+				Source:        LooseText(source),
 				SourceLocator: LooseText(sourceLocator),
 				GroupKey:      LooseText(groupKey),
 				Metric:        LooseText(metric),
@@ -8288,7 +8269,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 				Operation:     LooseText(operation),
 				Role:          LooseText(role),
 				Reason:        LooseText(reason),
-				EvidenceRefs:  []string{fmt.Sprintf("%s:%d", rel, record.Line)},
+				EvidenceRefs:  []string{sourceLocator},
 				RuleRefs:      append([]string(nil), ruleRefs...),
 			})
 		}
@@ -10499,7 +10480,8 @@ func recordQualification(record actionRecord, includeFilters, rejectFilters []co
 }
 
 func qualificationEvidenceRefs(record actionRecord, rel string, statusFields, evidenceFields []string) []string {
-	refs := []string{fmt.Sprintf("%s:%d", rel, record.Line)}
+	_, _, sourceLocator := actionRecordLedgerIdentity(record, rel, "")
+	refs := []string{sourceLocator}
 	for _, field := range append(statusFields, evidenceFields...) {
 		value := strings.TrimSpace(recordField(record.Fields, strings.TrimSuffix(field, "_status")+"_evidence"))
 		if value == "" {
@@ -11227,7 +11209,13 @@ func recordField(fields map[string]string, name string) string {
 }
 
 func actionRecordVirtualFields(record actionRecord, rel string) map[string]string {
-	sourcePath := firstNonEmptyString(strings.TrimSpace(record.Path), strings.TrimSpace(rel))
+	sourcePath := firstNonEmptyString(
+		recordField(record.Fields, "_source_path"),
+		recordField(record.Fields, "source_path"),
+		recordField(record.Fields, "_source"),
+		strings.TrimSpace(record.Path),
+		strings.TrimSpace(rel),
+	)
 	filePath := sourcePath
 	fileName := ""
 	if trimmed := strings.TrimSpace(filePath); trimmed != "" {

@@ -30293,3 +30293,23 @@ Analyzer 仍可完全省略可选 `diagram_hint`；但一旦选择发射该对�
 `B459/B452=pending-replay-with-explicit-participant-slate`；`B461=next-independent-batch`；
 `participant-as-relation-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
 `system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B461 批次施工：跨派生 action 保留不可变 typed 行来源
+
+根修没有识别 `active`、`resolution_status` 或本 case 的业务值，而是在 filter、qualify、expand、apply-resolution、enrich 与
+compute-contributions 的共享 record carrier 上统一来源身份：显式 `item_id_field` 仍优先；否则消费已携带的 `_source_locator`，再退守
+`_source_path + _source_index`。一对一派生行继续携带最初 material 的 source/path/index/line/locator，当前派生 artifact alias 不再覆盖
+decision/contribution 用的行身份；无法精确关联的聚合/多源形仍不做模糊连接。
+
+因此既有 `ValidateContributionDecisionConsistency` 无需新增业务规则即可覆盖 r268 的断层：若一个独立派生支路重新贡献了先前明确 exclude
+的同一原始行，终验按稳定 item id fail loud；合法的 filtered contribution 继续通过。新增反例固定
+`observations.csv#3` 被排除后又经 resolved 支路贡献必须拒绝，正例固定两条 active 行跨 materialized artifact 后仍保留
+`observations.csv#1/#2` 且合计 17。`go test ./internal/dataquery ./internal/dataworkflow -count=1` 通过。
+
+B460 的全仓复验还捕获并修正了一条旧 schema 一致性 pin（旧期望只列 kind/required，现与生产 schema 同步为
+kind/required/participants）；生产 schema 未回退。B461 完整全仓复验与 exact-two r269 production replay 紧随本批提交执行。
+
+状态：`B461=implemented/full-suite-pass/pending-production-replay`；
+`B460=implementation-and-schema-pin-closed/pending-production-replay`；`typed-row-fuzzy-join=forbidden`；
+`model-business-decision=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
