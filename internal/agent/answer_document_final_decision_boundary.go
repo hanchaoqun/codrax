@@ -174,7 +174,7 @@ func renderTraceFinalAggregateScaleAuthority(facts []traceDecisionAggregateFact)
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	return fmt.Sprintf("- aggregate_absolute_level_authority=`not_provided`; affected_signals=`%s`; numeric value or density may be compared only within a typed comparison/calibration scope and does not by itself mean low/medium/high or serious/not-serious.\n", strings.Join(keys, ","))
+	return fmt.Sprintf("- aggregate_absolute_level_authority=`not_provided`; affected_signals=`%s`; numeric value or density may be compared only within a typed comparison/calibration scope and does not by itself mean low/medium/high or serious/not-serious. Use the neutral form `observed value/density; absolute level unavailable without calibration` when the raw aggregate is relevant; do not supply an absolute severity adjective.\n", strings.Join(keys, ","))
 }
 
 // renderTraceFinalCompactAuthorityLedger brings two high-cost relation

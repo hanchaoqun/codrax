@@ -181,6 +181,8 @@ func TestTraceFinalAggregateScaleAuthorityRequiresTypedAbsoluteLevel(t *testing.
 		"aggregate_absolute_level_authority=`not_provided`",
 		"affected_signals=`cpu_pressure`",
 		"does not by itself mean low/medium/high or serious/not-serious",
+		"observed value/density; absolute level unavailable without calibration",
+		"do not supply an absolute severity adjective",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("aggregate scale authority missing %q: %s", want, got)

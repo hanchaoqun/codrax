@@ -29590,3 +29590,48 @@ exact-two：`data_basic_sum_with_rules` 与 `trace_query_wakeup_background_demot
 状态：`EVAL-B439=S37ei-implemented/full-suite-pass/pending-production-replay`；
 `scheduler-transition-guidance=single-source-across-typed-and-generic`；`root-families=typed-on-chain-registry-preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.461 r256：链上根因家族回放与三类上下文口径 GAP
+
+exact-two：`trace_query_donghu_real_frame_multicausal` 与 `trace_query_frame_semantic_span_optimization`，同一封存二进制，
+`PARALLEL=2`：
+
+1. runner 为 `PASS/PASS`（123s/115s），两例均首次成文、`finalizer_reject=0`；人工审计均为 partial，不能以 runner 绿替代答案审计；
+2. semantic 例的链上排序正确保留 `VerifyClass com.example.Foo` class_verification 4.600ms 与 app-100 runnable_wait
+   0.800ms，原始 span 5.000ms、有效归因 4.600ms、wakeup=5.005000、switch-in=5.005800 在根因段均正确；但事件序列仍将
+   5.005800 写成“被唤醒后切换入运行”。因此 B439 由 pending replay 更新为 production-partial，而非新增 prose hard gate；
+3. Donghu 例完整保留所有重要 typed on-chain 家族：CookieMonsterCl PI 23.994ms=`runnable(full) 23.748 + running(folded)
+   0.246`，NetworkService PI 19.041ms=`18.876+0.165`，ThreadPool D/IO 10.433/7.386/6.673ms，目标 running
+   算力供给缺口 10.331ms，T7 IO 3.550ms 与 VerifyClass 0.285ms；邻近/背景未被加冕，帧因果仍为 unproven；
+4. 确认 `EVAL-B440-TRACEPIRUNSUPPLYCONTEXT1=P1`：typed 根因摘要教学把 PI 只解释为 runnable impact，漏掉同一席已发布的
+   running compute-supply deficit，导致模型摘要说两项 PI “均表现为 runnable 等待”，而投影明细又正确展示两分量；
+5. 确认 `EVAL-B441-TRACECONTEXTABSLEVELNEUTRAL1=P1`：系统已给 `aggregate_absolute_level_authority=not_provided`，模型仍把
+   CPU 604.528 cpu·ms、IO 551.6 称为“较高水位”。这是无校准绝对严重度，不是链上根因；最优形是补中性可复制话术，不扫描/改写正文；
+6. 确认 `EVAL-B442-TRACECOUNTCLARITY1=P1`：目标全窗 wakeup census=36 与链关联 sleep/impact 聚合实例=12 是两种 typed
+   口径，正文把后者写成“12次唤醒”。应在共同 scheduler guidance 并列说明 census 与 seat occurrences/merged_count，禁止互换；
+7. 自动投影、显式时间窗、系统补采、根因排序、可消除量与模型结论所有权均正常；本批没有证据支持修改确定性投影或新增正文校验器。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_trace_root_families_r256_20260809_manual_audit.md`。
+
+状态：`B439=production-partial/observe`；`B440=P1-confirmed/in-implementation`；
+`B441=P1-confirmed/in-implementation`；`B442=P1-confirmed/in-implementation`；
+`trace-principal-root-population=typed-on-chain-only`；`off-chain=support-or-investigation-only`。
+
+### 123.462 B440/B441/B442：链上 PI 分量、无标尺压力与计数口径的 typed 软教学
+
+三项按同一“精确信号供给、模型拥有结论”边界施工：
+
+1. typed compact root-family 说明把优先级反转补全为：链上低优先级依赖具有 typed runnable effective impact **和/或** typed
+   running compute-supply deficit，或有更强 holder/waiter authority；因此 runnable 全额与 running 供给折算都不会在摘要入口被压掉；
+2. scheduler transition 共同教学旁新增 count caliber：只有 typed wakeup census 或去重 `sched_wakeup`/`sched_waking` 行可计
+   总唤醒次数；因果影响/状态/span/root 席上的 `occurrences`/`merged_count` 只计链关联实例或折叠成员，不能冒充目标总唤醒数；
+3. `aggregate_absolute_level_authority=not_provided` 的单源函数保留禁止 low/medium/high 的边界，并给出中性低心智表述
+   `observed value/density; absolute level unavailable without calibration`；模型仍可决定该背景是否相关，但不得凭裸值自造绝对严重度；
+4. 三项输入只来自 typed runtime authority、projection node 与 calibration 字段；不扫描 request/thinking/final prose，不新增 hard reject，
+   不创建或改写 AnswerBlock，不改变任何根因席、值、排序、链、窗口或补采；
+5. 新 pin 覆盖 PI 的 runnable/running 双分量词、wakeup census/seat occurrences 分界、中性压力表述与绝对形容词禁限。
+
+状态：`B440=S37ej-implemented/full-suite-pass/pending-production-replay`；
+`B441=S37ej-implemented/full-suite-pass/pending-production-replay`；
+`B442=S37ej-implemented/full-suite-pass/pending-production-replay`；`model-conclusion-ownership=preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
