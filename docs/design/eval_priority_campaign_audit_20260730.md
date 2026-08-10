@@ -30240,3 +30240,40 @@ AnalysisIR` operation 关闭补证债。
 状态：`B459=implemented/full-suite-pass/pending-production-replay`；`B452/B457=code-complete/pending-replay`；
 `planning-alias-as-relation-authority=forbidden`；`system-edge/answer-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.480 r268：participant 声明省略令关系补证全链失活；排除决定在派生支路失去身份
+
+严格 exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 为 `FAIL/PASS`，人工为
+`FAIL/FAIL`（571s/206s）；人工审计见
+`eval/parallel_selected_summary_evalcampaign_data_stage_r268_20260810_manual_audit.md`。
+
+data 先给出 B458 的明确生产正证：`filter_active_observations` 的 typed diagnostics 为 `total=6,combined_match=5`，`false` 的 r3
+不再被 `active=true` 接受。失败发生在后续独立支路：`apply_entity_resolutions` 仍从原始 `observations` 生成 6 行 resolved records；模型随后
+只按 resolution 状态筛选，贡献计算消费 5 条已解析行。更关键的是，filter 决策以原始行身份记录，compute 又把同一物理行重铸为
+`eligible_contribution_records.json#N / line:N`，既有 `ValidateContributionDecisionConsistency` 无法把 r3 exclude 与这条 contribution 对齐。
+结果 GroupA 重新得到 `10+7+3=20`，五条 contribution、reconcile 与 final projection 对错误候选集内部自洽签绿。
+
+新立 `EVAL-B461-DATADECISIONLINEAGE1/P0`。最优方案不是识别 `active` 字段或重读 instructions，而是让 filter/qualify/
+apply-resolution/join/derive/compute 的 typed record carrier 共用稳定 origin row identity：显式 item id 优先，否则使用保留下来的
+`_source_path + _source_index/_source_locator`，不得以当前派生 artifact 的行号重铸身份。这样现有 typed
+decision↔contribution 排除一致性门即可 fail loud；没有精确同源 identity 时仍 fail-open，禁止模糊连接。
+
+QF 的 r268 Finalizer prompt 已出现 checkout-verified current-run stage authority，Analyzer producer split 叙述正确，因此
+`B457=production-closed`。但本轮 Analyzer 发射 `diagram_hint={kind:flow,required:true}` 时完全省略 `participants`，尽管同一 typed
+RequestModel entities 与 requested dimension 已携带六个当前请求点名身份。B452 participant operation coverage、B457 participant trigger 与
+B459 alias helper 都只消费 schema participant slate，因而没有启动；Explorer 只形成一条偶然的预处理 assignment 证据。Finalizer 第一稿
+臆造 15 条数据流，关系门正确拒绝，最终只保留 `StageLogTriage -> StagePerfTriage`，runner 仅凭任意边数假绿。
+
+对用户指出的两份结果逐链复核：`20260810-024101.766-24756.md` 是 r267/B459 修复前的装饰 participant alias 阻断，虽声明了 7 个
+participant，却无法把 `Analyzer agent`/`Mutable (in BusContext)` 关联到 typed entity；当前 B459 已根修但尚待同形正证。
+`20260810-041025.835-45551.md` 则是上游根本没有 participant slate，属于新 GAP 而非模型可忽略波动。
+
+新立 `EVAL-B460-DIAGRAMPARTICIPANTDECL1/P1`：只要 Analyzer 选择发射 `diagram_hint`，其既有 `participants` 字段必须显式存在；请求未点名
+身份时用 `[]`，明确点名并要求关系/数据/控制流图时由 Analyzer 按现有合同复制 typed identity。修复用 schema presence 降低 JSON 心智，
+不扫描 request/source_quote/answer，不从 entities 自动造 roster，不把 participant 当 relation authority；same-direction relation gate 保持。
+
+状态：`B458=production-value-pass/superseded-by-B461-lineage`；`B457=production-closed`；
+`B459=code-complete/production-witness-blocked-by-B460`；`B460=P1-next`；`B461=P0-next-independent-batch`；
+`B452=code-complete/replay-blocked-by-B460`；`r268-human=0/2`；`runner-qf=false-positive`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

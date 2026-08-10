@@ -2829,3 +2829,18 @@ code identity 时才形成 planning alias；原生 identity 保持原样，歧�
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B459=implemented/full-suite-pass/pending-production-replay`；
 `B452/B457=code-complete/pending-replay`；`model-edge/answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.14 r268：§11 保持关闭；typed 图参与者声明与数据资格 lineage 另立两案
+
+r268 未重开 MERGE-AUDIT-6/§11。B457 的 current-run stage authority 已真实进入 Finalizer prompt，producer split 正确，故生产关闭。
+QF 仍缺主关系的直接原因变为 Analyzer 发射 required flow diagram 时省略整个 `participants` 字段；B452/B459 没有输入可消费。
+用户点名的两份缺图结果并非完全同根：02:41 的旧结果属于 B459 前的展示 alias 阻断，04:10 的新结果属于 participant 字段可省略。
+新立 B460，以 diagram_hint 内字段 presence 做 JSON 合同闭环，不扫描原文、不铸边、不放宽关系门。
+
+data 中 B458 的 bool comparator 已生产生效，r3 被首个 filter 正确排除；错误终值来自派生支路把同一物理行重铸为新 item id，导致已有
+exclude decision 无法约束 contribution。新立 B461，要求 typed record 变换保留精确 origin identity，使现有 decision↔contribution 门可复用；
+不得针对 active/inactive 或本 case 字段做特判。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B457=production-closed`；`B460=P1-next`；`B461=P0-independent`；
+`B459/B452=pending-production-replay-after-B460`；`model-edge/answer-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
