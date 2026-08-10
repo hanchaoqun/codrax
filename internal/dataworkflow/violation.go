@@ -17,27 +17,29 @@ const (
 )
 
 type WorkflowViolation struct {
-	Code                 string                 `json:"code,omitempty"`
-	Severity             string                 `json:"severity,omitempty"`
-	Repairability        ViolationRepairability `json:"repairability,omitempty"`
-	ActionID             string                 `json:"action_id,omitempty"`
-	ActionKind           string                 `json:"action_kind,omitempty"`
-	Field                string                 `json:"field,omitempty"`
-	Operation            string                 `json:"operation,omitempty"`
-	Param                string                 `json:"param,omitempty"`
-	Role                 string                 `json:"role,omitempty"`
-	InputAlias           string                 `json:"input_alias,omitempty"`
-	InputAliases         []string               `json:"input_aliases,omitempty"`
-	OutputAlias          string                 `json:"output_alias,omitempty"`
-	IdempotencyKey       string                 `json:"idempotency_key,omitempty"`
-	DependencyRank       int                    `json:"dependency_rank,omitempty"`
-	MissingFields        []string               `json:"missing_fields,omitempty"`
-	AvailableFieldSample []string               `json:"available_field_sample,omitempty"`
-	CandidateArtifacts   []string               `json:"candidate_artifacts,omitempty"`
-	RepairActionHints    []string               `json:"repair_action_hints,omitempty"`
-	Limit                int                    `json:"limit,omitempty"`
-	Observed             int                    `json:"observed,omitempty"`
-	Reason               string                 `json:"reason,omitempty"`
+	Code                 string                         `json:"code,omitempty"`
+	Severity             string                         `json:"severity,omitempty"`
+	Repairability        ViolationRepairability         `json:"repairability,omitempty"`
+	ActionID             string                         `json:"action_id,omitempty"`
+	ActionKind           string                         `json:"action_kind,omitempty"`
+	Field                string                         `json:"field,omitempty"`
+	Operation            string                         `json:"operation,omitempty"`
+	Param                string                         `json:"param,omitempty"`
+	Role                 string                         `json:"role,omitempty"`
+	InputAlias           string                         `json:"input_alias,omitempty"`
+	InputAliases         []string                       `json:"input_aliases,omitempty"`
+	OutputAlias          string                         `json:"output_alias,omitempty"`
+	IdempotencyKey       string                         `json:"idempotency_key,omitempty"`
+	DependencyRank       int                            `json:"dependency_rank,omitempty"`
+	MissingFields        []string                       `json:"missing_fields,omitempty"`
+	AvailableFieldSample []string                       `json:"available_field_sample,omitempty"`
+	ObservedFieldValues  []dataquery.ObservedFieldValue `json:"observed_field_values,omitempty"`
+	RepairParams         map[string]string              `json:"repair_params,omitempty"`
+	CandidateArtifacts   []string                       `json:"candidate_artifacts,omitempty"`
+	RepairActionHints    []string                       `json:"repair_action_hints,omitempty"`
+	Limit                int                            `json:"limit,omitempty"`
+	Observed             int                            `json:"observed,omitempty"`
+	Reason               string                         `json:"reason,omitempty"`
 }
 
 type WorkflowViolationSummary struct {
@@ -188,6 +190,8 @@ func DataTaskViolationFromGuard(guard GuardResult) dataquery.DataTaskViolation {
 		InputAliases:         cleanActionAliases(append([]string{source.InputAlias}, source.InputAliases...)),
 		MissingFields:        cleanStrings(source.MissingFields),
 		AvailableFieldSample: cleanStrings(source.AvailableFieldSample),
+		ObservedFieldValues:  append([]dataquery.ObservedFieldValue(nil), source.ObservedFieldValues...),
+		RepairParams:         cloneWorkflowStringMap(source.RepairParams),
 		Role:                 strings.TrimSpace(source.Role),
 		Limit:                source.Limit,
 		Observed:             source.Observed,
@@ -212,6 +216,19 @@ func cloneDataTaskViolation(in dataquery.DataTaskViolation) dataquery.DataTaskVi
 	out.InputAliases = append([]string(nil), in.InputAliases...)
 	out.MissingFields = append([]string(nil), in.MissingFields...)
 	out.AvailableFieldSample = append([]string(nil), in.AvailableFieldSample...)
+	out.ObservedFieldValues = append([]dataquery.ObservedFieldValue(nil), in.ObservedFieldValues...)
+	out.RepairParams = cloneWorkflowStringMap(in.RepairParams)
+	return out
+}
+
+func cloneWorkflowStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
 	return out
 }
 
@@ -396,6 +413,12 @@ func WorkflowViolationFromDataTaskViolation(violation dataquery.DataTaskViolatio
 	if len(projected.AvailableFieldSample) == 0 {
 		projected.AvailableFieldSample = cleanStrings(violation.AvailableFieldSample)
 	}
+	if len(projected.ObservedFieldValues) == 0 {
+		projected.ObservedFieldValues = append([]dataquery.ObservedFieldValue(nil), violation.ObservedFieldValues...)
+	}
+	if len(projected.RepairParams) == 0 {
+		projected.RepairParams = cloneWorkflowStringMap(violation.RepairParams)
+	}
 	if strings.TrimSpace(projected.Reason) == "" {
 		projected.Reason = code
 	}
@@ -456,7 +479,7 @@ func firstNonEmptyViolationText(values ...string) string {
 }
 
 func BuildWorkflowViolations(input WorkflowViolationInput) []WorkflowViolation {
-	out := append([]WorkflowViolation(nil), input.GuardViolations...)
+	out := cloneWorkflowViolations(input.GuardViolations)
 	events := input.ProgressEvents
 	if len(events) == 0 {
 		events = ProgressEventsFromRecords(input.Records)

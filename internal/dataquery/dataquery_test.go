@@ -2962,12 +2962,30 @@ func TestActionRunnerComputeContributionsRejectsUnqualifiedGeneratedStatus(t *te
 	if depErr.ActionKind != DataActionComputeContribs || depErr.Role != "qualification_status" || depErr.RepairAction != DataActionQualifyRecords {
 		t.Fatalf("depErr=%+v, want compute contribution qualification dependency", depErr)
 	}
+	if len(depErr.ObservedFieldValues) != 1 ||
+		depErr.ObservedFieldValues[0].Field != "label_status" ||
+		depErr.ObservedFieldValues[0].Value != "matched_ambiguous" ||
+		depErr.ObservedFieldValues[0].SourceLocator != "line:3" ||
+		depErr.ObservedFieldValues[0].RecordID != "2" {
+		t.Fatalf("ObservedFieldValues=%+v, want exact field/value/locator/record carrier", depErr.ObservedFieldValues)
+	}
+	if depErr.RepairParams["status_fields"] != `["label_status"]` ||
+		depErr.RepairParams["blocked_statuses"] != `["matched_ambiguous"]` ||
+		depErr.RepairParams["auto_status_fields"] != "false" ||
+		depErr.RepairParams["output_mode"] != "filter" {
+		t.Fatalf("RepairParams=%+v, want schema-valid qualify_records fragment", depErr.RepairParams)
+	}
 	violation := ClassifyExecutionFailure(err)
 	if violation.Code != "action_dependency_violation" ||
 		violation.ActionID != "sum_items" ||
 		violation.ActionKind != string(DataActionComputeContribs) ||
 		violation.Role != "qualification_status" ||
 		violation.RepairHint != string(DataActionQualifyRecords) ||
+		violation.Field != "label_status" ||
+		violation.Param != "status_fields" ||
+		len(violation.ObservedFieldValues) != 1 ||
+		violation.ObservedFieldValues[0].Value != "matched_ambiguous" ||
+		violation.RepairParams["blocked_statuses"] != `["matched_ambiguous"]` ||
 		!strings.Contains(violation.ActualSnippet, "label_status=matched_ambiguous") {
 		t.Fatalf("violation=%+v, want typed qualification dependency violation", violation)
 	}

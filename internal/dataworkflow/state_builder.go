@@ -178,10 +178,10 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 	state.WorkflowViolations = BuildWorkflowStateViolations(WorkflowStateViolationInput{
 		Records:             input.Records,
 		State:               state,
-		GuardViolations:     append([]WorkflowViolation(nil), input.GuardViolations...),
+		GuardViolations:     cloneWorkflowViolations(input.GuardViolations),
 		NoProgressThreshold: input.NoProgressThreshold,
 	})
-	state.WorkflowViolations = append(state.WorkflowViolations, append([]WorkflowViolation(nil), input.AdditionalViolations...)...)
+	state.WorkflowViolations = append(cloneWorkflowViolations(state.WorkflowViolations), cloneWorkflowViolations(input.AdditionalViolations)...)
 	state.WorkflowViolationSummary = BuildWorkflowViolationSummary(state.WorkflowViolations)
 	decisionInput := WorkflowDecisionInput{
 		NextStage:          state.NextStage,

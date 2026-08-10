@@ -163,6 +163,8 @@ func validationErrorWorkflowViolations(err error) []WorkflowViolation {
 			RepairActionHints:    cleanStrings([]string{violation.RepairHint}),
 			MissingFields:        cleanStrings(violation.MissingFields),
 			AvailableFieldSample: cleanStrings(violation.AvailableFieldSample),
+			ObservedFieldValues:  append([]dataquery.ObservedFieldValue(nil), violation.ObservedFieldValues...),
+			RepairParams:         cloneWorkflowStringMap(violation.RepairParams),
 			Reason:               strings.TrimSpace(violation.Summary),
 		})
 	}

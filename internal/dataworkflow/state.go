@@ -133,7 +133,7 @@ func (view WorkflowStateView) Snapshot() WorkflowStateSnapshot {
 		OutputGraph:                view.OutputProjectionGraph,
 		ArtifactGraph:              view.ArtifactGraph,
 		Progress:                   view.ProgressSignatures,
-		WorkflowViolations:         append([]WorkflowViolation(nil), view.WorkflowViolations...),
+		WorkflowViolations:         cloneWorkflowViolations(view.WorkflowViolations),
 		WorkflowViolationSummary:   CloneWorkflowViolationSummary(view.WorkflowViolationSummary),
 		Decision:                   view.Decision,
 		DecisionFallbackReasonCode: nextStage,

@@ -136,7 +136,7 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 			OutputGraph:                input.OutputGraph,
 			ArtifactGraph:              input.ArtifactGraph,
 			Progress:                   input.Progress,
-			WorkflowViolations:         input.WorkflowViolations,
+			WorkflowViolations:         cloneWorkflowViolations(input.WorkflowViolations),
 			WorkflowViolationSummary:   input.WorkflowViolationSummary,
 			Decision:                   input.Decision,
 			DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
@@ -473,10 +473,26 @@ func workflowViolationJournalKey(violation WorkflowViolation) string {
 		strings.TrimSpace(violation.OutputAlias),
 		strings.TrimSpace(violation.IdempotencyKey),
 		strings.Join(cleanJournalStrings(violation.MissingFields), ","),
+		workflowViolationTypedRepairKey(violation),
 		fmt.Sprintf("%d", violation.Limit),
 		fmt.Sprintf("%d", violation.Observed),
 		strings.TrimSpace(violation.Reason),
 	}, "\x1f")
+}
+
+func workflowViolationTypedRepairKey(violation WorkflowViolation) string {
+	payload := struct {
+		ObservedFieldValues []dataquery.ObservedFieldValue `json:"observed_field_values,omitempty"`
+		RepairParams        map[string]string              `json:"repair_params,omitempty"`
+	}{
+		ObservedFieldValues: violation.ObservedFieldValues,
+		RepairParams:        violation.RepairParams,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func cleanJournalStrings(in []string) []string {

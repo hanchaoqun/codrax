@@ -71,7 +71,7 @@ func BuildWorkflowReducerSnapshot(input WorkflowReducerInput) WorkflowStateSnaps
 			Deferred:      append([]dataquery.DataAction(nil), deferredActions...),
 			DeferredPlan:  deferred,
 			DeferredQueue: input.DeferredQueue,
-			Blocked:       append([]WorkflowViolation(nil), input.WorkflowViolations...),
+			Blocked:       cloneWorkflowViolations(input.WorkflowViolations),
 			EventLimit:    input.ActionEventLimit,
 		},
 		OutputGraph:                input.OutputGraph,
@@ -79,7 +79,7 @@ func BuildWorkflowReducerSnapshot(input WorkflowReducerInput) WorkflowStateSnaps
 		ArtifactLimit:              input.ArtifactLimit,
 		ProgressEvents:             progressEvents,
 		ProgressLimit:              input.ProgressLimit,
-		WorkflowViolations:         input.WorkflowViolations,
+		WorkflowViolations:         cloneWorkflowViolations(input.WorkflowViolations),
 		WorkflowViolationSummary:   input.WorkflowViolationSummary,
 		Decision:                   input.Decision,
 		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,
@@ -90,7 +90,7 @@ func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateS
 	facts := input.StageFacts
 	actionInput := input.ActionGraph
 	if len(actionInput.Blocked) == 0 {
-		actionInput.Blocked = append([]WorkflowViolation(nil), input.WorkflowViolations...)
+		actionInput.Blocked = cloneWorkflowViolations(input.WorkflowViolations)
 	}
 	ledgerGraph := BuildLedgerGraph(facts)
 	outputGraph := BuildOutputProjectionGraph(input.OutputGraph)
@@ -106,7 +106,7 @@ func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateS
 		decisionInput.AllowedNextActions = ActionKindsFromContracts(AllowedNextActionContractsForFacts(facts))
 	}
 	if len(decisionInput.Violations) == 0 {
-		decisionInput.Violations = append([]WorkflowViolation(nil), input.WorkflowViolations...)
+		decisionInput.Violations = cloneWorkflowViolations(input.WorkflowViolations)
 	}
 	if decisionInput.LedgerGraph.FirstMissing == "" && decisionInput.LedgerGraph.NextStage == "" {
 		decisionInput.LedgerGraph = ledgerGraph
@@ -121,7 +121,7 @@ func BuildWorkflowStateSnapshot(input WorkflowStateSnapshotInput) WorkflowStateS
 		OutputGraph:                outputGraph,
 		ArtifactGraph:              BuildArtifactGraphState(input.Artifacts, input.ArtifactLimit),
 		Progress:                   BuildProgressWindow(input.ProgressEvents, progressLimit),
-		WorkflowViolations:         append([]WorkflowViolation(nil), input.WorkflowViolations...),
+		WorkflowViolations:         cloneWorkflowViolations(input.WorkflowViolations),
 		WorkflowViolationSummary:   CloneWorkflowViolationSummary(firstNonEmptyWorkflowViolationSummary(input.WorkflowViolationSummary, BuildWorkflowViolationSummary(input.WorkflowViolations))),
 		Decision:                   BuildWorkflowDecision(decisionInput),
 		DecisionFallbackReasonCode: input.DecisionFallbackReasonCode,

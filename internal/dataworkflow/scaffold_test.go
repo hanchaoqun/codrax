@@ -220,6 +220,7 @@ func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 				string(dataquery.DataActionDeriveFields),
 				string(dataquery.DataActionExtractFields),
 				string(dataquery.DataActionFilterRecords),
+				string(dataquery.DataActionQualifyRecords),
 				string(dataquery.DataActionValueDistribution),
 				string(dataquery.DataActionComputeContribs),
 			},
@@ -240,6 +241,17 @@ func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 		if len(scaffold.InputPaths) == 0 {
 			t.Fatalf("scaffold=%+v, want concrete input path hints", scaffold)
 		}
+		if scaffold.Kind == string(dataquery.DataActionQualifyRecords) {
+			if _, old := scaffold.ParamsTemplate["filters"]; old {
+				t.Fatalf("qualify scaffold must not teach alias key filters: %+v", scaffold.ParamsTemplate)
+			}
+			if _, old := scaffold.ParamsTemplate["reject_filters"]; old {
+				t.Fatalf("qualify scaffold must not teach alias key reject_filters: %+v", scaffold.ParamsTemplate)
+			}
+			if scaffold.ParamsTemplate["filters_json"] == "" || scaffold.ParamsTemplate["reject_filters_json"] == "" {
+				t.Fatalf("qualify scaffold must teach canonical JSON filter keys: %+v", scaffold.ParamsTemplate)
+			}
+		}
 	}
 	raw, err := json.Marshal(scaffolds)
 	if err != nil {
@@ -252,6 +264,7 @@ func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 		string(dataquery.DataActionDeriveFields),
 		string(dataquery.DataActionExtractFields),
 		string(dataquery.DataActionFilterRecords),
+		string(dataquery.DataActionQualifyRecords),
 		string(dataquery.DataActionValueDistribution),
 		string(dataquery.DataActionComputeContribs),
 	} {

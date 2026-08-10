@@ -49,6 +49,10 @@ func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
 		}},
 		WorkflowViolations: []WorkflowViolation{{
 			Code: "field_contract_violation",
+			ObservedFieldValues: []dataquery.ObservedFieldValue{{
+				Field: "status", Value: "unmatched", SourceLocator: "line:2",
+			}},
+			RepairParams: map[string]string{"status_fields": `["status"]`},
 		}},
 	}
 	raw, err := json.Marshal(view)
@@ -75,8 +79,13 @@ func TestWorkflowStateViewOwnsWorkflowStateJSONSchema(t *testing.T) {
 		t.Fatalf("Snapshot=%+v, want contribution fallback and facts", snapshot)
 	}
 	view.WorkflowViolations[0].Code = "mutated"
+	view.WorkflowViolations[0].ObservedFieldValues[0].Value = "mutated"
+	view.WorkflowViolations[0].RepairParams["status_fields"] = "mutated"
 	if snapshot.WorkflowViolations[0].Code != "field_contract_violation" {
 		t.Fatalf("snapshot leaked view violation mutation: %+v", snapshot.WorkflowViolations)
+	}
+	if snapshot.WorkflowViolations[0].ObservedFieldValues[0].Value != "unmatched" || snapshot.WorkflowViolations[0].RepairParams["status_fields"] != `["status"]` {
+		t.Fatalf("snapshot leaked typed repair detail mutation: %+v", snapshot.WorkflowViolations)
 	}
 }
 

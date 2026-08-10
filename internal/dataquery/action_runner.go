@@ -193,15 +193,17 @@ func (e DataMaterialContractError) Violation() DataTaskViolation {
 }
 
 type DataActionDependencyError struct {
-	ActionKind    DataActionKind `json:"action_kind,omitempty"`
-	Role          string         `json:"role,omitempty"`
-	Operation     string         `json:"operation,omitempty"`
-	InputAlias    string         `json:"input_alias,omitempty"`
-	InputAliases  []string       `json:"input_aliases,omitempty"`
-	ExpectedShape string         `json:"expected_shape,omitempty"`
-	ActualSnippet string         `json:"actual_snippet,omitempty"`
-	RepairAction  DataActionKind `json:"repair_action,omitempty"`
-	Message       string         `json:"message,omitempty"`
+	ActionKind          DataActionKind       `json:"action_kind,omitempty"`
+	Role                string               `json:"role,omitempty"`
+	Operation           string               `json:"operation,omitempty"`
+	InputAlias          string               `json:"input_alias,omitempty"`
+	InputAliases        []string             `json:"input_aliases,omitempty"`
+	ExpectedShape       string               `json:"expected_shape,omitempty"`
+	ActualSnippet       string               `json:"actual_snippet,omitempty"`
+	ObservedFieldValues []ObservedFieldValue `json:"observed_field_values,omitempty"`
+	RepairAction        DataActionKind       `json:"repair_action,omitempty"`
+	RepairParams        map[string]string    `json:"repair_params,omitempty"`
+	Message             string               `json:"message,omitempty"`
 }
 
 func (e DataActionDependencyError) Error() string {
@@ -220,18 +222,31 @@ func (e DataActionDependencyError) Error() string {
 }
 
 func (e DataActionDependencyError) Violation() DataTaskViolation {
+	observed := cloneObservedFieldValues(e.ObservedFieldValues)
+	field := ""
+	param := ""
+	if len(observed) > 0 {
+		field = strings.TrimSpace(observed[0].Field)
+	}
+	if len(e.RepairParams) > 0 {
+		param = "status_fields"
+	}
 	return DataTaskViolation{
-		Code:          "action_dependency_violation",
-		Summary:       clampViolationText(e.Error(), 500),
-		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
-		Operation:     strings.TrimSpace(e.Operation),
-		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
-		InputAlias:    strings.TrimSpace(e.InputAlias),
-		InputAliases:  normalizeMaterialPaths(e.InputAliases),
-		Role:          strings.TrimSpace(e.Role),
-		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "required upstream data artifact or ledger"),
-		Repairability: RepairabilityNeedsRecompute,
-		RepairHint:    strings.TrimSpace(string(e.RepairAction)),
+		Code:                "action_dependency_violation",
+		Summary:             clampViolationText(e.Error(), 500),
+		ActionKind:          strings.TrimSpace(string(e.ActionKind)),
+		Field:               field,
+		Operation:           strings.TrimSpace(e.Operation),
+		Param:               param,
+		ActualSnippet:       clampViolationText(e.ActualSnippet, 300),
+		InputAlias:          strings.TrimSpace(e.InputAlias),
+		InputAliases:        normalizeMaterialPaths(e.InputAliases),
+		Role:                strings.TrimSpace(e.Role),
+		ExpectedShape:       firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "required upstream data artifact or ledger"),
+		ObservedFieldValues: observed,
+		RepairParams:        cloneStringStringMap(e.RepairParams),
+		Repairability:       RepairabilityNeedsRecompute,
+		RepairHint:          strings.TrimSpace(string(e.RepairAction)),
 	}
 }
 
@@ -8210,6 +8225,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		groupCandidateRows := 0
 		missingGroupKey := 0
 		var blockedStatusSamples []string
+		var blockedStatusFacts []ObservedFieldValue
 		var missingGroupKeySamples []string
 		for _, record := range records {
 			if !recordPassesFilters(record.Fields, effectiveFilters) {
@@ -8231,9 +8247,16 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 				value = "1"
 			}
 			if !allowUnqualifiedRecords && requireNonEmpty && strings.EqualFold(role, "target") && len(ruleRefs) > 0 {
-				if issues := contributionBlockedGeneratedStatusIssues(record, effectiveStatusFields, statusFilterFields, blockedStatusValues); len(issues) > 0 {
+				if facts := contributionBlockedGeneratedStatusFacts(record, effectiveStatusFields, statusFilterFields, blockedStatusValues); len(facts) > 0 {
 					if len(blockedStatusSamples) < 8 {
-						blockedStatusSamples = append(blockedStatusSamples, strings.Join(issues, ","))
+						blockedStatusSamples = append(blockedStatusSamples, strings.Join(renderObservedStatusFacts(facts), ","))
+					}
+					if len(blockedStatusFacts) < 16 {
+						remaining := 16 - len(blockedStatusFacts)
+						if len(facts) > remaining {
+							facts = facts[:remaining]
+						}
+						blockedStatusFacts = append(blockedStatusFacts, facts...)
 					}
 					continue
 				}
@@ -8286,13 +8309,15 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			fields["blocked_status_samples"] = strings.Join(blockedStatusSamples, "; ")
 			actual := strings.Join(blockedStatusSamples, "; ")
 			return DataArtifact{}, nil, nil, DataActionDependencyError{
-				ActionKind:    DataActionComputeContribs,
-				Role:          "qualification_status",
-				Operation:     "compute_contributions",
-				InputAlias:    rel,
-				ExpectedShape: "explicit include/exclude decisions or resolved status fields before target contribution calculation",
-				ActualSnippet: actual,
-				RepairAction:  DataActionQualifyRecords,
+				ActionKind:          DataActionComputeContribs,
+				Role:                "qualification_status",
+				Operation:           "compute_contributions",
+				InputAlias:          rel,
+				ExpectedShape:       "explicit include/exclude decisions or resolved status fields before target contribution calculation",
+				ActualSnippet:       actual,
+				ObservedFieldValues: cloneObservedFieldValues(blockedStatusFacts),
+				RepairAction:        DataActionQualifyRecords,
+				RepairParams:        generatedStatusRepairParams(blockedStatusFacts),
 				Message: fmt.Sprintf("compute_contributions found rule-qualified target contribution rows with unresolved generated status fields in input %s: %s. Add a qualify_records or filter_records batch to produce explicit include/exclude decisions, or resolve/materialize the evidence fields before computing contributions",
 					rel,
 					actual,
@@ -10405,22 +10430,6 @@ func lowerStringSet(values []string) map[string]bool {
 	return out
 }
 
-func defaultGeneratedBlockingStatusValues() map[string]bool {
-	return map[string]bool{
-		"ambiguous":          true,
-		"matched_ambiguous":  true,
-		"missing":            true,
-		"missing_source":     true,
-		"not_applicable":     true,
-		"not_matched":        true,
-		"unmatched":          true,
-		"unmatched_required": true,
-		"unresolved":         true,
-		"conflict":           true,
-		"invalid":            true,
-	}
-}
-
 func generatedStatusFields(headers []string, records []actionRecord) []string {
 	fields := actionRecordFieldNames(headers, records)
 	fieldSet := map[string]bool{}
@@ -10452,27 +10461,6 @@ func generatedStatusFields(headers []string, records []actionRecord) []string {
 		}
 	}
 	return cleanStringSlice(out)
-}
-
-func contributionBlockedGeneratedStatusIssues(record actionRecord, statusFields []string, statusFilterFields map[string]bool, blockedStatuses map[string]bool) []string {
-	var issues []string
-	for _, field := range statusFields {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		value := strings.ToLower(strings.TrimSpace(recordField(record.Fields, field)))
-		if value == "" || !blockedStatuses[value] {
-			continue
-		}
-		item := firstNonEmptyString(recordField(record.Fields, "id"), recordField(record.Fields, "item_id"), recordField(record.Fields, "row_id"), fmt.Sprintf("line:%d", record.Line))
-		suffix := ""
-		if statusFilterFields[strings.ToLower(field)] {
-			suffix = ":after_filter"
-		}
-		issues = append(issues, fmt.Sprintf("%s=%s@%s%s", field, value, item, suffix))
-	}
-	return issues
 }
 
 func recordQualification(record actionRecord, includeFilters, rejectFilters []contributionFilter, requiredFields, evidenceFields, statusFields []string, acceptedStatuses, blockedStatuses map[string]bool) (bool, string) {

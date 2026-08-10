@@ -274,29 +274,57 @@ const (
 	DataViolationSourceErrorText     = "error_text_fallback"
 )
 
+// ObservedFieldValue keeps a runtime field value separate from its source
+// locator. Repair consumers must not have to parse a presentation string such
+// as "status=unmatched@line:5" to recover either value.
+type ObservedFieldValue struct {
+	Field               string `json:"field"`
+	Value               string `json:"value"`
+	SourceLocator       string `json:"source_locator,omitempty"`
+	RecordID            string `json:"record_id,omitempty"`
+	SelectedAfterFilter bool   `json:"selected_after_filter,omitempty"`
+}
+
+func cloneObservedFieldValues(in []ObservedFieldValue) []ObservedFieldValue {
+	return append([]ObservedFieldValue(nil), in...)
+}
+
+func cloneStringStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 type DataTaskViolation struct {
-	Code                 string            `json:"code"`
-	Source               string            `json:"source,omitempty"`
-	Summary              string            `json:"summary,omitempty"`
-	JSONPath             string            `json:"json_path,omitempty"`
-	ExpectedShape        string            `json:"expected_shape,omitempty"`
-	ActualSnippet        string            `json:"actual_snippet,omitempty"`
-	ActionID             string            `json:"action_id,omitempty"`
-	ActionKind           string            `json:"action_kind,omitempty"`
-	Field                string            `json:"field,omitempty"`
-	Operation            string            `json:"operation,omitempty"`
-	Param                string            `json:"param,omitempty"`
-	InputAlias           string            `json:"input_alias,omitempty"`
-	InputAliases         []string          `json:"input_aliases,omitempty"`
-	MissingFields        []string          `json:"missing_fields,omitempty"`
-	AvailableFieldSample []string          `json:"available_field_sample,omitempty"`
-	Role                 string            `json:"role,omitempty"`
-	Limit                int               `json:"limit,omitempty"`
-	Observed             int               `json:"observed,omitempty"`
-	ScriptLine           int               `json:"script_line,omitempty"`
-	RunnerLine           int               `json:"runner_line,omitempty"`
-	Repairability        DataRepairability `json:"repairability,omitempty"`
-	RepairHint           string            `json:"repair_hint,omitempty"`
+	Code                 string               `json:"code"`
+	Source               string               `json:"source,omitempty"`
+	Summary              string               `json:"summary,omitempty"`
+	JSONPath             string               `json:"json_path,omitempty"`
+	ExpectedShape        string               `json:"expected_shape,omitempty"`
+	ActualSnippet        string               `json:"actual_snippet,omitempty"`
+	ActionID             string               `json:"action_id,omitempty"`
+	ActionKind           string               `json:"action_kind,omitempty"`
+	Field                string               `json:"field,omitempty"`
+	Operation            string               `json:"operation,omitempty"`
+	Param                string               `json:"param,omitempty"`
+	InputAlias           string               `json:"input_alias,omitempty"`
+	InputAliases         []string             `json:"input_aliases,omitempty"`
+	MissingFields        []string             `json:"missing_fields,omitempty"`
+	AvailableFieldSample []string             `json:"available_field_sample,omitempty"`
+	ObservedFieldValues  []ObservedFieldValue `json:"observed_field_values,omitempty"`
+	RepairParams         map[string]string    `json:"repair_params,omitempty"`
+	Role                 string               `json:"role,omitempty"`
+	Limit                int                  `json:"limit,omitempty"`
+	Observed             int                  `json:"observed,omitempty"`
+	ScriptLine           int                  `json:"script_line,omitempty"`
+	RunnerLine           int                  `json:"runner_line,omitempty"`
+	Repairability        DataRepairability    `json:"repairability,omitempty"`
+	RepairHint           string               `json:"repair_hint,omitempty"`
 }
 
 type DataValidationError struct {

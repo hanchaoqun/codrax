@@ -446,6 +446,17 @@ func TestWorkflowViolationsFromRecordExecutionProjectsActionDependencyAsTypedAct
 			Role:          "contributions",
 			Operation:     "reconcile",
 			ExpectedShape: "non-empty contribution ledger",
+			Field:         "canonical_label_status",
+			Param:         "status_fields",
+			ObservedFieldValues: []dataquery.ObservedFieldValue{{
+				Field:         "canonical_label_status",
+				Value:         "unmatched",
+				SourceLocator: "line:5",
+			}},
+			RepairParams: map[string]string{
+				"status_fields": `["canonical_label_status"]`,
+				"output_mode":   "filter",
+			},
 			Repairability: dataquery.RepairabilityNeedsRecompute,
 			RepairHint:    string(dataquery.DataActionComputeContribs),
 		}},
@@ -466,6 +477,11 @@ func TestWorkflowViolationsFromRecordExecutionProjectsActionDependencyAsTypedAct
 	}
 	if len(got.RepairActionHints) != 1 || got.RepairActionHints[0] != string(dataquery.DataActionComputeContribs) {
 		t.Fatalf("RepairActionHints=%v, want compute_contributions", got.RepairActionHints)
+	}
+	if got.Field != "canonical_label_status" || got.Param != "status_fields" ||
+		len(got.ObservedFieldValues) != 1 || got.ObservedFieldValues[0].Value != "unmatched" ||
+		got.RepairParams["status_fields"] != `["canonical_label_status"]` || got.RepairParams["output_mode"] != "filter" {
+		t.Fatalf("violation=%+v, want lossless typed repair field/value/locator/params projection", got)
 	}
 }
 

@@ -870,6 +870,8 @@ func cloneDataTaskViolations(in []dataquery.DataTaskViolation) []dataquery.DataT
 		copied.InputAliases = append([]string(nil), violation.InputAliases...)
 		copied.MissingFields = append([]string(nil), violation.MissingFields...)
 		copied.AvailableFieldSample = append([]string(nil), violation.AvailableFieldSample...)
+		copied.ObservedFieldValues = append([]dataquery.ObservedFieldValue(nil), violation.ObservedFieldValues...)
+		copied.RepairParams = cloneWorkflowStringMap(violation.RepairParams)
 		out = append(out, copied)
 	}
 	return out
@@ -1087,6 +1089,8 @@ func cloneGuardResult(in GuardResult) GuardResult {
 		copied.InputAliases = append([]string(nil), violation.InputAliases...)
 		copied.RepairActionHints = append([]string(nil), violation.RepairActionHints...)
 		copied.CandidateArtifacts = append([]string(nil), violation.CandidateArtifacts...)
+		copied.ObservedFieldValues = append([]dataquery.ObservedFieldValue(nil), violation.ObservedFieldValues...)
+		copied.RepairParams = cloneWorkflowStringMap(violation.RepairParams)
 		out.Violations = append(out.Violations, copied)
 	}
 	return out

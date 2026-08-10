@@ -17,7 +17,7 @@ func NewGuardResult(code, severity string, repairability ViolationRepairability,
 		Severity:      strings.TrimSpace(severity),
 		Repairability: repairability,
 		Message:       strings.TrimSpace(message),
-		Violations:    append([]WorkflowViolation(nil), violations...),
+		Violations:    cloneWorkflowViolations(violations),
 	}
 	if result.Reason == "" {
 		result.Reason = firstNonEmptyGuardText(result.Message, result.guardReason())

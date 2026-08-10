@@ -29983,3 +29983,21 @@ TaskGraph/EvidencePlan/hypotheses/quality gate 归为 Analyzer LLM 直接产物�
 状态：`B451=production-closed`；`B454=P0-confirmed/next-batch`；`B452/B453=P1-confirmed/queued`；
 `r264-human=0/2`；`raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### B454 批次施工：field/value/locator 与 canonical repair params 全链运输
+
+`compute_contributions` 的 generated-status 阻断现在从所有 `*_status` 行生成 `ObservedFieldValue{field,value,
+source_locator,record_id,selected_after_filter}`；原 error text 仍只作人类展示，`DataActionDependencyError -> DataTaskViolation ->
+WorkflowViolation -> workflow_state_json/typed_repair_locus` 全程复制 typed facts。`repair_params` 使用现有
+`qualify_records` canonical schema：精确 `status_fields`、本次观测的 `blocked_statuses`、`auto_status_fields=false` 与
+`output_mode=filter`。模型直接消费 value，不再从 `field=value@locator` 拆值；系统不自动提交或执行该动作。
+
+`QualifyRecordScaffolds` 同步只教学 parser 的 canonical `filters_json/reject_filters_json`，不再用兼容别名增加心智分叉。repair prompt
+明确 source_locator 不属于 value，repair_params 只适用于首个 typed repair action。新 carrier 的 slice/map 在 runtime、guard、snapshot、
+journal 和 completion projection 全部深拷贝；新增 alias-mutation pin 防止后续状态污染。status 逻辑拆入独立文件，
+`action_runner.go` 由 12345 降至 12329 行，没有抬高 LOC ratchet。
+
+验证：`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 与 `go test ./... -count=1` 全绿。
+
+状态：`B454=implemented/full-suite-pass/pending-production-replay`；`B452/B453=next-batch`；
+`typed-value-locator-separation=closed-by-construction`；`system-business-decision=none`；`model-answer-rewrite=none`。

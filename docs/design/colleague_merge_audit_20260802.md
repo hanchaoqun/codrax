@@ -2655,3 +2655,13 @@ field/value/locator 被拼为一个展示字符串，模型误把 locator 纳入
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B451=production-closed`；`B454=P0-next`；`B452/B453=P1-queued`；
 `model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.3 B454 实施结果
+
+独立 repair-carrier GAP 已按 typed 全链修复：generated status 的 field/value/source locator 不再只存在于拼接错误文本，
+`repair_params` 直接给出 parser-compatible `qualify_records` 参数片段；scaffold 统一 canonical JSON filter keys。所有新增复合字段均在
+workflow snapshot/journal/guard 边界深拷贝，避免 live state 被后续修改污染。系统只提供精确事实与结构化修复输入，不自动过滤记录、
+不决定业务归属、不写最终答案。定向三包及全仓测试全绿，等待同 case production replay。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B454=implemented/pending-production-replay`；`B452/B453=queued`；
+`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
