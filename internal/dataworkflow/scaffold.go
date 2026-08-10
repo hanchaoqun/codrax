@@ -46,31 +46,92 @@ func BuildActionScaffolds(input ActionScaffoldBuildInput) []ActionScaffold {
 		return nil
 	}
 	allowed := allowedActionSet(input.State.AllowedNextActions)
-	var out []ActionScaffold
-	appendAllowed := func(kind dataquery.DataActionKind, scaffolds []ActionScaffold) {
-		if len(out) >= limit || !allowed[string(kind)] {
-			return
+	type scaffoldFamily struct {
+		kind      dataquery.DataActionKind
+		scaffolds []ActionScaffold
+	}
+	families := []scaffoldFamily{
+		// At contribution-input stages, keep the actions that can close the
+		// first missing ledger ahead of optional shape refinements. Whether a
+		// scaffold is executable is still an independent typed property.
+		{dataquery.DataActionFilterRecords, FilterRecordScaffolds(records, limit)},
+		{dataquery.DataActionQualifyRecords, QualifyRecordScaffolds(records, limit)},
+		{dataquery.DataActionComputeContribs, ComputeContributionScaffolds(records, limit)},
+		{dataquery.DataActionValueDistribution, ValueDistributionScaffolds(records, limit)},
+		{dataquery.DataActionEnrichRecords, EnrichRecordScaffolds(input.Artifacts, limit)},
+		{dataquery.DataActionJoinRecords, JoinRecordScaffolds(records, limit)},
+		{dataquery.DataActionMappingCandidate, MappingCandidateScaffolds(records, limit)},
+		{dataquery.DataActionNormalizeEntities, NormalizeEntityScaffolds(records, limit)},
+		{dataquery.DataActionApplyResolutions, ApplyResolutionScaffolds(input.Artifacts, limit)},
+		{dataquery.DataActionDeriveFields, DeriveFieldScaffolds(records, limit)},
+		{dataquery.DataActionExtractFields, ExtractFieldScaffolds(records, limit)},
+		{dataquery.DataActionExpandRecords, ExpandRecordScaffolds(records, limit)},
+		{dataquery.DataActionGroupRecords, GroupRecordScaffolds(records, limit)},
+	}
+	filtered := families[:0]
+	for _, family := range families {
+		if allowed[string(family.kind)] && len(family.scaffolds) > 0 {
+			filtered = append(filtered, family)
 		}
-		for _, scaffold := range scaffolds {
-			out = append(out, scaffold)
+	}
+	// The scaffold budget is a transport bound, not a semantic ranker. A
+	// first-family-wins truncation can fill the entire payload with variants of
+	// one prompt-only action and hide a later executable producer for the
+	// workflow's first missing ledger. Allocate fairly across action families,
+	// with executable carriers first, so every represented typed action remains
+	// reachable without increasing the prompt budget.
+	var out []ActionScaffold
+	executableIndices := make([]int, len(filtered))
+	promptIndices := make([]int, len(filtered))
+	indicesFor := func(executable bool) []int {
+		if executable {
+			return executableIndices
+		}
+		return promptIndices
+	}
+	appendOnePerFamily := func(executable bool) {
+		indices := indicesFor(executable)
+		for i := range filtered {
+			for indices[i] < len(filtered[i].scaffolds) && filtered[i].scaffolds[indices[i]].Executable != executable {
+				indices[i]++
+			}
+			if indices[i] >= len(filtered[i].scaffolds) {
+				continue
+			}
+			out = append(out, filtered[i].scaffolds[indices[i]])
+			indices[i]++
 			if len(out) >= limit {
 				return
 			}
 		}
 	}
-	appendAllowed(dataquery.DataActionDeriveFields, DeriveFieldScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionGroupRecords, GroupRecordScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionExtractFields, ExtractFieldScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionExpandRecords, ExpandRecordScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionEnrichRecords, EnrichRecordScaffolds(input.Artifacts, limit-len(out)))
-	appendAllowed(dataquery.DataActionMappingCandidate, MappingCandidateScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionJoinRecords, JoinRecordScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionNormalizeEntities, NormalizeEntityScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionApplyResolutions, ApplyResolutionScaffolds(input.Artifacts, limit-len(out)))
-	appendAllowed(dataquery.DataActionFilterRecords, FilterRecordScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionValueDistribution, ValueDistributionScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionQualifyRecords, QualifyRecordScaffolds(records, limit-len(out)))
-	appendAllowed(dataquery.DataActionComputeContribs, ComputeContributionScaffolds(records, limit-len(out)))
+	appendRemaining := func(executable bool) {
+		indices := indicesFor(executable)
+		for len(out) < limit {
+			advanced := false
+			for i := range filtered {
+				for indices[i] < len(filtered[i].scaffolds) && filtered[i].scaffolds[indices[i]].Executable != executable {
+					indices[i]++
+				}
+				if indices[i] >= len(filtered[i].scaffolds) {
+					continue
+				}
+				out = append(out, filtered[i].scaffolds[indices[i]])
+				indices[i]++
+				advanced = true
+				if len(out) >= limit {
+					return
+				}
+			}
+			if !advanced {
+				return
+			}
+		}
+	}
+	appendOnePerFamily(true)
+	appendOnePerFamily(false)
+	appendRemaining(true)
+	appendRemaining(false)
 	return out
 }
 

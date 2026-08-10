@@ -669,8 +669,10 @@ func TestDataTaskWorkflowNextStageFallbackStopsRepeatedJoinNoProgress(t *testing
 	if !found {
 		t.Fatalf("WorkflowViolations=%+v, want stage_no_progress", state.WorkflowViolations)
 	}
-	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); ok {
-		t.Fatalf("fallback=%+v reason=%q, want no automatic join after repeated no-progress joins", plan, reason)
+	if plan, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed"); !ok {
+		t.Fatalf("fallback ok=false, want a non-relation typed escape after repeated joins")
+	} else if len(plan.Actions) != 1 || dataTaskActionKindIsRelationMaterialization(plan.Actions[0].Kind) {
+		t.Fatalf("fallback=%+v reason=%q, repeated relation no-progress may only escape through a non-relation typed action", plan, reason)
 	}
 }
 
@@ -8461,6 +8463,69 @@ func TestDataTaskContinuationCoreNoToolUsesTypedFallback(t *testing.T) {
 	}
 	if len(result.Plan.Actions) != 1 || result.Plan.Actions[0].Kind != dataquery.DataActionDeriveRules {
 		t.Fatalf("plan=%+v, want deterministic derive_rules fallback", result.Plan)
+	}
+}
+
+func TestDataTaskContinuationInvalidPlanParamsPreservesSourceNamedArtifactWithRepo(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("id,amount\nu1,17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planner := &stubDataTaskPlanner{
+		continueErr: fmt.Errorf("%w; compact tool-param repair also failed", &replStructuredToolParamError{
+			ToolName: dataTaskPlanTool.Name,
+			Scope:    "data task planner",
+			Err:      errors.New(`$.actions[0].input_paths is missing`),
+		}),
+	}
+	current := dataquery.TaskPlan{
+		Status:        "ready",
+		ContinueAfter: true,
+		Actions: []dataquery.DataAction{{
+			ID:         "apply_resolution",
+			Kind:       dataquery.DataActionApplyResolutions,
+			InputPaths: []string{"records.csv"},
+		}},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path:      "records.csv",
+				Purpose:   dataTaskUserExplicitMaterialPurpose,
+				Required:  true,
+				UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			ContributionLedgerRequired: true,
+		},
+	}
+	view := dataTaskWorkflowRuntimeView{
+		CurrentPlan: current,
+		Records: []dataTaskWorkflowRecord{{
+			Plan: current,
+			Result: &dataquery.Result{
+				ConsumedPaths: []string{"records.csv"},
+				Artifacts: []dataquery.DataArtifact{{
+					ID:      "records.csv",
+					Kind:    string(dataquery.DataActionExtractRecords),
+					Headers: []string{"id", "amount"},
+					Fields: map[string]string{
+						"artifact_aliases": "records.csv,records",
+						"json_shape":       "array(len=1,item=object(keys=id,amount))",
+					},
+				}},
+			},
+		}},
+	}
+	result, err := dataTaskRunContinuationPlannerWithRuntimeView(context.Background(), planner, "continue data task", root, TurnPolicy{Route: RouteData}, nil, view, "")
+	if err != nil {
+		t.Fatalf("dataTaskRunContinuationPlannerWithRuntimeView: %v", err)
+	}
+	if result.FallbackReason == "" {
+		t.Fatalf("result=%+v, want typed fallback provenance", result)
+	}
+	if len(result.Plan.Actions) != 1 {
+		t.Fatalf("plan=%+v, want one typed next-stage action", result.Plan)
+	}
+	if got := strings.Join(result.Plan.CoverageContract.RequiredRunnerInputPaths(), ","); got != "records.csv" {
+		t.Fatalf("required runner inputs=%q, want the real source file preserved despite its generated-artifact alias", got)
 	}
 }
 

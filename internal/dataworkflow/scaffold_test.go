@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -257,6 +258,49 @@ func TestBuildActionScaffoldsBuildsGenericTypedActions(t *testing.T) {
 		if !slices.Contains(kinds, want) {
 			t.Fatalf("scaffold kinds=%v, want %s", kinds, want)
 		}
+	}
+}
+
+func TestBuildActionScaffoldsBudgetCannotStarveRequiredLedgerFamily(t *testing.T) {
+	var artifacts []ArtifactSchemaProjection
+	for i := 0; i < 12; i++ {
+		artifacts = append(artifacts, ArtifactSchemaProjection{
+			ID:        fmt.Sprintf("records_%02d", i),
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Aliases:   []string{fmt.Sprintf("records_%02d.json", i)},
+			JSONShape: "array(len=2,item=object(keys=id,status,amount))",
+			Fields:    []string{"id", "status", "amount"},
+		})
+	}
+	got := BuildActionScaffolds(ActionScaffoldBuildInput{
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			ContributionLedgerRequired: true,
+			EntityStageMaterialized:    true,
+			NextStage:                  StagePrepareContributionInputs,
+			AllowedNextActions: []string{
+				string(dataquery.DataActionExtractFields),
+				string(dataquery.DataActionExpandRecords),
+				string(dataquery.DataActionValueDistribution),
+				string(dataquery.DataActionComputeContribs),
+			},
+		},
+		Artifacts: artifacts,
+		Limit:     10,
+	})
+	if len(got) != 10 {
+		t.Fatalf("len(scaffolds)=%d, want bounded 10", len(got))
+	}
+	var sawCompute bool
+	for _, scaffold := range got {
+		if scaffold.Kind == string(dataquery.DataActionComputeContribs) {
+			sawCompute = true
+			break
+		}
+	}
+	if !sawCompute {
+		t.Fatalf("scaffolds=%+v, compute_contributions was starved by variants from earlier action families", got)
 	}
 }
 

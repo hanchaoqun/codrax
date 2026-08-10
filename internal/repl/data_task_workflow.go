@@ -146,7 +146,7 @@ func dataTaskRunContinuationPlannerWithRuntimeView(ctx context.Context, continue
 	var fallbackOK bool
 	if err != nil {
 		errText = err.Error()
-		fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallback(view.Records, view.CurrentPlan, err)
+		fallback, fallbackReason, fallbackOK = dataTaskDeterministicContinuationFallbackWithRepo(repoRoot, view.Records, view.CurrentPlan, err)
 	}
 	plannerDecision := dataworkflow.DecidePlannerPlanResult(dataworkflow.PlannerPlanDecisionInput{
 		Plan:              nextPlan,
@@ -7230,10 +7230,14 @@ func dataTaskTerminalWorkflowDecision(repoRoot string, records []dataTaskWorkflo
 }
 
 func dataTaskDeterministicContinuationFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, err error) (dataquery.TaskPlan, string, bool) {
+	return dataTaskDeterministicContinuationFallbackWithRepo("", records, current, err)
+}
+
+func dataTaskDeterministicContinuationFallbackWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, err error) (dataquery.TaskPlan, string, bool) {
 	if err == nil {
 		return dataquery.TaskPlan{}, "", false
 	}
-	return dataTaskWorkflowNextStageFallback(records, current, "continuation planner failed")
+	return dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "continuation planner failed")
 }
 
 func dataTaskWorkflowNextStageFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {

@@ -940,7 +940,7 @@ func nextDataTaskPlanFromResumeForCLI(ctx context.Context, planner DataTaskPlann
 		if err == nil {
 			logging.Info("[cli/data] resume continuation planner returned an empty plan shape; falling back to typed checkpoint state")
 		}
-		if fallback, reason, ok := dataTaskDeterministicContinuationFallback(records, current, err); ok {
+		if fallback, reason, ok := dataTaskDeterministicContinuationFallbackWithRepo(repoRoot, records, current, err); ok {
 			logging.Info("[cli/data] resume continuation planner failed; %s", reason)
 			return fallback, nil
 		}

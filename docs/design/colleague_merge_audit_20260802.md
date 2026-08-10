@@ -2568,3 +2568,19 @@ producer；成文校验索引纳入 StageOutput/BusContext typed evidence，并�
 
 状态：`B447=production-closed`；`EVAL-B449-TYPERELATIONEVIDENCEEXPORT1=production-closed`；
 `B445/B448=pending-production-replay`；`MERGE-AUDIT-6=closed`；`model-answer-rewrite=none`。
+
+### §11.8 r262 后续：普通 continuation fallback 与 scaffold 预算断层
+
+严格并行 data+Trace 回放发现审计项关闭后的独立 P0 `B450`：data typed state 正确要求补 contributions，但普通
+continuation plan 两次 schema-invalid 后，fallback 一方面未携带 repoRoot，另一方面只收到 first-family-wins 截断后的前 10 条
+scaffold；合法的贡献 family 被早期 action 变体饿死，最终以 planner 参数错误终止。
+
+已在共享边界修复：continuation/resume fallback 统一 repo-aware；不增加 10 条 transport 预算，按 action family 公平保留并优先
+可执行 carrier，使状态的 allowed actions 与候选构造可达性一致。r262 checkpoint 原样复算已由无候选变为非 relation typed
+`value_distribution` 候选，后续仍需模型/validator/evaluator完成业务筛选与贡献计算，系统不代答。定向与全仓测试全绿，待 production replay。
+
+并行 H7 的 runner FAIL 经人工判为旧 oracle，不是 Trace 生产退化：当前链上根因、显式窗、系统补齐、双维根因、因果投影均完整；
+旧 `0.018/49.638/0.105` 展示钉与现行 typed `0.033/49.623 + incomplete enumeration` 不一致，独立更新 eval case，禁止倒改生产值。
+
+状态：`B450=implemented/full-suite-pass/pending-production-replay`；`H7-oracle=stale`；
+`B445/B448=pending-production-replay`；`model-answer-rewrite=none`。

@@ -29852,3 +29852,33 @@ exact-two 复放 `data_json_strict_ids` 与 `qf_type_relation_loop_controller`�
 状态：`B447=production-closed`；`B449=production-closed`；`B446=production-closed`；
 `B445/B448=pending-production-replay`；`finalizer-reject=1-legitimate-direction-repair`；
 `raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
+
+### 123.473 r262：data continuation 参数失效的双重 fallback 断层；H7 金样 oracle 漂移
+
+exact-two 为 `data_multifile_reference_projection` 与 `real_trace_h7_self_seat_full_spectrum`，runner 为 `FAIL/FAIL`
+（115s/143s），人工为 `FAIL/PASS`：
+
+1. data 的 typed ledger/state 判断正确：11 条规则在场，contributions 缺失，reconcile/final projection 均被依赖阻塞，
+   `next_stage=prepare_contribution_inputs`；失败不是 JSON 结果损坏，也不是把不完整状态签成 complete；
+2. 普通 continuation planner 的 normal+compact 两次 `emit_data_task_plan` 分别缺 `input_paths`、携带 schema 外
+   `lookup_path`。B448 只覆盖 repair-planner 入口，本次普通 continuation 入口虽有 deterministic fallback，却丢失
+   `repoRoot`，会在“真实源文件名同时也是生成 artifact alias”时错误收窄 material authority；
+3. 更深层的同合同断层是固定 10 条 `ActionScaffold` 预算采取 first-family-wins：多个 artifact 的
+   `extract_fields/expand_records` 变体占满载体，`filter/qualify/compute_contributions` 等能推进首个缺失 ledger 的
+   action family 被完全裁掉。于是状态一面明确允许 compute，候选构造面却无动作，登记
+   `EVAL-B450-DATACONTINUATIONFALLBACK1=P0`；
+4. B450 根修分两层：所有 continuation/resume deterministic fallback 传递真实 `repoRoot`；scaffold 预算不增大，改为
+   action-family 公平取样，并优先承载可执行 typed scaffold，再用剩余席位承载需要模型补参数的 family。重复 relation
+   no-progress 后允许 value-distribution 等非 relation typed escape，仍禁止再次自动 join/apply；候选仍经过 prepare、执行、
+   validator、evaluator，不生成答案；
+5. 用 r262 checkpoint 反证：修前相同 state 返回 `ok=false`，修后生成 repo-aware、coverage-preserving 的
+   `value_distribution` typed candidate；正式 pin 覆盖 source/artifact 同名与 12 artifact 挤压 10 席时
+   `compute_contributions` family 不得饿死。`go test ./internal/dataworkflow ./internal/repl -count=1` 与
+   `go test ./... -count=1` 全绿；
+6. H7 runner fail 是历史 oracle 漂移：case 仍钉 2026-07-16 的 `49.656=0.018+49.638` 与微席合计 `0.105`，当前
+   typed 投影稳定为 `49.656=0.033+49.623`，且明确披露 `enumeration_status=incomplete`。人工答案的链上根因、两维占用/
+   可消除量、D/IO、反转、语义优化及邻近降道均正确；不回滚生产真值，oracle 独立批更新。
+
+状态：`B450=implemented/full-suite-pass/pending-production-replay`；`H7-oracle=stale/update-next-batch`；
+`B445/B448=pending-production-replay`；`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain-causality=`unchanged`。
