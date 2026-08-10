@@ -3270,3 +3270,15 @@ item 统一携带 exact typed row_id，row_id 单源选择 family/location/citat
 
 状态：`B483=implemented/full-suite-pass/pending-production-replay`；`system-visible-answer-authoring=none`；
 `raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.47 r281：B483 关闭，Trace 链上/背景/双口径隔离通过
+
+exact-two runner 2/2、人工 0/2。Cangjie 首稿携带全部 12 个 exact row_id，逐行 citation/package 正确且零 reject，B483 获直接生产正证并关闭。
+一句“public class 不含 sealed/abstract”与同页 typed roster 自相矛盾；上下文已足，记 B484/P2-watch，禁止新增 final-prose hard scan。
+
+Trace 显式窗、自动补齐、因果投影、on-chain semantic class verification、4.600ms effective 与 5.000ms actual 双轴、调度供给次席、背景降级和
+frame-causality caveat 全部保持。模型把 4.600ms overlap 误写成 5.000ms 完全重叠，但 finalizer prompt 已精确并置 overlap/actual/interval，记
+B485/P2-watch 模型波动；系统不得替换该结论。后续异构复现前不做 type/fixture 拟合。
+
+状态：`B483=closed`；`B484/B485=P2-watch`；`B479/B482=P1-open`；`trace-isolation=pass`；
+`system-answer-authoring=none`；`raw-prose-hard-gate=none`。

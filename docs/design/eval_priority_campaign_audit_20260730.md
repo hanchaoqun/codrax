@@ -31000,3 +31000,22 @@ hard gate 只读取 item label/row_id、block family、typed registry 与 citati
 状态：`B483=implemented/full-suite-pass/pending-production-replay`；`B481=production-positive`；`B479/B482=P1`；
 `visible-row/conclusion-authoring=none`；`typed-row-metadata-normalization=exact-only`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.501 r281：B483 生产关闭；Trace 隔离通过，两个 model-owned 措辞波动留观
+
+在 `main@f05dea88e` exact-two 并发 Cangjie source inventory 与带显式窗的 Trace semantic-span 根因用例。runner=`2/2`，人工=`0/2`；详见
+`eval/parallel_selected_summary_evalcampaign_inventory_trace_r281_20260810_manual_audit.md`。
+
+Cangjie finalizer 首稿为全部 12 个 item 复制 prompt-visible `source_inventory_row_id`，extend/foreign func/public class 的 member、文件、package 与
+citation 全部逐行正确，零 reject；B483 获生产闭环。残余是一句模型正文称 8 个 public class“不含 sealed/abstract”，随后又列出 typed roster 中的
+Animal/Service。typed context 已明确两者属于该 bucket，因此先记 `B484/P2-watch` 为模型自相矛盾波动；禁止扫描 final prose 做 hard gate，待跨语言重复
+后再裁 soft bucket-membership 提醒。
+
+Trace 隔离回归保住了显式 `5.000..5.007s`、自动补采、链上 class verification #1、runnable #2、4.600ms 现规则可消、5.000ms 原始语义占用、
+确定性优化点、frame_causality=unproven 及背景 supply pressure 降级。模型仍把实际 span 5.000ms 说成与 sleep 5.000ms“完全重叠/直接决定”；
+typed prompt 已逐字给出 overlap/effective=4.600ms、actual span=5.000400..5.005400、wakeup=5.005000 及 measured-vs-effective 边界。因此记
+`B485/P2-watch` 为已给足精确信息后的模型波动，不由系统改写结论；仅在异构复现后考虑 soft caliber 提醒或独立语义审阅。
+
+状态：`B483=closed/direct-production-witness`；`B484/B485=P2-watch/model-fluctuation`；`B479/B482=P1-open`；
+`runner=2/2,human=0/2`；`trace-structural-isolation=pass`；`system-visible-answer/conclusion-rewrite=none`；
+`raw-request/model-prose-hard-gate=none`。
