@@ -601,6 +601,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}
 	groundContextStart := time.Now()
 	gc := ground.BuildContext(ctx)
+	attachEmitEvidenceSourceGraphResolver(ctx, gc)
 	recordToolRuntimeTiming(&runtimeTimings, emitEvidenceGroundContextTimingPhase(gc), groundContextStart, len(p.Items))
 	for i, in := range p.Items {
 		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
@@ -1042,6 +1043,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}, nil
 }
 
+func attachEmitEvidenceSourceGraphResolver(ctx *types.BusContext, gc *ground.Context) {
+	if ctx == nil || gc == nil || ctx.MultiGraph == nil {
+		return
+	}
+	resolver, ok := ctx.MultiGraph.(interface {
+		SourceGraphFile(string) (*repomap.Graph, *repomap.FileInfo, string, bool)
+	})
+	if !ok || resolver == nil {
+		return
+	}
+	gc.SourceGraphFile = resolver.SourceGraphFile
+}
+
 // stabilizeUnprovenCallAnchorAuthority prevents a source mention from entering
 // the answer context as a typed call edge. Exact call
 // authority requires all of: line scope, a canonical call predicate, explicit
@@ -1063,19 +1077,25 @@ func stabilizeUnprovenCallAnchorAuthority(it *types.EvidenceItem, gc *ground.Con
 	caller := strings.TrimSpace(it.Subject)
 	callee := strings.TrimSpace(it.Object)
 	parserProvesCall := false
-	if gc != nil && gc.Graph != nil && caller != "" && callee != "" {
-		source := ground.CanonicalContextPath(gc, it.Source)
-		if fi := gc.Graph.FileIndex[source]; fi != nil {
+	ownerGraphAvailable := false
+	ownerCallerProven := false
+	if gc != nil && caller != "" && callee != "" {
+		_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+		if ok {
+			ownerGraphAvailable = true
 			actualCaller := enclosingCallableSymbolName(fi, it.LineStart)
+			ownerCallerProven = qualifiedCallEndpointEqual(actualCaller, caller)
 			rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, []string{callee})
-			parserProvesCall = ok && qualifiedCallEndpointEqual(actualCaller, caller) &&
+			parserProvesCall = ok && ownerCallerProven &&
 				qualifiedCallEndpointEqual(rel.ToEP.Name, callee)
 		}
 	}
+	lineProvesCall := ground.LineHasDirectCallToTarget(gc, it.Source, it.LineStart, callee)
+	directionProven := parserProvesCall || (lineProvesCall && (!ownerGraphAvailable || ownerCallerProven))
 	if it.Scope == types.ScopeLine && it.LineStart > 0 && it.LineEnd == it.LineStart &&
 		callLikePredicates[predicate] &&
 		caller != "" && callee != "" &&
-		(parserProvesCall || ground.LineHasDirectCallToTarget(gc, it.Source, it.LineStart, callee)) {
+		directionProven {
 		return false
 	}
 	it.AnchorKind = types.AnchorTextReference
@@ -1994,7 +2014,13 @@ func emitEvidenceAnchorCandidatesFromGraph(in emitEvidenceItem, anchorKind types
 }
 
 func emitEvidenceGraphFileInfo(gc *ground.Context, source string) *repomap.FileInfo {
-	if gc == nil || gc.Graph == nil {
+	if gc == nil {
+		return nil
+	}
+	if _, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, source); ok {
+		return fi
+	}
+	if gc.Graph == nil {
 		return nil
 	}
 	candidates := []string{
@@ -2802,7 +2828,7 @@ func emitEndpointIdentityCompatible(left, right string) bool {
 // reuse that existing structure here instead of asking downstream
 // stages to infer direction from prose.
 func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) bool {
-	if it == nil || gc == nil || gc.Graph == nil || it.AnchorKind != types.AnchorCall {
+	if it == nil || gc == nil || it.AnchorKind != types.AnchorCall {
 		return false
 	}
 	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
@@ -2814,9 +2840,8 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if !stampMissingCallPredicate && !callLikePredicates[predicate] {
 		return false
 	}
-	source := ground.CanonicalContextPath(gc, it.Source)
-	fi, ok := gc.Graph.FileIndex[source]
-	if !ok || fi == nil {
+	graph, fi, _, source, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return false
 	}
 	candidates := emitPreferredCallTargetNames(it)
@@ -2828,7 +2853,7 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	// when the index cannot resolve a unique target; unresolved dynamic calls
 	// therefore keep their original bounded identity instead of being guessed.
 	if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
-		if target := gc.Graph.ResolveCallTarget(fi, *rel); target != nil {
+		if target := graph.ResolveCallTarget(fi, *rel); target != nil {
 			callee = qualifiedEvidenceSymbolName(target)
 		}
 	}
@@ -2836,7 +2861,7 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 		if exact, ok := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); ok {
 			callee = exact
 		} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
-			callee = callRelationTargetName(gc.Graph, fi, rel)
+			callee = callRelationTargetName(graph, fi, rel)
 		}
 	}
 	if caller == "" || callee == "" {
@@ -2886,7 +2911,7 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 // case identity.  It is therefore safe to run before the hard grounding gate
 // across every supported source language.
 func realignExplicitCallEvidenceLine(it *types.EvidenceItem, gc *ground.Context) bool {
-	if it == nil || gc == nil || gc.Graph == nil || it.AnchorKind != types.AnchorCall || it.LineStart <= 0 {
+	if it == nil || gc == nil || it.AnchorKind != types.AnchorCall || it.LineStart <= 0 {
 		return false
 	}
 	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
@@ -2898,9 +2923,8 @@ func realignExplicitCallEvidenceLine(it *types.EvidenceItem, gc *ground.Context)
 	if caller == "" || callee == "" {
 		return false
 	}
-	source := ground.CanonicalContextPath(gc, it.Source)
-	fi, ok := gc.Graph.FileIndex[source]
-	if !ok || fi == nil {
+	_, fi, _, source, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return false
 	}
 	if explicitDirectedCallMatchesLine(gc, fi, source, it.LineStart, caller, callee) {
@@ -3365,12 +3389,11 @@ func stabilizeLineLocalCallableOwner(it *types.EvidenceItem, gc *ground.Context)
 	default:
 		return false
 	}
-	if gc == nil || gc.Graph == nil {
+	if gc == nil {
 		return false
 	}
-	source := ground.CanonicalContextPath(gc, it.Source)
-	fi, ok := gc.Graph.FileIndex[source]
-	if !ok || fi == nil {
+	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return false
 	}
 	owner := enclosingEvidenceCallableOwner(it, gc)
@@ -3952,7 +3975,7 @@ func normalizeStatementLocalAnchorClaim(s string) string {
 }
 
 func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) string {
-	if it == nil || gc == nil || gc.Graph == nil || it.Source == "" || it.LineStart <= 0 {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 {
 		return ""
 	}
 	switch it.AnchorKind {
@@ -3960,21 +3983,19 @@ func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) 
 	default:
 		return ""
 	}
-	source := ground.CanonicalContextPath(gc, it.Source)
-	fi, ok := gc.Graph.FileIndex[source]
-	if !ok || fi == nil {
+	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return ""
 	}
 	return enclosingCallableSymbolName(fi, it.LineStart)
 }
 
 func enclosingEvidenceQualifiedCallableOwner(it *types.EvidenceItem, gc *ground.Context) string {
-	if it == nil || gc == nil || gc.Graph == nil || it.Source == "" || it.LineStart <= 0 || it.AnchorKind != types.AnchorCall {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 || it.AnchorKind != types.AnchorCall {
 		return ""
 	}
-	source := ground.CanonicalContextPath(gc, it.Source)
-	fi, ok := gc.Graph.FileIndex[source]
-	if !ok || fi == nil {
+	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return ""
 	}
 	return qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, it.LineStart))

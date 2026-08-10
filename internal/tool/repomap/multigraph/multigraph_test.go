@@ -237,6 +237,10 @@ func TestMultiGraph_MultiRepoFiles(t *testing.T) {
 	if fi.RelPath != "main.go" {
 		t.Errorf("internal RelPath = %q, want main.go (sub-repo prefix stripped)", fi.RelPath)
 	}
+	ownerGraph, ownerFile, internal, ownerHit := mg.SourceGraphFile("repo-b/src/lib.rs")
+	if !ownerHit || ownerGraph != gB || ownerFile == nil || ownerFile.RelPath != "src/lib.rs" || internal != "src/lib.rs" {
+		t.Fatalf("SourceGraphFile = (%p, %+v, %q, %t), want repo-b graph/file/internal path", ownerGraph, ownerFile, internal, ownerHit)
+	}
 	// Cross-repo lookup: nope.
 	if _, _, hit := mg.FileInfoFor("repo-x/main.go"); hit {
 		t.Errorf("FileInfoFor for unknown sub-repo should miss")

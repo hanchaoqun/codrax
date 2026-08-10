@@ -99,6 +99,41 @@ type Context struct {
 	// classified as plain English. Single-repo posture is
 	// byte-equivalent (mg.Oracle() forwards through one graph).
 	MultiGraphOracle types.SymbolOracle
+
+	// SourceGraphFile resolves a parent-workspace source path to the graph
+	// and FileInfo owned by its active sub-repository. Multi-repo callers wire
+	// this from the tool layer, which can see the concrete MultiGraph without
+	// introducing ground -> multigraph -> topology -> tool import cycles.
+	// The returned source path is sub-repo-internal and therefore matches the
+	// owning graph's FileIndex. Nil preserves the legacy single-graph path.
+	SourceGraphFile func(string) (*repomap.Graph, *repomap.FileInfo, string, bool)
+}
+
+// ResolveSourceGraphFile returns the typed graph/file that owns source. The
+// optional owner-routed resolver wins over Graph because a parent multi-repo
+// run may keep only a primary-sub-repo compatibility graph in Context.Graph.
+// visibleSource remains parent-workspace-relative for LineIndex lookups;
+// graphSource is the owning graph's sub-repo-internal key.
+func ResolveSourceGraphFile(gc *Context, source string) (graph *repomap.Graph, file *repomap.FileInfo, graphSource, visibleSource string, ok bool) {
+	if gc == nil {
+		return nil, nil, "", "", false
+	}
+	visibleSource = canonicalContextPath(gc, source)
+	if visibleSource == "" {
+		return nil, nil, "", "", false
+	}
+	if gc.SourceGraphFile != nil {
+		if graph, file, graphSource, ok = gc.SourceGraphFile(visibleSource); ok && graph != nil && file != nil {
+			return graph, file, graphSource, visibleSource, true
+		}
+	}
+	if gc.Graph == nil {
+		return nil, nil, "", visibleSource, false
+	}
+	if file = gc.Graph.FileIndex[visibleSource]; file != nil {
+		return gc.Graph, file, visibleSource, visibleSource, true
+	}
+	return nil, nil, "", visibleSource, false
 }
 
 // BuildContext assembles a grounding Context from the caller's
@@ -3273,19 +3308,23 @@ var conditionKeywords = []string{
 var returnKeywords = []string{"return ", "return\t", "return(", "return;", "yield "}
 
 func graphMatchDefinition(it *types.EvidenceItem, gc *Context) bool {
-	if gc == nil || gc.Graph == nil {
+	if gc == nil {
 		return false
 	}
 	name := preferredSymbolName(it)
 	if name == "" {
 		return false
 	}
-	for _, sym := range gc.Graph.SymbolsInFile(it.Source) {
+	_, fi, _, visibleSource, ok := ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
+		return false
+	}
+	for _, sym := range fi.Symbols {
 		if sym.Line != it.LineStart {
 			continue
 		}
 		if sym.Name == name || lastDotSegment(name) == sym.Name {
-			if line := canonicalGraphSymbolLine(gc, it.Source, sym.Line, name); line > 0 {
+			if line := canonicalGraphSymbolLine(gc, visibleSource, sym.Line, name); line > 0 {
 				it.LineStart = line
 			}
 			return true
@@ -3310,11 +3349,11 @@ func canonicalGraphSymbolLine(gc *Context, source string, graphLine int, anchor 
 }
 
 func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {
-	if gc == nil || gc.Graph == nil {
+	if gc == nil {
 		return false
 	}
-	fi, ok := gc.Graph.FileIndex[it.Source]
-	if !ok || fi == nil {
+	_, fi, _, _, ok := ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return false
 	}
 	candidates := preferredCallTargetNames(it)
@@ -3339,11 +3378,11 @@ func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {
 }
 
 func graphMatchImport(it *types.EvidenceItem, gc *Context) bool {
-	if gc == nil || gc.Graph == nil {
+	if gc == nil {
 		return false
 	}
-	fi, ok := gc.Graph.FileIndex[it.Source]
-	if !ok || fi == nil {
+	_, fi, _, _, ok := ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
 		return false
 	}
 	name := strings.TrimSpace(it.AnchorSymbol)

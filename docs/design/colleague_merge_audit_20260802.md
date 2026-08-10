@@ -3208,3 +3208,17 @@ answer wrapper/core 合并、引用错位与删图。修复必须按 source owne
 状态：`B477b=closed`；`B480=confirmed/P0-next`；`B479=P1`；`B478/B474=pending`；
 `runner=2/2,human=0/2`；`typed-but-wrong-directed-call=forbidden`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+#### §11.10.42 B480 完成：source-owner graph 成为 directed call 的 caller 权威
+
+新增 MultiGraph `SourceGraphFile` 窄接口，通过 ground Context callback 把 parent-relative cited source 路由到 active owning sub-repo graph/FileInfo。
+emit_evidence 的 call direction、realignment、OwnerSymbol 及 statement owner 校准均改用 owner file；ground 的 definition/call/import Tier-2 match 同源，
+不再让 primary compatibility graph 代表其它子仓。
+
+directed call 现在要求 owning FileInfo 的 enclosing callable 与 exact parser/read-line callee 合取。owning graph 可用但 caller 无法证明时降为普通文本证据；
+无 MultiGraph/单仓仍走旧 Graph fallback。该规则跨语言、无框架关键词、无原始 prose hard gate，且不由系统生成边或答案。专项 tool/ground/multigraph、
+agent/orchestrator 联合套件及 `go test ./... -count=1` 全绿。
+
+状态：`B480=implemented/full-suite-pass/pending-production-replay`；`B479=P1-next-after-replay`；
+`B478/B474=pending`；`typed-but-wrong-directed-call=fail-closed`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

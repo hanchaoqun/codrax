@@ -30900,3 +30900,24 @@ typed graph 已存在却无法完成方向校准，不能以 model-authored subj
 状态：`B477b=closed/direct-production-witness`；`B479=open/P1`；`B480=confirmed/P0-next`；
 `B478/B474=pending-after-B480`；`runner=2/2,human=0/2`；`system-edge/conclusion-authoring=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.496 B480 完成：多仓证据按 cited source owner 校准 caller
+
+r278 的错误 `_fastlex -> tokenize_bytes` row 不是 LLM 单独造成：工具在 parent multi-repo 运行中只拿 primary compatibility graph，无法从
+`bindings-py/...` 行取得 enclosing callable，随后仍以已读行出现 callee 为由保留 model-authored caller。本批为 MultiGraph 增加窄
+`SourceGraphFile` surface，返回 cited source 的 active owning graph、FileInfo 与 sub-repo-internal key；ground Context 通过回调消费，避免
+`ground -> multigraph -> topology -> tool` import cycle。
+
+`normalizeCallEvidenceDirection`、bounded line realignment、owner stamp、line-local owner guard 及 definition/call/import Tier-2 match 统一使用该 resolver。
+调用方向的精确合同是：owning graph 的 enclosing callable 证明 caller，exact parser relation 或已读 exact source line 证明 callee；两者合取后才保留
+directed call authority。owning graph 已存在却无法证明 caller 时，即使源码行含 callee，也降为 `text_reference`，不得让模型填写的 subject 进入 hard
+diagram/finalizer authority。索引 callee relation 陈旧但 caller scope 精确、源码 callee 精确时仍可成立，保留既有 read-line 恢复能力。
+
+该实现按 source ownership、FileInfo symbol span 与 call syntax 工作，不按 Python/PyO3/Java/ArkTS/Cangjie 等语言名分支，不扫描 request、thinking
+或 final prose，不生成关系或答案。单仓/无 MultiGraph 保持原 `Context.Graph` fallback；resolver 仅挂到每次 emit_evidence 的 Context clone，
+不污染 grounding cache。回归覆盖错误 primary graph+Python owning graph、缺 enclosing caller fail-closed、resolver 接线、Rust wrapper/core、Java
+resolved receiver 与 C multi-repo path，并通过 `go test ./... -count=1`。
+
+状态：`B480=implemented/full-suite-pass/pending-production-replay`；`B477b=closed`；`B479=P1`；
+`B478/B474=pending-after-replay`；`typed-directed-call=owner-caller+exact-callee`；`system-edge/conclusion-authoring=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

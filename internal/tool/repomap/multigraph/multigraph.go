@@ -589,6 +589,24 @@ func (m *MultiGraph) FileInfoFor(relPathFromParent string) (*rmtypes.FileInfo, *
 	return nil, sr, false
 }
 
+// SourceGraphFile resolves a parent-workspace source path to its active owning
+// graph, the graph's FileInfo, and the sub-repo-internal FileIndex key. The
+// signature intentionally exposes only repomap/types values so callers in the
+// tool package can consume it through a narrow interface without importing
+// multigraph/topology and creating an import cycle.
+func (m *MultiGraph) SourceGraphFile(relPathFromParent string) (*rmtypes.Graph, *rmtypes.FileInfo, string, bool) {
+	g, sr, hit := m.GraphFor(relPathFromParent)
+	if !hit || g == nil {
+		return nil, nil, "", false
+	}
+	internal := stripSubRepoPrefix(sr, relPathFromParent)
+	fi := g.FileIndex[internal]
+	if fi == nil {
+		return nil, nil, internal, false
+	}
+	return g, fi, internal, true
+}
+
 // stripSubRepoPrefix removes sr.RootRel from path-from-parent,
 // returning the sub-repo-internal relPath.
 func stripSubRepoPrefix(sr *topology.SubRepo, relFromParent string) string {

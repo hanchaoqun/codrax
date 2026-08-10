@@ -175,3 +175,105 @@ func TestNormalizeCallEvidenceDirectionKeepsRustInlineWrapperAndCoreDistinct(t *
 		t.Fatalf("normalized edge=%q -> %q, want py.tokenize_bytes -> tokenize_bytes", ev.Subject, ev.Object)
 	}
 }
+
+func TestNormalizeCallEvidenceDirectionUsesOwningSubRepoGraphForCaller(t *testing.T) {
+	fi := &repomap.FileInfo{
+		RelPath: "fastlex/tokenizer.py", Language: repomap.LangPython, Package: "fastlex",
+		Symbols: []repomap.Symbol{{
+			Name: "tokenize", Kind: "method", Parent: "FastTokenizer",
+			File: "fastlex/tokenizer.py", Line: 18, EndLine: 23,
+		}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "fastlex/tokenizer.py", Line: 21,
+			FromEP:     repomap.RelationEndpoint{Name: "tokenize", Receiver: "FastTokenizer", File: "fastlex/tokenizer.py", Line: 21},
+			ToEP:       repomap.RelationEndpoint{Name: "tokenize_bytes", Receiver: "_fastlex", File: "fastlex/tokenizer.py", Line: 21},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "python_call",
+		}},
+	}
+	ownerGraph := callTargetTestGraph(fi)
+	primaryGraph := callTargetTestGraph(&repomap.FileInfo{RelPath: "src/lib.rs", Language: repomap.LangRust})
+	gc := &ground.Context{
+		Graph: primaryGraph,
+		LineIndex: map[string]map[int]string{
+			"bindings-py/fastlex/tokenizer.py": {21: "return _fastlex.tokenize_bytes(list(data), self._merges)"},
+		},
+		SourceGraphFile: func(source string) (*repomap.Graph, *repomap.FileInfo, string, bool) {
+			if source != "bindings-py/fastlex/tokenizer.py" {
+				return nil, nil, "", false
+			}
+			return ownerGraph, fi, "fastlex/tokenizer.py", true
+		},
+	}
+	ev := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "tokenize_bytes",
+		Subject: "_fastlex", Predicate: "calls", Object: "tokenize_bytes",
+		Source: "bindings-py/fastlex/tokenizer.py", LineStart: 21, LineEnd: 21,
+	}
+	if !normalizeCallEvidenceDirection(&ev, gc) {
+		t.Fatal("expected owner-routed graph to replace the model-authored caller")
+	}
+	if ev.Subject != "FastTokenizer.tokenize" || ev.Object != "_fastlex.tokenize_bytes" || ev.AnchorSymbol != "_fastlex.tokenize_bytes" {
+		t.Fatalf("normalized edge=%q -> %q anchor=%q, want FastTokenizer.tokenize -> _fastlex.tokenize_bytes", ev.Subject, ev.Object, ev.AnchorSymbol)
+	}
+	if stabilizeUnprovenCallAnchorAuthority(&ev, gc) {
+		t.Fatalf("owner-routed exact call was downgraded: %+v", ev)
+	}
+}
+
+type emitEvidenceSourceGraphStub struct {
+	graph  *repomap.Graph
+	file   *repomap.FileInfo
+	source string
+}
+
+func (s *emitEvidenceSourceGraphStub) SourceGraphFile(source string) (*repomap.Graph, *repomap.FileInfo, string, bool) {
+	if s == nil || source != "repo-b/"+s.source {
+		return nil, nil, "", false
+	}
+	return s.graph, s.file, s.source, true
+}
+
+func TestAttachEmitEvidenceSourceGraphResolverPinsMultiRepoWiring(t *testing.T) {
+	fi := &repomap.FileInfo{RelPath: "src/main.c", Language: repomap.LangC}
+	graph := callTargetTestGraph(fi)
+	gc := &ground.Context{}
+	ctx := &types.BusContext{MultiGraph: &emitEvidenceSourceGraphStub{graph: graph, file: fi, source: "src/main.c"}}
+	attachEmitEvidenceSourceGraphResolver(ctx, gc)
+	gotGraph, gotFile, gotSource, visibleSource, ok := ground.ResolveSourceGraphFile(gc, "repo-b/src/main.c")
+	if !ok || gotGraph != graph || gotFile != fi || gotSource != "src/main.c" || visibleSource != "repo-b/src/main.c" {
+		t.Fatalf("owner resolver wiring = (%p, %p, %q, %q, %t)", gotGraph, gotFile, gotSource, visibleSource, ok)
+	}
+}
+
+func TestStabilizeUnprovenCallAnchorRejectsModelCallerWhenOwnerGraphCannotProveIt(t *testing.T) {
+	fi := &repomap.FileInfo{
+		RelPath: "fastlex/tokenizer.py", Language: repomap.LangPython,
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "fastlex/tokenizer.py", Line: 21,
+			ToEP:       repomap.RelationEndpoint{Name: "tokenize_bytes", Receiver: "_fastlex", File: "fastlex/tokenizer.py", Line: 21},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "python_call",
+		}},
+	}
+	ownerGraph := callTargetTestGraph(fi)
+	gc := &ground.Context{
+		LineIndex: map[string]map[int]string{
+			"bindings-py/fastlex/tokenizer.py": {21: "return _fastlex.tokenize_bytes(list(data), self._merges)"},
+		},
+		SourceGraphFile: func(source string) (*repomap.Graph, *repomap.FileInfo, string, bool) {
+			return ownerGraph, fi, "fastlex/tokenizer.py", true
+		},
+	}
+	ev := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "tokenize_bytes",
+		Subject: "invented_caller", Predicate: "calls", Object: "_fastlex.tokenize_bytes",
+		Source: "bindings-py/fastlex/tokenizer.py", LineStart: 21, LineEnd: 21,
+	}
+	if !stabilizeUnprovenCallAnchorAuthority(&ev, gc) {
+		t.Fatal("expected directed call authority to be removed when owning graph has no enclosing caller")
+	}
+	if ev.AnchorKind != types.AnchorTextReference || ev.Subject != "" || ev.Predicate != "" || ev.Object != "" {
+		t.Fatalf("unexpected downgraded item: %+v", ev)
+	}
+}
