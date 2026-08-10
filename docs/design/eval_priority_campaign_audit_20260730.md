@@ -30178,3 +30178,31 @@ B453 已删除系统补写阶段表并把准确 producer split 放进 prompt pro
 状态：`B457=implemented/full-suite-pass/pending-production-replay`；`B453=prompt-reach-code-complete`；
 `B456/B452=pending-production-replay`；`system-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.479 r267：布尔过滤域误判导致错误终值；typed participant 展示身份阻断两条软到达链
+
+严格 exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 为 `FAIL/PASS`，人工为
+`FAIL/FAIL`（605s/758s）；人工审计见
+`eval/parallel_selected_summary_evalcampaign_data_stage_r267_20260810_manual_audit.md`。
+
+data 输出 `20,0,5`，期望 `17,0,5`。逐产物回溯确认 `active_observations` 已含 `active="false"` 的 r3，原因不是贡献账或
+reconcile 丢失，而是模型提交的 typed filter 为 `active ne inactive`：比较器识别 `true/false`，却不把标准状态词
+`active/inactive` 归入同一布尔域，因此 `false != inactive` 被错误判真。随后 decision、四条 contribution 与 reconcile 在错误候选集上
+内部自洽并签绿。新立 `EVAL-B458-BOOLFILTERDOMAIN1/P0`：布尔比较层统一支持标准 active/inactive、enabled/disabled 与
+true/false 等价；修复只读 typed field value/filter value，不读 action purpose、instructions prose 或最终答案。贡献/reconcile 最终合同保持。
+
+QF 的 B456 获得 production 正证并关闭：第一批 9 个 evidence item 中 4 个缺 `line_start` 的关系项被局部拒绝，5 个合法 sibling
+保持已提交；下一轮模型只重发被跳过项并补坐标，没有整批重建。剩余失败集中到一个共同身份层：analyzer 的 schema-valid participant
+是 `Analyzer agent`、`Explorer agent`、`Mutable (in BusContext)` 等展示标签，而 B457 stage authority 与 B452 participant coverage
+均直接使用 code-identity comparator；含空格/括注的展示标签不可能匹配 `Analyzer`/`Mutable`，前者没有把精准 stage authority 送入
+Finalizer prompt，后者持续把全部参与者判 missing 并最终 bounded force-complete。新立
+`EVAL-B459-TYPEDPARTICIPANTALIAS1/P1`：只在 schema participant + typed RequestModel entities 之间建立唯一、边界完整的软 identity alias，
+供 prompt trigger 与 Explorer 补证清单复用；它不得成为 relation evidence、不得铸边、不得放宽 Finalizer same-direction gate。
+
+QF 最终只画出 `dispatchStage -> BuildAgentContext` 与四阶段 precedence，BusContext 无 incident、Mutable 缺席；runner 仅凭任意边数仍然
+假绿。14 次成文拒绝后显示的“第一稿答案（校验前参考）”有明确未校验/补充参考标识，符合既有模型内容保全策略，不进入 reviewer evidence、
+不替换模型最终稿，本轮不把它误立为 strict-gate bypass。后续可以单独评估长度 UX，但不能以删除模型内容冒充质量修复。
+
+状态：`B456=production-closed`；`B458=P0-next`；`B459=P1-after-B458`；
+`B452/B457=partial/blocked-by-B459`；`r267-human=0/2`；`raw-request/model-prose-hard-gate=none`；
+`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

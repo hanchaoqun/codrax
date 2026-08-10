@@ -2790,3 +2790,21 @@ uncitable source 全部有负 pin；同名职责漂移拒绝与纯格式重构�
 状态：`MERGE-AUDIT-6/§11=closed`；`B457=implemented/full-suite-pass/pending-production-replay`；
 `B453=prompt-reach-code-complete`；`B456/B452=pending-production-replay`；`model-answer-rewrite=none`；
 `raw-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.11 r267：§11 保持关闭；B456 收账，另立布尔域与 typed participant alias 两件
+
+r267 未重开 MERGE-AUDIT-6/§11 的已关闭项。QF 的 skipped evidence 局部修复在真实流水线生效：合法 sibling 保留，被拒关系项按精确
+字段重发，因此 B456 production 关闭。B452/B457 仍未闭环，但新 witness 将共同阻断点收窄为 schema participant 的展示身份：
+`Analyzer agent`、`Mutable (in BusContext)` 等不是合法 code identity，现有 comparator 必然拒绝。另立 B459，只允许 typed participant
+经 typed entities 做软 alias 解析；禁止把 alias 当源码边或成文关系 authority。
+
+data 的 `20,0,5` 则是独立 `EVAL-B458-BOOLFILTERDOMAIN1/P0`：typed filter `active != inactive` 面对真实字段值 `false` 时，比较器未把
+active/inactive 归为 bool-like 值，导致 inactive r3 进入候选集；后续账本忠实地对错误输入自洽。修复位置应在通用 filter value
+normalization，不从材料 prose 推断业务规则，也不改 contribution/reconcile 的终态门。
+
+本轮 QF “系统保留内容”属于已裁定的未校验模型输出保全，未进入结构化主体或 evidence authority，不按系统代写/strict gate 绕过立案。
+runner 任意 Mermaid 边计数继续仅作机械 signal，人工判定仍为失败。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B456=production-closed`；`B458=P0-next`；`B459=P1-queued`；
+`B452/B457=partial`；`model-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
