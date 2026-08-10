@@ -30313,3 +30313,31 @@ kind/required/participants）；生产 schema 未回退。B461 完整全仓复�
 `B460=implementation-and-schema-pin-closed/pending-production-replay`；`typed-row-fuzzy-join=forbidden`；
 `model-business-decision=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.481 r269：行来源闭环生产转绿；QF 暴露 typed assignment 自相矛盾
+
+exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 为 `PASS/PASS`，人工为
+`PASS/FAIL`（357s/619s）；人工审计见
+`eval/parallel_selected_summary_evalcampaign_data_stage_r269_20260810_manual_audit.md`。
+
+data 精确产出 `17,0,5`，terminal audit 为 complete，三条 contribution 与最终投影一致。B461 的不可变 source-row identity 已在真实
+流水线生效，先前被 exclude 的物理行没有经派生 artifact 换号后重新混入，故 `B461=production-closed`。
+
+QF 同时给出 B460 的生产正证：Analyzer 明确发射 BusContext、MutableState、Analyzer、Explorer、Extractor、Finalizer 六个
+`incident_required` participant，B452/B459 的后续清单能够消费它们，故 `B460=production-closed`。关系仍丢失不是 participant 字段波动：
+Explorer 把 `internal/agent/explorer.go:261` 的纯字段声明 `mutable *types.MutableState` 发射为
+`anchor_kind=assignment`，grounder Tier 1 仅凭 `anchor_symbol=mutable` 精确命中即授予权威。Finalizer 随后忠实消费 recipe
+`explorerEvaluator.mutable -> MutableState`，却被严格 assignment diagram validator 拒绝；连续 patch 后只能删除该边，最终图只剩两条
+Orchestrator 调用和四条注册边，六个请求主体仍无数据流。该现象是上下游合同冲突，不是模型随机波动。
+
+新立 `EVAL-B462-TYPEDASSIGNMENTSHAPE1/P0`：在 grounder 权威源头对 assignment/initializer 要求结构化行形或 repomap feature，纯类型/字段
+声明不得因 token 命中而升级为 value-flow；真实赋值保持通过。修复必须跨语言复用结构判定，不扫描 request/answer prose，也不放宽下游关系门。
+
+另立 `EVAL-B463-DIAGRAMPARTICIPANTCOVERAGE1/P1`：当前 participant completion 仅软引导，5 个 incident participant 无关系仍可签绿；
+后续应增加模型填写的 typed relation-coverage/unproven-boundary 载体，以精确 participant role 驱动结构校验。系统不得从 participant 造边、
+不得读取答案文字判断“已披露”、不得替换模型结论。复合 code identity 直接充当 Mermaid id 的表达问题单列
+`EVAL-B464-DIAGRAMENDPOINTALIAS1/P1`，等待 B462 后以结构化 alias 单源修复。
+
+状态：`B461=production-closed`；`B460=production-closed`；`B462=P0-next`；`B463/B464=P1-queued`；
+`r269-runner=2/2`；`r269-human=1/2`；`raw-request/model-answer-prose-hard-gate=none`；
+`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

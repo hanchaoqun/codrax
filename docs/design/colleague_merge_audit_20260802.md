@@ -2869,3 +2869,20 @@ kind/required/participants，不混入生产逻辑。
 状态：`MERGE-AUDIT-6/§11=closed`；`B461=implemented/full-suite-pass/pending-production-replay`；
 `B460=schema-contract-and-pin-closed/pending-replay`；`fuzzy-row-identity=forbidden`；`model-business-decision=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.17 r269 收账：B460/B461 生产关闭，关系丢失收敛为证据铸造冲突
+
+r269 exact-two runner 为 2/2，人工为 1/2。data 的 `17,0,5` 与 terminal contribution/reconcile/reference projection 一致，证明 B461
+稳定 source-row identity 已堵住派生支路换号旁路；`B461=production-closed`。QF 的 Analyzer 明确发射六个 incident participant，证明
+B460 schema presence 与教学在生产生效；`B460=production-closed`。
+
+QF 仍缺关系的确定性根因是新 `EVAL-B462-TYPEDASSIGNMENTSHAPE1/P0`：纯字段声明
+`mutable *types.MutableState` 被 Tier 1 token 命中误铸为 assignment，Finalizer 依 typed recipe 画出的同一边又被 answer validator 拒绝，
+最终删边才可签绿。应在 grounder 源头要求 assignment/initializer 的结构形状，禁止放宽 downstream evidence gate。
+
+同时冻结 `EVAL-B463-DIAGRAMPARTICIPANTCOVERAGE1/P1`：incident participant 缺关系且无 typed unproven boundary 时仍可绿签，runner 的任意
+边计数是假阳性；修复需模型填写结构化 coverage/boundary，不扫 prose、不由系统造边或代写结论。复合 identity 的 Mermaid alias 表达单列
+`EVAL-B464-DIAGRAMENDPOINTALIAS1/P1`，不得按当前字符串过拟合。
+
+状态：`B460/B461=production-closed`；`B462=P0-next`；`B463/B464=P1-queued`；
+`raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
