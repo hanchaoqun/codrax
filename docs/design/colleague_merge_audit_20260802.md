@@ -3222,3 +3222,16 @@ agent/orchestrator 联合套件及 `go test ./... -count=1` 全绿。
 状态：`B480=implemented/full-suite-pass/pending-production-replay`；`B479=P1-next-after-replay`；
 `B478/B474=pending`；`typed-but-wrong-directed-call=fail-closed`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+#### §11.10.43 r279：owner-routed caller 正证与 boundary repair 风暴
+
+exact-two runner 2/2、人工 0/2。多仓生产日志把 Python native/fallback 与 Rust wrapper→core 三条 caller 全部校准正确，B480 关闭；残余是 fallback
+上游 state-producer 证据缺席和 structured item 引用错位，分别记 `B482/P1` 与既有 B478/B475，不回滚 caller 根修。
+
+QF 发生 12 次成文拒绝。validator 每次都在 precise typed diagram/boundary surface 上正确拒绝伪边或不可见 boundary，没有合同自相矛盾；问题是教学
+只给总规则，没按 typed participant 发布同构 recipe，模型在大小写/显示节点/边界数组之间试错到第 13 稿。立 `B481/P0`：同一 participant slate 逐项
+给 `identity + visible node first-line label + unproven status + no-edge` 写法；保持 hard gate 与模型图所有权不动。
+
+状态：`B480=closed`；`B481=P0-next`；`B479/B482=P1`；`B478/B475=open`；
+`runner=2/2,human=0/2`；`system-answer/graph-authoring=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

@@ -30921,3 +30921,25 @@ resolved receiver 与 C multi-repo path，并通过 `go test ./... -count=1`。
 状态：`B480=implemented/full-suite-pass/pending-production-replay`；`B477b=closed`；`B479=P1`；
 `B478/B474=pending-after-replay`；`typed-directed-call=owner-caller+exact-callee`；`system-edge/conclusion-authoring=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.497 r279：B480 生产关闭；participant boundary recipe 缺失造成 12 次拒绝
+
+`main@11f355bc2` exact-two runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r279_20260810_manual_audit.md`。
+
+多仓日志在 grounding 前直接记录三次 owner-routed 校准：`FastTokenizer.tokenize -> _fastlex.tokenize_bytes`、
+`FastTokenizer.tokenize -> self._tokenize_slow`、`py.tokenize_bytes -> tokenize_bytes`。r278 的 `_fastlex` 伪 caller 已消失，B480 获生产闭环。
+答案仍人工失败：Explorer 没发射 `except ImportError` 与 `_HAVE_NATIVE=False` 状态生产证据，final prose 一面称标志恒 True、一面称导入失败走 fallback；
+Rust core item 又把 registration line 47 当实现引用。立 `B482-FALLBACKPROOF1/P1`，以 typed fallback state-producer/guard/native-sink/
+fallback-sink 四角色补证，不按 Python/ImportError 字面做硬门；B478/B475 引用身份债继续开放。
+
+QF 用时 712 秒、12 次 finalizer reject。关系门正确拒绝了 Orchestrator→stage、dispatch helper→stage 及错误 assignment 方向，系统未造边；
+但 hard participant contract 在 missing boundary 与 boundary node invisible 之间反复。最终第 13 稿才添加 Analyzer/Explorer/Extractor/Finalizer/
+Mutable disconnected nodes 并通过，且图只剩 helper call/data_flow，三条已证 stage precedence 被模型遗漏。立
+`B481-PARTBOUNDRECIPE1/P0`：由 typed participant slate 发布逐项 `participant identity / exact visible-node first-line identity /
+status=unproven / edge forbidden` recipe，供模型一次写对；validator 不放宽，系统不代建节点。B479 保持 soft consumption/completion 债，不能把 stage
+recipe 升为系统强制成文。
+
+状态：`B480=closed/direct-production-witness`；`B481=P0-next`；`B479=P1`；`B482=P1`；`B478/B475=open`；
+`runner=2/2,human=0/2`；`system-edge/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
