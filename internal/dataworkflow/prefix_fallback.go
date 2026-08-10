@@ -36,12 +36,12 @@ func InitialRankPrefixFallback(input InitialRankPrefixFallbackInput) (dataquery.
 	out := plan
 	out.Actions = prefix
 	out.Script = ""
-	// The deferred queue is the continuation authority for a structural
-	// split. Preserve the model plan's terminal intent on both executable
-	// fragments instead of rewriting a terminal DAG into two explicitly
-	// non-terminal plans. The runtime still dispatches the queued suffix when
-	// the prefix does not produce a valid final candidate.
-	out.ContinueAfter = plan.ContinueAfter
+	// The executable prefix is necessarily intermediate because the typed
+	// split produced a non-empty deferred suffix. Preserve the original
+	// terminal intent only on that suffix; the final deferred rank will then
+	// naturally recover terminal validation when the original plan was
+	// terminal.
+	out.ContinueAfter = true
 	if strings.TrimSpace(out.WhyThisBatch) == "" {
 		out.WhyThisBatch = "execute the first typed data action rank before downstream graph stages"
 	}
@@ -63,9 +63,9 @@ func IntraBatchDependencyPrefixFallback(plan dataquery.TaskPlan) (dataquery.Task
 	out := plan
 	out.Actions = append([]dataquery.DataAction(nil), plan.Actions[:dependencyIndex]...)
 	out.Script = ""
-	// A dependency split changes execution order, not the caller's terminal
-	// contract. Deferred-queue presence already records that a suffix exists.
-	out.ContinueAfter = plan.ContinueAfter
+	// A non-empty deferred suffix makes this executable prefix intermediate.
+	// The suffix below keeps the caller's original terminal contract.
+	out.ContinueAfter = true
 	if strings.TrimSpace(out.WhyThisBatch) == "" {
 		out.WhyThisBatch = "execute the producer action rank before consuming its generated artifact"
 	}
@@ -127,7 +127,7 @@ func StagePrefixFallbackWithRemainder(input StagePrefixFallbackInput) (dataquery
 	remainder := plan
 	remainder.Actions = rest
 	remainder.Script = ""
-	remainder.ContinueAfter = true
+	remainder.ContinueAfter = plan.ContinueAfter
 	return out, remainder, true
 }
 

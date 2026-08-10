@@ -4312,11 +4312,15 @@ func TestPreserveDataTaskMaterialRepairCoverageForNonStagedRepairStillProtectsCo
 }
 
 func TestShouldValidateDataTaskWorkflowResultSkipsIntermediateBatch(t *testing.T) {
-	if shouldValidateDataTaskWorkflowResult(dataquery.TaskPlan{ContinueAfter: true}) {
+	if shouldValidateDataTaskWorkflowResult(dataquery.TaskPlan{ContinueAfter: true}, dataquery.TaskPlan{}) {
 		t.Fatal("continue_after intermediate batch should skip workflow-final validation")
 	}
-	if !shouldValidateDataTaskWorkflowResult(dataquery.TaskPlan{}) {
+	if !shouldValidateDataTaskWorkflowResult(dataquery.TaskPlan{}, dataquery.TaskPlan{}) {
 		t.Fatal("final batch should run workflow validation")
+	}
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "compute"}}}
+	if shouldValidateDataTaskWorkflowResult(dataquery.TaskPlan{}, deferred) {
+		t.Fatal("non-empty typed deferred queue proves a legacy terminal-stamped prefix is still intermediate")
 	}
 }
 

@@ -182,7 +182,11 @@ func BuildDeferredDispatchPlan(input DeferredDispatchInput) (dataquery.TaskPlan,
 	remainder := input.Plan
 	remainder.Actions = rest
 	remainder.Script = ""
-	remainder.ContinueAfter = len(rest) > 0 || input.Plan.ContinueAfter
+	// The dispatched rank is intermediate while rest exists, but the rest
+	// itself must retain the queued plan's terminal intent. A later dispatch
+	// will set its own executable rank intermediate again if another suffix
+	// remains.
+	remainder.ContinueAfter = input.Plan.ContinueAfter
 	status.Ready = true
 	return next, remainder, status, true
 }

@@ -78,6 +78,22 @@ func TestAdmitActionDAGPlanUsesDeterministicFallbackBeforeBlocking(t *testing.T)
 	}
 }
 
+func TestMergeAdmissionRemainderUsesTerminalIntentOfLastFragment(t *testing.T) {
+	first := dataquery.TaskPlan{ContinueAfter: true, Actions: []dataquery.DataAction{{ID: "derive"}}}
+	last := dataquery.TaskPlan{ContinueAfter: false, Actions: []dataquery.DataAction{{ID: "compute"}}}
+	merged := MergeAdmissionRemainder(first, last)
+	if len(merged.Actions) != 2 || merged.Actions[0].ID != "derive" || merged.Actions[1].ID != "compute" {
+		t.Fatalf("merged=%+v, want ordered fragments", merged)
+	}
+	if merged.ContinueAfter {
+		t.Fatalf("merged ContinueAfter=true, want terminal intent from last fragment")
+	}
+	last.ContinueAfter = true
+	if merged = MergeAdmissionRemainder(first, last); !merged.ContinueAfter {
+		t.Fatalf("merged ContinueAfter=false, want explicit continuation from last fragment")
+	}
+}
+
 func TestAdmitActionDAGPlanReturnsTypedFinalGuardWhenUnrepairable(t *testing.T) {
 	decision := AdmitActionDAGPlan(ActionDAGAdmissionInput{
 		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "bad", Kind: dataquery.DataActionCustomTransform}}},

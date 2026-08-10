@@ -30068,3 +30068,27 @@ workflow 请求下禁止中英文系统补表均有 pin；`go test ./internal/ty
 状态：`B453=implemented/full-suite-pass/pending-production-replay`；`B452=pending-production-replay`；`B455=next-batch`；
 `system-answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### B455 批次施工：typed deferred queue 决定中间态，最终 suffix 恢复原终态
+
+根修没有绕过 r265 的 contribution/reconcile failure，而是修正 validator 的适用时机。所有产生 `prefix + remainder` 的结构化拆分现在遵守：
+
+1. prefix 因存在非空 suffix 固定为 `ContinueAfter=true`；
+2. remainder 保留拆分前计划的 `ContinueAfter`，不把 prefix 的中间态传播给全队列；
+3. queue 每次 dispatch 只根据本次尚有 rest 设置 dispatched rank；rest 继续保留原 terminal intent；
+4. 多个 admission remainder 按执行顺序合并，最后 fragment 决定合并 suffix 的 terminal intent；
+5. CLI/REPL 结果 validator 的函数签名强制同时传入 current plan 与 typed deferred plan。非空 queue 是 legacy/resume 快照的精确
+   defense-in-depth 信号，禁止误验中间结果；不能通过遗漏参数退回旧逻辑。
+
+因此 terminal 原计划的 join/filter/derive prefix 不再因缺 contributions 被送修，最后 compute/reconcile/assemble rank 仍以
+`ContinueAfter=false` 运行完整终验；显式 continuation 原计划则从头到尾保持继续。系统未选择 filter/value/group，不改变模型计划业务语义，
+也未放宽最终 ledgers、reference grounding、reconcile 或 answer gate。
+
+验证：`go test ./internal/dataworkflow ./internal/repl -count=1` 全绿；新增 initial/intra/stage、queue re-split、merge、legacy terminal-stamped
+prefix 六组 pin。
+
+全仓复验 `go test ./... -count=1` 全绿。
+
+状态：`B455=implemented/full-suite-pass/pending-production-replay`；`B452/B453=pending-production-replay`；
+`r265-churn-root=code-complete`；`system-business-decision=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

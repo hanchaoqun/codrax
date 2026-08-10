@@ -554,7 +554,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			return "", fmt.Errorf("%s", errText)
 		}
-		if shouldValidateDataTaskWorkflowResult(currentPlan) {
+		if shouldValidateDataTaskWorkflowResult(currentPlan, currentDeferredPlan()) {
 			if gateErr := validateDataTaskWorkflowResult(repoRoot, records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				transition := dataworkflow.ValidationFailureTransition{

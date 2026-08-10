@@ -2226,7 +2226,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
-		if shouldValidateDataTaskWorkflowResult(currentPlan) {
+		if shouldValidateDataTaskWorkflowResult(currentPlan, currentDeferredPlan()) {
 			if gateErr := validateDataTaskWorkflowResult(r.repoRoot, records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				r.auditDataTaskError(dataRounds, errText)

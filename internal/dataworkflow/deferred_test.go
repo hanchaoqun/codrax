@@ -75,6 +75,27 @@ func TestBuildDeferredDispatchPlanReportsBlockedQueue(t *testing.T) {
 	}
 }
 
+func TestBuildDeferredDispatchPlanPreservesTerminalIntentOnRemainder(t *testing.T) {
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "derive", Kind: dataquery.DataActionDeriveFields, InputPaths: []string{"records.json"}, OutputArtifact: "derived.json"},
+		{ID: "compute", Kind: dataquery.DataActionComputeContribs, InputPaths: []string{"derived.json"}},
+	}}
+	next, remainder, status, ok := BuildDeferredDispatchPlan(DeferredDispatchInput{
+		Plan:               deferred,
+		AllowedNextActions: []string{string(dataquery.DataActionDeriveFields), string(dataquery.DataActionComputeContribs)},
+		Candidates: []DeferredActionCandidate{
+			{Index: 0, Action: deferred.Actions[0], Ready: true},
+			{Index: 1, Action: deferred.Actions[1], Ready: true},
+		},
+	})
+	if !ok || !status.Ready || len(next.Actions) != 1 || len(remainder.Actions) != 1 {
+		t.Fatalf("next=%+v remainder=%+v status=%+v ok=%v", next, remainder, status, ok)
+	}
+	if !next.ContinueAfter || remainder.ContinueAfter {
+		t.Fatalf("continue flags next=%v remainder=%v, want intermediate dispatch and terminal remainder", next.ContinueAfter, remainder.ContinueAfter)
+	}
+}
+
 func TestBuildDeferredActionCandidatesNarrowsSingleRecordSetAction(t *testing.T) {
 	actions := []dataquery.DataAction{{
 		ID:         "filter_ready",

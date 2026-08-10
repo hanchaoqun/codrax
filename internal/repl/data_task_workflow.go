@@ -7359,8 +7359,18 @@ func dataTaskTerminalPlanCompletionGateGuardResultWithRepo(repoRoot string, reco
 	return dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, current, result)
 }
 
-func shouldValidateDataTaskWorkflowResult(current dataquery.TaskPlan) bool {
-	return !current.ContinueAfter
+func shouldValidateDataTaskWorkflowResult(current, deferred dataquery.TaskPlan) bool {
+	if current.ContinueAfter {
+		return false
+	}
+	// Defense in depth for restored/legacy plans: a non-empty typed deferred
+	// queue proves the just-executed plan is a prefix even if an older snapshot
+	// failed to stamp ContinueAfter. Final validation belongs to the last rank
+	// after the queue drains.
+	if len(deferred.Actions) > 0 || strings.TrimSpace(deferred.Script) != "" {
+		return false
+	}
+	return true
 }
 
 func preserveDataTaskRepairCoverage(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {

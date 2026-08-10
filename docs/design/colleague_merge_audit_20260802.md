@@ -2715,3 +2715,24 @@ supplement 负断言；`go test ./internal/types ./internal/agent -count=1` 全�
 `B453=implemented/full-suite-pass/pending-production-replay`；`B455=next`；
 `system-stage-answer-supplement=retired`；`model-answer-authority=preserved`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.7 B455 独立批完成：deferred prefix 与原计划终态分权
+
+B455 从 r265 的 initial/intra-batch witness 扩展审计到全部 deferred split，确认四个同根传播点：initial rank 与 intra-batch prefix
+沿用原 terminal flag；stage prefix 把 remainder 也无条件标为继续；deferred queue 二次按 rank 拆分时把“当前尚有 rest”写进 rest 自身；
+多个 admission remainder 合并时又无条件改成继续。这既会让中间结果误入完整终验，也可能让最终 suffix 永久失去终态。
+
+现统一不变量：非空 suffix 使本次 executable prefix 必为 intermediate；remainder 始终继承原计划 terminal intent；deferred 再拆时只有
+本次 dispatched rank 根据剩余动作标 intermediate；多段 remainder 的最后一段拥有最终 terminal intent。CLI/REPL 的结果终验入口同时
+强制接收当前 typed deferred plan：即使恢复了旧快照且 prefix flag 陈腐，只要队列非空也不运行完整 ledger/reconcile/answer gate；队列排空
+且最终 rank 为 terminal 后，原 gate 字节路径恢复。
+
+该批不修改 contribution、reconcile、reference projection、业务值或最终答案，不把缺失 ledger 视为成功。新增 initial/intra/stage 三类
+split flag、deferred 再拆、remainder merge、legacy snapshot defense-in-depth pin；`go test ./internal/dataworkflow ./internal/repl -count=1`
+全绿。
+
+全仓复验 `go test ./... -count=1` 全绿。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B455=implemented/full-suite-pass/pending-production-replay`；
+`B452/B453=pending-production-replay`；`terminal-ledger-gates=unchanged`；`model-business-decision=none`；
+`raw-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

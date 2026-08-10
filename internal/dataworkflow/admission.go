@@ -151,7 +151,11 @@ func MergeAdmissionRemainder(first, second dataquery.TaskPlan) dataquery.TaskPla
 	out := first
 	out.Actions = append(append([]dataquery.DataAction(nil), first.Actions...), second.Actions...)
 	out.Script = ""
-	out.ContinueAfter = true
+	// The merged action order is first then second, so the final fragment owns
+	// the original plan's terminal intent. Whether the first executable rank is
+	// intermediate is decided when that rank is dispatched, not stamped onto
+	// the whole merged suffix.
+	out.ContinueAfter = second.ContinueAfter
 	out.InputPaths = mergeAdmissionInputPaths(first.InputPaths, second.InputPaths)
 	if strings.TrimSpace(out.NextBatch) == "" {
 		out.NextBatch = strings.TrimSpace(second.NextBatch)

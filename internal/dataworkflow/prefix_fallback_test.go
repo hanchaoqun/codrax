@@ -20,11 +20,38 @@ func TestIntraBatchDependencyPrefixFallbackSplitsProducerBeforeConsumer(t *testi
 	if !ok {
 		t.Fatal("fallback ok=false")
 	}
-	if len(prefix.Actions) != 1 || prefix.Actions[0].ID != "extract" || prefix.ContinueAfter {
+	if len(prefix.Actions) != 1 || prefix.Actions[0].ID != "extract" || !prefix.ContinueAfter {
 		t.Fatalf("prefix=%+v", prefix)
 	}
 	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "derive" || remainder.ContinueAfter {
 		t.Fatalf("remainder=%+v", remainder)
+	}
+}
+
+func TestInitialRankPrefixFallbackMarksPrefixIntermediateAndPreservesTerminalSuffix(t *testing.T) {
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:             "extract",
+		Kind:           dataquery.DataActionExtractRecords,
+		OutputArtifact: "records.json",
+	}, {
+		ID:             "derive",
+		Kind:           dataquery.DataActionDeriveFields,
+		InputPaths:     []string{"records.json"},
+		OutputArtifact: "derived.json",
+	}, {
+		ID:         "compute",
+		Kind:       dataquery.DataActionComputeContribs,
+		InputPaths: []string{"derived.json"},
+	}}}
+	prefix, remainder, ok := InitialRankPrefixFallback(InitialRankPrefixFallbackInput{Plan: plan})
+	if !ok {
+		t.Fatal("fallback ok=false")
+	}
+	if len(prefix.Actions) != 2 || !prefix.ContinueAfter {
+		t.Fatalf("prefix=%+v, want intermediate extract/derive rank", prefix)
+	}
+	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "compute" || remainder.ContinueAfter {
+		t.Fatalf("remainder=%+v, want terminal compute suffix", remainder)
 	}
 }
 
@@ -70,6 +97,9 @@ func TestStagePrefixFallbackWithRemainderUsesAllowedRank(t *testing.T) {
 	}
 	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "compute" {
 		t.Fatalf("remainder=%+v", remainder)
+	}
+	if !prefix.ContinueAfter || remainder.ContinueAfter {
+		t.Fatalf("continue flags prefix=%v remainder=%v, want intermediate prefix and terminal suffix", prefix.ContinueAfter, remainder.ContinueAfter)
 	}
 }
 
