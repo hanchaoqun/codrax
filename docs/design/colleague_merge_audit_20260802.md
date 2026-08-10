@@ -2946,3 +2946,12 @@ r270 的四个断开 stage participant 因此可由模型按 B463 合同诚实�
 
 状态：`B466=implemented/pending-production-replay`；`B463=pending-production-replay`；`B464=P1-next`；
 `participant-as-relation-authority=forbidden`；`raw-prose-hard-gate=none`；Trace 车道不变。
+
+#### §11.10.23 B464 完成：兄弟载体 endpoint alias 与唯一可见有向边对齐
+
+Mermaid source repair 后，diagram-local anchor 已能同步 alias，但 sibling prose/list block 的 typed anchor 仍保留 raw 复合 identity。
+现仅当 exact visible label pair 在一张且仅一张图中映射成功、并对应 AST 中真实同向 edge 时机械改写两个 endpoint；复用标签歧义、
+断开节点、反向或缺失 pair 均不猜测。该车道不铸 edge/relation/evidence，不扫描 request 或模型 prose。tool 定向、三包联合及全仓测试全绿。
+
+状态：`B464=implemented/pending-production-replay`；`B463/B465/B466=pending-production-replay`；
+`fuzzy-endpoint-match=none`；`system-edge/answer-rewrite=none`；Trace 车道不变。

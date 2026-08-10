@@ -73,7 +73,68 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 			}
 		}
 	}
+	// Edge anchors may intentionally live on a sibling prose/list block. The
+	// Mermaid syntax normalizer can replace a nonportable code identity in the
+	// diagram body with codraxNodeN while preserving that identity as the
+	// visible label. Resolve such sibling metadata only when the exact label
+	// pair maps to one visible directed edge in exactly one diagram block.
+	// Ambiguous/reused labels remain untouched and fail through the ordinary
+	// ownership gate; no edge, direction, relation kind, or evidence is minted.
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		for j := range block.EdgeAnchors {
+			anchor := &block.EdgeAnchors[j]
+			from, to, ok := diagramUniqueVisibleAliasPair(doc, anchor.FromNode, anchor.ToNode)
+			if !ok {
+				continue
+			}
+			if anchor.FromNode != from {
+				anchor.FromNode = from
+				fixed++
+			}
+			if anchor.ToNode != to {
+				anchor.ToNode = to
+				fixed++
+			}
+		}
+	}
 	return fixed
+}
+
+func diagramUniqueVisibleAliasPair(doc *types.AnswerDocumentV2, rawFrom, rawTo string) (string, string, bool) {
+	if doc == nil || strings.TrimSpace(rawFrom) == "" || strings.TrimSpace(rawTo) == "" {
+		return "", "", false
+	}
+	var resolvedFrom, resolvedTo string
+	matches := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		aliases := diagramNodeAliasIndex(block.Diagram.Body)
+		from := aliases[diagramSurfaceKey(rawFrom)]
+		to := aliases[diagramSurfaceKey(rawTo)]
+		if from == "" || to == "" {
+			continue
+		}
+		visible := false
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			if diagramEvidenceEdgeKey(edge.From, edge.To) == diagramEvidenceEdgeKey(from, to) {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			continue
+		}
+		matches++
+		if matches > 1 {
+			return "", "", false
+		}
+		resolvedFrom, resolvedTo = from, to
+	}
+	return resolvedFrom, resolvedTo, matches == 1
 }
 
 func diagramNodeAliasIndex(body string) map[string]string {

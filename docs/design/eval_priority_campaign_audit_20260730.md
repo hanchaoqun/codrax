@@ -30452,3 +30452,22 @@ production-shape 回归直接复现 r270：`Analyzer -> Explorer` 有一条已�
 `B463=code-complete/pending-replay-after-B466`；`B464=P1-next`；`bare-node-as-relation-authority=forbidden`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B464 独立批完成：兄弟块关系锚只按唯一可见有向边同步 Mermaid alias
+
+r270 已证明图内 `edge_anchors` 会随 Mermaid source repair 同步，但关系锚也允许由兄弟 prose/list block 携带；旧 normalizer
+只遍历 diagram block 自身 metadata，因而 source repair 把 `Orchestrator.dispatchStage` 等非便携 identity 改为
+`codraxNodeN["原 identity"]` 后，兄弟载体仍保留 raw endpoint，下游会把同一条已证关系误判为 body/anchor 不一致。
+
+本批保留原有图内车道，并增加保守的跨块 syntax repair：两个 raw endpoint 必须通过图中精确 visible label 映射到 alias，且映射后的
+同向 edge 必须真实存在于 Mermaid AST，并且全份答案只能有一个 diagram block 匹配。复用标签造成歧义、只有节点没有边、方向相反、任一
+endpoint 缺失时一律不改，继续交由原证据门诚实拒绝。修复只替换 `FromNode/ToNode` 的语法 identity，不创建 edge、关系类型、claim 或
+EvidenceItem，也不做模糊标签比较。
+
+回归覆盖 sibling carrier 正例、跨两图复用 pair 的歧义负例、断开节点负例，以及既有 local carrier 矩阵；
+`go test ./internal/tool -run 'TestNormalizeDiagramEdgeAnchorMetadata' -count=1`、
+`go test ./internal/tool ./internal/orchestrator ./internal/mermaidcompat -count=1` 与 `go test ./... -count=1` 全绿。
+
+状态：`B464=implemented/full-suite-pass/pending-production-replay`；`B463/B465/B466=pending-production-replay`；
+`label-as-relation-authority=forbidden`；`fuzzy-endpoint-match=none`；`system-edge/answer-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

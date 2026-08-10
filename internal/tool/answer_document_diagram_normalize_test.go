@@ -47,6 +47,80 @@ func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesOnlyTypedMetadata(t *testi
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorMetadata_RewritesExactSiblingCarrierAfterMermaidAliasing(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "relations", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "Orchestrator.dispatchStage", ToNode: "ag.Execute",
+				RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+				"flowchart TD",
+				`codraxNode1["Orchestrator.dispatchStage"] --> codraxNode2["ag.Execute"]`,
+			}, "\n")},
+		},
+	}}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 2 {
+		t.Fatalf("fixed=%d, want exact sibling endpoint pair rewrite", fixed)
+	}
+	anchor := doc.Blocks[0].EdgeAnchors[0]
+	if anchor.FromNode != "codraxNode1" || anchor.ToNode != "codraxNode2" {
+		t.Fatalf("sibling anchor=%+v, want syntax-repair aliases", anchor)
+	}
+	if anchor.RelationKind != types.DiagramRelCall || anchor.ClaimForm != types.ClaimCallEdge {
+		t.Fatalf("endpoint rewrite changed relation semantics: %+v", anchor)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorMetadata_LeavesAmbiguousSiblingAliasUnchanged(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "relations", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Caller.run", ToNode: "Worker.exec",
+			RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	for _, id := range []string{"first", "second"} {
+		doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+			ID: id, Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+				"flowchart TD",
+				`A["Caller.run"] --> B["Worker.exec"]`,
+			}, "\n")},
+		})
+	}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, reused pair across diagrams must stay ambiguous", fixed)
+	}
+	anchor := doc.Blocks[0].EdgeAnchors[0]
+	if anchor.FromNode != "Caller.run" || anchor.ToNode != "Worker.exec" {
+		t.Fatalf("ambiguous sibling anchor was guessed: %+v", anchor)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorMetadata_DoesNotUseDisconnectedLabelsAsEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "relations", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "Caller.run", ToNode: "Worker.exec",
+				RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A[\"Caller.run\"]\n B[\"Worker.exec\"]"},
+		},
+	}}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, disconnected labels must not authorize metadata", fixed)
+	}
+}
+
 func TestNormalizeOrphanDiagramEdgeAnchors_RemovedOptionalDiagramClearsSiblingMetadata(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
