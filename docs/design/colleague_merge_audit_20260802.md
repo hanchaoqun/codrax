@@ -2584,3 +2584,7 @@ scaffold；合法的贡献 family 被早期 action 变体饿死，最终以 plan
 
 状态：`B450=implemented/full-suite-pass/pending-production-replay`；`H7-oracle=stale`；
 `B445/B448=pending-production-replay`；`model-answer-rewrite=none`。
+
+H7 oracle 已在独立卫生批更新：硬值改为现行 typed `0.033/49.623`，压缩面改钉非零未入榜行与
+`enumeration_status=incomplete`，并保留 `未计价占用` 双轴出口；r262 既有 production artifact 全部命中。
+状态：`H7-oracle=updated/r262-artifact-pass`。
