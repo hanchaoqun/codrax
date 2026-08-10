@@ -75,7 +75,7 @@ func TestDiagramKindUsesCodeEndpointsComesFromProfile(t *testing.T) {
 func TestGroundedSourceDiagramContractsDoNotOfferTypedFlowMetadataEscape(t *testing.T) {
 	for _, want := range []string{
 		"semantic view does not classify its arrows as the requested source relation",
-		"typed source call-chain or flow-axis request",
+		"typed source relation-axis request",
 		"cannot drop edge_anchors to become presentation-only",
 	} {
 		if !strings.Contains(GroundedSourceDiagramRelationEvidenceContract, want) {
@@ -85,7 +85,23 @@ func TestGroundedSourceDiagramContractsDoNotOfferTypedFlowMetadataEscape(t *test
 	if strings.Contains(GroundedSourceDiagramRelationEvidenceContract, "Presentation-only diagrams that declare no typed relation remain outside") {
 		t.Fatalf("relation contract still exposes the unqualified metadata escape: %s", GroundedSourceDiagramRelationEvidenceContract)
 	}
-	if !strings.Contains(GroundedSourceDiagramEdgeOwnershipContract, "flow-axis request") {
-		t.Fatalf("body ownership contract lost the matching typed-flow boundary: %s", GroundedSourceDiagramEdgeOwnershipContract)
+	for _, axis := range []string{"call", "register", "return", "configure", "condition", "implement", "flow"} {
+		if !strings.Contains(GroundedSourceDiagramEdgeOwnershipContract, axis) {
+			t.Fatalf("body ownership contract lost typed relation axis %q: %s", axis, GroundedSourceDiagramEdgeOwnershipContract)
+		}
+	}
+}
+
+func TestPredicateAxisRequiresDiagramEdgeOwnershipCoversAllRelationAxes(t *testing.T) {
+	wants := map[PredicateAxis]bool{
+		AxisUnknown: false,
+		AxisDefine:  false,
+		AxisCall:    true, AxisRegister: true, AxisReturn: true,
+		AxisConfigure: true, AxisCondition: true, AxisImplement: true, AxisFlow: true,
+	}
+	for _, axis := range append([]PredicateAxis{AxisUnknown}, AllPredicateAxes()...) {
+		if got := PredicateAxisRequiresDiagramEdgeOwnership(axis); got != wants[axis] {
+			t.Fatalf("PredicateAxisRequiresDiagramEdgeOwnership(%q)=%t, want %t", axis, got, wants[axis])
+		}
 	}
 }

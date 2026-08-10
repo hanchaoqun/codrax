@@ -31,10 +31,11 @@ type AnswerSemanticView struct {
 	// use this enum together with parsed carriers (for example Mermaid body
 	// edges), but must never rediscover it from request or answer prose.
 	//
-	// In particular, AxisFlow means that visible arrows are the principal
-	// value/state/control-transfer claims of the answer rather than optional
-	// presentation decoration. QFRootCauseTrace remains on its independent
-	// runtime causal authority and is explicitly excluded by those validators.
+	// Relation-bearing axes mean that visible arrows are principal source
+	// relation claims rather than optional presentation decoration. AxisDefine
+	// retains a presentation-only lane. QFRootCauseTrace remains on its
+	// independent runtime causal authority and is explicitly excluded by those
+	// validators.
 	RelationAxis PredicateAxis
 
 	// SourceInventoryRowIdentityAvailable exposes the two source-inventory

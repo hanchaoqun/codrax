@@ -1800,6 +1800,72 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowCannotDropRelationOwnership(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_EveryTypedRelationAxisCannotDropOwnership(t *testing.T) {
+	for _, axis := range []types.PredicateAxis{
+		types.AxisCall,
+		types.AxisRegister,
+		types.AxisReturn,
+		types.AxisConfigure,
+		types.AxisCondition,
+		types.AxisImplement,
+		types.AxisFlow,
+	} {
+		t.Run(string(axis), func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "relation", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramArchitecture, Language: "mermaid",
+					Body: "flowchart BT\n  Child[Child] --> Parent[Parent]\n",
+				},
+			}}}
+			view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: axis}
+			got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+				t.Fatalf("typed relation axis %q must retain visible edge ownership: %+v", axis, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_TypedImplementAxisKeepsDirectionAfterPatch(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-hierarchy", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart BT\n  C[FileSink] --> P[Sink]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "C", ToNode: "P", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisImplement}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Producer: types.EvidenceProducerRepoMapImplementerRelation,
+		Subject: "FileSink", Predicate: "implements", Object: "Sink",
+		Source: "src/file_sink.go", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("same-direction typed implementer edge must pass: %+v", got)
+	}
+
+	// The exact production escape from r258: deleting metadata while retaining
+	// the factual arrow must fail, even though the graph remains renderable.
+	doc.Blocks[0].EdgeAnchors = nil
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("metadata deletion must not preserve the same implementer claim: %+v", got)
+	}
+
+	// Reversing the visible arrow and its metadata still cannot reverse the
+	// parser-owned type relation.
+	doc.Blocks[0].Diagram.Body = "flowchart BT\n  P[Sink] --> C[FileSink]\n"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "P", ToNode: "C", RelationKind: types.DiagramRelTypeRelation,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramTypeRelationEdgeIssueNoEvidence {
+		t.Fatalf("reversed type relation must fail typed direction authority: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

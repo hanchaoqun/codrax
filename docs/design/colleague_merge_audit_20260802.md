@@ -2502,3 +2502,15 @@ exact-value 臂选中，因而不能证明裁定的错算式车道存在。
 
 状态：`MERGE-AUDIT-6=closed`；`B445=implemented/full-suite-pass/pending-production-replay`；`B446=next-batch`；
 `raw-request/model-prose-hard-gate=none`；`model-conclusion-ownership=preserved`。
+
+#### B446 批次进展：visible-edge owner 按全部 typed relation axis 收口
+
+已新增 `PredicateAxisRequiresDiagramEdgeOwnership` 单点，call/register/return/configure/condition/implement/flow 七个 source relation
+axis 共用；`AxisDefine` 保留 presentation-only 出口，`QFRootCauseTrace` 继续走独立 runtime authority。现在删除 `edge_anchors` 而保留同一
+关系边会稳定触发 `missing_relation_anchor`，不能再从严格关系车道降成无元数据展示图；有 owner 的边仍必须通过各自的 same-row、same-direction、
+exact-or-unique-short typed evidence 门。
+
+新增七轴 census 和 r258 implementer 三臂 pin；`go test ./... -count=1` 全绿。实现不扫描 request/diagram label/model prose，
+不由系统改写模型图或结论。
+
+状态：`B446=implemented/full-suite-pass/pending-production-replay`。

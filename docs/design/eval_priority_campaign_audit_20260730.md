@@ -29722,3 +29722,21 @@ exact-two：`qf_type_relation_loop_controller` 与 `data_json_strict_ids`，同�
 状态：`B445=implemented/full-suite-pass/pending-production-replay`；
 `B446=P1-confirmed/next-batch`；`runner-false-green=qf-relation-semantics`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
+
+### 123.467 B446：typed relation axis 统一封闭 visible-edge 元数据逃逸
+
+`EVAL-B446-DIAGRAMMETADATAESCAPE1` 已按关系轴而非样例词面根修：
+
+1. `PredicateAxisRequiresDiagramEdgeOwnership` 成为单点边界，覆盖 call/register/return/configure/condition/implement/flow 七个
+   schema-validated source relation axis；只要该类答案选择画可见边，每条边就必须有同向 canonical `edge_anchors` owner；
+2. `AxisDefine` 继续允许纯展示 architecture/flow 图，避免把一般概念图硬化为源码关系；`QFRootCauseTrace` 在入口继续隔离，显式窗、系统补采、
+   链上根因、双轴占时、可消除量和因果投影仍走独立 runtime relation authority；
+3. r258 同形 pin 覆盖三臂：implementer→interface + typed type relation 通过；只删 metadata、保留同一可见边时拒绝；同时翻转可见边与 metadata
+   仍因 parser-owned direction 不符而拒绝。七轴 census 防止未来再只补某个 relation family；
+4. tool schema、Finalizer 教学与 validator 继续共享 `GroundedSourceDiagram*Contract`；规则不读取箭头 label、用户原文、模型 thinking/final prose、
+   文件路径或语言，不会因出现 “implements” 文案才触发；
+5. 系统仍不代写或翻转模型图。模型可复制同一 typed body+anchors、按证据修正，或删除可选图；若图是 typed required carrier，则必须由模型提交
+   合法结构。`internal/types` 与 `internal/tool` 全包通过。
+
+状态：`B446=implemented/full-suite-pass/pending-production-replay`；
+`visible-edge-owner=typed-relation-axis-driven`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

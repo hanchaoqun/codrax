@@ -62,13 +62,13 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
-	// AxisFlow is a schema-validated request relation, not a keyword guess.
-	// In that lane a visible arrow is itself the requested transfer claim, so
-	// deleting edge_anchors cannot turn the same factual topology into a
-	// metadata-free presentation escape. Ordinary architecture/definition
+	// A schema-validated source relation axis, not diagram vocabulary, decides
+	// whether a visible arrow is itself the requested relation claim. Deleting
+	// edge_anchors therefore cannot turn the same factual topology into a
+	// metadata-free presentation escape. Ordinary definition/architecture
 	// diagrams retain the legacy presentation-only lane. Runtime trace was
 	// excluded above and keeps its independent causal projection authority.
-	strictSourceRelationBody := strictSourceCallChain || view.RelationAxis == types.AxisFlow
+	strictSourceRelationBody := strictSourceCallChain || types.PredicateAxisRequiresDiagramEdgeOwnership(view.RelationAxis)
 	// Identity ambiguity is diagnosed before edge authority. Otherwise the
 	// same typed endpoint declared under multiple aliases can turn every valid
 	// edge into a misleading missing-anchor report and send the model through
