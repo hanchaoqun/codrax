@@ -267,6 +267,17 @@ func CoveredMaterialPaths(records []WorkflowRecord, plan dataquery.TaskPlan, bef
 	}
 	var markArtifact func(dataquery.DataArtifact)
 	markArtifact = func(artifact dataquery.DataArtifact) {
+		// A material inventory proves discovery only. Its child rows mirror the
+		// names and source_paths of candidate files, but the action has not read
+		// those files for the task's calculation/rules. Treating those children
+		// as covered lets a discovery batch satisfy script_consumed and can leave
+		// the terminal validator demanding a read after the workflow has already
+		// advanced to final projection. Keep the inventory artifact itself
+		// addressable, but do not promote its candidate children to coverage.
+		if NormalizeActionKind(dataquery.DataActionKind(artifact.Kind)) == dataquery.DataActionMaterialInventory {
+			mark(ArtifactAliases(artifact))
+			return
+		}
 		mark(artifact.SourcePaths)
 		mark(ArtifactAliases(artifact))
 		for _, child := range artifact.Children {

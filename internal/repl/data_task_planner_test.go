@@ -1295,6 +1295,45 @@ func TestPreserveDataTaskCoverageForTerminalMissingMaterial(t *testing.T) {
 	}
 }
 
+func TestPreserveDataTaskCoverageAcceptsExactExplicitPlannerDistilledRepair(t *testing.T) {
+	previous := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+		{ID: "instructions", Path: "instructions.md", Purpose: "user floor", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		{ID: "records", Path: "records.csv", Purpose: "source rows", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}}}
+	repaired := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+		{ID: "replacement", Path: "instructions.md", Purpose: "changed purpose", Required: true, UsageMode: dataquery.MaterialUsePlannerDistilled, DistilledNotes: []string{"exclude inactive rows", "project all target keys"}},
+		{ID: "records", Path: "records.csv", Purpose: "source rows", Required: true, UsageMode: dataquery.MaterialUseTextEvidenceConsumed, TextEvidencePath: "records.txt"},
+	}}}
+	got := preserveDataTaskMaterialRepairCoverageForError(previous, repaired, `data coverage incomplete: required material "instructions.md" was not consumed by the script`)
+	byPath := map[string]dataquery.CoverageMaterial{}
+	for _, material := range got.CoverageContract.RequiredMaterials {
+		byPath[material.Path] = material
+	}
+	instructions := byPath["instructions.md"]
+	if instructions.UsageMode != dataquery.MaterialUsePlannerDistilled || strings.Join(instructions.DistilledNotes, ",") != "exclude inactive rows,project all target keys" {
+		t.Fatalf("instructions=%+v, want explicit planner_distilled replacement", instructions)
+	}
+	if instructions.ID != "instructions" || instructions.Purpose != "user floor" || !instructions.Required {
+		t.Fatalf("instructions=%+v, preserved identity/floor changed", instructions)
+	}
+	if records := byPath["records.csv"]; records.UsageMode != dataquery.MaterialUseScriptConsumed {
+		t.Fatalf("records=%+v, unrelated material mode must not change", records)
+	}
+}
+
+func TestPreserveDataTaskCoverageRejectsIncompleteExactModeRepair(t *testing.T) {
+	previous := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{{
+		Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed,
+	}}}}
+	repaired := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{{
+		Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUsePlannerDistilled,
+	}}}}
+	got := preserveDataTaskMaterialRepairCoverageForError(previous, repaired, `data coverage incomplete: required material "instructions.md" was not consumed by the script`)
+	if mode := got.CoverageContract.RequiredMaterials[0].UsageMode; mode != dataquery.MaterialUseScriptConsumed {
+		t.Fatalf("UsageMode=%q, incomplete replacement must not weaken exact consumption", mode)
+	}
+}
+
 func TestConstrainDataTaskRepairCoverageEscalationRejectsDeclarationOnlyDuties(t *testing.T) {
 	repaired := dataquery.TaskPlan{
 		Actions: []dataquery.DataAction{{

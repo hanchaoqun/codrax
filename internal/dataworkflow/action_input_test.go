@@ -91,6 +91,44 @@ func TestCoveredMaterialPathsUsesWorkflowCoverageSemantics(t *testing.T) {
 	}
 }
 
+func TestCoveredMaterialPathsDoesNotPromoteInventoryCandidatesToConsumed(t *testing.T) {
+	records := []WorkflowRecord{{
+		Result: &dataquery.Result{
+			ConsumedPaths: []string{"records.csv"},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "material_overview",
+				Kind: string(dataquery.DataActionMaterialInventory),
+				Children: []dataquery.DataArtifact{{
+					ID:          "instructions.md",
+					Kind:        "text",
+					SourcePaths: []string{"instructions.md"},
+				}},
+			}},
+		},
+	}}
+	covered := CoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
+	if !CoveragePathCovered(covered, "records.csv") || !CoveragePathCovered(covered, "material_overview") {
+		t.Fatalf("covered=%v, want consumed path and inventory artifact alias", covered)
+	}
+	if CoveragePathCovered(covered, "instructions.md") {
+		t.Fatalf("covered=%v, inventory discovery must not prove material consumption", covered)
+	}
+	state := BuildWorkflowStateView(WorkflowStateViewBuildInput{
+		WorkflowContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "records.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}},
+		CoveredMaterialPaths: covered,
+		HasMaterialProgress:  true,
+	})
+	if state.MaterialCoverageSufficient || state.NextStage != StageCoverRequiredMaterials {
+		t.Fatalf("state=%+v, discovery-only material must reopen the coverage stage", state)
+	}
+	if len(state.MissingRequiredMaterials) != 1 || state.MissingRequiredMaterials[0] != "instructions.md" {
+		t.Fatalf("MissingRequiredMaterials=%v, want exact discovery-only path", state.MissingRequiredMaterials)
+	}
+}
+
 func TestAvailableActionInputPathsKeepsTopLevelLogicalSeedsOut(t *testing.T) {
 	records := []WorkflowRecord{{Result: &dataquery.Result{ConsumedPaths: []string{"consumed.csv"}}}}
 	plan := dataquery.TaskPlan{InputPaths: []string{"logical_seed"}}

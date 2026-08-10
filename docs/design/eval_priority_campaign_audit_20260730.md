@@ -30509,3 +30509,26 @@ Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`�
 状态：`B467=implemented/full-suite-pass/pending-production-replay`；`B463=pending-production-replay-after-B467`；`B468=P0-next`；
 `system-boundary/edge/answer-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B468 独立批完成：材料发现、语义消费与精确 mode 修复重新分权
+
+r271 的终局死路来自两份 typed 真相不一致。`material_inventory` 的 children 会逐项携带候选文件 `source_paths`，旧
+`CoveredMaterialPaths` 递归把这些“已发现”路径当作“已消费”；workflow 因而提前越过材料覆盖阶段。但 runner 的终局合同只承认
+`Result.ConsumedPaths`，所以仍正确拒绝未被脚本/typed action 实际消费的 `instructions.md`。此时 ledger 已推进到 final projection，repair
+schema 只剩 reconcile/assemble，形成六次同错。
+
+本批在共享 workflow coverage 源头把 inventory 固定为 discovery-only：保留根 inventory artifact alias 可寻址，但不再把其候选 children
+提升为 coverage。真实 `ConsumedPaths`、非 discovery typed artifact 及同批产物的既有覆盖语义不变；缺失材料现在会精确回到
+`cover_required_materials`，允许 inspect/extract/derive_rules 等真实 consumer，而不是在终局要求 final action 完成不属于它的读取义务。
+
+同时 `required_material_not_consumed/not_declared` 从执行错误 grammar 提取 exact `InputAlias`。若 repair planner 对该同一路径明确提交
+`planner_distilled + 非空 distilled_notes` 或 `text_evidence_consumed + 非空 evidence path`，系统允许替换旧的 `script_consumed`；未完整、
+不同路径、`reference_only` 或无 typed alias 均保持旧合同。ID/path/purpose/required floor 继续由原合同持有，系统不选择 mode、不读取用户/答案
+prose、不删除材料，也不把 inventory 内容自动蒸馏成规则。
+
+验证覆盖 discovery-only→coverage-stage 回阶、精确错误别名、合法 exact mode replacement、缺 notes 拒绝与 unrelated material 不变；
+`go test ./internal/dataworkflow ./internal/dataquery ./internal/repl -count=1` 及 `go test ./... -count=1` 全绿。
+
+状态：`B468=implemented/full-suite-pass/pending-production-replay`；`B463/B465/B466/B467=pending-production-replay`；
+`inventory-as-consumption-authority=forbidden`；`system-mode-selection/material-drop=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

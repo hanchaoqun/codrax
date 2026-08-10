@@ -2974,3 +2974,16 @@ r271 runner 1/2、人工 0/2。QF 最后一稿的 7 条 model-authored `particip
 
 状态：`B467=implemented/full-suite-pass/pending-replay`；`B463=pending-replay`；`B468=P0-next`；
 `system-edge/answer-rewrite=none`；Trace 车道不变。
+
+#### §11.10.26 B468 完成：discovery-only inventory 不再冒充 required material consumption
+
+根因不是 runner 过严，而是 workflow coverage 递归把 `material_inventory` 候选 child 的 `source_paths` 当作已消费，导致阶段提前推进；终局
+runner 依据真实 `ConsumedPaths` 又正确拒绝，repair 却只得到 final action 域。现 inventory 只保留根工件可寻址，不再贡献候选材料 coverage，
+exact missing material 会回开 `cover_required_materials`。
+
+执行错误同时携带 exact typed `InputAlias`；仅当模型为该同一路径显式提交完整的 `planner_distilled` 或
+`text_evidence_consumed` 证据时，previous-first merge 才允许替换消费机制。required floor、材料 identity/purpose 与其他材料均不可被改变；
+系统不选 mode、不代读/代蒸馏、不扫描 request/answer prose。三包定向与全仓测试全绿。
+
+状态：`B468=implemented/full-suite-pass/pending-replay`；`B463/B465/B466/B467=pending-replay`；
+`inventory-as-consumption-authority=forbidden`；`system-mode-selection/material-drop=none`；Trace 车道不变。

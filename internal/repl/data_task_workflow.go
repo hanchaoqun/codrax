@@ -7429,7 +7429,77 @@ func preserveDataTaskMaterialRepairCoverageForError(previous, repaired dataquery
 		repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
 		return repaired
 	}
-	return preserveDataTaskMaterialRepairCoverage(previous, repaired)
+	proposedCoverage := repaired.CoverageContract
+	repaired = preserveDataTaskMaterialRepairCoverage(previous, repaired)
+	repaired.CoverageContract = applyDataTaskExactMaterialUsageModeRepair(previous.CoverageContract, proposedCoverage, repaired.CoverageContract, violation)
+	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
+	return repaired
+}
+
+// applyDataTaskExactMaterialUsageModeRepair lets the repair planner correct
+// the declared consumption mechanism for the one material named by a typed
+// execution violation. It never chooses a mode, changes requiredness, or
+// drops a material: only a structurally complete, model-emitted replacement
+// for the exact path is accepted. This keeps the user material floor intact
+// while avoiding the previous-first merge freezing script_consumed forever.
+func applyDataTaskExactMaterialUsageModeRepair(previous, proposed, merged dataquery.CoverageContract, violation dataquery.DataTaskViolation) dataquery.CoverageContract {
+	switch strings.TrimSpace(violation.Code) {
+	case "required_material_not_consumed", "required_material_not_declared":
+	default:
+		return merged
+	}
+	alias := normalizeDataTaskCoveragePath(violation.InputAlias)
+	if alias == "" {
+		return merged
+	}
+	var replacement dataquery.CoverageMaterial
+	found := false
+	for _, candidate := range proposed.RequiredMaterials {
+		if normalizeDataTaskCoveragePath(candidate.Path) != alias {
+			continue
+		}
+		mode := dataworkflow.NormalizeCoverageMaterialUseMode(candidate.UsageMode)
+		switch mode {
+		case dataquery.MaterialUsePlannerDistilled:
+			if len(cleanDataTaskStrings(candidate.DistilledNotes)) == 0 {
+				continue
+			}
+		case dataquery.MaterialUseTextEvidenceConsumed:
+			if normalizeDataTaskCoveragePath(candidate.TextEvidencePath) == "" {
+				continue
+			}
+		default:
+			continue
+		}
+		replacement = candidate
+		found = true
+		break
+	}
+	if !found {
+		return merged
+	}
+	previousByKey := dataTaskCoverageMaterialMap(previous.RequiredMaterials)
+	key := dataTaskCoverageMaterialKey(replacement)
+	prior, ok := previousByKey[key]
+	if !ok {
+		return merged
+	}
+	for i := range merged.RequiredMaterials {
+		if dataTaskCoverageMaterialKey(merged.RequiredMaterials[i]) != key {
+			continue
+		}
+		// Identity, purpose, and requiredness remain owned by the preserved
+		// contract. Only the explicit evidence mechanism is replaceable.
+		merged.RequiredMaterials[i].ID = prior.ID
+		merged.RequiredMaterials[i].Path = prior.Path
+		merged.RequiredMaterials[i].Purpose = prior.Purpose
+		merged.RequiredMaterials[i].Required = true
+		merged.RequiredMaterials[i].UsageMode = replacement.UsageMode
+		merged.RequiredMaterials[i].TextEvidencePath = replacement.TextEvidencePath
+		merged.RequiredMaterials[i].DistilledNotes = append([]string(nil), replacement.DistilledNotes...)
+		break
+	}
+	return merged
 }
 
 func shouldKeepDataTaskRepairCoverageScoped(previous, repaired dataquery.TaskPlan, violation dataquery.DataTaskViolation) bool {

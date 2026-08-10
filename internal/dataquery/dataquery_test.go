@@ -8601,6 +8601,14 @@ func TestClassifyExecutionError(t *testing.T) {
 	if v.ActualSnippet != "text_evidence/invoices/ATT-00006.txt" || !strings.Contains(v.RepairHint, "atomic action") {
 		t.Fatalf("undeclared path violation=%+v", v)
 	}
+	v = ClassifyExecutionError(`execute data task: data coverage incomplete: required material "instructions.md" was not consumed by the script`)
+	if v.InputAlias != "instructions.md" {
+		t.Fatalf("required material violation=%+v, want exact input_alias", v)
+	}
+	v = ClassifyExecutionError(`data coverage incomplete: required material "rules.md" is not declared in input_paths`)
+	if v.Code != "required_material_not_declared" || v.InputAlias != "rules.md" {
+		t.Fatalf("required declaration violation=%+v, want exact input_alias", v)
+	}
 	v = ClassifyExecutionError(`execute data task: data action failed action_id="extract_1" action_kind="extract_records": open missing.csv: no such file or directory`)
 	if v.ActionID != "extract_1" || v.ActionKind != "extract_records" || !strings.Contains(v.RepairHint, "action/node") {
 		t.Fatalf("data action violation=%+v", v)

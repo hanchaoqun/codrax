@@ -718,9 +718,11 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Read the declared text_evidence_path with a helper and use it in computation, validation, audit, or ledgers."
 	case strings.Contains(lower, "required material") && strings.Contains(lower, "is not declared in input_paths"):
 		v.Code = "required_material_not_declared"
+		v.InputAlias = parseRequiredMaterialErrorPath(text)
 		v.RepairHint = "Declare the runner-readable required path in input_paths, or use text_evidence_consumed/planner_distilled when direct script input is not correct."
 	case strings.Contains(lower, "required material") && strings.Contains(lower, "was not consumed by the script"):
 		v.Code = "required_material_not_consumed"
+		v.InputAlias = parseRequiredMaterialErrorPath(text)
 		v.RepairHint = "Read the material with a helper and use the content, or use a verifiable non-direct usage_mode with required evidence fields."
 	case strings.Contains(lower, "coverage_contract.") && strings.Contains(lower, "but result.") && strings.Contains(lower, "is empty"):
 		v.Code = "missing_required_ledger"
@@ -810,6 +812,27 @@ func parseQuotedErrorField(text, key string) string {
 		rest = rest[:end]
 	}
 	return strings.Trim(strings.TrimSpace(rest), `"'`)
+}
+
+func parseRequiredMaterialErrorPath(text string) string {
+	const marker = "required material"
+	idx := strings.Index(strings.ToLower(text), marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(text[idx+len(marker):])
+	if rest == "" {
+		return ""
+	}
+	quote := rest[0]
+	if quote != '"' && quote != '\'' {
+		return ""
+	}
+	rest = rest[1:]
+	if end := strings.IndexByte(rest, quote); end >= 0 {
+		return strings.TrimSpace(rest[:end])
+	}
+	return ""
 }
 
 func parseUndeclaredInputPath(text string) string {
