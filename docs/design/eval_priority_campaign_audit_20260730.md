@@ -29890,3 +29890,19 @@ enumeration_status=incomplete` 约束压缩诚实性，退役固定 `0.105` 微�
 更新后的 contains/regex 全部命中 r262 production artifact。只改 eval oracle/演化记录，生产 Trace 代码与答案零改动。
 
 状态：`H7-oracle=updated/r262-artifact-pass`。
+
+### 123.474 MERGE-AUDIT-6 低危顾问分批复核
+
+§11.3 六项经生产代码复核后，两项施工、三项否证、一项澄清：
+
+1. U2-3 确认为格式脆弱的 checkout authority pin；批 1 改用 Go AST 检查目标函数内有序 conditional-pre-stage literal，格式/注释重构不再静默关提示，错序/增项仍 fail-closed；
+2. U5-1 不删除 future independent `thread_role` carrier，只在软教学明确当前 span/name-derived frame rows 不提供它，缺席时必须写 candidate TID；
+3. U6-1 确认为 EMITBURN 未覆盖的后置 evidence-resolution 首错车道；批 2 保留原首错 headline/verdict，同时一次列全所有 typed member-row 修点；
+4. U2-4 不恢复无 refresh/deadline 权威的固定 60Hz jank 地板；duration 保持 measured value，verdict 保持 unproven；
+5. U5-2 不按 prose 主题做噪声切分。deterministic query 到达后抑制 Analyzer 自由叙事，但 typed AnalysisIR、请求维度与 runtime ledger 均保留；
+6. U7-1 不回钉 `contributions=4`。3/4 条是两种已证等价 DAG；oracle 继续要求正数 ledger、精确终值、reconcile pass 与 terminal artifact。
+
+定向 agent/tool 测试通过；两批均不扫描用户/模型/答案 prose 作 hard gate，不改写模型答案，不触碰 Trace 显式窗、自动补齐、链上根因、双轴占时/可消除量或因果投影。
+
+状态：`U2-3/U5-1/U6-1=implemented`；`U2-4/U5-2/U7-1=no-change-after-audit`；
+`B445/B448/B450=pending-production-replay`。

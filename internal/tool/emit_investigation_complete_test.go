@@ -8773,6 +8773,45 @@ func TestValidateAggregateMemberSetSupportRefs_AcceptsAlignedCurrentSourceRespon
 	}
 }
 
+func TestValidateAggregateMemberSetSupportRefs_ReportsAllInvalidRowsInOneReject(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "read mode stages",
+		Value:      "2",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "demoted:mechanism_narrative_support_member_set",
+		Members:    []string{"StageAnalyze", "StageExplore"},
+		MemberNotes: []string{
+			"",
+			"investigates the repository",
+		},
+		SupportRefs: []string{
+			"internal/missing/analyzer.go:40",
+			"internal/missing/explorer.go:50",
+		},
+	}
+	err := validateAggregateMemberSetSupportRefs(ctx, []types.AnswerAggregateFact{fact}, nil)
+	if err == nil {
+		t.Fatal("invalid member rows must fail")
+	}
+	got := err.Error()
+	for _, want := range []string{
+		"The payload has 3 member-row grounding violations",
+		"fix ALL of them in this one re-emit",
+		"[1] aggregate_facts:",
+		"[2] aggregate_facts:",
+		"[3] aggregate_facts:",
+		"empty member_note or support_ref at index 0",
+		`support_ref "internal/missing/analyzer.go:40" at index 0`,
+		`support_ref "internal/missing/explorer.go:50" at index 1`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("single reject must report %q, got: %s", want, got)
+		}
+	}
+}
+
 func TestValidateAggregateMemberSetSupportRefs_RuntimeResponsibilityRosterKeepsOriginSpecificLane(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
 	fact := types.AnswerAggregateFact{

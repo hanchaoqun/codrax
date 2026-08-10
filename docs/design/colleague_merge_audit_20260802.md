@@ -2607,3 +2607,15 @@ H7 oracle 已在独立卫生批更新：硬值改为现行 typed `0.033/49.623`�
 状态：`U2-3/U5-1=batch1-implemented/agent-pass`；`U6-1=batch2-next`；
 `U2-4/U5-2/U7-1=reviewed-no-production-change`；
 `raw-prose-hard-gate=none`；`model-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
+
+#### 批 2：U6-1 member row 拒绝一次报告完整修复集
+
+`validateAggregateMemberSetSupportRefs` 保留原首错文字和同一拒绝 verdict，但不再在第一个 fact/row 立即返回。它现在在同一个 typed
+payload 内收集所有 `member_notes/support_refs` 对齐、空值、same-member evidence resolution 和 decorated-member grounding 违规，去重后以
+`[1]..[N]` 一次发给 Explorer；同一 narrative/per-member 合同重叠时只保留更精确的一条，避免把同一行换词重复报错。
+
+新增三错 witness：第 0 行空 note + 两行 ref 均不解析时，单次拒绝同时给出 3 个修点；既有单错字符串、repair origin、拒绝/降级语义和
+EMITBURN normalize 汇总均保持。系统不自动生成 note/ref，不删除 member，也不接受未落地证据。
+
+状态：`U6-1=batch2-implemented/targeted-tool-pass`；`member-row-verdict=unchanged`；
+`model-authored-facts=preserved`；`raw-prose-hard-gate=none`。

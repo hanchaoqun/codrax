@@ -7902,6 +7902,16 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 // can auto-resolve.
 func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) error {
 	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+	var violations []string
+	seenViolation := map[string]bool{}
+	addViolation := func(message string) {
+		message = strings.TrimSpace(message)
+		if message == "" || seenViolation[message] {
+			return
+		}
+		seenViolation[message] = true
+		violations = append(violations, message)
+	}
 	for _, fact := range facts {
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
@@ -7911,25 +7921,31 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		}
 		if aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx, fact) {
 			if len(fact.MemberNotes) != len(fact.Members) || len(fact.SupportRefs) != len(fact.Members) {
-				return fmt.Errorf(
+				addViolation(fmt.Sprintf(
 					"aggregate_facts: current-source architecture/mechanism member_set %q uses member_notes as a completion boundary, but members/member_notes/support_refs are not exactly index-aligned (members=%d member_notes=%d support_refs=%d). Re-emit either without member_notes, or with exactly one verified non-empty member_note and one grounded support_ref per member in the same order; identity-only declarations do not prove behavioral responsibility",
 					strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes), len(fact.SupportRefs),
-				)
+				))
+				continue
 			}
 			for i := range fact.Members {
 				if strings.TrimSpace(fact.MemberNotes[i]) == "" || strings.TrimSpace(fact.SupportRefs[i]) == "" {
-					return fmt.Errorf(
+					addViolation(fmt.Sprintf(
 						"aggregate_facts: current-source architecture/mechanism member_set %q has an empty member_note or support_ref at index %d for member %q. Re-emit with one verified non-empty note and one grounded ref per member in the same order, or omit member_notes entirely",
 						strings.TrimSpace(fact.Label), i, strings.TrimSpace(fact.Members[i]),
-					)
+					))
 				}
-				if !aggregateMemberSetSupportRefsResolveMember(fact, fact.Members[i], support) {
-					return fmt.Errorf(
+				if strings.TrimSpace(fact.SupportRefs[i]) != "" &&
+					!aggregateMemberSetSupportRefsResolveMember(fact, fact.Members[i], support) {
+					addViolation(fmt.Sprintf(
 						"aggregate_facts: current-source architecture/mechanism member_set %q has support_ref %q at index %d, but it does not resolve to grounded evidence for member %q. Re-emit with the already-read producer/callsite/consumer location that proves this member's responsibility; an identity-only or unrelated location cannot close the investigation",
 						strings.TrimSpace(fact.Label), strings.TrimSpace(fact.SupportRefs[i]), i, strings.TrimSpace(fact.Members[i]),
-					)
+					))
 				}
 			}
+			// The narrative contract above already checks the same-member support
+			// and non-empty notes required by the per-member table lane. Avoid
+			// emitting two differently worded violations for the same row.
+			continue
 		}
 		if aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport(ctx, fact, evidence) {
 			for i, member := range fact.Members {
@@ -7940,28 +7956,30 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				if i < len(fact.SupportRefs) {
 					ref = strings.TrimSpace(fact.SupportRefs[i])
 				}
-				return fmt.Errorf(
+				addViolation(fmt.Sprintf(
 					"aggregate_facts: current-source per-member table member_set %q has member %q at index %d with support_ref %q, but that row does not resolve to grounded evidence for the same member. Re-emit one exact grounded evidence id or source location per members[] row in the same order; do not use a nearby function or shared file as evidence for a different member",
 					strings.TrimSpace(fact.Label), strings.TrimSpace(member), i, ref,
-				)
+				))
 			}
 			if aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(ctx, fact, evidence) {
 				if len(fact.MemberNotes) != len(fact.Members) {
-					return fmt.Errorf(
+					addViolation(fmt.Sprintf(
 						"aggregate_facts: current-source per-member attribute table member_set %q has members=%d but member_notes=%d. Re-emit exactly one verified non-empty member_note and one same-member grounded support_ref per members[] row in the same order; an identity-only roster cannot supply the requested per-row attributes",
 						strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes),
-					)
-				}
-				for i, member := range fact.Members {
-					if strings.TrimSpace(fact.MemberNotes[i]) != "" {
-						continue
+					))
+				} else {
+					for i, member := range fact.Members {
+						if strings.TrimSpace(fact.MemberNotes[i]) != "" {
+							continue
+						}
+						addViolation(fmt.Sprintf(
+							"aggregate_facts: current-source per-member attribute table member_set %q has an empty member_note at index %d for member %q. Re-emit a verified row attribute note grounded by the aligned same-member support_ref; identity alone cannot prove the requested row attributes",
+							strings.TrimSpace(fact.Label), i, strings.TrimSpace(member),
+						))
 					}
-					return fmt.Errorf(
-						"aggregate_facts: current-source per-member attribute table member_set %q has an empty member_note at index %d for member %q. Re-emit a verified row attribute note grounded by the aligned same-member support_ref; identity alone cannot prove the requested row attributes",
-						strings.TrimSpace(fact.Label), i, strings.TrimSpace(member),
-					)
 				}
 			}
+			continue
 		}
 		var missing []string
 		var unresolved []string
@@ -8005,7 +8023,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		if label == "" {
 			label = "(unlabeled)"
 		}
-		return fmt.Errorf(
+		addViolation(fmt.Sprintf(
 			"aggregate_facts: member_set %q has %d member(s) shaped as "+
 				"\"<code identifier> (<qualifier>)\" (%s%s) but %s. "+
 				"Decorated code-shape members never auto-resolve against evidence anchors, "+
@@ -8018,9 +8036,22 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				"bare symbol can auto-resolve; removing the member entirely is a last "+
 				"resort and you must name the removed member in reason with one line on why.",
 			label, len(problem), strings.Join(quoted, ", "), omitted, problemKind,
-		)
+		))
 	}
-	return nil
+	if len(violations) == 0 {
+		return nil
+	}
+	if len(violations) == 1 {
+		return fmt.Errorf("%s", violations[0])
+	}
+	indexed := make([]string, 0, len(violations))
+	for i, violation := range violations {
+		indexed = append(indexed, fmt.Sprintf("[%d] %s", i+1, violation))
+	}
+	return fmt.Errorf(
+		"%s The payload has %d member-row grounding violations — fix ALL of them in this one re-emit: %s",
+		violations[0], len(violations), strings.Join(indexed, "; "),
+	)
 }
 
 // aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport activates the
