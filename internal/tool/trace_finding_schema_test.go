@@ -13,6 +13,13 @@ func TestTraceFindingSchemaIsOptIn(t *testing.T) {
 	assertSchemaField(t, tool.ParametersFor(ordinary), "trace_finding", false)
 
 	ordinary.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
+		Required: false, FindingSchemaVersion: types.TraceFindingSchemaVersion,
+		CandidateSetID: "deterministic-sidecar-only",
+	})
+	assertSchemaField(t, tool.ParametersFor(ordinary), "trace_finding", false)
+	assertSchemaField(t, (&EmitAnswerDocumentPatch{}).ParametersFor(ordinary), "replace_trace_finding", false)
+
+	ordinary.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
 		Required: true, FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		PrimaryCandidateIDs: []string{"candidate-1"}, AcceptedEvidenceIDs: []string{"evidence-1"},
 	})

@@ -63,8 +63,12 @@ type TraceCauseDecision struct {
 	CandidateID        string                   `json:"candidate_id"`
 	Status             TraceCausalStatus        `json:"status"`
 	Token              TraceCausalTokenSnapshot `json:"token"`
+	SubjectName        string                   `json:"subject_name,omitempty"`
 	SubjectRole        string                   `json:"subject_role"`
 	UpstreamRole       string                   `json:"upstream_role,omitempty"`
+	ResourceName       string                   `json:"resource_name,omitempty"`
+	PhaseName          string                   `json:"phase_name,omitempty"`
+	BlockingKind       string                   `json:"blocking_kind,omitempty"`
 	CausalShape        string                   `json:"causal_shape"`
 	Phase              string                   `json:"phase"`
 	Rank               int                      `json:"rank,omitempty"`

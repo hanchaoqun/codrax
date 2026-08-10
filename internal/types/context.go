@@ -3426,6 +3426,19 @@ func (m *MutableState) TraceFinding() *TraceFindingV1 {
 	return cloneTraceFindingV1(m.traceFindingV1)
 }
 
+// SetTraceFinding stores a deterministic trace conclusion after the original
+// answer document has been accepted. This setter is intentionally separate
+// from the atomic model-authored artifact mutation: the value is compiled
+// from typed trace evidence and is not part of the model tool schema.
+func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceFindingV1 = cloneTraceFindingV1(finding)
+}
+
 // SetTraceFindingContract enables typed finding output for a batch child run.
 // A nil contract disables the feature without changing ordinary read schemas.
 func (m *MutableState) SetTraceFindingContract(contract *TraceFindingContract) {
@@ -7290,6 +7303,12 @@ type BusContext struct {
 	// prose, and it must never become final-answer proof by itself.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
 
+	// TraceFindingRequired is a CLI-owned request for a structured trace
+	// sidecar (for example --trace-finding-out). It is separate from user prose
+	// so batch children can request machine-readable output without changing
+	// the model's answer-document schema.
+	TraceFindingRequired bool `json:"-"`
+
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -7682,6 +7701,11 @@ type AgentContext struct {
 	// RuntimeArtifactPreflight mirrors BusContext.RuntimeArtifactPreflight for
 	// analyzer/tool/sub-agent projections.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
+
+	// TraceFindingRequired mirrors the CLI-owned BusContext flag. It may enable
+	// deterministic sidecar generation, but must never alter the finalizer's
+	// tool schema or the original long-form answer.
+	TraceFindingRequired bool `json:"-"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —

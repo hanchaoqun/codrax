@@ -16,7 +16,10 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil
 	}
-	if current := ctx.Mutable.TraceFindingContract(); current != nil && current.Required && strings.TrimSpace(current.CandidateSetID) != "" {
+	if !ctx.TraceFindingRequired && !traceShortRootCauseRequested(ctx) {
+		return nil
+	}
+	if current := ctx.Mutable.TraceFindingContract(); current != nil && strings.TrimSpace(current.CandidateSetID) != "" {
 		return nil
 	}
 	authority := answerDocRuntimeTraceGuidanceView(ctx)
@@ -50,8 +53,50 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if err != nil {
 		return fmt.Errorf("compile trace finding contract: %w", err)
 	}
+	// This contract is an internal deterministic snapshot only. Keeping
+	// Required=false is the key compatibility boundary: emit_answer_document
+	// receives exactly its historical schema and the long answer is unchanged.
+	contract.Required = false
 	ctx.Mutable.SetTraceFindingContract(contract)
 	return nil
+}
+
+func finalizeDeterministicTraceFinding(ctx *types.AgentContext) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	contract := ctx.Mutable.TraceFindingContract()
+	if contract == nil || strings.TrimSpace(contract.CandidateSetID) == "" {
+		return
+	}
+	ctx.Mutable.SetTraceFinding(tracefinding.BuildDeterministicFinding(contract))
+}
+
+func traceShortRootCauseRequested(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	request := strings.ToLower(strings.TrimSpace(ctx.Objective))
+	if request == "" && ctx.Mutable != nil {
+		request = strings.ToLower(strings.TrimSpace(ctx.Mutable.Objective()))
+	}
+	for _, phrase := range []string{
+		"不需要简短根因", "不要简短根因", "无需简短根因", "不显示简短根因", "不输出简短根因",
+		"do not show short root cause", "without short root cause",
+	} {
+		if strings.Contains(request, phrase) {
+			return false
+		}
+	}
+	for _, phrase := range []string{
+		"需要简短根因", "输出简短根因", "显示简短根因", "给出简短根因", "生成简短根因", "简短根因输出",
+		"show short root cause", "output short root cause", "include short root cause",
+	} {
+		if strings.Contains(request, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func traceFindingHasTraceCarrier(ctx *types.AgentContext) bool {

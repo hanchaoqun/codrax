@@ -1,16 +1,20 @@
 package agent
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+type traceShortRootCauseJSON struct {
+	ThreadName string `json:"thread_name"`
+	RootCause  string `json:"root_cause"`
+}
+
 func renderTraceFindingShortRootCause(ctx *types.AgentContext, lang string) string {
-	if ctx == nil || ctx.Mutable == nil {
+	if ctx == nil || ctx.Mutable == nil || !traceShortRootCauseRequested(ctx) {
 		return ""
 	}
 	return renderTraceFindingShortRootCauseValue(ctx.Mutable.TraceFinding(), lang)
@@ -20,75 +24,28 @@ func renderTraceFindingShortRootCauseValue(finding *types.TraceFindingV1, lang s
 	if finding == nil {
 		return ""
 	}
-	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	title := "## Short root cause"
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		title = "## 简短根因"
+	}
 	if finding.PrimaryCause == nil {
-		reason := "available evidence is insufficient to identify a root cause"
-		title := "## Short root cause"
+		reason := "无法从原始 Trace 的结构化证据中确定根因"
 		if finding.Unresolved != nil && strings.TrimSpace(finding.Unresolved.Reason) != "" {
 			reason = compactFindingText(finding.Unresolved.Reason, 140)
 		}
-		if zh {
-			title = "## 简短根因"
-			if finding.Unresolved == nil || strings.TrimSpace(finding.Unresolved.Reason) == "" {
-				reason = "现有证据不足，暂时无法确定根因"
-			}
-			return title + "\n\n**未确定**：" + reason + "。"
-		}
-		return title + "\n\n**Unresolved:** " + reason + "."
+		payload, _ := json.MarshalIndent(traceShortRootCauseJSON{RootCause: reason}, "", "  ")
+		return title + "\n\n```json\n" + string(payload) + "\n```"
 	}
 
-	primary := *finding.PrimaryCause
-	label := traceFindingCauseLabel(primary.Token.Token, zh)
-	subject := traceFindingRoleLabel(primary.SubjectRole, zh)
-	phase := traceFindingPhaseLabel(primary.Phase, zh)
-	status := "Strongest supported candidate"
-	title := "## Short root cause"
-	if primary.Status == types.TraceCausalProven {
-		status = "Root cause"
-	}
-	if zh {
-		title = "## 简短根因"
-		status = "最强根因候选"
-		if primary.Status == types.TraceCausalProven {
-			status = "根因"
-		}
-	}
-	parts := []string{label}
-	if subject != "" {
-		parts = append(parts, subject)
-	}
-	if phase != "" {
-		parts = append(parts, phase)
-	}
-	line := fmt.Sprintf("**%s：%s**", status, strings.Join(parts, " · "))
-	if !zh {
-		line = fmt.Sprintf("**%s: %s**", status, strings.Join(parts, " · "))
-	}
-	if primary.Magnitude != nil && primary.Magnitude.Value > 0 {
-		line += fmt.Sprintf("（%.3f %s）", primary.Magnitude.Value, primary.Magnitude.Unit)
-		if !zh {
-			line = strings.TrimSuffix(line, fmt.Sprintf("（%.3f %s）", primary.Magnitude.Value, primary.Magnitude.Unit)) +
-				fmt.Sprintf(" (%.3f %s)", primary.Magnitude.Value, primary.Magnitude.Unit)
-		}
-	}
-	if len(finding.Contributors) > 0 {
-		labels := make([]string, 0, 3)
-		for _, contributor := range finding.Contributors {
-			labels = append(labels, traceFindingCauseLabel(contributor.Token.Token, zh))
-			if len(labels) == 3 {
-				break
-			}
-		}
-		if zh {
-			line += "\n\n次要因素：" + strings.Join(labels, "、") + "。"
-		} else {
-			line += "\n\nContributors: " + strings.Join(labels, ", ") + "."
-		}
-	}
-	return title + "\n\n" + line
+	short := traceShortRootCauseFromDecision(*finding.PrimaryCause)
+	payload, _ := json.MarshalIndent(short, "", "  ")
+	return title + "\n\n```json\n" + string(payload) + "\n```"
 }
 
-func prependAnswerSupplement(prose, supplement string) string {
+// mergeTraceFindingWithDetailedAnswer is deliberately a byte-preserving
+// no-op when the optional supplement is absent. When present, it only adds a
+// prefix; the model's original long answer remains an unchanged suffix.
+func mergeTraceFindingWithDetailedAnswer(prose, supplement, lang string) string {
 	supplement = strings.TrimSpace(supplement)
 	if supplement == "" || strings.Contains(prose, supplement) {
 		return prose
@@ -96,49 +53,90 @@ func prependAnswerSupplement(prose, supplement string) string {
 	if strings.TrimSpace(prose) == "" {
 		return supplement
 	}
-	return supplement + "\n\n" + prose
+	detailTitle := "## Detailed analysis"
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		detailTitle = "## 完整分析"
+	}
+	return supplement + "\n\n---\n\n" + detailTitle + "\n\n" + prose
 }
 
-func traceFindingCauseLabel(token string, zh bool) string {
-	token = strings.TrimSpace(token)
-	if zh {
-		if label := tool.TraceRootCauseTypeZHLabel(token); label != "" {
-			return label + "（" + token + "）"
-		}
-		return token
-	}
-	return strings.ReplaceAll(token, "_", " ")
-}
+func traceShortRootCauseFromDecision(decision types.TraceCauseDecision) traceShortRootCauseJSON {
+	thread := firstShortFindingValue(decision.SubjectName, "未知")
+	resource := compactTraceResourceName(firstShortFindingValue(decision.ResourceName, decision.SubjectName, "未知资源"))
+	phase := firstShortFindingValue(decision.PhaseName, usableTracePhase(decision.Phase), decision.SubjectName, "当前")
+	token := strings.ToLower(strings.TrimSpace(decision.Token.Token))
+	lane := strings.ToLower(strings.TrimSpace(decision.Token.Lane))
 
-func traceFindingRoleLabel(role string, zh bool) string {
-	if !zh {
-		return strings.ReplaceAll(strings.TrimSpace(role), "_", " ")
-	}
-	switch strings.TrimSpace(role) {
-	case "target_thread":
-		return "目标线程"
-	case "upstream_dependency":
-		return "上游依赖线程"
-	case "lock_holder":
-		return "锁持有线程"
-	case "aggregate_metric":
-		return "系统级指标"
-	case "causal_worker":
-		return "关联工作线程"
+	rootCause := ""
+	switch {
+	case token == "binder_wait":
+		rootCause = thread + "线程同步binder"
+	case token == "priority_inversion_candidate" || token == "priority_inversion_runnable_wait":
+		rootCause = thread + "线程优先级反转"
+	case token == "gc_pause" || token == "memory_gc":
+		rootCause = "GC耗时长"
+	case token == "jit_compile" || token == "runtime_compile" || token == "class_verification":
+		rootCause = thread + "线程JIT编译耗时"
+	case token == "shader_compile":
+		rootCause = thread + "线程Shader编译"
+	case token == "sleep_wait" || token == "fragmented_sleep_wait" || token == "missing_wakeup" ||
+		token == "pacing_idle" || token == "periodic_idle":
+		rootCause = thread + "线程阻塞"
+	case token == "blocking_span" || lane == "lock_contention" || strings.TrimSpace(decision.BlockingKind) != "":
+		rootCause = resource + "锁竞争"
+	case lane == "io_blocking" || token == "page_cache_churn" || token == "memory_reclaim" || token == "memory_page_fault":
+		rootCause = thread + "线程IO阻塞"
+	case lane == "compute_delivery" || token == "compute_supply" || token == "low_frequency" || token == "cpu_frequency_limit":
+		rootCause = "供给不足"
+	case lane == "scheduling_demand":
+		rootCause = thread + "线程CPU调度延迟"
+	case lane == "cpu_work" || lane == "irq_aggregate":
+		rootCause = phase + "阶段高负载"
+	case lane == "memory_pressure":
+		rootCause = "GC耗时长"
 	default:
-		return ""
+		// Diagnostic rows are not expected to survive candidate compilation.
+		// If a future token reaches this boundary, keep the value inside the
+		// user's closed vocabulary instead of leaking an internal wire token.
+		rootCause = phase + "阶段高负载"
 	}
+	return traceShortRootCauseJSON{ThreadName: thread, RootCause: rootCause}
 }
 
-func traceFindingPhaseLabel(phase string, zh bool) string {
-	phase = strings.TrimSpace(phase)
-	if phase == "" || phase == "unknown" {
+func compactTraceResourceName(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	lower := strings.ToLower(value)
+	for _, prefix := range []string{"lock contention on ", "monitor contention on ", "contention on "} {
+		if strings.HasPrefix(lower, prefix) {
+			value = strings.TrimSpace(value[len(prefix):])
+			lower = strings.ToLower(value)
+			break
+		}
+	}
+	for _, marker := range []string{" (owner tid:", " owner_tid=", " (owner="} {
+		if index := strings.Index(lower, marker); index >= 0 {
+			value = strings.TrimSpace(value[:index])
+			break
+		}
+	}
+	return compactFindingText(value, 100)
+}
+
+func usableTracePhase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "unknown") {
 		return ""
 	}
-	if zh && phase == "pre_wakeup_dependency" {
-		return "唤醒前依赖阶段"
+	return value
+}
+
+func firstShortFindingValue(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
 	}
-	return strings.ReplaceAll(phase, "_", " ")
+	return ""
 }
 
 func compactFindingText(value string, maxRunes int) string {

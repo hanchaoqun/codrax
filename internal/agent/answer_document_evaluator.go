@@ -13609,7 +13609,7 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 
 func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
 	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
-	prose = prependAnswerSupplement(prose, renderTraceFindingShortRootCause(ctx, e.language))
+	prose = mergeTraceFindingWithDetailedAnswer(prose, renderTraceFindingShortRootCause(ctx, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderVerifiedStageBindingSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)

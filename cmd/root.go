@@ -433,7 +433,7 @@ type appContext struct {
 	markdownPreviewConfig   preview.Config
 	outputDumpDir           string
 	outputDumpMax           int
-	replPasteFoldMinChars   int // 0 → repl.DefaultPasteFoldMinChars
+	replPasteFoldMinChars   int  // 0 → repl.DefaultPasteFoldMinChars
 	replReadRunAutoResume   bool // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	chitchatResponder       repl.ChitchatResponder
 	chitchatClassifier      repl.ChitchatClassifier
@@ -1694,6 +1694,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	if routePolicyOK && app.orch != nil {
 		app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(routePolicy))
 	}
+	app.orch.SetTraceFindingRequired(strings.TrimSpace(flagTraceFindingOut) != "")
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)

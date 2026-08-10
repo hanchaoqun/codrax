@@ -11,8 +11,15 @@ import (
 
 func TestDiscoverTraceBatchUnitsSameDirectory(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"a.systrace", "b.trace", "ignore.log"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("trace"), 0o644); err != nil {
+	files := map[string]string{
+		"a.systrace": "trace",
+		"b.trace":    "trace",
+		"c.txt":      "worker-1 [000] 1.000: sched_switch: prev_pid=1 next_pid=2",
+		"d":          "worker-2 [001] 1.100: sched_wakeup: pid=3",
+		"ignore.log": "ordinary application log",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -20,8 +27,37 @@ func TestDiscoverTraceBatchUnitsSameDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(units) != 2 || units[0].UnitID != "a" || units[1].UnitID != "b" {
+	if len(units) != 4 || units[0].UnitID != "a" || units[1].UnitID != "b" || units[2].UnitID != "c" || units[3].UnitID != "d" {
 		t.Fatalf("unexpected units: %+v", units)
+	}
+}
+
+func TestAppendTraceBatchDetailLinksPreservesOriginalReportPaths(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "batch")
+	reports := map[string]string{
+		"trace-b": filepath.Join(outputDir, "reports", "trace-b.md"),
+		"trace-a": filepath.Join(outputDir, "reports", "trace-a.md"),
+	}
+	got := appendTraceBatchDetailLinks("# Trace 根因聚类报告\n", outputDir, reports, "zh-CN")
+	for _, want := range []string{"每份 Trace 的完整分析", "没有覆盖原始结果", "reports/trace-a.md", "reports/trace-b.md"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("batch report missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceBatchChildReceivesPhysicalTraceFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "raw.trace")
+	args := traceBatchChildArgs(traceBatchUnit{UnitID: "raw", Path: path}, "finding.json", "分析根因")
+	found := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--htrace" && args[i+1] == path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("batch child did not receive the physical trace path: %v", args)
 	}
 }
 

@@ -100,8 +100,9 @@ type traceBatchUnit struct {
 }
 
 type traceBatchUnitResult struct {
-	input   *tracecluster.Input
-	failure *types.TraceBatchFailure
+	input      *tracecluster.Input
+	failure    *types.TraceBatchFailure
+	reportPath string
 }
 
 func runTraceBatch(cmd *cobra.Command, _ []string) error {
@@ -132,7 +133,7 @@ func runTraceBatch(cmd *cobra.Command, _ []string) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect trace batch output directory: %w", err)
 	}
-	for _, dir := range []string{outputDir, filepath.Join(outputDir, "findings"), filepath.Join(outputDir, "logs")} {
+	for _, dir := range []string{outputDir, filepath.Join(outputDir, "findings"), filepath.Join(outputDir, "logs"), filepath.Join(outputDir, "reports")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create trace batch output directory: %w", err)
 		}
@@ -173,11 +174,15 @@ func runTraceBatch(cmd *cobra.Command, _ []string) error {
 
 	inputs := make([]tracecluster.Input, 0, len(units))
 	failures := make([]types.TraceBatchFailure, 0)
+	detailReports := make(map[string]string, len(units))
 	completed := 0
 	for result := range results {
 		completed++
 		if result.input != nil {
 			inputs = append(inputs, *result.input)
+			if strings.TrimSpace(result.reportPath) != "" {
+				detailReports[result.input.UnitID] = result.reportPath
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "[%d/%d] %s: finding ready\n", completed, len(units), result.input.UnitID)
 		} else if result.failure != nil {
 			failures = append(failures, *result.failure)
@@ -196,7 +201,9 @@ func runTraceBatch(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	reportPath, err := writeNewArtifact(filepath.Join(outputDir, "report.md"), []byte(renderTraceClusterMarkdown(set, flagLang)))
+	reportBody := renderTraceClusterMarkdown(set, flagLang)
+	reportBody = appendTraceBatchDetailLinks(reportBody, outputDir, detailReports, flagLang)
+	reportPath, err := writeNewArtifact(filepath.Join(outputDir, "report.md"), []byte(reportBody))
 	if err != nil {
 		return err
 	}
@@ -211,15 +218,39 @@ func runTraceBatch(cmd *cobra.Command, _ []string) error {
 func runTraceBatchUnit(ctx context.Context, unit traceBatchUnit, outputDir, request string) traceBatchUnitResult {
 	findingPath := filepath.Join(outputDir, "findings", unit.UnitID+".trace-finding.json")
 	logPath := filepath.Join(outputDir, "logs", unit.UnitID+".log")
+	reportPath := filepath.Join(outputDir, "reports", unit.UnitID+".md")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
 	if err != nil {
 		return failedTraceBatchUnit(unit.UnitID, "batch_log_create_failed", err)
 	}
 	defer logFile.Close()
+	reportFile, err := os.OpenFile(reportPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+	if err != nil {
+		return failedTraceBatchUnit(unit.UnitID, "batch_report_create_failed", err)
+	}
+	defer reportFile.Close()
 	executable, err := os.Executable()
 	if err != nil {
 		return failedTraceBatchUnit(unit.UnitID, "child_executable_unavailable", err)
 	}
+	args := traceBatchChildArgs(unit, findingPath, request)
+	child := exec.CommandContext(ctx, executable, args...)
+	// Keep the original, complete child answer separate from diagnostic
+	// stderr. Earlier code sent both streams to one .log file, which made the
+	// batch report look as if the short root cause had replaced the full answer.
+	child.Stdout = reportFile
+	child.Stderr = logFile
+	if err := child.Run(); err != nil {
+		return failedTraceBatchUnit(unit.UnitID, "read_run_failed", fmt.Errorf("%v; log=%s", err, logPath))
+	}
+	finding, err := loadTraceFindingFile(findingPath)
+	if err != nil {
+		return failedTraceBatchUnit(unit.UnitID, "finding_schema_invalid", err)
+	}
+	return traceBatchUnitResult{input: &tracecluster.Input{UnitID: unit.UnitID, Finding: *finding}, reportPath: reportPath}
+}
+
+func traceBatchChildArgs(unit traceBatchUnit, findingPath, request string) []string {
 	args := []string{
 		"--request", request,
 		"--htrace", unit.Path,
@@ -236,17 +267,7 @@ func runTraceBatchUnit(ctx context.Context, unit traceBatchUnit, outputDir, requ
 	if flagMaxSteps > 0 {
 		args = append(args, "--pipeline-max-steps", fmt.Sprintf("%d", flagMaxSteps))
 	}
-	child := exec.CommandContext(ctx, executable, args...)
-	child.Stdout = logFile
-	child.Stderr = logFile
-	if err := child.Run(); err != nil {
-		return failedTraceBatchUnit(unit.UnitID, "read_run_failed", fmt.Errorf("%v; log=%s", err, logPath))
-	}
-	finding, err := loadTraceFindingFile(findingPath)
-	if err != nil {
-		return failedTraceBatchUnit(unit.UnitID, "finding_schema_invalid", err)
-	}
-	return traceBatchUnitResult{input: &tracecluster.Input{UnitID: unit.UnitID, Finding: *finding}}
+	return args
 }
 
 func failedTraceBatchUnit(unitID, code string, err error) traceBatchUnitResult {
@@ -283,7 +304,8 @@ func discoverTraceBatchUnits(inputDir string, patterns []string, recursive bool)
 			}
 			return nil
 		}
-		if traceBatchNameMatches(entry.Name(), patterns) {
+		if traceBatchNameMatches(entry.Name(), patterns) ||
+			(traceBatchUsesDefaultPatterns(patterns) && traceBatchUnusualFileLooksLikeTrace(path, entry.Name())) {
 			paths = append(paths, path)
 		}
 		return nil
@@ -310,7 +332,52 @@ func discoverTraceBatchUnits(inputDir string, patterns []string, recursive bool)
 }
 
 func defaultTraceBatchPatterns() []string {
-	return []string{"*.trace", "*.systrace", "*.htrace", "*.ftrace", "*.perfetto-trace"}
+	return []string{"*.trace", "*.systrace", "*.htrace", "*.atrace", "*.ftrace", "*.perfetto-trace", "*.perftrace", "*.tracebundle.json"}
+}
+
+func traceBatchUsesDefaultPatterns(patterns []string) bool {
+	want := defaultTraceBatchPatterns()
+	if len(patterns) != len(want) {
+		return false
+	}
+	for i := range want {
+		if !strings.EqualFold(strings.TrimSpace(patterns[i]), want[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// traceBatchUnusualFileLooksLikeTrace admits text exports that customers
+// commonly store as .txt/.log or without a suffix.  It reads only a bounded
+// prefix and requires a concrete trace marker, so unrelated files in the same
+// directory do not silently become analysis units.
+func traceBatchUnusualFileLooksLikeTrace(path, name string) bool {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(name)))
+	if ext != "" && ext != ".txt" && ext != ".log" {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	body, err := io.ReadAll(io.LimitReader(f, 128<<10))
+	if err != nil || len(body) == 0 || bytes.IndexByte(body, 0) >= 0 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"sched_switch:", "sched_wakeup:", "sched_waking:",
+		"tracing_mark_write:", "binder_transaction:",
+		"cpu_frequency:", "perf_sample:", "trace_event_clock_sync:",
+		"# tracer:", "android systrace", "openharmony", "hitrace",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func traceBatchNameMatches(name string, patterns []string) bool {
@@ -438,6 +505,33 @@ func renderTraceClusterMarkdown(set types.TraceRootCauseClusterSetV1, lang strin
 		for _, failure := range set.Failures {
 			fmt.Fprintf(&b, "- `%s` [%s]: %s\n", failure.UnitID, failure.Code, failure.Detail)
 		}
+	}
+	return b.String()
+}
+
+func appendTraceBatchDetailLinks(report, outputDir string, detailReports map[string]string, lang string) string {
+	if len(detailReports) == 0 {
+		return report
+	}
+	unitIDs := make([]string, 0, len(detailReports))
+	for unitID := range detailReports {
+		unitIDs = append(unitIDs, unitID)
+	}
+	sort.Strings(unitIDs)
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(report))
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		b.WriteString("\n\n## 每份 Trace 的完整分析\n\n简短根因没有覆盖原始结果。每份 Trace 的完整回答单独保存在下面的文件中：\n\n")
+	} else {
+		b.WriteString("\n\n## Complete analysis for each Trace\n\nThe short root cause does not replace the original result. Each complete answer is preserved below:\n\n")
+	}
+	for _, unitID := range unitIDs {
+		rel, err := filepath.Rel(outputDir, detailReports[unitID])
+		if err != nil {
+			rel = detailReports[unitID]
+		}
+		rel = filepath.ToSlash(rel)
+		fmt.Fprintf(&b, "- [`%s`](%s)\n", unitID, rel)
 	}
 	return b.String()
 }

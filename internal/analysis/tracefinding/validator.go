@@ -168,7 +168,10 @@ func contractCandidate(candidates []types.TraceFindingCandidateV1, id string) (t
 
 func validateCandidateSnapshot(got, want types.TraceCauseDecision) error {
 	if got.Token != want.Token ||
+		got.SubjectName != want.SubjectName ||
 		got.SubjectRole != want.SubjectRole || got.UpstreamRole != want.UpstreamRole ||
+		got.ResourceName != want.ResourceName || got.PhaseName != want.PhaseName ||
+		got.BlockingKind != want.BlockingKind ||
 		got.CausalShape != want.CausalShape || got.Phase != want.Phase ||
 		got.Rank != want.Rank || got.Tier != want.Tier ||
 		got.BoardFingerprint != want.BoardFingerprint ||
