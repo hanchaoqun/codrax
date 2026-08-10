@@ -30092,3 +30092,38 @@ prefix 六组 pin。
 状态：`B455=implemented/full-suite-pass/pending-production-replay`；`B452/B453=pending-production-replay`；
 `r265-churn-root=code-complete`；`system-business-decision=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+### 123.478 r266：B455 production 关闭；关系补证的 skipped-row 修复账本断层
+
+严格并行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`，runner/human 均为 `PASS/FAIL`
+（477s/376s）。人工审计见
+`eval/parallel_selected_summary_evalcampaign_data_stage_r266_20260809_manual_audit.md`。
+
+data 最终仍精确输出 `17,0,5`，四份材料、9 条 rules、22 条 decisions、4 条 contributions、`reconcile=pass`、完整 reference
+projection 与 terminal audit 全部闭合。更关键的是，r265 中由 deferred prefix 陈腐 `ContinueAfter=false` 造成的
+`validate data workflow result: ... contributions is empty` 在本轮日志中为 **0**；最终 queue 排空后的 terminal rank 仍运行完整
+contribution/reconcile/answer 校验。因此 B455 获得 production 正证并关闭，不是通过跳过终验换来的绿。轮次由 12/5 repair/10 failed
+action 降到 11/4/5，仍有模型计划陈腐 artifact path、错误字段和 alias 冲突，作为独立效率债保留。B454 的 generated `*_status`
+分支未触发，继续等待定向 witness。
+
+QF 则揭示 B452 的前置断层。Explorer 在 flow-operation repair 后确实读取了真实调用点，并发射
+`dispatchStage -> ctxbuilder.BuildAgentContext` relationship row；但该 item 漏 `line_start`，`emit_evidence` 将其 schema-invalid
+SKIPPED。工具结果随后同时给出互相冲突的两种信号：`Current actionable repair targets: none`，以及 prose 形“若 load-bearing 请重发”；
+没有 `ToolRepair`、repair locus 或 closure debt。模型直接再次 completion，`flow_operation_carrier` 以 no-progress 收敛；B452 的
+participant lane 又受 `!flowOperationMissing` 前置约束，根本没有获得执行机会。Finalizer 因此仍只有定义/文本而没有可引用 typed edge，
+5 次关系拒绝后删光全部 Mermaid 边。
+
+这不是一次模型波动：模型读到了正确位置并尝试提交正确关系，失败发生在结构化 item 的 schema/recovery 边界；r263-r265 的缺边问题也由
+同一证据运输链持续复现。新立 `EVAL-B456-EVIDENCESKIPREPAIR1/P0`：任何 load-bearing typed EvidenceItem 因字段/schema 校验跳过时，
+必须形成精确、局部、可执行的 repair debt，指出 item index 与缺失字段，并阻止相关 completion lane 把该次尝试计为不可修复 no-progress；
+不得扫描模型 prose、不得自动补 field/value、不得把 planning participant 铸成关系。
+
+B453 本轮只证明系统 supplement 已正确退役；Finalizer 的 current-run stage authority 没有触发，正文仍把
+TaskGraph/EvidencePlan/AnswerContract 含混描述为 Analyzer LLM 的输出。登记 `EVAL-B457-STAGEAUTHORITYREACH1/P1`：在 checkout
+精确匹配 Codrax stage binding 且 typed required flow/diagram participants 指向当前 stage lane 时，允许 prompt-only stage authority
+到达；禁止依赖原文关键词，禁止向不匹配的客户仓注入 Codrax 内部架构，禁止系统改写答案。
+
+状态：`B455=production-closed`；`B452=production-replay-failed/blocked-by-B456`；
+`B453=partial/system-supplement-closed/prompt-reach-pending-B457`；`B456=P0-next`；`B457=P1-after-B456`；
+`B454=pending-targeted-production-witness`；`raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

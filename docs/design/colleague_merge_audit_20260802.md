@@ -2736,3 +2736,23 @@ split flag、deferred 再拆、remainder merge、legacy snapshot defense-in-dept
 状态：`MERGE-AUDIT-6/§11=closed`；`B455=implemented/full-suite-pass/pending-production-replay`；
 `B452/B453=pending-production-replay`；`terminal-ledger-gates=unchanged`；`model-business-decision=none`；
 `raw-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.8 r266 production 收账：B455 关闭，B452/B453 转入两个独立到达性 GAP
+
+r266 exact-two 没有重开 §11 已关闭项。data 的 terminal answer、contribution/reconcile/reference projection 全绿，并且 r265 的
+prefix 完整终验错误在日志中归零，B455 production 关闭。普通计划仍有 11 batch/4 repair/5 failed action，属于模型计划与 action schema
+效率债，不回退 deferred terminal 修复。
+
+QF 证明 B452 的 participant coverage 还不能关闭：Explorer 已读到真实 `dispatchStage -> BuildAgentContext` 调用并尝试发射，但
+relationship item 因缺 `line_start` 被 `emit_evidence` 跳过；该工具没有返回 typed repair，反而报告无 actionable target。随后
+flow-operation no-progress 收敛使 participant lane 的前置条件始终不成立。该跨工具修复账本断层另立
+`EVAL-B456-EVIDENCESKIPREPAIR1/P0`，优先于继续扩 relation 教学。
+
+B453 的系统阶段补表已确认不再出现，但 current-run stage authority 仍因触发条件过窄未进入本次 Finalizer prompt，producer provenance
+继续含混。另立 `EVAL-B457-STAGEAUTHORITYREACH1/P1`，只允许 checkout-verified Codrax stage binding 与 typed flow/diagram signal
+合取触发 prompt authority；不扫原文，不做客户仓污染，不代写答案。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B455=production-closed`；
+`B452=production-replay-failed/blocked-by-B456`；`B453=partial/blocked-by-B457`；
+`B456=P0-next`；`B457=P1-after-B456`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
