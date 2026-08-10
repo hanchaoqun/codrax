@@ -3163,3 +3163,20 @@ lane 继续拒绝。该 authority 不证明内部函数调用、载体传输或�
 专项正反 pin 与全仓测试通过。状态：`B477=implemented/full-suite-pass/pending-production-replay`；`B478=P1-next`；
 `prompt-validator-stage-authority=single-source`；`system-edge/conclusion-synthesis=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.39 r277：B477 provider 生效，但缺少同源 precedence recipe
+
+`main@5f3bc07fd` exact-two runner 2/2、人工 0/2。QF 生产日志确认 checkout-verified stage authority 已进入 finalizer prompt，且 validator
+消费同一 provider；初始 B477 根修方向正确。残余在消费协议：prompt 只给 canonical facts，没有给模型与 diagram contract 同构的三条
+`from/to/relation_kind=precedence` 行。模型多次铸成 call，正确被拒后删掉主图关系。立 `B477b-STAGEAUTHRECIPE1/P0`，由同一 provider 发布
+逐边写法；权限仍只覆盖相邻 stage order，禁止把顺序扩成 call/data_flow，禁止系统代画/代答。
+
+70 轮 Explorer 还暴露 `B479-STAGECLOSEBOUND1/P1`：completion gate 不认识共享 stage authority 已满足四个 stage participant，且缺少
+BusContext/Mutable 的 typed unproven close lane，造成高成本补读。B477b 回放后再裁，不能用伪造边止血。
+
+多态 case 中 line 40 wrapper 与 line 10 core 被一个 structured item 合并并失去 citation，line 42 exact call 未发射；因此 B478/B474
+继续开放。修复只能读 structured item identity/citation 与 typed evidence，不读自由文本，不对语言或绑定框架硬拟合。
+
+状态：`B477=partial/production-provider-positive`；`B477b=P0-next`；`B479=P1-after-replay`；
+`B478=P1`；`B474=pending`；`runner=2/2,human=0/2`；`system-answer/graph-authoring=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

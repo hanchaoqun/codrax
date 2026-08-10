@@ -30841,3 +30841,22 @@ validator 接线；专项套件与 `go test ./... -count=1` 通过。
 状态：`B477=implemented/full-suite-pass/pending-production-replay`；`B478=P1-next`；
 `stage-order-as-call-or-dataflow=forbidden`；`system-diagram/answer-conclusion-authoring=none`；
 `raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.493 r277：同源 authority 获生产正证，发射 recipe 与完成边界仍有 gap
+
+`main@5f3bc07fd` exact-two runner 2/2、人工 0/2。QF all-log 已真实发布 B477 的 checkout-verified stage binding 与 canonical
+sequence，证明 prompt/validator 双源已消除；但教学未把同一权威展开为逐边 `from/to/relation_kind=precedence` recipe，模型继续把阶段顺序猜成
+call，被关系门正确拒绝后只保留两条内部 helper call，六个请求参与者全部断开。立 `B477b-STAGEAUTHRECIPE1/P0`：同一 provider 同时给事实与三条
+相邻 precedence 发射形；只证明 stage order，不授权 call/data_flow，系统不代画、不补边、不改答案。
+
+QF 共 70 个 Explorer 轮次、55 次 read、25 次 mid-loop injection、10 次 completion call。`flow_participant_operation_evidence` 对已经有 stage
+authority 的四个阶段仍追 operation 证据，而 BusContext/Mutable 没有 typed unproven completion carrier。立 `B479-STAGECLOSEBOUND1/P1`，待
+B477b 回放后再裁共享 authority 的 completion satisfaction 或一次聚焦后的 typed boundary；不得把未证 data-flow 伪装成关系。
+
+多态 case 的 guard/native module/registration/fallback 均在，但 final item 把 line 40 wrapper 与 line 10 core 合并为一个
+`tokenize_bytes (Rust)` 并被移除引用；line 42 wrapper→core 精确 call 未发射。`B474` 继续 pending，`B478` 继续按 structured
+label/claim/citation/typed identity 审计，不扫描 free-form prose、不做 PyO3 单例拟合。
+
+状态：`B477=partial/production-provider-positive`；`B477b=P0-next`；`B479=P1-after-replay`；`B478=P1`；
+`B474=pending`；`B475=production-consumed/insufficient`；`runner=2/2,human=0/2`；
+`system-diagram/edge/conclusion-authoring=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
