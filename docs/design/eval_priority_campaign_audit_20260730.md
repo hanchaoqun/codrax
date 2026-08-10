@@ -29694,3 +29694,31 @@ shape 决定展示 typed 对账行。发射内容仍只来自 typed row 并带 `
 
 状态：`M6-U1-1=closed/full-suite-pass`；`MERGE-AUDIT-6=closed`；
 `model-conclusion-owner=unchanged`；`raw-prose-hard-gate=none`；Trace explicit-window/causal projection=`unchanged`。
+
+### 123.466 r258：关系图元数据逃逸 + data 晚到规则代次断裂
+
+exact-two：`qf_type_relation_loop_controller` 与 `data_json_strict_ids`，同一封存二进制，`PARALLEL=2`：
+
+1. runner 为 `PASS/FAIL`（171s/283s），人工为 `FAIL/FAIL`。QF runner 只命中名称/文件 regex，不能替代关系方向和接口事实审计；
+2. QF 首稿把 `LoopController -> implementer` 标为 implements，typed type-relation 门正确拒绝；patch 删除全部 `edge_anchors` 后保留
+   原可见边并出厂。确认 `EVAL-B446-DIAGRAMMETADATAESCAPE1=P1`：普通 architecture/definition 图可通过删除关系 authority metadata
+   逃逸，属于所有关系族共享的 visible-carrier coverage GAP，不按 Go/接口/本符号特修；正文另把一个返回 `LoopSignal` 的 `Observe` 方法误述为
+   两个方法，进一步证明 runner 假绿；
+3. data 已算出严格答案 `{"ids":["u1","u3"]}`，并有 5 decisions、3 source-backed rules、2 contributions、3 resolutions、
+   reconcile=pass；失败不是 malformed JSON，也不是计算错误；
+4. rules 在 contribution/reconcile/answer 代次之后才生成，旧 item ledgers 无 `rule_refs`。计数式 state/ledger graph 却同时发布
+   `next_stage=complete`、`allowed_next_actions=[]`，终验正确报 `unlinked_source_rule_coverage`；随后 5 次 repair 只能尝试已禁
+   `custom_transform`，最终耗尽预算；
+5. 确认 `EVAL-B445-DATALEDGERGENERATION1=P0`：row count/present 不等于跨 ledger dependency closure；late upstream ledger 必须使下游
+   contribution/reconcile/answer 代次陈旧，并开放 typed 重算车道；
+6. B445 结构根修已实现：workflow state 使用与 ActionRunner 相同的 replacement-generation reducer；终验与路由共享 typed
+   `RuleCoverageLinkageState`；stage/ledger graph 在链接未闭合时回到 contribution；exact guard code 选择 deterministic
+   `compute_contributions(replace_contributions=true)`，再进入 reconcile/assemble。它不扫描用户/模型 prose，不改写答案，不启用脚本；
+7. B446 单列下一批。最优形是让关系请求的所有可见 diagram edge 都必须保留 canonical typed owner，删除 metadata 只能删整条可选边/整图，
+   不能把同一事实降成 presentation-only；Runtime Trace 图继续走独立因果 authority，不受 source diagram 合同影响。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_type_json_r258_20260809_manual_audit.md`。
+
+状态：`B445=implemented/full-suite-pass/pending-production-replay`；
+`B446=P1-confirmed/next-batch`；`runner-false-green=qf-relation-semantics`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。

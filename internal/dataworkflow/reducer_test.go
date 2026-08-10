@@ -658,3 +658,38 @@ func TestBuildValidationFailureTransitionRequestsRepairWhenNoPlan(t *testing.T) 
 		t.Fatalf("transition=%+v, want guard/error context", transition)
 	}
 }
+
+func TestBuildValidationFailureTransitionRepairsUnlinkedRuleGenerationDeterministically(t *testing.T) {
+	guard := NewGuardResult(
+		"unlinked_source_rule_coverage", "error", RepairNeedsRecompute,
+		"typed rule coverage is not linked to item ledgers",
+		WorkflowViolation{Code: "unlinked_source_rule_coverage", Severity: "error", Repairability: RepairNeedsRecompute},
+	)
+	transition := BuildValidationFailureTransition(CompletionRepairTransitionInput{
+		Current: dataquery.TaskPlan{Goal: "return active ids"},
+		Coverage: dataquery.CoverageContract{
+			RuleCoverageRequired:       true,
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Output: dataquery.OutputContract{Format: dataquery.OutputJSONOnly},
+		Result: dataquery.Result{Answer: `{"ids":["u1","u3"]}`},
+		Guard:  guard,
+		Artifacts: []ArtifactSchemaProjection{{
+			ID: "filtered_active_users", Kind: string(dataquery.DataActionFilterRecords), NodeClass: ArtifactNodeClassRecord,
+			Aliases: []string{"filtered_active_users"}, JSONShape: "array(len=2,item=object(keys=id,active))",
+			Fields: []string{"id", "active"}, RowCount: 2,
+		}},
+	})
+	if transition.Action != ValidationFailureFallbackPlan || !transition.Deterministic || !transition.HasPlan() {
+		t.Fatalf("transition=%+v, want deterministic replacement plan", transition)
+	}
+	if len(transition.Plan.Actions) != 1 {
+		t.Fatalf("actions=%+v, want one replacement compute", transition.Plan.Actions)
+	}
+	action := transition.Plan.Actions[0]
+	if action.Kind != dataquery.DataActionComputeContribs || action.Params["replace_contributions"] != "true" || !transition.Plan.ContinueAfter {
+		t.Fatalf("action=%+v plan=%+v, want typed replacement generation", action, transition.Plan)
+	}
+}

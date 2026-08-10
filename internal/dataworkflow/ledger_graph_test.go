@@ -152,3 +152,34 @@ func TestLedgerGraphMirrorsTypedOnlyProjectionPrerequisites(t *testing.T) {
 		t.Fatalf("post-reconcile final projection=%+v first=%q", graph.FinalProjection, graph.FirstMissing)
 	}
 }
+
+func TestLedgerGraphDoesNotCallUnlinkedLateRuleGenerationComplete(t *testing.T) {
+	facts := StageFacts{
+		MaterialCoverageSufficient: true,
+		RuleCoverageRequired:       true,
+		RuleCoverageRecords:        3,
+		RuleLedgerLinkageRequired:  true,
+		DecisionRecordsRequired:    true,
+		DecisionRecords:            2,
+		ContributionLedgerRequired: true,
+		ContributionRecords:        2,
+		ReconcileRequired:          true,
+		HasReconcile:               true,
+		HasAnswer:                  true,
+	}
+	graph := BuildLedgerGraph(facts)
+	if graph.NextStage != StageComputeContributions {
+		t.Fatalf("next_stage=%q, want %q", graph.NextStage, StageComputeContributions)
+	}
+	if graph.Decisions.Present || graph.Contributions.Present || graph.Reconcile.Present || graph.FinalProjection.Present {
+		t.Fatalf("unlinked dependency was presented as satisfied: %+v", graph)
+	}
+	if graph.FirstMissing != string(LedgerDecisions) {
+		t.Fatalf("first_missing=%q, want decisions dependency reopened", graph.FirstMissing)
+	}
+	facts.RuleLedgerLinkageSatisfied = true
+	graph = BuildLedgerGraph(facts)
+	if graph.NextStage != StageComplete || !graph.Decisions.Present || !graph.Contributions.Present || !graph.Reconcile.Present || !graph.FinalProjection.Present {
+		t.Fatalf("linked graph did not close: %+v", graph)
+	}
+}

@@ -2486,3 +2486,19 @@ exact-value 臂选中，因而不能证明裁定的错算式车道存在。
 `internal/tracequery` 88.706s。
 
 状态：`M6-U1-1=closed/full-suite-pass`；`MERGE-AUDIT-6=closed`。
+
+### §11.6 审计后 production eval 补充（r258）
+
+§11 三项已按 §11.5 两批关闭；随后严格并行 production eval 又发现两个独立通用问题，避免把“审计项关闭”误记成全域无债：
+
+1. `EVAL-B445-DATALEDGERGENERATION1=P0`：source-backed rules 晚于 contribution/reconcile/answer 生成时，旧实现只看各 ledger
+   count/present，错误发布 complete/无可用动作；终验则按真实 `rule_refs` 依赖拒绝，形成 state/validator split-brain。当前批用共享 typed
+   linkage judgment、replacement generation 和 deterministic typed recompute 修复；`go test ./... -count=1` 全绿，待 production 回放收账；
+2. `EVAL-B446-DIAGRAMMETADATAESCAPE1=P1`：QF type-relation 首稿方向错误时，anchor 门正确拒绝，但 patch 删除
+   `edge_anchors` 后可保留原可见关系边出厂。它不否定 M6-U3 的 endpoint identity 修复；暴露的是其更上层的 visible edge owner
+   完备性 GAP，应以全部 source relation 族共用的 typed carrier coverage 修复，不能按某语言、implements 标签或当前模型文案特判；
+3. 两项均不授权系统改写模型结论。B445 只修 typed workflow state/repair；B446 只约束结构化 diagram payload 与 typed evidence。
+   Runtime Trace 的显式时间窗、系统补采、链上根因、双轴占时、可消除量及因果投影继续使用独立 authority。
+
+状态：`MERGE-AUDIT-6=closed`；`B445=implemented/full-suite-pass/pending-production-replay`；`B446=next-batch`；
+`raw-request/model-prose-hard-gate=none`；`model-conclusion-ownership=preserved`。

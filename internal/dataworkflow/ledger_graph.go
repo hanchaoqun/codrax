@@ -23,8 +23,14 @@ const (
 func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 	contributionRequired := facts.ContributionLedgerNeeded()
 	reconcileRequired := facts.ReconcileNeeded()
+	ruleLinkageClosed := !facts.RuleLedgerLinkageRequired || facts.RuleLedgerLinkageSatisfied
+	decisionPresent := facts.DecisionRecords > 0 && ruleLinkageClosed
+	entityPresent := facts.EntityLedgerSatisfied() && ruleLinkageClosed
+	contributionPresent := facts.ContributionRecords > 0 && ruleLinkageClosed
+	reconcilePresent := facts.HasReconcile && ruleLinkageClosed
+	answerPresent := facts.HasAnswer && ruleLinkageClosed
 	var finalProjectionProducers []dataquery.DataActionKind
-	if facts.HasReconcile {
+	if reconcilePresent {
 		finalProjectionProducers = append(finalProjectionProducers, dataquery.DataActionAssembleAnswer)
 	}
 	if !facts.CustomTransformDisabled {
@@ -45,7 +51,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerDecisions,
 			Required:        facts.DecisionRecordsRequired,
-			Present:         facts.DecisionRecords > 0,
+			Present:         decisionPresent,
 			Count:           facts.DecisionRecords,
 			Stage:           StagePrepareContributionInputs,
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionFilterRecords, dataquery.DataActionQualifyRecords, dataquery.DataActionComputeContribs},
@@ -62,7 +68,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			// published face and the dataquery validator once re-derived
 			// satisfaction differently and deadlocked the workflow
 			// (GAP-3/G10, §29.142).
-			Present:         facts.EntityLedgerSatisfied(),
+			Present:         entityPresent,
 			Count:           facts.EntityResolutionRecords,
 			Stage:           StageNormalizeOrEnrichEntities,
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionNormalizeEntities, dataquery.DataActionEnrichRecords},
@@ -73,7 +79,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerContributions,
 			Required:        contributionRequired,
-			Present:         facts.ContributionRecords > 0,
+			Present:         contributionPresent,
 			Count:           facts.ContributionRecords,
 			Stage:           StageComputeContributions,
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionComputeContribs},
@@ -101,21 +107,21 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerReconcile,
 			Required:        reconcileRequired,
-			Present:         facts.HasReconcile,
-			Count:           boolCount(facts.HasReconcile),
+			Present:         reconcilePresent,
+			Count:           boolCount(reconcilePresent),
 			Stage:           StageReconcileArtifacts,
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionReconcile},
 			DependsOn:       ledgerDependsOn(true, LedgerContributions),
 			MissingPrerequisites: ledgerPrerequisites(
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
-				ledgerPrerequisite{Enabled: facts.ContributionRecords == 0, Value: string(LedgerContributions)},
+				ledgerPrerequisite{Enabled: !contributionPresent, Value: string(LedgerContributions)},
 			),
 		}),
 		buildLedgerDependency(ledgerDependencyInput{
 			Ledger:          LedgerFinalProjection,
 			Required:        true,
-			Present:         facts.HasAnswer,
-			Count:           boolCount(facts.HasAnswer),
+			Present:         answerPresent,
+			Count:           boolCount(answerPresent),
 			Stage:           StageEmitOutputContractAnswer,
 			ProducesActions: finalProjectionProducers,
 			DependsOn: cleanStrings([]string{
@@ -128,10 +134,10 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			MissingPrerequisites: ledgerPrerequisites(
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
 				ledgerPrerequisite{Enabled: facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0, Value: string(LedgerRuleCoverage)},
-				ledgerPrerequisite{Enabled: facts.DecisionRecordsRequired && facts.DecisionRecords == 0, Value: string(LedgerDecisions)},
-				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied(), Value: string(LedgerEntityResolutions)},
-				ledgerPrerequisite{Enabled: contributionRequired && facts.ContributionRecords == 0, Value: string(LedgerContributions)},
-				ledgerPrerequisite{Enabled: reconcileRequired && !facts.HasReconcile, Value: string(LedgerReconcile)},
+				ledgerPrerequisite{Enabled: facts.DecisionRecordsRequired && !decisionPresent, Value: string(LedgerDecisions)},
+				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && !entityPresent, Value: string(LedgerEntityResolutions)},
+				ledgerPrerequisite{Enabled: contributionRequired && !contributionPresent, Value: string(LedgerContributions)},
+				ledgerPrerequisite{Enabled: reconcileRequired && !reconcilePresent, Value: string(LedgerReconcile)},
 			),
 		}),
 	}

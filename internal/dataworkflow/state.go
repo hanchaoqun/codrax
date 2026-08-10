@@ -37,6 +37,8 @@ type WorkflowStateView struct {
 	OutputContract                dataquery.OutputContract   `json:"output_contract,omitempty"`
 	RuleCoverageRequired          bool                       `json:"rule_coverage_required,omitempty"`
 	RuleCoverageRecords           int                        `json:"rule_coverage_records,omitempty"`
+	RuleLedgerLinkageRequired     bool                       `json:"rule_ledger_linkage_required,omitempty"`
+	RuleLedgerLinkageSatisfied    bool                       `json:"rule_ledger_linkage_satisfied,omitempty"`
 	DecisionRecordsRequired       bool                       `json:"decision_records_required,omitempty"`
 	DecisionRecords               int                        `json:"decision_records,omitempty"`
 	EntityResolutionRequired      bool                       `json:"entity_resolution_required,omitempty"`
@@ -84,6 +86,8 @@ func (view WorkflowStateView) Facts() StageFacts {
 		MaterialCoverageSufficient: view.MaterialCoverageSufficient,
 		Coverage:                   coverage,
 		RuleCoverageRecords:        view.RuleCoverageRecords,
+		RuleLedgerLinkageRequired:  view.RuleLedgerLinkageRequired,
+		RuleLedgerLinkageSatisfied: view.RuleLedgerLinkageSatisfied,
 		DecisionRecords:            view.DecisionRecords,
 		EntityResolutionRecords:    view.EntityResolutionRecords,
 		EntityStageMaterialized:    view.EntityStageMaterialized,

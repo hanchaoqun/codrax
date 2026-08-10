@@ -9,15 +9,17 @@ import (
 )
 
 type WorkflowStateLedgerCounts struct {
-	RuleCoverageRecords     int
-	DecisionRecords         int
-	EntityResolutionRecords int
-	EntityStageMaterialized bool
-	ContributionRecords     int
-	HasReconcile            bool
-	HasAnswer               bool
-	HasProjectionArtifact   bool
-	ReconcileFailureStreak  int
+	RuleCoverageRecords        int
+	RuleLedgerLinkageRequired  bool
+	RuleLedgerLinkageSatisfied bool
+	DecisionRecords            int
+	EntityResolutionRecords    int
+	EntityStageMaterialized    bool
+	ContributionRecords        int
+	HasReconcile               bool
+	HasAnswer                  bool
+	HasProjectionArtifact      bool
+	ReconcileFailureStreak     int
 }
 
 type WorkflowStateDiagnostics struct {
@@ -97,6 +99,8 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		ContributionLedgerRequired:    workflowContract.ContributionLedgerRequired,
 		ReconcileRequired:             workflowContract.ReconcileRequired,
 		RuleCoverageRecords:           input.LedgerCounts.RuleCoverageRecords,
+		RuleLedgerLinkageRequired:     input.LedgerCounts.RuleLedgerLinkageRequired,
+		RuleLedgerLinkageSatisfied:    input.LedgerCounts.RuleLedgerLinkageSatisfied,
 		DecisionRecords:               input.LedgerCounts.DecisionRecords,
 		EntityResolutionRecords:       input.LedgerCounts.EntityResolutionRecords,
 		EntityStageMaterialized:       input.LedgerCounts.EntityStageMaterialized,

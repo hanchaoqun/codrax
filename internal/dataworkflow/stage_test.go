@@ -20,6 +20,7 @@ func TestNextStageFollowsLedgerProgression(t *testing.T) {
 		{name: "needs contributions", facts: StageFacts{MaterialCoverageSufficient: true, EntityResolutionRequired: true, EntityStageMaterialized: true, ContributionLedgerRequired: true}, want: StagePrepareContributionInputs},
 		{name: "needs reconcile", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true}, want: StageReconcileArtifacts},
 		{name: "missing rules catch up before answer projection", facts: StageFacts{MaterialCoverageSufficient: true, RuleCoverageRequired: true, EntityResolutionRequired: true, EntityResolutionRecords: 3, EntityStageMaterialized: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true}, want: StageDeriveRules},
+		{name: "late rules reopen contribution generation for linkage", facts: StageFacts{MaterialCoverageSufficient: true, RuleCoverageRequired: true, RuleCoverageRecords: 3, RuleLedgerLinkageRequired: true, DecisionRecordsRequired: true, DecisionRecords: 2, ContributionLedgerRequired: true, ContributionRecords: 2, ReconcileRequired: true, HasReconcile: true, HasAnswer: true}, want: StageComputeContributions},
 		{name: "needs answer projection", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true}, want: StageEmitOutputContractAnswer},
 		{name: "complete", facts: StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true, ContributionRecords: 1, ReconcileRequired: true, HasReconcile: true, HasAnswer: true}, want: StageComplete},
 	}
@@ -42,17 +43,21 @@ func TestBuildStageFactsUsesCoverageContractViewAndCounts(t *testing.T) {
 			ContributionLedgerRequired: true,
 			ReconcileRequired:          true,
 		},
-		RuleCoverageRecords:     2,
-		DecisionRecords:         3,
-		EntityResolutionRecords: 4,
-		EntityStageMaterialized: true,
-		ContributionRecords:     5,
-		HasReconcile:            true,
-		HasAnswer:               true,
-		CustomTransformDisabled: true,
+		RuleCoverageRecords:        2,
+		RuleLedgerLinkageRequired:  true,
+		RuleLedgerLinkageSatisfied: true,
+		DecisionRecords:            3,
+		EntityResolutionRecords:    4,
+		EntityStageMaterialized:    true,
+		ContributionRecords:        5,
+		HasReconcile:               true,
+		HasAnswer:                  true,
+		CustomTransformDisabled:    true,
 	})
 	if !facts.MaterialCoverageSufficient ||
 		!facts.RuleCoverageRequired ||
+		!facts.RuleLedgerLinkageRequired ||
+		!facts.RuleLedgerLinkageSatisfied ||
 		!facts.DecisionRecordsRequired ||
 		!facts.EntityResolutionRequired ||
 		!facts.ContributionLedgerRequired ||

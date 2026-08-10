@@ -25,6 +25,8 @@ type StageFacts struct {
 	MaterialCoverageSufficient bool `json:"material_coverage_sufficient,omitempty"`
 	RuleCoverageRequired       bool `json:"rule_coverage_required,omitempty"`
 	RuleCoverageRecords        int  `json:"rule_coverage_records,omitempty"`
+	RuleLedgerLinkageRequired  bool `json:"rule_ledger_linkage_required,omitempty"`
+	RuleLedgerLinkageSatisfied bool `json:"rule_ledger_linkage_satisfied,omitempty"`
 	DecisionRecordsRequired    bool `json:"decision_records_required,omitempty"`
 	DecisionRecords            int  `json:"decision_records,omitempty"`
 	EntityResolutionRequired   bool `json:"entity_resolution_required,omitempty"`
@@ -58,6 +60,8 @@ type StageFactsInput struct {
 	MaterialCoverageSufficient bool
 	Coverage                   CoverageContractView
 	RuleCoverageRecords        int
+	RuleLedgerLinkageRequired  bool
+	RuleLedgerLinkageSatisfied bool
 	DecisionRecords            int
 	EntityResolutionRecords    int
 	EntityStageMaterialized    bool
@@ -73,6 +77,8 @@ func BuildStageFacts(input StageFactsInput) StageFacts {
 		MaterialCoverageSufficient: input.MaterialCoverageSufficient,
 		RuleCoverageRequired:       input.Coverage.RuleCoverageRequired,
 		RuleCoverageRecords:        input.RuleCoverageRecords,
+		RuleLedgerLinkageRequired:  input.RuleLedgerLinkageRequired,
+		RuleLedgerLinkageSatisfied: input.RuleLedgerLinkageSatisfied,
 		DecisionRecordsRequired:    input.Coverage.DecisionRecordsRequired,
 		DecisionRecords:            input.DecisionRecords,
 		EntityResolutionRequired:   input.Coverage.EntityResolutionRequired,
@@ -141,6 +147,14 @@ func NextStage(facts StageFacts) string {
 	if facts.ReconcileNeeded() && !facts.HasReconcile && facts.ContributionRecords == 0 {
 		return StagePrepareContributionInputs
 	}
+	// A row count is not dependency closure. If source-backed rule coverage
+	// arrived after item ledgers were produced, recompute the contribution
+	// generation so the typed runner can attach the now-known rule identities.
+	// This precedes reconcile/final projection because both are stale relative
+	// to an unlinked upstream ledger.
+	if facts.RuleLedgerLinkageRequired && !facts.RuleLedgerLinkageSatisfied {
+		return StageComputeContributions
+	}
 	if facts.ReconcileNeeded() && !facts.HasReconcile {
 		return StageReconcileArtifacts
 	}
@@ -189,6 +203,9 @@ func MissingValidationStages(facts StageFacts) []string {
 	}
 	if facts.ContributionLedgerNeeded() && facts.ContributionRecords == 0 {
 		out = append(out, "contribution_ledger")
+	}
+	if facts.RuleLedgerLinkageRequired && !facts.RuleLedgerLinkageSatisfied {
+		out = append(out, "rule_ledger_linkage")
 	}
 	if facts.ReconcileNeeded() && !facts.HasReconcile {
 		out = append(out, "reconcile")

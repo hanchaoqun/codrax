@@ -4163,35 +4163,31 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 	currentBatchContract, currentBatchLayer := dataTaskWorkflowCurrentBatchContract(records, current, contract)
 	outputContract := dataTaskWorkflowOutputContract(records, current)
 	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
-	var decisionRecords []dataquery.RowDecision
-	var ruleCoverageRecords []dataquery.RuleCoverageRecord
-	var contributionRecords []dataquery.ContributionRecord
-	var entityResolutionRecords []dataquery.EntityResolutionRecord
-	hasReconcile := false
+	// Every action result is seeded from prior rounds. Reduce through the same
+	// generation-aware authority used by ActionRunner so a typed contribution
+	// replacement retires stale rows/reconcile/answer instead of the state view
+	// resurrecting them by blindly unioning all historical records.
+	seed := dataTaskActionRunnerSeed(records)
+	ruleCoverageRecords := dataquery.DedupeRuleCoverageRecords(seed.RuleCoverage)
+	decisionRecords := dataquery.DedupeRowDecisionRecords(seed.Rows)
+	contributionRecords := dataquery.DedupeContributionRecords(seed.Contributions)
+	entityResolutionRecords := dataquery.DedupeEntityResolutionRecords(seed.EntityResolutions)
+	hasReconcile := seed.Reconcile != nil
 	hasAnswer := false
-	hasProjectionArtifact := false
+	hasProjectionArtifact := dataworkflow.ResultHasAssembleAnswerArtifact(seed)
 	satisfactionFacts := dataquery.LedgerSatisfactionFacts{EntityStageMaterialized: dataTaskWorkflowEntityStageMaterialized(records)}
-	for _, rec := range records {
-		if rec.Result == nil {
-			continue
-		}
-		ruleCoverageRecords = append(ruleCoverageRecords, rec.Result.RuleCoverage...)
-		decisionRecords = append(decisionRecords, rec.Result.Rows...)
-		entityResolutionRecords = append(entityResolutionRecords, rec.Result.EntityResolutions...)
-		contributionRecords = append(contributionRecords, rec.Result.Contributions...)
-		if rec.Result.Reconcile != nil {
-			hasReconcile = true
-		}
-		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract, satisfactionFacts) {
-			hasAnswer = true
-		}
-		if dataworkflow.ResultHasAssembleAnswerArtifact(*rec.Result) {
-			hasProjectionArtifact = true
+	if dataworkflow.ResultAnswerPresent(seed) {
+		for _, rec := range records {
+			if rec.Result != nil && dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract, satisfactionFacts) {
+				hasAnswer = true
+			}
 		}
 	}
+	ruleLinkageRequired, ruleLinkageSatisfied := dataquery.RuleCoverageLinkageState(
+		contract, ruleCoverageRecords, decisionRecords, contributionRecords, entityResolutionRecords,
+	)
 	customTransformFailures, _, _ := dataTaskCustomTransformFailureClassStats(records)
 	artifactAvailability, artifactAvailabilityCount, artifactAvailabilityTruncated := dataTaskWorkflowArtifactAvailability(records, 48)
-	dedupedEntityResolutions := dataquery.DedupeEntityResolutionRecords(entityResolutionRecords)
 	var latestEvaluation *dataquery.Evaluation
 	if eval, ok := latestDataTaskEvaluation(records); ok {
 		copied := eval
@@ -4215,15 +4211,17 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 		CoveredMaterialPaths: covered,
 		HasMaterialProgress:  dataTaskWorkflowHasMaterialProgress(records),
 		LedgerCounts: dataworkflow.WorkflowStateLedgerCounts{
-			RuleCoverageRecords:     len(dataquery.DedupeRuleCoverageRecords(ruleCoverageRecords)),
-			DecisionRecords:         len(dataquery.DedupeRowDecisionRecords(decisionRecords)),
-			EntityResolutionRecords: len(dedupedEntityResolutions),
-			EntityStageMaterialized: len(dedupedEntityResolutions) > 0 || dataTaskWorkflowEntityStageMaterialized(records),
-			ContributionRecords:     len(dataquery.DedupeContributionRecords(contributionRecords)),
-			HasReconcile:            hasReconcile,
-			HasAnswer:               hasAnswer,
-			HasProjectionArtifact:   hasProjectionArtifact,
-			ReconcileFailureStreak:  dataworkflow.ReconcileFailureStreak(records),
+			RuleCoverageRecords:        len(ruleCoverageRecords),
+			RuleLedgerLinkageRequired:  ruleLinkageRequired,
+			RuleLedgerLinkageSatisfied: ruleLinkageSatisfied,
+			DecisionRecords:            len(decisionRecords),
+			EntityResolutionRecords:    len(entityResolutionRecords),
+			EntityStageMaterialized:    len(entityResolutionRecords) > 0 || dataTaskWorkflowEntityStageMaterialized(records),
+			ContributionRecords:        len(contributionRecords),
+			HasReconcile:               hasReconcile,
+			HasAnswer:                  hasAnswer,
+			HasProjectionArtifact:      hasProjectionArtifact,
+			ReconcileFailureStreak:     dataworkflow.ReconcileFailureStreak(records),
 		},
 		CustomTransformFailures: customTransformFailures,
 		CustomTransformDisabled: dataTaskCustomTransformCooldown(records),

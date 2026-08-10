@@ -2444,6 +2444,21 @@ func validateRuleCoverageLinkedToRequiredLedgers(contract CoverageContract, reco
 		"data validation incomplete: rule coverage is required with item ledgers, but no decision/contribution/entity record links to a rule_id")
 }
 
+// RuleCoverageLinkageState exposes the same typed dependency judgment used by
+// final validation to workflow routing. A ledger's row count is not enough to
+// prove that a late-arriving rule generation is connected to the decisions,
+// contributions, or entity resolutions it governs. Callers use required=false
+// for genuinely inapplicable states and satisfied=false only for a live,
+// structurally repairable dependency gap; no model prose participates.
+func RuleCoverageLinkageState(contract CoverageContract, records []RuleCoverageRecord, rows []RowDecision, contributions []ContributionRecord, resolutions []EntityResolutionRecord) (required, satisfied bool) {
+	if !contract.RuleCoverageRequired ||
+		(!contract.DecisionRecordsRequired && !contract.ContributionLedgerRequired && !contract.EntityResolutionRequired) ||
+		(len(rows) == 0 && len(contributions) == 0 && len(resolutions) == 0) {
+		return false, true
+	}
+	return true, validateRuleCoverageLinkedToRequiredLedgers(contract, records, rows, contributions, resolutions) == nil
+}
+
 func sourceBackedRuleIDs(records []RuleCoverageRecord) map[string]bool {
 	out := map[string]bool{}
 	for _, rec := range records {

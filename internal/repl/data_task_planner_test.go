@@ -11392,7 +11392,7 @@ func TestDataTaskWorkflowAllowedActionGuardUsesPriorStateNotCandidatePlan(t *tes
 		},
 		Result: &dataquery.Result{
 			ConsumedPaths: []string{"orders.csv", "queries.csv", "rules.md"},
-			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied"}},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied", EvidenceRefs: []string{"rules.md:1"}}},
 		},
 	}}
 	plan := dataquery.TaskPlan{
@@ -11503,6 +11503,7 @@ func TestDataTaskWorkflowStagingGuardRejectsTerminalRawMaterialCustomTransform(t
 				Metric:    "total",
 				Value:     "42",
 				Operation: "add",
+				RuleRefs:  []string{"R1"},
 			}},
 			Reconcile: &dataquery.ReconcileReport{
 				Status:         "pass",
@@ -11573,13 +11574,14 @@ func TestDataTaskWorkflowStagingGuardAllowsTerminalGeneratedArtifactProjection(t
 		},
 		Result: &dataquery.Result{
 			ConsumedPaths: []string{"orders.csv", "rules.md"},
-			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied"}},
+			RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "R1", RuleText: "include matching rows", Status: "applied", EvidenceRefs: []string{"rules.md:1"}}},
 			Contributions: []dataquery.ContributionRecord{{
 				ItemID:    "orders.csv#1",
 				GroupKey:  "Q1",
 				Metric:    "total",
 				Value:     "42",
 				Operation: "add",
+				RuleRefs:  []string{"R1"},
 			}},
 			Reconcile: &dataquery.ReconcileReport{
 				Status:         "pass",
@@ -11782,6 +11784,64 @@ func TestDataTaskActionRunnerSeedHonorsContributionReplacementGeneration(t *test
 	}
 	if seed.Reconcile != nil || seed.Answer != "" {
 		t.Fatalf("seed reconcile/answer=%+v/%q, stale output generation must retire", seed.Reconcile, seed.Answer)
+	}
+}
+
+func TestDataTaskWorkflowStateUsesLiveReplacementGeneration(t *testing.T) {
+	contract := dataquery.CoverageContract{
+		RuleCoverageRequired:       true,
+		DecisionRecordsRequired:    true,
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	}
+	old := dataquery.ContributionRecord{
+		ItemID: "old", Source: "users.json", SourceLocator: "row 1", GroupKey: "ids",
+		Metric: "member", Value: "old", Operation: "include", Role: "target",
+	}
+	fresh := dataquery.ContributionRecord{
+		ItemID: "u1", Source: "users.json", SourceLocator: "row 1", GroupKey: "ids",
+		Metric: "member", Value: "u1", Operation: "include", Role: "target", RuleRefs: []string{"r1"},
+	}
+	replacement := dataquery.TaskPlan{
+		Status: "ready", ContinueAfter: true, CoverageContract: contract,
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly},
+		Actions: []dataquery.DataAction{{
+			ID: "replace", Kind: dataquery.DataActionComputeContribs,
+			Params: map[string]string{"replace_contributions": "true"},
+		}},
+	}
+	records := []dataTaskWorkflowRecord{
+		{
+			Plan: dataquery.TaskPlan{CoverageContract: contract, OutputContract: replacement.OutputContract},
+			Result: &dataquery.Result{
+				Answer: `{"ids":["old"]}`,
+				RuleCoverage: []dataquery.RuleCoverageRecord{{
+					RuleID: "r1", RuleText: "include active users", Status: "applied", EvidenceRefs: []string{"instructions.md:1"},
+				}},
+				Contributions: []dataquery.ContributionRecord{old},
+				Rows:          []dataquery.RowDecision{{RowID: "old", Decision: "include"}},
+				Reconcile:     &dataquery.ReconcileReport{Status: "pass"},
+			},
+		},
+		{
+			Plan: replacement,
+			Result: &dataquery.Result{
+				RuleCoverage:  []dataquery.RuleCoverageRecord{{RuleID: "r1", RuleText: "include active users", Status: "applied", EvidenceRefs: []string{"instructions.md:1"}}},
+				Contributions: []dataquery.ContributionRecord{fresh},
+				Rows:          []dataquery.RowDecision{{RowID: "u1", Source: "users.json", SourceLocator: "row 1", Decision: "include", RuleRefs: []string{"r1"}}},
+				ConsumedPaths: []string{"users.json", "instructions.md"},
+			},
+		},
+	}
+	state := dataTaskWorkflowState("", records, replacement)
+	if state.ContributionRecords != 1 || state.HasReconcile || state.HasAnswer {
+		t.Fatalf("state=%+v, want only live replacement contribution generation", state)
+	}
+	if !state.RuleLedgerLinkageRequired || !state.RuleLedgerLinkageSatisfied {
+		t.Fatalf("rule linkage state=%t/%t, want required/satisfied", state.RuleLedgerLinkageRequired, state.RuleLedgerLinkageSatisfied)
+	}
+	if state.NextStage != dataworkflow.StageReconcileArtifacts {
+		t.Fatalf("next_stage=%q, want reconcile after replacement", state.NextStage)
 	}
 }
 

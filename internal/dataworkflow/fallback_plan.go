@@ -126,6 +126,14 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 	if errText == "" {
 		return CompletionRepairTransition{}
 	}
+	if plan, ok := buildRuleLedgerLinkageRepairPlan(input); ok {
+		return CompletionRepairTransition{
+			Plan:          plan,
+			Reason:        errText,
+			ErrorText:     errText,
+			Deterministic: true,
+		}
+	}
 	if plan, ok := BuildRequiredLedgerCompletionPlan(RequiredLedgerCompletionPlanInput{
 		Current:                input.Current,
 		Coverage:               input.Coverage,
@@ -152,6 +160,76 @@ func BuildCompletionRepairTransition(input CompletionRepairTransitionInput) Comp
 		ErrorText:          errText,
 		NeedsPlannerRepair: true,
 	}
+}
+
+// buildRuleLedgerLinkageRepairPlan closes a typed dependency gap rather than
+// asking the model to edit ledger JSON. A late rule generation can leave an
+// otherwise complete contribution/reconcile/answer generation without any
+// matching rule_refs. Recomputing from an answer-closed filter/qualify
+// artifact is safe and preserves business semantics; replace_contributions
+// starts a new generation so stale downstream reconcile/answer state cannot
+// survive. Only exact typed validation codes enter this lane.
+func buildRuleLedgerLinkageRepairPlan(input CompletionRepairTransitionInput) (dataquery.TaskPlan, bool) {
+	if !guardResultHasAnyCode(input.Guard, "unlinked_rule_coverage", "unlinked_source_rule_coverage") {
+		return dataquery.TaskPlan{}, false
+	}
+	scaffolds := ConservativeContributionLedgerScaffolds(input.Artifacts, input.Result.Answer, 4)
+	for i := range scaffolds {
+		if NormalizeActionKind(dataquery.DataActionKind(scaffolds[i].Kind)) != dataquery.DataActionComputeContribs {
+			continue
+		}
+		if scaffolds[i].ParamsTemplate == nil {
+			scaffolds[i].ParamsTemplate = map[string]string{}
+		}
+		scaffolds[i].ParamsTemplate["replace_contributions"] = "true"
+		scaffolds[i].UseWhen = "replace an unlinked contribution generation after typed rule coverage becomes available"
+		scaffolds[i].Note = "Exact typed unlinked-rule validation selected this repair. The replacement generation receives rule_refs from seeded rule coverage and invalidates stale reconcile/answer state."
+	}
+	base := dataquery.TaskPlan{
+		Status:           "ready",
+		Goal:             strings.TrimSpace(input.Current.Goal),
+		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
+		CoverageContract: input.Coverage,
+		OutputContract:   input.Output,
+		ContinueAfter:    true,
+	}
+	if base.Goal == "" {
+		base.Goal = "repair typed rule-to-item ledger linkage"
+	}
+	plan, _, ok := BuildConcreteFallbackPlan(ConcreteFallbackPlanInput{
+		Current:        base,
+		Coverage:       input.Coverage,
+		Output:         input.Output,
+		Scaffolds:      scaffolds,
+		Facts:          StageFacts{MaterialCoverageSufficient: true, RuleLedgerLinkageRequired: true},
+		ReasonPrefix:   "typed rule coverage is not linked to the current item-ledger generation",
+		SeenActionKeys: input.SeenActionKeys,
+	})
+	if !ok || len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionComputeContribs {
+		return dataquery.TaskPlan{}, false
+	}
+	plan.ContinueAfter = true
+	plan.WhyThisBatch = "replace the unlinked contribution generation from an answer-closed selected record artifact; seeded typed rule coverage supplies rule_refs"
+	plan.NextBatch = "reconcile the replacement contribution generation, then assemble the final answer projection"
+	return plan, true
+}
+
+func guardResultHasAnyCode(guard GuardResult, codes ...string) bool {
+	wanted := map[string]bool{}
+	for _, code := range codes {
+		if code = strings.TrimSpace(code); code != "" {
+			wanted[code] = true
+		}
+	}
+	if wanted[strings.TrimSpace(guard.Code)] {
+		return true
+	}
+	for _, violation := range guard.Violations {
+		if wanted[strings.TrimSpace(violation.Code)] {
+			return true
+		}
+	}
+	return false
 }
 
 func BuildWorkflowNextStageFallbackPlan(input WorkflowNextStageFallbackPlanInput) (dataquery.TaskPlan, string, bool) {

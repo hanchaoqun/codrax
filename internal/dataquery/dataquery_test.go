@@ -9409,6 +9409,30 @@ emit_result(amount, output_contract={"format": "plain_single_line", "explanation
 	}
 }
 
+func TestRuleCoverageLinkageStateMatchesFinalValidationDependency(t *testing.T) {
+	contract := CoverageContract{RuleCoverageRequired: true, ContributionLedgerRequired: true}
+	rules := []RuleCoverageRecord{{
+		RuleID: "r1", RuleText: "include active users", Status: "applied", EvidenceRefs: []string{"instructions.md:1"},
+	}}
+	contributions := []ContributionRecord{{
+		ItemID: "u1", Source: "users.json", SourceLocator: "row 1", GroupKey: "ids",
+		Metric: "member", Value: "u1", Operation: "include",
+	}}
+	required, satisfied := RuleCoverageLinkageState(contract, rules, nil, contributions, nil)
+	if !required || satisfied {
+		t.Fatalf("unlinked state required/satisfied=%t/%t, want true/false", required, satisfied)
+	}
+	contributions[0].RuleRefs = []string{"r1"}
+	required, satisfied = RuleCoverageLinkageState(contract, rules, nil, contributions, nil)
+	if !required || !satisfied {
+		t.Fatalf("linked state required/satisfied=%t/%t, want true/true", required, satisfied)
+	}
+	required, satisfied = RuleCoverageLinkageState(CoverageContract{}, rules, nil, contributions, nil)
+	if required || !satisfied {
+		t.Fatalf("inapplicable state required/satisfied=%t/%t, want false/true", required, satisfied)
+	}
+}
+
 func TestRunnerAllowsRuleCoverageLinkedByRuleRefs(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
