@@ -3193,3 +3193,18 @@ checkout drift fail-closed 与既有 hard gate 不变。专项与全仓测试通
 状态：`B477b=implemented/full-suite-pass/pending-production-replay`；`B479=P1-after-replay`；
 `B478=P1`；`system-answer/graph-authoring=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+#### §11.10.41 r278：B477b 关闭；多仓调用 caller 未按 source owner 校准
+
+`main@da46f5219` exact-two runner 2/2、人工 0/2。QF 图准确消费三条同源 stage precedence recipe，B477b 获直接生产正证并关闭；
+BusContext/Mutable 等未证 participant 没有被系统补边，但模型正文仍越过图证据宣称共享状态数据流。15 次 Explore 相比上一轮 70 次明显收敛，
+B479 仍需 typed bounded-unproven completion lane，禁止以伪关系换取 completion。
+
+多仓用例确认 `B480-MRCALLER1/P0`：`emit_evidence` 在 primary compatibility graph 找不到另一子仓 source 的 FileInfo 时，caller
+normalization 静默失效；line-text grounder 只验证被调用 callee 即保留模型填写的错误 subject。错误 row 随后成为 hard relation authority，造成 final
+answer wrapper/core 合并、引用错位与删图。修复必须按 source owner 路由到子仓 graph，由 enclosing callable+exact call relation 规范化方向；owning graph
+存在却无法校准时 fail-closed。规则对全部支持语言统一，不读取自由文本，不由系统代画或代答。
+
+状态：`B477b=closed`；`B480=confirmed/P0-next`；`B479=P1`；`B478/B474=pending`；
+`runner=2/2,human=0/2`；`typed-but-wrong-directed-call=forbidden`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

@@ -30876,3 +30876,27 @@ recipe 明确不授权 call、data_flow、artifact transfer、shared-state parti
 状态：`B477b=implemented/full-suite-pass/pending-production-replay`；`B477=provider-positive`；
 `B479=P1-after-replay`；`B478=P1`；`system-diagram/edge/conclusion-authoring=none`；
 `raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.495 r278：stage precedence 正证；多仓 caller 权威错路由成为 P0
+
+在 `main@da46f5219` 不可变二进制上 exact-two 并发 QF pipeline 图与 Python→native→Rust 调用链。runner=`2/2`，人工=`0/2`；
+详见 `eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r278_20260810_manual_audit.md`。
+
+QF 最终图保留了 provider 发布的三条相邻 `precedence`，构成 B477b 的直接生产正证，可以关闭。其余 Analyzer/Explorer/Extractor/
+Finalizer/BusContext/Mutable 被诚实标为 unproven，但正文仍把 Orchestrator 驱动、阶段写 Mutable 与 BusContext 数据流当成已证事实；因此请求的完整
+逻辑/数据流图仍未完成。Explorer 从 r277 的 70 轮降到 15 轮，但 completion 仍在 operation evidence 空缺后继续补读，B479 保持开放；正确出口是
+typed 有界未证边界，而不是为共享状态参与者制造边。
+
+多仓 case 揭示新的 `B480-MRCALLER1/P0`。Explorer 已读到 Python `FastTokenizer.tokenize` 的精确调用行、Rust wrapper 定义、wrapper→core
+调用行与 registration 行，但 `emit_evidence` 接受的 Python call row 保留了模型填写的 `_fastlex` subject，只校验了同一行的 callee
+`tokenize_bytes`。根因是 parent multi-repo 运行时 `ground.Context.Graph` 只有 primary sub-repo compatibility graph；当 source 属于另一子仓时，
+`normalizeCallEvidenceDirection` 无法取得 owning FileInfo，随后 line-text tier 仍可仅凭 callee 语法签绿。下游 hard diagram/finalizer gate 因而消费了
+typed-but-wrong directed edge，最终合并 wrapper/core、错配 `_tokenize_slow` 引用并删图。
+
+最优根修是按 cited source 的所属子仓解析 graph/FileInfo，在 evidence admission 时由 enclosing callable 与 exact call relation 校准 caller；若 owning
+typed graph 已存在却无法完成方向校准，不能以 model-authored subject 获得 directed-call 权威。该规则基于 source ownership 与 syntax graph，覆盖所有
+支持语言，不按 Python/PyO3/fixture 类型分支，也不扫描 request/thinking/final prose。B478/B474 排在 B480 后：引用对齐不能修复已被污染的 typed edge。
+
+状态：`B477b=closed/direct-production-witness`；`B479=open/P1`；`B480=confirmed/P0-next`；
+`B478/B474=pending-after-B480`；`runner=2/2,human=0/2`；`system-edge/conclusion-authoring=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
