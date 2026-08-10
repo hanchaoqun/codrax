@@ -30982,3 +30982,21 @@ identity 泛化到全部支持语言与所有 construct family，不针对 Cangj
 状态：`B481=production-positive/mechanical-gap-closed`；`B479=open/P1`；`B483=confirmed/P0-next`；
 `runner=1/2,human=0/2`；`typed-inventory-extraction=complete`；`system-visible-row/conclusion-rewrite=none`；
 `raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.500 B483 完成：source-inventory principal row 以 typed row_id 单源贯通
+
+r280 的 12 条 typed 行在 finalizer prompt 中本已完整，失真发生在模型把行组装进结构化 item 时。旧合同只在 visible label 完全重复时要求
+`source_inventory_row_id`；模型增加 `(bridge)/(ffi)` 等显示修饰即可绕开，同样无法阻止两个 unique label 的 citation 对调。
+
+本批把 prompt、共享 schema description、tool field schema 与 pre-emit gate 收敛为同一规则：每个 structured principal source-inventory item
+都携带其 prompt-visible `row_id`。若模型已用 structured label + exact citation 精确选中一行，系统仅补齐不可见 row-id metadata；row id 最终单源绑定
+family/location/citation。唯一行、同名跨文件行与括号 display discriminator 走同一机制；同 file:line 存在多个 typed family 且 block 未声明 family 时
+继续 fail-closed，不能凭坐标猜测。
+
+hard gate 只读取 item label/row_id、block family、typed registry 与 citation coordinate，不读取 item text、用户输入、thinking 或最终 prose；系统不交换、
+补写或纠正可见 label/text，也不生成结论。回归覆盖 unique partition、duplicate label、decorated duplicate、同坐标多 family 负臂、prompt/schema 接线。
+专项 agent/tool 套件与 `go test ./... -count=1` 全绿，待 production replay。
+
+状态：`B483=implemented/full-suite-pass/pending-production-replay`；`B481=production-positive`；`B479/B482=P1`；
+`visible-row/conclusion-authoring=none`；`typed-row-metadata-normalization=exact-only`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

@@ -2161,10 +2161,13 @@ func preEmitSourceInventoryPreferredRowIDsByIdentity(sets []types.EnumerationDis
 	return out
 }
 
-// preCheckSourceInventoryRowIDBindings requires an exact row carrier only
-// where structured member identity is genuinely ambiguous. Unique member
-// labels keep the short legacy shape. The decision reads item.Label plus typed
-// row ids/families only; visible prose and titles never participate.
+// preCheckSourceInventoryRowIDBindings requires one exact row carrier for every
+// structured principal source-inventory item. The row id is the single typed
+// identity for member/family/location/citation; requiring it even for a unique
+// label prevents two neighboring rows from exchanging payloads or lets a
+// display decorator hide a duplicate declaration. The decision reads only the
+// structured item label, row ids/families, and the typed row registry; visible
+// prose, request text, and titles never participate.
 func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
 		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
@@ -2208,7 +2211,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 				continue
 			}
 			matches := preEmitSourceInventoryExactLabelRows(item, allowedRows)
-			if len(matches) <= 1 {
+			if len(matches) == 0 {
 				continue
 			}
 			choices := make([]string, 0, len(matches))
@@ -2223,7 +2226,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 				bi,
 				ii,
 				"copy exactly one matching row_id from Principal Enumeration Rows: "+strings.Join(choices, ", ")+"; citation_ref is then bound from that exact row and may be omitted",
-				"this structured member label occurs in more than one typed source-inventory row; candidate_role, shared attributes, and citation-pool position cannot distinguish the rows.",
+				"every structured principal source-inventory item carries its exact typed row identity; a label, display decorator, shared attribute, or citation-pool position is not a stable member/family/location/citation key.",
 			))
 		}
 	}
@@ -2261,11 +2264,12 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 }
 
 // normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext removes a
-// mechanical retry when a visible member label names multiple typed rows but
-// the model has already cited exactly one of them. The repair reads only the
-// structured item label, citation_ref, and typed source coordinates. It never
-// reads request, title, or answer prose, and it refuses to guess unless the
-// citation selects one alias identity exactly.
+// mechanical retry when the model has already selected one exact typed row by
+// structured label plus citation. This applies to unique and duplicate labels:
+// every principal source-inventory item receives the same stable row carrier.
+// The repair reads only the structured item label, citation_ref, and typed
+// source coordinates. It never reads request, title, or answer prose, and it
+// refuses to guess unless the citation selects one alias identity exactly.
 func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
 		return 0
@@ -2293,11 +2297,15 @@ func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types
 				item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
-			matches := preEmitSourceInventoryExactLabelRows(*item, rows)
-			if len(matches) <= 1 {
+			citation := doc.Citations[item.CitationRef]
+			if strings.TrimSpace(block.SourceInventoryFamily) == "" &&
+				preEmitSourceInventoryCitationHasMultipleObservedFamilies(ctx, citation) {
 				continue
 			}
-			citation := doc.Citations[item.CitationRef]
+			matches := preEmitSourceInventoryExactLabelRows(*item, rows)
+			if len(matches) == 0 {
+				continue
+			}
 			var selected types.EnumerationDisplayRow
 			selectedKey := ""
 			ambiguous := false
@@ -2334,6 +2342,47 @@ func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types
 		}
 	}
 	return fixed
+}
+
+// preEmitSourceInventoryCitationHasMultipleObservedFamilies preserves the
+// family boundary when two exact declarations share one file/line coordinate.
+// A family-less block cannot use that coordinate alone to choose between them;
+// source_inventory_family or an explicit row id is required. This reads only
+// the typed source-inventory observation and citation coordinates.
+func preEmitSourceInventoryCitationHasMultipleObservedFamilies(ctx *types.BusContext, citation types.Citation) bool {
+	if ctx == nil || ctx.Mutable == nil || strings.TrimSpace(citation.File) == "" || citation.Line <= 0 {
+		return false
+	}
+	want := preEmitCitationLocationKey(citation)
+	if want == "" {
+		return false
+	}
+	families := map[string]bool{}
+	for _, set := range ctx.Mutable.SourceInventoryObservation().Sets {
+		for _, member := range set.Members {
+			if member.CoverageState != types.SourceInventoryCoverageObserved || member.Line <= 0 ||
+				preEmitCitationLocationKey(types.Citation{File: member.File, Line: member.Line}) != want {
+				continue
+			}
+			memberFamilies := types.SourceInventorySurfaceFamilyKeys(member.SurfaceTerms)
+			if len(memberFamilies) == 0 {
+				// A singleton parser term such as "extend" is already an exact
+				// typed construct discriminator even though it has no longer
+				// symbol-qualified phrase from which to derive a family.
+				memberFamilies = types.SourceInventorySurfaceTermKeys(member.SurfaceTerms)
+			}
+			for _, family := range memberFamilies {
+				if family == "" {
+					continue
+				}
+				families[family] = true
+				if len(families) > 1 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func preEmitSourceInventoryRowsContainAliasIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {

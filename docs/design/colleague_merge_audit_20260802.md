@@ -3258,3 +3258,15 @@ item 统一携带 exact typed row_id，row_id 单源选择 family/location/citat
 
 状态：`B481=production-positive`；`B483=P0-next`；`B479/B482=P1`；`parser/repomap-loss=false`；
 `system-answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.46 B483 完成：typed row identity 覆盖 unique/decorated/duplicate 清单行
+
+每个 principal source-inventory structured item 现统一携带 `source_inventory_row_id`；正确的 structured label+exact citation 可确定性补齐该不可见 metadata，
+否则 precise hard hint 要求复制 prompt-visible row id。row id 单源绑定 typed family/location/citation，较弱 aggregate binder 不再能把同名行移动到兄弟文件。
+括号 display discriminator 只通过既有 structured decorated-label parser 还原 base，不做 substring/prose 匹配；同坐标多 family 在无显式 family 时保持歧义。
+
+系统不读 item text/request/thinking/final prose，不修改可见条目或模型结论。prompt、共享 schema、field schema、normalizer 与 hard gate 有直接接线 pin；
+专项与 `go test ./... -count=1` 全绿，待 r281 exact-two 回放。
+
+状态：`B483=implemented/full-suite-pass/pending-production-replay`；`system-visible-answer-authoring=none`；
+`raw-prose-hard-gate=none`；Trace families=`unchanged`。

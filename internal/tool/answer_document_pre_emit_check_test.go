@@ -5053,6 +5053,76 @@ func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t
 	}
 }
 
+func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForUniquePartitionRow(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "classes", Kind: types.BlockOrderedList,
+		SurfaceRole:           types.SurfacePrincipal,
+		SourceInventoryFamily: "public class",
+		FacetIDs:              []string{string(types.FacetEnumerationItem)},
+		Items:                 []types.AnswerBlockItem{{ID: "cart", Label: "Cart", CitationRef: -1}},
+	}}}
+
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		!strings.Contains(hints[0].ExpectedShape, classID) {
+		t.Fatalf("every typed source-inventory row should carry its exact id, got %+v", hints)
+	}
+}
+
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_BindsUniquePartitionRow(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID: "classes", Kind: types.BlockOrderedList,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "public class",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Items:                 []types.AnswerBlockItem{{ID: "cart", Label: "Cart", CitationRef: 0}},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want one exact unique-row identity; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].SourceInventoryRowID; got != classID {
+		t.Fatalf("source_inventory_row_id=%q, want %q", got, classID)
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalized exact row should satisfy the identity gate: %+v", hints)
+	}
+}
+
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_BindsDecoratedDuplicateLabels(t *testing.T) {
+	ctx, rowIDs := sourceInventoryObservedSiblingFunctionTestContext(t)
+	if len(rowIDs) != 2 {
+		t.Fatalf("row ids=%q, want two", rowIDs)
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/Bridge.cj", Line: 6}, {File: "thirdparty/ffi.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "foreign-functions", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "bridge", Label: "native_add (bridge)", CitationRef: 0},
+				{ID: "ffi", Label: "native_add (ffi)", CitationRef: 1},
+			},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want both decorated rows bound; doc=%+v", fixed, doc)
+	}
+	if got := []string{doc.Blocks[0].Items[0].SourceInventoryRowID, doc.Blocks[0].Items[1].SourceInventoryRowID}; got[0] != rowIDs[0] || got[1] != rowIDs[1] {
+		t.Fatalf("decorated row ids=%q, want %q", got, rowIDs)
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("decorated labels with exact typed row ids should pass: %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RejectsCrossFamilyID(t *testing.T) {
 	ctx, extendID, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

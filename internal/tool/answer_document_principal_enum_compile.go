@@ -2343,7 +2343,19 @@ func principalEnumerationItemExactLabelMatchesRow(item types.AnswerBlockItem, ro
 	if labelKey == "" {
 		return false
 	}
-	return principalEnumerationRowKeySet(row)[labelKey]
+	keys := principalEnumerationRowKeySet(row)
+	if keys[labelKey] {
+		return true
+	}
+	// A structured display label may add one parenthesized discriminator such
+	// as "native_add (ffi)". Treat only the parser-recognized decorated base as
+	// an alias; arbitrary prose/substrings remain excluded. Exact row selection
+	// still comes from source_inventory_row_id or an exact typed citation.
+	base, _, ok := types.AnswerAggregateDecoratedLabelParts(item.Label)
+	if !ok {
+		return false
+	}
+	return keys[normalizeEnumerationDisplayTableKey(base)]
 }
 
 func principalEnumerationRowDecoratedBaseCandidates(row types.EnumerationDisplayRow) []string {

@@ -3416,6 +3416,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 		"note: Eval 对单个 Criterion 进行求值并返回 Result。",
 		"END_MARKER",
 		"Use `display_label`, `location`, and `citation_key` to build clear table cells",
+		"For EVERY structured source-inventory item, copy that row's exact `row_id` to `source_inventory_row_id`",
+		"even when labels are unique, decorated for display, or repeated across files",
 		"use a required bucket `section`'s `items[]` when the row belongs to that bucket",
 		"do not add a second global list/table merely to repeat rows already carried by sections",
 		"render that note on the same row as a concise description/说明 column",
