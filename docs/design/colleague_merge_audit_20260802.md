@@ -2541,3 +2541,17 @@ producer 铸 `repomap_implementer_relation`，Finalizer 继续只信可引用 ty
 
 状态：`B447=implemented/full-suite-pass/pending-production-replay`；
 `B448=implemented/full-suite-pass/pending-production-replay`；`model-answer-rewrite=none`。
+
+#### r260 复核更正：B447 第一段有效，第二段证据导出未闭环
+
+r260 production replay 证明 B447 的 exact declaration read demand 能把 12 个 principal implementer 全部读齐，但原“read-but-unemitted”
+分支要求模型发射一个只能在 Explorer completion 后由 deterministic RepoMap producer 生成的证据行，构成时序上不可满足的循环。四次
+pre-complete downgrade 后，12 条 typed implementer relation 虽已出现在 Finalizer prompt note，却因成文校验只读 bounded Turn-A 与
+model-emitted evidence、未读 lossless `BusContext.EvidenceItems`，导致五次正确关系图均被拒，最后以零边图假绿。
+
+追加批次按 shared evidence boundary 根修：exact declaration line 已读即由 pre-complete 交棒给 post-loop producer，不再要求模型冒充
+producer；成文校验索引纳入 StageOutput/BusContext typed evidence，并按 StableEvidenceID 去重运输副本。定向 `internal/tool`（175.574s）和
+`internal/agent`（10.265s）通过。该变更不代写模型答案/图，不扫描原文作硬门，不改 Trace/read/write/data 语义。
+
+状态：`B447=production-partial/second-stage-fixed`；`EVAL-B449-TYPERELATIONEVIDENCEEXPORT1=implemented/pending-production-replay`；
+`B445/B448=pending-production-replay`；`model-answer-rewrite=none`。

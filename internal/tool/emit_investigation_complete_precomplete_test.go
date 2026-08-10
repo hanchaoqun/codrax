@@ -526,9 +526,13 @@ func TestStructuredRelationAuthorityDemands_RequiredImplementerDiagramReadsMissi
 	mut.EvidenceClosure().SetReadSet(map[string]bool{"impl_beta.go": true})
 	mut.EvidenceClosure().SetReadRanges(map[string][]types.LineRange{"impl_beta.go": {{Start: 22, End: 22}}})
 	downgrade := structuredRelationAuthorityPreCompleteDowngrade(bus, mut.EvidenceClosure(), facts, evidence)
-	if !strings.Contains(downgrade, "structured relation authority evidence is not materialized") ||
-		!strings.Contains(downgrade, "impl_beta.go") {
-		t.Fatalf("read-but-unemitted target should request typed evidence materialization, got %q", downgrade)
+	if downgrade != "" {
+		t.Fatalf("read target must hand off to the deterministic post-loop relation producer, got %q", downgrade)
+	}
+	for _, repair := range mut.EvidenceClosure().PendingRepairs() {
+		if repair.Kind == types.RepairEmitEvidence && strings.Contains(strings.Join(repair.Files, ","), "impl_beta.go") {
+			t.Fatalf("model must not be asked to impersonate the deterministic relation producer: %+v", repair)
+		}
 	}
 
 	evidence = append(evidence, relationMemberSetTypedImplementerEvidence("beta", "Looper", "impl_beta.go", 22))

@@ -283,6 +283,16 @@ func newPreEmitEvidenceIndex(pctx *preEmitCheckContext) *preEmitEvidenceIndex {
 		return idx
 	}
 	var raw []types.EvidenceItem
+	// BusContext.EvidenceItems is the lossless stage-output truth set. It can
+	// legitimately be wider than TurnAArtifacts.EvidenceItems, whose 24-row
+	// cap exists only to bound the extractor prompt. Final answer validation
+	// must consume the former: otherwise deterministic parser/graph relations
+	// can be shown to the finalizer through the runtime evidence context yet be
+	// rejected by the validator as absent merely because they fell below a
+	// prompt-summary cap. These are typed stage outputs, not model prose.
+	if len(ctx.EvidenceItems) > 0 {
+		raw = append(raw, ctx.EvidenceItems...)
+	}
 	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
 		raw = append(raw, artifacts.EvidenceItems...)
 	}
@@ -294,8 +304,17 @@ func newPreEmitEvidenceIndex(pctx *preEmitCheckContext) *preEmitEvidenceIndex {
 	}
 	idx.byFile = make(map[string][]types.EvidenceItem)
 	idx.items = make([]types.EvidenceItem, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
 	for _, ev := range raw {
 		ev.Source = pctx.canonicalPath(ev.Source)
+		key := strings.TrimSpace(ev.ID)
+		if key == "" {
+			key = types.StableEvidenceID(ev)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
 		idx.items = append(idx.items, ev)
 		file := strings.TrimSpace(ev.Source)
 		if file == "" {

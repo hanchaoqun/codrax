@@ -9004,3 +9004,28 @@ func TestDiagramRelationFailurePairFingerprintSurvivesCanonicalLabelDrift(t *tes
 		t.Fatalf("stable parsed alias must preserve exactly one repeat identity across canonical label drift: first=%v second=%v", firstKeys, secondKeys)
 	}
 }
+
+func TestPreEmitEvidenceIndexIncludesLosslessStageOutputEvidence(t *testing.T) {
+	item := relationMemberSetTypedImplementerEvidence("workerLoop", "LoopController", "internal/agent/worker.go", 42)
+	mut := types.NewMutableState("render the typed implementation graph")
+	// The prompt handoff is deliberately empty: its row cap is a presentation
+	// budget and must not become the final validator's authority boundary.
+	ctx := &types.BusContext{
+		Mutable:       mut,
+		RepoRoot:      t.TempDir(),
+		EvidenceItems: []types.EvidenceItem{item},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	got := pctx.evidenceItems()
+	if len(got) != 1 || !diagramTypeRelationEdgeHasTypedEvidence(got, "workerLoop", "LoopController") {
+		t.Fatalf("lossless stage-output relation must reach final validation: %+v", got)
+	}
+
+	// The same row can also survive in the bounded Turn-A snapshot. The
+	// validation index must not double-count that transport duplicate.
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{item}})
+	pctx = newPreEmitCheckContext(ctx)
+	if got := pctx.evidenceItems(); len(got) != 1 {
+		t.Fatalf("stage-output/Turn-A transport duplicate must collapse, got %+v", got)
+	}
+}

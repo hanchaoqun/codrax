@@ -51,7 +51,14 @@ func structuredRelationAuthorityPreCompleteDowngrade(ctx *types.BusContext, clos
 				continue
 			}
 			if closure.HasReadLine(file, candidate.Member.Line) {
-				readButUnemitted = append(readButUnemitted, file)
+				// Target-backed demands are satisfied in two deterministic
+				// phases. This pre-complete gate owns the exact source read;
+				// Explorer's parser/graph producer materializes the typed
+				// relation while building StageOutput after the loop accepts
+				// completion. Requiring the model to emit that producer here
+				// is impossible: the producer has not run yet, and model-authored
+				// evidence must never impersonate it. Once the exact declaration
+				// line is read, hand control to the deterministic producer.
 				continue
 			}
 			markStructuredRelationAuthorityFilesScanned(closure, []string{file})

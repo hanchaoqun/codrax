@@ -29800,3 +29800,32 @@ PendingReads；read-but-unemitted 明确降级；补齐 typed edge 后零 stale 
 状态：`B447=implemented/full-suite-pass/pending-production-replay`；
 `relation-roster-authority=exact-candidate`；`citation-authority=read-line-plus-typed-relation-evidence`；
 `raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
+
+### 123.471 r260：B447 首批仅补读生效，但暴露 post-loop producer 与成文校验证据池断层
+
+exact-two 复放 `data_json_strict_ids` 与 `qf_type_relation_loop_controller`，runner 为 `PASS/PASS`（45s/488s），人工为
+`PASS/FAIL`：
+
+1. data 精确输出 `{"ids":["u1","u3"]}`；本轮 planner 直接把完整 instruction artifact 标为 `planner_distilled`，没有触发 malformed
+   repair plan，也没有形成 late-rule generation，故不能据此关闭 B448/B445 的 production replay；
+2. type-relation 表格正确枚举 12 个 production implementer 并排除 test implementer，但 required diagram 最终只有 12 个节点、0 条边；
+   runner 的名称/文件 oracle 再次假绿，人工判 fail；
+3. B447 首批的 exact declaration read demand 确实生效，15 次读取覆盖了全部实现声明；但 pre-complete 在声明行已读后四次要求模型
+   `emit` 一个只能由 Explorer post-loop producer 铸造的关系行，形成不可满足循环；
+4. Explorer 随后确实生成全部 12 条 `typed implementer relation: implementer --implements--> LoopController`，它们进入 Finalizer
+   prompt note；但成文校验索引只读取 24 条上限的 Turn-A handoff 与模型 EmittedEvidence，不读取 lossless
+   `BusContext.EvidenceItems`。因此正确同向 edges 连续 5 次被判 `type_relation_edge_unproven`，模型最终删光全部边才获准出厂；
+5. 登记 `EVAL-B449-TYPERELATIONEVIDENCEEXPORT1=P0`：同一 typed 事实在 prompt 与 validator 两侧权威不一致，既造成 488s 重试风暴，
+   又让 required relation diagram 以零边形态假绿；它是证据运输/消费断层，不是 Go、类型名或当前模型输出特例；
+6. 根修采用两段式单向交接：pre-complete 只负责把 exact candidate declaration line 读齐，读齐后交给既有跨语言 deterministic
+   relation producer，不要求模型冒充 producer；Final validator 的索引纳入 lossless StageOutput/BusContext evidence，同时按 StableEvidenceID
+   折叠与 bounded Turn-A/EmittedEvidence 的运输重复；
+7. 系统没有补画边、替换模型图或下结论。模型仍决定展示哪些已证边；validator 只核对其结构化 edge/anchor 是否有同向 typed row。
+   规则不扫描 request、Mermaid label/message、thinking 或 final prose，也不进入 RootCauseTrace 的显式时间窗、系统补采、链上根因、双轴占时、
+   可消除量和因果投影。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_type_replay_r260_20260809_manual_audit.md`。
+
+状态：`B447=production-partial/read-demand-works/evidence-export-fixed`；
+`B449=implemented/tool-agent-suite-pass/pending-production-replay`；`B446=production-closed`；
+`B445/B448=pending-production-replay`；`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`。
