@@ -29552,3 +29552,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 状态：`EVAL-B437=S37eh-implemented/full-suite-pass/pending-production-replay`；
 `cross-subject-causality=exact-typed-connector-only`；`off-chain=concurrent-support-or-investigation-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.459 r255：B436/B437 production replay 与人工审计
+
+exact-two：`data_basic_sum_with_rules` 与 `trace_query_wakeup_background_demotion`，同一封存二进制，`PARALLEL=2`：
+
+1. runner 为 `PASS/PASS`（76s/103s），但人工结论不是双绿。data 正确输出严格单行 `17`，rules=2、contributions=2、reconcile=pass；
+2. B436 已在生产回放闭环：纯全量 sum 不再被 `decision_records_required` 自锁，模型可在 typed `compute_contributions` 车道生成贡献记录；
+3. B437 已在生产回放闭环：主根因只加冕链上 threadpool-400 io_wait 11.000ms；logger-900 明确为 background、无目标因果贡献，
+   未再凭共享 IO/IRQ/邻近关系升级为直接或间接贡献；显式时间窗、三次 trace_query、系统补采、可消除量和因果投影均保留；
+4. data 仍有 6 批与 3 个历史 failed action：初始 custom_transform 被规则覆盖前置门改写，完整 records 已就绪后仍先跑 value_distribution，
+   再由模型发 compute_contributions。确认 `EVAL-B438-DATATYPEDINTENTCARRY1=P2`：前置批改写后没有携带原计划的 typed 下游聚合意图；
+5. trace 人工判 fail：typed selected-window 明确 2.000000..2.020000、sleep=20.000ms、wakeup=2.020000，正文却把窗外
+   switch-in=2.020020 称为“实际被唤醒”，并写延迟 20.020ms。确认 `EVAL-B439-TRACEWAKEVSRUN1=P1`；
+6. IO pressure 35.500 由 typed aggregate context 明确标为 cross-unit score 且 absolute level 未定义；正文未把它升级为目标根因或绝对高低，
+   本轮不另立评分 GAP；继续观察是否把 row score 与 family aggregate score 混为同一口径。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_trace_authority_replay_r255_20260809_manual_audit.md`。
+
+状态：`B436=production-closed`；`B437=production-closed`；`B438=P2-open`；`B439=P1-confirmed/in-implementation`；
+`trace-principal-root-population=typed-on-chain-only`；`background=support-or-investigation-only`。
+
+### 123.460 B439/S37ei：typed/generic trace 共用 wakeup 与 switch-in 尺
+
+`EVAL-B439-TRACEWAKEVSRUN1` 按上下文单源修复：
+
+1. 原实现的 `Scheduler transition interval hint` 只在 `TypedTraceAuthority=false` 的通用分支。恰恰拥有精确因果投影的 compact typed 分支缺失
+   t_sleep/t_wake/t_run 三段语义，虽然 Decision Inputs 已给 selected-window authority，模型仍把 pre-triage 的窗外 switch-in 混成 wakeup；
+2. 该教学移到 typed/generic 分支之前的共同位置：t_sleep→t_wake=sleep/blocking，t_wake→t_run=runnable scheduling delay，
+   t_sleep→t_run=total non-running；明确禁止把 t_run 称为 wakeup、禁止用窗外 switch-in 替换 selected-window 状态总量；
+3. typed compact presentation 同时明确 registry 驱动的所有链上候选均保留参选，不因 family 不同被压扁：已测优先级反转（链上低优先级依赖且
+   有 typed runnable effective impact，或更强 holder/waiter authority）、runnable/调度供给、算力供给、D-state/IO wait、确定性语义工作；
+4. adjacent/background 仍只作支撑或额外排查方向。系统不读 request/thinking/final prose，不新增 hard reject，不改写/替换模型答案；
+5. typed compact 与既有 generic pin 均覆盖三段语义；`go test ./internal/agent -count=1` 通过。显式时间窗、系统补采、根因排序、双轴占时、
+   可消除量及 Trace 因果投影实现均未修改。
+
+状态：`EVAL-B439=S37ei-implemented/full-suite-pass/pending-production-replay`；
+`scheduler-transition-guidance=single-source-across-typed-and-generic`；`root-families=typed-on-chain-registry-preserved`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。

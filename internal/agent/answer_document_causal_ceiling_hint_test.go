@@ -108,6 +108,13 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 	for _, want := range []string{
 		"Typed trace context precedence",
 		"on-chain/adjacent/background population",
+		"Scheduler transition interval hint",
+		"Never call t_run the wakeup timestamp",
+		"switch-in beyond that window",
+		"every typed on-chain candidate eligible",
+		"lower-priority on-chain dependency with typed runnable effective impact",
+		"runnable/scheduler-supply delay",
+		"deterministic semantic work",
 		"shared IRQ/waker label",
 		"same IO/pressure family",
 		"Never call an adjacent/background row a direct or indirect contributor",
