@@ -83,6 +83,7 @@ var violRegistryGolden = map[types.ViolationKind]violGoldenRow{
 	"diagram_edge_unsupported":               {"medium", "high", true, true, "finalizer", "v2_oracle", "consistency"},
 	"required_diagram_edge_absent":           {"high", "high", false, true, "explore", "v2_oracle", "coverage"},
 	"diagram_call_edge_unproven":             {"high", "high", false, true, "finalizer", "v2_oracle", "consistency"},
+	"diagram_participant_coverage":           {"high", "high", false, true, "finalizer", "v2_oracle", "coverage"},
 	"call_chain_endpoint_omitted":            {"high", "high", false, true, "finalizer", "v2_oracle", "consistency"},
 	"diagram_edge_label_mismatch":            {"soft", "soft", true, false, "finalizer", "v2_oracle", "consistency"},
 	"uncertainty_block_missing":              {"soft", "high", true, true, "finalizer", "v2_oracle", "structure"},

@@ -415,13 +415,14 @@ const (
 type preEmitSameTurnHardSignal string
 
 const (
-	preEmitHardSignalCompletePrincipalMemberSet   preEmitSameTurnHardSignal = "complete_principal_member_set"
-	preEmitHardSignalTypedRequiredBlockKind       preEmitSameTurnHardSignal = "typed_required_block_kind"
-	preEmitHardSignalTypedCallEdgeEvidence        preEmitSameTurnHardSignal = "typed_call_edge_evidence"
-	preEmitHardSignalTypedCallChainEndpoints      preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
-	preEmitHardSignalRuntimeTraceModelPrincipal   preEmitSameTurnHardSignal = "runtime_trace_model_principal"
-	preEmitHardSignalTypedTraceCausalClaimCaliber preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
-	preEmitHardSignalTypedSourceInventoryRowID    preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
+	preEmitHardSignalCompletePrincipalMemberSet      preEmitSameTurnHardSignal = "complete_principal_member_set"
+	preEmitHardSignalTypedRequiredBlockKind          preEmitSameTurnHardSignal = "typed_required_block_kind"
+	preEmitHardSignalTypedCallEdgeEvidence           preEmitSameTurnHardSignal = "typed_call_edge_evidence"
+	preEmitHardSignalTypedDiagramParticipantCoverage preEmitSameTurnHardSignal = "typed_diagram_participant_coverage"
+	preEmitHardSignalTypedCallChainEndpoints         preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
+	preEmitHardSignalRuntimeTraceModelPrincipal      preEmitSameTurnHardSignal = "runtime_trace_model_principal"
+	preEmitHardSignalTypedTraceCausalClaimCaliber    preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
+	preEmitHardSignalTypedSourceInventoryRowID       preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -434,6 +435,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
 		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence},
+		{Kind: types.ViolDiagramParticipantCoverage, Signal: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber},
@@ -506,6 +508,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "source_inventory_exact_row_binding", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
+		{Subgate: "diagram_participant_coverage", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
@@ -798,6 +801,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// and principal-path coverage. A function definition cannot prove a call.
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
+	}
+	if h := preCheckDiagramParticipantCoverage(doc, view, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolDiagramParticipantCoverage, h)
 	}
 
 	// 5c. Principal support member coverage. For enumeration answers,

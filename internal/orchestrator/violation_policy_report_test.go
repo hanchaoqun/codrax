@@ -41,10 +41,11 @@ func TestViolationPolicyCoverageReportPinsExplicitHardRows(t *testing.T) {
 			hard = append(hard, row)
 		}
 	}
-	if len(hard) != 3 ||
+	if len(hard) != 4 ||
 		hard[0].Kind != types.ViolRequiredDiagramEdgeAbsent ||
 		hard[1].Kind != types.ViolDiagramCallEdgeUnproven ||
-		hard[2].Kind != types.ViolCallChainEndpointOmitted {
+		hard[2].Kind != types.ViolDiagramParticipantCoverage ||
+		hard[3].Kind != types.ViolCallChainEndpointOmitted {
 		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed diagram hard rows; got %+v", hard)
 	}
 	for _, row := range hard {
@@ -57,7 +58,7 @@ func TestViolationPolicyCoverageReportPinsExplicitHardRows(t *testing.T) {
 	}
 	for _, row := range hard[1:] {
 		if row.FallbackTarget != FallbackFinalizerOnly {
-			t.Fatalf("typed call-chain hard row policy drifted: %+v", row)
+			t.Fatalf("typed diagram hard row policy drifted: %+v", row)
 		}
 	}
 }

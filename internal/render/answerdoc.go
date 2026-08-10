@@ -914,7 +914,7 @@ func renderV2TableFallbackHeaders(lang answerDocLang) (string, string) {
 	return "Item", "Details"
 }
 
-func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
+func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
 	if blk.Diagram == nil {
 		return
 	}
@@ -930,11 +930,27 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
-	lang := strings.TrimSpace(d.Language)
-	if lang == "" {
-		lang = "mermaid"
+	diagramLang := strings.TrimSpace(d.Language)
+	if diagramLang == "" {
+		diagramLang = "mermaid"
 	}
-	fmt.Fprintf(b, "```%s\n%s\n```\n\n", lang, body)
+	fmt.Fprintf(b, "```%s\n%s\n```\n\n", diagramLang, body)
+	if len(blk.ParticipantBoundaries) > 0 {
+		participants := make([]string, 0, len(blk.ParticipantBoundaries))
+		for _, boundary := range blk.ParticipantBoundaries {
+			if boundary.Status != types.DiagramParticipantBoundaryUnproven || strings.TrimSpace(boundary.Participant) == "" {
+				continue
+			}
+			participants = append(participants, "`"+strings.TrimSpace(boundary.Participant)+"`")
+		}
+		if len(participants) > 0 {
+			if lang == answerDocLangZH {
+				fmt.Fprintf(b, "**未证关系边界：** %s（图中保留该参与者，但当前证据未证明其与其余节点的关系）。\n\n", strings.Join(participants, "、"))
+			} else {
+				fmt.Fprintf(b, "**Unproven relation boundaries:** %s (the diagram retains these participants, but current evidence does not prove their relation to the other nodes).\n\n", strings.Join(participants, ", "))
+			}
+		}
+	}
 }
 
 const (

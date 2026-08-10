@@ -2356,6 +2356,9 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateDiagramCallEdgeEvidenceAlignment(doc, view, mut, bus) }) {
 		return out
 	}
+	if !appendIfLive(func() []types.Violation { return validateDiagramParticipantCoverage(doc, view, mut, bus) }) {
+		return out
+	}
 	if !appendIfLive(func() []types.Violation { return validateUncertaintyBlockPresence(doc, view) }) {
 		return out
 	}
@@ -2457,6 +2460,38 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return out
+}
+
+func validateDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, bus *types.BusContext) []types.Violation {
+	if bus == nil || bus.AnalysisIR == nil {
+		return nil
+	}
+	var evidence []types.EvidenceItem
+	if mut != nil {
+		evidence = mut.EmittedEvidence()
+	}
+	evidence = tool.DiagramEvidenceForValidation(bus, doc, view, evidence)
+	mismatches := tool.DiagramParticipantCoverageMismatches(doc, view, bus.AnalysisIR.RequestModel, evidence)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		parts = append(parts, fmt.Sprintf("participant=%q issue=%s", mismatch.Participant, mismatch.Issue))
+	}
+	return []types.Violation{{
+		Kind:       types.ViolDiagramParticipantCoverage,
+		Detail:     "required typed diagram participants lack a visible typed incident relation or an exact model-authored unproven boundary: " + strings.Join(parts, "; "),
+		Repair:     "Preserve every evidence-backed visible typed edge. For each remaining incident_required participant, keep a disconnected visible node and add exactly one participant_boundaries row with status=unproven; do not invent a relation.",
+		ClusterKey: blockKindClusterKey(types.BlockDiagram, "diagram_participant_coverage"),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "diagram_participant_coverage",
+			Reason:     "typed incident participant is neither connected by a typed visible relation nor explicitly bounded as unproven",
+			Confidence: 0.98,
+		},
+		Stage:               string(types.StageFinalize),
+		RepairLocusOverride: types.LocusFinalizer,
+	}}
 }
 
 func validateCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {

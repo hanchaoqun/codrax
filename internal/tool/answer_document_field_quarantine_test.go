@@ -23,6 +23,7 @@ func TestAnswerDocumentFieldQuarantineProfilesCoverTypedWireFields(t *testing.T)
 		{name: "diagram", wire: emitAnswerDiagramV2{}, allowed: answerDocumentDiagramAllowedFields},
 		{name: "claim use", wire: types.RenderedClaimUse{}, allowed: answerDocumentClaimUseAllowedFields},
 		{name: "edge anchor", wire: types.DiagramEdgeAnchor{}, allowed: answerDocumentEdgeAnchorAllowedFields},
+		{name: "participant boundary", wire: types.DiagramParticipantBoundary{}, allowed: answerDocumentParticipantBoundaryAllowedFields},
 		{name: "relation claim", wire: types.AnswerRelationClaim{}, allowed: answerDocumentRelationClaimAllowedFields},
 		{name: "exact resolution", wire: types.AnswerExactResolution{}, allowed: answerDocumentExactResolutionAllowedFields},
 		{name: "missing role", wire: types.AnswerMissingRequestedRole{}, allowed: answerDocumentMissingRoleAllowedFields},

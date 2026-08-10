@@ -74,12 +74,31 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		SourceInventoryFamily: types.SourceInventorySurfaceTermKey(
 			raw.SourceInventoryFamily,
 		),
-		Columns:        normalizeTableStringSlice(raw.Columns),
-		ClaimUses:      raw.ClaimUses,
-		EdgeAnchors:    raw.EdgeAnchors,
-		RelationClaims: types.CloneAnswerRelationClaims(raw.RelationClaims),
-		FacetIDs:       raw.FacetIDs,
-		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
+		Columns:               normalizeTableStringSlice(raw.Columns),
+		ClaimUses:             raw.ClaimUses,
+		EdgeAnchors:           raw.EdgeAnchors,
+		ParticipantBoundaries: types.CloneDiagramParticipantBoundaries(raw.ParticipantBoundaries),
+		RelationClaims:        types.CloneAnswerRelationClaims(raw.RelationClaims),
+		FacetIDs:              raw.FacetIDs,
+		SurfaceRole:           types.SurfaceRole(raw.SurfaceRole),
+	}
+	if len(blk.ParticipantBoundaries) > 0 && kind != types.BlockDiagram {
+		return types.AnswerBlock{}, fmt.Errorf("%s: participant_boundaries is only valid on kind=diagram blocks", fieldPath)
+	}
+	seenParticipantBoundaries := make(map[string]bool, len(blk.ParticipantBoundaries))
+	for i, boundary := range blk.ParticipantBoundaries {
+		participant := strings.TrimSpace(boundary.Participant)
+		if participant == "" {
+			return types.AnswerBlock{}, fmt.Errorf("%s.participant_boundaries[%d].participant is required", fieldPath, i)
+		}
+		if !boundary.Status.IsValid() {
+			return types.AnswerBlock{}, fmt.Errorf("%s.participant_boundaries[%d].status=%q is invalid; allowed value: unproven", fieldPath, i, boundary.Status)
+		}
+		key := strings.ToLower(participant)
+		if seenParticipantBoundaries[key] {
+			return types.AnswerBlock{}, fmt.Errorf("%s.participant_boundaries contains duplicate participant %q", fieldPath, participant)
+		}
+		seenParticipantBoundaries[key] = true
 	}
 	if raw.ErrorGranularityVerdict != "" {
 		verdict, ok := types.NormalizeErrorGranularityVerdict(raw.ErrorGranularityVerdict)
@@ -493,6 +512,7 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 					visible := b
 					visible.Diagram = nil
 					visible.EdgeAnchors = nil
+					visible.ParticipantBoundaries = nil
 					out = append(out, splitEmitBlockEntry{raw: visible, modelIndex: i})
 				} else {
 					out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
@@ -512,11 +532,13 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 		visible := b
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
+		visible.ParticipantBoundaries = nil
 		diagramHalf := emitAnswerBlockV2{
-			ID:          deriveSplitDiagramBlockID(b.ID, used),
-			Kind:        string(types.BlockDiagram),
-			Diagram:     b.Diagram,
-			EdgeAnchors: b.EdgeAnchors,
+			ID:                    deriveSplitDiagramBlockID(b.ID, used),
+			Kind:                  string(types.BlockDiagram),
+			Diagram:               b.Diagram,
+			EdgeAnchors:           b.EdgeAnchors,
+			ParticipantBoundaries: b.ParticipantBoundaries,
 		}
 		out = append(out,
 			splitEmitBlockEntry{raw: visible, modelIndex: i},
@@ -820,10 +842,11 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		}
 		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
 		return &emitAnswerBlockV2{
-			ID:          target,
-			Kind:        string(types.BlockDiagram),
-			Diagram:     b.Diagram,
-			EdgeAnchors: b.EdgeAnchors,
+			ID:                    target,
+			Kind:                  string(types.BlockDiagram),
+			Diagram:               b.Diagram,
+			EdgeAnchors:           b.EdgeAnchors,
+			ParticipantBoundaries: b.ParticipantBoundaries,
 		}, false
 	}
 	for _, b := range replaceBlocks {

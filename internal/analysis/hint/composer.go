@@ -426,6 +426,8 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		return types.FlowOperationEvidenceEmissionGuide
 	case types.ViolDiagramCallEdgeUnproven:
 		return "For every structured `relation_kind=call` edge, preserve the exact direction of a grounded call-site EvidenceItem `Subject -> Object`. If an arrow is only observation, containment, or ordering, use that non-call relation instead. Remove pseudo-sequential edges between sibling operations and do not use a function definition to prove call direction."
+	case types.ViolDiagramParticipantCoverage:
+		return "For every typed `incident_required` participant, preserve an evidence-backed visible incident edge when one exists. Otherwise keep the participant as a disconnected visible node and add exactly one block-level `participant_boundaries=[{participant:<exact-typed-identity>,status:\"unproven\"}]` row; omit the field or use an empty array when all required participants are connected. Do not invent an edge or list context-only, unknown, or already-connected participants."
 	case types.ViolCallChainEndpointOmitted:
 		return "Preserve every typed source/sink endpoint as an exact structured label or table token. If grounded call-edge evidence reaches only a sibling or nearby symbol, keep the requested endpoint visible and state that the collected evidence did not prove a path to it; do not silently substitute the nearby symbol."
 	case types.ViolUncertaintyBlockMissing:

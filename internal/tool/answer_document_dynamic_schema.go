@@ -59,6 +59,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectClaimUsesEnum(blockProps, view)
 			projectDiagramField(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
+			projectParticipantBoundariesField(blockProps, view)
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
@@ -577,5 +578,26 @@ func allowedKindOrder() []string {
 func projectEdgeAnchorsField(blockProps map[string]any, view *types.AnswerSemanticView) {
 	if view.DiagramPlan == nil {
 		delete(blockProps, "edge_anchors")
+	}
+}
+
+// projectParticipantBoundariesField exposes the explicit no-edge decision
+// only for a precise required source-flow participant contract. Ordinary
+// diagrams and every Trace lane keep the field out of the model schema.
+func projectParticipantBoundariesField(blockProps map[string]any, view *types.AnswerSemanticView) {
+	incident := make([]string, 0, len(view.DiagramParticipantObligations))
+	for _, obligation := range view.DiagramParticipantObligations {
+		if obligation.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(obligation.Identity) == "" {
+			continue
+		}
+		incident = append(incident, strings.TrimSpace(obligation.Identity))
+	}
+	if view.DiagramPlan == nil || !view.DiagramPlan.Required || view.RelationAxis != types.AxisFlow || len(incident) == 0 {
+		delete(blockProps, "participant_boundaries")
+		return
+	}
+	field, _ := blockProps["participant_boundaries"].(map[string]any)
+	if field != nil {
+		field["description"] = "Explicit coverage decision for the typed incident participants [" + strings.Join(incident, ", ") + "]. Omit or emit [] when every participant has a typed visible incident edge. When any participant lacks such an edge, this field is REQUIRED: list exactly the uncovered participant identities with status=unproven and keep each as a disconnected visible node. This array never creates or authorizes an edge."
 	}
 }

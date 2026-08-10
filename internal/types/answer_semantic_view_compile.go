@@ -1,6 +1,10 @@
 package types
 
-import "github.com/hanchaoqun/codrax/internal/logging"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+)
 
 // emitSemanticViewTrace writes a [trace/sv] debug line summarising
 // the compiled view so operators can observe which family resolved
@@ -95,6 +99,7 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applySurfacePlanDecisionLaneOverrides(view, plan)
 	applyErrorGranularityProfile(view, ir)
 	applyPresentationContract(view, ir, plan)
+	applyDiagramParticipantObligations(view, ir)
 	applyCappedRequiredBlockKindAuthority(view)
 	view.RelationAxis = ir.RequestModel.PredicateAxis
 	view.SourceInventoryRowIdentityAvailable = plan != nil &&
@@ -102,6 +107,24 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		ir.RequestModel.SourceInventoryProfile != nil &&
 		ir.RequestModel.SourceInventoryProfile.Active()
 	return view
+}
+
+func applyDiagramParticipantObligations(view *AnswerSemanticView, ir *AnalysisIR) {
+	if view == nil || ir == nil {
+		return
+	}
+	rm := ir.RequestModel
+	if rm.Intent == IntentTrace || ResolveQuestionFamily(rm) == QFRootCauseTrace ||
+		rm.PredicateAxis != AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		view.DiagramPlan == nil || !view.DiagramPlan.Required {
+		return
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		if strings.TrimSpace(participant.Identity) == "" || !participant.Role.IsValid() {
+			continue
+		}
+		view.DiagramParticipantObligations = append(view.DiagramParticipantObligations, participant)
+	}
 }
 
 // applyCappedRequiredBlockKindAuthority makes the final compiled view the

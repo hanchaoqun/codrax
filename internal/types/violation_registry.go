@@ -833,6 +833,13 @@ func init() {
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolDiagramParticipantCoverage, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseCoverage,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		SchemaDescriptionFragment: "For required non-Trace flow diagrams, every typed incident_required participant MUST either touch a visible typed relation or remain as a visible disconnected node with one model-authored participant_boundaries status=unproven row. Participant identity never authorizes an edge.",
+		FixableByAgents:           []AgentName{AgentFinalizer, AgentExplorer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeLabelMismatch, DefaultSeverity: SeveritySoft, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,

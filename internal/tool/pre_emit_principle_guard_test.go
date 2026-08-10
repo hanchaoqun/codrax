@@ -90,13 +90,14 @@ func TestPrinciplePreEmitBlockHardGateUsesTypedBlockKindNotHintText(t *testing.T
 
 func TestPrinciplePreEmitSameTurnHardPolicyIsExplicit(t *testing.T) {
 	rows := preEmitSameTurnHardPolicyRows()
-	if len(rows) != 7 {
+	if len(rows) != 8 {
 		t.Fatalf("same-turn hard policy should stay small and explicit, got %+v", rows)
 	}
 	want := map[preEmitSameTurnHardPolicyRow]bool{
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet}: true,
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind}:                 true,
 		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence}:               true,
+		{Kind: types.ViolDiagramParticipantCoverage, Signal: preEmitHardSignalTypedDiagramParticipantCoverage}:  true,
 		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints}:            true,
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal}:             true,
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber}:             true,

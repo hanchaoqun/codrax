@@ -528,6 +528,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		EdgeAnchors: []types.DiagramEdgeAnchor{
 			{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
 		RelationClaims: []types.AnswerRelationClaim{{
 			AuthorityID: "trace:self_runnable_two_ruler:test:cross",
 			MemberRefs:  []string{"#4", "#10"}, PhysicalRelation: types.AnswerPhysicalRelationUnresolved,
@@ -572,15 +575,18 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
 	checks := map[string]func() bool{
-		"ID":             func() bool { return got.ID != "" },
-		"Kind":           func() bool { return got.Kind != "" },
-		"Title":          func() bool { return got.Title != "" },
-		"Text":           func() bool { return got.Text != "" },
-		"Columns":        func() bool { return len(got.Columns) == 2 && got.Columns[0] == "维度" },
-		"Items":          func() bool { return len(got.Items) > 0 },
-		"Diagram":        func() bool { return got.Diagram != nil && got.Diagram.Body != "" },
-		"ClaimUses":      func() bool { return len(got.ClaimUses) > 0 },
-		"EdgeAnchors":    func() bool { return len(got.EdgeAnchors) > 0 },
+		"ID":          func() bool { return got.ID != "" },
+		"Kind":        func() bool { return got.Kind != "" },
+		"Title":       func() bool { return got.Title != "" },
+		"Text":        func() bool { return got.Text != "" },
+		"Columns":     func() bool { return len(got.Columns) == 2 && got.Columns[0] == "维度" },
+		"Items":       func() bool { return len(got.Items) > 0 },
+		"Diagram":     func() bool { return got.Diagram != nil && got.Diagram.Body != "" },
+		"ClaimUses":   func() bool { return len(got.ClaimUses) > 0 },
+		"EdgeAnchors": func() bool { return len(got.EdgeAnchors) > 0 },
+		"ParticipantBoundaries": func() bool {
+			return len(got.ParticipantBoundaries) == 1 && got.ParticipantBoundaries[0].Participant == "MutableState"
+		},
 		"RelationClaims": func() bool { return len(got.RelationClaims) > 0 },
 		"FacetIDs":       func() bool { return len(got.FacetIDs) > 0 },
 		"SurfaceRole":    func() bool { return got.SurfaceRole != "" },
@@ -629,5 +635,39 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		if _, ok := checks[f.Name]; !ok {
 			t.Errorf("emitAnswerBlockV2 field %q has a typed counterpart but is NOT covered by the propagation lock; add a fixture+check for it", f.Name)
 		}
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsInvalidParticipantBoundaries(t *testing.T) {
+	base := emitAnswerBlockV2{
+		ID: "diagram", Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{Kind: string(types.DiagramFlow), Body: "flowchart LR\n M[MutableState]"},
+	}
+	for name, mutate := range map[string]func(*emitAnswerBlockV2){
+		"non diagram": func(block *emitAnswerBlockV2) {
+			block.Kind = string(types.BlockSummary)
+			block.Diagram = nil
+			block.ParticipantBoundaries = []types.DiagramParticipantBoundary{{Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven}}
+		},
+		"empty participant": func(block *emitAnswerBlockV2) {
+			block.ParticipantBoundaries = []types.DiagramParticipantBoundary{{Status: types.DiagramParticipantBoundaryUnproven}}
+		},
+		"invalid status": func(block *emitAnswerBlockV2) {
+			block.ParticipantBoundaries = []types.DiagramParticipantBoundary{{Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnknown}}
+		},
+		"duplicate": func(block *emitAnswerBlockV2) {
+			block.ParticipantBoundaries = []types.DiagramParticipantBoundary{
+				{Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven},
+				{Participant: "mutablestate", Status: types.DiagramParticipantBoundaryUnproven},
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			block := base
+			mutate(&block)
+			if _, err := NormalizeEmitAnswerBlock(block, "blocks[0]"); err == nil || !strings.Contains(err.Error(), "participant_boundaries") {
+				t.Fatalf("invalid participant boundary must fail at its typed field, got %v", err)
+			}
+		})
 	}
 }

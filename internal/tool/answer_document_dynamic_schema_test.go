@@ -118,6 +118,42 @@ func TestEmitAnswerDocumentSchema_SourceDiagramEdgeOwnershipUsesTypedSingleSourc
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectsTypedParticipantBoundariesOnlyForRequiredFlowSlate(t *testing.T) {
+	active := &types.AnswerSemanticView{
+		RelationAxis: types.AxisFlow,
+		DiagramPlan:  &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	blockItems, props := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(active))
+	field, ok := props["participant_boundaries"].(map[string]any)
+	if !ok {
+		t.Fatalf("active typed flow participant contract must expose participant_boundaries: %v", props)
+	}
+	if desc, _ := field["description"].(string); !strings.Contains(desc, "Analyzer") || strings.Contains(desc, "BusContext") {
+		t.Fatalf("projected boundary description must name incident-only roster: %q", desc)
+	}
+	encoded, _ := json.Marshal(blockItems["allOf"])
+	if strings.Contains(string(encoded), "participant_boundaries") {
+		t.Fatalf("all-covered diagrams must not pay a redundant empty-array presence gate: %s", encoded)
+	}
+
+	for name, view := range map[string]*types.AnswerSemanticView{
+		"no obligations": {RelationAxis: types.AxisFlow, DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true}},
+		"non flow":       {RelationAxis: types.AxisDefine, DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true}, DiagramParticipantObligations: active.DiagramParticipantObligations},
+		"optional":       {RelationAxis: types.AxisFlow, DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: false}, DiagramParticipantObligations: active.DiagramParticipantObligations},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, projected := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+			if _, leaked := projected["participant_boundaries"]; leaked {
+				t.Fatalf("inactive contract leaked participant_boundaries: %v", projected)
+			}
+		})
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhenAvailable(t *testing.T) {
 	assertFields := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
 		t.Helper()

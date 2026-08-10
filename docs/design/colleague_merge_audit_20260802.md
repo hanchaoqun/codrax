@@ -2895,3 +2895,19 @@ downstream relation validator 未放宽。
 
 状态：`B462=implemented/full-suite-pass/pending-production-replay`；`B463/B464=queued`；
 `raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.19 B463 完成：participant 完整性以“已证 incident / 模型未证边界”二选一闭环
+
+本批关闭 r269 的 runner 假阳性：required source-flow 图不能再由任意两条旁支边替代全部 `incident_required` participant 的关系覆盖。
+合同只消费 typed participant slate、结构化 Mermaid AST、`edge_anchors` 与 grounded EvidenceItem；不读取 request、thinking、答案 prose。
+
+新 `participant_boundaries[]` 由模型填写并由系统校验/确定性渲染。已证 relation 原样保留；无证 participant 必须留作同 block 的断开节点并
+显式标为 `unproven`。系统不补边、不推断 relation、不重写模型结论；重复、stale、unknown/context-only、不可见或跨图借节点均 fail loud。
+该字段仅在非 Trace required `AxisFlow` typed participant contract 上投影，Trace 因果投影、自动补齐、时间窗和链上主因权威继续走原独立车道。
+
+semantic-view/cache、schema、wire/normalizer/quarantine、pre/post chokepoint、registry/hint、双语 renderer 与 Trace 负臂均有结构 pin；相关五包
+联合测试全绿，全仓复验在提交前执行。B464 的 Mermaid endpoint alias 仍保持独立，禁止把本批 boundary 当作 identity/alias 修复。
+
+状态：`B463=implemented/full-suite-pass/pending-production-replay`；`B462=pending-production-replay`；`B464=next`；
+`participant-as-relation-authority=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

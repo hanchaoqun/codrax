@@ -62,6 +62,7 @@ var (
 		"diagram",
 		"claim_uses",
 		"edge_anchors",
+		"participant_boundaries",
 		"relation_claims",
 		"facet_ids",
 		"surface_role",
@@ -108,6 +109,10 @@ var (
 		"to_node",
 		"relation_kind",
 		"claim_form",
+	)
+	answerDocumentParticipantBoundaryAllowedFields = stringSet(
+		"participant",
+		"status",
 	)
 	answerDocumentRelationClaimAllowedFields = stringSet(
 		"authority_id",
@@ -315,6 +320,9 @@ func quarantineBlockObject(obj map[string]json.RawMessage, path string, paths *[
 		changed = true
 	}
 	if quarantineObjectArray(obj, "edge_anchors", path+".edge_anchors", answerDocumentEdgeAnchorAllowedFields, nil, paths) {
+		changed = true
+	}
+	if quarantineObjectArray(obj, "participant_boundaries", path+".participant_boundaries", answerDocumentParticipantBoundaryAllowedFields, nil, paths) {
 		changed = true
 	}
 	if quarantineObjectArray(obj, "relation_claims", path+".relation_claims", answerDocumentRelationClaimAllowedFields, nil, paths) {

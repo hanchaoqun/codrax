@@ -241,13 +241,14 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDiagramEdgeEndpointHallucinated:    true, // orchestrator/contract_check_block.go validateDiagramEdgeEndpointHallucination (Fix D 2026-05-07 diagram audit)
 		ViolStructuralEnumerationDivergence:    true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
 		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
-		ViolBlockCoverageMissing:      true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
-		ViolPrincipalClaimUseMissing:  true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
-		ViolDiagramEdgeUnsupported:    true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
-		ViolRequiredDiagramEdgeAbsent: true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
-		ViolDiagramCallEdgeUnproven:   true, // orchestrator/contract_check_block.go validateDiagramCallEdgeEvidenceAlignment
-		ViolCallChainEndpointOmitted:  true, // orchestrator/contract_check_block.go validateRequiredMechanismAnchorsRendered
-		ViolUncertaintyBlockMissing:   true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
+		ViolBlockCoverageMissing:       true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
+		ViolPrincipalClaimUseMissing:   true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
+		ViolDiagramEdgeUnsupported:     true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
+		ViolRequiredDiagramEdgeAbsent:  true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
+		ViolDiagramCallEdgeUnproven:    true, // orchestrator/contract_check_block.go validateDiagramCallEdgeEvidenceAlignment
+		ViolDiagramParticipantCoverage: true, // orchestrator/contract_check_block.go validateDiagramParticipantCoverage
+		ViolCallChainEndpointOmitted:   true, // orchestrator/contract_check_block.go validateRequiredMechanismAnchorsRendered
+		ViolUncertaintyBlockMissing:    true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: true, // orchestrator/contract_check.go runCrossCitationConflictOracleV2
 		// R2.3 V2 重接 (post_shape_residual_audit.md, 2026-05-04).
@@ -407,6 +408,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDiagramEdgeUnsupported:            "ViolDiagramEdgeUnsupported",
 		ViolRequiredDiagramEdgeAbsent:         "ViolRequiredDiagramEdgeAbsent",
 		ViolDiagramCallEdgeUnproven:           "ViolDiagramCallEdgeUnproven",
+		ViolDiagramParticipantCoverage:        "ViolDiagramParticipantCoverage",
 		ViolCallChainEndpointOmitted:          "ViolCallChainEndpointOmitted",
 		ViolDiagramEdgeLabelMismatch:          "ViolDiagramEdgeLabelMismatch",
 		ViolAnswerSemanticUnderfilled:         "ViolAnswerSemanticUnderfilled",

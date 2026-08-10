@@ -364,7 +364,13 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// to render/caveat that member rather than re-investigate.
 		types.ViolPrincipalSupportMemberOmitted: "principal support member omitted from enumeration surface; finalizer-local render coverage",
 		types.ViolDiagramCallEdgeUnproven:       "typed source call edge lacks same-direction call-site evidence; finalizer-local edge/list rewrite",
-		types.ViolCallChainEndpointOmitted:      "typed source/sink endpoint omitted from structured call-chain answer; finalizer-local endpoint disclosure",
+		// The participant slate proves that an entity belongs in the requested
+		// flow view, but deliberately cannot prove an edge. This violation may be
+		// repaired independently by a model-authored unproven boundary; coupling
+		// it to the edge-authority cluster would pressure the model to invent a
+		// relation instead of preserving the evidence boundary.
+		types.ViolDiagramParticipantCoverage: "typed flow participant lacks either an evidenced incident edge or an explicit unproven boundary; standalone finalizer/explorer repair",
+		types.ViolCallChainEndpointOmitted:   "typed source/sink endpoint omitted from structured call-chain answer; finalizer-local endpoint disclosure",
 		// Semantic-quality topic mismatch is intentionally standalone:
 		// the reviewer already identified a wrong-subject final answer,
 		// and the repair is a finalizer-local rewrite around the

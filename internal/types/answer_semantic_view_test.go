@@ -69,6 +69,57 @@ func TestBuildAnswerSemanticView_PreservesTypedRelationAxis(t *testing.T) {
 	}
 }
 
+func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *testing.T) {
+	participants := []DiagramParticipantHint{
+		{Identity: "Analyzer", Role: DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: DiagramParticipantContextOnly},
+		{Identity: "", Role: DiagramParticipantIncidentRequired},
+		{Identity: "Invalid", Role: DiagramParticipantRole("invalid")},
+	}
+	newView := func() *AnswerSemanticView {
+		return &AnswerSemanticView{DiagramPlan: &DiagramFacetGraph{Kind: DiagramFlow, Required: true}}
+	}
+	newIR := func() *AnalysisIR {
+		return &AnalysisIR{RequestModel: RequestModel{
+			Intent: IntentExplain, PredicateAxis: AxisFlow,
+			DiagramHint: &DiagramHint{Kind: DiagramFlow, Required: true, Participants: participants},
+		}}
+	}
+
+	view := BuildAnswerSemanticView(newIR(), &AnswerSurfacePlan{Diagram: &DiagramContract{
+		Required: true, PreferredKinds: []DiagramKind{DiagramFlow},
+	}})
+	if view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required {
+		t.Fatalf("test fixture failed to compile a required flow diagram: %+v", view)
+	}
+	if len(view.DiagramParticipantObligations) != 2 ||
+		view.DiagramParticipantObligations[0].Identity != "Analyzer" ||
+		view.DiagramParticipantObligations[1].Role != DiagramParticipantContextOnly {
+		t.Fatalf("typed valid participant slate was not copied exactly: %+v", view.DiagramParticipantObligations)
+	}
+	clone := cloneAnswerSemanticView(view)
+	clone.DiagramParticipantObligations[0].Identity = "mutated"
+	if view.DiagramParticipantObligations[0].Identity != "Analyzer" {
+		t.Fatalf("semantic-view cache clone aliases participant obligations: %+v", view.DiagramParticipantObligations)
+	}
+
+	for name, mutate := range map[string]func(*AnalysisIR, *AnswerSemanticView){
+		"trace":         func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.Intent = IntentTrace },
+		"non flow":      func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.PredicateAxis = AxisDefine },
+		"hint optional": func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.DiagramHint.Required = false },
+		"plan optional": func(_ *AnalysisIR, view *AnswerSemanticView) { view.DiagramPlan.Required = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ir, inactive := newIR(), newView()
+			mutate(ir, inactive)
+			applyDiagramParticipantObligations(inactive, ir)
+			if len(inactive.DiagramParticipantObligations) != 0 {
+				t.Fatalf("inactive lane leaked participant obligations: %+v", inactive.DiagramParticipantObligations)
+			}
+		})
+	}
+}
+
 func TestBuildAnswerSemanticView_SourceInventoryRowIdentityUsesTypedPlan(t *testing.T) {
 	ir := &AnalysisIR{RequestModel: RequestModel{
 		Intent: IntentEnumerate,

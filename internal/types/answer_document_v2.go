@@ -311,6 +311,13 @@ type AnswerBlock struct {
 	// claim_form expectations.
 	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
 
+	// ParticipantBoundaries are model-authored typed disclosures for
+	// incident_required diagram participants that remain disconnected because
+	// no grounded incident relation is available. They never authorize an edge;
+	// validators require every listed participant to stay visible in the diagram
+	// and require exact agreement with the analyzer's participant obligations.
+	ParticipantBoundaries []DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
+
 	// RelationClaims are model-authored declarations that bind value
 	// comparisons/additions in this block to exact typed relation authorities
 	// accepted during investigation. The system validates and preserves this

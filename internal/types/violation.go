@@ -439,6 +439,14 @@ const (
 	// carriers.
 	ViolDiagramCallEdgeUnproven ViolationKind = "diagram_call_edge_unproven"
 
+	// ViolDiagramParticipantCoverage fires only for a required non-Trace flow
+	// diagram with schema-validated incident_required participants. Every such
+	// participant must either touch one visible typed relation or be retained as
+	// a visible disconnected node with a model-authored
+	// participant_boundaries[{status:unproven}] row. The gate never scans prose
+	// and never turns participant identity into relation evidence.
+	ViolDiagramParticipantCoverage ViolationKind = "diagram_participant_coverage"
+
 	// ViolCallChainEndpointOmitted fires only for source call-chain answers
 	// when a current-request endpoint compiled into
 	// AnswerSemanticView.RequiredMechanismAnchors is missing from every
@@ -1133,6 +1141,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolDiagramEdgeUnsupported,
 		ViolRequiredDiagramEdgeAbsent,
 		ViolDiagramCallEdgeUnproven,
+		ViolDiagramParticipantCoverage,
 		ViolCallChainEndpointOmitted,
 		ViolDiagramEdgeLabelMismatch,
 		ViolUncertaintyBlockMissing,

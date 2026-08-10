@@ -819,6 +819,27 @@ func TestRenderV2_BlockDiagramKeepsAuthoredText(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockDiagramPublishesModelAuthoredParticipantBoundary(t *testing.T) {
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n M[\"MutableState\"]"},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}}}
+	got := RenderAnswerDocument(doc, "zh-CN")
+	if !strings.Contains(got, "未证关系边界") || !strings.Contains(got, "`MutableState`") {
+		t.Fatalf("model-authored typed participant boundary was not rendered:\n%s", got)
+	}
+	if strings.Count(got, "MutableState") != 2 {
+		t.Fatalf("renderer should preserve one model node and one typed disclosure without inventing content:\n%s", got)
+	}
+	english := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(english, "Unproven relation boundaries") || !strings.Contains(english, "`MutableState`") {
+		t.Fatalf("English lane lost the same model-authored typed boundary:\n%s", english)
+	}
+}
+
 func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

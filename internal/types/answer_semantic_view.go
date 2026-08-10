@@ -71,6 +71,11 @@ type AnswerSemanticView struct {
 	// would not aid comprehension.
 	DiagramPlan *DiagramFacetGraph
 
+	// DiagramParticipantObligations is the schema-validated participant slate
+	// copied from RequestModel.DiagramHint for non-Trace required flow diagrams.
+	// It is answer-shape authority only: participants cannot mint relations.
+	DiagramParticipantObligations []DiagramParticipantHint
+
 	// Presentation is the family-independent display contract. It widens
 	// the schema surface for blocks that are presentational carriers
 	// (tables, scalars, decisions, and user-requested diagrams) without

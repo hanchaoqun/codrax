@@ -115,6 +115,15 @@ func TestPreEmitSubgateRouteTableRoutesMatchGateSplit(t *testing.T) {
 			if !preEmitHintHardByDefault(typed) {
 				t.Errorf("subgate %q typed call-edge evidence hint must route hard", row.Subgate)
 			}
+		case preEmitHardSignalTypedDiagramParticipantCoverage:
+			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
+				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)
+			}
+			typed := plain
+			typed.HardSignal = preEmitHardSignalTypedDiagramParticipantCoverage
+			if !preEmitHintHardByDefault(typed) {
+				t.Errorf("subgate %q typed participant-coverage hint must route hard", row.Subgate)
+			}
 		case preEmitHardSignalTypedCallChainEndpoints:
 			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
 				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)

@@ -30358,3 +30358,26 @@ value-flow。
 状态：`B462=implemented/full-suite-pass/pending-production-replay`；`B463/B464=queued`；
 `typed-token-alone-as-value-flow-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
 `system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B463 独立批完成：required flow participant 必须有已证 incident 或模型明确的未证边界
+
+r269 的六个 `incident_required` participant 已到达最终语义视图，但旧合同只校验“图里存在某些边”，无法区分“请求主体都已获得关系”与
+“两条旁支边让整图过门”。本批没有要求所有 participant 必须连边，因为那会把证据不足转化为造边压力；而是新增模型可选的结构化
+`participant_boundaries[]` 决定面：
+
+1. 仅在非 Trace、`AxisFlow`、required diagram 且存在 typed `incident_required` slate 时投影该字段；其余场景从 JSON schema 删除。
+   `IntentTrace/QFRootCauseTrace` 双重旁路，显式时间窗、系统 trace 补齐、链上根因选举与邻近背景分层均不受影响。
+2. 每个 incident participant 必须满足二选一：图中存在一条同节点身份、同方向且由 typed `edge_anchor + EvidenceItem` 支撑的可见 incident；
+   或者模型把该 participant 保留为断开的可见节点，并填写恰好一条 `{participant,status:"unproven"}`。空边界数组表示全部已证连接。
+3. participant role/identity 只提供完整性义务，绝不提供 relation authority。系统不新增 edge、不选择关系、不改模型解释或结论；渲染器只把
+   模型自己提交且通过校验的 typed boundary 以中/英文“未证关系边界”披露。context-only、未知、已连接、不可见、跨 block 借节点及重复边界均拒绝。
+4. pre-emit 与 post-emit 复用同一 checker 和 grounded evidence precedence；新增 violation 有独立注册表、retry 教学、fallback、穷举清单与
+   same-turn typed hard-lane pin。repair 明确优先保留真边，证据不足时写 boundary，禁止为了通过校验虚构关系。
+
+验证覆盖 semantic-view compile/cache clone、动态 schema active/inactive、full/patch normalizer、字段 quarantine、Mermaid AST + typed edge
+evidence、跨 block/重复/stale/unknown/context-only/invisible 边界、pre-emit route、post-emit M4 接线、中文/英文渲染及 Trace 负臂。
+`go test ./internal/analysis/hint ./internal/tool ./internal/orchestrator ./internal/types ./internal/render -count=1` 全绿；全仓复验见本批提交前记录。
+
+状态：`B463=implemented/full-suite-pass/pending-production-replay`；`B462=pending-production-replay`；`B464=next`；
+`participant-as-relation-authority=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

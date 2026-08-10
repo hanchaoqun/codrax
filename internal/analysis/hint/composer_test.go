@@ -213,6 +213,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	types.ViolDiagramEdgeUnsupported:          true,
 	types.ViolRequiredDiagramEdgeAbsent:       true,
 	types.ViolDiagramCallEdgeUnproven:         true,
+	types.ViolDiagramParticipantCoverage:      true,
 	types.ViolCallChainEndpointOmitted:        true,
 	types.ViolUncertaintyBlockMissing:         true,
 	types.ViolClaimFormUnsupported:            true,
@@ -437,6 +438,12 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 			kind:           types.ViolRequiredDiagramEdgeAbsent,
 			mustContain:    []string{"producer", "transfer or merge boundary", "consumer", "instead of inventing"},
 			mustNotContain: []string{"shape=", "case", "language"},
+		},
+		{
+			name:           "diagram_participant_coverage",
+			kind:           types.ViolDiagramParticipantCoverage,
+			mustContain:    []string{"incident_required", "participant_boundaries", "unproven", "Do not invent an edge"},
+			mustNotContain: []string{"shape=", "system will add"},
 		},
 		{
 			name:           "uncertainty_block_missing",
