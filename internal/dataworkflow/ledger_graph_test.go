@@ -183,3 +183,35 @@ func TestLedgerGraphDoesNotCallUnlinkedLateRuleGenerationComplete(t *testing.T) 
 		t.Fatalf("linked graph did not close: %+v", graph)
 	}
 }
+
+func TestPlanDirectlyProducesFirstMissingLedgerRejectsExecutableAuxiliaryWork(t *testing.T) {
+	graph := BuildLedgerGraph(StageFacts{
+		MaterialCoverageSufficient: true,
+		ContributionLedgerRequired: true,
+		ReconcileRequired:          true,
+	})
+	if graph.FirstMissing != string(LedgerContributions) {
+		t.Fatalf("first_missing=%q, want contributions", graph.FirstMissing)
+	}
+	auxiliary := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "inspect_values_again",
+		Kind: dataquery.DataActionValueDistribution,
+	}}}
+	if PlanDirectlyProducesFirstMissingLedger(auxiliary, graph) {
+		t.Fatal("executable value_distribution must not receive deterministic dispatch authority for a missing contribution ledger")
+	}
+	producer := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "compute_ledger",
+		Kind: dataquery.DataActionComputeContribs,
+	}}}
+	if !PlanDirectlyProducesFirstMissingLedger(producer, graph) {
+		t.Fatal("declared compute_contributions producer lost deterministic dispatch authority")
+	}
+	mixed := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "compute_ledger", Kind: dataquery.DataActionComputeContribs},
+		{ID: "inspect_values", Kind: dataquery.DataActionValueDistribution},
+	}}
+	if PlanDirectlyProducesFirstMissingLedger(mixed, graph) {
+		t.Fatal("mixed producer/auxiliary plan must return to planner instead of auto-dispatching hidden extra work")
+	}
+}

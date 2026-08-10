@@ -29942,3 +29942,17 @@ case 改钉所请求的 BusContext/Mutable 图参与者和关系覆盖，而非�
 `B450=production-replay-failed/superseded-by-B451`；`r263-human=0/2`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### B451 批次施工：自动派发权绑定首个缺失账本 producer
+
+新增共享精确信号 `PlanDirectlyProducesFirstMissingLedger(plan, ledgerGraph)`：只有非空计划的每一个 action kind 都属于
+`FirstIncompleteRequiredLedger(...).ProducesActions`，才允许 post-result 跳过 evaluator/planner 自动派发。可执行的
+value-distribution/join/mapping/apply 等辅助动作仍完整保留在 typed scaffold/artifact graph 中，但 contributions 是首缺账本时，
+它们不再因“可执行”获得系统决策权；模型可依据 typed violation 与业务字段选择是否先做这些动作。
+
+纯 producer 计划继续自动执行，producer 与辅助动作混批则回到模型；material coverage 独立权威、entity producer、reconcile、
+assemble-answer 和 derive-rules 的精确快车道均未删除。新增纯函数正负/混合三臂 pin，以及 production-shape REPL pin：能构造
+auxiliary candidate 但不能自动 dispatch。`go test ./internal/dataworkflow ./internal/repl -count=1` 通过。
+
+状态：`B451=implemented/package-suite-pass/pending-production-replay`；`B452/B453=next-batch`；
+`system-business-field-guess=none`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。

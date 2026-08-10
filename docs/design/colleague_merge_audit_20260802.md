@@ -2634,3 +2634,11 @@ BusContext/Mutable 数据流仍被 runner 签绿，以及 Analyzer 的 model/det
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B451=P0-next-batch`；`B452/B453=P1-queued`；
 `B450=production-replay-failed`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.1 B451 施工结果
+
+post-result 自动权现已绑定 exact first-incomplete ledger 的 `produces_actions`：全部 action 均为该 producer 才可自动派发；
+auxiliary-only 或 producer/auxiliary 混批回到 evaluator/continuation planner。该修复不把通用 compute scaffold 强制变成可执行，
+因此系统不会猜 value/group/filter，也不删除模型可见的 typed 候选。dataworkflow/repl 全包通过，等待同 case production 回放。
+
+状态：`B451=implemented/pending-production-replay`；`B452/B453=queued`；`§11=closed`。

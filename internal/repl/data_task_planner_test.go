@@ -603,6 +603,56 @@ func TestDataTaskWorkflowNextStageFallbackDoesNotJoinOnInternalLineageOnly(t *te
 	}
 }
 
+func TestDataTaskPostResultDoesNotAutoDispatchAuxiliaryActionPastFirstMissingProducer(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "items.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "lookup.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	result := dataquery.Result{
+		ConsumedPaths: []string{"items.csv", "lookup.csv"},
+		Artifacts: []dataquery.DataArtifact{
+			{
+				ID:      "items_records.json",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"item_id", "label", "value"},
+				Fields: map[string]string{
+					"artifact_aliases": "items_records.json,items_records",
+					"json_shape":       "array(len=2,item=object(keys=item_id,label,value))",
+				},
+			},
+			{
+				ID:      "lookup_records.json",
+				Kind:    string(dataquery.DataActionExtractRecords),
+				Headers: []string{"label", "canonical_label"},
+				Fields: map[string]string{
+					"artifact_aliases": "lookup_records.json,lookup_records",
+					"json_shape":       "array(len=2,item=object(keys=label,canonical_label))",
+				},
+			},
+		},
+	}
+	records := []dataTaskWorkflowRecord{{Plan: current, Result: &result}}
+	fallback, _, ok := dataTaskWorkflowNextStageFallback(records, current, "batch result completed")
+	if !ok || len(fallback.Actions) != 1 {
+		t.Fatalf("fallback=%+v ok=%t, want one executable auxiliary candidate", fallback, ok)
+	}
+	if fallback.Actions[0].Kind == dataquery.DataActionComputeContribs {
+		t.Fatalf("fixture unexpectedly created an authoritative contribution producer: %+v", fallback.Actions[0])
+	}
+	decision := dataTaskPostResultDecisionWithRepo("", records, current, dataquery.TaskPlan{})
+	if decision.Action != dataworkflow.PostResultEvaluate || decision.HasPlan() {
+		t.Fatalf("decision=%+v, want evaluator/planner ownership instead of auxiliary auto-dispatch", decision)
+	}
+}
+
 func TestDataTaskWorkflowNextStageFallbackStopsRepeatedJoinNoProgress(t *testing.T) {
 	current := dataquery.TaskPlan{
 		Status: "ready",

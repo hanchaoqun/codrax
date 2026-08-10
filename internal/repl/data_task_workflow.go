@@ -486,9 +486,17 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 			Reason: "latest typed result satisfies the final output contract",
 		}
 	}
+	state := dataTaskWorkflowState(repoRoot, records, current)
 	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(repoRoot, records, deferred)
 	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(repoRoot, records, current, "missing material coverage after data batch result")
 	nextStagePlan, nextStageReason, nextStageOK := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "batch result completed")
+	// B451: executable is not synonymous with authoritative progress. Only a
+	// plan whose actions directly produce the exact first missing typed ledger
+	// may bypass evaluator/continuation planning. Auxiliary relation/schema
+	// scaffolds remain in workflow_state_json for the model to choose when a
+	// typed prerequisite requires them; the system does not guess business
+	// fields merely because a new artifact alias makes the action executable.
+	nextStageOK = nextStageOK && dataworkflow.PlanDirectlyProducesFirstMissingLedger(nextStagePlan, state.LedgerGraph)
 	return dataworkflow.DecidePostResult(dataworkflow.PostResultDecisionInput{
 		DeferredDispatchAvailable: deferredReady,
 		DeferredPlan:              firstExecutableTaskPlan(nextDeferred, deferred),

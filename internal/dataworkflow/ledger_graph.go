@@ -202,6 +202,37 @@ func FirstIncompleteRequiredLedger(graph LedgerGraph) (LedgerDependency, bool) {
 	return deps[0], true
 }
 
+// PlanDirectlyProducesFirstMissingLedger is the precise authority boundary for
+// deterministic post-result dispatch. A scaffold can be executable without
+// advancing the workflow's first missing ledger (for example another schema
+// distribution or relation candidate while contributions are the sole open
+// book). Such actions remain useful typed choices for the evaluator/planner,
+// but the system must not select them automatically and starve the published
+// producer indefinitely. Every action in an automatically dispatched plan
+// therefore has to be one of the first incomplete ledger's declared producers.
+func PlanDirectlyProducesFirstMissingLedger(plan dataquery.TaskPlan, graph LedgerGraph) bool {
+	dep, ok := FirstIncompleteRequiredLedger(graph)
+	if !ok || len(plan.Actions) == 0 || len(dep.ProducesActions) == 0 {
+		return false
+	}
+	producers := map[dataquery.DataActionKind]bool{}
+	for _, kind := range dep.ProducesActions {
+		normalized := NormalizeActionKind(dataquery.DataActionKind(strings.TrimSpace(kind)))
+		if normalized != "" {
+			producers[normalized] = true
+		}
+	}
+	if len(producers) == 0 {
+		return false
+	}
+	for _, action := range plan.Actions {
+		if !producers[NormalizeActionKind(action.Kind)] {
+			return false
+		}
+	}
+	return true
+}
+
 // IncompleteRequiredLedgers — GAP-EVAL-D1(b) (audit 2026-07-26): the FULL
 // incomplete roster in graph order. The one-at-a-time first_missing read
 // made every repair round discover exactly one more obligation (the
