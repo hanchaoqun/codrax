@@ -7323,6 +7323,20 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return false
 	}
+	// An accepted investigation closure describes the evidence state that
+	// existed before the latest answer-contract pass. It cannot discharge a
+	// fresh, typed contract backtrack whose repair plan is owned by Explore.
+	//
+	// The scheduler intentionally keeps the rendered pendingViolation local to
+	// runReadSchedulerLoop. RetryState is the closed typed carrier shared with
+	// this predicate: populateRetryState writes it before the Explore reset and
+	// records the exact repair-plan owner. Reading that carrier here prevents
+	// the stale-closure cleanup immediately above this call site from erasing a
+	// real re-investigation request. Advisory stage retries and validation
+	// targets retain their existing accepted-closure behavior.
+	if acceptedClosureHasActiveExploreContractBacktrack(o.busCtx.Mutable) {
+		return false
+	}
 	policy := o.effectiveInvestigationCompletePolicy()
 	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
 		return false

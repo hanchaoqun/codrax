@@ -30679,7 +30679,7 @@ Go/Java/Kotlin/JS/TS/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie 等支持语
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
 
-### 123.486 r274：B472 原始语义错误关闭；boundary alias 合同振荡导致 13 次拒绝
+### 123.486 r274：B472 原始语义错误关闭；旧 accepted closure 吞掉 typed Explore 回探
 
 在 `main@39a9ccf8e` 不可变二进制上 exact-two 并发 `qf_logic_view_read_pipeline + mr_poly_binding_chain`。runner=`1/2`，人工=`0/2`；
 审计见 `eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r274_20260810_manual_audit.md`。
@@ -30691,12 +30691,23 @@ True”均消失。但注册 row 的 subject 仍为装饰形 `_fastlex (pymodule
 typed member-role/citation 同源；不按 PyO3 词面硬门。
 
 QF 中 B470 `data_flow` schema/教学/validator 全部进入生产，三条无 exact assignment tuple 的 conceptual BusContext→stage 边被正确拒绝，说明
-新 relation 没有放宽权威。真正 P0 是 `B473-PARTBOUNDALIAS2`：模型删未证边后按 typed identity 填 boundary 会被可见 alias 校验拒绝，改用
-diagram alias 又被 typed roster 校验判 unknown/context-only；同一六 participant 在两合同间振荡 13 次、触发两次 finalizer dispatch，776s 后
-degraded 为零边图。最优根修是 boundary/diagram/repair 三面共用唯一 alias→typed identity resolver，同时保存 model-visible alias 与 typed
-identity，不造边、不放宽 incident coverage。修后再判断 `B476/P1` requested producer/transfer/consumer operation evidence 供给是否仍独立不足。
+新 relation 没有放宽权威。冷读工具参数与完整调度日志后纠正初判：第一轮 finalizer 的“六 required participant 节点可见 + 六条 typed
+unproven boundary + 零边”已经通过 pre-emit，证明现有 identity/boundary resolver 在该生产形上正常。外层 V2 oracle 随后发出精确
+`required_diagram_edge_absent`，修复 locus=`Explore`；但 scheduler 先用旧 `investigation_complete` 调用 accepted-closure 自动完成，把刚写入的
+hard `pendingViolation` 当 stale carry-over 清空，于是七个 Explore 节点零 dispatch 自动完成，原证据再次送入 finalizer。第二稿自行换成
+`analyzerEvaluator` 内部调用图且删除六个 requested 节点后，boundary 才诚实报告 not-visible/unknown，13 次拒绝是该无效回探的级联，不是
+alias 双合同。
 
-状态：`B472=partial-production-positive/original-errors-closed`；`B473=P0-next`；`B474=P0-after-B473`；
-`B475=P1-after-B474`；`B476=P1-replay-dependent`；`B470/B471=production-consumed/not-yet-closed`；
+据此把 `B473-PARTBOUNDALIAS2` 撤案并重裁为 `B473-CLOSUREDROP1/P0`：accepted closure 只能消化 advisory debt，不能消化由 closed typed
+RetryState 标记为 `LastPrimaryOwner=explore` 且仍有 ActiveViolations 的合同回探。实现必须读取 typed retry carrier，不扫描 violation prose；不放宽
+required-edge 或 relation evidence gate。其后把 `B476-OPSUPPLY1` 提升为 P0，补通用 producer/transfer/consumer operation evidence；再处理
+B474 registration 双端 exact authority 与 B475 member/citation 同源。
+
+实现采用 closed typed `RetryState.LastPrimaryOwner=explore` 与非空 `ActiveViolations` 的合取，不读取 rendered violation 文本；空 retry 与
+finalizer-owned retry 的 accepted-closure 行为保持不变。专项 accepted-closure/required-edge/participant-coverage/热文件 ratchet 及
+`go test ./... -count=1` 全绿。
+
+状态：`B472=partial-production-positive/original-errors-closed`；`B473=implemented/full-suite-pass/pending-production-replay`；
+`B476=P0-after-B473`；`B474=P0-after-B476`；`B475=P1-after-B474`；`B470/B471=production-consumed/not-yet-closed`；
 `system-edge/answer-conclusion-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

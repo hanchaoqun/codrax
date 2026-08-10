@@ -225,6 +225,53 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_StillBlocksStageRetr
 	}
 }
 
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_PreservesTypedExploreContractBacktrack(t *testing.T) {
+	mut := types.NewMutableState("accepted closure before required relation repair")
+	mut.SetInvestigationComplete("the earlier evidence pass was accepted")
+	mut.SetRetryState(&types.RetryState{
+		Attempt:          1,
+		LastPrimaryOwner: string(LocusExplore),
+		ActiveViolations: []types.ScoredViolation{{
+			Kind:     types.ViolRequiredDiagramEdgeAbsent,
+			Severity: types.SeverityHigh,
+			Layer:    "v2_oracle",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("a typed Explore-owned contract backtrack must not be erased by the earlier accepted closure")
+	}
+	if !acceptedClosureHasActiveExploreContractBacktrack(mut) {
+		t.Fatal("the closed retry-state carrier must expose the active Explore-owned contract repair")
+	}
+}
+
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_DoesNotPromoteEmptyOrFinalizerRetryState(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		retry *types.RetryState
+	}{
+		{name: "no retry state"},
+		{name: "empty explore retry", retry: &types.RetryState{Attempt: 1, LastPrimaryOwner: string(LocusExplore)}},
+		{name: "finalizer retry", retry: &types.RetryState{
+			Attempt: 1, LastPrimaryOwner: string(LocusFinalizer),
+			ActiveViolations: []types.ScoredViolation{{Kind: types.ViolPrincipalClaimUseMissing, Severity: types.SeverityHigh}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mut := types.NewMutableState(tc.name)
+			mut.SetInvestigationComplete("accepted closure")
+			mut.SetRetryState(tc.retry)
+			o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+			if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+				t.Fatal("non-Explore or empty retry state must not turn advisory closure debt into a new exploration pass")
+			}
+		})
+	}
+}
+
 func TestAcceptedClosureSuppressesCompletionFormRetryAfterReset(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with converged completion-form debt")
 	mut.SetInvestigationComplete("completed with typed completion-form caveat")
