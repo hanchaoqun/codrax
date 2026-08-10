@@ -29635,3 +29635,25 @@ exact-two：`trace_query_donghu_real_frame_multicausal` 与 `trace_query_frame_s
 `B441=S37ej-implemented/full-suite-pass/pending-production-replay`；
 `B442=S37ej-implemented/full-suite-pass/pending-production-replay`；`model-conclusion-ownership=preserved`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.463 r257：Trace 算力供给状态查询 + 写模式交叉回放
+
+exact-two：`trace_query_core_topology_supply` 与 `patch_c_typo`，同一封存二进制，`PARALLEL=2`：
+
+1. runner 为 `PASS/PASS`（139s/68s）；两例 `finalizer_reject=0`，没有“成文校验未通过”重试；
+2. write 人工 pass：计划 `kind=patch`，隔离 worktree 仅 `main.c` 一行 `retrun buf;`→`return buf;`，自动 `make test`
+   1/1 通过，最终 `verified`；无 JSON repair、无扩文件、无累计验证域清空；
+3. Trace 状态查询人工 partial：CPU4=big、typed frequency=2200000kHz、app-20 running 40ms/runnable 10ms、worker-30
+   running 10ms、low_freq_loss=0 均正确；R+、同 CPU 与精确优先级关系支持抢占候选。该问题不要求根因链，系统正确未物化 Trace 因果投影；
+4. 确认 `EVAL-B443-TRACEDAGIDENTICALQUERYREUSE1=P2`：三个调查节点顺序重复同一 source/view/window/core_topology 的
+   `window_stats`，产生 3 次相同查询与 139s wall；最优方向是 typed tool-result memo/共享 observation，不按请求关键词裁剪 TaskGraph；
+5. 确认 `EVAL-B444-TRACEDIAGNOSTICINTENTCOMPAT1=P2`：运行时状态问题询问是否存在 pressure/低频，analyzer 首次形成
+   `intent=trace + is_diagnostic_question=true` 后被合同拒绝，再改为 false；应审计 typed intent/profile 兼容矩阵，不扫描用户原文；
+6. 正文把一次频率状态写成“固定/接近最高”，同页 caveat 又称持续性为推断。已有 typed `low_freq_loss=0` 足以回答“无低频信号”，
+   但绝对最高/全窗持续口径仍需异构回放；先记观察项，不新增 prose hard gate 或系统答案改写；
+7. B440/B441/B442 尚未在对应 Donghu 生产样例复放，本轮只证明其代码/全测无 read/write 状态查询回归。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_trace_write_r257_20260809_manual_audit.md`。
+
+状态：`write=production-pass`；`trace-state-query=partial/usable`；`B443=P2-open`；`B444=P2-open`；
+`trace-causal-projection=not-required-and-not-materialized`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
