@@ -4727,7 +4727,7 @@ func misplacedDiagramFieldShapeOK(field string, raw json.RawMessage) bool {
 		return false
 	}
 	switch field {
-	case "claim_uses", "edge_anchors", "facet_ids":
+	case "claim_uses", "edge_anchors", "participant_boundaries", "facet_ids":
 		return raw[0] == '[' || raw[0] == '"' ||
 			(raw[0] == '{' && answerBlockArrayFieldAcceptsSingletonObject(field))
 	case "surface_role":

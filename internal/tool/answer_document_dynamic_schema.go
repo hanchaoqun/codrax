@@ -598,6 +598,6 @@ func projectParticipantBoundariesField(blockProps map[string]any, view *types.An
 	}
 	field, _ := blockProps["participant_boundaries"].(map[string]any)
 	if field != nil {
-		field["description"] = "Explicit coverage decision for the typed incident participants [" + strings.Join(incident, ", ") + "]. Omit or emit [] when every participant has a typed visible incident edge. When any participant lacks such an edge, this field is REQUIRED: list exactly the uncovered participant identities with status=unproven and keep each as a disconnected visible node. This array never creates or authorizes an edge."
+		field["description"] = "BLOCK-LEVEL sibling of diagram and edge_anchors; NEVER put participant_boundaries inside diagram. Exact shape: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[{participant,status:\"unproven\"}]}. Explicit coverage decision for the typed incident participants [" + strings.Join(incident, ", ") + "]. Omit or emit [] when every participant has a typed visible incident edge. When any participant lacks such an edge, this field is REQUIRED: list exactly the uncovered participant identities with status=unproven and keep each as a disconnected visible node. This array never creates or authorizes an edge."
 	}
 }

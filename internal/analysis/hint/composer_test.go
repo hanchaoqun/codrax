@@ -442,7 +442,7 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		{
 			name:           "diagram_participant_coverage",
 			kind:           types.ViolDiagramParticipantCoverage,
-			mustContain:    []string{"incident_required", "participant_boundaries", "unproven", "Do not invent an edge"},
+			mustContain:    []string{"incident_required", "participant_boundaries", "unproven", "sibling of `diagram`", "MUST NOT be nested", "Do not invent an edge"},
 			mustNotContain: []string{"shape=", "system will add"},
 		},
 		{

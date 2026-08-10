@@ -132,7 +132,7 @@ func TestBuildAnswerDocumentParametersFor_ProjectsTypedParticipantBoundariesOnly
 	if !ok {
 		t.Fatalf("active typed flow participant contract must expose participant_boundaries: %v", props)
 	}
-	if desc, _ := field["description"].(string); !strings.Contains(desc, "Analyzer") || strings.Contains(desc, "BusContext") {
+	if desc, _ := field["description"].(string); !strings.Contains(desc, "Analyzer") || strings.Contains(desc, "BusContext") || !strings.Contains(desc, "sibling of diagram") || !strings.Contains(desc, "NEVER put") {
 		t.Fatalf("projected boundary description must name incident-only roster: %q", desc)
 	}
 	encoded, _ := json.Marshal(blockItems["allOf"])

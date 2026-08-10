@@ -2987,3 +2987,16 @@ exact missing material 会回开 `cover_required_materials`。
 
 状态：`B468=implemented/full-suite-pass/pending-replay`；`B463/B465/B466/B467=pending-replay`；
 `inventory-as-consumption-authority=forbidden`；`system-mode-selection/material-drop=none`；Trace 车道不变。
+
+#### §11.10.27 r272/B469：data 生产关闭；boundary nested 自愈漏掉自身 allowlist 字段
+
+r272 runner/人工均为 1/2。data 首批真实消费四份材料，终态 `17,0,5`、reference 3/3 与全部 ledger 一致，故 B468 生产关闭。
+QF 的 participant boundary 已穿透 B467 clone，但模型把 6 条 exact typed rows 放进 `diagram{}`；通用 sibling hoister 的 allowlist 包含
+`participant_boundaries`，shape switch 却遗漏它，导致 quarantine 后再次报 missing 并耗尽重试。该确定性自冲突立 B469/P0 并已修复：
+full/patch 均无损上移，schema/retry/precheck 共用明确 sibling JSON 形，系统不造 boundary/edge/relation。联合回归通过，全仓复验在提交前执行。
+
+关系内容仍薄：最终仅保留三条低层 call，六个请求 participant 的主数据流未证。该项单列 B470/P1，待 B469 回放后审计 typed operation
+evidence 与 participant identity 是否汇合；禁止以 roster 造边或把 request/answer prose 作为 hard authority。
+
+状态：`B468=production-closed`；`B469=implemented/full-suite-pass/pending-replay`；`B470=P1-after-replay`；
+`system-boundary/edge/relation-synthesis=none`；`raw-prose-hard-gate=none`；Trace 车道不变。

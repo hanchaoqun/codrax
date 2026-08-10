@@ -4044,6 +4044,38 @@ func TestEmitAnswerDocumentV2_DiagramEdgeAnchorsPromotedToBlock(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_DiagramParticipantBoundariesPromotedToBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	params := json.RawMessage(`{
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {
+				"kind": "architecture",
+				"language": "mermaid",
+				"body": "flowchart TD\nAnalyzer",
+				"participant_boundaries": [{"participant": "Analyzer", "status": "unproven"}]
+			}
+		}],
+		"citations": []
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("diagram.participant_boundaries should be structurally promoted, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].ParticipantBoundaries) != 1 {
+		t.Fatalf("promoted participant boundary not persisted: %+v", doc)
+	}
+	if got := doc.Blocks[0].ParticipantBoundaries[0]; got.Participant != "Analyzer" || got.Status != types.DiagramParticipantBoundaryUnproven {
+		t.Fatalf("participant boundary changed during promotion: %+v", got)
+	}
+}
+
 // TestRepairBlocksAsString_Path_C_ControlCharRecovery confirms
 // Path C's structured fallback: when the LLM's stringified blocks
 // array contains UNESCAPED control characters inside string values

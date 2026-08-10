@@ -30532,3 +30532,44 @@ prose、不删除材料，也不把 inventory 内容自动蒸馏成规则。
 状态：`B468=implemented/full-suite-pass/pending-production-replay`；`B463/B465/B466/B467=pending-production-replay`；
 `inventory-as-consumption-authority=forbidden`；`system-mode-selection/material-drop=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.484 r272：data 全链关闭；participant boundary 自愈清单与 shape 分支自相矛盾
+
+exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 为 `PASS/FAIL`（430s/571s），人工为
+`PASS/FAIL`；人工审计见 `eval/parallel_selected_summary_evalcampaign_data_stage_r272_20260810_manual_audit.md`。
+
+data 首批已真实消费 `instructions.md/labels.csv/observations.csv/targets.csv`，不再由 inventory child 冒充。终态精确输出
+`17,0,5`，`reference_complete=true`、reference key 3/3，rules/decisions/entities/contributions/reconcile/final projection 全部 satisfied，
+workflow violation 为空。故 `B468=production-closed`，B465 的 complete-reference 两态也在该轮获得正证；12 data rounds/3 repairs 作为后续
+效率观察，不以跳过材料或 ledger 校验优化。
+
+QF 中 B467 已生效，不再发生持久化 clone 丢字段；新失败是 `EVAL-B469-PARTICIPANTBOUNDARYNEST1/P0`。模型在 patch 中明确提交 6 条
+`unproven` boundary，但误放到 `diagram.participant_boundaries`。系统已有通用 `repairMisplacedDiagramBlockFields`，其允许清单也包含该字段，
+然而 `misplacedDiagramFieldShapeOK` 的 array 分支漏掉它，导致清单声称可迁移、实际 quarantine 删除，随后 coverage gate 再报六条 missing，
+四次同类后降级。该问题是确定性系统合同自冲突，不是模型波动。
+
+即使 B469 恢复 typed boundary，当前图仍只剩三条 orchestrator 实现细节 call，未覆盖 Analyzer/Explorer/Extractor/Finalizer/MutableState/
+BusContext 的请求主关系。暂立 `EVAL-B470-FLOWPARTICIPANTOPERATION1/P1` 继续区分：Explorer 已得到 focused participant repair，却主要铸出
+`StageAnalyze -> StageExplore` 的 ordering 和低层 dispatch calls，participant identity 与 operation endpoint 未汇合。后续必须改善 typed
+operation evidence 供给或精确身份载体，不能把 participant roster 当 relation authority，也不能由系统补画 stage/data-flow 边。
+
+状态：`B468=production-closed`；`B465=production-positive-witness`；`B469=P0-next`；`B470=P1-after-B469-replay`；
+`r272-runner=1/2`；`r272-human=1/2`；`system-edge/answer-conclusion-rewrite=none`；
+`raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B469 独立批完成：nested participant boundary 无损上移并降低 JSON 心智
+
+通用 diagram-child→block-sibling 自愈器现把 `participant_boundaries` 纳入原生 array shape，与其既有 allowlist 一致。full emit 与 patch
+两条路径均仅在 block-level 字段缺失、nested 值是可验证数组时搬运原始 JSON；冲突或畸形继续 fail loud。系统不新增 participant、status、
+edge 或 relation，也不读取可见答案决定迁移。
+
+canonical schema、动态 roster 描述、repair composer 与 pre-emit expected shape 统一给出同一最小 JSON：
+`{kind:"diagram", diagram:{kind,language,body}, participant_boundaries:[...]}`，并明确 boundary 与 diagram/edge_anchors 同级、禁止嵌套。
+这既减少模型心智，也让模型仍犯精确父子层级错误时由确定性语法自愈吸收。
+
+回归覆盖 full emit 与 patch 的 production-shape nested rows、动态 schema 教学和 repair 文案；定向 tool/hint/orchestrator/types 联合测试全绿，
+全仓复验在提交前执行。
+
+状态：`B469=implemented/full-suite-pass/pending-production-replay`；`B470=P1-after-replay`；
+`system-boundary/edge/relation-synthesis=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

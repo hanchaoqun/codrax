@@ -1599,6 +1599,34 @@ func TestEmitAnswerDocumentPatch_DiagramEdgeAnchorsPromotedToBlock(t *testing.T)
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DiagramParticipantBoundariesPromotedToBlock(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "lead"}},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {
+				"kind": "architecture",
+				"language": "mermaid",
+				"body": "flowchart TD\nAnalyzer",
+				"participant_boundaries": [{"participant":"Analyzer","status":"unproven"}]
+			}
+		}]
+	}`)
+	res, _ := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must promote diagram.participant_boundaries to block level: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].ParticipantBoundaries) != 1 {
+		t.Fatalf("promoted participant boundary not persisted: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_DiagramSingletonEdgeAnchorPromotedAndRepaired(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
