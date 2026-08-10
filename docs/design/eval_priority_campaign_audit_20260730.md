@@ -30471,3 +30471,29 @@ EvidenceItem，也不做模糊标签比较。
 状态：`B464=implemented/full-suite-pass/pending-production-replay`；`B463/B465/B466=pending-production-replay`；
 `label-as-relation-authority=forbidden`；`fuzzy-endpoint-match=none`；`system-edge/answer-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.483 r271：runner 1/2、人工 0/2；typed boundary 在持久化 clone 丢失，材料覆盖失败无法回阶
+
+exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 为 `FAIL/PASS`（229s/470s），人工为
+`FAIL/FAIL`；QF 的 regex/edge-count PASS 不能覆盖答案关系完整性与系统 caveat。
+
+QF 的 B466 语法臂已在生产到达：最终 patch 中 7 个 participant 都以可见 shaped node 加 `unproven` boundary 提交，pre-emit 接受。
+但 `types.cloneAnswerDocumentV2` 逐字段复制 `AnswerBlock` 时只携带 `EdgeAnchors/RelationClaims`，遗漏新字段 `ParticipantBoundaries`；写入
+Mutable 后 post-emit 对同一稿重新判 7 个 `missing_unproven_boundary`，耗尽 finalizer-only retry 并带 caveat 发货。新立
+`EVAL-B467-PARTICIPANTBOUNDARYCLONE1/P0`：补 defensive clone 字段与 emit→persist→post-check e2e pin。不得删除 B463 义务或让
+post-check 跳过；该问题与 Mermaid bare-node 解析无关。
+
+人工答案还显示 typed 关系供给不足：请求主体全部断开，图只剩 `runAnalyzePhase/executeStageRequest/executeExploreStageRequest ->
+dispatchStage` 三条实现细节调用边。B467 修复后应先回放判断这是探索证据覆盖不足还是模型选择波动，不能由系统造阶段数据流边。
+
+data 终态不再签出 `17,5`，证明 B465 的 fail-loud 方向正确；模型也在 repair 中改正为
+`complete_reference=true + targets.csv.canonical_label`。实际阻塞是 initial plan 把 `instructions.md` 声明为 `script_consumed`，却只用
+模型已见样本铸造 `derive_rules`，从未由动作读取原文件。终态精确报 `required_material_not_consumed` 后，workflow_state 仍把
+`allowed_next_actions` 固定为 `reconcile_artifacts/assemble_answer`，无法回到材料/规则覆盖；同时旧 coverage merge 对同 key 使用先到 mode，
+会阻断模型显式改为有 notes 的 `planner_distilled`。新立 `EVAL-B468-COVERAGEREOPEN1/P0`：精确 typed coverage violation 必须允许二选一——
+回开覆盖阶段执行真实 consumer，或由模型对该 exact material 提交完整可验证的 mode 替换；不自动读文件、不自动改 mode、不降低 required floor。
+
+状态：`B467=P0-next`；`B468=P0-after-B467`；`B466=production-syntax-arm-proven`；
+`B463=production-blocked-by-B467`；`B464/B465=pending-production-replay`；`r271-runner=1/2`；`r271-human=0/2`；
+`system-edge/answer-conclusion-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

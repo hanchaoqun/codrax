@@ -2955,3 +2955,13 @@ Mermaid source repair 后，diagram-local anchor 已能同步 alias，但 siblin
 
 状态：`B464=implemented/pending-production-replay`；`B463/B465/B466=pending-production-replay`；
 `fuzzy-endpoint-match=none`；`system-edge/answer-rewrite=none`；Trace 车道不变。
+
+#### §11.10.24 r271：boundary clone 漏字段与 coverage recovery 死路
+
+r271 runner 1/2、人工 0/2。QF 最后一稿的 7 条 model-authored `participant_boundaries` 已过 pre-emit，却被
+`cloneAnswerDocumentV2` 漏拷，post-emit 对同稿反报缺失并带 caveat 发货，立 `B467/P0`。data 已由 B465 从错误绿签转为诚实失败，
+但 exact `required_material_not_consumed` 到达终态后只允许 final actions，且 previous-first merge 不能替换同 material usage mode，
+导致 6 次同错，立 `B468/P0`。两项均为跨场景结构合同问题，不按当前文件名/答案文本拟合。
+
+状态：`B467=P0-next`；`B468=P0-after-B467`；`B463=blocked-by-B467`；`B464/B465=pending-replay`；
+`raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace 车道不变。
