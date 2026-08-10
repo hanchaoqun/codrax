@@ -3074,3 +3074,20 @@ evidence supply → B474 registration 双端 exact authority → B475 typed memb
 状态：`B472=partial-production-positive/original-errors-closed`；`B473=implemented/full-suite-pass/pending-production-replay`；
 `B476=P0-after-B473`；`B474=P0-after-B476`；`B475=P1-after-B474`；`system-edge/relation/conclusion-synthesis=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.33 r275：operation repair 真实执行仍无主关系，双 PASS 人工判失败
+
+`main@476129c6d` exact-two runner 2/2，人工 0/2。QF 出现两次真实 Explore dispatch，但第二次是首次 finalizer 前的
+flow-operation completion repair，并非 r274 的 finalizer hard-backtrack 生产形；B473 只收专项与全量测试，不虚报生产关闭。
+
+第二次 Explore 已拿到六个 typed participant 与 producer/transfer/consumer 指引，也读到 `BuildAgentContext`、`applyStageOutput`、
+`recordTaskFinalize`，最终图却只剩两条内部辅助 call，六个用户要求主体全部断开并标 unproven。`mermaid_edge_count` 因无关边签绿，证明 B476
+是通用证据供给/repair 定向 gap：应把已读生产文件与 typed operation-site targets 交给 Explorer 做 bounded body 复核；targets 不铸权，只有新发射的
+exact call/callback/assignment/initializer/return/precedence rows 才能授权关系。
+
+多态用例的 B472 二态语义保持正确，但 registration 桥、wrapper/core 逐项引用与 fallback 定义引用仍错，B474/B475 继续排队。两例各两次成文拒绝，
+根因是上游关系载体不足后模型画概念边再删图；禁止放宽 hard validator、以 participant roster 造边、或扫描 request/thinking/final prose。
+
+状态：`B473=implemented/full-suite-pass/pending-direct-production-witness`；`B476=confirmed/P0-next`；
+`B474=P0-after-B476`；`B475=P1-after-B474`；`runner=2/2,human=0/2`；
+`system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

@@ -30711,3 +30711,24 @@ finalizer-owned retry 的 accepted-closure 行为保持不变。专项 accepted-
 `B476=P0-after-B473`；`B474=P0-after-B476`；`B475=P1-after-B474`；`B470/B471=production-consumed/not-yet-closed`；
 `system-edge/answer-conclusion-rewrite=none`；`raw-request/model-answer-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.487 r275：回探已执行但 operation evidence 仍空，runner 双绿为人工双红
+
+在 `main@476129c6d` 不可变二进制上 exact-two 并发 `qf_logic_view_read_pipeline + mr_poly_binding_chain`。runner=`2/2`，人工=`0/2`；
+审计见 `eval/parallel_selected_summary_evalcampaign_relation_poly_replay_r275_20260810_manual_audit.md`。
+
+QF 的第二次 Explore 已真实 dispatch，说明 repair 不再被旧 closure 普遍吞掉；但该 dispatch 来自首次 finalizer 之前的 flow-operation completion repair，
+没有直接命中 r274 的 finalizer hard-backtrack 路径，故 B473 保持 `pending-direct-production-witness`。更重要的是，第二次 Explore 已收到六个 typed
+participant 和 producer/transfer/consumer 指引，又读取 `BuildAgentContext`、`applyStageOutput`、`recordTaskFinalize` 等操作面，最终仍只发射/保留
+`executeStageRequest -> dispatchStage -> BuildAgentContext` 两条内部辅助 call。六个请求 participant 全部断开并标 unproven；runner 的
+`mermaid_edge_count` 只数到无关边，构成 oracle 假绿。B476 因而确认为 P0：应把 repair 从宽泛 ExpandSearch 收窄为 typed bounded operation-site
+targets，并携带已读生产文件；targets 只指导探索，绝不授权答案边。
+
+多态用例继续证明 B472 的二态 guard/bridge 摘要修复有效，但 registration 桥未进入图、wrapper/core 共用调用行、fallback 调用行被误称为定义行，
+B474/B475 不变。两例均有两次 finalizer reject；关系证据不足导致模型先画概念边、再删成断图，是拒绝风暴的上游原因，不能通过放宽 validator
+或增加 JSON 关键词教学处理。
+
+状态：`B473=implemented/full-suite-pass/pending-direct-production-witness`；`B476=confirmed/P0-next`；
+`B474=confirmed/P0-after-B476`；`B475=confirmed/P1-after-B474`；`B472=partial-production-positive`；
+`runner=2/2,human=0/2`；`system-edge/answer-conclusion-rewrite=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
