@@ -2937,3 +2937,12 @@ r270 的 3-vs-2 satisfied 根因已收窄为 planner typed 状态冲突：`compl
 
 状态：`B465=implemented/pending-production-replay`；`B466=next`；`B464=P1-queued`；
 `soft-candidate-hardening=none`；`raw-prose-hard-gate=none`；Trace 车道不变。
+
+#### §11.10.22 B466 完成：participant boundary 与 Mermaid 合法裸节点语法重新一致
+
+共享 Mermaid AST 现识别独立 safe ID 为可见 node，同时拒绝 header/control/directive、箭头、路径与复合语句；该能力不产生 edge/relation。
+r270 的四个断开 stage participant 因此可由模型按 B463 合同诚实保留并标 `unproven`，不再陷入
+`boundary_participant_not_visible` 重试循环。五包联合回归通过，全仓复验在提交前执行。
+
+状态：`B466=implemented/pending-production-replay`；`B463=pending-production-replay`；`B464=P1-next`；
+`participant-as-relation-authority=forbidden`；`raw-prose-hard-gate=none`；Trace 车道不变。

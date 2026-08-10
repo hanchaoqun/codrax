@@ -47,6 +47,23 @@ func TestParseEdges_FlowchartPreservesColonQualifiedCallableLabels(t *testing.T)
 	}
 }
 
+func TestNodeDeclarationsAllRecognizesStandaloneBareFlowNodeWithoutMintingStatements(t *testing.T) {
+	for _, line := range []string{"analyzer", "  Explorer_2  ", "finalizer;"} {
+		got := NodeDeclarationsAll(line)
+		if len(got) != 1 || got[0].Ident == "" || got[0].Label != got[0].Ident {
+			t.Fatalf("line=%q declarations=%+v, want one bare node", line, got)
+		}
+	}
+	for _, line := range []string{
+		"flowchart", "graph", "sequenceDiagram", "end", "subgraph", "direction",
+		"classDef", "class", "style", "click", "linkStyle", "A --> B", "A B", "../A.md",
+	} {
+		if got := NodeDeclarationsAll(line); len(got) != 0 {
+			t.Fatalf("statement/nonportable line=%q minted node declarations=%+v", line, got)
+		}
+	}
+}
+
 func TestParseEdges_FlowchartDoesNotInventEdgesFromCodeInsideNodeLabels(t *testing.T) {
 	body := strings.Join([]string{
 		"flowchart TD",

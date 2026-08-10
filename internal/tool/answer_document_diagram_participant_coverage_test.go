@@ -49,6 +49,20 @@ func TestDiagramParticipantCoverageRequiresTypedBoundaryWithoutInventingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverageAcceptsProductionBareDisconnectedNodes(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n A[\"Analyzer\"] --> E[\"Explorer\"]\n MutableState"
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("valid Mermaid bare node plus typed unproven boundary must pass: %+v", got)
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("bare-node visibility must not mint relation metadata: %+v", doc.Blocks[0].EdgeAnchors)
+	}
+}
+
 func TestDiagramParticipantCoverageRejectsStaleUnknownAndInvisibleBoundaries(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{

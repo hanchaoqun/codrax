@@ -30431,3 +30431,24 @@ production-shape 测试固定 r270 的 `false+target_order/target_id` 首次载�
 状态：`B465=implemented/full-suite-pass/pending-production-replay`；`B466=next`；`B464=P1-queued`；
 `soft-reference-candidate-auto-promotion=forbidden`；`model-business-scope-decision=preserved`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B466 独立批完成：Mermaid 合法 standalone bare node 可承担“可见但未证”边界
+
+B463 的二选一合同正确，r270 的死循环来自 Mermaid 语法层比 renderer 更窄：`analyzer` 单独一行是合法 flowchart node statement，
+但 `NodeDeclarationsAll` 只返回带 `[]/()/{} ` shape 的声明，故 boundary checker 看不见模型已经保留的断开 participant。
+
+本批在共享 Mermaid parser 中增加保守 standalone-node 识别：整行只能是一个 `flowchartNodeIDIsSafe` 的 ASCII identity，可带一个尾分号；
+flowchart/graph/sequenceDiagram、end/subgraph/direction、classDef/class/style/click/linkStyle 等 header/control/directive token 显式拒绝，
+含空格、路径、复合 identity、箭头或其它语句形也不通过。该声明只进入 node-label registry，不进入 `ParseEdges`、edge anchor、EvidenceItem 或
+relation authority，因而不会把 participant membership 变成关系。
+
+production-shape 回归直接复现 r270：`Analyzer -> Explorer` 有一条已证边，`MutableState` 使用 bare disconnected node 并提交
+`unproven` boundary，完整性检查通过且 edge anchor 数保持 1。reserved/nonportable/edge lines 负矩阵固定不得铸 node。
+
+验证：`go test ./internal/mermaidcompat ./internal/tool ./internal/orchestrator ./internal/render ./internal/agent -count=1` 全绿；
+全仓复验在提交前执行。
+
+状态：`B466=implemented/full-suite-pass/pending-production-replay`；
+`B463=code-complete/pending-replay-after-B466`；`B464=P1-next`；`bare-node-as-relation-authority=forbidden`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

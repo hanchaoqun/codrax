@@ -614,5 +614,33 @@ func NodeDeclarationsAll(line string) []NodeDecl {
 		out = append(out, NodeDecl{Ident: ident, Label: label})
 		cursor = labelEnd + len(bestOpener.close)
 	}
+	// Mermaid flowcharts also permit a node to be declared by one bare,
+	// syntax-safe identifier on its own statement line. This form matters for
+	// honest disconnected participants: requiring a shape solely so another
+	// subsystem can observe the node would make our accepted Mermaid grammar
+	// narrower than the renderer's. Keep this exact and non-semantic — it
+	// contributes a visible node declaration only, never an edge or relation.
+	if len(out) == 0 {
+		if decl, ok := standaloneFlowNodeDeclaration(line); ok {
+			out = append(out, decl)
+		}
+	}
 	return out
+}
+
+func standaloneFlowNodeDeclaration(line string) (NodeDecl, bool) {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, ";"))
+	if trimmed == "" || strings.ContainsAny(trimmed, " \t\r\n") || !flowchartNodeIDIsSafe(trimmed) {
+		return NodeDecl{}, false
+	}
+	// These tokens own statement grammar even when a malformed/partial line
+	// contains no arguments. Do not let a control/header statement discharge
+	// a participant-presence obligation by masquerading as a node.
+	switch strings.ToLower(trimmed) {
+	case "flowchart", "graph", "sequencediagram", "end", "subgraph", "direction",
+		"classdef", "class", "style", "click", "linkstyle":
+		return NodeDecl{}, false
+	}
+	return NodeDecl{Ident: trimmed, Label: trimmed}, true
 }
