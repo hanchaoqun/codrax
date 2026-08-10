@@ -2555,3 +2555,16 @@ producer；成文校验索引纳入 StageOutput/BusContext typed evidence，并�
 
 状态：`B447=production-partial/second-stage-fixed`；`EVAL-B449-TYPERELATIONEVIDENCEEXPORT1=implemented/pending-production-replay`；
 `B445/B448=pending-production-replay`；`model-answer-rewrite=none`。
+
+#### r261 production 收账：B447/B449 关闭
+
+同一 QF implementer case 从 r260 的 488s、4 次 pre-complete 不可满足降级、5 次 Finalizer 拒绝、最终 0 边，收敛为 158s、
+0 次 pre-complete relation materialization 降级、1 次正确方向拒绝、最终 12 条完整
+`implementer -> LoopController` typed edges。唯一 patch 由模型自行把首稿反向 body/anchors 同步翻转，系统只提供 typed direction failure，
+没有代画、补边或替换结论。
+
+表格 12 个 production implementer/文件与 3 个 test caveat 均正确；人工与 runner 均通过。由此关闭 B447/B449 production。
+并行 data 仍走 planner-distilled 普通成功路径，没有触发 B445/B448，二者继续 pending。
+
+状态：`B447=production-closed`；`EVAL-B449-TYPERELATIONEVIDENCEEXPORT1=production-closed`；
+`B445/B448=pending-production-replay`；`MERGE-AUDIT-6=closed`；`model-answer-rewrite=none`。

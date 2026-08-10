@@ -29829,3 +29829,26 @@ exact-two 复放 `data_json_strict_ids` 与 `qf_type_relation_loop_controller`�
 状态：`B447=production-partial/read-demand-works/evidence-export-fixed`；
 `B449=implemented/tool-agent-suite-pass/pending-production-replay`；`B446=production-closed`；
 `B445/B448=pending-production-replay`；`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.472 r261：B447/B449 production 闭环；错误方向一轮纠正后完整 12 边出厂
+
+同一 exact-two、同一机器与代码快照复放，runner/human 均为 `PASS/PASS`（data 51s，type relation 158s）：
+
+1. type-relation 最终表格列出全部 12 个 production implementer 与正确文件，3 个 test implementer 保持 caveat-only；required
+   diagram 包含全部 12 条 `implementer -> LoopController` 同向 `type_relation` 边，不再是零边展示壳；
+2. pre-complete 的 `structured relation authority evidence is not materialized` 从 r260 四次降为零，证明 exact read→post-loop
+   deterministic producer 交接已收敛；
+3. Finalizer 从 r260 五次拒绝降为一次。唯一拒绝是模型首稿把接口画向实现类型，typed gate 正确指出 declared-type direction；模型只替换
+   diagram block，把 body 与 12 个 anchors 一次翻为实现类型→接口后通过。系统没有翻边、补边或替换模型结论；
+4. 成文校验能消费 StageOutput/BusContext 中全部 `repomap_implementer_relation`，证明 lossless typed evidence 与 prompt/validator
+   两面已统一；Transport duplicate 的 StableEvidenceID 去重没有改变 occurrence authority；
+5. 总耗时 488s→158s，主要来自消除四轮 Explorer 不可满足门与四次额外 Finalizer 误拒；剩余一次方向 repair 是模型首稿事实错误，保留
+   fail-closed 合理，不为追求零重试放松；
+6. data 仍精确输出 `{"ids":["u1","u3"]}`，但再次走 planner-distilled 单轮路径；B445/B448 未被目标生产分支触发，继续保持 pending，
+   不以普通成功回放冒充修复 witness。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_type_replay_r261_20260809_manual_audit.md`。
+
+状态：`B447=production-closed`；`B449=production-closed`；`B446=production-closed`；
+`B445/B448=pending-production-replay`；`finalizer-reject=1-legitimate-direction-repair`；
+`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。
