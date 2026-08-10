@@ -3106,3 +3106,18 @@ symbol、6 个 production-scope file；规划层可做有界软匹配以优先�
 `B476=implemented/full-suite-pass/pending-production-replay`；`B473=pending-direct-production-witness`；
 `B474=P0-next`；`B475=P1-after-B474`；`semantic-role-as-syntax-endpoint=forbidden`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.35 B474 完成：注册 owner/reference 唯一合取补齐跨边界 handoff
+
+针对 r275 的 exact registration shape，新增 typed-only owner/reference join：外部 call target、registration 的 system-stamped enclosing owner、
+同文件 callable call owner 与 registration expression 的完整 identity token 四者一致且候选唯一时，发布
+`binding_endpoint_status=exact_owner_reference_join`。qualified identity 必须同 namespace；缺 producer/owner、错 namespace、歧义或 substring
+均不连接。显式 registration subject/object 路径不变。
+
+这是 finalizer advisory evidence，不增删/改写模型答案，不制造 call edge；非执行 binding 在 sequence diagram 继续用 Note，真实执行箭头继续要求
+独立 call evidence。Explorer 对所有支持语言统一教学最小跨行 registration range，不含语言/框架专名 hard gate。专项正反 pin、发布接线 e2e pin
+与 `go test ./... -count=1` 全绿。
+
+状态：`B474=implemented/full-suite-pass/pending-production-replay`；`B476=pending-joint-production-replay`；
+`B475=P1-next`；`registration-binding-is-not-call=preserved`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

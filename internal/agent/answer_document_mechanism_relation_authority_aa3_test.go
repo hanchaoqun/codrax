@@ -543,6 +543,93 @@ func TestCallChainTypedBridgeAndBranchHandoffUsesExactTypedJoinsOnlyAA3(t *testi
 	if strings.Contains(got, "proved_by_exact_registered_callable_call") {
 		t.Fatalf("short-name coincidence must not close downstream execution:\n%s", got)
 	}
+
+	plan.Lanes[0].Entries = []types.AnswerSupportEntry{
+		{EvidenceID: "py-call", ClaimForm: types.ClaimCallEdge, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py", Location: "tokenizer.py:21"},
+		{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: "m", Object: "wrap_pyfunction!(tokenize_bytes, m)", OwnerSymbol: "py::_fastlex", AnchorKind: types.AnchorCall, Source: "lib.rs", Location: "lib.rs:47", Producer: types.EvidenceProducerExplorerEmitEvidence},
+		{EvidenceID: "wrapper-call", ClaimForm: types.ClaimCallEdge, Subject: "py::tokenize_bytes", Object: "super::tokenize_bytes", Source: "lib.rs", Location: "lib.rs:42", Producer: types.EvidenceProducerExplorerEmitEvidence},
+	}
+	got = renderAnswerDocCallChainSemanticHandoffs(plan)
+	for _, want := range []string{
+		"registered_export=`_fastlex.tokenize_bytes`",
+		"registered_callable=`py::tokenize_bytes`",
+		"binding_endpoint_status=`exact_owner_reference_join`",
+		"downstream_execution_status=`proved_by_exact_registered_callable_call`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("exact owner/reference registration handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestMechanismRelationRegistrationOwnerReferenceJoinFailsClosedAA3(t *testing.T) {
+	base := []types.AnswerSupportEntry{
+		{EvidenceID: "py-call", ClaimForm: types.ClaimCallEdge, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py"},
+		{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: "m", Object: "wrap_pyfunction!(tokenize_bytes, m)", OwnerSymbol: "py::_fastlex", AnchorKind: types.AnchorCall, Source: "lib.rs", Producer: types.EvidenceProducerExplorerEmitEvidence},
+		{EvidenceID: "wrapper-a", ClaimForm: types.ClaimCallEdge, Subject: "py::tokenize_bytes", Object: "py::core", Source: "lib.rs", Producer: types.EvidenceProducerExplorerEmitEvidence},
+	}
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath, Entries: base,
+	}}}
+
+	assertNoJoin := func(name string, mutate func([]types.AnswerSupportEntry) []types.AnswerSupportEntry) {
+		t.Helper()
+		entries := append([]types.AnswerSupportEntry(nil), base...)
+		entries = mutate(entries)
+		plan.Lanes[0].Entries = entries
+		if got := renderAnswerDocCallChainSemanticHandoffs(plan); strings.Contains(got, "registered_export_handoff") {
+			t.Fatalf("%s must fail closed:\n%s", name, got)
+		}
+	}
+	assertNoJoin("ambiguous callable owners", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[1].OwnerSymbol = "_fastlex"
+		entries[2].Subject = "a::tokenize_bytes"
+		return append(entries, types.AnswerSupportEntry{EvidenceID: "wrapper-b", ClaimForm: types.ClaimCallEdge, Subject: "b::tokenize_bytes", Object: "b::core", Source: "lib.rs", Producer: types.EvidenceProducerExplorerEmitEvidence})
+	})
+	assertNoJoin("missing stamped owner", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[1].OwnerSymbol = ""
+		return entries
+	})
+	assertNoJoin("untrusted owner provenance", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[1].Producer = ""
+		return entries
+	})
+	assertNoJoin("different binding owner", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[1].OwnerSymbol = "py::other_module"
+		return entries
+	})
+	assertNoJoin("different callable namespace", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[2].Subject = "other::tokenize_bytes"
+		return entries
+	})
+	assertNoJoin("substring-only reference", func(entries []types.AnswerSupportEntry) []types.AnswerSupportEntry {
+		entries[1].Object = "wrap_pyfunction!(tokenize_bytes_extra, m)"
+		return entries
+	})
+}
+
+func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "py-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py", LineStart: 21, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			{ID: "binding", Kind: types.EvidenceRegistration, AnchorKind: types.AnchorCall, Subject: "m", Object: "wrap_pyfunction!(tokenize_bytes, m)", OwnerSymbol: "py::_fastlex", Source: "lib.rs", LineStart: 47, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence},
+			{ID: "wrapper-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "py::tokenize_bytes", Object: "super::tokenize_bytes", Source: "lib.rs", LineStart: 42, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence},
+		},
+	}
+	got := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"registered_export_handoff",
+		"registered_export=`_fastlex.tokenize_bytes`",
+		"registered_callable=`py::tokenize_bytes`",
+		"binding_endpoint_status=`exact_owner_reference_join`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("finalizer prompt lost exact registration handoff %q:\n%s", want, got)
+		}
+	}
 }
 
 func TestMechanismRelationComponentBoundaryIsWiredIntoFinalizerPromptAA3(t *testing.T) {

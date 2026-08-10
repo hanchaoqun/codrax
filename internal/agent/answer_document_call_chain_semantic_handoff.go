@@ -8,14 +8,15 @@ import (
 )
 
 type answerDocRegisteredExportHandoff struct {
-	callTarget           string
-	exportSurface        string
-	registeredCallable   string
-	callEvidenceID       string
-	bindingEvidenceID    string
-	callLocation         string
-	bindingLocation      string
-	downstreamCallStatus string
+	callTarget            string
+	exportSurface         string
+	registeredCallable    string
+	callEvidenceID        string
+	bindingEvidenceID     string
+	callLocation          string
+	bindingLocation       string
+	bindingEndpointStatus string
+	downstreamCallStatus  string
 }
 
 // renderAnswerDocCallChainSemanticHandoffs publishes only exact, typed joins
@@ -47,9 +48,9 @@ func renderAnswerDocCallChainSemanticHandoffs(plan *types.AnswerSupportPlan) str
 	b.WriteString("### Typed bridge and branch handoff (advisory)\n\n")
 	b.WriteString("- These rows are exact joins over typed support entries. They reduce ambiguity for the model but do not replace its explanation, create a call edge, or authorize a conclusion.\n")
 	for i, bridge := range bridges {
-		fmt.Fprintf(&b, "- registered_export_handoff[%d]: call_target=`%s`; registered_export=`%s`; registered_callable=`%s`; status=`call_targets_registered_export`; downstream_execution_status=`%s`; call_evidence=`%s` @ `%s`; binding_evidence=`%s` @ `%s`.\n",
+		fmt.Fprintf(&b, "- registered_export_handoff[%d]: call_target=`%s`; registered_export=`%s`; registered_callable=`%s`; status=`call_targets_registered_export`; binding_endpoint_status=`%s`; downstream_execution_status=`%s`; call_evidence=`%s` @ `%s`; binding_evidence=`%s` @ `%s`.\n",
 			i+1, answerDocCallChainInline(bridge.callTarget), answerDocCallChainInline(bridge.exportSurface), answerDocCallChainInline(bridge.registeredCallable),
-			bridge.downstreamCallStatus, answerDocCallChainInline(bridge.callEvidenceID), answerDocCallChainInline(bridge.callLocation),
+			bridge.bindingEndpointStatus, bridge.downstreamCallStatus, answerDocCallChainInline(bridge.callEvidenceID), answerDocCallChainInline(bridge.callLocation),
 			answerDocCallChainInline(bridge.bindingEvidenceID), answerDocCallChainInline(bridge.bindingLocation))
 	}
 	for i, group := range guardGroups {
@@ -91,12 +92,19 @@ func answerDocRegisteredExportHandoffs(entries []types.AnswerSupportEntry) []ans
 		for _, binding := range bindings {
 			slot := answerDocExactChainIdentity(binding.Subject)
 			callable := answerDocExactChainIdentity(binding.Object)
-			if slot == "" || callable == "" {
-				continue
-			}
+			callableSurface := strings.TrimSpace(binding.Object)
+			bindingStatus := "explicit_registration_endpoints"
 			export := slot + "." + answerDocChainIdentityTail(callable)
 			if callTarget != export {
-				continue
+				var ok bool
+				slot, callable, ok = answerDocOwnerReferenceRegistrationEndpoints(callTarget, binding, entries)
+				if !ok {
+					continue
+				}
+				callableSurface = callable
+				callable = answerDocExactChainIdentity(callable)
+				export = slot + "." + answerDocChainIdentityTail(callable)
+				bindingStatus = "exact_owner_reference_join"
 			}
 			key := call.EvidenceID + "\x00" + binding.EvidenceID + "\x00" + export
 			if seen[key] {
@@ -115,14 +123,74 @@ func answerDocRegisteredExportHandoffs(entries []types.AnswerSupportEntry) []ans
 				downstream = "unresolved_from_unqualified_registered_callable"
 			}
 			out = append(out, answerDocRegisteredExportHandoff{
-				callTarget: call.Object, exportSurface: export, registeredCallable: binding.Object,
+				callTarget: call.Object, exportSurface: export, registeredCallable: callableSurface,
 				callEvidenceID: call.EvidenceID, bindingEvidenceID: binding.EvidenceID,
 				callLocation: call.Location, bindingLocation: binding.Location,
-				downstreamCallStatus: downstream,
+				bindingEndpointStatus: bindingStatus,
+				downstreamCallStatus:  downstream,
 			})
 		}
 	}
 	return out
+}
+
+// answerDocOwnerReferenceRegistrationEndpoints recovers a semantic export
+// binding only from three already-typed facts: the exact external call target,
+// the system-stamped enclosing owner of a grounded registration call, and one
+// unique same-file callable owner referenced as a complete token by that
+// registration expression. This is advisory handoff authority only; it does
+// not create a call edge or mutate the source EvidenceItem.
+func answerDocOwnerReferenceRegistrationEndpoints(callTarget string, binding types.AnswerSupportEntry, entries []types.AnswerSupportEntry) (string, string, bool) {
+	if binding.AnchorKind != types.AnchorCall || strings.TrimSpace(binding.Source) == "" ||
+		binding.Producer != types.EvidenceProducerExplorerEmitEvidence ||
+		strings.TrimSpace(binding.OwnerSymbol) == "" || strings.TrimSpace(binding.Object) == "" {
+		return "", "", false
+	}
+	target := answerDocExactChainIdentity(callTarget)
+	cut := strings.LastIndex(target, ".")
+	if cut <= 0 || cut == len(target)-1 {
+		return "", "", false
+	}
+	exportOwner, exportMember := target[:cut], target[cut+1:]
+	bindingOwner := answerDocExactChainIdentity(binding.OwnerSymbol)
+	if bindingOwner != exportOwner && answerDocChainIdentityTail(bindingOwner) != exportOwner {
+		return "", "", false
+	}
+	bindingNamespace := answerDocChainIdentityParent(bindingOwner)
+
+	var candidateKey, candidateSurface string
+	for _, entry := range entries {
+		if entry.EvidenceID == binding.EvidenceID || entry.ClaimForm != types.ClaimCallEdge ||
+			entry.Producer != types.EvidenceProducerExplorerEmitEvidence ||
+			strings.TrimSpace(entry.Source) != strings.TrimSpace(binding.Source) {
+			continue
+		}
+		owner := answerDocExactChainIdentity(entry.Subject)
+		if owner == "" || answerDocChainIdentityTail(owner) != exportMember ||
+			!types.AnswerCodeSurfaceAppearsInText(binding.Object, exportMember) {
+			continue
+		}
+		if candidateNamespace := answerDocChainIdentityParent(owner); bindingNamespace != "" && candidateNamespace != bindingNamespace {
+			continue
+		}
+		if candidateKey != "" && candidateKey != owner {
+			return "", "", false
+		}
+		candidateKey = owner
+		candidateSurface = strings.TrimSpace(entry.Subject)
+	}
+	if candidateKey == "" {
+		return "", "", false
+	}
+	return exportOwner, candidateSurface, true
+}
+
+func answerDocChainIdentityParent(raw string) string {
+	raw = answerDocExactChainIdentity(raw)
+	if idx := strings.LastIndex(raw, "."); idx > 0 {
+		return raw[:idx]
+	}
+	return ""
 }
 
 type answerDocGuardStateGroup struct {

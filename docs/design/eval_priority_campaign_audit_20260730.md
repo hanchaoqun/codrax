@@ -30755,3 +30755,25 @@ return 使用精确 returning callable→returned value/source；carrier/compone
 `B474=P0-next`；`B475=P1-after-B474`；`typed-targets=edge-authority-forbidden`；
 `semantic-role-as-syntax-endpoint=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.489 B474 完成：注册表达式与导出 callable 的精确 typed 合取
+
+r275 的注册证据不是空白：源码和 grounder 精确证明 `m -> wrap_pyfunction!(tokenize_bytes,m)`，系统也已在该 call anchor 上盖章 enclosing
+owner `py::_fastlex`，并有独立 `py::tokenize_bytes -> super::tokenize_bytes` call row。旧 handoff 只接受 registration subject/object 直接拼成
+`_fastlex.tokenize_bytes`，因此无法消费这个常见的“接收器 + wrapper expression”形，跨语言图被迫分成两段。
+
+本批在 finalizer 的 typed advisory handoff 中增加唯一合取：外部 call target 的 owner/member、registration 的 system-stamped owner、同文件
+`call_edge` 的精确 caller，以及 registration object 中 boundary-complete 的 member token 必须全部一致；qualified owner/callable 还必须同 namespace。
+只有唯一候选才发布 `binding_endpoint_status=exact_owner_reference_join` 与 `call_targets_registered_export`。缺 emit_evidence provenance、缺 owner、
+owner/namespace 不同、两个 callable 候选、或仅子串命中全部 fail-closed。直接 subject/object 已精确的旧 registration 路径保持不变。
+
+该 handoff 只让模型知道“外部 export 与内部 callable 已精确绑定”，不创建 call edge、不改 EvidenceItem、不代替模型结论。序列图应使用 Note
+表达非执行绑定；wrapper→core 仍必须由独立 call row 才能画箭头。Explorer 同步说明跨行 owner/target 应用最小 `line_range`，单行只能证明
+receiver/expression 时不得伪造 module/callable。规则只使用 ClaimForm、OwnerSymbol、Source、Subject/Object 和 producer 等 typed 字段，不按
+PyO3/JNI/Java/ArkTS/Cangjie 等语言或框架词面分支，也不扫描 request/thinking/final prose。
+
+正向、歧义、错 owner、错 namespace、substring、provenance 负 pin及 finalizer 发布接线 e2e pin均通过；`go test ./... -count=1` 全绿。
+
+状态：`B474=implemented/full-suite-pass/pending-production-replay`；`B476=pending-joint-production-replay`；
+`B475=P1-next`；`registration-binding-is-not-call=preserved`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
