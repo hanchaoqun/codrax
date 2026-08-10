@@ -80,6 +80,29 @@ func TestClassifyRepairDirective(t *testing.T) {
 	}
 }
 
+func TestRepairDirectiveRenderExpandSearchCarriesTypedTargetsWithoutBlankStem(t *testing.T) {
+	withTargets := RepairDirective{
+		Kind:      RepairExpandSearch,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Keywords:  []string{"Analyzer", "AnalysisIR"},
+		Rationale: "inspect the exact operation site",
+	}.Render()
+	for _, want := range []string{"Analyzer, AnalysisIR", "internal/agent/analyzer.go", "inspect the exact operation site"} {
+		if !strings.Contains(withTargets, want) {
+			t.Fatalf("expand-search rendering missing %q:\n%s", want, withTargets)
+		}
+	}
+
+	filesOnly := RepairDirective{
+		Kind:      RepairExpandSearch,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "inspect the exact operation site",
+	}.Render()
+	if strings.Contains(filesOnly, "stems:") || !strings.Contains(filesOnly, "internal/agent/analyzer.go") {
+		t.Fatalf("files-only expand-search must not emit a blank keyword command:\n%s", filesOnly)
+	}
+}
+
 func TestClassifyPendingReadRepair(t *testing.T) {
 	tests := []struct {
 		name string

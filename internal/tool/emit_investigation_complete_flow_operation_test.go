@@ -53,6 +53,10 @@ func flowOperationCompletionParams(t *testing.T) json.RawMessage {
 func TestEmitInvestigationComplete_FlowDefinitionsRequestOneOperationPass(t *testing.T) {
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{
+		"src/pipeline.go": true,
+		"src/worker.go":   true,
+	})
 	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -66,6 +70,13 @@ func TestEmitInvestigationComplete_FlowDefinitionsRequestOneOperationPass(t *tes
 	repairs := ctx.Mutable.EvidenceClosure().ActiveRepairs()
 	if len(repairs) != 1 || repairs[0].DowngradeLane != types.DowngradeLaneFlowOperationCarrier {
 		t.Fatalf("operation repair must carry its typed lane: %+v", repairs)
+	}
+	if len(repairs[0].Files) == 0 || repairs[0].Files[0] != "src/pipeline.go" || len(repairs[0].Keywords) == 0 {
+		t.Fatalf("operation repair must carry bounded typed source targets instead of a blank grep instruction: %+v", repairs[0])
+	}
+	if rendered := repairs[0].Render(); strings.Contains(rendered, "stems: \n") ||
+		!strings.Contains(rendered, "src/pipeline.go") {
+		t.Fatalf("operation repair must render executable targets without a blank stem line:\n%s", rendered)
 	}
 }
 
@@ -171,6 +182,10 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
 		},
 	}
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{
+		"src/analyzer.go": true,
+		"src/pipeline.go": true,
+	})
 	tool := &EmitInvestigationComplete{}
 	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
 	if err != nil {
@@ -187,6 +202,20 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 	if len(repairs) != 1 || repairs[0].DowngradeLane != types.DowngradeLaneFlowParticipantCoverage {
 		t.Fatalf("participant repair must carry its typed lane: %+v", repairs)
 	}
+	if !flowTestSliceContains(repairs[0].Keywords, "Analyzer") ||
+		!flowTestSliceContains(repairs[0].Files, "src/pipeline.go") ||
+		!flowTestSliceContains(repairs[0].Files, "src/analyzer.go") {
+		t.Fatalf("participant repair must turn typed participants and the read closure into bounded navigation targets: %+v", repairs[0])
+	}
+}
+
+func flowTestSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEmitInvestigationComplete_BlocksOnLatestRequiredEvidenceItemValidationRepair(t *testing.T) {

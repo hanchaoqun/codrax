@@ -3091,3 +3091,18 @@ exact call/callback/assignment/initializer/return/precedence rows 才能授权�
 状态：`B473=implemented/full-suite-pass/pending-direct-production-witness`；`B476=confirmed/P0-next`；
 `B474=P0-after-B476`；`B475=P1-after-B474`；`runner=2/2,human=0/2`；
 `system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.34 B476 完成：typed operation-site 补采与语法端点单源
+
+r275 的 operation repair 已执行但携带空 Files/Keywords，模型虽读到操作函数，仍用组件/结果角色概括 source/object，导致 exact grounder
+拒绝、请求 participant 无 incident relation。现把 repair 目标限定为 analyzer typed participant、citable evidence 与 read closure，最多 8 个
+symbol、6 个 production-scope file；规划层可做有界软匹配以优先相关文件，但该结果永不进入 relation authority。
+
+普通与 compact 两个 repair renderer 均发布非空 typed stems 和已读源文件；跨语言 operation guide 明确 call、assignment、return 三类精确
+语法端点，禁止用 carrier/component/final-answer 语义标签代替端点。只有 Explorer 复核源码后发射且通过既有 exact grounder 的 row 才能授权边；
+系统不补边、不改答案、不放松 required-edge/participant-coverage gate，也不扫描用户或模型 prose。
+
+专项三包与 `go test ./... -count=1` 全绿。状态：
+`B476=implemented/full-suite-pass/pending-production-replay`；`B473=pending-direct-production-witness`；
+`B474=P0-next`；`B475=P1-after-B474`；`semantic-role-as-syntax-endpoint=forbidden`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

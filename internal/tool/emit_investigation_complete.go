@@ -2195,7 +2195,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
 	}
 	if flowOperationMissing {
-		queueFlowOperationCarrierRepair(ctx)
+		queueFlowOperationCarrierRepair(ctx, evidenceSnapshot)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
@@ -2224,7 +2224,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowParticipantCoverage)
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
-		queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants)
+		queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowParticipantCoverage) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
@@ -3340,12 +3340,15 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		(rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource())
 }
 
-func queueFlowOperationCarrierRepair(ctx *types.BusContext) {
+func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
 		return
 	}
+	files, keywords := flowOperationRepairTargets(ctx, nil, evidence)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
+		Files:         files,
+		Keywords:      keywords,
 		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
 		Subject:       "flow_operation_carrier",
 		Rationale:     types.FlowOperationEvidenceEmissionGuide,
@@ -3399,12 +3402,15 @@ func flowParticipantCoverageRepairHint(missing []string) string {
 		missing)
 }
 
-func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string) {
+func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil || len(missing) == 0 {
 		return
 	}
+	files, keywords := flowOperationRepairTargets(ctx, missing, evidence)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
+		Files:         files,
+		Keywords:      keywords,
 		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
 		Subject:       "flow_participants:" + strings.Join(missing, ","),
 		Rationale:     flowParticipantCoverageRepairHint(missing),

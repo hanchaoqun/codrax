@@ -7175,6 +7175,20 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("expand-search repair preserves typed files and stems", func(t *testing.T) {
+		hint := renderClosureRepairHint([]types.RepairDirective{{
+			Kind:      types.RepairExpandSearch,
+			Files:     []string{"internal/agent/analyzer.go"},
+			Keywords:  []string{"Analyzer"},
+			Rationale: "read the exact operation site",
+		}})
+		for _, want := range []string{"Analyzer", "internal/agent/analyzer.go", "read the exact operation site"} {
+			if !strings.Contains(hint, want) {
+				t.Fatalf("compact expand-search hint missing %q:\n%s", want, hint)
+			}
+		}
+	})
+
 	t.Run("completion ready drops advisory closure repair signals", func(t *testing.T) {
 		repairs := []types.RepairDirective{
 			{

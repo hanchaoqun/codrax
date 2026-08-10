@@ -1,6 +1,22 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestFlowOperationEvidenceGuideRequiresSyntaxEndpoints(t *testing.T) {
+	for _, want := range []string{
+		"exact syntax-authored subject/object",
+		"exact enclosing callable and invoked callee",
+		"Do not rename an endpoint to a semantic role or result label",
+		"participant names guide navigation only",
+	} {
+		if !strings.Contains(FlowOperationEvidenceEmissionGuide, want) {
+			t.Fatalf("flow-operation teaching lost cross-language endpoint rule %q", want)
+		}
+	}
+}
 
 func TestFlowOperationEvidenceRejectsDefinitionsAndRuntimeRows(t *testing.T) {
 	definition := EvidenceItem{

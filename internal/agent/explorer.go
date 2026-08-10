@@ -7596,15 +7596,28 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 			b.WriteString("Re-emit grounded evidence from the already-read anchor lines before retrying completion.\n")
 		}
 	case types.RepairExpandSearch:
-		if len(repair.Keywords) == 0 && strings.TrimSpace(repair.Rationale) == "" {
+		if len(repair.Keywords) == 0 && len(repair.Files) == 0 && strings.TrimSpace(repair.Rationale) == "" {
 			return ""
 		}
 		b.WriteString("## Search Coverage Gap\n")
 		if len(repair.Keywords) > 0 {
-			b.WriteString("Broaden the search with these keyword stems: ")
+			b.WriteString("Broaden the search with these typed navigation stems: ")
 			b.WriteString(strings.Join(repair.Keywords, ", "))
 			b.WriteString("\n")
-		} else {
+		}
+		if len(repair.Files) > 0 {
+			limit := len(repair.Files)
+			if limit > 2 {
+				limit = 2
+			}
+			b.WriteString("Start with these already-read source files:\n")
+			for _, file := range repair.Files[:limit] {
+				if strings.TrimSpace(file) != "" {
+					fmt.Fprintf(&b, "- `%s`\n", file)
+				}
+			}
+		}
+		if strings.TrimSpace(repair.Rationale) != "" {
 			b.WriteString(strings.TrimSpace(repair.Rationale))
 			b.WriteString("\n")
 		}

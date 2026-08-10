@@ -577,9 +577,19 @@ func (r RepairDirective) Render() string {
 		}
 	case RepairExpandSearch:
 		b.WriteString("## Search Coverage Gap\n")
-		b.WriteString("Run grep over additional keyword stems: ")
-		b.WriteString(strings.Join(r.Keywords, ", "))
-		b.WriteString("\n")
+		if len(r.Keywords) > 0 {
+			b.WriteString("Run grep over these typed navigation stems: ")
+			b.WriteString(strings.Join(r.Keywords, ", "))
+			b.WriteString("\n")
+		}
+		if len(r.Files) > 0 {
+			b.WriteString("Start with these already-read source files:\n")
+			for _, f := range r.Files {
+				if strings.TrimSpace(f) != "" {
+					b.WriteString("- " + f + "\n")
+				}
+			}
+		}
 		if r.Rationale != "" {
 			b.WriteString(r.Rationale + "\n")
 		}

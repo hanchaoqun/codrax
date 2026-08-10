@@ -30732,3 +30732,26 @@ B474/B475 不变。两例均有两次 finalizer reject；关系证据不足导�
 `B474=confirmed/P0-after-B476`；`B475=confirmed/P1-after-B474`；`B472=partial-production-positive`；
 `runner=2/2,human=0/2`；`system-edge/answer-conclusion-rewrite=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.488 B476 完成：operation 补采由空指令升级为 typed 有界导航
+
+r275 证明 repair 虽真实 dispatch，但旧 `RepairExpandSearch` 没有 `Files/Keywords`，实际提示出现空的
+`Run grep over additional keyword stems:`；模型随后把“写入 ToolResults/AnalysisIR/FinalAnswer”等语义角色当成 call/assignment 端点，
+精确 grounder 正确拒绝，最终只剩与请求主体无关的辅助调用边。
+
+本批新增共享 `flowOperationRepairTargets`，仅从 analyzer typed `DiagramHint.Participants`、citable `EvidenceItem` 与 read closure 构造最多
+8 个符号、6 个文件。与 participant 的宽松兼容只用于文件排序和导航；关系权威仍只能来自补采后重新发射、并通过 exact syntax grounder 的
+call/callback/assignment/initializer/return/precedence row。`RepairDirective.Render` 与 Explorer compact renderer 同步支持 files+keywords，
+彻底消除空 grep 指令；无 participant 时从已有 citable endpoint 和已读文件回退，仍保持 bounded。
+
+跨语言 emission guide 同源补强：call/callback 必须使用精确 enclosing callable→invoked callee，assignment/initializer 使用精确 LHS→RHS，
+return 使用精确 returning callable→returned value/source；carrier/component/final-answer 等语义标签不能替换语法端点。该规则按 anchor kind 泛化，
+不按 Java/Python/ArkTS/Cangjie 等语言名分支，也不扫描用户输入、thinking 或 final prose。系统不生成关系、不放宽 hard validator、不改写模型
+答案。Trace family 在 `flowOperationEvidenceRequired` 前置旁路保持不变，显式时间窗、自动补齐、链上根因选举与背景证据分层均未修改。
+
+专项 `internal/tool + internal/types + internal/agent` 与 `go test ./... -count=1` 全绿。
+
+状态：`B476=implemented/full-suite-pass/pending-production-replay`；`B473=pending-direct-production-witness`；
+`B474=P0-next`；`B475=P1-after-B474`；`typed-targets=edge-authority-forbidden`；
+`semantic-role-as-syntax-endpoint=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
