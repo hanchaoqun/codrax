@@ -3121,3 +3121,17 @@ Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`�
 状态：`B474=implemented/full-suite-pass/pending-production-replay`；`B476=pending-joint-production-replay`；
 `B475=P1-next`；`registration-binding-is-not-call=preserved`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.36 B475 完成：callsite/definition 证据角色不再由模型猜测
+
+r275 的 wrapper/core/fallback 引用错位源于同一 evidence list 同时承载 call 与 definition，却未提供逐 callable 的坐标权限。新增
+QFCallChain typed advisory 矩阵：callsite 只证明 exact caller→target，definition 才证明声明/函数体；无定义证据的 target 只能表述为链路
+到达边界。定义 join 要求同 source 与 exact identity，或可信 Explorer producer 盖章的 compatible OwnerSymbol；同尾名歧义、未盖章 owner、
+跨文件均 fail-closed。
+
+该改动只降低模型引用心智，不扫描 request/answer prose、不新增 hard gate、不补关系、不改模型结论。共享 ClaimForm/identity 逻辑覆盖所有语言，
+测试含 Go/ArkTS/Cangjie 同名歧义及 finalizer 生产接线；`go test ./... -count=1` 全绿。
+
+状态：`B475=implemented/full-suite-pass/pending-production-replay`；`B473/B476/B474=pending-joint-production-replay`；
+`callsite-definition-role=typed-separated`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

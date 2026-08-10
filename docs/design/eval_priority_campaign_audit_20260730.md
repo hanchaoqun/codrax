@@ -30777,3 +30777,23 @@ PyO3/JNI/Java/ArkTS/Cangjie 等语言或框架词面分支，也不扫描 reques
 状态：`B474=implemented/full-suite-pass/pending-production-replay`；`B476=pending-joint-production-replay`；
 `B475=P1-next`；`registration-binding-is-not-call=preserved`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.490 B475 完成：调用点与定义点的 typed 引用权限分离
+
+r275 中关系 row 本身并未丢失：finalizer 已收到 `py::tokenize_bytes -> super::tokenize_bytes @ lib.rs:42`，也收到
+`tokenize_bytes` 定义 `@ lib.rs:40`；但长 evidence list 没有把两种坐标的权限并置，模型把 line 42 同时写成 wrapper/core 的函数体依据，
+还把 `_tokenize_slow` 的调用点 line 22 写成定义点。这不是缺少更多 JSON 关键词，而是 typed 证据的角色投递不足。
+
+本批新增仅面向 QFCallChain 的 soft `Callable role and citation authority` 矩阵。每个 exact callable 分别列出 caller/target 角色、
+`callsite_refs`、`definition_status` 和唯一 `definition_ref`：有向 hop 只能引用调用点；签名/实现体只能在 definition 已证时引用定义点；
+definition 未证时只能表述链路到达该 endpoint，并保留实现边界。定义配对要求同 source 与 exact identity，或由
+Explorer `emit_evidence` 盖章、且 subject 与 OwnerSymbol 兼容的 qualified owner 授权短定义；同文件同尾名多候选、未盖章 owner、跨 source
+全部 fail-closed。
+
+该矩阵是模型成文前的 typed 教学，不读取用户输入、thinking 或 final prose，不作硬拒、不重写答案、不制造关系。规则基于共享
+ClaimForm/identity/source，覆盖全部支持语言；回归显式包含 Go、ArkTS 与 Cangjie 的同名歧义负例，以及跨语言 finalizer 接线正例。
+`go test ./... -count=1` 全绿，Trace 显式窗、自动补齐、因果投影、链上根因选举与背景分层均未改动。
+
+状态：`B475=implemented/full-suite-pass/pending-production-replay`；`B473/B476/B474=pending-joint-production-replay`；
+`callsite-as-definition=forbidden`；`definition-as-invocation=forbidden`；`raw-request/model-prose-hard-gate=none`；
+`system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

@@ -9349,6 +9349,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
 		b.WriteString(renderAnswerDocCallChainDiagramSemanticsGuide())
 		b.WriteString(renderAnswerDocCallChainSemanticHandoffs(plan))
+		b.WriteString(renderAnswerDocCallChainCitationAuthority(plan))
 	default:
 		b.WriteString("- Keep observed facts, current-code facts, and boundary disclosures in their own lanes.\n")
 		b.WriteString("- If a function, file, symbol, trace span, or prior-turn subject appears elsewhere in the prompt but not in a lane that allows the block kind you are writing, treat it as background only.\n\n")
