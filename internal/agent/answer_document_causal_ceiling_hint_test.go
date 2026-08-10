@@ -108,6 +108,11 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 	for _, want := range []string{
 		"Typed trace context precedence",
 		"on-chain/adjacent/background population",
+		"shared IRQ/waker label",
+		"same IO/pressure family",
+		"Never call an adjacent/background row a direct or indirect contributor",
+		"exact typed relation/fold carrier",
+		"concurrent support or an additional investigation direction",
 		"Thread and span semantic authority",
 		"span/marker label proves its label, measured interval",
 		"does not by itself prove the internal work",

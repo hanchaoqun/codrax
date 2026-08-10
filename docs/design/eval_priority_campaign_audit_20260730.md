@@ -29531,3 +29531,24 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only/additional-
 状态：`EVAL-B436=S37eg-implemented/full-suite-pass/pending-production-replay`；
 `decision-obligation=explicit-item-level-only`；`json-teaching=single-boundary/no-conflict`；
 `EVAL-B437=P2-next-soft-only`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.458 B437/S37eh：off-chain 背景不得靠同类压力或共享 IRQ 推成“间接贡献”
+
+`EVAL-B437-OFFCHAININFERENCESOFT1` 已按软引导边界施工：
+
+1. r254 的确定性 projection 和权限均正确，问题只在模型正文：logger-900 typed 为 background/CPU5，却被推测为与 threadpool 共享 CPU4，
+   并在无 edge 时被称为对链上 IO 完成有“间接贡献”。这不是值通道或排序回归，不应由系统扫描/替换答案处理；
+2. typed-trace compact guidance 的既有 cross-subject 规则扩展同一精确信号边界：时间重叠、邻近、共享 CPU、共享 IRQ/waker label、同一
+   IO/pressure family 或同名主体都不能转移 state/caller/blocker/causality；只有 exact typed relation/fold carrier 且时间兼容，才能建立
+   cross-subject direct/indirect contribution；
+3. 无 typed connector 时，adjacent/background 只能被模型写为并发支撑事实或额外排查方向。非 typed-trace 的通用 trace guidance 同步同义，
+   避免两个 prompt 分支继续给出不同权限；
+4. 这是 soft prompt guidance：不读取 request/thinking/final prose，不新增成文 hard reject，不删除/替换模型结论，不用本 case 的线程名、数值、
+   CPU 号或 IO 类型做特例；
+5. 新 pin 从 typed authority 构造 prompt，要求 shared IRQ、same pressure family、direct/indirect contributor 禁限与 additional-investigation
+   出口同时存在。定向 `internal/agent` 测试通过；
+6. Trace 的显式时间窗、自动补采、唤醒链、因果投影、根因排序、可消除量和双轴占时分析均未修改；主根因继续只来自 typed on-chain 席。
+
+状态：`EVAL-B437=S37eh-implemented/full-suite-pass/pending-production-replay`；
+`cross-subject-causality=exact-typed-connector-only`；`off-chain=concurrent-support-or-investigation-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
