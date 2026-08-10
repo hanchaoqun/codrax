@@ -2447,3 +2447,21 @@ U2-3 evaluator 阶段车道权威 pin 绑 stage_binding.go 压缩源码子串(�
 3. 低危随批;U2-4 建议恢复确定性地板为 AND 臂;U7-1 回收紧。
 
 **方法学**:①同事修复合规连续第三轮 100%(39/39 核验通过),新缺陷数从 12→12→3 递减且首次零新域高危(唯一高危是既裁类第四例);②T3-2 类四连发定谳其为**结构性复发类**——单点助手+census tripwire(§11.4-1)是终局解,单靠逐例修复不收敛;③否证席 overlay 双向实证(删臂绿+行为依赖臂)首次同时证明"pin 缺失"与"行为完好",是 test-gap 类 finding 的黄金判别形。
+
+### §11.5 处置进展（2026-08-09）
+
+代码复核确认 §11 三项判定均准确，按两批收口：
+
+1. **M6-U3-1/U3-2 批 1 已施工**：call、callback、type relation、registration、assignment/return 与 guard/logical
+   全部复用 `diagramRelationEdgeHasExactOrUniqueShortProjection` 单点。证据行继续拥有关系类型与方向；qualified diagram endpoint
+   必须由 exact typed qualified identity 支撑，short endpoint 只允许投影一个 typed identity family；同尾不同 owner 失败关闭；source/target
+   必须在同一 evidence row 同向成立，禁止两行拼边；
+2. 删除 callback/value/guard 原来的双向 `CallChainEndpointCompatible` 宽匹配，也删除 type/register 的 exact-only 孤岛。修复不读取
+   request、Mermaid 文案、模型 thinking/final prose、语言名或路径，不放松缺少 typed relation 的硬门；
+3. 功能 census pin 覆盖五个非 call 严格关系族：每族验证 unique qualified→short 通过、same-tail 多 owner 拒绝、short evidence→
+   model-qualified owner 拒绝；既有 call lane 的 mixed/ambiguity/direction 测试继续共用同一 helper；
+4. **M6-U1-1 留给批 2**：补“算式内洽但操作数不匹配 typed 三位值”的 e2e，并纠正 §10.11 交付账，不改现有中性并置行为。
+
+状态：`M6-U3-1=batch1-implemented/full-suite-pass`；
+`M6-U3-2=batch1-implemented/full-suite-pass`；`M6-U1-1=batch2-next`；
+`raw-prose-new-hard-gate=none`；`model-answer-rewrite=none`；Trace/read/write/data=`unmodified`。

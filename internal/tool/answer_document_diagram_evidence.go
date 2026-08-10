@@ -339,57 +339,30 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 }
 
 func diagramCallbackEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
-	fromSymbol = strings.TrimSpace(fromSymbol)
-	toSymbol = strings.TrimSpace(toSymbol)
-	if fromSymbol == "" || toSymbol == "" {
-		return false
-	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallbackHandoff {
-			continue
-		}
-		if diagramTypedValueEndpointMatches(ev.Subject, fromSymbol) &&
-			diagramTypedValueEndpointMatches(ev.Object, toSymbol) {
-			return true
-		}
-	}
-	return false
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimCallbackHandoff },
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+	)
 }
 
 func diagramTypeRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
-	fromSymbol = strings.TrimSpace(fromSymbol)
-	toSymbol = strings.TrimSpace(toSymbol)
-	if fromSymbol == "" || toSymbol == "" {
-		return false
-	}
-	for _, item := range evidence {
-		if !item.IsCitable() || !types.IsRepoMapTypeRelationEvidence(item) {
-			continue
-		}
-		if types.AnswerCodeIdentitySurfacesEquivalent(item.Subject, fromSymbol) &&
-			types.AnswerCodeIdentitySurfacesEquivalent(item.Object, toSymbol) {
-			return true
-		}
-	}
-	return false
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		types.IsRepoMapTypeRelationEvidence,
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+	)
 }
 
 func diagramRegistrationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
-	fromSymbol = strings.TrimSpace(fromSymbol)
-	toSymbol = strings.TrimSpace(toSymbol)
-	if fromSymbol == "" || toSymbol == "" {
-		return false
-	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimRegistrationEdge {
-			continue
-		}
-		if types.AnswerCodeIdentitySurfacesEquivalent(ev.Subject, fromSymbol) &&
-			types.AnswerCodeIdentitySurfacesEquivalent(ev.Object, toSymbol) {
-			return true
-		}
-	}
-	return false
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimRegistrationEdge },
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+	)
 }
 
 func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string, relation types.DiagramRelationKind) bool {
@@ -399,16 +372,12 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 	if fromSymbol == "" || toSymbol == "" || (wantForm != types.ClaimAssignmentFact && wantForm != types.ClaimReturnFact) {
 		return false
 	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != wantForm {
-			continue
-		}
-		if diagramTypedValueEndpointMatches(ev.Subject, fromSymbol) &&
-			diagramTypedValueEndpointMatches(ev.Object, toSymbol) {
-			return true
-		}
-	}
-	return false
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == wantForm },
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+	)
 }
 
 // diagramStrictLogicalRelationNeedsEvidence names the logical relations that
@@ -447,34 +416,129 @@ func diagramLogicalRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, f
 	if fromSymbol == "" || toSymbol == "" || wantForm == types.ClaimUnknown {
 		return false
 	}
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == wantForm },
+		func(ev types.EvidenceItem) []string {
+			if relation == types.DiagramRelGuard {
+				return []string{ev.Subject, ev.OwnerSymbol}
+			}
+			return []string{ev.Subject}
+		},
+		func(ev types.EvidenceItem) []string { return []string{ev.Object, ev.AnchorSymbol} },
+	)
+}
+
+// diagramRelationEdgeHasExactOrUniqueShortProjection is the single endpoint
+// identity authority shared by every strict diagram-relation lane. The typed
+// evidence row still owns the relation and its direction; this helper only
+// reconciles presentation identity on the source and destination sides.
+//
+// A qualified diagram endpoint requires an exact typed qualified identity. A
+// short endpoint may project one qualified typed identity family, but two
+// owners with the same tail fail closed. Both endpoints must match the same
+// evidence row, so independently matching source/target rows cannot mint a
+// relation. Request text, Mermaid labels, model prose, paths, and language
+// names never participate.
+func diagramRelationEdgeHasExactOrUniqueShortProjection(
+	evidence []types.EvidenceItem,
+	fromSymbol, toSymbol string,
+	accept func(types.EvidenceItem) bool,
+	sourceCandidates, targetCandidates func(types.EvidenceItem) []string,
+) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	if fromSymbol == "" || toSymbol == "" || accept == nil || sourceCandidates == nil || targetCandidates == nil {
+		return false
+	}
+	if !diagramRelationEndpointHasExactOrUniqueShortProjection(evidence, fromSymbol, accept, sourceCandidates) ||
+		!diagramRelationEndpointHasExactOrUniqueShortProjection(evidence, toSymbol, accept, targetCandidates) {
+		return false
+	}
 	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != wantForm {
+		if !ev.IsCitable() || !accept(ev) {
 			continue
 		}
-		fromMatches := diagramTypedValueEndpointMatches(ev.Subject, fromSymbol)
-		if relation == types.DiagramRelGuard {
-			fromMatches = fromMatches || diagramTypedValueEndpointMatches(ev.OwnerSymbol, fromSymbol)
-		}
-		if !fromMatches {
-			continue
-		}
-		if diagramTypedValueEndpointMatches(ev.Object, toSymbol) ||
-			diagramTypedValueEndpointMatches(ev.AnchorSymbol, toSymbol) {
+		if diagramRelationEndpointCandidateSetMatches(sourceCandidates(ev), fromSymbol) &&
+			diagramRelationEndpointCandidateSetMatches(targetCandidates(ev), toSymbol) {
 			return true
 		}
 	}
 	return false
 }
 
-func diagramTypedValueEndpointMatches(evidenceEndpoint, diagramEndpoint string) bool {
-	evidenceEndpoint = strings.TrimSpace(evidenceEndpoint)
-	diagramEndpoint = strings.TrimSpace(diagramEndpoint)
-	if evidenceEndpoint == "" || diagramEndpoint == "" {
+func diagramRelationEndpointHasExactOrUniqueShortProjection(
+	evidence []types.EvidenceItem,
+	surface string,
+	accept func(types.EvidenceItem) bool,
+	candidateSet func(types.EvidenceItem) []string,
+) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
 		return false
 	}
-	return evidenceEndpoint == diagramEndpoint ||
-		types.CallChainEndpointCompatible(evidenceEndpoint, diagramEndpoint) ||
-		types.CallChainEndpointCompatible(diagramEndpoint, evidenceEndpoint)
+	qualified := diagramEvidenceQualifiedOwner(surface) != ""
+	var candidates []string
+	for _, ev := range evidence {
+		if !ev.IsCitable() || !accept(ev) {
+			continue
+		}
+		for _, raw := range candidateSet(ev) {
+			raw = strings.TrimSpace(raw)
+			if raw == "" || !diagramRelationEndpointCandidateMatches(raw, surface) {
+				continue
+			}
+			if qualified {
+				return true
+			}
+			duplicate := false
+			for _, existing := range candidates {
+				if types.AnswerCodeIdentitySurfacesEquivalent(existing, raw) {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				candidates = append(candidates, raw)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	for i := range candidates {
+		for j := i + 1; j < len(candidates); j++ {
+			if !types.AnswerCodeIdentitySurfacesCompatible(candidates[i], candidates[j]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func diagramRelationEndpointCandidateSetMatches(candidates []string, surface string) bool {
+	for _, candidate := range candidates {
+		if diagramRelationEndpointCandidateMatches(candidate, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramRelationEndpointCandidateMatches(candidate, surface string) bool {
+	candidate = strings.TrimSpace(candidate)
+	surface = strings.TrimSpace(surface)
+	if candidate == "" || surface == "" {
+		return false
+	}
+	if candidate == surface || types.AnswerCodeIdentitySurfacesEquivalent(candidate, surface) {
+		return true
+	}
+	if diagramEvidenceQualifiedOwner(surface) != "" {
+		// A short evidence endpoint cannot mint a model-authored owner.
+		return false
+	}
+	return types.AnswerCodeIdentitySurfacesCompatible(candidate, surface)
 }
 
 func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, relations map[types.DiagramRelationKind]bool, hasTypedCallEvidence bool) bool {
@@ -949,17 +1013,13 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	// This is intentionally side-aware and pair-preserving.  It does not infer
 	// owners from source paths, labels, request text, or prose, and a source-side
 	// match plus an unrelated target-side match cannot mint a new edge.
-	if diagramCallEndpointHasExactOrUniqueShortProjection(evidence, fromSymbol, true) &&
-		diagramCallEndpointHasExactOrUniqueShortProjection(evidence, toSymbol, false) {
-		for _, ev := range evidence {
-			if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-				!diagramCallEndpointMatchesExactOrShortProjection(ev, fromSymbol, true) {
-				continue
-			}
-			if diagramCallEndpointMatchesExactOrShortProjection(ev, toSymbol, false) {
-				return true
-			}
-		}
+	if diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimCallEdge },
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object, ev.AnchorSymbol} },
+	) {
+		return true
 	}
 
 	// A same-language call site can be normalized to short in-file names
@@ -1043,48 +1103,6 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	return len(candidates) == 1
 }
 
-// diagramCallEndpointHasExactOrUniqueShortProjection preserves a qualified
-// diagram endpoint only when citable call evidence carries that exact owner.
-// A bare operation may use the existing unique typed projection. This keeps a
-// mixed short/qualified presentation usable without letting a short evidence
-// endpoint mint a model-authored owner qualification.
-func diagramCallEndpointHasExactOrUniqueShortProjection(evidence []types.EvidenceItem, surface string, sourceSide bool) bool {
-	surface = strings.TrimSpace(surface)
-	if surface == "" {
-		return false
-	}
-	if diagramEvidenceQualifiedOwner(surface) == "" {
-		return diagramCallEndpointHasUniqueTypedProjection(evidence, surface, sourceSide)
-	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		if diagramCallEndpointMatchesExactOrShortProjection(ev, surface, sourceSide) {
-			return true
-		}
-	}
-	return false
-}
-
-func diagramCallEndpointMatchesExactOrShortProjection(ev types.EvidenceItem, surface string, sourceSide bool) bool {
-	surface = strings.TrimSpace(surface)
-	if surface == "" {
-		return false
-	}
-	qualified := diagramEvidenceQualifiedOwner(surface) != ""
-	match := func(candidate string) bool {
-		if qualified {
-			return types.AnswerCodeIdentitySurfacesEquivalent(candidate, surface)
-		}
-		return types.AnswerCodeIdentitySurfacesCompatible(candidate, surface)
-	}
-	if sourceSide {
-		return match(ev.Subject)
-	}
-	return match(ev.Object) || match(ev.AnchorSymbol)
-}
-
 // diagramCallEdgeTypedEvidenceOccurrenceAuthority returns a stable group key
 // and budget for one already-proven visible call. Exact endpoint rows win. For
 // class/actor participants, the existing exact message-operation resolver may
@@ -1157,53 +1175,6 @@ func diagramCallEdgeTypedEvidenceOccurrenceAuthority(
 	}
 	sort.Strings(keys)
 	return "evidence\x00" + strings.Join(keys, "\x01"), len(keys)
-}
-
-// diagramCallEndpointHasUniqueTypedProjection reports whether one diagram
-// endpoint has exactly one lossless identity family on the selected side of
-// the citable call graph. Qualified spellings with language-native separators
-// are one family when they are equivalent; a qualified spelling and its short
-// final operation are also one family. Distinct qualified owners are not.
-func diagramCallEndpointHasUniqueTypedProjection(evidence []types.EvidenceItem, surface string, sourceSide bool) bool {
-	surface = strings.TrimSpace(surface)
-	if surface == "" {
-		return false
-	}
-	candidates := make([]string, 0, 2)
-	add := func(raw string) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" || !types.AnswerCodeIdentitySurfacesCompatible(raw, surface) {
-			return
-		}
-		for _, existing := range candidates {
-			if types.AnswerCodeIdentitySurfacesEquivalent(existing, raw) {
-				return
-			}
-		}
-		candidates = append(candidates, raw)
-	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		if sourceSide {
-			add(ev.Subject)
-			continue
-		}
-		add(ev.Object)
-		add(ev.AnchorSymbol)
-	}
-	if len(candidates) == 0 {
-		return false
-	}
-	for i := range candidates {
-		for j := i + 1; j < len(candidates); j++ {
-			if !types.AnswerCodeIdentitySurfacesCompatible(candidates[i], candidates[j]) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 func diagramCallEvidenceEndpointMatches(item types.EvidenceItem, raw, surface string) bool {

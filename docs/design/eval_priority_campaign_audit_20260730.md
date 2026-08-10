@@ -29657,3 +29657,24 @@ exact-two：`trace_query_core_topology_supply` 与 `patch_c_typo`，同一封存
 
 状态：`write=production-pass`；`trace-state-query=partial/usable`；`B443=P2-open`；`B444=P2-open`；
 `trace-causal-projection=not-required-and-not-materialized`；`raw-prose-hard-gate=none`；`system-answer-rewrite=none`。
+
+### 123.464 MERGE-AUDIT-6 批 1：所有严格图关系共用唯一 endpoint identity authority
+
+对 `docs/design/colleague_merge_audit_20260802.md` §11 与当前代码逐行复核后，确认 M6-U3-1/U3-2 成立：type/register 使用
+全限定 exact-only，而 callback/value/guard 反向使用无唯一性的双向 short-compatible，同一 sequence relation 面存在一收一放。
+
+本批按结构根修，不新增第五个特例：
+
+1. 新单点 `diagramRelationEdgeHasExactOrUniqueShortProjection` 由全部严格关系族复用：call、callback、type relation、registration、
+   assignment/return、guard/import/precedence/observe/temporal；
+2. qualified diagram endpoint 只接受 exact typed qualified identity；short endpoint 可投影唯一 typed identity family；同尾不同 owner
+   必须 fail closed。source 与 target 必须由同一 citable typed evidence row 同向匹配，两个不相关行不能拼造新边；
+3. relation kind/ClaimForm、repomap type-relation producer 与 citable grounding 仍由各族 typed selector 决定；统一助手只做展示身份投影，
+   不从 request、Mermaid message/label、模型 prose、路径、语言或相似度创造证据；
+4. functional census 覆盖五个非 call 族的 unique-short 正臂、multi-owner ambiguity 负臂、short-evidence-to-qualified-owner 负臂；
+   call 的 mixed short/qualified、方向与歧义原 pin 保留；
+5. 本批不修改 JSON 教学、Trace 显式窗/补采/因果投影/根因选举、read 结论或 write controller。M6-U1-1 独立进入批 2。
+
+状态：`M6-U3-1=implemented/full-suite-pass`；
+`M6-U3-2=implemented/full-suite-pass`；`M6-U1-1=batch2-next`；
+`endpoint-authority=typed-exact-or-unique-short/same-row/same-direction`；`raw-prose-hard-gate=none`。

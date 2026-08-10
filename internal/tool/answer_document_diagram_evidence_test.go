@@ -170,6 +170,99 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceAssignmentUsesAssignmentAutho
 	}
 }
 
+// M6-U3-1/U3-2: every non-call strict relation family shares the same
+// side-aware identity projection as calls. One uniquely qualified typed
+// identity may be displayed by its short tail, while owner ambiguity fails
+// closed and short evidence cannot mint a model-authored qualified owner.
+func TestDiagramRelationEvidence_AllStrictFamiliesUseExactOrUniqueShortProjection(t *testing.T) {
+	tests := []struct {
+		name      string
+		evidence  types.EvidenceItem
+		fromShort string
+		toShort   string
+		fromFull  string
+		toFull    string
+		match     func([]types.EvidenceItem, string, string) bool
+		shorten   func(*types.EvidenceItem)
+	}{
+		{
+			name: "callback",
+			evidence: types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,
+				Subject: "runtime.Executor.run", Object: "plugin.Handler.handle", AnchorSymbol: "plugin.Handler.handle",
+				Source: "pipeline/runner.py", LineStart: 17, GroundingStatus: types.GroundingGrounded},
+			fromShort: "run", toShort: "handle", fromFull: "runtime.Executor.run", toFull: "plugin.Handler.handle",
+			match:   diagramCallbackEdgeHasTypedEvidence,
+			shorten: func(ev *types.EvidenceItem) { ev.Subject, ev.Object, ev.AnchorSymbol = "run", "handle", "handle" },
+		},
+		{
+			name: "type_relation",
+			evidence: types.EvidenceItem{Kind: types.EvidenceRelationship, Producer: "repomap_structural_relation",
+				Subject: "storage.FileSink", Predicate: "inheritance", Object: "logging.Sink",
+				Source: "include/file_sink.hpp", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+			fromShort: "FileSink", toShort: "Sink", fromFull: "storage.FileSink", toFull: "logging.Sink",
+			match:   diagramTypeRelationEdgeHasTypedEvidence,
+			shorten: func(ev *types.EvidenceItem) { ev.Subject, ev.Object = "FileSink", "Sink" },
+		},
+		{
+			name: "registration",
+			evidence: types.EvidenceItem{Kind: types.EvidenceRegistration, Subject: "runtime.Module.register",
+				Object: "worker.Handler.handle", Source: "src/lib.rs", LineStart: 47,
+				AnchorKind: types.AnchorDefinition, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			fromShort: "register", toShort: "handle", fromFull: "runtime.Module.register", toFull: "worker.Handler.handle",
+			match:   diagramRegistrationEdgeHasTypedEvidence,
+			shorten: func(ev *types.EvidenceItem) { ev.Subject, ev.Object = "register", "handle" },
+		},
+		{
+			name: "value_flow",
+			evidence: types.EvidenceItem{Kind: types.EvidenceDirect, Subject: "factory.Provider.create",
+				Object: "processor.FastProcessor", Source: "src/factory.cj", LineStart: 17,
+				AnchorKind: types.AnchorReturn, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			fromShort: "create", toShort: "FastProcessor", fromFull: "factory.Provider.create", toFull: "processor.FastProcessor",
+			match: func(rows []types.EvidenceItem, from, to string) bool {
+				return diagramValueFlowEdgeHasTypedEvidence(rows, from, to, types.DiagramRelReturn)
+			},
+			shorten: func(ev *types.EvidenceItem) { ev.Subject, ev.Object = "create", "FastProcessor" },
+		},
+		{
+			name: "logical_guard",
+			evidence: types.EvidenceItem{Kind: types.EvidenceConditional, AnchorKind: types.AnchorCondition,
+				Subject: "service.Service.run", OwnerSymbol: "service.Service.run", AnchorSymbol: "config.enabled",
+				Source: "service.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+			fromShort: "run", toShort: "enabled", fromFull: "service.Service.run", toFull: "config.enabled",
+			match: func(rows []types.EvidenceItem, from, to string) bool {
+				return diagramLogicalRelationEdgeHasTypedEvidence(rows, from, to, types.DiagramRelGuard)
+			},
+			shorten: func(ev *types.EvidenceItem) {
+				ev.Subject, ev.OwnerSymbol, ev.AnchorSymbol = "run", "run", "enabled"
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !tc.match([]types.EvidenceItem{tc.evidence}, tc.fromShort, tc.toShort) {
+				t.Fatalf("one uniquely qualified typed relation must authorize its short presentation")
+			}
+
+			ambiguous := tc.evidence
+			ambiguous.ID = "ambiguous-owner"
+			ambiguous.Source = "other/source"
+			ambiguous.LineStart++
+			ambiguous.Subject = "other.Owner." + tc.fromShort
+			ambiguous.OwnerSymbol = ambiguous.Subject
+			if tc.match([]types.EvidenceItem{tc.evidence, ambiguous}, tc.fromShort, tc.toShort) {
+				t.Fatalf("same-tail source identities under different owners must fail closed")
+			}
+
+			shortEvidence := tc.evidence
+			tc.shorten(&shortEvidence)
+			if tc.match([]types.EvidenceItem{shortEvidence}, tc.fromFull, tc.toFull) {
+				t.Fatalf("short typed evidence must not mint qualified diagram owners")
+			}
+		})
+	}
+}
+
 func diagramEvidenceTestDefinition(owner, operation, source string, line int) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              "ev-def-" + owner + "-" + operation,
