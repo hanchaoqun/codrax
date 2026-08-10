@@ -2465,3 +2465,24 @@ U2-3 evaluator 阶段车道权威 pin 绑 stage_binding.go 压缩源码子串(�
 状态：`M6-U3-1=batch1-implemented/full-suite-pass`；
 `M6-U3-2=batch1-implemented/full-suite-pass`；`M6-U1-1=batch2-next`；
 `raw-prose-new-hard-gate=none`；`model-answer-rewrite=none`；Trace/read/write/data=`unmodified`。
+
+#### 批 2：M6-U1-1 错算式选择器独立 e2e 收账
+
+§11 的否证结论准确：§10.11 虽声称已有“错误算式 e2e”，原测试的
+`20.000+30.000+64.940=114.940ms` 每个操作数都命中 typed 三位值，删掉 equation-shape 臂仍会由
+exact-value 臂选中，因而不能证明裁定的错算式车道存在。
+
+本批新增 production-root e2e：模型块只含内部自洽但与 typed 账完全不同的
+`82.1 + 9.1 = 91.2ms`。fixture 先断言不含账户的任何三位值，再经真实 Trace 投影物化与
+`collectSystemCrossCheckFindings` 发布路径，要求 appendix 出现带 `[E#]` 的 typed 全窗状态账户；同时断言
+模型/系统块字节不变，发射行不复制 `82.1/9.1/91.2`，也不出现“模型/错误/不符”等评判词。这样 equation
+只决定“是否并置”，subject、数值、关系与 locator 仍全部来自已发布 typed projection。
+
+对 §10.11 末尾“错误算式 e2e 已交付”的历史表述作此追加更正：它在本批之前是误记，本批测试才构成该项
+可删除性证明。未新增 violation/retry/hard gate，也未修改模型正文。
+
+验证：定向 `go test ./internal/orchestrator -run 'TestTypedReconciliation' -count=1` 与
+`go test ./... -count=1` 全绿；其中 `internal/orchestrator` 20.794s、`internal/tool` 196.133s、
+`internal/tracequery` 88.706s。
+
+状态：`M6-U1-1=closed/full-suite-pass`；`MERGE-AUDIT-6=closed`。

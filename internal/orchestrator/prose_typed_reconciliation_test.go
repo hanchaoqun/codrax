@@ -81,6 +81,44 @@ func TestTypedReconciliationPublishesNeutralEvidenceBackedRows(t *testing.T) {
 	}
 }
 
+func TestTypedReconciliationWrongEquationShapeAloneSelectsTypedAccount(t *testing.T) {
+	// None of these model-authored operands is an exact three-decimal value
+	// from the typed account assembled by typedReconciliationHarness. This
+	// therefore pins the equation-shape selector itself instead of accidentally
+	// passing through the exact-value selector arm.
+	prose := "状态估算 82.1 + 9.1 = 91.2ms。"
+	for _, typedFace := range []string{"20.000", "30.000", "64.940", "114.940"} {
+		if strings.Contains(prose, typedFace) {
+			t.Fatalf("fixture accidentally contains typed exact value %q", typedFace)
+		}
+	}
+
+	o, shipped := typedReconciliationHarness(t, prose)
+	before, _ := json.Marshal(shipped)
+	lines := o.collectSystemCrossCheckFindings()
+	after, _ := json.Marshal(o.busCtx.Mutable.AnswerDocumentV2())
+	if string(before) != string(after) {
+		t.Fatalf("equation selector must not mutate model/system blocks")
+	}
+
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"对账参考:",
+		"running 20.000ms + runnable 30.000ms + sleep 64.940ms",
+		"= 114.940ms(分析窗 114.940ms)",
+		"[E",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("wrong-equation shape did not select neutral typed account %q:\n%s", want, joined)
+		}
+	}
+	for _, forbidden := range []string{"82.1", "9.1", "91.2", "模型", "错误", "不符"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("published row copied or judged noisy prose token %q:\n%s", forbidden, joined)
+		}
+	}
+}
+
 func TestTypedReconciliationSelectorsNeverEmitModelClaimText(t *testing.T) {
 	row := tool.RuntimeTraceReconciliationRow{
 		Kind: tool.RuntimeTraceReconciliationRankOne, Subject: "typed-worker-7",

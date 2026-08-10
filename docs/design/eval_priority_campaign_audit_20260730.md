@@ -29678,3 +29678,19 @@ exact-two：`trace_query_core_topology_supply` 与 `patch_c_typo`，同一封存
 状态：`M6-U3-1=implemented/full-suite-pass`；
 `M6-U3-2=implemented/full-suite-pass`；`M6-U1-1=batch2-next`；
 `endpoint-authority=typed-exact-or-unique-short/same-row/same-direction`；`raw-prose-hard-gate=none`。
+
+### 123.465 MERGE-AUDIT-6 批 2：错算式 selector 的决定性 production pin
+
+复核确认原中性并置 e2e 只覆盖正确算式，且其四个数均直接命中 typed 三位值；因此删除
+`proseFactEquationRE` 选择臂仍会全绿，§10.11 的“错误算式 e2e”交付声明不成立。
+
+新增用例使用 `82.1 + 9.1 = 91.2ms`，与投影账户的 `20.000/30.000/64.940/114.940` 全部不匹配，经过
+真实 projection materialization → shipped document → production cross-check collector，验证仅 equation
+shape 决定展示 typed 对账行。发射内容仍只来自 typed row 并带 `[E#]`；模型/系统块保持字节不变；噪声
+操作数与评判词均不得进入系统行。该 pin 证明的是既裁软选择器，不把模型算式升级为事实，也不参与硬拒、
+重试或正文替写。
+
+验证：定向 reconciliation 测试与 `go test ./... -count=1` 全绿。
+
+状态：`M6-U1-1=closed/full-suite-pass`；`MERGE-AUDIT-6=closed`；
+`model-conclusion-owner=unchanged`；`raw-prose-hard-gate=none`；Trace explicit-window/causal projection=`unchanged`。
