@@ -29906,3 +29906,39 @@ enumeration_status=incomplete` 约束压缩诚实性，退役固定 `0.105` 微�
 
 状态：`U2-3/U5-1/U6-1=implemented`；`U2-4/U5-2/U7-1=no-change-after-audit`；
 `B445/B448/B450=pending-production-replay`。
+
+### 123.475 r263：first-missing producer 被 deterministic auxiliary fallback 饿死；读模式图通过但需求缩水
+
+严格并行 `data_multifile_reference_projection + qf_logic_view_read_pipeline` 得到 runner `1 PASS / 1 FAIL`；逐份读取终端状态、
+18 轮 checkpoint、成文拒绝和最终答案后，人工结论为 `0/2`。
+
+#### EVAL-B451-DATAFIRSTPRODUCER1（P0，确认）
+
+data 状态从首批结束到预算耗尽始终精确报告：`ledger_graph.first_missing=contributions`，唯一 producer 为
+`compute_contributions`，reconcile/final projection 均被它阻塞。实际控制流却在 `dataTaskPostResultDecisionWithRepo` 中先构造
+`next_stage` deterministic fallback，并在找到任意 executable scaffold 后跳过 evaluator 与 continuation planner。通用
+`compute_contributions` scaffold 因参数必须由模型从 typed fields 中选择而诚实地保持 `executable=false`；排序器随后选择
+normalize/apply/mapping/join/value_distribution。每个辅助动作又产生新 alias，使 action idempotency key 不同，最终 18 轮、
+22 个 consumed artifact、12 条 resolution、0 contribution 后仍因同一 first-missing 失败。
+
+这不是 B450 的“family 在 transport budget 中消失”旧因：compute family 已在场，但 post-result 自动执行权把“可执行”误当作
+“能推进首个缺失账本”。最优根修冻结为：post-result 只可自动派发与 exact first-incomplete ledger `produces_actions` 同 kind 的
+deterministic plan；辅助 schema/关系/分布动作即使可执行，也必须回到 evaluator/continuation planner，由模型基于 typed
+violation、artifact graph 与 scaffold 选择参数。reconcile、assemble、derive-rules 等精确 producer 快车道保持不变。
+
+#### EVAL-B452-STAGEDIAGRAMAUTH1 / EVAL-B453-ANALYZERPROVENANCE1（P1，确认）
+
+QF runner 以 3 条 Mermaid edge 签绿，但 Finalizer 前四稿均因 relation anchor 不闭合被拒；第五稿只保留
+`StageAnalyze -> StageExplore -> StageExtract -> StageFinalize` 并给出 `precedence` anchors 后通过。用户明确要求的
+`Mutable/BusContext` 数据流在最终图中全部消失，现有 `mermaid_edge_count` oracle 没发现需求缩水。正文还把 Analyzer 描述为
+“所有输出均来自 LLM”：实际是模型完成请求分类/结构化分析，TaskGraph、EvidencePlan、hypotheses、quality gate 由确定性
+analysis 子包构造。
+
+处置原则：不对答案 prose 新增硬门；补 typed stage/BusContext relation recipe 与软教学，让模型能直接消费已有结构权威；
+case 改钉所请求的 BusContext/Mutable 图参与者和关系覆盖，而非只数任意边。Analyzer provenance 通过精确上下文分层纠正，
+不由系统改写最终正文。
+
+状态：`B451=P0-audited/next-batch`；`B452/B453=P1-audited/after-B451`；
+`B450=production-replay-failed/superseded-by-B451`；`r263-human=0/2`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

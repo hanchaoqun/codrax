@@ -2619,3 +2619,18 @@ EMITBURN normalize 汇总均保持。系统不自动生成 note/ref，不删除 
 
 状态：`U6-1=batch2-implemented/targeted-tool-pass`；`member-row-verdict=unchanged`；
 `model-authored-facts=preserved`；`raw-prose-hard-gate=none`。
+
+### §11.10 r263 production 复核：§11 顾问批关闭，B450 后继控制权 GAP 新立案
+
+§11.3 六项已经按 §11.9 的裁定完成施工/否证；定向 agent/tool 与全相关包测试通过。随后 exact-two production 回放没有发现
+§11 修复回归，但证明 B450 只修复了 scaffold transport 可见性，没有关闭执行控制权：首个缺失账本明确为 contributions、唯一
+producer 明确为 `compute_contributions` 时，post-result deterministic fallback 仍可连续执行不生产该账本的 auxiliary actions，
+并靠新 artifact alias 逃过 action-key 去重直至耗尽 18 轮。
+
+新立 `EVAL-B451-DATAFIRSTPRODUCER1/P0`：自动快车道必须由 exact `ledger_graph.first_missing + produces_actions` 授权；不匹配的
+可执行 scaffold 只能作为模型的 typed 候选，不能由系统自行接管。QF 并行件另立两个 P1：最终 Mermaid 删除用户要求的
+BusContext/Mutable 数据流仍被 runner 签绿，以及 Analyzer 的 model/deterministic provenance 上下文混写。详细证据见 eval campaign
+§123.475 与 r263 manual audit。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B451=P0-next-batch`；`B452/B453=P1-queued`；
+`B450=production-replay-failed`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
