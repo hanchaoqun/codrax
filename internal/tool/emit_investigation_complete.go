@@ -2101,6 +2101,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	aggregateStart := time.Now()
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
+	if repair := pendingBlockingEmitEvidenceItemValidationRepair(ctx); repair != nil {
+		// A required typed relation row was locally rejected by the latest
+		// emit_evidence call. Do not count a completion attempt made before that
+		// exact item repair as flow no-progress: the failure is structurally
+		// repairable and has not yet entered the evidence buffer. A later
+		// successful emit_evidence call naturally supersedes this latch.
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   "emit_investigation_complete rejected: the latest emit_evidence call has an unresolved schema-invalid item required by the typed relation answer. " + repair.Hint,
+			Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
+			Success:   true,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
 	if err != nil {
 		summary := fmt.Sprintf("emit_investigation_complete rejected: %v", err)
@@ -3012,6 +3026,45 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func pendingBlockingEmitEvidenceItemValidationRepair(ctx *types.BusContext) *types.ToolRepair {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	results := ctx.Mutable.DispatchToolResults()
+	for i := len(results) - 1; i >= 0; i-- {
+		result := results[i]
+		if types.CanonicalToolName(result.ToolName) != "emit_evidence" {
+			continue
+		}
+		if result.Repair == nil || result.Repair.Code != types.ToolRepairCodeEvidenceItemValidation ||
+			result.Repair.Metadata == nil || result.Repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired ||
+			result.Repair.Metadata["completion_blocking"] != "true" {
+			return nil
+		}
+		return cloneEmitInvestigationToolRepair(result.Repair)
+	}
+	return nil
+}
+
+func cloneEmitInvestigationToolRepair(in *types.ToolRepair) *types.ToolRepair {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Fields = append([]string(nil), in.Fields...)
+	out.Targets = append([]types.ToolRepairTarget(nil), in.Targets...)
+	for i := range out.Targets {
+		out.Targets[i].Lines = append([]int(nil), in.Targets[i].Lines...)
+	}
+	if in.Metadata != nil {
+		out.Metadata = make(map[string]string, len(in.Metadata))
+		for key, value := range in.Metadata {
+			out.Metadata[key] = value
+		}
+	}
+	return &out
 }
 
 func appendPrincipalSpanWaiverCompletionNote(ctx *types.BusContext) {

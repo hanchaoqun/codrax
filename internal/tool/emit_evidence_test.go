@@ -2878,6 +2878,100 @@ func TestRenderEmitSummary_SplitsCurrentBatchFromCumulativeAudit(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_PartialValidationFailureReturnsExactTypedRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{
+			Kind:     types.DiagramArchitecture,
+			Required: true,
+		},
+	}}
+	seedReadFileHistory(ctx, "internal/demo.go", 1,
+		"func Valid() {",
+		"  BuildContext()",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"scope":"line","evidence_kind":"direct","source":"internal/demo.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"Valid","summary":"valid sibling"},
+          {"scope":"line","evidence_kind":"relationship","subject":"Valid","predicate":"calls","object":"BuildContext","source":"internal/demo.go","anchor_kind":"call","anchor_symbol":"BuildContext","summary":"missing only line_start"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation {
+		t.Fatalf("partial validation failure must keep valid siblings and return typed repair: %+v", res)
+	}
+	if got := res.Repair.Metadata["repair_status"]; got != types.ToolRepairStatusActionRequired {
+		t.Fatalf("repair_status=%q, want action_required", got)
+	}
+	if got := res.Repair.Metadata["completion_blocking"]; got != "true" {
+		t.Fatalf("completion_blocking=%q, want true for required typed relation diagram", got)
+	}
+	if len(res.Repair.Fields) != 1 || res.Repair.Fields[0] != "items[1].line_start" {
+		t.Fatalf("repair fields=%v, want exact rejected field", res.Repair.Fields)
+	}
+	if strings.Contains(res.Summary, "Current actionable repair targets: none") ||
+		!strings.Contains(res.Summary, "Current actionable repair targets: items[1].line_start") {
+		t.Fatalf("summary must not contradict the typed validation repair:\n%s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorSymbol != "Valid" {
+		t.Fatalf("accepted sibling should persist exactly once: %+v", got)
+	}
+}
+
+func TestEmitEvidence_AllInvalidItemsReturnTypedRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope":"line","evidence_kind":"relationship","subject":"A","predicate":"calls","object":"B","source":"internal/demo.go","anchor_kind":"call","anchor_symbol":"B"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation {
+		t.Fatalf("all-invalid batch must fail loud with typed local repair: %+v", res)
+	}
+	if len(res.Repair.Fields) != 1 || res.Repair.Fields[0] != "items[0].line_start" {
+		t.Fatalf("repair fields=%v, want exact rejected field", res.Repair.Fields)
+	}
+}
+
+func TestEmitEvidence_OptionalInvalidRelationDoesNotBlockCompletion(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{
+			Kind:     types.DiagramArchitecture,
+			Required: false,
+		},
+	}}
+	params := json.RawMessage(`{
+        "items": [
+          {"scope":"line","evidence_kind":"relationship","subject":"A","predicate":"calls","object":"B","source":"internal/demo.go","anchor_kind":"call","anchor_symbol":"B"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation {
+		t.Fatalf("optional malformed item should still receive a local repair: %+v", res)
+	}
+	if got := res.Repair.Metadata["completion_blocking"]; got != "" {
+		t.Fatalf("optional relation evidence must not create completion debt, got %q", got)
+	}
+}
+
 func TestRenderEmitSummary_ListsOnlyCurrentActionableRepairTargets(t *testing.T) {
 	current := []types.EvidenceItem{
 		{

@@ -572,6 +572,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	//       envelope with ALL reasons, not a trickle of per-item notes.
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
+	validationRepairFields := make([]string, 0)
+	validationRepairBlocksCompletion := false
 	softSkippedItems := make([]string, 0)
 	externalObservationSkippedItems := make([]string, 0)
 	absenceCompletionRejectedItems := make([]string, 0)
@@ -617,6 +619,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			}
 			rejection := fmt.Sprintf("items[%d]: %v", i, perr)
 			rejectedItems = append(rejectedItems, rejection)
+			validationRepairFields = append(validationRepairFields,
+				emitEvidenceValidationRepairFields(in, i, perr)...)
+			validationRepairBlocksCompletion = validationRepairBlocksCompletion ||
+				emitEvidenceValidationFailureBlocksCompletion(ctx, in)
 			if emitEvidenceAbsenceCompletionRepairApplies(in) {
 				absenceCompletionRejectedItems = append(absenceCompletionRejectedItems, rejection)
 			}
@@ -683,14 +689,15 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		}, nil
 	}
 	if len(built) == 0 {
+		validationRepair := buildEmitEvidenceItemValidationRepair(
+			rejectedItems, validationRepairFields, validationRepairBlocksCompletion)
 		if len(rejectedItems) > 0 && len(absenceCompletionRejectedItems) == len(rejectedItems) {
 			return failEmitWithRepair(t.Name(), now, emitEvidenceAbsenceCompletionRepair(),
 				"no valid items after per-item validation:\n%s",
 				strings.Join(rejectedItems, "\n"))
 		}
-		return failEmit(t.Name(), now,
-			"no valid items after per-item validation:\n%s",
-			strings.Join(rejectedItems, "\n"))
+		return failEmitWithRepair(t.Name(), now, validationRepair,
+			"no valid items after per-item validation:\n%s", strings.Join(rejectedItems, "\n"))
 	}
 
 	// Synchronous grounding. Each item is validated against the
@@ -930,7 +937,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	allEvidence := ctx.Mutable.EmittedEvidence()
 	summary := ""
 	if len(built) > 0 {
-		summary = renderEmitSummary(ctx, built, reports, allEvidence)
+		summary = renderEmitSummary(ctx, built, reports, allEvidence, validationRepairFields...)
 	} else if len(duplicateItems) > 0 {
 		summary = renderEmitEvidenceDuplicateNoopSummary(duplicateItems, allEvidence)
 	}
@@ -996,6 +1003,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		summary = b.String()
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
+	if validationRepair := buildEmitEvidenceItemValidationRepair(
+		rejectedItems, validationRepairFields, validationRepairBlocksCompletion); validationRepair != nil {
+		// A skipped decoded item never entered the buffer, so line-grounding
+		// repair construction cannot see it. Keep that local schema debt as the
+		// current action-required repair; accepted siblings stay committed and
+		// need not be re-emitted.
+		repair = validationRepair
+	}
 	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired) {
 		if surfaceReview != nil {
 			repair = surfaceReview
@@ -4516,7 +4531,7 @@ func emitEvidenceDuplicateNoopRepair(count int) *types.ToolRepair {
 // audit tally so the LLM sees cumulative state across multiple
 // emit_evidence calls without mistaking stale covered rows for work
 // that requires a full consolidated re-emit.
-func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report, allEvidence []types.EvidenceItem) string {
+func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report, allEvidence []types.EvidenceItem, validationRepairFields ...string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_evidence accepted %d item(s)\n\n", len(items))
 	for i, it := range items {
@@ -4579,14 +4594,22 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		batch.grounded, batch.recovered, batch.ungrounded)
 	fmt.Fprintf(&b, "Evidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
-	if len(currentTargets) == 0 {
+	validationRepairFields = uniqueEmitEvidenceRepairFields(validationRepairFields)
+	if len(currentTargets) == 0 && len(validationRepairFields) == 0 {
 		fmt.Fprintf(&b, "Current actionable repair targets: none. ")
 		if batch.recovered > 0 || batch.ungrounded > 0 {
 			b.WriteString("Current non-grounded rows were recovered, covered by grounded siblings, or marked non-actionable. ")
 		}
-	} else {
+	} else if len(currentTargets) > 0 {
 		fmt.Fprintf(&b, "Current actionable repair targets: %s. Treat these as audit candidates: repair them when current source confirms the row; if the line proves stale or wrong-file, emit a grounded replacement or omit the row before widening scope. ",
 			renderToolRepairTargetsInline(currentTargets, 3, 4))
+		if len(validationRepairFields) > 0 {
+			fmt.Fprintf(&b, "Skipped-item schema repair fields: %s. Re-emit only those skipped item(s); accepted siblings are already committed. ",
+				strings.Join(validationRepairFields, ", "))
+		}
+	} else {
+		fmt.Fprintf(&b, "Current actionable repair targets: %s. Re-emit only the skipped item(s) with these exact schema fields corrected; accepted siblings are already committed. ",
+			strings.Join(validationRepairFields, ", "))
 	}
 	b.WriteString("Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")
 	if audit.recovered != 0 || audit.ungrounded != 0 || auditOnly != 0 {
@@ -4601,6 +4624,149 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
 	}
 	return b.String()
+}
+
+func buildEmitEvidenceItemValidationRepair(rejections, fields []string, completionBlocking bool) *types.ToolRepair {
+	fields = uniqueEmitEvidenceRepairFields(fields)
+	if len(rejections) == 0 || len(fields) == 0 {
+		return nil
+	}
+	metadata := map[string]string{
+		"repair_status":  types.ToolRepairStatusActionRequired,
+		"repair_scope":   "item_validation",
+		"repair_stage":   "explorer",
+		"rejected_count": strconv.Itoa(len(rejections)),
+	}
+	if completionBlocking {
+		metadata["completion_blocking"] = "true"
+	}
+	return &types.ToolRepair{
+		Code: types.ToolRepairCodeEvidenceItemValidation,
+		Hint: fmt.Sprintf(
+			"Correct only the rejected emit_evidence item field(s) %s and re-emit those item(s). Valid siblings were already accepted; do not rebuild the whole evidence batch. Validation reasons: %s",
+			strings.Join(fields, ", "), strings.Join(rejections, "; ")),
+		Fields:   fields,
+		Metadata: metadata,
+	}
+}
+
+// emitEvidenceValidationRepairFields converts producer-owned validation
+// branches into exact JSON paths. Matching the internal validation error is
+// safe here: the text is generated by buildEmitEvidenceItem, not supplied by
+// the request or model prose. The original invalid value is never guessed or
+// repaired by the system.
+func emitEvidenceValidationRepairFields(in emitEvidenceItem, index int, err error) []string {
+	prefix := fmt.Sprintf("items[%d].", index)
+	if err == nil {
+		return []string{strings.TrimSuffix(prefix, ".")}
+	}
+	msg := err.Error()
+	var fields []string
+	add := func(field string) {
+		fields = append(fields, prefix+field)
+	}
+	switch {
+	case strings.Contains(msg, "scope is required"):
+		add("scope")
+	case strings.Contains(msg, "evidence_kind"):
+		add("evidence_kind")
+	case strings.Contains(msg, "source is required") || strings.Contains(msg, "does not look like a repo-relative file path") || strings.Contains(msg, "tool-output blob"):
+		add("source")
+	case strings.Contains(msg, "scope=line requires line_start"):
+		add("line_start")
+	case strings.Contains(msg, "line_end") && strings.Contains(msg, "line_start"):
+		add("line_start")
+		add("line_end")
+	case strings.Contains(msg, "section_path"):
+		add("section_path")
+	case strings.Contains(msg, "scope=file must have line_start"):
+		add("line_start")
+	case strings.Contains(msg, "file_role_label"):
+		add("file_role_label")
+	case strings.Contains(msg, "crossfile_query with at least"):
+		add("crossfile_query.files")
+	case strings.Contains(msg, "crossfile_query.files capped"):
+		add("crossfile_query.files")
+	case strings.Contains(msg, "crossfile_query.pattern"):
+		add("crossfile_query.pattern")
+	case strings.Contains(msg, "crossfile_assertion"):
+		add("crossfile_assertion.kind")
+	case strings.Contains(msg, "negative_query.section"):
+		add("negative_query.section")
+	case strings.Contains(msg, "negative_query"):
+		add("negative_query")
+	case strings.Contains(msg, "negative_scope"):
+		add("negative_scope")
+	case strings.Contains(msg, "relationship items require object"):
+		add("object")
+	case strings.Contains(msg, "registration items require both subject and object"):
+		add("subject")
+		add("object")
+	case strings.Contains(msg, "conditional items require scope=line and anchor_kind=condition"):
+		add("scope")
+		add("anchor_kind")
+	case strings.Contains(msg, "conditional items require the exact non-empty condition"):
+		add("condition")
+	case strings.Contains(msg, "anchor_kind"):
+		add("anchor_kind")
+	case strings.Contains(msg, "anchor_symbol"):
+		add("anchor_symbol")
+	case strings.Contains(msg, "context_role_hint"):
+		add("context_role_hint")
+	case strings.Contains(msg, "diagram_role_hint"):
+		add("diagram_role_hint")
+	case strings.Contains(msg, "salience="):
+		add("salience")
+	case strings.Contains(msg, "load_bearing_summary=true requires"):
+		add("summary")
+	default:
+		// Keep the repair local even when a future validator adds a new
+		// branch before this mapper is extended. The item path is precise and
+		// prevents a misleading "no actionable target" result.
+		fields = append(fields, strings.TrimSuffix(prefix, "."))
+	}
+	return uniqueEmitEvidenceRepairFields(fields)
+}
+
+func uniqueEmitEvidenceRepairFields(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, field := range in {
+		field = strings.TrimSpace(field)
+		if field == "" || seen[field] {
+			continue
+		}
+		seen[field] = true
+		out = append(out, field)
+	}
+	return out
+}
+
+func emitEvidenceValidationFailureBlocksCompletion(ctx *types.BusContext, in emitEvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		!types.PredicateAxisRequiresDiagramEdgeOwnership(rm.PredicateAxis) {
+		return false
+	}
+	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyString([]string{in.EvidenceKind, in.LegacyKind})))
+	switch types.EvidenceKind(kind) {
+	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceConditional:
+	default:
+		return false
+	}
+	anchor, ok := findAnchorKind(strings.ToLower(strings.TrimSpace(in.AnchorKind)))
+	if !ok {
+		// A relation-shaped row whose anchor kind itself is malformed is still
+		// load-bearing for a required typed relation diagram.
+		return true
+	}
+	return types.PredicateAxisHasMatchingAnchor(rm.PredicateAxis, types.EvidenceItem{AnchorKind: anchor})
 }
 
 type emitEvidenceGroundingTally struct {

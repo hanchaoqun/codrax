@@ -2756,3 +2756,20 @@ B453 的系统阶段补表已确认不再出现，但 current-run stage authorit
 `B452=production-replay-failed/blocked-by-B456`；`B453=partial/blocked-by-B457`；
 `B456=P0-next`；`B457=P1-after-B456`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.9 B456 独立批完成：skipped evidence item 不再从 repair ledger 消失
+
+对 r266 witness 冷读确认：`emit_evidence` 的合法 sibling 已正常入库，唯一断层是 schema-invalid relationship item 在 per-item
+validation 后消失，summary 又宣称无修复目标；因此本批没有放宽关系证据合同，而是在原拒绝点生成局部 typed repair。
+
+新增 `evidence_item_validation` repair code，精确携带 `items[N].field`、拒绝数量、stage/scope 与 action-required 状态；字段路径来自
+producer-owned validation branch，未知新分支退守 item path。required typed relation diagram 才附加 completion debt，optional/普通证据
+不会阻断。completion 读取最新 `emit_evidence` repair，保留修复机会且不把它记为 no-progress；成功重发立即清账。系统不猜字段值、
+不从 participant 铸边、不扫描 request/model prose、不补写最终答案。
+
+新增 partial/all-invalid/optional/completion-clear 五类断言；tool/types 包与全仓测试全绿。B456 等待同 case production replay，B452 的
+participant 补证需在该 replay 中一并复核；B457 仍是下一独立批。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B456=implemented/full-suite-pass/pending-production-replay`；
+`B452=pending-replay-after-B456`；`B457=next`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

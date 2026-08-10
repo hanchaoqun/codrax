@@ -185,6 +185,47 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 	}
 }
 
+func TestEmitInvestigationComplete_BlocksOnLatestRequiredEvidenceItemValidationRepair(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Repair: &types.ToolRepair{
+			Code:   types.ToolRepairCodeEvidenceItemValidation,
+			Hint:   "correct items[1].line_start",
+			Fields: []string{"items[1].line_start"},
+			Metadata: map[string]string{
+				"repair_status":       types.ToolRepairStatusActionRequired,
+				"completion_blocking": "true",
+			},
+		},
+	})
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation ||
+		ctx.Mutable.IsInvestigationComplete() {
+		t.Fatalf("completion must preserve the unresolved local evidence repair without closing: %+v", res)
+	}
+	if got := ctx.Mutable.EvidenceClosure().Stats().PreCompleteDowngrades; got != 0 {
+		t.Fatalf("unresolved schema repair must not count as flow no-progress, got %d", got)
+	}
+
+	// A later successful emit_evidence result supersedes the local latch. The
+	// ordinary flow-operation gate should then run instead of replaying stale
+	// item-validation debt.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "emit_evidence", Success: true})
+	res, err = tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute after successful re-emit: %v", err)
+	}
+	if res.Repair == nil || res.Repair.Code != "flow_operation_carrier_evidence" {
+		t.Fatalf("latest successful re-emit must clear the validation latch and restore the normal gate: %+v", res)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageClosesAfterIncidentOperation(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

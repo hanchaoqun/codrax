@@ -30127,3 +30127,27 @@ TaskGraph/EvidencePlan/AnswerContract 含混描述为 Analyzer LLM 的输出。�
 `B453=partial/system-supplement-closed/prompt-reach-pending-B457`；`B456=P0-next`；`B457=P1-after-B456`；
 `B454=pending-targeted-production-witness`；`raw-request/model-answer-prose-hard-gate=none`；`system-answer-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### B456 批次施工：schema-invalid evidence item 形成局部 typed repair debt
+
+r266 的关系补证并非缺少源码事实，而是 `emit_evidence` 在批内接受合法 sibling、跳过缺 `line_start` 的 relationship item 后，
+既没有结构化 repair，也在 summary 中宣称 `Current actionable repair targets: none`。随后 completion 只能把这次可修复提交误计为
+flow no-progress。现按证据生产边界根修：
+
+1. 每个 per-item validation failure 都转换为稳定的 `evidence_item_validation` ToolRepair，携带精确
+   `items[N].field` 路径、拒绝数和 validation reasons；合法 sibling 已提交且不得要求整批重发。
+2. 字段映射只读取 `buildEmitEvidenceItem` 自产的 validation branch，不扫描用户请求、模型 thinking/final prose，也不猜写缺失值。
+   新增 validator 分支尚未映射时 fail-safe 到精确 item path，不再产生“无 actionable target”的假绿。
+3. 只有 `DiagramHint.Required + typed relation predicate axis + relationship/registration/conditional item` 的合取才标记
+   `completion_blocking=true`。普通 direct item、optional diagram 或非关系证据仍只得到局部 repair，不会扩大 completion 硬门。
+4. `emit_investigation_complete` 只读取最新一条 `emit_evidence` 的 typed repair；未修复时原样返回给 Explorer且不消耗
+   flow no-progress 配额，后续成功重发会自然覆盖该 latch。系统不补 field、不铸 relation、不改答案。
+5. summary 同时存在 grounding target 与 schema target 时并列披露，避免返回 repair 与人类可见摘要再次冲突。
+
+验证：新增 partial batch（合法 sibling 保留 + 精确 `items[1].line_start`）、all-invalid fail-loud、optional relation 不阻断、
+required relation completion latch 及后续成功重发清账 pin；`go test ./internal/tool -count=1`、`go test ./internal/types -count=1`
+与 `go test ./... -count=1` 全绿。
+
+状态：`B456=implemented/full-suite-pass/pending-production-replay`；`B452=pending-replay-after-B456`；
+`B457=next-batch`；`raw-request/model-prose-hard-gate=none`；`system-field/edge/answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

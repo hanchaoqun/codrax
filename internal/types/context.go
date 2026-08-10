@@ -6569,9 +6569,14 @@ const (
 	// This is internal retry guidance, never edge evidence or answer content.
 	ToolRepairMetaDiagramRelationFailurePairs = "diagram_relation_failure_pairs"
 
-	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
-	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"
-	ToolRepairCodeEvidenceLineTextRepair               = "evidence_line_text_repair"
+	ToolRepairCodeReadFilePathMissing     = "read_file_path_missing"
+	ToolRepairCodeReadFilePathIsDirectory = "read_file_path_is_directory"
+	ToolRepairCodeEvidenceLineTextRepair  = "evidence_line_text_repair"
+	// ToolRepairCodeEvidenceItemValidation marks one or more decoded
+	// emit_evidence items that were locally rejected before they could enter
+	// the evidence buffer. The repair carries exact JSON item/field paths; it
+	// never asks downstream consumers to infer the failed field from Summary.
+	ToolRepairCodeEvidenceItemValidation               = "evidence_item_validation"
 	ToolRepairCodeEvidenceExternalObservationToClosure = "evidence_external_observation_to_closure"
 	ToolRepairCodeEvidenceAbsenceToCompletion          = "evidence_absence_to_completion"
 
