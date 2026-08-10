@@ -2665,3 +2665,19 @@ workflow snapshot/journal/guard 边界深拷贝，避免 live state 被后续修
 
 状态：`MERGE-AUDIT-6/§11=closed`；`B454=implemented/pending-production-replay`；`B452/B453=queued`；
 `model-answer-rewrite=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.4 r265：§11 继续关闭；独立 deferred-prefix 终态误判立案
+
+r265 exact-two 没有重开 §11 的任何已关闭项。data 得到正确 `17,0,5` 和完整 rule/decision/contribution/reconcile/final projection，
+但 B454 的 generated-status carrier 本轮未触发，继续等待目标分支 witness。
+
+新发现 `EVAL-B455-DATADEFERREDPREFIXTERMINAL1/P1` 属于 §11 之外的 workflow 控制流：typed dependency split 已保存 deferred
+suffix，执行 prefix 却保留 terminal `ContinueAfter=false`，于是中间 join/filter 成功结果被完整终态 ledger validator 判为 contributions
+缺失并送修。该 gap 解释 12 batch、5 repair、502s 的主要 churn；后续只修 typed intermediate/terminal authority，不放宽最终 ledger、
+reconcile 或 answer gate。
+
+并行 QF 再次确认 B452/B453，runner 任意边 oracle 仍无法识别主数据流被删和 Analyzer provenance 混写。处置顺序维持
+B452/B453 后 B455；§11 审计本身保持关闭。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B454=pending-targeted-production-witness`；
+`B452/B453=next-batch`；`B455=queued`；`model-answer-rewrite=none`；`raw-prose-hard-gate=none`。

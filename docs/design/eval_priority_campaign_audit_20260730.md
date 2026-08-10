@@ -30001,3 +30001,28 @@ journal 和 completion projection 全部深拷贝；新增 alias-mutation pin �
 
 状态：`B454=implemented/full-suite-pass/pending-production-replay`；`B452/B453=next-batch`；
 `typed-value-locator-separation=closed-by-construction`；`system-business-decision=none`；`model-answer-rewrite=none`。
+
+### 123.477 r265：data 终值正确但 deferred prefix 被终态合同误判；QF 连续第三次假绿
+
+严格并行同一 `data_multifile_reference_projection + qf_logic_view_read_pipeline`，runner 为 `PASS/PASS`，人工为
+`PASS/FAIL`（502s/343s）。
+
+data 最终产出精确单行 `17,0,5`，四份材料、14 条 rule coverage、9 条 decisions、4 条 contributions、reconcile=pass、
+complete reference projection 与 terminal audit 均闭合；B451 的 producer-bound 控制权继续生效。但本轮未触发 B454 的 generated
+`*_status` failure，日志没有 `observed_field_values/repair_params` production witness，因此 B454 保持 targeted replay pending，禁止用普通
+成功路径冒充闭环。
+
+同时新立 `EVAL-B455-DATADEFERREDPREFIXTERMINAL1/P1`：initial/intra-batch dependency split 已把 suffix 存入 typed deferred queue，
+prefix 却显式保留原 terminal `ContinueAfter=false`；随后 `shouldValidateDataTaskWorkflowResult` 只看当前 plan flag，把已成功的 join/filter
+中间结果套用完整 contribution/reconcile 终态合同并送入 repair。最终虽正确，仍消耗 12 batch、5 repair、502s。根修应读取精确 deferred
+queue/split 状态，把有 suffix 的执行 prefix 标成 intermediate；最终 ledger/answer 合同、fail-closed reconcile 与业务决策权全部保持。
+
+QF 两次 relation reject 后只保留两条辅助 call edge，用户点名的四阶段与 BusContext/Mutable 数据流全部无连线；正文继续把确定性
+analysis compiler 产物归给 Analyzer LLM。B452/B453 再次确认。最优修复仍是 Explorer completion 前置 typed participant incidence
+补证和 producer provenance 分层，不放宽关系门，不扫描答案 prose，不由系统补边或改写结论。
+
+人工审计：`eval/parallel_selected_summary_evalcampaign_data_stage_r265_20260809_manual_audit.md`。
+
+状态：`B454=implemented/pending-targeted-production-witness`；`B455=P1-confirmed/after-B452-B453`；
+`B452/B453=P1-confirmed/next-batch`；`r265-human=1/2`；`raw-prose-hard-gate=none`；
+`model-answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
