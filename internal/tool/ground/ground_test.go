@@ -2356,6 +2356,125 @@ func TestGroundItem_AssignmentRejectsPureTypeAnnotationMember(t *testing.T) {
 	}
 }
 
+func TestGroundItem_ExactAssignmentTokenRejectsCrossLanguageDeclarations(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		line   string
+		anchor string
+	}{
+		{
+			name:   "go pointer field",
+			path:   "internal/agent/explorer.go",
+			line:   "\tmutable *types.MutableState",
+			anchor: "mutable",
+		},
+		{
+			name:   "java field",
+			path:   "src/main/java/demo/Explorer.java",
+			line:   "\tprivate MutableState mutable;",
+			anchor: "mutable",
+		},
+		{
+			name:   "arkts typed field",
+			path:   "entry/src/main/ets/pages/Index.ets",
+			line:   "\tprivate mutable: MutableState;",
+			anchor: "mutable",
+		},
+		{
+			name:   "cangjie typed field",
+			path:   "src/main.cj",
+			line:   "\tlet mutable: MutableState",
+			anchor: "mutable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 18, []string{tc.line}, 40),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			for _, kind := range []types.AnchorKind{types.AnchorAssignment, types.AnchorInitializer} {
+				it := &types.EvidenceItem{
+					Kind:         types.EvidenceRelationship,
+					Source:       tc.path,
+					LineStart:    18,
+					Scope:        types.ScopeLine,
+					AnchorKind:   kind,
+					AnchorSymbol: tc.anchor,
+					Subject:      "Explorer.mutable",
+					Object:       "MutableState",
+					Snippet:      tc.line,
+				}
+				rep := GroundItem(it, gc)
+				if rep.Status != types.GroundingUngrounded {
+					t.Fatalf("%s declaration grounded as %s: status=%s tier=%s note=%q",
+						tc.name, kind, rep.Status, rep.Tier, rep.Note)
+				}
+			}
+		})
+	}
+}
+
+func TestGroundItem_ExactAssignmentTokenAcceptsCrossLanguageValueFlow(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		line   string
+		anchor string
+	}{
+		{
+			name:   "go assignment",
+			path:   "internal/agent/explorer.go",
+			line:   "\tmutable := types.NewMutableState()",
+			anchor: "mutable",
+		},
+		{
+			name:   "java assignment",
+			path:   "src/main/java/demo/Explorer.java",
+			line:   "\tthis.mutable = new MutableState();",
+			anchor: "mutable",
+		},
+		{
+			name:   "arkts initializer",
+			path:   "entry/src/main/ets/pages/Index.ets",
+			line:   "\tprivate mutable: MutableState = new MutableState();",
+			anchor: "mutable",
+		},
+		{
+			name:   "cangjie initializer",
+			path:   "src/main.cj",
+			line:   "\tlet mutable: MutableState = MutableState()",
+			anchor: "mutable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 18, []string{tc.line}, 40),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Source:       tc.path,
+				LineStart:    18,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorAssignment,
+				AnchorSymbol: tc.anchor,
+				Subject:      "Explorer.mutable",
+				Object:       "MutableState",
+			}
+			rep := GroundItem(it, gc)
+			if rep.Status != types.GroundingGrounded || rep.Tier != types.TierLineText {
+				t.Fatalf("%s assignment status=%s tier=%s note=%q, want grounded/line_text",
+					tc.name, rep.Status, rep.Tier, rep.Note)
+			}
+		})
+	}
+}
+
 // TestGroundItem_Tier1AcceptsRealCodeLine is the positive control:
 // when the anchor actually lands on a code line (not a comment), Tier 1
 // should still accept it. Guards against the comment-exclusion gate

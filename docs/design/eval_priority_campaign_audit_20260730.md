@@ -30341,3 +30341,20 @@ Orchestrator 调用和四条注册边，六个请求主体仍无数据流。该�
 状态：`B461=production-closed`；`B460=production-closed`；`B462=P0-next`；`B463/B464=P1-queued`；
 `r269-runner=2/2`；`r269-human=1/2`；`raw-request/model-answer-prose-hard-gate=none`；
 `system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B462 独立批完成：typed assignment 权威必须由 value-flow 行形支撑
+
+修复落在 grounding 权威边界，而非成文 validator。`GroundItem` 的 Tier 1 统一成功出口现在对 assignment/initializer 复用既有
+`lineContainsAssignment`：精确 token 仍须同时满足 repomap assignment/member-initializer feature，或跨语言结构化 `:=`、裸 `=`、对象/复合
+member initializer 行形。`mutable *types.MutableState`、`MutableState mutable;`、`mutable: MutableState` 等纯字段/类型声明不再因名字命中升级为
+value-flow。
+
+同一谓词也进入 recovery consistency，堵住 Tier 1 拒绝后又被精确 snippet/R1-R5 恢复为 assignment 的旁路。condition 的 owner/navigation
+语义、call/callback/string literal 专门校验、配置面结构化键值与真实 assignment 保持原行为；下游 relation gate 完全未放宽。
+
+回归矩阵覆盖 Go、Java、ArkTS、Cangjie 的纯声明负例与真实赋值正例，且 assignment/initializer 两种 anchor 均受约束。
+`go test ./internal/tool/ground -count=1`、`go test ./internal/tool -count=1` 与 `go test ./... -count=1` 全绿。
+
+状态：`B462=implemented/full-suite-pass/pending-production-replay`；`B463/B464=queued`；
+`typed-token-alone-as-value-flow-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
+`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

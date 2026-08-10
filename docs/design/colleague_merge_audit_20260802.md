@@ -2886,3 +2886,12 @@ QF 仍缺关系的确定性根因是新 `EVAL-B462-TYPEDASSIGNMENTSHAPE1/P0`：�
 
 状态：`B460/B461=production-closed`；`B462=P0-next`；`B463/B464=P1-queued`；
 `raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.18 B462 完成：assignment/initializer 不再由 token 单独铸权
+
+Tier 1 与 recovery 现共享 assignment/initializer 行形校验；字段名精确命中、精确 snippet 或恢复定位都不能把纯字段/类型声明提升为
+value-flow。真实赋值与成员初始化继续由 repomap feature 或语言无关结构谓词通过。Go/Java/ArkTS/Cangjie 正负矩阵、tool 包与全仓测试全绿，
+downstream relation validator 未放宽。
+
+状态：`B462=implemented/full-suite-pass/pending-production-replay`；`B463/B464=queued`；
+`raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。

@@ -30,3 +30,9 @@ This scaffold is for human review. The runner records typed metrics and declared
 - `EVAL-B464-DIAGRAMENDPOINTALIAS1/P1`：raw identity `explorerEvaluator.mutable` 直接作为 Mermaid node id 会被点号截断，而 copy-ready alias 与 body/anchor 的同源约束未稳定到达。它与 B462 分开：先消除伪 assignment authority，再以结构化 alias 修复合法复合 identity 的表达，不能针对当前字符串打补丁。
 
 本轮未触碰 Trace 查询、显式时间窗、自动补齐、因果投影或链上根因选举。邻近/背景证据仍不得进入主因席；该约束不通过用户原文或模型答案关键词硬门实现。
+
+## Post-audit implementation
+
+- `B462=implemented/full-suite-pass/pending-production-replay`：Tier 1 统一出口与 recovery consistency 同时要求 assignment/initializer 的实际 value-flow 结构；精确 token、精确 snippet 均不能把纯声明重新授予关系权威。
+- 负例覆盖 Go pointer field、Java field、ArkTS typed field、Cangjie typed field，并对 assignment/initializer 两种 anchor 各自校验；正例覆盖四语言真实 `:=`/`=` 初始化或赋值。
+- `go test ./internal/tool/ground -count=1`、`go test ./internal/tool -count=1`、`go test ./... -count=1` 全绿。

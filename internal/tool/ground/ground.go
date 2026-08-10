@@ -454,13 +454,17 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 
 	// Tier 1: line_text via read_file gutter.
 	if matchedLine, ok := tier1LineText(it, gc); ok {
-		it.LineStart = matchedLine
-		attachGroundedLineSnippet(it, gc)
-		it.GroundingStatus = types.GroundingGrounded
-		it.GroundingTier = types.TierLineText
-		return Report{
-			ItemID: it.ID, Status: it.GroundingStatus, Tier: it.GroundingTier,
-			OriginalLine: originalLine, AdjustedLine: it.LineStart,
+		candidate := *it
+		candidate.LineStart = matchedLine
+		if lineShapeCorroboratesTypedAnchor(&candidate, gc) {
+			it.LineStart = matchedLine
+			attachGroundedLineSnippet(it, gc)
+			it.GroundingStatus = types.GroundingGrounded
+			it.GroundingTier = types.TierLineText
+			return Report{
+				ItemID: it.ID, Status: it.GroundingStatus, Tier: it.GroundingTier,
+				OriginalLine: originalLine, AdjustedLine: it.LineStart,
+			}
 		}
 	}
 
@@ -1253,6 +1257,29 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 		return recoveredCallbackAnchorConsistent(it, gc)
 	case types.AnchorStringLiteral:
 		return recoveredStringLiteralAnchorConsistent(it, gc)
+	default:
+		return lineShapeCorroboratesTypedAnchor(it, gc)
+	}
+}
+
+// lineShapeCorroboratesTypedAnchor prevents a precise identifier token from
+// granting stronger semantic authority than the cited source line carries.
+// Assignment and initializer evidence describe value flow, so a field or type
+// declaration is insufficient even when its member name matches exactly. The
+// shared syntax/repomap predicate is language-neutral and already covers Go,
+// Java-family declarations, ArkTS/TypeScript, Cangjie, C/C++ designated
+// initializers, and the other supported source surfaces.
+//
+// Other anchor kinds keep their existing specialised gates. In particular,
+// condition anchors intentionally allow an owner/navigation token near the
+// exact typed Condition line and are normalised by the emit layer.
+func lineShapeCorroboratesTypedAnchor(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorAssignment, types.AnchorInitializer:
+		return lineContainsAssignment(it, gc)
 	default:
 		return true
 	}
