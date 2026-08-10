@@ -2527,3 +2527,17 @@ exact-or-unique-short typed evidence 门。
 
 状态：`MERGE-AUDIT-6=closed`；`B448=implemented/repl-suite-pass/pending-full-suite`；
 `B447=next-batch`；`raw-prose-hard-gate=none`；`model-answer-rewrite=none`。
+
+#### B447 批次进展：exact roster 驱动源码行补读，不把 graph 直接当 citation
+
+已增加显式 typed implementer diagram authority provider。required implement diagram 中，只有 principal member_set 实际纳入的 exact graph
+candidate 才会产生精确声明行补读；同文件 direct definition 不等于 implementation edge。读后沿用 Explorer 的跨语言 RepoMap relation
+producer 铸 `repomap_implementer_relation`，Finalizer 继续只信可引用 typed edge。
+
+该实现不含语言/扩展名/类型名字面量分支，复用所有 supported-language graph carrier；无 required diagram、AxisDefine、excluded member、
+辅助 scope、缺失文件/行号均不触发。定向与全 `internal/tool` 通过。
+
+全仓 `go test ./... -count=1` 通过。
+
+状态：`B447=implemented/full-suite-pass/pending-production-replay`；
+`B448=implemented/full-suite-pass/pending-production-replay`；`model-answer-rewrite=none`。

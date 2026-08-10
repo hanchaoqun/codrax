@@ -29773,5 +29773,30 @@ exact-two 复放 `qf_type_relation_loop_controller` 与 `data_json_strict_ids`�
 因此它只恢复计划载体，不替模型计算或写答案。单测覆盖本次 `users.json + instructions.md` 同形、零额外 continuation LLM call、非目标 tool 与
 prose-lookalike 不触发；`internal/repl` 全包通过。
 
-状态：`B448=implemented/repl-suite-pass/pending-full-suite-and-production-replay`；
+状态：`B448=implemented/full-suite-pass/pending-production-replay`；
 `typed-trigger=exact-structured-tool-error`；`system-answer-rewrite=none`。
+
+### 123.470 B447：principal relation roster 到 Finalizer edge authority 的精确交接
+
+required implementation diagram 新增显式 `typedImplementerDiagramAuthorityProvider`：只有
+`predicate_axis=implement + diagram_hint.required=true + exact coverage candidate + principal member_set 已纳入该 candidate + production scope`
+同时成立时，检查该成员是否已有同文件、同声明行、同方向、可引用的 `repomap_implementer_relation`。普通 direct definition 即使同文件同符号，
+也不能冒充关系边。
+
+缺关系证据且未读时，按 candidate 自带 file/line 生成 surgical `RepairReadFile`；读过但尚未铸关系行时走 `RepairEmitEvidence`。
+读取后仍由 Explorer 既有 `buildRuntimeTargetStructuralRelations` 从 RepoMap graph 的 `ImplementersOf` 铸证据，系统不把未读 graph 缓存直接发布为
+citation，也不替模型画边或下结论。被模型放入 `excluded[]` 的 candidate、无图关系枚举、非 implement 轴、presentation-only definition 图、
+非精确 candidate、未知/越界 source role 与不存在文件均 fail open。
+
+实现位于 typed relation provider/graph 抽象之后，无语言名、扩展名或语法特判；因此与既有“所有 supported read languages 均能产生 implement
+typed relation hint”矩阵共同覆盖 Go/Java/C/C++/Python/Rust/JavaScript/TypeScript/ArkTS/Cangjie/Kotlin/Ruby/Swift/Lua/Proto 等载体，
+而不是只拟合本次 Go 类型名。测试覆盖：alpha 已有 typed edge、beta 只有 direct definition 时只 demand beta:22；精确 line-range 进入
+PendingReads；read-but-unemitted 明确降级；补齐 typed edge 后零 stale demand；无 required diagram 与 AxisDefine 两条 no-trigger。
+
+验证：定向 provider tests 与 `go test ./internal/tool -count=1`（173.245s）通过。
+
+验证补充：`go test ./... -count=1` 全绿（`internal/tool` 194.549s、`internal/tracequery` 84.665s）。
+
+状态：`B447=implemented/full-suite-pass/pending-production-replay`；
+`relation-roster-authority=exact-candidate`；`citation-authority=read-line-plus-typed-relation-evidence`；
+`raw-request/model-prose-hard-gate=none`；`system-answer-rewrite=none`；Trace explicit-window/causal projection=`unchanged`。

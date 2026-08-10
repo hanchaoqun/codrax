@@ -12,9 +12,14 @@ import (
 type structuredRelationAuthorityDemand struct {
 	Name      string
 	Files     []string
+	Targets   []structuredRelationAuthorityTarget
 	Subject   string
 	Rationale string
 	Origin    string
+}
+
+type structuredRelationAuthorityTarget struct {
+	Candidate types.TypedRelationCandidate
 }
 
 type structuredRelationAuthorityProvider interface {
@@ -30,10 +35,39 @@ func structuredRelationAuthorityPreCompleteDowngrade(ctx *types.BusContext, clos
 		return ""
 	}
 	for _, demand := range demands {
-		if len(demand.Files) == 0 {
+		files := append([]string(nil), demand.Files...)
+		for _, target := range demand.Targets {
+			files = append(files, target.Candidate.Member.File)
+		}
+		files = dedupStringsPreserveOrder(files)
+		if len(files) == 0 {
 			continue
 		}
 		var readButUnemitted []string
+		for _, target := range demand.Targets {
+			candidate := target.Candidate
+			file := normalizeStructuredRelationAuthorityPath(candidate.Member.File)
+			if file == "" || structuredRelationAuthorityEvidenceHasTypedCandidate(evidence, candidate) {
+				continue
+			}
+			if closure.HasReadLine(file, candidate.Member.Line) {
+				readButUnemitted = append(readButUnemitted, file)
+				continue
+			}
+			markStructuredRelationAuthorityFilesScanned(closure, []string{file})
+			directive := types.RepairDirective{
+				Kind:      types.RepairReadFile,
+				Files:     []string{file},
+				Subject:   demand.Subject,
+				Rationale: demand.Rationale,
+				Origin:    demand.Origin,
+				Stage:     string(types.StageExplore),
+			}
+			if candidate.Member.Line > 0 {
+				directive.LineRanges = []types.LineRange{{Start: candidate.Member.Line, End: candidate.Member.Line}}
+			}
+			closure.AddRepair(directive)
+		}
 		for _, file := range demand.Files {
 			file = normalizeStructuredRelationAuthorityPath(file)
 			if file == "" || structuredRelationAuthorityEvidenceHasSource(evidence, file) {
@@ -56,6 +90,7 @@ func structuredRelationAuthorityPreCompleteDowngrade(ctx *types.BusContext, clos
 		if len(readButUnemitted) == 0 {
 			continue
 		}
+		readButUnemitted = dedupStringsPreserveOrder(readButUnemitted)
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairEmitEvidence,
 			Files:     readButUnemitted,
@@ -89,12 +124,62 @@ func structuredRelationAuthorityDemands(ctx *types.BusContext, facts []types.Ans
 	return out
 }
 
-// structuredRelationAuthorityProviders intentionally returns no built-in
-// repository-specific providers. This package supplies the handoff framework
-// only; a blocking provider must be added explicitly with its own exact source
-// of truth, trigger carriers, local repair path, and no-trigger tests.
+// structuredRelationAuthorityProviders is deliberately a short explicit
+// registry. Each blocking provider owns an exact typed trigger, carrier,
+// repair path, and no-trigger tests; repository-specific conventions and
+// request/model prose are not providers.
 func structuredRelationAuthorityProviders() []structuredRelationAuthorityProvider {
-	return nil
+	return []structuredRelationAuthorityProvider{
+		typedImplementerDiagramAuthorityProvider{},
+	}
+}
+
+// typedImplementerDiagramAuthorityProvider closes the graph-roster to
+// finalizer-evidence handoff for required implementation diagrams. The exact
+// graph may prove the principal roster, but it is not itself a citation: each
+// included member's declaration line must be read so Explorer's existing
+// cross-language relation producer can mint a citable typed edge.
+type typedImplementerDiagramAuthorityProvider struct{}
+
+func (typedImplementerDiagramAuthorityProvider) Demand(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) (structuredRelationAuthorityDemand, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return structuredRelationAuthorityDemand{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.PredicateAxis != types.AxisImplement ||
+		rm.DiagramHint == nil || !rm.DiagramHint.Required || rm.DiagramHint.Kind == types.DiagramNone {
+		return structuredRelationAuthorityDemand{}, false
+	}
+	candidates := relationCandidatesForRequestAllSourceRoles(ctx, rm)
+	if len(candidates) == 0 {
+		return structuredRelationAuthorityDemand{}, false
+	}
+	var targets []structuredRelationAuthorityTarget
+	for _, candidate := range candidates {
+		candidate.Member.File = normalizeStructuredRelationAuthorityPath(candidate.Member.File)
+		if candidate.Relation != types.TypedRelationImplements ||
+			!candidate.CoverageGateEligible() ||
+			candidate.Member.File == "" || candidate.Member.Line <= 0 ||
+			!relationSourceInRequestedScope(candidate.Member.File, rm) ||
+			!structuredRelationAuthoritySourceExists(ctx, candidate.Member.File) {
+			continue
+		}
+		included, excluded := relationPrincipalMemberSetCandidateCoverage(facts, &rm, candidate)
+		if !included || excluded || structuredRelationAuthorityEvidenceHasTypedCandidate(evidence, candidate) {
+			continue
+		}
+		targets = append(targets, structuredRelationAuthorityTarget{Candidate: candidate})
+	}
+	if len(targets) == 0 {
+		return structuredRelationAuthorityDemand{}, false
+	}
+	return structuredRelationAuthorityDemand{
+		Name:      "typed_implementer_diagram_authority",
+		Targets:   targets,
+		Subject:   "typed implementer relation evidence for the selected principal diagram roster",
+		Rationale: "read each included implementer's exact declaration line so the cross-language RepoMap relation producer can materialize a citable same-direction implementation edge",
+		Origin:    "pre_complete.relation_authority.typed_implementer_diagram",
+	}, true
 }
 
 func structuredRelationAuthoritySurfaces(facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []string {
@@ -162,6 +247,31 @@ func structuredRelationAuthorityEvidenceHasSource(evidence []types.EvidenceItem,
 	}
 	for _, item := range evidence {
 		if normalizeStructuredRelationAuthorityPath(item.Source) == source && item.LineStart > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredRelationAuthorityEvidenceHasTypedCandidate(evidence []types.EvidenceItem, candidate types.TypedRelationCandidate) bool {
+	file := normalizeStructuredRelationAuthorityPath(candidate.Member.File)
+	member := structuredRelationAuthorityKey(candidate.Member.Name)
+	source := structuredRelationAuthorityKey(candidate.SourceName)
+	if file == "" || member == "" || source == "" || candidate.Relation != types.TypedRelationImplements {
+		return false
+	}
+	for _, item := range evidence {
+		if !types.IsRepoMapTypeRelationEvidence(item) || !item.IsCitable() ||
+			normalizeStructuredRelationAuthorityPath(item.Source) != file ||
+			structuredRelationAuthorityKey(item.Subject) != member ||
+			structuredRelationAuthorityKey(item.Object) != source {
+			continue
+		}
+		if candidate.Member.Line > 0 && (item.LineStart > candidate.Member.Line || item.LineEnd < candidate.Member.Line) {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
+		case "implements", "implementation":
 			return true
 		}
 	}

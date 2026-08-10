@@ -468,6 +468,101 @@ func TestStructuredRelationAuthorityDemands_IgnoresRelationsWithoutAuthorityProv
 	}
 }
 
+func TestStructuredRelationAuthorityDemands_RequiredImplementerDiagramReadsMissingTypedEdges(t *testing.T) {
+	repo := t.TempDir()
+	writeTestFile(t, repo, "iface.go", "package fixture\ntype Looper interface { Loop() }\n")
+	writeTestFile(t, repo, "impl_alpha.go", "package fixture\ntype alpha struct{}\n")
+	writeTestFile(t, repo, "impl_beta.go", "package fixture\ntype beta struct{}\n")
+	mut := types.NewMutableState("diagram Looper implementers")
+	mut.SetSearchGraph(relationMemberSetGraph(t,
+		relationMemberSetGraphSymbol{name: "alpha", file: "impl_alpha.go", line: 14},
+		relationMemberSetGraphSymbol{name: "beta", file: "impl_beta.go", line: 22},
+	))
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisImplement,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"Looper"}, Entities: []string{"Looper"}},
+			DiagramHint:   &types.DiagramHint{Required: true, Kind: types.DiagramCallDAG},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Label:   "Looper implementers",
+		Value:   "2",
+		Members: []string{"alpha", "beta"},
+	}}
+	alphaRelation := relationMemberSetTypedImplementerEvidence("alpha", "Looper", "impl_alpha.go", 14)
+	// A direct definition for beta is deliberately present. It may ground the
+	// roster row, but must not masquerade as the typed relation edge needed by
+	// the required diagram.
+	evidence := []types.EvidenceItem{alphaRelation, relationMemberSetEvidence("beta", "impl_beta.go", 22)}
+
+	demands := structuredRelationAuthorityDemands(bus, facts, evidence)
+	if len(demands) != 1 || len(demands[0].Targets) != 1 {
+		t.Fatalf("demands=%+v, want only the missing beta typed relation target", demands)
+	}
+	target := demands[0].Targets[0].Candidate
+	if target.Member.Name != "beta" || target.Member.File != "impl_beta.go" || target.Member.Line != 22 {
+		t.Fatalf("target=%+v, want beta declaration line", target)
+	}
+
+	if downgrade := structuredRelationAuthorityPreCompleteDowngrade(bus, mut.EvidenceClosure(), facts, evidence); downgrade != "" {
+		t.Fatalf("unread target should enter PendingReads and let the shared pending-read lane render, got %q", downgrade)
+	}
+	pending := mut.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].File != "impl_beta.go" || len(pending[0].LineRanges) != 1 ||
+		pending[0].LineRanges[0] != (types.LineRange{Start: 22, End: 22}) {
+		t.Fatalf("pending=%+v, want surgical beta declaration read", pending)
+	}
+
+	mut.EvidenceClosure().SetReadSet(map[string]bool{"impl_beta.go": true})
+	mut.EvidenceClosure().SetReadRanges(map[string][]types.LineRange{"impl_beta.go": {{Start: 22, End: 22}}})
+	downgrade := structuredRelationAuthorityPreCompleteDowngrade(bus, mut.EvidenceClosure(), facts, evidence)
+	if !strings.Contains(downgrade, "structured relation authority evidence is not materialized") ||
+		!strings.Contains(downgrade, "impl_beta.go") {
+		t.Fatalf("read-but-unemitted target should request typed evidence materialization, got %q", downgrade)
+	}
+
+	evidence = append(evidence, relationMemberSetTypedImplementerEvidence("beta", "Looper", "impl_beta.go", 22))
+	if got := structuredRelationAuthorityDemands(bus, facts, evidence); len(got) != 0 {
+		t.Fatalf("all included typed edges are citable; got stale demands %+v", got)
+	}
+}
+
+func TestStructuredRelationAuthorityDemands_ImplementerDiagramTypedNoTriggerBoundaries(t *testing.T) {
+	repo := t.TempDir()
+	writeTestFile(t, repo, "impl_alpha.go", "package fixture\ntype alpha struct{}\n")
+	mut := types.NewMutableState("relation roster")
+	mut.SetSearchGraph(relationMemberSetGraph(t,
+		relationMemberSetGraphSymbol{name: "alpha", file: "impl_alpha.go", line: 14},
+	))
+	rm := types.RequestModel{
+		Intent:        types.IntentEnumerate,
+		PredicateAxis: types.AxisImplement,
+		Predicates:    types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"Looper"}, Entities: []string{"Looper"}},
+	}
+	bus := &types.BusContext{Mutable: mut, RepoRoot: repo, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	facts := []types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet, Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"alpha"}}}
+	if got := structuredRelationAuthorityDemands(bus, facts, nil); len(got) != 0 {
+		t.Fatalf("relation roster without a required diagram must not force diagram-edge reads: %+v", got)
+	}
+	rm.DiagramHint = &types.DiagramHint{Required: true, Kind: types.DiagramCallDAG}
+	rm.PredicateAxis = types.AxisDefine
+	bus.AnalysisIR.RequestModel = rm
+	if got := structuredRelationAuthorityDemands(bus, facts, nil); len(got) != 0 {
+		t.Fatalf("definition/presentation diagram must remain outside typed relation-edge authority: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationLookupRequiresMemberSetHandoff(t *testing.T) {
 	mut := types.NewMutableState("哪些 agent 可以调用 subagent？")
 	bus := &types.BusContext{
@@ -1023,6 +1118,24 @@ func relationMemberSetEvidence(name, file string, line int) types.EvidenceItem {
 		AnchorSymbol:    name,
 		Snippet:         "type " + name + " struct {}",
 		Summary:         name + " implements Looper.",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}
+}
+
+func relationMemberSetTypedImplementerEvidence(name, iface, file string, line int) types.EvidenceItem {
+	return types.EvidenceItem{
+		Kind:            types.EvidenceRelationship,
+		Subject:         name,
+		Predicate:       "implements",
+		Object:          iface,
+		Source:          file,
+		LineStart:       line,
+		LineEnd:         line,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    name,
+		Producer:        types.EvidenceProducerRepoMapImplementerRelation,
+		Scope:           types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}
