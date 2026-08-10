@@ -30381,3 +30381,32 @@ evidence、跨 block/重复/stale/unknown/context-only/invisible 边界、pre-em
 状态：`B463=implemented/full-suite-pass/pending-production-replay`；`B462=pending-production-replay`；`B464=next`；
 `participant-as-relation-authority=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+### 123.482 r270：reference 全集可被零贡献折叠；合法裸节点被 participant 完整性门误拒
+
+exact-two 继续运行 `data_multifile_reference_projection + qf_logic_view_read_pipeline`。runner 与人工均为 `FAIL/FAIL`
+（284s/460s）；人工审计见 `eval/parallel_selected_summary_evalcampaign_data_stage_r270_20260810_manual_audit.md`。
+
+data 输出 `17,5` 而非 `17,0,5`。模型已经选择正确的 left join，`target_value_joined` 也保留 T2 行，但
+`compute_contributions` 合理地跳过缺失 value，随后 reconcile 只建立 T1/T3 两组。最严重的确定性矛盾位于 terminal typed 图：
+`reference_candidate_path=target_order`、`reference_key_count=3`、`answer_item_count=2` 同时存在，`output_projection_graph.status`
+却为 `satisfied`。现有 reconcile 只证明已出现组的算术自洽，不能证明 reference universe 完整。
+
+新立 `EVAL-B465-REFERENCEUNIVERSECLOSURE1/P0`。修复应把 typed reference candidate 的有序 key universe 作为 final projection
+闭包：每个 reference member 必须恰有一个输出槽；零 contribution member 仍须以聚合单位元进入 reconcile/projection；重复、缺失或额外成员
+fail loud。不得读取 instructions prose、expected regex 或最终答案反推成员和值，也不得替模型选择 join、filter 或业务规则。
+
+QF 给出 B462 正证：纯字段声明不再铸 assignment 权威。B463 也真实到达并迫使模型为四个无已证 incident 的 stage participant
+保留断开节点和 `unproven` boundary；但实现只从带 `[]/()/{} ` 等 shape 的 declaration 提取可见节点，不识别 Mermaid flowchart
+合法的 standalone `analyzer`/`explorer` 裸节点。模型严格照合同提交后连续四次得到
+`boundary_participant_not_visible`，最终触发 retry-state degraded answer。该冲突是系统自身 parser/教学不一致，而非模型波动。
+
+新立 `EVAL-B466-MERMAIDBARENODE1/P0`：Mermaid AST 层识别合法 standalone bare node statement，同时排除 graph/flowchart、subgraph、
+end、direction、class/style/click/linkStyle 等保留语句；该节点只满足“visible”，不产生 edge、relation 或 evidence。B463 不应退役或放宽。
+
+B464 保持 P1：本轮 dotted endpoint 被 source repair 改为 `codraxNodeN`，日志显示 edge metadata 同步机械修复 17 次；虽然最终 call gate
+已收敛，仍需以 source-repair 的 exact alias provenance 为单源补强，避免 body/anchor 二次漂移，不得做模糊 endpoint 匹配。
+
+状态：`B462=production-closed`；`B463=production-replay-failed/blocked-by-B466`；`B465=P0-next`；`B466=P0-next`；
+`B464=P1-after-P0`；`r270-runner=0/2`；`r270-human=0/2`；`raw-request/model-answer-prose-hard-gate=none`；
+`system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

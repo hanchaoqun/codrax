@@ -2911,3 +2911,20 @@ semantic-view/cache、schema、wire/normalizer/quarantine、pre/post chokepoint�
 状态：`B463=implemented/full-suite-pass/pending-production-replay`；`B462=pending-production-replay`；`B464=next`；
 `participant-as-relation-authority=forbidden`；`system-edge/answer-conclusion-rewrite=none`；
 `raw-request/model-answer-prose-hard-gate=none`；Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
+
+#### §11.10.20 r270：B462 生产关闭，B463 被合法 bare-node 解析缺口阻断
+
+r270 exact-two runner/人工均为 0/2。QF 不再出现字段声明铸造的 assignment 伪边，故 `B462=production-closed`。B463 的 typed
+participant boundary 已进入真实 schema、prompt 与 pre-emit gate，但模型按合同提交 `analyzer` 等合法 standalone flowchart 节点时，
+visibility helper 因只识别 shaped node declaration 而反复误报 `boundary_participant_not_visible`，形成系统合同自冲突并耗尽四次同类修补。
+新立 `B466/P0` 在 Mermaid AST 层补 bare-node statement，不改 relation/evidence 权威。
+
+独立 data witness 新立 `B465/P0`：terminal 同时知道 reference key 为 3、answer item 为 2 却签 satisfied；reconcile 只覆盖非零贡献组，
+完整 reference 的零值成员无终态闭包。修复必须来自 typed reference universe 与聚合单位元，不可读 prose/expected answer 代做业务决定。
+
+B464 仍按独立 P1 追踪 source-repair alias provenance；本轮不以放宽 endpoint comparator 解决。§11 已关闭主项不重开，新增事项归入 eval
+战役续表。
+
+状态：`MERGE-AUDIT-6/§11=closed`；`B462=production-closed`；`B463=blocked-by-B466`；
+`B465/B466=P0-next`；`B464=P1-queued`；`raw-prose-hard-gate=none`；`system-edge/answer-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain causality=`unchanged`。
