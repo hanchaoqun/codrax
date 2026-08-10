@@ -3235,3 +3235,12 @@ QF 发生 12 次成文拒绝。validator 每次都在 precise typed diagram/boun
 状态：`B480=closed`；`B481=P0-next`；`B479/B482=P1`；`B478/B475=open`；
 `runner=2/2,human=0/2`；`system-answer/graph-authoring=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+#### §11.10.44 B481 完成：boundary hard contract 与模型写法同源
+
+非 Trace flow diagram prompt 现从 typed participant slate 逐项输出 uncovered recipe：精确 participant identity、可见独立节点首行 identity、可直接复制的
+合法 JSON boundary row，以及 `edge_action=none`。该 recipe 只在模型判断没有 grounded incident relation 时使用，不自动创建节点，不授权关系；
+context-only 与 Trace/root-cause lane 均不注入。
+
+定向、agent 全包及 `go test ./... -count=1` 回归绿。状态：`B481=implemented/pending-production-replay`；`B479/B482=P1`；
+`hard-gate=unchanged`；`raw-prose-scan=none`；`system-answer/graph-authoring=none`；Trace families=`unchanged`。

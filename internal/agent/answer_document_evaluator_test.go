@@ -4074,6 +4074,39 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
+	if strings.Contains(prompt, "boundary_recipe[") {
+		t.Fatalf("Trace lane must not receive non-runtime participant-boundary recipes:\n%s", prompt)
+	}
+}
+
+func TestRenderAnswerDocDiagramContractPublishesTypedUncoveredParticipantRecipesForFlow(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+	}}}
+	dc := &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramFlow,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "surrounding system", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	got := renderAnswerDocDiagramContract(ctx, dc)
+	for _, want := range []string{
+		"Typed uncovered-participant recipes",
+		"boundary_recipe[1]: participant_identity=\"analyzer\"; visible_disconnected_node_first_line_identity=\"analyzer\"; boundary_row={\"participant\":\"analyzer\",\"status\":\"unproven\"}; edge_action=`none`",
+		"boundary_recipe[2]: participant_identity=\"BusContext\"; visible_disconnected_node_first_line_identity=\"BusContext\"; boundary_row={\"participant\":\"BusContext\",\"status\":\"unproven\"}; edge_action=`none`",
+		"choose any Mermaid-safe node ID",
+		"copy `participant_identity` byte-for-byte",
+		"Do not connect the node merely to satisfy coverage",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagram contract missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "participant_identity=\"surrounding system\"") {
+		t.Fatalf("context_only participant must not receive an unproven boundary recipe:\n%s", got)
+	}
 }
 
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagramSeed(t *testing.T) {

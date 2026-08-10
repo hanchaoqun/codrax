@@ -536,7 +536,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}
 		e.diagramKinds = append([]types.DiagramKind(nil), dc.PreferredKinds...)
 		if !trace.appendSection(&b, "diagram_contract_prompt", func() string {
-			return renderAnswerDocDiagramContract(dc)
+			return renderAnswerDocDiagramContract(ctx, dc)
 		}) {
 			return b.String()
 		}
@@ -3997,7 +3997,7 @@ func answerDocFacetPromptEvidenceCount(plan *types.AnswerSurfacePlan, req types.
 	return curated
 }
 
-func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
+func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramContract) string {
 	if dc == nil || !dc.Required {
 		return ""
 	}
@@ -4047,6 +4047,22 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 			fmt.Fprintf(&b, "  - `%s`: `%s`\n", identity, participant.Role)
 		}
 		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
+		if answerDocDiagramBoundaryRecipesApply(ctx) {
+			b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
+			recipeIndex := 0
+			for _, participant := range dc.Participants {
+				identity := strings.TrimSpace(participant.Identity)
+				if identity == "" || participant.Role != types.DiagramParticipantIncidentRequired {
+					continue
+				}
+				recipeIndex++
+				quotedIdentity := strconv.Quote(identity)
+				boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
+				fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
+					recipeIndex, quotedIdentity, quotedIdentity, boundaryRow)
+			}
+			b.WriteString("- For an uncovered recipe, choose any Mermaid-safe node ID, but make that standalone node's first label line exactly `visible_disconnected_node_first_line_identity`; copy `participant_identity` byte-for-byte into the block-level boundary row. Do not connect the node merely to satisfy coverage.\n")
+		}
 	}
 	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
 	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
@@ -4061,6 +4077,16 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	b.WriteString("- Reuse grounded labels directly inside the fence. Do not rename, normalize, or abstract a cited file / symbol / path literal into a different label unless that alternate label is itself grounded in citations or log frames.\n")
 	b.WriteString("- Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3` unless those exact labels appear in grounded evidence.\n\n")
 	return b.String()
+}
+
+func answerDocDiagramBoundaryRecipesApply(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.Intent != types.IntentTrace &&
+		types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&
+		rm.PredicateAxis == types.AxisFlow
 }
 
 func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContract) string {

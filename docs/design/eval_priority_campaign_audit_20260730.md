@@ -30943,3 +30943,21 @@ recipe 升为系统强制成文。
 状态：`B480=closed/direct-production-witness`；`B481=P0-next`；`B479=P1`；`B482=P1`；`B478/B475=open`；
 `runner=2/2,human=0/2`；`system-edge/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.498 B481 完成：typed participant boundary 发布同构 JSON/节点 recipe
+
+r279 的 12 次 reject 并非 hard gate 自相矛盾：第 13 稿添加与六个 obligation 对应的独立可见节点后即通过。根因是 prompt 只给总则，模型必须自行发现
+`participant_boundaries[].participant`、Mermaid node ID/首行 label 与 typed identity 的三面同一性，且在试错时不断误连未证边或遗漏节点。
+
+本批在非 Trace、`AxisFlow` 的 required diagram contract 中，按 schema-validated `incident_required` slate 逐项发布
+`participant_identity`、`visible_disconnected_node_first_line_identity`、合法 JSON `boundary_row` 与 `edge_action=none`。只有该 participant
+最终没有 grounded visible incident relation 时才使用；node ID 可由模型选择，但首行 identity 与 boundary participant 必须字节一致，且禁止为了 coverage
+连边。`context_only` 不生成 recipe。
+
+这是 soft authoring protocol，不读取 request/final prose，不更改 validator，不增删模型 document，也不制造 node/edge。Trace/QFRootCauseTrace
+显式旁路，因果投影、自动补齐与链上根因不受 prompt 增量影响。测试钉住合法 JSON 字面、逐项 identity、context-only 排除、Trace 负臂及完整 agent
+prompt 套件。
+
+状态：`B481=implemented/full-suite-pass/pending-production-replay`；`B480=closed`；
+`B479/B482=P1`；`B478/B475=open`；`system-node/edge/conclusion-authoring=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
