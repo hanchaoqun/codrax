@@ -54,6 +54,7 @@ func TestCallChainDiscoverySelectionEvidence_AssignmentConnectsDynamicReceiverAc
 		t.Run(tc.name, func(t *testing.T) {
 			call := discoveryEvidence(EvidenceDirect, AnchorCall, "entry.run", tc.callTarget)
 			assignment := discoveryEvidence(EvidenceDirect, AnchorAssignment, tc.subject, tc.object)
+			assignment.Snippet = tc.subject + " = " + tc.object
 			if got := CallChainDiscoverySelectionEvidence([]EvidenceItem{call, assignment}); len(got) != 1 {
 				t.Fatalf("connected assignment should select a target: %+v", got)
 			}
@@ -64,6 +65,7 @@ func TestCallChainDiscoverySelectionEvidence_AssignmentConnectsDynamicReceiverAc
 func TestCallChainDiscoverySelectionEvidence_RequiresCitableTypedFact(t *testing.T) {
 	call := discoveryEvidence(EvidenceDirect, AnchorCall, "entry.run", "handler.handle")
 	assignment := discoveryEvidence(EvidenceDirect, AnchorAssignment, "handler", "ConcreteHandler")
+	assignment.Snippet = "handler = ConcreteHandler"
 	assignment.GroundingStatus = GroundingUngrounded
 	if HasCallChainDiscoverySelectionEvidence([]EvidenceItem{call, assignment}) {
 		t.Fatal("ungrounded assignment must not authorize runtime target selection")

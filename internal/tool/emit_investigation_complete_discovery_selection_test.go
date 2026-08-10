@@ -29,12 +29,16 @@ func discoverySelectionCompletionContext(evidence []types.EvidenceItem) *types.B
 }
 
 func discoverySelectionTestEvidence(anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
-	return types.EvidenceItem{
+	item := types.EvidenceItem{
 		Kind: types.EvidenceRelationship, AnchorKind: anchor,
 		Subject: subject, Object: object, AnchorSymbol: object,
 		Source: "src/logger.cpp", LineStart: line, Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
 	}
+	if anchor == types.AnchorAssignment || anchor == types.AnchorInitializer {
+		item.Snippet = subject + " = " + object
+	}
+	return item
 }
 
 func discoverySelectionCompletionParams(t *testing.T) json.RawMessage {

@@ -3017,3 +3017,15 @@ bridge role 与 branch scope 交接。该项不按 Python 专名做硬门。
 
 状态：`B469=production-closed`；`B471=P0-next`；`B470=confirmed/P1-after-B471`；`B472=P1-queued`；
 `system-edge/relation/conclusion-synthesis=none`；`raw-prose-hard-gate=none`；Trace 车道不变。
+
+#### §11.10.29 B471 完成：赋值语法存在不再等于任意端点关系成立
+
+新增共享 exact-line assignment endpoint extractor，把简单赋值/初始化的 receiver/value 与 model-authored `subject/object` 精确对齐；无法唯一
+归约的解构、复合、二元/三元表达式不铸有向权威。流程 operation、discover-sink selection、diagram assignment 三面复用同一谓词。
+可解析但端点错误的简单 assignment 在 `emit_evidence` 即降为普通 text reference，并向模型披露真实 tuple；复杂 initializer/registration
+本地事实保持兼容，但不得绕过下游 exact matcher。该方案覆盖 Go/Java/ArkTS/Cangjie/Rust/Python/C++/TypeScript，不扫描 request/answer
+prose，不由系统补边或改结论。正例覆盖全部可表达赋值的 14 种支持语言，Proto 字段编号另有负 pin。
+
+五包联合回归与 `go test ./... -count=1` 全绿。状态：`B471=implemented/full-suite-pass/pending-production-replay`；`B470=P1-next`；
+`B472=P1-after-B470`；`assignment-shape-as-endpoint-authority=forbidden`；`system-edge/relation/conclusion-synthesis=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

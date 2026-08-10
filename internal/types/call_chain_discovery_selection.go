@@ -54,6 +54,9 @@ func CallChainDiscoverySelectionEvidence(evidence []EvidenceItem) []EvidenceItem
 		if form != ClaimAssignmentFact && form != ClaimReturnFact {
 			continue
 		}
+		if form == ClaimAssignmentFact && !AssignmentEvidenceEndpointsMatch(item) {
+			continue
+		}
 		if callChainDiscoveryEndpointConnected(item.Subject, connectionEndpoints) {
 			out = append(out, item)
 		}

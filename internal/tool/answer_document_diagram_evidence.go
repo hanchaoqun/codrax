@@ -374,7 +374,12 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 	}
 	return diagramRelationEdgeHasExactOrUniqueShortProjection(
 		evidence, fromSymbol, toSymbol,
-		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == wantForm },
+		func(ev types.EvidenceItem) bool {
+			if types.ClaimFormOf(ev) != wantForm {
+				return false
+			}
+			return wantForm != types.ClaimAssignmentFact || types.AssignmentEvidenceEndpointsMatch(ev)
+		},
 		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
 		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
 	)

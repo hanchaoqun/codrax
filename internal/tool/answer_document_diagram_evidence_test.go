@@ -159,6 +159,7 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceAssignmentUsesAssignmentAutho
 		ID: "assignment", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
 		AnchorKind: types.AnchorAssignment, Subject: "EmitAnalysis.Execute", Object: "Mutable.RequestModel",
 		Source: "internal/tool/emit_analysis.go", LineStart: 2083, GroundingStatus: types.GroundingGrounded,
+		Snippet: "EmitAnalysis.Execute = Mutable.RequestModel",
 	}
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{assignment}); len(got) != 0 {
 		t.Fatalf("same-direction typed assignment must own a sequence edge without call authority: %+v", got)
@@ -2161,6 +2162,9 @@ func TestDiagramCallEdgeEvidenceMismatches_ValueFlowRequiresSameDirectionTypedEv
 				Source: "src/factory", LineStart: 17, AnchorKind: tc.anchor,
 				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
 			}}
+			if tc.anchor == types.AnchorAssignment {
+				evidence[0].Snippet = evidenceSubject + " = " + tc.to
+			}
 			if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
 				t.Fatalf("same-direction typed value-flow fact must authorize edge: %+v", got)
 			}

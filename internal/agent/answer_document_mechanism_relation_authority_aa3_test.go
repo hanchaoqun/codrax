@@ -345,10 +345,11 @@ func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperatio
 		EvidenceItems: []types.EvidenceItem{
 			{
 				ID: "selected-operation", Producer: types.EvidenceProducerExplorerEmitEvidence,
-				Kind: types.EvidenceRelationship, Subject: "runAnalyzePhase", Predicate: "assigns", Object: "AnalysisIR",
+				Kind: types.EvidenceRelationship, Subject: "busCtx.AnalysisIR", Predicate: "assigns", Object: "out.AnalysisIR",
 				Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
 				AnchorKind: types.AnchorAssignment, AnchorSymbol: "AnalysisIR",
 				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+				Snippet: "o.busCtx.AnalysisIR = out.AnalysisIR",
 			},
 			{
 				ID: "auto-unrelated", Producer: "dataflow.lowerer.go",
@@ -360,7 +361,7 @@ func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperatio
 		},
 		FlowFindings: []types.FlowFindingDigest{
 			{ID: "unrelated-auto-path", Path: []string{"internal/agent/agent.go:BaseAgent.executeTool", "internal/agent/agent.go:validateWriteAnalyzerToolPolicy"}, EvidenceIDs: []string{"auto-unrelated"}},
-			{ID: "selected-path", Path: []string{"runAnalyzePhase", "AnalysisIR"}, EvidenceIDs: []string{"selected-operation"}},
+			{ID: "selected-path", Path: []string{"busCtx.AnalysisIR", "out.AnalysisIR"}, EvidenceIDs: []string{"selected-operation"}},
 		},
 	}
 
@@ -368,7 +369,7 @@ func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperatio
 		t.Fatal("fixture must compile a support plan so the R221 bypass arm is exercised")
 	}
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
-	if !strings.Contains(got, "typed_flow_path[1]=`runAnalyzePhase -> AnalysisIR`") {
+	if !strings.Contains(got, "typed_flow_path[1]=`busCtx.AnalysisIR -> out.AnalysisIR`") {
 		t.Fatalf("selected operation replay must retain principal ordered authority:\n%s", got)
 	}
 	if strings.Contains(got, "typed_flow_path[2]") ||
@@ -442,7 +443,7 @@ func TestCallChainSupportLanePublishesTypedEntryRolesWithoutInventingOrderAA3(t 
 			{
 				ID: "assign", Kind: types.EvidenceDirect,
 				Source: "src/logger.cpp", LineStart: 27, AnchorKind: types.AnchorAssignment,
-				Subject: "Logger", Object: "sink_", GroundingStatus: types.GroundingGrounded,
+				Subject: "sink_", Object: "selectedSink", Snippet: "sink_ = selectedSink;", GroundingStatus: types.GroundingGrounded,
 			},
 			{
 				ID: "guard", Kind: types.EvidenceConditional,
@@ -895,7 +896,11 @@ func TestMechanismRelationAuthorityPublishesSchemaNativeTypedRecipesAA3(t *testi
 			grounded("call", types.EvidenceRelationship, types.AnchorCall, "Caller", "Callee", 10),
 			grounded("callback", types.EvidenceRelationship, types.AnchorCallback, "Executor", "Handler", 20),
 			grounded("registration", types.EvidenceRegistration, types.AnchorDefinition, "Registry", "Plugin", 30),
-			grounded("assignment", types.EvidenceDirect, types.AnchorAssignment, "receiver", "Implementation", 40),
+			func() types.EvidenceItem {
+				item := grounded("assignment", types.EvidenceDirect, types.AnchorAssignment, "receiver", "Implementation", 40)
+				item.Snippet = "receiver = Implementation"
+				return item
+			}(),
 			grounded("return", types.EvidenceDirect, types.AnchorReturn, "factory", "Concrete", 50),
 			typeRelation,
 			uncitable,

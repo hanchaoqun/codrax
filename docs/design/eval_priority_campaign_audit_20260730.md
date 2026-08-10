@@ -30600,3 +30600,27 @@ initializer 的 `RHS -> LHS`、return 的既有精确方向及其它明确枚举
 `r273-runner=2/2`；`r273-human=0/2`；`participant-roster-as-edge-authority=forbidden`；
 `raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B471 独立批完成：assignment 有向权威绑定精确源码左右值
+
+r273 的假边不是“赋值行不存在”，而是 line grounding 只证明该行具有 assignment 形状，随后把模型填写的任意 `subject/object` 原样交给
+流程、调用链选择和图表关系消费者。例如源码 `o.busCtx.AnalysisIR = out.AnalysisIR` 曾允许
+`applyStageOutput -> out.AnalysisIR`，把 enclosing function 冒充 LHS。
+
+本批增加共享、保守的跨语言 exact-line endpoint extractor：简单 assignment/initializer 只产出真实 receiver/value，并要求模型端点与该
+tuple 相容；Go/Python/JavaScript/TypeScript/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/ArkTS/Cangjie 基本形均有 pin，Proto 的字段编号形有明确负
+pin。解构、链式/复合赋值、顶层二元/三元表达式和 literal 不被猜成有向端点。复杂 nested initializer 与 registration 仍可保留为本地事实，
+但只有 exact endpoint matcher 通过时才能供给 assignment relation。
+
+同一判定现由 `FlowOperationEvidence`、discover-sink selection 与 diagram assignment edge 三个硬消费面复用。对可精确解析但模型端点错误的简单
+assignment，`emit_evidence` 当场撤销 relation fields、降为 `text_reference`，并返回真实 receiver/value 供模型选择是否重新发射；系统不改
+模型答案、不自造边，也不从 request/summary/final prose 猜关系。旧测试中无 snippet 的 assignment 权威夹具已改为真实源码 tuple，避免测试
+反向要求生产接受假边。
+
+验证：assignment 正负跨语言矩阵、production-shape emit 降权、三处消费者定向测试，
+`go test ./internal/types ./internal/tool ./internal/agent ./internal/analysis/hint ./internal/orchestrator -count=1` 与
+`go test ./... -count=1` 全绿。
+
+状态：`B471=implemented/full-suite-pass/pending-production-replay`；`B470=P1-next`；`B472=P1-after-B470`；
+`assignment-shape-as-endpoint-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
+`system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

@@ -23,6 +23,12 @@ func FlowOperationEvidence(evidence []EvidenceItem) []EvidenceItem {
 			!PredicateAxisHasMatchingAnchor(AxisFlow, item) {
 			continue
 		}
+		if (item.AnchorKind == AnchorAssignment || item.AnchorKind == AnchorInitializer) &&
+			!AssignmentEvidenceEndpointsMatch(item) {
+			// An assignment-shaped line without exact LHS/RHS ownership may
+			// remain ordinary evidence, but cannot close a directed flow lane.
+			continue
+		}
 		switch item.Origin {
 		case ClaimOriginLog, ClaimOriginPerf:
 			continue

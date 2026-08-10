@@ -780,6 +780,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				r.Note = built[i].GroundingNote
 			}
 		}
+		// A simple assignment-shaped line proves only its exact LHS <- RHS transfer.
+		// It cannot authorize a model-authored enclosing function, nearby
+		// participant, or other visible token as a directed endpoint. Grounding
+		// has attached the exact observed source line to Snippet, so validate the
+		// tuple here and remove only relation authority on mismatch. The source
+		// observation remains available as a text reference and the repair note
+		// teaches the exact line-local tuple without reading request/final prose.
+		if compatNote := stabilizeAssignmentEndpointAuthority(&built[i]); compatNote != "" {
+			r = ground.GroundItemScoped(&built[i], gc)
+			if appendGroundingNoteOnce(&built[i], compatNote) {
+				r.Note = built[i].GroundingNote
+			}
+		}
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
@@ -3397,6 +3410,36 @@ func stabilizeStatementLocalAnchorClaim(it *types.EvidenceItem, gc *ground.Conte
 	default:
 		return false
 	}
+}
+
+// stabilizeAssignmentEndpointAuthority prevents a lexically grounded
+// assignment from laundering unrelated model-authored endpoints into a
+// directed relation. Initializers may contain nested named members on one
+// source line; those remain local facts and the downstream exact endpoint
+// matcher independently withholds relation authority when their tuple is not
+// unambiguous. The parser never widens beyond the observed line.
+func stabilizeAssignmentEndpointAuthority(it *types.EvidenceItem) string {
+	if it == nil || it.Scope != types.ScopeLine ||
+		it.AnchorKind != types.AnchorAssignment ||
+		it.Kind == types.EvidenceRegistration ||
+		strings.TrimSpace(it.Subject) == "" || strings.TrimSpace(it.Object) == "" ||
+		(it.GroundingStatus != types.GroundingGrounded && it.GroundingStatus != types.GroundingRecovered) {
+		return ""
+	}
+	receiver, value, parsed := types.AssignmentEvidenceEndpoints(*it)
+	if !parsed || types.AssignmentEvidenceEndpointsMatch(*it) {
+		return ""
+	}
+	originalAnchor := it.AnchorKind
+	it.AnchorKind = types.AnchorTextReference
+	it.Subject = ""
+	it.Predicate = ""
+	it.Object = ""
+	it.OwnerSymbol = ""
+	return fmt.Sprintf(
+		"anchor_kind=%s relation authority was removed: the exact grounded line owns receiver=%q and value=%q; re-emit subject/object with those endpoints only if this directed transfer is load-bearing",
+		originalAnchor, receiver, value,
+	)
 }
 
 func stabilizeCallAnchorRelationEndpointAuthority(it *types.EvidenceItem, gc *ground.Context) bool {

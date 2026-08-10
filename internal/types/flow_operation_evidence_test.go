@@ -24,10 +24,17 @@ func TestFlowOperationEvidenceAcceptsCrossLanguageAxisForms(t *testing.T) {
 	forms := []AnchorKind{AnchorCall, AnchorCallback, AnchorAssignment, AnchorInitializer, AnchorReturn, AnchorPrecedence}
 	items := make([]EvidenceItem, 0, len(forms))
 	for i, anchor := range forms {
-		items = append(items, EvidenceItem{
+		item := EvidenceItem{
 			Source: "src/pipeline.ets", LineStart: i + 1, GroundingStatus: GroundingGrounded,
 			AnchorKind: anchor, Subject: "Producer", Object: "Consumer",
-		})
+		}
+		if anchor == AnchorAssignment {
+			item.Snippet = "Producer = Consumer"
+		}
+		if anchor == AnchorInitializer {
+			item.Snippet = "Producer: Consumer"
+		}
+		items = append(items, item)
 	}
 	if got := FlowOperationEvidence(items); len(got) != len(forms) {
 		t.Fatalf("all typed AxisFlow operation forms should survive language-neutral projection: %+v", got)
@@ -54,7 +61,7 @@ func TestExplorerAuthoredFlowOperationEvidenceExcludesDeterministicExpansion(t *
 	selected := EvidenceItem{
 		Producer: EvidenceProducerExplorerEmitEvidence,
 		Source:   "src/pipeline.go", LineStart: 10, GroundingStatus: GroundingGrounded,
-		AnchorKind: AnchorAssignment, Subject: "Producer", Object: "Carrier",
+		AnchorKind: AnchorAssignment, Subject: "Producer", Object: "Carrier", Snippet: "Producer = Carrier",
 	}
 	automatic := EvidenceItem{
 		Producer: "dataflow.lowerer.go",

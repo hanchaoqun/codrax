@@ -26,12 +26,16 @@ func flowOperationCompletionContext(evidence []types.EvidenceItem) *types.BusCon
 }
 
 func flowOperationEvidence(anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
-	return types.EvidenceItem{
+	item := types.EvidenceItem{
 		Kind: types.EvidenceRelationship, AnchorKind: anchor,
 		Subject: subject, Object: object, AnchorSymbol: object,
 		Source: "src/pipeline.go", LineStart: line, Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
 	}
+	if anchor == types.AnchorAssignment || anchor == types.AnchorInitializer {
+		item.Snippet = subject + " = " + object
+	}
+	return item
 }
 
 func flowOperationCompletionParams(t *testing.T) json.RawMessage {

@@ -3424,6 +3424,100 @@ func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
 	}
 }
 
+func TestStabilizeAssignmentEndpointAuthorityKeepsOnlyExactLineTuple(t *testing.T) {
+	tests := []struct {
+		name          string
+		item          types.EvidenceItem
+		wantChanged   bool
+		wantNoteParts []string
+	}{
+		{
+			name: "exact tuple keeps assignment authority",
+			item: types.EvidenceItem{
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorAssignment,
+				Subject:         "busCtx.AnalysisIR",
+				Object:          "output.AnalysisIR",
+				Snippet:         `o.busCtx.AnalysisIR = output.AnalysisIR`,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		{
+			name: "enclosing function cannot replace lhs",
+			item: types.EvidenceItem{
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorAssignment,
+				Subject:         "applyStageOutput",
+				Predicate:       "passes",
+				Object:          "output.AnalysisIR",
+				OwnerSymbol:     "applyStageOutput",
+				Snippet:         `o.busCtx.AnalysisIR = output.AnalysisIR`,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			wantChanged:   true,
+			wantNoteParts: []string{`receiver="o.busCtx.AnalysisIR"`, `value="output.AnalysisIR"`},
+		},
+		{
+			name: "ambiguous expression has no relation authority downstream without rewriting local fact",
+			item: types.EvidenceItem{
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorAssignment,
+				Subject:         "state",
+				Object:          "left",
+				Snippet:         `state = left + right`,
+				GroundingStatus: types.GroundingRecovered,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			note := stabilizeAssignmentEndpointAuthority(&tc.item)
+			if got := note != ""; got != tc.wantChanged {
+				t.Fatalf("changed=%t note=%q, want changed=%t", got, note, tc.wantChanged)
+			}
+			if !tc.wantChanged {
+				if tc.item.AnchorKind != types.AnchorAssignment {
+					t.Fatalf("exact tuple lost assignment authority: %+v", tc.item)
+				}
+				return
+			}
+			if tc.item.AnchorKind != types.AnchorTextReference || tc.item.Subject != "" || tc.item.Predicate != "" || tc.item.Object != "" {
+				t.Fatalf("mismatched assignment retained relation authority: %+v", tc.item)
+			}
+			for _, want := range tc.wantNoteParts {
+				if !strings.Contains(note, want) {
+					t.Fatalf("note %q missing %q", note, want)
+				}
+			}
+		})
+	}
+}
+
+func TestEmitEvidence_DemotesGroundedAssignmentWithFalseDirectedEndpoints(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 8545,
+		"o.busCtx.AnalysisIR = output.AnalysisIR",
+	)
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"applyStageOutput","predicate":"passes","object":"output.AnalysisIR","source":"internal/orchestrator/orchestrator.go","line_start":8545,"summary":"stage output is stored on the bus context","anchor_kind":"assignment","anchor_symbol":"AnalysisIR"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("grounded source observation should remain citable, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d want 1: %+v", len(got), got)
+	}
+	if got[0].AnchorKind != types.AnchorTextReference || got[0].Subject != "" || got[0].Predicate != "" || got[0].Object != "" {
+		t.Fatalf("false assignment endpoints retained directed authority: %+v", got[0])
+	}
+	for _, want := range []string{`receiver="o.busCtx.AnalysisIR"`, `value="output.AnalysisIR"`} {
+		if !strings.Contains(got[0].GroundingNote, want) || !strings.Contains(res.Summary, want) {
+			t.Fatalf("exact endpoint repair %q missing from item/result: item=%+v summary=%s", want, got[0], res.Summary)
+		}
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

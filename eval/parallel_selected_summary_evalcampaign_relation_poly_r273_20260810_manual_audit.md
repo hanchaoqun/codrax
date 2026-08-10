@@ -28,3 +28,10 @@ This scaffold is for human review. The runner records typed metrics and declared
 - `B470` is confirmed and upgraded: the missing source-flow relation is an expression/authority gap, not one model fluctuation. A generalized solution needs a typed data/state-flow relation whose direction is checked against exact assignment/initializer/return evidence. It must not weaken call/assignment gates or synthesize edges from participant rosters.
 - `B471` is newly filed: assignment/initializer grounding currently corroborates only that an assignment-shaped line exists; it does not verify model-authored `subject/object` against LHS/RHS. Those rows can therefore mint false diagram authority and must fail closed or be grounded to exact endpoints before a new data-flow relation consumes them.
 - `B472` is newly filed: cross-language binding answers can preserve endpoint names while conflating export/registration, FFI invocation, wrapper adaptation, and core call. The fix should carry typed bridge roles and branch scope to synthesis; no Python/PyO3 keyword hard gate and no system-authored conclusion rewrite.
+
+## Follow-up implementation status
+
+- `B471` code-complete: simple assignment authority now requires exact grounded LHS/RHS endpoints in emit-time stabilization, flow-operation selection, discover-sink selection, and diagram-edge validation.
+- Ambiguous/nested initializer surfaces remain citable local facts but cannot authorize a directed assignment edge without the shared exact matcher; registration keeps its independent typed selection contract.
+- The system neither creates a replacement edge nor rewrites the model's conclusion. A mismatched but parseable assignment is retained as `text_reference` with an exact endpoint repair note.
+- `B470` remains the next independent batch: introduce an evidence-backed data/state-flow relation after false assignment authority is closed, then replay exact-two rather than fitting this single QF answer.
