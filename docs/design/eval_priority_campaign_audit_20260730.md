@@ -30860,3 +30860,19 @@ label/claim/citation/typed identity 审计，不扫描 free-form prose、不做 
 状态：`B477=partial/production-provider-positive`；`B477b=P0-next`；`B479=P1-after-replay`；`B478=P1`；
 `B474=pending`；`B475=production-consumed/insufficient`；`runner=2/2,human=0/2`；
 `system-diagram/edge/conclusion-authoring=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.494 B477b 完成：同源 stage authority 发布逐边 precedence recipe
+
+r277 证明 provider facts 到达了生产 prompt，但模型仍需猜 diagram 的 typed relation 协议。本批没有放宽关系门，而是让
+`renderAnswerDocCurrentRunStageLaneAuthority` 直接遍历同一 `stageauthority.ReadModeAuthority.Precedence`，发布恰好三条相邻 recipe。每条同时给出
+from/to stage identity、from/to agent identity、`relation_kind=precedence` 与 checkout source range，并说明 diagram node ID 由模型选择但必须与
+`edge_anchors` 对齐。
+
+recipe 明确不授权 call、data_flow、artifact transfer、shared-state participant connectivity 或 runtime causality；BusContext/Mutable 等关系仍需
+独立 typed evidence。系统不生成 Mermaid、不补边、不改写答案。触发条件、checkout 漂移 fail-closed、write/Trace 旁路及 validator 权限均未改。
+
+专项 pin 覆盖三条完整 recipe、精确数量与禁止扩域说明；内部术语 lint、agent/tool/stageauthority 套件及 `go test ./... -count=1` 全绿。
+
+状态：`B477b=implemented/full-suite-pass/pending-production-replay`；`B477=provider-positive`；
+`B479=P1-after-replay`；`B478=P1`；`system-diagram/edge/conclusion-authoring=none`；
+`raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

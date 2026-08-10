@@ -3180,3 +3180,16 @@ BusContext/Mutable 的 typed unproven close lane，造成高成本补读。B477b
 状态：`B477=partial/production-provider-positive`；`B477b=P0-next`；`B479=P1-after-replay`；
 `B478=P1`；`B474=pending`；`runner=2/2,human=0/2`；`system-answer/graph-authoring=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+#### §11.10.40 B477b 完成：stage facts 与 diagram recipe 同源
+
+r277 的 provider 正证后，残余不是证据门过严，而是模型没有拿到与该门同构的关系写法。现由同一 checkout-verified
+`ReadModeAuthority.Precedence` 发布三条相邻 `from/to/relation_kind=precedence` recipe，stage/agent identity、source range 与 validator 所消费
+的权限完全同源。模型自行决定是否作图及 node ID；系统不代画、不补关系、不改结论。
+
+recipe 只证明相邻 stage order，不能扩为 call/data_flow/artifact transfer/shared-state connectivity/runtime causality。write/Trace 隔离、
+checkout drift fail-closed 与既有 hard gate 不变。专项与全仓测试通过。
+
+状态：`B477b=implemented/full-suite-pass/pending-production-replay`；`B479=P1-after-replay`；
+`B478=P1`；`system-answer/graph-authoring=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

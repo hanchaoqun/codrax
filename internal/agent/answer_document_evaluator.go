@@ -17777,6 +17777,18 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 			i+1, row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill,
 			row.Responsibility, strings.Join(artifacts, ", "), row.File, row.Line)
 	}
+	b.WriteString("\n### Verified stage-order edge recipes\n\n")
+	b.WriteString("- Each row below is one complete, checkout-verified authoring recipe. If you choose to draw that stage-order edge, use either its stage identity pair or its agent identity pair as the visible endpoint labels, and add the matching diagram `edge_anchors` entry with `relation_kind=precedence`. Diagram node IDs remain your choice and must match that anchor.\n")
+	b.WriteString("- These recipes prove only adjacent stage precedence. They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality; those relations still require their own typed evidence.\n")
+	for i, relation := range authority.Precedence {
+		fmt.Fprintf(&b, "- stage_precedence[%d]: from_stage=`%s` (`%s`); from_agent=`%s` (`%s`); to_stage=`%s` (`%s`); to_agent=`%s` (`%s`); relation_kind=`precedence`; source=`%s:%d-%d`.\n",
+			i+1,
+			relation.From.StageIdent, relation.From.StageValue,
+			relation.From.AgentIdent, relation.From.AgentValue,
+			relation.To.StageIdent, relation.To.StageValue,
+			relation.To.AgentIdent, relation.To.AgentValue,
+			relation.SourceFile, relation.LineStart, relation.LineEnd)
+	}
 	b.WriteString("\n")
 	return b.String()
 }

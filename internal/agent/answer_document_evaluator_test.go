@@ -8457,6 +8457,14 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"primary_artifacts=`AnalysisIR, TaskGraph, EvidencePlan, AnswerContract, HypothesisSet, QualityGate`",
 		"stage_binding[4]: stage=`StageFinalize` (`finalize`)",
 		"source=`internal/types/stage_binding.go:",
+		"### Verified stage-order edge recipes",
+		"one complete, checkout-verified authoring recipe",
+		"edge_anchors` entry with `relation_kind=precedence`",
+		"stage_precedence[1]: from_stage=`StageAnalyze` (`analyze`); from_agent=`AgentAnalyzer` (`analyzer`); to_stage=`StageExplore` (`explore`); to_agent=`AgentExplorer` (`explorer`); relation_kind=`precedence`",
+		"stage_precedence[2]: from_stage=`StageExplore` (`explore`); from_agent=`AgentExplorer` (`explorer`); to_stage=`StageExtract` (`extract`); to_agent=`AgentExtractor` (`extractor`); relation_kind=`precedence`",
+		"stage_precedence[3]: from_stage=`StageExtract` (`extract`); from_agent=`AgentExtractor` (`extractor`); to_stage=`StageFinalize` (`finalize`); to_agent=`AgentFinalizer` (`finalizer`); relation_kind=`precedence`",
+		"source=`internal/types/enums.go:",
+		"They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stage-lane authority missing %q:\n%s", want, got)
@@ -8464,6 +8472,9 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 	}
 	if strings.Contains(got, "write_analyze") || strings.Contains(got, "StageWriteAnalyze") {
 		t.Fatalf("write-only stage must not enter canonical read membership:\n%s", got)
+	}
+	if count := strings.Count(got, "- stage_precedence["); count != 3 {
+		t.Fatalf("read authority must publish exactly three adjacent precedence recipes, got %d:\n%s", count, got)
 	}
 
 	ctx.Mode = types.ModeApply
