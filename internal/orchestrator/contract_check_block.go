@@ -2448,7 +2448,7 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Detail: fmt.Sprintf(
 				"answer block id=%q has an explicit typed source relation without its matching citable same-direction evidence, or a strict source call-chain body/principal edge without its required typed carrier: [%s]",
 				blockID, strings.Join(byBlock[blockID], "; ")),
-			Repair:     types.GroundedSourceDiagramEdgeOwnershipContract + " " + types.GroundedSourceDiagramRelationEvidenceContract + " Preserve relation_kind=call only for directions backed by one grounded call-site EvidenceItem using its exact Subject plus exact Object or grounded callee AnchorSymbol; preserve typed-only register/type_relation/callback/assignment/return only with matching exact typed evidence. Preserve selected principal calls.",
+			Repair:     types.GroundedSourceDiagramEdgeOwnershipContract + " " + types.GroundedSourceDiagramRelationEvidenceContract + " Preserve relation_kind=call only for directions backed by one grounded call-site EvidenceItem using its exact Subject plus exact Object or grounded callee AnchorSymbol; preserve typed-only register/type_relation/callback/assignment/data_flow/return only with matching exact typed evidence and the declared endpoint direction. Preserve selected principal calls.",
 			ClusterKey: blockClusterKey(blockID, "diagram_call_edge_evidence"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_call_edge_evidence",

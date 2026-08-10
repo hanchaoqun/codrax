@@ -37,6 +37,7 @@ const (
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
+	diagramDataFlowEdgeIssueNoEvidence        = "data_flow_edge_unproven"
 	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
@@ -278,18 +279,21 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				}
 				continue
 			}
-			if relation == types.DiagramRelAssignment || relation == types.DiagramRelReturn {
+			if relation == types.DiagramRelAssignment || relation == types.DiagramRelDataFlow || relation == types.DiagramRelReturn {
 				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
 				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramValueFlowEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
 					issue := diagramAssignmentEdgeIssueNoEvidence
-					if relation == types.DiagramRelReturn {
+					if relation == types.DiagramRelDataFlow {
+						issue = diagramDataFlowEdgeIssueNoEvidence
+					} else if relation == types.DiagramRelReturn {
 						issue = diagramReturnEdgeIssueNoEvidence
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: issue,
 						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
 						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+						Relation: relation,
 					})
 				}
 				continue
@@ -369,8 +373,35 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 	fromSymbol = strings.TrimSpace(fromSymbol)
 	toSymbol = strings.TrimSpace(toSymbol)
 	wantForm := types.ClaimFormForRelation(relation)
-	if fromSymbol == "" || toSymbol == "" || (wantForm != types.ClaimAssignmentFact && wantForm != types.ClaimReturnFact) {
+	if fromSymbol == "" || toSymbol == "" ||
+		(relation != types.DiagramRelAssignment && relation != types.DiagramRelDataFlow && relation != types.DiagramRelReturn) ||
+		(wantForm != types.ClaimAssignmentFact && wantForm != types.ClaimReturnFact) {
 		return false
+	}
+	assignmentEndpoint := func(ev types.EvidenceItem, receiver bool) []string {
+		lhs, rhs, ok := types.AssignmentEvidenceEndpoints(ev)
+		if !ok {
+			return nil
+		}
+		if receiver {
+			// Subject/Object were already checked against this exact tuple.
+			// Retain both the source spelling and its safe model-authored local
+			// qualification so `o.field` may be displayed as `field` without
+			// letting an unrelated owner mint authority.
+			return []string{lhs, ev.Subject}
+		}
+		return []string{rhs, ev.Object}
+	}
+	sourceCandidates := func(ev types.EvidenceItem) []string { return []string{ev.Subject} }
+	targetCandidates := func(ev types.EvidenceItem) []string { return []string{ev.Object} }
+	if relation == types.DiagramRelAssignment {
+		sourceCandidates = func(ev types.EvidenceItem) []string { return assignmentEndpoint(ev, true) }
+		targetCandidates = func(ev types.EvidenceItem) []string { return assignmentEndpoint(ev, false) }
+	} else if relation == types.DiagramRelDataFlow {
+		// data_flow is the execution-direction view of the same exact source
+		// statement: RHS value/source -> LHS assigned receiver.
+		sourceCandidates = func(ev types.EvidenceItem) []string { return assignmentEndpoint(ev, false) }
+		targetCandidates = func(ev types.EvidenceItem) []string { return assignmentEndpoint(ev, true) }
 	}
 	return diagramRelationEdgeHasExactOrUniqueShortProjection(
 		evidence, fromSymbol, toSymbol,
@@ -380,8 +411,8 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 			}
 			return wantForm != types.ClaimAssignmentFact || types.AssignmentEvidenceEndpointsMatch(ev)
 		},
-		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
-		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+		sourceCandidates,
+		targetCandidates,
 	)
 }
 

@@ -130,6 +130,14 @@ const (
 	// assignment authority. Maps to ClaimAssignmentFact.
 	DiagramRelAssignment DiagramRelationKind = "assignment"
 
+	// DiagramRelDataFlow denotes one exact source value transfer in execution
+	// direction: the RHS value/source -> the LHS assigned receiver. It is
+	// typed-only and can be minted only from an exact assignment/initializer
+	// endpoint tuple. It deliberately does not mean arbitrary conceptual,
+	// temporal, or cross-statement flow. Maps to ClaimAssignmentFact, while its
+	// reverse endpoint projection is checked separately by the diagram gate.
+	DiagramRelDataFlow DiagramRelationKind = "data_flow"
+
 	// DiagramRelReturn denotes an exact function-to-value/type flow asserted by
 	// a return statement. It is typed-only: labels and prose cannot mint return
 	// authority. Maps to ClaimReturnFact.
@@ -155,6 +163,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelObserve,
 	DiagramRelRegister,
 	DiagramRelAssignment,
+	DiagramRelDataFlow,
 	DiagramRelReturn,
 	DiagramRelTemporal,
 }
@@ -202,7 +211,7 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimExternalObservation
 	case DiagramRelRegister:
 		return ClaimRegistrationEdge
-	case DiagramRelAssignment:
+	case DiagramRelAssignment, DiagramRelDataFlow:
 		return ClaimAssignmentFact
 	case DiagramRelReturn:
 		return ClaimReturnFact
@@ -257,7 +266,7 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 //     C5). LLM-facing prompts read this dictionary as their authority.
 //   - When the ClaimForm enum gains a label-inferable edge form, extend this
 //     dictionary AND ClaimFormForRelation in the same patch. Typed-only forms
-//     such as registration, assignment, return, and declared type relations
+//     such as registration, assignment, data_flow, return, and declared type relations
 //     intentionally stay out of this dictionary.
 var diagramRelationKeywords = []struct {
 	keyword string

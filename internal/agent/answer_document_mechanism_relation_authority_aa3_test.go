@@ -361,7 +361,7 @@ func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperatio
 		},
 		FlowFindings: []types.FlowFindingDigest{
 			{ID: "unrelated-auto-path", Path: []string{"internal/agent/agent.go:BaseAgent.executeTool", "internal/agent/agent.go:validateWriteAnalyzerToolPolicy"}, EvidenceIDs: []string{"auto-unrelated"}},
-			{ID: "selected-path", Path: []string{"busCtx.AnalysisIR", "out.AnalysisIR"}, EvidenceIDs: []string{"selected-operation"}},
+			{ID: "selected-path", Path: []string{"out.AnalysisIR", "busCtx.AnalysisIR"}, EvidenceIDs: []string{"selected-operation"}},
 		},
 	}
 
@@ -369,12 +369,36 @@ func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperatio
 		t.Fatal("fixture must compile a support plan so the R221 bypass arm is exercised")
 	}
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
-	if !strings.Contains(got, "typed_flow_path[1]=`busCtx.AnalysisIR -> out.AnalysisIR`") {
+	if !strings.Contains(got, "typed_flow_path[1]=`out.AnalysisIR -> busCtx.AnalysisIR`") {
 		t.Fatalf("selected operation replay must retain principal ordered authority:\n%s", got)
+	}
+	if !strings.Contains(got, "relation_kind=`data_flow`") ||
+		!strings.Contains(got, "node_alias[n1]=`out.AnalysisIR`") ||
+		!strings.Contains(got, "node_alias[n2]=`o.busCtx.AnalysisIR`") {
+		t.Fatalf("typed flow request must teach the exact RHS -> LHS data-flow relation:\n%s", got)
 	}
 	if strings.Contains(got, "typed_flow_path[2]") ||
 		strings.Contains(got, "typed_flow_path[1]=`internal/agent/agent.go:BaseAgent.executeTool") {
 		t.Fatalf("broad support plan promoted an automatic unrelated ordered path:\n%s", got)
+	}
+}
+
+func TestMechanismRelationProjectionDistinguishesBindingAndExecutionDirectionAA3(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorAssignment,
+		Subject: "busCtx.AnalysisIR", Object: "output.AnalysisIR",
+		Snippet: "o.busCtx.AnalysisIR = output.AnalysisIR",
+		Scope:   types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}
+	if relation, from, to := answerDocMechanismRelationProjection(item, types.RequestModel{PredicateAxis: types.AxisFlow}); relation != types.DiagramRelDataFlow || from != "output.AnalysisIR" || to != "o.busCtx.AnalysisIR" {
+		t.Fatalf("flow projection=(%q,%q,%q), want data_flow RHS -> LHS", relation, from, to)
+	}
+	if relation, from, to := answerDocMechanismRelationProjection(item, types.RequestModel{PredicateAxis: types.AxisCall}); relation != types.DiagramRelAssignment || from != "o.busCtx.AnalysisIR" || to != "output.AnalysisIR" {
+		t.Fatalf("binding projection=(%q,%q,%q), want assignment LHS -> RHS", relation, from, to)
+	}
+	item.Subject = "applyStageOutput"
+	if relation, _, _ := answerDocMechanismRelationProjection(item, types.RequestModel{PredicateAxis: types.AxisFlow}); relation != types.DiagramRelUnknown {
+		t.Fatalf("false assignment endpoints minted %q authority", relation)
 	}
 }
 

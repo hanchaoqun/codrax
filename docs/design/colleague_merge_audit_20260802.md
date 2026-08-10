@@ -3029,3 +3029,14 @@ prose，不由系统补边或改结论。正例覆盖全部可表达赋值的 14
 五包联合回归与 `go test ./... -count=1` 全绿。状态：`B471=implemented/full-suite-pass/pending-production-replay`；`B470=P1-next`；
 `B472=P1-after-B470`；`assignment-shape-as-endpoint-authority=forbidden`；`system-edge/relation/conclusion-synthesis=none`；
 Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### §11.10.30 B470 完成：绑定视图与执行方向数据流分型
+
+新增 typed-only `data_flow`，仅由 B471 exact assignment tuple 反向投影为 RHS source/value → LHS receiver；旧 `assignment` 保持
+LHS receiver → RHS bound value/type，`return` 保持 function → returned value/type。enum/schema/JSON 教学/validator/repair/机制 capsule 单源接通，
+AxisFlow 得到 source-derived advisory recipe；其它 axis 不被改向。反向、伪端点、歧义语法均 fail closed，label/request/prose/participant roster
+不铸权，系统不生成答案边或结论。五包联合回归与 `go test ./... -count=1` 全绿。
+
+状态：`B470=implemented/full-suite-pass/pending-production-replay`；`B471=code-closed/pending-joint-replay`；`B472=P1-next`；
+`conceptual-flow-as-hard-edge=forbidden`；`system-edge/relation/conclusion-synthesis=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

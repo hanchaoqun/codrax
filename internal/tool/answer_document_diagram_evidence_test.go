@@ -2177,6 +2177,48 @@ func TestDiagramCallEdgeEvidenceMismatches_ValueFlowRequiresSameDirectionTypedEv
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_DataFlowUsesExactRHSIntoLHSDirection(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "data-flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n  V[output.AnalysisIR] --> R[busCtx.AnalysisIR]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "V", ToNode: "R", RelationKind: types.DiagramRelDataFlow,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorAssignment, Subject: "busCtx.AnalysisIR", Object: "output.AnalysisIR",
+		Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
+		GroundingStatus: types.GroundingGrounded,
+		Snippet:         "o.busCtx.AnalysisIR = output.AnalysisIR",
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("exact RHS -> LHS data flow must be accepted without call authority: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n  R[busCtx.AnalysisIR] --> V[output.AnalysisIR]\n"
+	doc.Blocks[0].EdgeAnchors[0].FromNode = "R"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "V"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramDataFlowEdgeIssueNoEvidence {
+		t.Fatalf("LHS -> RHS must not pass as execution-direction data_flow: %+v", got)
+	}
+
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelAssignment
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("the same exact LHS -> RHS pair must remain valid in binding-view assignment direction: %+v", got)
+	}
+
+	falseEndpoints := evidence[0]
+	falseEndpoints.Subject = "applyStageOutput"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{falseEndpoints}); len(got) != 1 || got[0].Issue != diagramAssignmentEdgeIssueNoEvidence {
+		t.Fatalf("assignment-shaped line with false model endpoints must authorize neither view: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypeRelationRequiresSameDirectionParserEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "type-hierarchy", Kind: types.BlockDiagram,

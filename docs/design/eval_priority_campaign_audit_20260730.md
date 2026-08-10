@@ -30624,3 +30624,27 @@ assignment，`emit_evidence` 当场撤销 relation fields、降为 `text_referen
 状态：`B471=implemented/full-suite-pass/pending-production-replay`；`B470=P1-next`；`B472=P1-after-B470`；
 `assignment-shape-as-endpoint-authority=forbidden`；`raw-request/model-answer-prose-hard-gate=none`；
 `system-edge/answer-conclusion-rewrite=none`；Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。
+
+#### B470 独立批完成：source-flow 获得严格的 execution-direction `data_flow`
+
+B471 关闭假端点后，本批新增 typed-only `relation_kind=data_flow`。它不是任意“业务流”或阶段邻接：唯一可接受的基础载体是一个 citable、
+exact-line assignment/initializer tuple，方向严格为 RHS value/source → LHS receiver。原 `assignment` 继续表达 LHS receiver → bound RHS
+value/type 的绑定视图；`return` 继续表达 returning function → returned value/type。三种关系互不冒充，`ClaimAssignmentFact` 的旧 inverse bridge
+仍只回落为 `assignment`，系统不会在缺少显式 typed enum 时自行猜测 data-flow 方向。
+
+`AllDiagramRelationKinds`、动态 schema、canonical JSON 教学、workflow rule、pre/post evidence validator、repair 文案、violation registry 与机制关系
+capsule 已统一接线。AxisFlow 的机制 capsule 从 B471 的 exact tuple 生成 `data_flow` advisory recipe；其它 axis 保持 assignment binding view。
+这只是给模型足够、精确且可复制的关系证据，不要求必须画图，不选择主关系，也不写入/替换模型答案。participant roster、request、thinking、
+edge label 与 final prose 均不参与铸权。
+
+正反 pin 固定：`output.AnalysisIR -> busCtx.AnalysisIR` 可由 `busCtx.AnalysisIR = output.AnalysisIR` 授权；反向 data_flow、伪 LHS、无
+snippet/歧义表达均拒绝；同一 tuple 的 LHS→RHS 仍可合法声明为 assignment。所有支持语言沿用 B471 的共享 endpoint extractor，未新增语言名
+分支。Trace/root-cause family 在 source relation validator 入口继续独立旁路，显式时间窗、自动补齐、链上主因及背景分层逻辑均未修改。
+
+验证：`go test ./internal/types ./internal/skill ./internal/agent ./internal/tool ./internal/orchestrator -count=1` 与
+`go test ./... -count=1` 全绿。
+
+状态：`B470=implemented/full-suite-pass/pending-production-replay`；`B471=code-closed/pending-joint-replay`；`B472=P1-next`；
+`participant-roster-as-edge-authority=forbidden`；`conceptual-flow-as-hard-edge=forbidden`；
+`raw-request/model-answer-prose-hard-gate=none`；`system-edge/answer-conclusion-rewrite=none`；
+Trace explicit-window/auto-supplement/on-chain root-cause families=`unchanged`。

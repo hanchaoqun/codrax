@@ -35,3 +35,10 @@ This scaffold is for human review. The runner records typed metrics and declared
 - Ambiguous/nested initializer surfaces remain citable local facts but cannot authorize a directed assignment edge without the shared exact matcher; registration keeps its independent typed selection contract.
 - The system neither creates a replacement edge nor rewrites the model's conclusion. A mismatched but parseable assignment is retained as `text_reference` with an exact endpoint repair note.
 - `B470` remains the next independent batch: introduce an evidence-backed data/state-flow relation after false assignment authority is closed, then replay exact-two rather than fitting this single QF answer.
+
+### B470 follow-up
+
+- `B470` code-complete: `relation_kind=data_flow` now means only one exact assignment/initializer in RHS value/source -> LHS receiver execution direction.
+- The binding view remains `assignment` in LHS -> RHS direction, while factory/function return remains `return`; no relation is inferred from diagram labels, participant lists, request text, or answer prose.
+- AxisFlow receives source-derived advisory recipes from exact tuples, but the model still chooses whether and how to use them. The system does not add an edge to the answer or replace the model's conclusion.
+- Joint B470/B471 production replay is still required before marking the r273 QF gap closed.

@@ -4056,7 +4056,7 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
 		fmt.Fprintf(&b, "- The required kind is authoritative: set `diagram.kind=%s` and use the matching Mermaid body syntax for that semantic family.\n", requiredKind)
 	}
-	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. Assignment/return carry factory or value selection and are not calls. A flowchart arrow is not automatically a call.\n")
+	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, `data_flow/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. Assignment is LHS -> RHS binding view, while data_flow is the same exact tuple in RHS -> LHS execution direction. These value/factory relations are not calls, and a flowchart arrow is not automatically a call.\n")
 	b.WriteString("- " + types.GroundedSourceDiagramRelationEvidenceContract + "\n")
 	b.WriteString("- For architecture component nodes, use the canonical identity grounded by topology/stage binding, constructor/registration, interface implementation, or execution dispatch. A repair/validation/helper function that only contains the stage name is not itself the component boundary.\n")
 	b.WriteString("- For architecture data-flow/carrier diagrams, a field roster grounds node membership only. Before drawing a transfer arrow, use grounded producer + merge/transfer + consumer evidence for that path. One merge function does not prove that every source field is stored in the destination; keep source-stated exclusions and separately consumed fields on their own handoff path or disclose them in prose.\n")
@@ -6978,12 +6978,12 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		if !item.IsCitable() {
 			continue
 		}
-		relation := answerDocMechanismRelationKind(item)
+		relation, fromRaw, toRaw := answerDocMechanismRelationProjection(item, ctx.AnalysisIR.RequestModel)
 		if !relation.IsValid() {
 			continue
 		}
-		from := answerDocMechanismEvidenceEndpoint(item, item.Subject)
-		to := answerDocMechanismEvidenceEndpoint(item, item.Object)
+		from := answerDocMechanismEvidenceEndpoint(item, fromRaw)
+		to := answerDocMechanismEvidenceEndpoint(item, toRaw)
 		if relation == types.DiagramRelCall {
 			// A call-site may carry a reader-friendly module/type-qualified
 			// callee while the same callable's body necessarily uses its short
@@ -7065,15 +7065,28 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	return b.String()
 }
 
-// answerDocMechanismRelationKind projects one already-typed EvidenceItem onto
-// the exact diagram relation enum consumed by the hard validator. Generic
-// definition facts intentionally do not become type relations: only the
-// parser-authored structural producer can mint that direction.
-func answerDocMechanismRelationKind(item types.EvidenceItem) types.DiagramRelationKind {
+// answerDocMechanismRelationProjection projects one already-typed
+// EvidenceItem onto the exact relation and endpoint direction consumed by the
+// hard validator. For a typed source-flow request, an exact assignment is
+// taught in execution direction (RHS value -> LHS receiver) as data_flow.
+// Other request axes retain the binding view (receiver -> bound value) as
+// assignment. This reads only the schema-valid predicate axis and exact source
+// tuple; it never derives a relation from request/answer prose.
+func answerDocMechanismRelationProjection(item types.EvidenceItem, rm types.RequestModel) (types.DiagramRelationKind, string, string) {
 	if types.IsRepoMapTypeRelationEvidence(item) {
-		return types.DiagramRelTypeRelation
+		return types.DiagramRelTypeRelation, item.Subject, item.Object
 	}
-	return types.RelationForClaimForm(types.ClaimFormOf(item))
+	if types.ClaimFormOf(item) == types.ClaimAssignmentFact {
+		receiver, value, ok := types.AssignmentEvidenceEndpoints(item)
+		if !ok || !types.AssignmentEvidenceEndpointsMatch(item) {
+			return types.DiagramRelUnknown, "", ""
+		}
+		if rm.PredicateAxis == types.AxisFlow {
+			return types.DiagramRelDataFlow, value, receiver
+		}
+		return types.DiagramRelAssignment, receiver, value
+	}
+	return types.RelationForClaimForm(types.ClaimFormOf(item)), item.Subject, item.Object
 }
 
 func answerDocMechanismEvidenceEndpoint(item types.EvidenceItem, raw string) string {
@@ -7327,7 +7340,7 @@ func answerDocMechanismComponentRelationClass(
 			class = "callback_handoff"
 		case types.DiagramRelRegister:
 			class = "binding"
-		case types.DiagramRelAssignment, types.DiagramRelReturn:
+		case types.DiagramRelAssignment, types.DiagramRelDataFlow, types.DiagramRelReturn:
 			class = "value_flow"
 		case types.DiagramRelGuard, types.DiagramRelPrecedence:
 			class = "control_or_order"

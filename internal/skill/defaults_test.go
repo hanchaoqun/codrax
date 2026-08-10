@@ -917,7 +917,7 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 		types.GroundedSourceDiagramRelationEvidenceContract,
 		"Flow/architecture edges also need their honest relation owner",
 		"relation_kind: <one of " + BuildDiagramRelationKindList() + ">",
-		"`type_relation`, `register`, `callback`, `assignment`, and `return` are typed-only",
+		"`type_relation`, `register`, `callback`, `assignment`, `data_flow`, and `return` are typed-only",
 		"PREFERRED: declare the relation directly",
 		"the sole typed relation authority",
 		"dashed reply `callee-->>caller` is a response/return, not a reverse call",
