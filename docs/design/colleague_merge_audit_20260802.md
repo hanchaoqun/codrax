@@ -4434,3 +4434,14 @@ optional diagram 被关系门拒绝后，repair teaching 现优先建议局部�
 
 状态：`B555=implemented/pending-r327`；`optional-removal=retained`；`model-authorship=preserved`；
 `B554=next`；Trace causal authority=`unchanged`。
+
+#### §11.10.150 B554：binary relation graph 外新增封闭 unary guard Note 车道
+
+citable guard 若只有 subject/owner + exact condition，不再因 object 为空而从视觉 authoring capsule 消失。系统以独立 typed unary carrier 发布，并在 sequence
+skeleton 中复用 participant alias、生成无 anchor 单席 Note；binary guard 保持原路径，二者不重复。Note 不铸 object、自环、edge anchor 或调用权威。
+
+能力矩阵当前只开放 `sequence + guard`，其他 diagram family 和 relation kind fail-closed；这避免为了当前 C++ case 把任意单实体事实泛化成图边。
+相关七包测试通过，模型仍负责 visible business wording、关系取舍、布局和结论。
+
+状态：`B554=implemented/pending-r327`；`typed-unary-authority=closed-matrix`；
+`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。

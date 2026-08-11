@@ -1093,6 +1093,74 @@ func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA
 	}
 }
 
+func TestMechanismRelationCopyReadySequencePreservesUnaryGuardAsOneParticipantNoteAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				RequiredKind: types.DiagramSequence,
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "call", Kind: types.EvidenceRelationship,
+				Source: "src/registry.cpp", LineStart: 32, AnchorKind: types.AnchorCall,
+				Subject: "make_sink", Object: "SinkRegistry::create",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "guard", Kind: types.EvidenceConditional,
+				Source: "src/registry.cpp", LineStart: 17, AnchorKind: types.AnchorCondition,
+				Subject: "SinkRegistry::create", Condition: `kind == "console"`,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"typed_unary_annotations=1",
+		"participant n2 as SinkRegistry::create",
+		"unary_note_recipe[1]=`n2`",
+		"relation_kind=`guard`",
+		"detail=`kind == \"console\"`",
+		`Note over n2: Selection condition is verified (kind == &quot;console&quot;); describe the business condition`,
+		"visual_annotation_relation_count=1",
+		"annotation_relation_kinds=`guard`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unary guard visual subset missing %q:\n%s", want, got)
+		}
+	}
+	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	for _, forbidden := range []string{
+		"n2->>n2",
+		`"relation_kind":"guard"`,
+		`"from_node":"n2"`,
+	} {
+		if strings.Contains(copyReady, forbidden) {
+			t.Fatalf("unary guard minted edge authority %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestMechanismUnaryAnnotationCopyReadyMatrixIsClosedAA3(t *testing.T) {
+	for _, kind := range []types.DiagramKind{
+		types.DiagramFlow, types.DiagramArchitecture, types.DiagramCallDAG, types.DiagramNone,
+	} {
+		if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind, types.DiagramRelGuard) {
+			t.Fatalf("unary guard must not be auto-rendered by unsupported family %q", kind)
+		}
+	}
+	if !answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramSequence, types.DiagramRelGuard) {
+		t.Fatal("sequence must carry a unary guard as an unanchored Note")
+	}
+	if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramSequence, types.DiagramRelCall) ||
+		answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramKind("future"), types.DiagramRelGuard) {
+		t.Fatal("unknown/non-unary relations must fail closed")
+	}
+}
+
 func TestMechanismRelationCopyReadyMatrixIsClosedAndCompleteAA3(t *testing.T) {
 	allButContain := map[types.DiagramRelationKind]bool{}
 	for _, relation := range types.AllDiagramRelationKinds() {

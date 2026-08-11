@@ -6993,6 +6993,23 @@ type answerDocMechanismRelationEdge struct {
 	sourceItem types.EvidenceItem
 }
 
+// answerDocMechanismUnaryAnnotation carries a citable typed fact whose
+// semantics attach to one exact participant instead of relating two
+// endpoints. It is deliberately separate from answerDocMechanismRelationEdge:
+// a branch condition must never acquire a synthetic object, self-loop, or
+// edge anchor merely so a visual can mention it.
+type answerDocMechanismUnaryAnnotation struct {
+	participant string
+	relation    types.DiagramRelationKind
+	detail      string
+	loc         string
+}
+
+type answerDocMechanismUnaryAnnotationRow struct {
+	annotation  answerDocMechanismUnaryAnnotation
+	participant string
+}
+
 type answerDocMechanismAliasRow struct {
 	identity string
 	alias    string
@@ -7023,6 +7040,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		return ""
 	}
 	evidence, edges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
+	unaryAnnotations := answerDocMechanismUnaryAnnotations(evidence)
 	if acceptedFacts == 0 {
 		return ""
 	}
@@ -7038,8 +7056,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Current-Source Mechanism Relation Authority\n\n")
 	fmt.Fprintf(&b,
-		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
-		acceptedFacts, callsiteFacts, len(edges), status)
+		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; typed_unary_annotations=%d; ordered_path_authority=`%s`.\n",
+		acceptedFacts, callsiteFacts, len(edges), len(unaryAnnotations), status)
 	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
@@ -7058,10 +7076,12 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers: place the exact endpoint node inside that component's Mermaid subgraph/group, draw the copied typed relation only between the exact endpoint nodes, and use the component group/label only for responsibility. Do not retarget the relation to an abstract component node, and do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
 	if len(edges) == 0 {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
-	} else {
+	}
+	if len(edges) > 0 || len(unaryAnnotations) > 0 {
 		renderAnswerDocMechanismRelationAuthoringCapsule(
 			&b,
 			edges,
+			unaryAnnotations,
 			answerDocMechanismCopyReadyRelationLimit(ctx),
 			answerDocMechanismCopyReadyDiagramKind(ctx),
 		)
@@ -7188,13 +7208,53 @@ func answerDocMechanismEvidenceEndpoint(item types.EvidenceItem, raw string) str
 	return raw
 }
 
+// answerDocMechanismUnaryAnnotations is a closed, typed projection for source
+// facts that have one participant by definition. Guard conditions are the
+// first supported member. Binary guards continue through the ordinary
+// relation graph; unknown or future unary shapes fail closed until their
+// visual semantics are explicitly reviewed.
+func answerDocMechanismUnaryAnnotations(evidence []types.EvidenceItem) []answerDocMechanismUnaryAnnotation {
+	const limit = 4
+	out := make([]answerDocMechanismUnaryAnnotation, 0, limit)
+	seen := make(map[string]bool)
+	for _, item := range evidence {
+		if len(out) >= limit || !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimGuardCondition {
+			continue
+		}
+		relation, _, object := answerDocMechanismRelationProjection(item, types.RequestModel{})
+		if relation != types.DiagramRelGuard || strings.TrimSpace(object) != "" {
+			continue
+		}
+		participant := firstNonEmptyAnswerDocString(item.Subject, item.OwnerIdentity, item.OwnerSymbol)
+		participant = answerDocMechanismEvidenceEndpoint(item, participant)
+		detail := strings.TrimSpace(item.Condition)
+		if participant == "" || detail == "" || strings.ContainsAny(participant+detail, "\r\n") {
+			continue
+		}
+		loc := item.DisplayLocation(true)
+		key := strings.ToLower(string(relation) + "\x00" + participant + "\x00" + detail + "\x00" + loc)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, answerDocMechanismUnaryAnnotation{
+			participant: participant,
+			relation:    relation,
+			detail:      detail,
+			loc:         loc,
+		})
+	}
+	return out
+}
+
 func renderAnswerDocMechanismRelationAuthoringCapsule(
 	b *strings.Builder,
 	edges []answerDocMechanismRelationEdge,
+	unaryAnnotations []answerDocMechanismUnaryAnnotation,
 	limit int,
 	copyReadyKind types.DiagramKind,
 ) {
-	if b == nil || len(edges) == 0 || limit <= 0 {
+	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
 		return
 	}
 	// Source authority and visual authority have different cardinalities. Two
@@ -7247,12 +7307,20 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			typed:  typedAnchor,
 		})
 	}
-	if len(recipes) == 0 {
+	if len(recipes) == 0 && len(unaryAnnotations) == 0 {
 		return
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
 	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes)
+	unaryRows := make([]answerDocMechanismUnaryAnnotationRow, 0, len(unaryAnnotations))
+	for _, annotation := range unaryAnnotations {
+		participantAlias := aliasFor(annotation.participant)
+		unaryRows = append(unaryRows, answerDocMechanismUnaryAnnotationRow{
+			annotation:  annotation,
+			participant: participantAlias,
+		})
+	}
 	if copyReadyKind == types.DiagramNone {
 		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias as the node/participant ID; `from_node` and `to_node` must be these body identifiers. The identity below is endpoint authority, not mandatory primary display copy: author the visible label in the user's domain and keep the exact identity only as a secondary label when useful.\n")
 		for _, row := range aliases {
@@ -7266,9 +7334,25 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
+		for i, row := range unaryRows {
+			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
+				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
+			if row.annotation.loc != "" {
+				fmt.Fprintf(b, " @ %s", row.annotation.loc)
+			}
+			b.WriteString("\n")
+		}
 	} else {
 		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; a Note is not an edge and cannot satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, and anchor array; replace only visible node/message wording with model-authored business/domain language. Preserve its Notes as facts while replacing their visible wording with model-authored business/domain language. Do not compose a different story graph.\n")
-		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
+		for i, row := range unaryRows {
+			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
+				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
+			if row.annotation.loc != "" {
+				fmt.Fprintf(b, " @ %s", row.annotation.loc)
+			}
+			b.WriteString("\n")
+		}
+		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, unaryRows, copyReadyKind)
 	}
 	if collapsedVisualDuplicates > 0 {
 		fmt.Fprintf(b, "- source_relation_duplicates_collapsed_for_visual=%d; source facts remain counted above, while the diagram keeps one arrow per exact typed endpoint relation.\n", collapsedVisualDuplicates)
@@ -7553,9 +7637,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	b *strings.Builder,
 	aliases []answerDocMechanismAliasRow,
 	recipes []answerDocMechanismRecipeRow,
+	unaryAnnotations []answerDocMechanismUnaryAnnotationRow,
 	kind types.DiagramKind,
 ) {
-	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
+	if b == nil || len(aliases) == 0 || len(recipes)+len(unaryAnnotations) == 0 {
 		return
 	}
 	for _, row := range aliases {
@@ -7564,7 +7649,13 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		}
 	}
 	diagramRecipes, annotationRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
-	if len(diagramRecipes) == 0 {
+	visualUnaryAnnotations := make([]answerDocMechanismUnaryAnnotationRow, 0, len(unaryAnnotations))
+	for _, row := range unaryAnnotations {
+		if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind, row.annotation.relation) {
+			visualUnaryAnnotations = append(visualUnaryAnnotations, row)
+		}
+	}
+	if len(diagramRecipes) == 0 && len(visualUnaryAnnotations) == 0 {
 		b.WriteString("\n- No typed relation in this capsule can be represented unambiguously by the selected Mermaid family. Keep these facts in prose/notes or omit the optional diagram; do not coerce them into call arrows.\n")
 		return
 	}
@@ -7579,6 +7670,9 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		usedAliases[recipe.from] = true
 		usedAliases[recipe.to] = true
 	}
+	for _, row := range visualUnaryAnnotations {
+		usedAliases[row.participant] = true
+	}
 	anchorJSON, err := json.Marshal(anchors)
 	if err != nil {
 		return
@@ -7586,9 +7680,24 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
 	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored Notes, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, and Note text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Notes preserve already-typed non-message facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
-	if len(omittedKinds) > 0 {
+	if len(omittedKinds) > 0 || len(visualUnaryAnnotations) > 0 {
+		annotationKinds := append([]string(nil), omittedKinds...)
+		for _, row := range visualUnaryAnnotations {
+			kindName := string(row.annotation.relation)
+			seenKind := false
+			for _, existing := range annotationKinds {
+				if existing == kindName {
+					seenKind = true
+					break
+				}
+			}
+			if !seenKind {
+				annotationKinds = append(annotationKinds, kindName)
+			}
+		}
+		sort.Strings(annotationKinds)
 		fmt.Fprintf(b, "- visual_annotation_relation_count=%d; annotation_relation_kinds=`%s`; these are preserved as unanchored Notes, not message arrows.\n",
-			len(annotationRecipes), strings.Join(omittedKinds, ","))
+			len(annotationRecipes)+len(visualUnaryAnnotations), strings.Join(annotationKinds, ","))
 	}
 	b.WriteString("\n")
 	b.WriteString("```mermaid\n")
@@ -7607,6 +7716,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 			fmt.Fprintf(b, "  Note over %s,%s: %s\n", recipe.from, recipe.to,
 				answerDocMechanismSequenceNotePlaceholder(recipe.edge.relation))
 		}
+		for _, row := range visualUnaryAnnotations {
+			fmt.Fprintf(b, "  Note over %s: %s\n", row.participant,
+				answerDocMechanismUnarySequenceNotePlaceholder(row.annotation))
+		}
 	} else {
 		b.WriteString("flowchart TD\n")
 		for _, row := range aliases {
@@ -7621,6 +7734,18 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 	b.WriteString("```\n")
 	fmt.Fprintf(b, "- edge_anchors_json=`%s`\n", anchorJSON)
+}
+
+func answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind types.DiagramKind, relation types.DiagramRelationKind) bool {
+	return kind == types.DiagramSequence && relation == types.DiagramRelGuard
+}
+
+func answerDocMechanismUnarySequenceNotePlaceholder(annotation answerDocMechanismUnaryAnnotation) string {
+	if annotation.relation != types.DiagramRelGuard || strings.TrimSpace(annotation.detail) == "" {
+		return "A single-participant fact is verified; describe it without an arrow"
+	}
+	return fmt.Sprintf("Selection condition is verified (%s); describe the business condition",
+		answerDocMechanismMermaidLabel(annotation.detail))
 }
 
 // answerDocMechanismCopyReadyRecipes narrows the full typed relation capsule

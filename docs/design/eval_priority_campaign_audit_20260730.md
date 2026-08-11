@@ -32963,3 +32963,19 @@ optional-diagram relation repair 不再把“保留 typed skeleton”与“删�
 
 `internal/agent` 全包通过。状态：`B555=implemented/pending-r327`；`diagram-optionality=model-owned`；
 `system-diagram-authorship=none`；`B554=next`；Trace causal authority=`unchanged`。
+
+### 123.610 B554：单实体 guard 进入 sequence Note，但永不获得 edge authority
+
+Current-Source Mechanism Authority 新增独立于 binary edge graph 的 `typed_unary_annotations`。首个封闭能力只接受 citable `guard_condition`、非空 exact condition 与
+精确 participant；若 evidence 已有 object，仍走原 binary relation 路径，不重复发布。participant 优先使用接地 subject，其次只用 parser-stamped owner identity，
+不从 summary、请求或终稿猜实体。
+
+sequence copy-ready skeleton 将 unary guard 表达为该 participant 上的单席 `Note over`，并在 `unary_note_recipe` 中携带 exact condition/source location；若 participant
+已经是 call edge endpoint，复用同一 node alias。Note 永不进入 `edge_anchors_json`，不能满足 call/callback authority，也不会制造 object、自环或跨组件桥。
+flow/architecture/call_dag 与未知未来 family 当前保持 fail-closed，待各自无损语法经过独立 capability 裁定，避免用通用箭头误表 guard。
+
+相关 `agent/tool/orchestrator/types/render/mermaidcompat/tracediag` 套件通过；闭矩阵测试固定仅 sequence+guard 开放。该改动只增强模型上下文中的精确事实，
+不修改模型终稿、布局或结论，不影响 Trace 显式窗、自动补齐、因果投影及链上根因权威。
+
+状态：`B554=implemented/relevant-suites-pass/pending-r327`；`unary-guard=single-participant-note`；
+`self-loop/synthetic-object/edge-anchor=forbidden`；`B555=pending-r327`；Trace causal authority=`unchanged`。
