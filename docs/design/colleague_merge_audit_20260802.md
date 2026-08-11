@@ -4671,3 +4671,22 @@ typed blocking relation；不扫描请求、模型推理或终稿，不拒绝、
 
 状态：`B544=implemented/pending-r334`；`trigger=typed-final-seat-only`；`exact-blocker=preserved`；
 `raw-prose-hard-gate=none`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.166 r334：B544 获生产正证；inline probe runtime enum 可被命令 wrapper 绕过
+
+r334 exact-two runner 2/2、人工 1/2。Trace 正文保留显式 5.000..5.007s 窗、确定性补采、因果投影、链上/背景隔离及实际占用/规则可消双轴；模型明确将
+worker-200 `class_verification` 限定为目标唤醒前链上工作候选，分别披露目标 sleep 原因、直接 blocker、holder/waiter 和帧因果未证，不再声称 app-100
+等待该工作完成或被其直接阻塞。0.800ms wake 后 runnable_wait 独立归为调度供给，强 typed blocker 车道未被负边界抹除。B544 关闭到生产正证。
+
+C++ write-plan 的单行 patch 正确且可 apply，但确认新的 `B567-PROBEWRAPPEREXEC1/P1-high`：planner 在 `language=python` 的 probe 中调用
+`subprocess.run(['g++', ...])`，绕过 inline runtime enum 去执行 C++ 编译器；change-plan 教学和 schema 描述均已明确禁止，`emit_change_plan` 却接受并持久化。
+现有 coupling validator 只在 changed source 与 probe runtime 同族时检查 import/require；纯 C++ change 对 Python provider 产生空 target，故错误放行。
+
+最优方案不是扫描请求、计划摘要或某个编译器名，也不是列举 `g++/rustc/cjc` 关键词。应在 plan-time 从结构化 `changes[].path` 扩展名派生 changed-source
+language family，再与 `verification_probes[].language` 的 runtime family 求交：存在已识别 source target、但某 probe 与全部 changed-source family 不相容时，拒绝该 probe，
+要求删除它并把 native build/test 命令留在 acceptance tests；多语言计划只要至少有一个同族 changed target，继续交由既有 import/require coupling 验证其实际绑定。
+无已识别 source target 的配置/文档计划保持旧行为。该门只读 typed plan fields，不读取任何模型 prose，覆盖 C/C++/Rust/Cangjie/ArkTS 及未来扩展语言。
+
+状态：`B544=production-positive`；`B567=P1-high/next`；`runner=2/2`；`human=1/2`；
+`probe-command-wrapper=currently-accepted`；`fixed-four-minute-active-degrade=retired`；
+`system-answer-authorship=none`；Trace causal authority=`unchanged`。
