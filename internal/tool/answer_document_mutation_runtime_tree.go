@@ -4577,14 +4577,16 @@ func runtimeTraceProjStampSemanticMentionFloor(model *runtimeTraceProjTreeModel)
 }
 
 // runtimeTraceProjSelfSymptomTwinIndex proves that a relocated
-// root_cause_target_self_state sleep row is the rank-lane view of exactly one
-// already-rendered wakeup_causal_impact scheduler-state row. This is display
+// target_self_state-tier sleep row is the rank-lane view of exactly one
+// already-rendered wakeup_causal_impact scheduler-state row. The engine may
+// publish that typed tier through root_cause_target_self_state when the row is
+// attributable or root_cause_context_only when it is lossless context; the
+// tier, not either predicate spelling, is the target-self authority. This is display
 // reconciliation only: it never changes either node or any numeric projection
 // bucket. Every join arm is typed and exact (apart from the repository-wide
 // selected-window endpoint tolerance); zero/ambiguous inputs fail open.
 func runtimeTraceProjSelfSymptomTwinIndex(rows []runtimeTraceProjTreeRow, symptom types.TraceCausalProjectionNode) (int, bool) {
 	if !symptom.IsTargetSelfStateRow() ||
-		strings.TrimSpace(symptom.Predicate) != "root_cause_target_self_state" ||
 		types.TraceCausalProjectionStateClass(symptom.StateKind) != "sleep" ||
 		symptom.LineStart <= 0 || symptom.LineEnd < symptom.LineStart ||
 		!types.TraceCausalProjectionWindowPresent(symptom.QueryWindowStartTs, symptom.QueryWindowEndTs) {

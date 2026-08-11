@@ -60,6 +60,25 @@ func TestFocusedSleepOnChainSymptomSharesOneDisplaySeat(t *testing.T) {
 	}
 }
 
+func TestFocusedSleepOnChainContextOnlySymptomSharesOneDisplaySeat(t *testing.T) {
+	projection := selfSymptomOnChainFoldWitness()
+	projection.OnChainCauses = append([]types.TraceCausalProjectionNode(nil), projection.OnChainCauses...)
+	projection.OnChainCauses[len(projection.OnChainCauses)-1].Predicate = "root_cause_context_only"
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	if len(model.SelfRows) != 2 {
+		t.Fatalf("production context-only predicate must not split one physical sleep into two seats: %+v", model.SelfRows)
+	}
+	var sleep runtimeTraceProjTreeRow
+	for _, row := range model.SelfRows {
+		if row.Node.StateKind == "s_sleep" {
+			sleep = row
+		}
+	}
+	if sleep.Node.Predicate != "wakeup_causal_impact" || len(sleep.SelfSymptomFoldPeers) != 1 {
+		t.Fatalf("typed target-self tier must fold into the scheduler carrier: %+v", sleep)
+	}
+}
+
 func TestFocusedSleepOnChainSymptomFoldFailsOpenOnMismatch(t *testing.T) {
 	projection := selfSymptomOnChainFoldWitness()
 	// A diverging display caliber is a DIFFERENT account — never fold (W-A

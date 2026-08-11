@@ -5052,3 +5052,33 @@ changed-path coverage 明确为 `main.go/covered/project_runner/target_behavior`
 状态：`B576=production-positive`；`runner=2/2`；`human=2/2`；`write-single-batch=positive`；
 `write-replan-cumulative-domain=not-exercised`；`active-stream-fixed-time-degrade=forbidden`；
 `system-answer/diagram-authorship=none`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.185 r342：Cangjie 清单正证；Trace 模型越界待复跑，同一自身状态双席已根修
+
+r342 exact-two runner 2/2、人工 1/2。Cangjie 清单案 103s：typed inventory 的 2 个 extend、2 个 foreign func、8 个
+public class 全部逐行进入答案，每项均携带真实文件/行号与源码 package 声明；未按目录推断 package，零成文拒绝，证明异语言清单面保持稳定。
+
+Trace 显式窗案 168s，系统供给的大部分事实正确：5.000..5.007s 请求窗未漂移；app-100 四态为 running 1.200ms、runnable
+0.800ms、sleep 5.000ms、D/IO 0；链上 VerifyClass 原始墙钟 5.000ms、有效可消除 4.600ms 居首，目标 runnable 0.800ms 居次；
+background 供给压力未升格；主要占时与规则可消除量两轴同时发布。模型还正确声明 `trace_causal_claim_caliber=bounded_window_candidate`，
+但自由文本反而越过同一轮 typed 边界：把唤醒前 sleep 叫作 5ms wakeup 延迟，把没有 target-wait/completion/direct-block authority 的
+worker 工作写成“强制等待”，并仅凭低优先级关系宣称优先级反转。finalizer context 已明确给出 sleep→wakeup 与 wakeup→run 的区间语义，且给出
+`target_direct_blocking_authority=not_provided`、`target_wait_for_work_authority=not_provided_by_this_seat`、
+`work_completion_dependency_authority=not_provided_by_this_seat`；上下文 27%，不是预算挤压。立案
+`B577-TRACECLAIMCALIBERDRIFT1/P1-observe-repeat`：下一批用同案复跑；若不复现按模型波动留档，若稳定复现只能考虑让模型自持的结构化 claim/review
+协议或软提示，禁止扫描用户/模型/终稿 prose 做硬门，禁止系统删除、替换或重写模型结论。
+
+同案同时抓到独立确定性 GAP `B578-SELFSTATETWINESCAPE1/P1-high`：同一 app sleep 物理段由
+`wakeup_causal_impact` 与 target-self rank view 发布，树和指标表各出现两个 `自身·sleep 5.000ms` 席。现有 SELF-TWIN typed matcher
+错误要求第二视图 predicate 必须为 `root_cause_target_self_state`，但生产引擎在该段不具有效归因时合法发布
+`predicate=root_cause_context_only,tier=target_self_state`，于是被简化 fixture 掩盖。修复以 typed `target_self_state` tier 作为身份权威，继续要求
+subject、state class、display/cumulative caliber、line segment 与 selected window 全部精确相等；不按渲染字符串去重，任一键不同或 carrier 多义仍 fail-open。
+端到端请求窗 fixture 已先红后绿，新增 production predicate 正臂，原 mismatch/ambiguous 负臂保持。
+
+活动流规则本轮继续冻结：168s 正常由原模型交付；只要 reasoning/content/tool delta 仍有真实进展，4 分钟或任何固定累计时长都不得触发系统代答、
+删答、旧草稿替换或结论降级。只有首字节超时、真实 stall、transport 断链、调用方取消或独立安全失败可进入恢复；恢复只可发布模型已产生的载体并披露，
+不能新造 Trace 主因、图关系或业务结论。
+
+状态：`B577=pending-repeat`；`B578=implemented/pending-full-regression`；`runner=2/2`；`human=1/2`；
+`cangjie-inventory=positive`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`active-stream-fixed-time-degrade=forbidden`；Trace explicit-window/materialization=`unchanged`。

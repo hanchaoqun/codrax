@@ -69,7 +69,6 @@ func TestTraceQueryRequestedWindowIsTheOnlyCausalMetricDenominator(t *testing.T)
 	if !sawSelectedWindow {
 		t.Fatalf("fixture did not publish a typed selected_window: %+v", res.Observations)
 	}
-
 	bus := audit730Bus("")
 	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"app-100", "5.000", "5.007"}
 	md := audit730Render(t, bus, res.Observations, "")
@@ -85,6 +84,9 @@ func TestTraceQueryRequestedWindowIsTheOnlyCausalMetricDenominator(t *testing.T)
 		if strings.Contains(md, forbidden) {
 			t.Fatalf("typed report mixed in the lookup window %q:\n%s", forbidden, md)
 		}
+	}
+	if got := strings.Count(md, "自身·sleep 5.000ms"); got != 1 {
+		t.Fatalf("one physical target sleep segment must occupy one projection seat, got %d:\n%s", got, md)
 	}
 }
 
