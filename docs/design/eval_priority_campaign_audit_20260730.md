@@ -32183,3 +32183,19 @@ pipeline 用时 286s，活跃流式越过四分钟仍正常返回模型答案，
 
 状态：`B524=production-positive`；`B525=numeric-role-production-positive/mechanism-wording-negative`；
 `B526=confirmed/next-high-ROI`；`B517=production-positive×2`；`B522=audit-open`；`runner=2/2`；`human=0/2`。
+
+### 123.566 B522：实际占用表跨 keyed/unkeyed publication 精确折叠
+
+完成 `B522-TRACEDEDUP1/P1` 冷审与施工。r307/r308 的两条 `app-100 sleep=20.000ms` 来自 `state_drilldown` 与 `wakeup_causal_impact`：artifact、subject、typed
+state、2.000000..2.020000 精确连续区间及值完全相同；wakeup 行带 producer-minted `StateAccountKey`，drilldown 行无 key。旧展示去重对前者使用 account key、后者使用 envelope
+key，导致同一物理时间反而分叉为两行。
+
+实际占用候选现在先对同一 exact envelope 做非空 account key census：零/一个 distinct key 时，keyed 与 unkeyed 精确镜像可折叠；出现两个不同 producer key 时整个 envelope
+fail-open。fallback 只开放给 typed sleep/runnable/running 的单一连续区间，且 `(end-start)` 必须与 impact 在微秒口径一致；subject/state/endpoints/value 全入键。D-state/io_wait
+继续只认 producer key，多段 aggregate hull、数值不一致、不同状态或不同区间均不折叠。首行的完整 evidence carrier 保留；`E5(+2)` 是 rank keeper 吸收等价 publications 后的来源计数，
+继续保留，不伪装成单来源。
+
+实现仅作用于系统附加的实际占用表，不改 ObservationLedger、Projection、根因席、排序、可消除量或模型答案。正臂和“冲突 key/不同值”负臂通过，`internal/tool` 全量通过。
+
+状态：`B522=implemented/tool-suite-pass/pending-production-replay`；`information-conservation=preserved`；
+`D/IO calibrated-lanes=credential-only`；Trace causal authority=`unchanged`。

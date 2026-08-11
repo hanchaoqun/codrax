@@ -3969,3 +3969,13 @@ pipeline 中 B524 exact endpoint pair 消除了显示 alias 误拒，但 typed r
 
 286s 活跃流仍获得模型答案，未发生四分钟降级。状态：`B524=production-positive`；`B525=numeric-positive/semantic-negative`；
 `B526=confirmed/next`；`B517=production-positive×2`；`B522=audit-open`。
+
+#### §11.10.110 B522：同一物理状态的强 key 与精确 envelope 进入同一展示域
+
+确认 r308 target sleep 双行是同一物理测量：一条 wakeup publication 有 `StateAccountKey`，一条 state-drilldown publication 无 key；旧代码分别落入强键和 envelope 键，无法相遇。
+实际占用表现对 exact continuous sleep/runnable/running envelope 先 census distinct producer keys：最多一个 key 时允许 keyed/unkeyed 镜像折叠；多个非空 key、不同值/区间/状态、多段 hull
+全部 fail-open。D/io_wait 不使用 envelope fallback，仍只认精确 producer key。
+
+该修复不删除 ledger/projection 证据，`E5(+2)` 等合并来源披露保留，只避免同一墙钟占用展示两行。定向对抗 pin 与 `internal/tool` 全量通过。
+
+状态：`B522=implemented/tool-suite-pass/pending-replay`；`root ranking/eliminable/model answer=unchanged`。

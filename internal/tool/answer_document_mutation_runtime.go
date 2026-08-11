@@ -2038,6 +2038,28 @@ func runtimeTraceOccupancyPathCandidates(
 	var out []runtimeTraceOccupancyCandidate
 	rows := append([]runtimeTraceProjTreeRow(nil), model.TreeRows...)
 	rows = append(rows, model.SelfRows...)
+	// B522: one exact sleep/runnable interval may arrive once with the
+	// producer-minted state-account identity (for example through a wakeup
+	// view) and once without it (for example through state_drilldown).  Before
+	// choosing a keeper, census the non-empty credentials on each independently
+	// exact envelope.  One/zero credential lets the uncredentialed mirror join;
+	// two different credentials are ambiguity and keep every account visible.
+	envelopeAccountKeys := map[string]map[string]bool{}
+	for _, row := range rows {
+		node := row.Node
+		if !runtimeTraceOccupancyPathNodeAdmitted(row) {
+			continue
+		}
+		envelopeKey := runtimeTraceOccupancyExactStateEnvelopeKey(node)
+		accountKey := runtimeTraceOccupancyStateAccountKey(node)
+		if envelopeKey == "" || accountKey == "" {
+			continue
+		}
+		if envelopeAccountKeys[envelopeKey] == nil {
+			envelopeAccountKeys[envelopeKey] = map[string]bool{}
+		}
+		envelopeAccountKeys[envelopeKey][accountKey] = true
+	}
 	for _, row := range rows {
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain,
@@ -2048,17 +2070,25 @@ func runtimeTraceOccupancyPathCandidates(
 			continue
 		}
 		node := row.Node
-		if !row.HasData ||
-			node.OnChainOverflowFold ||
-			runtimeTraceProjNonWallClockValueCaliber(node) ||
-			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+		if !runtimeTraceOccupancyPathNodeAdmitted(row) {
 			continue
 		}
 		total := node.ImpactMS
-		if total <= 0 {
+		accountKey := runtimeTraceOccupancyStateAccountKey(node)
+		envelopeKey := runtimeTraceOccupancyExactStateEnvelopeKey(node)
+		key := accountKey
+		if key == "" {
+			key = envelopeKey
+		}
+		if key != "" && seen[key] {
 			continue
 		}
-		key := runtimeTraceOccupancyPhysicalStateKey(node)
+		// Exact-envelope convergence is allowed only when the envelope carries
+		// at most one distinct producer credential.  This joins a keyed row to
+		// its unkeyed publication mirror without ever merging two typed accounts.
+		if envelopeKey != "" && len(envelopeAccountKeys[envelopeKey]) <= 1 && seen[envelopeKey] {
+			continue
+		}
 		if key == "" {
 			key = strings.TrimSpace(node.EvidenceID)
 		}
@@ -2074,6 +2104,12 @@ func runtimeTraceOccupancyPathCandidates(
 			continue
 		}
 		seen[key] = true
+		if accountKey != "" {
+			seen[accountKey] = true
+		}
+		if envelopeKey != "" && len(envelopeAccountKeys[envelopeKey]) <= 1 {
+			seen[envelopeKey] = true
+		}
 		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node, total)
 		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 		cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
@@ -2122,31 +2158,47 @@ func runtimeTraceOccupancyPathCandidates(
 	return out
 }
 
-// runtimeTraceOccupancyPhysicalStateKey identifies one physical scheduler
-// occupancy independently of the publication lane that carried it. A target
-// runnable/sleep segment can legitimately be published once as a chain/state
-// observation and once as a ranked target-self row; the occupancy table is a
-// physical-time surface, so those typed mirrors must render once even though
-// their EvidenceIDs differ. A producer-minted StateAccountKey is stronger
-// than any display envelope and also covers exact D-state/io_wait accounts;
-// without that credential those calibrated lanes continue to fail open.
-func runtimeTraceOccupancyPhysicalStateKey(node types.TraceCausalProjectionNode) string {
+func runtimeTraceOccupancyPathNodeAdmitted(row runtimeTraceProjTreeRow) bool {
+	node := row.Node
+	return row.HasData &&
+		!node.OnChainOverflowFold &&
+		!runtimeTraceProjNonWallClockValueCaliber(node) &&
+		(node.WithinRequestedWindow == nil || *node.WithinRequestedWindow) &&
+		node.ImpactMS > 0
+}
+
+// runtimeTraceOccupancyStateAccountKey is the strong producer identity. It
+// also covers D-state/io_wait accounts whose view envelopes may differ; those
+// calibrated lanes never fall back to display geometry.
+func runtimeTraceOccupancyStateAccountKey(node types.TraceCausalProjectionNode) string {
 	if key := strings.TrimSpace(node.StateAccountKey); key != "" {
 		return "state_account\x00" + key
 	}
+	return ""
+}
+
+// runtimeTraceOccupancyExactStateEnvelopeKey is the narrow fallback for one
+// continuous sleep/runnable/running interval.  It is intentionally unavailable
+// for D-state/io_wait and for aggregate hulls with gaps: the published impact
+// must equal the interval's wall clock at microsecond caliber.  Subject, typed
+// state, exact endpoints, and value all participate; prose and source labels
+// do not.
+func runtimeTraceOccupancyExactStateEnvelopeKey(node types.TraceCausalProjectionNode) string {
 	state := types.TraceCausalProjectionStateClass(node.StateKind)
 	if state == "" && strings.EqualFold(strings.TrimSpace(node.StateKind), types.TraceStateKindRunning) {
 		state = types.TraceStateKindRunning
 	}
-	if state == "" || strings.TrimSpace(node.Subject) == "" || node.EndTs <= node.StartTs {
+	if state == "" || strings.TrimSpace(node.Subject) == "" || node.EndTs <= node.StartTs || node.ImpactMS <= 0 ||
+		math.Abs((node.EndTs-node.StartTs)*1000-node.ImpactMS) >= types.TraceCausalProjectionSameValueTieMS {
 		return ""
 	}
 	return strings.Join([]string{
-		"physical_state",
+		"exact_physical_state",
 		strings.ToLower(strings.TrimSpace(node.Subject)),
 		state,
-		strconv.FormatFloat(node.StartTs, 'f', 6, 64),
-		strconv.FormatFloat(node.EndTs, 'f', 6, 64),
+		strconv.FormatInt(int64(math.Round(node.StartTs*1e9)), 10),
+		strconv.FormatInt(int64(math.Round(node.EndTs*1e9)), 10),
+		strconv.FormatInt(int64(math.Round(node.ImpactMS*1000)), 10),
 	}, "\x00")
 }
 

@@ -214,6 +214,61 @@ func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T)
 	}
 }
 
+func TestTwoDimOccupancyJoinsKeyedAndUnkeyedExactStatePublication(t *testing.T) {
+	keyed := types.TraceCausalProjectionNode{
+		EvidenceID: "wakeup-impact", Subject: "app-100", Predicate: "wakeup_causal_impact",
+		StateKind: "s_sleep", StateAccountKey: "state_account:v2:exact-sleep",
+		ImpactMS: 20, StartTs: 2, EndTs: 2.020, LineStart: 3, LineEnd: 15,
+	}
+	unkeyed := keyed
+	unkeyed.EvidenceID = "state-drilldown"
+	unkeyed.Predicate = "state_drilldown"
+	unkeyed.StateAccountKey = ""
+	unkeyed.LineEnd = 14
+
+	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
+		TreeRows: []runtimeTraceProjTreeRow{{Node: keyed, Kind: runtimeTraceProjTreeRowChain, HasData: true}},
+		SelfRows: []runtimeTraceProjTreeRow{{Node: unkeyed, Kind: runtimeTraceProjTreeRowSelf, HasData: true}},
+	}, true)
+	if len(rows) != 1 || rows[0].totalMS != 20 || rows[0].location != "2.000000..2.020000；行 3–15" {
+		t.Fatalf("one keyed/unkeyed publication of the exact sleep interval must render once: %+v", rows)
+	}
+}
+
+func TestTwoDimOccupancyExactEnvelopeFailsOpenOnConflictingAccountsOrValue(t *testing.T) {
+	base := types.TraceCausalProjectionNode{
+		EvidenceID: "account-a", Subject: "app-100", Predicate: "wakeup_causal_impact",
+		StateKind: "s_sleep", StateAccountKey: "state_account:v2:a",
+		ImpactMS: 20, StartTs: 2, EndTs: 2.020,
+	}
+	conflict := base
+	conflict.EvidenceID = "account-b"
+	conflict.StateAccountKey = "state_account:v2:b"
+	unkeyed := base
+	unkeyed.EvidenceID = "state-drilldown"
+	unkeyed.StateAccountKey = ""
+
+	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: []runtimeTraceProjTreeRow{
+		{Node: base, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+		{Node: conflict, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+		{Node: unkeyed, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+	}}, true)
+	if len(rows) != 3 {
+		t.Fatalf("two conflicting producer accounts make the shared envelope ambiguous and must fail open: %+v", rows)
+	}
+
+	valueMismatch := unkeyed
+	valueMismatch.EvidenceID = "different-value"
+	valueMismatch.ImpactMS = 19
+	rows = runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: []runtimeTraceProjTreeRow{
+		{Node: unkeyed, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+		{Node: valueMismatch, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+	}}, true)
+	if len(rows) != 2 {
+		t.Fatalf("same hull with a different physical value is not one exact interval: %+v", rows)
+	}
+}
+
 func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *testing.T) {
 	const accountKey = "state_account:v2:exact-io-segments"
 	rank := types.TraceCausalProjectionNode{
