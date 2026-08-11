@@ -4165,3 +4165,18 @@ Trace 案系统权威保持正确，模型把链上席与背景混写、sleep �
 
 状态：`B535=implemented/targeted-pass/pending-r317`；`B536=model-variance-watch`；
 `B517=no-regression`；Trace causal authority=`unchanged`。
+
+#### §11.10.129 r317 / B537：修复回合已够用，下一断点是 participant 与成员 operation 的 owner 对齐
+
+r317 exact-two runner 2/2、人工 0/2。Go 生产日志确认 B535 的两个 repair turns 均被使用：模型先 grep 定位，再读取并发出
+`analyzerEvaluator.BuildInitialInstruction -> ctx.Mutable.ResetPrescanSummary/SetPrescanRoundLimit` 两条 citable call。旧 participant coverage 仍只比较完整 endpoint/最终 leaf，无法把
+`Mutable` 与 `ctx.Mutable.<operation>` 的 receiver 对齐，于是精确边在场却仍披露 Mutable 未证，Finalizer 5 次修补后留下孤点。
+
+B537 以 segment 化 exact owner suffix 统一 Explorer completion、Finalizer soft checklist 与 diagram participant hard coverage：业务 participant 可由已证成员 operation 触达，edge anchor 仍保留完整技术 endpoint，关系与方向不变。该桥只消费 typed participant 与 typed edge endpoint，不扫描 request/model/final prose，不自动生成图或答案；boundary node visibility 继续要求 participant 自身可见，防止方法名冒充断开节点。
+
+C++ 回放另确认图层表达债：完整正文含工厂 return、type/virtual dispatch 与静态调用，copy-ready call-DAG 却只能发三个断开的静态 call segment。记
+`B538-DYNAMICVISANNOT1/P1-open`，后续应给模型 typed annotation/grouping 载体表达非调用边界，禁止放宽 call authority 或由系统拼桥。用户未显式要求图却被 Analyzer 发成 required 的形记
+`B539/P2-watch`；在没有 typed presentation-origin 前，不用请求关键词扫描作硬门。
+
+状态：`B535=production-positive`；`B537=implemented/targeted-pass/pending-r318`；
+`B538=open`；`B539=watch`；`B517=no-system-degrade@326s`；Trace causal authority=`unchanged`。

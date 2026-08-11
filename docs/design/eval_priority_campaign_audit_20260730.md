@@ -32528,3 +32528,36 @@ participant 集合缩小时仍重置计数；无关 closure churn 不延长预�
 
 状态：`B535=implemented/targeted-pass/pending-r317`；`repair_turns=locate+read/materialize`；
 `model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。
+
+### 123.587 r317：locate→read 已生效；operation owner 与 participant 仍断层，动态分派图被压成静态碎片
+
+`main@c35af71f0` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_cpp_r317_20260811_manual_audit.md`。Go 案中 B534/B535 已获得生产正证：第一次 completion 同轮显示
+`BusContext/Mutable` stems 与候选文件，第二次相同 participant set 未强制放行；模型实际执行 grep、读取
+`ctx.Mutable.ResetPrescanSummary/SetPrescanRoundLimit`，并发出两条精确 call row，第三次才 caveated close。四分钟活动流继续正常等待模型，326s 后返回模型答案，未发生系统代答。
+
+残余根因是 identity 层级断裂：participant 是 `Mutable`，typed operation endpoint 是
+`ctx.Mutable.ResetPrescanSummary`。旧 coverage 只比较完整 endpoint 或最后一个 operation leaf，无法识别精确 receiver/owner，故新关系虽然已在 evidence pool，Mutable 仍与 BusContext 一起被判
+no-incident；Finalizer 经过 5 次 diagram repair 后把二者画成孤立 unproven 节点。确认
+`B537-FLOWOWNERINCIDENT1/P1-high`：已有 operation edge 应能覆盖其 exact owner participant，但只能作 identity/display 对齐，不能铸边或改变技术端点。
+
+C++ 案正文正确保留工厂 guard、`ConsoleSink` return、`Logger.log -> Sink.write`、虚分派与最终 fputs；图面首稿却把 guard/return/dispatch 都画成未带 typed relation anchor 的 call-DAG 箭头，validator 正确拒绝。copy-ready patch 只允许静态 call 子集，最终图退化为三个互不相连片段。登记
+`B538-DYNAMICVISANNOT1/P1-open`：动态分派/工厂选择的 typed return、type relation 与 dispatch boundary 需要跨 diagram family 的模型可写注释/分组表达，不能硬转 call，也不能由系统替模型补桥。
+同时观察到 Analyzer 在用户未明确要求图时仍发 `diagram_hint.required=true`；当前只记
+`B539-DIAGRAMREQORIGIN1/P2-watch`，不能靠扫描原始请求关键词硬降级，需先形成独立 typed presentation-origin carrier 再决定是否施工。
+
+状态：`B535=production-positive`；`B537=confirmed/implement-now`；`B538=confirmed/open`；
+`B539=watch/no-prose-hard-gate`；`runner=2/2`；`human=0/2`；`B517=no-regression@326s`；Trace=`not exercised/unchanged`。
+
+### 123.588 B537：以 exact operation owner 对齐业务 participant，不改关系权威
+
+新增语言无关 identity primitive `AnswerCodeIdentityOwnsEndpoint(participant, endpoint)`：只在 participant 的规范化 segment 序列等于 operation endpoint owner 的完整后缀时成立。
+因此 `Mutable -> ctx.Mutable.ResetPrescanSummary`、`Logger -> pkg::Logger::log`、`pkg.Logger -> pkg::Logger::log` 成立；operation leaf、外层非后缀 namespace、同名 sibling 与无 operation 的裸 identity 均失败。该函数不读请求、模型或答案 prose，也不读取 Mermaid 显示标签来制造事实。
+
+Explorer completion participant coverage、Finalizer soft relation coverage 与 answer-document participant incident 校验现共享这项精确 owner 语义。模型可以把业务组件/载体作为可见节点，并在
+`edge_anchors.from_identity/to_identity` 保留原 exact callable/member endpoint；已有 evidence 仍独占关系种类、方向与端点权威。boundary 可见性检查没有复用 owner 投影，避免一个方法标签冒充缺失的独立 participant 节点。
+
+跨语言 pin 覆盖 Go receiver chain、C++ namespace、pointer receiver 与反向/外层/同名负臂；另钉 completion、soft prompt 和 hard participant coverage 三面一致。系统不自动搜索、发 evidence、画边或改答案；Trace/root-cause、显式窗口、自动补齐、链上根因、排名、可消除量、JSON/Mermaid relation validator 与活动流策略均未改变。
+
+状态：`B537=implemented/targeted-pass/pending-r318`；`participant-incident=exact-owner-suffix`；
+`technical-endpoint=byte-preserved`；`model-relation-authorship=preserved`；`B538=open`；Trace=`unchanged`。

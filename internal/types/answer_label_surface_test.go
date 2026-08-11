@@ -167,6 +167,30 @@ func TestAnswerCodeIdentitySurfacesCompatibleDoesNotCollapseQualifiedOwners(t *t
 	}
 }
 
+func TestAnswerCodeIdentityOwnsEndpointUsesExactOwnerSuffix(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"Mutable", "ctx.Mutable.ResetPrescanSummary"},
+		{"Logger", "pkg::Logger::log"},
+		{"pkg.Logger", "pkg::Logger::log"},
+		{"sink_", "sink_->write"},
+	} {
+		if !AnswerCodeIdentityOwnsEndpoint(pair[0], pair[1]) {
+			t.Fatalf("typed participant owner was not recognised: %q owns %q", pair[0], pair[1])
+		}
+	}
+	for _, pair := range [][2]string{
+		{"ResetPrescanSummary", "ctx.Mutable.ResetPrescanSummary"},
+		{"ctx", "ctx.Mutable.ResetPrescanSummary"},
+		{"Other", "ctx.Mutable.ResetPrescanSummary"},
+		{"Registry", "app.Registry.Factory.create"},
+		{"Mutable", "Mutable"},
+	} {
+		if AnswerCodeIdentityOwnsEndpoint(pair[0], pair[1]) {
+			t.Fatalf("non-owner identity was collapsed into endpoint authority: %q vs %q", pair[0], pair[1])
+		}
+	}
+}
+
 func TestAnswerCodeIdentitySurfacesEquivalentNormalizesOnlyPresentation(t *testing.T) {
 	for _, pair := range [][2]string{
 		{"Logger::log", "Logger.log"},

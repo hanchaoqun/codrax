@@ -338,6 +338,36 @@ func TestMechanismRelationAuthorityTypedParticipantRolesStaySoftAndLanguageNeutr
 	}
 }
 
+func TestMechanismRelationAuthorityMapsExactOperationOwnerToTypedParticipantAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{{
+				Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+			}}},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "mutable-call", Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Kind: types.EvidenceRelationship, Subject: "analyzerEvaluator.BuildInitialInstruction", Predicate: "calls",
+			Object: "ctx.Mutable.ResetPrescanSummary", Source: "internal/agent/analyzer.go", LineStart: 89,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "ctx.Mutable.ResetPrescanSummary",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "typed_named_participant_relation_coverage: incident=[Mutable]; no_incident_typed_relation=[]") {
+		t.Fatalf("exact receiver/member call did not cover typed participant:\n%s", got)
+	}
+	for _, want := range []string{"exact receiver/owner participant", "visible business/component label", "edge_anchors.from_identity/to_identity", "changes no relation kind"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("owner projection authority boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

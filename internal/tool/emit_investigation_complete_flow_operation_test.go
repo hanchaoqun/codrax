@@ -530,6 +530,22 @@ func TestFlowParticipantCoverageUsesTypedEntityAliasForDecoratedDisplayLabel(t *
 	}
 }
 
+func TestFlowParticipantCoverageTreatsExactReceiverOperationAsParticipantIncident(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "analyzerEvaluator.BuildInitialInstruction", "ctx.Mutable.ResetPrescanSummary", 89),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Mutable"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("exact receiver/member call should cover its typed participant without minting an edge: %v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageNoProgressConverges(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

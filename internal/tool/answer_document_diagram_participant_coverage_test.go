@@ -62,6 +62,28 @@ func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *
 	}
 }
 
+func TestDiagramParticipantCoverageUsesExactOperationOwnerForBusinessParticipant(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "MutableState", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"准备分析\"] --> M[\"MutableState\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "M", FromIdentity: "analyzerEvaluator.BuildInitialInstruction",
+		ToIdentity: "ctx.MutableState.ResetPrescanSummary", RelationKind: types.DiagramRelCall,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"analyzerEvaluator.BuildInitialInstruction", "ctx.MutableState.ResetPrescanSummary",
+	)}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("business participant should be incident through its exact typed receiver operation: %+v", got)
+	}
+	if doc.Blocks[0].EdgeAnchors[0].ToIdentity != "ctx.MutableState.ResetPrescanSummary" {
+		t.Fatalf("participant coverage must not rewrite technical endpoint identity: %+v", doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
 func TestDiagramParticipantCoverageAcceptsProductionBareDisconnectedNodes(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart TD\n A[\"Analyzer\"] --> E[\"Explorer\"]\n MutableState"

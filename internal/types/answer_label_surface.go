@@ -288,6 +288,35 @@ func AnswerCodeIdentitySurfacesCompatible(left, right string) bool {
 	return false
 }
 
+// AnswerCodeIdentityOwnsEndpoint reports whether an already-typed participant
+// identity is the receiver/owner of an exact operation endpoint. It is a
+// presentation/coverage bridge only: the endpoint's existing EvidenceItem
+// remains the sole relation authority.
+//
+// A participant must match the complete suffix of the endpoint owner. Thus
+// Mutable owns ctx.Mutable.Reset(), Logger owns pkg.Logger.log(), and
+// pkg.Logger owns pkg.Logger.log(); Reset and pkg.Other do not. Matching a
+// suffix instead of any interior token keeps outer namespaces/containers from
+// claiming an operation owned by a deeper, different receiver.
+func AnswerCodeIdentityOwnsEndpoint(participant, endpoint string) bool {
+	participantSegments := answerCodeIdentitySegments(participant)
+	endpointSegments := answerCodeIdentitySegments(endpoint)
+	if len(participantSegments) == 0 || len(endpointSegments) < 2 {
+		return false
+	}
+	ownerSegments := endpointSegments[:len(endpointSegments)-1]
+	if len(participantSegments) > len(ownerSegments) {
+		return false
+	}
+	offset := len(ownerSegments) - len(participantSegments)
+	for i := range participantSegments {
+		if participantSegments[i] != ownerSegments[offset+i] {
+			return false
+		}
+	}
+	return true
+}
+
 // AnswerCodeIdentitySurfacesEquivalent reports presentation-only identity
 // equivalence: both surfaces must have the same complete segment sequence, but
 // may use different language-native separators (`.`, `::`, `#`, `->`, `/`).

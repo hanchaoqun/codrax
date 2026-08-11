@@ -60,7 +60,9 @@ func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types
 		covered := false
 		for _, edge := range edges {
 			if types.AnswerCodeIdentitySurfacesCompatible(participant, edge.from) ||
-				types.AnswerCodeIdentitySurfacesCompatible(participant, edge.to) {
+				types.AnswerCodeIdentitySurfacesCompatible(participant, edge.to) ||
+				types.AnswerCodeIdentityOwnsEndpoint(participant, edge.from) ||
+				types.AnswerCodeIdentityOwnsEndpoint(participant, edge.to) {
 				covered = true
 				break
 			}
@@ -74,6 +76,7 @@ func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types
 	if typed {
 		fmt.Fprintf(b, "- typed_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v; context_only=%v.\n", incident, unproved, contextOnly)
 		b.WriteString("- These schema-validated participant roles are planning/coverage guidance, not relation evidence and not permission to add an edge. For each `incident_required` participant with no incident typed relation, inspect and emit its real operation site or disclose that participant as an unproven boundary. Keep `context_only` participants outside the path unless independent evidence proves a relation.\n")
+		b.WriteString("- A typed call/member endpoint may be incident to its exact receiver/owner participant (for example `ctx.Mutable.Reset` is incident to `Mutable`). Keep the model-authored participant as the visible business/component label while preserving the exact operation endpoint in `edge_anchors.from_identity/to_identity`; this owner projection changes no relation kind, direction, or evidence authority.\n")
 		return
 	}
 	fmt.Fprintf(b, "- soft_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v.\n", incident, unproved)

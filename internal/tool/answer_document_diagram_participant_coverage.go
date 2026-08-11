@@ -233,7 +233,7 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 				continue
 			}
 			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
-			if diagramParticipantSurfaceMatches(surfaces, from) || diagramParticipantSurfaceMatches(surfaces, to) {
+			if diagramParticipantIncidentEndpointMatches(surfaces, from) || diagramParticipantIncidentEndpointMatches(surfaces, to) {
 				return true
 			}
 			if relations[types.DiagramRelPrecedence] && diagramParticipantHasVerifiedStageIncident(
@@ -244,6 +244,24 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 			) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// diagramParticipantIncidentEndpointMatches lets a model-authored component
+// node be covered by an already-proved operation on that exact receiver. The
+// typed edge still owns its technical endpoint identity and direction; this
+// helper only reconciles the broader participant display layer. Keep it out of
+// boundary-node visibility checks, where a method label must not impersonate a
+// missing disconnected participant node.
+func diagramParticipantIncidentEndpointMatches(surfaces []string, endpoint string) bool {
+	if diagramParticipantSurfaceMatches(surfaces, endpoint) {
+		return true
+	}
+	for _, surface := range surfaces {
+		if types.AnswerCodeIdentityOwnsEndpoint(surface, endpoint) {
+			return true
 		}
 	}
 	return false
