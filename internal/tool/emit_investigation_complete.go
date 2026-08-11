@@ -4055,9 +4055,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
-		if downgrade := callChainReadParserRelationHandoffDowngrade(ctx, closure, aggregateFacts, evidence); downgrade != "" {
-			return downgrade
-		}
+		evidence = callChainReadParserRelationHandoffEvidence(ctx, closure, aggregateFacts, evidence)
 	}
 	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, aggregateFacts, evidence) {
 		logging.Info("[emit_investigation_complete] call-chain closure gates satisfied by principal aggregate member_set")
@@ -13227,37 +13225,36 @@ type callChainMissingQualifiedCall struct {
 }
 
 type callChainReadParserRelationGap struct {
-	Source string
-	Line   int
-	Caller string
-	Callee string
+	Source     string
+	Line       int
+	Caller     string
+	Callee     string
+	Confidence float64
+	ResolvedBy string
 }
 
-// callChainReadParserRelationHandoffDowngrade prevents a model-owned
-// principal call-chain roster from closing over parser-authored calls that the
-// investigation already read but never carried into typed evidence.  The join
-// is deliberately narrow: the caller must resolve uniquely to a member of one
-// principal member_set, the relation must come from an AST-grade parser, and
-// its exact callsite line must be in this run's read closure. A relation is
-// load-bearing when either (a) its callee is another unique member of that same
-// set, or (b) an explicit completeness obligation is active and the model has
-// already emitted a sibling call from the same caller on the same source line.
-// The second arm closes nested-call statements without treating every parser
-// call in a roster method as principal. The system only asks Explorer to emit
-// the missing edge; it neither mints evidence nor writes the eventual
-// call-chain conclusion.
-func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
+// callChainReadParserRelationHandoffEvidence carries exact parser-authored
+// calls from already-read principal members into the typed evidence stream.
+// The join is deliberately narrow: the caller must resolve uniquely to a
+// member of one model-authored principal member_set, the relation must come
+// from an AST-grade parser, and its exact callsite line must be in this run's
+// read closure. A relation is load-bearing when either (a) its callee is
+// another unique member of that same set, or (b) an explicit completeness
+// obligation is active and the model already selected a sibling call from the
+// same caller on the same source line. The system supplies only these source
+// facts; it does not select a diagram edge or write the eventual conclusion.
+func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.EvidenceItem {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
-		return ""
+		return evidence
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if (rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain) ||
 		types.IsProjectOrientationQuestion(rm) || types.RuntimeArtifactContextActiveFromBus(ctx) {
-		return ""
+		return evidence
 	}
 	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	if !ok || graph == nil || len(graph.FileIndex) == 0 {
-		return ""
+		return evidence
 	}
 	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
 	if len(refs) == 0 {
@@ -13272,8 +13269,11 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 		memberSets = append(memberSets, append([]string(nil), fact.Members...))
 	}
 	if len(memberSets) == 0 {
-		return ""
+		return evidence
 	}
+	mutableEvidence := ctx.Mutable.EmittedEvidence()
+	evidence = callChainWithExistingPrincipalParserEvidence(evidence, mutableEvidence)
+	authorityEvidence := append(append([]types.EvidenceItem(nil), evidence...), mutableEvidence...)
 
 	files := make([]string, 0, len(graph.FileIndex))
 	for file := range graph.FileIndex {
@@ -13324,7 +13324,7 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 					break
 				}
 			}
-			if !matched || callChainTypedEvidenceContainsExactParserRelation(evidence, source, rel.Line, caller, callee) {
+			if !matched || callChainTypedEvidenceContainsExactParserRelation(authorityEvidence, source, rel.Line, caller, callee) {
 				continue
 			}
 			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s", source, rel.Line, caller, callee))
@@ -13332,7 +13332,10 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 				continue
 			}
 			seen[key] = true
-			gaps = append(gaps, callChainReadParserRelationGap{Source: source, Line: rel.Line, Caller: caller, Callee: callee})
+			gaps = append(gaps, callChainReadParserRelationGap{
+				Source: source, Line: rel.Line, Caller: caller, Callee: callee,
+				Confidence: rel.Confidence, ResolvedBy: rel.ResolvedBy,
+			})
 			if len(gaps) >= maxGaps {
 				break
 			}
@@ -13342,29 +13345,54 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 		}
 	}
 	if len(gaps) == 0 {
-		return ""
+		return evidence
 	}
-	files = files[:0]
-	keywords := make([]string, 0, 2*len(gaps))
+	projected := make([]types.EvidenceItem, 0, len(gaps))
 	for _, gap := range gaps {
-		files = append(files, gap.Source)
-		keywords = append(keywords, gap.Caller, gap.Callee)
+		item := types.EvidenceItem{
+			Kind:            types.EvidenceRelationship,
+			Subject:         gap.Caller,
+			Predicate:       "calls",
+			Object:          gap.Callee,
+			Source:          gap.Source,
+			LineStart:       gap.Line,
+			LineEnd:         gap.Line,
+			Confidence:      gap.Confidence,
+			Producer:        types.EvidenceProducerRepoMapPrincipalMemberCall,
+			Summary:         fmt.Sprintf("exact parser-authored call on an already-read principal source line: `%s` calls `%s` (extractor=%s)", gap.Caller, gap.Callee, gap.ResolvedBy),
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    gap.Callee,
+			OwnerSymbol:     gap.Caller,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierSymbolTable,
+			GroundingNote:   "AST-grade parser relation joined to exact read closure and principal member set",
+		}
+		item.ID = types.StableEvidenceID(item)
+		projected = append(projected, item)
 	}
-	closure.AddRepair(types.RepairDirective{
-		Kind:      types.RepairEmitEvidence,
-		Files:     dedupStringsPreserveOrder(files),
-		Keywords:  dedupStringsPreserveOrder(keywords),
-		Rationale: "grounded principal call-chain members contain AST-proven calls on already-read lines that are missing from typed call-edge evidence",
-		Origin:    "pre_complete.call_chain_read_parser_relation_handoff",
-		Stage:     string(types.StageExplore),
-	})
-	var b strings.Builder
-	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — already-read parser call relations lack typed handoff.\n\n")
-	b.WriteString("A grounded principal call-chain member_set contains both endpoints of the AST-authored calls below, and their exact callsite lines are already in this run's read closure, but no equivalent citable call-edge EvidenceItem was emitted. Re-emit each load-bearing edge with evidence_kind=relationship, anchor_kind=call, exact caller/callee, source, and line_start; then retry. Definitions, member notes, read_file memory, and completion reason prose do not replace the edge.\n\n")
-	for _, gap := range gaps {
-		fmt.Fprintf(&b, "  - %s:%d `%s` -> `%s`\n", gap.Source, gap.Line, gap.Caller, gap.Callee)
+	ctx.Mutable.AppendEvidence(projected)
+	return append(append([]types.EvidenceItem(nil), evidence...), projected...)
+}
+
+func callChainWithExistingPrincipalParserEvidence(evidence, mutableEvidence []types.EvidenceItem) []types.EvidenceItem {
+	out := append([]types.EvidenceItem(nil), evidence...)
+	seen := make(map[string]bool, len(out)+len(mutableEvidence))
+	for _, item := range out {
+		seen[types.EvidenceStableMergeKey(item)] = true
 	}
-	return b.String()
+	for _, item := range mutableEvidence {
+		if item.Producer != types.EvidenceProducerRepoMapPrincipalMemberCall {
+			continue
+		}
+		key := types.EvidenceStableMergeKey(item)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func callChainCompletenessObligationActive(rm types.RequestModel) bool {

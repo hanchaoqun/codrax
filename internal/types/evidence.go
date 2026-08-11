@@ -41,6 +41,11 @@ const (
 	EvidenceProducerRepoMapImplementerRelation = "repomap_implementer_relation"
 	EvidenceProducerRepoMapCooperativeCall     = "repomap_cooperative_call"
 	EvidenceProducerRepoMapCooperativeMethod   = "repomap_cooperative_method_definition"
+	// EvidenceProducerRepoMapPrincipalMemberCall marks an AST/Cangjie-parser
+	// call whose exact source line was read and whose endpoints resolve uniquely
+	// inside a model-authored principal member set. It supplies a precise source
+	// fact to later stages; it never selects a diagram edge or answer conclusion.
+	EvidenceProducerRepoMapPrincipalMemberCall = "repomap_principal_member_call"
 	// EvidenceProducerRepoMapTerminalBodyCall marks an AST/Cangjie-parser
 	// invocation inside a precisely read callable that the typed call-chain
 	// graph selected as its terminal. Unlike the broad concrete-value call

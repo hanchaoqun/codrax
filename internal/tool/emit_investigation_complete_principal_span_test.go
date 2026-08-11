@@ -888,7 +888,7 @@ func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdv
 	}
 }
 
-func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBeEmitted(t *testing.T) {
+func TestCallChainReadParserRelationHandoffEvidence_AlreadyReadRosterEdgeIsProjected(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{ID: "main-run", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "main", Predicate: "calls", Object: "run", AnchorSymbol: "run", Source: "src/main.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded},
 		{ID: "run-collect", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "run", Predicate: "calls", Object: "walker::collect_files", AnchorSymbol: "walker::collect_files", Source: "src/main.rs", LineStart: 20, GroundingStatus: types.GroundingGrounded},
@@ -924,18 +924,24 @@ func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBe
 	closure.SetReadSet(map[string]bool{"src/walker.rs": true})
 	mut.EvidenceClosure().SetReadSet(map[string]bool{"src/walker.rs": true})
 
-	got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence)
-	if !strings.Contains(got, "src/walker.rs:6 `walker::collect_files` -> `walk`") {
-		t.Fatalf("already-read AST call between principal roster members must be handed off, got:\n%s", got)
+	got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "src/walker.rs", 6, "walker::collect_files", "walk") {
+		t.Fatalf("already-read AST call between principal roster members must be projected: %+v", got)
 	}
-	foundRepair := false
-	for _, repair := range closure.ActiveRepairs() {
-		if repair.Origin == "pre_complete.call_chain_read_parser_relation_handoff" && repair.Kind == types.RepairEmitEvidence {
-			foundRepair = true
+	foundProjection := false
+	for _, item := range got {
+		if item.Source == "src/walker.rs" && item.LineStart == 6 &&
+			item.Producer == types.EvidenceProducerRepoMapPrincipalMemberCall && item.IsCitable() {
+			foundProjection = true
 		}
 	}
-	if !foundRepair {
-		t.Fatalf("missing exact emit-evidence repair: %+v", closure.ActiveRepairs())
+	if !foundProjection {
+		t.Fatalf("missing exact parser projection carrier: %+v", got)
+	}
+	for _, repair := range closure.ActiveRepairs() {
+		if repair.Origin == "pre_complete.call_chain_read_parser_relation_handoff" {
+			t.Fatalf("exact parser projection must not force the model to re-emit evidence: %+v", closure.ActiveRepairs())
+		}
 	}
 	seedReadFileHistory(ctx, "src/walker.rs", 4,
 		"pub fn collect_files(root: &str) -> Vec<String> {",
@@ -945,12 +951,13 @@ func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBe
 		"}",
 	)
 	refreshClosureReadSnapshot(ctx, mut.EvidenceClosure())
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, mut.EvidenceClosure(), facts, evidence); got == "" {
-		t.Fatalf("refreshed production closure should retain the already-read parser relation")
+	refreshed := callChainReadParserRelationHandoffEvidence(ctx, mut.EvidenceClosure(), facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(refreshed, "src/walker.rs", 6, "walker::collect_files", "walk") {
+		t.Fatalf("refreshed production closure should retain the projected parser relation: %+v", refreshed)
 	}
 	view := buildCompletionPreflightView(ctx, "", "", evidence, facts, nil)
-	if got := preCompleteContractCheckWithEvidence(ctx, "", evidence, facts); !strings.Contains(got, "already-read parser call relations lack typed handoff") {
-		t.Fatalf("pre-complete wiring must run the parser-relation handoff before the member_set span shortcut; effective_facts=%+v got:\n%s", view.EffectiveAggregateFacts, got)
+	if got := preCompleteContractCheckWithEvidence(ctx, "", evidence, facts); strings.Contains(got, "already-read parser call relations lack typed handoff") {
+		t.Fatalf("pre-complete must consume exact parser projection without a model copy loop; effective_facts=%+v got:\n%s", view.EffectiveAggregateFacts, got)
 	}
 
 	withEdge := append(append([]types.EvidenceItem(nil), evidence...), types.EvidenceItem{
@@ -958,12 +965,23 @@ func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBe
 		Subject: "walker::collect_files", Predicate: "calls", Object: "walk", AnchorSymbol: "walk",
 		Source: "src/walker.rs", LineStart: 6, GroundingStatus: types.GroundingGrounded,
 	})
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, withEdge); got != "" {
-		t.Fatalf("equivalent citable call edge should close the handoff gap, got:\n%s", got)
+	before := len(mut.EmittedEvidence())
+	projected := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, withEdge)
+	if after := len(mut.EmittedEvidence()); after != before {
+		t.Fatalf("equivalent citable call edge must not append another system projection: before=%d after=%d", before, after)
+	}
+	projectedRows := 0
+	for _, item := range projected {
+		if item.Producer == types.EvidenceProducerRepoMapPrincipalMemberCall {
+			projectedRows++
+		}
+	}
+	if projectedRows != 1 {
+		t.Fatalf("existing parser projection should remain single-copy in effective evidence: %+v", projected)
 	}
 }
 
-func TestCallChainReadParserRelationHandoffDowngrade_MissingMemberSupportCannotHideASTEdge(t *testing.T) {
+func TestCallChainReadParserRelationHandoffEvidence_MissingMemberSupportCannotHideASTEdge(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		ID: "dispatch-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
 		AnchorSymbol: "HttpTransport.dispatchOnce", Subject: "HttpTransport.dispatchOnce",
@@ -997,13 +1015,13 @@ func TestCallChainReadParserRelationHandoffDowngrade_MissingMemberSupportCannotH
 	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
 
-	got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence)
-	if !strings.Contains(got, "packages/core/src/transport.ts:40 `HttpTransport.dispatchOnce` -> `fetch`") {
-		t.Fatalf("unsupported decorated member must not hide its already-read AST edge, got:\n%s", got)
+	got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "packages/core/src/transport.ts", 40, "HttpTransport.dispatchOnce", "fetch") {
+		t.Fatalf("unsupported decorated member must not hide its already-read AST edge: %+v", got)
 	}
 }
 
-func TestCallChainReadParserRelationHandoffDowngrade_ExactStatementSiblingUnderCompleteness(t *testing.T) {
+func TestCallChainReadParserRelationHandoffEvidence_ExactStatementSiblingUnderCompleteness(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		ID: "delay-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
 		Subject: "HttpTransport.send", Predicate: "calls", Object: "this.retry.nextDelay", AnchorSymbol: "this.retry.nextDelay",
@@ -1040,21 +1058,30 @@ func TestCallChainReadParserRelationHandoffDowngrade_ExactStatementSiblingUnderC
 	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
 
-	got := callChainReadParserRelationHandoffDowngrade(makeCtx(true), closure, facts, evidence)
-	if !strings.Contains(got, "packages/core/src/transport.ts:29 `HttpTransport.send` -> `sleep`") {
-		t.Fatalf("typed sibling call on the same exact statement must be handed off under completeness, got:\n%s", got)
+	got := callChainReadParserRelationHandoffEvidence(makeCtx(true), closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "packages/core/src/transport.ts", 29, "HttpTransport.send", "sleep") {
+		t.Fatalf("typed sibling call on the same exact statement must be projected under completeness: %+v", got)
 	}
-	if strings.Contains(got, "-> `this.retry.nextDelay`") {
-		t.Fatalf("already-emitted exact call must not be requested again, got:\n%s", got)
+	projectedDelay := 0
+	for _, item := range got {
+		if item.Producer == types.EvidenceProducerRepoMapPrincipalMemberCall &&
+			types.CallChainEndpointCompatible(item.Object, "this.retry.nextDelay") {
+			projectedDelay++
+		}
+	}
+	if projectedDelay != 0 {
+		t.Fatalf("already-emitted exact call must not be projected again: %+v", got)
 	}
 	nonCompleteClosure := types.NewEvidenceClosure("")
 	nonCompleteClosure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
-	if got := callChainReadParserRelationHandoffDowngrade(makeCtx(false), nonCompleteClosure, facts, evidence); got != "" {
-		t.Fatalf("non-roster sibling call without a typed completeness obligation must fail open, got:\n%s", got)
+	before := len(mut.EmittedEvidence())
+	_ = callChainReadParserRelationHandoffEvidence(makeCtx(false), nonCompleteClosure, facts, evidence)
+	if after := len(mut.EmittedEvidence()); after != before {
+		t.Fatalf("non-roster sibling call without a typed completeness obligation must not append a projection: before=%d after=%d", before, after)
 	}
 }
 
-func TestCallChainReadParserRelationHandoffDowngrade_PreciseBoundaries(t *testing.T) {
+func TestCallChainReadParserRelationHandoffEvidence_PreciseBoundaries(t *testing.T) {
 	makeFixture := func(provenance string, read bool, intent types.Intent, members []string) (*types.BusContext, *types.EvidenceClosure, []types.AnswerAggregateFact, []types.EvidenceItem) {
 		evidence := []types.EvidenceItem{
 			{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "start", Predicate: "calls", Object: "finish", Source: "src/pipeline.cj", LineStart: 2, GroundingStatus: types.GroundingGrounded},
@@ -1083,25 +1110,25 @@ func TestCallChainReadParserRelationHandoffDowngrade_PreciseBoundaries(t *testin
 	}
 
 	ctx, closure, facts, evidence := makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "walk"})
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); !strings.Contains(got, "`demo::collect` -> `walk`") {
-		t.Fatalf("Cangjie AST-grade relation should use the language-neutral handoff, got:\n%s", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); !callChainTypedEvidenceContainsExactParserRelation(got, "src/pipeline.cj", 6, "demo::collect", "walk") {
+		t.Fatalf("Cangjie AST-grade relation should use the language-neutral projection: %+v", got)
 	}
 	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceRegexFallback, true, types.IntentTrace, []string{"demo::collect", "walk"})
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
-		t.Fatalf("regex fallback is noisy and must not drive a completion hard gate, got:\n%s", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("regex fallback is noisy and must not gain typed authority: %+v", got)
 	}
 	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, false, types.IntentTrace, []string{"demo::collect", "walk"})
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
-		t.Fatalf("unread parser relation must not be promoted from repository-wide graph state, got:\n%s", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("unread parser relation must not be promoted from repository-wide graph state: %+v", got)
 	}
 	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "walk"})
 	ctx.AttachedHitrace = "sched_switch: runtime trace"
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
-		t.Fatalf("runtime Trace investigation is outside the source-code roster contract, got:\n%s", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("runtime Trace investigation is outside the source-code roster contract: %+v", got)
 	}
 	ctx, closure, facts, evidence = makeFixture(repotypes.ProvenanceCangjieParser, true, types.IntentTrace, []string{"demo::collect", "other::collect"})
-	if got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence); got != "" {
-		t.Fatalf("ambiguous or absent roster endpoint must fail open instead of guessing identity, got:\n%s", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("ambiguous or absent roster endpoint must fail open instead of guessing identity: %+v", got)
 	}
 }
 

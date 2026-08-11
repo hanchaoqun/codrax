@@ -4867,3 +4867,21 @@ source-scope 正臂与 wrong-owner/multi-location 负臂保持。`internal/types
 
 状态：`B572a=implemented`；`role-context=citable-not-declaration-authority`；`endpoint-ambiguity=real-locations-only`；
 `B572b=P1-next`；`system-answer/diagram-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.176 B572b：已读 principal parser calls 直接进入 typed evidence，不再要求模型抄送
+
+completion preflight 现以 `callChainReadParserRelationHandoffEvidence` 消费既有精确 selector。命中关系被投影为
+`EvidenceProducerRepoMapPrincipalMemberCall`：`EvidenceRelationship + AnchorCall + exact caller/object/source/line`，并带 AST extractor、confidence、
+`GroundingGrounded/TierSymbolTable`。该行进入 Mutable evidence 与当前 preflight 的 effective evidence，后续 finalizer 可直接引用；不再创建
+`RepairEmitEvidence`，也不再以“already-read parser call relations lack typed handoff”阻塞模型。
+
+权限边界未扩张：模型必须先提交 principal `member_set`；caller/callee 必须在该集合唯一解析，或在显式 completeness obligation 下与模型已选同 statement
+sibling call 精确接合；source line 必须在本轮 read closure；provenance 只接受 tree-sitter/Cangjie parser。regex fallback、unread、endpoint ambiguous/absent、
+project-orientation、runtime artifact/Trace 全部不投影。稳定 key 与既有 Mutable 行联合去重，重复 preflight 不追加第二份。
+
+这是一条源码事实供给，不是答案接管：系统不创建/修改 AnswerDocument、Mermaid body、edge anchor、成员名册、关系方向选择或结论；模型仍决定哪些已证边与用户问题相关、
+是否画入图以及如何解释。Rust roster、Cangjie、decorated member、same-statement completeness 正臂，以及 regex/unread/runtime/ambiguity/duplicate 负臂已钉。
+`internal/types` 22.604s、`internal/tool` 166.385s、`internal/agent` 10.095s、`internal/orchestrator` 12.325s、`internal/tracediag` 全绿。
+
+状态：`B572a=implemented`；`B572b=implemented/pending-r338`；`parser-fact-provider=exact-read-principal-only`；
+`model-copy-loop=retired`；`system-answer/diagram-authorship=none`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
