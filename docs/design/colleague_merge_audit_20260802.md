@@ -4704,3 +4704,27 @@ Python+C++ 多语言计划及 config-only fail-open 臂均保留。
 
 状态：`B567=implemented/pending-r335`；`gate=typed-path-plus-runtime-enum`；`probe-code-scan=none`；
 `native-project-verification=preserved`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.168 r335：类型关系名册与图校验断桥，真实 implements 边被迫全部删除
+
+r335 exact-two runner 2/2、人工 1/2。C++ 单行 patch 的范围和 acceptance tests 正确，planner 本轮没有提交 inline verification probe；因此 B567
+保持实现验证通过，但本轮属于 `not-exercised`，不能冒充 wrapper 拒绝臂的生产正证。
+
+类型关系案确认 `B568-TYPERELATIONHANDOFF1/P1-high`，runner 的正则 oracle 假绿。analyzer 以 typed `predicate_axis=implement` 和完整
+`LoopController` implementer 名册驱动探索；最终上下文也正确投影出 12 个 production principal rows、3 个 test auxiliary rows。然而 diagram contract
+把该请求表示为 `call_dag`，而 `type_relation` 硬门只从 citable `EvidenceItem` 读取精确方向关系，没有消费产生上述名册的同一份 typed relation hint。
+本轮探索通过 `repo_map` 与 grounded definition rows 完成，未形成 deterministic implementer EvidenceItem 桥，结果系统一边要求关系图，一边把模型先后绘制的
+`LoopController -> implementer` 和修正后的 `implementer -> LoopController` 12 条边全部判为 `type_relation_edge_unproven`。模型随后尝试改成 call，又被正确的
+call authority 拒绝，最终只能删除全部边；407s、5 次 finalizer reject 后交付的是节点集合而非类型关系图。
+
+这不是 Mermaid 渲染失败，也不是单次模型波动，而是两个 typed 消费面的精确断桥。最优修法是把已经由 relation provider 铸造、带 source/file/line/role 的
+implements/extends/embedding typed rows，在 pre-emit 前以同一关系方向投影为 citable relation evidence，供既有 `type_relation` gate 使用；模型仍决定选择哪些
+principal 边、节点业务标签、布局和解释。禁止从 edge label、请求、reasoning、终稿 prose 猜 `implements`，禁止把 type relation 降格成 call，也禁止系统代画图。
+该桥必须复用跨语言 typed relation carrier，统一覆盖 Go 隐式接口、Java/Kotlin/ArkTS/Cangjie/C++ 显式继承/实现、Rust trait 等已支持图关系，而非按本 case
+或语言加关键词。test/production role 仍只决定 principal/auxiliary 展示，不改变关系真值。
+
+活动模型流连续 407s 正常完成，没有按累计 4 分钟降级或由系统替换答案。失败恢复披露来自成文重试耗尽，不是流式时长；`B560` 不变量继续保持。
+
+状态：`B567=implemented/not-exercised-r335`；`B568=P1-high/next`；`runner=2/2`；`human=1/2`；
+`typed-roster=present`；`type-relation-evidence-bridge=missing`；`system-edge/answer-authorship=none`；
+`fixed-four-minute-active-degrade=retired`；Trace causal authority=`unchanged`。
