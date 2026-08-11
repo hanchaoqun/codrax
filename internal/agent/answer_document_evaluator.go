@@ -8141,9 +8141,17 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 	}
 	b.WriteString("This section intentionally does not duplicate the full member list. Use the row ids, locations, citation keys, and notes from `Principal Enumeration Rows` as the single rich member/citation contract.\n\n")
 	for _, set := range sets {
-		label := strings.TrimSpace(set.Label)
+		label := answerDocPrincipalEnumerationSetAuthorityLabel(set)
 		if label == "" {
 			label = "principal set"
+		}
+		if set.SelectionFamily != "" {
+			fmt.Fprintf(&b, "- principal typed set selection_family=%q: %d row(s), source aggregate fact index=%d", label, len(set.Rows), set.FactIndex)
+			if display := strings.TrimSpace(set.Label); display != "" && !strings.EqualFold(display, label) {
+				fmt.Fprintf(&b, ", model display_group=%q (non-authoritative)", display)
+			}
+			b.WriteByte('\n')
+			continue
 		}
 		fmt.Fprintf(&b, "- principal set %q: %d row(s), source aggregate fact index=%d\n", label, len(set.Rows), set.FactIndex)
 	}
@@ -8229,6 +8237,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
 	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
 	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
+	b.WriteString("- When a set exposes `selection_family`, that exact typed value is the membership boundary because every row independently carries it. A model-authored `display_group` is presentation only: it must not add exclusions, subtract rows, or change the typed row count. If the display wording conflicts, keep the typed roster and rewrite the display wording yourself.\n")
 	b.WriteString("- For EVERY structured source-inventory item, copy that row's exact `row_id` to `source_inventory_row_id`; the system binds the row-local citation, so omit manual `citation_ref` arithmetic. This keeps member, family, location, and citation on one typed identity even when labels are unique, decorated for display, or repeated across files. When rows expose `surface_family`, use that exact row-local key for grouping. A principal block intentionally carrying exactly one family should copy it to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row.\n")
 	b.WriteString("- Render these rows once as structured items in the answer's principal carrier: use a required bucket `section`'s `items[]` when the row belongs to that bucket, or use an `ordered_list`, `bullet_list`, or `table` when no such section is required. Prose-only mentions in block `text` do not carry row identity; do not add a second global list/table merely to repeat rows already carried by sections.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
@@ -8237,12 +8246,15 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	for _, set := range sets {
-		title := strings.TrimSpace(set.Label)
+		title := answerDocPrincipalEnumerationSetAuthorityLabel(set)
 		if title == "" {
 			title = "Principal enumeration"
 		}
 		if len(set.Rows) > 0 {
 			fmt.Fprintf(&b, "### %s (%d row(s))\n\n", title, len(set.Rows))
+		}
+		if display := strings.TrimSpace(set.Label); set.SelectionFamily != "" && display != "" && !strings.EqualFold(display, set.SelectionFamily) {
+			fmt.Fprintf(&b, "- model-authored display_group=`%s` (presentation only; `selection_family` remains the membership authority)\n", display)
 		}
 		for _, row := range set.Rows {
 			member := sanitizeAggregateExcludedCandidatesForPrompt(ctx, row.Member, stableFacts)
@@ -8284,6 +8296,13 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func answerDocPrincipalEnumerationSetAuthorityLabel(set types.EnumerationDisplaySet) string {
+	if family := strings.TrimSpace(set.SelectionFamily); family != "" {
+		return family
+	}
+	return strings.TrimSpace(set.Label)
 }
 
 func renderEnumerationDisplayRowAttributes(attrs []types.EnumerationDisplayRowAttribute) string {

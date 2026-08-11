@@ -30,6 +30,20 @@ func enableSummaryCapsForTest(t *testing.T) {
 	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
 }
 
+func TestAnswerDocPrincipalEnumerationSetAuthorityLabel_PrefersTypedSelectionFamily(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		SelectionFamily: "public class",
+		Label:           "public class (excluding abstract/sealed)",
+	}
+	if got := answerDocPrincipalEnumerationSetAuthorityLabel(set); got != "public class" {
+		t.Fatalf("authority label = %q, want typed selection family", got)
+	}
+	set.SelectionFamily = ""
+	if got := answerDocPrincipalEnumerationSetAuthorityLabel(set); got != set.Label {
+		t.Fatalf("fallback authority label = %q, want model display label %q", got, set.Label)
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersBlockContract
 // pins that the dynamic prompt surfaces the V2 block contract
 // (Required Answer Blocks section with at least the Summary block

@@ -4925,6 +4925,36 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsExactObservedSiblingRole
 	}
 }
 
+func TestPreEmitPrincipalSelectionFamiliesByFactIndex_SeparatesTypedMembershipFromDisplayGroup(t *testing.T) {
+	ctx, _ := sourceInventoryObservedSiblingFunctionTestContext(t)
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	if len(sets) == 0 {
+		t.Fatal("expected a typed principal set")
+	}
+	var foreignSet *types.EnumerationDisplaySet
+	for idx := range sets {
+		if sets[idx].Label == "foreign func declarations" {
+			foreignSet = &sets[idx]
+			break
+		}
+	}
+	if foreignSet == nil {
+		t.Fatalf("missing model-authored display group in sets: %+v", sets)
+	}
+	if foreignSet.SelectionFamily != "foreign func" {
+		t.Fatalf("selection family = %q, want exact typed family foreign func", foreignSet.SelectionFamily)
+	}
+	if got := preEmitPrincipalSelectionFamiliesByFactIndex(ctx)[foreignSet.FactIndex]; got != "foreign func" {
+		t.Fatalf("fact-index selection family = %q, want foreign func", got)
+	}
+	recipe := preEmitStructuredPrincipalMemberRepairRecipe()
+	for _, want := range []string{"selection_family", "display_group/set_label", "presentation only", "preserve the roster"} {
+		if !strings.Contains(recipe, want) {
+			t.Fatalf("repair recipe missing %q: %s", want, recipe)
+		}
+	}
+}
+
 func TestPreCheckSourceInventoryExtraneousPrincipalItems_AcceptsObservedSiblingTableCells(t *testing.T) {
 	ctx, _ := sourceInventoryObservedSiblingFunctionTestContext(t)
 	doc := &types.AnswerDocumentV2{

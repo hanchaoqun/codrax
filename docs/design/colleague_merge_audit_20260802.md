@@ -3824,3 +3824,14 @@ pipeline runner PASS：四阶段 precedence 已进入最终 sequence，participa
 
 状态：`B514=production-closed`；`B510-G/B515=production-positive`；`B516=next`；`B510-D/F=open`；
 `system-answer/relation-authoring=none`；Trace explicit-window causal projection=`unchanged`。
+
+#### §11.10.96 B516：成员资格不再由模型展示 label 确权
+
+完成 `B516-SISETQUAL1`：每个 principal set 仅在全部 row-local typed `surface_family` 一致时携带 `selection_family`；模型 `Label` 降为
+`display_group`，不得排除 typed roster 中的行或改变行数。缺失/混合 family fail-closed，旧无 typed family 场景维持原合同。
+
+Principal Enumeration Rows、Required Principal Member Set、pre-emit obligation roster 与 same-cause fingerprint 统一消费该 typed family；模型仍负责
+最终展示措辞和结论，系统不修改 AnswerDocument。实现不扫描请求原文、模型推理或最终正文来判资格，也不触碰 Trace 因果投影、自动补齐或链上根因。
+
+全量 `internal/types`、`internal/agent`、`internal/tool` 回归通过；状态：
+`B516=implemented/package-suites-pass/pending-production-replay`。

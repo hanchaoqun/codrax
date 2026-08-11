@@ -6551,6 +6551,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	// item identity fields. Narrative/advisory member sets retain the legacy
 	// soft visible-surface behavior below.
 	structuredPrincipalCarrierRequired := forceHard && sourceInventoryPrincipalAnswerIsModelOwned(ctx)
+	selectionFamilies := preEmitPrincipalSelectionFamiliesByFactIndex(ctx)
 	surface := preEmitVisibleAnswerSurface(doc)
 	if strings.TrimSpace(surface) == "" {
 		return nil
@@ -6564,6 +6565,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			continue
 		}
 		factMissing := false
+		selectionFamily := strings.TrimSpace(selectionFamilies[ref.Index])
 		factRoster := make([]preEmitMemberSetRosterEntry, 0, len(fact.Members))
 		for memberIdx, member := range fact.Members {
 			candidates := preEmitAggregateMemberDisplayCandidates(member)
@@ -6590,9 +6592,10 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 				missingTotal++
 			}
 			factRoster = append(factRoster, preEmitMemberSetRosterEntry{
-				label:   strings.TrimSpace(fact.Label),
-				member:  candidates[0],
-				present: present,
+				label:           strings.TrimSpace(fact.Label),
+				selectionFamily: selectionFamily,
+				member:          candidates[0],
+				present:         present,
 			})
 		}
 		// XGAP-FIX ② (§29.104.8): the hint carries the FULL obligation
@@ -6613,7 +6616,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			if m.present {
 				mark = "✓ present"
 			}
-			if m.label != "" {
+			if m.selectionFamily != "" {
+				parts = append(parts, fmt.Sprintf("[%s] selection_family=%q display_group=%q member=%q", mark, m.selectionFamily, m.label, m.member))
+			} else if m.label != "" {
 				parts = append(parts, fmt.Sprintf("[%s] set_label=%q member=%q", mark, m.label, m.member))
 			} else {
 				parts = append(parts, fmt.Sprintf("[%s] member=%q", mark, m.member))
@@ -6630,7 +6635,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 				continue
 			}
 			if len(parts) < preEmitMemberSetObligationRosterCap {
-				if m.label != "" {
+				if m.selectionFamily != "" {
+					parts = append(parts, fmt.Sprintf("[✗ MISSING] selection_family=%q display_group=%q member=%q", m.selectionFamily, m.label, m.member))
+				} else if m.label != "" {
 					parts = append(parts, fmt.Sprintf("[✗ MISSING] set_label=%q member=%q", m.label, m.member))
 				} else {
 					parts = append(parts, fmt.Sprintf("[✗ MISSING] member=%q", m.member))
@@ -6720,7 +6727,7 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 			"(1) use a section/ordered_list/bullet_list/table carrying block with surface_role=%q; "+
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
 			"(3) copy each roster member exactly into items[].label (or one items[].cells entry); item.text and blocks[].text do not carry member identity; "+
-			"(4) roster set_label is only the aggregate/category key for the block title/id — never copy set_label into item.label in place of member; "+
+			"(4) roster set_label is only the aggregate/category key for the block title/id; when the roster exposes selection_family, that is the exact typed membership boundary, while display_group/set_label remains model-authored presentation only and cannot add exclusions, subtract rows, or change the typed count — if they conflict, preserve the roster and rewrite the display wording yourself; never copy a group label into item.label in place of member; "+
 			"(5) when rows expose one exact surface_family and this block is deliberately family-specific, copy it to blocks[].source_inventory_family; omit that field for a global/mixed-family block and never infer it from title/prose; "+
 			"(6) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
 			"(7) ADD means add item rows inside the chosen carrier, not necessarily add_blocks; repair an existing carrier in place when it already renders the roster. ",
@@ -7111,9 +7118,39 @@ const preEmitMemberSetObligationRosterCap = 40
 // preEmitMemberSetRosterEntry is one ✓/✗ obligation roster row of the
 // member-set coverage hint (XGAP-FIX ②).
 type preEmitMemberSetRosterEntry struct {
-	label   string
-	member  string
-	present bool
+	label           string
+	selectionFamily string
+	member          string
+	present         bool
+}
+
+func preEmitPrincipalSelectionFamiliesByFactIndex(ctx *types.BusContext) map[int]string {
+	out := map[int]string{}
+	ambiguous := map[int]bool{}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return out
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return out
+	}
+	// Compile only the retained investigation facts here. The broader typed
+	// row registry also contains a synthetic canonical roster whose local
+	// FactIndex starts at zero; mixing that independent index space with the
+	// investigation plan would make family authority traversal-order dependent.
+	for _, set := range types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan) {
+		family := strings.TrimSpace(set.SelectionFamily)
+		if set.FactIndex < 0 || family == "" || ambiguous[set.FactIndex] {
+			continue
+		}
+		if existing := out[set.FactIndex]; existing != "" && !strings.EqualFold(existing, family) {
+			delete(out, set.FactIndex)
+			ambiguous[set.FactIndex] = true
+			continue
+		}
+		out[set.FactIndex] = family
+	}
+	return out
 }
 
 // preEmitMemberSetMissingFingerprint hashes the MISSING obligation identity
@@ -7130,7 +7167,11 @@ func preEmitMemberSetMissingFingerprint(roster []preEmitMemberSetRosterEntry) st
 		if m.present {
 			continue
 		}
-		keys = append(keys, strings.ToLower(strings.TrimSpace(m.label))+"\x00"+strings.ToLower(strings.TrimSpace(m.member)))
+		group := strings.TrimSpace(m.selectionFamily)
+		if group == "" {
+			group = strings.TrimSpace(m.label)
+		}
+		keys = append(keys, strings.ToLower(group)+"\x00"+strings.ToLower(strings.TrimSpace(m.member)))
 	}
 	if len(keys) == 0 {
 		return ""

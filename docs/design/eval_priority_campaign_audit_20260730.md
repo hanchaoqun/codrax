@@ -31965,3 +31965,20 @@ family witness 成为独立 typed handoff；模型 label 仅作展示，不得�
 
 状态：`B514=production-closed`；`B515=production-positive`；`B510-G=production-positive`；`B516=P1-high/next`；
 `B510-D=P1-open`；`B510-F=P2-open`；`system-answer/member/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.552 B516：typed selection family 与模型展示分组分权
+
+`B516-SISETQUAL1` 已实现。`EnumerationDisplaySet` 新增 `SelectionFamily`：只在该 set 的每一条编译行都独立携带同一个 typed
+`surface_family` 时铸造；缺字段、混合 family 或歧义均 fail-closed。`Label` 继续保留为模型成文的展示分组，但不再能缩窄/扩大 typed roster，也不再作为
+Principal Enumeration Rows 与 Required Principal Member Set 的成员资格标题。
+
+Finalizer 初始教学与 pre-emit 修补回合现在同源并置 `selection_family`、`display_group`、完整 roster：系统只提供精确成员边界并要求模型自行消解展示措辞，
+不改写 AnswerDocument、不代写成员结论。pre-emit same-cause fingerprint 优先使用 typed family，避免模型标题变化让相同缺失集合逃逸累计；无 typed family 时保持旧
+`set_label` 顾问路径。fact-index 映射只消费 retained investigation plan，明确隔离 synthetic canonical roster 的独立局部 index 空间；多 family 冲突永久记歧义，
+不受遍历顺序影响。
+
+测试覆盖：unanimous/mixed/missing family 三臂、typed family 优先与 label fallback、真实 Cangjie sibling-role handoff 的 `foreign func` membership 与
+`foreign func declarations` 展示分权，以及旧结构化修补合同兼容。`types`、`agent`、`tool` 包全量回归通过。
+
+状态：`B516=implemented/package-suites-pass/pending-production-replay`；`system-answer/member-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace explicit-window causal projection/auto-supplement/chain root causes=`unchanged`。

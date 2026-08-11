@@ -28,6 +28,44 @@ func TestEnumerationDisplaySetAuthorizesPrincipalContract_ExactRowsButNeverInven
 	}
 }
 
+func TestEnumerationDisplaySetSelectionFamily_RequiresUnanimousTypedRowFamily(t *testing.T) {
+	tests := []struct {
+		name string
+		rows []EnumerationDisplayRow
+		want string
+	}{
+		{
+			name: "unanimous family survives richer row terms",
+			rows: []EnumerationDisplayRow{
+				{SurfaceTerms: []string{"public class", "public class Animal"}},
+				{SurfaceTerms: []string{"public class", "public class Service", "public abstract class"}},
+			},
+			want: "public class",
+		},
+		{
+			name: "mixed typed families fail closed",
+			rows: []EnumerationDisplayRow{
+				{SurfaceTerms: []string{"public class", "public class Animal"}},
+				{SurfaceTerms: []string{"foreign func", "foreign func native_add"}},
+			},
+		},
+		{
+			name: "missing typed family fails closed",
+			rows: []EnumerationDisplayRow{
+				{SurfaceTerms: []string{"public class", "public class Animal"}},
+				{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := enumerationDisplaySetSelectionFamily(tt.rows); got != tt.want {
+				t.Fatalf("selection family = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

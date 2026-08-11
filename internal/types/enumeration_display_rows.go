@@ -12,9 +12,14 @@ import (
 // payloads and grounded evidence; it never derives members from user text,
 // model thoughts, closure prose, or raw prompt snippets.
 type EnumerationDisplaySet struct {
-	ID              string
-	FactIndex       int
-	Label           string
+	ID        string
+	FactIndex int
+	Label     string
+	// SelectionFamily is the exact row-eligibility key when every compiled
+	// row independently carries the same typed source-inventory family. Label
+	// remains model-authored presentation and must not narrow or broaden this
+	// membership authority.
+	SelectionFamily string
 	Value           string
 	Unit            string
 	Role            AnswerAggregateRole
@@ -237,6 +242,7 @@ func compileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 		}
 		if len(set.Rows) > 0 {
 			set.Rows = dedupeEnumerationDisplayRowIDs(set.Rows)
+			set.SelectionFamily = enumerationDisplaySetSelectionFamily(set.Rows)
 			out = append(out, set)
 		}
 	}
@@ -244,6 +250,31 @@ func compileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 		return nil
 	}
 	return out
+}
+
+// enumerationDisplaySetSelectionFamily mints a set-level eligibility key only
+// from a unanimous row-local typed family. A missing or mixed family fails
+// closed; model labels, notes, request prose, and rendered summaries do not
+// participate.
+func enumerationDisplaySetSelectionFamily(rows []EnumerationDisplayRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	family := ""
+	for _, row := range rows {
+		rowFamily := strings.TrimSpace(SourceInventorySurfaceFamilyKey(row.SurfaceTerms))
+		if rowFamily == "" {
+			return ""
+		}
+		if family == "" {
+			family = rowFamily
+			continue
+		}
+		if !strings.EqualFold(family, rowFamily) {
+			return ""
+		}
+	}
+	return family
 }
 
 func enumerationDisplayOriginalFactForRef(facts []AnswerAggregateFact, index int) AnswerAggregateFact {
