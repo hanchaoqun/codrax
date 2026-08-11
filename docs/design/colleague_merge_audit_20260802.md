@@ -4336,3 +4336,16 @@ availability、candidate 与 pre-emit coverage 共用 citable operation/verified
 
 状态：`B548/B549=implemented/relevant-suites-pass/pending-r324`；`model-authorship=preserved`；
 `active-stream-fixed-4m-degrade=forbidden`；Trace causal authority=`unchanged`。
+
+#### §11.10.142 r324：B548 正证；跨关系图投影与泛化附注仍有权限缺口
+
+LoopController 生产回放在一次 implements 方向修正后完整保留 12 个实现节点、12 条 `implementer -> interface` typed relation、文件与 citations，
+B548 获正证且未过硬。与此同时，完整 typed 集合仍被系统追加“部分项证据支持稍弱”，立 `B550/P1`：附注必须读取最终 principal relation/row
+coverage，不能把早期 soft advisory 跨题族翻译成全局弱证据。
+
+C++ virtual/factory 回放正文正确，最终图却被 copy-ready skeleton 压成两个 direct-call 断片；typed guard、factory return/construction、subtype/binding 与
+virtual dispatch 已在上下文，但 skeleton 的 diagram-family 投影只保留 call。立 `B551/P0-high` 并归并 B538：先形成 family-neutral typed semantic graph，
+再映射 call/return/guard/type/binding 到可表达的 Mermaid edge/decision/note/group；不得强转 relation kind、静默删除核心关系或系统补造业务边。
+
+状态：`B548=production-positive`；`B550=next`；`B551/B538=next-highest-ROI`；`runner=2/2`；`human=1/2`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

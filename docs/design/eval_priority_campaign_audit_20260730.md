@@ -32826,3 +32826,24 @@ chunk 都属于活跃流进展。固定四分钟不得发布降级答案。只�
 
 状态：`B548=implemented/relevant-suites-pass/pending-r324`；`B549=implemented/relevant-suites-pass/pending-r324`；
 `system-edge/answer-authorship=none`；`raw-prose-hard-gate=none`；`B517=closed/no-regression`；Trace causal authority=`unchanged`。
+
+### 123.602 r324：业务参与者可见性正证；mixed-relation 图被 call-only skeleton 压扁
+
+`main@81732e065` exact-two runner 2/2，人工 `fail + pass-with-caveat`，详见
+`eval/parallel_selected_summary_evalcampaign_participant_visibility_r324_20260811_manual_audit.md`。LoopController 类型关系案的一稿把 implements
+方向画反，typed relation gate 精确要求 `implementer -> interface`；一次 patch 后 12 个实现、业务 node、文件位置与逐项 citation 全部保留。
+这证明 B548 没有把合法业务标签、显式 type relation 或多实现图误判为“identity 不可见”，也没有接管模型布局。
+
+该案同时确认 `B550-SUPPLEMENTCALIBER2/P1`：12 席均有 parser-authored type relation 和逐项 citation，系统仍追加泛化的
+“枚举类条目中部分项的证据支持稍弱”。该附注既未指出缺哪一席，也与同页 typed 证据相反。应让 supplement 只消费最终 principal typed row/relationship
+coverage 与问题 family；完整集合时不发，真缺口时披露 exact missing roster/facet，禁止把早期 soft advisory 翻译成全局不确定性。
+
+C++ virtual/factory 案确认 `B551-MIXEDRELSKELETON1/P0-high`（归并既有 B538 图层表达债）：正文与 evidence 已有 direct call、virtual dispatch、
+guard、factory return/construction、concrete subtype/绑定事实；首稿错把其中部分画成 call 后，修补提示提供的 copy-ready skeleton 却只保留三条 direct call，
+最终图退化为两个断开的片段，删除了用户真正询问的 sink 选择和运行时分发。系统允许“关系省略后留在 prose”不能满足完整调用路径图；最优方案是从 typed relation
+集合先构造 family-neutral semantic graph，再按 Mermaid family 做无损表达映射：direct call 用 message edge，guard 用 alt/decision，return/construction/type binding
+用各自 typed edge 或 Note/group；只有目标 Mermaid family 确实无法表达时才保留 sibling fact，并在图中显式标出未连接边界。不得把非 call 关系强转 call，也不得系统替模型
+选择业务结论/新增关系。
+
+两案均仅一次精确成文修补，未出现固定时长降级。状态：`B548=production-positive`；`B549=pending-exact-failure-witness`；
+`B550=P1/next`；`B551=P0-high/next`；`runner=2/2`；`human=1/2`；`model-authorship=preserved`；Trace causal authority=`unchanged`。
