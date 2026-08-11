@@ -4054,3 +4054,21 @@ Go、ArkTS、Cangjie、C++ 正臂和 Trace/optional-diagram 负臂已钉；实�
 
 状态：`B529a=implemented/targeted-pass/pending-r311`；`B529=partial`；`model-authorship=preserved`；
 `system-edge-synthesis=none`。
+
+#### §11.10.118 r311：表面全绿仍掩盖 participant 豁免与完整链漏边
+
+exact-two runner 2/2、人工 0/2。Go 案的 Analyzer 把两个用户点名的数据载体合成 `Mutable/BusContext` 并以裸身份 provenance 标为 context_only，绕过既有
+incident-participant operation 补采；最终只画四阶段 precedence，两个载体孤立。B529a 未触发不是实现失效，而是 Explorer 从未读到值传递 operation site。
+
+TS 案从同一已读文件漏掉 terminal/native 与 retry 辅助调用，仍把定义行作为 sleep 调用位置并宣称完整。关系 authority 诚实地只发布三条边，但完成/答案层没有阻止“完整”越权。
+
+立项：`B529b-FLOWPARTROLEPROV1/P1-high` 约束 context-only provenance 与复合 participant；`B530-CALLCHAININTERIOR1/P1-high` 补已读
+parser/source 漏边闭环。两项均禁止系统补边/改答案，也不进入 Trace 因果路径。
+
+#### §11.10.119 B529b：participant 角色逃逸增加精确 provenance 门，不由系统纠正角色
+
+required source-flow lane 现在拒绝两种 Analyzer typed 自冲突：一个 participant 由多个 distinct typed entity 经分隔符拼接而成；context_only 只携带裸身份自身作为
+source_quote。前者必须拆席，后者必须提供更宽的当前请求 verbatim 边界片段或改为 incident_required。工具只返回结构化纠正说明，不自动拆分、升格、补边或改答案。
+
+显式 surrounding-boundary 正臂及 Trace/non-flow 负臂已钉；相关六组全套通过。状态：`B529b=implemented/pending-r312`；
+`B529=partial`；`B530=next`；Trace causal authority=`unchanged`。

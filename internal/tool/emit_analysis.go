@@ -2031,6 +2031,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm); conflict != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conflict,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if dropped, warning := reconcileDiagramParticipantsWithRequestedRelationSurface(&rm); dropped > 0 {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
@@ -2143,6 +2151,101 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// validateRequiredFlowDiagramParticipantProvenance keeps the analyzer's
+// planning-only participant role from becoming an unearned hard-contract
+// escape. It consumes only schema-validated typed fields; it never infers a
+// relation from request/model prose and never changes a role itself.
+//
+// Two structural mistakes fail loudly:
+//  1. one participant identity is a delimiter-joined spelling of two or more
+//     distinct analyzer entities, which would collapse separate coverage
+//     obligations into one alias;
+//  2. context_only on a required source-flow diagram carries only the bare
+//     participant identity as provenance. A bare name proves presence, not
+//     that the user asked to keep the actor outside the relation path.
+//
+// A wider verbatim source_quote remains the typed escape for a genuinely
+// requested surrounding boundary. The model chooses the corrected role or
+// quote; the system does not promote participants or mint edges.
+func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) string {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return ""
+	}
+	var conflicts []string
+	for i, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		if identity == "" {
+			continue
+		}
+		if members := compositeDiagramParticipantTypedEntities(identity, rm.AnalyzerHints.Entities); len(members) >= 2 {
+			conflicts = append(conflicts, fmt.Sprintf(
+				"diagram_hint.participants[%d].identity=%q collapses distinct typed entities %v; emit one participant row per entity so each relation obligation remains visible",
+				i, identity, members,
+			))
+		}
+		if participant.Role == types.DiagramParticipantContextOnly &&
+			diagramParticipantProvenanceKey(participant.SourceQuote) == diagramParticipantProvenanceKey(identity) {
+			conflicts = append(conflicts, fmt.Sprintf(
+				"diagram_hint.participants[%d] marks %q context_only but source_quote is only the bare identity; for a required source-flow visual, copy a wider verbatim CURRENT-request phrase that explicitly scopes it as surrounding context, or use role=incident_required",
+				i, identity,
+			))
+		}
+	}
+	return strings.Join(conflicts, "; ")
+}
+
+func compositeDiagramParticipantTypedEntities(identity string, entities []string) []string {
+	parts := strings.FieldsFunc(identity, func(r rune) bool {
+		switch r {
+		case '/', '、', ',', '，', '&':
+			return true
+		default:
+			return false
+		}
+	})
+	if len(parts) < 2 {
+		return nil
+	}
+	matched := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, rawPart := range parts {
+		part := strings.TrimSpace(rawPart)
+		if part == "" {
+			return nil
+		}
+		found := ""
+		for _, rawEntity := range entities {
+			entity := strings.TrimSpace(rawEntity)
+			if entity != "" && strings.EqualFold(entity, part) {
+				found = entity
+				break
+			}
+		}
+		key := strings.ToLower(found)
+		if found == "" || seen[key] {
+			return nil
+		}
+		seen[key] = true
+		matched = append(matched, found)
+	}
+	return matched
+}
+
+func diagramParticipantProvenanceKey(raw string) string {
+	return strings.ToLower(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		switch r {
+		case '_', '.', ':', '/', '$', '#':
+			return r
+		default:
+			return -1
+		}
+	}, strings.TrimSpace(raw)))
 }
 
 // reconcileDiagramParticipantsWithRequestedRelationSurface prevents one

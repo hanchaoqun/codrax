@@ -32314,3 +32314,37 @@ profile、grounded file/line 与语言无关赋值解析器，不扫描用户原
 
 状态：`B529a=implemented/targeted-pass/pending-r311`；`B529=partial`；`model-relation-authorship=preserved`；
 `auto-promotion=forbidden`；Trace=`unchanged`。
+
+### 123.574 r311：runner 2/2、人工 0/2；关系角色与“完整链”仍有两层上游空洞
+
+`main@95ccd004b` exact-two 回放均由模型正常作答：TypeScript 160s、Go 243s；活动流没有四分钟降级或系统代答。runner 2/2，但人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_relation_r311_20260811_manual_audit.md`。
+
+Go 数据流案中，Analyzer 同轮选择 `predicate_axis=flow` 和 required diagram，却把 `Mutable/BusContext` 合并为一个 participant 并标成
+`context_only`，其 provenance 只有裸身份自身。既有 participant completion 因此不要求该载体的 incident operation；Explorer 只发四阶段 precedence 与字段定义，未读取真实
+writer/reader，B529a 没有获得精确值传递行，最终图把 Mutable/BusContext 画成孤立节点。立 `B529b-FLOWPARTROLEPROV1/P1-high`：裸身份不能证明 context-only
+豁免；一个 participant 若可由两个 distinct typed entities 精确分解，也不能吞成复合身份。修复应要求模型重发 typed IR，不得由系统升格角色或画边。
+
+TS 案只发布 `run -> ApiClient.fetchUser -> HttpTransport.send -> HttpTransport.dispatchOnce` 三条 typed call，却把已读源码里的 `dispatchOnce -> fetch`、
+`send -> nextDelay/sleep` 漏出；答案还把 sleep 的定义行 `transport.ts:45` 当调用位置，并在此基础上宣称“完整调用链”。立
+`B530-CALLCHAININTERIOR1/P1-high`：完整链闭环必须发现已读 parser/source 中未交接的内部/终端调用；member_set 名称、定义 support_ref 和 closure prose 均不能代替 call-edge。
+
+状态：`B529a=implemented/no-production-activation`；`B529b=next`；`B530=confirmed/queued`；`B527b=no-regression`；
+`B517=production-positive`；Trace=`not exercised/unchanged`。
+
+### 123.575 B529b：context-only 豁免必须有边界 provenance，复合 participant 必须拆席
+
+完成 `B529b-FLOWPARTROLEPROV1`。required source-flow diagram 的 participant 仍由 Analyzer 模型选择，系统不自动升格角色；但两种结构性自冲突现在在
+`emit_analysis` 发布 RequestModel 前 fail-loud：
+
+1. participant identity 若按 `/`、`、`、中英文逗号或 `&` 精确分解后，每段都对应一个 distinct typed analyzer entity，则该行把多个关系义务吞成一个复合别名，必须拆成独立 participant；
+2. `role=context_only` 若 `source_quote` 归一后只是裸 identity，则它只证明“名字出现过”，不能证明用户要求该节点置于关系路径外。模型必须复制更宽的、verbatim 当前请求边界片段，或改发 `incident_required`。
+
+校验只读取 `predicate_axis=flow`、required diagram、typed entities、participant enum/identity/source_quote；不扫描用户/模型/答案关键词，不理解“背景/边界”等自然语言，也不生成关系。
+显式周边边界携带更宽 verbatim provenance 的正臂保留；分开的 Mutable/BusContext incident rows 通过。Trace、非 flow、可选/非 required 路径不触发。
+
+该修复会把 r311 的错误前移到 Analyzer 一次结构化重发；一旦模型给出独立 incident rows，既有 Explorer participant coverage 会要求真实 operation site 或显式 unproven，随后 B529a
+才有机会把误分类的赋值行转成精确重发处方。相关全套（tool/types/skill/agent/analysis/orchestrator）全绿。
+
+状态：`B529b=implemented/package-suites-pass/pending-r312`；`B529=partial/pending-production-replay`；
+`model-role-and-relation-authorship=preserved`；`typed-context-escape=preserved`；Trace=`unchanged`。

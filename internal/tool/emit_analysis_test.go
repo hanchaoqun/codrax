@@ -3297,6 +3297,87 @@ func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurfac
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsCompositeAndBareContextOnlyRequiredFlowParticipants(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"Mutable/BusContext","role":"context_only","source_quote":"Mutable/BusContext"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "collapses distinct typed entities [Mutable BusContext]") ||
+		!strings.Contains(res.Summary, "source_quote is only the bare identity") {
+		t.Fatalf("composite/bare context escape must fail with copy-ready typed guidance: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected participant slate must not publish a RequestModel")
+	}
+}
+
+func TestEmitAnalysis_Execute_AllowsExplicitContextBoundaryProvenanceAndSeparateIncidentCarriers(t *testing.T) {
+	raw := "画出 Analyzer 到 Finalizer 的数据流，并把 SurroundingSystem 仅作为周边边界；数据经过 Mutable 和 BusContext"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["Analyzer","Finalizer","SurroundingSystem","Mutable","BusContext"],
+		"entities":["Analyzer","Finalizer","SurroundingSystem","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+			{"identity":"Analyzer","role":"incident_required","source_quote":"Analyzer"},
+			{"identity":"Finalizer","role":"incident_required","source_quote":"Finalizer"},
+			{"identity":"Mutable","role":"incident_required","source_quote":"Mutable"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"},
+			{"identity":"SurroundingSystem","role":"context_only","source_quote":"把 SurroundingSystem 仅作为周边边界"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil || !res.Success {
+		t.Fatalf("explicit context-only escape and separate incident rows should pass, err=%v result=%+v", err, res)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || len(hint.Participants) != 5 || hint.Participants[4].Role != types.DiagramParticipantContextOnly {
+		t.Fatalf("typed participant roles were not preserved: %+v", hint)
+	}
+}
+
+func TestValidateRequiredFlowDiagramParticipantProvenanceDoesNotEnterTraceOrNonFlow(t *testing.T) {
+	base := types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"Mutable", "BusContext"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "Mutable/BusContext", Role: types.DiagramParticipantContextOnly, SourceQuote: "Mutable/BusContext",
+		}}},
+	}
+	trace := base
+	trace.Intent = types.IntentTrace
+	if got := validateRequiredFlowDiagramParticipantProvenance(trace); got != "" {
+		t.Fatalf("Trace must stay on its causal contracts: %q", got)
+	}
+	nonFlow := base
+	nonFlow.PredicateAxis = types.AxisCall
+	if got := validateRequiredFlowDiagramParticipantProvenance(nonFlow); got != "" {
+		t.Fatalf("non-flow diagram must not inherit source-flow role provenance: %q", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsSoleTableParticipantFromMultiSurfaceSequence(t *testing.T) {
 	raw := "解释从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出阶段、输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)

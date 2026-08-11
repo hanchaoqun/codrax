@@ -148,6 +148,8 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 		"do not demote the carrier merely because it sounds contextual",
 		"whose connection the requested view does not ask to show",
 		"does not ask to connect that subsystem",
+		"never collapse two separately emitted typed entities",
+		"bare identity-only `source_quote` is never enough provenance for context_only",
 		"participants=[]",
 		"never invent placeholders",
 		"never edge evidence",
