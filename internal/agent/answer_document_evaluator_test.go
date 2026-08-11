@@ -4228,6 +4228,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"`SharedContext`: `context_only`",
 		"Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge",
 		"EDGE DECISION FIRST",
+		"USER-FACING DISPLAY LAYER",
+		"structured evidence metadata, not visible diagram copy",
+		"use concise domain/business actions for visible node labels and edge messages",
+		"A display alias never proves an endpoint or relation",
+		"This guidance supplies no labels, nodes, or edges; you remain their author",
 		"stage/process/workflow order is `precedence/precedence_role`",
 		"a conditional trigger is `guard/guard_condition`",
 		"`call/call_edge` is only a direct invocation",
@@ -4298,6 +4303,29 @@ func TestRenderAnswerDocDiagramContractPublishesTypedUncoveredParticipantRecipes
 	}
 	if strings.Contains(got, "participant_identity=\"surrounding system\"") {
 		t.Fatalf("context_only participant must not receive an unproven boundary recipe:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocDiagramContract_UserFacingDisplayGuidanceCoversEveryDiagramKind(t *testing.T) {
+	for _, kind := range types.AllDiagramKinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			got := renderAnswerDocDiagramContract(&types.AgentContext{}, &types.DiagramContract{
+				Required:     true,
+				RequiredKind: kind,
+			})
+			for _, want := range []string{
+				"USER-FACING DISPLAY LAYER",
+				"structured evidence metadata, not visible diagram copy",
+				"Keep exact source/stage identities in Mermaid node IDs and `edge_anchors`",
+				"use concise domain/business actions",
+				"A display alias never proves an endpoint or relation",
+				"This guidance supplies no labels, nodes, or edges; you remain their author",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s diagram contract missing %q:\n%s", kind, want, got)
+				}
+			}
+		})
 	}
 }
 
@@ -8682,6 +8710,11 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"primary_artifacts=`AnalysisIR, TaskGraph, EvidencePlan, AnswerContract, HypothesisSet, QualityGate`",
 		"stage_binding[4]: stage=`StageFinalize` (`finalize`)",
 		"source=`internal/types/stage_binding.go:",
+		"### User-facing workflow display guidance",
+		"responsibility` above is the wording basis",
+		"business action first and the exact stage identity second",
+		"do not label an arrow merely `precedence`, `call`, or `data_flow`",
+		"Business wording is display-only and cannot authorize a new edge",
 		"### Verified stage-order edge recipes",
 		"one complete, checkout-verified authoring recipe",
 		"edge_anchors` entry with `relation_kind=precedence`",

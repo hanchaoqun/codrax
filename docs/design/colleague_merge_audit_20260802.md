@@ -3845,3 +3845,14 @@ Principal Enumeration Rows、Required Principal Member Set、pre-emit obligation
 永久 heartbeat/reasoning 仍受 2× cap 约束。兼容 error/fallback 保留给其他 adapter 的显式 typed failure，不再由活跃 OpenAI-compatible 流产生。
 
 状态：`B517=implemented/package-suites-pass/pending-production-replay`；`system-answer-takeover-on-active-stream=removed`；Trace=`unchanged`。
+
+#### §11.10.98 B510-D/F：exact relation metadata 与业务可见图分层
+
+`B510-D` 已实现为全 DiagramKind 共用的 soft guidance：exact node id/edge anchor 保留证据身份，visible label/message 由模型用业务动作表达；
+`relation_kind`、`claim_form`、recipe/validator 词不再作为推荐可见文案。read stage 额外发布 verified responsibility 作为措辞依据，但不生成图或边。
+
+冷审同时确认 `B510-F` 的单行 copy-ready boundary recipe 已由既有提交落地：standalone node identity、同值 unproven boundary row、`edge_action=none` 三项同席，
+且 context-only、已证 stage participant、Trace 均隔离。账面状态从 open 纠正为 implementation-confirmed/pending replay。
+
+全 `AllDiagramKinds()`、read-stage 双层表达、prompt hygiene 回归通过。状态：`B510-D=implemented`；`B510-F=implementation-confirmed`；
+`model-diagram-authorship=preserved`；Trace=`unchanged`。

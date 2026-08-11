@@ -31999,3 +31999,23 @@ assistant content/tool call 时，后者在 `requestTimeout`（生产常见形�
 
 状态：`B517=implemented/package-suites-pass/pending-production-replay`；`active-stream/degraded-answer-at-1x=removed`；
 `total-wall-clock-bound=preserved`；`model-answer-ownership=preserved`；Trace families=`unchanged`。
+
+### 123.554 B510-D/F：图的证据身份层与用户可见业务层分权
+
+完成 `B510-D-BUSINESSLAYER/P1`：所有 `DiagramKind` 共用的 Diagram Contract 现在明确把 `relation_kind`、`claim_form`、recipe index、validator 名称等限定为
+结构化证据 metadata，禁止当作图上的主文案。模型保留 exact source/stage identity 作为 Mermaid node id 与 `edge_anchors` 端点，同时自行用业务/domain 动作成文
+可见节点和消息；必要时把技术 identity 放第二层。display alias 不产生 endpoint/关系权威，改展示词也不得改方向。该规则是 soft authoring guidance，不增加 prose
+hard gate，不生成 label/node/edge。
+
+read workflow 的特化层复用 checkout-verified `StageBinding.Responsibility` 作为业务措辞依据，并明确“业务动作第一层、exact stage identity 第二层”；禁止把
+`precedence/call/data_flow` 直接作为可见箭头文案。它只在当前仓确有 verified read-stage authority 时出现，不向任意客户仓注入 Codrax 内部架构。
+
+同步冷审 `B510-F-BOUNDARYREPAIR1`：`ae014e35a` 后生产代码已经把每个未覆盖 participant 的 standalone node first-line identity、同值 boundary JSON 和
+`edge_action=none` 合成一个 copy-ready `boundary_recipe`，并排除 context-only、已有 stage precedence 与 Trace。该项不是未施工，而是文档状态过期；现改为
+implemented/pending production replay，不再重复造第二套修补器。
+
+新增 `AllDiagramKinds()` 全矩阵 guidance pin、stage business/exact 双层 pin；`internal/agent` 全量与 glossary hygiene 通过。测试曾抓到新增句中的内部管线口吻，
+按红线改为中性“guidance 不提供 label/node/edge”，未扩 glossary 白名单。
+
+状态：`B510-D=implemented/package-suite-pass/pending-production-replay`；`B510-F=implementation-confirmed/pending-production-replay`；
+`system-diagram/relation-authoring=none`；`hard-request/model/final-prose-scan=none`；Trace explicit-window/auto-supplement/on-chain roots=`unchanged`。
