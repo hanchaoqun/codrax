@@ -2351,7 +2351,8 @@ func principalEnumerationItemCanUseFileOnlyCitationFallback(surface string, row 
 }
 
 func principalEnumerationItemExactLabelMatchesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
-	labelKey := normalizeEnumerationDisplayTableKey(item.Label)
+	identity := principalEnumerationItemPrimaryIdentity(item)
+	labelKey := normalizeEnumerationDisplayTableKey(identity)
 	if labelKey == "" {
 		return false
 	}
@@ -2363,11 +2364,26 @@ func principalEnumerationItemExactLabelMatchesRow(item types.AnswerBlockItem, ro
 	// as "native_add (ffi)". Treat only the parser-recognized decorated base as
 	// an alias; arbitrary prose/substrings remain excluded. Exact row selection
 	// still comes from source_inventory_row_id or an exact typed citation.
-	base, _, ok := types.AnswerAggregateDecoratedLabelParts(item.Label)
+	base, _, ok := types.AnswerAggregateDecoratedLabelParts(identity)
 	if !ok {
 		return false
 	}
 	return keys[normalizeEnumerationDisplayTableKey(base)]
+}
+
+// principalEnumerationItemPrimaryIdentity mirrors the structured-table
+// rendering contract: Label is the first visible value when present;
+// otherwise Cells[0] is the first visible column. Later cells and Text are
+// descriptive payload and must not become member identity merely because they
+// happen to contain a typed name.
+func principalEnumerationItemPrimaryIdentity(item types.AnswerBlockItem) string {
+	if label := strings.TrimSpace(item.Label); label != "" {
+		return label
+	}
+	if len(item.Cells) > 0 {
+		return strings.TrimSpace(item.Cells[0])
+	}
+	return ""
 }
 
 func principalEnumerationRowDecoratedBaseCandidates(row types.EnumerationDisplayRow) []string {

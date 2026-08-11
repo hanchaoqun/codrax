@@ -3762,3 +3762,28 @@ stage/input/output/carrier 表，同时观察成文重试是否下降。
 
 状态：`B510-E=implemented/pending-r302`；`B510-F=P2-open`；`system-table/answer-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.91 r302：关系怪异不是波动；stage/workflow typed 载体仍未闭环
+
+pipeline 新二进制已补出四行完整表，`B510-E` 生产关闭；但最终 sequence 只剩实现调用/字段赋值，四阶段 precedence 与三类状态交接缺失。Analyzer 多次 retry 后的
+最终 typed participant/dimension carrier 发生退化，display alias 又无法匹配 checkout-verified stage identity；四个断开 participant 连续四轮 boundary repair 后仍
+留在图上。故 `20260811-010746.240-88900.md` 的异常是 `B510-G-STAGEFLOW1/P1-high`，不是单次模型波动，也不是 A4 已覆盖范围。
+
+最优方案只在 typed workflow/stage dimension 下保住 stage id/order/carrier，把业务显示名与 exact endpoint 分层，再由模型消费 recipe 作图；系统不补边。普通关系图与
+Trace 因果投影保持隔离。`B510-F` 继续以逐 participant 单一 node+boundary recipe 降低修补心智。
+
+Cangjie 同批确认 `B514-SICELL1`：cells-only 表按公开 schema 合法、row_id 也正确，但 exact identity gate 只读 label，导致六次确定性拒绝。成员真值和 package 全部已在
+恢复稿，故 parser 无丢失。
+
+状态：`B510-E=production-closed`；`B510-G=P1-high`；`B510-F=P2-open`；`B514=P1-high/next`；
+`system-answer/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。
+
+#### §11.10.92 B514：label-first 与 cells-only 的 typed 行身份合同统一
+
+exact row identity 现遵循 renderer 同一结构规则：优先 `item.label`，为空时取且仅取 `cells[0]`；后续 cells/text 不参与成员确权。这样 Cangjie、ArkTS、Java 等所有
+source-inventory 表均共享同一载体语义，同时保留 row-id/family/location 的严格门。缺 row-id 的 exact citation metadata 绑定也复用该 helper，不扫描请求或 prose，
+不生成成员/表/结论。
+
+完整 `internal/tool` 套件 180.528s 全绿。
+
+状态：`B514=implemented/tool-suite-pass`；`B510-G=next`；`system-member-authoring=none`；Trace families=`unchanged`。

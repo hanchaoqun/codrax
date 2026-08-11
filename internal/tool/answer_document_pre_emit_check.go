@@ -2166,8 +2166,9 @@ func preEmitSourceInventoryPreferredRowIDsByIdentity(sets []types.EnumerationDis
 // identity for member/family/location/citation; requiring it even for a unique
 // label prevents two neighboring rows from exchanging payloads or lets a
 // display decorator hide a duplicate declaration. The decision reads only the
-// structured item label, row ids/families, and the typed row registry; visible
-// prose, request text, and titles never participate.
+// structured item's primary visible value (label, or cells[0] for a cells-only
+// table row), row ids/families, and the typed row registry; later cells,
+// visible prose, request text, and titles never participate.
 func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
 		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
@@ -2192,7 +2193,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 			continue
 		}
 		for ii, item := range block.Items {
-			label := strings.TrimSpace(item.Label)
+			identity := principalEnumerationItemPrimaryIdentity(item)
 			rowID := strings.TrimSpace(item.SourceInventoryRowID)
 			if rowID != "" {
 				row, ok := rowsByID[rowID]
@@ -2207,7 +2208,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 				}
 				continue
 			}
-			if label == "" {
+			if identity == "" {
 				continue
 			}
 			matches := preEmitSourceInventoryExactLabelRows(item, allowedRows)
@@ -2265,11 +2266,13 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 
 // normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext removes a
 // mechanical retry when the model has already selected one exact typed row by
-// structured label plus citation. This applies to unique and duplicate labels:
+// structured primary identity plus citation. This applies to unique and
+// duplicate labels and to cells-only table rows:
 // every principal source-inventory item receives the same stable row carrier.
-// The repair reads only the structured item label, citation_ref, and typed
-// source coordinates. It never reads request, title, or answer prose, and it
-// refuses to guess unless the citation selects one alias identity exactly.
+// The repair reads only item.label or item.cells[0], citation_ref, and typed
+// source coordinates. It never reads later cells, request, title, or answer
+// prose, and it refuses to guess unless the citation selects one alias identity
+// exactly.
 func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
 		return 0

@@ -31866,3 +31866,39 @@ agent 12.691s、orchestrator 12.815s、tracediag 7.451s、stageauthority 2.896s�
 
 状态：`B510-E=implemented/package-suites-pass/pending-r302`；`B510-F=P2-open`；`B510-D/B513=open`；
 `system-table/answer-authoring=none`；`hard-request/model/final-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.547 r302：空表修复获正证；stage 关系载体与 cells-only typed identity 各暴露一档确定性 GAP
+
+`main@1e347e5e6` exact-two 为 runner 1/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_cangjie_r302_20260811_manual_audit.md`。pipeline 的四阶段表已包含 Analyze/Explore/Extract/Finalize 四行以及
+stage/输入/输出/状态载体五列，证明 `B510-E` 可生产关闭。但 sequence 仍只有 Run/Loop/dispatch 等实现调用与一条字段赋值；四阶段 precedence、
+AnalysisIR/EvidenceItems/AnswerDocument 交接未进入最终图，`codrax/analyze/finalizer/Mermaid` 又作为断开 participant 连续四轮被要求同时补 visible node 和
+unproven boundary。该结果回答了 `20260811-010746.240-88900.md` 的疑问：关系奇怪是系统 GAP，A4 只闭环“已有 parser-owned exact call 被撤权后如何重发”，
+没有闭环 typed stage/workflow 关系从 Analyzer 经 Evidence/Finalizer 到图的全链。
+
+立 `B510-G-STAGEFLOW1/P1-high`：只有 Analyzer 已铸造的 typed workflow/stage dimension 才能请求 stage skeleton；其 stage id/order/carrier 必须跨 retry 保持，业务
+显示 alias 与 exact relation endpoint 分层，display 参数/中文别名不得污染 identity。系统只把 typed relation recipe 交给模型，不自动画 stage 边；普通 flow 图、
+源码 call 图和 Trace 因果图不得套入该合同。`B510-F` 则把每个 disconnected participant 的 node declaration 与 `edge_action=none` boundary 合成单一
+copy-ready repair，避免二元往返。
+
+Cangjie runner FAIL 但恢复稿成员、文件和 package 全部正确，故不是 parser 丢成员。原 full/patch 合法采用 `columns[] + items[].cells[]`，每行 `cells[0]` 为成员名，
+且复制了 prompt-visible exact `source_inventory_row_id`；typed binding 却只读 `item.label`，将同一载体全部判成“unknown/different member”。这是一档语言无关的
+`B514-SICELL1/P1-high` 合同自冲突：renderer/schema 明确接纳 cells-only，而 exact row gate 不接纳。
+
+状态：`B510-E=production-closed`；`B510-G=P1-high/next-after-B514`；`B510-F=P2-open`；
+`B510-D/B513=open`；`B514=P1-high/next`；`runner=1/2,human=0/2`；`system-answer/relation-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.548 B514：source-inventory row identity 与 cells-only table 首列同源
+
+source-inventory 的结构化成员身份现在读取一个单源 primary identity：`item.label` 非空时取 label；否则只取 `items[].cells[0]`。这与 table renderer/schema 的
+“label-first 或 cells-only 全列”合同一致。后续 cells 与 text 仍只是描述，不会因为偶然包含成员名而成为身份信号；row id、family partition、location/citation 的
+typed fail-closed 约束保持不变。
+
+同一 helper 同时服务 exact row-id hard gate、缺 row-id 时由 exact citation 绑定 typed metadata、duplicate/decorated label coverage。新增 pin 覆盖 cells-only 正向、
+首列错名负向、label-first 既有路径与 cross-family 拒绝。实现不读取 request/title/model/final prose，不为模型生成成员/表格/结论，仅纠正两个结构化输入形的合同等价性。
+
+完整 `internal/tool` 套件 180.528s 全绿。
+
+状态：`B514=implemented/tool-suite-pass`；`B510-G=P1-high-next`；`system-table/member-authoring=none`；
+`hard-prose-scan=none`；Trace families=`unchanged`。

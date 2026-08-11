@@ -4319,6 +4319,55 @@ func TestNormalizeItemCitationRefsBySourceInventoryRowID_BindsDuplicateLabelExac
 	}
 }
 
+func TestPreCheckSourceInventoryRowIDBindings_CellsOnlyTableMatchesPrimaryColumn(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "classes", Kind: types.BlockTable,
+		SurfaceRole:           types.SurfacePrincipal,
+		SourceInventoryFamily: "public class",
+		FacetIDs:              []string{string(types.FacetEnumerationItem)},
+		Columns:               []string{"name", "location", "package"},
+		Items: []types.AnswerBlockItem{{
+			ID: "cart", Cells: []string{"Cart", "cart/Cart.cj:14", "package demo.cart"},
+			SourceInventoryRowID: classID, CitationRef: -1,
+		}},
+	}}}
+
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("cells-only table first column must have label-first row-id parity, got %+v", hints)
+	}
+
+	doc.Blocks[0].Items[0].Cells[0] = "NotCart"
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID {
+		t.Fatalf("a mismatched first cell must still fail the exact typed row gate, got %+v", hints)
+	}
+}
+
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_CellsOnlyTableParity(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID: "classes", Kind: types.BlockTable,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "public class",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Columns:               []string{"name", "location"},
+			Items: []types.AnswerBlockItem{{
+				ID: "cart", Cells: []string{"Cart", "cart/Cart.cj:14"}, CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want one cells-only exact row binding; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].SourceInventoryRowID; got != classID {
+		t.Fatalf("source_inventory_row_id=%q, want %q", got, classID)
+	}
+}
+
 func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_BindsDuplicateLabelExactLocation(t *testing.T) {
 	ctx, extendID, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{
