@@ -31363,3 +31363,25 @@ participant primary-identity 修复提示。`go test ./internal/agent ./internal
 状态：`B500=implemented/package-suites-pass/pending-production-replay`；`B498=v3-implemented/pending-production-replay`；
 `B491=typed-repair-implemented/pending-production-replay`；`system-relation/diagram/conclusion-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace windows/auto-supplement/causal projection/on-chain root-cause/value families=`unchanged`。
+
+### 123.520 r289：StageReport 仍有 file/proximity 旁路；已证 endpoint 边被简化删除
+
+`main@52b480009` 严格并行 QF architecture read 与 Python write plan，runner 2/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_write_r289_20260810_manual_audit.md`。
+
+QF Explorer 本轮正确补到三条 exact call：Analyzer 写预扫描、Explorer `SetTurnAArtifacts`、Extractor `TurnAArtifacts()`；正文也准确说明共享数据流。首稿图
+曾画三边，却把 exact callable endpoints 折叠成 A/B/C/M 组件节点，relation validator 正确 fail-closed。模型随后没有使用 prompt 已给的 exact node/edge recipe，
+而是删掉三边；终图只剩 stage precedence 与断开的 Mutable/BusContext，显式图请求仍未满足，故 runner PASS 是人工假绿。
+
+B491 新提示被模型最终消费，成文拒绝由 r288 的 5 次降到 3 次，记 production-positive 但未关闭。更根本地，B500 仅把 StageReport flow 128→57：
+`matchesOrderedFlowEndpoint` 仍允许同文件替代 endpoint anchor，concrete evidence 又能以 ±24 行邻近命中，导致 explorer helper/test/write-analyzer 关系及同 owner 值行继续进入。
+提升为 B500 v4：required diagram 有 typed anchors 时禁止 file fallback；展示 evidence 要 exact id/line，不能用近邻位置。
+
+新立 `B501-LAYEREDGRAPH1/P1`：跨语言统一教“组件层 + 精确 endpoint 层”。组件 subgraph/label 负责逻辑职责，source/parser exact endpoint 节点承载关系并复制
+edge recipe；不得把 exact relation 改挂抽象组件，也不得为简图删掉已证边。它只降低图表达心智，不生成节点/边、不放宽门。
+
+Python plan 正确且范围精准，但首次把同一个 verification probe 同时放在 top-level 与 change-local 两个 schema-valid 数组。validator 的全局 duplicate-id 拒绝正确；
+`ChangePlanJSONShapeFirstTeaching` 同时列出两种 carrier 却没写“每个逻辑 probe 只选一处、ID 全计划唯一”，确认 `B502-PLANPROBECARRIER1/P1-small`。
+
+状态：`B500=v3-partial/v4-next`；`B501=P1-next`；`B491=production-positive`；`B502=P1-small-next`；
+`runner=2/2,human=1/2`；`system-relation/diagram/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

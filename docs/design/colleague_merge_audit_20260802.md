@@ -3461,3 +3461,14 @@ agent/tool 全包绿，待 exact-two 生产回放。
 
 状态：`B500=implemented`；`B498=v3-implemented`；`B491=typed-repair-implemented`；
 `system-answer/edge-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.64 r289：单文件近邻仍绕 scope；组件抽象吞掉 exact relation
+
+exact-two runner 2/2、人工 1/2。QF 已找到并在首稿画出三条 Mutable call，但用 A/B/C/M 抽象节点承载 exact callable relation；严格门拒绝后模型删边，终图只剩
+阶段顺序。B491 primary identity 提示使拒绝从 5 降到 3 且最终被消费，方向正确但尚未闭环。
+
+B500 StageReport 从 128 降到 57，证明接线生效但不充分：typed anchor scope 仍接受同文件双端点，evidence 仍接受 ±24 行近邻。下一批禁止 anchored required-diagram
+的 file fallback，并要求 concrete source evidence exact id/line。另立 B501：软教学用 component subgraph 包含 exact endpoint 节点，关系只画在 exact endpoints；
+不系统补图。write plan 正确，但 top-level/change-local 重复同一 probe，立 B502 补“ID 全局唯一、逻辑 probe 只选一个 carrier”的 JSON SSOT。
+
+状态：`B500=v4-next`；`B501=next`；`B491=partial-positive`；`B502=next`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
