@@ -86,6 +86,11 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 				body = specific
 			}
 		}
+		if fam.ID == types.CaveatFamilyAnswerCoverage {
+			if specific := materializeAnswerFacetCoverageCaveat(violations, useChinese); specific != "" {
+				body = specific
+			}
+		}
 		body = strings.TrimSpace(body)
 		if body == "" {
 			continue
@@ -96,6 +101,124 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 		}
 	}
 	return out
+}
+
+// materializeAnswerFacetCoverageCaveat replaces the broad answer-coverage
+// family text only when every surviving violation in that family is an exact,
+// current answer_facet_coverage cluster. Mixed, unclustered, richness-only, or
+// future facet shapes keep the conservative family fallback. This makes the
+// disclosure actionable without inferring anything from request/model/final
+// prose and without globally downgrading already-covered answer content.
+func materializeAnswerFacetCoverageCaveat(violations []types.Violation, useChinese bool) string {
+	seen := make(map[types.AnswerFacetKind]bool)
+	answerCoverageViolations := 0
+	for _, v := range violations {
+		spec, ok := types.ViolKindSpecFor(v.Kind)
+		if !ok || spec.CaveatFamilyID != types.CaveatFamilyAnswerCoverage {
+			continue
+		}
+		answerCoverageViolations++
+		if v.Kind != types.ViolFacetUncovered ||
+			residualClusterValue(v.ClusterKey, "root") != "answer_facet_coverage" {
+			return ""
+		}
+		facet := types.AnswerFacetKind(residualClusterValue(v.ClusterKey, "facet"))
+		if answerFacetCoverageCaveatLabel(facet, useChinese) == "" {
+			return ""
+		}
+		seen[facet] = true
+	}
+	if answerCoverageViolations == 0 || len(seen) == 0 {
+		return ""
+	}
+
+	order := []types.AnswerFacetKind{
+		types.FacetObservedArtifactFact,
+		types.FacetCurrentCodePath,
+		types.FacetNearestMechanism,
+		types.FacetUncertaintyBoundary,
+		types.FacetConfigPrecedenceRole,
+		types.FacetResolvedLiteralOrSymbol,
+		types.FacetEnumerationItem,
+		types.FacetBucketLabel,
+		types.FacetPrincipalPathEdge,
+		types.FacetBranchGuard,
+		types.FacetComponentRelation,
+		types.FacetDiagramSpine,
+	}
+	labels := make([]string, 0, len(seen))
+	for _, facet := range order {
+		if seen[facet] {
+			labels = append(labels, answerFacetCoverageCaveatLabel(facet, useChinese))
+		}
+	}
+	if len(labels) != len(seen) {
+		return ""
+	}
+	if useChinese {
+		return "答案未完整呈现这些已要求的内容：" + strings.Join(labels, "、") + "。只需针对这些位置补齐或结合对应源码证据核对；其他已覆盖内容不因此整体降级。"
+	}
+	return "The answer did not fully present these requested elements: " + strings.Join(labels, ", ") + ". Complete or verify only these locations against their source evidence; other covered content is not globally downgraded."
+}
+
+func answerFacetCoverageCaveatLabel(facet types.AnswerFacetKind, useChinese bool) string {
+	if useChinese {
+		switch facet {
+		case types.FacetObservedArtifactFact:
+			return "附件或运行时观察事实"
+		case types.FacetCurrentCodePath:
+			return "当前代码路径"
+		case types.FacetNearestMechanism:
+			return "最接近的现有机制及差异"
+		case types.FacetUncertaintyBoundary:
+			return "已核查范围与未确认边界"
+		case types.FacetConfigPrecedenceRole:
+			return "配置覆盖顺序"
+		case types.FacetResolvedLiteralOrSymbol:
+			return "已解析的具体值或符号"
+		case types.FacetEnumerationItem:
+			return "所要求的枚举条目"
+		case types.FacetBucketLabel:
+			return "用户指定的分类"
+		case types.FacetPrincipalPathEdge:
+			return "主路径上的关系"
+		case types.FacetBranchGuard:
+			return "选择或分支条件"
+		case types.FacetComponentRelation:
+			return "组件之间的关系"
+		case types.FacetDiagramSpine:
+			return "关系图主干及其已证关系"
+		}
+		return ""
+	}
+	switch facet {
+	case types.FacetObservedArtifactFact:
+		return "observed runtime or attached-artifact facts"
+	case types.FacetCurrentCodePath:
+		return "the current code path"
+	case types.FacetNearestMechanism:
+		return "the nearest existing mechanism and its gap"
+	case types.FacetUncertaintyBoundary:
+		return "the checked scope and unverified boundary"
+	case types.FacetConfigPrecedenceRole:
+		return "configuration precedence"
+	case types.FacetResolvedLiteralOrSymbol:
+		return "the resolved value or symbol"
+	case types.FacetEnumerationItem:
+		return "the requested enumeration items"
+	case types.FacetBucketLabel:
+		return "the user-requested partitions"
+	case types.FacetPrincipalPathEdge:
+		return "relations on the principal path"
+	case types.FacetBranchGuard:
+		return "selection or branch conditions"
+	case types.FacetComponentRelation:
+		return "relationships between components"
+	case types.FacetDiagramSpine:
+		return "the relationship-diagram spine and its proved relations"
+	default:
+		return ""
+	}
 }
 
 func materializeSelfContradictionCaveat(violations []types.Violation, useChinese bool) string {

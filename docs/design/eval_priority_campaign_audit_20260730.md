@@ -32898,3 +32898,19 @@ Trace family、显式窗、自动补齐、因果投影、链上根因与活动�
 
 状态：`B551-B=implemented/relevant-suites-pass/pending-r326`；`non-message-loss=closed-in-sequence-recovery`；
 `edge-authority=unchanged`；`system-answer/edge-authorship=none`；`B550=next`；Trace causal authority=`unchanged`。
+
+### 123.606 B550：answer coverage 附注按 typed facet 精确披露
+
+`CaveatFamilyAnswerCoverage` 不再一律把 `ViolFacetUncovered` 翻译成“某些维度可能不充分”。只有 surviving answer-coverage family 全部来自当前
+`answer_facet_coverage` 的 exact cluster 时，materializer 才按稳定 facet 顺序发布具体缺口，例如“选择或分支条件”“主路径上的关系”“组件之间的关系”或
+“关系图主干及其已证关系”；并明确其余已覆盖内容不因此整体降级。中英文同源覆盖全部 12 个现有 facet。
+
+若同一 family 还含 block coverage、未聚类旧数据、richness-only cluster、未知未来 facet 或其他形态，则保留既有保守模板，避免用部分元数据伪装全量精度。
+过滤仍先消费 accepted final surface；已经被最终 principal relation/row/Trace projection 覆盖的 telemetry 不会进入 materializer。该修复只读 Violation kind 与
+cluster key，不扫描请求、模型推理或最终答案，也不修改模型正文和结论。
+
+`internal/orchestrator` 定向与全包、`internal/types`、`internal/tracediag` 通过；Trace source-allowed bucket 缺口现精确写“用户指定的分类”，source-excluded 且
+投影已发布 bucket 时继续静默。因果投影、链上根因、实际占用/规则可消双轴及活动流策略未改。
+
+状态：`B550=implemented/relevant-suites-pass/pending-r326`；`generic-facet-caveat=retired-when-exact`；
+`mixed/unknown=fallback-conservative`；`B552/B553=open`；Trace causal authority=`unchanged`。

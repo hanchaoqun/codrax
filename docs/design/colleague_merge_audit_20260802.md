@@ -4391,3 +4391,14 @@ precedence、import、observe、temporal、contain 等改用无 anchor 的 `Note
 
 状态：`B551-B=implemented/pending-r326`；`sequence-mixed-relation=lossless-notes+strict-edges`；
 `model-authorship=preserved`；`B550=next`；Trace causal authority=`unchanged`。
+
+#### §11.10.146 B550：精确 facet 缺口不再降级整份答案
+
+answer-coverage caveat 现仅在 surviving family 全为 exact `answer_facet_coverage` cluster 时，按 typed facet 发布具体用户可读缺口；12 个现有 facet 均有中英文映射。
+同 family 混入 block/legacy/richness/unknown shape 时继续使用保守 fallback，防止伪精确。accepted surface 的既有 telemetry suppression 先执行，因此完整 relation/row 或
+Trace projection 已覆盖的内容不会被早期 advisory 重新降级。
+
+该逻辑不读请求/模型/终稿 prose，不改正文与结论。orchestrator/types/tracediag 测试通过，Trace source authority 与因果投影未改。
+
+状态：`B550=implemented/pending-r326`；`exact-facet=actionable-local-disclosure`；`covered-content=no-global-downgrade`；
+`B552/B553=open`；Trace causal authority=`unchanged`。

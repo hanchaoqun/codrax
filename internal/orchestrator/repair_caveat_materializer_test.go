@@ -255,8 +255,8 @@ func TestAppendSoftContractCaveatsToAnswerForBus_TraceProjectionKeepsBucketCavea
 		Kind:       types.ViolFacetUncovered,
 		ClusterKey: types.FacetClusterKey(string(types.FacetBucketLabel), "answer_facet_coverage"),
 	}}, "zh", ctx)
-	if !strings.Contains(out, "结合源码进一步核对") {
-		t.Fatalf("source-allowed trace turn must retain the existing coverage disclosure, got:\n%s", out)
+	if !strings.Contains(out, "用户指定的分类") || strings.Contains(out, "某些维度") {
+		t.Fatalf("source-allowed trace turn must retain a precise bucket coverage disclosure, got:\n%s", out)
 	}
 }
 
@@ -973,6 +973,9 @@ func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramFacet
 	if !strings.Contains(out, "**补充说明：**") {
 		t.Fatalf("explicit diagram requests should keep diagram facet disclosure:\n%s", out)
 	}
+	if !strings.Contains(out, "关系图主干") || strings.Contains(out, "某些维度") {
+		t.Fatalf("explicit diagram facet disclosure should name the exact missing surface:\n%s", out)
+	}
 }
 
 func TestAppendSoftContractCaveatsToAnswerForBus_AcceptedMechanismSuppressesOptionalFacetTelemetry(t *testing.T) {
@@ -1361,6 +1364,35 @@ func TestMaterializeCaveats_LangFallback(t *testing.T) {
 	}
 	if strings.ContainsAny(en[0], "答案") {
 		t.Errorf("EN caveat unexpectedly contains Chinese: %q", en[0])
+	}
+}
+
+func TestMaterializeCaveats_ExactFacetCoverageNamesOnlyMissingSurface(t *testing.T) {
+	violations := []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetDiagramSpine), "answer_facet_coverage")},
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetBranchGuard), "answer_facet_coverage")},
+	}
+	zh := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
+	en := MaterializeUnresolvedViolationsAsCaveats(violations, "en")
+	if len(zh) != 1 || !strings.Contains(zh[0], "选择或分支条件") || !strings.Contains(zh[0], "关系图主干") {
+		t.Fatalf("exact ZH facet disclosure missing: %v", zh)
+	}
+	if strings.Contains(zh[0], "某些维度") {
+		t.Fatalf("exact ZH facet disclosure fell back to broad caveat: %v", zh)
+	}
+	if len(en) != 1 || !strings.Contains(en[0], "selection or branch conditions") || !strings.Contains(en[0], "relationship-diagram spine") {
+		t.Fatalf("exact EN facet disclosure missing: %v", en)
+	}
+}
+
+func TestMaterializeCaveats_MixedAnswerCoverageKeepsConservativeFallback(t *testing.T) {
+	violations := []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetDiagramSpine), "answer_facet_coverage")},
+		{Kind: types.ViolBlockCoverageMissing},
+	}
+	got := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
+	if len(got) != 1 || !strings.Contains(got[0], "某些维度") {
+		t.Fatalf("mixed coverage shapes must keep conservative fallback: %v", got)
 	}
 }
 
