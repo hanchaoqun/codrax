@@ -2198,16 +2198,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
 	}
 	if flowOperationMissing {
-		queueFlowOperationCarrierRepair(ctx, evidenceSnapshot)
+		files, keywords := queueFlowOperationCarrierRepair(ctx, evidenceSnapshot)
+		repairHint := flowOperationRepairHint(types.FlowOperationEvidenceEmissionGuide, files, keywords)
+		navigationHint := flowOperationNavigationHint(files, keywords)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(
-					"emit_investigation_complete rejected: the typed flow investigation contains no citable operation-level transfer. Definitions and carrier-field rosters establish identities only. Do one focused source pass over the producer, transfer/merge boundary, and consumer; emit each verified directed operation, or retry completion with the transfer explicitly left unproven."),
+					"emit_investigation_complete rejected: the typed flow investigation contains no citable operation-level transfer. Definitions and carrier-field rosters establish identities only. Do one focused source pass over the producer, transfer/merge boundary, and consumer; emit each verified directed operation, or retry completion with the transfer explicitly left unproven. " + navigationHint),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "flow_operation_carrier_evidence",
-					Hint:   types.FlowOperationEvidenceEmissionGuide,
+					Hint:   repairHint,
 					Fields: []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
 					Metadata: map[string]string{
 						"repair_origin": "emit_investigation_complete.flow_operation_carrier",
@@ -2227,7 +2229,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowParticipantCoverage)
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
-		queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
+		files, keywords := queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
+		repairHint := flowParticipantCoverageRepairHint(missingFlowParticipants, files, keywords)
+		navigationHint := flowOperationNavigationHint(files, keywords)
 		participantBlockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
 			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
 		)
@@ -2236,11 +2240,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(fmt.Sprintf(
-					"emit_investigation_complete rejected: the required source-flow diagram still has no citable operation incident to typed participant(s) %v. The current operation rows may describe real auxiliary edges, but they do not cover the requested participant slate. Do one focused pass over the corresponding source operations and emit the verified directed rows; when source cannot prove a participant relation, keep that participant explicitly unproven instead of inventing a bridge.",
-					missingFlowParticipants)),
+					"emit_investigation_complete rejected: the required source-flow diagram still has no citable operation incident to typed participant(s) %v. The current operation rows may describe real auxiliary edges, but they do not cover the requested participant slate. Do one focused pass over the corresponding source operations and emit the verified directed rows; when source cannot prove a participant relation, keep that participant explicitly unproven instead of inventing a bridge. %s",
+					missingFlowParticipants, navigationHint)),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "flow_participant_operation_evidence",
-					Hint:   flowParticipantCoverageRepairHint(missingFlowParticipants),
+					Hint:   repairHint,
 					Fields: []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
 					Metadata: map[string]string{
 						"repair_origin": "emit_investigation_complete.flow_participant_coverage",
@@ -3433,22 +3437,24 @@ func completionVerifiedReadModeStagePrecedence(ctx *types.BusContext) []stageaut
 	return stageauthority.SelectRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority).Precedence
 }
 
-func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.EvidenceItem) {
+func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.EvidenceItem) (files, keywords []string) {
+	files, keywords = flowOperationRepairTargets(ctx, nil, evidence)
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
-		return
+		return files, keywords
 	}
-	files, keywords := flowOperationRepairTargets(ctx, nil, evidence)
+	rationale := flowOperationRepairHint(types.FlowOperationEvidenceEmissionGuide, files, keywords)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
 		Keywords:      keywords,
 		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
 		Subject:       "flow_operation_carrier",
-		Rationale:     types.FlowOperationEvidenceEmissionGuide,
+		Rationale:     rationale,
 		Origin:        "emit_investigation_complete.flow_operation_carrier",
 		DowngradeLane: types.DowngradeLaneFlowOperationCarrier,
 		Stage:         string(types.StageExplore),
 	})
+	return files, keywords
 }
 
 func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.EvidenceItem, stagePrecedence ...stageauthority.PrecedenceRelation) []string {
@@ -3489,28 +3495,63 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 	return missing
 }
 
-func flowParticipantCoverageRepairHint(missing []string) string {
-	return fmt.Sprintf(
+func flowParticipantCoverageRepairHint(missing, files, keywords []string) string {
+	base := fmt.Sprintf(
 		"The required source-flow participant slate still lacks incident operation evidence for %v. %s",
 		missing, types.FlowOperationEvidenceEmissionGuide)
+	return flowOperationRepairHint(base, files, keywords)
 }
 
-func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string, evidence []types.EvidenceItem) {
+func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string, evidence []types.EvidenceItem) (files, keywords []string) {
+	files, keywords = flowOperationRepairTargets(ctx, missing, evidence)
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil || len(missing) == 0 {
-		return
+		return files, keywords
 	}
-	files, keywords := flowOperationRepairTargets(ctx, missing, evidence)
+	rationale := flowParticipantCoverageRepairHint(missing, files, keywords)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
 		Keywords:      keywords,
 		Tools:         []string{"repo_map", "grep", "read_file", "emit_evidence"},
 		Subject:       "flow_participants:" + strings.Join(missing, ","),
-		Rationale:     flowParticipantCoverageRepairHint(missing),
+		Rationale:     rationale,
 		Origin:        "emit_investigation_complete.flow_participant_coverage",
 		DowngradeLane: types.DowngradeLaneFlowParticipantCoverage,
 		Stage:         string(types.StageExplore),
 	})
+	return files, keywords
+}
+
+// flowOperationRepairHint exposes the bounded navigation plan in the same
+// tool result that creates it. RepairDirective remains the durable scheduler
+// carrier, but the model must not have to guess a search from a generic
+// completion rejection before the next prompt happens to render that carrier.
+// These targets are planning-only: they never satisfy evidence coverage or
+// authorize a relation edge.
+func flowOperationRepairHint(base string, files, keywords []string) string {
+	base = strings.TrimSpace(base)
+	navigation := flowOperationNavigationHint(files, keywords)
+	if navigation == "" {
+		return base
+	}
+	if base != "" {
+		base += " "
+	}
+	return base + navigation
+}
+
+func flowOperationNavigationHint(files, keywords []string) string {
+	var parts []string
+	if len(keywords) > 0 {
+		parts = append(parts, fmt.Sprintf("typed navigation stems=%v", keywords))
+	}
+	if len(files) > 0 {
+		parts = append(parts, fmt.Sprintf("candidate source files=%v", files))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". Read the exact operation line before emitting any directed row."
 }
 
 func preCompleteDowngradeSummary(summary string) string {

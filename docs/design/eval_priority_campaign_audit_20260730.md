@@ -32467,3 +32467,31 @@ required current-source flow lane 现在先读取该精确 source:line 的 repom
 
 状态：`B532=implemented/tool-suite-pass/pending-r315`；`parser-shape-authority=precise`；
 `model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。
+
+### 123.583 r315：read/write 交叉回放；B532 无触发，flow 导航计划当轮不可见
+
+`main@07482baad` exact-two runner 2/2、人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_write_r315_20260811_manual_audit.md`。C write 案 109s 真通过：单行 patch、隔离 worktree、项目
+`make test`、changed-path coverage 与最终 verified 权威完整；模型误配的 Python probe 被 typed language-target 校验安全拒绝并继续项目 suite，没有累计验证域清空或近期 read relation 合同串扰。
+
+Go read 案 233s 有模型答案但人工 fail。六 participant 保持，B531 无回归；Explorer 本轮只读
+`orchestrator.go` 头部，没有打开 1685–1718，故 B532 没有获得 AST+read-line 输入，不能判断实现无效。决定性新 seam 是
+flow completion 已通过 `flowOperationRepairTargets` 生成 bounded files/keywords，但同轮 ToolResult Summary 只含泛化“缺 operation”；导航计划只留在内部 closure。模型因此自猜
+`dispatchStage`，未搜索 Mutable/BusContext/MutableState 的实际 writer/reader，后续又被 recovered-row closure 收窄为重复发定义，最终两个载体按 unproven 孤点出厂。
+
+确认 `B534-FLOWREPAIRVIS1/P1-high`：`flow_operation_carrier` 与 `flow_participant_coverage` 两个生产者都必须让同一 bounded soft navigation plan 在拒绝当轮可见。该计划只帮助下一次 grep/read，不得成为 relation evidence、completion 满足项或系统补边依据。
+
+状态：`write=production-pass`；`B531=production-positive`；`B532=implemented/no-production-activation`；
+`B534=confirmed/implement-now`；`B517=no-system-degrade@233s`；`runner=2/2`；`human=1/2`；Trace=`unchanged`。
+
+### 123.584 B534：flow repair 的 bounded 导航计划当轮公开，权威仍为 soft
+
+两条 flow completion 车道现共同使用 `flowOperationRepairHint`：producer 已算出的 typed participant/grounded alias stems 和 bounded candidate files 同时写入
+`ToolResult.Summary`、`ToolRepair.Hint` 与 durable `RepairDirective.Rationale`。模型在第一次 completion downgrade 后即可看到可执行的搜索入口，不再依赖下一轮是否恰好渲染 closure，或自行从泛化说明猜函数名。
+
+同轮文字明确标记 `Soft navigation plan (not relation evidence)`：files/keywords 继续只来自 typed analyzer participants、citable evidence 与 read closure；其 fuzzy alias 仅用于导航，不能满足 flow coverage、铸 evidence、通过 diagram gate 或生成关系。模型必须 read 精确 operation line 并自行 emit directed row；无证据仍走 unproven。实现覆盖“完全无 operation carrier”和“指定 incident participant 未覆盖”两臂，Summary/Repair/closure 三面同源。
+
+该批不扫描 request/model/final prose，不改变 Trace 因果投影、显式窗、自动补采、链上根因、排名、可消除量、JSON/Mermaid 自愈或 write controller。
+
+状态：`B534=implemented/tool-suite-pass/pending-r316`；`navigation-authority=soft-only`；
+`model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。

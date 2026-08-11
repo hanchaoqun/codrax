@@ -65,6 +65,17 @@ func TestEmitInvestigationComplete_FlowDefinitionsRequestOneOperationPass(t *tes
 	if !res.Success || res.Repair == nil || res.Repair.Code != "flow_operation_carrier_evidence" {
 		t.Fatalf("definition-only flow should request one focused operation pass: %+v", res)
 	}
+	for _, surface := range []string{res.Summary, res.Repair.Hint} {
+		for _, want := range []string{
+			"Soft navigation plan (not relation evidence)",
+			"typed navigation stems=[Pipeline stages]",
+			"candidate source files=[src/pipeline.go src/worker.go]",
+		} {
+			if !strings.Contains(surface, want) {
+				t.Fatalf("same-turn operation repair surface missing %q:\n%s", want, surface)
+			}
+		}
+	}
 	if ctx.Mutable.IsInvestigationComplete() {
 		t.Fatal("first definition-only attempt must not mark investigation complete")
 	}
@@ -307,6 +318,17 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 	if !res.Success || res.Repair == nil || res.Repair.Code != "flow_participant_operation_evidence" ||
 		!strings.Contains(res.Summary, "Analyzer") {
 		t.Fatalf("uncovered incident participant should request one focused operation pass: %+v", res)
+	}
+	for _, surface := range []string{res.Summary, res.Repair.Hint} {
+		for _, want := range []string{
+			"Soft navigation plan (not relation evidence)",
+			"typed navigation stems=[Analyzer]",
+			"candidate source files=[src/pipeline.go src/analyzer.go]",
+		} {
+			if !strings.Contains(surface, want) {
+				t.Fatalf("same-turn participant repair surface missing %q:\n%s", want, surface)
+			}
+		}
 	}
 	if ctx.Mutable.IsInvestigationComplete() {
 		t.Fatal("first uncovered-participant attempt must not mark investigation complete")

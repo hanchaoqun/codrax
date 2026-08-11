@@ -4136,3 +4136,21 @@ required source-flow 的 grounded/recovered 单行证据若 anchor kind 与该�
 
 状态：`B532=implemented/tool-suite-pass/pending-r315`；`model-authorship=preserved`；
 `hard-signal=typed-AST-XOR`；Trace causal authority=`unchanged`。
+
+#### §11.10.126 r315：write 通过，read 暴露 flow repair 可见性 seam
+
+r315 exact-two runner 2/2、人工 1/2。C write 精确 patch 与项目验证均通过；模型误配 probe 被 typed verifier 安全旁路到 Makefile suite。Go 数据流案六 participant 保留，但未读取
+BusContext/Mutable 初始化区，B532 无生产触发。completion 内部已有 bounded files/keywords，ToolResult Summary 却只发泛化缺口；模型自猜 `dispatchStage` 搜索失败，最终按
+unproven 孤点收敛。立 `B534-FLOWREPAIRVIS1/P1-high`：让 producer-owned soft navigation plan 在同轮可见，不放宽证据门、不系统补边。
+
+状态：`write=production-pass`；`B531=production-positive`；`B532=no-production-activation`；
+`B534=confirmed/next`；Trace causal authority=`unchanged`。
+
+#### §11.10.127 B534：两条 flow completion 车道共享当轮 soft 导航载体
+
+`flow_operation_carrier` 与 `flow_participant_coverage` 均把同一 bounded stems/files 计划发布到 Summary、ToolRepair Hint 和 durable closure rationale。目标只由 typed participant、citable evidence、read closure 生成，并显式声明 `not relation evidence`；它只能指导 grep/read，不能清 coverage、铸 edge 或改答案。
+
+模型仍须打开精确 operation line 并自行发射 assignment/initializer/call/return 等关系证据；找不到时继续披露 unproven。无 request/model/final prose 扫描，Trace、write、JSON/Mermaid 与答案所有权不变。定向 pin 覆盖无 operation 与 participant 未覆盖两臂的三面同步。
+
+状态：`B534=implemented/tool-suite-pass/pending-r316`；`navigation=soft-only`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。
