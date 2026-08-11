@@ -1622,6 +1622,7 @@ func TestTraceQuerySummaryRendersWakeupCausalImpactsAndRepairsAlias(t *testing.T
 	}
 	for _, want := range []string{
 		"# Trace Query: root_cause_rank",
+		"waker_cpu=2 wakee_target_cpu=1 cpu_relation=cross_cpu",
 		"causal_impact thread=worker-200",
 		"dominant_state=runnable",
 		"priority_relation=lower_priority_dependency",

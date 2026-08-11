@@ -5891,26 +5891,36 @@ type ChainNode struct {
 }
 
 type WakeupEdge struct {
-	From                        string    `json:"from"`
-	To                          string    `json:"to"`
-	Waker                       ThreadRef `json:"waker"`
-	Wakee                       ThreadRef `json:"wakee"`
-	WakeupTs                    float64   `json:"wakeup_ts"`
-	WakeupLine                  int       `json:"wakeup_line"`
-	LatencyMs                   float64   `json:"latency_ms,omitempty"`
-	WakerPriority               int       `json:"waker_priority,omitempty"`
-	WakerPriorityClass          string    `json:"waker_priority_class,omitempty"`
-	WakerPrioritySource         string    `json:"waker_priority_source,omitempty"`
-	WakerPriorityArtifactSource string    `json:"waker_priority_artifact_source,omitempty"`
-	WakeePriority               int       `json:"wakee_priority,omitempty"`
-	WakeePriorityClass          string    `json:"wakee_priority_class,omitempty"`
-	WakeePrioritySource         string    `json:"wakee_priority_source,omitempty"`
-	WakeePriorityArtifactSource string    `json:"wakee_priority_artifact_source,omitempty"`
-	WakeePriorityAuthority      string    `json:"wakee_priority_authority,omitempty"`
-	PriorityRelation            string    `json:"priority_relation,omitempty"`
-	PriorityRelationCaliber     string    `json:"priority_relation_caliber,omitempty"`
-	PriorityInversionCandidate  bool      `json:"priority_inversion_candidate,omitempty"`
-	EvidenceLine                int       `json:"evidence_line,omitempty"`
+	From  string    `json:"from"`
+	To    string    `json:"to"`
+	Waker ThreadRef `json:"waker"`
+	Wakee ThreadRef `json:"wakee"`
+	// WakerCPU is the sched_wakeup row's header CPU; WakeeTargetCPU is the
+	// row-local target_cpu.  The Known bits preserve a valid cpu0 and keep an
+	// absent/malformed CPU dimension distinct from an observed zero.  CPU
+	// relation describes placement only: a cross-CPU wakeup remains a causal
+	// dependency edge, but is not evidence of same-CPU occupancy competition.
+	WakerCPU                    int     `json:"waker_cpu,omitempty"`
+	WakerCPUKnown               bool    `json:"waker_cpu_known,omitempty"`
+	WakeeTargetCPU              int     `json:"wakee_target_cpu,omitempty"`
+	WakeeTargetCPUKnown         bool    `json:"wakee_target_cpu_known,omitempty"`
+	CPURelation                 string  `json:"cpu_relation,omitempty"`
+	WakeupTs                    float64 `json:"wakeup_ts"`
+	WakeupLine                  int     `json:"wakeup_line"`
+	LatencyMs                   float64 `json:"latency_ms,omitempty"`
+	WakerPriority               int     `json:"waker_priority,omitempty"`
+	WakerPriorityClass          string  `json:"waker_priority_class,omitempty"`
+	WakerPrioritySource         string  `json:"waker_priority_source,omitempty"`
+	WakerPriorityArtifactSource string  `json:"waker_priority_artifact_source,omitempty"`
+	WakeePriority               int     `json:"wakee_priority,omitempty"`
+	WakeePriorityClass          string  `json:"wakee_priority_class,omitempty"`
+	WakeePrioritySource         string  `json:"wakee_priority_source,omitempty"`
+	WakeePriorityArtifactSource string  `json:"wakee_priority_artifact_source,omitempty"`
+	WakeePriorityAuthority      string  `json:"wakee_priority_authority,omitempty"`
+	PriorityRelation            string  `json:"priority_relation,omitempty"`
+	PriorityRelationCaliber     string  `json:"priority_relation_caliber,omitempty"`
+	PriorityInversionCandidate  bool    `json:"priority_inversion_candidate,omitempty"`
+	EvidenceLine                int     `json:"evidence_line,omitempty"`
 	// Branch mirrors the owning branch ordinal of the edge's From/To nodes
 	// (they share one branch by construction — edges never cross branches).
 	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).

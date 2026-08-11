@@ -1287,8 +1287,15 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Key-first adjudication: a per-row scalar identity input (same lane as
 	// Branch/Depth — generic detail rendering); no bulk lane, no dup channel,
 	// no skipped fields, no priority override.
+	// B489-WAKECPU1 (2026-08-10) schema review: WakeupEdge gained the exact
+	// sched_wakeup header/target CPU pair, two known bits that preserve cpu0,
+	// and the closed same_cpu/cross_cpu relation.  These are per-edge scalar
+	// placement disclosures rendered once by generic detail; they add no bulk
+	// lane, duplicate channel, skipped field, rank/value input, or priority
+	// override.  The model-facing typed observation has its own registry-pinned
+	// notes, while tracediag remains the zero-LLM audit face.
 	reflect.TypeOf(tracequery.ChainNode{}):  "4860488d816c9a4ce6a24e7f2d9b3c2bdf998314dfdf80087ced1835673b0ede",
-	reflect.TypeOf(tracequery.WakeupEdge{}): "84855212bf935a6dcc1920a5a9be54b5665e04f90404f301008283d147adc1a6",
+	reflect.TypeOf(tracequery.WakeupEdge{}): "a8e5e156590c8af075f64f01edf8cffb91132b4495edd930432c0a3e2f655d84",
 	// WAKE-CENSUS-D 2A (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13) schema
 	// review: WakeupEdgeCensusPair now pinned in its own right (the ChainResult
 	// hash sees only the slice's type name, so pair-level field growth was

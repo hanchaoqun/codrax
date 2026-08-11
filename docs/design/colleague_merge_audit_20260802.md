@@ -3319,3 +3319,15 @@ finding/repair churn 后第二次即 caveated convergence；set 缩小/变化才
 
 生产调用点 key pin、旁路 closure churn、own-set shrink reset、types/tool 全包均绿。状态：`B487=implemented/pending-production-replay`；
 `B486=implemented/pending-production-replay`；`B479=partial-await-r283`；Trace families=`unchanged`。
+
+#### §11.10.51 r283 与 B489：stage authority 收口，Trace wakeup CPU 拓扑补齐
+
+exact-two runner 2/2、人工 0/2。QF 三条 stage precedence 全保留且 completion/reject 明显收敛，B486/B487 获生产正证；载体 data-flow 仍因
+Explorer 错把字段声明当 initializer、未读取真实 producer/consumer operation 而留空，立 `B488-CARRIERFLOW1/P1`，禁止放宽 relation gate 或系统补边。
+
+Trace 的窗、补采、投影、链上席位与双口径均保持，但模型将 CPU2→CPU1 的唤醒依赖错写成同核竞争。确认 parser 有精确信号而 WakeupEdge 丢 transport。
+B489 现把 `waker_cpu`、`wakee_target_cpu` 与 closed `cpu_relation` 贯通 JSON/text/observation/handoff，并用 soft guidance 区分依赖与同核竞争；不读取
+自由 prose，不进入链构造、排名或可消除量。
+
+状态：`B486/B487=closed`；`B489=implemented/pending-production-replay`；`B488=P1-next`；
+`system-edge/answer-authoring=none`；Trace causal/value machinery=`unchanged`。

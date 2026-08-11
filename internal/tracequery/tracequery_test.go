@@ -3280,8 +3280,59 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	if chain.Edges[0].Waker.PID != 10 || chain.Edges[0].Wakee.PID != 20 || chain.Edges[0].WakeupLine == 0 {
 		t.Fatalf("bad edge: %+v", chain.Edges[0])
 	}
+	if !chain.Edges[0].WakerCPUKnown || chain.Edges[0].WakerCPU != 0 ||
+		!chain.Edges[0].WakeeTargetCPUKnown || chain.Edges[0].WakeeTargetCPU != 1 ||
+		chain.Edges[0].CPURelation != "cross_cpu" {
+		t.Fatalf("wakeup edge lost exact CPU topology: %+v", chain.Edges[0])
+	}
 	if len(chain.RootEvidence) == 0 {
 		t.Fatalf("expected root evidence: %+v", chain)
+	}
+}
+
+func TestWakeupChainPublishesCPUPlacementCaliber(t *testing.T) {
+	tests := []struct {
+		name            string
+		wakeupLine      string
+		wantWakerCPU    int
+		wantTargetKnown bool
+		wantTargetCPU   int
+		wantRelation    string
+	}{
+		{
+			name:            "same CPU",
+			wakeupLine:      `waker-10 (10) [001] .... 2.010000: sched_wakeup: comm=app pid=20 prio=52 target_cpu=001`,
+			wantWakerCPU:    1,
+			wantTargetKnown: true,
+			wantTargetCPU:   1,
+			wantRelation:    "same_cpu",
+		},
+		{
+			name:            "target CPU absent",
+			wakeupLine:      `waker-10 (10) [002] .... 2.010000: sched_wakeup: comm=app pid=20 prio=52`,
+			wantWakerCPU:    2,
+			wantTargetKnown: false,
+			wantRelation:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := buildTraceIndex(t, "wakeup_cpu.systrace", strings.Join([]string{
+				`app-20 (20) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+				tc.wakeupLine,
+				`idle-0 (0) [001] .... 2.011000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=52`,
+			}, "\n"))
+			chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 2.0, TimeEnd: 2.011, MaxDepth: 2, MinDurationMs: 0.01})
+			if len(chain.Edges) != 1 {
+				t.Fatalf("expected one wakeup edge, got %+v", chain.Edges)
+			}
+			edge := chain.Edges[0]
+			if !edge.WakerCPUKnown || edge.WakerCPU != tc.wantWakerCPU ||
+				edge.WakeeTargetCPUKnown != tc.wantTargetKnown || edge.WakeeTargetCPU != tc.wantTargetCPU ||
+				edge.CPURelation != tc.wantRelation {
+				t.Fatalf("unexpected CPU topology: %+v", edge)
+			}
+		})
 	}
 }
 

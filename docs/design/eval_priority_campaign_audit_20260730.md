@@ -31101,3 +31101,39 @@ Rationale、repair hint、request、thinking 和 final prose 均不参与。
 状态：`B487=implemented/package-suite-pass/pending-production-replay`；`B486=implemented/pending-production-replay`；`B479=partial-await-r283`；
 `system-edge/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.506 r283：stage 两残差关闭；载体 operation 与 wakeup CPU 拓扑成为新高 ROI 缺口
+
+`main@1a37f1f6d` exact-two runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_stage_trace_r283_20260810_manual_audit.md`。
+
+QF 首稿和终稿均保留 Analyzer→Explorer→Extractor→Finalizer 三条 checkout-verified precedence，completion 只聚焦真正缺席的
+`Mutable/BusContext`，完成调用降到 2 次、finalizer reject 降到 1 次；B486/B487 获生产正证，B479 的 stage authority 子件关闭。残余不是继续放宽
+stage 门：用户要求载体数据流，但 Explorer 把 `BusContext.Mutable` 字段声明误标成 initializer，grounder 正确拒绝后没有转向
+`SetTurnAArtifacts`、`TurnAArtifacts` 等真实 producer/consumer operation。图诚实留空，正文却声称共享读写。确认
+`B488-CARRIERFLOW1/P1`：flow evidence planning 应按 producer/transfer/consumer 发布 exact member-call/assignment/return 探索目标；定义、字段 roster 与
+participant 名只能导航，不能铸边。系统不得补边或把正文当关系权威。
+
+Trace 保住显式窗、自动补齐、完整投影、链上两席、actual/effective 双口径与背景分层；但模型把 CPU2 上的 worker-200 写成与 CPU1 上 app-100
+“同一 CPU”，并把 cross-CPU 唤醒依赖写成直接同核竞争。原始事件与 parser 已精确持有 header CPU 和 `target_cpu`，`WakeupEdge` 却只透传线程/优先级/
+时间。确认 `B489-WAKECPU1/P1-high`：在 edge wire、typed observation 与模型 handoff 贯通 `waker_cpu`、`wakee_target_cpu`、
+`cpu_relation=same_cpu|cross_cpu`；cross_cpu 保留依赖链但禁止软叙述为同核 occupancy/preemption/competition。该字段仅限定机制措辞，不参与链构造、
+排名或可消除量。
+
+状态：`B486/B487=closed/direct-production-witness`；`B479-stage-subproblem=closed`；`B488=P1-open`；
+`B489=P1-high/in-progress`；`runner=2/2,human=0/2`；`system-edge/conclusion-authoring=none`；
+`raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`preserved`。
+
+### 123.507 B489 完成：wakeup edge 精确发布 source/target CPU 拓扑
+
+本批从已经通过 parser 严格校验的同一条 `sched_wakeup` 事件铸造 CPU 拓扑：header CPU 为 `waker_cpu`，row-local `target_cpu` 为
+`wakee_target_cpu`，两个 known bit 区分有效 cpu0 与缺失/畸形字段；仅当两侧都已知时产生 closed enum
+`cpu_relation=same_cpu|cross_cpu`。wire JSON、trace_query 文本、typed observation summary/rich notes 和 note registry 同源贯通。
+
+finalizer 获一条通用 soft caliber：cross_cpu 保留 on-chain dependency，但不能写成 same-CPU occupancy/preemption/direct competition；same_cpu 也只证明
+位置，直接竞争仍需 typed running/runnable overlap 或 competitor carrier。该指导只消费 typed edge 字段，不扫描 request/thinking/final prose，不拒绝或
+改写答案。链扩展、优先级判定、根因排序、可消除量、因果投影和自动补齐均未改动。回归覆盖 cpu0→cpu1 cross、same CPU、target CPU absent、文本/
+observation 三面及 prompt 接线。
+
+状态：`B489=implemented/package-suite-pass/pending-production-replay`；`B488=P1-next`；
+`system-answer/conclusion-rewrite=none`；`raw-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。

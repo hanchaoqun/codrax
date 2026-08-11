@@ -1259,12 +1259,18 @@ const (
 	// scheduler-state wall account into proven-lower and everything else. The
 	// additive *_artifact_source(s) keys carry physical artifact:N identities;
 	// compatibility caliber fields are deliberately not renamed.
-	TraceNoteKeyWakeupTs                            = "wakeup_ts"
-	TraceNoteKeyWakerPrioritySource                 = "waker_priority_source"
-	TraceNoteKeyWakerPriorityArtifactSource         = "waker_priority_artifact_source"
-	TraceNoteKeyWakeePrioritySource                 = "wakee_priority_source"
-	TraceNoteKeyWakeePriorityArtifactSource         = "wakee_priority_artifact_source"
-	TraceNoteKeyWakeePriorityAuthority              = "wakee_priority_authority"
+	TraceNoteKeyWakeupTs                    = "wakeup_ts"
+	TraceNoteKeyWakerPrioritySource         = "waker_priority_source"
+	TraceNoteKeyWakerPriorityArtifactSource = "waker_priority_artifact_source"
+	TraceNoteKeyWakeePrioritySource         = "wakee_priority_source"
+	TraceNoteKeyWakeePriorityArtifactSource = "wakee_priority_artifact_source"
+	TraceNoteKeyWakeePriorityAuthority      = "wakee_priority_authority"
+	// Wakeup-edge CPU topology is row-local scheduler placement authority.
+	// It qualifies the mechanism wording only; it never changes chain
+	// construction, causal rank, or eliminable-impact arithmetic.
+	TraceNoteKeyWakeupWakerCPU                      = "waker_cpu"
+	TraceNoteKeyWakeupWakeeTargetCPU                = "wakee_target_cpu"
+	TraceNoteKeyWakeupCPURelation                   = "cpu_relation"
 	TraceNoteKeyPrioritySource                      = "priority_source"
 	TraceNoteKeyPriorityArtifactSource              = "priority_artifact_source"
 	TraceNoteKeyTargetPrioritySource                = "target_priority_source"
@@ -1986,6 +1992,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWakeePrioritySource, "gating", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWakeePriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWakeePriorityAuthority, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeupWakerCPU, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupWakeeTargetCPU, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupCPURelation, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPrioritySource, "gating", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyTargetPrioritySource, "gating", TraceNoteCarrierHardConsumer},

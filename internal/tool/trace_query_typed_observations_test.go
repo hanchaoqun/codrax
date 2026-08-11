@@ -115,6 +115,11 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 				From: "n2", To: "n1",
 				Waker:                       tracequery.ThreadRef{Comm: "worker", PID: 21},
 				Wakee:                       tracequery.ThreadRef{Comm: "app", PID: 20},
+				WakerCPU:                    2,
+				WakerCPUKnown:               true,
+				WakeeTargetCPU:              1,
+				WakeeTargetCPUKnown:         true,
+				CPURelation:                 "cross_cpu",
 				WakeupTs:                    1.024,
 				WakeupLine:                  22,
 				LatencyMs:                   14.0,
@@ -530,9 +535,16 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		!strings.Contains(wakeupPath.Summary, "wakeup_chain path=worker-21 -> app-20") {
 		t.Fatalf("missing structured wakeup chain path row: %+v", wakeupPath)
 	}
+	wakeupEdgeNotes := ""
+	if wakeupEdge != nil {
+		wakeupEdgeNotes = strings.Join(wakeupEdge.RichNotes, "\n")
+	}
 	if wakeupEdge == nil || wakeupEdge.Predicate != "wakeup_chain_edge" ||
 		wakeupEdge.Subject != "worker-21" || wakeupEdge.Object != "app-20" ||
-		!strings.Contains(strings.Join(wakeupEdge.RichNotes, "\n"), "priority_inversion_candidate=true") {
+		!strings.Contains(wakeupEdgeNotes, "priority_inversion_candidate=true") ||
+		!strings.Contains(wakeupEdgeNotes, "waker_cpu=2") ||
+		!strings.Contains(wakeupEdgeNotes, "wakee_target_cpu=1") ||
+		!strings.Contains(wakeupEdgeNotes, "cpu_relation=cross_cpu") {
 		t.Fatalf("missing structured wakeup chain edge row: %+v", wakeupEdge)
 	}
 	var wakeupAggregate *types.ObservationRecord

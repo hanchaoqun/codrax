@@ -4533,6 +4533,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		for _, edge := range result.WakeupChain.Edges {
 			priorityProof := ""
+			cpuProof := traceQueryWakeupEdgeCPUProof(edge)
 			if edge.WakerPrioritySource != "" {
 				priorityProof += " waker_prio_source=" + sanitizeForBanner(edge.WakerPrioritySource)
 			}
@@ -4551,8 +4552,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if edge.PriorityRelationCaliber != "" {
 				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
+				cpuProof,
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
 				priorityProof,
 				sanitizeForBanner(traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)),
@@ -11782,6 +11784,9 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 		{types.TraceNoteKeyWakeePrioritySource, edge.WakeePrioritySource},
 		{types.TraceNoteKeyWakeePriorityArtifactSource, edge.WakeePriorityArtifactSource},
 		{types.TraceNoteKeyWakeePriorityAuthority, edge.WakeePriorityAuthority},
+		{types.TraceNoteKeyWakeupWakerCPU, traceQueryTypedCPU(edge.WakerCPU, edge.WakerCPUKnown)},
+		{types.TraceNoteKeyWakeupWakeeTargetCPU, traceQueryTypedCPU(edge.WakeeTargetCPU, edge.WakeeTargetCPUKnown)},
+		{types.TraceNoteKeyWakeupCPURelation, edge.CPURelation},
 		{"priority_relation", relation},
 		{types.TraceNoteKeyPriorityRelationCaliber, edge.PriorityRelationCaliber},
 		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(inversion)},
@@ -11804,6 +11809,15 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	}
 	if edge.LatencyMs > 0 {
 		parts = append(parts, fmt.Sprintf("latency=%.3fms", edge.LatencyMs))
+	}
+	if edge.WakerCPUKnown {
+		parts = append(parts, fmt.Sprintf("waker_cpu=%d", edge.WakerCPU))
+	}
+	if edge.WakeeTargetCPUKnown {
+		parts = append(parts, fmt.Sprintf("wakee_target_cpu=%d", edge.WakeeTargetCPU))
+	}
+	if edge.CPURelation != "" {
+		parts = append(parts, "cpu_relation="+edge.CPURelation)
 	}
 	if priority := traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass); priority != "" {
 		parts = append(parts, "waker_prio="+priority)
@@ -11836,6 +11850,30 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 		parts = append(parts, "priority_inversion_candidate=true")
 	}
 	return strings.Join(parts, " ")
+}
+
+func traceQueryWakeupEdgeCPUProof(edge tracequery.WakeupEdge) string {
+	parts := make([]string, 0, 3)
+	if edge.WakerCPUKnown {
+		parts = append(parts, fmt.Sprintf("waker_cpu=%d", edge.WakerCPU))
+	}
+	if edge.WakeeTargetCPUKnown {
+		parts = append(parts, fmt.Sprintf("wakee_target_cpu=%d", edge.WakeeTargetCPU))
+	}
+	if edge.CPURelation != "" {
+		parts = append(parts, "cpu_relation="+sanitizeForBanner(edge.CPURelation))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func traceQueryTypedCPU(cpu int, known bool) string {
+	if !known {
+		return ""
+	}
+	return strconv.Itoa(cpu)
 }
 
 // traceQueryRunnableOccupancyWindowShare is the relative arm of the RN-1

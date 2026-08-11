@@ -24941,6 +24941,25 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 	if wakeePrio > 0 {
 		wakeeArtifactSource = verdict.Target.Source
 	}
+	// CPUInputInvalid is an event-wide witness and can be set by an invalid or
+	// absent row-local target_cpu while the independently parsed header CPU is
+	// still exact.  The header parser writes -1 on its own failure, so its
+	// validity must be judged independently here.
+	wakerCPU, wakerCPUKnown := wakeup.CPU, validTraceCPUIndex(wakeup.CPU)
+	wakeeTargetCPU, wakeeTargetCPUKnown := eventTargetCPU(*wakeup)
+	if !wakerCPUKnown {
+		wakerCPU = 0
+	}
+	if !wakeeTargetCPUKnown {
+		wakeeTargetCPU = 0
+	}
+	cpuRelation := ""
+	if wakerCPUKnown && wakeeTargetCPUKnown {
+		cpuRelation = "same_cpu"
+		if wakerCPU != wakeeTargetCPU {
+			cpuRelation = "cross_cpu"
+		}
+	}
 	res.Edges = append(res.Edges, WakeupEdge{
 		From:                        childID,
 		To:                          nodeID,
@@ -24948,6 +24967,11 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 		SegmentOrdinal:              segOrdinal,
 		Waker:                       waker,
 		Wakee:                       thread,
+		WakerCPU:                    wakerCPU,
+		WakerCPUKnown:               wakerCPUKnown,
+		WakeeTargetCPU:              wakeeTargetCPU,
+		WakeeTargetCPUKnown:         wakeeTargetCPUKnown,
+		CPURelation:                 cpuRelation,
 		WakeupTs:                    wakeup.Ts,
 		WakeupLine:                  wakeup.Line,
 		LatencyMs:                   (wakeup.Ts - seg.StartTs) * 1000,
