@@ -66,6 +66,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	switch {
 	case hasActual && hasEliminable:
 		b.WriteString("- Write a concise synthesis before the detailed evidence. Compare the two distinct decision axes that are actually available (this distinction is not a claim of physical independence): (A) actual time occupancy / critical-path work, including high-cost work that current formulas do not price, to identify new optimization directions; and (B) existing-rule eliminable impact, to prioritize already-priced repairs. Explain why the leading direction matters and what to verify or change first.\n")
+		b.WriteString("- Exhaustive-decomposition ceiling: describe a target wait, selected window, or elected path duration as fully explained/composed by listed Axis B seats only when one exact typed additive carrier publishes that same subtotal. Otherwise keep the Axis A occupancy/path duration and each Axis B seat separate; describe remaining on-chain work as unpriced or unresolved instead of treating the arithmetic remainder as zero. Do not compute a residual by adding or subtracting overlapping rows unless a typed partition authorizes that arithmetic.\n")
 	case hasActual:
 		b.WriteString("- Write a concise synthesis of the available actual time occupancy / critical-path work and the next optimization direction. No positive existing-rule eliminable seat is available here; do not invent one.\n")
 	case hasEliminable:

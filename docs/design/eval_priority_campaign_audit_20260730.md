@@ -32079,3 +32079,15 @@ pipeline 的 B518 有部分正效：最终箭头不再复制源码行号，typed
 
 状态：`B520=implemented/agent-suite-pass/pending-r306`；`finalizer-retry-reduction=expected`；
 `model-block/diagram-authorship=preserved`；Trace=`unchanged`。
+
+### 123.559 B521：Trace 两轴合成增加 exact additive ceiling
+
+完成 `B521-TRACEADDITIVE1/P1-high`。当且仅当 typed Trace handoff 同时存在 Axis A 实际占用/关键路径与 Axis B 现规则可消除席时，新增高显著度 soft guidance：只有
+exact typed additive carrier 发布了同一 subtotal，模型才能说目标等待、所选窗口或 elected path “完全由这些 Axis B 席构成/解释”；否则必须把 Axis A 总占用与每个
+Axis B 席分开叙述，并把剩余链上工作标成未计价/未解析，禁止把算术余数默认为 0。
+
+同一指导继续禁止对 overlap 或未知 pair relation 的行做加减；只有 typed partition 才授权 residual 算术。实现不扫描模型草稿/最终答案，不做算术关键词 hard gate，不改写
+模型结论，也不改变 projection、排名、可消除量或系统补齐。测试固定 both-axis 正臂及完整措辞，`internal/agent` 全量回归通过。
+
+状态：`B521=implemented/agent-suite-pass/pending-r306`；`model-conclusion-ownership=preserved`；
+`trace-measurements/ranking/projection=unchanged`。

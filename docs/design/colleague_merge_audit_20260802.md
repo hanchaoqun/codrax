@@ -3894,3 +3894,11 @@ diagram block 则原位替换。`participant_boundaries`、`diagram`、`edge_anc
 
 实现不检查原始/最终 prose，不由系统拆 block 或补关系；无 participant payload 的负臂不收到多余教学。`internal/agent` 全量回归通过。状态：
 `B520=implemented/agent-suite-pass/pending-r306`；`model-authorship=preserved`；Trace=`unchanged`。
+
+#### §11.10.103 B521：关键路径总量不得被无加法权威的 priced 子集“解释完”
+
+Trace Decision Handoff 在 actual occupancy 与 existing-rule eliminable 两轴同时存在时新增 exact additive ceiling：只有 typed carrier 发布同一 subtotal 才能称完整分解；
+否则模型需分别呈现总占用、各可消除席与未计价/未解析链上工作。overlap/未知 pair relation 不得靠自行加减构造 residual。
+
+这是 prompt-only soft guidance，不扫描或修改模型答案，不改变 Trace 排名、投影、补齐及链上/背景权限。`internal/agent` 全量回归通过；状态：
+`B521=implemented/agent-suite-pass/pending-r306`；`model-conclusion-ownership=preserved`。
