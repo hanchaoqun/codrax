@@ -62,9 +62,13 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		evidence,
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
+	actions := diagramParticipantCoverageRepairActions(mismatches)
 	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain visible as a Mermaid node/participant or subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. Prefer placing the exact technical endpoint inside that participant's visible group, or use the participant as the visible node label while preserving exact technical identities in edge_anchors. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
+	if actions != "" {
+		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
+	}
 	if candidates != "" {
-		expected += ". Existing typed candidate map (choose one relevant candidate per failed participant; this list is not a requirement to render every candidate and does not create an edge): " + candidates
+		expected += ". Existing typed candidate map (choose one relevant candidate per failed participant; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
 	}
 	return []emitFixHint{{
 		Field:               "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
@@ -73,6 +77,70 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		ExpectedShape:       expected,
 		Reason:              "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
 	}}
+}
+
+// diagramParticipantCoverageRepairActions translates each precise typed
+// mismatch into one bounded structural action.  It deliberately does not
+// choose a candidate, node id, label, layout, or edge: those remain model
+// authored.  Separating edge authority, visible participant identity, and
+// boundary state prevents a repair from fixing one lane by corrupting another
+// (for example retargeting o.busCtx.PipelineStage to BusContext).
+func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCoverageMismatch) string {
+	if len(mismatches) == 0 {
+		return ""
+	}
+	rows := make([]string, 0, len(mismatches))
+	seen := make(map[string]bool, len(mismatches))
+	for _, mismatch := range mismatches {
+		participant := strings.TrimSpace(mismatch.Participant)
+		if participant == "" {
+			continue
+		}
+		key := strings.ToLower(participant) + "\x00" + string(mismatch.Issue)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		var edgeAction, identityAction, boundaryAction string
+		switch mismatch.Issue {
+		case DiagramParticipantCoverageTypedEdgeMissing:
+			edgeAction = "select_one_existing_typed_candidate_and_render_its_exact_direction"
+			identityAction = "show_the_participant_as_one_candidate_endpoint_label_or_its_visible_group"
+			boundaryAction = "omit_unproven_boundary"
+		case DiagramParticipantCoverageIdentityMissing:
+			edgeAction = "retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate"
+			identityAction = "add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints"
+			boundaryAction = "omit_unproven_boundary"
+		case DiagramParticipantCoverageStaleBoundary:
+			edgeAction = "retain_existing_typed_incident_edge"
+			identityAction = "retain_existing_visible_participant_identity"
+			boundaryAction = "remove_stale_boundary"
+		case DiagramParticipantCoverageMissingBoundary:
+			edgeAction = "none_no_typed_candidate_exists"
+			identityAction = "add_exact_visible_disconnected_participant"
+			boundaryAction = "add_exactly_one_unproven_boundary"
+		case DiagramParticipantCoverageNodeMissing:
+			edgeAction = "none_no_typed_candidate_exists"
+			identityAction = "add_exact_visible_disconnected_participant"
+			boundaryAction = "retain_exactly_one_unproven_boundary"
+		case DiagramParticipantCoverageDuplicate:
+			edgeAction = "none"
+			identityAction = "retain_exact_visible_disconnected_participant"
+			boundaryAction = "deduplicate_to_exactly_one_unproven_boundary"
+		case DiagramParticipantCoverageUnknownBoundary:
+			edgeAction = "none"
+			identityAction = "none"
+			boundaryAction = "remove_unknown_or_context_only_boundary"
+		default:
+			continue
+		}
+		rows = append(rows, fmt.Sprintf(
+			"repair_action[%s]={issue:%s,edge_action:%s,identity_action:%s,boundary_action:%s}",
+			strconv.Quote(participant), strconv.Quote(string(mismatch.Issue)), strconv.Quote(edgeAction),
+			strconv.Quote(identityAction), strconv.Quote(boundaryAction),
+		))
+	}
+	return strings.Join(rows, "; ")
 }
 
 func DiagramParticipantCoverageMismatches(
@@ -363,8 +431,9 @@ func diagramParticipantTypedIncidentCandidates(
 			return
 		}
 		seen[key] = true
-		rows = append(rows, fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s,source:%s}",
-			strconv.Quote(string(relation)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(location)))
+		rows = append(rows, fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			strconv.Quote(string(relation)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(location),
+			strconv.Quote(from), strconv.Quote(to), strconv.Quote(string(relation))))
 	}
 	for _, relation := range stagePrecedence {
 		if stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.From) ||

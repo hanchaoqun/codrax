@@ -4539,3 +4539,19 @@ boundary，真正无 candidate 才允许 visible disconnected node + unproven bo
 
 状态：`B560/B561=production-positive`；`B562=next`；`contract=in-principle-satisfiable`；
 `system-edge/answer-authorship=none`；`fixed-four-minute-active-degrade=retired`；Trace causal authority=`unchanged`。
+
+#### §11.10.158 B562：participant repair 按 typed 状态分流并携带可复制的 canonical anchor
+
+participant coverage reject 现为每个失败 participant 发布独立 `repair_action`。`edge missing` 只要求从该席现有 typed candidate 中选择一条并保持方向；
+`identity missing` 明令保留已证边/canonical endpoint，仅补业务可见 label/group；`stale boundary` 只删除 boundary；只有无 typed candidate 时才允许 exact
+disconnected node + unproven boundary。不同状态不再共用一段需要模型自行反推的互斥教学。
+
+每条 candidate 同步携带与 AnswerDocument schema 同构的 `edge_anchor_identity_fields={from_identity,to_identity,relation_kind}`。`from_node/to_node`、业务标签、
+选哪条候选、布局与最终解释仍由模型决定；系统不画边、不把 broad participant 写回 technical endpoint，也不把候选全集升级成必画全集。判据继续只读 typed
+participant slate、citable operation 与 checkout-verified stage precedence，不扫描请求/模型/终稿 prose。
+
+定向 participant tests 及 `internal/tool`、`internal/agent`、`internal/orchestrator`、`internal/tracediag` 全绿。Trace family 仍在 coverage 入口显式排除，显式窗、
+因果投影、自动补齐、链上根因与双轴归因均未改；活动流累计时长策略未改。
+
+状态：`B562=implemented/pending-r331`；`repair=typed-state-specific`；`canonical-anchor=copyable`；
+`model-visible-diagram-authorship=preserved`；Trace causal authority=`unchanged`。
