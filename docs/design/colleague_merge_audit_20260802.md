@@ -3472,3 +3472,11 @@ B500 StageReport 从 128 降到 57，证明接线生效但不充分：typed anch
 不系统补图。write plan 正确，但 top-level/change-local 重复同一 probe，立 B502 补“ID 全局唯一、逻辑 probe 只选一个 carrier”的 JSON SSOT。
 
 状态：`B500=v4-next`；`B501=next`；`B491=partial-positive`；`B502=next`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.65 B500 v4+B501+B502：principal digest 不再靠 file/近邻扩权
+
+required-diagram 的展示 evidence 现只认 exact support id/line，typed FlowFinding 两端只认 exact endpoint anchor；`file:symbol` 可剥 path 后匹配 symbol，但 file
+本身不再放行兄弟路径。无 anchor 旧兼容车道不变。组件逻辑图新增通用 soft recipe：组件 subgraph 内放 exact endpoint 节点，copied relation 只连 exact nodes，
+不抽象改挂、不删已证边。ChangePlan JSON SSOT 同步明确 probe id 全 plan 唯一且一个逻辑 probe 只选一个 carrier。
+
+agent/skill/types 全包绿。状态：`B500=v4-implemented`；`B501/B502=implemented`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。

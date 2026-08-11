@@ -1359,11 +1359,15 @@ func TestSupportLaneScopeFromDiagramPlan_UsesVisiblePrincipalFloor(t *testing.T)
 		{ID: "relevant", Path: []string{"StageOutput", "BusContext"}},
 		{ID: "left-only", Path: []string{"StageOutput", "TraceAdmission"}},
 		{ID: "right-only", Path: []string{"WritePolicy", "BusContext"}},
+		{ID: "same-file-only", Path: []string{"internal/agent/agent.go:SiblingReader", "internal/agent/agent.go:SiblingWriter"}},
+		{ID: "exact-id", Path: []string{"EvidenceBound", "ExactReplay"}, EvidenceIDs: []string{"support-stage-output"}},
 	}, supportScope)
 	if !strings.Contains(got, "StageOutput -> BusContext") ||
+		!strings.Contains(got, "EvidenceBound -> ExactReplay") ||
 		strings.Contains(got, "validateWriteAnalyzerToolPolicy") ||
 		strings.Contains(got, "TraceAdmission") ||
-		strings.Contains(got, "WritePolicy") {
+		strings.Contains(got, "WritePolicy") ||
+		strings.Contains(got, "SiblingReader") {
 		t.Fatalf("diagram flow seed did not follow the visible principal support floor:\n%s", got)
 	}
 }

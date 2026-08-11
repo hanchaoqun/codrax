@@ -142,18 +142,20 @@ func TestRenderExplorerStageReport_SupportScopedInputsKeepAuditTotals(t *testing
 		Kind:          types.SupportLanePrincipalEvidence,
 		AllowedBlocks: []string{string(types.BlockDiagram)},
 		Entries: []types.AnswerSupportEntry{
-			{EvidenceID: "support-bus", Subject: "BusContext", AnchorSymbol: "BusContext"},
-			{EvidenceID: "support-mutable", Subject: "MutableState", AnchorSymbol: "MutableState"},
+			{EvidenceID: "support-bus", Source: "internal/types/context.go", LineStart: 7140, Subject: "BusContext", AnchorSymbol: "BusContext"},
+			{EvidenceID: "support-mutable", Source: "internal/types/context.go", LineStart: 113, Subject: "MutableState", AnchorSymbol: "MutableState"},
 		},
 	}}}
 	scope := supportLaneScopeFromDiagramPlan(plan, answerDocDiagramSupportSeedLimit, extractorValueRankComparison)
 	evidence := extractorTranscriptEvidenceItems([]types.EvidenceItem{
-		{ID: "support-bus", Kind: types.EvidenceConcrete, Subject: "BusContext"},
+		{ID: "support-bus", Kind: types.EvidenceConcrete, Source: "internal/types/context.go", LineStart: 7140, Subject: "BusContext"},
+		{ID: "nearby-sibling", Kind: types.EvidenceConcrete, Source: "internal/types/context.go", LineStart: 7141, Subject: "SiblingField"},
 		{ID: "sibling-cache", Kind: types.EvidenceConcrete, Subject: "explorerSearchCache"},
 	}, scope)
 	findings := extractorTranscriptFlowFindings([]types.FlowFindingDigest{
 		{ID: "principal", Path: []string{"BusContext", "MutableState"}},
 		{ID: "one-end", Path: []string{"BusContext", "TraceAdmission"}},
+		{ID: "same-file-only", Path: []string{"internal/types/context.go:SiblingReader", "internal/types/context.go:SiblingWriter"}},
 		{ID: "sibling", Path: []string{"BaseAgent.executeTool", "validateWriteAnalyzerToolPolicy"}},
 	}, scope)
 
@@ -173,7 +175,7 @@ func TestRenderExplorerStageReport_SupportScopedInputsKeepAuditTotals(t *testing
 			t.Fatalf("support-scoped StageReport missing %q:\n%s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"explorerSearchCache", "TraceAdmission", "validateWriteAnalyzerToolPolicy"} {
+	for _, unwanted := range []string{"SiblingField", "explorerSearchCache", "TraceAdmission", "SiblingReader", "validateWriteAnalyzerToolPolicy"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("support-scoped StageReport leaked %q:\n%s", unwanted, got)
 		}

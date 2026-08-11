@@ -7099,6 +7099,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
 	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
 	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
+	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers: place the exact endpoint node inside that component's Mermaid subgraph/group, draw the copied typed relation only between the exact endpoint nodes, and use the component group/label only for responsibility. Do not retarget the relation to an abstract component node, and do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
 	if len(edges) == 0 {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 	} else {
@@ -8347,7 +8348,7 @@ type answerDocEnrichmentFact struct {
 
 type supportLaneScope struct {
 	constrain             bool
-	principalOrderedFlows bool
+	principalDiagramFloor bool
 	evidenceIDs           map[string]bool
 	locations             map[string]bool
 	files                 map[string]bool
@@ -8950,7 +8951,7 @@ func supportLaneScopeFromDiagramPlan(
 		// relation context may replay an exact support evidence id or connect
 		// two ordered principal endpoints; sharing just one endpoint is a
 		// sibling coincidence, not support for the requested relationship.
-		scope.principalOrderedFlows = true
+		scope.principalDiagramFloor = true
 	}
 	return scope
 }
@@ -9078,6 +9079,9 @@ func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
 	if s == nil || !s.constrain {
 		return true
 	}
+	if s.principalDiagramFloor {
+		return s.allowsPrincipalDiagramEvidence(item)
+	}
 	if s.hasEvidenceID(answerDocEvidenceIdentity(item)) {
 		return true
 	}
@@ -9105,6 +9109,42 @@ func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
 	}
 	for _, term := range item.SurfaceTerms {
 		if s.hasAnchor(term) {
+			return true
+		}
+	}
+	return false
+}
+
+// allowsPrincipalDiagramEvidence is stricter than the ordinary advisory
+// evidence scope. The visible principal path is already a bounded selection;
+// a nearby line or a sibling fact from the same owner/file must not reopen the
+// wider investigation in finalizer-facing digests. Exact support identity or
+// exact source location remains authoritative. Location-less compatibility
+// rows may still bind an exact typed endpoint.
+func (s *supportLaneScope) allowsPrincipalDiagramEvidence(item types.EvidenceItem) bool {
+	if s == nil || !s.constrain {
+		return true
+	}
+	if s.hasEvidenceID(answerDocEvidenceIdentity(item)) {
+		return true
+	}
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return s.lanes[types.SupportLaneObservedArtifact]
+	}
+	if s.hasExactLocation(item.Source, item.LineStart) {
+		return true
+	}
+	if strings.TrimSpace(item.Source) != "" && item.LineStart > 0 {
+		return false
+	}
+	for _, raw := range []string{
+		item.Subject,
+		item.Object,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+	} {
+		if s.hasAnchor(raw) {
 			return true
 		}
 	}
@@ -9147,7 +9187,7 @@ func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {
 	if s == nil || !s.constrain {
 		return true
 	}
-	if s.principalOrderedFlows {
+	if s.principalDiagramFloor {
 		return s.allowsOrderedFlowFinding(ff)
 	}
 	for _, id := range ff.EvidenceIDs {
@@ -9199,7 +9239,30 @@ func (s *supportLaneScope) matchesOrderedFlowEndpoint(raw string) bool {
 	if s == nil {
 		return false
 	}
-	return s.hasAnchor(raw) || s.hasFile(raw)
+	if len(s.anchors) > 0 {
+		if s.hasAnchor(raw) {
+			return true
+		}
+		// FlowFinding endpoints commonly carry `repo/file.ext:symbol`.
+		// The path prefix is typed location, not part of the callable
+		// identity; strip only that unambiguous repository-path carrier and
+		// retry exact anchor matching. This is syntax normalization, not a
+		// file-only authority fallback.
+		if file, symbol, ok := strings.Cut(strings.TrimSpace(raw), ":"); ok &&
+			strings.ContainsAny(file, `/\`) {
+			return s.hasAnchor(symbol)
+		}
+		return false
+	}
+	return s.hasFile(raw)
+}
+
+func (s *supportLaneScope) hasExactLocation(source string, line int) bool {
+	if s == nil || line <= 0 {
+		return false
+	}
+	file := supportLaneScopeFileKey(source)
+	return file != "" && s.locations[supportLaneScopeLocationKey(file, line)]
 }
 
 func (s *supportLaneScope) hasLocation(source string, line int) bool {

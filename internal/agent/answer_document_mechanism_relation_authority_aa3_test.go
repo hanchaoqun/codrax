@@ -70,6 +70,10 @@ func TestMechanismRelationAuthorityTypedFlowDoesNotOfferArbitraryWholeDiagram(t 
 	if !strings.Contains(got, "edge_recipe[1]") {
 		t.Fatalf("typed helper relation must remain available as a factual recipe:\n%s", got)
 	}
+	if !strings.Contains(got, "place the exact endpoint node inside that component's Mermaid subgraph/group") ||
+		!strings.Contains(got, "Do not retarget the relation to an abstract component node") {
+		t.Fatalf("typed component relation guidance must preserve exact endpoint and presentation layers:\n%s", got)
+	}
 	if strings.Contains(got, "Copy-ready optional typed diagram") || strings.Contains(got, "edge_anchors_json=") {
 		t.Fatalf("typed flow must not receive an arbitrary whole-diagram replacement capsule:\n%s", got)
 	}

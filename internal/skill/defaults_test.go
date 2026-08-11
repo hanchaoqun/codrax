@@ -175,6 +175,15 @@ func TestChangePlanSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) 
 	if strings.Count(joined, types.ChangePlanJSONShapeFirstTeaching) != 1 {
 		t.Fatalf("canonical ChangePlan JSON-shape teaching must appear exactly once, got %d", strings.Count(joined, types.ChangePlanJSONShapeFirstTeaching))
 	}
+	for _, want := range []string{
+		"Probe ids are unique across the whole plan",
+		"place each logical probe in exactly one carrier",
+		"never duplicate the same id/payload across both",
+	} {
+		if !strings.Contains(sk.Workflow[0], want) {
+			t.Fatalf("canonical ChangePlan JSON teaching missing probe-carrier rule %q: %s", want, sk.Workflow[0])
+		}
+	}
 }
 
 func TestChangePlanSkillScopesEmptyChangesProhibitionToTypedExceptions(t *testing.T) {

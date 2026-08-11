@@ -31385,3 +31385,24 @@ Python plan 正确且范围精准，但首次把同一个 verification probe 同
 
 状态：`B500=v3-partial/v4-next`；`B501=P1-next`；`B491=production-positive`；`B502=P1-small-next`；
 `runner=2/2,human=1/2`；`system-relation/diagram/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.521 B500 v4+B501+B502：exact principal floor、分层图教学与 probe 单载体
+
+B500 v4 把 required-diagram scope 从“同文件/近邻可进”收紧到真正的 visible principal floor。finalizer-facing concrete evidence 只接受 exact support evidence id
+或 exact source line；有 source+line 的兄弟事实不再因 ±24 行或同 owner 进入。FlowFinding 在 typed anchors 存在时必须两端 exact anchor 命中；
+`repo/file.ext:symbol` 仅剥离明确的 path carrier 后匹配 symbol，不把 file 本身当权限。无 typed anchor 的历史 file-only 兼容车道保持。
+
+B501 在既有 source-derived relation authority 中增加语言无关的两层表达教学：用户组件/participant 用 Mermaid subgraph/group 表示职责，parser/source exact
+callable endpoint 作为组内节点承载 copied edge recipe。不得把 relation 改挂抽象组件，也不得为简图删除已证 relation。该段是 soft authoring guidance，
+没有生成图、边或结论，validator 仍只认原 typed evidence。
+
+B502 更新 ChangePlan JSON-shape SSOT：`verification_probes[]` 与 `changes[i].verification_probes[]` 都保持 schema-valid，但 probe id 在整个 plan 全局唯一；
+每个逻辑 probe 必须只选 top-level batch-wide 或 owning-change local 一个 carrier，禁止同 id/payload 双写。该 SSOT 继续位于 planner workflow 第一条，减少一次可避免的
+repair，不降低 duplicate-id validator。
+
+回归新增同文件双端点/近邻 evidence 负臂、`file:symbol` exact 双端点与 EvidenceID replay 正臂、分层图 teaching 接线 pin、probe carrier JSON SSOT pin。
+`go test ./internal/agent ./internal/skill ./internal/types -count=1` 全绿（9.763s/0.258s/22.305s）。
+
+状态：`B500=v4-implemented/package-suites-pass/pending-production-replay`；`B501=implemented/pending-production-replay`；
+`B502=implemented/pending-production-replay`；`B491=production-positive`；`system-relation/diagram/answer-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace windows/causal projection/auto-supplement/on-chain cause families=`unchanged`。
