@@ -4518,3 +4518,24 @@ merge 风险均未放松，源码检查不会被升级成目标语言运行时�
 
 状态：`B561=implemented`；`partial-evidence=retained`；`full-verification=no-promotion`；
 `model-context=typed-counts`；Trace causal authority=`unchanged`。
+
+#### §11.10.157 r330：B560/B561 生产正证；participant 修补协议仍未把“证据端点”和“业务身份”拆成可执行动作
+
+r330 exact-two runner 0/2、人工 `pass + fail`。Gson write 案确认 B561 正证：`make check` 的一项源码检查仍可见，Java runtime 缺席只使完整行为验证保持
+unverified，终态不再谎称“没有断言验证过”。QF 读案持续 743s 且 reasoning/tool/model content 一直有进展，没有被旧 4 分钟累计帽终止，B560 获生产正证；
+最终降级来自 19 次成文合同拒绝耗尽，而非流式时长。
+
+QF 深审否证了“同一条关系在代码里绝对同时必带、必拒”的初判。合同存在可满足形：canonical operation/stage endpoint 留在
+`edge_anchors.from_identity/to_identity`，模型把用户点名的 participant 作为该 endpoint 的可见业务标签或 Mermaid group；直接 stage identity 节点上的
+checkout-verified precedence 也可通过。生产失败的真实根因是 `B562-PARTICIPANTREPAIRACTION1/P1-high`：一个长 repair 段同时解释
+`available_typed_incident_edge_not_rendered`、`required_participant_identity_not_visible`、stale/missing boundary，却只给 canonical candidate 文本，没有把
+“保留哪条 exact edge”“anchor 必须复制哪些 identity 字段”“只补业务可见身份、不得把技术 endpoint 改成 broad participant”“该状态是否需要 boundary”拆成
+逐席、逐状态、可执行的 typed repair action。模型因此在 exact endpoint 与 `Mutable/BusContext` 宽身份之间反复重定向，并在“画 candidate edge”与“标
+unproven”之间振荡；关系门本身正确地拒绝了这些被重定向的伪边。
+
+最优修法不是放宽 relation/participant hard gate，也不是系统替模型画图：candidate capsule 增加与 schema 同构的 exact anchor fields；repair 按 typed mismatch
+枚举分流——edge missing 只要求模型从现有候选选一条，identity missing 要求保留已证边与 canonical endpoints、仅补可见 label/group，stale boundary 只删
+boundary，真正无 candidate 才允许 visible disconnected node + unproven boundary。候选仍是选择集而非全部必画，不读取 request/model/final prose。
+
+状态：`B560/B561=production-positive`；`B562=next`；`contract=in-principle-satisfiable`；
+`system-edge/answer-authorship=none`；`fixed-four-minute-active-degrade=retired`；Trace causal authority=`unchanged`。
