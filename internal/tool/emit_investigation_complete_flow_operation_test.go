@@ -241,6 +241,12 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 		!flowTestSliceContains(repairs[0].Files, "src/analyzer.go") {
 		t.Fatalf("participant repair must turn typed participants and the read closure into bounded navigation targets: %+v", repairs[0])
 	}
+	wantBlocker := types.ComputeDowngradeTypedIdentifierSetKey(
+		string(types.DowngradeLaneFlowParticipantCoverage), []string{"Analyzer"},
+	)
+	if got := ctx.Mutable.EvidenceClosure().LatestProgressDecision().Delta.BlockerKey; got != wantBlocker {
+		t.Fatalf("production participant gate must key convergence on the exact missing set: got=%d want=%d", got, wantBlocker)
+	}
 }
 
 func flowTestSliceContains(values []string, want string) bool {

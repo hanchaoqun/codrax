@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // DowngradeLane is the typed identity of a pre-complete downgrade gate. It is
@@ -139,6 +140,35 @@ func ComputeDowngradeBlockerKey(pending []PendingRead, unverified []UnverifiedFi
 	h := fnv.New32a()
 	for _, p := range parts {
 		_, _ = h.Write([]byte(p))
+		_, _ = h.Write([]byte{0})
+	}
+	return h.Sum32()
+}
+
+// ComputeDowngradeTypedIdentifierSetKey hashes one gate-owned set of exact
+// typed identifiers. It is for lanes whose real blocker is narrower than the
+// shared evidence closure (for example, the still-uncovered participant
+// identities in a required source-flow diagram). Namespace keeps independent
+// typed sets from sharing a key. Values are trimmed, deduplicated and sorted;
+// no request text, model prose, rationale or repair hint participates.
+func ComputeDowngradeTypedIdentifierSetKey(namespace string, identifiers []string) uint32 {
+	set := make(map[string]bool, len(identifiers))
+	for _, identifier := range identifiers {
+		identifier = strings.TrimSpace(identifier)
+		if identifier != "" {
+			set[identifier] = true
+		}
+	}
+	parts := make([]string, 0, len(set))
+	for identifier := range set {
+		parts = append(parts, identifier)
+	}
+	sort.Strings(parts)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.TrimSpace(namespace)))
+	_, _ = h.Write([]byte{0})
+	for _, part := range parts {
+		_, _ = h.Write([]byte(part))
 		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum32()

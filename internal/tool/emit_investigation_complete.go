@@ -2228,7 +2228,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
 		queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
-		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowParticipantCoverage) {
+		participantBlockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
+			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
+		)
+		if !preCompleteDowngradeConvergesWithTypedBlockerKey(ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
 				ToolName: t.Name(),
@@ -3257,6 +3260,29 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	if closure == nil {
 		return false
 	}
+	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
+	return preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx, closure, lane, blockerKey)
+}
+
+// preCompleteDowngradeConvergesWithTypedBlockerKey is the narrow lane-owned
+// variant for a gate that has a more precise blocker than the shared closure.
+// It does not let unrelated reads/findings/repairs reset convergence while the
+// gate's own typed blocker is unchanged.
+func preCompleteDowngradeConvergesWithTypedBlockerKey(ctx *types.BusContext, lane types.DowngradeLane, blockerKey uint32) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	return preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx, closure, lane, blockerKey)
+}
+
+func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext, closure *types.EvidenceClosure, lane types.DowngradeLane, blockerKey uint32) bool {
+	if ctx == nil || ctx.Mutable == nil || closure == nil {
+		return false
+	}
 	if closure.HasCompletionCaveat(lane) {
 		// Convergence is monotonic across the whole completion chain. A later
 		// form/coverage failure may cause another completion attempt, but it
@@ -3266,7 +3292,6 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 		closure.ClearRepairsByDowngradeLane(lane)
 		return true
 	}
-	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold

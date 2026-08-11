@@ -53,6 +53,43 @@ func TestPreCompleteDowngradeConverges_ChangedBlockerResets(t *testing.T) {
 	}
 }
 
+func TestPreCompleteDowngradeConverges_TypedBlockerIgnoresSiblingClosureChurn(t *testing.T) {
+	mut := types.NewMutableState("typed-blocker")
+	bus := &types.BusContext{Mutable: mut}
+	closure := mut.EvidenceClosure()
+	lane := types.DowngradeLaneFlowParticipantCoverage
+	key := types.ComputeDowngradeTypedIdentifierSetKey(string(lane), []string{"Mutable", "BusContext"})
+
+	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, key) {
+		t.Fatal("the first exact participant blocker must request one focused pass")
+	}
+	closure.AddPendingRead(types.PendingRead{Origin: "unrelated_navigation", File: "other.go"})
+	closure.AddRepair(types.RepairDirective{
+		Kind: types.RepairExpandSearch, Subject: "unrelated", DowngradeLane: types.DowngradeLaneContractChain,
+	})
+	if !preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, key) {
+		t.Fatal("unchanged gate-owned participant set must converge despite sibling closure churn")
+	}
+}
+
+func TestPreCompleteDowngradeConverges_TypedBlockerResetsWhenOwnSetChanges(t *testing.T) {
+	mut := types.NewMutableState("typed-blocker-reset")
+	bus := &types.BusContext{Mutable: mut}
+	lane := types.DowngradeLaneFlowParticipantCoverage
+	two := types.ComputeDowngradeTypedIdentifierSetKey(string(lane), []string{"Mutable", "BusContext"})
+	one := types.ComputeDowngradeTypedIdentifierSetKey(string(lane), []string{"BusContext"})
+
+	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, two) {
+		t.Fatal("the first two-participant blocker must not converge")
+	}
+	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, one) {
+		t.Fatal("a genuinely smaller participant blocker must reset the focused-pass allowance")
+	}
+	if !preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, one) {
+		t.Fatal("the repeated smaller blocker must converge on its second attempt")
+	}
+}
+
 func TestPreCompleteDowngradeConverges_SourceInventoryCompletionDebtForceCompletesAtThreshold(t *testing.T) {
 	SetDowngradeConvergenceHardThreshold(3)
 	defer SetDowngradeConvergenceHardThreshold(0)

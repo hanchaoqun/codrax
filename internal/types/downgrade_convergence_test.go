@@ -20,6 +20,20 @@ func TestComputeDowngradeBlockerKey_StableAndOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestComputeDowngradeTypedIdentifierSetKey_IsSetStableAndNamespaced(t *testing.T) {
+	left := ComputeDowngradeTypedIdentifierSetKey("flow_participant_coverage", []string{"BusContext", "Mutable", "BusContext"})
+	right := ComputeDowngradeTypedIdentifierSetKey("flow_participant_coverage", []string{" Mutable ", "BusContext"})
+	if left != right {
+		t.Fatal("the same exact typed identifier set must be order/duplicate independent")
+	}
+	if left == ComputeDowngradeTypedIdentifierSetKey("flow_participant_coverage", []string{"BusContext"}) {
+		t.Fatal("a genuinely smaller typed blocker set must change the key")
+	}
+	if left == ComputeDowngradeTypedIdentifierSetKey("other_lane", []string{"Mutable", "BusContext"}) {
+		t.Fatal("independent typed blocker namespaces must not share a key")
+	}
+}
+
 func TestAppendDowngradeFingerprint_ConvergesAndResets(t *testing.T) {
 	c := NewEvidenceClosure("")
 	fpA := DowngradeFingerprint{Lane: DowngradeLaneContractChain, BlockerKey: 111}

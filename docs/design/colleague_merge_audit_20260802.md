@@ -3310,3 +3310,12 @@ QF 首稿包含三条正确 stage precedence；relation hard gate 将同一节�
 
 状态：`B482=closed`；`B486=implemented/package-suite-pass/pending-production-replay`；`B479=partial`；`B487=P1-next`；
 `system-answer/graph-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.50 B487：flow participant 的真实 blocker 与共享 closure 解耦
+
+新增 namespaced typed identifier-set key，flow participant completion 只比较仍缺 incident relation 的 exact participant set。同一 set 在无关 read/
+finding/repair churn 后第二次即 caveated convergence；set 缩小/变化才重置一次 focused pass。该 key 不读任何自由文本，也不放宽 relation validator；
+系统仍不补图、不造边、不改结论。
+
+生产调用点 key pin、旁路 closure churn、own-set shrink reset、types/tool 全包均绿。状态：`B487=implemented/pending-production-replay`；
+`B486=implemented/pending-production-replay`；`B479=partial-await-r283`；Trace families=`unchanged`。

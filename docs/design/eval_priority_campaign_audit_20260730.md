@@ -31084,3 +31084,20 @@ checkout drift 均不激活。
 
 状态：`B486=implemented/package-suite-pass/pending-production-replay`；`B487=P1-next`；`B479=partial`；
 `system-edge/diagram/conclusion-authoring=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.505 B487 完成：participant completion 以缺席集合为稳定 typed blocker
+
+通用 completion convergence 默认比较 pending reads、unverified findings 与 active repairs 的联合 key；这对证据/路径债合理，但 flow participant lane
+真正要判断的进展只有“哪些 typed incident_required participant 仍无 incident relation”。r282 中缺席集合始终是 `[Mutable BusContext]`，新增读取与兄弟
+repair 却反复改变通用 closure，导致同一问题被当成新 blocker 连续追问。
+
+本批新增可复用的 namespaced typed identifier-set key，并让该 lane 用 exact missing-participant set 驱动收敛：同一集合只要求一次聚焦补证，第二次即
+携 typed unproven caveat 完成；集合缩小或变化代表真实进展，会为新集合重新开放一次补证。排序、重复项和空白不改变 set key，namespace 隔离不同 lane；
+Rationale、repair hint、request、thinking 和 final prose 均不参与。
+
+该机制只结束重复探索，不生成 relation/node/answer；缺席 participant 仍必须在 finalizer 由模型按 boundary recipe 显式留白。生产接线 pin、closure-churn
+正臂、missing-set shrink 重置臂、identifier-set 哈希稳定性以及 `go test ./internal/types ./internal/tool -count=1` 全绿。
+
+状态：`B487=implemented/package-suite-pass/pending-production-replay`；`B486=implemented/pending-production-replay`；`B479=partial-await-r283`；
+`system-edge/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
