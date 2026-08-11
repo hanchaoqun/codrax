@@ -3685,3 +3685,15 @@ Analyzer/schema 的 participant 单源教学补充 actor/presentation 分层：�
 语言/库名只决定展示方式。实现无 token 列表、无 request/final-prose hard scan，state/context carrier 的真实 incident 义务不降级。
 
 状态：`B510-A2=implemented/pending-production-witness`；`system-edge/participant-synthesis=none`；Trace families=`unchanged`。
+
+#### §11.10.85 r299：关系修复通道复绿，值流 evidence 修复通道仍断
+
+exact-two runner 2/2、人工 1/2。Rust 五条 call 在 diagram patch 中完整保留，pipeline mixed reject 也重新收到并保住三条 stage precedence，B510-A1 的
+positive repair 已获生产正证。pipeline 仍失败在更上游：模型提交的 assignment endpoints 与 exact source LHS/RHS 不符时，emit 端正确降为
+text_reference，grounding note 也精确给出 receiver/value；但结构化 repair 同时标为 `none`，completion 没有等待模型重发，Finalizer 只能把状态载体画成断开节点。
+
+该 gap 不是要求系统从源码替模型画数据流。B510-A3 将只在 typed required-flow 合同下把 parser 已唯一解析的 mismatch 发布为 action-required item repair；原错误
+evidence 继续无 relation authority，正确 tuple 仍须模型重发并再次通过 grounding/validator。其它问答、可选图、复杂/歧义 assignment、Trace 因果图均不触发。
+
+状态：`B510-A1=production-closed`；`B510-A2=pending-new-binary-replay`；`B510-A3=P1-high/next`；
+`system-edge/answer-authoring=none`；`hard-keyword/prose-scan=none`；Trace explicit windows/causal projection/auto-supplement/on-chain causes=`unchanged`。

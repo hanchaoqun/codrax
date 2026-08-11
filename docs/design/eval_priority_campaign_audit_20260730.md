@@ -31747,3 +31747,27 @@ r298 的 Analyzer 将 `Mermaid`、`sequenceDiagram` 作为 incident participant�
 carrier 仍保持 incident_required，避免反向丢失数据流参与者。
 
 skill 与 emit_analysis schema 接线测试全绿。状态：`B510-A2=implemented/pending-r299+`；`hard-keyword-filter=none`；Trace families=`unchanged`。
+
+### 123.541 r299：mixed repair 已保住关系；assignment 撤权后的修复债没有进入 typed 闭包
+
+`main@2ea9605c2` 构建的 exact-two 为 runner 2/2、人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_qf_rust_r299_20260811_manual_audit.md`。Rust 跨模块链的五条 call、方向、引用与 walker 角色均正确；首稿图缺
+`edge_anchors` 后，patch 只替换该图并精确复制 typed capsule，未删除正文关系，证明 B510-A1 对异构语言和 patch 车道生效。
+
+pipeline 首轮 mixed call/value/participant rejection 后，repair 同轮重新携带了三条 checkout-verified stage precedence recipe、exact alias/anchor 和 boundary
+规则；模型最终保住三条 precedence，故 r298 的“修复只剩负面 mismatch”已关闭。但值流仍确定性丢失：Explorer 已读
+`o.busCtx.AnalysisIR = out.AnalysisIR` 与 `m.answerDocumentV2 = cloneAnswerDocumentV2(doc)`，提交的 assignment subject/object 却用了 enclosing callable/
+语义对象。emit 端正确撤销 relation authority，并在 system-owned grounding note 给出 exact receiver/value；同一 tool result 却又输出
+`Current actionable repair targets: none`，没有 action-required `ToolRepair`，模型未重发 exact tuple。Finalizer 因而只有 precedence recipe，最终 sequence
+把状态载体全部作为断开未证节点，正文/表虽正确，图不满足用户要求。
+
+立 `B510-A3-ASSIGNREPAIR1/P1-high`：仅在 schema-valid required flow diagram 下，对 parser 可唯一解析且模型 endpoint 不匹配的 assignment/initializer，保留原行
+text-reference 降级，同时发布 action-required、completion-blocking 的 typed item repair，给出 exact LHS/RHS 与原 item JSON 字段；系统不自动提升、不补边，是否
+重发仍由 Explorer 决定。该方案语言无关，复用现有跨 Go/Java/Kotlin/ArkTS/Cangjie/Rust/Python/Ruby/Swift/Lua/C/C++/TS assignment parser。
+
+r299 二进制构建早于 B510-A2 提交，故不能验收 actor/presentation 分层；需在下一轮新构建回放。Rust 回答把字符串路径称为“绝对路径”列为 P2 措辞校准观察，
+不据单案上硬门。
+
+状态：`B510-A1=production-positive/closed`；`B510-A2=implemented/pending-new-binary-replay`；
+`B510-A3=P1-high/next`；`B510-C=unsupported-family-design-open`；`runner=2/2,human=1/2`；
+`system-answer/relation/diagram-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
