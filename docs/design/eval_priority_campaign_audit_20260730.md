@@ -31816,3 +31816,17 @@ ArkTS runner/人工均 FAIL。四个真实 `@Entry` 与两个 `@Builder` 均有�
 状态：`B510-A3=production-closed`；`B510-A2=production-positive`；`B510-A4=next`；
 `B513=typed-design-required`；`B510-D/E=open`；`runner=1/2,human=0/2`；
 `system-answer/relation-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.544 B510-A4：required relation 的 exact call 撤权与重发债闭环
+
+call-shaped evidence 若不能保持 parser/read-line 唯一确认的 caller→callee，仍按既有红线降为 `text_reference`。新增的只是 producer-owned repair：在 typed required
+non-Trace flow/call diagram 下，精确列出原 item 的 `evidence_kind/subject/predicate/object/anchor_symbol` JSON path，并给出
+`relationship / exact caller / calls / exact callee / exact callee` 值；completion 等待模型局部重发，成功 grounding 后才恢复 call authority。optional 图、无图普通问答、无法唯一
+解析的 dynamic call、Trace intent 与 root-cause Trace family 不触发。
+
+assignment 与 call 同批时合并为一个 relation repair；再与 schema-invalid skipped item 同批时，validation reason、两类 exact recipe、字段并集和 blocking 状态均保留。系统
+没有从 repair 自动生成 evidence、图边或答案，也没有读取 request/model/final prose。核心六包全绿：tool 178.605s、types 23.252s、agent 12.867s、orchestrator
+14.013s、tracediag 5.843s、stageauthority 3.699s。
+
+状态：`B510-A4=implemented/package-suites-pass/pending-r301`；`B513=next-design`；
+`B510-D/E=open`；`system-answer/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。

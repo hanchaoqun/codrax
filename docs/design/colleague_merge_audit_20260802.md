@@ -3727,3 +3727,15 @@ ArkTS 暴露 `B513-QUALMEMBER1`：`EntryAbility` 明确无 `@Entry`，仍进入 
 
 状态：`B510-A3=production-closed`；`B510-A2=production-positive`；`B510-A4=next`；
 `B513/B510-D/B510-E=open`；Trace explicit windows/causal projection/auto-supplement/on-chain causes=`unchanged`。
+
+#### §11.10.88 B510-A4：call 与 assignment 共用精确关系修复闭环
+
+required non-Trace flow/call diagram 下，parser-owned exact call tuple 现在与 assignment 一样成为 action-required、completion-blocking 的局部 item repair；错误 row 继续
+text-reference fail-closed，模型需按 exact caller/callee 重发并重新 grounding。repair 还携带 `evidence_kind=relationship`、`predicate=calls` 与 exact
+`anchor_symbol`，避免只修 subject/object 后再次被 schema compatibility 降级。
+
+optional/Trace/root-cause 隔离、assignment+call 合并、schema validation 复合臂和核心六包均绿。下一轮以新二进制回放 pipeline + 异构语言关系图，验收 typed capsule 是否
+不再因上游 call 欠债而缩水。
+
+状态：`B510-A4=implemented/pending-production-replay`；`system-edge/answer-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。

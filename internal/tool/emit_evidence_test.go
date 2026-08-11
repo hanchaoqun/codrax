@@ -3672,6 +3672,108 @@ func TestRequiredFlowAssignmentEndpointRepairIsLanguageNeutralAndTraceIsolated(t
 	}
 }
 
+func TestEmitEvidence_RequiredRelationPublishesExactCallEndpointRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}}
+	fi := &repomap.FileInfo{
+		RelPath: "pipeline/runner.py", Language: repomap.LangPython, Package: "pipeline",
+		Symbols: []repomap.Symbol{{Name: "run_pipeline", Kind: "function", File: "pipeline/runner.py", Line: 1, EndLine: 3}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "pipeline/runner.py", Line: 2,
+			FromEP:     repomap.RelationEndpoint{Name: "run_pipeline", File: "pipeline/runner.py", Line: 2},
+			ToEP:       repomap.RelationEndpoint{Name: "handle", Receiver: "plugin", File: "pipeline/runner.py", Line: 2},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "python_call",
+		}},
+	}
+	graph := callTargetTestGraph(fi)
+	ctx.MultiGraph = &emitEvidenceSourceGraphStub{graph: graph, file: fi, source: "pipeline/runner.py"}
+	seedReadFileHistory(ctx, "repo-b/pipeline/runner.py", 1,
+		"def run_pipeline(payload):",
+		"    return plugin.handle(payload)",
+		"",
+	)
+
+	wrong := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"direct","subject":"run_pipeline","source":"repo-b/pipeline/runner.py","line_start":2,"summary":"pipeline invokes the plugin","anchor_kind":"call","anchor_symbol":"plugin.handle"}]}`)
+	res, err := tool.Execute(ctx, wrong)
+	if err != nil || !res.Success {
+		t.Fatalf("call-shaped source observation should remain citable, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_endpoint_identity" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("required relation must publish typed exact-call repair: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		"items[0].evidence_kind", "items[0].subject", "items[0].predicate", "items[0].object", "items[0].anchor_symbol",
+	} {
+		if !slices.Contains(res.Repair.Fields, want) {
+			t.Fatalf("call repair fields=%v missing %q", res.Repair.Fields, want)
+		}
+	}
+	for _, want := range []string{
+		`evidence_kind="relationship"`, `subject="run_pipeline"`, `predicate="calls"`,
+		`object="plugin.handle"`, `anchor_symbol="plugin.handle"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("call repair hint missing %q: %s", want, res.Repair.Hint)
+		}
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("wrong call tuple must remain citable without call authority: %+v", got)
+	}
+
+	correct := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"run_pipeline","predicate":"calls","object":"plugin.handle","source":"repo-b/pipeline/runner.py","line_start":2,"summary":"pipeline invokes the plugin","anchor_kind":"call","anchor_symbol":"plugin.handle"}]}`)
+	res, err = tool.Execute(ctx, correct)
+	if err != nil || !res.Success {
+		t.Fatalf("exact call tuple re-emit failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("exact call re-emit must clear repair debt: %+v", res.Repair)
+	}
+	got = ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || got[1].AnchorKind != types.AnchorCall ||
+		got[1].Subject != "run_pipeline" || got[1].Object != "plugin.handle" {
+		t.Fatalf("exact re-emit did not publish call authority: %+v", got)
+	}
+}
+
+func TestRequiredRelationCallEndpointRepairIsTraceAndOptionalIsolated(t *testing.T) {
+	item := types.EvidenceItem{
+		Scope: types.ScopeLine, Kind: types.EvidenceMechanism,
+		AnchorKind: types.AnchorCall, Source: "src/example", LineStart: 3,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	base := types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisCall,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramCallDAG, Required: true},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: base}
+	if _, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); !ok {
+		t.Fatal("typed required source relation should request exact call repair")
+	}
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
+		t.Fatalf("Trace causal lane must remain isolated: %+v", repair)
+	}
+	ctx.AnalysisIR.RequestModel = base
+	ctx.AnalysisIR.RequestModel.DiagramHint.Required = false
+	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
+		t.Fatalf("optional diagram must remain non-blocking: %+v", repair)
+	}
+	ctx.AnalysisIR.RequestModel = base
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCondition
+	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
+		t.Fatalf("a supporting call must not block a different principal relation axis: %+v", repair)
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

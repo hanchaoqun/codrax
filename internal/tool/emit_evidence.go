@@ -717,6 +717,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
 	assignmentEndpointRepairs := make([]emitEvidenceAssignmentEndpointRepair, 0)
+	callEndpointRepairs := make([]emitEvidenceCallEndpointRepair, 0)
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
 	surfaceAlignmentRejected := make(map[int]bool)
@@ -757,7 +758,13 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// parser/read-line facts and typed fields; request, summary, and final
 		// answer prose are not inspected.
 		exactCallCaller, exactCallCallee, exactCallKnown := exactCallEvidenceDirection(&built[i], gc)
+		callItemBeforeDowngrade := built[i]
 		if stabilizeUnprovenCallAnchorAuthority(&built[i], gc) {
+			if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(
+				ctx, callItemBeforeDowngrade, builtParamIndexes[i], exactCallCaller, exactCallCallee, exactCallKnown,
+			); ok {
+				callEndpointRepairs = append(callEndpointRepairs, repair)
+			}
 			r = ground.GroundItemScoped(&built[i], gc)
 			note := "anchor_kind=call lacked one exact-line caller -> callee invocation; preserved as text_reference without call-edge authority"
 			if exactCallKnown {
@@ -882,8 +889,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
 	assignmentEndpointRepair := buildEmitEvidenceAssignmentEndpointRepair(assignmentEndpointRepairs)
-	if assignmentEndpointRepair != nil {
-		validationRepairFields = append(validationRepairFields, assignmentEndpointRepair.Fields...)
+	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
+	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
+	if relationEndpointRepair != nil {
+		validationRepairFields = append(validationRepairFields, relationEndpointRepair.Fields...)
 	}
 	if len(surfaceAlignmentRejects) > 0 {
 		filteredBuilt := make([]types.EvidenceItem, 0, len(built)-len(surfaceAlignmentRejected))
@@ -1034,8 +1043,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		summary = b.String()
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
-	if assignmentEndpointRepair != nil {
-		repair = assignmentEndpointRepair
+	if relationEndpointRepair != nil {
+		repair = relationEndpointRepair
 	}
 	if validationRepair := buildEmitEvidenceItemValidationRepair(
 		rejectedItems, validationRepairFields, validationRepairBlocksCompletion); validationRepair != nil {
@@ -1043,7 +1052,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// repair construction cannot see it. Keep that local schema debt as the
 		// current action-required repair; accepted siblings stay committed and
 		// need not be re-emitted.
-		repair = mergeEmitEvidenceValidationRepairs(validationRepair, assignmentEndpointRepair)
+		repair = mergeEmitEvidenceValidationRepairs(validationRepair, relationEndpointRepair)
 	}
 	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired) {
 		if surfaceReview != nil {
@@ -4740,6 +4749,18 @@ type emitEvidenceAssignmentEndpointRepair struct {
 	line      int
 }
 
+// emitEvidenceCallEndpointRepair is the sibling exact-line repair recipe for
+// a call-shaped observation whose submitted fields did not preserve the
+// parser-owned caller -> callee tuple. The downgraded observation stays
+// citable text until the model explicitly re-emits this relationship.
+type emitEvidenceCallEndpointRepair struct {
+	itemIndex int
+	caller    string
+	callee    string
+	source    string
+	line      int
+}
+
 // emitEvidenceRequiredFlowAssignmentEndpointRepair promotes an already exact
 // parser diagnosis into structured repair debt only when a required current-
 // source flow diagram needs directed operation rows. Optional diagrams and
@@ -4807,6 +4828,89 @@ func buildEmitEvidenceAssignmentEndpointRepair(in []emitEvidenceAssignmentEndpoi
 	}
 }
 
+func emitEvidenceRequiredRelationCallEndpointRepair(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	caller, callee string,
+	exactKnown bool,
+) (emitEvidenceCallEndpointRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || !exactKnown || caller == "" || callee == "" {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.DiagramHint == nil || !rm.DiagramHint.Required || rm.DiagramHint.Kind == types.DiagramNone ||
+		(rm.PredicateAxis != types.AxisFlow && rm.PredicateAxis != types.AxisCall) {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	if item.Scope != types.ScopeLine || item.AnchorKind != types.AnchorCall || item.LineStart <= 0 ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	return emitEvidenceCallEndpointRepair{
+		itemIndex: itemIndex,
+		caller:    caller,
+		callee:    callee,
+		source:    item.Source,
+		line:      item.LineStart,
+	}, true
+}
+
+func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in)*5)
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields,
+			fmt.Sprintf("items[%d].evidence_kind", row.itemIndex),
+			fmt.Sprintf("items[%d].subject", row.itemIndex),
+			fmt.Sprintf("items[%d].predicate", row.itemIndex),
+			fmt.Sprintf("items[%d].object", row.itemIndex),
+			fmt.Sprintf("items[%d].anchor_symbol", row.itemIndex),
+		)
+		loc := row.source
+		if row.line > 0 {
+			loc = fmt.Sprintf("%s:%d", row.source, row.line)
+		}
+		rows = append(rows, fmt.Sprintf(
+			"items[%d] @ %s requires evidence_kind=%q, subject=%q (exact caller), predicate=%q, object=%q (exact callee), and anchor_symbol=%q",
+			row.itemIndex, loc, string(types.EvidenceRelationship), row.caller, "calls", row.callee, row.callee,
+		))
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "The required source-relation diagram still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
+		Fields: uniqueEmitEvidenceRepairFields(fields),
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "call_endpoint_identity",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+		},
+	}
+}
+
+func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *types.ToolRepair {
+	if first == nil {
+		return second
+	}
+	if second == nil {
+		return first
+	}
+	first.Fields = uniqueEmitEvidenceRepairFields(append(first.Fields, second.Fields...))
+	first.Hint += " Additional exact call repair: " + second.Hint
+	if first.Metadata == nil {
+		first.Metadata = make(map[string]string)
+	}
+	first.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
+	first.Metadata["repair_scope"] = "assignment_endpoint_identity+call_endpoint_identity"
+	first.Metadata["completion_blocking"] = "true"
+	return first
+}
+
 func buildEmitEvidenceItemValidationRepair(rejections, fields []string, completionBlocking bool) *types.ToolRepair {
 	fields = uniqueEmitEvidenceRepairFields(fields)
 	if len(rejections) == 0 || len(fields) == 0 {
@@ -4849,7 +4953,11 @@ func mergeEmitEvidenceValidationRepairs(validation, endpoint *types.ToolRepair) 
 		validation.Metadata = make(map[string]string)
 	}
 	validation.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
-	validation.Metadata["repair_scope"] = "item_validation+assignment_endpoint_identity"
+	endpointScope := strings.TrimSpace(endpoint.Metadata["repair_scope"])
+	if endpointScope == "" {
+		endpointScope = "relation_endpoint_identity"
+	}
+	validation.Metadata["repair_scope"] = "item_validation+" + endpointScope
 	validation.Metadata["completion_blocking"] = "true"
 	return validation
 }
