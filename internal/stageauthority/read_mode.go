@@ -54,6 +54,15 @@ type ReadModeAuthority struct {
 	Precedence           []PrecedenceRelation
 }
 
+// WorkflowSelection is the checkout-verified contiguous read-mode stage span
+// relevant to one typed request. It carries precedence only; calls, artifact
+// transfer, shared-state connectivity, and runtime causality remain outside
+// this authority.
+type WorkflowSelection struct {
+	Main       []StageRow
+	Precedence []PrecedenceRelation
+}
+
 // MatchesRequiredMainStageParticipantSlate reports whether a schema-validated
 // source-flow diagram asks for every canonical read-mode main stage as an
 // incident participant. The participant slate is planning input only: this
@@ -113,9 +122,59 @@ func RelevantToRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.
 	}
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
-		!hasRequiredStageWorkflowDimension(rm) {
+		len(main) == 0 {
 		return false
 	}
+	if !hasGroundedReadModeAuthorityEvidence(evidence) {
+		return false
+	}
+	if hasRequiredStageWorkflowDimension(rm) {
+		return true
+	}
+	_, _, ok := requiredReadModeParticipantStageSpan(rm, main)
+	return ok
+}
+
+// SelectRequiredReadModeWorkflow returns the narrowest verified stage span
+// authorized by the typed request. A complete stage slate or a required typed
+// stage/workflow dimension selects the whole main lane. Otherwise two or more
+// unambiguous incident participants that resolve to current read stages select
+// only their contiguous canonical interval. Unmatched participants remain
+// independent coverage obligations and do not invalidate a valid stage span.
+//
+// The endpoint arm additionally requires grounded current-pipeline evidence;
+// it never reads request prose, participant source_quote, answer text, or
+// display labels beyond the schema-validated participant identity surfaces.
+func SelectRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.EvidenceItem, authority ReadModeAuthority) WorkflowSelection {
+	if len(authority.Main) == 0 || len(authority.Precedence) != len(authority.Main)-1 {
+		return WorkflowSelection{}
+	}
+	if MatchesRequiredMainStageParticipantSlate(rm, authority.Main) {
+		return copyWorkflowSelection(authority.Main, authority.Precedence)
+	}
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		!hasGroundedReadModeAuthorityEvidence(evidence) {
+		return WorkflowSelection{}
+	}
+	if hasRequiredStageWorkflowDimension(rm) {
+		return copyWorkflowSelection(authority.Main, authority.Precedence)
+	}
+	start, end, ok := requiredReadModeParticipantStageSpan(rm, authority.Main)
+	if !ok || start < 0 || end >= len(authority.Main) || start >= end {
+		return WorkflowSelection{}
+	}
+	return copyWorkflowSelection(authority.Main[start:end+1], authority.Precedence[start:end])
+}
+
+func copyWorkflowSelection(main []StageRow, precedence []PrecedenceRelation) WorkflowSelection {
+	return WorkflowSelection{
+		Main:       append([]StageRow(nil), main...),
+		Precedence: append([]PrecedenceRelation(nil), precedence...),
+	}
+}
+
+func hasGroundedReadModeAuthorityEvidence(evidence []types.EvidenceItem) bool {
 	for _, item := range evidence {
 		if item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded || !item.IsCitable() {
 			continue
@@ -128,6 +187,43 @@ func RelevantToRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.
 		}
 	}
 	return false
+}
+
+func requiredReadModeParticipantStageSpan(rm types.RequestModel, main []StageRow) (start, end int, ok bool) {
+	if rm.DiagramHint == nil || len(main) < 2 {
+		return 0, 0, false
+	}
+	matched := map[int]bool{}
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(participant.Identity) == "" {
+			continue
+		}
+		var indexes []int
+		for i, row := range main {
+			if ParticipantMatchesStageRow(rm, participant, row) {
+				indexes = append(indexes, i)
+			}
+		}
+		if len(indexes) > 1 {
+			return 0, 0, false
+		}
+		if len(indexes) == 1 {
+			matched[indexes[0]] = true
+		}
+	}
+	if len(matched) < 2 {
+		return 0, 0, false
+	}
+	start, end = len(main), -1
+	for index := range matched {
+		if index < start {
+			start = index
+		}
+		if index > end {
+			end = index
+		}
+	}
+	return start, end, start < end
 }
 
 func hasRequiredStageWorkflowDimension(rm types.RequestModel) bool {

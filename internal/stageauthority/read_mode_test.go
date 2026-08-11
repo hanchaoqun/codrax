@@ -136,6 +136,60 @@ func TestRelevantToRequiredReadModeWorkflowUsesTypedDimensionAndGroundedAuthorit
 	}
 }
 
+func TestSelectRequiredReadModeWorkflowUsesTypedEndpointSpanWithoutProse(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 100,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "runReadSchedulerLoop",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "codrax", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "Mermaid", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	selection := SelectRequiredReadModeWorkflow(rm, evidence, authority)
+	if len(selection.Main) != 4 || len(selection.Precedence) != 3 {
+		t.Fatalf("typed analyze/finalizer endpoints should select the contiguous main span: %+v", selection)
+	}
+	if got := selection.Precedence[0].From.StageIdent + "->" + selection.Precedence[2].To.StageIdent; got != "StageAnalyze->StageFinalize" {
+		t.Fatalf("selected wrong endpoint span: %s", got)
+	}
+
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	selection = SelectRequiredReadModeWorkflow(rm, evidence, authority)
+	if len(selection.Main) != 3 || len(selection.Precedence) != 2 || selection.Main[0].StageIdent != "StageExplore" {
+		t.Fatalf("partial typed endpoints should select only their contiguous span: %+v", selection)
+	}
+
+	if got := SelectRequiredReadModeWorkflow(rm, nil, authority); len(got.Precedence) != 0 {
+		t.Fatalf("endpoint span without grounded current-pipeline evidence must fail closed: %+v", got)
+	}
+	rm.DiagramHint.Participants = rm.DiagramHint.Participants[:1]
+	if got := SelectRequiredReadModeWorkflow(rm, evidence, authority); len(got.Precedence) != 0 {
+		t.Fatalf("one endpoint cannot mint a stage path: %+v", got)
+	}
+	rm.Intent = types.IntentTrace
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	if got := SelectRequiredReadModeWorkflow(rm, evidence, authority); len(got.Precedence) != 0 {
+		t.Fatalf("Trace must remain isolated from current-source stage selection: %+v", got)
+	}
+}
+
 func writeReadModeAuthorityFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

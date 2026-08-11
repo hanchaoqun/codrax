@@ -3799,3 +3799,14 @@ source + render-failure fallback 出厂。
 相关四包全绿：mermaidcompat 0.471s、render 1.984s、preview 1.042s、tool 177.508s。
 
 状态：`B515=implemented/package-suites-pass`；`B510-G=next`；`system-relation-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.94 B510-G：stage/workflow authority 从“全席”扩为 typed 端点连续区间
+
+旧门只认四阶段 participant 全席或 optional requested-dimension，故 r302 的 `analyze/finalizer` typed 端点与 grounded pipeline source 无法激活任何 precedence。新增 shared
+selection：在 required non-Trace flow 图下，两个以上各自唯一匹配的 typed stage 端点选择 checkout canonical lane 的最小连续区间；无证据、单端点、歧义、optional、
+Trace 均 fail-closed。未匹配 display/presentation participant 仍走 boundary coverage，不影响 stage 区间，也不获得边。
+
+completion、Finalizer prompt、diagram validator 同源消费选中区间；系统只提供 exact precedence recipe，绝不代模型作图。call/data/value/runtime authority 不扩域。
+全量回归抓到并修复无 AnalysisIR 的既有 grounded-membership 顾问入口兼容臂，核心六包全绿（stageauthority/types/tool/agent/orchestrator/tracediag）。
+
+状态：`B510-G=implemented/core-suites-pass/pending-r303`；`B510-F/D=open`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。

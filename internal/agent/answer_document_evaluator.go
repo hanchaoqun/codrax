@@ -18127,14 +18127,14 @@ func answerDocVerifiedReadModeStagePrecedenceForRequest(ctx *types.AgentContext)
 		return nil
 	}
 	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
-	if !ok || !stageauthority.RelevantToRequiredReadModeWorkflow(
-		ctx.AnalysisIR.RequestModel,
-		answerDocumentAuthorityEvidencePool(ctx),
-		authority.Main,
-	) {
+	if !ok {
 		return nil
 	}
-	return authority.Precedence
+	return stageauthority.SelectRequiredReadModeWorkflow(
+		ctx.AnalysisIR.RequestModel,
+		answerDocumentAuthorityEvidencePool(ctx),
+		authority,
+	).Precedence
 }
 
 func answerDocRequestedParticipantIdentityForStageRow(rm types.RequestModel, row stageauthority.StageRow) string {
@@ -18163,15 +18163,27 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 		return ""
 	}
 	authority, verified := stageauthority.LoadReadMode(ctx.RepoRoot)
-	requestedWorkflow := answerDocumentHasStageWorkflowRequestedDimension(ctx) &&
-		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
-	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
-	typedStageParticipants := answerDocumentHasTypedReadModeStageParticipantSlate(ctx) &&
-		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
-	if (!requestedWorkflow && !groundedMembership && !typedStageParticipants) || !verified {
+	if !verified {
 		return ""
 	}
-	main := authority.Main
+	evidence := answerDocumentAuthorityEvidencePool(ctx)
+	selection := stageauthority.WorkflowSelection{}
+	if ctx.AnalysisIR != nil {
+		selection = stageauthority.SelectRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority)
+	}
+	if len(selection.Main) > 0 && !answerDocumentHasPipelineStageAuthoritySource(ctx, nil) {
+		selection = stageauthority.WorkflowSelection{}
+	}
+	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
+	if len(selection.Main) == 0 && !groundedMembership {
+		return ""
+	}
+	main := selection.Main
+	precedence := selection.Precedence
+	if len(main) == 0 {
+		main = authority.Main
+		precedence = authority.Precedence
+	}
 	pre := authority.ConditionalPreStages
 	if len(main) == 0 {
 		return ""
@@ -18207,7 +18219,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("### Verified stage responsibilities and artifact provenance\n\n")
 	b.WriteString("- The analyze stage has a split producer boundary: the language model authors only the request classification submitted through its analysis emit tool; deterministic code then normalizes and compiles the downstream planning, evidence, hypothesis, quality, and answer contracts. Preserve that producer split; do not attribute deterministically derived artifacts directly to the language model.\n")
 	b.WriteString("- These rows are precise context for your answer. You remain the answer author: explain or diagram them when relevant, and do not present this prompt as a system-authored answer supplement.\n")
-	for i, row := range authority.Main {
+	for i, row := range main {
 		artifacts := make([]string, 0, len(row.PrimaryArtifacts))
 		for _, artifact := range row.PrimaryArtifacts {
 			if artifact = strings.TrimSpace(artifact); artifact != "" {
@@ -18221,7 +18233,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("\n### Verified stage-order edge recipes\n\n")
 	b.WriteString("- Each row below is one complete, checkout-verified authoring recipe. If you choose to draw that stage-order edge, use either its stage identity pair or its agent identity pair as the visible endpoint labels, and add the matching diagram `edge_anchors` entry with `relation_kind=precedence`. Diagram node IDs remain your choice and must match that anchor.\n")
 	b.WriteString("- These recipes prove only adjacent stage precedence. They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality; those relations still require their own typed evidence.\n")
-	for i, relation := range authority.Precedence {
+	for i, relation := range precedence {
 		fmt.Fprintf(&b, "- stage_precedence[%d]: from_stage=`%s` (`%s`); from_agent=`%s` (`%s`); to_stage=`%s` (`%s`); to_agent=`%s` (`%s`); relation_kind=`precedence`; source=`%s:%d-%d`.\n",
 			i+1,
 			relation.From.StageIdent, relation.From.StageValue,

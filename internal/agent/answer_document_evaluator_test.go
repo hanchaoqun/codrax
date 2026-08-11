@@ -8725,6 +8725,40 @@ func TestAnswerDocVerifiedStagePrecedenceUsesSameRequiredWorkflowAuthority(t *te
 	}
 }
 
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedEndpointSpan(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("typed stage endpoint span")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 1685,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "runReadSchedulerLoop",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		RepoRoot: repoRoot, Mode: types.ModeRead, Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "codrax", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mermaid", Role: types.DiagramParticipantIncidentRequired},
+				}},
+		}},
+	}
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	if !strings.Contains(got, "canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`") ||
+		strings.Count(got, "- stage_precedence[") != 3 {
+		t.Fatalf("typed endpoint span must publish the checkout-verified contiguous stage recipes:\n%s", got)
+	}
+	if prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil); !strings.Contains(prompt, "## Current Run Stage-Lane Authority") {
+		t.Fatalf("endpoint-span authority must reach the real finalizer prompt:\n%s", prompt)
+	}
+}
+
 func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesExactGroundedMembershipWithoutOptionalDimension(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
@@ -8893,12 +8927,14 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityTypedParticipantTriggerFails
 		name   string
 		mutate func(*types.AgentContext)
 	}{
-		{name: "missing one stage", mutate: func(ctx *types.AgentContext) {
+		{name: "only one stage endpoint", mutate: func(ctx *types.AgentContext) {
 			ctx.AnalysisIR.RequestModel.DiagramHint.Participants =
-				ctx.AnalysisIR.RequestModel.DiagramHint.Participants[:3]
+				ctx.AnalysisIR.RequestModel.DiagramHint.Participants[:1]
 		}},
-		{name: "stage is context only", mutate: func(ctx *types.AgentContext) {
-			ctx.AnalysisIR.RequestModel.DiagramHint.Participants[3].Role = types.DiagramParticipantContextOnly
+		{name: "second stage is context only", mutate: func(ctx *types.AgentContext) {
+			ctx.AnalysisIR.RequestModel.DiagramHint.Participants =
+				ctx.AnalysisIR.RequestModel.DiagramHint.Participants[:2]
+			ctx.AnalysisIR.RequestModel.DiagramHint.Participants[1].Role = types.DiagramParticipantContextOnly
 		}},
 		{name: "wrong relation axis", mutate: func(ctx *types.AgentContext) {
 			ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall

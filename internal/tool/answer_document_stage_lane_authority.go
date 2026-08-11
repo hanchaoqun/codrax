@@ -20,8 +20,8 @@ func diagramVerifiedReadModeStagePrecedence(ctx *types.BusContext, view *types.A
 	if ctx.Mutable != nil {
 		evidence = ctx.Mutable.EmittedEvidence()
 	}
-	if !ok || !stageauthority.RelevantToRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority.Main) {
+	if !ok {
 		return nil
 	}
-	return authority.Precedence
+	return stageauthority.SelectRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority).Precedence
 }

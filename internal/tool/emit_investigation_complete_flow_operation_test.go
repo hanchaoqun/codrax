@@ -178,6 +178,40 @@ func TestRequestedWorkflowAuthorityConsumersAcceptPartialAnalyzerSlate(t *testin
 	}
 }
 
+func TestRequestedWorkflowAuthorityConsumersAcceptTypedStageEndpointSpan(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 1685,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "runReadSchedulerLoop",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx.RepoRoot = repoRoot
+	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "codrax", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mermaid", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = nil
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture, RelationAxis: types.AxisFlow,
+		DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramSequence, Required: true},
+	}
+	if got := completionVerifiedReadModeStagePrecedence(ctx); len(got) != 3 {
+		t.Fatalf("completion stage endpoint span=%d, want 3: %+v", len(got), got)
+	}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 3 {
+		t.Fatalf("diagram stage endpoint span=%d, want 3: %+v", len(got), got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowNoProgressConvergesWithBoundary(t *testing.T) {
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})

@@ -31922,3 +31922,25 @@ fallback：保留 raw source 并明确 render failure，不静默吞图。
 
 状态：`B515=implemented/package-suites-pass`；`B510-G=P1-high-next`；`system-edge/diagram-authoring=none`；
 `hard-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.550 B510-G：typed stage 端点选择 checkout-verified 连续工作流区间
+
+r302 的 Analyzer 没有输出可选 `requested_answer_dimensions`，participant slate 又受“只能复制当前请求显式 identity”约束，只包含 `analyze/finalizer` 两个真实阶段端点；
+旧 authority 要求四阶段全席或 required `stage_or_workflow` dimension，因而即使 Explorer 已提供当前 pipeline 的 grounded source，三条 verified precedence 仍无法进入
+completion、Finalizer prompt 和 post-emit validator。A4 只处理 parser-owned call/assignment 的撤权重发，未覆盖该 stage/workflow relevance 缺口。
+
+新增 `stageauthority.WorkflowSelection` 单源：完整 typed stage slate 或 required stage/workflow dimension 仍选择全主车道；否则，在 `Intent!=Trace + AxisFlow + required
+diagram + grounded current-pipeline source` 下，若至少两个 incident participant 各自唯一匹配 checkout-verified stage/agent alias，则只选择它们之间的连续 canonical
+stage 区间。`analyze + finalizer` 得到三条相邻 precedence；`explorer + finalizer` 只得后两条；一个端点、歧义匹配、无 grounded source、optional diagram、非 flow 与 Trace
+全部 fail-closed。`codrax/Mermaid` 等未匹配 participant 仍保留为独立 coverage obligation，不会铸造 stage edge，也不会破坏已精确识别的阶段区间。
+
+completion、Finalizer recipe prompt、pre/post diagram validation 三面改为消费同一 selection，不再各自返回全 authority；业务 display label 可由模型选择，但 exact
+stage/agent aliases 与 `relation_kind=precedence` 才是关系权威。系统只发布 checkout-verified recipe，不向 AnswerDocument 写 edge，不修改模型结论；call、data_flow、artifact
+transfer、shared-state connectivity 和 runtime causality 仍需各自 typed evidence。Trace explicit-window 因果投影/自动补齐/链上根因完全隔离。
+
+新增 r302 生产形、partial span、无证据/单端点/Trace 负臂、completion+validator+真实 Finalizer prompt 接线 pin。全量回归先抓到无 AnalysisIR、仅有
+`stage_binding.go` grounded membership 的既有顾问路径空指针；selection 现只在 AnalysisIR 存在时启用，旧 membership 独立入口保持原行为。核心六包全绿：
+stageauthority 0.238s、types 23.579s、tool 176.514s、agent 9.329s、orchestrator 15.436s、tracediag 7.146s。
+
+状态：`B510-G=implemented/core-suites-pass/pending-r303`；`B510-F=P2-open`；`B510-D=P1-open`；
+`system-relation/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
