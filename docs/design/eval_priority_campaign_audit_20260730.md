@@ -32383,3 +32383,21 @@ typed evidence pool，只有同源同行、同 anchor 且端点兼容的真实�
 
 状态：`B529c=implemented/targeted-pass`；`repair-clear-authority=typed-evidence-pool`；
 `model-relation-authorship=preserved`；`system-edge-synthesis=none`；`B530=next`；Trace=`unchanged`。
+
+### 123.578 B530：已读 AST 主链边不能以“成员已全证”为检测前提
+
+r311/r312 连续漏掉 `HttpTransport.dispatchOnce -> fetch` 的根因不是 parser 无关系：repo graph 已有 AST-grade call 和精确行，read closure 也覆盖该行。完成前 handoff
+检测器却先要求 principal member_set 的每个成员都已具备 usable support；缺失的 terminal call 正是 `fetch` 成员尚未获得关系支持的原因，因此形成“先证明完整，才检查哪里不完整”的
+循环门，整条精确信号被跳过。
+
+现移除该检测器局部的 all-members-usable 前置条件，但不改 member_set 的最终支持合同：只要 caller/callee 唯一对应同一 principal roster 的两个不同成员、关系来自
+tree-sitter/Cangjie parser、精确 callsite 已在本轮 read closure，缺少 citable typed call row 就要求 Explorer 逐条重发。装饰成员如 `fetch (Node.js native)` 经既有代码身份
+归一化后与 parser endpoint `fetch` 对齐；系统不把 AST relation 自动写入 evidence、图或答案。
+
+同时增加一个窄的嵌套调用臂：仅在 schema-validated `CompletenessObligation` 有效时，若同一 `source+line+caller` 已有另一条 citable typed call，AST 在该精确语句还给出兄弟调用，
+则要求补交兄弟边。这覆盖 `await sleep(this.retry.nextDelay(...))` 中只发 `nextDelay`、漏 `sleep` 的稳定形；不会扫描用户/模型/最终答案 prose，也不会把 roster 方法体内所有普通 side call
+升级为主链义务。无完备性义务、regex fallback、未读行、endpoint 歧义与 runtime Trace 均 fail-open；最多仍为 8 条。
+
+定向回归固定：缺 support 的 decorated terminal member 仍触发 AST handoff；同语句已发/未发兄弟调用在 completeness 正/负臂严格分离；既有 Rust/Cangjie parser、regex、read closure、
+歧义与 Trace 边界继续通过。状态：`B530=implemented/targeted-pass/pending-r313`；
+`completeness-circular-prerequisite=removed`；`system-edge-synthesis=none`；`model-relation-authorship=preserved`；Trace=`unchanged`。

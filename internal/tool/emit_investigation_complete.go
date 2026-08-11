@@ -13180,11 +13180,16 @@ type callChainReadParserRelationGap struct {
 // callChainReadParserRelationHandoffDowngrade prevents a model-owned
 // principal call-chain roster from closing over parser-authored calls that the
 // investigation already read but never carried into typed evidence.  The join
-// is deliberately narrow: both endpoints must resolve uniquely to distinct
-// members of one grounded principal member_set, the relation must come from an
-// AST-grade parser, and its exact callsite line must be in this run's read
-// closure.  The system only asks Explorer to emit the missing edge; it neither
-// mints evidence nor writes the eventual call-chain conclusion.
+// is deliberately narrow: the caller must resolve uniquely to a member of one
+// principal member_set, the relation must come from an AST-grade parser, and
+// its exact callsite line must be in this run's read closure. A relation is
+// load-bearing when either (a) its callee is another unique member of that same
+// set, or (b) an explicit completeness obligation is active and the model has
+// already emitted a sibling call from the same caller on the same source line.
+// The second arm closes nested-call statements without treating every parser
+// call in a roster method as principal. The system only asks Explorer to emit
+// the missing edge; it neither mints evidence nor writes the eventual
+// call-chain conclusion.
 func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
 		return ""
@@ -13198,7 +13203,6 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 	if !ok || graph == nil || len(graph.FileIndex) == 0 {
 		return ""
 	}
-	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
 	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
 	if len(refs) == 0 {
 		refs = types.PrincipalAggregateMemberSetFactRefs(aggregateFacts)
@@ -13206,8 +13210,7 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 	var memberSets [][]string
 	for _, ref := range refs {
 		fact := ref.Fact
-		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) < 2 ||
-			!aggregateMemberSetAllMembersUsable(fact, support) {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) < 2 {
 			continue
 		}
 		memberSets = append(memberSets, append([]string(nil), fact.Members...))
@@ -13258,7 +13261,9 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 			for _, members := range memberSets {
 				callerIndex, callerOK := callChainUniqueMemberEndpointIndex(members, caller)
 				calleeIndex, calleeOK := callChainUniqueMemberEndpointIndex(members, callee)
-				if callerOK && calleeOK && callerIndex != calleeIndex {
+				if callerOK && ((calleeOK && callerIndex != calleeIndex) ||
+					(callChainCompletenessObligationActive(rm) &&
+						callChainTypedEvidenceContainsSiblingParserRelation(evidence, source, rel.Line, caller, callee))) {
 					matched = true
 					break
 				}
@@ -13304,6 +13309,36 @@ func callChainReadParserRelationHandoffDowngrade(ctx *types.BusContext, closure 
 		fmt.Fprintf(&b, "  - %s:%d `%s` -> `%s`\n", gap.Source, gap.Line, gap.Caller, gap.Callee)
 	}
 	return b.String()
+}
+
+func callChainCompletenessObligationActive(rm types.RequestModel) bool {
+	return rm.CompletenessObligation != nil && rm.CompletenessObligation.IsActive()
+}
+
+// callChainTypedEvidenceContainsSiblingParserRelation reports whether the
+// model has already selected another exact call from the same caller and
+// source statement. The source+line+caller tuple is a typed structural join;
+// it never inspects user prose, model prose, or rendered answer text.
+func callChainTypedEvidenceContainsSiblingParserRelation(evidence []types.EvidenceItem, source string, line int, caller, callee string) bool {
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge ||
+			canonicalRelationSourcePath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		from := strings.TrimSpace(item.OwnerSymbol)
+		if from == "" {
+			from = strings.TrimSpace(item.Subject)
+		}
+		to := strings.TrimSpace(item.Object)
+		if to == "" {
+			to = strings.TrimSpace(item.AnchorSymbol)
+		}
+		if types.CallChainEndpointCompatible(from, caller) &&
+			!types.CallChainEndpointCompatible(to, callee) {
+			return true
+		}
+	}
+	return false
 }
 
 func callChainUniqueMemberEndpointIndex(members []string, endpoint string) (int, bool) {

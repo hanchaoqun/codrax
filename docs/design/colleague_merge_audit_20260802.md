@@ -4089,3 +4089,15 @@ latest-call 兼容语义。
 
 该批不扫描 request/model/final prose，不自动升格 evidence、不补边、不写图或结论；Trace/root-cause 和 optional diagram 保持隔离。定向测试覆盖多义务持久/部分/全量销账和跨语言即时反馈。
 状态：`B529c=implemented/targeted-pass`；`B530=next`；`answer/diagram ownership=model`；Trace causal authority=`unchanged`。
+
+#### §11.10.122 B530：完整调用链的 parser handoff 去除自我遮蔽前提
+
+连续生产回放确认：terminal `dispatchOnce -> fetch` 已存在于 AST repo graph 且精确行已读，但旧 handoff 先要求 principal member_set 全成员 usable；缺边导致成员不 usable，成员不 usable 又让
+缺边检测不运行。该循环前提现仅从 handoff 检测器移除，最终 aggregate support/引用合同不放宽。
+
+principal roster 两端唯一匹配的已读 AST call 现在必须由模型补发 typed edge；装饰 member 走代码身份归一化。明确 completeness 下，同一 source/line/caller 已发一条 typed call 而 AST 还有
+兄弟 call 时也会逐条提示，覆盖 nested call statement 的部分交接。系统不自动铸边、画图或改答案；regex/unread/ambiguous/runtime Trace 均 fail-open，且不扫描 request/model/final
+prose。Rust、TypeScript、Cangjie 正臂和边界测试通过。
+
+状态：`B530=implemented/targeted-pass/pending-r313`；`parser-handoff=precise-read-scoped`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

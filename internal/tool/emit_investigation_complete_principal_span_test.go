@@ -963,6 +963,97 @@ func TestCallChainReadParserRelationHandoffDowngrade_AlreadyReadRosterEdgeMustBe
 	}
 }
 
+func TestCallChainReadParserRelationHandoffDowngrade_MissingMemberSupportCannotHideASTEdge(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		ID: "dispatch-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
+		AnchorSymbol: "HttpTransport.dispatchOnce", Subject: "HttpTransport.dispatchOnce",
+		Source: "packages/core/src/transport.ts", LineStart: 39, GroundingStatus: types.GroundingGrounded,
+	}}
+	mut := types.NewMutableState("opaque complete call-chain request")
+	mut.AppendEvidence(evidence)
+	mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"packages/core/src/transport.ts": {
+			RelPath: "packages/core/src/transport.ts", Language: "typescript",
+			Symbols: []repotypes.Symbol{{Name: "HttpTransport.dispatchOnce", Kind: "method", File: "packages/core/src/transport.ts", Line: 39, EndLine: 43}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "packages/core/src/transport.ts", Line: 40,
+				ToEP: repotypes.RelationEndpoint{Name: "fetch"}, Confidence: repotypes.ConfidenceAST,
+				Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "typescript_ast_call",
+			}},
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Complexity: types.ComplexityComplex, PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: orderedCallChainEndpoints("HttpTransport.dispatchOnce", "fetch"),
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"HttpTransport.dispatchOnce", "fetch"}},
+	}}}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "complete request path", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"HttpTransport.dispatchOnce", "fetch (Node.js native)"},
+		// Deliberately omit support for the decorated fetch member. Requiring
+		// all-member support here would make the missing call edge hide itself.
+		SupportRefs: []string{"packages/core/src/transport.ts:39"},
+	}}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
+
+	got := callChainReadParserRelationHandoffDowngrade(ctx, closure, facts, evidence)
+	if !strings.Contains(got, "packages/core/src/transport.ts:40 `HttpTransport.dispatchOnce` -> `fetch`") {
+		t.Fatalf("unsupported decorated member must not hide its already-read AST edge, got:\n%s", got)
+	}
+}
+
+func TestCallChainReadParserRelationHandoffDowngrade_ExactStatementSiblingUnderCompleteness(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		ID: "delay-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "HttpTransport.send", Predicate: "calls", Object: "this.retry.nextDelay", AnchorSymbol: "this.retry.nextDelay",
+		Source: "packages/core/src/transport.ts", LineStart: 29, GroundingStatus: types.GroundingGrounded,
+	}}
+	mut := types.NewMutableState("opaque complete call-chain request")
+	mut.AppendEvidence(evidence)
+	mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"packages/core/src/transport.ts": {
+			RelPath: "packages/core/src/transport.ts", Language: "typescript",
+			Symbols: []repotypes.Symbol{{Name: "HttpTransport.send", Kind: "method", File: "packages/core/src/transport.ts", Line: 18, EndLine: 32}},
+			Relations: []repotypes.Relation{
+				{Kind: "call", File: "packages/core/src/transport.ts", Line: 29, ToEP: repotypes.RelationEndpoint{Name: "this.retry.nextDelay"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "typescript_ast_call"},
+				{Kind: "call", File: "packages/core/src/transport.ts", Line: 29, ToEP: repotypes.RelationEndpoint{Name: "sleep"}, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "typescript_ast_call"},
+			},
+		},
+	}})
+	makeCtx := func(complete bool) *types.BusContext {
+		rm := types.RequestModel{
+			Intent: types.IntentTrace, Complexity: types.ComplexityComplex, PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: orderedCallChainEndpoints("HttpTransport.send", "HttpTransport.dispatchOnce"),
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"HttpTransport.send", "HttpTransport.dispatchOnce"}},
+		}
+		if complete {
+			rm.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "complete call chain"}
+		}
+		return &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "request path", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"HttpTransport.send", "HttpTransport.dispatchOnce"},
+		SupportRefs: []string{"packages/core/src/transport.ts:18", "packages/core/src/transport.ts:23"},
+	}}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
+
+	got := callChainReadParserRelationHandoffDowngrade(makeCtx(true), closure, facts, evidence)
+	if !strings.Contains(got, "packages/core/src/transport.ts:29 `HttpTransport.send` -> `sleep`") {
+		t.Fatalf("typed sibling call on the same exact statement must be handed off under completeness, got:\n%s", got)
+	}
+	if strings.Contains(got, "-> `this.retry.nextDelay`") {
+		t.Fatalf("already-emitted exact call must not be requested again, got:\n%s", got)
+	}
+	nonCompleteClosure := types.NewEvidenceClosure("")
+	nonCompleteClosure.SetReadSet(map[string]bool{"packages/core/src/transport.ts": true})
+	if got := callChainReadParserRelationHandoffDowngrade(makeCtx(false), nonCompleteClosure, facts, evidence); got != "" {
+		t.Fatalf("non-roster sibling call without a typed completeness obligation must fail open, got:\n%s", got)
+	}
+}
+
 func TestCallChainReadParserRelationHandoffDowngrade_PreciseBoundaries(t *testing.T) {
 	makeFixture := func(provenance string, read bool, intent types.Intent, members []string) (*types.BusContext, *types.EvidenceClosure, []types.AnswerAggregateFact, []types.EvidenceItem) {
 		evidence := []types.EvidenceItem{
