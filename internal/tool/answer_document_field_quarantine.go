@@ -26,6 +26,7 @@ var answerDocumentFullEmitQuarantineProfile = answerDocumentFieldQuarantineProfi
 		"caveats",
 		"snippets",
 		"trace_finding",
+		"trace_root_causes",
 	),
 	BlockArrayFields: []string{"blocks"},
 }
@@ -43,6 +44,7 @@ var answerDocumentPatchQuarantineProfile = answerDocumentFieldQuarantineProfile{
 		"replace_caveats",
 		"replace_snippets",
 		"replace_trace_finding",
+		"replace_trace_root_causes",
 	),
 	BlockArrayFields: []string{"replace_blocks", "add_blocks"},
 }

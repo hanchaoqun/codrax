@@ -74,8 +74,9 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
 				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
 			),
-			now: time.Now(),
-			pid: os.Getpid(),
+			rootCauses: o.busCtx.Mutable.TraceRootCauseReport(),
+			now:        time.Now(),
+			pid:        os.Getpid(),
 		}); result.MarkdownPath != "" {
 			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
 		}

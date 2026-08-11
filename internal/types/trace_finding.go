@@ -3,10 +3,11 @@ package types
 // TraceFindingSchemaVersion is the persisted single-trace finding schema.
 const TraceFindingSchemaVersion = 1
 
-// TraceFindingContract is injected by a trace-batch child run. Ordinary read
-// requests leave it disabled and therefore keep the historical tool schema.
+// TraceFindingContract carries the legacy batch candidate snapshot plus the
+// independent user-facing root-cause report activation for trace analyses.
 type TraceFindingContract struct {
 	Required                bool                      `json:"required"`
+	RootCauseReportRequired bool                      `json:"root_cause_report_required,omitempty"`
 	CandidateSetID          string                    `json:"candidate_set_id"`
 	FindingSchemaVersion    int                       `json:"finding_schema_version"`
 	PrimaryCandidateIDs     []string                  `json:"primary_candidate_ids"`

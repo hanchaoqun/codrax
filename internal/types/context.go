@@ -381,6 +381,7 @@ type MutableState struct {
 	// wire schema used by ordinary read requests.
 	traceFindingV1       *TraceFindingV1
 	traceFindingContract *TraceFindingContract
+	traceRootCauseReport *TraceRootCauseReportV1
 
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
@@ -3370,6 +3371,7 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.traceFindingV1 = nil
+	m.traceRootCauseReport = nil
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
 	m.degradedRecoveredAnswerDocumentV2 = nil
@@ -3386,6 +3388,7 @@ func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, ar
 	if artifacts == nil {
 		m.answerDocumentV2 = nil
 		m.traceFindingV1 = nil
+		m.traceRootCauseReport = nil
 		m.lastEmitFromPatch = false
 		m.lastRejectedAnswerDocumentV2 = nil
 		m.degradedRecoveredAnswerDocumentV2 = nil
@@ -3393,6 +3396,7 @@ func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, ar
 	}
 	m.answerDocumentV2 = cloneAnswerDocumentV2(&artifacts.Document)
 	m.traceFindingV1 = cloneTraceFindingV1(artifacts.TraceFinding)
+	m.traceRootCauseReport = nil
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
 	// A validated emit supersedes any earlier degraded recovery snapshot
@@ -3437,6 +3441,28 @@ func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.traceFindingV1 = cloneTraceFindingV1(finding)
+}
+
+// TraceRootCauseReport returns the model-authored, validated JSON sidecar
+// payload for the current trace answer.
+func (m *MutableState) TraceRootCauseReport() *TraceRootCauseReportV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceRootCauseReportV1(m.traceRootCauseReport)
+}
+
+// SetTraceRootCauseReport stores the already-normalized sidecar after the
+// answer-document mutation succeeds. It is not rendered into the long answer.
+func (m *MutableState) SetTraceRootCauseReport(report *TraceRootCauseReportV1) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceRootCauseReport = cloneTraceRootCauseReportV1(report)
 }
 
 // SetTraceFindingContract enables typed finding output for a batch child run.
@@ -3626,6 +3652,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.answerDocumentV2 = nil
 	m.traceFindingV1 = nil
 	m.traceFindingContract = nil
+	m.traceRootCauseReport = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -3646,6 +3673,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
 	m.traceFindingV1 = nil
+	m.traceRootCauseReport = nil
 	m.lastEmitFromPatch = false
 }
 

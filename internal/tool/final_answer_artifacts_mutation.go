@@ -29,3 +29,24 @@ func resolveTraceFindingForEmit(ctx *types.BusContext, submitted *types.TraceFin
 	}
 	return finding, nil
 }
+
+// resolveTraceRootCauseReportForEmit validates the user-facing JSON sidecar.
+// Patch emits inherit the last accepted report when they only repair answer
+// blocks, but a first/full emit must submit the report explicitly.
+func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted *types.TraceRootCauseReportV1, patch bool) (*types.TraceRootCauseReportV1, error) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, nil
+	}
+	contract := ctx.Mutable.TraceFindingContract()
+	if contract == nil || !contract.RootCauseReportRequired {
+		if submitted != nil {
+			return nil, fmt.Errorf("trace_root_causes is not enabled for this request")
+		}
+		return nil, nil
+	}
+	report := submitted
+	if patch && report == nil {
+		report = ctx.Mutable.TraceRootCauseReport()
+	}
+	return types.NormalizeAndValidateTraceRootCauseReport(report)
+}

@@ -119,7 +119,9 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
 func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.RawMessage {
 	parameters := t.Parameters()
 	if ctx != nil && ctx.Mutable != nil {
-		parameters = projectTraceFindingContract(parameters, ctx.Mutable.TraceFindingContract(), true)
+		contract := ctx.Mutable.TraceFindingContract()
+		parameters = projectTraceFindingContract(parameters, contract, true)
+		parameters = projectTraceRootCauseReport(parameters, contract, true)
 	}
 	return parameters
 }
@@ -140,6 +142,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
 	ReplaceSnippets              []emitCodeSnippetV2                `json:"replace_snippets,omitempty"`
 	ReplaceTraceFinding          *types.TraceFindingV1              `json:"replace_trace_finding,omitempty"`
+	ReplaceTraceRootCauses       *types.TraceRootCauseReportV1      `json:"replace_trace_root_causes,omitempty"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -300,6 +303,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if findingErr != nil {
 		return failEmit(t.Name(), now, "replace_trace_finding rejected: %v", findingErr)
 	}
+	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.ReplaceTraceRootCauses, true)
+	if rootCauseErr != nil {
+		return failEmit(t.Name(), now, "replace_trace_root_causes rejected: %v", rootCauseErr)
+	}
 	dropExplicitlyRemovedModelDiagrams := false
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
@@ -333,7 +340,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}
 			}
-			return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
+			res, persistErr := persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
 				ctx,
 				t.Name(),
 				types.MutationPartial,
@@ -343,10 +350,18 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				now,
 				dropExplicitlyRemovedModelDiagrams,
 			)
+			if persistErr == nil && res.Success && rootCauses != nil {
+				ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+			}
+			return res, persistErr
 		}
 	}
 
-	return ApplyAndPersistMutationWithFinding(ctx, t.Name(), mutation, prev, finding, now)
+	res, persistErr := ApplyAndPersistMutationWithFinding(ctx, t.Name(), mutation, prev, finding, now)
+	if persistErr == nil && res.Success && rootCauses != nil {
+		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+	}
+	return res, persistErr
 }
 
 // preservePatchReplacementStableItemCitationRefs repairs a precise patch-only

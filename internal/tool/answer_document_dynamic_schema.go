@@ -115,6 +115,73 @@ func projectTraceFindingContract(schema json.RawMessage, contract *types.TraceFi
 	return out
 }
 
+// projectTraceRootCauseReport adds the user-facing JSON report to trace
+// root-cause finalizer calls. Unlike TraceFindingV1, this report does not
+// depend on deterministic candidate IDs, so it remains usable when the model
+// can diagnose the trace but no root_cause_rank row was published.
+func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFindingContract, patch bool) json.RawMessage {
+	if contract == nil || !contract.RootCauseReportRequired {
+		return schema
+	}
+	var root map[string]any
+	if err := json.Unmarshal(schema, &root); err != nil {
+		return schema
+	}
+	properties, _ := root["properties"].(map[string]any)
+	if properties == nil {
+		return schema
+	}
+	name := "trace_root_causes"
+	if patch {
+		name = "replace_trace_root_causes"
+	}
+	properties[name] = traceRootCauseReportJSONSchema()
+	if !patch {
+		required, _ := root["required"].([]any)
+		required = append(required, name)
+		root["required"] = required
+	}
+	out, err := json.Marshal(root)
+	if err != nil {
+		return schema
+	}
+	return out
+}
+
+func traceRootCauseReportJSONSchema() map[string]any {
+	categories := make([]string, 0, len(types.AllTraceRootCauseCategories()))
+	for _, category := range types.AllTraceRootCauseCategories() {
+		categories = append(categories, string(category))
+	}
+	item := map[string]any{
+		"type":        "object",
+		"description": "One structured root cause. Evidence is concise free text grounded in the trace; summary is normalized by the runtime.",
+		"properties": map[string]any{
+			"category":      map[string]any{"type": "string", "enum": categories},
+			"thread_name":   map[string]any{"type": "string", "description": "Exact thread name; required for thread-scoped categories."},
+			"resource_name": map[string]any{"type": "string", "description": "Exact lock or resource name; required for lock_contention."},
+			"phase_name":    map[string]any{"type": "string", "description": "Exact phase name; required for phase_high_load."},
+			"summary":       map[string]any{"type": "string", "description": "Short root-cause phrase. Runtime rewrites it to the fixed category format."},
+			"evidence": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": 4,
+				"items":       map[string]any{"type": "string", "maxLength": 240},
+				"description": "1-4 concise trace-specific evidence statements; free text, not fixed vocabulary and not internal ids.",
+			},
+		},
+		"required": []string{"category", "evidence"},
+	}
+	return map[string]any{
+		"type":        "object",
+		"description": "Separate JSON report accompanying the unchanged full trace analysis.",
+		"properties": map[string]any{
+			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceRootCauseReportSchemaVersion}},
+			"root_cause_1":   item,
+			"root_cause_2":   map[string]any{"anyOf": []any{item, map[string]any{"type": "null"}}},
+		},
+		"required": []string{"schema_version", "root_cause_1", "root_cause_2"},
+	}
+}
+
 func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any {
 	primaryIDs := append([]string(nil), contract.PrimaryCandidateIDs...)
 	contributorIDs := append([]string(nil), contract.ContributorCandidateIDs...)

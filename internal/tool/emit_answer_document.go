@@ -77,7 +77,9 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	parameters := BuildAnswerDocumentParametersFor(view)
 	if ctx.Mutable != nil {
-		parameters = projectTraceFindingContract(parameters, ctx.Mutable.TraceFindingContract(), false)
+		contract := ctx.Mutable.TraceFindingContract()
+		parameters = projectTraceFindingContract(parameters, contract, false)
+		parameters = projectTraceRootCauseReport(parameters, contract, false)
 	}
 	return parameters
 }

@@ -4,24 +4,26 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/outputdump"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // dumpFinalOutputArgs keeps the orchestrator call sites and existing
 // tests readable while the implementation lives in the shared
 // outputdump package used by both pipeline and REPL-local answers.
 type dumpFinalOutputArgs struct {
-	dir       string
-	max       int
-	language  string
-	request   string
-	answer    string
-	hasLog    bool
-	logBytes  int
-	hasTrace  bool
-	traceB    int
-	artifacts []outputdump.RuntimeArtifact
-	now       time.Time
-	pid       int
+	dir        string
+	max        int
+	language   string
+	request    string
+	answer     string
+	hasLog     bool
+	logBytes   int
+	hasTrace   bool
+	traceB     int
+	artifacts  []outputdump.RuntimeArtifact
+	rootCauses *types.TraceRootCauseReportV1
+	now        time.Time
+	pid        int
 }
 
 func (a dumpFinalOutputArgs) outputDumpArgs() outputdump.Args {
@@ -36,6 +38,7 @@ func (a dumpFinalOutputArgs) outputDumpArgs() outputdump.Args {
 		HasTrace:         a.hasTrace,
 		TraceBytes:       a.traceB,
 		RuntimeArtifacts: append([]outputdump.RuntimeArtifact(nil), a.artifacts...),
+		RootCauseReport:  a.rootCauses,
 		Now:              a.now,
 		PID:              a.pid,
 	}

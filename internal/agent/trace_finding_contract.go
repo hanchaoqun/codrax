@@ -16,9 +16,6 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil
 	}
-	if !ctx.TraceFindingRequired && !traceShortRootCauseRequested(ctx) {
-		return nil
-	}
 	if current := ctx.Mutable.TraceFindingContract(); current != nil && strings.TrimSpace(current.CandidateSetID) != "" {
 		return nil
 	}
@@ -53,10 +50,12 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if err != nil {
 		return fmt.Errorf("compile trace finding contract: %w", err)
 	}
-	// This contract is an internal deterministic snapshot only. Keeping
-	// Required=false is the key compatibility boundary: emit_answer_document
-	// receives exactly its historical schema and the long answer is unchanged.
+	// The legacy TraceFindingV1 remains an internal deterministic snapshot.
+	// Required=false keeps its candidate-id schema out of the model call; the
+	// independent root-cause report below is the only new finalizer field and
+	// is never rendered into the long answer.
 	contract.Required = false
+	contract.RootCauseReportRequired = true
 	ctx.Mutable.SetTraceFindingContract(contract)
 	return nil
 }
@@ -70,33 +69,6 @@ func finalizeDeterministicTraceFinding(ctx *types.AgentContext) {
 		return
 	}
 	ctx.Mutable.SetTraceFinding(tracefinding.BuildDeterministicFinding(contract))
-}
-
-func traceShortRootCauseRequested(ctx *types.AgentContext) bool {
-	if ctx == nil {
-		return false
-	}
-	request := strings.ToLower(strings.TrimSpace(ctx.Objective))
-	if request == "" && ctx.Mutable != nil {
-		request = strings.ToLower(strings.TrimSpace(ctx.Mutable.Objective()))
-	}
-	for _, phrase := range []string{
-		"不需要简短根因", "不要简短根因", "无需简短根因", "不显示简短根因", "不输出简短根因",
-		"do not show short root cause", "without short root cause",
-	} {
-		if strings.Contains(request, phrase) {
-			return false
-		}
-	}
-	for _, phrase := range []string{
-		"需要简短根因", "输出简短根因", "显示简短根因", "给出简短根因", "生成简短根因", "简短根因输出",
-		"show short root cause", "output short root cause", "include short root cause",
-	} {
-		if strings.Contains(request, phrase) {
-			return true
-		}
-	}
-	return false
 }
 
 func traceFindingHasTraceCarrier(ctx *types.AgentContext) bool {
@@ -120,8 +92,20 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 		return ""
 	}
 	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || !contract.Required || strings.TrimSpace(contract.CandidateSetID) == "" {
+	if contract == nil || strings.TrimSpace(contract.CandidateSetID) == "" {
 		return ""
+	}
+	var out strings.Builder
+	if contract.RootCauseReportRequired {
+		out.WriteString("\n\n## Trace Root Cause JSON (Required)\n\n")
+		out.WriteString("- Submit `trace_root_causes` in the same `emit_answer_document` call as the full answer. It is always required for this trace root-cause analysis; no prompt switch is used.\n")
+		out.WriteString("- `root_cause_1` is the strongest supported diagnosis and must agree with the full answer. `root_cause_2` is the second independently useful diagnosis, or JSON null when the trace supports only one. Never invent a runner-up.\n")
+		out.WriteString("- Choose each category only from the schema enum. Supply the relevant exact thread_name, resource_name, or phase_name. The runtime normalizes `summary` to the fixed Chinese format.\n")
+		out.WriteString("- Put 1 to 4 short, trace-specific facts in each cause's `evidence` array. Evidence is concise free text, not a fixed phrase and not an internal evidence id. Include useful measurements or event relationships when available.\n")
+		out.WriteString("- This object is written to a separate `.root-causes.json` file. It is not inserted into or substituted for the full answer.\n")
+	}
+	if !contract.Required {
+		return strings.TrimSpace(out.String())
 	}
 	view := struct {
 		CandidateSetID      string                          `json:"candidate_set_id"`
@@ -143,7 +127,6 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 	if err != nil {
 		return ""
 	}
-	var out strings.Builder
 	out.WriteString("\n\n## Trace Finding Contract (Required Typed Sidecar)\n\n")
 	out.WriteString("- Submit `trace_finding` in the same `emit_answer_document` transaction. It is required for this trace analysis.\n")
 	out.WriteString("- The system owns candidate fields. Select at most one primary candidate and copy its `decision` fields verbatim; you may choose only `status` within the causal ceiling and `confidence`. Do not invent or rewrite token, roles, phase, magnitude, rank, or evidence IDs.\n")
