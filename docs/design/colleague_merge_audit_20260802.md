@@ -4745,3 +4745,30 @@ type-relation anchor 时不查询、不投影，更不会由系统添加可见�
 
 状态：`B568=implemented/pending-r336`；`provider=coverage-gate-exact-only`；`prompt-hints=not-promoted`；
 `model-edge/answer-authorship=preserved`；`reverse/relabel=fail-closed`；Trace causal authority=`unchanged`。
+
+#### §11.10.170 r336：B568 精确桥生效，但 classDiagram 关系可绕过统一证据门
+
+r336 exact-two runner 2/2、人工 1/2。Trace 案 144s 一次成文：显式 5.000..5.007s 窗、确定性 `frame_root_cause_bundle`
+补采、Trace 因果投影、实际占用/规则可消双轴全部保留；4.600ms `class_verification` 只作为链上唤醒前工作候选，0.800ms
+`runnable_wait` 独立归为调度供给，背景没有被加冕，帧因果与直接 blocker/holder/waiter 继续诚实标为未证。B568 未影响 Trace 权威面。
+
+类型关系案证明 B568 的 provider 桥已经工作：模型第一版把 `LoopController -> implementer` 画反后，12 条边均被精确的
+`type_relation_edge_unproven` 拒绝；这不是旧版“精确关系也不可用”。但随后暴露 `B569-CLASSRELATIONEDGE1/P1-high`：模型改用合法
+Mermaid `classDiagram`，以 `LoopController <|.. plannerEvaluator` 表示实现关系，并提交 canonical `implementer -> LoopController`
+anchors；公共 `mermaidcompat.ParseEdges` 只识别 flowchart/sequence 运算符，看不到 `<|..`，于是所有 anchors 被误报为
+`typed_anchor_without_visible_edge`。模型删除 anchors 后，同一 12 条可见类关系反而通过最终校验。最终答案视觉上有完整关系，
+但 typed evidence contract 被 class syntax 绕过，runner 的字符串 oracle 再次假绿。
+
+最优修复是扩展共享 Mermaid syntax parser，而不是加 LoopController、implements 或语言关键词：识别 classDiagram 的
+`<|--`、`<|..`、`--|>`、`..|>`，按 UML 箭头头部把端点统一为语义方向 `subtype/implementer -> base/interface`，随后复用现有
+body-edge/anchor/evidence gate。解析只产生 syntax-level endpoint/operator，不猜 `relation_kind`，不改模型图、不补边、不代写答案；
+relation_kind 仍须模型通过 schema 明确提交，B568 exact provider 仍负责真值授权。该修复天然覆盖 Go、Java、Kotlin、ArkTS、Cangjie、
+C++、Rust 等 provider 已支持语言。
+
+本轮另记 `B570-FIRSTDRAFTDOMINANCE1/P2`：最终类图接受后，答案仍附带整份失败的无边第一稿，造成主体重复和内部恢复语句外露。
+这是“发生过真实 rewrite 就保留第一稿”的既有审计设计，不是 4 分钟超时降级；活动流持续 447s 正常完成。后续若抑制，必须基于
+两份 structured carrier 的 typed dominance，不能扫描或相似匹配模型 prose。当前优先通过 B569 消除制造该附录的根因，B570 单独保留。
+
+状态：`B568=production-positive/blocked-by-B569`；`B569=P1-high/next`；`B570=P2/open`；
+`runner=2/2`；`human=1/2`；`active-stream-447s=no-degrade`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。
