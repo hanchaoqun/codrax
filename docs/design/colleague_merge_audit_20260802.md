@@ -5178,3 +5178,32 @@ pretriage 与 validator observation 在 deterministic query 同在时分别保�
 `pretriage-freeform-downstream=withheld`；`deterministic-observation-authority=preserved`；
 `raw-trace-access=preserved`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.189 r345：预分析污染解除后暴露 deterministic 相位误名；关系修补仍删主脊
+
+r345 exact-two runner 2/2、人工 0/2。Trace 案 122s 首先证明 B577b 已进入生产：下游上下文的六条模型 observation 只剩
+`navigation_locator + candidate line/time`，Subject/Summary/Evidence/Tags 均未泄漏；validator-owned priority/timestamp 行保持全文。
+最终答案也不再把 5.000ms sleep 与 0.800ms runnable 合成 5.8ms wakeup-to-run 延迟，显式窗、四态、链上 rank、双轴、frame absent
+限定、因果投影与 B578 单席 sleep 全部稳定。
+
+但答案仍把 5.000ms 称为 `wakeup latency`，本轮定位到新的确定性源错误 `B581-WAKEEDGEPHASECALIBER1/P1-high`：
+`BuildWakeupChain` 的 `WakeupEdge.LatencyMs` 实际公式是 `(sched_wakeup.ts - wakee_sleep_segment.start)`，即 pre-wakeup
+sleep/blocking→wake wait；`trace_wait_evidence_summary` 却发布 `wakeup latency Xms`，typed observation summary 也只写无口径的
+`latency=Xms`。模型因而按系统精确载体复述错误术语，并进一步说 VerifyClass“完成后才触发 wakeup”，而真实 span 结束 5.005400 晚于
+wakeup 5.005000。最优根修是保持 JSON `latency_ms` 兼容，但给 WakeupEdge 增加/发布固定 typed caliber
+`sleep_start_to_sched_wakeup`，所有 LLM-facing 面改称 `pre-wakeup sleep→sched_wakeup wait`；wake→run 调度延迟继续只来自 runnable 账户。
+不得用终稿关键词扫描纠正，也不得把系统字段误名交给模型背锅。
+
+read combo 案 316s，B580 production positive：终稿不再出现 `invocation_segment`、`value_flow_segment` 或 bridge-status 内部词。
+但四轮 `成文校验未通过` 后模型不断删边，最终必需 sequenceDiagram 缺少 Analyze→Explore，只剩两条脱离 stage 主脊的 orchestrator call
+和 Explore→Extract→Finalize；正文/表格正确但图关系不完整，人工失败。确认 `B582-REQUESTSPINEREPAIRFOCUS1/P1-high`：现有上下文虽声明
+requested spine，却仍把九条跨 component recipe 同权交给修补模型，模型在“补 call anchor/删 unsupported edge/保 precedence”之间反复搬运。
+最优方案是在 typed request-spine 已存在时，由同一个 evidence provider 生成一份紧凑的 principal-diagram recipe，仅列该 spine 的 exact node、
+edge、relation_kind 和 anchor JSON；disconnected supporting component 明确退为可选正文/独立图证据。它只减少修补心智，不生成 Mermaid、不补边、
+不删除模型边、不改正文结论，也不使用请求/终稿关键词硬门。
+
+316s 活跃模型流再次跨过旧四分钟边界并正常结束，未发布系统答案、旧稿或降级答案；累计时长规则保持不变。
+
+状态：`B577b=production-positive`；`B581=next`；`B580=production-positive`；`B582=next`；
+`runner=2/2`；`human=0/2`；`finalizer-rejects=4`；`active-stream-316s=no-degrade`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
