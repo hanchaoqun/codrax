@@ -31432,3 +31432,36 @@ mid-loop、11 次 completion 与一次 prune；先立 typed lifecycle 审计候�
 状态：`B500=v4-production-closed`；`B502=production-closed`；`B501=implemented/pending-production-witness`；
 `B503=P2-high-impact-watch/model-contract-variance`；`system-relation/diagram/answer-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。
+
+### 123.523 r291：typed relation 已到达，却被错误归为 Explore 证据债
+
+`main@5003bbdb3` 严格并行 read 关系图与 strict JSON data。runner 1/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_read_data_r291_20260810_manual_audit.md`。
+
+data 案一次发布精确 `{"ids":["u1","u3"]}`，零 JSON 修复；`instructions.md` 的完整规则通过 typed `planner_distilled` 材料载体进入计划，
+`users.json` 为实际执行输入。judge 中途把“未再次读取”误解成“未消费”，但终态依据 workflow ledger 正确恢复，未发现 production gap。
+
+read 案 Analyzer 本轮正确把 Orchestrator、Analyzer、Finalizer、BusContext 等标成 `incident_required`。首个 finalizer prompt 已带两条 exact typed
+`data_flow` recipe 及 schema-native `edge_anchor_json`；模型却反复把 exact source endpoints 抽象改挂为 `Orchestrator -> BusContext`，严格 relation gate
+正确拒绝，最终模型删掉全部边。随后确定性 post-finalize 报 `required_diagram_edge_absent`，却无条件写死 `RepairLocusOverride=Explore`，清空可用草稿并重跑
+全部探查：46 次 read、4 个 explorer dispatch、2 个 finalizer dispatch、21 次成文拒绝，1200 秒超时且无答案。
+
+立 `B504-EDGEOWNER1/P1-high`：零边违例必须按精确 producer receipt 分流。当前 finalizer dispatch 已实际收到至少一个 exact typed relation recipe 时，
+这是模型成文遗漏，只重试 Finalizer；未收到 recipe 时仍是 evidence debt，保持 back-to-Explore。该位只改变修复责任，不铸边、不补图、不放宽 validator、
+不扫描 request/thinking/final prose。B501 分层图教学本轮未被消费，保留模型服从度观察，不据单例改成系统代写。
+
+状态：`B504=confirmed/next`；`B501=implemented/negative-production-witness`；`B503=P2-watch`；
+`system-relation/diagram/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.524 B504：关系配方的 producer receipt 决定修复归属
+
+finalizer prompt compiler 现每 dispatch 先 fail-closed 清零，再仅在它实际发出的 system-owned authority carrier 含 schema-native typed relation recipe 时，
+写入一个私有布尔 receipt。post-finalize 的 `required_diagram_edge_absent` 只在该 receipt 为真时改为 `LocusFinalizer`；receipt 为假、没有精确关系证据时，
+既有 `LocusExplore` 和 evidence recovery 保持字节语义。receipt 不代表图真值，也不能创建、改写或批准任何模型边。
+
+回归钉住三臂：无 recipe 的 required relation diagram 继续 `back_to_explore`；recipe 已到达但模型发零边时为 `finalizer_only`；下一 dispatch 无 recipe
+会清掉旧 receipt，禁止 sticky 串轮污染。`go test ./internal/agent ./internal/orchestrator ./internal/types` 全绿。
+
+状态：`B504=implemented/package-suites-pass/pending-production-replay`；`B501=pending-model-consumption-replay`；
+`system-relation/diagram/conclusion-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
+Trace explicit windows/auto-supplement/causal projection/on-chain root-cause families/business clues=`unchanged`。

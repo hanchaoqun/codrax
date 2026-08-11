@@ -3495,3 +3495,23 @@ State/Context carrier SSOT 直接相违。finalizer 随后只按该 typed role �
 
 状态：`B500=v4-production-closed`；`B502=production-closed`；`B501=pending-production-witness`；
 `B503=P2-watch`；`system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.67 r291：关系缺失的下一根因是修复 owner 错配
+
+exact-two runner 1/2、人工 1/2。strict JSON data 一轮正确发布，`planner_distilled` 规则材料与实际 JSON 输入的 typed 消费账一致，无新 gap。
+
+read 关系案首个 finalizer prompt 已有两条 exact typed data-flow recipe；模型将 source endpoint 抽象改挂为组件边，validator 正确 fail-closed，最终删到零边。
+真正的系统 gap 出现在 post-finalize：`required_diagram_edge_absent` 无条件归 Explore，忽略 recipe 已到达这一精确信号，导致清草稿、重跑 46 reads 和第二轮
+finalizer，累计 21 次拒绝后 1200 秒无答案。立 B504：有 recipe 是 finalizer authoring debt，无 recipe 才是 explorer evidence debt。
+
+状态：`B504=P1-high/next`；`B501=negative-production-witness`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.68 B504：typed prompt-delivery receipt 收窄关系修复半径
+
+新增 dispatch-scoped 私有 receipt，由 mechanism relation authority 的同一 producer 在 exact recipe 真正进入 finalizer prompt 时置真；每个新 dispatch 先清零。
+零边 violation 在 receipt=true 时只回 Finalizer，false 时仍回 Explore。它不读取用户/模型/最终正文，不生成关系、不改图、不降低 strict edge authority。
+
+agent/orchestrator/types 套件全绿；回归覆盖 receipt 正负、旧 Explore 臂和跨 dispatch 清零。待 r292 生产回放确认 explorer 重启消失，并继续观察模型是否消费
+B501 的 exact-endpoint 分层表达。
+
+状态：`B504=implemented/pending-production-replay`；`raw-prose-hard-gate=none`；`system-relation-authoring=none`；Trace families=`unchanged`。

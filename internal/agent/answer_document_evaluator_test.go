@@ -8776,11 +8776,16 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	}
 	ctx := &types.AgentContext{
 		Mode: types.ModeRead, RepoRoot: repo,
+		Mutable: types.NewMutableState("explain the read pipeline"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
 			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
 			DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
 		}},
+	}
+	_ = (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !ctx.Mutable.FinalizerTypedRelationRecipeAvailable() {
+		t.Fatal("the prompt compiler must stamp a typed receipt when exact relation recipes were emitted")
 	}
 	authority := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
@@ -8808,6 +8813,16 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	}
 	if !strings.Contains(contract, `participant_identity="BusContext"`) || strings.Count(contract, "boundary_recipe[") != 1 {
 		t.Fatalf("only the genuinely unproved carrier should retain a boundary recipe:\n%s", contract)
+	}
+}
+
+func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmitted(t *testing.T) {
+	mut := types.NewMutableState("summarize the repository")
+	mut.SetFinalizerTypedRelationRecipeAvailable(true)
+	ctx := &types.AgentContext{Mutable: mut}
+	_ = (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if mut.FinalizerTypedRelationRecipeAvailable() {
+		t.Fatal("a fresh prompt without a typed relation recipe must clear the prior dispatch receipt")
 	}
 }
 

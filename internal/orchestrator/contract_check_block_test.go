@@ -371,6 +371,42 @@ func TestDiagramEdgeSupport_RequiredRelationDiagramWithoutEdgesBacktracksToExplo
 	}
 }
 
+func TestDiagramEdgeSupport_TypedRecipeAvailableKeepsZeroEdgeRepairInFinalizer(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind: types.DiagramRelPrecedence,
+				Min:  1,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "flow",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramFlow,
+			Language: "mermaid",
+			Body:     "flowchart LR\n  A[\"Analyze\"]\n  B[\"Explore\"]",
+		},
+	}}}
+	mut := types.NewMutableState("explain the read pipeline")
+	mut.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus := &types.BusContext{Mutable: mut}
+	vs := validateDiagramEdgeSupportWithRuntimeContext(doc, view, bus)
+	if len(vs) != 1 || vs[0].Kind != types.ViolRequiredDiagramEdgeAbsent {
+		t.Fatalf("typed-recipe zero-edge document must retain the precise violation: %+v", vs)
+	}
+	if got := vs[0].RepairLocusOverride; got != types.LocusFinalizer {
+		t.Fatalf("repair locus=%q, want finalizer when an exact recipe reached this dispatch", got)
+	}
+	if got := FallbackTargetForViolation(vs[0]); got != FallbackFinalizerOnly {
+		t.Fatalf("fallback=%q, want finalizer_only", got)
+	}
+}
+
 func TestDiagramEdgeSupport_OptionalOrRelationFreeDiagramDoesNotDemandAnEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "architecture",

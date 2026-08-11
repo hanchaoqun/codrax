@@ -393,7 +393,8 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 ) []types.Violation {
 	owned := tool.ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(bus, doc)
 	if len(owned) == 0 {
-		return validateDiagramEdgeSupport(doc, view)
+		return assignRequiredDiagramEdgeRepairOwner(
+			validateDiagramEdgeSupport(doc, view), bus)
 	}
 	copyDoc := *doc
 	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
@@ -410,7 +411,26 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 	if !hasRemainingDiagram {
 		return nil
 	}
-	return validateDiagramEdgeSupport(&copyDoc, view)
+	return assignRequiredDiagramEdgeRepairOwner(
+		validateDiagramEdgeSupport(&copyDoc, view), bus)
+}
+
+// assignRequiredDiagramEdgeRepairOwner preserves the generic Explore fallback
+// when relation evidence is missing. If the prompt compiler has a precise
+// receipt proving that the current finalizer dispatch already received an
+// exact typed relation recipe, a zero-edge document is instead an authoring
+// omission local to Finalizer. This changes retry ownership only: it never
+// creates, rewrites, or blesses a model-authored relation.
+func assignRequiredDiagramEdgeRepairOwner(vs []types.Violation, bus *types.BusContext) []types.Violation {
+	if bus == nil || bus.Mutable == nil || !bus.Mutable.FinalizerTypedRelationRecipeAvailable() {
+		return vs
+	}
+	for i := range vs {
+		if vs[i].Kind == types.ViolRequiredDiagramEdgeAbsent {
+			vs[i].RepairLocusOverride = types.LocusFinalizer
+		}
+	}
+	return vs
 }
 
 func diagramPlanRequiresStructuralEdge(plan *types.DiagramFacetGraph) bool {

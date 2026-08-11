@@ -377,6 +377,14 @@ type MutableState struct {
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
 
+	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
+	// receipt: the finalizer prompt compiler sets it only when the exact prompt
+	// delivered at least one schema-native typed relation recipe. Post-finalize
+	// repair ownership may use this precise bit to distinguish an authoring
+	// omission (retry finalizer) from missing relation evidence (re-explore).
+	// It is not graph truth and must never mint or rewrite a visible edge.
+	finalizerTypedRelationRecipeAvailable bool
+
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
 	// after AnswerDocumentV2 but are not part of the structured answer
@@ -3378,6 +3386,32 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.degradedRecoveredAnswerDocumentV2 = nil
 }
 
+// SetFinalizerTypedRelationRecipeAvailable records whether the current
+// finalizer dispatch was actually given at least one exact typed relation
+// recipe by the prompt compiler. Callers must reset it to false before
+// compiling each fresh finalizer prompt.
+func (m *MutableState) SetFinalizerTypedRelationRecipeAvailable(available bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalizerTypedRelationRecipeAvailable = available
+}
+
+// FinalizerTypedRelationRecipeAvailable reports the current finalizer
+// dispatch's producer receipt. It says only that the model had an exact
+// authoring recipe available; it does not assert that any model-authored edge
+// is valid or complete.
+func (m *MutableState) FinalizerTypedRelationRecipeAvailable() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.finalizerTypedRelationRecipeAvailable
+}
+
 // SetAnswerDisplayAttachments replaces the current final-answer
 // fallback attachment list. Attachments are deliberately separate
 // from AnswerDocumentV2 so they can preserve model-authored visible
@@ -3513,6 +3547,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
+	m.finalizerTypedRelationRecipeAvailable = false
 }
 
 // ResetActiveAnswerDocumentV2ForFinalizeDispatch clears only the active

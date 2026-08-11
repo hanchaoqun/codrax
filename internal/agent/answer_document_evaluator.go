@@ -413,6 +413,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
+		// Dispatch-scoped producer receipt: fail closed before any prompt
+		// section can abort. The mechanism-relation compiler below sets it only
+		// after the exact emitted carrier contains a typed edge recipe.
+		ctx.Mutable.SetFinalizerTypedRelationRecipeAvailable(false)
 	}
 
 	var b strings.Builder
@@ -686,7 +690,12 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "mechanism_relation_authority", func() string {
-		return renderAnswerDocMechanismRelationAuthority(ctx)
+		authority := renderAnswerDocMechanismRelationAuthority(ctx)
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.SetFinalizerTypedRelationRecipeAvailable(
+				answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority) != "")
+		}
+		return authority
 	}) {
 		return b.String()
 	}
@@ -13514,7 +13523,15 @@ func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
 }
 
 func answerDocMechanismTypedRelationBoundaryRepairPayload(ctx *types.AgentContext) string {
-	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	return answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(
+		renderAnswerDocMechanismRelationAuthority(ctx))
+}
+
+// answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority reads only
+// the system-produced authority carrier. Keeping this parser shared by the
+// initial-prompt receipt and retry hint prevents either consumer from claiming
+// a recipe that the other did not actually expose.
+func answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority string) string {
 	const heading = "### Typed relation authoring capsule (advisory)"
 	start := strings.Index(authority, heading)
 	if start < 0 {
