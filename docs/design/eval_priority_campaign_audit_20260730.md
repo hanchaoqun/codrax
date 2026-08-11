@@ -32882,3 +32882,19 @@ registration、assignment/initializer 或 factory return，系统不把 prescan/
 
 状态：`B551-A=production-positive`；`B551-B=P0-next`；`B550=P1-next`；`B552/B553=P1-open`；
 `runner=2/2`；`human=0/2`；`active-stream=fixed-age-degrade-forbidden`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.605 B551-B：sequence 用非边 Note 无损携带 mixed typed relation
+
+copy-ready relation 投影现明确分成两个载体：call/callback 仍是唯一 sequence message edge，保留完整 `edge_anchors_json` 并继续接受原硬门；guard、registration、
+factory return、assignment/data-flow、type/binding、precedence、import、observation、temporal 与 containment 等已证非 message 关系改为 `Note over`，不生成 anchor、
+不满足 invocation authority。相同 endpoint 上多种关系造成箭头语义歧义时，也降为逐条 Note，而不是丢失事实或猜选一种边。
+
+Note 文案只提供业务可读占位提示，并明确要求模型换成当前问题的业务表述；exact endpoint participant ID、关系事实与方向仍来自 typed evidence，最终布局、措辞、
+关系取舍和结论继续由模型负责。系统没有新增业务边、没有把 return/register/guard 强转 call，也没有扫描请求或模型/终稿原文。现有 Mermaid edge parser 不把 Note
+识别为箭头，回归进一步固定非 message Note 不得出现于 anchors。
+
+`internal/agent`、`internal/tool`、`internal/orchestrator`、`internal/render`、`internal/mermaidcompat`、`internal/tracediag` 套件通过。
+Trace family、显式窗、自动补齐、因果投影、链上根因与活动流失败策略均未修改。
+
+状态：`B551-B=implemented/relevant-suites-pass/pending-r326`；`non-message-loss=closed-in-sequence-recovery`；
+`edge-authority=unchanged`；`system-answer/edge-authorship=none`；`B550=next`；Trace causal authority=`unchanged`。

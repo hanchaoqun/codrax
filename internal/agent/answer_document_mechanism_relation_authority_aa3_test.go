@@ -1038,7 +1038,7 @@ func TestMechanismRelationGraphTopologyRecognizesOnlyExactLinearGraphAA3(t *test
 	}
 }
 
-func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsAA3(t *testing.T) {
+func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA3(t *testing.T) {
 	grounded := func(id string, kind types.EvidenceKind, anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
 		return types.EvidenceItem{
 			ID: id, Kind: kind, Source: "src/registry.cpp", LineStart: line,
@@ -1066,17 +1066,20 @@ func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsA
 		"participant n1 as Logger.log",
 		"participant n2 as Sink.write",
 		"n1->>n2: call",
+		"participant n3 as SinkRegistry::create",
+		"participant n4 as ConsoleSink",
+		"Note over n3,n4: Runtime binding is verified; describe the selected implementation",
+		"Note over n3,n4: Selection condition is verified; describe the business condition",
+		"Note over n3,n4: Factory result is verified; describe the created implementation",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Logger.log","to_identity":"Sink.write","relation_kind":"call"}]` + "`",
-		"visual_omitted_relation_count=3",
-		"omitted_relation_kinds=`guard,register,return`",
+		"visual_annotation_relation_count=3",
+		"annotation_relation_kinds=`guard,register,return`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("sequence visual subset missing %q:\n%s", want, got)
 		}
 	}
 	for _, forbidden := range []string{
-		"participant n3 as SinkRegistry::create",
-		"participant n4 as ConsoleSink",
 		"n3->>n4: register",
 		"n3->>n4: guard",
 		"n3->>n4: return",
@@ -1085,7 +1088,7 @@ func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsA
 		`"relation_kind":"return"`,
 	} {
 		if strings.Contains(got[strings.Index(got, "#### Copy-ready optional typed diagram"):], forbidden) {
-			t.Fatalf("copy-ready sequence taught non-message relation %q:\n%s", forbidden, got)
+			t.Fatalf("copy-ready sequence converted a non-message Note into edge authority %q:\n%s", forbidden, got)
 		}
 	}
 }

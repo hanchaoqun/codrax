@@ -4380,3 +4380,14 @@ completion 只验 citable shape 未验 source-owned return。`B553/P1` 为纯 ti
 
 状态：`B551-A=production-positive`；`B551-B=P0-next`；`B550=P1-next`；`B552/B553=P1-open`；
 `system-answer/edge-authorship=none`；`fixed-four-minute-degrade=forbidden`；Trace causal authority=`unchanged`。
+
+#### §11.10.145 B551-B：mixed relation 在 sequence 恢复稿中不再被 call-only 压扁
+
+copy-ready sequence 现将 typed relation 分载：call/callback 维持 message arrow + exact anchor；guard、register、return、assignment/data-flow、type relation、
+precedence、import、observe、temporal、contain 等改用无 anchor 的 `Note over`。同端点多 relation 的歧义组也只发 Note，不猜选箭头。Mermaid parser/validator
+继续只把真实箭头纳入 edge authority，Note 不能偷渡调用关系。
+
+可见 Note 是模型作者需要替换的业务措辞占位，事实源仍是已有 typed evidence；系统不选业务关系、不补边、不改方向或答案。六个相关包套件全绿，Trace 与活动流策略未改。
+
+状态：`B551-B=implemented/pending-r326`；`sequence-mixed-relation=lossless-notes+strict-edges`；
+`model-authorship=preserved`；`B550=next`；Trace causal authority=`unchanged`。

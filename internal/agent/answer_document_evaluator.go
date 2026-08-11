@@ -7267,7 +7267,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, preserve its node IDs, exact edge topology, and anchor array; replace only visible node/message wording with model-authored business/domain language. Do not compose a different story graph.\n")
+		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; a Note is not an edge and cannot satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, and anchor array; replace only visible node/message wording with model-authored business/domain language. Preserve its Notes as facts while replacing their visible wording with model-authored business/domain language. Do not compose a different story graph.\n")
 		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 	if collapsedVisualDuplicates > 0 {
@@ -7563,7 +7563,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 			return
 		}
 	}
-	diagramRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
+	diagramRecipes, annotationRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
 	if len(diagramRecipes) == 0 {
 		b.WriteString("\n- No typed relation in this capsule can be represented unambiguously by the selected Mermaid family. Keep these facts in prose/notes or omit the optional diagram; do not coerce them into call arrows.\n")
 		return
@@ -7575,16 +7575,20 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		usedAliases[recipe.to] = true
 		anchors = append(anchors, recipe.typed)
 	}
+	for _, recipe := range annotationRecipes {
+		usedAliases[recipe.from] = true
+		usedAliases[recipe.to] = true
+	}
 	anchorJSON, err := json.Marshal(anchors)
 	if err != nil {
 		return
 	}
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels and messages are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as the primary arrow text. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored Notes, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, and Note text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Notes preserve already-typed non-message facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
 	if len(omittedKinds) > 0 {
-		fmt.Fprintf(b, "- visual_omitted_relation_count=%d; omitted_relation_kinds=`%s`; these remain sibling prose/Note facts, not message arrows.\n",
-			len(recipes)-len(diagramRecipes), strings.Join(omittedKinds, ","))
+		fmt.Fprintf(b, "- visual_annotation_relation_count=%d; annotation_relation_kinds=`%s`; these are preserved as unanchored Notes, not message arrows.\n",
+			len(annotationRecipes), strings.Join(omittedKinds, ","))
 	}
 	b.WriteString("\n")
 	b.WriteString("```mermaid\n")
@@ -7598,6 +7602,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		}
 		for _, recipe := range diagramRecipes {
 			fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+		}
+		for _, recipe := range annotationRecipes {
+			fmt.Fprintf(b, "  Note over %s,%s: %s\n", recipe.from, recipe.to,
+				answerDocMechanismSequenceNotePlaceholder(recipe.edge.relation))
 		}
 	} else {
 		b.WriteString("flowchart TD\n")
@@ -7624,9 +7632,9 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 // with multiple relation kinds is omitted from a copy-ready body because the
 // diagram parser cannot assign one visible arrow to several competing typed
 // authorities. The full relation capsule remains available for prose/notes.
-func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, kind types.DiagramKind) ([]answerDocMechanismRecipeRow, []string) {
+func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, kind types.DiagramKind) ([]answerDocMechanismRecipeRow, []answerDocMechanismRecipeRow, []string) {
 	if len(recipes) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	pairKinds := make(map[string]map[types.DiagramRelationKind]bool, len(recipes))
 	for _, recipe := range recipes {
@@ -7638,12 +7646,16 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 	}
 	omitted := map[string]bool{}
 	out := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+	annotations := make([]answerDocMechanismRecipeRow, 0, len(recipes))
 	seenVisualRelation := make(map[string]bool, len(recipes))
 	for _, recipe := range recipes {
 		key := recipe.from + "\x00" + recipe.to
 		representable := answerDocMechanismRelationSafeForCopyReadyDiagram(kind, recipe.edge.relation)
 		if !representable || len(pairKinds[key]) != 1 {
 			omitted[string(recipe.edge.relation)] = true
+			if kind == types.DiagramSequence && recipe.edge.relation != types.DiagramRelUnknown {
+				annotations = append(annotations, recipe)
+			}
 			continue
 		}
 		visualKey := key + "\x00" + string(recipe.edge.relation)
@@ -7658,7 +7670,43 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 		omittedKinds = append(omittedKinds, relation)
 	}
 	sort.Strings(omittedKinds)
-	return out, omittedKinds
+	return out, annotations, omittedKinds
+}
+
+// answerDocMechanismSequenceNotePlaceholder keeps copy-ready non-message
+// carriers business-readable. It is an authoring placeholder derived from an
+// already-typed relation; it does not mint authority. The model still owns the
+// final wording and conclusion. Note rows are never included in edge_anchors,
+// so a non-message fact cannot satisfy an invocation gate.
+func answerDocMechanismSequenceNotePlaceholder(relation types.DiagramRelationKind) string {
+	switch relation {
+	case types.DiagramRelCall:
+		return "Invocation is verified; describe it without adding an ambiguous arrow"
+	case types.DiagramRelCallback:
+		return "Callback handoff is verified; describe it without adding an ambiguous arrow"
+	case types.DiagramRelGuard:
+		return "Selection condition is verified; describe the business condition"
+	case types.DiagramRelRegister:
+		return "Runtime binding is verified; describe the selected implementation"
+	case types.DiagramRelAssignment, types.DiagramRelDataFlow:
+		return "Value handoff is verified; describe the business handoff"
+	case types.DiagramRelReturn:
+		return "Factory result is verified; describe the created implementation"
+	case types.DiagramRelTypeRelation:
+		return "Implementation contract is verified; describe the business role"
+	case types.DiagramRelPrecedence:
+		return "Execution order is verified; describe the business order"
+	case types.DiagramRelImport:
+		return "Source dependency is verified; describe the business dependency"
+	case types.DiagramRelObserve:
+		return "Observed attachment is verified; describe the business observation"
+	case types.DiagramRelTemporal:
+		return "Measured order is verified; do not claim causality"
+	case types.DiagramRelContain:
+		return "Ownership boundary is verified; describe the business grouping"
+	default:
+		return "A non-message fact is verified; describe it without an arrow"
+	}
 }
 
 // answerDocMechanismRelationSafeForCopyReadyDiagram is the closed
