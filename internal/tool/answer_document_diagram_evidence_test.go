@@ -147,6 +147,69 @@ func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCal
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatchesActorSelfMessagesKeepDistinctTypedOperations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant orch as Orchestrator\n  orch->>orch: 分析请求\n  orch->>orch: 执行调查图\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "orch", ToNode: "orch", FromIdentity: "Orchestrator.runAnalyzePhase", ToIdentity: "Orchestrator.dispatchStage", RelationKind: types.DiagramRelCall},
+			{FromNode: "orch", ToNode: "orch", FromIdentity: "Orchestrator.runTaskGraph", ToIdentity: "Orchestrator.runReadSchedulerLoop", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage"),
+		diagramEvidenceTestCall("Orchestrator.runTaskGraph", "Orchestrator.runReadSchedulerLoop"),
+	}
+	evidence[1].ID = "ev-run-task-graph"
+	evidence[1].LineStart = 4218
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("actor self-messages must retain their ordered typed operation identities: %+v", got)
+	}
+
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence[:1]); len(got) != 1 ||
+		got[0].Issue != diagramCallEdgeIssueNoEvidence ||
+		got[0].FromSymbol != "Orchestrator.runTaskGraph" ||
+		got[0].ToSymbol != "Orchestrator.runReadSchedulerLoop" {
+		t.Fatalf("an unproved second self-message must still fail closed on its own typed pair: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body += "  orch->>orch: 未授权动作\n"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a visible self-message without an occurrence-aligned typed pair must fail closed: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatchesActorSelfMessagesRejectHiddenTypedOperation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant orch as Orchestrator\n  orch->>orch: 分析请求\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "orch", ToNode: "orch", FromIdentity: "Orchestrator.runAnalyzePhase", ToIdentity: "Orchestrator.dispatchStage", RelationKind: types.DiagramRelCall},
+			{FromNode: "orch", ToNode: "orch", FromIdentity: "Orchestrator.runTaskGraph", ToIdentity: "Orchestrator.runReadSchedulerLoop", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage"),
+		diagramEvidenceTestCall("Orchestrator.runTaskGraph", "Orchestrator.runReadSchedulerLoop"),
+	}
+	evidence[1].ID = "ev-run-task-graph"
+	evidence[1].LineStart = 4218
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueAnchorWithoutBodyEdge ||
+		got[0].FromSymbol != "Orchestrator.runTaskGraph" ||
+		got[0].ToSymbol != "Orchestrator.runReadSchedulerLoop" {
+		t.Fatalf("a second exact operation anchor needs a second visible self-message: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallbackHandoffNeedsExactTypedDirection(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,

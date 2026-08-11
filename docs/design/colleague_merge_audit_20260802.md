@@ -5082,3 +5082,43 @@ subject、state class、display/cumulative caliber、line segment 与 selected w
 状态：`B577=pending-repeat`；`B578=implemented/pending-full-regression`；`runner=2/2`；`human=1/2`；
 `cangjie-inventory=positive`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 `active-stream-fixed-time-degrade=forbidden`；Trace explicit-window/materialization=`unchanged`。
+
+#### §11.10.186 r343：自身状态双席闭正证；调度相位污染与 actor-operation 多边冲突
+
+r343 exact-two runner 2/2、人工 1/2。Trace 案 138s，B578 production positive：因果树中同一 app sleep 物理段只剩一条
+`自身·sleep 5.000ms [E1+E2]`，rank 与 wakeup 两个证据入口合并但没有重复计量；显式 5.000..5.007s 窗、四态、链上
+VerifyClass 4.600ms、目标 runnable 0.800ms、实际占时/规则可消双轴、背景权限与因果投影均未退化。模型也不再声称直接阻塞或经典
+优先级反转，并明确 frame evidence absent；B578 因而关闭。
+
+但模型连续第二次把 `5.000000 sleep → 5.005000 sched_wakeup` 写成“唤醒延迟 5.000ms”。这次日志进一步定位到上游污染源：
+perf_triage advisory 先把 5.005800 switch-in 说成“实际被唤醒”，又把 sleep+runnable 合写成 5.8ms 阻塞；随后 finalizer 的 typed
+相位说明虽正确，模型仍受早期导航事实影响。`B577-TRACECLAIMCALIBERDRIFT1` 从 observe-repeat 升为
+`P1-soft/context-source-fix`。修复只调整 perf_triage 教学：`t_sleep→t_wake` 是 sleep/blocking，`t_wake→t_run` 是 runnable
+scheduling delay，`t_sleep→t_run` 是 total non-running；禁止把前两者混叫 wakeup latency、禁止把 switch-in 当 wakeup。该面仍是模型
+advisory，最终权威继续来自 deterministic trace_query；不扫描模型终稿、不硬拒、不删除或改写结论。
+
+read combo 案 360s，正文、阶段表和最终四阶段 precedence 图准确，人工按题面通过；但 3 次 finalizer reject 暴露新的结构 GAP。
+模型最初用一个业务友好的 `Orchestrator` actor 承载两条不同的已证内部调用：
+`runAnalyzePhase→dispatchStage` 与 `runTaskGraph→runReadSchedulerLoop`，并为每条 message 携带各自 exact
+`from_identity/to_identity`。旧校验按裸 `orch→orch` node pair 聚合全部 anchors，视为冲突，连续拒绝后迫使模型删掉两条真实关系。
+这不是模型波动，也不是证据不足，而是图中“可见 actor 载体”与“typed operation endpoint”被错误合一。立案并实现
+`B579-ACTOROPMULTIEDGE1/P1-high`：同一 raw node pair 有多个 distinct exact identity pair 时，按 Mermaid visible occurrence 与
+anchor 首次出现顺序一一绑定；只有一个 identity pair 时保留既有多 occurrence 复用语义。每个选中 pair 仍须逐条通过 citable call evidence，
+多出的可见 message 继续 fail-closed；反向基数也新增校验，多出的 exact anchor 若没有 visible occurrence，报
+`typed_anchor_without_visible_edge`，不得成为隐藏关系图。message label 只负责业务展示，不能选择、反转或证明关系。
+
+该修复与 Go/本 case 无关，适用于所有支持语言以及 sequence/call relation 中 actor、class、component 等 carrier 复用；系统不补 Mermaid
+边、不合并 participant、不改模型正文或结论。回归使用中文业务 message，钉住两条 self-message 正臂、第二条无证据、第三条无 anchor、第二个
+hidden anchor、重复同一 call-site occurrence budget 五类边界。
+
+关于“活跃连接 4 分钟没有答案是否降级”的复核结论是：**不会，也禁止这样做**。stream watchdog 的
+`modelProgressReceived` 只由已解析 reasoning/content/tool-call/finish/usage typed delta 置位；一旦存在真实模型进展，
+`2×request_timeout` transport-only 总帽退出判定域。纯 keepalive、空 data frame、malformed heartbeat 或 role-only framing 不算模型进展，
+仍由总帽兜底；真实字节静默由 stall watchdog 处理。本轮 360s 生产 eval 和
+`TestDoStreamRequest_ActiveVisibleProgressMayOutlastTotalCap` 都证明活跃模型可跨旧 4 分钟边界正常交付。任何恢复仍只能发布模型已产生载体并披露，
+不能用系统答案替换模型答案。
+
+状态：`B578=production-positive/closed`；`B577=implemented-soft-guidance/pending-r344`；
+`B579=implemented/pending-full-regression-r344`；`runner=2/2`；`human=1/2`；
+`active-stream=360s/no-elapsed-degrade`；`transport-only-cap=preserved`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。

@@ -116,14 +116,32 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 		if strictBodyCoverage {
 			effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
+			// The same visible actor/component pair may legitimately carry
+			// several operation-level calls. In that shape each distinct exact
+			// identity pair needs its own visible occurrence. Otherwise a second
+			// typed anchor could survive as a hidden graph after the model removed
+			// the corresponding message. This is an exact structured cardinality
+			// check; labels and message prose are deliberately irrelevant.
+			for _, anchor := range diagramEvidenceExcessCallIdentityAnchors(parsedEdges, effectiveAnchors) {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					FromSymbol: strings.TrimSpace(anchor.FromIdentity),
+					ToSymbol:   strings.TrimSpace(anchor.ToIdentity),
+					Relation:   types.DiagramRelCall,
+				})
+			}
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
 			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			callOccurrenceUse := make(map[string]int)
+			bodyPairOccurrence := make(map[string]int)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
-				fromSymbol, toSymbol := diagramEvidenceEdgeEndpointSymbols(
-					edge.From, edge.To, effectiveAnchors, labels, evidence,
+				occurrence := bodyPairOccurrence[key]
+				bodyPairOccurrence[key] = occurrence + 1
+				fromSymbol, toSymbol := diagramEvidenceEdgeEndpointSymbolsAtOccurrence(
+					edge.From, edge.To, occurrence, effectiveAnchors, labels, evidence,
 				)
 				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label)
 				// In a sequence diagram Mermaid's dashed -->> operator is a
@@ -361,6 +379,91 @@ func diagramEvidenceEdgeEndpointSymbols(
 	}
 	return diagramEvidenceEndpointSymbol(fromNode, labels, evidence),
 		diagramEvidenceEndpointSymbol(toNode, labels, evidence)
+}
+
+// diagramEvidenceEdgeEndpointSymbolsAtOccurrence preserves operation identity
+// when a sequence diagram intentionally reuses one actor pair for multiple
+// messages (including actor self-messages). In that Mermaid shape the visible
+// participant ids describe carriers, while the ordered edge_anchors entries
+// describe the exact operation endpoints. One unique identity pair retains the
+// legacy reusable behavior; multiple distinct pairs bind to visible edge
+// occurrences in first-appearance order. The labels remain display-only and
+// cannot choose, reverse, or authorize a relation. Missing/extra identity pairs
+// fail closed, and every selected pair is still checked against typed evidence
+// by the caller.
+func diagramEvidenceEdgeEndpointSymbolsAtOccurrence(
+	fromNode, toNode string,
+	occurrence int,
+	anchors []types.DiagramEdgeAnchor,
+	labels map[string]string,
+	evidence []types.EvidenceItem,
+) (string, string) {
+	wantKey := diagramEvidenceEdgeKey(fromNode, toNode)
+	type identityPair struct{ from, to string }
+	var pairs []identityPair
+	for i := range anchors {
+		anchor := anchors[i]
+		if diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) != wantKey || !anchor.HasEndpointIdentityPair() {
+			continue
+		}
+		candidate := identityPair{
+			from: strings.TrimSpace(anchor.FromIdentity),
+			to:   strings.TrimSpace(anchor.ToIdentity),
+		}
+		seen := false
+		for _, existing := range pairs {
+			if existing == candidate {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			pairs = append(pairs, candidate)
+		}
+	}
+	switch len(pairs) {
+	case 0:
+		return diagramEvidenceEndpointSymbol(fromNode, labels, evidence),
+			diagramEvidenceEndpointSymbol(toNode, labels, evidence)
+	case 1:
+		return pairs[0].from, pairs[0].to
+	default:
+		if occurrence < 0 || occurrence >= len(pairs) {
+			return "", ""
+		}
+		return pairs[occurrence].from, pairs[occurrence].to
+	}
+}
+
+// diagramEvidenceExcessCallIdentityAnchors returns distinct exact call
+// identity pairs that do not have a corresponding visible edge occurrence.
+// Anchor order and Mermaid occurrence order are both schema-carried order, so
+// the result is deterministic even when one actor pair hosts many operations.
+func diagramEvidenceExcessCallIdentityAnchors(edges []mermaidcompat.Edge, anchors []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {
+	bodyCount := make(map[string]int)
+	for _, edge := range edges {
+		bodyCount[diagramEvidenceEdgeKey(edge.From, edge.To)]++
+	}
+	seenPairs := make(map[string]map[string]bool)
+	var out []types.DiagramEdgeAnchor
+	for _, anchor := range anchors {
+		if diagramAnchorRelation(anchor) != types.DiagramRelCall || !anchor.HasEndpointIdentityPair() {
+			continue
+		}
+		key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+		pairKey := strings.TrimSpace(anchor.FromIdentity) + "\x00" + strings.TrimSpace(anchor.ToIdentity)
+		if seenPairs[key] == nil {
+			seenPairs[key] = make(map[string]bool)
+		}
+		if seenPairs[key][pairKey] {
+			continue
+		}
+		seenPairs[key][pairKey] = true
+		if len(seenPairs[key]) > bodyCount[key] {
+			out = append(out, anchor)
+		}
+	}
+	return out
 }
 
 func diagramEvidenceAnchorEndpointSymbols(anchor types.DiagramEdgeAnchor, labels map[string]string, evidence []types.EvidenceItem) (string, string) {
