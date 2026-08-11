@@ -4885,3 +4885,29 @@ project-orientation、runtime artifact/Trace 全部不投影。稳定 key 与既
 
 状态：`B572a=implemented`；`B572b=implemented/pending-r338`；`parser-fact-provider=exact-read-principal-only`；
 `model-copy-loop=retired`；`system-answer/diagram-authorship=none`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.177 r338：B572 降低证明抄送开销；裸节点引用与端点模式仍造成两类假绿
+
+r338 exact-two runner 2/2、人工 0/2。时序案由 r337 的 827s 降至 160s：`auto_pair_role_description` 不再制造端点声明歧义，
+已读 principal parser call 通过 `repo_map_principal_member_call` 进入 typed evidence，旧的逐条抄送 repair 循环消失，证明 B572a/b 均已进入生产路径。
+但答案仍把真实的共享汇点 `buildAnalysisIR -> gate.RunWith <- gate.Run` 说成 `gate.RunWith -> gate.Run`。finalizer 第一稿的虚构边被现有关系门正确拒绝并删除，
+错误 prose 却保留；runner 只核字符串而假绿。
+
+根因是 `B574-ENDPOINTMODEERASURE1/P1-high`：analyzer 首次已经提交 `source=buildAnalysisIR,sink=gate.Run`，只是把枚举误写成
+`sink_mode=discover`；wire validator 硬拒后，重试把两个端点同时清空为 `discover_path`，从而关闭 exact directed reachability 和 typed
+`no_directed_path` 边界。该形不是语义歧义，而是结构化 payload 内部唯一可修复的局部枚举矛盾。最优修法是在当前请求 provenance 校验前将
+“discover + 两个非空端点”规范化为 exact；若任一端点不是 typed current-request identity，既有 normalization 仍降成 discover/discover_path。
+不得扫描请求/模型/终稿文本、不得按实体提及顺序选方向，也不得让概念型空端点 discover_path 失效。
+
+类型关系案 266s、7 次 finalizer reject，最终仅剩 12 个节点和名册、没有一条关系，runner 同样假绿。`B573-FLOWALIASBARE1/P1-high`
+确认发生在共享 Mermaid 标签身份层：`AE["analyzerEvaluator\\n..."]` 是唯一显式标签，随后 subgraph 中的裸 `AE` 只是引用；当前聚合却把
+裸引用当成第二个标签 `AE`，因“冲突”删除 label mapping，使 endpoint 退化为 `AE`，exact provider 无法匹配。修复应让一个或多个裸引用继承
+唯一显式标签；两个不同显式标签仍必须 fail-closed。该规则与 Go/implements 无关，统一覆盖 flowchart 的 call/type/guard/import/data-flow 等关系。
+
+266s 的活动模型流超过四分钟但仍由原模型正常结束，未发生时长驱动的系统代答。固定累计四分钟继续不得触发答案降级、草稿替换、删答或系统结论；
+只有 transport 断链、真实停滞、调用方取消或独立安全边界可以进入恢复，恢复也只能发布模型已经产生的载体并明确披露。B573 先以共享解析层小批修复，
+B574 再以 typed schema normalization 独立提交，随后同案 r339 exact-two 回放。
+
+状态：`B571=production-positive`；`B572a/b=production-positive`；`B573=P1-high/next`；`B574=P1-high/queued`；
+`runner=2/2`；`human=0/2`；`active-stream-266s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；
+`system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
