@@ -32860,3 +32860,25 @@ registration、assignment/initializer 或 factory return，系统不把 prescan/
 
 状态：`B551-A=implemented/relevant-suites-pass/pending-r325`；`B551-B=mixed-relation visual recovery pending-production-witness`；
 `raw-prose-hard-gate=none`；`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
+
+### 123.604 r325：选择证据采集复绿，mixed relation 的成文恢复仍有损
+
+`main@c3c39e727` exact-two runner 2/2，人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_runtime_selection_r325_20260811_manual_audit.md`。两案 Analyzer 均发出精确
+`runtime_selection_required=true` 与当前请求 verbatim quote；Explorer 首次 close 被 typed selection 门拒绝，补齐 factory return / registration / assignment 后才完成，
+证明 B551-A 已在生产链生效，且不是模型波动。
+
+但 B551-B 独立幸存。C++ 首稿同时表达工厂选择、返回、构造注入、virtual dispatch 与 direct call，Python 首稿同时表达注册、查找、实例化、callback 与 MRO；
+关系硬门拒绝后，copy-ready sequence skeleton 只保留 call/callback，明确丢弃 return、registration、guard、type/binding、assignment 等 typed 事实。
+模型最终只能删除图。最优修向是在 family-neutral typed relation graph 到 Mermaid family 的映射层，为非 message 关系提供 Note/group/decision 等合法载体；
+不得把它们伪装为 call，不得由系统选择关系、补边或替写答案。exact endpoint identity 继续作为 anchor，业务参与者标签只能做展示别名/分组。
+
+同时确认三条独立债：`B550/P1` 的泛化附注来自 typed `answer_facet_coverage`，应按 exact missing facet/roster 发布可行动披露；
+`B552/P1` 的 C++ factory return 引用落在函数签名行而非 return 行，selection completion 需要 source-owned relation join；`B553/P1` 的纯 title-only 空块造成两次
+可机械消除的 missing-id 重试。三者不得通过扫描请求或终稿关键词修复。
+
+两案 146s/158s，活跃流均等待到模型答案完成，没有系统代写或固定四分钟降级。冻结红线进一步明确：流已活跃时，累计年龄超过 4 分钟不是失败信号；
+只有 typed 首字节超时、真实字节/进展停滞、连接终止或重试耗尽才允许进入恢复链，且只能保留模型已有草稿或 fail-loud 披露，不能生成系统结论。
+
+状态：`B551-A=production-positive`；`B551-B=P0-next`；`B550=P1-next`；`B552/B553=P1-open`；
+`runner=2/2`；`human=0/2`；`active-stream=fixed-age-degrade-forbidden`；Trace causal authority=`unchanged/not-exercised`。

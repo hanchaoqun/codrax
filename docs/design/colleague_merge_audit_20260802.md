@@ -4362,3 +4362,21 @@ call-only 图，再单独修视觉恢复，不把两个权限层混成一次硬�
 
 状态：`B551-A=implemented/relevant-suites-pass/pending-r325`；`B551-B=pending-r325`；`model-authorship=preserved`；
 `active-stream-fixed-4m-degrade=forbidden`；Trace causal authority=`unchanged`。
+
+#### §11.10.144 r325：B551-A 获生产正证；B551-B/B550/B552/B553 分层立案
+
+r325 exact-two runner 2/2、人工 0/2。C++ 与 Python 均由 typed runtime-selection 门阻止过早 completion，并在模型补齐 factory return、registration、
+assignment/call 后放行，B551-A 生产正证成立。成文侧仍把 mixed typed relation 投影成 call/callback-only skeleton，selection、return/construction、guard、
+registration/type/binding 与 assignment 无图层载体；正确概念图经硬拒后被删，确认 `B551-B/P0`。施工必须在 typed semantic graph 到 Mermaid family 的映射层
+保留非 message 关系，不得改关系种类/方向，不得系统画业务边或代写模型答案。
+
+`B550/P1` 确认为 `answer_facet_coverage` 的披露失真：缺口是 typed branch guard / diagram spine 等 exact facet，出厂却只有“某些维度可能不充分”。
+应按 typed cluster value 给出局部可行动附注，完整 coverage 时不发。`B552/P1` 为 selection evidence source-line 精度：factory return 事实引用了函数签名行，
+completion 只验 citable shape 未验 source-owned return。`B553/P1` 为纯 title-only 空块触发多轮 missing-id；只对无任何语义 payload 的块做机械剔除可安全降低重试。
+
+活跃流红线补钉：累计 4 分钟本身不得触发降级；heartbeat、reasoning、assistant/tool chunk 或工具执行均表示仍活跃。只有 typed 首包超时、真实停滞、断链、
+独立绝对上限或重试耗尽可进入恢复；恢复仅能发布模型已有草稿并披露，不能系统合成答案。该批未触及 Trace，显式窗、自动补齐、因果投影、链上根因与
+实际占用/规则可消双轴保持不变。
+
+状态：`B551-A=production-positive`；`B551-B=P0-next`；`B550=P1-next`；`B552/B553=P1-open`；
+`system-answer/edge-authorship=none`；`fixed-four-minute-degrade=forbidden`；Trace causal authority=`unchanged`。
