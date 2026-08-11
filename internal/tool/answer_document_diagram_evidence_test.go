@@ -1992,6 +1992,49 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedImplementAxisKeepsDirectionAfter
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ClassDiagramTypeRelationUsesCanonicalDirection(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-hierarchy", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "classDiagram\n  class Sink\n  class FileSink\n  Sink <|.. FileSink\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "FileSink", ToNode: "Sink", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisImplement}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Producer: types.EvidenceProducerRepoMapImplementerRelation,
+		Subject: "FileSink", Predicate: "implements", Object: "Sink",
+		Source: "src/file_sink.go", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("classDiagram realization must share the typed implementer direction: %+v", got)
+	}
+
+	// Removing relation ownership from the same visible class edge must no
+	// longer turn it into an invisible, validation-free presentation edge.
+	doc.Blocks[0].EdgeAnchors = nil
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("classDiagram edge without typed ownership must fail closed: %+v", got)
+	}
+
+	// A model-authored anchor in the visual left-to-right spelling is the
+	// reverse semantic relation and must not match the canonical class edge.
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "Sink", ToNode: "FileSink", RelationKind: types.DiagramRelTypeRelation,
+	}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	issues := map[string]bool{}
+	for _, mismatch := range got {
+		issues[mismatch.Issue] = true
+	}
+	if !issues[diagramCallEdgeIssueMissingRelationAnchor] || !issues[diagramCallEdgeIssueAnchorWithoutBodyEdge] {
+		t.Fatalf("left-headed class syntax must not reverse typed endpoint identity: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

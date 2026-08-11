@@ -63,6 +63,32 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignment_ExactTypedImplementerProviderO
 	}
 }
 
+func TestPreCheckDiagramCallEdgeEvidenceAlignment_ExactProviderOwnsCanonicalClassDiagramEdge(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-relations", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramArchitecture,
+			Language: "mermaid",
+			Body:     "classDiagram\n  class LoopController\n  class analyzerEvaluator\n  LoopController <|.. analyzerEvaluator",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "analyzerEvaluator", ToNode: "LoopController", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisImplement}
+
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("exact provider relation must authorize the canonical classDiagram realization edge: %+v", hints)
+	}
+
+	doc.Blocks[0].EdgeAnchors = nil
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, diagramCallEdgeIssueMissingRelationAnchor) {
+		t.Fatalf("classDiagram edge must not bypass ownership by deleting its typed anchor: %+v", hints)
+	}
+}
+
 func TestPreCheckDiagramCallEdgeEvidenceAlignment_NameOnlyTypedCandidateCannotOwnEdge(t *testing.T) {
 	candidate := exactImplementerCandidate("internal/agent/analyzer.go")
 	candidate.Precision = types.TypedRelationPrecisionNameOnly

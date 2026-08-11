@@ -34,17 +34,20 @@ type NodeDecl struct {
 const NodeShapeDecision = "decision"
 
 // ParseEdges scans a Mermaid body and returns every edge declaration it
-// can recognise. It intentionally covers the flowchart / sequenceDiagram
-// shapes Codrax asks finalizers to emit, not the whole Mermaid grammar.
+// can recognise. It covers the flowchart, sequenceDiagram, and directed
+// classDiagram relation shapes Codrax accepts on answer surfaces. The parser
+// reports syntax-level topology only; callers still own semantic relation
+// classification and evidence authority.
 func ParseEdges(body string) []Edge {
 	var edges []Edge
-	sequenceBody := false
+	sequenceBody, classBody := false, false
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.ToLower(strings.TrimSpace(raw))
 		if line == "" || strings.HasPrefix(line, "%%") {
 			continue
 		}
 		sequenceBody = strings.HasPrefix(line, "sequencediagram")
+		classBody = strings.HasPrefix(line, "classdiagram")
 		break
 	}
 	for _, raw := range strings.Split(body, "\n") {
@@ -81,6 +84,14 @@ func ParseEdges(body string) []Edge {
 			edges = appendParsedEdge(edges, from, to, label, operator)
 			continue
 		}
+		if classBody {
+			from, to, label, operator, ok := splitClassDiagramEdgeLine(line)
+			if !ok {
+				continue
+			}
+			edges = appendParsedEdge(edges, from, to, label, operator)
+			continue
+		}
 		// Mermaid permits a compact flow chain such as A --> B --> C.  Each
 		// hop is a visible relation and therefore has to survive as its own
 		// parsed edge.  SplitEdgeLine intentionally retains its historical
@@ -91,6 +102,111 @@ func ParseEdges(body string) []Edge {
 		}
 	}
 	return edges
+}
+
+type classDiagramRelationOperator struct {
+	token   string
+	reverse bool
+}
+
+// classDiagramRelationOperators is ordered longest-first where prefixes may
+// overlap. reverse means the visible relation head/owner sits on the left, so
+// the canonical semantic direction is right-to-left. This gives both UML
+// spellings of the same directed relation one endpoint convention:
+//
+//	Base <|-- Child  == Child --|> Base == Child -> Base
+//	API  <|.. Impl   == Impl  ..|> API  == Impl  -> API
+//
+// Composition/aggregation use whole -> part as their canonical direction.
+// Undirected `--` / `..` links intentionally remain outside ParseEdges: a
+// directed edge anchor cannot honestly own an undirected surface.
+var classDiagramRelationOperators = []classDiagramRelationOperator{
+	{token: "<|--", reverse: true},
+	{token: "--|>"},
+	{token: "<|..", reverse: true},
+	{token: "..|>"},
+	{token: "*--"},
+	{token: "--*", reverse: true},
+	{token: "o--"},
+	{token: "--o", reverse: true},
+	{token: "<--", reverse: true},
+	{token: "-->"},
+	{token: "<..", reverse: true},
+	{token: "..>"},
+}
+
+// splitClassDiagramEdgeLine parses one directed Mermaid class relation while
+// preserving the authored operator. It does not infer whether that relation
+// means inheritance, implementation, containment, dependency, or another
+// semantic kind; the schema-valid edge anchor and typed evidence gate decide
+// that later.
+func splitClassDiagramEdgeLine(line string) (from, to, label, operator string, ok bool) {
+	for _, relation := range classDiagramRelationOperators {
+		at, found := findFlowchartEdgeOperator(line, []string{relation.token})
+		if at < 0 || found == "" {
+			continue
+		}
+		left := strings.TrimSpace(line[:at])
+		right := strings.TrimSpace(line[at+len(found):])
+		if left == "" || right == "" {
+			return "", "", "", "", false
+		}
+		if labelAt := unquotedMermaidTokenIndex(right, " : "); labelAt >= 0 {
+			label = strings.TrimSpace(right[labelAt+3:])
+			right = strings.TrimSpace(right[:labelAt])
+		}
+		left = trimClassDiagramTrailingCardinality(left)
+		right = trimClassDiagramLeadingCardinality(right)
+		if left == "" || right == "" {
+			return "", "", "", "", false
+		}
+		if relation.reverse {
+			left, right = right, left
+		}
+		return left, right, label, found, true
+	}
+	return "", "", "", "", false
+}
+
+func trimClassDiagramTrailingCardinality(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if len(endpoint) < 3 {
+		return endpoint
+	}
+	quote := endpoint[len(endpoint)-1]
+	if quote != '\'' && quote != '"' {
+		return endpoint
+	}
+	for i := len(endpoint) - 2; i >= 0; i-- {
+		if endpoint[i] != quote || (i > 0 && endpoint[i-1] == '\\') {
+			continue
+		}
+		prefix := strings.TrimSpace(endpoint[:i])
+		if prefix != "" {
+			return prefix
+		}
+		break
+	}
+	return endpoint
+}
+
+func trimClassDiagramLeadingCardinality(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if len(endpoint) < 3 || (endpoint[0] != '\'' && endpoint[0] != '"') {
+		return endpoint
+	}
+	quote := endpoint[0]
+	for i := 1; i < len(endpoint); i++ {
+		if endpoint[i] != quote || endpoint[i-1] == '\\' {
+			continue
+		}
+		suffix := strings.TrimSpace(endpoint[i+1:])
+		if suffix != "" {
+			return suffix
+		}
+		break
+	}
+	return endpoint
 }
 
 // sequenceLineIsNonMessageDirective identifies Mermaid sequence statements

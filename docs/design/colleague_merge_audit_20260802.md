@@ -4772,3 +4772,23 @@ C++、Rust 等 provider 已支持语言。
 状态：`B568=production-positive/blocked-by-B569`；`B569=P1-high/next`；`B570=P2/open`；
 `runner=2/2`；`human=1/2`；`active-stream-447s=no-degrade`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.171 B569：classDiagram 有向关系进入共享 syntax/typed-authority 管线
+
+共享 `mermaidcompat.ParseEdges` 现识别 Mermaid classDiagram 的 12 种有向关系写法：继承 `<|--`/`--|>`、实现
+`<|..`/`..|>`、关联 `<--`/`-->`、依赖 `<..`/`..>`、组合 `*--`/`--*`、聚合 `o--`/`--o`。同一语义的左右箭头写法
+统一为 canonical endpoint direction；继承/实现为 child/implementer -> base/interface，组合/聚合为 whole -> part。类图 cardinality、
+namespace-qualified endpoint 与关系 label 均保留，quoted node label 中的箭头字节不产生伪边。无方向的 `--`/`..` 不被铸成有向事实。
+
+该层只解析模型已经画出的语法拓扑与 operator，不从 arrow、label、请求、reasoning 或答案 prose 猜 relation_kind。模型仍须在
+`edge_anchors[]` 明确提交 schema-valid relation kind，随后由既有 call/type/guard/import/contain 等 typed evidence gate 决定真值；系统不改
+Mermaid bytes、不补边、不选成员、不代写结论。因而 B568 的 exact provider 可直接授权合法 `Base <|.. Impl` 的 canonical
+`Impl -> Base` anchor，删锚现在报 missing relation owner，反向锚同时报 stale metadata，不能再把同一可见类图降格成免检 presentation。
+
+回归覆盖：12 operator matrix、cardinality/qualified endpoint、quoted literal、undirected negative；tool 层钉住 exact provider + classDiagram
+端到端正臂、删锚负臂、反向负臂。`internal/mermaidcompat`、`internal/tool`、`internal/agent`、`internal/orchestrator`、`internal/render`、
+`internal/preview`、`internal/tracediag` 全包通过。flowchart/sequence 与 runtime Trace 独立 authority 未改。
+
+状态：`B568=implemented`；`B569=implemented/pending-r337`；`B570=P2/open`；
+`class-directed-operators=12`；`raw-prose-hard-gate=none`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。

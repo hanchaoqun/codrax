@@ -136,6 +136,70 @@ func TestParseEdges_FlowchartSemicolonDoesNotBridgeIndependentStatements(t *test
 	}
 }
 
+func TestParseEdges_ClassDiagramCanonicalizesDirectedRelationEndpoints(t *testing.T) {
+	body := strings.Join([]string{
+		"classDiagram",
+		"  Base <|-- Child",
+		"  API <|.. Impl",
+		"  OtherChild --|> OtherBase",
+		"  OtherImpl ..|> OtherAPI",
+		"  Whole *-- Part : owns",
+		"  Leaf --* Root",
+		"  Aggregate o-- Item",
+		"  Entry --o Collection",
+		"  Caller --> Callee",
+		"  Parent <-- Sender",
+		"  Source ..> Target",
+		"  Destination <.. Origin",
+	}, "\n")
+	edges := ParseEdges(body)
+	want := []struct {
+		from, to, operator, label string
+	}{
+		{"Child", "Base", "<|--", ""},
+		{"Impl", "API", "<|..", ""},
+		{"OtherChild", "OtherBase", "--|>", ""},
+		{"OtherImpl", "OtherAPI", "..|>", ""},
+		{"Whole", "Part", "*--", "owns"},
+		{"Root", "Leaf", "--*", ""},
+		{"Aggregate", "Item", "o--", ""},
+		{"Collection", "Entry", "--o", ""},
+		{"Caller", "Callee", "-->", ""},
+		{"Sender", "Parent", "<--", ""},
+		{"Source", "Target", "..>", ""},
+		{"Origin", "Destination", "<..", ""},
+	}
+	if len(edges) != len(want) {
+		t.Fatalf("class relation edge count=%d, want %d: %+v", len(edges), len(want), edges)
+	}
+	for i := range want {
+		if edges[i].From != want[i].from || edges[i].To != want[i].to ||
+			edges[i].Operator != want[i].operator || edges[i].Label != want[i].label {
+			t.Fatalf("edge[%d]=%+v, want %+v", i, edges[i], want[i])
+		}
+	}
+}
+
+func TestParseEdges_ClassDiagramPreservesCardinalityAndQualifiedEndpointIdentity(t *testing.T) {
+	body := strings.Join([]string{
+		"classDiagram",
+		`  shop::Customer "1" --> "*" shop::Ticket : places`,
+		`  class Literal["A <|.. B"]`,
+	}, "\n")
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "shop::Customer" || edges[0].To != "shop::Ticket" ||
+		edges[0].Operator != "-->" || edges[0].Label != "places" {
+		t.Fatalf("class cardinality/qualified endpoint parsing changed identity: %+v", edges)
+	}
+}
+
+func TestParseEdges_ClassDiagramLeavesUndirectedRelationsOutsideDirectedAuthority(t *testing.T) {
+	edges := ParseEdges("classDiagram\n  A -- B\n  C .. D\n")
+	if len(edges) != 0 {
+		t.Fatalf("undirected class links must not mint directed semantic edges: %+v", edges)
+	}
+}
+
 func TestParseEdges_SequenceMessageColonStillParses(t *testing.T) {
 	body := "sequenceDiagram\n  participant A as service::handle\n  participant B as repo::count\n  A->>B: count(key: value)\n"
 	edges := ParseEdges(body)
