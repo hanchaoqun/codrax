@@ -4992,3 +4992,26 @@ unread/runtime/ambiguity 边界保持。
 状态：`B575=implemented/pending-r340`；`no-path-boundary-fact=exact-endpoint-to-unique-principal`；
 `arbitrary-endpoint-body-expansion=forbidden`；`raw-prose-hard-gate=none`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.182 r340：B575 方向事实闭正证；同一 typed callee 被全限定名/短名画成两个节点
+
+r340 exact-two runner 2/2、人工 1/2。类型关系案 172s、零 finalizer reject，首稿 classDiagram 即完整保留 12 条 implements 关系、production 名册与
+文件定位，B573 回归稳定。时序案 248s，B575 production positive：finalizer context 明确携带 `buildAnalysisIR -> gate.RunWith`、
+`gate.Run -> gate.RunWith` 和 exact `buildAnalysisIR -> gate.Run` 不可达三项；最终正文也按正确方向说明两个独立入边在 RunWith 汇合，r339 的
+RunWith→Run prose 反转已消失。
+
+但图仍不能判人工通过：模型声明 `n9 as gate.RunWith` 和 `n11 as RunWith` 两个 participant，再分别承接两个入边；两者实际是同一函数，文字说“共享汇合点”，
+视觉却是两个节点。确认 `B576-TYPEDENDPOINTALIASTWIN1/P1-high`：现有 `duplicate_participant_identity` 只以 endpoint 完全相同字符串分组，未利用
+同一 citable call EvidenceItem 已同时携带的 `Object=gate.RunWith` 与 `AnchorSymbol=RunWith`。这不是 fuzzy label 问题，而是 typed evidence
+同源别名未归一。
+
+最优修法是从每条 citable call row 构造 caller/callee 各自的 alias family：Subject/OwnerSymbol 只归到该 caller canonical，Object/AnchorSymbol
+只归到该 callee canonical；一个 alias 只有唯一 canonical owner 时才参与重复节点检测。同一短名若同时属于多个 owner，映射删除、保持 fail-closed；
+class/actor carrier + 不同 operation 的合法多 participant 继续通过。不得从 Mermaid label、请求、reasoning、终稿或路径猜 owner，系统只拒绝同一 typed
+identity 分裂，不合并/改写模型节点。
+
+时序模型流超过四分钟仍由原模型正常交付，无时长降级。B576 施工后用同案加异语言短名歧义 pin，随后再进入不同 read/write/Trace 优先级 eval。
+
+状态：`B575=production-positive`；`B576=P1-high/next`；`runner=2/2`；`human=1/2`；
+`active-stream-248s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。
