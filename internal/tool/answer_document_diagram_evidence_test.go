@@ -769,6 +769,60 @@ func TestDiagramCallEdgeEvidenceMismatches_InlineCodeDuplicateIdentityIsStillDia
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedAndShortTypedCalleeCannotSplitIntoTwoParticipants(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant B as buildAnalysisIR",
+			"  participant G as gate.Run",
+			"  participant RW as gate.RunWith",
+			"  participant RW2 as RunWith",
+			"  B->>RW: invoke",
+			"  G->>RW2: invoke",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "B", ToNode: "RW", RelationKind: types.DiagramRelCall},
+			{FromNode: "G", ToNode: "RW2", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	first := diagramEvidenceTestCall("buildAnalysisIR", "gate.RunWith")
+	first.AnchorSymbol = "RunWith"
+	second := diagramEvidenceTestCall("gate.Run", "gate.RunWith")
+	second.AnchorSymbol = "RunWith"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{first, second})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueDuplicateParticipant ||
+		got[0].FromNode != "RW" || got[0].ToNode != "RW2" || got[0].FromSymbol != "gate.RunWith" {
+		t.Fatalf("one typed callee's qualified and parser-short surfaces must remain one participant identity: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_AmbiguousShortCalleeAliasDoesNotChooseOwner(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant A as Caller.one",
+			"  participant B as Caller.two",
+			"  participant R as pkg.one.RunWith",
+			"  participant R2 as RunWith",
+			"  A->>R: invoke",
+			"  B->>R2: invoke",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "R", RelationKind: types.DiagramRelCall},
+			{FromNode: "B", ToNode: "R2", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	one := diagramEvidenceTestCall("Caller.one", "pkg.one.RunWith")
+	one.AnchorSymbol = "RunWith"
+	two := diagramEvidenceTestCall("Caller.two", "pkg.two.RunWith")
+	two.AnchorSymbol = "RunWith"
+	if got := diagramDuplicateTypedParticipantIdentities(doc, []types.EvidenceItem{one, two}, true); len(got) != 0 {
+		t.Fatalf("one short alias shared by multiple typed owners must remain unresolved, not choose a duplicate family: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SameLineSupportRefDoesNotChangeIdentity(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +

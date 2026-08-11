@@ -20,7 +20,7 @@ func diagramDuplicateTypedParticipantIdentities(doc *types.AnswerDocumentV2, evi
 	if doc == nil {
 		return nil
 	}
-	typedEndpoints := diagramExactTypedCallEndpoints(evidence)
+	typedEndpoints := diagramCanonicalTypedCallEndpointAliases(evidence)
 	if len(typedEndpoints) == 0 {
 		return nil
 	}
@@ -49,14 +49,15 @@ func diagramDuplicateTypedParticipantIdentities(doc *types.AnswerDocumentV2, evi
 				if identity == "" {
 					identity = alias
 				}
-				if alias == "" || identity == "" || !typedEndpoints[identity] || !callAliases[alias] {
+				canonicalIdentity, typed := typedEndpoints[strings.ToLower(identity)]
+				if alias == "" || identity == "" || !typed || canonicalIdentity == "" || !callAliases[alias] {
 					continue
 				}
-				entry := byIdentity[identity]
+				entry := byIdentity[canonicalIdentity]
 				if entry == nil {
 					entry = &diagramParticipantIdentityAliases{seen: make(map[string]bool)}
-					byIdentity[identity] = entry
-					order = append(order, identity)
+					byIdentity[canonicalIdentity] = entry
+					order = append(order, canonicalIdentity)
 				}
 				if !entry.seen[alias] {
 					entry.seen[alias] = true
@@ -112,19 +113,49 @@ func diagramCallParticipantAliases(block *types.AnswerBlock, strictBodyOwnership
 	return out
 }
 
-func diagramExactTypedCallEndpoints(evidence []types.EvidenceItem) map[string]bool {
-	out := make(map[string]bool)
+// diagramCanonicalTypedCallEndpointAliases preserves alias families already
+// carried by one citable call row. Object and AnchorSymbol are two exact
+// source representations of that row's callee, so `gate.RunWith` and
+// `RunWith` can canonicalize to the same endpoint without consulting Mermaid
+// prose or a source path. An alias that points at multiple canonical owners is
+// omitted and therefore remains fail-closed.
+func diagramCanonicalTypedCallEndpointAliases(evidence []types.EvidenceItem) map[string]string {
+	candidates := make(map[string]map[string]bool)
+	add := func(canonical string, aliases ...string) {
+		canonical = strings.TrimSpace(canonical)
+		if canonical == "" {
+			return
+		}
+		for _, alias := range aliases {
+			alias = strings.TrimSpace(alias)
+			if alias == "" {
+				continue
+			}
+			key := strings.ToLower(alias)
+			if candidates[key] == nil {
+				candidates[key] = make(map[string]bool)
+			}
+			candidates[key][canonical] = true
+		}
+	}
 	for _, item := range evidence {
 		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge {
 			continue
 		}
-		if subject := strings.TrimSpace(item.Subject); subject != "" {
-			out[subject] = true
+		add(item.Subject, item.Subject)
+		callee := strings.TrimSpace(item.Object)
+		if callee == "" {
+			callee = strings.TrimSpace(item.AnchorSymbol)
 		}
-		if object := strings.TrimSpace(item.Object); object != "" {
-			out[object] = true
-		} else if anchor := strings.TrimSpace(item.AnchorSymbol); anchor != "" {
-			out[anchor] = true
+		add(callee, item.Object, item.AnchorSymbol)
+	}
+	out := make(map[string]string)
+	for alias, owners := range candidates {
+		if len(owners) != 1 {
+			continue
+		}
+		for owner := range owners {
+			out[alias] = owner
 		}
 	}
 	return out

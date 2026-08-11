@@ -5015,3 +5015,19 @@ identity 分裂，不合并/改写模型节点。
 状态：`B575=production-positive`；`B576=P1-high/next`；`runner=2/2`；`human=1/2`；
 `active-stream-248s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.183 B576：duplicate participant 复用 typed call-row 的唯一 endpoint alias family
+
+`duplicate_participant_identity` 不再只比较 endpoint 的完全相同字符串。校验器现从每条 citable call EvidenceItem 构造两个互不串位的 family：
+caller canonical 只来自 Subject；callee canonical 来自 Object，而同一行的 Object/AnchorSymbol 都登记为该 callee 的精确 alias。Mermaid participant label
+先经既有 exact label parser，再通过 alias→canonical 映射分组；`gate.RunWith` 与 parser-short `RunWith` 因而被识别为同一 typed callee，两个 node ID
+会得到一个可执行的 duplicate repair，而不是把“汇合”画成两个节点。
+
+唯一性继续 fail-closed：若 `RunWith` 同时由 `pkg.one.RunWith` 与 `pkg.two.RunWith` 两条 typed call row 携带，该短 alias 没有唯一 owner，映射不生效；
+class/actor participant 依赖不同 message operation 的合法复用也不受影响。规则不读请求、模型 reasoning、终稿、edge label 语义或路径，不用大小写/前缀/相似度猜 owner；
+系统只拒绝 identity split，不自动合并节点、改 Mermaid、选择边或代写答案。
+
+回归覆盖 r340 的 qualified+short callee twin、跨 owner short-name ambiguity、既有 exact duplicate、class carrier 多 operation。定向测试通过，完整包回归随后记录。
+
+状态：`B576=implemented`；`typed-alias-family=per-call-row-side-aware`；`ambiguous-short=unresolved`；
+`model-diagram/answer-authorship=preserved`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
