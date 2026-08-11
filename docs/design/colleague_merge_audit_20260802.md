@@ -4470,3 +4470,16 @@ optional AxisFlow repair 在 whole story skeleton 被权限边界扣留时，现
 
 状态：`B554/B556/B557=implemented/pending-r328`；`B555=pending-r328`；`B558=watch`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.153 r328：关系骨架恢复闭正证；正文跨分量与 4 分钟活跃流残余
+
+r328 exact-two runner 2/2、人工 `fail + pass-with-caveat`。C++ 的 copy-ready sequence 已完整携带 call、return Note 与单实体 guard Note，annotation receipt
+与实际载体一致；Python 一次 patch 后保住两条 exact edge 与 registration Note，验证 B554-B557 的正向生产路径，B558 多轮风暴未复现。
+
+仍确认两项系统 gap。`B559/P1-high`：diagram edge 有 typed authority，但 ordered-list 只有 block-level claim annotation，模型可把多个 disconnected relation component
+写成一条连续路径。当前没有足够精确的 item→typed-edge/component 载体，故禁止用原文关键词、标签相似度或本 case 名称做 hard gate；后续先补 item-level authority carrier，
+再做 component-topology 校验。`B560/P0`：流式 no-visible watchdog 虽已移除，`2×request_timeout` 绝对帽仍会杀死持续 reasoning/content/tool progress 的活跃连接，
+120s 配置下即约 4 分钟。总帽只应约束无 usable model progress 的 transport-only 流；已有真实模型进展时不得因累计时长降级，更不得系统代答。
+
+状态：`B554-B557=production-positive`；`B558=close-to-watch`；`B559=carrier-first/open`；`B560=P0-next`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

@@ -33017,3 +33017,24 @@ B556 修正 optional repair 的载体选择。存在 whole-diagram capsule 时�
 
 状态：`B554=implemented/all-current-families/pending-r328`；`B556=implemented/pending-r328`；
 `B557=implemented/pending-r328`；`B555=pending-r328`；`B558=watch`；Trace causal authority=`unchanged`。
+
+### 123.613 r328：typed 图恢复获正证；列表跨分量越权与活跃流绝对帽立案
+
+`main@904f56cdd` exact-two runner 2/2，人工 `fail + pass-with-caveat`，详见
+`eval/parallel_selected_summary_evalcampaign_flow_relation_r328_20260811_manual_audit.md`。C++ prompt 的 sequence skeleton 实际带 4 条 call、2 条 return Note、
+1 条 guard Note，receipt 为 count=3/kinds=guard,return，证明 B554/B557 已在生产 prompt 生效。Python 首稿四条越权边被精确拒绝后，一次 patch 原样采用 skeleton，
+保留 run_pipeline→resolve、run_in_executor→handle 与 register/JsonPlugin binding Note；没有删图或补造桥，B555/B556 获生产正证。B558 本轮仅 0/1 次拒绝，
+从开放改为 close-to-watch。
+
+新确认 `B559-ORDEREDLISTCOMPONENTBRIDGE1/P1-high`：C++ 模型推理中已经识别三个 relation component 未证连通，终稿却写成 Logger 初始化调用 make_sink、
+返回对象最终交给 sink_ 的完整链。现 hard authority 只精确约束 diagram edge；ordered-list 的 `claim_uses` 是 block-level，无法把单个 item 绑定到具体 typed edge/component。
+因此不能靠扫描 item label/text 或终稿原文追加硬门。最优泛化形是 item-level typed relation/component carrier + topology validator；载体未建立前只保留精确 component capsule、
+soft boundary teaching 与人工 eval witness，不为当前 C++ fixture 硬拟合。
+
+另确认 `B560-ACTIVESTREAMTOTALCAP1/P0`：08-11 已删除 request-timeout 充当 no-visible-output watchdog 的误杀，但 streaming adapter 仍保留
+`2×request_timeout` 绝对总帽；当 provider 配置 120s 时，持续 hidden reasoning/assistant/tool delta 的健康连接仍会在约 4 分钟被终止。累计时长不能证明模型无进展，
+更不能授权系统代答。施工应只让该总帽约束尚无 usable model-progress 的 transport-liveness-only 连接；一旦收到真实 reasoning/content/tool/finish/usage chunk，
+继续由 byte stall、精确周期退化 breaker、外部取消与服务端 finish 收敛。恢复只能发布模型已有稿并明确披露，禁止系统生成结论。
+
+状态：`B554/B555/B556/B557=production-positive`；`B558=close-to-watch`；`B559=P1-high/design-carrier-first`；
+`B560=P0-next`；`runner=2/2`；`human=1/2`；Trace causal authority=`unchanged/not-exercised`。
