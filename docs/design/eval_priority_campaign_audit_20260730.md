@@ -31019,3 +31019,33 @@ typed prompt 已逐字给出 overlap/effective=4.600ms、actual span=5.000400..5
 状态：`B483=closed/direct-production-witness`；`B484/B485=P2-watch/model-fluctuation`；`B479/B482=P1-open`；
 `runner=2/2,human=0/2`；`trace-structural-isolation=pass`；`system-visible-answer/conclusion-rewrite=none`；
 `raw-request/model-prose-hard-gate=none`。
+
+### 123.502 B479 完成：stage authority 四消费面同源，未证 carrier 继续显式留白
+
+r277-r280 的阶段边丢失不是单纯模型波动。checkout-verified `ReadModeAuthority.Precedence` 已接入 source relation validator，但三个兄弟消费面仍只认
+Explorer 发射的普通 operation EvidenceItem：`emit_investigation_complete` 因此重复追四个 stage participant；finalizer 的 mechanism relation capsule
+把真实三边排除在 principal typed component 外，并在 repair 时只重放互不相连的 helper edge；participant boundary 教学又可能把已经由 stage
+precedence 覆盖的 stage 继续列成 `unproven`。同一条关系于是同时出现“关系门允许 / 完成门不承认 / repair 不重放 / boundary 仍索要”的确定性合同分叉。
+
+本批将完整 typed main-stage participant slate 与 checkout provider 的相关性判定收敛到 `internal/stageauthority`：必须是 read mode、非 Trace、
+`AxisFlow`、required diagram，且四个 canonical main stage 各自唯一匹配一个 `incident_required` participant；partial slate、context-only、歧义 alias、
+checkout 漂移全部 fail-closed。在此精确信号成立时：
+
+1. Explorer completion 直接把三条已证 `precedence` 视为已有 operation component，不再为四个 stage 消耗补采/低增量轮；
+2. flow participant coverage 以同一 provider 标记四个 stage 已覆盖，额外 BusContext/Mutable 若为 `incident_required` 仍走一次聚焦后 typed
+   `unproven` boundary，若 analyzer 明确标为 `context_only` 则绝不强连；
+3. finalizer mechanism relation capsule 把三条相邻 precedence 作为同一个 verified component，repair payload 不再用 helper-only component 抹掉它们；
+4. diagram boundary recipe 只发布真正未被 provider 覆盖的 participant；pre-emit 与 post-finalizer participant coverage 同源识别多行 stage/agent label，
+   不再要求“已连边 stage + unproven boundary”双重身份。
+
+系统仍不生成 Mermaid、不强制模型采用某条边、不补 BusContext/Mutable data-flow、不修改模型正文或结论。provider 只授权相邻 stage order，不能升级为
+call、artifact/value flow、shared-state connectivity 或 runtime causality。hard decision 只读 typed participant role、mode/axis/required flag 与 AST-verified
+checkout rows，不读取原始用户输入、thinking 或 final prose。Trace/QFRootCauseTrace 在共享 helper 首臂旁路，显式窗、自动补齐、因果投影、链上根因
+选举、可消除量与非链背景分层均未修改。
+
+新增回归覆盖完整 slate 正臂、partial/context-only/Trace 负臂、Explorer 首次 completion 零 downgrade、mechanism capsule 三边/单组件、仅真实 carrier
+保留 boundary recipe、复杂 stage label 的 pre/post participant coverage parity 与 stale-boundary 拒绝；`go test ./... -count=1` 全绿。
+
+状态：`B479=implemented/full-suite-pass/pending-production-replay`；`B482=P1-next`；`B484/B485=P2-watch`；
+`system-edge/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

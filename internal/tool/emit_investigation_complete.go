@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/multipath"
 	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
@@ -2187,9 +2188,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("runtime target selection remains unproven: no citable registration, assignment/initializer, or factory-return fact connected the discovered destination to the typed call path; the model must keep the destination conditional and may still summarize the proven static calls")
 	}
+	verifiedStagePrecedence := completionVerifiedReadModeStagePrecedence(ctx)
 	flowOperationMissing := resultKind == "resolved" && justification == "" &&
 		flowOperationEvidenceRequired(ctx) &&
-		!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel)
+		!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel) &&
+		len(verifiedStagePrecedence) == 0
 	if !flowOperationMissing && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowOperationCarrier)
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
@@ -2218,7 +2221,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
 	}
-	missingFlowParticipants := flowParticipantCoverageMissing(ctx, evidenceSnapshot)
+	missingFlowParticipants := flowParticipantCoverageMissing(ctx, evidenceSnapshot, verifiedStagePrecedence...)
 	if len(missingFlowParticipants) == 0 && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage)
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowParticipantCoverage)
@@ -3340,6 +3343,17 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		(rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource())
 }
 
+func completionVerifiedReadModeStagePrecedence(ctx *types.BusContext) []stageauthority.PrecedenceRelation {
+	if ctx == nil || ctx.AnalysisIR == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
+		return nil
+	}
+	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
+	if !ok || !stageauthority.MatchesRequiredMainStageParticipantSlate(ctx.AnalysisIR.RequestModel, authority.Main) {
+		return nil
+	}
+	return authority.Precedence
+}
+
 func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
 		return
@@ -3358,7 +3372,7 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.Evi
 	})
 }
 
-func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.EvidenceItem) []string {
+func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.EvidenceItem, stagePrecedence ...stageauthority.PrecedenceRelation) []string {
 	if ctx == nil || ctx.AnalysisIR == nil || !flowOperationEvidenceRequired(ctx) {
 		return nil
 	}
@@ -3376,7 +3390,7 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			continue
 		}
 		seen[key] = true
-		covered := false
+		covered := stageauthority.ParticipantHasIncidentPrecedence(rm, participant, stagePrecedence)
 		for _, operation := range operations {
 			for _, surface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
 				if types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Subject) ||

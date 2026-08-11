@@ -63,6 +63,45 @@ func TestLoadReadModeFailsClosedOnSequenceOrBindingDrift(t *testing.T) {
 	}
 }
 
+func TestMatchesRequiredMainStageParticipantSlate(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
+		}},
+	}
+	if !MatchesRequiredMainStageParticipantSlate(rm, authority.Main) {
+		t.Fatal("complete typed main-stage slate should activate verified precedence relevance")
+	}
+	for _, participant := range rm.DiagramHint.Participants[:4] {
+		if !ParticipantHasIncidentPrecedence(rm, participant, authority.Precedence) {
+			t.Fatalf("stage participant %q should be incident to verified precedence", participant.Identity)
+		}
+	}
+	if ParticipantHasIncidentPrecedence(rm, rm.DiagramHint.Participants[4], authority.Precedence) {
+		t.Fatal("context-only carrier must not acquire stage relation authority")
+	}
+
+	rm.DiagramHint.Participants[3].Role = types.DiagramParticipantContextOnly
+	if MatchesRequiredMainStageParticipantSlate(rm, authority.Main) {
+		t.Fatal("partial incident slate must fail closed")
+	}
+	rm.DiagramHint.Participants[3].Role = types.DiagramParticipantIncidentRequired
+	rm.Intent = types.IntentTrace
+	if MatchesRequiredMainStageParticipantSlate(rm, authority.Main) {
+		t.Fatal("Trace must not activate current-source stage authority")
+	}
+}
+
 func writeReadModeAuthorityFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

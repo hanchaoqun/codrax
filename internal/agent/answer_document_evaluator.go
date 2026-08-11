@@ -4048,20 +4048,28 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 		}
 		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
 		if answerDocDiagramBoundaryRecipesApply(ctx) {
-			b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
-			recipeIndex := 0
+			stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx)
+			uncovered := make([]types.DiagramParticipantHint, 0, len(dc.Participants))
 			for _, participant := range dc.Participants {
-				identity := strings.TrimSpace(participant.Identity)
-				if identity == "" || participant.Role != types.DiagramParticipantIncidentRequired {
+				if strings.TrimSpace(participant.Identity) == "" || participant.Role != types.DiagramParticipantIncidentRequired {
 					continue
 				}
-				recipeIndex++
-				quotedIdentity := strconv.Quote(identity)
-				boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
-				fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
-					recipeIndex, quotedIdentity, quotedIdentity, boundaryRow)
+				if stageauthority.ParticipantHasIncidentPrecedence(ctx.AnalysisIR.RequestModel, participant, stagePrecedence) {
+					continue
+				}
+				uncovered = append(uncovered, participant)
 			}
-			b.WriteString("- For an uncovered recipe, choose any Mermaid-safe node ID, but make that standalone node's first label line exactly `visible_disconnected_node_first_line_identity`; copy `participant_identity` byte-for-byte into the block-level boundary row. Do not connect the node merely to satisfy coverage.\n")
+			if len(uncovered) > 0 {
+				b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
+				for recipeIndex, participant := range uncovered {
+					identity := strings.TrimSpace(participant.Identity)
+					quotedIdentity := strconv.Quote(identity)
+					boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
+					fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
+						recipeIndex+1, quotedIdentity, quotedIdentity, boundaryRow)
+				}
+				b.WriteString("- For an uncovered recipe, choose any Mermaid-safe node ID, but make that standalone node's first label line exactly `visible_disconnected_node_first_line_identity`; copy `participant_identity` byte-for-byte into the block-level boundary row. Do not connect the node merely to satisfy coverage.\n")
+			}
 		}
 	}
 	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
@@ -6983,8 +6991,19 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
 	acceptedFacts := 0
 	callsiteFacts := 0
-	edges := make([]answerDocMechanismRelationEdge, 0)
+	stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx)
+	edges := make([]answerDocMechanismRelationEdge, 0, len(stagePrecedence)+8)
 	seenEdges := map[string]bool{}
+	for _, relation := range stagePrecedence {
+		from := answerDocRequestedParticipantIdentityForStageRow(ctx.AnalysisIR.RequestModel, relation.From)
+		to := answerDocRequestedParticipantIdentityForStageRow(ctx.AnalysisIR.RequestModel, relation.To)
+		loc := fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd)
+		key := strings.ToLower(string(types.DiagramRelPrecedence) + "\x00" + from + "\x00" + to + "\x00" + loc)
+		seenEdges[key] = true
+		edges = append(edges, answerDocMechanismRelationEdge{
+			from: from, to: to, relation: types.DiagramRelPrecedence, loc: loc,
+		})
+	}
 	for _, item := range evidence {
 		if !answerDocGroundedCurrentSourceMechanismFact(item) {
 			continue
@@ -7034,6 +7053,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			loc:      item.DisplayLocation(true),
 		})
 	}
+	acceptedFacts += len(stagePrecedence)
 	if acceptedFacts == 0 {
 		return ""
 	}
@@ -17734,6 +17754,37 @@ func answerDocumentHasTypedReadModeStageParticipantSlate(ctx *types.AgentContext
 		}
 	}
 	return true
+}
+
+// answerDocVerifiedReadModeStagePrecedenceForRequiredSlate is the single
+// finalizer bridge for a required current-read stage workflow. It combines the
+// schema-validated complete stage participant slate with the checkout-verified
+// provider. Partial slates, write mode, and Trace fail closed. The returned
+// rows remain precedence-only authority; they cannot authorize calls, value
+// flow, shared-state connectivity, or runtime causality.
+func answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx *types.AgentContext) []stageauthority.PrecedenceRelation {
+	if ctx == nil || ctx.AnalysisIR == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
+		return nil
+	}
+	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
+	if !ok || !stageauthority.MatchesRequiredMainStageParticipantSlate(ctx.AnalysisIR.RequestModel, authority.Main) {
+		return nil
+	}
+	return authority.Precedence
+}
+
+func answerDocRequestedParticipantIdentityForStageRow(rm types.RequestModel, row stageauthority.StageRow) string {
+	if rm.DiagramHint != nil {
+		for _, participant := range rm.DiagramHint.Participants {
+			if participant.Role == types.DiagramParticipantIncidentRequired &&
+				stageauthority.ParticipantMatchesStageRow(rm, participant, row) {
+				if identity := strings.TrimSpace(participant.Identity); identity != "" {
+					return identity
+				}
+			}
+		}
+	}
+	return strings.TrimSpace(row.AgentValue)
 }
 
 // renderAnswerDocCurrentRunStageLaneAuthority gives the answer model the

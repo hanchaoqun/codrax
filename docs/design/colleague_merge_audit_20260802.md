@@ -3282,3 +3282,18 @@ B485/P2-watch 模型波动；系统不得替换该结论。后续异构复现前
 
 状态：`B483=closed`；`B484/B485=P2-watch`；`B479/B482=P1-open`；`trace-isolation=pass`；
 `system-answer-authoring=none`；`raw-prose-hard-gate=none`。
+
+#### §11.10.48 B479 完成：stage relation 的允许、完成、repair 与 participant coverage 同源
+
+对 r277-r280 冷读确认，B479 是确定性兄弟合同分叉：`ReadModeAuthority.Precedence` 已能让 relation gate 接受三条相邻 stage edge，但 completion、
+mechanism repair capsule 和 participant boundary 仍只消费普通 EvidenceItem，导致已证 stage 一边通过、一边被当作未证并在重试中删除。
+
+现由 `stageauthority` 统一判断完整 required read-stage slate，并把同一 checkout-verified precedence 只读投影到四个消费面：Explorer completion 不再重复
+补采 stage operation；participant completion/diagram coverage 承认 stage incident；finalizer typed relation capsule/repair 保留三边单组件；boundary recipe
+仅面向真正未证的额外 carrier。partial/ambiguous/context-only/write/Trace/checkout-drift 均 fail-closed，BusContext/Mutable 未证关系不会被制造。
+
+该批不扫描 request/thinking/final prose，不生成图或边，不接管模型结论；stage order 不能升级为 call/data_flow/runtime causality。定向、四大包和
+`go test ./... -count=1` 全绿，待 exact-two production replay。
+
+状态：`B479=implemented/full-suite-pass/pending-production-replay`；`B482=P1-next`；
+`system-answer/graph-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -133,5 +134,46 @@ func TestDiagramParticipantCoverageUsesUniqueTypedDisplayAliasWithoutMintingRela
 	}}
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
 		t.Fatalf("unique typed display alias should bind the non-authoritative boundary: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageConsumesVerifiedStageAliasesInBothValidationPasses(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "stages", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A[\"StageAnalyze\\n(analyzer)\"] --> E[\"StageExplore\\n(explorer)\"]\n E --> X[\"StageExtract\\n(extractor)\"]\n X --> F[\"StageFinalize\\n(finalizer)\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "E", ToNode: "X", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "X", ToNode: "F", RelationKind: types.DiagramRelPrecedence},
+		},
+	}}}
+	ctx := &types.BusContext{RepoRoot: repoRoot, Mode: types.ModeRead, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) != 0 {
+		t.Fatalf("checkout-verified stage aliases must satisfy participant coverage without false boundaries: %+v", got)
+	}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil)
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageStaleBoundary {
+		t.Fatalf("a boundary on an authority-covered stage must be rejected as stale: %+v", got)
 	}
 }

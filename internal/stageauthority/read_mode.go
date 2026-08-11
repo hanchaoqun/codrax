@@ -54,6 +54,78 @@ type ReadModeAuthority struct {
 	Precedence           []PrecedenceRelation
 }
 
+// MatchesRequiredMainStageParticipantSlate reports whether a schema-validated
+// source-flow diagram asks for every canonical read-mode main stage as an
+// incident participant. The participant slate is planning input only: this
+// helper cannot create a relation. It merely decides whether the already
+// checkout-verified precedence rows are relevant to the current request.
+//
+// Matching is fail-closed. Every stage must resolve to exactly one distinct
+// incident participant through declaration-backed stage/agent aliases. Trace,
+// optional diagrams, context-only participants, partial slates, and ambiguous
+// aliases cannot activate the authority.
+func MatchesRequiredMainStageParticipantSlate(rm types.RequestModel, main []StageRow) bool {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		len(main) == 0 {
+		return false
+	}
+	participants := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		if strings.TrimSpace(participant.Identity) != "" && participant.Role == types.DiagramParticipantIncidentRequired {
+			participants = append(participants, participant)
+		}
+	}
+	if len(participants) < len(main) {
+		return false
+	}
+	used := make(map[int]bool, len(main))
+	for _, row := range main {
+		matches := make([]int, 0, 1)
+		for i, participant := range participants {
+			if ParticipantMatchesStageRow(rm, participant, row) {
+				matches = append(matches, i)
+			}
+		}
+		if len(matches) != 1 || used[matches[0]] {
+			return false
+		}
+		used[matches[0]] = true
+	}
+	return true
+}
+
+// ParticipantMatchesStageRow resolves one typed participant against one
+// checkout-verified row. It is shared by completion, prompt projection, and
+// participant coverage so those consumers cannot drift on stage aliases.
+func ParticipantMatchesStageRow(rm types.RequestModel, participant types.DiagramParticipantHint, row StageRow) bool {
+	for _, participantSurface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
+		for _, alias := range row.IdentityAliases() {
+			if types.AnswerCodeIdentitySurfacesEquivalent(participantSurface, alias) ||
+				types.AnswerCodeIdentitySurfacesCompatible(participantSurface, alias) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ParticipantHasIncidentPrecedence reports whether one typed incident
+// participant is an endpoint of the checkout-verified precedence component.
+// It does not inspect Mermaid labels, request prose, or model output.
+func ParticipantHasIncidentPrecedence(rm types.RequestModel, participant types.DiagramParticipantHint, relations []PrecedenceRelation) bool {
+	if participant.Role != types.DiagramParticipantIncidentRequired {
+		return false
+	}
+	for _, relation := range relations {
+		if ParticipantMatchesStageRow(rm, participant, relation.From) ||
+			ParticipantMatchesStageRow(rm, participant, relation.To) {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadReadMode verifies the checked-out source against the compiled canonical
 // stage table and sequence.  A same-named customer repository or a stale
 // binary/source pairing returns false instead of borrowing Codrax authority.

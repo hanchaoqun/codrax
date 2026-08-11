@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -40,7 +41,10 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		}
 		evidence = preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, pctx.groundCtx)
 	}
-	mismatches := DiagramParticipantCoverageMismatches(doc, view, pctx.ctx.AnalysisIR.RequestModel, evidence)
+	mismatches := DiagramParticipantCoverageMismatches(
+		doc, view, pctx.ctx.AnalysisIR.RequestModel, evidence,
+		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view)...,
+	)
 	if len(mismatches) == 0 {
 		return nil
 	}
@@ -62,6 +66,7 @@ func DiagramParticipantCoverageMismatches(
 	view *types.AnswerSemanticView,
 	rm types.RequestModel,
 	evidence []types.EvidenceItem,
+	stagePrecedence ...stageauthority.PrecedenceRelation,
 ) []DiagramParticipantCoverageMismatch {
 	if doc == nil || view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required ||
 		view.RelationAxis != types.AxisFlow || rm.Intent == types.IntentTrace ||
@@ -88,7 +93,7 @@ func DiagramParticipantCoverageMismatches(
 		states = append(states, state{
 			obligation: obligation,
 			surfaces:   surfaces,
-			covered:    diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence),
+			covered:    diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
 		})
 	}
 
@@ -190,7 +195,7 @@ func answerDocumentContainsDiagramPayload(doc *types.AnswerDocumentV2) bool {
 	return false
 }
 
-func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surfaces []string, evidence []types.EvidenceItem) bool {
+func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surfaces []string, evidence []types.EvidenceItem, stagePrecedence []stageauthority.PrecedenceRelation) bool {
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
@@ -201,7 +206,8 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
 		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
-			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
+			relations := typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]
+			if !diagramHasValidTypedRelation(relations) {
 				continue
 			}
 			from := diagramEvidenceEndpointSymbol(edge.From, labels, evidence)
@@ -209,9 +215,62 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 			if diagramParticipantSurfaceMatches(surfaces, from) || diagramParticipantSurfaceMatches(surfaces, to) {
 				return true
 			}
+			if relations[types.DiagramRelPrecedence] && diagramParticipantHasVerifiedStageIncident(
+				surfaces,
+				diagramParticipantVisibleEndpoint(edge.From, labels),
+				diagramParticipantVisibleEndpoint(edge.To, labels),
+				stagePrecedence,
+			) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func diagramParticipantVisibleEndpoint(node string, labels map[string]string) string {
+	if label := strings.TrimSpace(labels[strings.ToLower(strings.TrimSpace(node))]); label != "" {
+		return diagramEvidenceLabelSymbol(label)
+	}
+	return strings.TrimSpace(node)
+}
+
+func diagramParticipantHasVerifiedStageIncident(surfaces []string, from, to string, relations []stageauthority.PrecedenceRelation) bool {
+	matched := make([]stageauthority.PrecedenceRelation, 0, 1)
+	for _, relation := range relations {
+		if diagramStageRowIdentityMatches(relation.From, from) && diagramStageRowIdentityMatches(relation.To, to) {
+			matched = append(matched, relation)
+		}
+	}
+	if len(matched) != 1 {
+		return false
+	}
+	for _, row := range []stageauthority.StageRow{matched[0].From, matched[0].To} {
+		for _, alias := range row.IdentityAliases() {
+			if diagramParticipantSurfaceMatches(surfaces, alias) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// DiagramParticipantCoverageMismatchesWithRuntimeContext keeps pre-emit and
+// post-finalizer participant coverage on the same checkout-verified stage
+// authority. It remains document-local and does not persist derived evidence.
+func DiagramParticipantCoverageMismatchesWithRuntimeContext(
+	ctx *types.BusContext,
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	evidence []types.EvidenceItem,
+) []DiagramParticipantCoverageMismatch {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return DiagramParticipantCoverageMismatches(
+		doc, view, ctx.AnalysisIR.RequestModel, evidence,
+		diagramVerifiedReadModeStagePrecedence(ctx, view)...,
+	)
 }
 
 func diagramParticipantBlockHasVisibleNode(block types.AnswerBlock, surfaces []string) bool {

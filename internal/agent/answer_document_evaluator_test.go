@@ -8588,6 +8588,53 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedRequiredStagePartic
 	}
 }
 
+func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+		}},
+	}
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=3",
+		"typed_named_participant_relation_coverage: incident=[Analyzer Explorer Extractor Finalizer]; no_incident_typed_relation=[BusContext]",
+		"verified_relation_component_count=1",
+		"inter_component_bridge_status=`not_applicable_single_component`",
+		"node_alias[n1]=`Analyzer`",
+		"node_alias[n4]=`Finalizer`",
+		"edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
+		"edge_recipe[3]=`n3 -> n4`; relation_kind=`precedence`",
+	} {
+		if !strings.Contains(authority, want) {
+			t.Fatalf("shared stage authority missing from mechanism relation capsule %q:\n%s", want, authority)
+		}
+	}
+
+	diagramContract := &types.DiagramContract{Required: true, RequiredKind: types.DiagramFlow, Participants: participants}
+	contract := renderAnswerDocDiagramContract(ctx, diagramContract)
+	if strings.Contains(contract, `participant_identity="Analyzer"`) ||
+		strings.Contains(contract, `participant_identity="Explorer"`) ||
+		strings.Contains(contract, `participant_identity="Extractor"`) ||
+		strings.Contains(contract, `participant_identity="Finalizer"`) {
+		t.Fatalf("verified stage participants must not receive false unproven recipes:\n%s", contract)
+	}
+	if !strings.Contains(contract, `participant_identity="BusContext"`) || strings.Count(contract, "boundary_recipe[") != 1 {
+		t.Fatalf("only the genuinely unproved carrier should retain a boundary recipe:\n%s", contract)
+	}
+}
+
 func TestRenderAnswerDocCurrentRunStageLaneAuthorityTypedParticipantTriggerFailsClosed(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

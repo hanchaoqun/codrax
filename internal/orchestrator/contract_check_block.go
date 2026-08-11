@@ -2471,7 +2471,7 @@ func validateDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		evidence = mut.EmittedEvidence()
 	}
 	evidence = tool.DiagramEvidenceForValidation(bus, doc, view, evidence)
-	mismatches := tool.DiagramParticipantCoverageMismatches(doc, view, bus.AnalysisIR.RequestModel, evidence)
+	mismatches := tool.DiagramParticipantCoverageMismatchesWithRuntimeContext(bus, doc, view, evidence)
 	if len(mismatches) == 0 {
 		return nil
 	}

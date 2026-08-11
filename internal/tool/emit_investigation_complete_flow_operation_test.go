@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,6 +97,39 @@ func TestEmitInvestigationComplete_FlowOperationClosesNextAttempt(t *testing.T) 
 	}
 	if !ctx.Mutable.IsInvestigationComplete() || !strings.Contains(res.Summary, "Investigation marked complete") {
 		t.Fatalf("citable operation row should close on the next attempt: %+v", res)
+	}
+}
+
+func TestEmitInvestigationComplete_VerifiedStagePrecedenceClosesWithoutOperationReplay(t *testing.T) {
+	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.RepoRoot = repoRoot
+	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || res.Repair != nil ||
+		strings.Contains(res.Summary, "operation-level transfer") ||
+		strings.Contains(res.Summary, "participant relation remains unproven") {
+		t.Fatalf("verified stage component should close without redundant operation replay: %+v", res)
+	}
+	if got := ctx.Mutable.EvidenceClosure().Stats().PreCompleteDowngrades; got != 0 {
+		t.Fatalf("verified stage component must not spend a downgrade round, got %d", got)
 	}
 }
 
