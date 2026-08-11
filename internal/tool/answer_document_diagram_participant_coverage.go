@@ -232,8 +232,7 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 			if !diagramHasValidTypedRelation(relations) {
 				continue
 			}
-			from := diagramEvidenceEndpointSymbol(edge.From, labels, evidence)
-			to := diagramEvidenceEndpointSymbol(edge.To, labels, evidence)
+			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
 			if diagramParticipantSurfaceMatches(surfaces, from) || diagramParticipantSurfaceMatches(surfaces, to) {
 				return true
 			}

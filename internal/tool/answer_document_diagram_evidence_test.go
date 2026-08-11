@@ -1969,6 +1969,36 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypedIdentityPairKeepsBusinessDisplayOutOfAuthority(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant n1 as 合并附件并保存答案\n  participant n2 as 发布答案变更\n  n1->>n2: 持久化后提交变更\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "n1", ToNode: "n2",
+			FromIdentity: "persistMergedAnswerDocumentWithAttachmentPolicy",
+			ToIdentity:   "SetAnswerDocumentV2WithMutation",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"persistMergedAnswerDocumentWithAttachmentPolicy", "SetAnswerDocumentV2WithMutation",
+	)}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("typed endpoint selectors must let business display copy remain presentation-only: %+v", got)
+	}
+
+	// Identity selectors are not self-authenticating evidence. Repointing the
+	// same visible edge to an unsupported typed pair must still fail closed.
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "ApplyAndPersistMutation"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) == 0 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("unsupported typed identity pair must not mint a call edge: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowUniquelyProjectsShortCallEndpoints(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

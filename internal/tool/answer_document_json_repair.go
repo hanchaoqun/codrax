@@ -29,6 +29,8 @@ var answerClaimUseFieldAliases = []jsonFieldAlias{
 var answerEdgeAnchorFieldAliases = []jsonFieldAlias{
 	{Alias: "fromNode", Canonical: "from_node"},
 	{Alias: "toNode", Canonical: "to_node"},
+	{Alias: "fromIdentity", Canonical: "from_identity"},
+	{Alias: "toIdentity", Canonical: "to_identity"},
 	{Alias: "relationKind", Canonical: "relation_kind"},
 	{Alias: "claimForm", Canonical: "claim_form"},
 }

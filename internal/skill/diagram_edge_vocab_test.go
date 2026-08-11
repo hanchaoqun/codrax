@@ -68,7 +68,8 @@ func TestBuildDiagramEdgeLabelVocabularyDoc_SST(t *testing.T) {
 func TestBuildDiagramRelationContractDoc_UsesRelationKindAsSoleTypedAuthority(t *testing.T) {
 	got := BuildDiagramRelationContractDoc()
 	for _, want := range []string{
-		"exactly three fields: `{from_node, to_node, relation_kind}`",
+		"requires `{from_node, to_node, relation_kind}`",
+		"`from_identity` / `to_identity` are optional exact endpoint selectors",
 		"`relation_kind`: the sole typed relation authority",
 		`{"edge_anchors":[{"from_node":"Auth","to_node":"Worker","relation_kind":"call"}]}`,
 	} {

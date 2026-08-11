@@ -39,8 +39,9 @@ import (
 // Section flow:
 //   - Lead paragraph: typed declaration is the authoritative surface;
 //     keep label vocabulary aligned for reader clarity.
-//   - edge_anchors[] schema: from_node / to_node / relation_kind,
-//     with the relation enum derived from AllDiagramRelationKinds.
+//   - edge_anchors[] schema: required from_node / to_node / relation_kind,
+//     plus an optional producer-supplied from_identity / to_identity pair;
+//     the relation enum is derived from AllDiagramRelationKinds.
 //   - Legacy compatibility: when an edge label is provided without a
 //     typed relation_kind, the validator infers from label vocabulary.
 //     Generated bullet list reads from DiagramRelationKeywords so the
@@ -50,9 +51,10 @@ func BuildDiagramRelationContractDoc() string {
 
 	b.WriteString("Diagram edges declare a typed relation between two nodes. The TYPED declaration on `edge_anchors[]` is the authoritative surface; rendered edge labels exist for human readers.\n\n")
 
-	b.WriteString("PREFERRED: declare the relation directly via `edge_anchors[]` on the diagram block (or any block whose items describe the endpoints). Each entry has exactly three fields: `{from_node, to_node, relation_kind}`:\n\n")
+	b.WriteString("PREFERRED: declare the relation directly via `edge_anchors[]` on the diagram block (or any block whose items describe the endpoints). Each entry requires `{from_node, to_node, relation_kind}`; when a typed authoring capsule supplies them, preserve the optional `{from_identity, to_identity}` pair together:\n\n")
 	b.WriteString("- `relation_kind`: the sole typed relation authority. One of " + BuildDiagramRelationKindList() + ". Do not add another field for its evidence shape. The rendered label remains presentation text for human readers.\n")
-	b.WriteString("- `from_node` / `to_node` are the verbatim node identifiers as they appear in the diagram body.\n\n")
+	b.WriteString("- `from_node` / `to_node` are the verbatim node identifiers as they appear in the diagram body.\n")
+	b.WriteString("- `from_identity` / `to_identity` are optional exact endpoint selectors supplied by a typed capsule. They are not visible copy and do not prove a relation; preserve both or omit both. They let visible labels use concise business/domain wording without changing evidence identity.\n\n")
 	b.WriteString("For `type_relation`, preserve the exact declared-type direction: subtype / implementing type / embedded type `->` superclass / interface / trait / protocol / embedded contract. It is the shared relation for inheritance, implementation, conformance, and embedding across supported languages. `type_relation` is typed-only and requires a same-direction parser-authored relationship; rendered words such as inherits or implements never mint that authority.\n\n")
 	b.WriteString("For value/factory flow, choose the direction before drawing: `assignment` is the binding view, assigned receiver `->` bound value/type; `data_flow` is the execution-direction view of the same exact assignment/initializer, RHS value/source `->` LHS receiver; `return` is returning function `->` returned value/type. All are typed-only. `assignment` and `data_flow` require one citable exact assignment endpoint tuple, and `return` requires one citable return EvidenceItem. `data_flow` does not authorize conceptual, temporal, or cross-statement bridges. These relations must not be relabelled as `call`.\n\n")
 	b.WriteString("For deferred/dynamic execution, use `callback` only when an exact source line passes a callable value as an argument to a receiving API. Its direction is receiving API/dispatcher `->` passed callable, and it proves handoff only—not that the callback later executed. This one shape covers function values, method references, function pointers, and closures across the supported languages; use `call` separately for every direct invocation.\n\n")

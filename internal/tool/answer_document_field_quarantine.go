@@ -107,6 +107,8 @@ var (
 	answerDocumentEdgeAnchorAllowedFields = stringSet(
 		"from_node",
 		"to_node",
+		"from_identity",
+		"to_identity",
 		"relation_kind",
 		"claim_form",
 	)

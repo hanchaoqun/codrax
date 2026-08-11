@@ -51,6 +51,17 @@ func TestDiagramParticipantCoverageRequiresTypedBoundaryWithoutInventingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "Analyzer"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "Explorer"
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Participant != "MutableState" || got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("typed endpoint pair must cover business-labelled incident participants only: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageAcceptsProductionBareDisconnectedNodes(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart TD\n A[\"Analyzer\"] --> E[\"Explorer\"]\n MutableState"

@@ -4316,7 +4316,7 @@ func TestRenderAnswerDocDiagramContract_UserFacingDisplayGuidanceCoversEveryDiag
 			for _, want := range []string{
 				"USER-FACING DISPLAY LAYER",
 				"structured evidence metadata, not visible diagram copy",
-				"Keep exact source/stage identities in Mermaid node IDs and `edge_anchors`",
+				"Keep Mermaid node IDs stable and preserve producer-supplied exact source/stage endpoint selectors in `edge_anchors`",
 				"use concise domain/business actions",
 				"A display alias never proves an endpoint or relation",
 				"This guidance supplies no labels, nodes, or edges; you remain their author",
@@ -8717,7 +8717,7 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"Business wording is display-only and cannot authorize a new edge",
 		"### Verified stage-order edge recipes",
 		"one complete, checkout-verified authoring recipe",
-		"edge_anchors` entry with `relation_kind=precedence`",
+		"preserve that exact pair in `edge_anchors.from_identity/to_identity`, and set `relation_kind=precedence`",
 		"stage_precedence[1]: from_stage=`StageAnalyze` (`analyze`); from_agent=`AgentAnalyzer` (`analyzer`); to_stage=`StageExplore` (`explore`); to_agent=`AgentExplorer` (`explorer`); relation_kind=`precedence`",
 		"stage_precedence[2]: from_stage=`StageExplore` (`explore`); from_agent=`AgentExplorer` (`explorer`); to_stage=`StageExtract` (`extract`); to_agent=`AgentExtractor` (`extractor`); relation_kind=`precedence`",
 		"stage_precedence[3]: from_stage=`StageExtract` (`extract`); from_agent=`AgentExtractor` (`extractor`); to_stage=`StageFinalize` (`finalize`); to_agent=`AgentFinalizer` (`finalizer`); relation_kind=`precedence`",

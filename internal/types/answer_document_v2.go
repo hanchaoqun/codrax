@@ -293,9 +293,9 @@ type AnswerBlock struct {
 	// titles or localized prose.
 	SystemGeneratedKind AnswerSystemGeneratedBlockKind `json:"-"`
 
-	// EdgeAnchors carry typed (from_node, to_node, claim_form)
-	// triples that anchor labelled diagram edges to typed
-	// claim_form values. Phase 1-B source-fix (V2 runtime eval
+	// EdgeAnchors carry required typed node pairs and relation kinds, plus an
+	// optional exact endpoint-identity pair that decouples evidence identity
+	// from business-facing labels. Phase 1-B source-fix (V2 runtime eval
 	// followup, 2026-05-04): pre-fix, FromNode/ToNode were inner
 	// fields of RenderedClaimUse, swelling claim_use to 6 inner
 	// fields and inviting LLMs to mis-fill sibling fields like
@@ -478,11 +478,10 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 	return restamped
 }
 
-// DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds
-// a (FromNode, ToNode) pair to (a) the typed claim_form the edge
-// represents, and (b) — G3 (post_v2_runtime_gap_remediation,
-// 2026-05-04) — an OPTIONAL typed RelationKind asserting the basic
-// semantic relation directly. When RelationKind is set, the
+// DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds a
+// (FromNode, ToNode) pair to a typed RelationKind and may additionally carry
+// the exact producer-supplied (FromIdentity, ToIdentity) pair behind those
+// presentation nodes. When RelationKind is set, the
 // validator reads it as the authoritative relation (label
 // vocabulary becomes a consistency check, not the primary source);
 // when omitted, the validator falls back to the legacy
@@ -505,10 +504,28 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 // accepted only by legacy runtime paths, which may recover from an old
 // ClaimForm or fall back to label inference.
 type DiagramEdgeAnchor struct {
-	FromNode     string              `json:"from_node"`
-	ToNode       string              `json:"to_node"`
+	FromNode string `json:"from_node"`
+	ToNode   string `json:"to_node"`
+	// FromIdentity and ToIdentity preserve the exact typed endpoint pair behind
+	// presentation aliases. They are identity selectors only: RelationKind and
+	// the matching citable EvidenceItem still own whether the directed edge is
+	// true. Keeping these fields separate lets the model use concise business
+	// labels without changing or accidentally weakening evidence authority.
+	// Legacy/model-authored anchors may omit both fields and retain the
+	// fail-closed visible-label resolution path.
+	FromIdentity string              `json:"from_identity,omitempty"`
+	ToIdentity   string              `json:"to_identity,omitempty"`
 	RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
 	ClaimForm    ClaimForm           `json:"claim_form,omitempty"`
+}
+
+// HasEndpointIdentityPair reports whether both typed identity selectors are
+// present. A one-sided selector never participates in endpoint resolution.
+func (e *DiagramEdgeAnchor) HasEndpointIdentityPair() bool {
+	if e == nil {
+		return false
+	}
+	return strings.TrimSpace(e.FromIdentity) != "" && strings.TrimSpace(e.ToIdentity) != ""
 }
 
 // HasEdgeAnchor reports whether the anchor has a non-empty

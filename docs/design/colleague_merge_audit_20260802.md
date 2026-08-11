@@ -3924,3 +3924,26 @@ SSOT 教学同步要求模型只删除无出处 participant，绝不因此省略
 
 `internal/skill`、`internal/tool`、`internal/agent` 全量回归通过。状态：`B523=implemented/package-suites-pass/pending-r307`；
 `system-diagram-authoring=none`；Trace=`unchanged`。
+
+#### §11.10.106 r307：B523 生产关闭，typed endpoint 缺载体导致正确业务别名被拒
+
+exact-two runner 2/2、人工 0/2。required sequence 已稳定出厂，B523 生产关闭；742s 任务没有触发旧 1× timeout 降级，B517 获正证。但图的完整时序与业务表达仍未闭环。
+
+四轮 reject 亲证 `B524-DIAGRAMIDENTITYCARRIER1`：node ID 与方向已按系统 typed recipe 正确，模型只缩短 visible label，validator 却把 label 当 endpoint identity，拒绝
+精确 n14→n15 边并逼模型删除。根因不是 Mermaid 格式或模型随机反向，而是 edge anchor 没有独立 exact identity 字段，先前“display alias 不影响 authority”的教学与实现不一致。
+
+Trace 另确认 `B525-TRACETIMEROLE1`：20.000ms query window、20.020ms attachment extent、0.020ms post-wakeup delay 在上下文中各自真实但 role 不够突出，模型混写并给 S-state
+附加无证业务语义。后续以 typed interval role/state semantics handoff 根修，不上答案数字/词面硬门。
+
+状态：`B523=production-closed`；`B524=next`；`B525=planned`；`B521=partial`；`B522=audit-open`；Trace chain authority=`preserved`。
+
+#### §11.10.107 B524：证据端点与业务显示端点完成结构分权
+
+`DiagramEdgeAnchor` 新增 optional `from_identity/to_identity` pair。copy-ready typed recipe 保留 node ID/方向/关系，同时把 producer-supplied exact endpoint 写入该 pair；schema、JSON
+repair、quarantine、strict validator 与 participant coverage 同源消费。visible label/message 不再参与已携带 pair 的 evidence identity 选择，可由模型用业务语言表达。
+
+identity pair 不是新关系事实：仍必须命中同方向 citable EvidenceItem；改指无证据端点必拒；同一 visible edge 出现冲突 pair 也 fail-closed。旧无 pair anchors 保持既有 label resolver，
+Trace root-cause diagrams继续走独立 runtime relation authority。系统不代画、不补边、不改模型答案。
+
+相关四包全量回归通过。状态：`B524=implemented/package-suites-pass/pending-r308`；
+`model-visible-copy-ownership=preserved`；`system-relation-authoring=none`；`hard-prose-scan=none`；Trace=`unchanged`。

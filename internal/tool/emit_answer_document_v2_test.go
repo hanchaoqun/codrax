@@ -3602,7 +3602,7 @@ func TestEmitAnswerDocumentV2_RepairsAnnotationCamelCaseShape(t *testing.T) {
 			"id": "d1",
 			"kind": "diagram",
 			"diagram": {"kind": "sequence", "language": "mermaid", "body": "sequenceDiagram\nA->>B: hi"},
-			"edge_anchors": [{"fromNode": "A", "toNode": "B", "relationKind": "Call", "claimForm": "callEdge"}]
+			"edge_anchors": [{"fromNode": "A", "toNode": "B", "fromIdentity": "Pipeline.load", "toIdentity": "Pipeline.run", "relationKind": "Call", "claimForm": "callEdge"}]
 		}]
 	}`)
 	res, err := tool.Execute(bus, payload)
@@ -3625,6 +3625,8 @@ func TestEmitAnswerDocumentV2_RepairsAnnotationCamelCaseShape(t *testing.T) {
 	if got := doc.Blocks[1].EdgeAnchors; len(got) != 1 ||
 		got[0].FromNode != "A" ||
 		got[0].ToNode != "B" ||
+		got[0].FromIdentity != "Pipeline.load" ||
+		got[0].ToIdentity != "Pipeline.run" ||
 		got[0].RelationKind != types.DiagramRelCall ||
 		got[0].ClaimForm != types.ClaimCallEdge {
 		t.Fatalf("edge_anchors not normalized: %+v", got)

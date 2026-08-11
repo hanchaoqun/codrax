@@ -104,6 +104,18 @@ func TestDiagramEdgeAnchor_HasEdgeAnchor(t *testing.T) {
 	}
 }
 
+func TestDiagramEdgeAnchor_HasEndpointIdentityPair(t *testing.T) {
+	if (*DiagramEdgeAnchor)(nil).HasEndpointIdentityPair() {
+		t.Error("nil pointer must not report an endpoint identity pair")
+	}
+	if (&DiagramEdgeAnchor{FromIdentity: "Caller"}).HasEndpointIdentityPair() {
+		t.Error("one-sided endpoint identity must remain inert")
+	}
+	if !(&DiagramEdgeAnchor{FromIdentity: " Caller ", ToIdentity: "Callee"}).HasEndpointIdentityPair() {
+		t.Error("both non-empty endpoint identities must report a complete pair")
+	}
+}
+
 // G3 step 1 (post_v2_runtime_gap_remediation, 2026-05-04). Pins the
 // new RelationKind field semantics: typed enum overrides label
 // inference; unset / unknown means "fall back to label".

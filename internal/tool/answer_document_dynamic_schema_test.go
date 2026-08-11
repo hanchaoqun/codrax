@@ -90,6 +90,11 @@ func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
 	if _, leaked := edgeProps["claim_form"]; leaked {
 		t.Fatalf("edge_anchors must expose relation_kind as the sole typed relation authority; claim_form leaked: %v", edgeProps)
 	}
+	for _, identityField := range []string{"from_identity", "to_identity"} {
+		if _, ok := edgeProps[identityField]; !ok {
+			t.Fatalf("edge_anchors must expose optional typed endpoint selector %q: %v", identityField, edgeProps)
+		}
+	}
 	required := edgeItem["required"].([]any)
 	for _, want := range []string{"from_node", "to_node", "relation_kind"} {
 		found := false

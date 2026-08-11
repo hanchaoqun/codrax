@@ -122,7 +122,7 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		"participant n1 as convertTrace",
 		"participant n2 as parseTraceMark",
 		"n1->>n2: call",
-		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}]`",
+		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"convertTrace\",\"to_identity\":\"parseTraceMark\",\"relation_kind\":\"call\"}]`",
 		"typed_flow_path[1]=`readEvent -> parseTraceMark -> classifySpan`",
 	} {
 		if !strings.Contains(got, want) {
@@ -755,7 +755,7 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 		"participant n1 as Caller",
 		"participant n2 as Callee",
 		"n1->>n2: call",
-		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}]`",
+		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Caller\",\"to_identity\":\"Callee\",\"relation_kind\":\"call\"}]`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("sequence copy-ready diagram missing %q:\n%s", want, got)
@@ -992,7 +992,7 @@ func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsA
 		"participant n1 as Logger.log",
 		"participant n2 as Sink.write",
 		"n1->>n2: call",
-		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Logger.log","to_identity":"Sink.write","relation_kind":"call"}]` + "`",
 		"visual_omitted_relation_count=3",
 		"omitted_relation_kinds=`guard,register,return`",
 	} {
@@ -1121,7 +1121,7 @@ func TestMechanismRelationAuthorityPublishesSchemaNativeTypedRecipesAA3(t *testi
 		"relation_kind=`assignment`",
 		"relation_kind=`return`",
 		"relation_kind=`type_relation`",
-		"edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}`",
+		"edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Caller\",\"to_identity\":\"Callee\",\"relation_kind\":\"call\"}`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("mechanism relation authoring capsule missing %q:\n%s", want, got)

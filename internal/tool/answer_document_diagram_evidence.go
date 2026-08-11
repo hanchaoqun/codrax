@@ -122,8 +122,9 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			callOccurrenceUse := make(map[string]int)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
-				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels, evidence)
+				fromSymbol, toSymbol := diagramEvidenceEdgeEndpointSymbols(
+					edge.From, edge.To, effectiveAnchors, labels, evidence,
+				)
 				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label)
 				// In a sequence diagram Mermaid's dashed -->> operator is a
 				// response/return lane, not a second source-code invocation in
@@ -173,7 +174,9 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					}
 					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) ||
 						(relation == types.DiagramRelPrecedence &&
-							diagramStagePrecedenceHasTypedVisibleAuthority(stagePrecedence, edge.From, edge.To, labels)) {
+							diagramStagePrecedenceEdgeHasTypedAuthority(
+								stagePrecedence, edge.From, edge.To, effectiveAnchors, labels,
+							)) {
 						continue
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -230,6 +233,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 		}
 		for _, anchor := range block.EdgeAnchors {
+			fromSymbol, toSymbol := diagramEvidenceAnchorEndpointSymbols(anchor, labels, evidence)
 			// Diagram-local edge metadata describes the visible body, not a
 			// hidden replacement graph. Keep optional visuals free to show any
 			// faithful subset of the evidence, including a node-only subset with
@@ -242,8 +246,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
 					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
 					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
-					FromSymbol: diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence),
-					ToSymbol:   diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence),
+					FromSymbol: fromSymbol,
+					ToSymbol:   toSymbol,
 					Relation:   diagramAnchorRelation(anchor),
 				})
 				continue
@@ -251,8 +255,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			relation := diagramAnchorRelation(anchor)
 			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if relation == types.DiagramRelCallback {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramCallbackEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramCallbackEdgeIssueNoEvidence,
@@ -263,8 +265,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelTypeRelation {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramTypeRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramTypeRelationEdgeIssueNoEvidence,
@@ -275,8 +275,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelRegister {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramRegistrationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramRegistrationEdgeIssueNoEvidence,
@@ -287,8 +285,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			if relation == types.DiagramRelAssignment || relation == types.DiagramRelDataFlow || relation == types.DiagramRelReturn {
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramValueFlowEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
 					issue := diagramAssignmentEdgeIssueNoEvidence
 					if relation == types.DiagramRelDataFlow {
@@ -313,8 +309,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				if strictBodyEdgeKeys[anchorKey] {
 					continue
 				}
-				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
@@ -331,8 +325,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			if strictBodyEdgeKeys[anchorKey] {
 				continue
 			}
-			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
-			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 			if diagramCallAnchorHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, anchor, parsedEdges) {
 				continue
 			}
@@ -349,6 +341,58 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	return out
 }
 
+// diagramEvidenceEdgeEndpointSymbols resolves endpoint identity from the
+// structured edge anchor before consulting visible Mermaid labels. The
+// identity pair is only a selector into typed evidence; it cannot manufacture
+// relation authority. Conflicting structured pairs fail closed instead of
+// allowing display order to choose a fact.
+func diagramEvidenceEdgeEndpointSymbols(
+	fromNode, toNode string,
+	anchors []types.DiagramEdgeAnchor,
+	labels map[string]string,
+	evidence []types.EvidenceItem,
+) (string, string) {
+	fromIdentity, toIdentity, present, conflict := diagramEvidenceEdgeIdentityPair(fromNode, toNode, anchors)
+	if present {
+		if conflict {
+			return "", ""
+		}
+		return fromIdentity, toIdentity
+	}
+	return diagramEvidenceEndpointSymbol(fromNode, labels, evidence),
+		diagramEvidenceEndpointSymbol(toNode, labels, evidence)
+}
+
+func diagramEvidenceAnchorEndpointSymbols(anchor types.DiagramEdgeAnchor, labels map[string]string, evidence []types.EvidenceItem) (string, string) {
+	if anchor.HasEndpointIdentityPair() {
+		return strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(anchor.ToIdentity)
+	}
+	return diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence),
+		diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
+}
+
+func diagramEvidenceEdgeIdentityPair(fromNode, toNode string, anchors []types.DiagramEdgeAnchor) (string, string, bool, bool) {
+	wantKey := diagramEvidenceEdgeKey(fromNode, toNode)
+	var fromIdentity, toIdentity string
+	present := false
+	for i := range anchors {
+		anchor := &anchors[i]
+		if diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) != wantKey || !anchor.HasEndpointIdentityPair() {
+			continue
+		}
+		candidateFrom := strings.TrimSpace(anchor.FromIdentity)
+		candidateTo := strings.TrimSpace(anchor.ToIdentity)
+		if !present {
+			fromIdentity, toIdentity, present = candidateFrom, candidateTo, true
+			continue
+		}
+		if fromIdentity != candidateFrom || toIdentity != candidateTo {
+			return "", "", true, true
+		}
+	}
+	return fromIdentity, toIdentity, present, false
+}
+
 // diagramStagePrecedenceHasTypedVisibleAuthority resolves a Mermaid endpoint
 // label against the same checkout-verified stage rows when the generic source
 // identity resolver cannot choose one label line. A display label may carry
@@ -363,15 +407,32 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 // rejected. Mermaid node IDs are considered only for a genuinely unlabeled
 // node, so presentation aliases such as n1 never acquire authority by
 // themselves.
+func diagramStagePrecedenceEdgeHasTypedAuthority(
+	relations []stageauthority.PrecedenceRelation,
+	fromNode, toNode string,
+	anchors []types.DiagramEdgeAnchor,
+	labels map[string]string,
+) bool {
+	fromIdentity, toIdentity, present, conflict := diagramEvidenceEdgeIdentityPair(fromNode, toNode, anchors)
+	if present {
+		return !conflict && diagramStagePrecedenceHasTypedAuthority(relations, fromIdentity, toIdentity)
+	}
+	return diagramStagePrecedenceHasTypedVisibleAuthority(relations, fromNode, toNode, labels)
+}
+
 func diagramStagePrecedenceHasTypedVisibleAuthority(relations []stageauthority.PrecedenceRelation, fromNode, toNode string, labels map[string]string) bool {
 	fromStage, fromOK := diagramVisibleEndpointUniqueStage(relations, fromNode, labels)
 	toStage, toOK := diagramVisibleEndpointUniqueStage(relations, toNode, labels)
 	if !fromOK || !toOK {
 		return false
 	}
+	return diagramStagePrecedenceHasTypedAuthority(relations, fromStage, toStage)
+}
+
+func diagramStagePrecedenceHasTypedAuthority(relations []stageauthority.PrecedenceRelation, fromIdentity, toIdentity string) bool {
 	matched := false
 	for _, relation := range relations {
-		if relation.From.StageIdent != fromStage || relation.To.StageIdent != toStage {
+		if !diagramStageRowIdentityMatches(relation.From, fromIdentity) || !diagramStageRowIdentityMatches(relation.To, toIdentity) {
 			continue
 		}
 		if matched {

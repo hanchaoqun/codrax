@@ -32119,3 +32119,37 @@ Analyzer SSOT 同步明确：非法推断 participant 只删该行，required/ki
 
 状态：`B523=implemented/package-suites-pass/pending-r307`；`diagram/model-authorship=preserved`；
 `hard-final-prose-scan=none`；Trace projection/auto-supplement/on-chain root authority=`unchanged`。
+
+### 123.562 r307：required 图恢复，但显示别名仍反向污染证据身份；Trace 时间角色混写
+
+`main@77416747c` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_trace_r307_20260811_manual_audit.md`。pipeline 最终保留 required sequence，证明 B523 已生产闭环；742s 长任务也没有因
+约 4 分钟阈值发布系统降级答案，B517 获长任务不回归正证。图仍由多段断开实现关系组成，未形成完整 analyze→finalizer 主时序，Finalizer/BusContext 继续以
+unproven 断开节点出现。
+
+四次 finalizer reject 中出现精确可复现的新根因：typed recipe 要求 `n14 -> n15`，模型照做并只把可见
+`persistMergedAnswerDocumentWithAttachmentPolicy` 缩写成 `persistMergedAnswer`；validator 因 `DiagramEdgeAnchor` 不携带 exact endpoint identity，仍从显示 label 反解证据端点，
+把正确关系拒掉。模型最后删除该边才通过。立 `B524-DIAGRAMIDENTITYCARRIER1/P1-high`，以 typed edge anchor 的可选 endpoint identity pair 根修，显示文案继续由模型所有。
+
+Trace 主链、11ms IO #1、三个 1ms runnable 席与背景权限正确；但模型把 query window 20.000ms、attachment extent 20.020ms、wakeup→running 0.020ms 混写，称目标
+sleep=20.020ms、每跳均 1ms，并把未证 S-state 业务语义说成“正常等待下游响应”。立 `B525-TRACETIMEROLE1/P1-high`：按 typed interval role 同席发布三种时长与
+state semantics authority；不扫描答案数字/措辞、不系统改写结论。B522 的跨查询同测量重复继续 audit-open。
+
+状态：`B523=production-closed`；`B517=production-positive-long-task`；`B524=confirmed/next`；
+`B525=confirmed/planned`；`B521=production-partial`；`B522=audit-open`；Trace chain/background authority=`preserved`。
+
+### 123.563 B524：edge anchor 增加 exact endpoint identity carrier
+
+完成 `B524-DIAGRAMIDENTITYCARRIER1`。`DiagramEdgeAnchor` 在既有 required `from_node/to_node/relation_kind` 外，新增可选且成对使用的
+`from_identity/to_identity`：node fields 仍与 Mermaid body 节点 ID 对齐，identity fields 只选择 producer 已给出的 typed evidence endpoint。它们不是可见文案、不是 relation authority，
+也不能自证边；同方向 citable EvidenceItem 与 relation_kind 仍是硬证据合同。旧 anchor 不带 identity pair 时保持原 fail-closed label resolution，兼容历史答案。
+
+机制 relation capsule 与 copy-ready diagram 从同一 typed edge row 携带 identity pair；schema、field quarantine、camelCase JSON repair、participant incident coverage 同步消费。
+严格 validator 优先使用同一 visible edge 的唯一一致 typed pair；冲突 pair 返回空身份并拒绝，不能由显示顺序选事实。模型可把 node label/message 改成中文或业务动作，而不会再因
+缩写技术名称改变证据身份。系统未新增节点、边、方向或结论，只提供模型已选择关系的精确证据载体。
+
+回归包含：业务中文显示 + exact identity 正向通过；把 identity 改指无证据端点仍 `call_edge_unproven`；camelCase pair 可结构修复；schema/quarantine 与 copy-ready JSON 全链 pin。
+`internal/types`、`internal/skill`、`internal/tool`、`internal/agent` 全量回归通过。
+
+状态：`B524=implemented/package-suites-pass/pending-r308`；`display-copy=model-owned`；
+`typed-relation/evidence-authority=preserved`；`raw-request/model/final-prose-hard-gate=none`；Trace=`unchanged`。

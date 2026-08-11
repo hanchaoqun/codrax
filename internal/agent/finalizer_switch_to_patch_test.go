@@ -543,7 +543,7 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"n1->>n2: call",
-		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 	} {
 		if !strings.Contains(got.Hint, want) {
 			t.Errorf("first-reject optional diagram hint missing %q:\n%s", want, got.Hint)
@@ -627,7 +627,7 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramRepeatsExactTypedCapsul
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"participant n2 as Orchestrator.dispatchStage",
 		"n1->>n2: call",
-		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"same typed evidence consumed by the validator",
 		"does not rewrite the model's prose, ordering, or conclusions",
 	} {
@@ -668,7 +668,7 @@ func TestEmitAnswerDocumentRejectSignal_RequiredDiagramRepeatsExactTypedCapsule(
 		"REQUIRED diagram",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"n1->>n2: call",
-		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"source locations are evidence metadata; do not copy them as the primary visible wording",
 	} {
@@ -706,7 +706,7 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryW
 		"use each exact relation recipe below at most once",
 		"node_alias[n1]=`Orchestrator.runAnalyzePhase`",
 		"edge_recipe[1]=`n1 -> n2`",
-		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","relation_kind":"call"}` + "`",
+		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}` + "`",
 		"typed relation boundary, not a complete-flow claim",
 		"exact node alias as the Mermaid node/participant ID",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
