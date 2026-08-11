@@ -3216,7 +3216,7 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 	}
 }
 
-func TestEmitAnalysis_Execute_SeparatesSequenceParticipantsFromTableOnlyStateCarrier(t *testing.T) {
+func TestEmitAnalysis_Execute_DoesNotRewriteAnalyzerParticipantRolesAcrossAnswerSurfaces(t *testing.T) {
 	raw := "解释 read mode 从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -3251,15 +3251,16 @@ func TestEmitAnalysis_Execute_SeparatesSequenceParticipantsFromTableOnlyStateCar
 	want := []types.DiagramParticipantHint{
 		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyze"},
 		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "finalizer"},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "BusContext"},
 	}
 	if hint == nil || !reflect.DeepEqual(hint.Participants, want) {
-		t.Fatalf("participants=%+v, want relation-surface-only slate %+v", hint, want)
+		t.Fatalf("participants=%+v, want model-authored typed slate preserved %+v", hint, want)
 	}
-	if !strings.Contains(res.Summary, "separate answer surface: BusContext") {
-		t.Fatalf("summary must disclose cross-surface reconciliation: %q", res.Summary)
+	if strings.Contains(res.Summary, "removed diagram incident participant") {
+		t.Fatalf("system must not infer cross-surface ownership and delete a model-authored participant: %q", res.Summary)
 	}
 	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
-		t.Fatalf("table-only state carrier must remain available outside diagram slate: %v", got)
+		t.Fatalf("named state carrier must remain available in typed request carriers: %v", got)
 	}
 }
 
@@ -3294,6 +3295,54 @@ func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurfac
 	hint := mu.RequestModel().DiagramHint
 	if hint == nil || len(hint.Participants) != 3 {
 		t.Fatalf("an explicitly related carrier must survive diagram scoping: %+v", hint)
+	}
+}
+
+func TestEmitAnalysis_Execute_PreservesExplicitFlowCarriersWithSiblingResponsibilityDimension(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"explorer","role":"incident_required","source_quote":"explorer"},
+			{"identity":"extractor","role":"incident_required","source_quote":"extractor"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"},
+			{"identity":"Mutable","role":"incident_required","source_quote":"Mutable"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"组件","role":"stage_or_workflow","source_quote":"analyzer、explorer、extractor、finalizer","required":true},
+			{"index":2,"label":"数据流","role":"stage_or_workflow","source_quote":"数据流","required":true},
+			{"index":3,"label":"责任","role":"function_or_purpose","source_quote":"说明各组件责任","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil || !res.Success {
+		t.Fatalf("explicit flow-carrier slate should pass, err=%v result=%+v", err, res)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || len(hint.Participants) != 6 {
+		t.Fatalf("sibling answer dimensions must not erase explicit relation participants: %+v", hint)
+	}
+	for _, name := range []string{"Mutable", "BusContext"} {
+		found := false
+		for _, participant := range hint.Participants {
+			if participant.Identity == name && participant.Role == types.DiagramParticipantIncidentRequired {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("explicit flow carrier %q was not preserved: %+v", name, hint.Participants)
+		}
 	}
 }
 
@@ -3378,7 +3427,7 @@ func TestValidateRequiredFlowDiagramParticipantProvenanceDoesNotEnterTraceOrNonF
 	}
 }
 
-func TestEmitAnalysis_Execute_DropsSoleTableParticipantFromMultiSurfaceSequence(t *testing.T) {
+func TestEmitAnalysis_Execute_DoesNotDeleteSoleParticipantFromNoisyDimensionJoin(t *testing.T) {
 	raw := "解释从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出阶段、输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -3408,8 +3457,9 @@ func TestEmitAnalysis_Execute_DropsSoleTableParticipantFromMultiSurfaceSequence(
 		t.Fatalf("Execute rejected: %s", res.Summary)
 	}
 	hint := mu.RequestModel().DiagramHint
-	if hint == nil || len(hint.Participants) != 0 {
-		t.Fatalf("table-only participant must not survive as the sole sequence obligation: %+v", hint)
+	if hint == nil || len(hint.Participants) != 1 || hint.Participants[0].Identity != "BusContext" ||
+		hint.Participants[0].Role != types.DiagramParticipantIncidentRequired {
+		t.Fatalf("dimension labels are noisy and must not delete a model-authored typed participant: %+v", hint)
 	}
 	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
 		t.Fatalf("table-only participant must remain in non-diagram carriers: %v", got)

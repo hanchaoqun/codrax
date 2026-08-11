@@ -2039,10 +2039,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if dropped, warning := reconcileDiagramParticipantsWithRequestedRelationSurface(&rm); dropped > 0 {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
 	routeHint := types.TurnRouteHint{}
 	if ctx != nil {
 		routeHint = ctx.TurnRouteHint
@@ -2246,94 +2242,6 @@ func diagramParticipantProvenanceKey(raw string) string {
 			return -1
 		}
 	}, strings.TrimSpace(raw)))
-}
-
-// reconcileDiagramParticipantsWithRequestedRelationSurface prevents one
-// presentation surface from minting hard obligations on another.  The
-// analyzer may correctly preserve a state carrier for a requested table while
-// accidentally also classifying it as incident_required in a separately
-// requested sequence diagram.  Downstream participant coverage is a hard
-// contract, so that cross-surface model guess must be removed before IR
-// publication.
-//
-// The reconciliation is deliberately narrow and precision-bound. It reads no
-// request keywords or answer prose. It activates only when a normalized,
-// required stage/workflow dimension contains the exact provenance of at least
-// two incident participants, which identifies a bounded relation surface. An
-// incident participant whose own exact current-request provenance is outside
-// that surface remains available through entities and answer dimensions, but
-// no longer becomes a diagram relation obligation. Context-only rows are left
-// untouched because they cannot force an edge or exploration repair.
-func reconcileDiagramParticipantsWithRequestedRelationSurface(rm *types.RequestModel) (int, string) {
-	if rm == nil || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
-		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() ||
-		len(rm.DiagramHint.Participants) == 0 {
-		return 0, ""
-	}
-
-	bestQuote := ""
-	bestMatches := -1
-	hasSeparateRequiredSurface := false
-	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
-		quote := strings.TrimSpace(dimension.SourceQuote)
-		if !dimension.Required {
-			continue
-		}
-		if dimension.Role != types.RequestedAnswerDimensionStageWorkflow {
-			hasSeparateRequiredSurface = true
-			continue
-		}
-		if quote == "" {
-			continue
-		}
-		matches := 0
-		for _, participant := range rm.DiagramHint.Participants {
-			if participant.Role == types.DiagramParticipantIncidentRequired &&
-				diagramParticipantProvenanceWithinSurface(quote, participant) {
-				matches++
-			}
-		}
-		if matches > bestMatches {
-			bestQuote = quote
-			bestMatches = matches
-		}
-	}
-	// A lone workflow dimension may describe one diagram whose named context
-	// carrier is genuinely part of the relation.  Narrow only when the same
-	// request also carries another required visible dimension (for example the
-	// independent input/output/state-carrier table in r309/r310).  Once that
-	// typed multi-surface shape exists, zero in-scope participant matches is
-	// itself meaningful: the analyzer supplied only identities from the sibling
-	// surface, so none may become a hard diagram obligation.
-	if !hasSeparateRequiredSurface || bestQuote == "" {
-		return 0, ""
-	}
-
-	kept := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
-	var droppedNames []string
-	for _, participant := range rm.DiagramHint.Participants {
-		if participant.Role == types.DiagramParticipantIncidentRequired &&
-			!diagramParticipantProvenanceWithinSurface(bestQuote, participant) {
-			droppedNames = append(droppedNames, strings.TrimSpace(participant.Identity))
-			continue
-		}
-		kept = append(kept, participant)
-	}
-	if len(droppedNames) == 0 {
-		return 0, ""
-	}
-	rm.DiagramHint.Participants = kept
-	return len(droppedNames), fmt.Sprintf(
-		"removed diagram incident participant(s) scoped only to a separate answer surface: %s; preserved them in non-diagram request carriers",
-		strings.Join(droppedNames, ", "),
-	)
-}
-
-func diagramParticipantProvenanceWithinSurface(surfaceQuote string, participant types.DiagramParticipantHint) bool {
-	identity := strings.TrimSpace(participant.Identity)
-	quote := strings.TrimSpace(participant.SourceQuote)
-	return (identity != "" && sourceQuoteAnchoredInCurrentRequest(surfaceQuote, identity)) ||
-		(quote != "" && sourceQuoteAnchoredInCurrentRequest(surfaceQuote, quote))
 }
 
 // reconcileSourceCallChainKindFromEndpointProfile resolves one typed

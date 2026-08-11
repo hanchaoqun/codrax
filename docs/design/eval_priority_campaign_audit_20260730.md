@@ -32401,3 +32401,38 @@ tree-sitter/Cangjie parser、精确 callsite 已在本轮 read closure，缺少 
 定向回归固定：缺 support 的 decorated terminal member 仍触发 AST handoff；同语句已发/未发兄弟调用在 completeness 正/负臂严格分离；既有 Rust/Cangjie parser、regex、read closure、
 歧义与 Trace 边界继续通过。状态：`B530=implemented/targeted-pass/pending-r313`；
 `completeness-circular-prerequisite=removed`；`system-edge-synthesis=none`；`model-relation-authorship=preserved`；Trace=`unchanged`。
+
+### 123.579 r313：B530 生产闭环；跨展示面 reconciler 越权删除显式数据流参与者
+
+`main@aa57a3bae` exact-two runner 2/2，人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_relation_r313_20260811_manual_audit.md`。TypeScript 案中 Explorer 首批已发
+`dispatchOnce -> fetch` 与 `send -> nextDelay`；completion 精确指出同一已读语句仍漏 `send -> sleep`，模型补交后最终图完整保留主链、retry 分支及
+`sleep -> setTimeout`。证明 B530 能纠正一类已读 AST 部分交接，而非系统代画边；该案人工 PASS。
+
+Go 案暴露 `B531-PARTICIPANTAUTHORSHIP1/P0-redline`。Analyzer 已将 `Analyzer/Explorer/Extractor/Finalizer/Mutable/BusContext`
+六个身份分别发成 `incident_required`，与用户明确要求它们“之间的数据流”一致；随后系统
+`reconcileDiagramParticipantsWithRequestedRelationSurface` 依据 model-authored answer dimension source quote 自行删除 Mutable/BusContext。该 join 把另一 required
+“组件责任”维度误当独立展示面，并把 `数据流` 的泛化引文零匹配解释为删除权限。Explorer 因此不再收到两载体的关系义务，B529c 无机会触发；Finalizer 首稿的数据流边被证据门拒绝后，补丁只能
+保留孤立载体，正文却仍宣称各阶段经它们共享数据。
+
+这是 noisy typed-to-typed 推断驱动硬 IR 改写，同时覆盖模型已作出的合法 participant 选择；不是模型波动，也不能靠最终答案词扫或系统补边解决。最优修复是退役该 reconciler：合法、带当前请求
+verbatim provenance 的 participant slate 按模型原样发布。跨展示面角色继续由共享 Analyzer 教学约束；不确定时保留或让模型重发，系统不得从 answer dimension 标签/短引文猜 ownership 后删席。
+
+状态：`B530=production-closed`；`B531=confirmed/implement-now`；`runner=2/2`；`human=1/2`；
+`four-minute-system-degrade=none`；Trace=`not exercised/unchanged`。
+
+### 123.580 B531：退役基于 answer-dimension 推断的 participant 系统改写
+
+已删除 `reconcileDiagramParticipantsWithRequestedRelationSurface` 的生产调用与实现。`requested_answer_dimensions` 的 role/source_quote 是模型对答案展示维度的规划，无法精确证明某个已获
+CURRENT-request provenance 的 actor 只属于另一展示面；它现在不再拥有删除 `diagram_hint.participants` 的硬权限。Analyzer 选择的合法 identity/role/source_quote 原样进入
+RequestModel，下游仍必须按 incident relation 或 typed unproven 边界闭环。
+
+既有 SSOT 教学仍明确两面规则：table-only actor 应由模型不列入 diagram participant；显式要求 State/Context 参与数据流时必须发独立 incident rows。复合身份与 bare
+context-only 的结构冲突继续 fail-loud，系统不替模型拆分、改角色或删行。对确实 table-only 却被模型误发 incident 的情况，本批选择保留模型责任并允许后续 typed
+unproven/证据闭环，不再以噪声维度 join“纠正”它；若后续稳定复现，应增加 schema-owned surface carrier 后要求模型重发，而不是恢复确定性删除。
+
+回归固定三形：显式六参与者数据流即使另有“组件责任”维度也全部保留；sequence+独立表格的错误 incident 行不再被系统静默删除；零匹配/单 participant 不能因短 dimension label 被清空。
+该批不扫描用户/模型/答案 prose，不生成关系、图或结论，不改 Trace 因果投影、自动补齐、链上根因与四分钟活动流策略。
+
+状态：`B531=implemented/targeted-pass/pending-r314`；`participant-authorship=model`；
+`system-participant-delete=retired`；`dimension-join-hard-authority=none`；Trace=`unchanged`。

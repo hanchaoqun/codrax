@@ -4028,6 +4028,19 @@ diagram+table 多面隔离；正反 pin 与相关六包全量通过。
 状态：`B527=implemented/pending-replay`；`participant-hard-authority=cross-surface-reconciled`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
 
+#### §11.10.123 r313 / B531：parser handoff 闭环，participant 系统删席退役
+
+r313 TypeScript 最终补齐 `dispatchOnce -> fetch`、`send -> nextDelay/sleep`，B530 获得生产正证并关闭。Go 案则确认 B527/B527b 的跨展示面 reconciler 违反更高层所有权：Analyzer
+已按用户“六者之间的数据流”正确发出六个 incident participant，系统却依据另一个 model-authored answer dimension 及零匹配短引文删除 Mutable/BusContext，导致后续取证义务消失、图中
+载体孤立。
+
+现退役该生产 reconciler 及其确定性删席实现。合法 participant slate 原样发布；跨展示面范围依赖 Analyzer SSOT 教学和模型 typed role，复合 participant / bare context-only 的既有
+结构 fail-loud 仍保留。answer dimension 标签与 source_quote 不再拥有 participant 删除权，系统不补边、不画图、不改结论。新增 r313 六席+责任维度、table-only 误分类保留及零匹配单席三组
+反回归。
+
+状态：`B530=production-closed`；`B531=implemented/pending-r314`；`system-participant-rewrite=retired`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。
+
 #### §11.10.115 r310：两种 participant scope 均表面通过，人工关系审计均失败
 
 runner 2/2、人工 0/2。图+表案只剩一个 table-only BusContext participant，绕过 B527 首版双匹配阈值；终图把 BuildAgentContext 的证据身份显示成 BusContext，又同时披露
