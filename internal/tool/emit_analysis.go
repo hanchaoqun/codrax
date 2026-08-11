@@ -1889,6 +1889,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			val.Warnings = append(val.Warnings, warning)
 		}
 	}
+	if normalized, warning := normalizeCallChainEndpointWireShape(p.CallChainEndpoints); warning != "" {
+		p.CallChainEndpoints = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if issue := validateCallChainEndpointWireShape(kind, axis, runtimeArtifactCarrier, p.CallChainEndpoints, exactTargets); issue != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),

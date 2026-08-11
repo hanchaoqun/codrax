@@ -4927,3 +4927,24 @@ B574 再以 typed schema normalization 独立提交，随后同案 r339 exact-tw
 
 状态：`B573=implemented`；`bare-reference=non-competing`；`explicit-label-conflict=fail-closed`；
 `typed-relation-authority=unchanged`；`system-answer/edge-authorship=none`；`B574=P1-next`；Trace causal authority=`unchanged`。
+
+#### §11.10.179 B574：双端点 discover 枚举矛盾局部自愈，精确方向权限不再被重试抹除
+
+`emit_analysis` 现于 provenance normalization 前处理唯一可由结构化字段本身完全确定的 call-chain wire 矛盾：当
+`sink_mode=discover` 同时携带非空 ordered `source` 和 `sink` 时，把枚举规范化为 `exact`，原样保留两个模型提交的端点，并在 tool summary
+记录 normalization。该规则不读取用户/模型/终稿 prose，不按 entities 或提及顺序选择方向，也不发明任何 endpoint。
+
+枚举修复不等于确权。修正后的 exact pair 随即进入既有 current-request provenance normalization：两端都获精确 provenance 才形成 exact authority；
+只有 source 获证则降为 discover；两端均未获证则清空为 discover_path，由 grounded exploration 选择。显式空端点 discover_path 保持原义，
+`discover_path + candidate endpoint` 和其余非法 wire shape 继续 fail-loud。这样 r338 的 `buildAnalysisIR/gate.Run` 不会因一次 enum 失误在重试中丢掉
+directed reachability/no-directed-path 合同，同时概念路径请求不会被强行具体化。
+
+回归钉住两端均有 provenance 时 discover→exact 且方向/字节不变；虚构双端点经过相同 enum repair 后仍降为 authority-free discover_path；
+既有 discover_path candidate 拒绝与 exact-target contradiction 测试保持。系统仍只维护分析 IR 的 typed 约束，不改 AnswerDocument、Mermaid 或模型结论。
+
+流式路径同时复核：SSE total wall-clock cap 仅在 `modelProgressReceived=false` 时生效；reasoning/content/tool delta 任一真实进展后，累计四分钟及更长时间
+不能触发系统代答、删答、草稿替换或结论降级。首字节超时、真实字节静默、精确重复退化、调用方取消和纯 keep-alive transport cap 仍是独立精确信号。
+
+状态：`B574=implemented`；`discover+two-endpoints=normalize-exact-before-provenance`；
+`unproven-candidates=discover-path`；`raw-prose-hard-gate=none`；`fixed-four-minute-active-degrade=forbidden`；
+`system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
