@@ -4494,3 +4494,16 @@ OpenAI-compatible SSE adapter 现把绝对总帽严格限定在“只有传输�
 
 状态：`B560=implemented`；`fixed-four-minute-active-degrade=retired`；`transport-only-cap=retained`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.155 r329：部分验证通过被终态文案抹零，Trace 机理口径再次越权
+
+r329 exact-two runner 1/2、人工 0/2。Trace 的请求窗、自动补采、链上根因/可消量、确定性语义优化、调度供给、背景隔离和因果投影均未回归；模型仍把
+`pre_wakeup_dependency` 的重叠候选解释成“等待上游工作完成”，而该 span 在 wake 后仍延续 0.400ms，typed context 也明确 direct blocking 未证。
+该复现归 `B544=P1-soft`，只增强 typed 机理/端点上下文或未来 answer-side structured carrier，不以模型/答案原文作硬门。
+
+write 案确认新的 `B561/P1-high`：报告内已有 `make-test passed=true`，但 Java runner_missing 使总体 unavailable 后，controller/final 两面均只显示不可用原因，
+最终谎称“没有断言验证过”。正确口径应是“局部源码检查已通过；Java 行为验证不可用，故仍未完全验证”。判定与文案必须共同从 typed report 派生，
+保留 partial evidence 但禁止由此升级 verified。
+
+状态：`B544=recurrent/P1-soft`；`B561=next`；`partial-pass-evidence=currently-hidden`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

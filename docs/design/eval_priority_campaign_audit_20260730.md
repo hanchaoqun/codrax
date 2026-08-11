@@ -33054,3 +33054,20 @@ keep-alive-only 负臂继续在总帽失败。
 
 状态：`B560=implemented/relevant-suites-pass`；`active-model-progress=no-elapsed-time-degrade`；
 `transport-only=bounded`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+### 123.615 r329：Trace 机理越权复现与部分验证证据投影丢失
+
+`main@d18977f54` exact-two runner 1/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_stream_crossmode_r329_20260811_manual_audit.md`。Trace 案完整保留显式 7ms 请求窗、四态账、typed 唤醒链、类校验
+4.600ms 链上可消席、目标 runnable 0.800ms、实际占用/规则可消双轴、背景权限、因果投影与自动补采；但模型再次把
+`pre_wakeup_dependency` 写成“app 等 worker 完成类校验后才被唤醒”。实际 span 结束 5.005400s、wake 为 5.005000s，且模型上下文已有
+`wakeup_path_blocking_authority=not_implied`。因此 `B544` 从 watch 提升为 `P1-soft/context-carrier-first`：后续增强 typed 时间端点/机理载体显著性，
+禁止扫描终稿关键词硬门或系统替换结论。
+
+Java write 案的 patch 正确；计划同时携带 Python 源码 oracle 和 Java 行为 probe。`make check` 实际成功执行并保留 1 条 passed TestResult，Java probe/direct-main
+因 JDK 缺失 unavailable，整体不标 verified 是正确的。但 write-controller prompt 只投影 failure summary，unverified card 又固定声称“没有断言验证过”，模型遂错误说
+Python 检查也依赖 Java。确认 `B561-PARTIALVERIFYPROJECTION1/P1-high`：从 typed TestResults/verification status 同源发布部分通过证据，同时保留完整行为验证未闭合；
+绝不把静态检查冒充 Java 运行时证明。
+
+状态：`B544=P1-soft/recurrent`；`B561=P1-high/next`；`runner=1/2`；`human=0/2`；
+`partial-verification=preserve-without-promotion`；Trace causal authority=`unchanged`。
