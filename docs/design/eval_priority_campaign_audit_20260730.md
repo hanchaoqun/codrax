@@ -32166,3 +32166,20 @@ IPC、timer/event 或主因机制仍需独立 typed relation。post-wakeup runna
 
 状态：`B525=implemented/agent-suite-pass/pending-r308`；`time-value-authority=typed-role-only`；
 `model-conclusion-ownership=preserved`；`Trace projection/ranking/auto-supplement=unchanged`。
+
+### 123.565 r308：时间数值角色生效；完整关系图仍被不完整 recipe 集压缩
+
+`main@01c6cc4c9` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_trace_r308_20260811_manual_audit.md`。Trace 最终已把 query window 与 target sleep 固定为 20.000ms，20.020ms 只留在 attachment
+extent provenance，B525 数值/窗口角色获生产正证；typed wakeup path、11ms IO #1、三个 1ms runnable 席及 background 权限均保留。但模型仍把 S-state 说成“等待下游线程完成”，
+并把窗外 2.020020 sched-in 写成窗口内恢复运行；final tail 已精确声明两项不授权，因此先记 mechanism wording production-negative/model-noncompliance，不追加答案 prose 硬门。
+
+pipeline 的 B524 endpoint identity pair 全程有效：最终 anchor 均携带 exact identity，显示 alias 未再反向污染证据端点。但 required sequence 仍只剩两个断开分量，literal
+`calls/precedence`、源码行及内部函数继续占据可见图层。首稿为了完整流程画入无 typed relation 的桥，正确被拒；二稿误用 participant boundary；三稿只能删除缺证边后通过。
+最终 typed recipe 只有 5 条，而已落地 prose/member evidence 覆盖更多流程节点，确认新的泛化 `B526-DIAGRAMRELPLAN1/P1-high`：关系型必需图的 evidence plan/completion/carrier
+没有保证每个拟解释连接获得精确 relation row。最优修向是补关系证据规划与缺边 typed roster，不是放宽 validator、扫描答案或系统代画。
+
+pipeline 用时 286s，活跃流式越过四分钟仍正常返回模型答案，未发布系统降级回复，B517 获第二个生产正证。B522 的 target sleep 双行仍在，继续 audit-open。
+
+状态：`B524=production-positive`；`B525=numeric-role-production-positive/mechanism-wording-negative`；
+`B526=confirmed/next-high-ROI`；`B517=production-positive×2`；`B522=audit-open`；`runner=2/2`；`human=0/2`。

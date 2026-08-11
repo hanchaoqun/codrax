@@ -3957,3 +3957,15 @@ Trace root-cause diagrams继续走独立 runtime relation authority。系统不�
 prose hard gate、零系统答案改写，投影/排名/可消除量/自动补齐/链上主因均不变。定向与 `internal/agent` 全量测试通过。
 
 状态：`B525=implemented/agent-suite-pass/pending-r308`；`model-conclusion-ownership=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.109 r308：endpoint 分权已生效，关系证据规划未覆盖完整必需图
+
+exact-two runner 2/2、人工 0/2。Trace 的 20.000ms selected-window sleep 不再被 20.020ms attachment extent 覆盖，B525 数值 role 生效；模型仍越过精确 final ceiling 给
+S-state 添加“等待下游完成”语义并引用窗外 sched-in，先按非确定性服从问题留作异构回放，不用模型/答案关键词做硬门。主链排名、IO/调度/背景权限无回归。
+
+pipeline 中 B524 exact endpoint pair 消除了显示 alias 误拒，但 typed relation recipe 只覆盖 5 条关系。模型首稿依据 prose/member evidence 画完整流程时，缺证桥被正确拒绝；随后只能删成
+两个断开子图才通过，仍显示内部 relation enum/源码位置。立 `B526-DIAGRAMRELPLAN1/P1-high`：required relationship visual 的调查计划和完成条件必须按目标关系补齐 typed relation rows，
+并显式发布缺边 roster；不得靠宽松校验、最终 prose 扫描或系统代画关系。
+
+286s 活跃流仍获得模型答案，未发生四分钟降级。状态：`B524=production-positive`；`B525=numeric-positive/semantic-negative`；
+`B526=confirmed/next`；`B517=production-positive×2`；`B522=audit-open`。
