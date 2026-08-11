@@ -5031,3 +5031,24 @@ class/actor participant 依赖不同 message operation 的合法复用也不受�
 
 状态：`B576=implemented`；`typed-alias-family=per-call-row-side-aware`；`ambiguous-short=unresolved`；
 `model-diagram/answer-authorship=preserved`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.184 r341：B576 生产闭环；写模式单批 patch/verify 正证
+
+r341 继续遵守 exact-two，并把维度从同类关系双跑切换为「时序关系 + 写模式」。runner 2/2、人工 2/2。
+
+时序案 165s、零 finalizer reject。最终 Mermaid 只声明一个 `gate.RunWith` participant，`buildAnalysisIR` 和 `gate.Run`
+分别以各自已证 call row 指向同一汇点；正文同步说明 `buildAnalysisIR -> gate.Run` 不可达，没有再出现 r339 的方向反转或 r340 的双节点假汇合。
+这证明 B576 的 side-aware typed alias family 已进入生产路径。校验器没有合并或改写图、没有补边，也没有替模型生成结论。
+
+写模式案 96s。ChangePlan 只有一个 `kind=patch` 的 `main.go` 目标，统一 diff 只将第 25 行 `retrun` 改为 `return`；
+应用引擎为 `structured_builder/git_apply`。随后 verifier 从 typed TestSurface 选择 `go test -json ./...`，exit=0、1/1 测试通过，
+changed-path coverage 明确为 `main.go/covered/project_runner/target_behavior`，最终 workflow 只在 `batch_verified/tests_passed` 后 finish。
+该案是单批 plan→apply→verify 正证，不经过 replan，不能被外推成对历史 T7-1「重规划后累计验证域」的替代验收；本轮未发现新的写模式高危 GAP。
+
+两案模型活动流均未触发累计时长降级。继续冻结运行时不变量：只要 reasoning/content/tool delta 仍有真实进展，4 分钟及更长累计时长不得
+发布系统答案、删减模型答案、切换旧草稿或以超时名义终止；只有首字节超时、真实 stall、transport 断链、调用方取消或独立安全边界可进入恢复，
+恢复也只能尽力发布模型已经产生的载体并明确披露，不能新造关系、Trace 主因或业务结论。
+
+状态：`B576=production-positive`；`runner=2/2`；`human=2/2`；`write-single-batch=positive`；
+`write-replan-cumulative-domain=not-exercised`；`active-stream-fixed-time-degrade=forbidden`；
+`system-answer/diagram-authorship=none`；`raw-prose-hard-gate=none`；Trace causal authority=`unchanged`。
