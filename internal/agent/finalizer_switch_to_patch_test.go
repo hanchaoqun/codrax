@@ -720,6 +720,9 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryW
 	if strings.Contains(got.Hint, "exact `node_alias` identity as the first visible label") {
 		t.Fatalf("local repair must not force internal identity into primary display copy:\n%s", got.Hint)
 	}
+	if strings.Contains(got.Hint, "Boundary carrier placement") {
+		t.Fatalf("a relation-only repair without uncovered participants must not teach an unnecessary carrier split:\n%s", got.Hint)
+	}
 	if strings.Contains(got.Hint, "remove_block_ids") || strings.Contains(got.Hint, "remove the optional diagram") {
 		t.Fatalf("required boundary recovery must not offer diagram removal:\n%s", got.Hint)
 	}
@@ -803,6 +806,9 @@ func TestRequiredFlowMixedRelationAndParticipantRejectRepeatsTypedBoundary(t *te
 				"edge_action=`none`",
 				"copy that recipe's `edge_anchor_json` unchanged",
 				"Visible node labels, edge/message labels, and Notes remain model-authored",
+				"`participant_boundaries` is block-level and valid only on a block whose `kind` is `diagram`",
+				"add one separate `kind=diagram` block carrying the Mermaid `diagram` object, `edge_anchors`, and `participant_boundaries`",
+				"If the rejected block is already `kind=diagram`, replace it in place",
 				"does not rewrite the model's prose, ordering, or conclusion",
 			} {
 				if !strings.Contains(got.Hint, want) {

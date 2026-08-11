@@ -3876,3 +3876,21 @@ label/message/Note 由模型用业务语言成文。relation enum、claim form�
 
 实现只调整 prompt guidance 与测试，不扫描 request/model/final prose，不增硬门，不生成或替换业务节点、边、标签或结论。`internal/agent` 全量回归通过；状态：
 `B518=implemented/agent-suite-pass/pending-r305`；`model-authorship=preserved`；Trace=`unchanged`。
+
+#### §11.10.101 r305：两项确定性 GAP 与两项效果观察
+
+Trace typed 主链、#1 IO wait、三个 runnable 席和 background 权限均正确，但模型把 11+1+1+1=14ms 写成完整解释 20ms；立 B521，用 exact additive
+carrier 边界做 soft synthesis guidance。投影中同一 target sleep 与 cookie/network sleep 有跨来源重复，立 B522 冷审，禁止按同名同值盲合并。
+
+pipeline 最终图不再显示源码行，B518 记 partial；仍有内部词、错误 5-stage 总结与通用表头。额外第二次成文拒绝为确定性 B520：participant boundary payload 到达时，
+修补提示没有说明嵌套图必须拆成独立 `kind=diagram` block。runner 2/2、人工 0/2。
+
+状态：`B520/B521=next`；`B522=audit-open`；`B518=production-partial`；Trace chain/background authority=`preserved`。
+
+#### §11.10.102 B520：boundary row 与 diagram block 的 JSON carrier 合同闭环
+
+当且仅当 relation repair 同时携带 typed uncovered-participant rows 时，局部提示明确教授两臂：非 diagram block 中的嵌套 Mermaid 必须拆出唯一独立 diagram block；既有
+diagram block 则原位替换。`participant_boundaries`、`diagram`、`edge_anchors` 三字段同属该 diagram block；prose sibling 保持模型所有。
+
+实现不检查原始/最终 prose，不由系统拆 block 或补关系；无 participant payload 的负臂不收到多余教学。`internal/agent` 全量回归通过。状态：
+`B520=implemented/agent-suite-pass/pending-r306`；`model-authorship=preserved`；Trace=`unchanged`。

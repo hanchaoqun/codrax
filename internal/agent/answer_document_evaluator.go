@@ -13620,13 +13620,14 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 		action = "Keep using `emit_answer_document_patch`"
 	}
 	hint := prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
-		action + "; replace only the rejected diagram block, retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
+		action + "; repair only the rejected diagram carrier, retain every unrelated sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
 		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. " +
 		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
 		"\n\nWhen retaining one of these relations, declare the recipe's exact node alias as the Mermaid node/participant ID and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases." +
 		answerDocDiagramBusinessDisplayRepairGuidance()
 	if participantBoundaryPayload != "" {
 		hint += "\n\nThe same typed diagram contract also provides these exact no-edge participant repairs; use only the rows that remain uncovered after the verified relations above:\n\n" + participantBoundaryPayload
+		hint += "\n\nBoundary carrier placement: `participant_boundaries` is block-level and valid only on a block whose `kind` is `diagram`. If the rejected Mermaid body currently sits in a `section`, `summary`, or another non-diagram block, do not attach boundary rows there. Keep or replace that prose block without its embedded diagram fields, and add one separate `kind=diagram` block carrying the Mermaid `diagram` object, `edge_anchors`, and `participant_boundaries`; this carrier split is the only new block allowed in this repair. If the rejected block is already `kind=diagram`, replace it in place and do not add another diagram block."
 	}
 	return hint + "\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
 }

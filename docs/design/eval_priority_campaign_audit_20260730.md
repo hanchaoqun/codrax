@@ -32050,3 +32050,32 @@ node ID、端点方向/拓扑及 `edge_anchors` 保持不变；可见 node label
 
 状态：`B518=implemented/agent-suite-pass/pending-r305`；`model-visible-copy-ownership=preserved`；
 `exact-relation-authority=unchanged`；Trace explicit-window/auto-supplement/on-chain roots=`unchanged`。
+
+### 123.557 r305：Trace 链正确但 priced 子集被误写成完整分解；diagram boundary carrier 多烧一轮
+
+`main@4d3156788` exact-two runner 2/2、人工 0/2。Trace 席正确保留 threadpool-400 → network-300 → cookie-200 → app-100 的 typed
+wakeup path，#1 为 `fscache_page_wait_on_page_bit` iowait=11ms，三个 runnable 席各 1ms；邻近 sleep 与综合 IO pressure 没有越权进入主因，优先级反转也未被虚构。
+但模型写出“20ms 总延迟由 11ms + 3×1ms 共同构成”，实际只覆盖 14ms。handoff 已给 actual occupancy、existing-rule eliminable 与未计价占用，却缺少高显著度的
+exact-additivity ceiling；立 `B521-TRACEADDITIVE1/P1-high`，用 typed soft guidance 禁止把无 additive carrier 的 priced 子集称为完整分解，不扫描或改写模型正文。
+
+同一 Trace 投影还出现 target sleep E1/E2 双行，以及 cookie/network sleep 同值同时落入链上 context 与 adjacent；立
+`B522-TRACEDEDUP1/P1-audit`，先核对来源/身份/口径再决定同测量合并，不以 subject+value 粗暴去重。
+
+pipeline 的 B518 有部分正效：最终箭头不再复制源码行号，typed topology 与不连通分量保住；但业务词仍弱、4 stage + result writeback 被误称 5 stage、表头为通用列名，人工
+仍 FAIL。确定性额外 reject 来自 `participant_boundaries` 被放进带嵌套 Mermaid 的 `kind=section`：relation repair 同时要求 boundary，却未教授 boundary 只能属于
+`kind=diagram`，立 B520。总耗时 532s 仍正常产出模型答案，未出现旧 1× timeout 系统降级，但这不是持续 hidden-reasoning 专项闭环证据。
+
+状态：`B518=production-partial`；`B520=next`；`B521=next`；`B522=audit-open`；`B517=no-regression-not-closed`；
+`runner=2/2`；`human=0/2`；Trace chain/background authority=`preserved`。
+
+### 123.558 B520：participant boundary repair 显式教授 block carrier 拆分
+
+完成 `B520-DIAGRAMCARRIER1/P1`。required relation-boundary repair 在存在 typed uncovered-participant rows 时，现明确：
+`participant_boundaries` 是 block-level 字段且只允许在 `kind=diagram`；若 Mermaid 当前嵌在 section/summary/其他非 diagram block，模型应保留或替换原 prose block 并移除
+嵌套图字段，同时新增唯一一个独立 diagram block 承载 `diagram + edge_anchors + participant_boundaries`；原块已是 diagram 时只原位替换，禁止复制第二份。
+
+该条件只由 producer-owned participant boundary payload 是否存在触发，不读 request/model/final prose。无 uncovered participant 的 relation-only repair 不收到拆分教学；系统
+不执行拆分、不代模型加 block/边/关系。mixed relation+participant 两条真实 emit/patch 车道与无 boundary 负臂已 pin，`internal/agent` 全量回归通过。
+
+状态：`B520=implemented/agent-suite-pass/pending-r306`；`finalizer-retry-reduction=expected`；
+`model-block/diagram-authorship=preserved`；Trace=`unchanged`。
