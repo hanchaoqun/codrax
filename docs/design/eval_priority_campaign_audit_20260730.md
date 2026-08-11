@@ -31944,3 +31944,24 @@ stageauthority 0.238s、types 23.579s、tool 176.514s、agent 9.329s、orchestra
 
 状态：`B510-G=implemented/core-suites-pass/pending-r303`；`B510-F=P2-open`；`B510-D=P1-open`；
 `system-relation/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.551 r303：草稿恢复根因关闭；stage precedence 与 Mermaid 自愈获正证，集合限定词另立新案
+
+`main@2f882966e` exact-two 为 runner 1/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_cangjie_r303_20260811_manual_audit.md`。Cangjie 不再出现 cells-only row-id mismatch，也没有
+`answer_document_retry_state_recovered` 或“上一版结构化答案草稿”披露，证明 `B514` 已生产关闭；`20260811-012817.632-94433.md` 的降级不是必要保护触发，而是
+schema/renderer 允许 cells-only、typed identity gate 却只认 label 的确定性系统 GAP。保留旧草稿作为最后一道止损是正确的，错误在于前置合同把合法 payload 拒掉。
+
+pipeline 最终 sequence 保住 analyze→explore→extract→finalizer 三条 typed precedence，`B510-G` 获生产正证；初稿 blocks 为 JSON string 也被结构恢复，三次
+`mermaid_source_repair_applied` 后 participant dotted/call display alias 统一加引号，`B515` 获生产正证。系统没有生成或替换模型边。该轮仍有 412s、24 explorer 轮、
+2 次 finalizer reject，最终图只用内部 `precedence/call` 消息且数据载体断开，正文还出现“Finalizer 不再次调用 LLM”的无证断言；因此 B510-G 只记 positive，
+业务表达层 `B510-D` 与合并式 boundary repair `B510-F` 继续开放。
+
+新立 `B516-SISETQUAL1/P1-high`：同一结构化 member_set 的 label 为 `public class（不含 abstract/sealed）`，但 typed roster 包含 `Animal` 与 `Service`，最终答案被迫同时
+列出和排除它们，标题、成员、计数三面矛盾。根因是 exact typed row-set 覆盖成立后投影直接保留 model-owned label；row-local surface family 已精确，却没有独立的
+typed selection predicate/qualifier carrier。最优方案不能扫描 label/member note/final prose，也不能由系统改写答案：应让 requested surface-family key、包含规则与逐行
+family witness 成为独立 typed handoff；模型 label 仅作展示，不得缩窄或扩大 roster authority。合同冲突时要求模型基于 typed predicate 重述 label/count，成员仍由模型
+成文。
+
+状态：`B514=production-closed`；`B515=production-positive`；`B510-G=production-positive`；`B516=P1-high/next`；
+`B510-D=P1-open`；`B510-F=P2-open`；`system-answer/member/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。

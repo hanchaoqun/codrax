@@ -3810,3 +3810,17 @@ completion、Finalizer prompt、diagram validator 同源消费选中区间；系
 全量回归抓到并修复无 AnalysisIR 的既有 grounded-membership 顾问入口兼容臂，核心六包全绿（stageauthority/types/tool/agent/orchestrator/tracediag）。
 
 状态：`B510-G=implemented/core-suites-pass/pending-r303`；`B510-F/D=open`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.95 r303：012817 草稿恢复 GAP 生产关闭，限定词/roster 冲突接棒
+
+新二进制 exact-two 确认 B514 的 label-first/cells-first 统一有效：Cangjie 合法 cells-only 行不再触发 row-id mismatch，最终也未进入
+`answer_document_retry_state_recovered`。因此 012817 的用户可见降级属于前置合同自冲突造成的系统 GAP，恢复旧稿本身只是正确的 fail-soft 末端保护。
+
+pipeline runner PASS：四阶段 precedence 已进入最终 sequence，participant display alias 经统一 normalizer 修复，B510-G/B515 均有生产正证；但图仍以内部
+`precedence/call` 表述，数据载体断开，且两次 relation repair 与高探索成本尚未消失，故只记 positive 不提前关账。
+
+新 `B516-SISETQUAL1/P1-high`：model-owned set label 明示“不含 abstract/sealed”，同一 typed roster 却强制 `Animal/Service`，导致最终成员、计数、限定词互相矛盾。
+后续以 typed requested-family/predicate + row-local family witness 做 handoff，展示 label 不再具有资格确权能力；不扫描自然语言、不系统代写结论。
+
+状态：`B514=production-closed`；`B510-G/B515=production-positive`；`B516=next`；`B510-D/F=open`；
+`system-answer/relation-authoring=none`；Trace explicit-window causal projection=`unchanged`。
