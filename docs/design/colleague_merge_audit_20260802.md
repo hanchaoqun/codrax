@@ -4948,3 +4948,28 @@ directed reachability/no-directed-path 合同，同时概念路径请求不会�
 状态：`B574=implemented`；`discover+two-endpoints=normalize-exact-before-provenance`；
 `unproven-candidates=discover-path`；`raw-prose-hard-gate=none`；`fixed-four-minute-active-degrade=forbidden`；
 `system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.180 r339：关系别名与端点模式闭正证；no-path 边界缺少反向 wrapper typed 事实
+
+r339 exact-two runner 2/2、人工 1/2。类型关系案 248s、1 次 finalizer reject，最终保留 12 个 production implementer、文件定位与
+12 条 `implementer -> LoopController` 有向关系；不再发生 `AE(AE)` identity 退化或 7 次删边风暴，B573 production positive。首稿在 flowchart
+里使用 class relation operator，被现有语法/锚一致性门拒绝后，模型一次 patch 改成带 type_relation anchors 的普通 flow edge；记为 syntax-family
+教学观察，不按本 case 或 operator 做自动改图。
+
+时序案 245s，B574 production positive：analyzer 首次即形成 exact `buildAnalysisIR -> gate.Run` endpoint profile，completion 的 directed
+reachability gate 明确报告目标不可达，模型随后提交并获准 typed `principal_span_waiver=no_directed_path`。finalizer 第一稿虚构
+`gate.RunWith -> gate.Run` 图边时，现有关系证据门也正确拒绝并删除该边。但最终正文与 ordered list 仍声称“RunWith 内部调用 Run”；源码真相恰好相反：
+`gate.Run` 在 gate.go:135 调 `RunWith`，而 `buildAnalysisIR` 在 analyzer.go:2720 直接调用 `RunWith`，绕过 `Run`。runner 的字符串 oracle 再次假绿。
+
+确认 `B575-NOPATHBOUNDARYEDGE1/P1-high`：no-path completion 已要求 exact endpoint definition，但 finalizer 只收到定义与正向不可达说明，没有收到已读
+endpoint body 中解释边界的 AST call。B572b handoff 当前只投影同一 principal member-set 内的 parser relation；请求 endpoint `gate.Run` 不在旧 roster，
+所以真实 `gate.Run -> gate.RunWith` 被漏掉。最优扩臂仍复用同一 deterministic provider：仅当 typed no_directed_path active，且一端精确匹配请求
+source/sink、另一端唯一匹配 principal member-set 时，投影已读 line 上的 tree-sitter/Cangjie call。不得投影任意 endpoint 内部调用，不得消费 regex/unread，
+不得从 waiver rationale、请求、reasoning 或终稿猜边。系统只提供反向/平行 source fact，模型自行决定解释、图、业务措辞和结论。
+
+两路均在约四分钟后由原模型正常结束；累计时长没有也不得产生答案降级。B575 独立施工后继续同案 r340 exact-two，人工以“正文明确 Run 调 RunWith、
+buildAnalysisIR→Run 不可达，图无反向虚构边”为验收，不依赖宽松字符串 oracle。
+
+状态：`B573/B574=production-positive`；`B575=P1-high/next`；`runner=2/2`；`human=1/2`；
+`active-stream-248s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。
