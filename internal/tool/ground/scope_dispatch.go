@@ -213,6 +213,11 @@ func groundSemanticAnchorInLineRange(it *types.EvidenceItem, gc *Context) Report
 			return acceptSemanticAnchorLineRange(it, &candidate, originalStart, originalEnd)
 		}
 	}
+	if it.AnchorKind == types.AnchorAssignment || it.AnchorKind == types.AnchorInitializer {
+		if line, ok := visibleAnchorOnNonValueBearingLine(it, gc, originalStart, originalEnd); ok {
+			return rejectSemanticAnchorLineRange(it, originalStart, nonValueBearingAnchorRepairNote(it, line))
+		}
+	}
 	return rejectSemanticAnchorLineRange(it, originalStart,
 		fmt.Sprintf("scope=line_range contains no grounded %s anchor inside the cited range", it.AnchorKind))
 }

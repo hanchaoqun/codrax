@@ -3874,6 +3874,10 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 		return ""
 	}
 	switch it.AnchorKind {
+	case types.AnchorAssignment, types.AnchorInitializer:
+		if line, ok := visibleAnchorOnNonValueBearingLine(it, gc, it.LineStart, it.LineStart); ok {
+			return nonValueBearingAnchorRepairNote(it, line)
+		}
 	case types.AnchorCall:
 		if gc != nil && it.Source != "" && it.LineStart > 0 {
 			if fileLines, ok := gc.LineIndex[it.Source]; ok {
@@ -3894,6 +3898,47 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 			it.AnchorKind, types.AnchorCall)
 	}
 	return ""
+}
+
+// visibleAnchorOnNonValueBearingLine distinguishes a stale/missing citation
+// from the more actionable case where the requested token is visibly present
+// but the source shape cannot carry assignment/initializer authority.  This is
+// a precise source-local signal: no request text, model prose, or semantic
+// similarity participates.
+func visibleAnchorOnNonValueBearingLine(it *types.EvidenceItem, gc *Context, start, end int) (int, bool) {
+	if it == nil || gc == nil || it.Source == "" || strings.TrimSpace(it.AnchorSymbol) == "" || start <= 0 {
+		return 0, false
+	}
+	if end < start {
+		end = start
+	}
+	fileLines, ok := gc.LineIndex[it.Source]
+	if !ok {
+		return 0, false
+	}
+	for line := start; line <= end; line++ {
+		if _, exists := fileLines[line]; !exists || isLineComment(fileLines, line, it.Source) {
+			continue
+		}
+		candidate := *it
+		candidate.LineStart = line
+		candidate.LineEnd = 0
+		candidate.Scope = types.ScopeLine
+		if lineContainsAssignment(&candidate, gc) {
+			continue
+		}
+		if _, visible := VerifyLineAnchor(gc, it.Source, line, strings.TrimSpace(it.AnchorSymbol), 0); visible {
+			return line, true
+		}
+	}
+	return 0, false
+}
+
+func nonValueBearingAnchorRepairNote(it *types.EvidenceItem, line int) string {
+	return fmt.Sprintf(
+		"anchor_kind %q cites visible anchor_symbol %q at %s:%d, but that source line has no value-bearing assignment or initializer; it cannot prove value transfer or data flow. If the intended fact is this declaration, re-emit the exact line as evidence_kind=direct with anchor_kind=%q and the same anchor_symbol. Otherwise cite the exact writer/reader operation. Do not keep this row as assignment/initializer evidence",
+		it.AnchorKind, strings.TrimSpace(it.AnchorSymbol), it.Source, line, types.AnchorDefinition,
+	)
 }
 
 func explainUngrounded(it *types.EvidenceItem, gc *Context) string {

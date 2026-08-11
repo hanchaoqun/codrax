@@ -31232,3 +31232,18 @@ grounder fail-closed 的声明型伪 initializer 仍会获得 `assignment_fact` 
 
 状态：`B495=implemented/package-suite-pass/pending-production-replay`；`B496=P1-next`；
 `system-evidence/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.513 B496 完成：可见标识符但无值结构时发布同轮 source-local 修复
+
+assignment/initializer grounder 本来已经用语言无关 source shape 正确拒绝 declaration-only 行，但失败反馈常退化为“锚点未找到/重读文件”。这让模型即使刚读到
+字段声明，也会原样重发或改成 line_range，增加探索与成文心智。
+
+本批复用同一精确信号：在已读 exact line/range 内，`anchor_symbol` 可见、非注释、且 repomap/syntax 均无 assignment/member-initializer feature 时，反馈明确
+该行不能证明 value transfer/data flow；若意图仅为声明存在性，按同一 source/line/anchor 重发 `evidence_kind=direct, anchor_kind=definition`；若要证明流，
+转向 exact writer/reader operation。该信息只修正 evidence claim shape，不自动改写当前 item、不铸 relation、不赋予 definition 以 flow 权限。
+
+回归覆盖 Go/Java/ArkTS/Cangjie 声明的 assignment/initializer 两种误标、line_range 同构臂，以及四语言真实 value-bearing flow 正臂；
+`go test ./internal/tool/ground -count=1` 与 `go test ./internal/tool -count=1` 全绿。
+
+状态：`B496=implemented/full-tool-suite-pass/pending-production-replay`；`B495=implemented/pending-production-replay`；
+`B490/B493=pending-production-witness`；`system-evidence/relation/answer-authoring=none`；Trace families=`unchanged`。

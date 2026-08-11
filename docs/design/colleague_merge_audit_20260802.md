@@ -3393,3 +3393,10 @@ typed enrichment 现于单一选择入口排除明确 `GroundingUngrounded` 行�
 recovered evidence 保持既有可用语义，原始 audit buffer 也继续保留供 Explorer 修复。系统不重写 evidence/答案、不补关系；agent 全包回归绿。
 
 状态：`B495=implemented/pending-production-replay`；`B496=P1-next`；Trace families=`unchanged`。
+
+#### §11.10.57 B496：声明误标不再收到泛化重读提示
+
+当 exact 已读行持有目标标识符、但没有 assignment/member-initializer source shape 时，grounder 现直接说明该行不可证明值流：声明事实可按 definition 重发，
+数据流必须另引 writer/reader operation。line 与 line_range 同源；Go、Java、ArkTS、Cangjie 声明负臂及真实值流正臂均已钉住，tool 全包绿。
+
+该修复不自动重分类 evidence、不创建关系或修改答案。状态：`B496=implemented/pending-production-replay`；Trace families=`unchanged`。

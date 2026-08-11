@@ -2412,8 +2412,53 @@ func TestGroundItem_ExactAssignmentTokenRejectsCrossLanguageDeclarations(t *test
 					t.Fatalf("%s declaration grounded as %s: status=%s tier=%s note=%q",
 						tc.name, kind, rep.Status, rep.Tier, rep.Note)
 				}
+				for _, want := range []string{
+					"cannot prove value transfer or data flow",
+					"anchor_kind=\"definition\"",
+					"exact writer/reader operation",
+				} {
+					if !strings.Contains(rep.Note, want) {
+						t.Fatalf("%s %s repair note missing %q: %q", tc.name, kind, want, rep.Note)
+					}
+				}
 			}
 		})
+	}
+}
+
+func TestGroundItem_LineRangeDeclarationGetsNonValueBearingRepair(t *testing.T) {
+	const path = "internal/types/context.go"
+	history := []types.ToolResult{
+		buildGutterReadResult(path, 17, []string{
+			"type BusContext struct {",
+			"\tMutable *MutableState `json:\"mutable,omitempty\"`",
+			"}",
+		}, 40),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       path,
+		LineStart:    17,
+		LineEnd:      19,
+		Scope:        types.ScopeLineRange,
+		AnchorKind:   types.AnchorInitializer,
+		AnchorSymbol: "Mutable",
+		Subject:      "Mutable",
+	}
+
+	rep := GroundItemScoped(it, gc)
+	if rep.Status != types.GroundingUngrounded {
+		t.Fatalf("declaration range status=%s, want ungrounded", rep.Status)
+	}
+	for _, want := range []string{
+		"internal/types/context.go:18",
+		"cannot prove value transfer or data flow",
+		"anchor_kind=\"definition\"",
+	} {
+		if !strings.Contains(rep.Note, want) {
+			t.Fatalf("line-range repair note missing %q: %q", want, rep.Note)
+		}
 	}
 }
 
