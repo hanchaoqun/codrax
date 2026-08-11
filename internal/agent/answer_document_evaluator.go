@@ -8346,14 +8346,15 @@ type answerDocEnrichmentFact struct {
 }
 
 type supportLaneScope struct {
-	constrain       bool
-	evidenceIDs     map[string]bool
-	locations       map[string]bool
-	files           map[string]bool
-	fileLines       map[string][]int
-	anchors         map[string]bool
-	lanes           map[types.AnswerSupportLaneKind]bool
-	diagnosticLanes bool
+	constrain             bool
+	principalOrderedFlows bool
+	evidenceIDs           map[string]bool
+	locations             map[string]bool
+	files                 map[string]bool
+	fileLines             map[string][]int
+	anchors               map[string]bool
+	lanes                 map[types.AnswerSupportLaneKind]bool
+	diagnosticLanes       bool
 }
 
 // supportLaneScopeFromFlowOperations is the no-support-plan authority bridge.
@@ -8863,6 +8864,22 @@ func supportLaneScopeForContext(ctx *types.AgentContext, supportRendered bool) *
 		return nil
 	}
 	plan := answerSupportPlan(ctx)
+	return supportLaneScopeFromCompiledPlan(ctx, plan, supportRendered)
+}
+
+// supportLaneScopeFromCompiledPlan keeps every consumer of an already-built
+// support plan on the same required-diagram boundary. Explorer StageReport
+// rendering uses this entry point because its deterministic digest is built
+// before the extractor/finalizer AgentContext exists; the full structured
+// evidence and findings remain untouched for those later stages.
+func supportLaneScopeFromCompiledPlan(
+	ctx *types.AgentContext,
+	plan *types.AnswerSupportPlan,
+	supportRendered bool,
+) *supportLaneScope {
+	if !supportRendered {
+		return nil
+	}
 	if plan == nil {
 		return nil
 	}
@@ -8927,7 +8944,15 @@ func supportLaneScopeFromDiagramPlan(
 	if selected == 0 {
 		return nil
 	}
-	return supportLaneScopeFromPlan(filtered, true, profile)
+	scope := supportLaneScopeFromPlan(filtered, true, profile)
+	if scope != nil {
+		// The filtered plan is the visible principal diagram floor. Optional
+		// relation context may replay an exact support evidence id or connect
+		// two ordered principal endpoints; sharing just one endpoint is a
+		// sibling coincidence, not support for the requested relationship.
+		scope.principalOrderedFlows = true
+	}
+	return scope
 }
 
 func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered bool, _ extractorValueRankProfile) *supportLaneScope {
@@ -9121,6 +9146,9 @@ func (s *supportLaneScope) requiresExactLocationForConcreteSourceEvidence(item t
 func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {
 	if s == nil || !s.constrain {
 		return true
+	}
+	if s.principalOrderedFlows {
+		return s.allowsOrderedFlowFinding(ff)
 	}
 	for _, id := range ff.EvidenceIDs {
 		if s.hasEvidenceID(id) {

@@ -3449,3 +3449,15 @@ QF 的 bounded Principal Support Path 已干净，但旧 `Prior Stage Findings` 
 只优化 typed repair wording，不放宽 primary identity authority。
 
 状态：`B499=closed`；`B498=v2-partial`；`B500=next`；`B491=P2`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.63 B500+B491：同一 support floor 覆盖旧摘要和三类关系上下文
+
+required-diagram scope 现只允许 exact support evidence id 或有序双端点均命中的 FlowFinding；单端点碰巧共享 principal identity 不再进入 diagram seed、
+typed enrichment 或 explorer StageReport。StageReport 只过滤 finalizer-facing 展示副本，完整 StageOutput/TurnA evidence/findings 保留，且 compaction total/complete
+继续诚实披露。由此关闭 r288 的旧 `Prior Stage Findings` 权限旁路，不生成关系或替换正文。
+
+B491 未放宽 identity gate，仅把失败提示补成可执行的精确规则：typed identity 必须是 Mermaid node id 或首个 visible label，不能只放在短 id 的次级括注/多行标签。
+agent/tool 全包绿，待 exact-two 生产回放。
+
+状态：`B500=implemented`；`B498=v3-implemented`；`B491=typed-repair-implemented`；
+`system-answer/edge-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

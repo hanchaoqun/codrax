@@ -13370,14 +13370,27 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		answerContract,
 		16,
 	)
+	stageReportEvidence := rankedEvidence
+	stageReportFindings := rankedFindings
+	if e != nil && e.analysisIR != nil {
+		// StageReport is a compact finalizer-facing digest, not the audit
+		// store. Reuse the same typed support scope as the required diagram
+		// so this legacy carrier cannot reopen global evidence/flow context.
+		// rankedEvidence/rankedFindings below, StageOutput and the Turn-A
+		// snapshot remain complete and unchanged.
+		supportPlan := types.BuildAnswerSupportPlan(e.analysisIR.RequestModel, e.answerSurfacePlan())
+		supportScope := supportLaneScopeFromCompiledPlan(ctx, supportPlan, true)
+		stageReportEvidence = extractorTranscriptEvidenceItems(stageReportEvidence, supportScope)
+		stageReportFindings = extractorTranscriptFlowFindings(stageReportFindings, supportScope)
+	}
 	canonicalReport := renderExplorerStageReportWithFlowCoverage(
 		irQuestionKind(ctx),
 		irQuestionFamily(ctx),
 		irExactResolutionContract(ctx),
-		rankedEvidence,
+		stageReportEvidence,
 		answerChains,
 		nil, // symbols: deferred to Turn B
-		rankedFindings,
+		stageReportFindings,
 		flowCoverage,
 		readFilesList,
 		e.isEnumerationQuery,

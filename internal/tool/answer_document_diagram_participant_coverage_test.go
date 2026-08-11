@@ -2,6 +2,7 @@ package tool
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -84,6 +85,24 @@ func TestDiagramParticipantCoverageRejectsStaleUnknownAndInvisibleBoundaries(t *
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing mismatch classes %v; got %+v", want, got)
+	}
+}
+
+func TestPreCheckDiagramParticipantCoverageTeachesPrimaryTypedIdentity(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"Analyzer\"] --> E[\"Explorer\"]\n MS[\"Mutable\\n(MutableState)\"]"
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}}
+	pctx.ctx.EvidenceItems = evidence
+	hints := preCheckDiagramParticipantCoverage(doc, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one exact participant repair hint, got %+v", hints)
+	}
+	want := "make the exact typed identity the Mermaid node id or the first visible node label"
+	if !strings.Contains(hints[0].ExpectedShape, want) {
+		t.Fatalf("participant repair hint did not reduce primary-identity ambiguity; want %q in %q", want, hints[0].ExpectedShape)
 	}
 }
 

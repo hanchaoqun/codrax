@@ -137,6 +137,49 @@ func TestRenderExplorerStageReport_DisclosesFlowCompaction(t *testing.T) {
 	}
 }
 
+func TestRenderExplorerStageReport_SupportScopedInputsKeepAuditTotals(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Lanes: []types.AnswerSupportLane{{
+		Kind:          types.SupportLanePrincipalEvidence,
+		AllowedBlocks: []string{string(types.BlockDiagram)},
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "support-bus", Subject: "BusContext", AnchorSymbol: "BusContext"},
+			{EvidenceID: "support-mutable", Subject: "MutableState", AnchorSymbol: "MutableState"},
+		},
+	}}}
+	scope := supportLaneScopeFromDiagramPlan(plan, answerDocDiagramSupportSeedLimit, extractorValueRankComparison)
+	evidence := extractorTranscriptEvidenceItems([]types.EvidenceItem{
+		{ID: "support-bus", Kind: types.EvidenceConcrete, Subject: "BusContext"},
+		{ID: "sibling-cache", Kind: types.EvidenceConcrete, Subject: "explorerSearchCache"},
+	}, scope)
+	findings := extractorTranscriptFlowFindings([]types.FlowFindingDigest{
+		{ID: "principal", Path: []string{"BusContext", "MutableState"}},
+		{ID: "one-end", Path: []string{"BusContext", "TraceAdmission"}},
+		{ID: "sibling", Path: []string{"BaseAgent.executeTool", "validateWriteAnalyzerToolPolicy"}},
+	}, scope)
+
+	got := renderExplorerStageReportWithFlowCoverage(
+		"mechanism", "architecture", nil, evidence, nil, nil, findings,
+		flowFindingCoverage{Emitted: 3, Total: 128, Complete: false},
+		nil, false,
+	)
+	for _, want := range []string{
+		"evidence_items: 1",
+		"flow_findings: 1",
+		"flow_findings_total: 128",
+		"flow_findings_complete: false",
+		"BusContext → MutableState",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("support-scoped StageReport missing %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"explorerSearchCache", "TraceAdmission", "validateWriteAnalyzerToolPolicy"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("support-scoped StageReport leaked %q:\n%s", unwanted, got)
+		}
+	}
+}
+
 func TestRenderExplorerStageReport_RendersExternalObservationsSeparately(t *testing.T) {
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInput{
 		MCPResponses: []types.MCPResponse{{

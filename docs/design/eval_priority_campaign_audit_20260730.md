@@ -31342,3 +31342,24 @@ required-diagram 的 flow 命中从“任一端点”提升为 exact evidence id
 
 状态：`B499=production-closed`；`B498=v2-partial`；`B500=P1-high/next`；`B491=P2-with-production-witness`；
 `runner=2/2,human=1/2`；`system-relation/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`preserved`。
+
+### 123.519 B500+B491：StageReport 旁路收口与 typed participant 修复降心智
+
+B500 统一了 required-diagram 的可选关系权限。`supportLaneScopeFromDiagramPlan` 现显式标记 principal ordered flow：FlowFinding 只有复用 exact support
+evidence id，或首尾两个有序 endpoint 均属于 visible principal floor 时才可进入 diagram seed、typed enrichment 或 StageReport；只碰到一端的兄弟 flow 不再放行。
+无 required diagram、普通可选 enrichment 及 anchorless file-only 兼容车道保持原语义。
+
+Explorer 的 deterministic StageReport 生成前，现对“展示副本”应用同一 compiled support scope；`Primary Evidence` 与 `Dataflow Findings` 因而不再绕过
+Principal Support Path。完整 `rankedEvidence`、`rankedFindings`、StageOutput 和 TurnA snapshot 均不裁剪，`flow_findings_total` 继续披露原总数、过滤后的 emitted
+计数使 complete 正确为 false。这是 finalizer context precision，不是证据删除、关系门放宽或系统补边。
+
+B491 的生产日志同时证明门本身不矛盾：recipe 已给 exact `participant_identity=MutableState`，模型却把 `MS["Mutable\\n(MutableState)"]` 的次级括注当成
+primary identity，因而在 `boundary_participant_not_visible` 与 `missing_unproven_boundary` 间反复。修复只把 precise typed hint 说清：断开节点必须把 exact typed
+identity 用作 Mermaid node id 或首个可见 label；短 id 加次级括注不算 primary identity。不扩大 alias authority，不造边。
+
+回归覆盖 required diagram 左端单命中/右端单命中/无关路径三负臂、双端点与 exact evidence id 正臂、StageReport 128→1 展示同时保留 total=128，以及
+participant primary-identity 修复提示。`go test ./internal/agent ./internal/tool -count=1` 全绿（agent 9.681s，tool 176.442s）。
+
+状态：`B500=implemented/package-suites-pass/pending-production-replay`；`B498=v3-implemented/pending-production-replay`；
+`B491=typed-repair-implemented/pending-production-replay`；`system-relation/diagram/conclusion-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace windows/auto-supplement/causal projection/on-chain root-cause/value families=`unchanged`。

@@ -1324,6 +1324,13 @@ func TestSupportLaneScopeFromDiagramPlan_UsesVisiblePrincipalFloor(t *testing.T)
 				LineStart:    36,
 				AnchorSymbol: "StageOutput",
 				Subject:      "StageOutput",
+			}, {
+				EvidenceID:   "support-bus-context",
+				Text:         "BusContext",
+				Source:       "internal/types/context.go",
+				LineStart:    45,
+				AnchorSymbol: "BusContext",
+				Subject:      "BusContext",
 			}},
 		},
 		{
@@ -1350,8 +1357,13 @@ func TestSupportLaneScopeFromDiagramPlan_UsesVisiblePrincipalFloor(t *testing.T)
 	got := renderAnswerDocDiagramFlowSeed([]types.FlowFindingDigest{
 		{ID: "unrelated", Path: []string{"BaseAgent.executeTool", "validateWriteAnalyzerToolPolicy"}, Sources: []string{"internal/agent/agent.go"}},
 		{ID: "relevant", Path: []string{"StageOutput", "BusContext"}},
+		{ID: "left-only", Path: []string{"StageOutput", "TraceAdmission"}},
+		{ID: "right-only", Path: []string{"WritePolicy", "BusContext"}},
 	}, supportScope)
-	if !strings.Contains(got, "StageOutput -> BusContext") || strings.Contains(got, "validateWriteAnalyzerToolPolicy") {
+	if !strings.Contains(got, "StageOutput -> BusContext") ||
+		strings.Contains(got, "validateWriteAnalyzerToolPolicy") ||
+		strings.Contains(got, "TraceAdmission") ||
+		strings.Contains(got, "WritePolicy") {
 		t.Fatalf("diagram flow seed did not follow the visible principal support floor:\n%s", got)
 	}
 }
