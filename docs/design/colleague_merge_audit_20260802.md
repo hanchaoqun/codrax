@@ -3400,3 +3400,14 @@ recovered evidence 保持既有可用语义，原始 audit buffer 也继续保�
 数据流必须另引 writer/reader operation。line 与 line_range 同源；Go、Java、ArkTS、Cangjie 声明负臂及真实值流正臂均已钉住，tool 全包绿。
 
 该修复不自动重分类 evidence、不创建关系或修改答案。状态：`B496=implemented/pending-production-replay`；Trace families=`unchanged`。
+
+#### §11.10.58 r286：B495 关闭，兄弟 advisory 未服从 support scope
+
+QF 生产回放确认 ungrounded initializer 已不再进入 factual enrichment，B495 关闭；图的无证 carrier 边继续 fail-closed。残余 82KB finalizer context 却含
+`explorerSearchCache`/预算代码的 same-owner lexical groups，以及仅因共享 `context.go` 被选中的 trace-admission FlowFinding。它们各自为真，但不属于当前
+principal support，模型随后继续写出无证共享流。
+
+立 `B498-SUPPORTSCOPECTX1/P1-high`：lexical capsule 复用 support-plan SSOT；FlowFinding 在 typed anchor scope 存在时禁止 file-only coincidence。
+该批只降 advisory 噪声，不改 relation/diagram/正文。write 一行修复正确且 source-static-only 诚实降级，无新 gap。
+
+状态：`B495=production-closed`；`B498=P1-high/next`；`B497=P2-model-variance`；Trace families=`unchanged`。

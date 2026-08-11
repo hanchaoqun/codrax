@@ -31247,3 +31247,26 @@ assignment/initializer grounder 本来已经用语言无关 source shape 正确�
 
 状态：`B496=implemented/full-tool-suite-pass/pending-production-replay`；`B495=implemented/pending-production-replay`；
 `B490/B493=pending-production-witness`；`system-evidence/relation/answer-authoring=none`；Trace families=`unchanged`。
+
+### 123.514 r286：B495 生产闭环；support scope 未约束兄弟 advisory context
+
+`main@f6d7590cc` 严格并行 QF read 与 TypeScript write/apply。runner 1/2，人工 QF fail、write uncertain；详见
+`eval/parallel_selected_summary_evalcampaign_stage_write_r286_20260810_manual_audit.md`。
+
+QF 的 finalizer enrichment 已完全不含 r285 的 `Mutable initializer/value_fact`，证明 B495 在生产上下文生效；图最终只保留三条有证 stage precedence，
+BusContext 显式 unproven，hard relation gate 没有放宽。B496 本轮没有 declaration 误标 witness，保持待回放。
+
+QF 仍人工失败：正文继续宣称完整 Mutable/BusContext 流并写入无证职责。控制面显示 finalizer user prompt 达 82KB，其中
+`Typed same-owner lexical order` 发布 `explorerSearchCache.Get/Put`、预算计算等与当前 principal support 无关的多组事实；Flow enrichment 又把
+`BaseAgent.executeTool -> MutableState.ArmTraceInputAdmissionTerminal` 带入，只因该路径与 support 行共享 `internal/types/context.go`。这些行均是真 typed
+事实，但与当前问题不相关，形成“事实正确、上下文权威范围错误”的系统 gap，而非让模型正文硬门兜底的问题。
+
+确认 `B498-SUPPORTSCOPECTX1/P1-high`：local lexical capsule 应复用 compiled support scope，只保留与当前 support evidence/location/identity 相连的 group；
+FlowFinding 在 scope 已有 typed anchors 时不得仅凭同文件命中，须 evidence ID 或 endpoint anchor 相连。找不到相关 advisory 时直接不发；不改变 evidence、
+relation validator、diagram、模型结论或答案正文。
+
+write 案一行补丁正确，write-analysis 一次、计划一次、零 JSON recovery/replan；已有六种 env 行为测试未改。`make check` 仅提供 Python source-static，系统最终
+诚实发布 `unverified/production_verification_source_static_only`，没有用“测试通过”假签行为验证，故不立代码或 authority gap。
+
+状态：`B495=production-closed`；`B498=P1-high/next`；`B496/B490/B493=pending-production-witness`；`B497=P2-model-variance`；
+`runner=1/2,human=0/1/1`；`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。
