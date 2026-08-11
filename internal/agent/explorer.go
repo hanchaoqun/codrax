@@ -1920,6 +1920,7 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 		"- A function definition, a read-coverage row, a path member_set, or closure prose does not prove caller-to-callee direction and must not substitute for the call-site row. Emit guards/conditions separately from calls.\n" +
 		"- A grounded `anchor_kind=call` relationship is normalized from the exact parser/read-line relation even when a sparse first emit omits caller/predicate fields; do not re-emit it merely to guess an owner. If the tool reports a real identity conflict, correct the same source/line/fact once and consume the amendment result.\n" +
 		"- When you read an exact requested endpoint definition while deciding a no-path boundary, inspect its bounded body/read span and emit every relevant incoming or outgoing direct invocation actually verified there, even when it establishes a reverse, parallel, or disjoint relationship rather than the requested path. If the inspected evidence supports no incident call edge, leave the endpoint definition-only; do not invent a no-call fact.\n" +
+		"- After typed evidence selects a discovered terminal endpoint, inspect that callable's bounded body as well. Preserve every behavior-bearing call, return, assignment, or guard that establishes what the endpoint actually does, including a terminal utility/IO/logging call that broad navigation would normally suppress. Keep the user's conceptual destination wording separate from observed implementation facts; if no body fact is proved, leave the endpoint behavior unproven.\n" +
 		"- Use owner-qualified endpoints only when the parser/read source resolves that identity. For dynamic or ambiguous receivers, preserve the exact source receiver/operation and disclose the boundary instead of guessing a class.\n"
 	guide += "- For a language/runtime boundary, keep three fact types separate: the caller-to-export invocation (`relationship/call`), the export/registry binding (`registration`), and any wrapper-to-core invocation (`relationship/call`). On the registration row use the exact exported slot/module in `subject` and the owner-qualified registered callable in `object` only when the already-read binding scope resolves that owner. When declaration owner and bound callable occur on adjacent lines, use the smallest already-read `line_range` containing both; do not squeeze an absent owner into a one-line citation. If only the exact receiver and registration expression are proved on one line, preserve those syntax endpoints—the system may use a unique typed enclosing-owner/reference join as advisory handoff, but it will not turn that join into a call. A registration proves binding, not execution; do not say a call bypasses a binding when its exact target is that registered export.\n" +
 		"- For availability switches and fallbacks, read the complete bounded initialization/try-catch/config block. Emit the guard as `conditional/condition`, each alternative call as its own `relationship/call`, and every simple write that determines the guard symbol as a separate `direct/assignment` item with exact LHS in `subject`, exact scalar RHS in `object`, and the source assignment in `snippet`. Two writes such as enabled/disabled are alternatives or updates, not one hard-coded constant. Do not infer which call belongs to which branch from line order; preserve that as unproven unless a typed branch carrier establishes it.\n" +
@@ -13793,6 +13794,8 @@ const runtimeTargetCooperativeMethodLimit = 24
 
 const runtimeTargetDecoratorApplicationLimit = 16
 
+const runtimeTargetTerminalBodyCallLimit = 12
+
 // runtimeTargetStructuralRelationFiles separates exact read authority from
 // the volatile concrete-value frontier. filesToScan is intentionally narrowed
 // as exploration focus moves, which is appropriate for broad literal scans;
@@ -14130,6 +14133,236 @@ func (e *explorerEvaluator) buildRuntimeTargetCooperativeCalls(
 	b.WriteString("\n")
 	result.markdown = b.String()
 	return result
+}
+
+// buildRuntimeTargetTerminalBodyCalls promotes parser-authored calls from the
+// precisely read body of the typed call-chain terminal. The broad concrete
+// value scanner deliberately drops utility/log/IO calls to control noise; at
+// the selected terminal those calls are often the exact behavior evidence the
+// model needs to test a conceptual destination against the implementation.
+//
+// The selector is graph-shaped and fail-closed: exact mode uses its typed sink;
+// discover mode first joins the typed selection fact to an incoming call
+// target; discover_path falls back to leaves of the already-grounded call
+// graph. Only AST/Cangjie-parser relations whose exact source line was read are
+// admitted. No request, evidence Summary, model rationale, or answer prose is
+// scanned, and no synthetic edge is constructed.
+func (e *explorerEvaluator) buildRuntimeTargetTerminalBodyCalls(
+	graph *repomap.Graph,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+) concreteValuesResult {
+	if e == nil || graph == nil || e.analysisIR == nil ||
+		types.ResolveQuestionFamily(e.analysisIR.RequestModel) != types.QFCallChain ||
+		!e.analysisIR.RequestModel.CallChainEndpointProfile.Active() {
+		return concreteValuesResult{}
+	}
+	owners := e.callChainTerminalBodyOwners()
+	if len(owners) == 0 {
+		return concreteValuesResult{}
+	}
+
+	type row struct {
+		item       types.EvidenceItem
+		resolvedBy string
+	}
+	var rows []row
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
+	for file := range filesToScan {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		fi := graph.FileIndex[canonicalExplorerPath(file)]
+		if fi == nil {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" || rel.Line <= 0 ||
+				(rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser) {
+				continue
+			}
+			source := canonicalExplorerPath(rel.File)
+			if source == "" {
+				source = canonicalExplorerPath(fi.RelPath)
+			}
+			if source == "" || !readSetContains(readSet, source) {
+				continue
+			}
+			if closure != nil && !closure.HasReadLine(source, rel.Line) {
+				continue
+			}
+			callable := runtimeTargetEnclosingCallable(fi, rel.Line)
+			if callable == nil {
+				continue
+			}
+			caller := runtimeTargetQualifiedCallable(*callable)
+			if caller == "" || !callChainTerminalOwnerMatchesAny(caller, owners) {
+				continue
+			}
+			callee := runtimeTargetRelationEndpointSurface(rel.ToEP)
+			if callee == "" || strings.EqualFold(caller, callee) {
+				continue
+			}
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s:%s", source, rel.Line, caller, callee, rel.ResolvedBy))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Subject:      caller,
+				Predicate:    "calls",
+				Object:       callee,
+				Source:       source,
+				LineStart:    rel.Line,
+				LineEnd:      rel.Line,
+				Confidence:   rel.Confidence,
+				Producer:     types.EvidenceProducerRepoMapTerminalBodyCall,
+				Summary:      fmt.Sprintf("parser-authored selected-terminal body call: `%s` calls `%s` (extractor=%s)", caller, callee, rel.ResolvedBy),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorCall,
+				AnchorSymbol: strings.TrimSpace(rel.ToEP.Name),
+				OwnerSymbol:  caller,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item, resolvedBy: rel.ResolvedBy})
+		}
+	}
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		if rows[i].item.Subject != rows[j].item.Subject {
+			return rows[i].item.Subject < rows[j].item.Subject
+		}
+		return rows[i].item.Object < rows[j].item.Object
+	})
+	if len(rows) > runtimeTargetTerminalBodyCallLimit {
+		rows = rows[:runtimeTargetTerminalBodyCallLimit]
+	}
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Selected-Terminal Body Calls (parser grounded)\n\n")
+	b.WriteString("These exact calls come from the selected terminal callable's already-read body. They prove only the listed body operations; the model decides what those operations mean for the requested conceptual destination.\n\n")
+	b.WriteString("| Evidence | File:Line | Terminal callable | Exact callee | Extractor |\n")
+	b.WriteString("|----------|-----------|-------------------|--------------|-----------|\n")
+	for _, entry := range rows {
+		result.evidence = append(result.evidence, entry.item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` |\n",
+			entry.item.ID, entry.item.Source, entry.item.LineStart, entry.item.Subject, entry.item.Object, entry.resolvedBy)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
+	if e == nil || e.analysisIR == nil || e.analysisIR.RequestModel.CallChainEndpointProfile == nil {
+		return nil
+	}
+	profile := e.analysisIR.RequestModel.CallChainEndpointProfile
+	if profile.ExactActive() {
+		return []string{strings.TrimSpace(profile.Sink)}
+	}
+	var calls []types.EvidenceItem
+	for _, item := range e.structuredEvidence {
+		if item.IsCitable() && types.ClaimFormOf(item) == types.ClaimCallEdge &&
+			strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(item.Object) != "" {
+			calls = append(calls, item)
+		}
+	}
+	if len(calls) == 0 {
+		return nil
+	}
+	if profile.DiscoverSinkActive() {
+		selection := types.CallChainDiscoverySelectionEvidence(e.structuredEvidence)
+		var selected []string
+		for _, item := range selection {
+			selected = appendUniqueConcreteString(selected, strings.TrimSpace(item.Object))
+		}
+		var owners []string
+		for _, item := range calls {
+			for _, candidate := range selected {
+				if callChainTerminalEndpointMatchesSelection(item.Object, candidate) {
+					owners = appendUniqueConcreteString(owners, strings.TrimSpace(item.Object))
+					break
+				}
+			}
+		}
+		if len(owners) > 0 {
+			return owners
+		}
+	}
+	var owners []string
+	for _, candidate := range calls {
+		hasOutgoing := false
+		for _, other := range calls {
+			if traceEndpointSurfaceCompatible(candidate.Object, other.Subject) {
+				hasOutgoing = true
+				break
+			}
+		}
+		if !hasOutgoing {
+			owners = appendUniqueConcreteString(owners, strings.TrimSpace(candidate.Object))
+			if len(owners) >= 8 {
+				break
+			}
+		}
+	}
+	return owners
+}
+
+func runtimeTargetQualifiedCallable(sym repotypes.Symbol) string {
+	owner := firstNonEmptyString(sym.Receiver, sym.Parent)
+	name := strings.TrimSpace(sym.Name)
+	if name == "" {
+		return ""
+	}
+	if owner == "" {
+		return name
+	}
+	return strings.TrimSpace(owner) + "." + name
+}
+
+func runtimeTargetRelationEndpointSurface(endpoint repotypes.RelationEndpoint) string {
+	name := strings.TrimSpace(endpoint.Name)
+	if name == "" {
+		return ""
+	}
+	receiver := strings.Trim(strings.TrimSpace(endpoint.Receiver), ".")
+	if receiver == "" {
+		return name
+	}
+	return receiver + "." + name
+}
+
+func callChainTerminalOwnerMatchesAny(caller string, owners []string) bool {
+	for _, owner := range owners {
+		if traceEndpointSurfaceCompatible(caller, owner) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainTerminalEndpointMatchesSelection(endpoint, selection string) bool {
+	if traceEndpointSurfaceCompatible(endpoint, selection) {
+		return true
+	}
+	qualifier, _, qualified := traceEndpointQualifiedParts(endpoint)
+	if !qualified {
+		return false
+	}
+	return traceEndpointSurfaceCompatible(qualifier, selection)
 }
 
 // buildRuntimeTargetCooperativeMethodDefinitions promotes the exact method
@@ -15230,6 +15463,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		graph, structuralRelationFiles, readSet, closure, structuralRelations.evidence, cooperativeCalls.evidence,
 	)
 	decoratorApplications := e.buildRuntimeTargetDecoratorApplications(graph, structuralRelationFiles, readSet, closure)
+	terminalBodyCalls := e.buildRuntimeTargetTerminalBodyCalls(graph, structuralRelationFiles, readSet, closure)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -15572,7 +15806,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 	if len(allValues) == 0 {
-		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications)
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, terminalBodyCalls)
 	}
 
 	// Pre-filter: strip prose-like values at the source so they
@@ -15738,7 +15972,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	logging.Debug("[explorer] concrete values: %d relevant after multi-pass tracing", len(relevant))
 
 	if len(relevant) == 0 {
-		return structuralRelations
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, terminalBodyCalls)
 	}
 
 	// Sort by usefulness: bindings first (they anchor chains), then
@@ -15835,6 +16069,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	if decoratorApplications.markdown != "" {
 		b.WriteString(decoratorApplications.markdown)
+	}
+	if terminalBodyCalls.markdown != "" {
+		b.WriteString(terminalBodyCalls.markdown)
 	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
 	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
@@ -16243,6 +16480,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	cvEvidence = append(cvEvidence, cooperativeCalls.evidence...)
 	cvEvidence = append(cvEvidence, cooperativeMethods.evidence...)
 	cvEvidence = append(cvEvidence, decoratorApplications.evidence...)
+	cvEvidence = append(cvEvidence, terminalBodyCalls.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}

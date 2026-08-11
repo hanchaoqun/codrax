@@ -36,11 +36,20 @@ const (
 	// current investigation. Deterministic repo-wide expansion producers are
 	// intentionally distinct: they may enrich context, but cannot stand in for
 	// the model-selected principal operation surface.
-	EvidenceProducerExplorerEmitEvidence        = "explorer.emit_evidence"
-	EvidenceProducerRepoMapStructuralRelation   = "repomap_structural_relation"
-	EvidenceProducerRepoMapImplementerRelation  = "repomap_implementer_relation"
-	EvidenceProducerRepoMapCooperativeCall      = "repomap_cooperative_call"
-	EvidenceProducerRepoMapCooperativeMethod    = "repomap_cooperative_method_definition"
+	EvidenceProducerExplorerEmitEvidence       = "explorer.emit_evidence"
+	EvidenceProducerRepoMapStructuralRelation  = "repomap_structural_relation"
+	EvidenceProducerRepoMapImplementerRelation = "repomap_implementer_relation"
+	EvidenceProducerRepoMapCooperativeCall     = "repomap_cooperative_call"
+	EvidenceProducerRepoMapCooperativeMethod   = "repomap_cooperative_method_definition"
+	// EvidenceProducerRepoMapTerminalBodyCall marks an AST/Cangjie-parser
+	// invocation inside a precisely read callable that the typed call-chain
+	// graph selected as its terminal. Unlike the broad concrete-value call
+	// scanner, this lane intentionally retains utility/IO/log calls because
+	// they are often the terminal implementation fact the user is asking the
+	// model to interpret. Selection and admission consume typed endpoints,
+	// parser provenance and read coverage only; request/answer prose never
+	// participates.
+	EvidenceProducerRepoMapTerminalBodyCall     = "repomap_terminal_body_call"
 	EvidenceProducerRepoMapDecoratorApplication = "repomap_decorator_application"
 	// EvidenceProducerAutoPairRoleDescription marks a doc-comment companion
 	// emitted beside one grounded definition. It carries role/WHAT context but

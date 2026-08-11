@@ -3588,3 +3588,24 @@ semantic-view 接线与 legacy 缺来源负臂均有 pin；types/tool/agent/orch
 
 状态：`B509=implemented/pending-r295-production-witness`；`B508=open`；`system-edge/answer-authoring=none`；
 Trace windows/causal projection/auto-supplement/on-chain root causes/business clues=`unchanged`。
+
+#### §11.10.76 r295：B509 生产关闭，B508 由终点函数体证据缺席确认
+
+exact-two runner 2/2、人工 1/2。read 首次 invented participant 被逐席 current-request provenance 精确拒绝，最终四阶段 skeleton、输入输出表与独立
+implementation call 均正确，B509 关闭；两次跨组件成文修复另记 B510 soft-context salience，不放宽 validator。
+
+Java 的完整五边调用链与容量 guard 在场，摘要也识别 `AuditLog.record` 为 stdout；但步骤行又称“实现审计落库”。已读 `AuditLog.java:6` 没有对应 typed
+body-call item，Finalizer 只有 incoming callsite 且 definition-unproven。故 B508 是 producer/context gap，不是单纯模型波动。
+
+状态：`B509=production-closed`；`B508=confirmed/next`；`B510=P1-watch`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.77 B508：typed-selected terminal 的精确函数体调用通道
+
+新 producer 只消费 typed endpoint selection、已证调用图、parser provenance 与 exact read coverage，提升选中终点函数体里的 direct call。Tree-sitter 语言与
+Cangjie 共用判据；regex、未读行、sibling terminal fail-closed。Finalizer 将 exact body-call fact 与 declaration/body general authority 分离，允许模型引用
+`A -> B @ file:line`，但不由系统解释其业务语义或改写答案。
+
+Java、ArkTS、Cangjie 三面 pin 及 agent/types/tool/orchestrator/tracediag/stageauthority 套件全绿。没有 request/final prose 扫描、系统补边或结论代写；
+Trace 显式窗、因果投影、自动补齐与链上根因通道未改。
+
+状态：`B508=implemented/pending-r296-production-replay`；`B510=P1-watch`；`system-answer/relation-authoring=none`；Trace families=`unchanged`。

@@ -19,6 +19,7 @@ type answerDocCallableCitationRow struct {
 	definitionRef         string
 	definitionID          string
 	definitionState       string
+	bodyCallFacts         []string
 }
 
 // renderAnswerDocCallChainCitationAuthority pairs call-site and definition
@@ -38,12 +39,15 @@ func renderAnswerDocCallChainCitationAuthority(plan *types.AnswerSupportPlan) st
 	var b strings.Builder
 	b.WriteString("### Callable role and citation authority (typed advisory)\n\n")
 	b.WriteString("- A call-site reference proves only that its exact caller invokes its exact target. A definition reference proves the callable declaration/body at that location. Do not describe a call-site line as where the callee is defined, and do not use a definition line as proof that a caller invoked it.\n")
-	b.WriteString("- For an ordered hop, cite `callsite_refs`. Discuss a callable's signature or body only when `definition_status=proved`, and cite `definition_ref`. When definition is unproven, say only that the grounded chain invokes/reaches the endpoint; preserve the missing body as a boundary.\n")
+	b.WriteString("- For an ordered hop, cite `callsite_refs`. Discuss a callable's signature or general body only when `definition_status=proved`, and cite `definition_ref`. An exact `body_call_fact` independently proves only that listed invocation inside the callable and may be described from its own reference even when the declaration line is absent. When neither definition nor body fact is proved, say only that the grounded chain invokes/reaches the endpoint.\n")
 	for i, row := range rows {
 		fmt.Fprintf(&b, "- callable[%d]: identity=`%s`; observed_roles=`%s`; callsite_refs=`%s`; definition_status=`%s`",
 			i+1, answerDocCallChainInline(row.identity), strings.Join(row.roles, "|"), strings.Join(row.callsiteRefs, " | "), row.definitionState)
 		if row.definitionRef != "" {
 			fmt.Fprintf(&b, "; definition_ref=`%s`; definition_evidence=`%s`", answerDocCallChainInline(row.definitionRef), answerDocCallChainInline(row.definitionID))
+		}
+		if len(row.bodyCallFacts) > 0 {
+			fmt.Fprintf(&b, "; body_call_facts=`%s`", strings.Join(row.bodyCallFacts, " | "))
 		}
 		b.WriteString(".\n")
 	}
@@ -97,6 +101,11 @@ func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) []answerD
 		}
 		add(entry.Subject, "caller_operation", entry.Source, entry.Location, ownerAuthority)
 		add(entry.Object, "invoked_target", entry.Source, entry.Location, "")
+		key := strings.ToLower(answerDocExactChainIdentity(entry.Subject))
+		if row := rows[key]; row != nil && strings.TrimSpace(entry.Object) != "" && strings.TrimSpace(entry.Location) != "" {
+			row.bodyCallFacts = appendAnswerDocUniqueString(row.bodyCallFacts,
+				fmt.Sprintf("%s -> %s @ %s", strings.TrimSpace(entry.Subject), strings.TrimSpace(entry.Object), strings.TrimSpace(entry.Location)))
+		}
 	}
 
 	definitions := make([]types.AnswerSupportEntry, 0)

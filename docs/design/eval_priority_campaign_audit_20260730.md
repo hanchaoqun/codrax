@@ -31583,3 +31583,39 @@ schema pin、拒绝 invented/missing/mismatched provenance、IR 持久化和 leg
 状态：`B509=implemented/package-suites-pass/pending-r295-production-replay`；`B508=P1/open`；
 `system-relation/diagram/conclusion-authoring=none`；`raw-keyword/model/final-prose-hard-gate=none`；
 Trace explicit windows/auto-supplement/causal projection/on-chain cause families/business clues=`unchanged`。
+
+### 123.532 r295：participant 来源闭环；终点实现事实仍未进入成文
+
+`main@2920e7a67` 严格并行 read stage-workflow 与 Java call-chain，runner 2/2、人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r295_20260810_manual_audit.md`。
+
+read 案给出 B509 的生产正证：Analyzer 首次把请求未点名的 `Orchestrator`、`Explorer Agent` 等写入 participant 时，emit 端按逐席
+current-request `source_quote` 精确拒绝；修正后这些猜测没有成为 hard obligations。最终答案正确保留四阶段顺序、每阶段输入/输出/状态载体，以及与 skeleton
+分离的一条 `runAnalyzePhase -> dispatchStage` 已证调用，故 B509 关闭。仍有两次成文修复：模型曾把独立 implementation edge 接进 stage skeleton，严格门正确拒绝；
+立 `B510-STAGESKELETON-SALIENCE1/P1-watch`，只观察“typed recipe 分组显著性”，不放宽关系门、不据单案加硬约束。
+
+Java 案五条 call、容量 guard、引用均正确，摘要也明确 `AuditLog.record` 写标准输出；但第 5 跳又称“实现审计落库”，人工 fail。Explorer 实际读取了
+`AuditLog.java:6`，却只发 incoming `VisitRepository.insert -> AuditLog.record` 和 initializer；函数体 `AuditLog.record -> System.out.println` 没有 typed
+EvidenceItem。Finalizer 因而只见 `definition_status=unproven`，不能从模型 Summary 取得事实权威。B508 确认为 producer/context gap，不归模型波动。
+
+状态：`B509=production-closed`；`B508=confirmed/next`；`B510=P1-watch`；`runner=2/2,human=1/2`；
+`system-relation/answer/conclusion-authoring=none`；`raw-keyword/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.533 B508：已选终点的 parser 函数体事实进入独立 typed 通道
+
+Explorer 新增语言无关的 selected-terminal body-call producer。它仅在 `QFCallChain` typed endpoint profile 激活后运行：exact 模式取 typed sink；
+discover 模式把 typed selection fact 与已证 incoming call target 做端点 join；discover-path 才对已证调用图叶子 fail-closed 回退。随后只提升该终点已精确读取行上的
+Tree-sitter/Cangjie-parser direct call；regex salvage、未读行、同文件其他叶子均拒绝。因而 Java 的
+`AuditLog.record -> System.out.println @ AuditLog.java:6` 能成为事实，ArkTS/Cangjie 及其余 Tree-sitter 语言走同一机制，无语言名或单用例特判。
+
+Finalizer callable citation authority 同时区分 `definition_status` 与 exact `body_call_facts`：无 declaration citation 时仍只能引用那一条精确函数体调用，不能扩写
+一般签名/实现语义。系统只提供 `A -> B @ file:line`，是否代表落库、日志、IO 或其他业务含义仍由模型判断；没有读取用户/模型/答案 prose，没有重写正文、生成关系或
+代替模型结论。宽 concrete-value scanner 的降噪策略保持，只有 typed-selected terminal 获得窄提升。
+
+回归覆盖 Java 选中终点 utility call 正臂、regex 负臂，ArkTS sibling terminal/未读行负臂，Cangjie Finalizer 接线，以及 definition-unproven + exact body fact
+并存。`go test ./internal/agent ./internal/types ./internal/tool ./internal/orchestrator ./internal/tracediag ./internal/stageauthority -count=1` 全绿
+（agent 9.609s，types 21.644s，tool 164.332s，orchestrator 13.868s，tracediag 8.520s，stageauthority 2.578s）。
+
+状态：`B508=implemented/package-suites-pass/pending-r296-production-replay`；`B509=closed`；`B510=P1-watch`；
+`system-prose/relation/diagram/conclusion-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
+Trace explicit windows/auto-supplement/causal projection/on-chain root-cause families/business clues=`unchanged`。

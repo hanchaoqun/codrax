@@ -29,6 +29,7 @@ func TestCallChainCitationAuthoritySeparatesCallsitesAndDefinitions(t *testing.T
 		"identity=`_tokenize_slow`",
 		"definition_status=`unproven`",
 		"identity=`super::tokenize_bytes`",
+		"body_call_facts=`FastTokenizer.tokenize -> _fastlex.tokenize_bytes @ tokenizer.py:21 | FastTokenizer.tokenize -> _tokenize_slow @ tokenizer.py:22`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("callable citation authority missing %q:\n%s", want, got)
@@ -36,6 +37,28 @@ func TestCallChainCitationAuthoritySeparatesCallsitesAndDefinitions(t *testing.T
 	}
 	if strings.Contains(got, "definition_ref=`lib.rs:42`") || strings.Contains(got, "definition_ref=`tokenizer.py:22`") {
 		t.Fatalf("call sites must never be relabeled as definition locations:\n%s", got)
+	}
+}
+
+func TestCallChainCitationAuthorityKeepsExactBodyCallWithoutDefinition(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath,
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "incoming", ClaimForm: types.ClaimCallEdge, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "VisitRepository.java", Location: "VisitRepository.java:23"},
+			{EvidenceID: "body", ClaimForm: types.ClaimCallEdge, Subject: "AuditLog.record", Object: "System.out.println", OwnerSymbol: "AuditLog.record", Source: "AuditLog.java", Location: "AuditLog.java:6", Producer: types.EvidenceProducerRepoMapTerminalBodyCall},
+		},
+	}}}
+
+	got := renderAnswerDocCallChainCitationAuthority(plan)
+	for _, want := range []string{
+		"identity=`AuditLog.record`",
+		"definition_status=`unproven`",
+		"body_call_facts=`AuditLog.record -> System.out.println @ AuditLog.java:6`",
+		"exact `body_call_fact` independently proves only that listed invocation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("callable body-call authority missing %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -79,10 +102,11 @@ func TestCallChainCitationAuthorityIsWiredIntoFinalizerPrompt(t *testing.T) {
 		EvidenceItems: []types.EvidenceItem{
 			{ID: "call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "A.run", Object: "B.run", OwnerSymbol: "A.run", Source: "src/main.cj", LineStart: 20, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence},
 			{ID: "def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "B.run", Source: "src/main.cj", LineStart: 30, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			{ID: "body", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "B.run", Object: "Console.write", OwnerSymbol: "B.run", Source: "src/main.cj", LineStart: 31, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapTerminalBodyCall},
 		},
 	}
 	got := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{"Callable role and citation authority", "identity=`B.run`", "definition_ref=`src/main.cj:30`"} {
+	for _, want := range []string{"Callable role and citation authority", "identity=`B.run`", "definition_ref=`src/main.cj:30`", "body_call_facts=`B.run -> Console.write @ src/main.cj:31`"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finalizer prompt lost callable citation authority %q:\n%s", want, got)
 		}

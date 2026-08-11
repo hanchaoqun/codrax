@@ -250,6 +250,78 @@ func TestBuildRuntimeTargetCooperativeCalls_PromotesExactReadSameOperationSuperC
 	}
 }
 
+func TestBuildRuntimeTargetTerminalBodyCalls_PromotesSelectedTerminalUtilityCall(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/main/java/com/clinic/repo/AuditLog.java", Language: repotypes.LangJava,
+		Symbols: []repotypes.Symbol{
+			{Name: "AuditLog", Kind: "class", File: "src/main/java/com/clinic/repo/AuditLog.java", Line: 3, EndLine: 8},
+			{Name: "record", Kind: "method", Parent: "AuditLog", File: "src/main/java/com/clinic/repo/AuditLog.java", Line: 5, EndLine: 7},
+		},
+		Relations: []repotypes.Relation{
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "println", Receiver: "System.out"}, File: "src/main/java/com/clinic/repo/AuditLog.java", Line: 6, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "java_method_invocation"},
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "guess", Receiver: "Noise"}, File: "src/main/java/com/clinic/repo/AuditLog.java", Line: 7, Confidence: repotypes.ConfidenceRegexSalvage, Provenance: repotypes.ProvenanceRegexFallback, ResolvedBy: "regex_guess"},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.structuredEvidence = []types.EvidenceItem{
+		{ID: "incoming", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "selection", Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "VisitRepository", Object: "AuditLog", Source: "VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	readSet := map[string]bool{"src/main/java/com/clinic/repo/AuditLog.java": true}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"src/main/java/com/clinic/repo/AuditLog.java": {{Start: 5, End: 6}}})
+
+	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
+	if len(got.evidence) != 1 {
+		t.Fatalf("selected terminal's exact AST body call must survive utility-call filtering: %+v", got.evidence)
+	}
+	item := got.evidence[0]
+	if item.Subject != "AuditLog.record" || item.Object != "System.out.println" || item.LineStart != 6 ||
+		item.Producer != types.EvidenceProducerRepoMapTerminalBodyCall || types.ClaimFormOf(item) != types.ClaimCallEdge || !item.IsCitable() {
+		t.Fatalf("unexpected selected-terminal body evidence: %+v", item)
+	}
+	for _, want := range []string{"Typed Selected-Terminal Body Calls", "`AuditLog.record`", "`System.out.println`", "model decides"} {
+		if !strings.Contains(got.markdown, want) {
+			t.Fatalf("terminal body handoff missing %q:\n%s", want, got.markdown)
+		}
+	}
+	if strings.Contains(got.markdown, "Noise.guess") {
+		t.Fatalf("regex relation must not become terminal body authority:\n%s", got.markdown)
+	}
+}
+
+func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/Sinks.ets", Language: repotypes.LangArkTS,
+		Symbols: []repotypes.Symbol{
+			{Name: "record", Kind: "method", Parent: "AuditLog", File: "src/Sinks.ets", Line: 4, EndLine: 7},
+			{Name: "flush", Kind: "method", Parent: "OtherSink", File: "src/Sinks.ets", Line: 10, EndLine: 13},
+		},
+		Relations: []repotypes.Relation{
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "write", Receiver: "Console"}, File: "src/Sinks.ets", Line: 6, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_member_call"},
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "send", Receiver: "Network"}, File: "src/Sinks.ets", Line: 12, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_member_call"},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.structuredEvidence = []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Entry.run", Object: "AuditLog.record", Source: "src/Entry.ets", LineStart: 2, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Entry.run", Object: "OtherSink.flush", Source: "src/Entry.ets", LineStart: 3, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "Entry", Object: "AuditLog", Source: "src/Entry.ets", LineStart: 1, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	readSet := map[string]bool{"src/Sinks.ets": true}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"src/Sinks.ets": {{Start: 4, End: 6}}})
+
+	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
+	if len(got.evidence) != 1 || got.evidence[0].Subject != "AuditLog.record" || got.evidence[0].Object != "Console.write" {
+		t.Fatalf("selection/read gates must exclude the sibling terminal and unread relation: %+v", got.evidence)
+	}
+}
+
 func TestBuildRuntimeTargetCooperativeMethodDefinitions_RequiresTypedRosterOperationAndExactRead(t *testing.T) {
 	file := &repotypes.FileInfo{
 		RelPath: "pipeline/base.py", Language: repotypes.LangPython,
