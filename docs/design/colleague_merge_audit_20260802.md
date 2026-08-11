@@ -4605,3 +4605,22 @@ runnable/dispatch delay 仍只能来自目标自身 runnable 区间与同核调�
 
 状态：`B544=context-fix-implemented/pending-replay`；`typed-blocking=preserved`；`raw-prose-hard-gate=none`；
 `system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.162 r332：B563 生产正证；unproven participant 仍可挂在已证技术边上
+
+r332 exact-two runner 2/2、人工 1/2。QF 用时由 r331 的 1132s 降至 499s，finalizer reject 由 14 降至 3；所有 member-qualified label 换行均未再出现
+`call_edge_unproven`，B563 获生产正证。C++ virtual-chain 在一次修补后完整保留 Logger→Sink→ConsoleSink→fputs/fputc、虚分发以及
+SinkRegistry::create 的 console/file/rotating 三分支，`::` 身份和 mixed-relation Note 无回归。
+
+QF 最终图仍确认 `B564-UNPROVENINCIDENT1/P1-high`：model-authored edge anchor 诚实指向
+`appendStageOutputEvidenceToMutable -> MutableState.AppendEvidence`，可见 sink label 却写成宽身份 `Mutable`；同一 diagram 又保留
+`participant_boundaries[{participant:Mutable,status:unproven}]` 并披露关系未证。现实现对无 candidate 的 boundary 只验证 exact node 可见，不验证该节点是否真无 incident
+edge，导致“已连接”和“未证断开”同时通过。最优修法是精确 Mermaid 结构门：无 typed candidate + unproven boundary 时，该 exact participant node 必须零入边零出边；
+已有 valid typed edge 必须保留在其 exact technical endpoint 上，宽 participant 另作断开节点。系统不删边、不改标签、不选择关系，只返回分离动作。
+
+另立 `B565-PARTICIPANTBINDINGACQ1/P1`：探索已读到 `Mutable *MutableState`，但未发 field→declared-type typed binding；因此现有
+`AnswerCodeIdentityIncidentViaDeclaredBinding` 无证据把用户点名 field identity 与 `MutableState.AppendEvidence` operation 接合。先补通用 declared-binding acquisition
+教学/载体，再决定是否可安全去掉 unproven boundary；禁止从命名相似或答案文本猜 alias。
+
+状态：`B563=production-positive`；`B564=next-highest-ROI`；`B565=open`；`runner=2/2`；`human=1/2`；
+`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
