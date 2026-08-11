@@ -115,8 +115,8 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		"ordered_path_authority=`typed_flow_paths_present`",
 		"verified_relation_component_count=1",
 		"inter_component_bridge_status=`not_applicable_single_component`",
-		"preserve its node IDs, exact edge topology, and anchor array",
-		"replace only visible node/message wording with model-authored business/domain language",
+		"preserve its node IDs, exact edge topology, annotation carriers, and anchor array",
+		"replace only visible node/message/annotation wording with model-authored business/domain language",
 		"#### Copy-ready optional typed diagram",
 		"sequenceDiagram",
 		"participant n1 as convertTrace",
@@ -1146,18 +1146,95 @@ func TestMechanismRelationCopyReadySequencePreservesUnaryGuardAsOneParticipantNo
 
 func TestMechanismUnaryAnnotationCopyReadyMatrixIsClosedAA3(t *testing.T) {
 	for _, kind := range []types.DiagramKind{
-		types.DiagramFlow, types.DiagramArchitecture, types.DiagramCallDAG, types.DiagramNone,
+		types.DiagramSequence, types.DiagramFlow, types.DiagramArchitecture, types.DiagramCallDAG,
 	} {
-		if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind, types.DiagramRelGuard) {
-			t.Fatalf("unary guard must not be auto-rendered by unsupported family %q", kind)
+		if !answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind, types.DiagramRelGuard) {
+			t.Fatalf("reviewed family %q must carry unary guard without an edge", kind)
 		}
 	}
-	if !answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramSequence, types.DiagramRelGuard) {
-		t.Fatal("sequence must carry a unary guard as an unanchored Note")
-	}
 	if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramSequence, types.DiagramRelCall) ||
+		answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramNone, types.DiagramRelGuard) ||
 		answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(types.DiagramKind("future"), types.DiagramRelGuard) {
 		t.Fatal("unknown/non-unary relations must fail closed")
+	}
+}
+
+func TestMechanismRelationCopyReadyFlowPreservesUnaryGuardAsStandaloneFactNodeAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramCallDAG,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "call", Kind: types.EvidenceRelationship,
+				Source: "src/registry.cpp", LineStart: 32, AnchorKind: types.AnchorCall,
+				Subject: "make_sink", Object: "SinkRegistry::create",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "guard", Kind: types.EvidenceConditional,
+				Source: "src/registry.cpp", LineStart: 17, AnchorKind: types.AnchorCondition,
+				Subject: "SinkRegistry::create", Condition: `kind == "console"`,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"visual_annotation_relation_count=1",
+		"annotation_relation_kinds=`guard`",
+		`u1["Selection condition for SinkRegistry::create (kind == &quot;console&quot;); describe the business condition"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("flow-family unary fact node missing %q:\n%s", want, got)
+		}
+	}
+	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	for _, forbidden := range []string{"n2 --> u1", "u1 --> n2", `"relation_kind":"guard"`} {
+		if strings.Contains(copyReady, forbidden) {
+			t.Fatalf("flow-family unary guard minted an edge %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestMechanismRelationCopyReadyReceiptSeparatesRenderedAndOmittedKindsAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramCallDAG,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "call", Kind: types.EvidenceRelationship,
+				Source: "src/registry.cpp", LineStart: 32, AnchorKind: types.AnchorCall,
+				Subject: "make_sink", Object: "SinkRegistry::create",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "return", Kind: types.EvidenceDirect,
+				Source: "src/registry.cpp", LineStart: 18, AnchorKind: types.AnchorReturn,
+				Subject: "SinkRegistry::create", Object: "ConsoleSink",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "visual_omitted_relation_kinds=`return`") {
+		t.Fatalf("call_dag must disclose its actually omitted return relation:\n%s", got)
+	}
+	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	if strings.Contains(copyReady, "visual_annotation_relation_count=0") ||
+		strings.Contains(copyReady, "return`; these are preserved") {
+		t.Fatalf("omitted return must not be described as a rendered annotation:\n%s", got)
 	}
 }
 

@@ -497,9 +497,7 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 		"OPTIONAL diagram",
 		"remove_block_ids",
 		"typed call-edge evidence",
-		"optional typed diagram evidence skeleton",
-		"prefer replacing only the rejected diagram",
-		"complete `edge_anchors_json`",
+		"No copy-ready typed relation carrier is available",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"source locations are evidence metadata; do not copy them as the primary visible wording",
 		"beyond the grounded textual answer",
@@ -538,12 +536,12 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	}
 	for _, want := range []string{
 		"Use `emit_answer_document_patch`",
-		"optional typed diagram evidence skeleton",
+		"copy-ready optional typed diagram skeleton",
 		"prefer replacing only the rejected diagram",
 		"This is authoring guidance, not a requirement to keep a diagram",
 		"remove_block_ids",
 		types.AnswerDocumentPatchOperationTeaching,
-		"verified capsule is repeated here",
+		"verified carrier's topology and anchor array",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"n1->>n2: call",
@@ -555,6 +553,34 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	}
 	if !e.preferPatchNext {
 		t.Fatal("first optional-diagram reject should keep the next turn on patch surface")
+	}
+}
+
+func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonWithheld(t *testing.T) {
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+
+	got := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
+	for _, want := range []string{
+		"whole-diagram skeleton is intentionally unavailable",
+		"bounded exact relation boundary",
+		"typed relation boundary, not a complete-flow claim",
+		"node_alias[n1]=`Orchestrator.runAnalyzePhase`",
+		"edge_recipe[1]=`n1 -> n2`",
+		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}` + "`",
+		"keep separate components disconnected",
+		"remove it with `remove_block_ids` only when you judge",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("optional flow boundary repair missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"copy-ready optional typed diagram skeleton is available",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("optional flow boundary repair made unsupported promise %q:\n%s", forbidden, got)
+		}
 	}
 }
 

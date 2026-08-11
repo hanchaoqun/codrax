@@ -4459,3 +4459,14 @@ C++ 5 次修补、319s 后仍由模型成功交付，固定 4 分钟未触发系
 
 状态：`B554/B555=partial`；`B556/B557=next`；`B558=watch`；`model-authorship=preserved`；
 `active-stream=no-degrade@319s`；Trace causal authority=`unchanged`。
+
+#### §11.10.152 B554/B556/B557：现有图 family 的 unary 载体与修补 receipt 单源
+
+unary guard 现对 sequence 映射为单席 Note，对 flow/architecture/call_dag 映射为 standalone fact node；所有载体均无 edge/anchor，未知 family/relation fail-closed。
+copy-ready receipt 只把实际渲染载体计入 annotation count/kinds，无法表达的 typed relation 改列 `visual_omitted_relation_kinds`，消除零计数却声称已保留的自冲突。
+
+optional AxisFlow repair 在 whole story skeleton 被权限边界扣留时，现重复 bounded exact relation/unary recipes，并声明只是 relation boundary；模型自行选择 faithful subset、
+业务措辞与布局，图仍可在无价值时删除。无系统补边/绘图/结论代写或 raw prose hard gate。
+
+状态：`B554/B556/B557=implemented/pending-r328`；`B555=pending-r328`；`B558=watch`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

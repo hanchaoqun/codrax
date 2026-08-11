@@ -32999,3 +32999,21 @@ C++ 5 次 Finalizer reject 后才消费 exact call skeleton，记 `B558/P2-watch
 
 状态：`B554=partial/next`；`B555=partial`；`B556=P1-high/next`；`B557=P1/next`；`B558=P2-watch`；
 `runner=2/2`；`human=0/2`；`active-stream=no-degrade@319s`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.612 B554/B556/B557：flow-family 无边事实载体与本地 relation-boundary 修补
+
+B554 的 closed matrix 已扩到全部现有 Mermaid semantic family：sequence 继续用单席 `Note over`；flow、architecture、call_dag 对 unary guard 使用独立的
+standalone fact node。节点标签携带 exact participant+condition 作为证据占位，并要求模型改写为业务语言；它与 participant/其他 node 之间没有连线，永不进入
+`edge_anchors_json`，不产生 self-loop、虚拟 object 或分支方向。`DiagramNone`、未知 future family 与非 guard unary relation 继续 fail-closed。
+
+B557 同批将 copy-ready receipt 拆为两个同源集合：`visual_annotation_relation_count/kinds` 只来自实际渲染的 binary Note 或 unary fact node；当前 family 无法表达的
+typed relation 进入 `visual_omitted_relation_kinds`，明确说明只留在 sibling capsule/prose。由此消除“count=0 + return + 已由 Note 保留”的矛盾。
+
+B556 修正 optional repair 的载体选择。存在 whole-diagram capsule 时继续优先原样局部替换；AxisFlow 等因权限边界扣留 whole story graph 时，不再假称 skeleton 存在，
+而是重复同一 authority 中的 bounded node alias、edge recipe、unary recipe 与 exact anchor JSON，明确它只是 relation boundary、不是完整 flow。模型可选择一个 faithful subset，
+不得串成长链；只有判断该载体没有新增结构价值时才删可选图。系统仍不绘图、不决定布局/结论、不扫描原始请求或模型/终稿 prose。
+
+相关七包测试通过；新回归覆盖四 family unary capability、unknown fail-closed、rendered/omitted receipt 分离及 AxisFlow optional local boundary。
+
+状态：`B554=implemented/all-current-families/pending-r328`；`B556=implemented/pending-r328`；
+`B557=implemented/pending-r328`；`B555=pending-r328`；`B558=watch`；Trace causal authority=`unchanged`。

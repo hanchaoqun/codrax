@@ -7343,7 +7343,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; a Note is not an edge and cannot satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, and anchor array; replace only visible node/message wording with model-authored business/domain language. Preserve its Notes as facts while replacing their visible wording with model-authored business/domain language. Do not compose a different story graph.\n")
+		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor array; replace only visible node/message/annotation wording with model-authored business/domain language. Do not compose a different story graph.\n")
 		for i, row := range unaryRows {
 			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
 				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
@@ -7670,8 +7670,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		usedAliases[recipe.from] = true
 		usedAliases[recipe.to] = true
 	}
-	for _, row := range visualUnaryAnnotations {
-		usedAliases[row.participant] = true
+	if kind == types.DiagramSequence {
+		for _, row := range visualUnaryAnnotations {
+			usedAliases[row.participant] = true
+		}
 	}
 	anchorJSON, err := json.Marshal(anchors)
 	if err != nil {
@@ -7679,25 +7681,32 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored Notes, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, and Note text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Notes preserve already-typed non-message facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
-	if len(omittedKinds) > 0 || len(visualUnaryAnnotations) > 0 {
-		annotationKinds := append([]string(nil), omittedKinds...)
-		for _, row := range visualUnaryAnnotations {
-			kindName := string(row.annotation.relation)
-			seenKind := false
-			for _, existing := range annotationKinds {
-				if existing == kindName {
-					seenKind = true
-					break
-				}
-			}
-			if !seenKind {
-				annotationKinds = append(annotationKinds, kindName)
-			}
+	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, Notes, and fact-node text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	renderedAnnotationKinds := make(map[string]bool)
+	for _, recipe := range annotationRecipes {
+		renderedAnnotationKinds[string(recipe.edge.relation)] = true
+	}
+	for _, row := range visualUnaryAnnotations {
+		renderedAnnotationKinds[string(row.annotation.relation)] = true
+	}
+	if len(annotationRecipes)+len(visualUnaryAnnotations) > 0 {
+		annotationKinds := make([]string, 0, len(renderedAnnotationKinds))
+		for kindName := range renderedAnnotationKinds {
+			annotationKinds = append(annotationKinds, kindName)
 		}
 		sort.Strings(annotationKinds)
-		fmt.Fprintf(b, "- visual_annotation_relation_count=%d; annotation_relation_kinds=`%s`; these are preserved as unanchored Notes, not message arrows.\n",
+		fmt.Fprintf(b, "- visual_annotation_relation_count=%d; annotation_relation_kinds=`%s`; these are preserved as unanchored non-edge annotations, not arrows.\n",
 			len(annotationRecipes)+len(visualUnaryAnnotations), strings.Join(annotationKinds, ","))
+	}
+	omittedVisualKinds := make([]string, 0, len(omittedKinds))
+	for _, kindName := range omittedKinds {
+		if !renderedAnnotationKinds[kindName] {
+			omittedVisualKinds = append(omittedVisualKinds, kindName)
+		}
+	}
+	if len(omittedVisualKinds) > 0 {
+		fmt.Fprintf(b, "- visual_omitted_relation_kinds=`%s`; these typed facts remain available in the sibling capsule/prose but are not rendered by this Mermaid-family skeleton.\n",
+			strings.Join(omittedVisualKinds, ","))
 	}
 	b.WriteString("\n")
 	b.WriteString("```mermaid\n")
@@ -7731,13 +7740,24 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		for _, recipe := range diagramRecipes {
 			fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
 		}
+		for i, row := range visualUnaryAnnotations {
+			fmt.Fprintf(b, "  u%d[\"%s\"]\n", i+1,
+				answerDocMechanismUnaryFlowFactNodePlaceholder(row.annotation))
+		}
 	}
 	b.WriteString("```\n")
 	fmt.Fprintf(b, "- edge_anchors_json=`%s`\n", anchorJSON)
 }
 
 func answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind types.DiagramKind, relation types.DiagramRelationKind) bool {
-	return kind == types.DiagramSequence && relation == types.DiagramRelGuard
+	if relation != types.DiagramRelGuard {
+		return false
+	}
+	switch kind {
+	case types.DiagramSequence, types.DiagramFlow, types.DiagramArchitecture, types.DiagramCallDAG:
+		return true
+	}
+	return false
 }
 
 func answerDocMechanismUnarySequenceNotePlaceholder(annotation answerDocMechanismUnaryAnnotation) string {
@@ -7745,6 +7765,15 @@ func answerDocMechanismUnarySequenceNotePlaceholder(annotation answerDocMechanis
 		return "A single-participant fact is verified; describe it without an arrow"
 	}
 	return fmt.Sprintf("Selection condition is verified (%s); describe the business condition",
+		answerDocMechanismMermaidLabel(annotation.detail))
+}
+
+func answerDocMechanismUnaryFlowFactNodePlaceholder(annotation answerDocMechanismUnaryAnnotation) string {
+	if annotation.relation != types.DiagramRelGuard || strings.TrimSpace(annotation.detail) == "" {
+		return "A verified single-participant fact; describe it in business language"
+	}
+	return fmt.Sprintf("Selection condition for %s (%s); describe the business condition",
+		answerDocMechanismMermaidLabel(annotation.participant),
 		answerDocMechanismMermaidLabel(annotation.detail))
 }
 
@@ -13807,14 +13836,29 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	if alreadyPatching {
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 	}
+	copyReadyPayload := answerDocMechanismCopyReadyRepairPayload(ctx)
+	boundaryPayload := ""
+	if copyReadyPayload == "" {
+		boundaryPayload = answerDocMechanismTypedRelationBoundaryRepairPayload(ctx)
+	}
 	hint := prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence, or its typed edge metadata no longer matches the visible Mermaid arrows. " +
-		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains an optional typed diagram evidence skeleton when one can be built. When that skeleton carries useful verified relationship structure, prefer replacing only the rejected diagram with the skeleton's exact node IDs, edge topology, unanchored Notes, and complete `edge_anchors_json`; this preserves grounded structure with less reconstruction. Do not compose a third graph. " +
-		"The diagram remains optional: remove it with `remove_block_ids` only when you judge that the verified skeleton adds no useful relationship structure beyond the grounded textual answer. This is authoring guidance, not a requirement to keep a diagram. " +
+		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. "
+	switch {
+	case copyReadyPayload != "":
+		hint += "A copy-ready optional typed diagram skeleton is available below. When it carries useful verified relationship structure, prefer replacing only the rejected diagram with the skeleton's exact node IDs, edge topology, unanchored annotations, and complete `edge_anchors_json`; this preserves grounded structure with less reconstruction. Do not compose a third graph. "
+	case boundaryPayload != "":
+		hint += "A whole-diagram skeleton is intentionally unavailable because the existing typed relations do not prove one complete source-flow story. A bounded exact relation boundary is repeated below instead. Prefer repairing the diagram to a faithful subset of those recipes: keep each chosen recipe's node aliases, direction, relation kind, and `edge_anchor_json` together, use a recipe at most once, and keep separate components disconnected. Do not join the recipes into a longer path or compose a third story graph. "
+	default:
+		hint += "No copy-ready typed relation carrier is available. Keep only visible edges already supported by the accepted typed evidence, or remove the optional diagram; do not reconstruct a new story graph. "
+	}
+	hint += "The diagram remains optional: remove it with `remove_block_ids` only when you judge that the available verified relation carrier adds no useful relationship structure beyond the grounded textual answer. This is authoring guidance, not a requirement to keep a diagram. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
 		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch."
-	if payload := answerDocMechanismCopyReadyRepairPayload(ctx); payload != "" {
-		hint += " To minimize reconstruction work, the verified capsule is repeated here; preserve its topology and anchor array while authoring only the visible business wording if you retain the diagram:\n\n" + payload
+	if copyReadyPayload != "" {
+		hint += " To minimize reconstruction work, preserve this verified carrier's topology and anchor array while authoring only the visible business wording if you retain the diagram:\n\n" + copyReadyPayload
+	} else if boundaryPayload != "" {
+		hint += " This is a typed relation boundary, not a complete-flow claim; preserve only the recipes you choose to show and author their visible business wording:\n\n" + boundaryPayload
 	}
 	return hint + " Do not write free-form prose outside the tool call."
 }
