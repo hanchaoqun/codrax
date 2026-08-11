@@ -3947,3 +3947,13 @@ Trace root-cause diagrams继续走独立 runtime relation authority。系统不�
 
 相关四包全量回归通过。状态：`B524=implemented/package-suites-pass/pending-r308`；
 `model-visible-copy-ownership=preserved`；`system-relation-authoring=none`；`hard-prose-scan=none`；Trace=`unchanged`。
+
+#### §11.10.108 B525：最终 Trace 上下文补齐精确时间角色，不代模型作答
+
+`renderAnswerDocTraceFinalDecisionBoundary` 现从 typed projection 在作答前最后一层重复 selected query window/duration、target 五通道状态分区与 total；attachment extent
+只作工件导航，窗外 sched-in 只作独立事件，二者不得替代窗口内状态时长。S-state 机制保持未证；post-wakeup runnable/dispatch 必须由自己的 typed interval 支撑。
+
+同时纠正旧 handoff 的内部矛盾：五个 engine lanes 不再叫“closed four-state partition”，统一为 engine-state partition。实现是 prompt-only soft authority，零 request/model/final
+prose hard gate、零系统答案改写，投影/排名/可消除量/自动补齐/链上主因均不变。定向与 `internal/agent` 全量测试通过。
+
+状态：`B525=implemented/agent-suite-pass/pending-r308`；`model-conclusion-ownership=preserved`；Trace causal authority=`unchanged`。

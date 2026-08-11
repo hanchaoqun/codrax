@@ -32153,3 +32153,16 @@ state semantics authority；不扫描答案数字/措辞、不系统改写结论
 
 状态：`B524=implemented/package-suites-pass/pending-r308`；`display-copy=model-owned`；
 `typed-relation/evidence-authority=preserved`；`raw-request/model/final-prose-hard-gate=none`；Trace=`unchanged`。
+
+### 123.564 B525：Trace 最终综合按 typed role 分隔窗口、附件与状态时长
+
+完成 `B525-TRACETIMEROLE1/P1-high`。最终综合边界现在从同一 `TraceCausalProjectionSet` 重放 selected query window、窗口时长、target 五个引擎状态通道及
+accounted total，并把 attachment extent 和窗外 sched-in 明确标成导航范围/独立事件，不得替代选定窗口内的状态时长。S-state 只证明状态区间；正常 pacing、下游响应、锁/条件、
+IPC、timer/event 或主因机制仍需独立 typed relation。post-wakeup runnable/dispatch 时长也必须有自己的 typed interval，不能用晚于窗口的运行时间延长 sleep。
+
+冷审同时修正系统自身教学矛盾：target account 是 `running/runnable/sleep/d_state/io_wait` 五个 engine lanes；旧“closed four-state partition”改为
+“closed engine-state partition”，并以正/负 pin 防止回归。该批只增加 final prompt-tail typed authority，不扫描 request/model/final prose，不新增硬门，不重写模型答案，
+不改 Trace 因果投影、根因排序、可消除量、系统补齐或链上/背景权限。`internal/agent` 定向与全量回归通过。
+
+状态：`B525=implemented/agent-suite-pass/pending-r308`；`time-value-authority=typed-role-only`；
+`model-conclusion-ownership=preserved`；`Trace projection/ranking/auto-supplement=unchanged`。

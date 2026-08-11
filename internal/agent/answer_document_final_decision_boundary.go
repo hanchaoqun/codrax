@@ -68,6 +68,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
+	b.WriteString(renderTraceFinalTimeRoleAuthority(set))
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
@@ -86,6 +87,36 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	return b.String()
+}
+
+// renderTraceFinalTimeRoleAuthority repeats the selected-window and target
+// state roles at the final prompt tail, where a whole-attachment preview or a
+// later switch-in timestamp cannot outcompete the exact trace_query account.
+// It consumes only the typed projection and remains soft reasoning context:
+// no model prose is inspected and no answer value is rewritten.
+func renderTraceFinalTimeRoleAuthority(set types.TraceCausalProjectionSet) string {
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		if !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+			continue
+		}
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		fmt.Fprintf(&b, "- time_role_authority artifact=`%s`; selected_query_window=`%.6f..%.6f`; selected_query_window_duration=%.3fms; attachment_extent_role=`artifact_navigation_only_not_selected_window_duration`; out_of_window_switch_in_role=`separate_event_not_selected_window_state_duration`.\n",
+			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
+		account := projection.TargetStateAccount
+		if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "  - selected_window_target_state subject=`%s`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; accounted_total=%.3fms; value_role=`target_thread_wall_clock_partition_inside_selected_query_window`; partition_members=`five_engine_lanes`.\n",
+			traceDecisionPromptScalar(strings.TrimSpace(account.Subject)), account.RunningMS, account.RunnableMS,
+			account.SleepMS, account.DStateMS, account.IOWaitMS, account.TotalMS)
+		b.WriteString("  - sleep_state_semantics=`state_only_mechanism_unproven`; S-state proves a selected-window sleep interval, not that it was normal pacing, downstream-response waiting, lock/condition waiting, IPC, timer/event waiting, or the root cause. A separately typed relation is required for that mechanism.\n")
+		b.WriteString("  - duration_selection_rule=`use_the_value_whose_typed_role_matches_the_sentence`; do not replace selected-window sleep/total with whole-attachment extent, and do not extend sleep to a later sched-in after the selected window. A post-wakeup runnable/dispatch duration requires its own typed interval.\n")
+	}
 	return b.String()
 }
 

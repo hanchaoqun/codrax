@@ -130,6 +130,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500; unit=`ms`; caliber=`aggregate_context_non_target_wall_clock`",
 		"target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`deterministic_system_supplement`",
 		"relation_authority=`typed_pair_only`",
+		"closed engine-state partition",
 		"physical relationship is unresolved",
 		"cross-row addition is not authorized",
 	} {
@@ -143,6 +144,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	}
 	if strings.Contains(got, "rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; fix_direction=`lock_priority`") {
 		t.Fatalf("unconfirmed priority candidate leaked the registry lock bucket into model context:\n%s", got)
+	}
+	if strings.Contains(got, "closed four-state partition") {
+		t.Fatalf("five engine lanes must not be taught as a four-state partition:\n%s", got)
 	}
 }
 

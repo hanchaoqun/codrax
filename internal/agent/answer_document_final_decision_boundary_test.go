@@ -80,6 +80,8 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
 		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"selected_window_authority artifact=`customer.systrace`; selected_window=`10.000000..10.020000`",
+		"time_role_authority artifact=`customer.systrace`; selected_query_window=`10.000000..10.020000`; selected_query_window_duration=20.000ms",
+		"attachment_extent_role=`artifact_navigation_only_not_selected_window_duration`",
 		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
 		"frame_boundary_authority=`not_provided`",
 		"scheduler_state_interval_authority=`typed_state_segments`",
@@ -146,6 +148,34 @@ func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAtt
 	projection.BackgroundCauses[0].EffectiveImpactMS = 19.5
 	if got := renderTraceFinalStateValueAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}); got != "" {
 		t.Fatalf("equal measured/effective values need no distinction row: %s", got)
+	}
+}
+
+func TestTraceFinalTimeRoleAuthorityKeepsSelectedWindowStateSeparateFromAttachmentExtent(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 2, WindowEndTs: 2.020,
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "app-100", SleepMS: 20, TotalMS: 20, WindowStartTs: 2, WindowEndTs: 2.020,
+		},
+	}
+	got := renderTraceFinalTimeRoleAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"selected_query_window=`2.000000..2.020000`",
+		"selected_query_window_duration=20.000ms",
+		"attachment_extent_role=`artifact_navigation_only_not_selected_window_duration`",
+		"out_of_window_switch_in_role=`separate_event_not_selected_window_state_duration`",
+		"selected_window_target_state subject=`app-100`",
+		"sleep=20.000ms",
+		"accounted_total=20.000ms",
+		"partition_members=`five_engine_lanes`",
+		"sleep_state_semantics=`state_only_mechanism_unproven`",
+		"not that it was normal pacing, downstream-response waiting, lock/condition waiting, IPC, timer/event waiting, or the root cause",
+		"duration_selection_rule=`use_the_value_whose_typed_role_matches_the_sentence`",
+		"A post-wakeup runnable/dispatch duration requires its own typed interval",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("final time-role authority missing %q:\n%s", want, got)
+		}
 	}
 }
 
