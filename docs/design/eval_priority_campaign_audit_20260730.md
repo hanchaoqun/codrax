@@ -32297,3 +32297,20 @@ participants 仅有 BusContext、workflow quote 为“阶段”、另有输入/�
 
 实现仍只消费 schema-validated required/role/verbatim carriers，不扫描模型/答案 prose，不系统画图或改结论。状态：
 `B527b=implemented/targeted-pass/pending-r311`；`B527=production-partial`；`B529=next`；Trace=`unchanged`。
+
+### 123.573 B529a：已读值传递行若被误报成定义，立即返回精确重发处方
+
+r310 的数据流案已经读到并引用 `Mutable: ctx.Mutable,`，但模型把它以 `evidence_kind=mechanism / anchor_kind=definition`
+发射。现有 endpoint repair 只校验“已经选择 assignment/initializer 的证据”是否把端点填对；它无法纠正“值传递行被选成 definition”这一更早的分类错误，导致 Explorer
+继续搜索、Finalizer 最终只能把用户明确要求的状态载体画成断开节点。
+
+本批在 evidence 已完成 grounding 后增加 parser-owned、只读的分类修正提示：仅当请求有 required source-flow diagram、证据是已落地的精确源码行、原始 anchor 不是
+assignment/initializer、该行能够唯一解析为 assignment 或 initializer，且解析出的 receiver/value 与 typed incident participant 相交时，工具返回
+`action_required=value_transfer_classification`，给出可复制的 `relationship + assigns + LHS/RHS` 重发形。原 definition 仍按原样保留为可引用证据；系统不自动改 evidence kind、
+不铸造关系、不画边，也不修改模型答案。若行不唯一、不是值传递、没有 participant 交集则 fail-open。
+
+跨语言 pin 覆盖 Go initializer、ArkTS initializer、Cangjie assignment、C++ assignment；负臂固定 Trace 与 optional diagram 不触发。修正只消费 typed request
+profile、grounded file/line 与语言无关赋值解析器，不扫描用户原始输入、模型推理或最终答案 prose，不改变 relation validator、Trace 因果投影、自动补齐、链上根因、排名或可消除量。
+
+状态：`B529a=implemented/targeted-pass/pending-r311`；`B529=partial`；`model-relation-authorship=preserved`；
+`auto-promotion=forbidden`；Trace=`unchanged`。

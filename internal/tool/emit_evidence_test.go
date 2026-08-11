@@ -3583,6 +3583,109 @@ func TestEmitEvidence_RequiredFlowPublishesExactAssignmentEndpointRepair(t *test
 	}
 }
 
+func TestEmitEvidence_RequiredFlowRepairsMisclassifiedValueTransferAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		line        string
+		participant string
+		anchor      string
+		wantKind    types.AnchorKind
+		wantLHS     string
+		wantRHS     string
+	}{
+		{name: "go initializer", source: "internal/demo/state.go", line: "Mutable: ctx.Mutable,", participant: "Mutable", anchor: "Mutable", wantKind: types.AnchorInitializer, wantLHS: "Mutable", wantRHS: "ctx.Mutable"},
+		{name: "arkts initializer", source: "entry/src/main/ets/state.ets", line: "state: ctx.state,", participant: "state", anchor: "state", wantKind: types.AnchorInitializer, wantLHS: "state", wantRHS: "ctx.state"},
+		{name: "cangjie assignment", source: "src/state.cj", line: "let state = ctx.state", participant: "state", anchor: "state", wantKind: types.AnchorAssignment, wantLHS: "state", wantRHS: "ctx.state"},
+		{name: "cpp assignment", source: "src/state.cpp", line: "state = ctx.state;", participant: "state", anchor: "state", wantKind: types.AnchorAssignment, wantLHS: "state", wantRHS: "ctx.state"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				PredicateAxis: types.AxisFlow,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+					Identity: tc.participant, Role: types.DiagramParticipantIncidentRequired,
+				}}},
+			}}
+			seedReadFileHistory(ctx, tc.source, 10, tc.line)
+			params := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"mechanism","subject":%q,"source":%q,"line_start":10,"summary":"state carrier","anchor_kind":"definition","anchor_symbol":%q,"snippet":%q}]}`,
+				tc.participant, tc.source, tc.anchor, tc.line))
+			res, err := tool.Execute(ctx, params)
+			if err != nil || !res.Success {
+				t.Fatalf("misclassified exact line must remain citable with repair, err=%v result=%+v", err, res)
+			}
+			if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "value_transfer_classification" ||
+				res.Repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired ||
+				res.Repair.Metadata["completion_blocking"] != "true" {
+				t.Fatalf("missing typed classification repair: %+v", res.Repair)
+			}
+			for _, want := range []string{
+				fmt.Sprintf(`anchor_kind=%q`, tc.wantKind),
+				fmt.Sprintf(`subject=%q`, tc.wantLHS),
+				fmt.Sprintf(`object=%q`, tc.wantRHS),
+				"items[0].anchor_kind",
+			} {
+				if !strings.Contains(res.Repair.Hint+"\n"+strings.Join(res.Repair.Fields, "\n"), want) {
+					t.Fatalf("repair missing %q: %+v", want, res.Repair)
+				}
+			}
+			got := ctx.Mutable.EmittedEvidence()
+			if len(got) != 1 || got[0].AnchorKind != types.AnchorDefinition {
+				t.Fatalf("system must not silently promote model evidence into a relation: %+v", got)
+			}
+
+			corrected := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":%q,"predicate":"assigns","object":%q,"source":%q,"line_start":10,"summary":"exact state transfer","anchor_kind":%q,"anchor_symbol":%q,"snippet":%q}]}`,
+				tc.wantLHS, tc.wantRHS, tc.source, tc.wantKind, tc.wantLHS, tc.line))
+			res, err = tool.Execute(ctx, corrected)
+			if err != nil || !res.Success {
+				t.Fatalf("corrected exact transfer rejected, err=%v result=%+v", err, res)
+			}
+			if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+				t.Fatalf("corrected exact transfer must clear current repair debt: %+v", res.Repair)
+			}
+			got = ctx.Mutable.EmittedEvidence()
+			if len(got) != 2 || got[1].AnchorKind != tc.wantKind || !types.AssignmentEvidenceEndpointsMatch(got[1]) {
+				t.Fatalf("corrected row did not publish exact typed transfer authority: %+v", got)
+			}
+		})
+	}
+}
+
+func TestEmitEvidence_MisclassifiedValueTransferRepairDoesNotEnterTraceOrOptionalDiagram(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		intent   types.Intent
+		required bool
+	}{
+		{name: "trace", intent: types.IntentTrace, required: true},
+		{name: "optional", intent: types.IntentExplain, required: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent:        tc.intent,
+				PredicateAxis: types.AxisFlow,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: tc.required, Participants: []types.DiagramParticipantHint{{
+					Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+				}}},
+			}}
+			seedReadFileHistory(ctx, "internal/demo/state.go", 10, "Mutable: ctx.Mutable,")
+			params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"mechanism","subject":"Mutable","source":"internal/demo/state.go","line_start":10,"summary":"state carrier","anchor_kind":"definition","anchor_symbol":"Mutable","snippet":"Mutable: ctx.Mutable,"}]}`)
+			res, err := tool.Execute(ctx, params)
+			if err != nil || !res.Success {
+				t.Fatalf("Execute: err=%v result=%+v", err, res)
+			}
+			if res.Repair != nil && res.Repair.Metadata["repair_scope"] == "value_transfer_classification" {
+				t.Fatalf("classification repair escaped its required source-flow lane: %+v", res.Repair)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_RequiredFlowMergesRejectedItemAndExactEndpointRepair(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

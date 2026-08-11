@@ -4043,3 +4043,14 @@ required stage/workflow dimension 与至少一个 required sibling dimension 的
 
 新增 r310 零匹配 pin及既有三参与者反向 pin；不读 request/model/final prose 关键词，不改 relation validator/模型答案。状态：
 `B527b=implemented/pending-r311`；`B529=confirmed/next`；Trace causal authority=`unchanged`。
+
+#### §11.10.117 B529a：关系证据的“分类错误”在首次发射时给出 parser-owned 重发形
+
+r310 已读到真实值传递行，却以 definition/mechanism 发射；旧 repair 只修已经声明为 assignment/initializer 的端点，无法把这类更早的分类偏差反馈给模型。
+现在 required source-flow diagram 的已落地单行证据若能唯一解析为 assignment/initializer，且解析端点命中 typed incident participant，工具会返回
+`value_transfer_classification` action-required，携带精确 `relationship/assigns/LHS/RHS` 重发参数。原证据不被系统升格，关系、图和答案仍由模型发射与撰写。
+
+Go、ArkTS、Cangjie、C++ 正臂和 Trace/optional-diagram 负臂已钉；实现不扫描 request/model/final prose，不放宽 validator，也不进入 Trace 因果路径。
+
+状态：`B529a=implemented/targeted-pass/pending-r311`；`B529=partial`；`model-authorship=preserved`；
+`system-edge-synthesis=none`。

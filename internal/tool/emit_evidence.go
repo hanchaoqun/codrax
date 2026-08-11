@@ -716,6 +716,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	// repomap/multigraph → repomap/topology → tool would form).
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
+	valueTransferClassificationRepairs := make([]emitEvidenceValueTransferClassificationRepair, 0)
 	assignmentEndpointRepairs := make([]emitEvidenceAssignmentEndpointRepair, 0)
 	callEndpointRepairs := make([]emitEvidenceCallEndpointRepair, 0)
 	surfaceTermDrops := make([]string, 0)
@@ -797,6 +798,17 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			if appendGroundingNoteOnce(&built[i], compatNote) {
 				r.Note = built[i].GroundingNote
 			}
+		}
+		// A required flow investigation can already have the exact writer line
+		// in hand while the model labels that line as a definition/mechanism.
+		// Detect the unique syntax-owned transfer tuple and return a copy-ready
+		// structured repair.  The accepted row remains unchanged; the system
+		// supplies precise source facts but never silently promotes them into a
+		// relation or draws an answer edge.
+		if repair, ok := emitEvidenceRequiredFlowValueTransferClassificationRepair(
+			ctx, built[i], builtParamIndexes[i], gc,
+		); ok {
+			valueTransferClassificationRepairs = append(valueTransferClassificationRepairs, repair)
 		}
 		// A simple assignment-shaped line proves only its exact LHS <- RHS transfer.
 		// It cannot authorize a model-authored enclosing function, nearby
@@ -888,9 +900,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
+	valueTransferClassificationRepair := buildEmitEvidenceValueTransferClassificationRepair(valueTransferClassificationRepairs)
 	assignmentEndpointRepair := buildEmitEvidenceAssignmentEndpointRepair(assignmentEndpointRepairs)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
+	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
 	if relationEndpointRepair != nil {
 		validationRepairFields = append(validationRepairFields, relationEndpointRepair.Fields...)
 	}
@@ -4749,6 +4763,20 @@ type emitEvidenceAssignmentEndpointRepair struct {
 	line      int
 }
 
+// emitEvidenceValueTransferClassificationRepair is an exact-line recipe for
+// a model-submitted definition/mechanism row whose already-read source line is
+// actually one simple assignment/initializer touching a requested diagram
+// participant. It remains a repair recipe rather than evidence: only an
+// explicit corrected model emit can publish the directed relation row.
+type emitEvidenceValueTransferClassificationRepair struct {
+	itemIndex int
+	anchor    types.AnchorKind
+	receiver  string
+	value     string
+	source    string
+	line      int
+}
+
 // emitEvidenceCallEndpointRepair is the sibling exact-line repair recipe for
 // a call-shaped observation whose submitted fields did not preserve the
 // parser-owned caller -> callee tuple. The downgraded observation stays
@@ -4792,6 +4820,113 @@ func emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx *types.BusContext, ite
 		source:    item.Source,
 		line:      item.LineStart,
 	}, true
+}
+
+func emitEvidenceRequiredFlowValueTransferClassificationRepair(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+) (emitEvidenceValueTransferClassificationRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.Scope != types.ScopeLine || item.LineStart <= 0 ||
+		item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return emitEvidenceValueTransferClassificationRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return emitEvidenceValueTransferClassificationRepair{}, false
+	}
+	line := strings.TrimSpace(evidenceVisibleLineText(gc, item.Source, item.LineStart))
+	if line == "" {
+		return emitEvidenceValueTransferClassificationRepair{}, false
+	}
+	candidate := item
+	candidate.Scope = types.ScopeLine
+	candidate.Snippet = line
+	candidate.AnchorKind = types.AnchorAssignment
+	receiver, value, ok := types.AssignmentEvidenceEndpoints(candidate)
+	anchor := types.AnchorAssignment
+	if !ok {
+		candidate.AnchorKind = types.AnchorInitializer
+		receiver, value, ok = types.AssignmentEvidenceEndpoints(candidate)
+		anchor = types.AnchorInitializer
+	}
+	if !ok || !requiredFlowTransferTouchesIncidentParticipant(rm, receiver, value) {
+		return emitEvidenceValueTransferClassificationRepair{}, false
+	}
+	return emitEvidenceValueTransferClassificationRepair{
+		itemIndex: itemIndex,
+		anchor:    anchor,
+		receiver:  receiver,
+		value:     value,
+		source:    item.Source,
+		line:      item.LineStart,
+	}, true
+}
+
+func requiredFlowTransferTouchesIncidentParticipant(rm types.RequestModel, receiver, value string) bool {
+	if rm.DiagramHint == nil {
+		return false
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		surfaces := []string{strings.TrimSpace(participant.Identity)}
+		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+		for _, surface := range surfaces {
+			if surface == "" {
+				continue
+			}
+			if types.AnswerCodeIdentitySurfacesCompatible(surface, receiver) ||
+				types.AnswerCodeIdentitySurfacesCompatible(surface, value) ||
+				types.AnswerCodeSurfaceAppearsInText(receiver, surface) ||
+				types.AnswerCodeSurfaceAppearsInText(value, surface) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildEmitEvidenceValueTransferClassificationRepair(in []emitEvidenceValueTransferClassificationRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in)*6)
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields,
+			fmt.Sprintf("items[%d].evidence_kind", row.itemIndex),
+			fmt.Sprintf("items[%d].anchor_kind", row.itemIndex),
+			fmt.Sprintf("items[%d].anchor_symbol", row.itemIndex),
+			fmt.Sprintf("items[%d].subject", row.itemIndex),
+			fmt.Sprintf("items[%d].predicate", row.itemIndex),
+			fmt.Sprintf("items[%d].object", row.itemIndex),
+		)
+		loc := row.source
+		if row.line > 0 {
+			loc = fmt.Sprintf("%s:%d", row.source, row.line)
+		}
+		rows = append(rows, fmt.Sprintf(
+			"items[%d] @ %s requires evidence_kind=%q, anchor_kind=%q, anchor_symbol=%q, subject=%q (exact LHS receiver), predicate=%q, and object=%q (exact RHS value/source)",
+			row.itemIndex, loc, string(types.EvidenceRelationship), string(row.anchor), row.receiver,
+			row.receiver, "assigns", row.value,
+		))
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "The required source-flow diagram already has an exact value-transfer line, but the submitted row classified it as a definition/mechanism and therefore published no directed relation authority. Re-emit only the named item(s) with the parser-owned fields below; accepted context rows remain committed. The system is not promoting the row or drawing an edge: " + strings.Join(rows, "; "),
+		Fields: uniqueEmitEvidenceRepairFields(fields),
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "value_transfer_classification",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+		},
+	}
 }
 
 func buildEmitEvidenceAssignmentEndpointRepair(in []emitEvidenceAssignmentEndpointRepair) *types.ToolRepair {
@@ -4909,6 +5044,28 @@ func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *
 	first.Metadata["repair_scope"] = "assignment_endpoint_identity+call_endpoint_identity"
 	first.Metadata["completion_blocking"] = "true"
 	return first
+}
+
+func mergeEmitEvidenceValueTransferRepair(classification, endpoint *types.ToolRepair) *types.ToolRepair {
+	if classification == nil {
+		return endpoint
+	}
+	if endpoint == nil {
+		return classification
+	}
+	classification.Fields = uniqueEmitEvidenceRepairFields(append(classification.Fields, endpoint.Fields...))
+	classification.Hint += " Additional exact endpoint repair: " + endpoint.Hint
+	if classification.Metadata == nil {
+		classification.Metadata = make(map[string]string)
+	}
+	endpointScope := strings.TrimSpace(endpoint.Metadata["repair_scope"])
+	if endpointScope == "" {
+		endpointScope = "relation_endpoint_identity"
+	}
+	classification.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
+	classification.Metadata["repair_scope"] = "value_transfer_classification+" + endpointScope
+	classification.Metadata["completion_blocking"] = "true"
+	return classification
 }
 
 func buildEmitEvidenceItemValidationRepair(rejections, fields []string, completionBlocking bool) *types.ToolRepair {
