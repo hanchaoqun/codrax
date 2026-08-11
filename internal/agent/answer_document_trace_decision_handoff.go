@@ -85,7 +85,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	if traceDecisionHasPreWakeupDependency(set) {
-		b.WriteString("- phase_semantics: `pre_wakeup_dependency` measures an upstream thread while its downstream consumer has not yet been woken. It may explain the consumer's sleep/blocked interval, but it is not the consumer's post-wakeup runnable/dispatch delay. Attribute post-wakeup delay only from the consumer's own typed runnable interval plus same-CPU scheduler ordering; never infer that a CFS dependency preempted an RT consumer after wake from this seat.\n")
+		b.WriteString("- phase_semantics: `pre_wakeup_dependency` is upstream on-chain work overlapping the downstream consumer's pre-wakeup interval. This seat is a ranked work candidate; by itself it does not prove that the consumer waited for this work, waited until it completed, or was directly blocked by it. Use direct-blocker or completion-dependency wording only when a separate typed holder/waiter or blocking relation provides that authority. This seat owns no post-wakeup runnable/dispatch delay; attribute that delay only from the consumer's own typed runnable interval plus same-CPU scheduler ordering.\n")
 		b.WriteString("- A typed `priority_inversion_candidate` on that phase prices the dependency's own proven-lower runnable/running supply before the downstream wake. The candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption; treat PI-mutex or RT-promotion changes as validation directions unless separate typed evidence proves the corresponding mechanism.\n")
 	}
 	if traceDecisionHasEvidenceBoundary(set) {
@@ -627,6 +627,10 @@ func traceDecisionWritePhase(b *strings.Builder, node types.TraceCausalProjectio
 	}
 	if phase := traceDecisionNodePhase(node); phase != "" {
 		fmt.Fprintf(b, "; impact_phase=`%s`", phase)
+		if strings.TrimSpace(node.BlockingKind) == "" {
+			b.WriteString("; mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`; target_wait_for_work_authority=`not_provided_by_this_seat`; work_completion_dependency_authority=`not_provided_by_this_seat`; direct_blocking_authority=`not_provided_by_this_seat`")
+		}
+		b.WriteString("; post_wakeup_delay_authority=`not_provided_by_this_seat`")
 	}
 }
 

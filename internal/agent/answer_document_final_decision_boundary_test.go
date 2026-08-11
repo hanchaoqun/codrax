@@ -297,6 +297,10 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 		"query_window=`10.000000..10.100000`",
 		"window_role=`requested_or_elected_window`",
 		"impact_phase=`pre_wakeup_dependency`",
+		"mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`",
+		"target_wait_for_work_authority=`not_provided_by_this_seat`",
+		"work_completion_dependency_authority=`not_provided_by_this_seat`",
+		"direct_blocking_authority=`not_provided_by_this_seat`",
 		"post_wakeup_delay_authority=`not_provided_by_this_seat`",
 	} {
 		if !strings.Contains(got, want) {

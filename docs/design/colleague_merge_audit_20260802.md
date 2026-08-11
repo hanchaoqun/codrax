@@ -4588,3 +4588,20 @@ Mermaid label identity resolver 现额外构造“显示换行还原候选”：
 
 状态：`B563=implemented/pending-r332`；`display-wrap=typed-candidate-only`；`ambiguity=fail-closed`；
 `system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.161 B544：唤醒前链上工作不再被教学成“可能阻塞”
+
+`pre_wakeup_dependency` 的模型上下文已收敛为一条明确的 typed 机理上限：它只表示上游链上工作与下游目标唤醒前区间重叠，是可排序的工作候选；该席自身不证明
+目标在等待这项工作、不证明等到工作完成，也不证明直接阻塞。只有另行存在 typed holder/waiter 或 blocking relation 时才允许使用对应强机理；目标唤醒后的
+runnable/dispatch delay 仍只能来自目标自身 runnable 区间与同核调度顺序。
+
+同一语义由 `traceDecisionWritePhase` 单源写入完整 decision handoff 和最终 compact authority，携带
+`mechanism_ceiling=on_chain_prewakeup_work_candidate_only`、`target_wait_for_work_authority=not_provided_by_this_seat`、
+`work_completion_dependency_authority=not_provided_by_this_seat` 与 `direct_blocking_authority=not_provided_by_this_seat`。若该节点自身已有 typed
+`BlockingKind`，这些否定字段不发，避免软教学抹掉更强精确信号；`post_wakeup_delay_authority` 仍保持未提供。
+
+该批只改模型所见 typed context，不扫描请求/推理/终稿、不拒绝或改写模型答案、不改变排序、可消量、投影树或任何 Trace 事实。agent/orchestrator/tracediag
+套件全绿。
+
+状态：`B544=context-fix-implemented/pending-replay`；`typed-blocking=preserved`；`raw-prose-hard-gate=none`；
+`system-answer-authorship=none`；Trace causal authority=`unchanged`。

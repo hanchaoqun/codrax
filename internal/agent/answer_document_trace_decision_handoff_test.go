@@ -79,8 +79,10 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
 		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"phase_semantics: `pre_wakeup_dependency`",
-		"not the consumer's post-wakeup runnable/dispatch delay",
-		"never infer that a CFS dependency preempted an RT consumer after wake",
+		"upstream on-chain work overlapping the downstream consumer's pre-wakeup interval",
+		"does not prove that the consumer waited for this work, waited until it completed, or was directly blocked by it",
+		"Use direct-blocker or completion-dependency wording only when a separate typed holder/waiter or blocking relation provides that authority",
+		"owns no post-wakeup runnable/dispatch delay",
 		"candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption",
 		"target_state_symptom: subject=`target-100`",
 		"sleep_cause_authority=`not_provided_by_target_state_account`",
@@ -116,6 +118,10 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"axis_B_existing_rule_eliminable",
 		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; validation_direction=`priority_or_dependency_supply`",
 		"impact_phase=`pre_wakeup_dependency`",
+		"mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`",
+		"target_wait_for_work_authority=`not_provided_by_this_seat`",
+		"work_completion_dependency_authority=`not_provided_by_this_seat`",
+		"direct_blocking_authority=`not_provided_by_this_seat`",
 		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"candidate_mechanism_authority=`lower_priority_dependency_only`",
 		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
@@ -147,6 +153,27 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	}
 	if strings.Contains(got, "closed four-state partition") {
 		t.Fatalf("five engine lanes must not be taught as a four-state partition:\n%s", got)
+	}
+}
+
+func TestTraceDecisionWritePhaseDoesNotOverrideTypedBlockingAuthority(t *testing.T) {
+	plain := types.TraceCausalProjectionNode{ChainDepth: 1}
+	var plainOut strings.Builder
+	traceDecisionWritePhase(&plainOut, plain)
+	if !strings.Contains(plainOut.String(), "mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`") ||
+		!strings.Contains(plainOut.String(), "direct_blocking_authority=`not_provided_by_this_seat`") {
+		t.Fatalf("plain pre-wakeup work must carry its typed mechanism ceiling: %s", plainOut.String())
+	}
+
+	blocked := types.TraceCausalProjectionNode{ChainDepth: 1, BlockingKind: "lock_contention", BlockingPeer: "holder-2"}
+	var blockedOut strings.Builder
+	traceDecisionWritePhase(&blockedOut, blocked)
+	if strings.Contains(blockedOut.String(), "direct_blocking_authority=`not_provided_by_this_seat`") ||
+		strings.Contains(blockedOut.String(), "mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`") {
+		t.Fatalf("phase guidance must not erase a separate typed blocking relation: %s", blockedOut.String())
+	}
+	if !strings.Contains(blockedOut.String(), "post_wakeup_delay_authority=`not_provided_by_this_seat`") {
+		t.Fatalf("a pre-wakeup blocking relation still owns no post-wakeup scheduling delay: %s", blockedOut.String())
 	}
 }
 
