@@ -5122,3 +5122,32 @@ hidden anchor、重复同一 call-site occurrence budget 五类边界。
 `B579=implemented/pending-full-regression-r344`；`runner=2/2`；`human=1/2`；
 `active-stream=360s/no-elapsed-degrade`；`transport-only-cap=preserved`；`raw-prose-hard-gate=none`；
 `system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.187 r344：软教学未阻断预分析语义污染；内部关系合同词泄漏到用户图
+
+r344 exact-two runner 2/2、人工 1/2。Trace 案 162s，B578 继续稳定：同一目标 sleep 物理段只发布一次
+`自身·sleep 5.000ms [E1+E2]`；显式 5.000..5.007s 窗、四态账户、链上 VerifyClass 4.600ms、目标 runnable
+0.800ms、实际占时/规则可消双轴和 bounded causal projection 均未退化。但 B577 连续第三次生产复现，证明上一批仅增加
+perf_triage 教学不足以闭环。预分析模型仍把 5.005800 switch-in 称为“被唤醒”，把 5.000ms sleep 与 0.800ms runnable
+混成 5.8ms 等待，并把这些自由语义写入 `PerfObservation.Subject/Summary`；后续 analyzer/finalizer 即使同时拿到正确 deterministic
+trace_query 相位与 `target_direct_blocking_authority=not_provided`，仍沿用“阻塞唤醒”叙述，形成同页权限矛盾。
+
+根因不是缺少另一句禁令，而是预分析模型产物的权限与投影形错误：`compilePerfBundleObservations` 默认把每条
+`authority=pretriage_model_extraction` 记录铸成 principal answer；`formatPerfTriageStructured` 虽写“navigation hypothesis”，仍把模型作者的
+Subject/Summary/Evidence/Tags 原样交给下游，嘈声语义因此与 deterministic 查询竞争。立案 `B577b-PRETRIAGESEMANTICAUTH1/P1-high`：
+模型预分析 observation 在任何阶段只能是 supporting/navigation；下游结构上下文只给 candidate line/time/duration locator，不再把其自由语义字段
+当事实复述。原 bundle 与 ledger 仍完整保留供审计；deterministic-validator 记录保持全文与 principal 权限。该修法不扫描用户、reasoning 或终稿，
+不硬拒成文，不替模型改答案，也不削弱显式窗 Trace 查询、链上主因、自动补齐或无 trace_query 场景对原始 trace 的访问。
+
+read combo 案 276s，最终表格、四阶段顺序以及 typed call/data-flow/precedence 关系正确，人工通过；B579 的同 actor 两 operation
+生产分支本轮没有被模型选用，故仍只具单元/包级正证。新确认 `B580-INTERNALRELLEXICONLEAK1/P2-soft`：finalizer 把
+`relation_segment_class=invocation_segment/value_flow_segment` 和 `unproven_between_components` 作为内部边界元数据提供后，模型逐字复制成
+用户图 Note。最优处置是同一 typed component handoff 明确这些 token/index/status 仅供校验推理，不得直接进入可见图、标题、表格或正文；模型用业务
+participant/operation 表达已证关系，若没有有价值的业务注释则省略 Note。该面只做软教学，不新增关键词硬门，系统不重写 Mermaid。
+
+276s 活跃模型流由原模型正常交付，继续证明累计四分钟不是降级信号。只有首字节超时、真实静默、transport 断链、调用方取消或独立安全失败可进入恢复；
+恢复仍只能发布模型已产生载体并披露，禁止按累计时长系统代答、删答、切旧稿或降低结论。
+
+状态：`B577-soft=insufficient`；`B577b=next`；`B580=next-soft`；`B578=stable-positive`；
+`B579=unit-positive/production-pending`；`runner=2/2`；`human=1/2`；`active-stream-276s=no-degrade`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
