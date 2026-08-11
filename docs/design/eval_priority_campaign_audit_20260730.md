@@ -31619,3 +31619,41 @@ Finalizer callable citation authority 同时区分 `definition_status` 与 exact
 状态：`B508=implemented/package-suites-pass/pending-r296-production-replay`；`B509=closed`；`B510=P1-watch`；
 `system-prose/relation/diagram/conclusion-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
 Trace explicit windows/auto-supplement/causal projection/on-chain root-cause families/business clues=`unchanged`。
+
+### 123.534 r296：终点 v1 选错 sibling leaf；stage 图被证据配方拆成孤岛
+
+`main@181d12d25` 严格并行同一 read stage-workflow 与 Java call-chain，runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r296_20260810_manual_audit.md`。
+
+Java 的调用链、容量 guard 与引用仍正确，但终点正文继续把 `AuditLog.record` 表述成事务内审计写出。B508 v1 producer 实际发布的是无关
+`VisitRepository.countOpenVisits -> String.startsWith @ VisitRepository.java:14`，而不是
+`AuditLog.record -> System.out.println @ AuditLog.java:6`。这是两个确定性接线 gap 的合取：parser 把 `audit.record` 规范化成
+`AuditLog.record` 后，selection consumer 仍只拿 initializer 左值 `audit` 与 call endpoint 比较，拒绝了同一 typed initializer 的 RHS
+`AuditLog`；discover-sink 选择为空后又回退到全图任意叶子，错误选中 sibling。Explorer 同时只见 incoming callsite/definition，未精确读取终点函数体。
+
+read 正文与表格基本正确，但完整 sequence 首稿缺少若干 typed edge authority 被严格门正确拒绝；第二稿仍混用 participant label 与 exact endpoint；
+第三稿只剩三条 stage precedence 与三条 implementation call，彼此形成孤岛，不能表达一次请求的完整调度时序。B509 来源约束继续正向；
+`B510-STAGESKELETON-SALIENCE1` 从 watch 升为 confirmed。不能放宽无证关系门，需统一审计关系语义、图类型、端点身份与 recipe/validator/repair
+四轴是否同源，避免逐 case 补箭头。
+
+状态：`B508=v1-production-negative/v2-in-progress`；`B510=P1-confirmed/unified-diagram-contract-audit-next`；
+`runner=2/2,human=0/2`；`system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.535 B508 v2：selection 两端同源、无选择不回退、终点 body 精确补读
+
+discover selection 现把 typed initializer/assignment 的 subject 与 object 都作为连接端：`audit -> AuditLog` 可与规范化
+`AuditLog.record` 的 receiver 精确 join，修复 parser producer 与 selection consumer 的身份域矛盾。registration/return、citable、assignment snippet
+与 call-endpoint 连接要求不变；这不是按 Java 或 `AuditLog` 特判。
+
+discover-sink 在 typed selection 未成立时 fail-closed 返回空，不再回退到任意调用图叶子；leaf fallback 仅保留给本来就没有 concept selection 的
+discover-path 车道。选择成立后，若本地 parser 图能唯一定位 terminal callable，而精确 read ledger 尚无一个连续范围覆盖整个 body，Explorer 只发一次
+bounded `read_file(path,line_start,line_end)` 软导航。读完后仍仅由 parser-authored direct call producer形成事实，模型自行判断业务含义；无 call 就保持
+unproven。分离读取首尾但中间未读不能伪装为完整覆盖，overload/同尾歧义保持 fail-closed。
+
+回归覆盖规范化 receiver 的 initializer RHS join、selection 缺席禁止 sibling leaf、精确 bounded body read、连续范围要求、读后债清零，以及原
+Java/ArkTS/Cangjie terminal fact/citation authority。核心六包全绿：agent 9.230s、types 22.459s、tool 176.875s、orchestrator 12.706s、
+tracediag 5.886s、stageauthority 2.576s。
+
+状态：`B508=v2-implemented/package-suites-pass/pending-r297-production-replay`；
+`B510=confirmed/unified-diagram-contract-audit-next`；`system-prose/relation/answer-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace explicit windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。

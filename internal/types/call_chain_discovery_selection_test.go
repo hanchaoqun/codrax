@@ -62,6 +62,17 @@ func TestCallChainDiscoverySelectionEvidence_AssignmentConnectsDynamicReceiverAc
 	}
 }
 
+func TestCallChainDiscoverySelectionEvidence_InitializerConnectsNormalizedConcreteReceiver(t *testing.T) {
+	call := discoveryEvidence(EvidenceRelationship, AnchorCall, "VisitRepository.insert", "AuditLog.record")
+	initializer := discoveryEvidence(EvidenceDirect, AnchorInitializer, "audit", "AuditLog")
+	initializer.Snippet = "private final AuditLog audit = new AuditLog();"
+
+	got := CallChainDiscoverySelectionEvidence([]EvidenceItem{call, initializer})
+	if len(got) != 1 || got[0].Subject != "audit" || got[0].Object != "AuditLog" {
+		t.Fatalf("initializer RHS must join a parser-normalized concrete receiver: %+v", got)
+	}
+}
+
 func TestCallChainDiscoverySelectionEvidence_RequiresCitableTypedFact(t *testing.T) {
 	call := discoveryEvidence(EvidenceDirect, AnchorCall, "entry.run", "handler.handle")
 	assignment := discoveryEvidence(EvidenceDirect, AnchorAssignment, "handler", "ConcreteHandler")

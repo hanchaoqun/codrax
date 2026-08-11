@@ -57,7 +57,14 @@ func CallChainDiscoverySelectionEvidence(evidence []EvidenceItem) []EvidenceItem
 		if form == ClaimAssignmentFact && !AssignmentEvidenceEndpointsMatch(item) {
 			continue
 		}
-		if callChainDiscoveryEndpointConnected(item.Subject, connectionEndpoints) {
+		// A parser-normalized call target may replace the source receiver
+		// variable with its declared concrete type (for example
+		// `audit.record` -> `AuditLog.record`). The initializer still owns the
+		// exact binding `audit = new AuditLog()`, so either endpoint can connect
+		// it to the typed call graph. Requiring only the LHS makes the producer
+		// and consumer contradictory after receiver normalization.
+		if callChainDiscoveryEndpointConnected(item.Subject, connectionEndpoints) ||
+			callChainDiscoveryEndpointConnected(item.Object, connectionEndpoints) {
 			out = append(out, item)
 		}
 	}

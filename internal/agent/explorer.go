@@ -149,6 +149,7 @@ type explorerEvaluator struct {
 	midLoopSurfaceTermReviewSent         bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
 	midLoopClosureRepairSent             bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
 	midLoopDiscoverySelectionSent        bool // one-shot: discover-sink still lacks a typed registration/assignment/return selection fact
+	midLoopTerminalBodyReadSent          bool // one-shot: selected local terminal callable still needs one bounded body read
 	midLoopClosureRepairResultsLen       int  // allResults length when the current closure repair hint fired
 	midLoopClosureRepairClosureOnlySent  bool // one-shot: closure-repair-only redirect after the repair hint was ignored
 	midLoopIntentWindowSent              bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
@@ -8492,6 +8493,24 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 			BypassBudget:   true,
 		}
 	}
+	if targets := e.callChainUnreadTerminalBodyTargets(); len(targets) > 0 && !e.midLoopTerminalBodyReadSent {
+		e.midLoopTerminalBodyReadSent = true
+		var b strings.Builder
+		b.WriteString("The typed call chain has selected a local terminal callable, but its bounded body is not yet fully read. Read only the listed target body before closure so exact terminal behavior can enter evidence; do not infer behavior from the operation name, incoming call-site, initializer, grep summary, or user wording.\n")
+		for _, target := range targets {
+			fmt.Fprintf(&b, "- `%s` -> `read_file(path=%q, line_start=%d, line_end=%d)`\n",
+				target.Owner, target.File, target.LineStart, target.LineEnd)
+		}
+		b.WriteString("After the read, preserve parser-grounded direct body calls as facts and let the final model decide their business meaning. If the body contains no relevant call, keep terminal behavior unproven.")
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        "explorer.mid-loop.call-chain-terminal-body-read",
+			Hint:           b.String(),
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	if !readiness.HasEnough {
 		e.logCompletionReadySkip("not_enough", readiness, false)
 		return LoopSignal{}
@@ -8571,6 +8590,123 @@ func (e *explorerEvaluator) callChainDiscoverySelectionPending() bool {
 		return false
 	}
 	return !types.HasCallChainDiscoverySelectionEvidence(e.structuredEvidence)
+}
+
+type callChainTerminalBodyReadTarget struct {
+	Owner     string
+	File      string
+	LineStart int
+	LineEnd   int
+}
+
+// callChainUnreadTerminalBodyTargets resolves only a typed-selected local
+// callable and reports its parser-owned body when the exact read ledger does
+// not cover the full declaration. It is soft navigation guidance: the result
+// cannot create evidence, approve an edge, or alter the final answer.
+func (e *explorerEvaluator) callChainUnreadTerminalBodyTargets() []callChainTerminalBodyReadTarget {
+	if e == nil || e.analysisIR == nil || e.searchResult == nil || e.searchResult.Graph == nil || e.mutable == nil ||
+		types.ResolveQuestionFamily(e.analysisIR.RequestModel) != types.QFCallChain ||
+		!e.analysisIR.RequestModel.CallChainEndpointProfile.Active() {
+		return nil
+	}
+	owners := e.callChainTerminalBodyOwners()
+	if len(owners) == 0 {
+		return nil
+	}
+	closure := e.mutable.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+
+	type candidate struct {
+		owner string
+		file  string
+		sym   repotypes.Symbol
+		exact bool
+	}
+	byOwner := make(map[string][]candidate, len(owners))
+	seenFile := make(map[string]bool)
+	for _, fi := range e.searchResult.Graph.FileIndex {
+		if fi == nil {
+			continue
+		}
+		file := canonicalExplorerPath(fi.RelPath)
+		if file == "" || seenFile[file] {
+			continue
+		}
+		seenFile[file] = true
+		for _, sym := range fi.Symbols {
+			if sym.Kind != "method" && sym.Kind != "function" {
+				continue
+			}
+			identity := runtimeTargetQualifiedCallable(sym)
+			for _, owner := range owners {
+				owner = strings.TrimSpace(owner)
+				if owner == "" || !traceEndpointSurfaceCompatible(identity, owner) {
+					continue
+				}
+				key := strings.ToLower(owner)
+				byOwner[key] = append(byOwner[key], candidate{
+					owner: owner,
+					file:  file,
+					sym:   sym,
+					exact: strings.EqualFold(identity, owner),
+				})
+			}
+		}
+	}
+
+	var out []callChainTerminalBodyReadTarget
+	seenTarget := make(map[string]bool)
+	for _, owner := range owners {
+		candidates := byOwner[strings.ToLower(strings.TrimSpace(owner))]
+		var exact []candidate
+		for _, item := range candidates {
+			if item.exact {
+				exact = append(exact, item)
+			}
+		}
+		if len(exact) > 0 {
+			candidates = exact
+		}
+		if len(candidates) != 1 {
+			// Same-tail overload/owner ambiguity cannot drive navigation.
+			continue
+		}
+		item := candidates[0]
+		end := item.sym.EndLine
+		if end < item.sym.Line {
+			end = item.sym.Line
+		}
+		readRanges := closure.ReadRanges(item.file)
+		fullyCovered := false
+		for _, readRange := range readRanges {
+			if readRange.Start <= item.sym.Line && readRange.End >= end {
+				fullyCovered = true
+				break
+			}
+		}
+		// Preserve the legacy file-level ledger shape, where a read-set entry
+		// has no line ranges and therefore denotes complete file coverage.
+		if len(readRanges) == 0 && closure.HasReadLine(item.file, item.sym.Line) && closure.HasReadLine(item.file, end) {
+			fullyCovered = true
+		}
+		if fullyCovered {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%d", item.file, item.sym.Line, end)
+		if seenTarget[key] {
+			continue
+		}
+		seenTarget[key] = true
+		out = append(out, callChainTerminalBodyReadTarget{
+			Owner: item.owner, File: item.file, LineStart: item.sym.Line, LineEnd: end,
+		})
+		if len(out) >= 3 {
+			break
+		}
+	}
+	return out
 }
 
 func (e *explorerEvaluator) promoteDepthPhaseFromMaterializedEvidence(obs LoopObservation) bool {
@@ -14301,6 +14437,10 @@ func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
 		if len(owners) > 0 {
 			return owners
 		}
+		// A discover-sink request has no selected terminal until the typed
+		// selection join succeeds. Falling through to arbitrary graph leaves
+		// promotes sibling branches as terminal behavior.
+		return nil
 	}
 	var owners []string
 	for _, candidate := range calls {

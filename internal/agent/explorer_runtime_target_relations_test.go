@@ -266,7 +266,7 @@ func TestBuildRuntimeTargetTerminalBodyCalls_PromotesSelectedTerminalUtilityCall
 	eval := runtimeTargetRelationEvaluator(graph)
 	eval.structuredEvidence = []types.EvidenceItem{
 		{ID: "incoming", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
-		{ID: "selection", Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "VisitRepository", Object: "AuditLog", Source: "VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "selection", Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "audit", Object: "AuditLog", Snippet: "private final AuditLog audit = new AuditLog();", Source: "VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 	}
 	readSet := map[string]bool{"src/main/java/com/clinic/repo/AuditLog.java": true}
 	closure := types.NewEvidenceClosure("")
@@ -309,7 +309,7 @@ func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(
 	eval.structuredEvidence = []types.EvidenceItem{
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Entry.run", Object: "AuditLog.record", Source: "src/Entry.ets", LineStart: 2, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Entry.run", Object: "OtherSink.flush", Source: "src/Entry.ets", LineStart: 3, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
-		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "Entry", Object: "AuditLog", Source: "src/Entry.ets", LineStart: 1, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "audit", Object: "AuditLog", Snippet: "const audit: AuditLog = new AuditLog();", Source: "src/Entry.ets", LineStart: 1, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 	}
 	readSet := map[string]bool{"src/Sinks.ets": true}
 	closure := types.NewEvidenceClosure("")
@@ -319,6 +319,91 @@ func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(
 	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
 	if len(got.evidence) != 1 || got.evidence[0].Subject != "AuditLog.record" || got.evidence[0].Object != "Console.write" {
 		t.Fatalf("selection/read gates must exclude the sibling terminal and unread relation: %+v", got.evidence)
+	}
+}
+
+func TestBuildRuntimeTargetTerminalBodyCalls_DiscoverSinkDoesNotFallbackBeforeSelection(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/Sinks.java", Language: repotypes.LangJava,
+		Symbols:   []repotypes.Symbol{{Name: "count", Kind: "method", Parent: "OtherSink", File: "src/Sinks.java", Line: 4, EndLine: 7}},
+		Relations: []repotypes.Relation{{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "startsWith", Receiver: "String"}, File: "src/Sinks.java", Line: 6, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "java_method_invocation"}},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.structuredEvidence = []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "Entry.run", Object: "OtherSink.count", Source: "src/Entry.java", LineStart: 2,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}
+	readSet := map[string]bool{"src/Sinks.java": true}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"src/Sinks.java": {{Start: 4, End: 7}}})
+
+	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
+	if len(got.evidence) != 0 {
+		t.Fatalf("discover-sink without typed selection must not promote an arbitrary leaf body: %+v", got.evidence)
+	}
+}
+
+func TestPostCompletionReadySignal_SelectedLocalTerminalRequestsBoundedBodyRead(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/AuditLog.java", Language: repotypes.LangJava,
+		Symbols:   []repotypes.Symbol{{Name: "record", Kind: "method", Parent: "AuditLog", File: "src/AuditLog.java", Line: 5, EndLine: 7}},
+		Relations: []repotypes.Relation{{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "println", Receiver: "System.out"}, File: "src/AuditLog.java", Line: 6, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "java_method_invocation"}},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	mut := types.NewMutableState("opaque")
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.phase = 1
+	eval.heuristics = types.ExploreHeuristics{MidLoopMinIteration: 1}
+	eval.mutable = mut
+	eval.structuredEvidence = []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "audit", Object: "AuditLog", Snippet: "private final AuditLog audit = new AuditLog();", Source: "src/VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+
+	sig := eval.postCompletionReadySignal(LoopObservation{Iteration: 2, AllToolResults: []types.ToolResult{{ToolName: "emit_evidence", Success: true}}})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.call-chain-terminal-body-read" {
+		t.Fatalf("selected local terminal must request one bounded body read before generic closure: %+v", sig)
+	}
+	for _, want := range []string{"`AuditLog.record`", `path="src/AuditLog.java"`, "line_start=5", "line_end=7", "let the final model decide"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("terminal-body read hint missing %q: %s", want, sig.Hint)
+		}
+	}
+	if eval.midLoopCompletionReadySent {
+		t.Fatal("terminal-body read hint must not consume generic completion-ready latch")
+	}
+
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"src/AuditLog.java": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"src/AuditLog.java": {{Start: 5, End: 7}}})
+	if targets := eval.callChainUnreadTerminalBodyTargets(); len(targets) != 0 {
+		t.Fatalf("fully read selected terminal body must clear the navigation debt: %+v", targets)
+	}
+}
+
+func TestCallChainUnreadTerminalBodyTargets_DisjointEndpointReadsDoNotHideBodyGap(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/AuditLog.java", Language: repotypes.LangJava,
+		Symbols: []repotypes.Symbol{{Name: "record", Kind: "method", Parent: "AuditLog", File: "src/AuditLog.java", Line: 5, EndLine: 9}},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	mut := types.NewMutableState("opaque")
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.mutable = mut
+	eval.structuredEvidence = []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "audit", Object: "AuditLog", Snippet: "private final AuditLog audit = new AuditLog();", Source: "src/VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"src/AuditLog.java": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"src/AuditLog.java": {{Start: 5, End: 5}, {Start: 9, End: 9}}})
+
+	targets := eval.callChainUnreadTerminalBodyTargets()
+	if len(targets) != 1 || targets[0].LineStart != 5 || targets[0].LineEnd != 9 {
+		t.Fatalf("disjoint endpoint reads must not masquerade as full body coverage: %+v", targets)
 	}
 }
 

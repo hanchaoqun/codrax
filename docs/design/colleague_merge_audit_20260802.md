@@ -3609,3 +3609,26 @@ Java、ArkTS、Cangjie 三面 pin 及 agent/types/tool/orchestrator/tracediag/st
 Trace 显式窗、因果投影、自动补齐与链上根因通道未改。
 
 状态：`B508=implemented/pending-r296-production-replay`；`B510=P1-watch`；`system-answer/relation-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.78 r296：B508 v1 生产反例与 stage sequence 关系孤岛
+
+exact-two runner 2/2、人工 0/2。Java 中 v1 terminal producer 错发 sibling
+`VisitRepository.countOpenVisits -> String.startsWith`，真实 `AuditLog.record -> System.out.println` 缺席。根因是 receiver 已被 parser
+规范化为 `AuditLog`，selection 却只比较 initializer 左值 `audit`；选择失败后 discover-sink 又错误回退任意 leaf。该反例确认 B508 不是模型波动。
+
+read 的正文/表正确，但两次成文拒绝后 sequence 只剩六条互不连通的关系。validator 拒绝无证边正确；缺口是完整 stage skeleton 所需 typed recipe
+没有以单一可消费结构到达。B510 升为 confirmed，并扩为 relation kind × diagram kind × endpoint identity × producer/teaching/validator/repair 的统一合同审计，
+禁止按单 case 放宽或系统补边。
+
+状态：`B508=v1-negative/v2-next`；`B510=P1-confirmed`；`system-edge/diagram-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.79 B508 v2：规范化 receiver 选择与终点实现读取同闭环
+
+initializer/assignment selection 对 subject/object 两端做 typed endpoint join，使局部 receiver 与规范化 concrete receiver 同源；无 selection 的
+discover-sink 不再落到任意 leaf。唯一可定位的本地 selected terminal 若未被一个连续 read range 覆盖，Explorer 发 exact bounded read 软导航；事实仍须
+parser direct call + exact read，系统不解释业务语义、不改模型答案。
+
+新增 normalized receiver、无选择 leaf 负臂、连续 body coverage、读后清债与三语言 terminal authority pin；agent/types/tool/orchestrator/tracediag/
+stageauthority 全绿。该批不扫描 request/model/final prose，不生成关系或结论；Trace 显式窗、补采、因果投影、链上根因/修向/业务线索未改。
+
+状态：`B508=v2-implemented/pending-r297`；`B510=unified-audit-next`；`system-answer/relation-authoring=none`；Trace families=`unchanged`。
