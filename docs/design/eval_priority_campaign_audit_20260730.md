@@ -31322,3 +31322,23 @@ endpoint、uncertainty、diagram/citation 与具体前后矛盾均不受影响�
 状态：`B499=implemented/full-orchestrator-suite-pass/pending-production-replay`；
 `B498=v2-implemented/pending-production-replay`；`generic-source-caveat-suppression=typed+narrow`；
 `system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。
+
+### 123.518 r288：B499 生产关闭；旧 StageReport 绕过 principal support scope
+
+`main@e60f50b572` 严格并行 QF 架构关系与东湖真实多因 Trace，runner 2/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_trace_r288_20260810_manual_audit.md`。
+
+Trace 固定 114.940ms 请求窗、自动补采、唤醒链、链上优先级反转候选/调度延迟/D-IO/算力供给/类校验及业务 span 全部保留，actual/effective、
+frame-causality 未证边界与非链背景隔离正确；r287 的泛化“结合源码”附注消失，B499 获直接生产正证并关闭。系统只并置 typed 投影和原始观察，未替换模型结论。
+
+QF 仍为人工假绿：图只有三条 stage precedence，BusContext/MutableState 断开，正文却宣称完整共享流及无证写入职责。B498 v2 已使
+`Principal Support Path` 和 typed enrichment 只含 principal identities，但 finalizer 的 `Prior Stage Findings` 仍通过 explorer StageReport 携入
+128 条全局 FlowFinding 及无关 Primary Evidence。它不经过现有 support-scope 入口，确认 `B500-STAGEREPORTSCOPE1/P1-high`。
+
+根修冻结：仅收窄 finalizer-facing StageReport digest，复用 required-diagram 的 typed bounded scope；完整 StageOutput/TurnA evidence/findings 保留。
+required-diagram 的 flow 命中从“任一端点”提升为 exact evidence id 或有序双端点均在 scope，防止共享一个 `MutableState/BaseAgent` 名就带入兄弟路径。
+另给 B491 增加五次边界身份修复 churn 的生产 witness：保持 exact primary identity fail-closed，但错误提示应明确使用 exact node id/首个可见 label，
+不把次级括注别名自动升权。
+
+状态：`B499=production-closed`；`B498=v2-partial`；`B500=P1-high/next`；`B491=P2-with-production-witness`；
+`runner=2/2,human=1/2`；`system-relation/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`preserved`。

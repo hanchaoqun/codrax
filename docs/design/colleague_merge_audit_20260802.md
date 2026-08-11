@@ -3438,3 +3438,14 @@ endpoint/uncertainty/具体矛盾等真实披露均保留。
 该批不扫描 request/model/final prose，不修改模型答案、根因结论或 Trace 值通道；orchestrator 全包绿，待 r288 生产回放。
 
 状态：`B499=implemented/pending-production-replay`；`B498=v2-pending-production-replay`；Trace families=`unchanged`。
+
+#### §11.10.62 r288：runtime caveat 收债；发现 StageReport 旧载体旁路
+
+exact-two runner 2/2、人工 1/2。东湖 Trace 主链与五类修向、业务线索、双口径和背景隔离均通过，且不再出现“结合源码”，B499 生产关闭。
+
+QF 的 bounded Principal Support Path 已干净，但旧 `Prior Stage Findings` 仍把 128 条全局 FlowFinding 与无关 Primary Evidence 带给 finalizer；最终图无 carrier
+边而正文继续过度主张。立 `B500-STAGEREPORTSCOPE1/P1-high`：finalizer-facing StageReport digest 复用 typed principal scope，底层完整 StageOutput/TurnA
+不裁剪；required diagram 的 flow 只接受 exact evidence id 或有序双端点，不再以单端点碰巧命中放行。B491 同时获得 exact participant 身份提示反复五次的生产 witness，
+只优化 typed repair wording，不放宽 primary identity authority。
+
+状态：`B499=closed`；`B498=v2-partial`；`B500=next`；`B491=P2`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
