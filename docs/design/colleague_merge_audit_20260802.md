@@ -3386,3 +3386,10 @@ B490/B493 新路径因模型未发 semantic call row 而未获 production witnes
 
 状态：`B495=P1-high/next`；`B496=P1`；`B490/B493=pending-production-witness`；`B497=P2-watch`；
 `system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.56 B495：修复 ungrounded audit row 的 finalizer 权限泄漏
+
+typed enrichment 现于单一选择入口排除明确 `GroundingUngrounded` 行，阻断“grounder 已拒绝、finalizer 又按 initializer 发成 value_fact”的确定性分叉。
+recovered evidence 保持既有可用语义，原始 audit buffer 也继续保留供 Explorer 修复。系统不重写 evidence/答案、不补关系；agent 全包回归绿。
+
+状态：`B495=implemented/pending-production-replay`；`B496=P1-next`；Trace families=`unchanged`。

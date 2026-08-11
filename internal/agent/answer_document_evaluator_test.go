@@ -1666,6 +1666,53 @@ func TestSelectAnswerDocTypedEnrichmentFactsTruncatesLargeSurface(t *testing.T) 
 	}
 }
 
+func TestSelectAnswerDocTypedEnrichmentFacts_RejectsUngroundedValueAuthority(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}}}
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "rejected-declaration",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/context.go",
+			LineStart:       18,
+			AnchorKind:      types.AnchorInitializer,
+			AnchorSymbol:    "Mutable",
+			Subject:         "Mutable",
+			Snippet:         "Mutable *MutableState",
+			Authority:       types.AuthorityIllustrative,
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			ID:              "recovered-assignment",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/orchestrator/runtime.go",
+			LineStart:       24,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "Mutable",
+			Subject:         "ctx.Mutable",
+			Object:          "next",
+			Snippet:         "ctx.Mutable = next",
+			GroundingStatus: types.GroundingRecovered,
+		},
+	}
+
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, false, nil)
+	if len(got) != 1 || got[0].item.ID != "recovered-assignment" {
+		t.Fatalf("explicitly ungrounded evidence must not enter factual enrichment; got %+v", got)
+	}
+	if got[0].lane != "value_fact" {
+		t.Fatalf("recovered assignment lane=%q, want value_fact", got[0].lane)
+	}
+	rendered := renderAnswerDocTypedExplorationEnrichment(&types.AgentContext{
+		AnalysisIR:    ctx.AnalysisIR,
+		EvidenceItems: evidence,
+	}, false)
+	if strings.Contains(rendered, "rejected-declaration") || strings.Contains(rendered, "Mutable initializer anchor") {
+		t.Fatalf("ungrounded initializer leaked into finalizer handoff:\n%s", rendered)
+	}
+}
+
 func TestSelectAnswerDocTypedEnrichmentFacts_SalienceLockedSurvivesScoreFilter(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: "needle",

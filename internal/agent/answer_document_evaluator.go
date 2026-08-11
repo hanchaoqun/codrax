@@ -8499,6 +8499,15 @@ func selectAnswerDocTypedEnrichmentFacts(
 	candidates := make([]answerDocEnrichmentFact, 0, len(evidence))
 	hasRelevant := false
 	for i, item := range evidence {
+		// Explicitly rejected evidence may remain in the append-tailed audit
+		// buffer so Explorer can repair it, but it has no factual authority in
+		// the finalizer handoff.  In particular, selecting the lane from an
+		// ungrounded assignment/initializer anchor would make a rejected field
+		// declaration look like a value fact.  Preserve recovered evidence under
+		// the existing policy; only the typed fail-closed verdict is excluded.
+		if item.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
 		if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocEvidenceIsCurrentRepoOnly(item) {
 			continue
 		}

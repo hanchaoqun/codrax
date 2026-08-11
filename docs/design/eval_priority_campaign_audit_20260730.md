@@ -31218,3 +31218,17 @@ B490/B493 本轮未被触发而非失效：模型没有再次发出 semantic cal
 状态：`B495=P1-high/next`；`B496=P1/follow-up`；`B490/B493=implemented/pending-production-witness`；
 `B488=partial`；`B497=P2-watch`；`runner=2/2,human=1/2`；`system-edge/answer-authoring=none`；
 `raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.512 B495 完成：明确未落地 evidence 不再进入事实型 enrichment
+
+`emit_evidence` 的 append-tail 保留 ungrounded 行是为 Explorer 同轮修复服务，不能等价为 finalizer 事实池。此前
+`selectAnswerDocTypedEnrichmentFacts` 未检查 `GroundingStatus`，先按 `AnchorAssignment/AnchorInitializer/AnchorReturn` 分到 `value_fact`；因此一条已经被
+grounder fail-closed 的声明型伪 initializer 仍会获得 `assignment_fact` 外观，和 completion 的 unproven caveat 形成兄弟合同冲突。
+
+本批在 typed enrichment 唯一选择入口先排除显式 `GroundingUngrounded`。`GroundingRecovered` 继续按既有审计政策可用，未赋状态的兼容/测试载体也不被扩大
+改义；relation surface 原有的 ungrounded fail-closed 保持。该改动不删除审计 buffer、不自动重分类 evidence、不改模型正文/图/结论，仅阻止拒绝行被再次
+赋予 factual value/flow/chain 权限。回归同时钉住 rejected declaration 不发射及 recovered assignment 仍为 value_fact；`go test ./internal/agent -count=1`
+全绿。
+
+状态：`B495=implemented/package-suite-pass/pending-production-replay`；`B496=P1-next`；
+`system-evidence/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
