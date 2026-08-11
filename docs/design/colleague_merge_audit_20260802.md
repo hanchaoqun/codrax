@@ -4690,3 +4690,17 @@ language family，再与 `verification_probes[].language` 的 runtime family 求
 状态：`B544=production-positive`；`B567=P1-high/next`；`runner=2/2`；`human=1/2`；
 `probe-command-wrapper=currently-accepted`；`fixed-four-minute-active-degrade=retired`；
 `system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.167 B567：inline probe runtime 与 changed-source family 在 plan-time 对齐
+
+`emit_change_plan` / 分段 plan 的共享 full-content validator 现新增 typed runtime-target compatibility：从 `changes[].path/new_path` 的精确扩展名取得已识别 source family，
+从 schema-normalized `verification_probes[].language` 取得 inline runtime family；若某个 probe 与本计划全部 changed source family 均无交集，直接拒绝并要求删除 probe、
+把 native build/test 命令留在 acceptance tests。C/C++/Rust/ArkTS/Cangjie 被 Python wrapper 绕过的五臂已钉；Python、JS、TS、Ruby、Java、Go 同族正臂、
+Python+C++ 多语言计划及 config-only fail-open 臂均保留。
+
+该门不读取 probe code、请求、summary、rationale 或模型输出，不枚举 `g++/rustc/cjc/hvigor` 等命令词，因此不是 case-by-case 关键词封堵；它只约束结构化执行权限。
+多语言计划中只要 probe 与至少一个 changed source target 同族，仍进入既有 import/require、changed-symbol、实际执行和 changed-path coverage 校验，不能仅凭 family 匹配
+升级为验证证明。JavaScript 保留现有 JS/TS provider 兼容；未知或纯配置/文档目标不被路径后缀猜成行为语义，维持 fail-open。
+
+状态：`B567=implemented/pending-r335`；`gate=typed-path-plus-runtime-enum`；`probe-code-scan=none`；
+`native-project-verification=preserved`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。

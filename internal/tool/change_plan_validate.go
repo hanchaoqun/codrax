@@ -340,6 +340,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "project_lint_failed", rej, []string{"$.changes"}, nil)
 	}
+	if rej := validateVerificationProbeTargetLanguageCompatibility(changes, verificationProbes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "verification_probe_target_language_mismatch", rej, []string{"$.changes[].path", "$.verification_probes[].language"}, nil)
+	}
 	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_contract_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.changes[].verification_probes[].contract_refs"}, nil)
 	}
@@ -350,6 +353,86 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
+}
+
+// validateVerificationProbeTargetLanguageCompatibility prevents an inline
+// runtime from being used as a command wrapper for an unrelated changed
+// language. It reads only exact change paths and the schema-validated probe
+// runtime enum. File-family compatibility is a policy boundary, not behavior
+// proof: compatible probes still have to pass the existing import/require,
+// changed-symbol, execution, and changed-path coverage checks.
+//
+// Unknown/non-source targets deliberately fail open. Multi-language plans are
+// accepted when the probe can directly exercise at least one changed source
+// family; the coupling validators then bind it to an actual target. JavaScript
+// retains the existing JS/TS provider scope.
+func validateVerificationProbeTargetLanguageCompatibility(changes []types.FileChange, probes []types.VerificationProbe) string {
+	if len(changes) == 0 || len(probes) == 0 {
+		return ""
+	}
+	paths := make([]string, 0, len(changes)*2)
+	for _, change := range changes {
+		if path := strings.TrimSpace(change.Path); path != "" {
+			paths = append(paths, path)
+		}
+		if path := strings.TrimSpace(change.NewPath); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	targets, targetFamilies := recognizedChangedSourcePaths(paths)
+	if len(targets) == 0 {
+		return ""
+	}
+	allFamilies := make([]types.VerificationLanguageFamily, 0, len(targets))
+	for _, target := range targets {
+		allFamilies = append(allFamilies, targetFamilies[target]...)
+	}
+	allFamilies = types.NormalizeVerificationLanguageFamilies(allFamilies)
+	for i, probe := range probes {
+		language, ok := normalizeVerificationProbeLanguage(probe.Language)
+		if !ok {
+			continue
+		}
+		probeFamilies := verificationProbeDirectSourceFamilies(language)
+		compatible := false
+		for _, target := range targets {
+			if verificationLanguageFamiliesIntersect(targetFamilies[target], probeFamilies) {
+				compatible = true
+				break
+			}
+		}
+		if compatible {
+			continue
+		}
+		return fmt.Sprintf(
+			"verification_probes[%d].language=%q cannot directly execute any changed source target %s (changed language families: %s). Inline verification probes are source-level programs, not command wrappers: remove this probe and keep the native build/test command in acceptance_tests, or use a probe runtime that matches a changed source target",
+			i, language, strings.Join(targets, ", "), verificationLanguageFamilyList(allFamilies))
+	}
+	return ""
+}
+
+func verificationProbeDirectSourceFamilies(language string) []types.VerificationLanguageFamily {
+	families := types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(language))
+	if language == "javascript" {
+		families = append(families, types.VerificationLanguageTypeScript)
+	}
+	return types.NormalizeVerificationLanguageFamilies(families)
+}
+
+func verificationLanguageFamilyList(families []types.VerificationLanguageFamily) string {
+	if len(families) == 0 {
+		return "unknown"
+	}
+	values := make([]string, 0, len(families))
+	for _, family := range families {
+		if value := strings.TrimSpace(string(family)); value != "" {
+			values = append(values, value)
+		}
+	}
+	if len(values) == 0 {
+		return "unknown"
+	}
+	return strings.Join(values, ",")
 }
 
 // qualifyNoChangeReplanForCurrentState is the shared typed seam used by the
