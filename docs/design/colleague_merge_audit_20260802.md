@@ -3739,3 +3739,17 @@ optional/Trace/root-cause 隔离、assignment+call 合并、schema validation �
 
 状态：`B510-A4=implemented/pending-production-replay`；`system-edge/answer-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.89 r301：call 修复生产关闭；required table 存在零行假完成
+
+TS exact chain 六条边、重试语义与 alias 定义/消费均正确，B510-A4 获异构生产正证。pipeline 则暴露独立载体 GAP：Analyzer 已精确声明
+`has_per_member_table=true` 和四个 required dimensions，Finalizer 也创建正确四列，但没有任何 `items`；required-block kind 计数把该空壳当作表已完成，
+renderer 将其静默渲染为空。`B510-E-EMPTYTABLE1` 应在 full/patch 共用 block normalizer 上按 JSON 结构拒绝“无 markdown table 且零可见 row”的 table，
+不读取 label/request/prose，不替模型写值。
+
+五次图修复另确认 `B510-F-BOUNDARYREPAIR1/P2`：合同要求 disconnected participant 同时具有可见 node 与 `unproven` boundary row，语义正确但当前
+提示让模型三轮往返；后续提供逐 participant copy-ready typed recipe，仍由模型 patch。业务展示层继续采用业务分组/动作与组内 exact endpoint 分离，禁止 alias
+成为关系权威。
+
+状态：`B510-A4=production-closed`；`B510-E=P1-high/next`；`B510-F=P2-open`；
+`system-edge/table/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。

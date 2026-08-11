@@ -31830,3 +31830,26 @@ assignment 与 call 同批时合并为一个 relation repair；再与 schema-inv
 
 状态：`B510-A4=implemented/package-suites-pass/pending-r301`；`B513=next-design`；
 `B510-D/E=open`；`system-answer/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.545 r301：A4 获异构正证；空壳表绕过 required surface，关系修复仍有边界心智
+
+`main@181d2fc82` exact-two runner 2/2、人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_ts_r301_20260811_manual_audit.md`。TS workspace chain 完整保留六条 exact call，重试策略和
+`@app/core` alias 定义/消费均有当前源码锚，故 B510-A4 的生产回放关闭。
+
+pipeline 第一稿已按 typed request 声明 `Stage/输入/输出/主要状态载体` 四列，但 `items=[]`。Analyzer 同时给出
+`has_per_member_table=true`、四维均 required；现有 required-block 只数 `kind=table`，structured-row validator 又在 `len(items)==0` 时直接通过，renderer
+最终对零 row 返回空串。结果是 runner 的浅表 contains/regex 仍 PASS，用户明确要求的整张表却从可见答案消失。新立
+`B510-E-EMPTYTABLE1/P1-high`：模型选择 table carrier 后，若没有有效 markdown table，则至少必须有一条可见结构化 row；这是一条只读 JSON kind/text/items
+的精确载体不变量，系统不按列名/请求/答案 prose 扫描，不填 cell、不替模型写表。
+
+图侧五次 reject 中，首轮 call/return 越权与次轮无证 precedence 均被正确 fail-closed；最后三轮只围绕 `BusContext` 的“可见 disconnected node +
+unproven boundary row”二元条件往返，合同不矛盾但 repair 心智仍高。记 `B510-F-BOUNDARYREPAIR1/P2`：把现有 typed participant 缺口投影成逐席
+copy-ready node declaration + boundary JSON，模型局部 patch，系统仍不补节点、不造关系。最终 sequence 只剩两条内部 reset call，业务时序/状态交接不完整；
+`B510-D-BUSINESSLAYER` 继续要求“业务 subgraph/显示动作 + 组内 exact endpoint”双层 authoring aid，业务 alias 不参与证据匹配。
+
+排期冻结：先 E 的纯载体修复并 exact-two；再做 F 的低心智 repair；随后 B513 qualifier-witness 与 D 的跨语言业务展示层。Trace explicit-window
+projection、自动补齐、链上主因/优先级反转/调度与算力供给/D/IO/确定性语义优化及链上业务线索均保持独立、未改。
+
+状态：`B510-A4=production-closed`；`B510-E=P1-high/next`；`B510-F=P2-open`；
+`B510-D/B513=open`；`runner=2/2,human=1/2`；`system-answer/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。
