@@ -75,6 +75,38 @@ func TestDiagramStagePrecedenceAuthorityAcceptsOnlyAdjacentReadLane(t *testing.T
 	}
 }
 
+func TestDiagramStagePrecedenceAuthorityTreatsSameStageLabelAliasesAsOneEndpoint(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	authority := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1]},
+		{From: rows[1], To: rows[2]},
+		{From: rows[2], To: rows[3]},
+	}
+	doc := func(extractorLabel string) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "stages", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  E[\"explorer\\nStageExplore\"] --> X[\"" + extractorLabel + "\"]\n  X --> F[\"finalizer\\nStageFinalize\"]\n"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				{FromNode: "E", ToNode: "X", RelationKind: types.DiagramRelPrecedence},
+				{FromNode: "X", ToNode: "F", RelationKind: types.DiagramRelPrecedence},
+			},
+		}}}
+	}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	if got := DiagramCallEdgeEvidenceMismatches(doc("extractor\\nStageExtract"), view, nil, authority); len(got) != 0 {
+		t.Fatalf("two exact aliases of one stage must retain both precedence edges: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc("extractor\\nStageFinalize"), view, nil, authority); len(got) == 0 {
+		t.Fatal("a label whose exact lines resolve to different stages must remain ambiguous")
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCallSites(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

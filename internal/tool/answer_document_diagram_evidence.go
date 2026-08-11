@@ -172,7 +172,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 						continue
 					}
 					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) ||
-						(relation == types.DiagramRelPrecedence && diagramStagePrecedenceHasTypedAuthority(stagePrecedence, fromSymbol, toSymbol)) {
+						(relation == types.DiagramRelPrecedence &&
+							diagramStagePrecedenceHasTypedVisibleAuthority(stagePrecedence, edge.From, edge.To, labels)) {
 						continue
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -348,21 +349,29 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	return out
 }
 
-// diagramStagePrecedenceHasTypedAuthority consumes only the checkout-verified
-// provider rows shared with the finalizer prompt. It accepts exactly adjacent
-// read-lane order and never promotes that order to a call, data-flow, or
-// runtime-causal relation. Endpoint labels must resolve to one unique stage
-// row; prose and edge messages are not consulted.
-func diagramStagePrecedenceHasTypedAuthority(relations []stageauthority.PrecedenceRelation, fromSymbol, toSymbol string) bool {
-	fromSymbol = strings.TrimSpace(fromSymbol)
-	toSymbol = strings.TrimSpace(toSymbol)
-	if fromSymbol == "" || toSymbol == "" {
+// diagramStagePrecedenceHasTypedVisibleAuthority resolves a Mermaid endpoint
+// label against the same checkout-verified stage rows when the generic source
+// identity resolver cannot choose one label line. A display label may carry
+// two declaration-backed spellings for the same stage, for example
+// `extractor\nStageExtract`; treating those spellings as two unrelated source
+// identities made the generic resolver fail closed and then caused the answer
+// repair loop to delete a valid precedence edge.
+//
+// This bridge stays exact and fail-closed: it considers only complete identity
+// lines parsed from the node declaration, every matching line must resolve to
+// one unique stage row, and a label whose lines name different stages is
+// rejected. Mermaid node IDs are considered only for a genuinely unlabeled
+// node, so presentation aliases such as n1 never acquire authority by
+// themselves.
+func diagramStagePrecedenceHasTypedVisibleAuthority(relations []stageauthority.PrecedenceRelation, fromNode, toNode string, labels map[string]string) bool {
+	fromStage, fromOK := diagramVisibleEndpointUniqueStage(relations, fromNode, labels)
+	toStage, toOK := diagramVisibleEndpointUniqueStage(relations, toNode, labels)
+	if !fromOK || !toOK {
 		return false
 	}
 	matched := false
 	for _, relation := range relations {
-		if !diagramStageRowIdentityMatches(relation.From, fromSymbol) ||
-			!diagramStageRowIdentityMatches(relation.To, toSymbol) {
+		if relation.From.StageIdent != fromStage || relation.To.StageIdent != toStage {
 			continue
 		}
 		if matched {
@@ -371,6 +380,39 @@ func diagramStagePrecedenceHasTypedAuthority(relations []stageauthority.Preceden
 		matched = true
 	}
 	return matched
+}
+
+func diagramVisibleEndpointUniqueStage(relations []stageauthority.PrecedenceRelation, node string, labels map[string]string) (string, bool) {
+	node = strings.TrimSpace(node)
+	if node == "" {
+		return "", false
+	}
+	var surfaces []string
+	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
+		surfaces = diagramEvidenceLabelIdentityCandidates(label)
+	} else {
+		surfaces = []string{node}
+	}
+	matched := make(map[string]bool)
+	visit := func(row stageauthority.StageRow) {
+		for _, surface := range surfaces {
+			if diagramStageRowIdentityMatches(row, surface) {
+				matched[row.StageIdent] = true
+				return
+			}
+		}
+	}
+	for _, relation := range relations {
+		visit(relation.From)
+		visit(relation.To)
+	}
+	if len(matched) != 1 {
+		return "", false
+	}
+	for stage := range matched {
+		return stage, true
+	}
+	return "", false
 }
 
 func diagramStageRowIdentityMatches(row stageauthority.StageRow, surface string) bool {

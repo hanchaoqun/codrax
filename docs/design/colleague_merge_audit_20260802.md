@@ -3297,3 +3297,16 @@ mechanism repair capsule 和 participant boundary 仍只消费普通 EvidenceIte
 
 状态：`B479=implemented/full-suite-pass/pending-production-replay`；`B482=P1-next`；
 `system-answer/graph-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.49 r282 与 B486：B482 关闭；stage 多别名误拒使 B479 保持 partial
+
+exact-two runner 2/2、人工 1/2。Python→Rust 用例完整覆盖 native/fallback state、guard、两个 sink、wrapper/core call 与 module registration，最终答案
+准确说明 `_fastlex` 和 ImportError fallback，B482 关闭。
+
+QF 首稿包含三条正确 stage precedence；relation hard gate 将同一节点的 `extractor` 与 `StageExtract` 两个 declaration-backed alias 当成冲突身份，修复
+指令随后迫使模型删掉两条边。另有相同 `[Mutable BusContext]` participant blocker 因无关 closure 变化连续触发三次。前者立刻按 provider row 合一：
+同一 stage 的多 exact label line 只算一个 endpoint，跨 stage 混写保持拒绝；provider 入口同步要求完整 typed read-stage slate，避免对普通 flow 图扩权。
+后者记 `B487/P1-next`，将按稳定 missing-participant typed set 收敛。
+
+状态：`B482=closed`；`B486=implemented/package-suite-pass/pending-production-replay`；`B479=partial`；`B487=P1-next`；
+`system-answer/graph-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

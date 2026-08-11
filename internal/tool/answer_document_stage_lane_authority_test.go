@@ -12,7 +12,16 @@ func TestDiagramVerifiedReadModeStagePrecedenceWiresPostValidation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := &types.BusContext{RepoRoot: repoRoot, Mode: types.ModeRead}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}
+	ctx := &types.BusContext{RepoRoot: repoRoot, Mode: types.ModeRead, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
 	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
 	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 3 {
 		t.Fatalf("expected three checkout-verified adjacent relations, got %+v", got)
@@ -37,6 +46,11 @@ func TestDiagramVerifiedReadModeStagePrecedenceWiresPostValidation(t *testing.T)
 		t.Fatalf("write mode must not borrow read-lane authority: %+v", got)
 	}
 	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.DiagramHint.Participants = ctx.AnalysisIR.RequestModel.DiagramHint.Participants[:3]
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 0 {
+		t.Fatalf("a partial typed stage slate must not activate checkout authority: %+v", got)
+	}
+	ctx.AnalysisIR.RequestModel = rm
 	traceView := &types.AnswerSemanticView{Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow}
 	if got := diagramVerifiedReadModeStagePrecedence(ctx, traceView); len(got) != 0 {
 		t.Fatalf("Trace must retain its independent relation authority: %+v", got)

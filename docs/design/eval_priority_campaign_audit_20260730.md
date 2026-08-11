@@ -31049,3 +31049,38 @@ checkout rows，不读取原始用户输入、thinking 或 final prose。Trace/Q
 状态：`B479=implemented/full-suite-pass/pending-production-replay`；`B482=P1-next`；`B484/B485=P2-watch`；
 `system-edge/diagram/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
 Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.503 r282：B482 生产关闭；B479 暴露 relation endpoint 与 completion blocker 两个同源消费残差
+
+`main@ae014e35a` exact-two runner 2/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_stage_fallback_r282_20260810_manual_audit.md`。
+
+多仓 Python→Rust 用例完整取得 `_HAVE_NATIVE=True/False` producer、line-20 guard、native/fallback 两个 sink、PyO3 wrapper→core call 和
+`_fastlex.add_function(tokenize_bytes)` registration。最终正文正确给出 native 模块、完整跨语言解释和 ImportError fallback；validator 只删除无 typed
+authority 的概念桥，保留四条可引用源码边。B482 获直接生产闭环。
+
+QF 的 stage completion 现正确只报告 `[Mutable BusContext]`，证明 B479 四消费面接线部分生效；但同一缺席集合被连续追问三次，因为 generic lane
+blocker 把无关新增 read/evidence/repair closure 纳入 key。更严重的是模型首稿已有三条 stage precedence，hard validator 却把
+`extractor\nStageExtract` 等同一阶段的两条声明别名解释成两个不同 endpoint，迫使模型依次删掉两条真实边；最终图只剩 analyzer→explorer，正文仍
+概括完整流水线，runner PASS 假绿。确认 `B486-STAGEALIAS1/P0` 与 `B487-FLOWBLOCKER1/P1`，B479 状态回退为 partial。
+
+状态：`B482=closed/direct-production-witness`；`B479=partial`；`B486=P0-in-progress`；`B487=P1-next`；
+`runner=2/2,human=1/2`；`system-edge/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；
+Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
+
+### 123.504 B486 完成：同阶段多声明别名按 checkout row 合一，跨阶段混写继续拒绝
+
+关系门此前先用通用 source-identity resolver 抽取 Mermaid 首行 endpoint；一个标签同时携带 `extractor` 与 `StageExtract` 时，两者在普通 EvidenceItem
+池中是两个 exact identity，resolver 因歧义返回空。该歧义对一般调用边是正确的，但对 checkout-verified stage row 是错误的：两者本来就是同一行的
+AgentValue/StageIdent。
+
+本批让 precedence validator 在完整 typed read-stage slate 已验证后，直接把 node declaration 的每个 exact identity line 映射到 provider row：所有
+命中的行必须唯一落到同一个 stage，才可接受相邻 precedence；`extractor + StageFinalize` 这类跨阶段混写仍 fail-closed，`analyzerEvaluator` 等未纳入
+provider 的展示名也不能借节点 ID 获权。共享 provider 入口同时收紧为完整四阶段 `incident_required` slate；partial slate、write、Trace、非 flow 与
+checkout drift 均不激活。
+
+系统不生成/补写图边，不读取 request/thinking/final prose，不放宽 call/data_flow/runtime causal authority。专项与 `go test ./internal/tool -count=1`
+全绿；待与 B487 合并后 exact-two production replay。
+
+状态：`B486=implemented/package-suite-pass/pending-production-replay`；`B487=P1-next`；`B479=partial`；
+`system-edge/diagram/conclusion-authoring=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。
