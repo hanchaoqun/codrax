@@ -1273,6 +1273,36 @@ func TestAnswerDocumentEvaluator_RendersTypedSameOwnerLexicalOrderWithoutInventi
 	}
 }
 
+func TestAnswerDocumentEvaluator_LocalFactOrderUsesCompiledSupportScope(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-stage-write", Kind: types.EvidenceRelationship, Subject: "StageBinding", OwnerSymbol: "StageBinding", Predicate: "assigns", Object: "StageAnalyze", Source: "internal/types/stage_binding.go", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment},
+		{ID: "E-stage-guard", Kind: types.EvidenceConcrete, Subject: "StageBinding", OwnerSymbol: "StageBinding", Predicate: "conditional", Object: "stage != StageUnknown", Source: "internal/types/stage_binding.go", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
+		{ID: "E-stage-return", Kind: types.EvidenceConcrete, Subject: "StageBinding", OwnerSymbol: "StageBinding", Predicate: "returns", Object: "stage", Source: "internal/types/stage_binding.go", LineStart: 12, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn},
+		{ID: "E-cache-get", Kind: types.EvidenceRelationship, Subject: "explorerSearchCache", OwnerSymbol: "explorerSearchCache", Predicate: "calls", Object: "cache.Get", Source: "internal/agent/explorer.go", LineStart: 100, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+		{ID: "E-cache-guard", Kind: types.EvidenceConcrete, Subject: "explorerSearchCache", OwnerSymbol: "explorerSearchCache", Predicate: "conditional", Object: "cache != nil", Source: "internal/agent/explorer.go", LineStart: 101, Scope: types.ScopeLine, AnchorKind: types.AnchorCondition},
+	}}
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-stage-binding",
+				Source:       "internal/types/stage_binding.go",
+				LineStart:    10,
+				AnchorSymbol: "StageBinding",
+				Subject:      "StageBinding",
+			}},
+		}},
+	}, true, extractorValueRankComparison)
+
+	got := renderAnswerDocLocalFactOrderCapsuleWithScope(ctx, supportScope)
+	if !strings.Contains(got, "owner=`StageBinding` source=`internal/types/stage_binding.go`") {
+		t.Fatalf("support-connected lexical group was lost:\n%s", got)
+	}
+	if strings.Contains(got, "explorerSearchCache") || strings.Contains(got, "internal/agent/explorer.go") {
+		t.Fatalf("unrelated lexical group escaped the compiled support scope:\n%s", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_LocalFactOrderDoesNotGuessAmbiguousShortOwner(t *testing.T) {
 	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
 		{ID: "E-short", Kind: types.EvidenceRelationship, Subject: "log", OwnerSymbol: "log", Predicate: "calls", Object: "Sink.write", Source: "src/logger.cpp", LineStart: 36, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
@@ -2031,6 +2061,11 @@ func TestSelectAnswerDocFlowEnrichmentLines_DiagnosticSupportScopeFiltersUnrelat
 			ID:   "flow-unrelated",
 			Path: []string{"MultiGraph.New", "Builder"},
 		},
+		{
+			ID:      "flow-same-file-only",
+			Path:    []string{"BaseAgent.executeTool", "MutableState.ArmTraceInputAdmissionTerminal"},
+			Sources: []string{"internal/agent/analyzer.go"},
+		},
 	}
 
 	got := selectAnswerDocFlowEnrichmentLines(findings, 10, supportScope)
@@ -2039,6 +2074,28 @@ func TestSelectAnswerDocFlowEnrichmentLines_DiagnosticSupportScopeFiltersUnrelat
 	}
 	if !strings.Contains(got[0], "flow-relevant") {
 		t.Fatalf("diagnostic support scope kept wrong flow row: %+v", got)
+	}
+}
+
+func TestSupportLaneScope_FlowFileFallbackRequiresAnchorlessSupport(t *testing.T) {
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID: "support-file-only",
+				Source:     "internal/agent/analyzer.go",
+				LineStart:  1271,
+			}},
+		}},
+	}, true, extractorValueRankDiagnostic)
+	finding := types.FlowFindingDigest{
+		ID:      "flow-file-linked",
+		Path:    []string{"parseAnalyzerPayload", "buildAnalysisIR"},
+		Sources: []string{"internal/agent/analyzer.go"},
+	}
+
+	if !supportScope.allowsFlowFinding(finding) {
+		t.Fatal("file-only support without typed endpoint anchors should retain its compatibility flow")
 	}
 }
 

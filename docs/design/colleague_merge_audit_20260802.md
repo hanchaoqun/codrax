@@ -3411,3 +3411,11 @@ principal support，模型随后继续写出无证共享流。
 该批只降 advisory 噪声，不改 relation/diagram/正文。write 一行修复正确且 source-static-only 诚实降级，无新 gap。
 
 状态：`B495=production-closed`；`B498=P1-high/next`；`B497=P2-model-variance`；Trace families=`unchanged`。
+
+#### §11.10.59 B498：support-scope advisory 收窄批
+
+已把 local lexical capsule 接到 `AnswerSupportPlan` 的既有 typed scope，并修正 FlowFinding 的 file-only coincidence：scope 有 endpoint anchors 时，只有
+evidence ID/endpoint anchor 命中可进入可选 finalizer context；scope 无 anchor 时保留 file-only 兼容。相关组与稀疏旧载体正臂、兄弟组与同文件异端点负臂均已钉住，
+`internal/agent` 全包绿。
+
+这是 prompt precision 修复，不改变证据权威、关系门、图、正文或 Trace 投影。状态：`B498=implemented/pending-production-replay`；Trace families=`unchanged`。

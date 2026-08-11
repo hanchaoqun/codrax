@@ -31270,3 +31270,18 @@ write 案一行补丁正确，write-analysis 一次、计划一次、零 JSON re
 
 状态：`B495=production-closed`；`B498=P1-high/next`；`B496/B490/B493=pending-production-witness`；`B497=P2-model-variance`；
 `runner=1/2,human=0/1/1`；`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.515 B498：可选辅助上下文服从 compiled support scope
+
+已施工 `B498-SUPPORTSCOPECTX1`。`Typed same-owner lexical order` 不再从整轮 ranked evidence 无差别取组，而是复用现有
+`AnswerSupportPlan -> supportLaneScope`；相关 evidence/location/identity 相连的局部顺序仍保留，兄弟文件或无关 owner 的组不再进入 finalizer。
+
+`FlowFinding` 的可选 enrichment 同步收紧：已有 typed endpoint anchors 时，须命中 support evidence ID 或 endpoint anchor；仅共享宽文件不再成立。
+为保留旧稀疏载体，只有 support entry 本身完全没有 endpoint anchor 时才允许 file-only fallback。该信号全部来自 typed support plan 与 typed finding，未读
+用户原文或模型答案，也未新增 emit-time gate。
+
+测试钉住：相关 lexical group 保留、兄弟 group 排除、同文件不同端点 flow 排除、anchorless file-only 兼容；`go test ./internal/agent -count=1`
+全绿。此批只减 advisory 噪声，不改 evidence、relation、diagram、模型正文、write workflow，也不改 Trace 的窗、因果投影、链上根因选举或自动补齐。
+
+状态：`B498=implemented/full-agent-suite-pass/pending-production-replay`；`B495=production-closed`；
+`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。

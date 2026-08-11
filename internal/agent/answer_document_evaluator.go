@@ -2905,6 +2905,15 @@ type answerDocLocalFactOrderGroup struct {
 // operation a condition guards. This is advisory model context, never an
 // answer rewrite or emit-time gate.
 func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
+	supportScope := supportLaneScopeFromPlan(
+		answerSupportPlan(ctx),
+		true,
+		extractorValueEvidenceRankProfileFor(ctx),
+	)
+	return renderAnswerDocLocalFactOrderCapsuleWithScope(ctx, supportScope)
+}
+
+func renderAnswerDocLocalFactOrderCapsuleWithScope(ctx *types.AgentContext, supportScope *supportLaneScope) string {
 	pool := answerDocTypedEnrichmentEvidencePool(ctx, 256)
 	if len(pool) == 0 {
 		return ""
@@ -2921,6 +2930,9 @@ func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
 		}
 		if !item.IsCitable() || item.LineStart <= 0 || strings.TrimSpace(item.Source) == "" ||
 			types.RuntimeArtifactPathKind(item.Source) != "" || claim == types.ClaimExternalObservation {
+			continue
+		}
+		if supportScope != nil && !supportScope.allowsEvidence(item) {
 			continue
 		}
 		owner := firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject)
@@ -9036,19 +9048,25 @@ func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {
 			return true
 		}
 	}
+	fileMatch := false
 	for _, group := range [][]string{ff.Path, ff.Hops, ff.Sources, ff.Sinks} {
 		for _, raw := range group {
-			if s.hasAnchor(raw) || s.hasFile(raw) {
+			if s.hasAnchor(raw) {
 				return true
 			}
+			fileMatch = fileMatch || s.hasFile(raw)
 		}
 	}
-	return false
+	// A file-only scope is the compatibility lane for support entries that
+	// genuinely have no typed endpoint identity. Once the support plan names
+	// an endpoint, sharing a broad source file is only coincidence and cannot
+	// pull an unrelated optional flow into the finalizer context.
+	return len(s.anchors) == 0 && fileMatch
 }
 
 // allowsOrderedFlowFinding is deliberately stricter than allowsFlowFinding.
-// One matching file or symbol is sufficient to retain a row as optional
-// exploration context, but it cannot authorize a principal ordered path.  For
+// One matching typed endpoint is sufficient to retain a row as optional
+// exploration context, but it cannot authorize a principal ordered path. For
 // that stronger claim the finding must either replay a support-lane EvidenceID
 // or bind both ordered endpoints to the structured principal support surface.
 func (s *supportLaneScope) allowsOrderedFlowFinding(ff types.FlowFindingDigest) bool {
