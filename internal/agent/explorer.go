@@ -148,7 +148,7 @@ type explorerEvaluator struct {
 	midLoopEvidenceRepairClosureOnlySent bool // one-shot: repair-only redirect after the repair hint was ignored
 	midLoopSurfaceTermReviewSent         bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
 	midLoopClosureRepairSent             bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
-	midLoopDiscoverySelectionSent        bool // one-shot: discover-sink still lacks a typed registration/assignment/return selection fact
+	midLoopDiscoverySelectionSent        bool // one-shot: typed call-chain selection still lacks a registration/assignment/return fact
 	midLoopTerminalBodyReadSent          bool // one-shot: selected local terminal callable still needs one bounded body read
 	midLoopClosureRepairResultsLen       int  // allResults length when the current closure repair hint fired
 	midLoopClosureRepairClosureOnlySent  bool // one-shot: closure-repair-only redirect after the repair hint was ignored
@@ -1926,8 +1926,8 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	guide += "- For a language/runtime boundary, keep three fact types separate: the caller-to-export invocation (`relationship/call`), the export/registry binding (`registration`), and any wrapper-to-core invocation (`relationship/call`). On the registration row use the exact exported slot/module in `subject` and the owner-qualified registered callable in `object` only when the already-read binding scope resolves that owner. When declaration owner and bound callable occur on adjacent lines, use the smallest already-read `line_range` containing both; do not squeeze an absent owner into a one-line citation. If only the exact receiver and registration expression are proved on one line, preserve those syntax endpoints—the system may use a unique typed enclosing-owner/reference join as advisory handoff, but it will not turn that join into a call. A registration proves binding, not execution; do not say a call bypasses a binding when its exact target is that registered export.\n" +
 		"- For availability switches and fallbacks, read the complete bounded initialization/try-catch/config block. Emit the guard as `conditional/condition`, each alternative call as its own `relationship/call`, and every simple write that determines the guard symbol as a separate `direct/assignment` item with exact LHS in `subject`, exact scalar RHS in `object`, and the source assignment in `snippet`. Two writes such as enabled/disabled are alternatives or updates, not one hard-coded constant. Do not infer which call belongs to which branch from line order; preserve that as unproven unless a typed branch carrier establishes it.\n" +
 		"- Keep each JSON evidence item semantically atomic: one `evidence_kind`, one matching `anchor_kind`, one source span, and only the fields established by that span. Do not combine registration, call, guard, assignment, or return into one object merely to shorten the payload.\n"
-	if rm.CallChainEndpointProfile.DiscoverSinkActive() {
-		guide += "- Dynamic destination discovery needs a separate typed selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
+	if rm.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
+		guide += "- The typed runtime-selection contract needs a separate selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
 	}
 	if rm.CallChainEndpointProfile.DiscoverPathActive() {
 		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
@@ -8596,7 +8596,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 }
 
 func (e *explorerEvaluator) callChainDiscoverySelectionPending() bool {
-	if e == nil || e.analysisIR == nil || !e.analysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
+	if e == nil || e.analysisIR == nil || !e.analysisIR.RequestModel.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
 		return false
 	}
 	return !types.HasCallChainDiscoverySelectionEvidence(e.currentStructuredEvidence())
@@ -14447,8 +14447,8 @@ func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
 	if len(calls) == 0 {
 		return nil
 	}
-	if profile.DiscoverSinkActive() {
-		selection := types.CallChainDiscoverySelectionEvidence(e.structuredEvidence)
+	if profile.RequiresRuntimeSelectionEvidence() {
+		selection := types.CallChainDiscoverySelectionEvidence(e.currentStructuredEvidence())
 		var selected []string
 		for _, item := range selection {
 			selected = appendUniqueConcreteString(selected, strings.TrimSpace(item.Object))
@@ -14465,10 +14465,12 @@ func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
 		if len(owners) > 0 {
 			return owners
 		}
-		// A discover-sink request has no selected terminal until the typed
-		// selection join succeeds. Falling through to arbitrary graph leaves
-		// promotes sibling branches as terminal behavior.
-		return nil
+		// A request that explicitly requires runtime selection has no selected
+		// terminal until the typed selection join succeeds. Falling through to
+		// arbitrary graph leaves promotes sibling branches as terminal behavior.
+		if !profile.ExactActive() {
+			return nil
+		}
 	}
 	var owners []string
 	for _, candidate := range calls {

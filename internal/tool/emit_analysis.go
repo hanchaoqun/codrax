@@ -490,11 +490,13 @@ func buildEmitAnalysisSchema() {
 				"type":        "object",
 				"description": types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
 				"properties": map[string]any{
-					"source":    map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover; empty in discover_path and when not applicable."},
-					"sink":      map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_path and when not applicable."},
-					"sink_mode": map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime destination to find; discover_path=both role-bound endpoint identities to find."},
+					"source":                         map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover; empty in discover_path and when not applicable."},
+					"sink":                           map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_path and when not applicable."},
+					"sink_mode":                      map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime destination to find; discover_path=both role-bound endpoint identities to find."},
+					"runtime_selection_required":     map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched. This is independent of endpoint identity mode."},
+					"runtime_selection_source_quote": map[string]any{"type": "string", "description": "When runtime_selection_required=true, the shortest contiguous verbatim CURRENT-request phrase establishing that selection question; empty when false."},
 				},
-				"required":             []string{"source", "sink", "sink_mode"},
+				"required":             []string{"source", "sink", "sink_mode", "runtime_selection_required", "runtime_selection_source_quote"},
 				"additionalProperties": false,
 			},
 			"exact_context_terms": map[string]any{
@@ -1909,6 +1911,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	); warning != "" {
 		kind = normalizedKind
 		val.Warnings = append(val.Warnings, warning)
+	}
+	if issue := validateCallChainRuntimeSelectionDeclaration(
+		raw,
+		kind,
+		axis,
+		runtimeArtifactCarrier,
+		callChainEndpointProfile,
+	); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
 	}
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall || runtimeArtifactCarrier {
 		if callChainEndpointProfile != nil {

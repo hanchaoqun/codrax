@@ -1213,6 +1213,95 @@ func TestEmitAnalysis_SourceCallChainAcceptsExplicitDiscoverPathWithoutRuntimeSe
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainDiscoverPathCarriesExplicitRuntimeSelectionAuthority(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "从日志入口到写出端的完整路径是什么？运行时具体的 sink 是如何被选择出来的？"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["日志入口","写出端","sink"],
+		"entities":[],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{
+			"source":"","sink":"","sink_mode":"discover_path",
+			"runtime_selection_required":true,
+			"runtime_selection_source_quote":"运行时具体的 sink 是如何被选择出来的"
+		}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("anchored runtime-selection declaration should persist: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverPathActive() || !profile.RequiresRuntimeSelectionEvidence() {
+		t.Fatalf("endpoint identity demotion must retain selection authority: %+v", profile)
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: *mu.RequestModel()}}
+	if !callChainDiscoverySelectionRequired(ctx) {
+		t.Fatal("explicit runtime-selection question must require typed selection evidence in discover_path mode")
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainRejectsUnanchoredRuntimeSelectionDeclaration(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释从命令入口到网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":[],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{
+			"source":"","sink":"","sink_mode":"discover_path",
+			"runtime_selection_required":true,
+			"runtime_selection_source_quote":"runtime provider selection"
+		}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, "contiguous verbatim CURRENT-request") {
+		t.Fatalf("invented selection authority must fail loud: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected selection authority must not persist: %+v", mu.RequestModel())
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainRejectsQuoteWhenRuntimeSelectionIsFalse(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释从命令入口到网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":[],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{
+			"source":"","sink":"","sink_mode":"discover_path",
+			"runtime_selection_required":false,
+			"runtime_selection_source_quote":"调用路径"
+		}
+	}`
+	res, _ := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, `runtime_selection_required=false requires runtime_selection_source_quote=""`) {
+		t.Fatalf("false selection declaration with a quote must fail loud: success=%t summary=%q", res.Success, res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainDiscoverFilePathDemotesWithoutRetry(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

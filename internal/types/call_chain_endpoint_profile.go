@@ -8,7 +8,7 @@ type CallChainSinkResolutionMode string
 // the analyzer skill and emit_analysis schema. Field types and enum admission
 // remain schema-owned; this sentence only distinguishes the three mutually
 // exclusive endpoint-authority shapes.
-const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request code identity as source (never a file path or pre-scan candidate) and an empty sink only when the requested answer is which runtime implementation/class/handler is reached; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint or path; it never becomes endpoint authority."
+const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request code identity as source (never a file path or pre-scan candidate) and an empty sink only when the requested answer is which runtime implementation/class/handler is reached; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. Independently set runtime_selection_required=true only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, and copy the shortest contiguous verbatim request phrase into runtime_selection_source_quote; otherwise emit false and an empty quote. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint, path, or runtime selection; it never becomes endpoint authority."
 
 const (
 	CallChainSinkResolutionExact        CallChainSinkResolutionMode = "exact"
@@ -29,9 +29,21 @@ func CallChainSinkResolutionModeValues() []string {
 // MentionedEntities remain unordered sets; only this profile may drive a
 // source->sink hard gate. DiscoverPath carries no endpoint hard authority.
 type CallChainEndpointProfile struct {
-	Source   string                      `json:"source"`
-	Sink     string                      `json:"sink"`
-	SinkMode CallChainSinkResolutionMode `json:"sink_mode,omitempty"`
+	Source                      string                      `json:"source"`
+	Sink                        string                      `json:"sink"`
+	SinkMode                    CallChainSinkResolutionMode `json:"sink_mode,omitempty"`
+	RuntimeSelectionRequired    bool                        `json:"runtime_selection_required"`
+	RuntimeSelectionSourceQuote string                      `json:"runtime_selection_source_quote"`
+}
+
+// RequiresRuntimeSelectionEvidence is the single typed selector for the
+// runtime-selection evidence lane. Discover mode already means that the
+// concrete destination itself must be selected. Exact/discover_path requests
+// enter the same lane only through the analyzer-authored, verbatim-anchored
+// boolean above. Consumers never infer this obligation from request, tool, or
+// answer prose.
+func (p *CallChainEndpointProfile) RequiresRuntimeSelectionEvidence() bool {
+	return p != nil && p.Active() && (p.DiscoverSinkActive() || p.RuntimeSelectionRequired)
 }
 
 func (p *CallChainEndpointProfile) Active() bool {
@@ -84,9 +96,11 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		return nil, ""
 	}
 	profile := &CallChainEndpointProfile{
-		Source:   strings.TrimSpace(in.Source),
-		Sink:     strings.TrimSpace(in.Sink),
-		SinkMode: in.SinkMode,
+		Source:                      strings.TrimSpace(in.Source),
+		Sink:                        strings.TrimSpace(in.Sink),
+		SinkMode:                    in.SinkMode,
+		RuntimeSelectionRequired:    in.RuntimeSelectionRequired,
+		RuntimeSelectionSourceQuote: strings.TrimSpace(in.RuntimeSelectionSourceQuote),
 	}
 	if profile.SinkMode == "" {
 		profile.SinkMode = CallChainSinkResolutionExact
@@ -116,7 +130,11 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		// for an unproven code-looking source; it reads only the typed carrier and
 		// current-request provenance set.
 		if !profile.DiscoverSinkActive() || !allowed[strings.ToLower(profile.Source)] {
-			return &CallChainEndpointProfile{SinkMode: CallChainSinkResolutionDiscoverPath},
+			return &CallChainEndpointProfile{
+					SinkMode:                    CallChainSinkResolutionDiscoverPath,
+					RuntimeSelectionRequired:    profile.RuntimeSelectionRequired,
+					RuntimeSelectionSourceQuote: profile.RuntimeSelectionSourceQuote,
+				},
 				"call_chain_endpoints discover source was not an exact current-request code identity; normalized to discover_path so a file path or analyzer candidate cannot become endpoint authority"
 		}
 		if discardedSink {
@@ -137,7 +155,11 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		}
 		if (!sourceCodeIdentity || !sinkCodeIdentity || !sourceMentioned || !sinkMentioned) &&
 			!strings.EqualFold(profile.Source, profile.Sink) {
-			return &CallChainEndpointProfile{SinkMode: CallChainSinkResolutionDiscoverPath},
+			return &CallChainEndpointProfile{
+					SinkMode:                    CallChainSinkResolutionDiscoverPath,
+					RuntimeSelectionRequired:    profile.RuntimeSelectionRequired,
+					RuntimeSelectionSourceQuote: profile.RuntimeSelectionSourceQuote,
+				},
 				"call_chain_endpoints exact candidates were not both current-request code identities; normalized to discover_path so grounded exploration owns both endpoint identities"
 		}
 	}

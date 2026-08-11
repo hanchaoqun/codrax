@@ -95,6 +95,26 @@ func TestNormalizeCallChainEndpointProfile_RoleBoundPathCarriesNoEndpointAuthori
 	}
 }
 
+func TestNormalizeCallChainEndpointProfile_DemotionPreservesIndependentRuntimeSelectionObligation(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{
+			Source:                      "main",
+			Sink:                        "ConsoleSink",
+			SinkMode:                    CallChainSinkResolutionExact,
+			RuntimeSelectionRequired:    true,
+			RuntimeSelectionSourceQuote: "运行时具体的 sink 是如何被选择出来的",
+		},
+		[]string{"runtime backend path"},
+	)
+	if profile == nil || !profile.DiscoverPathActive() || reason == "" {
+		t.Fatalf("endpoint candidates should demote to discover_path: profile=%+v reason=%q", profile, reason)
+	}
+	if !profile.RequiresRuntimeSelectionEvidence() ||
+		profile.RuntimeSelectionSourceQuote != "运行时具体的 sink 是如何被选择出来的" {
+		t.Fatalf("endpoint demotion must not erase the independent selection contract: %+v", profile)
+	}
+}
+
 func TestNormalizeCallChainEndpointProfile_DiscoverSourceRequiresCurrentRequestProvenance(t *testing.T) {
 	profile, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Invented.entry", SinkMode: CallChainSinkResolutionDiscover},

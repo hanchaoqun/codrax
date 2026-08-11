@@ -112,7 +112,7 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if err := json.Unmarshal(raw, &prop); err != nil {
 		t.Fatalf("call_chain_endpoints schema is invalid: %v", err)
 	}
-	if !slices.Equal(prop.Required, []string{"source", "sink", "sink_mode"}) {
+	if !slices.Equal(prop.Required, []string{"source", "sink", "sink_mode", "runtime_selection_required", "runtime_selection_source_quote"}) {
 		t.Fatalf("call_chain_endpoints.required=%v", prop.Required)
 	}
 	if _, ok := prop.Properties["source"]; !ok {
@@ -123,6 +123,12 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	}
 	if _, ok := prop.Properties["sink_mode"]; !ok {
 		t.Fatal("call_chain_endpoints is missing sink_mode")
+	}
+	if _, ok := prop.Properties["runtime_selection_required"]; !ok {
+		t.Fatal("call_chain_endpoints is missing runtime_selection_required")
+	}
+	if _, ok := prop.Properties["runtime_selection_source_quote"]; !ok {
+		t.Fatal("call_chain_endpoints is missing runtime_selection_source_quote")
 	}
 	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered", "discover_path"} {
 		if !strings.Contains(prop.Description, want) {

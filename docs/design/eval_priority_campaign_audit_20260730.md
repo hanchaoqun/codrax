@@ -32847,3 +32847,16 @@ guard、factory return/construction、concrete subtype/绑定事实；首稿错�
 
 两案均仅一次精确成文修补，未出现固定时长降级。状态：`B548=production-positive`；`B549=pending-exact-failure-witness`；
 `B550=P1/next`；`B551=P0-high/next`；`runner=2/2`；`human=1/2`；`model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+### 123.603 B551-A：端点身份与运行时选择义务解耦
+
+根因中的采集半边已落地：`call_chain_endpoints` 新增 `runtime_selection_required` 与逐字当前请求
+`runtime_selection_source_quote`。它与 `exact/discover/discover_path` 正交；端点候选因为缺少用户身份权威而降级时，不再同时擦除“需要解释 backend/plugin/provider/
+handler 如何选择、创建、绑定、注册或分发”的义务。硬完成门只消费 schema-valid bool、endpoint mode 与逐字锚点，不扫描请求关键词、模型推理或答案正文。
+
+该义务统一驱动 explorer readiness、完成前 typed selection evidence、terminal body 读取和 finalizer runtime-selection capsule；仍只要求模型从已读源码发射
+registration、assignment/initializer 或 factory return，系统不把 prescan/repo-map 候选提升为选择结论，也不自动补业务边。普通 exact/discover_path 调用路径保持默认 false，
+既有 discover-sink 语义不变。定向 `types/tool/agent` 套件全绿。
+
+状态：`B551-A=implemented/relevant-suites-pass/pending-r325`；`B551-B=mixed-relation visual recovery pending-production-witness`；
+`raw-prose-hard-gate=none`；`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。

@@ -4349,3 +4349,16 @@ virtual dispatch 已在上下文，但 skeleton 的 diagram-family 投影只保�
 
 状态：`B548=production-positive`；`B550=next`；`B551/B538=next-highest-ROI`；`runner=2/2`；`human=1/2`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.143 B551-A：修复 runtime-selection 义务随 endpoint demotion 丢失
+
+已新增与 endpoint mode 正交的 typed `runtime_selection_required + runtime_selection_source_quote`。只有 analyzer 明确布尔裁定且 quote 是当前请求连续逐字片段时，
+exact/discover_path 才进入选择证据完成门；discover 维持既有语义。`NormalizeCallChainEndpointProfile` 的 exact/discover 候选降级现会完整携带该义务，explorer、
+pre-complete、terminal body 与 finalizer context 共用 `RequiresRuntimeSelectionEvidence()` 单源谓词。
+
+这关闭了 C++ 案“问题明确问 sink 如何选择，但 code identity 降级同时把选择关系当可选背景”的采集 GAP；系统只请求模型发射 citable registration/
+assignment/initializer/factory-return，不从 deterministic candidate 自铸关系。mixed-relation 图在错误首稿后的 copy-ready 恢复仍需 r325 判断：若采集补齐后仍退化为
+call-only 图，再单独修视觉恢复，不把两个权限层混成一次硬扩域。
+
+状态：`B551-A=implemented/relevant-suites-pass/pending-r325`；`B551-B=pending-r325`；`model-authorship=preserved`；
+`active-stream-fixed-4m-degrade=forbidden`；Trace causal authority=`unchanged`。

@@ -9178,6 +9178,32 @@ func TestPostCompletionReadySignal_DiscoverSinkRequestsTypedSelectionBeforeClose
 	}
 }
 
+func TestPostCompletionReadySignal_DiscoverPathExplicitSelectionRequestsTypedSelectionBeforeClose(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase: 1,
+		heuristics: types.ExploreHeuristics{
+			MidLoopMinIteration: 1,
+		},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				SinkMode:                    types.CallChainSinkResolutionDiscoverPath,
+				RuntimeSelectionRequired:    true,
+				RuntimeSelectionSourceQuote: "how the runtime backend is selected",
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "make_sink", Object: "SinkRegistry.create", Source: "src/factory.cpp", LineStart: 32,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	results := []types.ToolResult{{ToolName: "emit_evidence", Success: true}}
+	sig := eval.postCompletionReadySignal(LoopObservation{Iteration: 2, AllToolResults: results})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.call-chain-discovery-selection" {
+		t.Fatalf("explicit runtime-selection contract must survive discover_path endpoint demotion: %+v", sig)
+	}
+}
+
 func TestPostCompletionReadySignal_SeesEvidenceAcceptedDuringActiveLoop(t *testing.T) {
 	mut := types.NewMutableState("opaque")
 	mut.AppendEvidence([]types.EvidenceItem{{
@@ -12625,7 +12651,7 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 	}}}
 	discoverGuide := renderExplorerCallChainEdgeEvidenceGuide(discover)
 	for _, want := range []string{
-		"Dynamic destination discovery needs a separate typed selection fact",
+		"typed runtime-selection contract needs a separate selection fact",
 		"evidence_kind=registration",
 		"evidence_kind=direct with anchor_kind=assignment or initializer",
 		"evidence_kind=direct with anchor_kind=return",
@@ -12655,7 +12681,7 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 			t.Fatalf("discover-path edge handoff missing %q:\n%s", want, discoverPathGuide)
 		}
 	}
-	if strings.Contains(discoverPathGuide, "Dynamic destination discovery needs a separate typed selection fact") {
+	if strings.Contains(discoverPathGuide, "typed runtime-selection contract needs a separate selection fact") {
 		t.Fatalf("role-bound static path must not inherit runtime-selection teaching:\n%s", discoverPathGuide)
 	}
 

@@ -92,6 +92,23 @@ func TestEmitInvestigationComplete_DiscoverSinkRequestsOneTypedSelectionRepair(t
 	}
 }
 
+func TestEmitInvestigationComplete_DiscoverPathExplicitSelectionRequestsTypedEvidence(t *testing.T) {
+	call := discoverySelectionTestEvidence(types.AnchorCall, "make_sink", "SinkRegistry.create", 32)
+	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})
+	ctx.AnalysisIR.RequestModel.CallChainEndpointProfile = &types.CallChainEndpointProfile{
+		SinkMode:                    types.CallChainSinkResolutionDiscoverPath,
+		RuntimeSelectionRequired:    true,
+		RuntimeSelectionSourceQuote: "运行时具体的 sink 是如何被选择出来的",
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, discoverySelectionCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != "call_chain_discovery_selection_evidence" {
+		t.Fatalf("explicit discover_path selection must use the same typed evidence lane: %+v", res)
+	}
+}
+
 func TestEmitInvestigationComplete_DiscoverSinkSelectionFactClosesWithoutRetryStorm(t *testing.T) {
 	call := discoverySelectionTestEvidence(types.AnchorCall, "Logger.log", "sink_->write", 36)
 	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})

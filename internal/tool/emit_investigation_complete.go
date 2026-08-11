@@ -2171,7 +2171,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(
-					"emit_investigation_complete rejected: the discover-sink call chain has no citable typed runtime-target selection fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, or factory return item with explicit subject/object; keep guards and calls as separate facts."),
+					"emit_investigation_complete rejected: the typed call-chain selection contract has no citable runtime-target selection fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, or factory return item with explicit subject/object; keep guards and calls as separate facts."),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "call_chain_discovery_selection_evidence",
 					Hint:   "Emit one citable typed runtime-target selection fact from an already-read source line. " + types.CallChainDiscoverySelectionEmissionGuide,
@@ -3388,7 +3388,7 @@ func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext
 
 func callChainDiscoverySelectionRequired(ctx *types.BusContext) bool {
 	return ctx != nil && ctx.AnalysisIR != nil &&
-		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive()
+		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence()
 }
 
 func queueCallChainDiscoverySelectionRepair(ctx *types.BusContext) {
@@ -3401,7 +3401,7 @@ func queueCallChainDiscoverySelectionRepair(ctx *types.BusContext) {
 		Files:         completionMaterializationReadFiles(closure),
 		Tools:         []string{"emit_evidence"},
 		Subject:       "call_chain_discovery_selection",
-		Rationale:     "a discover-sink call chain needs one citable typed registration, assignment/initializer, or factory-return fact connected to the current call path before the runtime destination can be stated as proven",
+		Rationale:     "a typed runtime-selection call-chain request needs one citable registration, assignment/initializer, or factory-return fact connected to the current call path before its selection mechanism can be stated as proven",
 		Origin:        "emit_investigation_complete.call_chain_discovery_selection",
 		DowngradeLane: types.DowngradeLaneCallChainDiscoverySelection,
 		Stage:         string(types.StageExplore),

@@ -36,6 +36,34 @@ func validateCallChainEndpointWireShape(
 	return ""
 }
 
+// validateCallChainRuntimeSelectionDeclaration binds the independent runtime
+// selection obligation to one exact current-request quote. It never classifies
+// prose itself: the analyzer emits the boolean and this function only checks
+// its provenance and mutually exclusive empty form.
+func validateCallChainRuntimeSelectionDeclaration(
+	raw string,
+	kind string,
+	axis types.PredicateAxis,
+	runtimeArtifactCarrier bool,
+	profile *types.CallChainEndpointProfile,
+) string {
+	if runtimeArtifactCarrier || types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
+		axis != types.AxisCall || profile == nil || !profile.Active() {
+		return ""
+	}
+	quote := strings.TrimSpace(profile.RuntimeSelectionSourceQuote)
+	if !profile.RuntimeSelectionRequired {
+		if quote != "" {
+			return "call_chain_endpoints runtime_selection_required=false requires runtime_selection_source_quote=\"\""
+		}
+		return ""
+	}
+	if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
+		return "call_chain_endpoints runtime_selection_required=true requires a contiguous verbatim CURRENT-request runtime_selection_source_quote; do not infer runtime selection from prescan, repository, or prior-conversation text"
+	}
+	return ""
+}
+
 // reconcileSourceCallChainAxis closes a typed self-consistency gap before the
 // endpoint profile is admitted. For a non-scalar source-code call_chain, the
 // relationship axis is logically fixed to call; leaving an omitted axis as
