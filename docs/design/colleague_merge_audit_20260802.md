@@ -4911,3 +4911,19 @@ B574 再以 typed schema normalization 独立提交，随后同案 r339 exact-tw
 状态：`B571=production-positive`；`B572a/b=production-positive`；`B573=P1-high/next`；`B574=P1-high/queued`；
 `runner=2/2`；`human=0/2`；`active-stream-266s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；
 `system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.178 B573：flowchart 裸引用继承唯一显式 endpoint label
+
+共享 diagram identity 汇总现把 standalone bare node（如 subgraph 中单独一行 `AE`）作为引用候选，与 shaped declaration
+`AE["analyzerEvaluator\\n..."]` 分层保存。只要同一 node ID 存在唯一显式标签，一个或多个裸引用均继承该标签，不再制造第二个冲突 identity；
+只有裸节点、没有 shaped declaration 时仍保留 Mermaid 合法的可见节点语义。两个不同显式标签继续判 ambiguous，裸引用不能替其中任何一方选权。
+
+这项修复只恢复模型已写入 Mermaid 的显式展示身份，不从 label、edge label、请求、reasoning 或答案 prose 推断关系。边仍须携带模型提交的
+`relation_kind`，type relation/call/guard/import/data-flow 等真值仍由各自 exact typed provider 授权；系统不补边、不改方向、不选成员、不写结论。
+因此规则与 LoopController、Go 或 implements 无关，统一适用于所有语言和 flowchart 关系族。
+
+回归钉住 r338 真实形：inline `AE[analyzerEvaluator…] -> LC[LoopController…]` 加 subgraph 裸 `AE` 可复用 exact provider；
+两个显式标签加同名裸引用仍 fail-closed。定向测试与 `internal/tool` 全包 162.560s 通过。
+
+状态：`B573=implemented`；`bare-reference=non-competing`；`explicit-label-conflict=fail-closed`；
+`typed-relation-authority=unchanged`；`system-answer/edge-authorship=none`；`B574=P1-next`；Trace causal authority=`unchanged`。

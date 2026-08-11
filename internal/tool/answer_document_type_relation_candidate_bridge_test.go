@@ -63,6 +63,47 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignment_ExactTypedImplementerProviderO
 	}
 }
 
+func TestPreCheckDiagramCallEdgeEvidenceAlignment_FlowAliasKeepsExplicitLabelAcrossBareSubgraphReference(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-relations", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: strings.Join([]string{
+				"flowchart TD",
+				`  AE["analyzerEvaluator\ninternal/agent/analyzer.go:49"] -->|implements| LC["LoopController\ninternal/agent/agent.go:519"]`,
+				`  subgraph agent["internal/agent"]`,
+				"    AE",
+				"  end",
+			}, "\n"),
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "AE", ToNode: "LC", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisImplement}
+
+	labels := diagramEvidenceNodeLabels(doc.Blocks[0].Diagram.Body, types.DiagramArchitecture)
+	if got := labels["ae"]; got != `analyzerEvaluator\ninternal/agent/analyzer.go:49` {
+		t.Fatalf("bare subgraph reference must inherit the unique explicit node label, got %q labels=%+v", got, labels)
+	}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("exact provider must authorize an alias whose later bare reference only places it in a subgraph: %+v", hints)
+	}
+}
+
+func TestDiagramEvidenceNodeLabels_TwoExplicitLabelsRemainAmbiguousDespiteBareReference(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  A["First.run"]`,
+		`  A["Second.run"]`,
+		"  A",
+	}, "\n")
+	if labels := diagramEvidenceNodeLabels(body, types.DiagramArchitecture); labels["a"] != "" {
+		t.Fatalf("two distinct explicit labels must remain fail-closed; bare reference cannot choose one: %+v", labels)
+	}
+}
+
 func TestPreCheckDiagramCallEdgeEvidenceAlignment_ExactProviderOwnsCanonicalClassDiagramEdge(t *testing.T) {
 	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
 	doc := typedRelationBridgeClassDiagramDocument("analyzerEvaluator", "LoopController")

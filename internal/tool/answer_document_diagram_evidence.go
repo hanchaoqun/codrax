@@ -845,6 +845,7 @@ func diagramEvidenceEdgeKey(from, to string) string {
 
 func diagramEvidenceNodeLabels(body string, kind types.DiagramKind) map[string]string {
 	candidates := make(map[string]map[string]bool)
+	bareReferences := make(map[string]map[string]bool)
 	sequenceSyntax := diagramEvidenceUsesSequenceSyntax(body, kind)
 	for _, line := range strings.Split(body, "\n") {
 		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
@@ -857,20 +858,15 @@ func diagramEvidenceNodeLabels(body string, kind types.DiagramKind) map[string]s
 		// declaration parser.
 		if !sequenceSyntax {
 			for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+				if diagramEvidenceBareNodeReference(line, decl) {
+					diagramEvidenceAddNodeLabelCandidate(bareReferences, decl)
+					continue
+				}
 				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
 			}
 		}
 	}
-	out := make(map[string]string)
-	for key, labels := range candidates {
-		if len(labels) != 1 {
-			continue
-		}
-		for label := range labels {
-			out[key] = label
-		}
-	}
-	return out
+	return diagramEvidenceUniqueNodeLabels(candidates, bareReferences)
 }
 
 // diagramEvidenceDocumentNodeLabels supplies a unique document-level label
@@ -879,6 +875,7 @@ func diagramEvidenceNodeLabels(body string, kind types.DiagramKind) map[string]s
 // labels are omitted so a cross-block carrier cannot guess an identity.
 func diagramEvidenceDocumentNodeLabels(doc *types.AnswerDocumentV2) map[string]string {
 	candidates := make(map[string]map[string]bool)
+	bareReferences := make(map[string]map[string]bool)
 	if doc == nil {
 		return nil
 	}
@@ -894,14 +891,42 @@ func diagramEvidenceDocumentNodeLabels(doc *types.AnswerDocumentV2) map[string]s
 			}
 			if !sequenceSyntax {
 				for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+					if diagramEvidenceBareNodeReference(line, decl) {
+						diagramEvidenceAddNodeLabelCandidate(bareReferences, decl)
+						continue
+					}
 					diagramEvidenceAddNodeLabelCandidate(candidates, decl)
 				}
 			}
 		}
 	}
+	return diagramEvidenceUniqueNodeLabels(candidates, bareReferences)
+}
+
+// diagramEvidenceBareNodeReference distinguishes a standalone flowchart node
+// reference (`AE`) from a shaped declaration (`AE[analyzerEvaluator]`). A
+// subgraph commonly repeats an already declared node by bare ID solely to
+// place it in the group. That reference must inherit the one explicit display
+// identity rather than becoming a competing label. When no explicit label
+// exists, the bare node remains a valid visible declaration.
+func diagramEvidenceBareNodeReference(line string, decl mermaidcompat.NodeDecl) bool {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ";"))
+	return trimmed != "" && trimmed == strings.TrimSpace(decl.Ident) &&
+		strings.TrimSpace(decl.Label) == strings.TrimSpace(decl.Ident)
+}
+
+func diagramEvidenceUniqueNodeLabels(explicit, bareReferences map[string]map[string]bool) map[string]string {
 	out := make(map[string]string)
-	for key, labels := range candidates {
+	for key, labels := range explicit {
 		if len(labels) != 1 {
+			continue
+		}
+		for label := range labels {
+			out[key] = label
+		}
+	}
+	for key, labels := range bareReferences {
+		if _, hasExplicit := explicit[key]; hasExplicit || len(labels) != 1 {
 			continue
 		}
 		for label := range labels {
