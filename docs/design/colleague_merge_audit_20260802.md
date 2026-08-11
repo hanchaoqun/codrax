@@ -4402,3 +4402,11 @@ Trace projection 已覆盖的内容不会被早期 advisory 重新降级。
 
 状态：`B550=implemented/pending-r326`；`exact-facet=actionable-local-disclosure`；`covered-content=no-global-downgrade`；
 `B552/B553=open`；Trace causal authority=`unchanged`。
+
+#### §11.10.147 B553：重复标题空壳可无损吸收，独立标题继续 fail-closed
+
+full emit 在 block 无 id/kind、除 title 外全部字段为空，且该 title 与另一合法 structured block 逐字相等时，删除重复空壳并保留真实块。唯一标题、不同标题或带
+facet/claim/role 等任何 annotation 的对象不吸收，继续给出精确 schema rejection。该规则是结构化 exact equality，不扫描 prose 语义、不改模型内容。
+
+tool/types/orchestrator/tracediag 套件全绿。状态：`B553=implemented/pending-r326`；`retry-noise=exact-duplicate-only`；
+`model-content-deletion=forbidden`；`B552=open`；Trace causal authority=`unchanged`。

@@ -2370,6 +2370,54 @@ func TestEmitAnswerDocumentV2_DoesNotMergeVisibleMissingIdentityBlock(t *testing
 	}
 }
 
+func TestEmitAnswerDocumentV2_DropsOnlyExactDuplicateTitleOnlyFragment(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "summary", "kind": "summary", "text": "hi"},
+			{"id": "path", "kind": "ordered_list", "title": "完整调用路径", "items": [{"id":"i1", "text":"A to B"}]},
+			{"title": "完整调用路径"}
+		]
+	}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil || !res.Success {
+		t.Fatalf("exact duplicate title-only fragment should be discarded without retry: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("duplicate title-only fragment survived or removed real content: %+v", doc)
+	}
+	if doc.Blocks[1].Title != "完整调用路径" || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("structured titled block changed: %+v", doc.Blocks[1])
+	}
+}
+
+func TestEmitAnswerDocumentV2_KeepsUniqueOrAnnotatedTitleOnlyFragmentInvalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+	}{
+		{name: "unique title", block: `{"title":"独立标题"}`},
+		{name: "duplicate title with annotation", block: `{"title":"完整调用路径","facet_ids":["current_code_path"]}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := newV2TestBusContext()
+			tool := &EmitAnswerDocument{}
+			raw := json.RawMessage(`{"blocks":[{"id":"path","kind":"section","title":"完整调用路径","text":"body"},` + tc.block + `]}`)
+			res, err := tool.Execute(bus, raw)
+			if err != nil {
+				t.Fatalf("unexpected exec error: %v", err)
+			}
+			if res.Success || !strings.Contains(res.Summary, "id is required") {
+				t.Fatalf("non-lossless title-only shape must retain precise rejection: %+v", res)
+			}
+		})
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsInvalidBlockKind(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

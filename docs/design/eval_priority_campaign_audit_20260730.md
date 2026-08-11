@@ -32914,3 +32914,17 @@ cluster key，不扫描请求、模型推理或最终答案，也不修改模型
 
 状态：`B550=implemented/relevant-suites-pass/pending-r326`；`generic-facet-caveat=retired-when-exact`；
 `mixed/unknown=fallback-conservative`；`B552/B553=open`；Trace causal authority=`unchanged`。
+
+### 123.607 B553：仅吸收逐字重复的 title-only 空壳块
+
+r325 的两次 missing-id 重试来自模型重复发射同一节标题：一次在合法 structured block 的 `title`，一次又作为仅含 `title` 的独立对象。修复没有把“任意
+title-only 块”视为垃圾，而是采用更窄的无损判据：缺 id/kind、无 text/items/columns/diagram/claim/edge/participant/relation/facet/role/verdict/scope 等全部载荷，
+且其 trim 后标题与另一合法 structured block 的标题逐字相等，才删除重复空壳。
+
+唯一标题、非逐字标题或携带任何 annotation 的块仍按原 schema fail-closed，避免系统擅自删除可能承载结构意图的模型内容。该 normalizer 只读结构化字段和
+exact equality，不做关键词/语义扫描，也不改已有 block 的标题、正文、顺序或结论。
+
+`internal/tool` 全包 164.771s、`internal/types`、`internal/orchestrator`、`internal/tracediag` 通过。
+
+状态：`B553=implemented/relevant-suites-pass/pending-r326`；`duplicate-title-shell=lossless-drop`；
+`unique/annotated-title=fail-closed`；`B552=open`；Trace causal authority=`unchanged`。

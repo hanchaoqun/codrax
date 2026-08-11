@@ -399,7 +399,25 @@ func stripOuterDiagramFence(body string) string {
 func compactNativeDisplayOnlyBlockFragments(blocks []emitAnswerBlockV2) ([]splitEmitBlockEntry, []string) {
 	out := make([]splitEmitBlockEntry, 0, len(blocks))
 	var fields []string
+	// A model occasionally emits the same section heading twice: once on the
+	// real structured block and once as a standalone object containing only
+	// `title`. Dropping only that byte-equal duplicate is lossless and avoids a
+	// schema retry. A unique title-only object remains invalid because it may be
+	// an intended visible heading; we never guess that it is disposable.
+	structuredTitles := make(map[string]bool, len(blocks))
+	for _, b := range blocks {
+		if strings.TrimSpace(b.ID) == "" || !types.IsValidAnswerBlockKind(types.AnswerBlockKind(strings.TrimSpace(b.Kind))) {
+			continue
+		}
+		if title := strings.TrimSpace(b.Title); title != "" {
+			structuredTitles[title] = true
+		}
+	}
 	for i, b := range blocks {
+		if title, ok := nativeTitleOnlyBlockFragment(b); ok && structuredTitles[title] {
+			fields = append(fields, fmt.Sprintf("blocks[%d].duplicate_title→dropped", i))
+			continue
+		}
 		text, ok := nativeDisplayOnlyBlockFragmentText(b)
 		if ok && len(out) > 0 && canAbsorbNativeDisplayOnlyBlockFragment(out[len(out)-1].raw) {
 			prev := &out[len(out)-1]
@@ -410,6 +428,26 @@ func compactNativeDisplayOnlyBlockFragments(blocks []emitAnswerBlockV2) ([]split
 		out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
 	}
 	return out, fields
+}
+
+func nativeTitleOnlyBlockFragment(raw emitAnswerBlockV2) (string, bool) {
+	if strings.TrimSpace(raw.ID) != "" || strings.TrimSpace(raw.Kind) != "" ||
+		strings.TrimSpace(raw.Text) != "" || strings.TrimSpace(raw.Title) == "" {
+		return "", false
+	}
+	if len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil ||
+		len(raw.ClaimUses) > 0 || len(raw.EdgeAnchors) > 0 || len(raw.ParticipantBoundaries) > 0 ||
+		len(raw.RelationClaims) > 0 || len(raw.FacetIDs) > 0 ||
+		strings.TrimSpace(raw.SurfaceRole) != "" ||
+		strings.TrimSpace(raw.Caveat) != "" ||
+		strings.TrimSpace(raw.ErrorGranularityVerdict) != "" ||
+		strings.TrimSpace(raw.CurrentStatusVerdict) != "" ||
+		strings.TrimSpace(raw.TraceCausalClaimCaliber) != "" ||
+		strings.TrimSpace(raw.ScopeDisclosure) != "" ||
+		strings.TrimSpace(raw.SourceInventoryFamily) != "" {
+		return "", false
+	}
+	return strings.TrimSpace(raw.Title), true
 }
 
 func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
