@@ -3993,3 +3993,16 @@ r308 冷读修正：四阶段时序本身已有完整三条 typed precedence，�
 
 状态：`B526=implemented/targeted-pass/pending-r309`；`scope-correction=recorded`；`relationship-authority=unchanged`；
 `raw-request/model/final-prose-scan=none`；Trace=`unchanged`。
+
+#### §11.10.112 B517：四分钟活动流不降级，旧系统代答出口彻底失活
+
+代码历史确认：`09ae86be8` 曾把 active hidden-reasoning 的“无可见输出”当四分钟终止信号，`0a42ce85f` 随后增加系统证据摘要代答；`9a8f3a24b` 已从内置 SSE adapter
+移除该 watchdog，因此持续 reasoning bytes 的流不会在 `requestTimeout=240s` 被杀，绝对总 cap 独立为 `2×requestTimeout`。但 Orchestrator 仍保留 legacy typed error →
+`AnswerDegraded+SkipAnswerChecks` 的系统代写分支。
+
+该残余现已退役：为守 L1，不改 `runReadSchedulerLoop` 两处调用字节；`finalizerNoVisibleOutputFallback` 兼容 seam 恒返回 nil，358 行系统 AnswerSymbols/Aggregates/Evidence/
+Hypotheses 拼装 renderer 删除。遗留 provider 若错误终止活动流，不再得到系统代答；既有 scheduler 只能恢复 model-authored draft、再次请求模型或 fail-loud。单测明确要求 result 为空、
+LastError 在场且不存在“降级答案”。`internal/llm`、`internal/orchestrator` 全量通过。
+
+状态：`B517=closed`；`active-stream-at-4m=continue`；`legacy-no-visible-system-answer=disabled`；
+`L1=byte-preserved`；Trace/diagram/JSON contracts=`unchanged`。

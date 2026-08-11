@@ -32215,3 +32215,19 @@ segment 可留在正文或独立有边界的图，不得当作缺失 hop、不�
 
 状态：`B526=implemented/scoped-correction/targeted-pass/pending-r309`；`requested-stage-sequence=already-complete`；
 `model-diagram-authorship=preserved`；`hard-prose-gate=none`；Trace=`unchanged`。
+
+### 123.568 B517：退役“活动流无可见正文→系统降级代答”残留 seam
+
+历史根因分两次提交产生：`09ae86be8` 引入以 `requestTimeout` 监视“无 visible output”的活动流终止；`0a42ce85f` 又在 Finalizer 上把该 typed error 直接转成系统拼装的
+“降级答案”。`9a8f3a24b` 已正确删除内置 OpenAI-compatible adapter 的 visible-output watchdog：reasoning/content/tool-call SSE 字节均算活动进度，默认四分钟不会终止；只保留
+first-byte、真实 byte stall 与独立总墙钟 cap（默认 `2×240s=8min`）。r307 的 742s 整任务和 r308 的 286s 整任务均拿到模型答案，是生产正证。
+
+本轮发现 Orchestrator 的旧兼容代答仍在：若外部/遗留 adapter 自行抛 `StreamNoVisibleOutputTimeoutError`，系统会跳过模型并把 AnswerSymbols/Aggregates/Evidence/Hypotheses
+拼成最终答案。该信号既不能证明连接静默，也没有模型结论权，违反 answer ownership。现保留 L1 受保护 scheduler 的调用字节，但将兼容 seam 改为恒 `nil`：活动流继续由 adapter
+等待；真实 transport failure 走既有模型重试、模型草稿恢复或 fail-loud；任何情况下不得再由此信号生成系统结论。原 358 行系统代答 renderer 已删除。
+
+回归同时固定 legacy error 两次 Finalizer 调度后仍没有 system answer，且 LastError fail-loud；`internal/llm` 与 `internal/orchestrator` 全量通过。此处不扫描模型内容，也不影响
+JSON/Mermaid 修复、Trace 投影、自动补齐或链上根因。
+
+状态：`B517=implemented/production-positive×2/package-suites-pass`；`four-minute-active-stream-degrade=retired`；
+`system-final-answer-synthesis=forbidden`；`L1-read-loop=byte-preserved`。

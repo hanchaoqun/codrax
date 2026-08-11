@@ -202,7 +202,7 @@ func TestRunTaskGraph_ForcedFinalizeReusesTurnBSlateAfterDispatchError(t *testin
 	}
 }
 
-func TestRunTaskGraph_FinalizerNoVisibleOutputUsesDegradedTurnBSlate(t *testing.T) {
+func TestRunTaskGraph_FinalizerNoVisibleOutputDoesNotAuthorSystemAnswer(t *testing.T) {
 	ir := dagIR(types.AnswerContract{Language: "zh"})
 	requireExtractAnswerSymbols(ir)
 	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
@@ -256,16 +256,13 @@ func TestRunTaskGraph_FinalizerNoVisibleOutputUsesDegradedTurnBSlate(t *testing.
 	if extractorCalls != 1 {
 		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
 	}
-	if finalizerCalls != 1 {
-		t.Fatalf("no-visible-output finalizer fallback must not retry/force-finalize; finalizerCalls=%d", finalizerCalls)
+	if finalizerCalls != 2 {
+		t.Fatalf("terminal legacy adapter error should reach the normal forced-finalize attempt without system answer synthesis; finalizerCalls=%d", finalizerCalls)
 	}
-	if bus.TaskState.LastError != "" {
-		t.Fatalf("LastError = %q, want empty after degraded fallback", bus.TaskState.LastError)
+	if bus.TaskState.LastError == "" {
+		t.Fatal("legacy adapter failure must remain fail-loud when no model answer can be recovered")
 	}
-	got := bus.Mutable.Result()
-	for _, want := range []string{"降级答案", "Source", "src.go:7", "最终成文模型"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("degraded fallback answer missing %q:\n%s", want, got)
-		}
+	if got := bus.Mutable.Result(); strings.TrimSpace(got) != "" {
+		t.Fatalf("system must not turn prior evidence into a replacement final answer:\n%s", got)
 	}
 }

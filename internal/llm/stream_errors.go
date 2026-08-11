@@ -140,7 +140,9 @@ var ErrStreamNoVisibleOutputTimeout = errors.New("llm: upstream stream produced 
 // legacy/provider-specific visible-output watchdog fires. It is intentionally
 // not part of the in-adapter retry allowlist: retrying a model that spends the
 // whole request budget in hidden reasoning can multiply wall-clock wait without
-// improving recovery.
+// improving recovery. Orchestrator also must not convert this legacy signal
+// into a system-authored answer: the signal proves neither stream inactivity
+// nor permission to replace the model's conclusion.
 type StreamNoVisibleOutputTimeoutError struct {
 	IdleFor time.Duration
 	Cause   error
