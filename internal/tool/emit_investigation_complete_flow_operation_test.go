@@ -241,6 +241,10 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 		!flowTestSliceContains(repairs[0].Files, "src/analyzer.go") {
 		t.Fatalf("participant repair must turn typed participants and the read closure into bounded navigation targets: %+v", repairs[0])
 	}
+	if !strings.Contains(repairs[0].Rationale, types.FlowOperationEvidenceEmissionGuide) ||
+		!strings.Contains(repairs[0].Rationale, "exact writer and reader operation sites") {
+		t.Fatalf("participant repair must reuse the flow-operation teaching source without a divergent contract: %q", repairs[0].Rationale)
+	}
 	wantBlocker := types.ComputeDowngradeTypedIdentifierSetKey(
 		string(types.DowngradeLaneFlowParticipantCoverage), []string{"Analyzer"},
 	)

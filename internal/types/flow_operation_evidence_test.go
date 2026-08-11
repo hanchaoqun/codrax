@@ -9,6 +9,10 @@ func TestFlowOperationEvidenceGuideRequiresSyntaxEndpoints(t *testing.T) {
 	for _, want := range []string{
 		"exact syntax-authored subject/object",
 		"exact enclosing callable and invoked callee",
+		"exact writer and reader operation sites",
+		"field/type declaration does not prove that data entered or left it",
+		"declaration-only field/member line is a definition, never an initializer",
+		"initializer requires an exact value-bearing member binding",
 		"Do not rename an endpoint to a semantic role or result label",
 		"participant names guide navigation only",
 	} {

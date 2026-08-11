@@ -3331,3 +3331,18 @@ B489 现把 `waker_cpu`、`wakee_target_cpu` 与 closed `cpu_relation` 贯通 JS
 
 状态：`B486/B487=closed`；`B489=implemented/pending-production-replay`；`B488=P1-next`；
 `system-edge/answer-authoring=none`；Trace causal/value machinery=`unchanged`。
+
+#### §11.10.52 B488：载体 data-flow 在角色规划与 operation 证据层根修
+
+冷读确认 r283 的 `Mutable/BusContext` 空边由两层上游软合同共同造成：请求要求连接的 carrier 被 Analyzer 标成 `context_only`，而 Explorer 将无值字段声明
+误作 initializer；严格 grounder/relation gate 的拒绝行为正确，不能靠放宽门或系统补边修复。
+
+现由 participant SSOT 教学命名 carrier 在被请求连接时必须为 `incident_required`，并由 flow-operation SSOT 教学读取 exact writer/reader member call、
+assignment、return 等操作；declaration-only member 明确是 definition，initializer 必须含 value-bearing binding。completion repair 复用后者全文，消除兄弟提示
+漂移。无法证明仍显式留白，participant identity 仍仅供导航。
+
+无 request/thinking/final-prose hard scan，无系统 relation/diagram/结论代写。Trace runtime source-flow 旁路与因果/value machinery 未动。types/agent/tool
+受影响包全绿；B489 registry golden 漏钉另由 `e046ae3c1` 收口。
+
+状态：`B488=implemented/pending-production-replay`；`B489=implemented/pending-production-replay`；
+`system-edge/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

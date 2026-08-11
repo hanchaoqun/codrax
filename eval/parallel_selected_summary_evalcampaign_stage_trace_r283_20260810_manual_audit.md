@@ -27,3 +27,8 @@ This scaffold is for human review. The runner records typed metrics and declared
 - B486/B487 的目标均获生产正证：阶段别名不再删除真实 precedence，稳定 typed blocker 显著减少重复完成尝试。
 - B488 是跨语言/跨组件 flow 的通用证据规划缺口：类型/字段定义不能代替 producer/transfer/consumer operation；应引导模型读取并发射真实 member call/assignment/return，而不是放宽 relation gate 或由系统补边。
 - B489 是 Trace typed 上下文缺口：wakeup row 的 source/header CPU 与 target_cpu 已被 parser 精确持有，却在 WakeupEdge/observation/handoff 丢失。应透传 `waker_cpu`、`wakee_target_cpu`、`cpu_relation` 并给 soft 语义边界；不改变链构造、排名、可消除量或模型结论所有权。
+
+## Post-audit implementation status
+
+- B489 已在 `69f3aab9a` 贯通 wakeup CPU topology，registry golden 漏钉由 `e046ae3c1` 补齐；状态为 package-suite-pass、待 r284 生产回放。
+- B488 已在 Analyzer participant planning 与 Explorer/completion 共用 flow-operation teaching 两层根修：被请求连接的 carrier 不再降为 context_only，载体必须取证真实 writer/reader operation，declaration-only field 不得当 initializer。hard relation authority、模型结论所有权与 Trace 路径均未变；状态为 package-suite-pass、待 r284 生产回放。

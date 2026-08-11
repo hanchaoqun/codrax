@@ -31137,3 +31137,22 @@ observation 三面及 prompt 接线。
 
 状态：`B489=implemented/package-suite-pass/pending-production-replay`；`B488=P1-next`；
 `system-answer/conclusion-rewrite=none`；`raw-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。
+
+### 123.508 B488 完成：载体参与者角色与 operation 取证使用两个单一教学源
+
+r283 的空载体边不是 relation validator 误拒，而是其上游规划同时失真：Analyzer 把用户明确要求展示连接的 `Mutable/BusContext` 降为
+`context_only`，Explorer 又把 declaration-only 字段行当作 `initializer`；因此 completion 既不会要求该 participant 有 incident operation，grounder
+也正确拒绝了伪 initializer，真实 setter/getter/member call/assignment/return 未进入证据池。
+
+本批保持 hard authority 不动，只收敛两份跨语言软教学源：participant planning 明确“请求展示 A、B 与命名 State/Context carrier 的 data flow”时三者均为
+`incident_required`，只有请求明确不要求连接的外围 boundary 才能是 `context_only`；flow-operation guide 明确载体必须读取精确 writer 与 reader operation，
+declaration-only field/member 是 definition、绝非 initializer，initializer 必须有 exact value-bearing binding。participant completion repair 直接复用同一 guide，
+不再维护第二份可能漂移的操作合同。
+
+该批不从 request/final prose 做 deterministic 扫描，不生成节点/边，不把 participant 名铸成 endpoint，也不放宽 relation gate；找不到真实 operation 时仍由
+模型按 typed boundary recipe 留 `unproven`。runtime Trace 的 source-flow gate 旁路测试保持，显式窗、自动补齐、因果投影、链上根因与背景分层、排名及可消除量
+均未修改。`internal/tool` 全包以及补钉后的 `internal/types ./internal/agent` 全绿。另在全包中发现 B489 新 note keys 的 golden ritual 漏项，已由
+`e046ae3c1` 精确补齐三行并先行推送。
+
+状态：`B488=implemented/package-suite-pass/pending-production-replay`；`B489=implemented/package-suite-pass/pending-production-replay`；
+`system-edge/answer-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。

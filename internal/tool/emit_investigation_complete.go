@@ -3437,8 +3437,8 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 
 func flowParticipantCoverageRepairHint(missing []string) string {
 	return fmt.Sprintf(
-		"The required source-flow participant slate still lacks incident operation evidence for %v. Treat these analyzer-provided names as a bounded investigation checklist, not as edge authority. Resolve each to its real source operation, then emit only verified call/callback/assignment/initializer/return/precedence rows with exact source endpoints. If a relation cannot be proved, preserve that participant as an explicit unproven boundary.",
-		missing)
+		"The required source-flow participant slate still lacks incident operation evidence for %v. %s",
+		missing, types.FlowOperationEvidenceEmissionGuide)
 }
 
 func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string, evidence []types.EvidenceItem) {
