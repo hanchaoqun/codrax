@@ -3427,3 +3427,14 @@ diagram 的两个 flow 发射面与 lexical capsule 共用实际展示的 bounde
 
 东湖 trace 人工通过主链与五类修向边界，但系统末尾复发“建议结合源码”。立 `B499-RUNTIMEGENCAVEAT1/P1`，对应旧 G13/G33/G153 未收债；应按 typed
 runtime-only authority 抑制 generic accepted-path supplement，不扫描用户原文。状态：`B498=v2-pending-replay`；`B499=next`。
+
+#### §11.10.61 B499：runtime-only Trace 的 bucket 元数据残差不再伪装成源码缺口
+
+亲验 r287 的唯一 user-visible caveat 根为 `ViolFacetUncovered(facet=bucket_label)`；统一 `answer_coverage` 模板把这个结构化标签残差错误翻译成“结合源码”。
+现由 shared runtime/source authority 与同 ledger 的 publication-grade Trace projection 合取确权：仅在 current-source 精确 excluded、deterministic
+trace query 可独立承载且确定性投影会物化分桶时，`bucket_label` 残差留作 telemetry。source allow/mixed、无投影，以及 must-include/root-cause/
+endpoint/uncertainty/具体矛盾等真实披露均保留。
+
+该批不扫描 request/model/final prose，不修改模型答案、根因结论或 Trace 值通道；orchestrator 全包绿，待 r288 生产回放。
+
+状态：`B499=implemented/pending-production-replay`；`B498=v2-pending-production-replay`；Trace families=`unchanged`。

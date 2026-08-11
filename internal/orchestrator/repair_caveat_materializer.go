@@ -539,9 +539,11 @@ func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, 
 	}
 	intentContract := types.CompileAnswerIntentContract(*rm, answerContract)
 	visibleCompleteCitedEnumeration := acceptedPrincipalEnumerationVisibleAndFullyCited(ctx, rm)
+	runtimeProjectionOwnsCoverageMetadata := runtimeProjectionOwnsAcceptedCoverageMetadata(ctx, rm)
 	out := make([]types.Violation, 0, len(violations))
 	for _, v := range violations {
 		if genericAcceptedPathCaveatIsTelemetry(v, rm, intentContract) ||
+			(runtimeProjectionOwnsCoverageMetadata && runtimeProjectionCoverageMetadataCaveatIsTelemetry(v)) ||
 			(visibleCompleteCitedEnumeration && enumerationDepthCaveatIsRepairTelemetry(v.Kind)) ||
 			(visibleCompleteCitedEnumeration && genericSelfContradictionCaveatIsRepairTelemetry(v)) {
 			continue
@@ -549,6 +551,51 @@ func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, 
 		out = append(out, v)
 	}
 	return out
+}
+
+// runtimeProjectionOwnsAcceptedCoverageMetadata reports the precise trace-only
+// shape in which the deterministic projection renderer, rather than the model's
+// AnswerDocument facet tags, owns the final report's bucket structure. This is
+// deliberately based on typed source-lane authority and publication-grade
+// trace_query rows. It never classifies the request or answer by scanning prose.
+//
+// The distinction matters on the accept path: a model block can omit the
+// bucket_label facet while the system-authored Trace Causal Projection still
+// publishes the requested on-chain/adjacent/background buckets. Materializing
+// that metadata residual through CaveatFamilyAnswerCoverage would tell a
+// trace-only user to "cross-check with source", contradicting the already-
+// accepted current_source=excluded authority. Mixed/source-required turns and
+// trace ledgers without publication-grade rows retain the historical caveat.
+func runtimeProjectionOwnsAcceptedCoverageMetadata(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if ctx == nil || ctx.Mutable == nil || rm == nil {
+		return false
+	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ledger)
+	if authority.CurrentSourceLane != types.CurrentSourceLaneExcluded ||
+		authority.DeterministicRuntimeQueryCount == 0 ||
+		!authority.AllowsRuntimeEvidenceWithoutCurrentSource() {
+		return false
+	}
+	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
+	return types.RuntimeTraceReportMaterializationAllowed(rm, projectionSet) &&
+		types.TraceCausalProjectionSetHasPublicationGradeRows(projectionSet)
+}
+
+// runtimeProjectionCoverageMetadataCaveatIsTelemetry is intentionally narrow.
+// Missing root-cause, must-include, endpoint, or uncertainty claims remain
+// user-visible even in trace-only runs. Only the structured bucket-label tag
+// that the deterministic projection itself owns is suppressed here.
+func runtimeProjectionCoverageMetadataCaveatIsTelemetry(v types.Violation) bool {
+	if v.Kind != types.ViolFacetUncovered {
+		return false
+	}
+	return residualClusterValue(v.ClusterKey, "root") == "answer_facet_coverage" &&
+		types.AnswerFacetKind(residualClusterValue(v.ClusterKey, "facet")) == types.FacetBucketLabel
 }
 
 func acceptedPrincipalEnumerationVisibleAndFullyCited(ctx *types.BusContext, rm *types.RequestModel) bool {

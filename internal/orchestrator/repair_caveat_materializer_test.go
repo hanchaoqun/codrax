@@ -226,6 +226,57 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesG
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_TraceProjectionSuppressesBucketMetadataSourceCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeProjectionCoverageCaveatTestContext(types.ExternalObservationCurrentSourceExclude)
+	if !runtimeProjectionOwnsAcceptedCoverageMetadata(ctx, &ctx.AnalysisIR.RequestModel) {
+		ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+		authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ledger)
+		projectionSet := types.CompileTraceCausalProjectionSet(ledger)
+		t.Fatalf("production-shaped trace fixture did not establish projection authority: authority=%+v projection=%+v", authority, projectionSet)
+	}
+	out := AppendSoftContractCaveatsToAnswerForBus("model trace answer", []types.Violation{{
+		Kind:       types.ViolFacetUncovered,
+		ClusterKey: types.FacetClusterKey(string(types.FacetBucketLabel), "answer_facet_coverage"),
+	}}, "zh", ctx)
+	if out != "model trace answer" {
+		t.Fatalf("typed trace projection should own bucket metadata without a generic source caveat, got:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_TraceProjectionKeepsBucketCaveatWhenSourceAllowed(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeProjectionCoverageCaveatTestContext(types.ExternalObservationCurrentSourceAllow)
+	out := AppendSoftContractCaveatsToAnswerForBus("model trace answer", []types.Violation{{
+		Kind:       types.ViolFacetUncovered,
+		ClusterKey: types.FacetClusterKey(string(types.FacetBucketLabel), "answer_facet_coverage"),
+	}}, "zh", ctx)
+	if !strings.Contains(out, "结合源码进一步核对") {
+		t.Fatalf("source-allowed trace turn must retain the existing coverage disclosure, got:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_TraceProjectionKeepsSpecificConsistencyCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeProjectionCoverageCaveatTestContext(types.ExternalObservationCurrentSourceExclude)
+	out := AppendSoftContractCaveatsToAnswerForBus("model trace answer", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     `self_contradiction[trace] — SUMMARY: "running=3.5ms" ⇄ BODY: "running=2.7ms"`,
+		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	for _, want := range []string{"**补充说明：**", "running=3.5ms", "running=2.7ms"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("trace projection suppression must preserve specific consistency caveat %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceUsesPrincipalLikeBlocks(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -595,6 +646,77 @@ func runtimeAnswerSurfaceOnlyCaveatTestContext(useSurfaceRole bool) *types.BusCo
 		},
 	})
 	return &types.BusContext{Mutable: mut}
+}
+
+func runtimeProjectionCoverageCaveatTestContext(sourceMode types.ExternalObservationCurrentSourceMode) *types.BusContext {
+	policy := &types.ExternalObservationPolicy{
+		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+		CurrentSourceMode:    sourceMode,
+		Confidence:           0.95,
+	}
+	if sourceMode == types.ExternalObservationCurrentSourceExclude {
+		policy.ExclusionKind = types.ExternalObservationSourceExclusionExplicitUserBoundary
+		policy.SourceQuotes = []string{"typed current-source exclusion witness"}
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		ExternalObservationPolicy: policy,
+	}
+	mut := types.NewMutableState("typed runtime projection test")
+	mut.SetRequestModel(rm)
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:test#root_cause_primary:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         "/tmp/customer.trace",
+				ArtifactKind: "trace",
+			},
+			Predicate: "root_cause_primary",
+			ClaimKey:  "root_cause_primary",
+			Subject:   "worker-200",
+			Object:    "runnable_delay",
+			Value:     "23.994",
+			Unit:      "ms",
+			RichNotes: []string{
+				"rank=1",
+				"tier=primary",
+				"impact_ms=23.994",
+				"cumulative_impact_ms=23.994",
+				"causality=on_wakeup_chain",
+				"chain_relevance=on_chain",
+			},
+		}},
+	})
+	// Production-shaped model blocks intentionally carry no external-observation
+	// ClaimUses. The accepted answer is later augmented by the deterministic
+	// projection renderer; this was the shape that bypassed the older block-only
+	// caveat suppression predicate.
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "model-authored trace diagnosis",
+		}},
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: rm,
+		},
+	}
 }
 
 func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericEnumerationAdvisories(t *testing.T) {

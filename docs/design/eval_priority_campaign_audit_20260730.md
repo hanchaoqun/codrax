@@ -31302,3 +31302,23 @@ endpoint 的旧兼容车道保持。定向近邻反例与全 `internal/agent` �
 
 状态：`B498=v2-implemented/full-agent-suite-pass/pending-production-replay`；`B499=P1/next`；
 `trace-main-chain=human-pass`；`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`。
+
+### 123.517 B499 完成：Trace-only 投影元数据不再触发泛化源码附注
+
+r287 的附注不是模型输出，而是 accept-path 将 `ViolFacetUncovered(facet=bucket_label)` 归并到
+`CaveatFamilyAnswerCoverage` 后套用统一模板；模板固定建议“结合源码进一步核对”。旧抑制逻辑依赖所有 principal block 均显式携带
+`ClaimExternalObservation`，生产中的模型块与确定性 Trace 投影合成形不满足该脆弱条件，即使 authority 已明确
+`current_source_lane=excluded` 且全部 runtime rows 来自 deterministic `trace_query`，泛化附注仍会泄漏。
+
+本批没有扩大到“Trace 一律吞 caveat”，而是建立精确合取：accepted AnswerDocument 在场、shared
+`RuntimeSourceAnswerAuthoritySnapshot` 判定源码车道 excluded、存在 deterministic runtime query、runtime 可独立承载答案，并且同一 ledger 编译出
+publication-grade 且获准物化的 Trace Causal Projection。只有此时，投影自身负责的 `bucket_label` facet 残差降为 telemetry；缺主因、must-include、
+endpoint、uncertainty、diagram/citation 与具体前后矛盾均不受影响。源码车道为 allow/mixed、无有效投影或无 accepted document 时保持原披露。
+
+实现只读取 typed policy、ledger、projection 与 violation cluster key，不扫描用户原文、模型正文或最终答案；不生成/替换模型结论，也不修改窗选举、唤醒链、
+根因排序、actual/effective、可消除量或投影构造。回归钉住生产形无 `ClaimUses` 的模型块、source-allowed 反例和具体数值矛盾保留；
+`go test ./internal/orchestrator -count=1` 全绿。待 r288 用同一 QF+Trace exact-two 验证 B498 v2 与 B499 生产效果。
+
+状态：`B499=implemented/full-orchestrator-suite-pass/pending-production-replay`；
+`B498=v2-implemented/pending-production-replay`；`generic-source-caveat-suppression=typed+narrow`；
+`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。
