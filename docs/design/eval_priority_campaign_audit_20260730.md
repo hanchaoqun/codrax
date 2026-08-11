@@ -31738,3 +31738,12 @@ B510-A1，再 exact-two 回放 read+异构关系 case，按 Java/ArkTS/Cangjie/C
 
 状态：`B510-A1=implemented/package-suites-pass`；`B510-B=production-replay-next`；`B510-C=unsupported-family-design-open`；
 `raw-request/model/final-prose-hard-gate=none`；`system-answer/relation-authoring=none`；Trace explicit-window projection/auto-supplement/on-chain causes=`unchanged`。
+
+### 123.540 B510-A2：participant actor 与 presentation syntax 语义分层
+
+r298 的 Analyzer 将 `Mermaid`、`sequenceDiagram` 作为 incident participant；它们虽有 current-request verbatim provenance，却只描述输出格式，不是待连关系的
+代码/运行时/数据 actor。共享 Analyzer prompt + emit_analysis schema 教学现明确：participant 必须是请求要求展示其连接的 actor；展示语法、输出格式、图家族/语法名、
+表列名和渲染语言/库名只决定 HOW，不进入 participant roster。该规则是模型 soft teaching，不按任何具体 token 扫描或 hard reject；真实点名的 state/context
+carrier 仍保持 incident_required，避免反向丢失数据流参与者。
+
+skill 与 emit_analysis schema 接线测试全绿。状态：`B510-A2=implemented/pending-r299+`；`hard-keyword-filter=none`；Trace families=`unchanged`。

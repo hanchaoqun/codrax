@@ -3678,3 +3678,10 @@ required diagram 的 repair selector 由“sole call violation”扩为“纯 di
 
 状态：`B510-A1=implemented/package-suites-pass`；`B510-B=replay-next`；`B510-C=design-open`；
 `system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.84 B510-A2：展示语法不再被教学为关系参与者
+
+Analyzer/schema 的 participant 单源教学补充 actor/presentation 分层：只有请求要求连接的 code/runtime/data actor 才进入 roster；图语法、输出格式、列名、渲染
+语言/库名只决定展示方式。实现无 token 列表、无 request/final-prose hard scan，state/context carrier 的真实 incident 义务不降级。
+
+状态：`B510-A2=implemented/pending-production-witness`；`system-edge/participant-synthesis=none`；Trace families=`unchanged`。

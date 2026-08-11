@@ -403,3 +403,16 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_R6Audit(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalysisDiagramParticipantTeachingSeparatesActorsFromPresentationSyntax(t *testing.T) {
+	for _, want := range []string{
+		"explicitly named code/runtime/data actor",
+		"presentation grammar",
+		"diagram-family/syntax names",
+		"not actors in that view",
+	} {
+		if !strings.Contains(AnalysisDiagramParticipantPlanningContract, want) {
+			t.Fatalf("diagram participant teaching missing %q: %s", want, AnalysisDiagramParticipantPlanningContract)
+		}
+	}
+}
