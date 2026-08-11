@@ -3902,3 +3902,25 @@ Trace Decision Handoff 在 actual occupancy 与 existing-rule eliminable 两轴�
 
 这是 prompt-only soft guidance，不扫描或修改模型答案，不改变 Trace 排名、投影、补齐及链上/背景权限。`internal/agent` 全量回归通过；状态：
 `B521=implemented/agent-suite-pass/pending-r306`；`model-conclusion-ownership=preserved`。
+
+#### §11.10.104 r306：图丢失来自 analyzer 子字段连带失权，不是模型随机删图
+
+pipeline 初稿有完整 sequenceDiagram，随后 relation gate 拒绝部分无证据边；但更早的决定性断点发生在 Analyzer：required sequence hint 带入用户未命名的推断 participant，
+首条 provenance 校验失败后模型删除整个 diagram_hint。Answer Surface 于是 `has_diagram=false`，optional repair 合法提供 `remove_block_ids=[d1]`，终稿无图。故该现象是
+`B523-DIAGRAMAUTHDECOUPLE1`，不是 Mermaid renderer、B520 carrier 或纯模型波动。
+
+Trace 侧 B521 仅 partial：旧 14=20 字面消失，但模型仍写“前面三个节点各自阻塞时间之和”；B522 的同测量跨查询/跨面重复也继续存在。二者保持开放，不用答案关键词门或
+subject+value 粗去重拟合。
+
+状态：`B523=confirmed/next`；`B521=production-partial`；`B522=audit-open`；`B517=no-regression-only`。
+
+#### §11.10.105 B523：required visual 不再被无出处 participant 行连带删除
+
+`parseDiagramHint` 现对“identity 未由 CURRENT request 命名且 source_quote 也无当前请求锚”的 participant 做行级 fail-soft：剥离该行、发布 warning、继续保留合法 sibling participant
+以及 diagram kind/required。若 identity 确由请求命名但 source_quote 缺失/错误，仍 fail-loud；非法 kind/role、缺 required/slate、重复 identity 等结构错误也不放宽。
+
+SSOT 教学同步要求模型只删除无出处 participant，绝不因此省略显式 required diagram。该修复消费 typed emit_analysis 字段，不从用户/模型/终稿 prose 关键词重建展示要求，
+不由系统画图或补边。r306 同形先红回归已落：无出处 Orchestrator 被删除、有出处 BusContext 留存、required sequence 保持。
+
+`internal/skill`、`internal/tool`、`internal/agent` 全量回归通过。状态：`B523=implemented/package-suites-pass/pending-r307`；
+`system-diagram-authoring=none`；Trace=`unchanged`。

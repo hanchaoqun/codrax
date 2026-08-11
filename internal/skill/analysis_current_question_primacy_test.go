@@ -184,6 +184,8 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 		"typed Presentation Directive explicitly asks for a diagram",
 		"Explicit presentation modality outranks topic inference",
 		"MUST use `sequence` even when predicate_axis=call",
+		"remove only that participant row",
+		"never omit an explicitly required diagram",
 		"Never use a visual hint to turn binding, registration, return, inheritance, containment, or method-owner relations into call arrows",
 	} {
 		if !strings.Contains(out, want) {

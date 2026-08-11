@@ -32091,3 +32091,31 @@ Axis B 席分开叙述，并把剩余链上工作标成未计价/未解析，禁
 
 状态：`B521=implemented/agent-suite-pass/pending-r306`；`model-conclusion-ownership=preserved`；
 `trace-measurements/ranking/projection=unchanged`。
+
+### 123.560 r306：required 图被 participant provenance 连带降级；Trace 加法约束仅部分生效
+
+`main@9a9a649db` exact-two runner 1/2、人工 0/2。Trace 的 typed 主链、11ms IO 根因、3 个 1ms 调度席与背景权限继续正确，且旧“14ms 构成 20ms”字面错误消失，说明 B521
+有正效；但模型仍写“app-100 的 wakeup 延迟等于前面三个节点各自阻塞时间之和”，证据没有该加法权威，故 B521 只能记 production-partial。三次 trace_query 还使同一
+threadpool iowait 显示 `E5(+2)`，target/intermediate sleep 继续跨来源重复；B522 维持 audit-open，需先核清 measurement identity、source、interval 与 caliber。
+
+pipeline 初稿确有 sequenceDiagram，但 Analyzer 首个 emit 把用户未命名的 `Orchestrator` 等推断角色放入 participants；首条 source_quote 校验失败后，模型不是只清理非法
+participant，而是删除整个 `diagram_hint`。下游因此记录 `has_diagram=false`，Finalizer 把图当 optional 并明确允许 patch 删除；终稿稳定丢图。该问题不是 Mermaid 自愈、关系门或
+B520 失败，也不是单次模型波动，而是同一 typed 对象内 visual kind/required 与 participant provenance 错误耦合的 `B523-DIAGRAMAUTHDECOUPLE1/P1-high`。
+
+状态：`B521=production-partial`；`B522=audit-open`；`B523=confirmed/next`；`B520=pending-required-boundary-replay`；
+`B517=no-regression-not-production-closed`；`runner=1/2`；`human=0/2`。
+
+### 123.561 B523：图形义务与参与者出处改为行级隔离
+
+完成 `B523-DIAGRAMAUTHDECOUPLE1`。`diagram_hint.kind+required` 与 `participants[]` 现在按不同权限面处理：kind/required 继续表达 analyzer 已选择的 typed 展示合同；participant
+仍必须有 CURRENT-request verbatim provenance，未命名且 source_quote 不在当前请求的推断行会被单行剥离并记 warning，但不能再抹掉整张 required 图。请求确实命名 identity
+而 source_quote 缺失/错误时仍 fail-loud，避免把真实用户参与者静默丢失；结构错误、非法 role、重复 identity 继续拒绝。
+
+Analyzer SSOT 同步明确：非法推断 participant 只删该行，required/kind 保持；没有有效命名角色时使用 `participants=[]`。实现不扫描最终答案或模型推理，不从 raw request
+关键词另铸图合同，不代画节点/边/文案；只是阻止一个无权威子行连带破坏已经由 typed analyzer 输出建立的展示义务。先红回归复现 r306 同形：无出处 `Orchestrator` + 有出处
+`BusContext`；修复后 required sequence 保留且只留下 BusContext。
+
+`internal/skill`、`internal/tool`、`internal/agent` 全量回归通过。
+
+状态：`B523=implemented/package-suites-pass/pending-r307`；`diagram/model-authorship=preserved`；
+`hard-final-prose-scan=none`；Trace projection/auto-supplement/on-chain root authority=`unchanged`。

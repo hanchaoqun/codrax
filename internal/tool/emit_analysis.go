@@ -1551,7 +1551,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	diagramHint, diagramHintErr := parseDiagramHint(raw, p.DiagramHint)
+	diagramHint, diagramHintErr, diagramHintWarnings := parseDiagramHint(raw, p.DiagramHint)
 	if diagramHintErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1559,6 +1559,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + diagramHintErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	if len(diagramHintWarnings) > 0 {
+		val.Warnings = append(val.Warnings, diagramHintWarnings...)
 	}
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -5587,65 +5590,86 @@ func parsePredicateAxis(s string) (types.PredicateAxis, string) {
 // field into a typed DiagramHint. Empty / nil means "no hint". An
 // unrecognised non-empty value is rejected so a typo cannot silently
 // degrade to no hint.
-func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.DiagramHint, string) {
+func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.DiagramHint, string, []string) {
 	if p == nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	kind := types.DiagramKind(strings.TrimSpace(p.Kind))
 	if kind == types.DiagramNone {
-		return nil, ""
+		return nil, "", nil
 	}
 	if !kind.IsValid() {
 		return nil, fmt.Sprintf(
 			"diagram_hint.kind = %q is not a recognised diagram kind — use one of the enum values or omit the field",
 			p.Kind,
-		)
+		), nil
 	}
 	if p.Required == nil {
-		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false"
+		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false", nil
 	}
 	if p.Participants == nil {
-		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities"
+		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities", nil
 	}
 	rawParticipants := *p.Participants
 	if len(rawParticipants) > 12 {
-		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view"
+		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view", nil
 	}
 	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
+	warnings := make([]string, 0)
 	seen := make(map[string]bool, len(rawParticipants))
 	for i, raw := range rawParticipants {
 		identity := strings.TrimSpace(raw.Identity)
 		if identity == "" {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is empty", i)
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is empty", i), warnings
 		}
 		if len([]rune(identity)) > 160 {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is longer than 160 characters", i)
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is longer than 160 characters", i), warnings
 		}
 		sourceQuote := strings.TrimSpace(raw.SourceQuote)
 		if sourceQuote == "" {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote is empty — copy the shortest verbatim CURRENT-request phrase containing %q", i, identity)
+			if !sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+				warnings = append(warnings, fmt.Sprintf(
+					"dropped diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
+					identity, kind, *p.Required,
+				))
+				continue
+			}
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote is empty — copy the shortest verbatim CURRENT-request phrase containing %q", i, identity), warnings
 		}
 		if !sourceQuoteAnchoredInCurrentRequest(rawRequest, sourceQuote) {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request", i)
+			if sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+				return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request and contain identity %q", i, identity), warnings
+			}
+			// Participant rows are planning guidance, not diagram-shape
+			// authority. An inferred participant without current-request
+			// provenance must never become a hard relation obligation, but it
+			// also must not erase an independently valid kind+required visual
+			// contract. Drop only the unauthorized row and keep parsing any
+			// siblings that do have exact current-request authority.
+			warnings = append(warnings, fmt.Sprintf(
+				"dropped diagram participant %q because its source_quote is not anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
+				identity, kind, *p.Required,
+			))
+			continue
 		}
 		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity)
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
 		role := types.DiagramParticipantRole(strings.TrimSpace(raw.Role))
 		if !role.IsValid() {
 			return nil, fmt.Sprintf(
 				"diagram_hint.participants[%d].role = %q is not recognised — use incident_required or context_only",
 				i, raw.Role,
-			)
+			), warnings
 		}
 		key := strings.ToLower(identity)
 		if seen[key] {
-			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity duplicates %q", i, identity)
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity duplicates %q", i, identity), warnings
 		}
 		seen[key] = true
 		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
 	}
-	return &types.DiagramHint{Kind: kind, Required: *p.Required, Participants: participants}, ""
+	return &types.DiagramHint{Kind: kind, Required: *p.Required, Participants: participants}, "", warnings
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

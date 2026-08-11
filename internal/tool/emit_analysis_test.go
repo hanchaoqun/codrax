@@ -3097,11 +3097,6 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 			want: "source_quote is empty",
 		},
 		{
-			name: "invented participant provenance",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "Orchestrator", Role: "incident_required", SourceQuote: "Orchestrator"}}},
-			want: "must be copied verbatim",
-		},
-		{
 			name: "quote does not own identity",
 			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required", SourceQuote: "show"}}},
 			want: "does not contain identity",
@@ -3109,7 +3104,7 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got, reason := parseDiagramHint("show StageA and ArkRunner", tc.hint); got != nil || !strings.Contains(reason, tc.want) {
+			if got, reason, _ := parseDiagramHint("show StageA and ArkRunner", tc.hint); got != nil || !strings.Contains(reason, tc.want) {
 				t.Fatalf("parseDiagramHint()=(%+v,%q), want nil reason containing %q", got, reason, tc.want)
 			}
 		})
@@ -3180,6 +3175,45 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 			t.Fatalf("DiagramHint=%+v, want present empty participant slate", hint)
 		}
 	})
+}
+
+func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLackCurrentRequestAuthority(t *testing.T) {
+	mu := types.NewMutableState("explain analyze to finalizer; require a Mermaid sequenceDiagram; show BusContext")
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["analyze", "finalizer", "sequenceDiagram", "BusContext"],
+		"entities": ["analyze", "finalizer", "BusContext"],
+		"question_kind": "mechanism",
+		"diagram_hint": {"kind":"sequence","required":true,"participants":[
+			{"identity":"Orchestrator","role":"incident_required","source_quote":"Orchestrator"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("an inferred participant must not erase a valid required diagram contract: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || !hint.Required || hint.Kind != types.DiagramSequence {
+		t.Fatalf("DiagramHint=%+v, want required sequence contract preserved", hint)
+	}
+	want := []types.DiagramParticipantHint{{
+		Identity:    "BusContext",
+		Role:        types.DiagramParticipantIncidentRequired,
+		SourceQuote: "BusContext",
+	}}
+	if !reflect.DeepEqual(hint.Participants, want) {
+		t.Fatalf("participants=%+v, want only current-request-authorized rows %+v", hint.Participants, want)
+	}
+	if !strings.Contains(res.Summary, "dropped diagram participant") {
+		t.Fatalf("summary must disclose the row-local participant repair: %q", res.Summary)
+	}
 }
 
 // TestComputeAnalysisQualityProbe is a direct unit test of the
