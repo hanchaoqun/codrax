@@ -2164,15 +2164,23 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 func reconcileDiagramParticipantsWithRequestedRelationSurface(rm *types.RequestModel) (int, string) {
 	if rm == nil || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
 		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() ||
-		len(rm.DiagramHint.Participants) < 3 {
+		len(rm.DiagramHint.Participants) == 0 {
 		return 0, ""
 	}
 
 	bestQuote := ""
-	bestMatches := 0
+	bestMatches := -1
+	hasSeparateRequiredSurface := false
 	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
 		quote := strings.TrimSpace(dimension.SourceQuote)
-		if !dimension.Required || dimension.Role != types.RequestedAnswerDimensionStageWorkflow || quote == "" {
+		if !dimension.Required {
+			continue
+		}
+		if dimension.Role != types.RequestedAnswerDimensionStageWorkflow {
+			hasSeparateRequiredSurface = true
+			continue
+		}
+		if quote == "" {
 			continue
 		}
 		matches := 0
@@ -2187,7 +2195,14 @@ func reconcileDiagramParticipantsWithRequestedRelationSurface(rm *types.RequestM
 			bestMatches = matches
 		}
 	}
-	if bestMatches < 2 {
+	// A lone workflow dimension may describe one diagram whose named context
+	// carrier is genuinely part of the relation.  Narrow only when the same
+	// request also carries another required visible dimension (for example the
+	// independent input/output/state-carrier table in r309/r310).  Once that
+	// typed multi-surface shape exists, zero in-scope participant matches is
+	// itself meaningful: the analyzer supplied only identities from the sibling
+	// surface, so none may become a hard diagram obligation.
+	if !hasSeparateRequiredSurface || bestQuote == "" {
 		return 0, ""
 	}
 

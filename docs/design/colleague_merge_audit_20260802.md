@@ -4027,3 +4027,19 @@ diagram+table 多面隔离；正反 pin 与相关六包全量通过。
 
 状态：`B527=implemented/pending-replay`；`participant-hard-authority=cross-surface-reconciled`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.115 r310：两种 participant scope 均表面通过，人工关系审计均失败
+
+runner 2/2、人工 0/2。图+表案只剩一个 table-only BusContext participant，绕过 B527 首版双匹配阈值；终图把 BuildAgentContext 的证据身份显示成 BusContext，又同时披露
+BusContext 关系未证。显式数据流案则保留 Mutable/BusContext，但 Explorer 没有把已读赋值/投影源码铸成 assignment/data_flow row，最终只能画成断开节点。两案共同证明 token、
+Mermaid edge count 与 boundary 在场都不能代表用户所求关系已经交付。
+
+立项：`B527b` 覆盖 typed 多展示面零/一匹配；`B529-FLOWRELATIONPLAN1` 补请求参与者对的精确关系证据计划和 producer 发射教学。四分钟活动流没有系统代答回归。
+
+#### §11.10.116 B527b：多展示面本身足以阻止 sibling participant 变硬
+
+required stage/workflow dimension 与至少一个 required sibling dimension 的 typed 合取现作为多展示面权限。该形成立后，diagram participant 必须由 workflow 引文覆盖；不再要求先有
+两个匹配 participant，因而 Analyzer 只剩一个错误 BusContext 时也会清空 diagram slate。没有 sibling dimension 的单面关系图保持原 participant 权限，显式 State/Context 连接不受影响。
+
+新增 r310 零匹配 pin及既有三参与者反向 pin；不读 request/model/final prose 关键词，不改 relation validator/模型答案。状态：
+`B527b=implemented/pending-r311`；`B529=confirmed/next`；Trace causal authority=`unchanged`。

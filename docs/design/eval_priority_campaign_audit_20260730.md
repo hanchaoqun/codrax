@@ -32266,3 +32266,34 @@ Analyzer entities、requested dimensions 与后续表格上下文。该对账不
 
 状态：`B527=implemented/package-suites-pass/pending-production-replay`；`cross-surface-hard-contract=removed`；
 `model-diagram-authorship=preserved`；`raw/model/final-prose-hard-scan=none`；Trace=`unchanged`。
+
+### 123.571 r310：runner 2/2 但人工 0/2；多展示面零匹配臂与真实数据流证据规划均未闭环
+
+`main@7b364e54d` 以一正一反两个展示面案例并行回放，runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_presentation_scope_r310_20260811_manual_audit.md`。两案 207/248s 均由模型正常作答，没有四分钟系统降级。
+
+图+表复放中，Analyzer 这次把 analyze/finalizer 写成无当前请求出处的装饰身份并被既有 provenance 门正确剥离，只留下 BusContext 一个 table-only
+`incident_required`。B527 首版要求关系维度至少覆盖两个 participant 才收窄，故没有触发；最终图把 `ctxbuilder.BuildAgentContext` 的 call endpoint 显示成 BusContext，随后又写
+“BusContext 关系未证”，runner 因 token/表面图形齐全误绿。该生产反例说明，多展示面已由 typed required dimensions 明确时，零/一个 in-scope participant 也必须阻止 sibling-surface
+identity 铸成硬图义务。
+
+反向 `qf_logic_view_read_pipeline` 明确要求 Mutable/BusContext 数据流，二者应保留且确实保留；但 Explorer 在 participant completion 门后多花 4 轮，仍只把
+`Mutable: ctx.Mutable`、`PipelineStage: ctx.Stage` 等真实赋值/投影行发成定义/观察，没有形成 assignment/data_flow relation rows。最终图将两者断开，用户要求的数据流没有交付。
+立 `B529-FLOWRELATIONPLAN1/P1-high`：关系证据规划需按 typed requested participant pair/axis 要求 producer、transfer、consumer 的精确 relation kind 与方向，不得靠 Finalizer
+把定义行改画成边，也不得放宽关系证据门。
+
+状态：`B527=production-partial/refine-now`；`B529=confirmed/audit-next`；`B517=production-positive`；
+`runner=2/2`；`human=0/2`；`oracle-semantic-gap=confirmed`。
+
+### 123.572 B527b：typed 多展示面收窄覆盖零/一个 relation participant
+
+根据 r310 收紧 B527 激活条件：不再依赖“关系维度已匹配至少两个 participant”。当 required diagram 与 normalized required
+`stage_or_workflow` dimension 同时存在，并且同一 profile 还包含至少一个 required sibling visible dimension 时，typed 多展示面已经成立；此时 participant provenance 不在
+stage/workflow 引文内就不能成为图的强关系义务。即使 Analyzer 只留下一个 table-only participant、或零个 participant 与关系引文相交，也要行级移出 diagram slate；实体、
+维度、表格内容与证据搜索词仍保留。
+
+单一 workflow/diagram 请求不触发该对账，避免删除真实的 State/Context 关系；显式 `analyze 通过 BusContext 到 finalizer` 单面回归继续保留三者。新增 r310 精确形 pin：
+participants 仅有 BusContext、workflow quote 为“阶段”、另有输入/输出/状态载体 dimensions，结果 diagram slate 为空但 entities 仍含 BusContext。
+
+实现仍只消费 schema-validated required/role/verbatim carriers，不扫描模型/答案 prose，不系统画图或改结论。状态：
+`B527b=implemented/targeted-pass/pending-r311`；`B527=production-partial`；`B529=next`；Trace=`unchanged`。

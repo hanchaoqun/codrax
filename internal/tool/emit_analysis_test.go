@@ -3297,6 +3297,44 @@ func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurfac
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSoleTableParticipantFromMultiSurfaceSequence(t *testing.T) {
+	raw := "解释从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出阶段、输入、输出和状态载体，例如 BusContext"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyze","finalizer","sequenceDiagram","BusContext"],
+		"entities":["analyze","finalizer","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"阶段","role":"stage_or_workflow","source_quote":"阶段","required":true},
+			{"index":2,"label":"输入","role":"other","source_quote":"输入","required":true},
+			{"index":3,"label":"输出","role":"other","source_quote":"输出","required":true},
+			{"index":4,"label":"状态载体","role":"other","source_quote":"状态载体","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || len(hint.Participants) != 0 {
+		t.Fatalf("table-only participant must not survive as the sole sequence obligation: %+v", hint)
+	}
+	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
+		t.Fatalf("table-only participant must remain in non-diagram carriers: %v", got)
+	}
+}
+
 // TestComputeAnalysisQualityProbe is a direct unit test of the
 // probe computation helper: case-insensitive substring match,
 // ratio handling, empty-input edge cases.
