@@ -13683,7 +13683,8 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 	}
 	hint := prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence, or its typed edge metadata no longer matches the visible Mermaid arrows. " +
-		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains an optional typed diagram evidence skeleton when one can be built: either preserve that skeleton's exact node IDs, edge topology, and complete `edge_anchors_json`, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
+		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains an optional typed diagram evidence skeleton when one can be built. When that skeleton carries useful verified relationship structure, prefer replacing only the rejected diagram with the skeleton's exact node IDs, edge topology, unanchored Notes, and complete `edge_anchors_json`; this preserves grounded structure with less reconstruction. Do not compose a third graph. " +
+		"The diagram remains optional: remove it with `remove_block_ids` only when you judge that the verified skeleton adds no useful relationship structure beyond the grounded textual answer. This is authoring guidance, not a requirement to keep a diagram. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
 		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch."

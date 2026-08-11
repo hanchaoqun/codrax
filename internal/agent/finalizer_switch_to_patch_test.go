@@ -498,10 +498,12 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 		"remove_block_ids",
 		"typed call-edge evidence",
 		"optional typed diagram evidence skeleton",
-		"preserve that skeleton's exact node IDs, edge topology, and complete `edge_anchors_json`",
+		"prefer replacing only the rejected diagram",
+		"complete `edge_anchors_json`",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"source locations are evidence metadata; do not copy them as the primary visible wording",
-		"keep the grounded textual call chain unchanged",
+		"beyond the grounded textual answer",
+		"This is authoring guidance, not a requirement to keep a diagram",
 		"will not remove or rewrite the diagram for you",
 	} {
 		if !strings.Contains(got.Hint, want) {
@@ -537,6 +539,8 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	for _, want := range []string{
 		"Use `emit_answer_document_patch`",
 		"optional typed diagram evidence skeleton",
+		"prefer replacing only the rejected diagram",
+		"This is authoring guidance, not a requirement to keep a diagram",
 		"remove_block_ids",
 		types.AnswerDocumentPatchOperationTeaching,
 		"verified capsule is repeated here",

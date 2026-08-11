@@ -4426,3 +4426,11 @@ B552 本轮错误签名行 registration 被 grounding 拒绝，随后 exact guar
 
 状态：`B551-B=production-positive/partial`；`B550=production-positive`；`B553=no-recurrence`；
 `B552=watch`；`B554/B555=next`；`model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.149 B555：有用 typed skeleton 成为可选图修补的首选软路径
+
+optional diagram 被关系门拒绝后，repair teaching 现优先建议局部采用已有 verified skeleton，保留 exact topology、Notes 与 anchors，避免模型因重建成本高而直接删除
+有价值关系图。删除仍是合法的模型选择，但收窄为“模型判断该骨架不比接地正文增加结构价值”时的出口；没有新增保图硬门、prose 扫描或系统绘图。
+
+状态：`B555=implemented/pending-r327`；`optional-removal=retained`；`model-authorship=preserved`；
+`B554=next`；Trace causal authority=`unchanged`。

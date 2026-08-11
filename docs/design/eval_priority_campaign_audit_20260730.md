@@ -32952,3 +32952,14 @@ B552 本轮从“开放逃逸”校正为 `production-self-corrected/watch`：�
 
 状态：`B551-B=production-positive/partial`；`B550=production-positive`；`B553=no-recurrence`；
 `B552=watch`；`B554=P1-high/next`；`B555=P1/next`；`runner=2/2`；`human=1/2`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.609 B555：可选图保留模型选择权，同时优先复用已证关系骨架
+
+optional-diagram relation repair 不再把“保留 typed skeleton”与“删除整图”写成同等无条件出口。提示现明确：骨架已有有用的 verified relationship structure 时，
+优先只替换被拒的 diagram，原样保留 node ID、topology、无 anchor Note 与完整 anchors；这样减少模型重建心智并避免可靠关系随错误边一起消失。
+
+该规则仍是软指导。图继续可选，模型认为 skeleton 对 grounded textual answer 没有新增结构价值时仍可用 `remove_block_ids` 删除；系统不检测终稿关键词、不强制保图、
+不自动改图或正文。required-diagram 车道、typed edge authority、Trace 图与因果投影均未改。
+
+`internal/agent` 全包通过。状态：`B555=implemented/pending-r327`；`diagram-optionality=model-owned`；
+`system-diagram-authorship=none`；`B554=next`；Trace causal authority=`unchanged`。
