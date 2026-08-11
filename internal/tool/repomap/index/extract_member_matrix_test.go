@@ -10,11 +10,12 @@ import (
 
 func TestExtractMemberCarrierMatrix_AllSupportedReadLanguages(t *testing.T) {
 	cases := map[string]struct {
-		relPath string
-		source  string
-		name    string
-		kind    string
-		parent  string
+		relPath      string
+		source       string
+		name         string
+		kind         string
+		parent       string
+		declaredType string
 	}{
 		types.LangGo: {
 			relPath: "runtime.go",
@@ -23,7 +24,7 @@ type Runtime struct {
 	RetryBudget int
 }
 `,
-			name: "RetryBudget", kind: "field", parent: "Runtime",
+			name: "RetryBudget", kind: "field", parent: "Runtime", declaredType: "int",
 		},
 		types.LangPython: {
 			relPath: "runtime.py",
@@ -46,7 +47,7 @@ type Runtime struct {
   retryBudget: number
 }
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "number",
 		},
 		types.LangJava: {
 			relPath: "Runtime.java",
@@ -54,7 +55,7 @@ type Runtime struct {
   public int retryBudget;
 }
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "int",
 		},
 		types.LangKotlin: {
 			relPath: "Runtime.kt",
@@ -62,7 +63,7 @@ type Runtime struct {
   val retryBudget: Int = 3
 }
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "Int",
 		},
 		types.LangRust: {
 			relPath: "runtime.rs",
@@ -70,7 +71,7 @@ type Runtime struct {
     pub retry_budget: usize,
 }
 `,
-			name: "retry_budget", kind: "field", parent: "Runtime",
+			name: "retry_budget", kind: "field", parent: "Runtime", declaredType: "usize",
 		},
 		types.LangC: {
 			relPath: "runtime.c",
@@ -78,7 +79,7 @@ type Runtime struct {
   int retry_budget;
 };
 `,
-			name: "retry_budget", kind: "field", parent: "Runtime",
+			name: "retry_budget", kind: "field", parent: "Runtime", declaredType: "int",
 		},
 		types.LangCpp: {
 			relPath: "runtime.hpp",
@@ -87,7 +88,7 @@ public:
   int retryBudget;
 };
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "int",
 		},
 		types.LangRuby: {
 			relPath: "lib/runtime/runtime.rb",
@@ -103,7 +104,7 @@ end
   var retryBudget: Int
 }
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "Int",
 		},
 		types.LangLua: {
 			relPath: "lua/runtime.lua",
@@ -121,7 +122,7 @@ message Runtime {
   int32 retry_budget = 1;
 }
 `,
-			name: "retry_budget", kind: "field", parent: "Runtime",
+			name: "retry_budget", kind: "field", parent: "Runtime", declaredType: "int32",
 		},
 		types.LangArkTS: {
 			relPath: "entry/src/main/ets/pages/Runtime.ets",
@@ -131,7 +132,7 @@ struct Runtime {
   build() {}
 }
 `,
-			name: "retryBudget", kind: "state-field", parent: "Runtime",
+			name: "retryBudget", kind: "state-field", parent: "Runtime", declaredType: "number",
 		},
 		types.LangCangjie: {
 			relPath: "src/runtime.cj",
@@ -140,7 +141,7 @@ public class Runtime {
   public let retryBudget: Int64 = 3
 }
 `,
-			name: "retryBudget", kind: "field", parent: "Runtime",
+			name: "retryBudget", kind: "field", parent: "Runtime", declaredType: "Int64",
 		},
 	}
 	for _, lang := range types.SupportedReadLanguages() {
@@ -165,6 +166,9 @@ public class Runtime {
 			}
 			for _, sym := range fi.Symbols {
 				if sym.Name == c.name && sym.Kind == c.kind && sym.Parent == c.parent {
+					if sym.DeclaredType != c.declaredType {
+						t.Fatalf("%s member declared type=%q, want %q; symbol=%+v", lang, sym.DeclaredType, c.declaredType, sym)
+					}
 					return
 				}
 			}

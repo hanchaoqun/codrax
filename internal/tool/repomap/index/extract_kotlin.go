@@ -281,14 +281,15 @@ func extractKotlinProperty(node *sitter.Node, src []byte, file, parent string) (
 		}
 	}
 	return types.Symbol{
-		Name:     name,
-		Kind:     kind,
-		File:     file,
-		Line:     nodeLine(node),
-		EndLine:  nodeEndLine(node),
-		Exported: kotlinIsExportedByModifiers(modifiers),
-		Parent:   parent,
-		Doc:      strings.Join(modifiers, " "),
+		Name:         name,
+		Kind:         kind,
+		File:         file,
+		Line:         nodeLine(node),
+		EndLine:      nodeEndLine(node),
+		Exported:     kotlinIsExportedByModifiers(modifiers),
+		Parent:       parent,
+		DeclaredType: navigationDeclaredTypeName(node, src),
+		Doc:          strings.Join(modifiers, " "),
 	}, true
 }
 

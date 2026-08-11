@@ -147,14 +147,31 @@ func protoExtractField(node *sitter.Node, src []byte, file, parent string) (type
 	if name == "" {
 		return types.Symbol{}, false
 	}
+	declaredType := ""
+	if typeNode := node.ChildByFieldName("type"); typeNode != nil {
+		declaredType = strings.TrimSpace(nodeText(typeNode, src))
+	}
+	if declaredType == "" {
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			switch child.Type() {
+			case "type", "scalar_type", "message_type", "map", "type_identifier":
+				declaredType = strings.TrimSpace(nodeText(child, src))
+			}
+			if declaredType != "" {
+				break
+			}
+		}
+	}
 	return types.Symbol{
-		Name:     name,
-		Kind:     "field",
-		File:     file,
-		Line:     nodeLine(node),
-		EndLine:  nodeEndLine(node),
-		Exported: true,
-		Parent:   parent,
+		Name:         name,
+		Kind:         "field",
+		File:         file,
+		Line:         nodeLine(node),
+		EndLine:      nodeEndLine(node),
+		Exported:     true,
+		Parent:       parent,
+		DeclaredType: declaredType,
 	}, true
 }
 

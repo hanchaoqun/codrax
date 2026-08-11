@@ -831,6 +831,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
+		if stampEvidenceTypedIdentityBindings(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		if stabilizeLineLocalCallableOwner(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
@@ -4064,7 +4069,13 @@ func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) 
 }
 
 func enclosingEvidenceQualifiedCallableOwner(it *types.EvidenceItem, gc *ground.Context) string {
-	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 || it.AnchorKind != types.AnchorCall {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 {
+		return ""
+	}
+	switch it.AnchorKind {
+	case types.AnchorCall, types.AnchorCallback, types.AnchorCondition, types.AnchorReturn,
+		types.AnchorAssignment, types.AnchorInitializer, types.AnchorStringLiteral:
+	default:
 		return ""
 	}
 	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
@@ -4072,6 +4083,65 @@ func enclosingEvidenceQualifiedCallableOwner(it *types.EvidenceItem, gc *ground.
 		return ""
 	}
 	return qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, it.LineStart))
+}
+
+func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || !it.IsCitable() {
+		return false
+	}
+	changed := false
+	if owner := enclosingEvidenceQualifiedCallableOwner(it, gc); owner != "" && it.OwnerIdentity != owner {
+		it.OwnerIdentity = owner
+		changed = true
+	}
+	if it.AnchorKind != types.AnchorDefinition {
+		return changed
+	}
+	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok || fi == nil {
+		return changed
+	}
+	anchorTail := types.NormalizedSurfaceSymbolTail(it.AnchorSymbol)
+	subjectTail := types.NormalizedSurfaceSymbolTail(it.Subject)
+	var matched *repomap.Symbol
+	for idx := range fi.Symbols {
+		sym := &fi.Symbols[idx]
+		if strings.TrimSpace(sym.DeclaredType) == "" || sym.Line <= 0 || it.LineStart < sym.Line ||
+			(sym.EndLine >= sym.Line && it.LineStart > sym.EndLine) {
+			continue
+		}
+		nameTail := types.NormalizedSurfaceSymbolTail(sym.Name)
+		if nameTail == "" || (nameTail != anchorTail && nameTail != subjectTail) {
+			continue
+		}
+		if matched != nil {
+			// Multiple static declarations matching the same cited surface are
+			// ambiguous. Do not publish a typed alias.
+			return changed
+		}
+		matched = sym
+	}
+	if matched == nil {
+		return changed
+	}
+	binding := strings.TrimSpace(matched.Name)
+	owner := strings.TrimSpace(matched.Parent)
+	if owner != "" {
+		binding = owner + "." + binding
+	}
+	if it.DeclaredBinding != binding {
+		it.DeclaredBinding = binding
+		changed = true
+	}
+	if declaredType := strings.TrimSpace(matched.DeclaredType); it.DeclaredType != declaredType {
+		it.DeclaredType = declaredType
+		changed = true
+	}
+	if it.DeclaredOwner != owner {
+		it.DeclaredOwner = owner
+		changed = true
+	}
+	return changed
 }
 
 func conflictingLineLocalCallableClaim(it types.EvidenceItem, fi *repomap.FileInfo, owner string) string {

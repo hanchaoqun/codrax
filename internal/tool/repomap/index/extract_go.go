@@ -277,15 +277,16 @@ func goExtractStructFields(typeName string, structNode *sitter.Node, src []byte,
 				continue
 			}
 			syms = append(syms, types.Symbol{
-				Name:      name,
-				Kind:      "field",
-				File:      file,
-				Line:      nodeLine(field),
-				EndLine:   nodeEndLine(field),
-				Exported:  unicode.IsUpper(rune(name[0])),
-				Parent:    typeName,
-				Signature: fieldSignature,
-				Doc:       prevSiblingComment(field, src),
+				Name:         name,
+				Kind:         "field",
+				File:         file,
+				Line:         nodeLine(field),
+				EndLine:      nodeEndLine(field),
+				Exported:     unicode.IsUpper(rune(name[0])),
+				Parent:       typeName,
+				Signature:    fieldSignature,
+				DeclaredType: typeText,
+				Doc:          prevSiblingComment(field, src),
 			})
 		}
 	}

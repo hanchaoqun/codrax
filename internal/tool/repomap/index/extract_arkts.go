@@ -146,7 +146,7 @@ var extendFunctionRegex = regexp.MustCompile(
 //
 // Group 1 = decorator name (e.g. "State"), group 2 = field name.
 var stateFieldRegex = regexp.MustCompile(
-	`(?m)^[ \t]*@(State|Prop|Link|Provide|Consume|ObjectLink|StorageLink|StorageProp|LocalStorageLink|LocalStorageProp|Watch)(?:\s*\([^)]*\))?\s+(\w+)\s*:`)
+	`(?m)^[ \t]*@(State|Prop|Link|Provide|Consume|ObjectLink|StorageLink|StorageProp|LocalStorageLink|LocalStorageProp|Watch)(?:\s*\([^)]*\))?\s+(\w+)\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*(?:[.<>,?\[\]|& ]*[A-Za-z0-9_$>\]])?)`)
 
 // buildMethodRegex matches `build() {` — the ArkUI render entry.
 // Anchored to start-of-line indentation to avoid matching e.g.
@@ -269,16 +269,18 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 	for _, m := range stateFieldRegex.FindAllStringSubmatchIndex(srcStr, -1) {
 		decoName := srcStr[m[2]:m[3]]
 		fieldName := srcStr[m[4]:m[5]]
+		declaredType := strings.TrimSpace(srcStr[m[6]:m[7]])
 		line := byteOffsetToLine(srcStr, m[0])
 		parent := findEnclosingStruct(lines, line, syms)
 		syms = append(syms, types.Symbol{
-			Name:     fieldName,
-			Kind:     decoratorToFieldKind(decoName),
-			File:     file,
-			Line:     line,
-			Parent:   parent,
-			Exported: false,
-			Doc:      "@" + decoName,
+			Name:         fieldName,
+			Kind:         decoratorToFieldKind(decoName),
+			File:         file,
+			Line:         line,
+			Parent:       parent,
+			Exported:     false,
+			DeclaredType: declaredType,
+			Doc:          "@" + decoName,
 		})
 	}
 

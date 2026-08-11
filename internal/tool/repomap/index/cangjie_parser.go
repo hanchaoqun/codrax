@@ -597,15 +597,16 @@ func (p *cangjieParser) parsePropertyDecl(keyword string, mods, decorators []str
 		}
 	}
 	p.syms = append(p.syms, types.Symbol{
-		Name:      name,
-		Kind:      kind,
-		File:      p.file,
-		Line:      start.Line,
-		EndLine:   start.Line,
-		Exported:  hasExportModifier(mods),
-		Parent:    parent,
-		Signature: signature,
-		Doc:       strings.TrimSpace(strings.Join(append([]string{}, append(mods, decorators...)...), " ")),
+		Name:         name,
+		Kind:         kind,
+		File:         p.file,
+		Line:         start.Line,
+		EndLine:      start.Line,
+		Exported:     hasExportModifier(mods),
+		Parent:       parent,
+		Signature:    signature,
+		DeclaredType: signature,
+		Doc:          strings.TrimSpace(strings.Join(append([]string{}, append(mods, decorators...)...), " ")),
 	})
 	p.skipToPropertyBoundary(start.Line)
 }

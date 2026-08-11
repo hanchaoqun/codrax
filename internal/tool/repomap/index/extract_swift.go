@@ -282,13 +282,14 @@ func swiftExtractProperty(node *sitter.Node, src []byte, file, parent string) (t
 		return types.Symbol{}, false
 	}
 	return types.Symbol{
-		Name:     name,
-		Kind:     "field",
-		File:     file,
-		Line:     nodeLine(node),
-		EndLine:  nodeEndLine(node),
-		Exported: !swiftHasModifier(node, src, "private"),
-		Parent:   parent,
+		Name:         name,
+		Kind:         "field",
+		File:         file,
+		Line:         nodeLine(node),
+		EndLine:      nodeEndLine(node),
+		Exported:     !swiftHasModifier(node, src, "private"),
+		Parent:       parent,
+		DeclaredType: navigationDeclaredTypeName(node, src),
 	}, true
 }
 

@@ -79,9 +79,14 @@ type Symbol struct {
 	Exported  bool   `json:"exported"`
 	Receiver  string `json:"receiver,omitempty"` // for methods
 	Signature string `json:"signature,omitempty"`
-	Doc       string `json:"doc,omitempty"`    // first line of doc comment
-	Parent    string `json:"parent,omitempty"` // containing type/class
-	Arity     int    `json:"arity,omitempty"`  // param count for functions/methods, 0 otherwise
+	// DeclaredType is the parser-owned static type of a field/property/value
+	// declaration. It is empty when the language or declaration carries no
+	// exact static type. Consumers may use it to align a source binding with a
+	// user-facing type identity, but it never creates a call/data-flow edge.
+	DeclaredType string `json:"declared_type,omitempty"`
+	Doc          string `json:"doc,omitempty"`    // first line of doc comment
+	Parent       string `json:"parent,omitempty"` // containing type/class
+	Arity        int    `json:"arity,omitempty"`  // param count for functions/methods, 0 otherwise
 
 	// RequiredMethods is the deduplicated set of "name(arity)"
 	// method signatures an interface / trait declaration requires.

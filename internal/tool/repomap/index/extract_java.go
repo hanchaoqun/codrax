@@ -203,18 +203,23 @@ func javaExtractMembers(body *sitter.Node, src []byte, file, parent string, meth
 			})
 		case "field_declaration":
 			// extract field names
+			declaredType := javaDeclaredTypeName(member.ChildByFieldName("type"), src)
+			if declaredType == "" {
+				declaredType = javaDeclaredTypeName(member, src)
+			}
 			for k := 0; k < int(member.NamedChildCount()); k++ {
 				decl := member.NamedChild(k)
 				if decl.Type() == "variable_declarator" {
 					if nameNode := decl.ChildByFieldName("name"); nameNode != nil {
 						methods = append(methods, types.Symbol{
-							Name:     nodeText(nameNode, src),
-							Kind:     "field",
-							File:     file,
-							Line:     nodeLine(decl),
-							EndLine:  nodeEndLine(decl),
-							Exported: javaHasModifier(member, src, "public"),
-							Parent:   parent,
+							Name:         nodeText(nameNode, src),
+							Kind:         "field",
+							File:         file,
+							Line:         nodeLine(decl),
+							EndLine:      nodeEndLine(decl),
+							Exported:     javaHasModifier(member, src, "public"),
+							Parent:       parent,
+							DeclaredType: declaredType,
 						})
 					}
 				}
@@ -332,6 +337,8 @@ func javaDeclaredTypeName(node *sitter.Node, src []byte) string {
 		return ""
 	}
 	switch node.Type() {
+	case "integral_type", "floating_point_type", "boolean_type":
+		return strings.TrimSpace(nodeText(node, src))
 	case "type_identifier":
 		typeName := strings.TrimSpace(nodeText(node, src))
 		// Java's local-variable type inference token `var` occupies the

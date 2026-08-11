@@ -13,7 +13,7 @@ import (
 // intentionally a SOFT finalizer input: the planning identity is not evidence,
 // so absence never rejects an answer or manufactures an edge. It gives the
 // model a compact checklist without scanning request or answer prose.
-func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types.RequestModel, edges []answerDocMechanismRelationEdge) {
+func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types.RequestModel, edges []answerDocMechanismRelationEdge, evidence []types.EvidenceItem) {
 	if b == nil || rm.PredicateAxis != types.AxisFlow || rm.Intent == types.IntentTrace ||
 		types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
 		return
@@ -62,7 +62,9 @@ func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types
 			if types.AnswerCodeIdentitySurfacesCompatible(participant, edge.from) ||
 				types.AnswerCodeIdentitySurfacesCompatible(participant, edge.to) ||
 				types.AnswerCodeIdentityOwnsEndpoint(participant, edge.from) ||
-				types.AnswerCodeIdentityOwnsEndpoint(participant, edge.to) {
+				types.AnswerCodeIdentityOwnsEndpoint(participant, edge.to) ||
+				types.AnswerCodeIdentityIncidentViaDeclaredBinding(participant, edge.from, edge.sourceItem, evidence) ||
+				types.AnswerCodeIdentityIncidentViaDeclaredBinding(participant, edge.to, edge.sourceItem, evidence) {
 				covered = true
 				break
 			}
@@ -77,6 +79,7 @@ func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types
 		fmt.Fprintf(b, "- typed_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v; context_only=%v.\n", incident, unproved, contextOnly)
 		b.WriteString("- These schema-validated participant roles are planning/coverage guidance, not relation evidence and not permission to add an edge. For each `incident_required` participant with no incident typed relation, inspect and emit its real operation site or disclose that participant as an unproven boundary. Keep `context_only` participants outside the path unless independent evidence proves a relation.\n")
 		b.WriteString("- A typed call/member endpoint may be incident to its exact receiver/owner participant (for example `ctx.Mutable.Reset` is incident to `Mutable`). Keep the model-authored participant as the visible business/component label while preserving the exact operation endpoint in `edge_anchors.from_identity/to_identity`; this owner projection changes no relation kind, direction, or evidence authority.\n")
+		b.WriteString("- A parser-stamped static declaration may also align its declared type participant with the exact binding inside an operation endpoint (for example `state *RequestState` plus `handler.state.Items = value`). The declaration is identity-only; keep the operation's exact endpoint and do not turn the declaration into an edge. Untyped, ambiguous, or differently-owned bindings remain unproven.\n")
 		return
 	}
 	fmt.Fprintf(b, "- soft_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v.\n", incident, unproved)

@@ -4225,3 +4225,16 @@ Trace 对照案保留显式窗、自动补齐、因果投影、链上类校验/�
 
 状态：`B540b=production-positive`；`B541=confirmed/implement-next`；`trace-authority=unchanged`；
 `active-stream-degrade=forbidden/no-regression@450s`。
+
+#### §11.10.134 B541：静态类型身份与模型已证 operation 精确合取
+
+已补齐跨语言声明类型载体和三个 coverage 消费面。静态类型只能在同文件、精确 binding segment、兼容 declared type、同 declaration/callable owner 的
+严格合取下，把业务 participant 对齐到模型已经发射且可引用的 operation endpoint；不改变 relation kind、direction、subject/object 或 source。
+definition-only、动态/无类型、歧义、错文件、错 owner 和 runtime artifact 全部 fail-closed，系统不铸边、不绘图、不改答案。
+
+受影响 extractor cache epoch 全量 bump；全部支持语言的 member matrix 明确固定 typed/untyped 行为。Explorer completion、Finalizer soft checklist、
+AnswerDocument hard participant coverage 共享一个 types-level 谓词，避免三面语义漂移。相关 types/repomap/index/tool/agent/skill/tracediag/context/orchestrator
+套件全绿；Trace intent/root-cause 继续由独立 typed causal authority 处理。
+
+状态：`B541=implemented/pending-r321`；`model-edge-authorship=preserved`；`cross-language=explicit-static-type-only`；
+`trace-window/projection/autofill=unchanged`；`four-minute-active-stream-degrade=forbidden`。

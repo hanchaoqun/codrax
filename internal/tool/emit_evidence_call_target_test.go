@@ -79,6 +79,68 @@ func TestNormalizeCallbackHandoffEvidenceConsumesPromptPreReadAuthority(t *testi
 	}
 }
 
+func TestStampEvidenceTypedIdentityBindingsUsesExactParserDeclarations(t *testing.T) {
+	const source = "src/pipeline.go"
+	graph := callTargetTestGraph(&repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "applyStageOutput", Kind: "method", Parent: "Orchestrator", Line: 10, EndLine: 30},
+		},
+	})
+	gc := &ground.Context{Graph: graph}
+	declaration := types.EvidenceItem{
+		Kind: types.EvidenceDirect, Subject: "busCtx", Source: source, LineStart: 5,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "busCtx",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if !stampEvidenceTypedIdentityBindings(&declaration, gc) {
+		t.Fatal("exact typed declaration should stamp identity metadata")
+	}
+	if declaration.DeclaredBinding != "Orchestrator.busCtx" || declaration.DeclaredType != "*types.BusContext" || declaration.DeclaredOwner != "Orchestrator" {
+		t.Fatalf("unexpected declaration identity metadata: %+v", declaration)
+	}
+
+	operation := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems", Object: "output.EvidenceItems",
+		Source: source, LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if !stampEvidenceTypedIdentityBindings(&operation, gc) || operation.OwnerIdentity != "Orchestrator.applyStageOutput" {
+		t.Fatalf("operation should carry its exact parser-owned callable identity: %+v", operation)
+	}
+	if operation.DeclaredBinding != "" || operation.DeclaredType != "" {
+		t.Fatalf("an operation must not inherit declaration identity directly: %+v", operation)
+	}
+}
+
+func TestStampEvidenceTypedIdentityBindingsFailsClosedOnAmbiguousOrUntypedDeclaration(t *testing.T) {
+	const source = "src/pipeline.go"
+	for _, tc := range []struct {
+		name    string
+		symbols []repomap.Symbol
+	}{
+		{name: "untyped", symbols: []repomap.Symbol{{Name: "busCtx", Kind: "field", Parent: "Orchestrator", Line: 5, EndLine: 5}}},
+		{name: "ambiguous", symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Left", DeclaredType: "BusContext", Line: 5, EndLine: 5},
+			{Name: "busCtx", Kind: "field", Parent: "Right", DeclaredType: "BusContext", Line: 5, EndLine: 5},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gc := &ground.Context{Graph: callTargetTestGraph(&repomap.FileInfo{RelPath: source, Language: repomap.LangGo, Symbols: tc.symbols})}
+			item := types.EvidenceItem{
+				Kind: types.EvidenceDirect, Subject: "busCtx", Source: source, LineStart: 5,
+				Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "busCtx",
+				GroundingStatus: types.GroundingGrounded,
+			}
+			stampEvidenceTypedIdentityBindings(&item, gc)
+			if item.DeclaredBinding != "" || item.DeclaredType != "" || item.DeclaredOwner != "" {
+				t.Fatalf("%s declaration must not publish a typed alias: %+v", tc.name, item)
+			}
+		})
+	}
+}
+
 func TestNormalizeCallEvidenceDirectionPrefersResolvedSemanticCallee(t *testing.T) {
 	caller := &repomap.FileInfo{
 		RelPath: "VisitController.java", Language: repomap.LangJava, Package: "com.clinic",

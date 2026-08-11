@@ -3492,7 +3492,9 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 				if types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Subject) ||
 					types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Object) ||
 					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Subject) ||
-					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Object) {
+					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Object) ||
+					types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, operation.Subject, operation, evidence) ||
+					types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, operation.Object, operation, evidence) {
 					covered = true
 					break
 				}

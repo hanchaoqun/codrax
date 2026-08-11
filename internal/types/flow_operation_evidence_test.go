@@ -93,3 +93,55 @@ func TestExplorerAuthoredFlowOperationEvidenceExcludesDeterministicExpansion(t *
 		t.Fatalf("principal operation scope must retain only Explorer-selected rows: %+v", got)
 	}
 }
+
+func TestAnswerCodeIdentityIncidentViaDeclaredBindingRequiresExactTypedJoin(t *testing.T) {
+	declaration := EvidenceItem{
+		Source: "src/pipeline.go", LineStart: 5, Scope: ScopeLine,
+		GroundingStatus: GroundingGrounded, AnchorKind: AnchorDefinition,
+		DeclaredBinding: "Orchestrator.busCtx", DeclaredType: "*types.BusContext", DeclaredOwner: "Orchestrator",
+	}
+	operation := EvidenceItem{
+		Source: "src/pipeline.go", LineStart: 20, Scope: ScopeLine,
+		GroundingStatus: GroundingGrounded, AnchorKind: AnchorAssignment,
+		Subject: "o.busCtx.EvidenceItems", Object: "output.EvidenceItems",
+		Snippet:       "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+	}
+	if !AnswerCodeIdentityIncidentViaDeclaredBinding("BusContext", operation.Subject, operation, []EvidenceItem{declaration, operation}) {
+		t.Fatal("exact static type, binding segment, source, and owner should align participant identity")
+	}
+	for _, tc := range []struct {
+		name        string
+		participant string
+		endpoint    string
+		declaration EvidenceItem
+		operation   EvidenceItem
+	}{
+		{name: "different type", participant: "OtherContext", endpoint: operation.Subject, declaration: declaration, operation: operation},
+		{name: "different binding", participant: "BusContext", endpoint: "o.other.EvidenceItems", declaration: declaration, operation: operation},
+		{name: "different owner", participant: "BusContext", endpoint: operation.Subject, declaration: declaration, operation: func() EvidenceItem { got := operation; got.OwnerIdentity = "Worker.apply"; return got }()},
+		{name: "different file", participant: "BusContext", endpoint: operation.Subject, declaration: declaration, operation: func() EvidenceItem { got := operation; got.Source = "src/other.go"; return got }()},
+		{name: "untyped declaration", participant: "BusContext", endpoint: operation.Subject, declaration: func() EvidenceItem { got := declaration; got.DeclaredType = ""; return got }(), operation: operation},
+		{name: "runtime declaration", participant: "BusContext", endpoint: operation.Subject, declaration: func() EvidenceItem { got := declaration; got.Source = "trace.systrace"; return got }(), operation: func() EvidenceItem { got := operation; got.Source = "trace.systrace"; return got }()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if AnswerCodeIdentityIncidentViaDeclaredBinding(tc.participant, tc.endpoint, tc.operation, []EvidenceItem{tc.declaration, tc.operation}) {
+				t.Fatal("incomplete or mismatched join must fail closed")
+			}
+		})
+	}
+}
+
+func TestDeclaredBindingDefinitionAloneNeverBecomesFlowOperation(t *testing.T) {
+	declaration := EvidenceItem{
+		Source: "src/pipeline.go", LineStart: 5, Scope: ScopeLine,
+		GroundingStatus: GroundingGrounded, AnchorKind: AnchorDefinition,
+		DeclaredBinding: "Orchestrator.busCtx", DeclaredType: "BusContext", DeclaredOwner: "Orchestrator",
+	}
+	if got := FlowOperationEvidence([]EvidenceItem{declaration}); len(got) != 0 {
+		t.Fatalf("static declaration must never mint a flow operation: %+v", got)
+	}
+	if AnswerCodeIdentityIncidentViaDeclaredBinding("BusContext", "o.busCtx.Items", declaration, []EvidenceItem{declaration}) {
+		t.Fatal("a declaration cannot serve as its own operation authority")
+	}
+}

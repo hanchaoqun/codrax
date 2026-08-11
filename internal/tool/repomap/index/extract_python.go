@@ -286,14 +286,19 @@ func pyExtractClassField(node *sitter.Node, src []byte, file, parent string) (ty
 	if name == "" {
 		return types.Symbol{}, false
 	}
+	declaredType := ""
+	if typeNode := assign.ChildByFieldName("type"); typeNode != nil {
+		declaredType = strings.TrimSpace(nodeText(typeNode, src))
+	}
 	return types.Symbol{
-		Name:     name,
-		Kind:     "field",
-		File:     file,
-		Line:     nodeLine(assign),
-		EndLine:  nodeEndLine(assign),
-		Exported: !strings.HasPrefix(name, "_"),
-		Parent:   parent,
+		Name:         name,
+		Kind:         "field",
+		File:         file,
+		Line:         nodeLine(assign),
+		EndLine:      nodeEndLine(assign),
+		Exported:     !strings.HasPrefix(name, "_"),
+		Parent:       parent,
+		DeclaredType: declaredType,
 	}, true
 }
 

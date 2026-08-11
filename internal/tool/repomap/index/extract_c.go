@@ -295,6 +295,10 @@ func cExtractFieldDeclarators(node *sitter.Node, src []byte, file string, isHead
 		return nil
 	}
 	var out []types.Symbol
+	declaredType := cDeclaredTypeName(node.ChildByFieldName("type"), src)
+	if declaredType == "" {
+		declaredType = cDeclaredTypeName(node, src)
+	}
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		ch := node.NamedChild(i)
 		if ch.Type() == "function_declarator" || ch.Type() == "struct_specifier" ||
@@ -307,14 +311,15 @@ func cExtractFieldDeclarators(node *sitter.Node, src []byte, file string, isHead
 			continue
 		}
 		out = append(out, types.Symbol{
-			Name:      name,
-			Kind:      "field",
-			File:      file,
-			Line:      nodeLine(node),
-			EndLine:   nodeEndLine(node),
-			Exported:  isHeader,
-			Parent:    parent,
-			Signature: strings.TrimSpace(nodeText(node, src)),
+			Name:         name,
+			Kind:         "field",
+			File:         file,
+			Line:         nodeLine(node),
+			EndLine:      nodeEndLine(node),
+			Exported:     isHeader,
+			Parent:       parent,
+			Signature:    strings.TrimSpace(nodeText(node, src)),
+			DeclaredType: declaredType,
 		})
 	}
 	return out

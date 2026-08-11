@@ -253,6 +253,12 @@ func jsExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 						EndLine: nodeEndLine(member),
 						Parent:  name,
 						Arity:   arity,
+						DeclaredType: func() string {
+							if kind != "field" {
+								return ""
+							}
+							return jsDeclaredTypeName(member.ChildByFieldName("type"), src)
+						}(),
 					})
 				}
 			}
@@ -350,12 +356,13 @@ func jsExtractInterface(node *sitter.Node, src []byte, file string) []types.Symb
 					continue
 				}
 				out = append(out, types.Symbol{
-					Name:    nodeText(mn, src),
-					Kind:    "field",
-					File:    file,
-					Line:    nodeLine(member),
-					EndLine: nodeEndLine(member),
-					Parent:  ifaceName,
+					Name:         nodeText(mn, src),
+					Kind:         "field",
+					File:         file,
+					Line:         nodeLine(member),
+					EndLine:      nodeEndLine(member),
+					Parent:       ifaceName,
+					DeclaredType: jsDeclaredTypeName(member.ChildByFieldName("type"), src),
 				})
 			}
 		}

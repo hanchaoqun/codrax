@@ -233,7 +233,7 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 				continue
 			}
 			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
-			if diagramParticipantIncidentEndpointMatches(surfaces, from) || diagramParticipantIncidentEndpointMatches(surfaces, to) {
+			if diagramParticipantIncidentEndpointMatches(surfaces, from, evidence) || diagramParticipantIncidentEndpointMatches(surfaces, to, evidence) {
 				return true
 			}
 			if relations[types.DiagramRelPrecedence] && diagramParticipantHasVerifiedStageIncident(
@@ -255,13 +255,22 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 // helper only reconciles the broader participant display layer. Keep it out of
 // boundary-node visibility checks, where a method label must not impersonate a
 // missing disconnected participant node.
-func diagramParticipantIncidentEndpointMatches(surfaces []string, endpoint string) bool {
+func diagramParticipantIncidentEndpointMatches(surfaces []string, endpoint string, evidence []types.EvidenceItem) bool {
 	if diagramParticipantSurfaceMatches(surfaces, endpoint) {
 		return true
 	}
 	for _, surface := range surfaces {
 		if types.AnswerCodeIdentityOwnsEndpoint(surface, endpoint) {
 			return true
+		}
+		for _, operation := range types.FlowOperationEvidence(evidence) {
+			if !types.AnswerCodeIdentitySurfacesEquivalent(endpoint, operation.Subject) &&
+				!types.AnswerCodeIdentitySurfacesEquivalent(endpoint, operation.Object) {
+				continue
+			}
+			if types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, endpoint, operation, evidence) {
+				return true
+			}
 		}
 	}
 	return false

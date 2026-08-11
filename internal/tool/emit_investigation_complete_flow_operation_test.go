@@ -546,6 +546,30 @@ func TestFlowParticipantCoverageTreatsExactReceiverOperationAsParticipantInciden
 	}
 }
 
+func TestFlowParticipantCoverageUsesExactStaticDeclaredBindingWithoutMintingEdge(t *testing.T) {
+	declaration := flowOperationEvidence(types.AnchorDefinition, "busCtx", "busCtx", 5)
+	declaration.DeclaredBinding = "Orchestrator.busCtx"
+	declaration.DeclaredType = "*types.BusContext"
+	declaration.DeclaredOwner = "Orchestrator"
+	operation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
+	operation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"
+	operation.OwnerIdentity = "Orchestrator.applyStageOutput"
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{declaration, operation})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"BusContext"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("exact declared binding should cover its typed participant without minting an edge: %v", got)
+	}
+	if got := types.FlowOperationEvidence(ctx.Mutable.EmittedEvidence()); len(got) != 1 || got[0].LineStart != operation.LineStart {
+		t.Fatalf("declaration must remain outside operation authority: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageNoProgressConverges(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

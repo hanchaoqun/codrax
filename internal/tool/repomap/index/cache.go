@@ -227,21 +227,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         7, // local block shadowing bounds receiver identity
-	types.LangJava:       7, // nested block and declaration-order receiver authority
-	types.LangPython:     8, // static decorator selector applications retain typed roles
-	types.LangJavaScript: 6, // named-class self and imported/new constructor receiver authority
-	types.LangTypeScript: 8, // named-class self and imported/new constructor receiver authority
-	types.LangArkTS:      8, // named-class self and imported/new constructor authority via extractJS
-	types.LangCangjie:    5, // token receiver identities are brace-scope bounded
-	types.LangKotlin:     7, // nested lambda/block receiver authority
+	types.LangGo:         8, // field symbols carry parser-owned declared types
+	types.LangJava:       8, // field symbols carry parser-owned declared types
+	types.LangPython:     9, // annotated class fields carry parser-owned declared types
+	types.LangJavaScript: 7, // typed class fields carry parser-owned declared types when present
+	types.LangTypeScript: 9, // field/property symbols carry parser-owned declared types
+	types.LangArkTS:      9, // state/field symbols carry parser-owned declared types via extractJS
+	types.LangCangjie:    6, // field symbols carry parser-owned declared types
+	types.LangKotlin:     8, // property symbols carry parser-owned declared types
 	types.LangRuby:       4, // receiver-aware call identities
-	types.LangSwift:      6, // nested closure/block receiver authority
+	types.LangSwift:      7, // property symbols carry parser-owned declared types
 	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
-	types.LangProto:      2,
-	types.LangRust:       7, // inline-module callable identity and scoped-path resolution
-	types.LangC:          5, // block-local declarations shadow parameter receiver identity
-	types.LangCpp:        6, // class fields carry parser-owned static receiver identity
+	types.LangProto:      3, // message fields carry parser-owned declared types
+	types.LangRust:       8, // struct fields carry parser-owned declared types
+	types.LangC:          6, // struct fields carry parser-owned declared types
+	types.LangCpp:        7, // class fields carry parser-owned declared types
 }
 
 type cacheFileInfosManifest struct {

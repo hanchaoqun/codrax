@@ -368,6 +368,46 @@ func TestMechanismRelationAuthorityMapsExactOperationOwnerToTypedParticipantAA3(
 	}
 }
 
+func TestMechanismRelationAuthorityMapsExactStaticBindingToTypedParticipantAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{{
+				Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+			}}},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "bus-context-declaration", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceDirect, Subject: "busCtx", Source: "internal/orchestrator/orchestrator.go", LineStart: 55,
+				AnchorKind: types.AnchorDefinition, AnchorSymbol: "busCtx", Scope: types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded, DeclaredBinding: "Orchestrator.busCtx",
+				DeclaredType: "*types.BusContext", DeclaredOwner: "Orchestrator",
+			},
+			{
+				ID: "bus-context-write", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems", Predicate: "assigns", Object: "output.EvidenceItems",
+				Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
+				AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+				OwnerIdentity: "Orchestrator.applyStageOutput",
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "typed_named_participant_relation_coverage: incident=[BusContext]; no_incident_typed_relation=[]") {
+		t.Fatalf("exact static binding did not cover its typed participant:\n%s", got)
+	}
+	for _, want := range []string{"parser-stamped static declaration", "identity-only", "do not turn the declaration into an edge", "Untyped, ambiguous, or differently-owned bindings remain unproven"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("declared-binding authority boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

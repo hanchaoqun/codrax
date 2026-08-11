@@ -6986,6 +6986,10 @@ type answerDocMechanismRelationEdge struct {
 	// components, or change validation authority. The first producer is the
 	// checkout-verified read-mode stage sequence.
 	requestSpine bool
+	// sourceItem is the existing citable model-selected operation behind this
+	// recipe. It is retained only for participant/type identity projection; it
+	// never changes the edge relation or endpoints.
+	sourceItem types.EvidenceItem
 }
 
 type answerDocMechanismAliasRow struct {
@@ -7077,10 +7081,11 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 		seenEdges[key] = true
 		edges = append(edges, answerDocMechanismRelationEdge{
-			from:     from,
-			to:       to,
-			relation: relation,
-			loc:      item.DisplayLocation(true),
+			from:       from,
+			to:         to,
+			relation:   relation,
+			loc:        item.DisplayLocation(true),
+			sourceItem: item,
 		})
 	}
 	acceptedFacts += len(stagePrecedence)
@@ -7101,7 +7106,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	fmt.Fprintf(&b,
 		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), status)
-	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges)
+	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
 			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",

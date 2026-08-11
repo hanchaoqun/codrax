@@ -84,3 +84,62 @@ func ExplorerAuthoredFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm
 	}
 	return out
 }
+
+// AnswerCodeIdentityIncidentViaDeclaredBinding aligns a user-facing static
+// type participant with an exact operation endpoint through a parser-stamped
+// declaration row. It is an identity/coverage bridge only: operation remains
+// the sole authority for relation kind, direction, endpoints, and source line.
+//
+// The join is deliberately strict. The declaration and operation must be in
+// the same source file; the endpoint must contain the exact declared binding;
+// and a member declaration must belong to the same typed callable owner as the
+// operation. Dynamic/untyped/ambiguous declarations publish no DeclaredType
+// and therefore fail closed.
+func AnswerCodeIdentityIncidentViaDeclaredBinding(participant, endpoint string, operation EvidenceItem, evidence []EvidenceItem) bool {
+	participant = strings.TrimSpace(participant)
+	endpointSegments := answerCodeIdentitySegments(endpoint)
+	if participant == "" || len(endpointSegments) == 0 || !operation.IsCitable() {
+		return false
+	}
+	operationSource := strings.TrimSpace(strings.ReplaceAll(operation.Source, `\`, "/"))
+	operationOwner := strings.TrimSpace(operation.OwnerIdentity)
+	if operationOwner == "" {
+		operationOwner = strings.TrimSpace(operation.OwnerSymbol)
+	}
+	for _, declaration := range evidence {
+		if !declaration.IsCitable() || declaration.AnchorKind != AnchorDefinition ||
+			strings.TrimSpace(declaration.DeclaredBinding) == "" ||
+			strings.TrimSpace(declaration.DeclaredType) == "" {
+			continue
+		}
+		declarationSource := strings.TrimSpace(strings.ReplaceAll(declaration.Source, `\`, "/"))
+		if declarationSource == "" || declarationSource != operationSource ||
+			RuntimeArtifactPathKind(declaration.Source) != "" {
+			continue
+		}
+		if !AnswerCodeIdentitySurfacesCompatible(participant, declaration.DeclaredType) {
+			continue
+		}
+		bindingSegments := answerCodeIdentitySegments(declaration.DeclaredBinding)
+		if len(bindingSegments) == 0 || !answerCodeIdentityContainsSegment(endpointSegments, bindingSegments[len(bindingSegments)-1]) {
+			continue
+		}
+		declaredOwner := strings.TrimSpace(declaration.DeclaredOwner)
+		if declaredOwner != "" && (operationOwner == "" ||
+			(!AnswerCodeIdentityOwnsEndpoint(declaredOwner, operationOwner) &&
+				!AnswerCodeIdentitySurfacesCompatible(declaredOwner, operationOwner))) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func answerCodeIdentityContainsSegment(segments []string, want string) bool {
+	for _, segment := range segments {
+		if segment == want {
+			return true
+		}
+	}
+	return false
+}

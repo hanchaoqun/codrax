@@ -32646,3 +32646,25 @@ Trace 案保留显式 5.000..5.007s 窗、因果投影、自动补齐、链上 V
 
 状态：`B540b=production-positive`；`B541=production-confirmed/next`；`trace-core=pass`；
 `trace-prose-caliber=watch/soft-only`；`B517=no-system-degrade@450s`；`runner=2/2`；`human=0.5/2`。
+
+### 123.594 B541：跨语言静态声明类型只做 participant 身份桥，不取得关系权
+
+已按 r320 冻结边界实现。repomap 的 `Symbol` 新增 parser-owned `declared_type`，Go、Java、Python 显式注解、JavaScript/TypeScript、ArkTS、
+Cangjie、Kotlin、Swift、Rust、C/C++、Proto 的字段/属性载体同步发布精确静态类型；Ruby、Lua、无注解 Python/JavaScript 以及歧义声明继续为空并
+fail-closed。所有受影响语言 cache epoch 已提升，避免暖缓存保留旧语义。
+
+grounded definition 只把声明的 owner、binding 和 type 写入 system-authored identity metadata；grounded operation 只把 parser-owned enclosing
+callable 写入 owner identity。participant coverage 仅在同源文件、精确 binding segment、兼容 declared type、同 declared/callable owner 四项同时
+成立时，把业务类型 participant 视为已被原 operation 触达。原 operation EvidenceItem 继续独占 relation kind、direction、subject/object、source line；
+definition 不进入 `FlowOperationEvidence`，不能单独或与近似名字共同铸 edge。
+
+Explorer completion、Finalizer soft relation checklist、AnswerDocument diagram participant coverage 三个消费面共用同一严格谓词。正反 pin 覆盖
+`BusContext -> o.busCtx.EvidenceItems` 精确正臂，以及错类型、错 binding、错 owner、错文件、无类型、runtime artifact、歧义声明、definition-only
+反臂；另固定 operation 技术 endpoint/方向不被业务标签重写。跨语言 member matrix、types、repomap/index、tool、agent、skill、tracediag、context、
+orchestrator 全量测试通过。
+
+该批不扫描用户、模型或最终答案 prose，不生成图、不补边、不改答案；不进入 Trace intent/root-cause lane，因此显式时间窗、自动补齐、因果投影、
+链上根因和实际占用/规则可消双轴保持原权威。活动流超过四分钟仍不构成降级条件；只有真实无进展/终止才能重试、恢复已有模型草稿或 fail-loud，且须披露。
+
+状态：`B541=implemented/full-relevant-suite-pass/pending-r321`；`relation-authority=operation-only`；
+`dynamic-or-untyped=fail-closed`；`trace-authority=unchanged`；`active-stream-four-minute-degrade=forbidden`。

@@ -237,14 +237,15 @@ func rustExtractStruct(node *sitter.Node, src []byte, file string) []types.Symbo
 			signature = strings.TrimSpace(nodeText(typeNode, src))
 		}
 		out = append(out, types.Symbol{
-			Name:      fieldName,
-			Kind:      "field",
-			File:      file,
-			Line:      nodeLine(field),
-			EndLine:   nodeEndLine(field),
-			Exported:  rustIsPublic(field, src),
-			Parent:    name,
-			Signature: signature,
+			Name:         fieldName,
+			Kind:         "field",
+			File:         file,
+			Line:         nodeLine(field),
+			EndLine:      nodeEndLine(field),
+			Exported:     rustIsPublic(field, src),
+			Parent:       name,
+			Signature:    signature,
+			DeclaredType: signature,
 		})
 	}
 	return out

@@ -651,7 +651,15 @@ type EvidenceItem struct {
 	AnchorKind   AnchorKind `json:"anchor_kind,omitempty"`
 	AnchorSymbol string     `json:"anchor_symbol,omitempty"`
 	OwnerSymbol  string     `json:"owner_symbol,omitempty"`
-	Snippet      string     `json:"snippet,omitempty"`
+	// OwnerIdentity and the declared-binding fields are system-authored after
+	// grounding from parser-owned symbols. They are not accepted by the
+	// emit_evidence input schema. They support identity/coverage alignment only
+	// and never authorize a relation kind, direction, or endpoint.
+	OwnerIdentity   string `json:"owner_identity,omitempty"`
+	DeclaredBinding string `json:"declared_binding,omitempty"`
+	DeclaredType    string `json:"declared_type,omitempty"`
+	DeclaredOwner   string `json:"declared_owner,omitempty"`
+	Snippet         string `json:"snippet,omitempty"`
 
 	// Grounding output: filled by the grounder. Downstream renderers
 	// branch on GroundingStatus; Tier and Note are human-readable.
