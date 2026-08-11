@@ -1741,6 +1741,33 @@ func TestEmitAnswerDocumentPatch_RepairsSingletonArrayShapes(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RejectsHeaderOnlyTable(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "lead"}},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "stages",
+			"kind": "table",
+			"columns": ["Stage", "输入", "输出", "主要状态载体"]
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("patch must not add a header-only table: %+v", bus.Mutable.AnswerDocumentV2())
+	}
+	for _, want := range []string{"add_blocks[0]", "kind=table has no visible rows", "items[] row"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("patch repair summary missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RepairsTopLevelSingletonArrayShapes(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

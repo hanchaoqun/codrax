@@ -198,31 +198,45 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 }
 
 // validateEmitAnswerStructuredTableRows keeps the JSON teaching and the
-// renderer's two supported structured-table conventions aligned.  A row may
-// either put every visible value in cells[] (no label), or use label as its
-// first visible value and put the remaining values in cells[] / text.  In the
-// latter form columns[] may include the label header or omit it (the renderer
-// then adds a neutral Item/项目 header).  What is never meaningful is declaring
-// several columns while emitting only one visible value: the renderer has no
-// model-authored value for the missing dimensions and used to compact those
-// headers away silently.
+// renderer's supported table conventions aligned. A table must first own one
+// visible table payload: either a complete Markdown table or at least one
+// visible model-authored row. Columns without rows are not a table — the
+// renderer intentionally emits no header-only artifact, so accepting that
+// shape would let a required table count as present and then disappear from
+// the user-visible answer. A structured row may put every visible value in
+// cells[] (no label), or use label as its first visible value and put the
+// remaining values in cells[] / text. In the latter form columns[] may include
+// the label header or omit it (the renderer then adds a neutral Item/项目
+// header). What is never meaningful is declaring several columns while
+// emitting only one visible value: the renderer has no model-authored value
+// for the missing dimensions and used to compact those headers away silently.
 //
 // This is a pure carrier-shape check.  It reads no user text, block title,
 // header vocabulary, item prose, or answer semantics, and it never fills a
 // model-authored cell.
 func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath string) error {
-	if block.Kind != types.BlockTable ||
-		types.AnswerTextLooksLikeMarkdownTable(block.Text) ||
-		len(block.Columns) == 0 || len(block.Items) == 0 {
+	if block.Kind != types.BlockTable {
 		return nil
 	}
+	if types.AnswerTextLooksLikeMarkdownTable(block.Text) {
+		return nil
+	}
+	visibleRows := 0
 	for idx, item := range block.Items {
+		if types.AnswerTextLooksLikeMarkdownTable(item.Label) ||
+			types.AnswerTextLooksLikeMarkdownTable(item.Text) {
+			return nil
+		}
 		labelPresent := strings.TrimSpace(item.Label) != ""
 		cells := normalizeTableStringSlice(item.Cells)
 		if text := strings.TrimSpace(item.Text); text != "" && !tableRowCellsContain(cells, text) {
 			cells = append(cells, text)
 		}
 		if !labelPresent && len(cells) == 0 {
+			continue
+		}
+		visibleRows++
+		if len(block.Columns) == 0 {
 			continue
 		}
 		valid := len(cells) == len(block.Columns)
@@ -234,6 +248,9 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		}
 		return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s); use either cells[] with one value per column and no label, or label as the first visible value plus cells[]/text for every remaining column (columns[] may omit only the synthetic label header)",
 			fieldPath, idx, len(cells), len(block.Columns))
+	}
+	if visibleRows == 0 {
+		return fmt.Errorf("%s: kind=table has no visible rows; emit a complete Markdown table in block.text or add at least one model-authored items[] row (label/text for a two-column table, or cells[] matching columns[]); if this table is optional, remove the empty block instead of emitting headers without values", fieldPath)
 	}
 	return nil
 }

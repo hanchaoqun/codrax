@@ -1408,6 +1408,29 @@ func TestEmitAnswerDocumentV2_AcceptsStructuredTableColumnsCells(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectsHeaderOnlyTable(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "Hello"},
+			{"id": "t1", "kind": "table", "columns": ["Stage", "输入", "输出", "主要状态载体"]}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("header-only table must not persist as a completed answer block: %+v", bus.Mutable.AnswerDocumentV2())
+	}
+	for _, want := range []string{"blocks[1]", "kind=table has no visible rows", "items[] row"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("repair summary missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentV2_QuarantinesUnknownSchemaMetadata(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

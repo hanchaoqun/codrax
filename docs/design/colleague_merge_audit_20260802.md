@@ -3753,3 +3753,12 @@ renderer 将其静默渲染为空。`B510-E-EMPTYTABLE1` 应在 full/patch 共�
 
 状态：`B510-A4=production-closed`；`B510-E=P1-high/next`；`B510-F=P2-open`；
 `system-edge/table/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.90 B510-E：table kind、可见 payload 与 renderer 完成态对齐
+
+共用 block normalizer 已拒绝无有效 Markdown table 且无任一可见 row 的 `kind=table`，full/patch 两车道同源；合法 Markdown、fallback row 和 structured
+cells 保持通过。修复路径只包含原 block/items JSON path，系统不补表、不改列、不接管模型答案。核心六包全绿，下一轮 exact-two 验证 Finalizer 能否保住用户要求的
+stage/input/output/carrier 表，同时观察成文重试是否下降。
+
+状态：`B510-E=implemented/pending-r302`；`B510-F=P2-open`；`system-table/answer-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。

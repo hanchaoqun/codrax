@@ -31853,3 +31853,16 @@ projection、自动补齐、链上主因/优先级反转/调度与算力供给/D
 
 状态：`B510-A4=production-closed`；`B510-E=P1-high/next`；`B510-F=P2-open`；
 `B510-D/B513=open`；`runner=2/2,human=1/2`；`system-answer/relation-authoring=none`；`hard-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.546 B510-E：不可渲染的空 table 不再冒充已完成输出面
+
+full emit 与 patch 共用的 `NormalizeEmitAnswerBlock` 现在对 `kind=table` 执行单一载体不变量：完整 Markdown table 直接通过；否则至少需要一条可见
+`items[]` row。只有 columns、intro prose 或 citation-only/全空 items 的表会在原 JSON path 失败，并明确要求补 model-authored row 或删除 optional 空块。
+多列 row 的原宽度校验保持不变，Markdown、label/text 两列 fallback、cells structured 三种合法载体均有正向 pin。
+
+该修复只读 block kind/text/items/columns，不读取用户请求、Analyzer rationale、模型思考或最终 prose，不知道列名语义，也不生成任何 row/cell。因此它关闭的是
+“结构上不可见却被 kind-count 当完成”的一类载体漏洞，不是为 pipeline case 硬拟合。full/patch e2e 负 pin 与核心六包全绿：tool 168.432s、types 21.838s、
+agent 12.691s、orchestrator 12.815s、tracediag 7.451s、stageauthority 2.896s。
+
+状态：`B510-E=implemented/package-suites-pass/pending-r302`；`B510-F=P2-open`；`B510-D/B513=open`；
+`system-table/answer-authoring=none`；`hard-request/model/final-prose-scan=none`；Trace families=`unchanged`。

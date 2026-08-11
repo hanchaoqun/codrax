@@ -132,6 +132,63 @@ func TestNormalizeEmitAnswerBlock_RejectsDeclaredMultiColumnRowWithoutValues(t *
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RejectsTableWithoutVisibleRows(t *testing.T) {
+	for _, raw := range []emitAnswerBlockV2{
+		{
+			ID:      "headers-only",
+			Kind:    string(types.BlockTable),
+			Columns: []string{"Stage", "输入", "输出", "主要状态载体"},
+		},
+		{
+			ID:   "intro-only",
+			Kind: string(types.BlockTable),
+			Text: "各阶段输入、输出与状态载体如下。",
+			Items: []emitAnswerBlockItemV2{{
+				ID: "citation-sidecar", CitationRef: flexIntPtr(0),
+			}},
+		},
+	} {
+		_, err := NormalizeEmitAnswerBlock(raw, "blocks[6]")
+		if err == nil {
+			t.Fatalf("table %s without a visible row must be rejected", raw.ID)
+		}
+		for _, want := range []string{"blocks[6]", "kind=table has no visible rows", "items[] row"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("table %s error missing %q: %v", raw.ID, want, err)
+			}
+		}
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_AcceptsEachVisibleTableCarrier(t *testing.T) {
+	for _, raw := range []emitAnswerBlockV2{
+		{
+			ID:   "markdown",
+			Kind: string(types.BlockTable),
+			Text: "| Stage | 输入 |\n|---|---|\n| analyze | request |",
+		},
+		{
+			ID:   "fallback-row",
+			Kind: string(types.BlockTable),
+			Items: []emitAnswerBlockItemV2{{
+				ID: "analyze", Label: "analyze", Text: "request -> AnalysisIR",
+			}},
+		},
+		{
+			ID:      "structured-row",
+			Kind:    string(types.BlockTable),
+			Columns: []string{"Stage", "输入"},
+			Items: []emitAnswerBlockItemV2{{
+				ID: "analyze", Cells: []string{"analyze", "request"},
+			}},
+		},
+	} {
+		if _, err := NormalizeEmitAnswerBlock(raw, "blocks[0]"); err != nil {
+			t.Fatalf("visible table carrier %s was rejected: %v", raw.ID, err)
+		}
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_AcceptsBothStructuredTableRowConventions(t *testing.T) {
 	for _, raw := range []emitAnswerBlockV2{
 		{
