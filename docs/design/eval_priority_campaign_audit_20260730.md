@@ -32019,3 +32019,34 @@ implemented/pending production replay，不再重复造第二套修补器。
 
 状态：`B510-D=implemented/package-suite-pass/pending-production-replay`；`B510-F=implementation-confirmed/pending-production-replay`；
 `system-diagram/relation-authoring=none`；`hard-request/model/final-prose-scan=none`；Trace explicit-window/auto-supplement/on-chain roots=`unchanged`。
+
+### 123.555 r304：B516 生产关闭；图的局部修补教学覆盖了全局业务表达指导
+
+`main@0c8fb1929` exact-two runner 2/2 PASS，人工 1/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_cangjie_r304_20260811_manual_audit.md`。Cangjie 最终稳定输出 2 个 extend、2 个 foreign func、8 个
+public class，并明确后者包含 sealed/abstract；B516 的 typed `selection_family` 与 model-owned `display_group` 分权获得生产正证，旧三面矛盾消失，记
+`production-closed`。唯一成文拒绝是模型首稿 table width 错误，现有 JSON 结构教学一次修正，未降级。
+
+pipeline 的 exact 5 call + 3 precedence 关系、四阶段表与两段不连通边界均保住，B510-F 获生产正证；但最终 Mermaid 仍把 `calls`、`precedence`、Go
+函数名与源码行号作为主要可见文案，人工判 FAIL。日志证明初始 Finalizer prompt 已包含 `USER-FACING DISPLAY LAYER` 与 checkout-verified stage
+responsibility，因此不是信息缺失，也不能归为随机模型波动。确定性根因是同轮局部 relation-boundary repair 要求 exact `node_alias` identity 成为第一可见标签，并在
+每条 recipe 后紧贴 relation enum 与 source location；局部修补合同覆盖了较早的业务表达指导，构成 JSON/diagram 教学自冲突。
+
+另立 `B519-CITATIONDETACH1/P1-observe`：3 个错误 `citation_ref` 被 fail-soft 安全剥离后，对应 item 断言正文仍原样保留。剥离防止错引是正确的，但当前没有 typed
+handoff 要求模型重新引用、收窄或删除该局部断言；该项独立于图层修补，后续按“局部 claim support 状态”泛化处理，禁止扫描最终 prose 或由系统改写断言。
+
+状态：`B516=production-closed`；`B510-F=production-positive`；`B510-D=production-negative`；`B518=next`；
+`B519=P1-observe`；`runner=2/2`；`human=1/2`；Trace families=`unchanged`。
+
+### 123.556 B518：diagram repair 的 evidence identity 与可见业务文案同轮分权
+
+完成 `B518-LOCALDISPLAY1/P1`。初始 capsule、optional diagram repair、required exact-capsule repair 与 required relation-boundary repair 统一为同一规则：exact Mermaid
+node ID、端点方向/拓扑及 `edge_anchors` 保持不变；可见 node label、message/edge label、Note 仍由模型使用用户/domain 语言成文，技术 identity 仅可作为次级标签。
+`relation_kind`、`claim_form`、recipe index、validator 词与 source location 明确只属于 evidence metadata，不再被局部修补回合推荐为主文案。
+
+同时删除与全局规则冲突的“exact identity 作为第一可见标签”“Mermaid body byte-for-byte 不变”教学；证据 skeleton 只冻结 node ID、边集合/方向及 anchor，允许模型只改
+展示词，不得借展示改动新增、删除、反转或重连关系。该规则为 soft prompt guidance，不读用户原文、模型推理或最终答案，不增加 prose hard gate，也不由系统生成业务
+标签、关系或结论。相关 exact-capsule、boundary、optional 三车道回归已补，`go test ./internal/agent` 全量通过。
+
+状态：`B518=implemented/agent-suite-pass/pending-r305`；`model-visible-copy-ownership=preserved`；
+`exact-relation-authority=unchanged`；Trace explicit-window/auto-supplement/on-chain roots=`unchanged`。

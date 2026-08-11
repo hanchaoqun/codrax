@@ -3856,3 +3856,23 @@ Principal Enumeration Rows、Required Principal Member Set、pre-emit obligation
 
 全 `AllDiagramKinds()`、read-stage 双层表达、prompt hygiene 回归通过。状态：`B510-D=implemented`；`B510-F=implementation-confirmed`；
 `model-diagram-authorship=preserved`；Trace=`unchanged`。
+
+#### §11.10.99 r304：业务图层未闭环，局部 relation repair 教学自冲突获实证
+
+exact-two runner 2/2、人工 1/2。Cangjie 的 typed family/roster/display 三面已一致，B516 记生产关闭。pipeline 的 typed 关系与不连通边界没有丢，但最终图仍以
+`calls`、`precedence`、Go 函数和源码行作主文案。初始 prompt 已有业务显示指导，失败根因不是模型没有上下文，而是局部修补提示随后反向要求 exact identity
+作为第一可见标签并重复 relation/location，属于系统自身合同冲突。
+
+并行发现独立观察项 `B519-CITATIONDETACH1`：错误 item 引用安全剥离后 claim 文本仍保留，可能形成无锚断言；后续需以 structured claim-support 状态引导模型局部
+重引/收窄/删除，不能扫描或改写最终正文。
+
+状态：`B516=production-closed`；`B510-F=production-positive`；`B510-D=production-negative`；`B518=next`；`B519=P1-observe`；Trace=`unchanged`。
+
+#### §11.10.100 B518：统一所有 diagram repair 的证据层与展示层
+
+初始 relation capsule、optional 修补、required exact-capsule 修补、required relation-boundary 修补现统一要求：node ID、方向/拓扑、anchor 精确保留；visible
+label/message/Note 由模型用业务语言成文。relation enum、claim form、recipe/validator 名和源码位置只作 metadata，不得作为推荐主文案。旧“exact identity 第一可见”与
+“整个 Mermaid body 字节不动”的相反教学已退役；只冻结证据拓扑，不冻结展示文案。
+
+实现只调整 prompt guidance 与测试，不扫描 request/model/final prose，不增硬门，不生成或替换业务节点、边、标签或结论。`internal/agent` 全量回归通过；状态：
+`B518=implemented/agent-suite-pass/pending-r305`；`model-authorship=preserved`；Trace=`unchanged`。

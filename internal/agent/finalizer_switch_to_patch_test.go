@@ -497,8 +497,10 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 		"OPTIONAL diagram",
 		"remove_block_ids",
 		"typed call-edge evidence",
-		"copy-ready optional typed diagram capsule",
-		"Mermaid body AND complete `edge_anchors_json` unchanged",
+		"optional typed diagram evidence skeleton",
+		"preserve that skeleton's exact node IDs, edge topology, and complete `edge_anchors_json`",
+		"Visible node labels, edge/message labels, and Notes remain model-authored",
+		"source locations are evidence metadata; do not copy them as the primary visible wording",
 		"keep the grounded textual call chain unchanged",
 		"will not remove or rewrite the diagram for you",
 	} {
@@ -534,10 +536,11 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	}
 	for _, want := range []string{
 		"Use `emit_answer_document_patch`",
-		"copy-ready optional typed diagram capsule",
+		"optional typed diagram evidence skeleton",
 		"remove_block_ids",
 		types.AnswerDocumentPatchOperationTeaching,
 		"verified capsule is repeated here",
+		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"n1->>n2: call",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
@@ -666,6 +669,8 @@ func TestEmitAnswerDocumentRejectSignal_RequiredDiagramRepeatsExactTypedCapsule(
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"n1->>n2: call",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		"Visible node labels, edge/message labels, and Notes remain model-authored",
+		"source locations are evidence metadata; do not copy them as the primary visible wording",
 	} {
 		if !strings.Contains(got.Hint, want) {
 			t.Errorf("first-reject required exact-capsule hint missing %q:\n%s", want, got.Hint)
@@ -703,11 +708,17 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryW
 		"edge_recipe[1]=`n1 -> n2`",
 		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","relation_kind":"call"}` + "`",
 		"typed relation boundary, not a complete-flow claim",
+		"exact node alias as the Mermaid node/participant ID",
+		"Visible node labels, edge/message labels, and Notes remain model-authored",
+		"source locations are evidence metadata; do not copy them as the primary visible wording",
 		"does not rewrite the model's prose, ordering, or conclusion",
 	} {
 		if !strings.Contains(got.Hint, want) {
 			t.Errorf("typed relation-boundary hint missing %q:\n%s", want, got.Hint)
 		}
+	}
+	if strings.Contains(got.Hint, "exact `node_alias` identity as the first visible label") {
+		t.Fatalf("local repair must not force internal identity into primary display copy:\n%s", got.Hint)
 	}
 	if strings.Contains(got.Hint, "remove_block_ids") || strings.Contains(got.Hint, "remove the optional diagram") {
 		t.Fatalf("required boundary recovery must not offer diagram removal:\n%s", got.Hint)
@@ -791,6 +802,7 @@ func TestRequiredFlowMixedRelationAndParticipantRejectRepeatsTypedBoundary(t *te
 				`boundary_row={"participant":"AnalysisIR","status":"unproven"}`,
 				"edge_action=`none`",
 				"copy that recipe's `edge_anchor_json` unchanged",
+				"Visible node labels, edge/message labels, and Notes remain model-authored",
 				"does not rewrite the model's prose, ordering, or conclusion",
 			} {
 				if !strings.Contains(got.Hint, want) {

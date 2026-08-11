@@ -115,7 +115,8 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		"ordered_path_authority=`typed_flow_paths_present`",
 		"verified_relation_component_count=1",
 		"inter_component_bridge_status=`not_applicable_single_component`",
-		"copy both unchanged; do not compose a different story graph",
+		"preserve its node IDs, exact edge topology, and anchor array",
+		"replace only visible node/message wording with model-authored business/domain language",
 		"#### Copy-ready optional typed diagram",
 		"sequenceDiagram",
 		"participant n1 as convertTrace",
@@ -127,6 +128,9 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		if !strings.Contains(got, want) {
 			t.Fatalf("mechanism relation authority missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "copy both unchanged") {
+		t.Fatalf("evidence skeleton must not contradict the business display layer by freezing visible metadata labels:\n%s", got)
 	}
 	if strings.Contains(got, "`A -> B`") {
 		t.Fatalf("unsupported flow finding must not receive path authority:\n%s", got)

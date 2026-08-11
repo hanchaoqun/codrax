@@ -7227,7 +7227,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
 	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes)
 	if copyReadyKind == types.DiagramNone {
-		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias with the visible identity below (for example, a sequence participant or flowchart node); `from_node` and `to_node` must be these body identifiers.\n")
+		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias as the node/participant ID; `from_node` and `to_node` must be these body identifiers. The identity below is endpoint authority, not mandatory primary display copy: author the visible label in the user's domain and keep the exact identity only as a secondary label when useful.\n")
 		for _, row := range aliases {
 			fmt.Fprintf(b, "- node_alias[%s]=`%s`\n", row.alias, row.identity)
 		}
@@ -7240,7 +7240,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("- A validator-compatible diagram body and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, copy both unchanged; do not compose a different story graph.\n")
+		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Relations omitted from that visual subset remain valid sibling facts in the full capsule above; explain them in prose/notes instead of forcing them into message arrows. If you include the optional diagram, preserve its node IDs, exact edge topology, and anchor array; replace only visible node/message wording with model-authored business/domain language. Do not compose a different story graph.\n")
 		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 	if collapsedVisualDuplicates > 0 {
@@ -7517,7 +7517,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This optional authoring aid contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Copy the Mermaid body and the complete `edge_anchors_json` together, or omit the diagram. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, and complete `edge_anchors_json` together, or omit the diagram. Visible labels and messages are placeholders: replace them with concise model-authored business/domain wording while keeping exact technical identity secondary when helpful. Do not expose relation enums or source locations as the primary arrow text. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
 	if len(omittedKinds) > 0 {
 		fmt.Fprintf(b, "- visual_omitted_relation_count=%d; omitted_relation_kinds=`%s`; these remain sibling prose/Note facts, not message arrows.\n",
 			len(recipes)-len(diagramRecipes), strings.Join(omittedKinds, ","))
@@ -13571,11 +13571,12 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 	}
 	hint := prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence, or its typed edge metadata no longer matches the visible Mermaid arrows. " +
-		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains a copy-ready optional typed diagram capsule when one can be built: either copy that capsule's Mermaid body AND complete `edge_anchors_json` unchanged, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
+		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains an optional typed diagram evidence skeleton when one can be built: either preserve that skeleton's exact node IDs, edge topology, and complete `edge_anchors_json`, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
+		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch."
 	if payload := answerDocMechanismCopyReadyRepairPayload(ctx); payload != "" {
-		hint += " To minimize reconstruction work, the verified capsule is repeated here; copy BOTH parts byte-for-byte if you retain the diagram:\n\n" + payload
+		hint += " To minimize reconstruction work, the verified capsule is repeated here; preserve its topology and anchor array while authoring only the visible business wording if you retain the diagram:\n\n" + payload
 	}
 	return hint + " Do not write free-form prose outside the tool call."
 }
@@ -13593,8 +13594,9 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	}
 	return prefix + " only because the REQUIRED diagram still contains invocation edges outside the existing typed call-edge authority. " +
 		action + "; put the rejected diagram block in `replace_blocks`, list every retained sibling block in `unchanged_block_ids`, and preserve the inherited `citations[]` pool. Do not add or delete blocks in this repair. " +
-		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Copy the following system-rendered Mermaid body AND complete `edge_anchors_json` exactly as one unit; it is derived from the same typed evidence consumed by the validator:\n\n" +
+		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Preserve the following evidence skeleton's exact node IDs, edge topology, and complete `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator:\n\n" +
 		payload + "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
+		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system supplies only the verified diagram carrier and does not rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
 }
 
@@ -13621,11 +13623,20 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 		action + "; replace only the rejected diagram block, retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
 		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. " +
 		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
-		"\n\nWhen retaining one of these relations, declare the recipe's exact node alias with its exact `node_alias` identity as the first visible label, and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases."
+		"\n\nWhen retaining one of these relations, declare the recipe's exact node alias as the Mermaid node/participant ID and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases." +
+		answerDocDiagramBusinessDisplayRepairGuidance()
 	if participantBoundaryPayload != "" {
 		hint += "\n\nThe same typed diagram contract also provides these exact no-edge participant repairs; use only the rows that remain uncovered after the verified relations above:\n\n" + participantBoundaryPayload
 	}
 	return hint + "\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
+}
+
+// answerDocDiagramBusinessDisplayRepairGuidance keeps exact evidence identity
+// and model-owned user-facing copy separate in every local diagram repair
+// lane. It is prompt guidance only: no request/final prose is scanned and no
+// label, message, node, edge, or conclusion is authored or rewritten here.
+func answerDocDiagramBusinessDisplayRepairGuidance() string {
+	return " Preserve exact Mermaid node IDs, endpoint direction, and `edge_anchors`. Visible node labels, edge/message labels, and Notes remain model-authored: express the user/domain responsibility or action, using an exact technical identity only as a secondary label when useful. `relation_kind`, `claim_form`, recipe indexes, validator vocabulary, and source locations are evidence metadata; do not copy them as the primary visible wording. This display-only edit cannot add, remove, reverse, or reconnect an edge."
 }
 
 // answerDocMechanismCopyReadyRepairPayload reuses the exact system-rendered
