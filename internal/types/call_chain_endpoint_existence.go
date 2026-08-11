@@ -77,7 +77,8 @@ func resolveCallChainScopedBareDefinitionExistence(evidence []EvidenceItem, endp
 	for _, item := range evidence {
 		if !item.IsCitable() || RuntimeArtifactPathKind(item.Source) != "" ||
 			!HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) ||
-			ClaimFormOf(item) != ClaimDefinitionFact {
+			ClaimFormOf(item) != ClaimDefinitionFact ||
+			item.Producer == EvidenceProducerAutoPairRoleDescription {
 			continue
 		}
 		if !callChainDefinitionHasBareOperation(item, operation) {
@@ -173,6 +174,13 @@ func callChainEndpointEvidenceProofs(evidence []EvidenceItem) map[string]callCha
 				add(item.AnchorSymbol, callChainEndpointProofCallEdge)
 			}
 		case ClaimDefinitionFact:
+			// A doc-comment role companion describes WHAT the following
+			// declaration does; it is not a second declaration location. Letting
+			// it enter endpoint identity makes one real definition look ambiguous
+			// whenever the comment and declaration occupy different lines.
+			if item.Producer == EvidenceProducerAutoPairRoleDescription {
+				continue
+			}
 			// A grounded definition's visible anchor is an independent typed
 			// identity carrier. Model emissions and language parsers may put the
 			// enclosing package/type in Subject (for example subject="gate",

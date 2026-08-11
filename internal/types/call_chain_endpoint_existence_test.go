@@ -173,6 +173,33 @@ func TestAnalyzeCallChainEndpointExistence_QualifiesUniqueBareDefinitionFromSour
 	}
 }
 
+func TestAnalyzeCallChainEndpointExistence_AutoPairedRoleDescriptionIsNotASecondDefinition(t *testing.T) {
+	evidence := []EvidenceItem{
+		{
+			Kind: EvidenceDirect, AnchorKind: AnchorDefinition, AnchorSymbol: "Run",
+			Source: "internal/analysis/gate/gate.go", LineStart: 134,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind: EvidenceMechanism, AnchorKind: AnchorDefinition, AnchorSymbol: "Run",
+			Predicate: "documents", Source: "internal/analysis/gate/gate.go", LineStart: 126,
+			Producer: EvidenceProducerAutoPairRoleDescription, GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	got := AnalyzeCallChainEndpointExistence(evidence, "gate.Run", "gate.Run")
+	if !got.StartProven || !got.EndProven || got.StartAmbiguous || got.EndAmbiguous ||
+		got.StartProof != CallChainEndpointExistenceDefinitionOnly || got.EndProof != CallChainEndpointExistenceDefinitionOnly {
+		t.Fatalf("role-description companion must not make the real scoped definition ambiguous: %+v", got)
+	}
+
+	roleOnly := evidence[1:]
+	got = AnalyzeCallChainEndpointExistence(roleOnly, "gate.Run", "gate.Run")
+	if got.StartProven || got.EndProven || got.StartAmbiguous || got.EndAmbiguous {
+		t.Fatalf("role-description companion alone must not prove endpoint existence: %+v", got)
+	}
+}
+
 func TestAnalyzeCallChainEndpointExistence_ScopedBareDefinitionFailsClosed(t *testing.T) {
 	ownerStamped := []EvidenceItem{{
 		Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "run", OwnerSymbol: "Gate",

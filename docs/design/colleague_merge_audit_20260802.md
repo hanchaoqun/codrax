@@ -4854,3 +4854,16 @@ r337 的 827s 不是单一慢模型问题，代码与逐轮日志确认两个独
 
 状态：`B572a=P1/next`；`B572b=P1/frozen-after-a`；`typed-selector=existing`；`raw-prose-scan=none`；
 `system-answer/diagram-authorship=none`；`active-stream-fixed-time-degrade=forbidden`；Trace causal authority=`unchanged`。
+
+#### §11.10.175 B572a：角色说明不再参与端点声明存在性
+
+`AnalyzeCallChainEndpointExistence` 的 exact identity map 与 source-scoped bare-definition fallback 现都显式排除
+`EvidenceProducerAutoPairRoleDescription`。该 producer 的行仍是 grounded/citable 角色上下文，仍可告诉模型定义“做什么”；但它不再证明符号声明存在，
+也不会和真实定义行一起把唯一端点制造成 ambiguous。
+
+回归按 r337 真实形钉住：`gate.go:134` 的 bare `Run` 定义与 `gate.go:126` 自动角色说明共存时，`gate.Run` 得到唯一
+`definition_only` proof；仅有角色说明时仍是 unproven。既有 Go/Java/Kotlin/C++/Rust/Python/JS/TS/Ruby/Swift/Lua/Proto/ArkTS/Cangjie
+source-scope 正臂与 wrong-owner/multi-location 负臂保持。`internal/types` 全包 22.211s，endpoint/tool 相关回归全绿。
+
+状态：`B572a=implemented`；`role-context=citable-not-declaration-authority`；`endpoint-ambiguity=real-locations-only`；
+`B572b=P1-next`；`system-answer/diagram-authorship=none`；Trace causal authority=`unchanged`。
