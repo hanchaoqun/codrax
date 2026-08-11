@@ -4816,3 +4816,19 @@ pre-emit 也通过 B568 exact provider bridge 正确授权。
 状态：`B569=production-positive`；`B571=P1-high/next`；`B572=P1/open`；`B570=P2/open`；
 `runner=2/2`；`human=1/2`；`active-stream-827s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；
 `system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.173 B571：前置与后置图关系校验共享 exact typed provider
+
+`DiagramCallEdgeEvidenceMismatchesWithRuntimeContext` 现与 pre-emit 走同一个
+`preEmitEvidenceWithExactTypedDiagramRelations` 投影。没有 report-local runtime temporal block 时在原文档上投影；存在 runtime-owned block 时，先排除该独立
+Trace authority 面，再只对剩余 source diagram 投影，避免把两类关系权限混在一起。
+
+投影触发和 B568 保持字节同源：只有模型已提交 `relation_kind=type_relation` 才查询 provider，且仅
+`CoverageGateEligible()` 的 exact symbol/file/evidence 候选可进入本次校验证据。正向 classDiagram realization 在 pre/post 两层均通过；反向 anchor 仍被
+可见拓扑/锚一致性门拒绝，name-only 候选仍报 `type_relation_edge_unproven`。系统不添加可见关系、不改 Mermaid、不决定成员、方向、布局或答案措辞。
+
+新增 post-finalizer 集成 pin 同时覆盖 exact 正臂、reverse 负臂、name-only 负臂。`internal/tool` 167.947s 全包通过，
+`internal/agent`、`internal/orchestrator`、`internal/render`、`internal/preview`、`internal/tracediag` 全绿。
+
+状态：`B571=implemented/pending-r338`；`pre-post-provider=single-source`；`runtime-trace-authority=separate`；
+`model-edge/answer-authorship=preserved`；`reverse/name-only=fail-closed`；`B572=P1-next`；Trace causal authority=`unchanged`。

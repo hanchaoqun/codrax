@@ -53,6 +53,11 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
 	owned := ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(ctx, doc)
 	if len(owned) == 0 {
+		// Keep post-finalizer validation on the same exact relation evidence
+		// surface as pre-emit validation. This projection is inert unless the
+		// model authored a type_relation anchor, and it admits only coverage-
+		// gate-eligible provider rows; it never adds or rewrites a visible edge.
+		evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
 		return DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
 	}
 	copyDoc := *doc
@@ -62,6 +67,7 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 			copyDoc.Blocks = append(copyDoc.Blocks, block)
 		}
 	}
+	evidence = preEmitEvidenceWithExactTypedDiagramRelations(&copyDoc, ctx, evidence)
 	return DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
 }
 
