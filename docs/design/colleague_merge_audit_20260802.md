@@ -4832,3 +4832,25 @@ Trace authority 面，再只对剩余 source diagram 投影，避免把两类关
 
 状态：`B571=implemented/pending-r338`；`pre-post-provider=single-source`；`runtime-trace-authority=separate`；
 `model-edge/answer-authorship=preserved`；`reverse/name-only=fail-closed`；`B572=P1-next`；Trace causal authority=`unchanged`。
+
+#### §11.10.174 B572 冷读裁定：角色说明伪装声明；已读 parser 真值仍要求模型抄送
+
+r337 的 827s 不是单一慢模型问题，代码与逐轮日志确认两个独立的 typed 管线 gap。
+
+`B572a-ENDPOINTROLEPAIR1/P1`：模型首次在 `gate.go:134` 发射 `anchor_kind=definition, anchor_symbol=Run` 后，工具将其判为既有重复；同一证据池还含
+系统自动生成的 `auto_pair_role_description`，它位于定义前 doc comment 的 126 行，却同样携带 `AnchorDefinition/Run`。端点存在性在用文件作用域把 bare `Run`
+限定为 `gate.Run` 时，把 126、134 两行计成两个声明位置，因而报 ambiguous。第二次模型显式补 `subject=gate.Run` 后 exact identity 优先命中才通过。
+这与该 producer 自身的类型注释“role/WHAT context，不是第二个 declaration identity”直接矛盾。根修是在 endpoint-existence authority 中排除该精确 producer；
+它仍保留为角色解释与 citation context，但不能证明符号存在或制造声明歧义。不得按 `gate.Run`、Go 或注释文本做特判。
+
+`B572b-PARSERHANDOFFCOPY1/P1`：`callChainReadParserRelationHandoffDowngrade` 已严格收窄到 AST/Cangjie parser provenance、exact source+line 已读、caller/callee
+唯一落入模型已提交 principal member-set（或完整性义务下同 statement sibling）才触发；这些信号已经足以作为精确当前源码事实。继续要求模型逐条重发
+`emit_evidence` 只增加循环和漏抄风险，并不保护答案所有权。最优方案是沿用 deterministic evidence provider 形，将这些 exact rows 投影成 citable
+`ClaimCallEdge`，带独立 producer、source/line/caller/callee，并进入 finalizer 可见 evidence；模型仍决定是否把某条边画进图、如何组织说明和最终结论。
+系统不得从请求、模型 prose、终稿或名字相似度补边；unread、regex fallback、端点歧义、非 principal relation、runtime Trace 均继续不投影。
+
+施工分两批：B572a 先修 endpoint identity，pin 自动角色说明 + 真实声明共存仍唯一；B572b 再把既有 gap selector 改成 deterministic evidence projection，
+钉住 Rust/Cangjie、unread/regex/ambiguity/runtime 负臂和“系统只供事实、不写 diagram/answer”。完成后以同一 sequence case 加类型关系案做 r338 exact-two。
+
+状态：`B572a=P1/next`；`B572b=P1/frozen-after-a`；`typed-selector=existing`；`raw-prose-scan=none`；
+`system-answer/diagram-authorship=none`；`active-stream-fixed-time-degrade=forbidden`；Trace causal authority=`unchanged`。
