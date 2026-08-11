@@ -32436,3 +32436,34 @@ unproven/证据闭环，不再以噪声维度 join“纠正”它；若后续稳
 
 状态：`B531=implemented/targeted-pass/pending-r314`；`participant-authorship=model`；
 `system-participant-delete=retired`；`dimension-join-hard-authority=none`；Trace=`unchanged`。
+
+### 123.581 r314：participant 所有权修复生效；parser 锚类型错报让真实值传递失权
+
+`main@b4edd32a0` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_relation_r314_20260811_manual_audit.md`。Go 案中 Analyzer 发出的六个
+participant 全部进入 Explorer，日志不再出现系统按 answer dimension 删席，确认 B531 生产生效。模型读到
+`Mutable: types.NewMutableState(request)` 后却按 `anchor_kind=assignment` 发射；该行的 typed AST 实际为
+`member_initializer`。旧链路能把它作为词法 grounded 的普通证据保留，但 assignment 端点解析器不会把冒号成员当赋值，B529a 又显式跳过所有 assignment/initializer 行，结果既没有
+flow authority，也没有 copy-ready 纠正。最终 completion 只能把 Mutable/BusContext 披露为 unproven，图中成为孤点。确认
+`B532-FLOWANCHORKIND1/P1-high`。
+
+TS 案的 principal-roster handoff 再次补出 `dispatchOnce -> fetch`，但本轮 Analyzer 把
+`CompletenessObligation.required` 发成 false，故 B530 的 exact-statement sibling 臂没有要求 `send -> sleep`，最终仍把缺边链称为完整。该 carrier 在 r312/r313 曾发 true，当前证据更符合
+模型分类波动，登记 `B533-COMPLETENESSCLASS1/P2-watch`：先做 typed 教学/异构复放，不以用户原文或答案中的“完整”触发硬门，也不把方法体所有 sibling call 全部硬升为主链。
+
+Go 活跃流用时 279s，超过四分钟后仍返回模型原答，没有系统降级或代答；这是 B517 的持续生产正证。状态：
+`B531=production-positive`；`B532=confirmed/implement-now`；`B533=watch`；`B517=production-positive@279s`；
+`runner=2/2`；`human=0/2`；Trace=`not exercised/unchanged`。
+
+### 123.582 B532：assignment/initializer 锚类型由唯一 typed AST 形纠偏
+
+required current-source flow lane 现在先读取该精确 source:line 的 repomap `LineFeature`。只有
+`assignment` 与 `member_initializer` 恰有其一、且保守行解析器能给出唯一 LHS/RHS、端点命中 typed incident participant 时，parser shape 才拥有 completion-blocking
+纠偏权。模型若把成员初始化误发为 assignment，或把赋值误发为 initializer，工具返回同轮可见的
+`value_transfer_classification` repair，明确要求重发 `relationship + assigns + parser-owned anchor_kind/LHS/RHS`；义务继续按
+`anchor/source/line/subject/object` 持久，只有模型真实重发的 citable row 才销账。
+
+系统不修改已接收 evidence、不自动铸边、不绘图、不改答案；AST 缺失、两种 feature 同时出现、端点解析不唯一、optional diagram、Trace/root-cause 全部 fail-open。消费逻辑为语言无关，回归覆盖 Go/ArkTS 成员初始化与 Cangjie/C++ 赋值两个方向，并固定 ambiguous/missing AST 不能触发硬 repair。
+
+状态：`B532=implemented/tool-suite-pass/pending-r315`；`parser-shape-authority=precise`；
+`model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。

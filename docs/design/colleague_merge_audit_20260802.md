@@ -4114,3 +4114,25 @@ prose。Rust、TypeScript、Cangjie 正臂和边界测试通过。
 
 状态：`B530=implemented/targeted-pass/pending-r313`；`parser-handoff=precise-read-scoped`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.124 r314：B531 生产正证与 B532 锚类型失权
+
+r314 exact-two runner 2/2、人工 0/2。Go 案六个模型 participant 全部保留，B531 已获生产正证；但已读
+`Mutable: types.NewMutableState(request)` 的 AST 是 `member_initializer`，模型却发为 assignment。旧 grounding 接受该行作为普通证据，下游精确端点解析失败，且没有任何结构化纠正，于是
+Mutable/BusContext 仍只能以 unproven 孤点收敛。立 `B532-FLOWANCHORKIND1/P1-high`：由精确 AST 行形给模型 copy-ready anchor-kind/endpoint 修复，禁止系统自动升格或补边。
+
+TS 案再次由 B530 补出 terminal fetch，但 Analyzer 本轮把完备性义务发 false，漏掉同语句 `send -> sleep`。与前两轮 true/false 波动对照后登记
+`B533/P2-watch`，只做软教学和异构复放，不扫描请求/答案词面硬化。Go 279s 活跃流正常返回模型答案，没有四分钟降级。
+
+状态：`B531=production-positive`；`B532=confirmed/next`；`B533=model-variance-watch`；
+`B517=production-positive@279s`；Trace causal authority=`unchanged`。
+
+#### §11.10.125 B532：唯一 parser shape 生成 typed 重发债，不生成关系
+
+required source-flow 的 grounded/recovered 单行证据若 anchor kind 与该行唯一 repomap shape 冲突，现返回
+`value_transfer_classification` action-required：`assignment XOR member_initializer` 是唯一硬信号，保守行解析器提供 LHS/RHS，typed incident participant 交集限制作用域。repair 同轮可见并沿 B529c syntax key 持久，直到模型重发正确 citable relationship row。
+
+缺/歧义 AST、非唯一端点、optional diagram、Trace/root-cause 全部 fail-open；不读请求/模型/答案 prose，不改证据、不铸边、不画图、不改结论。Go、ArkTS、Cangjie、C++ 双向消费及 missing/ambiguous 负臂已钉。
+
+状态：`B532=implemented/tool-suite-pass/pending-r315`；`model-authorship=preserved`；
+`hard-signal=typed-AST-XOR`；Trace causal authority=`unchanged`。

@@ -4944,7 +4944,6 @@ func emitEvidenceRequiredFlowValueTransferClassificationRepair(
 	gc *ground.Context,
 ) (emitEvidenceValueTransferClassificationRepair, bool) {
 	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.Scope != types.ScopeLine || item.LineStart <= 0 ||
-		item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer ||
 		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
 		return emitEvidenceValueTransferClassificationRepair{}, false
 	}
@@ -4955,6 +4954,34 @@ func emitEvidenceRequiredFlowValueTransferClassificationRepair(
 	}
 	line := strings.TrimSpace(evidenceVisibleLineText(gc, item.Source, item.LineStart))
 	if line == "" {
+		return emitEvidenceValueTransferClassificationRepair{}, false
+	}
+	// When the parser has an unambiguous value-transfer shape, it owns the
+	// assignment-vs-member-initializer distinction. A lexically grounded row
+	// can otherwise be accepted with anchor_kind=assignment on a Go/ArkTS/C
+	// member initializer (or the inverse), yet fail every downstream flow
+	// authority check without telling the model why. Publish the exact shape as
+	// repair debt; never rewrite the accepted row or mint the relation here.
+	if anchor, receiver, value, ok := exactASTValueTransferTuple(gc, item.Source, item.LineStart, line); ok {
+		if item.AnchorKind == anchor {
+			return emitEvidenceValueTransferClassificationRepair{}, false
+		}
+		if !requiredFlowTransferTouchesIncidentParticipant(rm, receiver, value) {
+			return emitEvidenceValueTransferClassificationRepair{}, false
+		}
+		return emitEvidenceValueTransferClassificationRepair{
+			itemIndex: itemIndex,
+			anchor:    anchor,
+			receiver:  receiver,
+			value:     value,
+			source:    item.Source,
+			line:      item.LineStart,
+		}, true
+	}
+	// Without a parser-owned shape, assignment/initializer rows stay in the
+	// existing endpoint-validation lane. Guessing an alternate anchor kind from
+	// line text would turn a noisy fallback into a completion-blocking gate.
+	if item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer {
 		return emitEvidenceValueTransferClassificationRepair{}, false
 	}
 	candidate := item
@@ -4979,6 +5006,45 @@ func emitEvidenceRequiredFlowValueTransferClassificationRepair(
 		source:    item.Source,
 		line:      item.LineStart,
 	}, true
+}
+
+// exactASTValueTransferTuple returns one parser-owned value-transfer shape
+// only when the indexed line has exactly one of the two mutually exclusive AST
+// features. The conservative line parser then supplies the unique endpoints.
+// Ambiguous/missing AST, unsupported syntax, and fallback-tier files return no
+// signal so they can never drive a hard repair.
+func exactASTValueTransferTuple(
+	gc *ground.Context,
+	source string,
+	lineNumber int,
+	lineText string,
+) (anchor types.AnchorKind, receiver, value string, ok bool) {
+	graph, _, graphSource, _, found := ground.ResolveSourceGraphFile(gc, source)
+	if !found || graph == nil || lineNumber <= 0 || strings.TrimSpace(lineText) == "" {
+		return "", "", "", false
+	}
+	var assignment, initializer bool
+	for _, feature := range graph.LineFeaturesAt(graphSource, lineNumber) {
+		switch feature {
+		case repomap.LineFeatureAssignment:
+			assignment = true
+		case repomap.LineFeatureMemberInitializer:
+			initializer = true
+		}
+	}
+	if assignment == initializer { // both false or both true: no unique shape
+		return "", "", "", false
+	}
+	anchor = types.AnchorAssignment
+	if initializer {
+		anchor = types.AnchorInitializer
+	}
+	candidate := types.EvidenceItem{AnchorKind: anchor, Snippet: strings.TrimSpace(lineText)}
+	receiver, value, ok = types.AssignmentEvidenceEndpoints(candidate)
+	if !ok {
+		return "", "", "", false
+	}
+	return anchor, receiver, value, true
 }
 
 func requiredFlowTransferTouchesIncidentParticipant(rm types.RequestModel, receiver, value string) bool {
@@ -5033,7 +5099,7 @@ func buildEmitEvidenceValueTransferClassificationRepair(in []emitEvidenceValueTr
 	}
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "The required source-flow diagram already has an exact value-transfer line, but the submitted row classified it as a definition/mechanism and therefore published no directed relation authority. Re-emit only the named item(s) with the parser-owned fields below; accepted context rows remain committed. The system is not promoting the row or drawing an edge: " + strings.Join(rows, "; "),
+		Hint:   "The required source-flow diagram already has an exact value-transfer line, but the submitted row used a non-authoritative evidence or source-shape classification and therefore published no directed relation authority. Re-emit only the named item(s) with the parser-owned fields below; accepted context rows remain committed. The system is not promoting the row or drawing an edge: " + strings.Join(rows, "; "),
 		Fields: uniqueEmitEvidenceRepairFields(fields),
 		Metadata: map[string]string{
 			"repair_status":       types.ToolRepairStatusActionRequired,
