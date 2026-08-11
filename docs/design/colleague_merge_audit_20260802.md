@@ -4792,3 +4792,27 @@ Mermaid bytes、不补边、不选成员、不代写结论。因而 B568 的 exa
 状态：`B568=implemented`；`B569=implemented/pending-r337`；`B570=P2/open`；
 `class-directed-operators=12`；`raw-prose-hard-gate=none`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.172 r337：classDiagram 主校验通过，后置校验漏接同一 exact provider
+
+r337 exact-two runner 2/2、人工 1/2。类型关系案证明 B569 已生效：`LoopController <|.. analyzerEvaluator` 等 12 条
+classDiagram realization 均被共享 parser 识别为 canonical `implementer -> LoopController`，模型提交的 `type_relation` anchors 与可见图方向一致，
+pre-emit 也通过 B568 exact provider bridge 正确授权。
+
+但 orchestrator 的 post-finalizer 关系检查重新调用 `DiagramCallEdgeEvidenceMismatchesWithRuntimeContext` 时，只传入原始 evidence slice，
+没有运行同一 `preEmitEvidenceWithExactTypedDiagramRelations`。于是同一份结构化答案在前置层通过、在后置层被误报为 12 条
+`type_relation_edge_unproven`，触发无效 finalizer 修补；恢复层最后保留了正确第一稿，却附加“检查仍需补充验证”的系统降级说明。
+立 `B571-POSTTYPERELATIONBRIDGE1/P1-high`：post-finalizer 必须先消费与 pre-emit 完全相同的 exact provider projection；仍仅在模型已经提交
+`relation_kind=type_relation` 时启用，name-only/heuristic 候选继续无 hard-gate 权限，系统不画边、不改方向、不代写答案。
+
+时序案最终人工通过：答案正确说明 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith` 是共享汇点而非
+`buildAnalysisIR -> gate.Run` 调用链，图中方向和 typed anchors 均正确。但 827s、18 次中循环暴露 `B572-SEQUENCEPROOFCHURN1/P1`：
+`gate.Run` definition 已精确发射后仍反复出现 endpoint existence 缺失诊断，随后又要求模型手工转交两条 already-read parser call relation。
+该项先拆分 endpoint ambiguity 与 parser handoff 两种精确信号，不以放松关系证据门或系统自动选择图边换速度。
+
+本批两条模型流分别持续 271s、827s，均有真实 reasoning/tool/content 进展并由原模型正常产出。固定累计四分钟不得成为答案降级、草稿替换或
+系统代答条件；只有 transport 断链、真实停滞、调用方取消或独立安全边界可进入既有恢复，恢复也只能发布模型已有载体并明确披露。
+
+状态：`B569=production-positive`；`B571=P1-high/next`；`B572=P1/open`；`B570=P2/open`；
+`runner=2/2`；`human=1/2`；`active-stream-827s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；
+`system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
