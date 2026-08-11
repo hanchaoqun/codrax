@@ -3632,3 +3632,23 @@ parser direct call + exact read，系统不解释业务语义、不改模型答�
 stageauthority 全绿。该批不扫描 request/model/final prose，不生成关系或结论；Trace 显式窗、补采、因果投影、链上根因/修向/业务线索未改。
 
 状态：`B508=v2-implemented/pending-r297`；`B510=unified-audit-next`；`system-answer/relation-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.80 r297：live evidence 与 repair context 两处断链
+
+exact-two runner 2/2、人工 0/2。B508 v2 禁止任意 leaf 回退已获生产正证，且 `AuditLog.record` body 已被模型精确读取；但 active-loop evaluator
+看不到同轮 `emit_evidence` 已接受 items，未及时发 selection hint。completion downgrade 排入的 `RepairEmitEvidence` 又只渲染文件、丢 producer rationale，
+模型误重试 completion 后低增量收口，终点 body fact 仍缺。两处均为 typed carrier 接线问题，不是模型波动。
+
+stage sequence 用例 634s、7 reject，最终仅三条实现 call；stage 关系和状态传递大量缺席。B510 确认为跨图类/关系类合同问题，后续先做统一矩阵审计，
+不按单语言或单样例补图。
+
+状态：`B508=v3-next`；`B510=P1-confirmed`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.81 B508 v3：同轮已接受 evidence 与 repair 形状进入单一提示面
+
+Phase promotion、discover selection 和 terminal owner 现合并读取 evaluator snapshot 与 Mutable 的 typed emitted-evidence buffer，消除 active dispatch 的
+一轮可见性延迟。`RepairEmitEvidence` compact renderer 同时发布 producer rationale，不再只给文件名；内部 Subject 不发射。
+
+二者都只影响软导航/修复上下文，不从 read 文本造事实、不代写关系或业务结论、不改变 validator。六包全绿，待 r298 生产回放。
+
+状态：`B508=v3-implemented/pending-r298`；`B510=unified-matrix-audit-next`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

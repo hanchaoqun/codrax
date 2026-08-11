@@ -7597,6 +7597,16 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 		} else {
 			b.WriteString("Re-emit grounded evidence from the already-read anchor lines before retrying completion.\n")
 		}
+		// RepairDirective.Rationale is the producer-owned description of the
+		// exact typed debt. Omitting it leaves only a file roster, so the next
+		// model turn knows where to look but not which schema-valid fact to
+		// materialize. Keep this as guidance only; it neither creates evidence
+		// nor changes the acceptance gate.
+		if rationale := strings.TrimSpace(repair.Rationale); rationale != "" {
+			b.WriteString("Required evidence shape: ")
+			b.WriteString(rationale)
+			b.WriteString("\n")
+		}
 	case types.RepairExpandSearch:
 		if len(repair.Keywords) == 0 && len(repair.Files) == 0 && strings.TrimSpace(repair.Rationale) == "" {
 			return ""
@@ -8589,7 +8599,23 @@ func (e *explorerEvaluator) callChainDiscoverySelectionPending() bool {
 	if e == nil || e.analysisIR == nil || !e.analysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
 		return false
 	}
-	return !types.HasCallChainDiscoverySelectionEvidence(e.structuredEvidence)
+	return !types.HasCallChainDiscoverySelectionEvidence(e.currentStructuredEvidence())
+}
+
+// currentStructuredEvidence joins the evaluator's dispatch-start snapshot with
+// evidence accepted by emit_evidence during the active ReAct loop. The mutable
+// buffer is typed and normalized by the emit tool; reading it here prevents a
+// one-turn visibility lag where completion guidance evaluates an obsolete
+// empty snapshot immediately after a successful evidence emission.
+func (e *explorerEvaluator) currentStructuredEvidence() []types.EvidenceItem {
+	if e == nil {
+		return nil
+	}
+	out := append([]types.EvidenceItem(nil), e.structuredEvidence...)
+	if e.mutable != nil {
+		out = mergeEvidenceItems(out, e.mutable.EmittedEvidence())
+	}
+	return out
 }
 
 type callChainTerminalBodyReadTarget struct {
@@ -8713,9 +8739,11 @@ func (e *explorerEvaluator) promoteDepthPhaseFromMaterializedEvidence(obs LoopOb
 	if e == nil || e.phase != 0 || e.investigationComplete {
 		return false
 	}
-	if len(e.structuredEvidence) == 0 || !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+	liveEvidence := e.currentStructuredEvidence()
+	if len(liveEvidence) == 0 || !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
 		return false
 	}
+	e.structuredEvidence = liveEvidence
 	e.phase = 1
 	logging.Info("[explorer] Phase 0 → Phase 1 transition: structured evidence materialized, entering evidence collection")
 	return true
@@ -14410,7 +14438,7 @@ func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
 		return []string{strings.TrimSpace(profile.Sink)}
 	}
 	var calls []types.EvidenceItem
-	for _, item := range e.structuredEvidence {
+	for _, item := range e.currentStructuredEvidence() {
 		if item.IsCitable() && types.ClaimFormOf(item) == types.ClaimCallEdge &&
 			strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(item.Object) != "" {
 			calls = append(calls, item)

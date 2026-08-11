@@ -7189,6 +7189,19 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("evidence repair preserves producer rationale", func(t *testing.T) {
+		hint := renderClosureRepairHint([]types.RepairDirective{{
+			Kind:      types.RepairEmitEvidence,
+			Files:     []string{"src/Registry.java"},
+			Rationale: "emit one grounded initializer with exact subject and object",
+		}})
+		for _, want := range []string{"Evidence Materialization", "src/Registry.java", "Required evidence shape", "exact subject and object"} {
+			if !strings.Contains(hint, want) {
+				t.Fatalf("evidence materialization hint lost %q:\n%s", want, hint)
+			}
+		}
+	})
+
 	t.Run("completion ready drops advisory closure repair signals", func(t *testing.T) {
 		repairs := []types.RepairDirective{
 			{
@@ -9162,6 +9175,36 @@ func TestPostCompletionReadySignal_DiscoverSinkRequestsTypedSelectionBeforeClose
 	}
 	if eval.midLoopCompletionReadySent {
 		t.Fatal("selection repair must not consume the later generic completion-ready latch")
+	}
+}
+
+func TestPostCompletionReadySignal_SeesEvidenceAcceptedDuringActiveLoop(t *testing.T) {
+	mut := types.NewMutableState("opaque")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/VisitRepository.java", LineStart: 23,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}})
+	eval := &explorerEvaluator{
+		phase: 0,
+		heuristics: types.ExploreHeuristics{
+			MidLoopMinIteration: 1,
+		},
+		mutable: mut,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "VisitController.create", SinkMode: types.CallChainSinkResolutionDiscover,
+			},
+		}},
+	}
+	results := []types.ToolResult{{ToolName: "emit_evidence", Success: true}}
+	obs := LoopObservation{Iteration: 2, LastToolResult: &results[0], AllToolResults: results}
+	if !eval.promoteDepthPhaseFromMaterializedEvidence(obs) || eval.phase != 1 {
+		t.Fatalf("active-loop emitted evidence must promote the depth phase: phase=%d", eval.phase)
+	}
+	sig := eval.postCompletionReadySignal(obs)
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.call-chain-discovery-selection" {
+		t.Fatalf("selection guidance must see the just-accepted call fact: %+v", sig)
 	}
 }
 

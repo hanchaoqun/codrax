@@ -31657,3 +31657,37 @@ tracediag 5.886s、stageauthority 2.576s。
 状态：`B508=v2-implemented/package-suites-pass/pending-r297-production-replay`；
 `B510=confirmed/unified-diagram-contract-audit-next`；`system-prose/relation/answer-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace explicit windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。
+
+### 123.536 r297：错误 leaf 已消失；同轮 typed 状态和 repair 语义仍断链
+
+`main@4063f1857` exact-two runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r297_20260810_manual_audit.md`。
+
+Java 正向确认 B508 v2 的 fail-closed：不再出现 sibling `countOpenVisits -> startsWith` terminal fact，模型也已读取
+`AuditLog.java:5-7`。但首批 `emit_evidence` 漏发已读的 `audit -> AuditLog` initializer；Evaluator 在 active loop 仍只读 dispatch-start
+`structuredEvidence`，因此同一轮看不到刚被 tool 接受的 8 条 typed evidence，Phase 0 未晋升、selection hint 未发。第一次 completion downgrade
+虽排入 `RepairEmitEvidence`，统一 renderer 却只显示文件列表，丢掉 `RepairDirective.Rationale`；模型把问题误解为 aggregate 格式并再次 completion，随后
+low-delta 强制收口。终点 body call 仍未进入 finalizer，答案继续把 stdout 称为数据库持久化。
+
+read 进一步确认 B510：634s、7 次 finalizer reject、3 次调查分派后，sequence 只保留三条 implementation call，五个用户点名 participant 作为断开
+boundary，StageExplore/StageExtract 无时序关系。失败跨 call/precedence/assignment/data_flow/return 与 participant identity/placement 多轴，必须统一审计
+diagram kind × relation kind × endpoint identity × producer/teaching/validator/repair，不能继续按箭头或语言做补丁。
+
+状态：`B508=v2-partial/v3-next`；`B510=P1-confirmed/unified-matrix-required`；`runner=2/2,human=0/2`；
+`system-relation/diagram/conclusion-authoring=none`；Trace families=`unchanged`。
+
+### 123.537 B508 v3：active-loop typed SSOT 与 evidence-repair rationale 不再丢失
+
+Explorer 新增 `currentStructuredEvidence()`：仅合并 dispatch-start snapshot 与 `MutableState.EmittedEvidence()` 的已接受、已规范化 typed items。
+Phase 晋升、discover selection 与 selected-terminal owner 在同一 ReAct dispatch 内消费该 SSOT，不再等 dispatch 结束后 parse_output 才看到刚发出的 evidence。
+它不读 tool summary/模型 prose，也不把 read_file 文本直接升为事实。
+
+所有 `RepairEmitEvidence` 的 compact hint 现保留 producer-owned `RepairDirective.Rationale`，因此“在哪些已读文件”与“要物化哪种 schema-valid typed
+事实”同时到达下一轮。Rationale 仍是软指导，不能创建/批准 evidence，也不改变 accept/reject gate；repair Subject 内部标签不向模型泄漏。
+
+回归覆盖 active-loop accepted call 触发 discover-selection guidance、producer rationale 完整渲染、原 selection/terminal read/closure 三臂。
+六包全绿：agent 10.348s、types 22.946s、tool 174.439s、orchestrator 12.685s、tracediag 6.157s、stageauthority 2.569s。
+
+状态：`B508=v3-implemented/package-suites-pass/pending-r298`；`B510=unified-diagram-audit-next`；
+`system-prose/relation/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
+Trace explicit windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。
