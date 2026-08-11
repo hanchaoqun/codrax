@@ -32495,3 +32495,36 @@ flow completion 已通过 `flowOperationRepairTargets` 生成 bounded files/keyw
 
 状态：`B534=implemented/tool-suite-pass/pending-r316`；`navigation-authority=soft-only`；
 `model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。
+
+### 123.585 r316：导航载体已可见，但“定位→读取”被两次收敛阈值截断；Trace 主数据正确、模型层级叙述波动
+
+`main@4357eaa8f` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_trace_r316_20260811_manual_audit.md`。两个请求均由模型正常完成，187/193s 内没有四分钟降级、系统代答或空答案。
+
+Go 数据流案确认 B534 生产接线有效：首次 participant coverage 拒绝同时给出 `typed navigation stems=[BusContext]` 和候选文件。但模型把候选文件误当完整范围，只读取
+`internal/types/context.go` 的类型声明，没有先以 stem 做 repo_map/grep 定位 writer/reader；随后仍重发 definition。第二次相同 completion 立即触发
+`flow_participant_coverage` low-delta force-complete，等于只给一个模型回合同时完成“定位 operation → 读取精确行 → 发 relation”三步，真实补证路径被阈值截断。
+Finalizer 的 relation gate 正确拒绝无证边，最终图只剩四阶段 precedence 与 BusContext 孤点；正文却仍宣称经 BusContext/Mutable 传递，runner 的 edge-count/token oracle 因而误绿。
+
+Trace 案的系统数据面继续守住显式窗、4 次 windowed 查询、wakeup path、链上根因排序、frame absent/unproven、实际占用/规则可消双轴及自动投影。模型正文则把
+ThreadPoolForeg 链上 D/IO 席和目标自身供给席在摘要中置于“背景”，后文又正确列为链上 #3/#4；另把 sleep 段称 wakeup latency，并从“频点非最高”扩写出热节流可能性。
+过去多次同 case 能正确分层，typed 投影也未把邻近/背景加冕，故先登记 `B536-TRACEPROSELAYER1/P2-watch` 为模型叙述波动/长上下文心智负担；不扫描答案措辞做硬门，待异构重复
+witness 再决定是否压缩/重排 typed finalizer context。既有 `B528-TRACEPROJECTIONDEDUP1` 保持开放。
+
+状态：`B534=production-positive/partial`；`B535=confirmed/implement-now`；`B536=P2-watch`；
+`B517=production-positive/no-regression`；`runner=2/2`；`human=0/2`；Trace authority=`preserved`。
+
+### 123.586 B535：participant 补证采用有界“定位→读取”两回合，候选文件不再伪装完整范围
+
+`flow_participant_coverage` 的 soft navigation 现明确要求先用 typed stems 执行 repo_map/grep 定位 operation occurrence，再读取有界 operation 行；候选文件只作为起点，若只有
+declaration 必须继续同一 stem 搜索，不能重发声明充数。该计划仍只来自 typed participant、citable evidence 与 read closure，明确标记为 `not relation evidence`，不清 coverage、
+不铸 edge、不修改答案。
+
+同车道收敛阈值由第 2 次相同 completion 放行改为第 3 次：第一轮可定位，第二轮可读取并 materialize，第三次仍无任何 participant-set 进展才携 typed unproven boundary 收敛。
+participant 集合缩小时仍重置计数；无关 closure churn 不延长预算。`flow_operation_carrier` 已从已读载体起步，仍保持两次阈值，避免把所有 repair lane 一律加长。
+
+定向 pin 覆盖 sibling churn、participant-set 缩小、第二次仍 repair、第三次 caveated completion，以及 Summary/Repair 中 locate/read 顺序。修复不扫描 request/model/final prose，
+不自动搜索、读源码、发 evidence、画边或改结论；Trace、JSON/Mermaid validator、write controller 与活动流超时策略不变。
+
+状态：`B535=implemented/targeted-pass/pending-r317`；`repair_turns=locate+read/materialize`；
+`model-relation-authorship=preserved`；`system-edge-synthesis=none`；Trace=`unchanged`。

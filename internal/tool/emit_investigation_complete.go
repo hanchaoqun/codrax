@@ -3349,8 +3349,19 @@ func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold
-	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier || lane == types.DowngradeLaneFlowParticipantCoverage {
+	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier {
 		exactThreshold = 2
+	}
+	// Participant coverage starts with analyzer-owned identities rather than a
+	// known operation line. One repair turn may therefore be legitimately spent
+	// locating the source occurrence (repo_map/grep), with the following turn
+	// reading and materializing the exact operation. Converging on the second
+	// completion attempt cut that two-step recovery in half and shipped an
+	// unproven/disconnected participant even while the model was following the
+	// navigation plan. Keep the lane bounded, but allow two repair turns before
+	// the third identical close accepts the explicit unproven boundary.
+	if lane == types.DowngradeLaneFlowParticipantCoverage {
+		exactThreshold = 3
 	}
 	if lane == types.DowngradeLaneCompletionForm {
 		if laneChurnThreshold < 3 {
@@ -3551,7 +3562,7 @@ func flowOperationNavigationHint(files, keywords []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". Read the exact operation line before emitting any directed row."
+	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". First use repo_map/grep with the typed stems to locate operation occurrences; candidate files are starting points, not an exhaustive scope. If a starting file only contains a declaration, continue the typed-stem search instead of re-emitting that declaration. Then read the bounded operation line before emitting any directed row."
 }
 
 func preCompleteDowngradeSummary(summary string) string {

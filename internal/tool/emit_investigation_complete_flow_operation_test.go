@@ -548,10 +548,17 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageNoProgressConverges(t 
 	if err != nil {
 		t.Fatalf("second Execute: %v", err)
 	}
+	if ctx.Mutable.IsInvestigationComplete() || res.Repair == nil {
+		t.Fatalf("second no-progress close must retain one bounded locate/read repair turn: %+v", res)
+	}
+	res, err = tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("third Execute: %v", err)
+	}
 	if !ctx.Mutable.IsInvestigationComplete() ||
 		!ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage) ||
 		!strings.Contains(res.Summary, "participant relation remains unproven") {
-		t.Fatalf("second no-progress close should converge with participant boundary: %+v", res)
+		t.Fatalf("third no-progress close should converge with participant boundary: %+v", res)
 	}
 }
 

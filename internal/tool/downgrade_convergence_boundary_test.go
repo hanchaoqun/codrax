@@ -67,8 +67,11 @@ func TestPreCompleteDowngradeConverges_TypedBlockerIgnoresSiblingClosureChurn(t 
 	closure.AddRepair(types.RepairDirective{
 		Kind: types.RepairExpandSearch, Subject: "unrelated", DowngradeLane: types.DowngradeLaneContractChain,
 	})
+	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, key) {
+		t.Fatal("participant coverage needs a second bounded repair turn before convergence")
+	}
 	if !preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, key) {
-		t.Fatal("unchanged gate-owned participant set must converge despite sibling closure churn")
+		t.Fatal("unchanged gate-owned participant set must converge on the third close despite sibling closure churn")
 	}
 }
 
@@ -85,8 +88,11 @@ func TestPreCompleteDowngradeConverges_TypedBlockerResetsWhenOwnSetChanges(t *te
 	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, one) {
 		t.Fatal("a genuinely smaller participant blocker must reset the focused-pass allowance")
 	}
+	if preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, one) {
+		t.Fatal("the repeated smaller participant blocker still has one bounded repair turn")
+	}
 	if !preCompleteDowngradeConvergesWithTypedBlockerKey(bus, lane, one) {
-		t.Fatal("the repeated smaller blocker must converge on its second attempt")
+		t.Fatal("the unchanged smaller blocker must converge on its third attempt")
 	}
 }
 

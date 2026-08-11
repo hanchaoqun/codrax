@@ -88,9 +88,10 @@ const (
 	DowngradeLaneFlowOperationCarrier DowngradeLane = "flow_operation_carrier"
 	// DowngradeLaneFlowParticipantCoverage is the required source-flow diagram
 	// participant lane. The analyzer-provided identities remain planning input,
-	// never edge authority; this lane gives Explorer one focused opportunity to
-	// materialize operations incident to the still-uncovered participants, then
-	// converges with an explicit boundary instead of forcing invented bridges.
+	// never edge authority; this lane gives Explorer a bounded locate-then-read
+	// opportunity to materialize operations incident to the still-uncovered
+	// participants, then converges with an explicit boundary instead of forcing
+	// invented bridges.
 	DowngradeLaneFlowParticipantCoverage DowngradeLane = "flow_participant_coverage"
 )
 

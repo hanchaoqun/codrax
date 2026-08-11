@@ -4154,3 +4154,14 @@ unproven 孤点收敛。立 `B534-FLOWREPAIRVIS1/P1-high`：让 producer-owned s
 
 状态：`B534=implemented/tool-suite-pass/pending-r316`；`navigation=soft-only`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.128 r316 / B535：soft target 已到达模型，但单回合不足以完成 locate→read→emit
+
+r316 exact-two runner 2/2、人工 0/2。Go 案已显示 B534 的 typed stems/files，却只读取 BusContext declaration；第二次 completion 即按 participant typed set 收敛，真实 operation
+尚未来得及定位/读取/发射，最终关系仍缺。现把导航顺序写成 repo_map/grep 定位、read 有界行、emit relation，并明确 candidate files 非穷尽范围；participant coverage 改为第三次
+相同 close 才收敛，提供两个有界 repair turns。系统不执行搜索、不补边、不改答案。
+
+Trace 案系统权威保持正确，模型把链上席与背景混写、sleep 段称 wakeup latency、频率缺口扩写热节流；先记 `B536/P2-watch`，不以最终 prose hard gate 纠正。187/193s 活跃流均正常产出模型答案。
+
+状态：`B535=implemented/targeted-pass/pending-r317`；`B536=model-variance-watch`；
+`B517=no-regression`；Trace causal authority=`unchanged`。
