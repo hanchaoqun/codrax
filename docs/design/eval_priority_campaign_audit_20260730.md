@@ -32231,3 +32231,38 @@ JSON/Mermaid 修复、Trace 投影、自动补齐或链上根因。
 
 状态：`B517=implemented/production-positive×2/package-suites-pass`；`four-minute-active-stream-degrade=retired`；
 `system-final-answer-synthesis=forbidden`；`L1-read-loop=byte-preserved`。
+
+### 123.569 r309：请求关系主脊已发布，但表格状态载体被错升为图关系义务
+
+`main@0f472e0f6` exact-two runner 1/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_pipeline_trace_r309_20260811_manual_audit.md`。pipeline 最终有模型答案，并非空产；但遗漏 `Mutable`，且 544s 内发生 31 轮 Explorer、
+5 次 Finalizer reject。B526 的两个组件角色已准确进入真实 Finalizer 上下文：四阶段完整 precedence 链为 `requested_relation_spine`，断开的 Orchestrator 调用片段为
+`supporting_grounded_segment`，证明组件分权接线生效。
+
+决定性新 gap 在 Analyzer：用户把 `Mutable/BusContext` 只列为独立“输入/输出/状态载体表”的示例，Analyzer 却把 BusContext 铸成 sequence 图的
+`incident_required`。下游硬合同因此要求它必须有关系或断开边界；Explorer 为无关载体补证，Finalizer 在“主图只画请求 spine”与“BusContext 必须入图”之间反复修补。立
+`B527-PRESENTATIONSCOPE1/P1-high`：多展示面请求必须在 typed IR 铸造处隔离 participant scope，不能靠最终答案关键词、放宽关系 validator 或系统代画。
+
+Trace runner PASS 但人工 fail：链上 11ms IO 主因、三个 1ms runnable 席与背景权限正确；模型仍把 14/17/20ms sleep 占用写成 wakeup latency，并把 11ms IO 描述成逐级传递为
+20ms，违反 B521/B525 给出的 typed 加法/时间角色边界。系统投影还把 app-100 同一 20ms sleep 发布为 E1/E2 两行；B522 只覆盖实际占用表，另立
+`B528-TRACEPROJECTIONDEDUP1/P1` 审计投影同测量身份，不用 subject+value 粗去重。
+
+状态：`B526=production-positive`；`B527=confirmed/next`；`B528=confirmed/audit-open`；
+`B521/B525=model-noncompliance-production-negative`；`B517=no-system-degrade`；`runner=1/2`；`human=0/2`。
+
+### 123.570 B527：在 typed IR 铸造处隔离关系图与独立表格参与者
+
+完成 `B527-PRESENTATIONSCOPE1`。Analyzer SSOT 现在明确：同一请求若同时要求关系/时序图和独立表格，`diagram_hint.participants` 只能收录关系展示面明确要求连接的身份；只作为表格行、
+列、示例值或状态载体出现的身份不得升级成图关系义务。
+
+为避免仅靠教学，本批在 RequestModel 发布前增加精确的跨 carrier 对账：当 normalized `requested_answer_dimensions` 中一个 required `stage_or_workflow` 引文精确覆盖至少两个
+`incident_required` participant 时，它界定关系展示面；participant 自身的 CURRENT-request provenance 不在该引文内，就从 diagram slate 行级移除，但仍完整保留在
+Analyzer entities、requested dimensions 与后续表格上下文。该对账不扫描用户关键词、模型推理或最终答案，不猜关系；只有 typed role、required 位和两份已验证 verbatim source quote
+参与。没有可识别的关系面时保持 fail-open，不改 participant。
+
+双向回归固定：`analyze 到 finalizer` 时序 + 独立 BusContext 状态载体表，BusContext 不再成为图义务；若用户明确要求 `analyze 通过 BusContext 到 finalizer`，三者全部保留。
+关系 evidence gate、Mermaid 自愈、模型可见图/结论所有权、Trace 因果投影和自动补齐均未改变。`internal/tool`、`internal/skill`、`internal/analysis/...`、
+`internal/stageauthority`、`internal/orchestrator` 全量通过。
+
+状态：`B527=implemented/package-suites-pass/pending-production-replay`；`cross-surface-hard-contract=removed`；
+`model-diagram-authorship=preserved`；`raw/model/final-prose-hard-scan=none`；Trace=`unchanged`。

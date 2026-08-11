@@ -4006,3 +4006,24 @@ LastError 在场且不存在“降级答案”。`internal/llm`、`internal/orch
 
 状态：`B517=closed`；`active-stream-at-4m=continue`；`legacy-no-visible-system-answer=disabled`；
 `L1=byte-preserved`；Trace/diagram/JSON contracts=`unchanged`。
+
+#### §11.10.113 r309：跨展示面 participant scope 串扰导致无关补证和五次成文拒绝
+
+exact-two runner 1/2、人工 0/2。pipeline 有模型答案但漏 `Mutable`；B526 请求 spine/support segment 角色已准确发布。真正阻塞来自 Analyzer 把表格专属
+`BusContext` 铸成 sequence `incident_required`，使 Explorer 和 Finalizer 被迫为用户未要求的图关系补证/断开披露。该信号是 analyzer 语义猜测，不应跨展示面驱动硬合同。
+
+Trace 主链和链上排序无回归，但正文继续混写 sleep occupancy、wakeup latency 与 IO 因果传播；投影面同一 target sleep 仍双行，说明 B522 的实际占用表折叠不能代表整个投影面已闭环。
+
+状态：`B526=production-positive`；`B527=confirmed`；`B528=projection-dedup-open`；`B517=no-regression`。
+
+#### §11.10.114 B527：关系展示面以 typed 引文交集收窄 participant 强义务
+
+在 RequestModel 发布前，对 required diagram 与 required `stage_or_workflow` dimension 做精确 source-quote 对账：只有当该维度引文覆盖至少两个 incident participant，才把它认作
+有界关系面；位于其他展示面引文中的 incident participant 从 diagram slate 移除，但仍留在 entities/dimensions 供表格和正文使用。无有界关系面则不动作；明确写入关系引文的
+State/Context carrier 继续保留。
+
+该修复只消费 schema-validated enum/boolean/verbatim carriers，不扫描 request/model/final prose 关键词，不放宽任何 relation evidence gate，不由系统生成边或结论。SSOT 教学同步说明
+diagram+table 多面隔离；正反 pin 与相关六包全量通过。
+
+状态：`B527=implemented/pending-replay`；`participant-hard-authority=cross-surface-reconciled`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

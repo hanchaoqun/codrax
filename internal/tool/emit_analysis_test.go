@@ -3216,6 +3216,87 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 	}
 }
 
+func TestEmitAnalysis_Execute_SeparatesSequenceParticipantsFromTableOnlyStateCarrier(t *testing.T) {
+	raw := "解释 read mode 从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出输入、输出和状态载体，例如 BusContext"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["read mode","analyze","finalizer","sequenceDiagram","BusContext"],
+		"entities":["analyze","finalizer","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+			{"identity":"analyze","role":"incident_required","source_quote":"analyze"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"时序","role":"stage_or_workflow","source_quote":"从 analyze 到 finalizer 的时序","required":true},
+			{"index":2,"label":"输入","role":"other","source_quote":"输入","required":true},
+			{"index":3,"label":"输出","role":"other","source_quote":"输出","required":true},
+			{"index":4,"label":"状态载体","role":"other","source_quote":"状态载体","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	want := []types.DiagramParticipantHint{
+		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyze"},
+		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "finalizer"},
+	}
+	if hint == nil || !reflect.DeepEqual(hint.Participants, want) {
+		t.Fatalf("participants=%+v, want relation-surface-only slate %+v", hint, want)
+	}
+	if !strings.Contains(res.Summary, "separate answer surface: BusContext") {
+		t.Fatalf("summary must disclose cross-surface reconciliation: %q", res.Summary)
+	}
+	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
+		t.Fatalf("table-only state carrier must remain available outside diagram slate: %v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurface(t *testing.T) {
+	raw := "必须给 analyze 通过 BusContext 到 finalizer 的 sequenceDiagram 时序"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyze","BusContext","finalizer","sequenceDiagram"],
+		"entities":["analyze","BusContext","finalizer"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+			{"identity":"analyze","role":"incident_required","source_quote":"analyze"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"时序","role":"stage_or_workflow","source_quote":"analyze 通过 BusContext 到 finalizer 的 sequenceDiagram 时序","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || len(hint.Participants) != 3 {
+		t.Fatalf("an explicitly related carrier must survive diagram scoping: %+v", hint)
+	}
+}
+
 // TestComputeAnalysisQualityProbe is a direct unit test of the
 // probe computation helper: case-insensitive substring match,
 // ratio handling, empty-input edge cases.
