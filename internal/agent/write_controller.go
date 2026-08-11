@@ -268,6 +268,12 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		wrote = true
 		fmt.Fprintf(&b, "- change_report: plan_id=%s channel=%s passed=%t build_failed=%t\n",
 			report.PlanID, report.Channel, report.Passed, report.BuildFailed)
+		passedResults, failedResults := writeControllerVerificationResultCounts(report)
+		fmt.Fprintf(&b, "- verification_evidence: status=%s passed_results=%d failed_results=%d total_results=%d\n",
+			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
+		if passedResults > 0 && report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			b.WriteString("- verification_evidence_boundary: passed_results are retained partial evidence; the non-passed verification status means required verification remains incomplete and must not be described as zero checks or as fully verified\n")
+		}
 		if strings.TrimSpace(report.FailureSummary) != "" {
 			fmt.Fprintf(&b, "- verify_failure_summary: %s\n", limitWriteControllerText(report.FailureSummary, 220))
 		}
@@ -276,6 +282,20 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func writeControllerVerificationResultCounts(report *types.ChangeReport) (passed, failed int) {
+	if report == nil {
+		return 0, 0
+	}
+	for _, result := range report.TestResults {
+		if result.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	return passed, failed
 }
 
 func authoritativeWriteControllerReport(ctx *types.AgentContext) *types.ChangeReport {

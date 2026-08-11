@@ -111,6 +111,43 @@ func TestRenderVerifyUnverifiedKeepsEnvironmentWordingWhenNothingUntried(t *test
 	}
 }
 
+func TestRenderVerifyUnverifiedPreservesPassingPartialEvidence(t *testing.T) {
+	report := &types.ChangeReport{
+		PlanID:             "plan-partial",
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusUnavailable,
+		FailureKind:        types.FailureKindRunnerMissing,
+		FailureReasonCode:  "verification_probe_runner_missing",
+		FailureSummary:     "Java runtime unavailable",
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "make-test",
+			Suite:       "check",
+			Passed:      true,
+		}},
+	}
+
+	zh := renderVerifyUnverified(report, "zh")
+	for _, want := range []string{"未完全验证", "已有 1 项本地检查通过、0 项失败", "局部证据保留", "Java runtime unavailable"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh partial-evidence wording missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "没有断言验证过") {
+		t.Fatalf("zh partial-evidence wording must not erase a passing result:\n%s", zh)
+	}
+
+	en := renderVerifyUnverified(report, "en")
+	for _, want := range []string{"Partially verified (unverified)", "1 local check(s) passed and 0 failed", "useful partial evidence", "Java runtime unavailable"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en partial-evidence wording missing %q:\n%s", want, en)
+		}
+	}
+	if strings.Contains(en, "no assertion verified") {
+		t.Fatalf("en partial-evidence wording must not erase a passing result:\n%s", en)
+	}
+}
+
 // TestReportUntriedRunnableCandidateShapes pins the precise-signal
 // helper directly: candidate-never-ran and make-target-mismatch both
 // count as untried; a run of the candidate's own target does not.

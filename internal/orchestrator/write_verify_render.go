@@ -343,7 +343,18 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 		envStepZH = "- 直接 /verify 重试(按 typed 测试面候选执行),或\n"
 		envStepEN = "- /verify again (it runs the typed test-surface candidate), or\n"
 	}
+	passedChecks, failedChecks := reportVerificationResultCounts(report)
 	if zh {
+		if passedChecks > 0 {
+			return fmt.Sprintf("\n## 未完全验证 (unverified)\n\n"+
+				"代码改动已落到 worktree；已有 %d 项本地检查通过、%d 项失败，但%s。已通过检查作为局部证据保留，不能替代尚不可用的必要验证，因此本次改动仍不能标记为“已验证”。\n\n"+
+				"建议:\n"+
+				"%s"+
+				"- /merge 接受当前局部证据与未验证风险,或\n"+
+				"- /reject 退回到 plan。\n\n"+
+				"报告已存到 .codrax/plans/%s.report.json。\n",
+				passedChecks, failedChecks, reasonZH, envStepZH, planID)
+		}
 		return fmt.Sprintf("\n## 未验证 (unverified)\n\n"+
 			"代码改动已落到 worktree,但%s,所以没有断言验证过这次改动。\n\n"+
 			"建议:\n"+
@@ -354,6 +365,16 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 			"报告已存到 .codrax/plans/%s.report.json。\n",
 			reasonZH, envStepZH, planID)
 	}
+	if passedChecks > 0 {
+		return fmt.Sprintf("\n## Partially verified (unverified)\n\n"+
+			"The change applied to the worktree; %d local check(s) passed and %d failed, but %s. The passing checks remain useful partial evidence, but they do not replace the required verification that was unavailable, so this change is still not verified.\n\n"+
+			"Next steps:\n"+
+			"%s"+
+			"- /merge while accepting the partial evidence and unverified risk, or\n"+
+			"- /reject to roll back.\n\n"+
+			"Report saved to .codrax/plans/%s.report.json.\n",
+			passedChecks, failedChecks, reasonEN, envStepEN, planID)
+	}
 	return fmt.Sprintf("\n## Unverified\n\n"+
 		"The change applied to the worktree, but %s, so no assertion verified the change.\n\n"+
 		"Next steps:\n"+
@@ -363,4 +384,18 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 		"- /reject to roll back.\n\n"+
 		"Report saved to .codrax/plans/%s.report.json.\n",
 		reasonEN, envStepEN, planID)
+}
+
+func reportVerificationResultCounts(report *types.ChangeReport) (passed, failed int) {
+	if report == nil {
+		return 0, 0
+	}
+	for _, result := range report.TestResults {
+		if result.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	return passed, failed
 }

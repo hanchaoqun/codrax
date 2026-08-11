@@ -33071,3 +33071,18 @@ Python 检查也依赖 Java。确认 `B561-PARTIALVERIFYPROJECTION1/P1-high`：�
 
 状态：`B544=P1-soft/recurrent`；`B561=P1-high/next`；`runner=1/2`；`human=0/2`；
 `partial-verification=preserve-without-promotion`；Trace causal authority=`unchanged`。
+
+### 123.616 B561：局部通过证据贯通 controller 与 unverified 用户面
+
+write-controller 的 typed artifact context 现从 `ChangeReport.TestResults` 与 `VerificationStatus` 同源发布
+`passed_results/failed_results/total_results`。当存在 passed rows 但总体状态非 passed 时，紧邻发布边界：这些行是保留的局部证据，必要验证仍未闭合，既不能说成零检查，
+也不能升级为 fully verified。该上下文不读取模型理由、用户请求或最终答案 prose；因此能纠正“只见 runner_missing，误以为所有检查都没跑”的信息损失，
+又不替控制模型下结论。
+
+用户侧 unverified card 同样按 typed TestResults 分臂。零通过行保持既有“没有断言验证”文案；有通过行时改为“已有 N 项本地检查通过、M 项失败，但必要验证不可用，
+仍未完全验证”，并保留准确环境/未尝试候选原因。中英文正臂固定 runner_missing+1 passed 的生产形，负臂继续固定真正零结果、未尝试候选和真实环境缺失三类口径。
+
+`internal/agent`、`internal/orchestrator` 通过。未修改 `run_tests` 聚合判定、verification proof ledger、源码/行为 caliber、模型答案或 Trace 管线。
+
+状态：`B561=implemented/relevant-suites-pass`；`partial-pass=visible`；`overall-unavailable=unchanged`；
+`zero-check-claim=typed-only`；Trace causal authority=`unchanged`。

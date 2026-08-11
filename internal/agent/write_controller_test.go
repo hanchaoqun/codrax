@@ -209,6 +209,46 @@ func TestWriteControllerPromptFiltersPlannerProbeReports(t *testing.T) {
 	}
 }
 
+func TestWriteControllerPromptPreservesPartialVerificationEvidence(t *testing.T) {
+	mut := types.NewMutableState("partial verification")
+	mut.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-partial",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			PlanID: "plan-partial",
+		}},
+	})
+	mut.SetChangePlan(&types.ChangePlan{ID: "plan-partial", Status: types.PlanStatusUnverified})
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-partial",
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusUnavailable,
+		FailureKind:        types.FailureKindRunnerMissing,
+		FailureSummary:     "Java runtime unavailable",
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "make-test",
+			Suite:       "check",
+			Passed:      true,
+		}},
+	})
+
+	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	for _, want := range []string{
+		"verification_evidence: status=unavailable passed_results=1 failed_results=0 total_results=1",
+		"passed_results are retained partial evidence",
+		"Java runtime unavailable",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("controller prompt lost partial verification evidence %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderWriteControllerRunSection_CanonicalAttemptState(t *testing.T) {
 	mu := types.NewMutableState("canonical state")
 	run := types.WriteWorkflowRun{

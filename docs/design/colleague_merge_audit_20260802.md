@@ -4507,3 +4507,14 @@ write 案确认新的 `B561/P1-high`：报告内已有 `make-test passed=true`�
 
 状态：`B544=recurrent/P1-soft`；`B561=next`；`partial-pass-evidence=currently-hidden`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.156 B561：unavailable 不再抹掉已通过的局部检查
+
+controller prompt 新增 typed verification evidence 计数与非 passed 边界，避免只投影 failure summary 后诱导模型声称所有检查均未执行。用户 unverified 卡片同步按
+`TestResults` 分臂：有 passed row 时披露“局部检查通过 + 必要验证不可用”，无 passed row 时才保留“没有断言验证”的旧形。整体 unavailable 判定、行为证明要求与
+merge 风险均未放松，源码检查不会被升级成目标语言运行时证明。
+
+相关 agent/orchestrator 套件通过；无 prose 扫描、无系统代写模型答案、无 Trace 改动。
+
+状态：`B561=implemented`；`partial-evidence=retained`；`full-verification=no-promotion`；
+`model-context=typed-counts`；Trace causal authority=`unchanged`。
