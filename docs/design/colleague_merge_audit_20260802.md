@@ -4320,3 +4320,19 @@ Trace 157s 首稿通过，显式窗、因果投影、自动补齐、链上根因
 
 状态：`B543=production-positive`；`B545=pending-exact-witness`；`B548=next`；`B549=next`；
 `active-stream=no-degrade@508s`；Trace causal authority=`unchanged`。
+
+#### §11.10.141 B548/B549：业务 participant 不再被内部 operation 隐身；修补候选逐席发布
+
+已把 relation incidence 与 visual identity 拆成两个精确条件。owner/declared-binding 对齐继续证明某个 typed operation 与 participant 相关，但不再能单独证明
+该 participant 已在用户可见图层出现；业务 identity 必须存在于 node/participant/subgraph/group，或由模型显式 endpoint identity 绑定到可见业务标签。
+verified stage alias 与显式 identity 保持兼容，系统不规定固定内部名或布局。
+
+每个 `available_typed_incident_edge_not_rendered` / `required_participant_identity_not_visible` 缺口现在附最多 3 条、按 participant 分组的 typed candidate：
+关系类型、canonical 方向、精确 endpoint、source location 原样发布。它只帮助模型从已有证据选择和表达，不把候选变成必画全集，不创建/替换边或答案。
+availability、candidate 与 pre-emit coverage 共用 citable operation/verified precedence 权威。
+
+定向与相邻五包全绿；无 raw request/model/final prose hard gate，Trace family 被显式排除。B517 同步复核：活跃 SSE 超过约 4 分钟不会降级或系统代答；
+只有首包未到、真实静默、断链或 2× 绝对上限可产生 typed failure，恢复链不得合成模型结论。
+
+状态：`B548/B549=implemented/relevant-suites-pass/pending-r324`；`model-authorship=preserved`；
+`active-stream-fixed-4m-degrade=forbidden`；Trace causal authority=`unchanged`。

@@ -32803,3 +32803,26 @@ first-byte/stall/连接终止/重试耗尽才可进入既有恢复链，且只�
 
 状态：`B543=production-positive`；`B545=no-recurrence/pending-exact-witness`；`B548=P1-high/next`；
 `B549=P1/next-or-same-file-batch`；`runner=2/2`；`human=1/2`；`active-stream=no-degrade@508s`；Trace causal authority=`unchanged`。
+
+### 123.601 B548/B549：关系权威与业务可见性拆分；逐席候选降低修补心智
+
+`B548-PARTICIPANTVISIBLE1` 已按两个互不替代的 typed 判据落地：一条 citable operation/stage precedence 只证明 participant 有可用关系；
+用户点名的业务 participant 仍必须以 Mermaid node、participant、subgraph/group 或显式 endpoint identity 所绑定的可见业务标签出现。
+系统通过 owner/receiver/declared static type 推导出的内部 operation 只能做 relation incidence，不能再让 BusContext/MutableState 等业务组件从图层消失。
+已核实的 stage alias、模型显式填写的 endpoint identity 与业务化可见标签继续合法，避免把展示自由收成固定内部类名。
+
+`B549-PARTICIPANTRECIPEMAP1` 同批把笼统的多席失败提示改为逐席 bounded typed candidate map：每个失败 participant 最多列 3 条
+现有 evidence-backed relation，保留 relation kind、canonical from/to identity 与 source location。候选只是 copy/navigation guidance；模型自行选择哪条相关关系以及
+如何用业务语言布局，不要求全部绘制，不创建 edge、不修改 endpoint/方向或答案。assignment/initializer 候选沿用 canonical `RHS -> LHS`，stage 候选沿用
+checkout-verified precedence，所有 candidate 与 availability 判定消费同一 typed operation authority。
+
+回归覆盖：中文业务标签+显式 identity、verified stage alias、可见 carrier 节点、隐藏 internal endpoint 负臂、逐席 candidate map、无证据孤点、stale boundary，
+并通过 `internal/tool`、`internal/types`、`internal/agent`、`internal/orchestrator`、`internal/tracediag` 全量包测试。判据不读取 raw request、模型 prose 或终稿文本，
+Trace intent/root-cause family 明确排除，显式时间窗、因果投影、自动补齐、链上根因排序及模型结论所有权均未改变。
+
+再次核验 `B517-STREAMLIVE1`：OpenAI SSE 不使用 1× request timeout（常见约 4 分钟）的“无可见答案”计时器；hidden reasoning、heartbeat、assistant/tool
+chunk 都属于活跃流进展。固定四分钟不得发布降级答案。只有首包未到、真实 byte stall、连接终止或独立 2× 绝对上限可以产生 typed failure；失败链只可重试、
+恢复已经存在的模型草稿或 fail-loud 披露，不能授权系统代写结论。
+
+状态：`B548=implemented/relevant-suites-pass/pending-r324`；`B549=implemented/relevant-suites-pass/pending-r324`；
+`system-edge/answer-authorship=none`；`raw-prose-hard-gate=none`；`B517=closed/no-regression`；Trace causal authority=`unchanged`。

@@ -114,6 +114,77 @@ func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusinessParticipant(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n O[\"output.EvidenceItems\"] --> F[\"ActiveAgent\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "O", ToNode: "F", FromIdentity: "output.EvidenceItems",
+		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
+	}}
+	operation := types.EvidenceItem{
+		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
+		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation})
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageIdentityMissing {
+		t.Fatalf("a hidden technical endpoint must not replace the requested BusContext participant: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n O[\"output.EvidenceItems\"] --> F[\"BusContext\"]"
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation}); len(got) != 0 {
+		t.Fatalf("a visible business label plus exact edge identities should pass without rewriting the edge: %+v", got)
+	}
+}
+
+func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticipant(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"]"
+	doc.Blocks[0].EdgeAnchors = nil
+	operation := types.EvidenceItem{
+		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
+		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	mut := types.NewMutableState("typed participant candidate map")
+	mut.AppendEvidence([]types.EvidenceItem{operation})
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut}}
+	hints := preCheckDiagramParticipantCoverage(doc, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one participant candidate-map hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		"typed_candidate[BusContext][1]",
+		`relation_kind:"data_flow"`,
+		`from_identity:"output.EvidenceItems"`,
+		`to_identity:"o.busCtx.EvidenceItems"`,
+		"not a requirement to render every candidate",
+		"does not create an edge",
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("candidate-map hint missing %q: %s", want, hints[0].ExpectedShape)
+		}
+	}
+}
+
 func TestDiagramParticipantCoverageRejectsUnprovenBoundaryWhenTypedOperationIsAvailable(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
