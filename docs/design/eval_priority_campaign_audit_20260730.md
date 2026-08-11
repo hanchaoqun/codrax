@@ -31195,3 +31195,26 @@ source alias 正负臂；`go test ./internal/tool -count=1` 全绿。
 
 状态：`B490/B493=implemented/full-tool-suite-pass/pending-production-replay`；`B488=partial-await-r285`；`B491=P2`；
 `system-evidence/relation/answer-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.511 r285：JSON 严格输出稳定；未落地证据越权进入 value enrichment
+
+`main@04017c990` exact-two runner 2/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_stage_json_r285_20260810_manual_audit.md`。
+
+data JSON 用例 34 秒一次完成，终稿字节形为 `{"ids":["u1","u3"]}`，材料消费、active 过滤、源顺序、纯 JSON 输出均正确；零畸形 JSON、零恢复、
+零成文重试，说明 JSON 教学与数据工作流合同在该异构面没有自相矛盾。
+
+QF runner PASS 仍为人工假绿：三条 stage precedence 保留，但 `Orchestrator/BusContext/Mutable` 断开，正文却宣称共享 no-copy data flow。B488 的角色层已
+生效，Analyzer 将命名载体标为 incident-required；Explorer 仍两次把 declaration-only `Mutable *MutableState` 发成 initializer，grounder 均正确判
+ungrounded。深层问题是该被拒行随后在 finalizer typed enrichment 中两次出现为
+`lane=value_fact ... claim_form=assignment_fact, authority=illustrative`：同一事实被证据门拒绝，却被兄弟 handoff 当作值事实继续传播。
+
+确认 `B495-UNGROUNDEDLANE1/P1-high`：typed enrichment 必须先按 grounding authority 分层，explicit ungrounded 行不得进入 value/flow/chain factual lane；
+若需要保留只能走显式 unverified/boundary surface。确认 `B496-DECLREPAIR1/P1`：identifier 可见但 assignment/initializer source shape 不成立时，工具应发布
+source-local typed correction——该行不证明值传递，声明存在性只能按 definition 重发，数据流须另找 writer/reader operation；不自动重解释 evidence、不生成边。
+B490/B493 本轮未被触发而非失效：模型没有再次发出 semantic call row。Analyzer 额外加入未点名 `Orchestrator` 记 `B497/P2-watch`，禁止以 request/prose
+扫描做 hard gate，待异构复现。
+
+状态：`B495=P1-high/next`；`B496=P1/follow-up`；`B490/B493=implemented/pending-production-witness`；
+`B488=partial`；`B497=P2-watch`；`runner=2/2,human=1/2`；`system-edge/answer-authoring=none`；
+`raw-request/model-prose-hard-gate=none`；Trace explicit-window/auto-supplement/causal projection/on-chain root-cause families=`unchanged`。

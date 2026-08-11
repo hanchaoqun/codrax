@@ -3369,3 +3369,20 @@ type/method aliases，修复 `Mutable` 搜不到 `MutableState` 的导航断层�
 两项均不读取 request/thinking/final prose，不铸 relation/diagram/answer。`internal/tool` 全包绿，待 r285 exact-two production replay。
 
 状态：`B490/B493=implemented/pending-production-replay`；`B488=partial`；`B491=P2`；Trace families=`unchanged`。
+
+#### §11.10.55 r285：ungrounded evidence 被兄弟 enrichment 重新赋予值事实外观
+
+exact-two runner 2/2、人工 1/2。严格 JSON 数据面一次输出正确结果，零 JSON 修复或成文重试。QF 的 stage authority 继续正确，但 carrier operation 仍未形成；
+relation validator 正确删除伪边，最终图诚实断开而正文仍概念性宣称共享流。
+
+本轮确认一个比继续补 prompt 更根本的权限分叉：Explorer 把 `Mutable *MutableState` 声明误发为 initializer，grounder 明确标
+`GroundingUngrounded`；finalizer 的 typed enrichment 选择器却不检查该状态，并按 `AnchorInitializer` 将同一拒绝行发布成
+`lane=value_fact/assignment_fact/authority=illustrative`。即“拒绝聚合”与“事实回放”同时发生，直接污染模型上下文。立
+`B495-UNGROUNDEDLANE1/P1-high`，在 handoff SSOT 上禁止 ungrounded 行进入 factual value/flow/chain lanes；另立 `B496-DECLREPAIR1/P1`，把 grounder
+已有的精确 source-shape 失败转成可执行 typed repair，但不自动铸关系或改答案。
+
+B490/B493 新路径因模型未发 semantic call row 而未获 production witness，保持 pending；额外 `Orchestrator` participant 仅单例，记 B497/P2-watch，
+不建立 raw-request/prose 硬门。Trace 所有窗、补齐、投影、链上根因分类、业务线索与可消除量链路未触碰。
+
+状态：`B495=P1-high/next`；`B496=P1`；`B490/B493=pending-production-witness`；`B497=P2-watch`；
+`system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
