@@ -4555,3 +4555,22 @@ participant slate、citable operation 与 checkout-verified stage precedence，�
 
 状态：`B562=implemented/pending-r331`；`repair=typed-state-specific`；`canonical-anchor=copyable`；
 `model-visible-diagram-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.159 r331：participant repair 已生效，显示换行却截断 exact endpoint；Trace 机理越权再现
+
+r331 exact-two runner 2/2、人工 0/2。QF 的逐席 `repair_action` 与可复制 canonical anchor 已进入每轮反馈，证明 B562 接线生效；但模型把
+`explorerEvaluator.ParseOutput`、`ctx.Mutable.SetTurnAArtifacts` 等技术身份按成员分隔符换行后，relation resolver 只取第一行 owner，已有同向 typed call
+仍被判 `call_edge_unproven`。14 次成文拒绝、1132s 后虽交付，最终图仍由 stage 主链、两段 Mutable 方法调用和 BusContext stage 写入三个断片组成，未形成
+共享状态读写的完整逻辑视图。立 `B563-DISPLAYWRAPIDENTITY1/P1-high`：只允许以语言成员分隔符开头的续行还原候选，且候选必须唯一命中 citable typed
+endpoint；任意多行业务标签继续 fail-closed。系统不得据换行文本自铸关系。
+
+Trace 案保留显式 5.000000..5.007000 窗、自动补采、因果投影、链上 class-verification/runnable 双席、实际占用/规则可消双轴与背景隔离；但 typed
+authority 明示 `target_direct_blocking_authority=not_provided`、`direct_blocking_decision=not_established`，模型仍称目标“等待 VerifyClass 完成/被其阻塞唤醒”。
+该 span 在 wake 后还延续 0.400ms，故只是 `pre_wakeup_dependency` 席的再次 B544 生产见证，不能升级为完成式直接阻塞。后续仍走 typed 上下文降心智/软教学，
+禁止扫描答案原文做 hard gate 或由系统改写结论。
+
+活动流方面，QF 连续 1132s 有 reasoning/tool/content 进展且没有因 4 分钟累计时长降级，B560 获长时生产正证。只有 transport-only、真实停滞、断链、
+调用方取消或独立安全边界可触发失败恢复；恢复只能发布模型已有草稿并披露，不能系统代答。
+
+状态：`B562=production-partial`；`B563=next`；`B544=recurrent/P1-soft`；`runner=2/2`；`human=0/2`；
+`active-stream=no-degrade@1132s`；`system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
