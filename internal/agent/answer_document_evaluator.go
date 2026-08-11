@@ -7498,6 +7498,7 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	}
 	if requestSpineComponents > 0 {
 		fmt.Fprintf(b, "- requested_relation_spine_component_count=%d; this role comes only from a request-scoped typed authority provider and does not promote sibling facts or invent a bridge.\n", requestSpineComponents)
+		renderAnswerDocMechanismPrincipalDiagramRecipe(b, aliases, recipes)
 	}
 	if len(components) > 1 {
 		b.WriteString("- cross_component_execution_order_status=`unproven`; cross_component_value_handoff_status=`unproven`; component indices are stable identifiers, not execution/phase order.\n")
@@ -7507,6 +7508,51 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 			b.WriteString("- Required-diagram selection: make the `requested_relation_spine` component the principal visual when it already covers the requested relation axis. A disconnected `supporting_grounded_segment` is additional evidence, not a missing hop and not a requirement to place both components in one diagram; keep it in prose or a separate clearly bounded visual when useful. Never add an inter-component arrow merely to make one picture. The model still authors the visible diagram and may select less only when it preserves every explicitly requested participant/dimension.\n")
 		}
 	}
+}
+
+// renderAnswerDocMechanismPrincipalDiagramRecipe projects the already-typed
+// request spine into a compact repair-first recipe. It does not author a
+// Mermaid body or infer an edge: every row is a strict subset of the same
+// recipe set consumed by validation. Disconnected grounded siblings stay in
+// the full capsule for prose or a separately bounded visual, so they cannot
+// crowd a requested relation off the principal diagram during retries.
+func renderAnswerDocMechanismPrincipalDiagramRecipe(
+	b *strings.Builder,
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) {
+	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
+		return
+	}
+	principal := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+	principalAliases := make(map[string]bool)
+	for _, recipe := range recipes {
+		if !recipe.edge.requestSpine {
+			continue
+		}
+		principal = append(principal, recipe)
+		principalAliases[recipe.from] = true
+		principalAliases[recipe.to] = true
+	}
+	if len(principal) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "- principal_diagram_recipe_source=`request_scoped_typed_authority`; exact_edge_count=%d. For a required-diagram repair, preserve this compact edge set together before considering any supporting recipe. This is evidence input for the model, not a system-authored diagram or conclusion.\n", len(principal))
+	for _, row := range aliases {
+		if !principalAliases[row.alias] {
+			continue
+		}
+		fmt.Fprintf(b, "- principal_node_alias[%s]=`%s`; visible wording remains model-authored in the user's domain.\n", row.alias, row.identity)
+	}
+	for i, recipe := range principal {
+		fmt.Fprintf(b, "- principal_edge_recipe[%d]=`%s -> %s`; relation_kind=`%s`; edge_anchor_json=`%s`",
+			i+1, recipe.from, recipe.to, recipe.edge.relation, recipe.anchor)
+		if recipe.edge.loc != "" {
+			fmt.Fprintf(b, " @ %s", recipe.edge.loc)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("- supporting_recipe_policy=`optional_prose_or_separate_visual`; disconnected supporting recipes below must not replace, truncate, bridge, or be inserted as hops into this requested spine. Internal recipe tokens are not reader-facing labels.\n")
 }
 
 func answerDocMechanismComponentCarriesRequestSpine(

@@ -8960,6 +8960,14 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 		"answer_role=`requested_relation_spine`",
 		"answer_role=`supporting_grounded_segment`",
 		"requested_relation_spine_component_count=1",
+		"principal_diagram_recipe_source=`request_scoped_typed_authority`; exact_edge_count=3",
+		"principal_node_alias[n1]=`Analyzer`",
+		"principal_node_alias[n4]=`Finalizer`",
+		"principal_edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
+		"principal_edge_recipe[3]=`n3 -> n4`; relation_kind=`precedence`",
+		"edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Analyzer\",\"to_identity\":\"Explorer\",\"relation_kind\":\"precedence\"}`",
+		"edge_anchor_json=`{\"from_node\":\"n3\",\"to_node\":\"n4\",\"from_identity\":\"Extractor\",\"to_identity\":\"Finalizer\",\"relation_kind\":\"precedence\"}`",
+		"supporting_recipe_policy=`optional_prose_or_separate_visual`",
 		"make the `requested_relation_spine` component the principal visual",
 		"additional evidence, not a missing hop",
 		"Never add an inter-component arrow merely to make one picture",
@@ -8967,6 +8975,21 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("request-spine presentation boundary missing %q:\n%s", want, got)
+		}
+	}
+	principalBlockStart := strings.Index(got, "principal_diagram_recipe_source=")
+	if principalBlockStart < 0 {
+		t.Fatalf("compact principal recipe block missing:\n%s", got)
+	}
+	principalBlockEnd := strings.Index(got[principalBlockStart:], "supporting_recipe_policy=")
+	if principalBlockEnd < 0 {
+		t.Fatalf("compact principal recipe boundary missing:\n%s", got)
+	}
+	principalBlockEnd += principalBlockStart
+	principalBlock := got[principalBlockStart:principalBlockEnd]
+	for _, forbidden := range []string{"Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage", "relation_kind=`call`"} {
+		if strings.Contains(principalBlock, forbidden) {
+			t.Fatalf("supporting relation %q must stay outside compact request-spine recipe:\n%s", forbidden, principalBlock)
 		}
 	}
 }

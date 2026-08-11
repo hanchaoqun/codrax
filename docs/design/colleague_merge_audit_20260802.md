@@ -5233,3 +5233,25 @@ Trace/read-combo 回放同时验收 B581/B582。
 状态：`B581=implemented/pending-r346`；`B582=next`；`legacy-latency-ms=preserved`；
 `post-wakeup-scheduler-latency=separate`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.191 B582：请求主关系提炼为 repair-first typed recipe，支撑边不再挤掉主脊
+
+r345 的 read-combo 不是模型单次波动：系统已经通过 request-scoped typed authority 精确持有
+`Analyzer → Explorer → Extractor → Finalizer` 三条 precedence 主脊，但修补上下文仍把它与六条断开的 call/data-flow 支撑 recipe 同权铺开。
+四轮成文校验中，模型在补调用锚、保 precedence 与删除无支撑边之间反复搬运，最终删掉 `Analyze → Explore`，却保留两条与主脊断开的
+orchestrator call。证据没有缺失，缺的是一份紧凑、优先、不可被支撑清单淹没的 typed 必保集合。
+
+本批在 `renderAnswerDocMechanismRelationComponentBoundary` 的同源 recipe 投影上新增 repair-first principal block：只选择
+`edge.requestSpine=true` 的既有行，逐条发布 exact node alias、endpoint identity、`relation_kind`、完整 `edge_anchor_json` 与源码位置；断开的
+grounded sibling 明确为可选正文或独立有界图，不得替换、截断、桥接或插入请求主脊。完整 capsule 仍保留所有可引用事实，模型仍负责可见 Mermaid、
+业务措辞、总结与结论；系统不生成图体、不补关系、不删模型边，也不从用户/模型/终稿原文关键词推断主脊。
+
+这是 relation-family 通用机制，不依赖 Go/Java 或单个 case：任何未来由 request-scoped typed authority 标记的 spine 都走同一投影，支持项目全部语言；
+没有 requestSpine 时零输出、旧行为不变。内部 recipe token 明确不得进入读者可见图，visible label 继续由模型使用业务领域语言撰写。
+
+回归钉住：四个主节点、三条 precedence 边、首尾两条完整 anchor JSON；supporting call 的 endpoint 与 `relation_kind=call` 不得进入 compact
+principal block，但仍存在于完整 capsule；component bridge 继续 unproven，禁止为成图而造桥。`go test ./internal/agent` 全绿。
+
+状态：`B582=implemented/pending-r346`；`principal-recipe=typed-subset-only`；
+`supporting-relations=preserved-outside-principal`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
