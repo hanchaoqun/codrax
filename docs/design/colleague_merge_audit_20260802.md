@@ -4728,3 +4728,20 @@ principal 边、节点业务标签、布局和解释。禁止从 edge label、�
 状态：`B567=implemented/not-exercised-r335`；`B568=P1-high/next`；`runner=2/2`；`human=1/2`；
 `typed-roster=present`；`type-relation-evidence-bridge=missing`；`system-edge/answer-authorship=none`；
 `fixed-four-minute-active-degrade=retired`；Trace causal authority=`unchanged`。
+
+#### §11.10.169 B568：类型关系图与名册统一消费 exact provider
+
+diagram pre-emit 现仅在模型明确提交 `relation_kind=type_relation` 时，重新查询与 member-set coverage 共用的
+`TypedRelationPurposeCoverageGate` provider；只有 `exact_symbol_id` / `exact_file` / `exact_evidence` 候选可投影为本次校验的 citable
+type-relation evidence。prompt-only `TypedRelationHints` 继续只是教学输入，`name_only`/heuristic 候选不能借此获得 hard-gate 权限。
+
+implements 与 extends/继承均保持 provider 的精确方向 `implementer/subtype -> interface/base`。反向边继续拒绝，call 重标继续拒绝；模型没有提交
+type-relation anchor 时不查询、不投影，更不会由系统添加可见边、选择 principal member、生成布局或修改解释。source role 只决定 principal/auxiliary 展示，
+不撤销已由 parser/graph 确认的关系真值，所以 test/support 图中的真实边仍可被校验，但不会被自动提升为 production 主表。
+
+实现完全复用跨语言 typed relation carrier，不检查文件正文、请求、reasoning、终稿或 edge label。测试钉住：正向 exact implementer 通过、反向失败、name-only
+失败、无 model-authored anchor 零投影，以及 Go/Java/Kotlin/ArkTS/Cangjie/C++/Rust 文件面走同一 provider 协议。`internal/tool` 全包及
+`internal/agent`、`internal/orchestrator`、`internal/tracediag` 全绿。
+
+状态：`B568=implemented/pending-r336`；`provider=coverage-gate-exact-only`；`prompt-hints=not-promoted`；
+`model-edge/answer-authorship=preserved`；`reverse/relabel=fail-closed`；Trace causal authority=`unchanged`。

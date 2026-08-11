@@ -3941,6 +3941,15 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		}
 		evidence = preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, pctx.groundCtx)
 	}
+	// The relation member-set gate and the diagram relation gate must consume
+	// the same exact provider rows. In particular, Go interface satisfaction is
+	// represented by Graph.ImplementersOf rather than an explicit source
+	// declaration, so a valid implementer roster can exist without an explorer-
+	// emitted relationship EvidenceItem. Project only coverage-gate-eligible
+	// typed candidates, and only when the model has explicitly authored a
+	// type_relation anchor. This authorizes that exact direction; it does not
+	// add an edge, choose a member, or inspect labels/request/prose.
+	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, pctx.ctx, evidence)
 	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, diagramVerifiedReadModeStagePrecedence(pctx.ctx, view))
 	if len(mismatches) == 0 {
 		return nil
@@ -4045,6 +4054,106 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return hints
+}
+
+// preEmitEvidenceWithExactTypedDiagramRelations bridges the shared exact
+// relation provider into the diagram evidence gate. TypedRelationHints remain
+// prompt-only: this helper deliberately re-queries the coverage-gate provider
+// and accepts only CoverageGateEligible candidates. That preserves the
+// precise-signal hard-gate boundary and avoids upgrading prompt/name-only rows.
+func preEmitEvidenceWithExactTypedDiagramRelations(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	evidence []types.EvidenceItem,
+) []types.EvidenceItem {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil ||
+		!answerDocumentHasTypedRelationAnchor(doc) {
+		return evidence
+	}
+	candidates := relationCandidatesForRequestAllSourceRoles(ctx, ctx.AnalysisIR.RequestModel)
+	if len(candidates) == 0 {
+		return evidence
+	}
+	out := append([]types.EvidenceItem(nil), evidence...)
+	seen := make(map[string]bool, len(out)+len(candidates))
+	for _, item := range out {
+		if !types.IsRepoMapTypeRelationEvidence(item) {
+			continue
+		}
+		seen[typedDiagramRelationEvidenceKey(item.Subject, item.Predicate, item.Object, item.Source, item.LineStart)] = true
+	}
+	for _, candidate := range candidates {
+		predicate, producer, ok := typedDiagramRelationCandidateEvidenceShape(candidate.Relation)
+		if !ok || !candidate.CoverageGateEligible() {
+			continue
+		}
+		subject := strings.TrimSpace(candidate.Member.Name)
+		object := strings.TrimSpace(candidate.SourceName)
+		source := canonicalRelationSourcePath(candidate.Member.File)
+		line := candidate.Member.Line
+		if subject == "" || object == "" || source == "" || line <= 0 {
+			continue
+		}
+		key := typedDiagramRelationEvidenceKey(subject, predicate, object, source, line)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		item := types.EvidenceItem{
+			Kind:            types.EvidenceRelationship,
+			Subject:         subject,
+			Predicate:       predicate,
+			Object:          object,
+			Summary:         fmt.Sprintf("typed %s relation: `%s` -> `%s`", predicate, subject, object),
+			Source:          source,
+			LineStart:       line,
+			LineEnd:         line,
+			Confidence:      1,
+			Producer:        producer,
+			ContextRole:     types.EvidenceContextRoleDefining,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    subject,
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		}
+		item.ID = types.StableEvidenceID(item)
+		out = append(out, item)
+	}
+	return out
+}
+
+func answerDocumentHasTypedRelationAnchor(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		for _, anchor := range block.EdgeAnchors {
+			if anchor.RelationKind == types.DiagramRelTypeRelation {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func typedDiagramRelationCandidateEvidenceShape(kind types.TypedRelationKind) (predicate, producer string, ok bool) {
+	switch kind {
+	case types.TypedRelationImplements:
+		return "implements", types.EvidenceProducerRepoMapImplementerRelation, true
+	case types.TypedRelationExtends:
+		return "inheritance", types.EvidenceProducerRepoMapStructuralRelation, true
+	case types.TypedRelationOverrides:
+		return "overrides", types.EvidenceProducerRepoMapStructuralRelation, true
+	default:
+		return "", "", false
+	}
+}
+
+func typedDiagramRelationEvidenceKey(subject, predicate, object, source string, line int) string {
+	return strings.ToLower(strings.TrimSpace(subject)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(predicate)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(object)) + "\x00" +
+		canonicalRelationSourcePath(source) + "\x00" + strconv.Itoa(line)
 }
 
 func diagramRelationFailurePairFingerprints(mismatches []DiagramCallEdgeEvidenceMismatch) []string {
