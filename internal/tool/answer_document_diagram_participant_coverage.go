@@ -13,11 +13,12 @@ import (
 type DiagramParticipantCoverageIssue string
 
 const (
-	DiagramParticipantCoverageMissingBoundary DiagramParticipantCoverageIssue = "missing_unproven_boundary"
-	DiagramParticipantCoverageStaleBoundary   DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
-	DiagramParticipantCoverageNodeMissing     DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
-	DiagramParticipantCoverageUnknownBoundary DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
-	DiagramParticipantCoverageDuplicate       DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
+	DiagramParticipantCoverageMissingBoundary  DiagramParticipantCoverageIssue = "missing_unproven_boundary"
+	DiagramParticipantCoverageStaleBoundary    DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
+	DiagramParticipantCoverageNodeMissing      DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
+	DiagramParticipantCoverageUnknownBoundary  DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
+	DiagramParticipantCoverageDuplicate        DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
+	DiagramParticipantCoverageTypedEdgeMissing DiagramParticipantCoverageIssue = "available_typed_incident_edge_not_rendered"
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -56,7 +57,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		Field:               "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
 		HardSignal:          preEmitHardSignalTypedDiagramParticipantCoverage,
 		OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
-		ExpectedShape:       "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant, keep one evidence-backed typed visible incident edge; when no such relation exists, keep that participant as a disconnected visible node and add exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. Do not invent an edge: " + strings.Join(parts, "; "),
+		ExpectedShape:       "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; "),
 		Reason:              "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
 	}}
 }
@@ -79,10 +80,11 @@ func DiagramParticipantCoverageMismatches(
 	}
 
 	type state struct {
-		obligation types.DiagramParticipantHint
-		surfaces   []string
-		covered    bool
-		bounded    bool
+		obligation         types.DiagramParticipantHint
+		surfaces           []string
+		visibleCovered     bool
+		typedEdgeAvailable bool
+		bounded            bool
 	}
 	states := make([]state, 0, len(obligations))
 	for _, obligation := range obligations {
@@ -97,9 +99,10 @@ func DiagramParticipantCoverageMismatches(
 			}
 		}
 		states = append(states, state{
-			obligation: obligation,
-			surfaces:   surfaces,
-			covered:    diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
+			obligation:         obligation,
+			surfaces:           surfaces,
+			visibleCovered:     diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
+			typedEdgeAvailable: diagramParticipantHasAvailableTypedIncident(rm, obligation, surfaces, evidence, stagePrecedence),
 		})
 	}
 
@@ -153,11 +156,19 @@ func DiagramParticipantCoverageMismatches(
 				})
 				continue
 			}
-			if states[idx].covered {
+			if states[idx].visibleCovered {
 				out = append(out, DiagramParticipantCoverageMismatch{
 					BlockID: block.ID, Participant: states[idx].obligation.Identity,
 					Issue: DiagramParticipantCoverageStaleBoundary,
 				})
+				continue
+			}
+			if states[idx].typedEdgeAvailable {
+				out = append(out, DiagramParticipantCoverageMismatch{
+					BlockID: block.ID, Participant: states[idx].obligation.Identity,
+					Issue: DiagramParticipantCoverageTypedEdgeMissing,
+				})
+				states[idx].bounded = true
 				continue
 			}
 			states[idx].bounded = true
@@ -170,12 +181,16 @@ func DiagramParticipantCoverageMismatches(
 		}
 	}
 	for _, current := range states {
-		if current.covered || current.bounded {
+		if current.visibleCovered || current.bounded {
 			continue
+		}
+		issue := DiagramParticipantCoverageMissingBoundary
+		if current.typedEdgeAvailable {
+			issue = DiagramParticipantCoverageTypedEdgeMissing
 		}
 		out = append(out, DiagramParticipantCoverageMismatch{
 			Participant: current.obligation.Identity,
-			Issue:       DiagramParticipantCoverageMissingBoundary,
+			Issue:       issue,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -188,6 +203,24 @@ func DiagramParticipantCoverageMismatches(
 		return out[i].Issue < out[j].Issue
 	})
 	return out
+}
+
+func diagramParticipantHasAvailableTypedIncident(
+	rm types.RequestModel,
+	obligation types.DiagramParticipantHint,
+	surfaces []string,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) bool {
+	if stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence) {
+		return true
+	}
+	for _, surface := range surfaces {
+		if types.AnswerCodeParticipantHasFlowOperation(surface, evidence) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramIncidentParticipantObligations(view *types.AnswerSemanticView) []types.DiagramParticipantHint {

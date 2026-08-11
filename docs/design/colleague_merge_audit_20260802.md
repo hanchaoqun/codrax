@@ -4278,3 +4278,15 @@ r322 exact-two runner 2/2、人工 `pass-with-caveat + fail`。B541b 已把 `o.b
 
 状态：`B541b=production-positive/partial`；`B543=P0-next`；`B545=P1-next`；`B544=P2-soft`；
 `active-stream=fixed-threshold-degrade-forbidden`；Trace causal authority=`unchanged`。
+
+#### §11.10.138 B543：消除 participant incident/uncovered 双合同
+
+Diagram Contract 与 Current-Source Authority 现共享最终 evidence closure、relation edge 投影和 participant coverage 谓词；stage precedence、exact
+receiver/member 与 parser-stamped declared binding 不再分车道判断。pre-emit 进一步区分“typed 关系在且已画”“typed 关系在但未画”“typed 关系不存在”：
+前者拒绝 stale boundary，中者要求模型自行呈现一条现有证据边，只有后者允许 unproven 孤点。
+
+系统仍不画边、不选择边、不改 relation/endpoint/方向或答案；判据只读 schema-valid typed participant、citable EvidenceItem 与 verified stage authority，
+无 request/model/final prose 扫描。全仓 `go test ./...` 通过，Trace 与活动流策略未改。
+
+状态：`B543=implemented/full-suite-pass/pending-r323`；`B545=next`；
+`model-answer/edge-authorship=preserved`；Trace causal authority=`unchanged`。

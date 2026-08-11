@@ -32736,3 +32736,22 @@ Go 案 464s 全程持续有模型/工具/patch 进展，系统等待到模型答
 
 状态：`B541b=production-positive/consumer-snapshot-gap`；`B543=P0-next`；`B545=P1-next`；
 `B544=P2-soft`；`runner=2/2`；`human=1/2`；`active-stream=no-degrade@464s`；Trace causal authority=`unchanged`。
+
+### 123.598 B543：参与者覆盖、孤点配方与可见边校验改为最终证据同源
+
+已删除 Diagram Contract 仅按 read-stage precedence 计算 uncovered 的旧支路。最终成文现在先从同一 current-source evidence closure 编译
+stage precedence 与模型已发射的 citable operation edges，再用一个 participant coverage 谓词同时生成 Diagram Contract boundary recipe 和
+Current-Source Authority 的 `incident/no_incident` 清单。parser-stamped declared binding、exact receiver/member owner 与 stage alias 都在该单源投影中消费；
+因此同一 dispatch 不再可能一面称 BusContext incident、另一面要求 BusContext unproven。
+
+pre-emit 同步收紧为三态：已有可见 typed incident edge 时附 unproven 为 stale；typed operation 已存在但模型未画时，要求模型从现有关系中选择并绘制一条
+`available_typed_incident_edge_not_rendered`，不接受虚假的 unproven；只有当前证据闭包确实没有 incident relation 时，才允许模型保留可见孤点和 boundary row。
+系统不选择 relation、不创建 edge、不改 endpoint/方向/答案。共享 types helper 只判断 participant 是否被 citable flow operation 精确触达，仍由原 EvidenceItem
+持有关系权威。
+
+回归固定 operation-backed BusContext 的 prompt 无 boundary recipe、证据在而图未画的精确拒绝、已有图边的 stale boundary、无证据孤点合法、stage alias、
+Mutable member owner 及 Trace 排除。`go test ./...` 全绿，含 `internal/tool` 186.326s、`tracequery` 80.747s、`hitraceconv` 100.093s；L1 read scheduler、
+Trace 显式窗/因果投影/自动补齐、Mermaid renderer 与活动流超时策略均未修改。
+
+状态：`B543=implemented/full-suite-pass/pending-r323`；`participant-state=final-closure-SSOT`；
+`system-edge-authorship=none`；`B545=next`；Trace causal authority=`unchanged`。

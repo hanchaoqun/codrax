@@ -4065,21 +4065,18 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 		}
 		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
 		if answerDocDiagramBoundaryRecipesApply(ctx) {
-			stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx)
-			uncovered := make([]types.DiagramParticipantHint, 0, len(dc.Participants))
-			for _, participant := range dc.Participants {
-				if strings.TrimSpace(participant.Identity) == "" || participant.Role != types.DiagramParticipantIncidentRequired {
-					continue
-				}
-				if stageauthority.ParticipantHasIncidentPrecedence(ctx.AnalysisIR.RequestModel, participant, stagePrecedence) {
-					continue
-				}
-				uncovered = append(uncovered, participant)
+			evidence, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
+			coverageRM := ctx.AnalysisIR.RequestModel
+			coverageHint := types.DiagramHint{}
+			if coverageRM.DiagramHint != nil {
+				coverageHint = *coverageRM.DiagramHint
 			}
-			if len(uncovered) > 0 {
+			coverageHint.Participants = dc.Participants
+			coverageRM.DiagramHint = &coverageHint
+			coverage := answerDocResolveFlowParticipantCoverage(coverageRM, edges, evidence)
+			if len(coverage.unproved) > 0 {
 				b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
-				for recipeIndex, participant := range uncovered {
-					identity := strings.TrimSpace(participant.Identity)
+				for recipeIndex, identity := range coverage.unproved {
 					quotedIdentity := strconv.Quote(identity)
 					boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
 					fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
@@ -7021,6 +7018,69 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || !answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
 		return ""
 	}
+	evidence, edges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
+	if acceptedFacts == 0 {
+		return ""
+	}
+	typedPaths := answerDocSupportedMechanismFlowPathsForContext(ctx)
+	status := "unproven"
+	switch {
+	case len(typedPaths) > 0:
+		status = "typed_flow_paths_present"
+	case len(edges) > 0:
+		status = "listed_edges_only"
+	}
+
+	var b strings.Builder
+	b.WriteString("## Current-Source Mechanism Relation Authority\n\n")
+	fmt.Fprintf(&b,
+		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
+		acceptedFacts, callsiteFacts, len(edges), status)
+	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
+	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
+		fmt.Fprintf(&b,
+			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
+			topology.uniqueEdges, topology.nodes, topology.weakComponents,
+			topology.maxOutDegree, topology.maxInDegree, topology.fanOutPresent,
+			topology.fanInPresent, topology.disconnected, topology.singleLinearGraph)
+		if !topology.singleLinearGraph {
+			b.WriteString("- The relation inventory is not one linear hop chain. Do not turn its relation count into a hop count or list sibling fan-out/fan-in edges as consecutive intermediates. If `typed_flow_path[...]` records are present, only those records authorize their own ordered subset; otherwise keep the listed directed edges as a graph/boundary.\n")
+		}
+		b.WriteString("- These topology fields describe only the shape of grounded directed relations. `fan_out_present` means one node has multiple outgoing typed relations; `weak_components` and `disconnected_present` describe graph connectivity. None of them proves concurrent/parallel execution, temporal order, a join, or runtime convergence. State those semantics only when separate typed control-flow, concurrency, or runtime evidence establishes them.\n")
+	}
+	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
+	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
+	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers: place the exact endpoint node inside that component's Mermaid subgraph/group, draw the copied typed relation only between the exact endpoint nodes, and use the component group/label only for responsibility. Do not retarget the relation to an abstract component node, and do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
+	if len(edges) == 0 {
+		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
+	} else {
+		renderAnswerDocMechanismRelationAuthoringCapsule(
+			&b,
+			edges,
+			answerDocMechanismCopyReadyRelationLimit(ctx),
+			answerDocMechanismCopyReadyDiagramKind(ctx),
+		)
+	}
+	for i, path := range typedPaths {
+		if i >= 4 {
+			fmt.Fprintf(&b, "- (%d additional typed path(s) omitted from this compact authority view)\n", len(typedPaths)-i)
+			break
+		}
+		fmt.Fprintf(&b, "- typed_flow_path[%d]=`%s`\n", i+1, strings.Join(path, " -> "))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// answerDocCurrentSourceMechanismRelations is the single producer for the
+// finalizer's typed relation edges and participant coverage. Diagram boundary
+// recipes and Current-Source Authority must consume this same projection so a
+// participant cannot be called both incident and uncovered in one prompt.
+func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.EvidenceItem, []answerDocMechanismRelationEdge, int, int) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil, nil, 0, 0
+	}
 	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
 	acceptedFacts := 0
 	callsiteFacts := 0
@@ -7089,58 +7149,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		})
 	}
 	acceptedFacts += len(stagePrecedence)
-	if acceptedFacts == 0 {
-		return ""
-	}
-	typedPaths := answerDocSupportedMechanismFlowPathsForContext(ctx)
-	status := "unproven"
-	switch {
-	case len(typedPaths) > 0:
-		status = "typed_flow_paths_present"
-	case len(edges) > 0:
-		status = "listed_edges_only"
-	}
-
-	var b strings.Builder
-	b.WriteString("## Current-Source Mechanism Relation Authority\n\n")
-	fmt.Fprintf(&b,
-		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
-		acceptedFacts, callsiteFacts, len(edges), status)
-	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
-	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
-		fmt.Fprintf(&b,
-			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
-			topology.uniqueEdges, topology.nodes, topology.weakComponents,
-			topology.maxOutDegree, topology.maxInDegree, topology.fanOutPresent,
-			topology.fanInPresent, topology.disconnected, topology.singleLinearGraph)
-		if !topology.singleLinearGraph {
-			b.WriteString("- The relation inventory is not one linear hop chain. Do not turn its relation count into a hop count or list sibling fan-out/fan-in edges as consecutive intermediates. If `typed_flow_path[...]` records are present, only those records authorize their own ordered subset; otherwise keep the listed directed edges as a graph/boundary.\n")
-		}
-		b.WriteString("- These topology fields describe only the shape of grounded directed relations. `fan_out_present` means one node has multiple outgoing typed relations; `weak_components` and `disconnected_present` describe graph connectivity. None of them proves concurrent/parallel execution, temporal order, a join, or runtime convergence. State those semantics only when separate typed control-flow, concurrency, or runtime evidence establishes them.\n")
-	}
-	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
-	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
-	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
-	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers: place the exact endpoint node inside that component's Mermaid subgraph/group, draw the copied typed relation only between the exact endpoint nodes, and use the component group/label only for responsibility. Do not retarget the relation to an abstract component node, and do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
-	if len(edges) == 0 {
-		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
-	} else {
-		renderAnswerDocMechanismRelationAuthoringCapsule(
-			&b,
-			edges,
-			answerDocMechanismCopyReadyRelationLimit(ctx),
-			answerDocMechanismCopyReadyDiagramKind(ctx),
-		)
-	}
-	for i, path := range typedPaths {
-		if i >= 4 {
-			fmt.Fprintf(&b, "- (%d additional typed path(s) omitted from this compact authority view)\n", len(typedPaths)-i)
-			break
-		}
-		fmt.Fprintf(&b, "- typed_flow_path[%d]=`%s`\n", i+1, strings.Join(path, " -> "))
-	}
-	b.WriteString("\n")
-	return b.String()
+	return evidence, edges, acceptedFacts, callsiteFacts
 }
 
 // answerDocMechanismRelationProjection projects one already-typed

@@ -397,6 +397,14 @@ func TestMechanismRelationAuthorityMapsExactStaticBindingToTypedParticipantAA3(t
 	if !strings.Contains(got, "typed_named_participant_relation_coverage: incident=[BusContext]; no_incident_typed_relation=[]") {
 		t.Fatalf("exact static binding did not cover its typed participant:\n%s", got)
 	}
+	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
+		Required:     true,
+		RequiredKind: types.DiagramArchitecture,
+		Participants: ctx.AnalysisIR.RequestModel.DiagramHint.Participants,
+	})
+	if strings.Contains(contract, `participant_identity="BusContext"`) || strings.Contains(contract, "boundary_recipe[") {
+		t.Fatalf("diagram contract must consume the same final participant coverage as current-source authority:\n%s\n--- authority ---\n%s", contract, got)
+	}
 	for _, want := range []string{"parser-stamped static declaration", "identity-only", "do not turn the declaration into an edge", "Untyped, ambiguous, or differently-owned bindings remain unproven"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("declared-binding authority boundary missing %q:\n%s", want, got)

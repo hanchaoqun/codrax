@@ -69,6 +69,31 @@ func HasFlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel
 	return len(FlowOperationEvidenceForRequest(evidence, rm)) > 0
 }
 
+// AnswerCodeParticipantHasFlowOperation reports whether the current citable
+// evidence pool contains at least one exact directed operation incident to a
+// typed participant identity. It is shared by prompt coverage and diagram
+// pre-emit validation so an available operation cannot be called "incident"
+// in one surface and "unproven" in another.
+//
+// The result is coverage authority only. It does not select an operation,
+// create an edge, or alter the operation's endpoints/direction.
+func AnswerCodeParticipantHasFlowOperation(participant string, evidence []EvidenceItem) bool {
+	participant = strings.TrimSpace(participant)
+	if participant == "" {
+		return false
+	}
+	for _, operation := range FlowOperationEvidence(evidence) {
+		for _, endpoint := range []string{operation.Subject, operation.Object} {
+			if AnswerCodeIdentitySurfacesCompatible(participant, endpoint) ||
+				AnswerCodeIdentityOwnsEndpoint(participant, endpoint) ||
+				AnswerCodeIdentityIncidentViaDeclaredBinding(participant, endpoint, operation, evidence) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ExplorerAuthoredFlowOperationEvidenceForRequest returns the operation rows
 // the Explorer model explicitly selected for this investigation. Parser and
 // repo-wide dataflow expansions remain valuable background evidence, but they

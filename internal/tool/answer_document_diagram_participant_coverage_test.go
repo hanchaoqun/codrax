@@ -114,6 +114,34 @@ func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverageRejectsUnprovenBoundaryWhenTypedOperationIsAvailable(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"]"
+	doc.Blocks[0].EdgeAnchors = nil
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	operation := types.EvidenceItem{
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems", Predicate: "assigns", Object: "output.EvidenceItems",
+		Source: "src/pipeline.go", LineStart: 20, AnchorKind: types.AnchorAssignment,
+		AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation})
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageTypedEdgeMissing {
+		t.Fatalf("available typed operation must require a model-authored visible incident edge, got %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageAcceptsProductionBareDisconnectedNodes(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart TD\n A[\"Analyzer\"] --> E[\"Explorer\"]\n MutableState"
