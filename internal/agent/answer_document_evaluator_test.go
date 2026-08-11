@@ -8928,6 +8928,49 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	}
 }
 
+func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: participants},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "supporting-call", Kind: types.EvidenceRelationship,
+			Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
+			Subject: "Orchestrator.runAnalyzePhase", Object: "Orchestrator.dispatchStage",
+			Producer:        types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"verified_relation_component_count=2",
+		"answer_role=`requested_relation_spine`",
+		"answer_role=`supporting_grounded_segment`",
+		"requested_relation_spine_component_count=1",
+		"make the `requested_relation_spine` component the principal visual",
+		"additional evidence, not a missing hop",
+		"Never add an inter-component arrow merely to make one picture",
+		"The model still authors the visible diagram",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("request-spine presentation boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmitted(t *testing.T) {
 	mut := types.NewMutableState("summarize the repository")
 	mut.SetFinalizerTypedRelationRecipeAvailable(true)

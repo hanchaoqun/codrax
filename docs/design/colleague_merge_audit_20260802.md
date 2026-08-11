@@ -3979,3 +3979,17 @@ pipeline 中 B524 exact endpoint pair 消除了显示 alias 误拒，但 typed r
 该修复不删除 ledger/projection 证据，`E5(+2)` 等合并来源披露保留，只避免同一墙钟占用展示两行。定向对抗 pin 与 `internal/tool` 全量通过。
 
 状态：`B522=implemented/tool-suite-pass/pending-replay`；`root ranking/eliminable/model answer=unchanged`。
+
+#### §11.10.111 B526：关系组件新增请求主脊角色，纠正“所有 recipe 都要进主图”
+
+r308 冷读修正：四阶段时序本身已有完整三条 typed precedence，真正不完整的是独立 Orchestrator call 片段。此前把它概括为“required visual 整体缺 relation rows”过宽；若据此增加
+完成硬门，会迫使 Explorer 为用户未要求的内部实现继续补边，扩大探索并制造新的重试。正确问题是 carrier 未区分“直接完成请求关系轴的组件”和“同样真实但断开的支撑组件”。
+
+本批在既有 typed edge carrier 上增加内部 `requestSpine` 规划位，只由 request-scoped checkout authority 设置；component 输出新增
+`answer_role=requested_relation_spine|supporting_grounded_segment`。当两者断开时，Finalizer 获得 soft selection guidance：主图优先展示完整 spine，supporting segment 留正文或独立图；
+不把支撑片段当缺失 hop，不因图面整齐补桥。系统不选业务结论、不写可见边/标签、不改模型答案；strict relation validator 和证据端点合同均未放宽。
+
+定向测试覆盖 stage spine + disconnected call support，确认角色、禁止 synthetic bridge 与 model-authorship 文案均进入真实 authority renderer。
+
+状态：`B526=implemented/targeted-pass/pending-r309`；`scope-correction=recorded`；`relationship-authority=unchanged`；
+`raw-request/model/final-prose-scan=none`；Trace=`unchanged`。

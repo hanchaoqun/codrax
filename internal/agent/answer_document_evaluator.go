@@ -6980,6 +6980,12 @@ type answerDocMechanismRelationEdge struct {
 	to       string
 	relation types.DiagramRelationKind
 	loc      string
+	// requestSpine marks a relation selected by a request-scoped typed
+	// authority provider, rather than a merely relevant grounded sibling. It
+	// is presentation planning metadata only: it cannot mint an edge, bridge
+	// components, or change validation authority. The first producer is the
+	// checkout-verified read-mode stage sequence.
+	requestSpine bool
 }
 
 type answerDocMechanismAliasRow struct {
@@ -7025,6 +7031,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		seenEdges[key] = true
 		edges = append(edges, answerDocMechanismRelationEdge{
 			from: from, to: to, relation: types.DiagramRelPrecedence, loc: loc,
+			requestSpine: true,
 		})
 	}
 	for _, item := range evidence {
@@ -7366,6 +7373,12 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	if len(components) > 1 {
 		bridgeStatus = "unproven_between_components"
 	}
+	requestSpineComponents := 0
+	for _, component := range components {
+		if answerDocMechanismComponentCarriesRequestSpine(component, recipes) {
+			requestSpineComponents++
+		}
+	}
 	fmt.Fprintf(b, "- verified_relation_component_count=%d; inter_component_bridge_status=`%s`.\n",
 		len(components), bridgeStatus)
 	for i, component := range components {
@@ -7374,13 +7387,44 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 			members = append(members, fmt.Sprintf("%s:%s", row.alias, row.identity))
 		}
 		relationClass, internalEdges := answerDocMechanismComponentRelationClass(component, recipes)
-		fmt.Fprintf(b, "- verified_component[%d]=`%s`; relation_segment_class=`%s`; internal_typed_edge_count=%d\n",
-			i+1, strings.Join(members, " | "), relationClass, internalEdges)
+		answerRole := "supporting_grounded_segment"
+		if answerDocMechanismComponentCarriesRequestSpine(component, recipes) {
+			answerRole = "requested_relation_spine"
+		}
+		fmt.Fprintf(b, "- verified_component[%d]=`%s`; relation_segment_class=`%s`; answer_role=`%s`; internal_typed_edge_count=%d\n",
+			i+1, strings.Join(members, " | "), relationClass, answerRole, internalEdges)
+	}
+	if requestSpineComponents > 0 {
+		fmt.Fprintf(b, "- requested_relation_spine_component_count=%d; this role comes only from a request-scoped typed authority provider and does not promote sibling facts or invent a bridge.\n", requestSpineComponents)
 	}
 	if len(components) > 1 {
 		b.WriteString("- cross_component_execution_order_status=`unproven`; cross_component_value_handoff_status=`unproven`; component indices are stable identifiers, not execution/phase order.\n")
 		b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments in sibling sections/bullets, disclose the missing bridge, or investigate a citable bridge. Do not place the components as consecutive numbered hops. Do not narrate them as one continuous end-to-end path.\n")
+		if requestSpineComponents > 0 {
+			b.WriteString("- Required-diagram selection: make the `requested_relation_spine` component the principal visual when it already covers the requested relation axis. A disconnected `supporting_grounded_segment` is additional evidence, not a missing hop and not a requirement to place both components in one diagram; keep it in prose or a separate clearly bounded visual when useful. Never add an inter-component arrow merely to make one picture. The model still authors the visible diagram and may select less only when it preserves every explicitly requested participant/dimension.\n")
+		}
 	}
+}
+
+func answerDocMechanismComponentCarriesRequestSpine(
+	component []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) bool {
+	if len(component) == 0 || len(recipes) == 0 {
+		return false
+	}
+	members := make(map[string]bool, len(component))
+	for _, row := range component {
+		if row.alias != "" {
+			members[row.alias] = true
+		}
+	}
+	for _, recipe := range recipes {
+		if recipe.edge.requestSpine && members[recipe.from] && members[recipe.to] {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocMechanismComponentRelationClass(

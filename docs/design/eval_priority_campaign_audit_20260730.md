@@ -32199,3 +32199,19 @@ fail-open。fallback 只开放给 typed sleep/runnable/running 的单一连续�
 
 状态：`B522=implemented/tool-suite-pass/pending-production-replay`；`information-conservation=preserved`；
 `D/IO calibrated-lanes=credential-only`；Trace causal authority=`unchanged`。
+
+### 123.567 B526：把请求关系主脊与断开的支撑关系分权
+
+对 r308 重新逐行核对后修正最初归因：用户要求的 `analyze -> explorer -> extractor -> finalizer` 时序并未缺边，checkout-verified stage authority 已提供三条完整
+`precedence`。缺少 typed relation 的是另一段 Orchestrator 内部调用叙述；它可作为支撑事实，但不是完成用户四阶段时序所必需的桥。旧 carrier 只发布 component/class/connectivity，
+没有发布哪个 component 已由 request-scoped typed authority 选为请求关系主脊。模型因此把完整阶段链与断开的调用片段同时塞入一张 principal 图，并在修补中保留内部 enum/源码位置。
+
+`answerDocMechanismRelationEdge` 现只对 request-scoped authority 选出的边携带 `requestSpine` 规划位；component capsule 发布
+`answer_role=requested_relation_spine|supporting_grounded_segment`。当存在多个 component 时，soft guidance 要求 principal visual 优先表达已覆盖请求关系轴的 spine；断开的 supporting
+segment 可留在正文或独立有边界的图，不得当作缺失 hop、不得为了“一张图”补桥。该角色不新增/删除/反转关系，不改变 validator，也不要求 Explorer 为无关实现细节补证；图节点、
+业务标签、取舍和结论仍由模型写。实现不扫描 request/model/final prose，语言无关，Trace 投影/自动补齐/链上根因完全不进入该路径。
+
+定向回归固定：同一 required workflow 同时含完整 typed stage spine 与断开 call segment 时，两种 answer role 必须同时发布，且明确禁止 inter-component synthetic bridge。
+
+状态：`B526=implemented/scoped-correction/targeted-pass/pending-r309`；`requested-stage-sequence=already-complete`；
+`model-diagram-authorship=preserved`；`hard-prose-gate=none`；Trace=`unchanged`。
