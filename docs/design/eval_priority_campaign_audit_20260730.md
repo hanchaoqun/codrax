@@ -31771,3 +31771,24 @@ r299 二进制构建早于 B510-A2 提交，故不能验收 actor/presentation �
 状态：`B510-A1=production-positive/closed`；`B510-A2=implemented/pending-new-binary-replay`；
 `B510-A3=P1-high/next`；`B510-C=unsupported-family-design-open`；`runner=2/2,human=1/2`；
 `system-answer/relation/diagram-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.542 B510-A3：exact assignment 撤权与重发债进入同一 typed 修复合同
+
+required current-source flow 图下，若 Explorer 已提交 assignment/initializer，且已读源码的语言无关 parser 能唯一解析 LHS/RHS、但模型 subject/object 与之不符，
+emit 端仍按原红线把该 item 降为无方向权威的 `text_reference`；同时新增 action-required、completion-blocking 的
+`evidence_item_validation` repair，精确携带原 `items[i].subject/object` JSON path 与 parser-owned receiver/value。模型只需重发该 item；已接受 sibling 不重建，
+下一次正确 emit 才产生 assignment/data_flow authority并清债。系统没有把错误 row 自动改成关系，也没有替模型决定其最终图位置或业务含义。
+
+触发只读 typed `Intent/PredicateAxis/DiagramHint.Required`、anchor/scope/grounding 与 parser tuple；optional 图、普通问答、复杂/歧义/多重赋值、Trace intent 与
+root-cause Trace family 均不触发。Go/ArkTS/Cangjie/Rust 直接 pin 共用路径，底层 assignment parser 已覆盖 Java/Kotlin/JS/TS/Python/Ruby/Swift/Lua/C/C++ 等
+语言形态。summary 不再同时说“exact endpoints 请重发”与“actionable targets: none”，JSON 教学给精确字段和值，减少模型自行猜 schema 的心智。
+
+回归：types 22.815s、tool 173.531s、agent 11.149s、orchestrator 15.064s、tracediag 7.199s、stageauthority 0.606s，全绿。
+
+收口复核补出并关闭一档复合臂：同一 emit 若既有 schema-invalid skipped item、又有 assignment endpoint 撤权，普通 validation repair 过去会覆盖 exact endpoint
+repair 的 LHS/RHS 教学。现在二者合并为单一 action-required typed repair，字段、拒绝原因、exact receiver/value 与 completion-blocking 全保留；新增混合回归后核心五包
+再次全绿（tool 178.007s、agent 13.357s、orchestrator 13.930s、tracediag 7.104s、stageauthority 2.486s）。
+
+状态：`B510-A3=implemented/package-suites-pass/pending-r300`；`B510-A2=pending-r300`；
+`business-label/exact-endpoint-layering=P1-audit-next`；`system-answer/relation-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace explicit-window projection/auto-supplement/on-chain causes=`unchanged`。

@@ -3697,3 +3697,18 @@ evidence 继续无 relation authority，正确 tuple 仍须模型重发并再次
 
 状态：`B510-A1=production-closed`；`B510-A2=pending-new-binary-replay`；`B510-A3=P1-high/next`；
 `system-edge/answer-authoring=none`；`hard-keyword/prose-scan=none`；Trace explicit windows/causal projection/auto-supplement/on-chain causes=`unchanged`。
+
+#### §11.10.86 B510-A3：关系撤权后的 exact endpoint 修复不再静默丢债
+
+assignment/initializer endpoint mismatch 继续 fail-closed，不自动修 evidence；但在 typed required source-flow 合同下，producer 现在发布 exact
+`items[i].subject/object` action-required repair 与 parser-owned LHS/RHS，completion 等待模型局部重发。普通/optional/歧义 syntax 与 Trace/root-cause lane 保持
+原非阻塞行为。tool summary、ToolRepair 与 completion 三面同源，不再出现“note 要求重发、结构化 target 却为 none”的自冲突。
+
+多语言与 Trace 隔离回归、核心六包全绿。下一步 r300 用新构建并行回放 pipeline + ArkTS；同时审计“业务分组/短标签 + 组内 exact endpoint”的双层图表达，
+只作软教学和模型 authoring 支撑，禁止系统把业务标签直接升级为关系端点。
+
+收口另关一档 mixed repair 覆盖臂：schema-invalid skipped item 与 endpoint mismatch 同批出现时，合并后的 typed repair 同时携带 validation reason、全部 JSON path、
+exact LHS/RHS 和 blocking 状态，不再由后构造者覆盖前构造者。新增复合回归及核心包全绿。
+
+状态：`B510-A3=implemented/pending-production-replay`；`B510-A2=pending-production-replay`；
+`business-language-diagram-layer=P1-audit`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。

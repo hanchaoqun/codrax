@@ -571,6 +571,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	//       entire call" semantics apply so the LLM sees one failure
 	//       envelope with ALL reasons, not a trickle of per-item notes.
 	built := make([]types.EvidenceItem, 0, len(p.Items))
+	builtParamIndexes := make([]int, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
 	validationRepairFields := make([]string, 0)
 	validationRepairBlocksCompletion := false
@@ -647,6 +648,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			logging.Debug("[emit_evidence] R4 self-ref trap: items[%d] subject=%s zeroed confidence", i, ev.Subject)
 		}
 		built = append(built, ev)
+		builtParamIndexes = append(builtParamIndexes, i)
 	}
 	// Commit 61 Batch F.1 (audit CRITICAL #1, red line "no system
 	// hard-cap"): pre-fix, ≥50% rejected items triggered a hard
@@ -714,6 +716,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	// repomap/multigraph → repomap/topology → tool would form).
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
+	assignmentEndpointRepairs := make([]emitEvidenceAssignmentEndpointRepair, 0)
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
 	surfaceAlignmentRejected := make(map[int]bool)
@@ -795,6 +798,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// tuple here and remove only relation authority on mismatch. The source
 		// observation remains available as a text reference and the repair note
 		// teaches the exact line-local tuple without reading request/final prose.
+		if repair, ok := emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx, built[i], builtParamIndexes[i]); ok {
+			assignmentEndpointRepairs = append(assignmentEndpointRepairs, repair)
+		}
 		if compatNote := stabilizeAssignmentEndpointAuthority(&built[i]); compatNote != "" {
 			r = ground.GroundItemScoped(&built[i], gc)
 			if appendGroundingNoteOnce(&built[i], compatNote) {
@@ -875,6 +881,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
+	assignmentEndpointRepair := buildEmitEvidenceAssignmentEndpointRepair(assignmentEndpointRepairs)
+	if assignmentEndpointRepair != nil {
+		validationRepairFields = append(validationRepairFields, assignmentEndpointRepair.Fields...)
+	}
 	if len(surfaceAlignmentRejects) > 0 {
 		filteredBuilt := make([]types.EvidenceItem, 0, len(built)-len(surfaceAlignmentRejected))
 		filteredReports := make([]ground.Report, 0, len(reports)-len(surfaceAlignmentRejected))
@@ -1024,13 +1034,16 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		summary = b.String()
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
+	if assignmentEndpointRepair != nil {
+		repair = assignmentEndpointRepair
+	}
 	if validationRepair := buildEmitEvidenceItemValidationRepair(
 		rejectedItems, validationRepairFields, validationRepairBlocksCompletion); validationRepair != nil {
 		// A skipped decoded item never entered the buffer, so line-grounding
 		// repair construction cannot see it. Keep that local schema debt as the
 		// current action-required repair; accepted siblings stay committed and
 		// need not be re-emitted.
-		repair = validationRepair
+		repair = mergeEmitEvidenceValidationRepairs(validationRepair, assignmentEndpointRepair)
 	}
 	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired) {
 		if surfaceReview != nil {
@@ -4693,11 +4706,11 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		fmt.Fprintf(&b, "Current actionable repair targets: %s. Treat these as audit candidates: repair them when current source confirms the row; if the line proves stale or wrong-file, emit a grounded replacement or omit the row before widening scope. ",
 			renderToolRepairTargetsInline(currentTargets, 3, 4))
 		if len(validationRepairFields) > 0 {
-			fmt.Fprintf(&b, "Skipped-item schema repair fields: %s. Re-emit only those skipped item(s); accepted siblings are already committed. ",
+			fmt.Fprintf(&b, "Item-field repair paths: %s. Re-emit only the named skipped or relation-authority-downgraded item(s); accepted siblings are already committed. ",
 				strings.Join(validationRepairFields, ", "))
 		}
 	} else {
-		fmt.Fprintf(&b, "Current actionable repair targets: %s. Re-emit only the skipped item(s) with these exact schema fields corrected; accepted siblings are already committed. ",
+		fmt.Fprintf(&b, "Current actionable repair targets: %s. Re-emit only the named skipped or relation-authority-downgraded item(s) with these exact schema fields corrected; accepted siblings are already committed. ",
 			strings.Join(validationRepairFields, ", "))
 	}
 	b.WriteString("Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")
@@ -4713,6 +4726,85 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
 	}
 	return b.String()
+}
+
+// emitEvidenceAssignmentEndpointRepair is a producer-owned, exact-line repair
+// recipe for one assignment/initializer whose model-authored Subject/Object do
+// not match the unique syntax-authored LHS/RHS tuple. It is never evidence and
+// never mutates the accepted item back into a directed relation.
+type emitEvidenceAssignmentEndpointRepair struct {
+	itemIndex int
+	receiver  string
+	value     string
+	source    string
+	line      int
+}
+
+// emitEvidenceRequiredFlowAssignmentEndpointRepair promotes an already exact
+// parser diagnosis into structured repair debt only when a required current-
+// source flow diagram needs directed operation rows. Optional diagrams and
+// Trace/root-cause lanes retain the ordinary non-blocking text-reference
+// downgrade. The predicate is entirely typed; it does not inspect request,
+// reasoning, summary, or final-answer prose.
+func emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx *types.BusContext, item types.EvidenceItem, itemIndex int) (emitEvidenceAssignmentEndpointRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return emitEvidenceAssignmentEndpointRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return emitEvidenceAssignmentEndpointRepair{}, false
+	}
+	if item.Scope != types.ScopeLine ||
+		(item.AnchorKind != types.AnchorAssignment && item.AnchorKind != types.AnchorInitializer) ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return emitEvidenceAssignmentEndpointRepair{}, false
+	}
+	receiver, value, ok := types.AssignmentEvidenceEndpoints(item)
+	if !ok || types.AssignmentEvidenceEndpointsMatch(item) {
+		return emitEvidenceAssignmentEndpointRepair{}, false
+	}
+	return emitEvidenceAssignmentEndpointRepair{
+		itemIndex: itemIndex,
+		receiver:  receiver,
+		value:     value,
+		source:    item.Source,
+		line:      item.LineStart,
+	}, true
+}
+
+func buildEmitEvidenceAssignmentEndpointRepair(in []emitEvidenceAssignmentEndpointRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in)*2)
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields,
+			fmt.Sprintf("items[%d].subject", row.itemIndex),
+			fmt.Sprintf("items[%d].object", row.itemIndex),
+		)
+		loc := row.source
+		if row.line > 0 {
+			loc = fmt.Sprintf("%s:%d", row.source, row.line)
+		}
+		rows = append(rows, fmt.Sprintf(
+			"items[%d] @ %s requires subject=%q (exact LHS receiver) and object=%q (exact RHS value/source)",
+			row.itemIndex, loc, row.receiver, row.value,
+		))
+	}
+	fields = uniqueEmitEvidenceRepairFields(fields)
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "The required source-flow diagram still needs an exact directed operation row. The submitted assignment/initializer remained citable text, but its semantic endpoints were broader than the unique source tuple, so relation authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and using the exact endpoint fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
+		Fields: fields,
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "assignment_endpoint_identity",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+		},
+	}
 }
 
 func buildEmitEvidenceItemValidationRepair(rejections, fields []string, completionBlocking bool) *types.ToolRepair {
@@ -4737,6 +4829,29 @@ func buildEmitEvidenceItemValidationRepair(rejections, fields []string, completi
 		Fields:   fields,
 		Metadata: metadata,
 	}
+}
+
+// mergeEmitEvidenceValidationRepairs preserves both producer-owned repair
+// recipes when one emit call contains a skipped schema-invalid item and an
+// accepted assignment whose directed endpoint authority was removed. Both
+// repairs share one code/stage, so one structured repair can carry their field
+// union and exact instructions without making the model infer which debt won.
+func mergeEmitEvidenceValidationRepairs(validation, endpoint *types.ToolRepair) *types.ToolRepair {
+	if validation == nil {
+		return endpoint
+	}
+	if endpoint == nil {
+		return validation
+	}
+	validation.Fields = uniqueEmitEvidenceRepairFields(append(validation.Fields, endpoint.Fields...))
+	validation.Hint += " Additional exact endpoint repair: " + endpoint.Hint
+	if validation.Metadata == nil {
+		validation.Metadata = make(map[string]string)
+	}
+	validation.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
+	validation.Metadata["repair_scope"] = "item_validation+assignment_endpoint_identity"
+	validation.Metadata["completion_blocking"] = "true"
+	return validation
 }
 
 // emitEvidenceValidationRepairFields converts producer-owned validation

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -3515,6 +3516,159 @@ func TestEmitEvidence_DemotesGroundedAssignmentWithFalseDirectedEndpoints(t *tes
 		if !strings.Contains(got[0].GroundingNote, want) || !strings.Contains(res.Summary, want) {
 			t.Fatalf("exact endpoint repair %q missing from item/result: item=%+v summary=%s", want, got[0], res.Summary)
 		}
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("ordinary/optional evidence must keep endpoint correction advisory: %+v", res.Repair)
+	}
+}
+
+func TestEmitEvidence_RequiredFlowPublishesExactAssignmentEndpointRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{
+			Kind:     types.DiagramSequence,
+			Required: true,
+		},
+	}}
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 2520,
+		"o.busCtx.AnalysisIR = out.AnalysisIR",
+	)
+	wrong := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"runAnalyzePhase","predicate":"writes","object":"out.AnalysisIR","source":"internal/orchestrator/orchestrator.go","line_start":2520,"summary":"analysis output is written to the shared context","anchor_kind":"assignment","anchor_symbol":"AnalysisIR"}]}`)
+	res, err := tool.Execute(ctx, wrong)
+	if err != nil || !res.Success {
+		t.Fatalf("mismatched source observation should remain citable, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation ||
+		res.Repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired ||
+		res.Repair.Metadata["completion_blocking"] != "true" ||
+		res.Repair.Metadata["repair_scope"] != "assignment_endpoint_identity" {
+		t.Fatalf("required flow must publish typed endpoint repair debt: %+v", res.Repair)
+	}
+	wantFields := []string{"items[0].subject", "items[0].object"}
+	if !reflect.DeepEqual(res.Repair.Fields, wantFields) {
+		t.Fatalf("repair fields=%v want=%v", res.Repair.Fields, wantFields)
+	}
+	for _, want := range []string{
+		`subject="o.busCtx.AnalysisIR"`,
+		`object="out.AnalysisIR"`,
+		"Current actionable repair targets: items[0].subject, items[0].object",
+	} {
+		if !strings.Contains(res.Repair.Hint+"\n"+res.Summary, want) {
+			t.Fatalf("required repair/result missing %q: repair=%+v summary=%s", want, res.Repair, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "Current actionable repair targets: none") {
+		t.Fatalf("summary contradicts action-required endpoint repair:\n%s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("wrong tuple must remain citable without directed authority: %+v", got)
+	}
+
+	correct := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"o.busCtx.AnalysisIR","predicate":"writes","object":"out.AnalysisIR","source":"internal/orchestrator/orchestrator.go","line_start":2520,"summary":"exact analysis result assignment","anchor_kind":"assignment","anchor_symbol":"AnalysisIR"}]}`)
+	res, err = tool.Execute(ctx, correct)
+	if err != nil || !res.Success {
+		t.Fatalf("exact tuple re-emit failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("exact re-emit must clear endpoint repair debt: %+v", res.Repair)
+	}
+	got = ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || got[1].AnchorKind != types.AnchorAssignment ||
+		!types.AssignmentEvidenceEndpointsMatch(got[1]) {
+		t.Fatalf("exact re-emit did not publish typed assignment authority: %+v", got)
+	}
+}
+
+func TestEmitEvidence_RequiredFlowMergesRejectedItemAndExactEndpointRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}}
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 2520,
+		"o.busCtx.AnalysisIR = out.AnalysisIR",
+	)
+	params := json.RawMessage(`{"items":[
+		{"scope":"line","evidence_kind":"relationship","subject":"runAnalyzePhase","predicate":"writes","object":"out.AnalysisIR","source":"internal/orchestrator/orchestrator.go","line_start":2520,"summary":"analysis output is written to shared context","anchor_kind":"assignment","anchor_symbol":"AnalysisIR"},
+		{"scope":"line","evidence_kind":"relationship","subject":"producer","predicate":"writes","object":"value","source":"internal/orchestrator/orchestrator.go","summary":"missing required line","anchor_kind":"assignment"}
+	]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("mixed repair call failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "item_validation+assignment_endpoint_identity" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("mixed repair must preserve both typed debts: %+v", res.Repair)
+	}
+	for _, want := range []string{"items[0].subject", "items[0].object", "items[1].line_start"} {
+		if !slices.Contains(res.Repair.Fields, want) {
+			t.Fatalf("mixed repair fields=%v missing %q", res.Repair.Fields, want)
+		}
+	}
+	for _, want := range []string{
+		"Validation reasons:",
+		`subject="o.busCtx.AnalysisIR"`,
+		`object="out.AnalysisIR"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("mixed repair hint missing %q: %s", want, res.Repair.Hint)
+		}
+	}
+}
+
+func TestRequiredFlowAssignmentEndpointRepairIsLanguageNeutralAndTraceIsolated(t *testing.T) {
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+	}}
+	tests := []struct {
+		name    string
+		snippet string
+		wantLHS string
+		wantRHS string
+	}{
+		{name: "go", snippet: `o.busCtx.AnalysisIR = out.AnalysisIR`, wantLHS: "o.busCtx.AnalysisIR", wantRHS: "out.AnalysisIR"},
+		{name: "arkts", snippet: `this.state = nextState`, wantLHS: "this.state", wantRHS: "nextState"},
+		{name: "cangjie", snippet: `this.value = incoming`, wantLHS: "this.value", wantRHS: "incoming"},
+		{name: "rust", snippet: `self.value = next;`, wantLHS: "self.value", wantRHS: "next"},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			item := types.EvidenceItem{
+				Scope: types.ScopeLine, Kind: types.EvidenceRelationship,
+				AnchorKind: types.AnchorAssignment, Subject: "enclosingCallable", Object: tc.wantRHS,
+				Snippet: tc.snippet, Source: "src/example", LineStart: i + 1,
+				GroundingStatus: types.GroundingGrounded,
+			}
+			repair, ok := emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx, item, i)
+			if !ok || repair.receiver != tc.wantLHS || repair.value != tc.wantRHS {
+				t.Fatalf("repair=%+v ok=%t, want %q <- %q", repair, ok, tc.wantLHS, tc.wantRHS)
+			}
+		})
+	}
+
+	traceCtx := newEmitCtx()
+	traceCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+	}}
+	item := types.EvidenceItem{
+		Scope: types.ScopeLine, Kind: types.EvidenceRelationship,
+		AnchorKind: types.AnchorAssignment, Subject: "owner", Object: "next",
+		Snippet: `state = next`, Source: "src/example", LineStart: 1,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if repair, ok := emitEvidenceRequiredFlowAssignmentEndpointRepair(traceCtx, item, 0); ok {
+		t.Fatalf("Trace causal lane must remain isolated from source-flow endpoint repair: %+v", repair)
 	}
 }
 
