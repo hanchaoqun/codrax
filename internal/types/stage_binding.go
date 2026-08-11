@@ -17,6 +17,7 @@ const (
 	ReadModePipelineEnumsFile        = "internal/types/enums.go"
 	ReadModePipelineStageBindingFile = "internal/types/stage_binding.go"
 	ReadModePipelineTopologyFile     = "internal/orchestrator/topology.go"
+	ReadModePipelineOrchestratorFile = "internal/orchestrator/orchestrator.go"
 )
 
 var builtinStageBindings = []StageBinding{
@@ -168,6 +169,7 @@ func ReadModePipelineAuthorityFiles() []string {
 		ReadModePipelineEnumsFile,
 		ReadModePipelineStageBindingFile,
 		ReadModePipelineTopologyFile,
+		ReadModePipelineOrchestratorFile,
 	}
 }
 

@@ -102,6 +102,40 @@ func TestMatchesRequiredMainStageParticipantSlate(t *testing.T) {
 	}
 }
 
+func TestRelevantToRequiredReadModeWorkflowUsesTypedDimensionAndGroundedAuthoritySource(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true,
+			Participants: []types.DiagramParticipantHint{{Identity: "Orchestrator.Run", Role: types.DiagramParticipantIncidentRequired}}},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Index: 1, Label: "stage", SourceQuote: "stage", Required: true,
+				Role: types.RequestedAnswerDimensionStageWorkflow,
+			}},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 100,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "runReadSchedulerLoop",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if !RelevantToRequiredReadModeWorkflow(rm, evidence, authority.Main) {
+		t.Fatal("typed required workflow plus grounded current-pipeline source must activate verified stage precedence")
+	}
+	if RelevantToRequiredReadModeWorkflow(rm, nil, authority.Main) {
+		t.Fatal("typed dimension without grounded authority source must fail closed")
+	}
+	rm.Intent = types.IntentTrace
+	if RelevantToRequiredReadModeWorkflow(rm, evidence, authority.Main) {
+		t.Fatal("Trace must remain outside current-source stage authority")
+	}
+}
+
 func writeReadModeAuthorityFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

@@ -3373,7 +3373,11 @@ func completionVerifiedReadModeStagePrecedence(ctx *types.BusContext) []stageaut
 		return nil
 	}
 	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
-	if !ok || !stageauthority.MatchesRequiredMainStageParticipantSlate(ctx.AnalysisIR.RequestModel, authority.Main) {
+	var evidence []types.EvidenceItem
+	if ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	if !ok || !stageauthority.RelevantToRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority.Main) {
 		return nil
 	}
 	return authority.Precedence

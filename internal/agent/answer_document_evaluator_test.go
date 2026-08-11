@@ -8694,6 +8694,37 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 	}
 }
 
+func TestAnswerDocVerifiedStagePrecedenceUsesSameRequiredWorkflowAuthority(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("partial analyzer stage slate")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 1685,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Orchestrator.Run",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		RepoRoot: repoRoot, Mode: types.ModeRead, Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true,
+				Participants: []types.DiagramParticipantHint{{Identity: "Orchestrator.Run", Role: types.DiagramParticipantIncidentRequired}}},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Index: 1, Label: "stage", SourceQuote: "stage", Required: true,
+					Role: types.RequestedAnswerDimensionStageWorkflow,
+				}},
+			},
+		}},
+	}
+	if got := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx); len(got) != 3 {
+		t.Fatalf("finalizer recipe authority=%d, want 3 from shared typed workflow admission", len(got))
+	}
+}
+
 func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesExactGroundedMembershipWithoutOptionalDimension(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

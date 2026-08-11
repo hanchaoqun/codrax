@@ -3553,3 +3553,15 @@ tool/orchestrator 全包绿。
 
 该批不扫描 request/model/final prose，不改正文、结论、关系或图。状态：`B506=implemented/pending-replay`；`B507=next`；`B508=queued`；
 Trace windows/causal projection/auto-supplement/on-chain cause families/business clues=`unchanged`。
+
+#### §11.10.73 B507：stage precedence 已教即必须可被所有 validator 消费
+
+r293 精确确认同一 checkout stage provider 的消费分叉：Finalizer prompt 在 typed required workflow + grounded pipeline source 下发三条 recipe，但 completion 与
+pre/post validator 仍要求 Analyzer 列全 canonical participant slate。现用 shared relevance admission 统一四面：完整 slate，或 required stage/workflow dimension
++ grounded citable pipeline authority source，二者任一再与 checkout verification 合取。
+
+该 authority 仅含相邻 stage precedence；call、data-flow、carrier connectivity、runtime Trace 均不扩权。partial slate 无 source、Trace、optional/non-flow 与
+checkout drift 负臂保留；三消费面接线测试及 stageauthority/types/tool/agent/orchestrator 全包绿。
+
+状态：`B507=implemented/pending-replay`；`B506=pending-replay`；`B508=queued`；`participant-inflation=separate-open`；
+`system-edge/answer-authoring=none`；Trace families=`unchanged`。

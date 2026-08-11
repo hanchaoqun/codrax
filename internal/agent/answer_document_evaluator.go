@@ -4065,7 +4065,7 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 		}
 		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
 		if answerDocDiagramBoundaryRecipesApply(ctx) {
-			stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx)
+			stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx)
 			uncovered := make([]types.DiagramParticipantHint, 0, len(dc.Participants))
 			for _, participant := range dc.Participants {
 				if strings.TrimSpace(participant.Identity) == "" || participant.Role != types.DiagramParticipantIncidentRequired {
@@ -7013,7 +7013,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
 	acceptedFacts := 0
 	callsiteFacts := 0
-	stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx)
+	stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx)
 	edges := make([]answerDocMechanismRelationEdge, 0, len(stagePrecedence)+8)
 	seenEdges := map[string]bool{}
 	for _, relation := range stagePrecedence {
@@ -17971,18 +17971,22 @@ func answerDocumentHasTypedReadModeStageParticipantSlate(ctx *types.AgentContext
 	return true
 }
 
-// answerDocVerifiedReadModeStagePrecedenceForRequiredSlate is the single
-// finalizer bridge for a required current-read stage workflow. It combines the
-// schema-validated complete stage participant slate with the checkout-verified
-// provider. Partial slates, write mode, and Trace fail closed. The returned
-// rows remain precedence-only authority; they cannot authorize calls, value
-// flow, shared-state connectivity, or runtime causality.
-func answerDocVerifiedReadModeStagePrecedenceForRequiredSlate(ctx *types.AgentContext) []stageauthority.PrecedenceRelation {
+// answerDocVerifiedReadModeStagePrecedenceForRequest is the single finalizer
+// bridge for a required current-read stage workflow. It combines the shared
+// typed relevance rule with the checkout-verified provider. Unrelated partial
+// slates, write mode, and Trace fail closed. The returned rows remain
+// precedence-only authority; they cannot authorize calls, value flow,
+// shared-state connectivity, or runtime causality.
+func answerDocVerifiedReadModeStagePrecedenceForRequest(ctx *types.AgentContext) []stageauthority.PrecedenceRelation {
 	if ctx == nil || ctx.AnalysisIR == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
 		return nil
 	}
 	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
-	if !ok || !stageauthority.MatchesRequiredMainStageParticipantSlate(ctx.AnalysisIR.RequestModel, authority.Main) {
+	if !ok || !stageauthority.RelevantToRequiredReadModeWorkflow(
+		ctx.AnalysisIR.RequestModel,
+		answerDocumentAuthorityEvidencePool(ctx),
+		authority.Main,
+	) {
 		return nil
 	}
 	return authority.Precedence

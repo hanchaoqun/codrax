@@ -31528,3 +31528,21 @@ principal aggregate 的 citation-only binder 现先检查模型当前引用：�
 
 状态：`B506=implemented/package-suites-pass/pending-production-replay`；`B507=next`；`B508=queued`；
 `system-prose/conclusion/relation-authoring=none`；Trace explicit windows/auto-supplement/causal projection/on-chain root causes/business clues=`unchanged`。
+
+### 123.529 B507：required stage-workflow 的 prompt/completion/pre/post 权威同源
+
+r293 的 Finalizer prompt 已发布 checkout 验证的 `analyze -> explore -> extract -> finalize` 与三条相邻 `precedence` recipe；但 completion、pre-emit、
+post-emit 只在 Analyzer participant slate 恰好列全四个 canonical stage 时承认同一 provider。Analyzer 本轮列的是内部 helper/component，故模型即使逐字照
+recipe 画 stage 边也会被兄弟 validator 拒绝，构成隐藏的 producer/consumer 分叉。
+
+现由 `stageauthority.RelevantToRequiredReadModeWorkflow` 单源 admission：完整 typed stage slate 仍为正臂；另一正臂必须同时满足非 Trace `AxisFlow`、required
+diagram、required `stage_or_workflow` dimension、当前调查存在 grounded+citable read-pipeline authority source，且 checkout provider 校验成功。四个消费面
+统一使用该判据。它只授权三条相邻 stage `precedence`，不能授权 helper call、artifact/data flow、额外 participant 连接或 runtime causality。
+
+`internal/orchestrator/orchestrator.go` 纳入 read-pipeline authority source 清单，与既有 Finalizer prompt 触发面一致；缺 grounded source、optional diagram、
+非 flow、write mode、Trace 或 checkout 漂移均 fail-closed。回归钉住 partial Analyzer slate + typed workflow + grounded source 的 completion/diagram/finalizer 三面
+均得 3 条，以及去掉 source 后三面归零。`go test ./internal/stageauthority ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator -count=1` 全绿。
+
+状态：`B507=implemented/package-suites-pass/pending-production-replay`；`B506=pending-production-replay`；`B508=queued`；
+`B509-PARTICIPANT-INFLATION=still-open`；`system-edge/diagram/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
+Trace windows/auto-supplement/causal projection/on-chain root causes/business clues=`unchanged`。

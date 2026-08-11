@@ -35,6 +35,7 @@ func TestReadModePipelineAuthorityFiles(t *testing.T) {
 		ReadModePipelineEnumsFile,
 		ReadModePipelineStageBindingFile,
 		ReadModePipelineTopologyFile,
+		ReadModePipelineOrchestratorFile,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("authority file count = %d, want %d", len(got), len(want))

@@ -133,6 +133,51 @@ func TestEmitInvestigationComplete_VerifiedStagePrecedenceClosesWithoutOperation
 	}
 }
 
+func TestRequestedWorkflowAuthorityConsumersAcceptPartialAnalyzerSlate(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 1685,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Orchestrator.Run",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx.RepoRoot = repoRoot
+	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Orchestrator.Run", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Index: 1, Label: "stage", SourceQuote: "stage", Required: true,
+			Role: types.RequestedAnswerDimensionStageWorkflow,
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture, RelationAxis: types.AxisFlow,
+		DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramSequence, Required: true},
+	}
+	if got := completionVerifiedReadModeStagePrecedence(ctx); len(got) != 3 {
+		t.Fatalf("completion stage precedence=%d, want 3 from shared typed workflow authority", len(got))
+	}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 3 {
+		t.Fatalf("diagram stage precedence=%d, want 3 from the same authority", len(got))
+	}
+
+	ctx.Mutable = types.NewMutableState("no grounded stage authority")
+	if got := completionVerifiedReadModeStagePrecedence(ctx); len(got) != 0 {
+		t.Fatalf("completion accepted stage authority without grounded source: %+v", got)
+	}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 0 {
+		t.Fatalf("diagram validator accepted stage authority without grounded source: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowNoProgressConvergesWithBoundary(t *testing.T) {
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})

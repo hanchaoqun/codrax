@@ -95,6 +95,63 @@ func MatchesRequiredMainStageParticipantSlate(rm types.RequestModel, main []Stag
 	return true
 }
 
+// RelevantToRequiredReadModeWorkflow is the shared authority-admission rule
+// for completion, prompt, pre-emit, and post-emit consumers. A complete typed
+// stage participant slate remains sufficient. The second arm covers a required
+// typed stage/workflow answer dimension only when the investigation also
+// carries citable grounded evidence from the current read-pipeline authority
+// sources. This is the same precise signal used by the finalizer prompt; it
+// prevents a prompt recipe from being rejected by sibling validators merely
+// because the analyzer supplied a partial participant slate.
+//
+// The result authorizes only checkout-verified adjacent stage precedence. It
+// never authorizes calls, data flow, participant connectivity, or runtime
+// causality, and it does not inspect request or answer prose.
+func RelevantToRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.EvidenceItem, main []StageRow) bool {
+	if MatchesRequiredMainStageParticipantSlate(rm, main) {
+		return true
+	}
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		!hasRequiredStageWorkflowDimension(rm) {
+		return false
+	}
+	for _, item := range evidence {
+		if item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded || !item.IsCitable() {
+			continue
+		}
+		switch normalizedReadModeAuthorityPath(item.Source) {
+		case types.ReadModePipelineStageBindingFile,
+			types.ReadModePipelineTopologyFile,
+			types.ReadModePipelineOrchestratorFile:
+			return true
+		}
+	}
+	return false
+}
+
+func hasRequiredStageWorkflowDimension(rm types.RequestModel) bool {
+	profile := rm.RequestedAnswerDimensions
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionStageWorkflow {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedReadModeAuthorityPath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	path = strings.TrimPrefix(path, "./")
+	for strings.Contains(path, "//") {
+		path = strings.ReplaceAll(path, "//", "/")
+	}
+	return path
+}
+
 // ParticipantMatchesStageRow resolves one typed participant against one
 // checkout-verified row. It is shared by completion, prompt projection, and
 // participant coverage so those consumers cannot drift on stage aliases.
