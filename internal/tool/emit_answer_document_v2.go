@@ -42,6 +42,8 @@ type emitAnswerDocumentV2Params struct {
 	MissingRequestedRoles []types.AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
 	Caveats               []string                           `json:"caveats,omitempty"`
 	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
+	TraceFinding          *types.TraceFindingV1              `json:"trace_finding,omitempty"`
+	TraceRootCauses       *types.TraceRootCauseReportV1      `json:"trace_root_causes,omitempty"`
 }
 
 type emitAnswerCitationV2 struct {
@@ -376,7 +378,18 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// stops implying a pure submitted→surviving mapping.
 	poolAtPersistEntry := len(doc.Citations)
 	mutation := types.NewReplaceAllMutation(doc)
-	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
+	finding, findingErr := resolveTraceFindingForEmit(ctx, p.TraceFinding, false)
+	if findingErr != nil {
+		return failEmit(toolName, now, "trace_finding rejected: %v", findingErr)
+	}
+	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.TraceRootCauses, false)
+	if rootCauseErr != nil {
+		return failEmit(toolName, now, "trace_root_causes rejected: %v", rootCauseErr)
+	}
+	res, err := ApplyAndPersistMutationWithFinding(ctx, toolName, mutation, nil, finding, now)
+	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil && rootCauses != nil {
+		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+	}
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta
 		// on the accepted summary. The registered count is read from the

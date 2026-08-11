@@ -34,6 +34,10 @@ const Ext = ".md"
 // HTML is a deterministic system rendering of the same bytes.
 const HTMLExt = ".html"
 
+// RootCauseJSONExt is the separate structured trace diagnosis written beside
+// the full Markdown/HTML answer. It is present only for trace root-cause runs.
+const RootCauseJSONExt = ".root-causes.json"
+
 // Args bundles the inputs Write needs. Every caller supplies the raw
 // user request text and the raw markdown answer body that reached the
 // user's visible answer surface. Terminal chrome, ANSI styling, and
@@ -49,6 +53,7 @@ type Args struct {
 	HasTrace         bool
 	TraceBytes       int
 	RuntimeArtifacts []RuntimeArtifact
+	RootCauseReport  *types.TraceRootCauseReportV1
 	Now              time.Time
 	PID              int
 }
@@ -92,8 +97,9 @@ var requestPathTokenRE = regexp.MustCompile(`[^\s"'` + "`" + `<>()[\]{}，。；
 // markdown path can be present while HTML is empty when the secondary render
 // failed; answer delivery must not depend on either artifact.
 type Result struct {
-	MarkdownPath string
-	HTMLPath     string
+	MarkdownPath      string
+	HTMLPath          string
+	RootCauseJSONPath string
 }
 
 // Write persists the rendered final answer + the user question to
@@ -150,6 +156,21 @@ func writeDefaultDump(a Args, body string) Result {
 	}
 	logging.Info("[output_dump] wrote %s (%d bytes)", path, len(body))
 	result := Result{MarkdownPath: path}
+	if a.RootCauseReport != nil {
+		jsonPath := RootCauseJSONPathForMarkdown(path)
+		jsonBody, err := json.MarshalIndent(a.RootCauseReport, "", "  ")
+		if err != nil {
+			logging.Warning("[output_dump] encode trace root-cause report for %s failed: %v", path, err)
+		} else {
+			jsonBody = append(jsonBody, '\n')
+			if err := os.WriteFile(jsonPath, jsonBody, 0o644); err != nil {
+				logging.Warning("[output_dump] write %s failed: %v", jsonPath, err)
+			} else {
+				logging.Info("[output_dump] wrote %s (%d bytes)", jsonPath, len(jsonBody))
+				result.RootCauseJSONPath = jsonPath
+			}
+		}
+	}
 	htmlPath := HTMLPathForMarkdown(path)
 	if htmlPath == "" {
 		return result
@@ -1190,6 +1211,20 @@ func HTMLPathForMarkdown(markdownPath string) string {
 	return markdownPath + HTMLExt
 }
 
+// RootCauseJSONPathForMarkdown returns the sibling sidecar path for one
+// canonical Markdown answer dump.
+func RootCauseJSONPathForMarkdown(markdownPath string) string {
+	markdownPath = strings.TrimSpace(markdownPath)
+	if markdownPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(markdownPath)
+	if strings.EqualFold(ext, Ext) {
+		return strings.TrimSuffix(markdownPath, ext) + RootCauseJSONExt
+	}
+	return markdownPath + RootCauseJSONExt
+}
+
 // HumanBytes formats a byte count for the attachment footnote.
 // Coarse-grained on purpose: the dump line is informational, not a
 // precise measurement.
@@ -1206,9 +1241,8 @@ func HumanBytes(n int) string {
 
 // PruneDir keeps the most-recent max-1 *.md files under dir (by mtime),
 // reserving one slot for the incoming write. max <= 0 disables pruning.
-// Matching .html siblings are removed with their .md files, and orphaned
-// canonical .html dumps are cleaned on the same pass so the two artifact types
-// keep the same retention shape.
+// Matching .html and .root-causes.json siblings are removed with their .md
+// files, and orphaned canonical siblings are cleaned on the same pass.
 func PruneDir(dir string, max int) {
 	if max <= 0 {
 		return
@@ -1238,6 +1272,7 @@ func PruneDir(dir string, max int) {
 		})
 	}
 	pruneOrphanHTMLDumps(dir, entries, names)
+	pruneOrphanRootCauseJSONDumps(dir, entries, names)
 	keepExisting := max - 1
 	if keepExisting < 0 {
 		keepExisting = 0
@@ -1261,6 +1296,12 @@ func PruneDir(dir string, max int) {
 				logging.Warning("[output_dump] prune %s failed: %v", htmlPath, err)
 			}
 		}
+		jsonPath := RootCauseJSONPathForMarkdown(files[i].path)
+		if jsonPath != "" {
+			if err := os.Remove(jsonPath); err != nil && !os.IsNotExist(err) {
+				logging.Warning("[output_dump] prune %s failed: %v", jsonPath, err)
+			}
+		}
 	}
 }
 
@@ -1271,6 +1312,23 @@ func pruneOrphanHTMLDumps(dir string, entries []os.DirEntry, names map[string]bo
 			continue
 		}
 		mdName := strings.TrimSuffix(name, HTMLExt) + Ext
+		if names[mdName] {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logging.Warning("[output_dump] prune %s failed: %v", path, err)
+		}
+	}
+}
+
+func pruneOrphanRootCauseJSONDumps(dir string, entries []os.DirEntry, names map[string]bool) {
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, RootCauseJSONExt) || !isCanonicalDumpName(name, RootCauseJSONExt) {
+			continue
+		}
+		mdName := strings.TrimSuffix(name, RootCauseJSONExt) + Ext
 		if names[mdName] {
 			continue
 		}

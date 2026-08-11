@@ -193,6 +193,9 @@ var (
 	// both htrace AND atrace simultaneously is rejected.
 	flagAttachAtrace     []string
 	flagAttachAtraceText string
+	// Optional persisted typed finding. Batch child runs use this to pass a
+	// validated single-trace conclusion to the deterministic clusterer.
+	flagTraceFindingOut string
 
 	// Auto chit-chat classifier per-run toggle. When the flag is NOT
 	// passed on the command line, the initApp merge falls back to the
@@ -688,6 +691,7 @@ func init() {
 	// purely a usability accommodation so `adb` users don't translate.
 	f.StringArrayVar(&flagAttachAtrace, "atrace", nil, "alias of --htrace. Attach one physical capture; use named paths or a tracebundle for multi-trace comparison.")
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
+	f.StringVar(&flagTraceFindingOut, "trace-finding-out", "", "write the validated single-trace TraceFindingV1 JSON sidecar; existing files are not overwritten")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
 	f.BoolVar(&flagMermaidRender, "mermaid-render", false, "single-shot only: render mermaid code fences as aligned ASCII for terminal viewing. Default false ships raw Mermaid source so output piped to file / markdown viewer / mermaid-cli stays authoritative. REPL renders unconditionally regardless of this flag.")
@@ -1694,6 +1698,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	if routePolicyOK && app.orch != nil {
 		app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(routePolicy))
 	}
+	app.orch.SetTraceFindingRequired(strings.TrimSpace(flagTraceFindingOut) != "")
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
@@ -1707,6 +1712,16 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	if busCtx.TaskState.LastError != "" {
 		fmt.Fprintf(os.Stderr, "error: %s\n", busCtx.TaskState.LastError)
+	}
+	if strings.TrimSpace(flagTraceFindingOut) != "" {
+		if busCtx.Mutable == nil || busCtx.Mutable.TraceFinding() == nil {
+			return fmt.Errorf("trace finding was requested but this run produced no validated TraceFindingV1")
+		}
+		path, err := writeTraceFindingSidecar(flagTraceFindingOut, busCtx.Mutable.TraceFinding())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "[trace finding written: %s]\n", path)
 	}
 
 	// Plan-mode disk writer (B0 Day 5). When the orchestrator ran
@@ -2397,7 +2412,8 @@ func locateRuntimeSettings(exeDir string) runtimeSettingsLocation {
 func initApp(cmd *cobra.Command, args []string) error {
 	// Skip init for utility subcommands that do not need providers,
 	// repo discovery, memory, or orchestrator state.
-	if cmd.Name() == "version" || cmd.CommandPath() == "codrax trace convert" {
+	if cmd.Name() == "version" || cmd.CommandPath() == "codrax trace convert" ||
+		cmd.CommandPath() == "codrax trace cluster" || cmd.CommandPath() == "codrax trace batch" {
 		return nil
 	}
 
