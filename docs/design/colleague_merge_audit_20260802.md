@@ -4203,3 +4203,12 @@ r318 exact-two runner 2/2、人工 0/2。显式六参与者数据流案中，`Mu
 相关 tool/skill/types/agent/tracediag/context/orchestrator 套件全绿。
 
 状态：`B540=implemented/pending-r319`；`typed-scope=diagram-level-verbatim`；`B541=open`；Trace causal authority=`unchanged`。
+
+#### §11.10.132 r319 / B540b：全量 scope 越界不能静默变成“用户未指定参与者”
+
+r319 exact-two runner 2/2、人工 0/2。复合 sequence+table 案证明 B540 能排除 sibling 表格示例；逻辑视图案则把过窄的 diagram-level scope 与五个 scope 外 participant 同时发出，旧 parser 逐行 warning 后发布空 participant slate，使用户明确要求的组件/载体关系义务静默消失，最终图退化为四阶段顺序。
+
+现收紧为结构化 payload 自洽门：required 图的原始 participant 非空且全部因 scope containment 失败被删时，emit-analysis fail-loud 要求模型扩 scope 或明确重发空数组；部分越界仍逐行删除。该门只读 typed payload 与 verbatim containment，不扫描 request/model/final prose，不替模型选 participant、不补边、不改答案。两案 367s/400s 活跃流均继续等待并交付模型答案，无四分钟系统降级。
+
+状态：`B540=production-positive/partial`；`B540b=implemented/full-relevant-suite-pass`；`B541=open`；
+`runner=2/2`；`human=0/2`；`B517=positive@367s,400s`；Trace causal authority=`unchanged`。

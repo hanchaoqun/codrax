@@ -3444,7 +3444,7 @@ func TestValidateRequiredFlowDiagramParticipantProvenanceDoesNotEnterTraceOrNonF
 	}
 }
 
-func TestEmitAnalysis_Execute_DropsSoleTableParticipantOutsideRelationScope(t *testing.T) {
+func TestEmitAnalysis_Execute_RejectsAllParticipantsOutsideRelationScope(t *testing.T) {
 	raw := "解释从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出阶段、输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -3470,18 +3470,11 @@ func TestEmitAnalysis_Execute_DropsSoleTableParticipantOutsideRelationScope(t *t
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("Execute rejected: %s", res.Summary)
+	if res.Success || !strings.Contains(res.Summary, "relation_scope_quote contains none") {
+		t.Fatalf("all-outside scope must force one analyzer correction instead of silently emptying the requested slate: %+v", res)
 	}
-	hint := mu.RequestModel().DiagramHint
-	if hint == nil || len(hint.Participants) != 0 {
-		t.Fatalf("table-only participant must not escape the typed relation scope: %+v", hint)
-	}
-	if !strings.Contains(res.Summary, "outside diagram_hint.relation_scope_quote") {
-		t.Fatalf("cross-surface row rejection must be disclosed: %q", res.Summary)
-	}
-	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
-		t.Fatalf("table-only participant must remain in non-diagram carriers: %v", got)
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected all-outside scope must not publish a RequestModel")
 	}
 }
 

@@ -5732,6 +5732,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
 	warnings := make([]string, 0)
 	seen := make(map[string]bool, len(rawParticipants))
+	relationScopeExcluded := 0
 	for i, raw := range rawParticipants {
 		identity := strings.TrimSpace(raw.Identity)
 		if identity == "" {
@@ -5771,6 +5772,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
 		if *p.Required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
+			relationScopeExcluded++
 			warnings = append(warnings, fmt.Sprintf(
 				"dropped diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
 				identity, kind, *p.Required,
@@ -5790,6 +5792,9 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 		}
 		seen[key] = true
 		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
+	}
+	if *p.Required && len(rawParticipants) > 0 && len(participants) == 0 && relationScopeExcluded > 0 {
+		return nil, "diagram_hint.relation_scope_quote contains none of the current-request-authorized participant source_quote rows — expand it to the shortest diagram relation clause containing the intended participants, or emit participants=[] only when that relation surface names no participant identities", warnings
 	}
 	return &types.DiagramHint{Kind: kind, Required: *p.Required, RelationScopeQuote: relationScopeQuote, Participants: participants}, "", warnings
 }

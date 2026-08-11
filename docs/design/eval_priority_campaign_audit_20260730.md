@@ -32601,3 +32601,26 @@ Explorer completion participant coverage、Finalizer soft relation coverage 与 
 
 状态：`B540=implemented/full-relevant-suite-pass/pending-r319`；`surface-authority=typed-verbatim-scope`；
 `system-participant-rewrite=none`；`model-answer-authorship=preserved`；`B541=open`；Trace=`unchanged`。
+
+### 123.591 r319：展示面反臂生效；全部越界时的静默空集让显式关系义务消失
+
+`main@4b9b92f29` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_surface_scope_r319_20260811_manual_audit.md`。复合 sequence+table 案中，Analyzer 首稿把源码推断身份放进 participant 后被 provenance 门拒绝，纠正稿发布空 participant slate；表格示例不再进入图硬席，B540 反臂获得生产正证。总时长由 r318 的 904s 降为 367s，但最终图仍只保留四阶段 precedence 与一条孤立 dispatch call，表格/正文也有状态所有者和 finalize 边界不精确，故 runner 的 PASS 仍是假绿。
+
+QF 逻辑视图暴露 B540 正臂缺口：Analyzer 的 `relation_scope_quote` 只取“read-mode pipeline 的逻辑视图”，五个用户点名 participant 的 source_quote 全在 scope 外。旧 parser 对每行 warning 后仍发布空 slate，Explorer/Finalizer 因而失去显式 actor 关系义务，最终图只剩四阶段顺序；正文却继续宣称 Mutable/BusContext 传播。确认 `B540b-DIAGRAMSCOPEEMPTY1/P1-high`：部分越界可逐行删除，但 required 图只要原始 participant 非空、全部因 scope 越界被删，就必须在 emit-analysis 边界 fail-loud，要求 Analyzer 扩展为覆盖目标 actor 的最短关系面引文，或在关系面确实没有身份时显式重发空数组。系统不能静默替模型选择后一语义。
+
+两案分别 367s/400s。即使超过单次 4 分钟请求预算，只要模型流、工具调用或结构化修补仍有进展，系统都继续等待并最终发布模型答案；没有系统代答、空答案或四分钟降级。两案各有两次 relation patch，后续继续审计是否为 typed evidence 不足还是 validator 自冲突，不能为了降重试放宽关系证据门。
+
+状态：`B540=production-positive/partial`；`B540b=confirmed/implement-now`；`B541=open`；
+`runner=2/2`；`human=0/2`；`B517=no-system-degrade@367s,400s`；Trace=`not exercised/unchanged`。
+
+### 123.592 B540b：required 图的全量 scope 越界改为一次结构化纠正
+
+`parseDiagramHint` 现区分部分越界与全量越界。部分越界仍只删除无权限行并保留合法 participant；required 图若原始 participant 非空、最终零 participant 且至少一行因 `relation_scope_quote` 越界被删，则拒绝本次 emit-analysis，不发布 RequestModel，并要求 Analyzer 二选一重发：扩展到包含目标 participant 的最短当前请求关系面，或只在该关系面确实未命名身份时显式发空 participant 数组。
+
+判据只消费同一 typed payload 的 `required`、原始/接受 participant 计数和逐席 verbatim containment 结果；不扫描用户、模型或最终答案关键词，不使用 requested_answer_dimensions，不推断 actor，也不生成 relation/evidence/图/结论。空数组仍是模型可以明确选择的合法语义，部分合法席位不受一条坏行牵连。定向回归固定全量越界 fail-loud、部分越界保留和显式 flow carrier 正臂。
+
+该批不改 Trace 显式窗、因果投影、自动补齐、链上根因、实际占用/规则可消双轴、JSON/Mermaid renderer 或活动流超时策略。
+
+状态：`B540b=implemented/full-relevant-suite-pass`；`all-outside=schema-repair`；
+`partial-outside=row-local-drop`；`model-authorship=preserved`；Trace=`unchanged`。
