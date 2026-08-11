@@ -1076,6 +1076,18 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	if len(built) == 0 && len(duplicateItems) > 0 {
 		repair = emitEvidenceDuplicateNoopRepair(len(duplicateItems))
 	}
+	// ToolRepair is a typed cross-stage carrier, but the same-turn model only
+	// receives ToolResult.Summary.  Surface an exact completion-blocking item
+	// repair immediately so the model can correct the named row before an
+	// unrelated successful emit obscures the debt.  This is producer-authored
+	// JSON guidance, not request/answer prose inspection and not relation
+	// synthesis.
+	if repair != nil && repair.Code == types.ToolRepairCodeEvidenceItemValidation &&
+		repair.Metadata != nil && repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired &&
+		repair.Metadata["completion_blocking"] == "true" && strings.TrimSpace(repair.Hint) != "" &&
+		!strings.Contains(summary, repair.Hint) {
+		summary = strings.TrimRight(summary, "\n") + "\n\nAction-required typed evidence repair:\n" + repair.Hint + "\n"
+	}
 	recordToolRuntimeTiming(&runtimeTimings, "summary_repair_render", summaryStart, len(built)+len(duplicateItems))
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -4757,6 +4769,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 // never mutates the accepted item back into a directed relation.
 type emitEvidenceAssignmentEndpointRepair struct {
 	itemIndex int
+	anchor    types.AnchorKind
 	receiver  string
 	value     string
 	source    string
@@ -4789,6 +4802,107 @@ type emitEvidenceCallEndpointRepair struct {
 	line      int
 }
 
+const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obligations_v1"
+
+// emitEvidenceRelationRepairObligation is the durable, syntax-owned identity
+// of one exact relation repair.  ToolResult order is not sufficient authority:
+// a later successful but unrelated emit_evidence call must not make an earlier
+// required relation repair disappear.  Completion checks these keys against
+// the current typed evidence pool; it never scans request/model/answer prose.
+type emitEvidenceRelationRepairObligation struct {
+	AnchorKind types.AnchorKind `json:"anchor_kind"`
+	Source     string           `json:"source"`
+	Line       int              `json:"line"`
+	Subject    string           `json:"subject"`
+	Object     string           `json:"object"`
+}
+
+func valueTransferClassificationRepairObligations(in []emitEvidenceValueTransferClassificationRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			AnchorKind: row.anchor,
+			Source:     row.source,
+			Line:       row.line,
+			Subject:    row.receiver,
+			Object:     row.value,
+		})
+	}
+	return out
+}
+
+func assignmentEndpointRepairObligations(in []emitEvidenceAssignmentEndpointRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			AnchorKind: row.anchor,
+			Source:     row.source,
+			Line:       row.line,
+			Subject:    row.receiver,
+			Object:     row.value,
+		})
+	}
+	return out
+}
+
+func callEndpointRepairObligations(in []emitEvidenceCallEndpointRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			AnchorKind: types.AnchorCall,
+			Source:     row.source,
+			Line:       row.line,
+			Subject:    row.caller,
+			Object:     row.callee,
+		})
+	}
+	return out
+}
+
+func encodeEmitEvidenceRelationRepairObligations(in []emitEvidenceRelationRepairObligation) string {
+	if len(in) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func decodeEmitEvidenceRelationRepairObligations(raw string) ([]emitEvidenceRelationRepairObligation, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	var out []emitEvidenceRelationRepairObligation
+	if json.Unmarshal([]byte(raw), &out) != nil || len(out) == 0 {
+		return nil, false
+	}
+	for _, row := range out {
+		if row.AnchorKind == "" || strings.TrimSpace(row.Source) == "" || row.Line <= 0 ||
+			strings.TrimSpace(row.Subject) == "" || strings.TrimSpace(row.Object) == "" {
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+func mergeEmitEvidenceRelationRepairObligationMetadata(dst, src *types.ToolRepair) {
+	if dst == nil || src == nil || src.Metadata == nil {
+		return
+	}
+	if dst.Metadata == nil {
+		dst.Metadata = make(map[string]string)
+	}
+	left, _ := decodeEmitEvidenceRelationRepairObligations(dst.Metadata[emitEvidenceRelationRepairObligationsMetadataKey])
+	right, _ := decodeEmitEvidenceRelationRepairObligations(src.Metadata[emitEvidenceRelationRepairObligationsMetadataKey])
+	if len(right) == 0 {
+		return
+	}
+	dst.Metadata[emitEvidenceRelationRepairObligationsMetadataKey] = encodeEmitEvidenceRelationRepairObligations(append(left, right...))
+}
+
 // emitEvidenceRequiredFlowAssignmentEndpointRepair promotes an already exact
 // parser diagnosis into structured repair debt only when a required current-
 // source flow diagram needs directed operation rows. Optional diagrams and
@@ -4815,6 +4929,7 @@ func emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx *types.BusContext, ite
 	}
 	return emitEvidenceAssignmentEndpointRepair{
 		itemIndex: itemIndex,
+		anchor:    item.AnchorKind,
 		receiver:  receiver,
 		value:     value,
 		source:    item.Source,
@@ -4925,6 +5040,8 @@ func buildEmitEvidenceValueTransferClassificationRepair(in []emitEvidenceValueTr
 			"repair_scope":        "value_transfer_classification",
 			"repair_stage":        "explorer",
 			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				valueTransferClassificationRepairObligations(in)),
 		},
 	}
 }
@@ -4959,6 +5076,8 @@ func buildEmitEvidenceAssignmentEndpointRepair(in []emitEvidenceAssignmentEndpoi
 			"repair_scope":        "assignment_endpoint_identity",
 			"repair_stage":        "explorer",
 			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				assignmentEndpointRepairObligations(in)),
 		},
 	}
 }
@@ -5024,6 +5143,8 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 			"repair_scope":        "call_endpoint_identity",
 			"repair_stage":        "explorer",
 			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				callEndpointRepairObligations(in)),
 		},
 	}
 }
@@ -5043,6 +5164,7 @@ func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *
 	first.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
 	first.Metadata["repair_scope"] = "assignment_endpoint_identity+call_endpoint_identity"
 	first.Metadata["completion_blocking"] = "true"
+	mergeEmitEvidenceRelationRepairObligationMetadata(first, second)
 	return first
 }
 
@@ -5065,6 +5187,7 @@ func mergeEmitEvidenceValueTransferRepair(classification, endpoint *types.ToolRe
 	classification.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
 	classification.Metadata["repair_scope"] = "value_transfer_classification+" + endpointScope
 	classification.Metadata["completion_blocking"] = "true"
+	mergeEmitEvidenceRelationRepairObligationMetadata(classification, endpoint)
 	return classification
 }
 

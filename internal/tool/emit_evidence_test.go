@@ -3622,6 +3622,14 @@ func TestEmitEvidence_RequiredFlowRepairsMisclassifiedValueTransferAcrossLanguag
 				res.Repair.Metadata["completion_blocking"] != "true" {
 				t.Fatalf("missing typed classification repair: %+v", res.Repair)
 			}
+			if _, ok := decodeEmitEvidenceRelationRepairObligations(
+				res.Repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey]); !ok {
+				t.Fatalf("classification repair must publish a durable syntax obligation: %+v", res.Repair.Metadata)
+			}
+			if !strings.Contains(res.Summary, "Action-required typed evidence repair:") ||
+				!strings.Contains(res.Summary, res.Repair.Hint) {
+				t.Fatalf("same-turn model summary must expose the exact typed repair:\n%s", res.Summary)
+			}
 			for _, want := range []string{
 				fmt.Sprintf(`anchor_kind=%q`, tc.wantKind),
 				fmt.Sprintf(`subject=%q`, tc.wantLHS),

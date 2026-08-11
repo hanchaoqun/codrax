@@ -428,6 +428,44 @@ func TestEmitInvestigationComplete_BlocksOnLatestRequiredEvidenceItemValidationR
 	}
 }
 
+func TestRequiredRelationRepairDebtSurvivesUnrelatedSuccessfulEmitUntilExactRowsExist(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	assignment := buildEmitEvidenceAssignmentEndpointRepair([]emitEvidenceAssignmentEndpointRepair{{
+		itemIndex: 0, anchor: types.AnchorAssignment,
+		receiver: "state", value: "next", source: "src/pipeline.go", line: 42,
+	}})
+	call := buildEmitEvidenceCallEndpointRepair([]emitEvidenceCallEndpointRepair{{
+		itemIndex: 1, caller: "Pipeline.run", callee: "Worker.step", source: "src/pipeline.go", line: 55,
+	}})
+	repair := mergeEmitEvidenceRelationEndpointRepairs(assignment, call)
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence", Success: true, Repair: repair,
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence", Success: true, Summary: "unrelated grounded definition",
+	})
+	if got := pendingBlockingEmitEvidenceItemValidationRepair(ctx); got == nil {
+		t.Fatal("an unrelated successful emit must not clear exact relation repair debt")
+	}
+
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorAssignment, "state", "next", 42),
+	})
+	if got := pendingBlockingEmitEvidenceItemValidationRepair(ctx); got == nil {
+		t.Fatal("a partially repaired multi-row obligation must remain pending")
+	}
+
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "Pipeline.run", Object: "Worker.step", AnchorSymbol: "Worker.step",
+		Predicate: "calls", Source: "src/pipeline.go", LineStart: 55, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	if got := pendingBlockingEmitEvidenceItemValidationRepair(ctx); got != nil {
+		t.Fatalf("all exact typed rows now exist; durable repair debt should clear: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageClosesAfterIncidentOperation(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

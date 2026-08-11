@@ -3039,6 +3039,8 @@ func pendingBlockingEmitEvidenceItemValidationRepair(ctx *types.BusContext) *typ
 		return nil
 	}
 	results := ctx.Mutable.DispatchToolResults()
+	evidence := ctx.Mutable.EmittedEvidence()
+	seenLaterEmit := false
 	for i := len(results) - 1; i >= 0; i-- {
 		result := results[i]
 		if types.CanonicalToolName(result.ToolName) != "emit_evidence" {
@@ -3047,11 +3049,59 @@ func pendingBlockingEmitEvidenceItemValidationRepair(ctx *types.BusContext) *typ
 		if result.Repair == nil || result.Repair.Code != types.ToolRepairCodeEvidenceItemValidation ||
 			result.Repair.Metadata == nil || result.Repair.Metadata["repair_status"] != types.ToolRepairStatusActionRequired ||
 			result.Repair.Metadata["completion_blocking"] != "true" {
-			return nil
+			seenLaterEmit = true
+			continue
+		}
+		if obligations, ok := decodeEmitEvidenceRelationRepairObligations(
+			result.Repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey]); ok {
+			if !emitEvidenceRelationRepairObligationsSatisfied(obligations, evidence) {
+				return cloneEmitInvestigationToolRepair(result.Repair)
+			}
+			seenLaterEmit = true
+			continue
+		}
+		// Backward-compatible local schema debt has no durable syntax key.
+		// Preserve the historical "latest emit decides" behavior for that
+		// class; only exact relation repairs opt into the persistent ledger.
+		if seenLaterEmit {
+			continue
 		}
 		return cloneEmitInvestigationToolRepair(result.Repair)
 	}
 	return nil
+}
+
+func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRelationRepairObligation, evidence []types.EvidenceItem) bool {
+	if len(obligations) == 0 {
+		return false
+	}
+	for _, obligation := range obligations {
+		matched := false
+		for _, item := range evidence {
+			if !item.IsCitable() || item.LineStart != obligation.Line || item.AnchorKind != obligation.AnchorKind ||
+				canonicalRelationSourcePath(item.Source) != canonicalRelationSourcePath(obligation.Source) ||
+				!types.AnswerCodeIdentitySurfacesCompatible(item.Subject, obligation.Subject) ||
+				!types.AnswerCodeIdentitySurfacesCompatible(item.Object, obligation.Object) {
+				continue
+			}
+			switch obligation.AnchorKind {
+			case types.AnchorAssignment, types.AnchorInitializer:
+				if !types.AssignmentEvidenceEndpointsMatch(item) {
+					continue
+				}
+			case types.AnchorCall:
+				if !types.PredicateAxisHasMatchingAnchor(types.AxisCall, item) {
+					continue
+				}
+			}
+			matched = true
+			break
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneEmitInvestigationToolRepair(in *types.ToolRepair) *types.ToolRepair {

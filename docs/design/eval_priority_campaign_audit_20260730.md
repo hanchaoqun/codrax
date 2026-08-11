@@ -32348,3 +32348,38 @@ TS 案只发布 `run -> ApiClient.fetchUser -> HttpTransport.send -> HttpTranspo
 
 状态：`B529b=implemented/package-suites-pass/pending-r312`；`B529=partial/pending-production-replay`；
 `model-role-and-relation-authorship=preserved`；`typed-context-escape=preserved`；Trace=`unchanged`。
+
+### 123.576 r312：participant 角色已纠正，但精确关系修复债被无关成功调用冲掉
+
+`main@604dd12ef` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_relation_r312_20260811_manual_audit.md`。Go 案中 B529b 已获得生产正证：Analyzer 首次接受的 IR 即把
+`Mutable`、`BusContext` 拆成两个 `incident_required` participant，没有再发生复合身份或裸 provenance 豁免。Explorer 随后确实读到
+`Mutable: types.NewMutableState(request)` 及 `o.busCtx.Mutable.*` reader 区域。
+
+新的决定性 seam 在 typed 修复传递：错误 assignment/initializer/call endpoint 会在 `ToolResult.Repair` 里生成精确重发处方，但同轮模型消息只收到
+`ToolResult.Summary`，看不到该处方；而 completion 的 pending 检查只看“最后一次 emit_evidence”，任何后续成功的无关 definition/call row 都会把旧修复债视作已解决。
+本案因此没有重发 `Mutable <- NewMutableState` 的精确 tuple，participant coverage 最终按 no-progress 诚实收敛为 unproven，Finalizer 也只能把两个载体留成孤点。
+立 `B529c-RELREPAIRDEBT1/P1-high`：精确关系修复必须同轮可见，并按 syntax-owned key 持久到对应 typed row 真正入池；不能以调用顺序代表修复完成。
+
+TS 案从 r311 的三条边改善为四条，增加 `send -> nextDelay`，但同一已读源码仍漏 `dispatchOnce -> fetch` 与独立 `send -> sleep`，并把 fan-out 图称为
+“完整调用链”。这再次确认 `B530-CALLCHAININTERIOR1` 是稳定系统 gap，而非一次模型波动：当前完成门只校验已发布边是否真实，没有校验已读 principal body 内 load-bearing
+terminal/nested call 是否完成 typed handoff。
+
+Go 案耗时 401s，活动流持续后正常获得模型答案，没有四分钟降级、系统代写或空答案，作为 B517 的第三个生产正例。状态：
+`B529b=production-positive`；`B529c=confirmed/implement-now`；`B530=confirmed/stable/next`；
+`B517=production-positive@401s`；`runner=2/2`；`human=0/2`；Trace=`not exercised/unchanged`。
+
+### 123.577 B529c：精确关系修复同轮可见，并由 typed 证据而非调用顺序销账
+
+完成 `B529c-RELREPAIRDEBT1`。所有 required source relation lane 中由 parser/read-line 唯一确定的 assignment、initializer、call endpoint 修复，现在附带版本化
+`relation_repair_obligations_v1`：每个义务只含 `anchor_kind + source + line + subject + object`。completion 不再把“后来有一次成功 emit_evidence”当作销账；它逐项检查当前 citable
+typed evidence pool，只有同源同行、同 anchor 且端点兼容的真实关系行在场才清除。多行 repair 必须全部满足，无关 definition、其他 call 或部分修复都不能冲掉旧债。没有该新 carrier
+的历史/普通 schema repair 继续保持旧兼容语义，避免扩大硬门。
+
+同时，completion-blocking `evidence_item_validation` 的精确 Hint 会追加到同轮 `ToolResult.Summary`，模型无需先撞一次
+`emit_investigation_complete` 才看到 copy-ready JSON 字段。系统仍只提供 parser-owned 重发事实：原 evidence 不被升格，不自动补边、不画图、不改模型答案。持久义务校验不读取用户、模型或
+最终答案 prose；Trace/root-cause 与 optional diagram 继续被上游 typed 条件排除。回归覆盖跨语言值传递 repair 的同轮可见性、assignment+call 多义务、无关成功调用不得清债、部分修复不得
+清债、完整 typed row 自动销账，以及原 legacy repair 的兼容清除臂。
+
+状态：`B529c=implemented/targeted-pass`；`repair-clear-authority=typed-evidence-pool`；
+`model-relation-authorship=preserved`；`system-edge-synthesis=none`；`B530=next`；Trace=`unchanged`。

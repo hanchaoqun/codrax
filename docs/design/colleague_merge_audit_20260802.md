@@ -4072,3 +4072,20 @@ source_quote。前者必须拆席，后者必须提供更宽的当前请求 verb
 
 显式 surrounding-boundary 正臂及 Trace/non-flow 负臂已钉；相关六组全套通过。状态：`B529b=implemented/pending-r312`；
 `B529=partial`；`B530=next`；Trace causal authority=`unchanged`。
+
+#### §11.10.120 r312：关系角色修复生效，修复指令可见性与销账权暴露新 seam
+
+exact-two runner 2/2、人工 0/2。B529b 在 Go 真实回放中生效：Analyzer 直接发布独立 `Mutable`、`BusContext` incident participants；但 Explorer 读到初始化/读取点后，
+精确 endpoint 修复只存在 ToolRepair carrier，同轮模型只看到 Summary。后续无关成功 emit 又按“最后调用”语义清掉旧债，最终只能发布 participant-unproven 边界并保留孤点。
+这不是 B529b 失效，而是新确认的 `B529c-RELREPAIRDEBT1`。
+
+TS 继续漏掉已读 principal body 内 `dispatchOnce -> fetch` 与嵌套 `send -> sleep`，证明 B530 稳定。Go 401s 活动流仍返回模型答案，B517 无四分钟降级回归。
+
+#### §11.10.121 B529c：relation repair 以 syntax key 持久化并即时反馈
+
+required source relation 的 assignment/initializer/call endpoint repair 现携带版本化 typed obligation（anchor/source/line/subject/object），completion 仅在对应 citable typed row 真正入池后
+销账；任意无关成功 emit 和部分修复均无权清除。action-required exact Hint 同轮进入工具 Summary，减少一次 completion 拒绝和模型记忆负担。历史无 obligation 的普通 schema repair 保持旧
+latest-call 兼容语义。
+
+该批不扫描 request/model/final prose，不自动升格 evidence、不补边、不写图或结论；Trace/root-cause 和 optional diagram 保持隔离。定向测试覆盖多义务持久/部分/全量销账和跨语言即时反馈。
+状态：`B529c=implemented/targeted-pass`；`B530=next`；`answer/diagram ownership=model`；Trace causal authority=`unchanged`。
