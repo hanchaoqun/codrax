@@ -4445,3 +4445,17 @@ skeleton 中复用 participant alias、生成无 anchor 单席 Note；binary gua
 
 状态：`B554=implemented/pending-r327`；`typed-unary-authority=closed-matrix`；
 `system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.151 r327：flow-family unary 与 optional boundary repair 两层残余
+
+r327 exact-two runner 2/2、人工 0/2。B554 的 typed unary acquisition 两案均出现，但 call_dag/flow skeleton 不消费单实体 guard，故只获 partial 正证。
+最优扩展是无 edge/anchor 的 standalone fact node；禁止为了 flow 语法制造 guard arrow、自环或虚拟 object。
+
+Python 暴露 `B556/P1-high`：AxisFlow 合理扣留 whole-diagram skeleton 时，optional repair 没有重复 exact relation-boundary recipes，软引导失去可执行载体，模型最终删图。
+应提供 bounded recipe subset，仍由模型决定布局/措辞/是否保图。C++ 暴露 `B557/P1`：annotation count=0、kind=return 与“已由 Note 保留”同页矛盾；receipt 必须从实际
+rendered annotations 同源，未渲染关系只能披露 omitted。
+
+C++ 5 次修补、319s 后仍由模型成功交付，固定 4 分钟未触发系统降级；多轮收敛记 B558/P2-watch，待上述根因修复后再判。
+
+状态：`B554/B555=partial`；`B556/B557=next`；`B558=watch`；`model-authorship=preserved`；
+`active-stream=no-degrade@319s`；Trace causal authority=`unchanged`。

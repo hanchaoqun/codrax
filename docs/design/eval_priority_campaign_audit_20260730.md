@@ -32979,3 +32979,23 @@ flow/architecture/call_dag 与未知未来 family 当前保持 fail-closed，待
 
 状态：`B554=implemented/relevant-suites-pass/pending-r327`；`unary-guard=single-participant-note`；
 `self-loop/synthetic-object/edge-anchor=forbidden`；`B555=pending-r327`；Trace causal authority=`unchanged`。
+
+### 123.611 r327：unary acquisition 生效但 flow 图层仍缺；可选 flow 修补没有本地骨架
+
+`main@71547c193` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_mixed_relation_r327_20260811_manual_audit.md`。两案 Finalizer context 已分别发布 C++ 两条、Python 一条
+`typed_unary_annotations`，证明 B554 采集/单源投影生效；但最终 presentation family 为 call_dag/flow，当前 closed matrix 只允许 sequence Note，视觉仍未带 guard。
+B554 因此改记 `partial`，下一小批以 flow-family standalone fact node 表达 guard，不生成 edge/anchor/self-loop。
+
+Python 的 `AxisFlow` 继续正确地禁止系统编译 whole-flow story graph，但 optional repair 仍声称“已有 skeleton”而实际 payload 为空；模型先画错一版，随后删图。
+立 `B556-OPTIONALFLOWBOUNDARYREPAIR1/P1-high`：whole skeleton 被权限边界扣留时，局部修补改为重复现有 bounded exact edge/unary recipes，建议模型保留 faithful subset；
+不得把 recipes 拼成完整路径，删除仍是模型判断无视觉价值时的合法出口。
+
+另确认 `B557-ANNOTATIONRECEIPT1/P1`：call_dag capsule 发出 `visual_annotation_relation_count=0`、`annotation_relation_kinds=return`，却称 return 已由 Note 保留；
+实际图没有任何该载体。计数、kind 与“已渲染/未渲染”披露必须从最终 visual subset 同源，禁止系统教学自相矛盾。
+
+C++ 5 次 Finalizer reject 后才消费 exact call skeleton，记 `B558/P2-watch`；先修精确载体/提示再回放，不以单次模型轨迹扩大 normalizer 或放松关系门。
+该案 319s 仍持续活跃并交付模型原答案，固定 4 分钟降级未发生。
+
+状态：`B554=partial/next`；`B555=partial`；`B556=P1-high/next`；`B557=P1/next`；`B558=P2-watch`；
+`runner=2/2`；`human=0/2`；`active-stream=no-degrade@319s`；Trace causal authority=`unchanged/not-exercised`。
