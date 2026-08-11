@@ -1012,6 +1012,41 @@ func TestMechanismRelationCopyReadySequenceOmitsNonMessageAndAmbiguousRelationsA
 	}
 }
 
+func TestMechanismRelationCopyReadyMatrixIsClosedAndCompleteAA3(t *testing.T) {
+	allButContain := map[types.DiagramRelationKind]bool{}
+	for _, relation := range types.AllDiagramRelationKinds() {
+		allButContain[relation] = relation != types.DiagramRelContain
+	}
+	want := map[types.DiagramKind]map[types.DiagramRelationKind]bool{
+		types.DiagramFlow:         allButContain,
+		types.DiagramArchitecture: allButContain,
+		types.DiagramSequence: {
+			types.DiagramRelCall:     true,
+			types.DiagramRelCallback: true,
+		},
+		types.DiagramCallDAG: {
+			types.DiagramRelCall: true,
+		},
+	}
+	for kind, relations := range want {
+		for _, relation := range types.AllDiagramRelationKinds() {
+			got := answerDocMechanismRelationSafeForCopyReadyDiagram(kind, relation)
+			if got != relations[relation] {
+				t.Errorf("diagram capability kind=%s relation=%s got=%t want=%t", kind, relation, got, relations[relation])
+			}
+		}
+	}
+	if answerDocMechanismRelationSafeForCopyReadyDiagram(types.DiagramNone, types.DiagramRelCall) {
+		t.Fatal("no-diagram presentation must not claim a visual relation capability")
+	}
+	if answerDocMechanismRelationSafeForCopyReadyDiagram(types.DiagramKind("future"), types.DiagramRelCall) {
+		t.Fatal("unknown future diagram family must fail closed")
+	}
+	if answerDocMechanismRelationSafeForCopyReadyDiagram(types.DiagramFlow, types.DiagramRelationKind("future")) {
+		t.Fatal("unknown future relation must fail closed instead of becoming a generic arrow")
+	}
+}
+
 func TestMechanismRelationAuthorityDoesNotSuggestDiagramWithoutTypedPresentationIntentAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

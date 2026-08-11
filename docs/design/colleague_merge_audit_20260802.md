@@ -3652,3 +3652,29 @@ Phase promotion、discover selection 和 terminal owner 现合并读取 evaluato
 二者都只影响软导航/修复上下文，不从 read 文本造事实、不代写关系或业务结论、不改变 validator。六包全绿，待 r298 生产回放。
 
 状态：`B508=v3-implemented/pending-r298`；`B510=unified-matrix-audit-next`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.82 r298：B508 producer 关闭；B510 mixed repair 缺口导致 1200s 无答案
+
+exact-two 为 Java PASS / read TIMEOUT，人工 0/2。Java 已稳定发布
+`AuditLog.record -> System.out.println @ AuditLog.java:6`，错误 sibling leaf 消失，B508 关闭；正文仍把 stdout 称“审计落库”，另立 B511 typed terminal
+capability boundary，禁止系统代改模型结论。
+
+read 首轮已收到三条 stage precedence recipe，却在 call/value/participant 混合 reject 后只获负面列表；随后 alias 重映射、无证边重复与一次畸形
+`replace_blocks` string carrier，5 reject 后超时。`Mermaid`/`sequenceDiagram` 被模型列作 incident participant 另列 Analyzer 软教学项，不据字符串硬门。
+
+状态：`B508=production-closed`；`B510=P1-confirmed/in-progress`；`B511=P1-open`；`B512=json-carrier-watch`；Trace families=`unchanged`。
+
+#### §11.10.83 B510-A1：关系表达统一矩阵与 mixed typed repair 同源
+
+完成四语义图类（flow/architecture/sequence/call_dag）× 十三 relation kind 的统一审计。closed copy-ready registry 取代 default-allow：未知图类/关系 fail-closed；
+contain 永不成为箭头，只能 subgraph；sequence 系统 copy-ready 仅 call/callback，call_dag 仅 call，flow/architecture 可承载除 contain 外的 exact typed relation。
+这是系统 authoring aid 的保守面，不限制模型在已有 typed evidence/顺序语境下自行作图。
+
+required diagram 的 repair selector 由“sole call violation”扩为“纯 diagram locus 的 typed relation + required edge + participant coverage”闭集。mixed reject 现在同轮重复：
+关系 recipe、exact alias/anchor、以及 `edge_action=none` boundary recipe；citation、table 或未知 violation 混入即拒绝该捷径。系统不绘图、不补边、不删模型关系、不改答案。
+
+当前 class/state/ER/C4 Mermaid families 仍明确 unsupported；仅放开 directive 会绕过 AST/证据门，故列 B510-C 全栈设计，不做语法特判。回归已覆盖 mixed full/patch、
+非图/引用负臂、原 sole-call lane 与 4×13/future fail-closed；六包全绿（agent/types/tool/orchestrator/tracediag/stageauthority），待 exact-two 生产回放后关闭 A1。
+
+状态：`B510-A1=implemented/package-suites-pass`；`B510-B=replay-next`；`B510-C=design-open`；
+`system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

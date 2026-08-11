@@ -31691,3 +31691,50 @@ Phase 晋升、discover selection 与 selected-terminal owner 在同一 ReAct di
 状态：`B508=v3-implemented/package-suites-pass/pending-r298`；`B510=unified-diagram-audit-next`；
 `system-prose/relation/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
 Trace explicit windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。
+
+### 123.538 r298：终点事实到达；混合图失败与 JSON 载体令 read 用例超时
+
+`main@14b76befa` exact-two：Java runner PASS、read TIMEOUT；人工均 fail。详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r298_20260810_manual_audit.md`。
+
+Java 已出现 `repomap_terminal_body_call: AuditLog.record -> System.out.println @ AuditLog.java:6`，且无错误 sibling leaf，B508 的 producer/read/active-loop
+链闭合。Finalizer 也收到 exact body fact，但仍把 stdout 称为“审计落库终端/落地动作”；该重复 witness 新立 `B511-TERMCAP1/P1`：只能用完整已读 body + typed
+terminal facts给模型发布“当前代码只证到 stdout，外部持久化未证”的能力边界，禁止系统改写结论或从缺证据断言绝对不存在。
+
+read 在 1200s 内 30 次 read、5 次 finalizer reject 后无答案。首轮 prompt 已含三条 checkout-verified stage precedence recipe；首次图同时触发
+call/value/participant 三类 precise rejection，但 retry 只收到负面 mismatch 列表。模型在 thinking 中找回 recipe 后仍自行重映射 alias、重复无证 call，并把
+`replace_blocks` 发成畸形 JSON string carrier。系统正确 fail-closed，但缺少同轮正向 typed recipe + exact alias/anchor + no-edge boundary 的单一修复面。
+
+`Mermaid`/`sequenceDiagram` 被 Analyzer 当 incident participant 是独立软教学问题：当前 verbatim provenance 能排除凭空名字，却不能保证“展示语法词不是执行参与者”；
+先用 Analyzer schema 教学降噪，不以关键词或最终 prose 硬拒。JSON string-carrier 已被 lossless decoder 精确诊断，暂列 `B512/P2-watch`，待 B510 后观察是否仍重复。
+
+状态：`B508=production-closed`；`B511=P1-open`；`B510=P1-in-progress`；`B512=P2-watch`；
+`runner=1/2,human=0/2`；`system-relation/diagram/conclusion-authoring=none`；Trace families=`unchanged`。
+
+### 123.539 B510-A1：四图类 × 十三关系类统一矩阵与混合失败正向修复
+
+统一矩阵确认当前语义图类只有 `flow / architecture / sequence / call_dag`；Mermaid 载体只接受 flowchart/graph 与 sequenceDiagram。关系 enum 共 13 类：
+
+| 关系族 | relation_kind | 权威/展示边界 |
+|---|---|---|
+| 调用/交接 | `call`, `callback` | exact typed caller→callee / receiver→callable；sequence/call-DAG 可直接表达 |
+| 控制/顺序 | `guard`, `precedence` | exact condition / checkout-verified stage row；模型可在有顺序语境时作图，系统不替模型选择全局顺序 |
+| 结构 | `import`, `type_relation`, `contain` | import/type 必须同向 parser/typed row；contain 只能用 subgraph/group，不得铸 contain arrow |
+| 绑定/值流 | `register`, `assignment`, `data_flow`, `return` | exact tuple 且方向区分；不得改写成 call |
+| 观察/运行时 | `observe`, `temporal` | observe 需外部观察证据；temporal 只由 runtime typed capsule 铸造，不能升级为因果 |
+
+新增 closed copy-ready matrix 单点并遍历四图类×十三关系类：flow/architecture 仅允许系统渲染除 contain 外的精确关系；sequence 的系统 copy-ready 保守为
+call/callback；call_dag 仅 call；未知未来图类/关系默认 fail-closed。该矩阵只约束系统生成的 authoring aid，不禁止模型在 exact typed evidence 与顺序语境充分时
+自行表达其他关系。`classDiagram/stateDiagram/ER/C4` 当前明确 unsupported；要支持必须新增 semantic kind、AST、relation ownership、renderer fallback 与 validator
+整套合同，不能只放开 Mermaid directive，列为 B510-C 后续能力批。
+
+根因修复不再要求 `ViolDiagramCallEdgeUnproven` 是唯一失败：required diagram 的 producer-owned violation 集若仅含 typed relation authority、required-edge 与
+participant coverage，且所有 locus 都是 diagram，则进入 shared positive repair；混入 citation/table/其他块仍走普通车道。修复轮重复同一 typed relation capsule，
+要求精确 `node_alias` 首标签与 `edge_anchor_json` 复用，并同轮重复 `edge_action=none` 的 participant boundary recipes。系统不自动画边、删图或替换正文。
+
+回归覆盖 full emit/patch 两车道、mixed relation+participant 正臂、citation/non-diagram 负臂、sole-call 原 exact-capsule 行为，以及 4×13 + future enum fail-closed。
+六包全绿：agent 11.940s、types 21.788s、tool 174.338s、orchestrator 16.267s、tracediag 6.411s、stageauthority 1.652s。下一步提交
+B510-A1，再 exact-two 回放 read+异构关系 case，按 Java/ArkTS/Cangjie/C++/Rust/Python 轮换验证语言无关 endpoint identity。
+
+状态：`B510-A1=implemented/package-suites-pass`；`B510-B=production-replay-next`；`B510-C=unsupported-family-design-open`；
+`raw-request/model/final-prose-hard-gate=none`；`system-answer/relation-authoring=none`；Trace explicit-window projection/auto-supplement/on-chain causes=`unchanged`。

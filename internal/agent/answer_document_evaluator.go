@@ -7551,8 +7551,9 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 }
 
 // answerDocMechanismCopyReadyRecipes narrows the full typed relation capsule
-// to relations the selected Mermaid family can express without changing their
-// meaning. Sequence messages are invocation/handoff carriers, not a generic
+// to relations the system can safely render in the selected Mermaid family
+// without choosing additional ordering/context on the model's behalf.
+// Sequence messages are invocation/handoff carriers, not a generic
 // drawing syntax for guards, registrations, assignments, factory returns, or
 // type relationships. Call DAGs are narrower still. A repeated endpoint pair
 // with multiple relation kinds is omitted from a copy-ready body because the
@@ -7575,13 +7576,7 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 	seenVisualRelation := make(map[string]bool, len(recipes))
 	for _, recipe := range recipes {
 		key := recipe.from + "\x00" + recipe.to
-		representable := true
-		switch kind {
-		case types.DiagramSequence:
-			representable = recipe.edge.relation == types.DiagramRelCall || recipe.edge.relation == types.DiagramRelCallback
-		case types.DiagramCallDAG:
-			representable = recipe.edge.relation == types.DiagramRelCall
-		}
+		representable := answerDocMechanismRelationSafeForCopyReadyDiagram(kind, recipe.edge.relation)
 		if !representable || len(pairKinds[key]) != 1 {
 			omitted[string(recipe.edge.relation)] = true
 			continue
@@ -7599,6 +7594,51 @@ func answerDocMechanismCopyReadyRecipes(recipes []answerDocMechanismRecipeRow, k
 	}
 	sort.Strings(omittedKinds)
 	return out, omittedKinds
+}
+
+// answerDocMechanismRelationSafeForCopyReadyDiagram is the closed
+// system-rendered copy-ready matrix for every semantic diagram family and
+// typed relation. It is intentionally narrower than the parser/validator:
+// models may place additional exact typed relations in a diagram when their
+// evidence also establishes the diagram's ordering/context, while the system
+// must not choose that ordering on their behalf.
+// Keeping the matrix fail-closed matters in two directions:
+//
+//   - a new relation enum cannot silently become a generic flowchart arrow;
+//   - a syntax family cannot visually recast a precise source fact as another
+//     semantic (for example, a return as a sequence invocation).
+//
+// Containment is deliberately false for every edge family: architecture/flow
+// diagrams represent it with Mermaid subgraph/grouping, not an arrow. Runtime
+// temporal arrows are structurally expressible by flow/architecture syntax,
+// while their independent runtime authority remains enforced by the trace
+// capsule and validator. Sequence messages stay limited to invocation and
+// callback handoff; a paired dashed reply is renderer structure, not an
+// independently anchored return edge.
+func answerDocMechanismRelationSafeForCopyReadyDiagram(kind types.DiagramKind, relation types.DiagramRelationKind) bool {
+	switch kind {
+	case types.DiagramSequence:
+		return relation == types.DiagramRelCall || relation == types.DiagramRelCallback
+	case types.DiagramCallDAG:
+		return relation == types.DiagramRelCall
+	case types.DiagramFlow, types.DiagramArchitecture:
+		switch relation {
+		case types.DiagramRelCall,
+			types.DiagramRelCallback,
+			types.DiagramRelGuard,
+			types.DiagramRelImport,
+			types.DiagramRelPrecedence,
+			types.DiagramRelTypeRelation,
+			types.DiagramRelObserve,
+			types.DiagramRelRegister,
+			types.DiagramRelAssignment,
+			types.DiagramRelDataFlow,
+			types.DiagramRelReturn,
+			types.DiagramRelTemporal:
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocMechanismMermaidLabel(identity string) string {
@@ -13283,19 +13323,25 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// handoff, not answer synthesis: the model still owns whether and where to
 	// place the required diagram, while the system stops teaching two subtly
 	// different JSON/identity forms in one dispatch.
-	if e.diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
-		if hint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, true); ok {
-			e.rejectHintsUsed++
-			e.preferPatchNext = true
-			hint = e.appendDiagramRelationRepeatGuidance(hint)
-			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
-			return LoopSignal{
-				HintRequested:  true,
-				HintKey:        "answer_doc.patch_required_diagram_call_edge",
-				Hint:           hint,
-				Progress:       true,
-				BypassThrottle: true,
-				BypassBudget:   true,
+	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
+		// The whole-diagram capsule is sufficient only for the sole call-edge
+		// failure. A mixed relation+participant rejection also needs the
+		// explicit disconnected-boundary teaching, so keep it on the typed
+		// relation-boundary lane even when a call-only visual can be rendered.
+		if answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
+			if hint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, true); ok {
+				e.rejectHintsUsed++
+				e.preferPatchNext = true
+				hint = e.appendDiagramRelationRepeatGuidance(hint)
+				hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+				return LoopSignal{
+					HintRequested:  true,
+					HintKey:        "answer_doc.patch_required_diagram_call_edge",
+					Hint:           hint,
+					Progress:       true,
+					BypassThrottle: true,
+					BypassBudget:   true,
+				}
 			}
 		}
 		if hint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true); ok {
@@ -13382,6 +13428,70 @@ func answerDocumentPatchRejectIsDiagramCallEdge(result *types.ToolResult) bool {
 	}
 	offendingKinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
+}
+
+// answerDocumentRejectIsRequiredDiagramTypedRelationRepair selects a required
+// diagram whose remaining failures are confined to the typed relation surface.
+//
+// A first draft commonly trips both relation authority and participant
+// boundary coverage at once: invalid arrows must be removed/corrected while
+// still-uncovered requested participants must stay visible and explicitly
+// unproven. Requiring ViolDiagramCallEdgeUnproven to be the *only* violation
+// discarded the positive typed-recipe carrier in exactly that mixed case and
+// left the model with a negative mismatch list. The usual result was lossy
+// repair: valid stage/value/call relations disappeared together with the bad
+// edges.
+//
+// Keep this selector deliberately narrow. It consumes only producer-owned
+// violation enums and block-kind metadata, requires at least one relation
+// authority failure, and rejects any non-diagram or unrelated violation. The
+// recovery lane repeats already-grounded recipes plus the explicit-unproven
+// boundary rule; it never parses request/answer prose or authors an edge.
+func answerDocumentRejectIsRequiredDiagramTypedRelationRepair(result *types.ToolResult) bool {
+	if result == nil || result.Repair == nil {
+		return false
+	}
+	repair := result.Repair
+	if strings.TrimSpace(repair.Code) != "answer_doc_pre_emit_contract" || repair.Metadata == nil {
+		return false
+	}
+	offendingKinds := answerDocNonEmptyCSV(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds])
+	if len(offendingKinds) != 1 || offendingKinds[0] != string(types.BlockDiagram) {
+		return false
+	}
+	kinds := answerDocNonEmptyCSV(repair.Metadata["violation_kinds"])
+	if len(kinds) == 0 {
+		return false
+	}
+	hasRelationAuthorityFailure := false
+	for _, kind := range kinds {
+		switch types.ViolationKind(kind) {
+		case types.ViolDiagramCallEdgeUnproven:
+			hasRelationAuthorityFailure = true
+		case types.ViolDiagramParticipantCoverage,
+			types.ViolRequiredDiagramEdgeAbsent:
+			// These are typed companions on the same required-diagram
+			// surface. They do not authorize any new relation.
+		default:
+			return false
+		}
+	}
+	return hasRelationAuthorityFailure
+}
+
+func answerDocNonEmptyCSV(raw string) []string {
+	parts := strings.Split(strings.TrimSpace(raw), ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return out
 }
 
 func (e *answerDocumentEvaluator) observeDiagramRelationFailure(result *types.ToolResult) {
@@ -13480,17 +13590,22 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 	if payload == "" {
 		return "", false
 	}
+	participantBoundaryPayload := answerDocDiagramParticipantBoundaryRepairPayload(ctx)
 	prefix := "Your last `emit_answer_document` call was rejected"
 	action := "Use `emit_answer_document_patch`"
 	if alreadyPatching {
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 		action = "Keep using `emit_answer_document_patch`"
 	}
-	return prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
+	hint := prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
 		action + "; replace only the rejected diagram block, retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
 		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. " +
 		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
-		"\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
+		"\n\nWhen retaining one of these relations, declare the recipe's exact node alias with its exact `node_alias` identity as the first visible label, and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases."
+	if participantBoundaryPayload != "" {
+		hint += "\n\nThe same typed diagram contract also provides these exact no-edge participant repairs; use only the rows that remain uncovered after the verified relations above:\n\n" + participantBoundaryPayload
+	}
+	return hint + "\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
 }
 
 // answerDocMechanismCopyReadyRepairPayload reuses the exact system-rendered
@@ -13542,6 +13657,31 @@ func answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority
 		return ""
 	}
 	return section
+}
+
+// answerDocDiagramParticipantBoundaryRepairPayload repeats the exact
+// producer-owned no-edge recipes already present in the initial diagram
+// contract. It does not infer a participant from prose and does not create a
+// relation: each row explicitly carries edge_action=none.
+func answerDocDiagramParticipantBoundaryRepairPayload(ctx *types.AgentContext) string {
+	dc := answerDocDiagramContract(ctx)
+	if dc == nil || !dc.Required {
+		return ""
+	}
+	contract := renderAnswerDocDiagramContract(ctx, dc)
+	const heading = "- Typed uncovered-participant recipes"
+	start := strings.Index(contract, heading)
+	if start < 0 {
+		return ""
+	}
+	section := contract[start:]
+	if end := strings.Index(section, "\n- This requirement is independent"); end >= 0 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, "boundary_recipe[") || !strings.Contains(section, "edge_action=`none`") {
+		return ""
+	}
+	return strings.TrimSpace(section)
 }
 
 func answerDocumentPatchRejectBlockCardinalityKind(result *types.ToolResult) (types.AnswerBlockKind, bool) {
@@ -13670,17 +13810,22 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// authority, put the exact evidence-derived carrier in this repair turn
 	// instead of making the model hunt through the original long prompt and
 	// hand-recreate aliases/JSON.
-	if hasPatchBase && e.diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
-		if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
-			hint = requiredHint
-			reasonKey = "required-diagram-call-edge"
-			diagramCallEdgePatchRecovery = true
-			e.preferPatchNext = true
-		} else if boundaryHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false); ok {
-			hint = boundaryHint
-			reasonKey = "required-diagram-relation-boundary"
-			diagramCallEdgePatchRecovery = true
-			e.preferPatchNext = true
+	if hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
+		if answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
+			if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
+				hint = requiredHint
+				reasonKey = "required-diagram-call-edge"
+				diagramCallEdgePatchRecovery = true
+				e.preferPatchNext = true
+			}
+		}
+		if !diagramCallEdgePatchRecovery {
+			if boundaryHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false); ok {
+				hint = boundaryHint
+				reasonKey = "required-diagram-relation-boundary"
+				diagramCallEdgePatchRecovery = true
+				e.preferPatchNext = true
+			}
 		}
 	}
 	var summaryLen, summaryCap int

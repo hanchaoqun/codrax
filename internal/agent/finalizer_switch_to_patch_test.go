@@ -743,6 +743,93 @@ func TestEmitAnswerDocumentRejectSignal_RequiredFlowUsesTypedRelationBoundaryWhe
 	}
 }
 
+func TestRequiredFlowMixedRelationAndParticipantRejectRepeatsTypedBoundary(t *testing.T) {
+	for _, toolName := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		t.Run(toolName, func(t *testing.T) {
+			e := &answerDocumentEvaluator{diagramRequired: true}
+			ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+			ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramSequence, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "AnalysisIR", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "AnalysisIR"},
+					{Identity: "AnswerDocument", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "AnswerDocument"},
+				},
+			}
+			ctx.AnalysisIR.AnswerContract.Diagram.Required = true
+			ctx.AnalysisIR.AnswerContract.Diagram.Participants = append([]types.DiagramParticipantHint(nil),
+				ctx.AnalysisIR.RequestModel.DiagramHint.Participants...)
+			obs := LoopObservation{LastToolResult: &types.ToolResult{
+				ToolName: toolName,
+				Success:  false,
+				Repair: &types.ToolRepair{
+					Code: "answer_doc_pre_emit_contract",
+					Metadata: map[string]string{
+						"violation_kinds": strings.Join([]string{
+							string(types.ViolDiagramCallEdgeUnproven),
+							string(types.ViolDiagramParticipantCoverage),
+						}, ","),
+						types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+					},
+				},
+			}}
+
+			var got LoopSignal
+			if toolName == "emit_answer_document" {
+				got = e.emitAnswerDocumentRejectSignal(ctx, obs)
+			} else {
+				got = e.emitPatchRejectFullRewriteSignal(ctx, obs)
+			}
+			if !got.HintRequested || !strings.Contains(got.HintKey, "required_diagram_relation_boundary") &&
+				!strings.Contains(got.HintKey, "required-diagram-relation-boundary") {
+				t.Fatalf("mixed typed diagram reject should repeat the positive boundary, got %+v", got)
+			}
+			for _, want := range []string{
+				"edge_recipe[1]=`n1 -> n2`",
+				"Requested participants without a proven incident relation may remain disconnected",
+				"boundary_recipe[1]",
+				`boundary_row={"participant":"AnalysisIR","status":"unproven"}`,
+				"edge_action=`none`",
+				"copy that recipe's `edge_anchor_json` unchanged",
+				"does not rewrite the model's prose, ordering, or conclusion",
+			} {
+				if !strings.Contains(got.Hint, want) {
+					t.Errorf("mixed typed diagram repair missing %q:\n%s", want, got.Hint)
+				}
+			}
+			if strings.Contains(got.Hint, "remove the optional diagram") {
+				t.Fatalf("required diagram mixed repair must not offer removal:\n%s", got.Hint)
+			}
+		})
+	}
+}
+
+func TestRequiredDiagramTypedRelationRepairRejectsUnrelatedOrNonDiagramViolations(t *testing.T) {
+	base := &types.ToolResult{Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{
+			"violation_kinds": strings.Join([]string{
+				string(types.ViolDiagramCallEdgeUnproven),
+				string(types.ViolCitation),
+			}, ","),
+			types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+		},
+	}}
+	if answerDocumentRejectIsRequiredDiagramTypedRelationRepair(base) {
+		t.Fatal("unrelated citation failure must stay on the ordinary repair lane")
+	}
+	base.Repair.Metadata["violation_kinds"] = strings.Join([]string{
+		string(types.ViolDiagramCallEdgeUnproven),
+		string(types.ViolDiagramParticipantCoverage),
+	}, ",")
+	base.Repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] = strings.Join([]string{
+		string(types.BlockDiagram), string(types.BlockTable),
+	}, ",")
+	if answerDocumentRejectIsRequiredDiagramTypedRelationRepair(base) {
+		t.Fatal("mixed diagram/non-diagram location must stay on the ordinary repair lane")
+	}
+}
+
 func TestOptionalDiagramCallEdgeRecoveryRequiresSingleTypedViolationKind(t *testing.T) {
 	result := &types.ToolResult{Repair: &types.ToolRepair{
 		Code: "answer_doc_pre_emit_contract",
