@@ -301,8 +301,8 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	if !strings.Contains(requiredProp.Description, "explicit current-turn visual request") {
 		t.Fatalf("diagram_hint.required description lacks authority boundary: %q", requiredProp.Description)
 	}
-	if !reflect.DeepEqual(prop.Required, []string{"kind", "required", "participants"}) {
-		t.Fatalf("diagram_hint required = %v, want [kind required participants]", prop.Required)
+	if !reflect.DeepEqual(prop.Required, []string{"kind", "required", "relation_scope_quote", "participants"}) {
+		t.Fatalf("diagram_hint required = %v, want [kind required relation_scope_quote participants]", prop.Required)
 	}
 }
 

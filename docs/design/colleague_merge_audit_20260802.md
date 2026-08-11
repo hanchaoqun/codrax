@@ -4180,3 +4180,26 @@ C++ 回放另确认图层表达债：完整正文含工厂 return、type/virtual
 
 状态：`B535=production-positive`；`B537=implemented/targeted-pass/pending-r318`；
 `B538=open`；`B539=watch`；`B517=no-system-degrade@326s`；Trace causal authority=`unchanged`。
+
+#### §11.10.130 r318：B537 生效，但 sibling table identity 被误升为 diagram 硬席
+
+r318 exact-two runner 2/2、人工 0/2。显式六参与者数据流案中，`Mutable` 在精确成员 operation 入池后立即从 uncovered slate 消失，确认 B537 三个消费面接线正确；
+`BusContext` 因当前 evidence 只有 broad call/初始化叙述，仍无可画的 typed carrier relation，最终为孤点。该残余记 `B541/P1-open`，不以 call 重标参数传递，不由系统补边。
+
+更高杠杆的是复合 sequence+table 案：Analyzer 已收到 SSOT 的“table-only actor 不进 diagram”教学，仍把表格括号中的
+`AnalysisIR/EvidenceItems/AnswerDocument/Mutable/BusContext` 当图参与者；parser 只靠逐席 verbatim provenance，无法证明这些词属于 sibling 表而非 sequence，所以三个精确身份进入硬 coverage，触发第二个
+32 轮 explore、10 次 completion downgrade 与四稿成文，904s 才输出一张 stage spine 加大量断开内部 operation 的图。确认
+`B540-DIAGRAMSURFACESCOPE1/P1-high`：应新增 diagram-level verbatim 关系面 scope carrier，并要求 participant provenance 位于该 typed scope；禁止恢复 dimension join 删除、禁止关键词扫原文/答案。
+
+两条任务均超过四分钟后继续等待活跃模型并交付模型答案，未触发系统代答；活动流策略继续为生产正证。最终表中另有调度边界/状态所有者事实错误，后续按上下文精度审计处理，不以答案关键词硬改。
+
+状态：`B537=production-positive/partial`；`B540=next`；`B541=open`；`B517=positive@330s,904s`；Trace causal authority=`unchanged`。
+
+#### §11.10.131 B540：用 typed relation scope 取代跨展示面猜测
+
+`diagram_hint.relation_scope_quote` 现为 schema 必填；required 图必须给出当前问题中图/时序关系面的最短连续 verbatim 范围。participant 的逐席 source_quote 只有完整落在该范围内才获硬席权限；范围外行逐条删除并告警，显式图合同保留。
+
+该实现不消费 requested_answer_dimensions、不扫描 request/model/final prose 关键词、不在发布后改 RequestModel，也不生成关系。六参与者数据流正臂与 sequence+独立表 table-only 反臂同时固定；后者的载体仍保留在普通 entity/维度车道服务表格答案。
+相关 tool/skill/types/agent/tracediag/context/orchestrator 套件全绿。
+
+状态：`B540=implemented/pending-r319`；`typed-scope=diagram-level-verbatim`；`B541=open`；Trace causal authority=`unchanged`。

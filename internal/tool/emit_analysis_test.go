@@ -3022,7 +3022,7 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"exact_targets": ["Dispatch", "Handler"],
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"Dispatch", "sink":"Handler"},
-		"diagram_hint": {"kind": "call_dag", "required": false, "participants": [
+		"diagram_hint": {"kind": "call_dag", "required": false, "relation_scope_quote":"", "participants": [
 			{"identity":"Dispatch", "role":"incident_required", "source_quote":"Dispatch"},
 			{"identity":"Handler", "role":"context_only", "source_quote":"Handler"}
 		]}
@@ -3067,6 +3067,9 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 	if !strings.Contains(string(raw), `"required":["identity","role","source_quote"]`) {
 		t.Fatalf("diagram participant schema must require exact current-request provenance: %s", raw)
 	}
+	if !strings.Contains(string(raw), `"required":["kind","required","relation_scope_quote","participants"]`) {
+		t.Fatalf("diagram schema must require relation-surface provenance: %s", raw)
+	}
 }
 
 func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
@@ -3083,22 +3086,22 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	}{
 		{
 			name: "unknown role",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &unknownRole},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, RelationScopeQuote: "show StageA and ArkRunner", Participants: &unknownRole},
 			want: "is not recognised",
 		},
 		{
 			name: "duplicate identity",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &duplicateIdentity},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, RelationScopeQuote: "show StageA and ArkRunner", Participants: &duplicateIdentity},
 			want: "duplicates",
 		},
 		{
 			name: "missing participant provenance",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required"}}},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, RelationScopeQuote: "show StageA and ArkRunner", Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required"}}},
 			want: "source_quote is empty",
 		},
 		{
 			name: "quote does not own identity",
-			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required", SourceQuote: "show"}}},
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, RelationScopeQuote: "show StageA and ArkRunner", Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required", SourceQuote: "show"}}},
 			want: "does not contain identity",
 		},
 	}
@@ -3146,9 +3149,24 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 		"diagram_hint": %s
 	}`
 
+	t.Run("missing relation scope fails loud", func(t *testing.T) {
+		mu := types.NewMutableState("draw the current pipeline")
+		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"participants":[]}`)
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if res.Success || !strings.Contains(res.Summary, "diagram_hint.relation_scope_quote is empty") {
+			t.Fatalf("missing relation-surface authority must fail loudly: %+v", res)
+		}
+		if mu.RequestModel() != nil {
+			t.Fatal("rejected analysis persisted a request model")
+		}
+	})
+
 	t.Run("missing participant slate fails loud", func(t *testing.T) {
 		mu := types.NewMutableState("draw the current pipeline")
-		payload := fmt.Sprintf(base, `{"kind":"flow","required":true}`)
+		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"relation_scope_quote":"draw the current pipeline"}`)
 		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
@@ -3163,7 +3181,7 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 
 	t.Run("explicit empty participant slate is accepted", func(t *testing.T) {
 		mu := types.NewMutableState("draw a generic pipeline")
-		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"participants":[]}`)
+		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"relation_scope_quote":"draw a generic pipeline","participants":[]}`)
 		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
@@ -3186,7 +3204,7 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 		"keywords": ["analyze", "finalizer", "sequenceDiagram", "BusContext"],
 		"entities": ["analyze", "finalizer", "BusContext"],
 		"question_kind": "mechanism",
-		"diagram_hint": {"kind":"sequence","required":true,"participants":[
+		"diagram_hint": {"kind":"sequence","required":true,"relation_scope_quote":"require a Mermaid sequenceDiagram; show BusContext","participants":[
 			{"identity":"Orchestrator","role":"incident_required","source_quote":"Orchestrator"},
 			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
 		]}
@@ -3216,7 +3234,7 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 	}
 }
 
-func TestEmitAnalysis_Execute_DoesNotRewriteAnalyzerParticipantRolesAcrossAnswerSurfaces(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t *testing.T) {
 	raw := "解释 read mode 从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -3227,7 +3245,7 @@ func TestEmitAnalysis_Execute_DoesNotRewriteAnalyzerParticipantRolesAcrossAnswer
 		"entities":["analyze","finalizer","BusContext"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"从 analyze 到 finalizer 的时序，必须给 sequenceDiagram","participants":[
 			{"identity":"analyze","role":"incident_required","source_quote":"analyze"},
 			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"},
 			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
@@ -3251,13 +3269,12 @@ func TestEmitAnalysis_Execute_DoesNotRewriteAnalyzerParticipantRolesAcrossAnswer
 	want := []types.DiagramParticipantHint{
 		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyze"},
 		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "finalizer"},
-		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "BusContext"},
 	}
 	if hint == nil || !reflect.DeepEqual(hint.Participants, want) {
-		t.Fatalf("participants=%+v, want model-authored typed slate preserved %+v", hint, want)
+		t.Fatalf("participants=%+v, want only relation-surface-authorized rows %+v", hint, want)
 	}
-	if strings.Contains(res.Summary, "removed diagram incident participant") {
-		t.Fatalf("system must not infer cross-surface ownership and delete a model-authored participant: %q", res.Summary)
+	if !strings.Contains(res.Summary, "outside diagram_hint.relation_scope_quote") {
+		t.Fatalf("row-local cross-surface rejection must be disclosed: %q", res.Summary)
 	}
 	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
 		t.Fatalf("named state carrier must remain available in typed request carriers: %v", got)
@@ -3275,7 +3292,7 @@ func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurfac
 		"entities":["analyze","BusContext","finalizer"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"必须给 analyze 通过 BusContext 到 finalizer 的 sequenceDiagram 时序","participants":[
 			{"identity":"analyze","role":"incident_required","source_quote":"analyze"},
 			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"},
 			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"}
@@ -3309,7 +3326,7 @@ func TestEmitAnalysis_Execute_PreservesExplicitFlowCarriersWithSiblingResponsibi
 		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[
 			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
 			{"identity":"explorer","role":"incident_required","source_quote":"explorer"},
 			{"identity":"extractor","role":"incident_required","source_quote":"extractor"},
@@ -3357,7 +3374,7 @@ func TestEmitAnalysis_Execute_RejectsCompositeAndBareContextOnlyRequiredFlowPart
 		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[
 			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
 			{"identity":"Mutable/BusContext","role":"context_only","source_quote":"Mutable/BusContext"}
 		]}
@@ -3387,7 +3404,7 @@ func TestEmitAnalysis_Execute_AllowsExplicitContextBoundaryProvenanceAndSeparate
 		"entities":["Analyzer","Finalizer","SurroundingSystem","Mutable","BusContext"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"architecture","required":true,"participants":[
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"画出 Analyzer 到 Finalizer 的数据流，并把 SurroundingSystem 仅作为周边边界；数据经过 Mutable 和 BusContext","participants":[
 			{"identity":"Analyzer","role":"incident_required","source_quote":"Analyzer"},
 			{"identity":"Finalizer","role":"incident_required","source_quote":"Finalizer"},
 			{"identity":"Mutable","role":"incident_required","source_quote":"Mutable"},
@@ -3427,7 +3444,7 @@ func TestValidateRequiredFlowDiagramParticipantProvenanceDoesNotEnterTraceOrNonF
 	}
 }
 
-func TestEmitAnalysis_Execute_DoesNotDeleteSoleParticipantFromNoisyDimensionJoin(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsSoleTableParticipantOutsideRelationScope(t *testing.T) {
 	raw := "解释从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出阶段、输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -3438,7 +3455,7 @@ func TestEmitAnalysis_Execute_DoesNotDeleteSoleParticipantFromNoisyDimensionJoin
 		"entities":["analyze","finalizer","BusContext"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"diagram_hint":{"kind":"sequence","required":true,"participants":[
+		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"从 analyze 到 finalizer 的时序，必须给 sequenceDiagram","participants":[
 			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
 		]},
 		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
@@ -3457,9 +3474,11 @@ func TestEmitAnalysis_Execute_DoesNotDeleteSoleParticipantFromNoisyDimensionJoin
 		t.Fatalf("Execute rejected: %s", res.Summary)
 	}
 	hint := mu.RequestModel().DiagramHint
-	if hint == nil || len(hint.Participants) != 1 || hint.Participants[0].Identity != "BusContext" ||
-		hint.Participants[0].Role != types.DiagramParticipantIncidentRequired {
-		t.Fatalf("dimension labels are noisy and must not delete a model-authored typed participant: %+v", hint)
+	if hint == nil || len(hint.Participants) != 0 {
+		t.Fatalf("table-only participant must not escape the typed relation scope: %+v", hint)
+	}
+	if !strings.Contains(res.Summary, "outside diagram_hint.relation_scope_quote") {
+		t.Fatalf("cross-surface row rejection must be disclosed: %q", res.Summary)
 	}
 	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
 		t.Fatalf("table-only participant must remain in non-diagram carriers: %v", got)
@@ -9049,7 +9068,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 		"kind_confidence": 0.92,
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"io_uring", "sink":"socket"},
-		"diagram_hint": {"kind": "call_dag", "required": true, "participants": []},
+		"diagram_hint": {"kind": "call_dag", "required": true, "relation_scope_quote":"给出关键函数和逻辑图", "participants": []},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -9355,7 +9374,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForBoundedArchitectureDiagramM
 		},
 		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
 		"answer_subject":{"kind":"type_name","confidence":0.85},
-		"diagram_hint":{"kind":"flow","required":true,"participants":[]},
+		"diagram_hint":{"kind":"flow","required":true,"relation_scope_quote":"Draw the 4 principal members as a flow diagram","participants":[]},
 		"enumeration_boundary":{"declared_count":4,"source_quote":"4 principal members"},
 		"completeness_obligation":{"required":false,"source_quote":""},
 		"source_inventory_profile":{
@@ -9418,7 +9437,7 @@ func TestEmitAnalysis_Execute_ConceptualArchitectureDiagramOutranksModelAddedCon
 			"has_per_member_table":false
 		},
 		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
-		"diagram_hint":{"kind":"flow","required":true,"participants":[]},
+		"diagram_hint":{"kind":"flow","required":true,"relation_scope_quote":"Draw all principal members as a flow diagram","participants":[]},
 		"completeness_obligation":{"required":true,"source_quote":"all principal members"},
 		"source_inventory_profile":{
 			"is_source_inventory":true,
@@ -10790,7 +10809,7 @@ func TestEmitAnalysis_Execute_AllowsHistoryTraceDiagramWhenNonScalar(t *testing.
 		"intent_confidence": 0.91,
 		"complexity_confidence": 0.80,
 		"kind_confidence": 0.93,
-		"diagram_hint": {"kind": "flow", "required": true, "participants": []},
+		"diagram_hint": {"kind": "flow", "required": true, "relation_scope_quote":"画出逻辑图", "participants": []},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,

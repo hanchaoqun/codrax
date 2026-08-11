@@ -1572,9 +1572,10 @@ func (s DiagramScope) IsValid() bool {
 // axes separate prevents an advisory family suggestion from becoming a
 // hard answer-shape obligation.
 type DiagramHint struct {
-	Kind         DiagramKind              `json:"kind"`
-	Required     bool                     `json:"required"`
-	Participants []DiagramParticipantHint `json:"participants,omitempty"`
+	Kind               DiagramKind              `json:"kind"`
+	Required           bool                     `json:"required"`
+	RelationScopeQuote string                   `json:"relation_scope_quote,omitempty"`
+	Participants       []DiagramParticipantHint `json:"participants,omitempty"`
 }
 
 // DiagramParticipantRole is the analyzer-authored presentation role for one

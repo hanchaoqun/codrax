@@ -378,9 +378,10 @@ type emitAnswerSubjectParam struct {
 // family that best matches the question, while the deterministic
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
-	Kind         string                         `json:"kind"`
-	Required     *bool                          `json:"required"`
-	Participants *[]emitDiagramParticipantParam `json:"participants"`
+	Kind               string                         `json:"kind"`
+	Required           *bool                          `json:"required"`
+	RelationScopeQuote string                         `json:"relation_scope_quote"`
+	Participants       *[]emitDiagramParticipantParam `json:"participants"`
 }
 
 type emitDiagramParticipantParam struct {
@@ -868,6 +869,10 @@ func buildEmitAnalysisSchema() {
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request; false for an optional structural aid."},
+					"relation_scope_quote": map[string]any{
+						"type":        "string",
+						"description": "When required=true, copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and its actor scope. Exclude names that belong only to a sibling table, list, prose section, or example. Every participant source_quote must be contained inside this relation-surface quote. Use an empty string when required=false and no current-request relation surface authorizes participants.",
+					},
 					"participants": map[string]any{
 						"type":        "array",
 						"maxItems":    12,
@@ -883,7 +888,7 @@ func buildEmitAnalysisSchema() {
 						},
 					},
 				},
-				"required": []string{"kind", "required", "participants"},
+				"required": []string{"kind", "required", "relation_scope_quote", "participants"},
 			},
 			"enumeration_boundary": map[string]any{
 				"type":        "object",
@@ -5710,6 +5715,13 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 	if p.Required == nil {
 		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false", nil
 	}
+	relationScopeQuote := strings.TrimSpace(p.RelationScopeQuote)
+	if *p.Required && relationScopeQuote == "" {
+		return nil, "diagram_hint.relation_scope_quote is empty — copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and actor scope", nil
+	}
+	if relationScopeQuote != "" && !sourceQuoteAnchoredInCurrentRequest(rawRequest, relationScopeQuote) {
+		return nil, "diagram_hint.relation_scope_quote must be copied verbatim from the CURRENT request", nil
+	}
 	if p.Participants == nil {
 		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities", nil
 	}
@@ -5758,6 +5770,13 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
+		if *p.Required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
+			warnings = append(warnings, fmt.Sprintf(
+				"dropped diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
+				identity, kind, *p.Required,
+			))
+			continue
+		}
 		role := types.DiagramParticipantRole(strings.TrimSpace(raw.Role))
 		if !role.IsValid() {
 			return nil, fmt.Sprintf(
@@ -5772,7 +5791,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 		seen[key] = true
 		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
 	}
-	return &types.DiagramHint{Kind: kind, Required: *p.Required, Participants: participants}, "", warnings
+	return &types.DiagramHint{Kind: kind, Required: *p.Required, RelationScopeQuote: relationScopeQuote, Participants: participants}, "", warnings
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

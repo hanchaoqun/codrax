@@ -32561,3 +32561,43 @@ Explorer completion participant coverage、Finalizer soft relation coverage 与 
 
 状态：`B537=implemented/targeted-pass/pending-r318`；`participant-incident=exact-owner-suffix`；
 `technical-endpoint=byte-preserved`；`model-relation-authorship=preserved`；`B538=open`；Trace=`unchanged`。
+
+### 123.589 r318：owner 对齐获生产正证；多展示面 participant 归属缺少 schema 级边界
+
+`main@125429bf6` exact-two runner 2/2、人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_flow_owner_r318_20260811_manual_audit.md`。Go 逻辑视图案中，模型先发出
+`ctx.Mutable.<operation>` 精确 call rows 后，completion 未覆盖集合从 `[BusContext Mutable]` 收窄成仅 `[BusContext]`，证明 B537 的 exact owner suffix 已在生产链生效；
+关系端点、种类与方向仍来自原 evidence，系统没有补边。BusContext 仍缺值承载/参数传递关系，最终图只能保留四阶段 precedence、若干精确 operation 小段和 BusContext 孤点，正文却继续宣称
+所有 agent 经 Mutable/BusContext 传递数据。登记 `B541-CARRIERFLOWVIS1/P1-open`：argument/carrier projection 尚无可写 typed 关系形，不能用 call 或概念 data_flow 冒充，也不能由系统补桥。
+
+复合“sequenceDiagram + 独立 stage I/O/state-carrier 表”案稳定暴露 `B540-DIAGRAMSURFACESCOPE1/P1-high`。共享教学已明确 table-only identity 不进入 diagram participant，
+但 Analyzer 仍把 `BusContext/AnalysisIR/AnswerDocument` 三个表格示例发成 incident-required；它自行推断的 `Orchestrator.Run/Agent.Analyze/emit_*` 因无 CURRENT-request provenance 被 parser 正确删除，
+三个 verbatim table identity 却因现有 schema 只有逐 participant 引文、没有整张图的关系面引文而合法存活。Explorer 随后启动第二个 32 轮窗口追查 setter，Finalizer 四稿后才把表格载体作为断开节点发布；总耗时
+904s。最终表/正文另有 `runReadSchedulerLoop` 包含 analyze、Mutable 持有 AnalysisIR/EvidenceItems 等不精确表述，runner 的 answer/token oracle 再次假绿。
+
+最优方案不是恢复 B531 的系统删席，也不是扫描 request/model/final prose。给 `diagram_hint` 增加一个 schema-owned、CURRENT-request verbatim 的关系面范围引文；每个 participant 的逐席
+`source_quote` 必须落在该范围引文内。范围外 participant 在 emit-analysis 边界按无权限行删除并告警，显式图本身仍保留。这样首案“六 participant 数据流”可由同一图范围引文完整授权；复合案的表格示例位于 sibling
+表范围，不能成为图的硬席位。该 carrier 同时给 `required=true` 增加显式当前轮来源留痕，但本批不从引文词面反推图种类或 required 值。
+
+两案分别在 330s/904s 返回模型撰写的答案；超过四分钟的活跃流没有系统代答、系统结论或四分钟降级。真正无首字节/停滞仍只可重试、恢复已存在的模型草稿或 fail-loud，不能合成答案。
+
+状态：`B537=production-positive/partial`；`B540=confirmed/implement-now`；`B541=confirmed/open`；
+`runner=2/2`；`human=0/2`；`B517=no-system-degrade@330s,904s`；Trace=`not exercised/unchanged`。
+
+### 123.590 B540：diagram-level relation scope 为 participant 提供 schema 级展示面边界
+
+`diagram_hint` 新增必填 `relation_scope_quote`。当 `required=true` 时，Analyzer 必须复制 CURRENT request 中“请求图/时序关系面及其 actor 范围”的最短连续 verbatim 引文；空值或非当前请求引文 fail-loud。
+每条 participant 仍保留自己的 identity/role/source_quote，但其 source_quote 还必须完整落在 relation_scope_quote 内。越界行在 emit-analysis 边界逐行删除并 warning，`kind/required` 图合同原样保留；因此一个
+错误 table-only actor 不会抹掉显式图，也不会进入 Explorer/Finalizer 的硬 relation coverage。
+
+该形不是 B527/B531 的 noisy dimension join：实现不读取 requested_answer_dimensions，不从用户/模型/答案关键词反推所属面，也不在 RequestModel 发布后删席。展示面范围与逐席范围都由同一次 Analyzer typed emit
+声明，parser 只做 verbatim provenance 与包含关系校验。显式六参与者数据流以同一范围引文授权全部六席；复合 sequence+table 中，sequence 范围只含 analyze/finalizer，表格括号中的 BusContext 等即使被模型误发也会被逐行拒绝，
+但仍留在 entities/answer dimensions 供表格调查使用。
+
+回归覆盖：scope 缺失/非当前请求 fail-loud，sibling table 单席与多席越界删除，显式 State/Context 位于关系范围时保留，六参与者+责任 sibling dimension 不丢席，context-only 宽 provenance、复合身份既有红线不回归。
+`internal/tool`、`internal/skill`、`internal/types`、`internal/agent`、`internal/tracediag`、`internal/context`、`internal/orchestrator` 套件全绿。
+
+本批没有新增或删除最终答案块，没有系统绘边/代答，不影响 Trace 显式窗、因果投影、自动补齐、链上根因、排名、实际占用/规则可消双轴或活动流超时策略。
+
+状态：`B540=implemented/full-relevant-suite-pass/pending-r319`；`surface-authority=typed-verbatim-scope`；
+`system-participant-rewrite=none`；`model-answer-authorship=preserved`；`B541=open`；Trace=`unchanged`。
