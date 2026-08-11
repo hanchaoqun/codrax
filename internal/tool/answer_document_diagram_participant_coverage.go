@@ -15,13 +15,14 @@ import (
 type DiagramParticipantCoverageIssue string
 
 const (
-	DiagramParticipantCoverageMissingBoundary  DiagramParticipantCoverageIssue = "missing_unproven_boundary"
-	DiagramParticipantCoverageStaleBoundary    DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
-	DiagramParticipantCoverageNodeMissing      DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
-	DiagramParticipantCoverageUnknownBoundary  DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
-	DiagramParticipantCoverageDuplicate        DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
-	DiagramParticipantCoverageTypedEdgeMissing DiagramParticipantCoverageIssue = "available_typed_incident_edge_not_rendered"
-	DiagramParticipantCoverageIdentityMissing  DiagramParticipantCoverageIssue = "required_participant_identity_not_visible"
+	DiagramParticipantCoverageMissingBoundary   DiagramParticipantCoverageIssue = "missing_unproven_boundary"
+	DiagramParticipantCoverageStaleBoundary     DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
+	DiagramParticipantCoverageNodeMissing       DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
+	DiagramParticipantCoverageUnknownBoundary   DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
+	DiagramParticipantCoverageDuplicate         DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
+	DiagramParticipantCoverageTypedEdgeMissing  DiagramParticipantCoverageIssue = "available_typed_incident_edge_not_rendered"
+	DiagramParticipantCoverageIdentityMissing   DiagramParticipantCoverageIssue = "required_participant_identity_not_visible"
+	DiagramParticipantCoverageBoundaryConnected DiagramParticipantCoverageIssue = "unproven_boundary_has_visible_incident_edge"
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -127,6 +128,10 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 			edgeAction = "none"
 			identityAction = "retain_exact_visible_disconnected_participant"
 			boundaryAction = "deduplicate_to_exactly_one_unproven_boundary"
+		case DiagramParticipantCoverageBoundaryConnected:
+			edgeAction = "move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_disconnected"
+			identityAction = "retain_exact_visible_disconnected_participant_separately"
+			boundaryAction = "retain_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageUnknownBoundary:
 			edgeAction = "none"
 			identityAction = "none"
@@ -259,6 +264,13 @@ func DiagramParticipantCoverageMismatches(
 				continue
 			}
 			states[idx].bounded = true
+			if diagramParticipantDocumentHasVisibleIncidentEdge(doc, states[idx].surfaces) {
+				out = append(out, DiagramParticipantCoverageMismatch{
+					BlockID: block.ID, Participant: states[idx].obligation.Identity,
+					Issue: DiagramParticipantCoverageBoundaryConnected,
+				})
+				continue
+			}
 			if !diagramParticipantBlockHasVisibleNode(block, states[idx].surfaces) {
 				out = append(out, DiagramParticipantCoverageMismatch{
 					BlockID: block.ID, Participant: states[idx].obligation.Identity,
@@ -629,6 +641,43 @@ func diagramParticipantBlockHasVisibleNode(block types.AnswerBlock, surfaces []s
 			if diagramParticipantSurfaceMatches(surfaces, candidate) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// diagramParticipantBlockHasVisibleIncidentEdge enforces the literal
+// semantics of an unproven participant boundary. A participant with no typed
+// incident candidate may remain visible, but that exact business identity
+// must not be used as either endpoint of a visible edge. A separately labelled
+// technical operation may still own its existing typed edge.
+func diagramParticipantBlockHasVisibleIncidentEdge(block types.AnswerBlock, surfaces []string) bool {
+	if block.Kind != types.BlockDiagram || block.Diagram == nil {
+		return false
+	}
+	labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+	for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+		for _, endpoint := range []string{edge.From, edge.To} {
+			for _, candidate := range []string{
+				strings.TrimSpace(endpoint),
+				diagramParticipantVisibleEndpoint(endpoint, labels),
+			} {
+				if diagramParticipantSurfaceMatches(surfaces, candidate) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func diagramParticipantDocumentHasVisibleIncidentEdge(doc *types.AnswerDocumentV2, surfaces []string) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if diagramParticipantBlockHasVisibleIncidentEdge(block, surfaces) {
+			return true
 		}
 	}
 	return false

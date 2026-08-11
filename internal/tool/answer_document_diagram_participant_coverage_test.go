@@ -51,6 +51,49 @@ func TestDiagramParticipantCoverageRequiresTypedBoundaryWithoutInventingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverageUnprovenBoundaryMustBeActuallyDisconnected(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W[\"appendStageOutputEvidenceToMutable\"] --> M[\"Mutable\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "W", ToNode: "M", FromIdentity: "appendStageOutputEvidenceToMutable",
+		ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+	}}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence",
+	)}
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageBoundaryConnected {
+		t.Fatalf("an unproven participant must not visually impersonate a different typed endpoint: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W[\"appendStageOutputEvidenceToMutable\"] --> OP[\"MutableState.AppendEvidence\"]\n Mutable[\"Mutable\"]"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "OP"
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("the typed operation edge and exact disconnected business participant can coexist honestly: %+v", got)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "second-view", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n W2[\"appendStageOutputEvidenceToMutable\"] --> M2[\"Mutable\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "W2", ToNode: "M2", FromIdentity: "appendStageOutputEvidenceToMutable",
+			ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+		}},
+	})
+	got = DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageBoundaryConnected {
+		t.Fatalf("a document-level unproven boundary must not be contradicted by a sibling diagram: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"
@@ -230,6 +273,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		{Participant: "Mutable", Issue: DiagramParticipantCoverageIdentityMissing},
 		{Participant: "analyzer", Issue: DiagramParticipantCoverageStaleBoundary},
 		{Participant: "UnprovenWorker", Issue: DiagramParticipantCoverageMissingBoundary},
+		{Participant: "DetachedStore", Issue: DiagramParticipantCoverageBoundaryConnected},
 	}
 	got := diagramParticipantCoverageRepairActions(mismatches)
 	for _, want := range []string{
@@ -237,6 +281,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"omit_unproven_boundary"}`,
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
 		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_no_typed_candidate_exists",identity_action:"add_exact_visible_disconnected_participant",boundary_action:"add_exactly_one_unproven_boundary"}`,
+		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_disconnected",identity_action:"retain_exact_visible_disconnected_participant_separately",boundary_action:"retain_exactly_one_unproven_boundary"}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed participant repair actions missing %q:\n%s", want, got)

@@ -4624,3 +4624,16 @@ edge，导致“已连接”和“未证断开”同时通过。最优修法是�
 
 状态：`B563=production-positive`；`B564=next-highest-ROI`；`B565=open`；`runner=2/2`；`human=1/2`；
 `system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.163 B564：unproven participant 边界落实为文档级零 incident edge
+
+participant coverage 新增精确 issue `unproven_boundary_has_visible_incident_edge`。当某个 incident-required participant 没有 typed candidate、模型选择
+`status=unproven` 时，其 exact business identity 在整份文档所有 Mermaid 图中必须零入边、零出边；不再只检查“有一个同名节点”便放行。检查输入仅为 analyzer 的 typed
+participant slate、结构化 boundary、Mermaid AST 节点/边与 typed relation evidence，不读请求或终稿 prose。
+
+若已有合法 technical edge，只返回分离动作：把原边保持在 exact technical endpoint 上，另保留 exact business participant 断开节点和唯一 unproven boundary。
+系统不删边、不换标签、不挑关系、不为两者猜 alias。单图同节点矛盾、跨 sibling diagram 矛盾、技术边与断开业务节点诚实共存三臂均有 pin；既有 disconnected
+boundary 正臂保持通过。
+
+状态：`B564=implemented/pending-r333`；`unproven=zero-incident-document-wide`；`typed-edge=preserved-on-exact-endpoint`；
+`B565=open`；`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
