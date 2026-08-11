@@ -1021,6 +1021,69 @@ func TestCallChainReadParserRelationHandoffEvidence_MissingMemberSupportCannotHi
 	}
 }
 
+func TestCallChainReadParserRelationHandoffEvidence_NoDirectedPathProjectsExactBoundaryWrapperEdge(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "source-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "buildAnalysisIR", AnchorSymbol: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 1876, GroundingStatus: types.GroundingGrounded},
+		{ID: "source-runwith", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2720, GroundingStatus: types.GroundingGrounded},
+		{ID: "sink-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "gate.Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+	}
+	makeCtx := func(withBoundary bool, provenance string, member string) (*types.BusContext, *types.EvidenceClosure, []types.AnswerAggregateFact) {
+		mut := types.NewMutableState("opaque exact call-chain request")
+		mut.AppendEvidence(evidence)
+		if withBoundary {
+			mut.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+				Reason: types.PrincipalSpanWaiverNoDirectedPath, Rationale: "the requested sink is a wrapper around the reachable sibling",
+			})
+		}
+		mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+			"internal/analysis/gate/gate.go": {
+				RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate",
+				Symbols: []repotypes.Symbol{
+					{Name: "Run", Kind: "function", File: "internal/analysis/gate/gate.go", Line: 134, EndLine: 136},
+					{Name: "RunWith", Kind: "function", File: "internal/analysis/gate/gate.go", Line: 143, EndLine: 200},
+				},
+				Relations: []repotypes.Relation{{
+					Kind: "call", File: "internal/analysis/gate/gate.go", Line: 135,
+					ToEP: repotypes.RelationEndpoint{Name: "RunWith"}, Confidence: repotypes.ConfidenceAST,
+					Provenance: provenance, ResolvedBy: "go_ast_call",
+				}},
+			},
+		}})
+		ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+		}}}
+		closure := types.NewEvidenceClosure("")
+		closure.SetReadSet(map[string]bool{"internal/analysis/gate/gate.go": true})
+		facts := []types.AnswerAggregateFact{{
+			Kind: types.AnswerAggregateMemberSet, Label: "nearest proven path", Role: types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"buildAnalysisIR", member},
+			SupportRefs: []string{"internal/agent/analyzer.go:1876", "internal/agent/analyzer.go:2720"},
+		}}
+		return ctx, closure, facts
+	}
+
+	ctx, closure, facts := makeCtx(true, repotypes.ProvenanceTreeSitter, "gate.RunWith")
+	got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "internal/analysis/gate/gate.go", 135, "gate.Run", "gate.RunWith") {
+		t.Fatalf("typed no-path boundary must carry the already-read exact wrapper direction into finalizer evidence: %+v", got)
+	}
+
+	ctx, closure, facts = makeCtx(false, repotypes.ProvenanceTreeSitter, "gate.RunWith")
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("endpoint-to-roster expansion must be inactive without a typed no_directed_path boundary: %+v", got)
+	}
+	ctx, closure, facts = makeCtx(true, repotypes.ProvenanceRegexFallback, "gate.RunWith")
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("regex boundary relation must not acquire typed authority: %+v", got)
+	}
+	ctx, closure, facts = makeCtx(true, repotypes.ProvenanceTreeSitter, "other.Member")
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
+		t.Fatalf("an arbitrary endpoint-body call outside the principal member set must not be projected: %+v", got)
+	}
+}
+
 func TestCallChainReadParserRelationHandoffEvidence_ExactStatementSiblingUnderCompleteness(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		ID: "delay-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,

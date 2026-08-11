@@ -13235,14 +13235,15 @@ type callChainReadParserRelationGap struct {
 
 // callChainReadParserRelationHandoffEvidence carries exact parser-authored
 // calls from already-read principal members into the typed evidence stream.
-// The join is deliberately narrow: the caller must resolve uniquely to a
-// member of one model-authored principal member_set, the relation must come
-// from an AST-grade parser, and its exact callsite line must be in this run's
-// read closure. A relation is load-bearing when either (a) its callee is
-// another unique member of that same set, or (b) an explicit completeness
-// obligation is active and the model already selected a sibling call from the
-// same caller on the same source line. The system supplies only these source
-// facts; it does not select a diagram edge or write the eventual conclusion.
+// The join is deliberately narrow: the relation must come from an AST-grade
+// parser and its exact callsite line must be in this run's read closure. A
+// relation is load-bearing when either (a) both endpoints resolve uniquely in
+// one model-authored principal member_set, (b) an explicit completeness
+// obligation joins a same-statement sibling already selected by the model, or
+// (c) an active typed no_directed_path boundary connects one exact requested
+// endpoint to one unique principal member. The last lane supplies the real
+// reverse/parallel wrapper fact that explains a boundary; it does not select a
+// diagram edge or write the eventual conclusion.
 func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.EvidenceItem {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
 		return evidence
@@ -13271,6 +13272,7 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	if len(memberSets) == 0 {
 		return evidence
 	}
+	boundarySource, boundarySink, boundaryActive := callChainNoDirectedPathBoundaryEndpoints(ctx, rm)
 	mutableEvidence := ctx.Mutable.EmittedEvidence()
 	evidence = callChainWithExistingPrincipalParserEvidence(evidence, mutableEvidence)
 	authorityEvidence := append(append([]types.EvidenceItem(nil), evidence...), mutableEvidence...)
@@ -13319,7 +13321,8 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 				calleeIndex, calleeOK := callChainUniqueMemberEndpointIndex(members, callee)
 				if callerOK && ((calleeOK && callerIndex != calleeIndex) ||
 					(callChainCompletenessObligationActive(rm) &&
-						callChainTypedEvidenceContainsSiblingParserRelation(evidence, source, rel.Line, caller, callee))) {
+						callChainTypedEvidenceContainsSiblingParserRelation(evidence, source, rel.Line, caller, callee))) ||
+					callChainNoDirectedPathBoundaryRelation(boundaryActive, boundarySource, boundarySink, caller, callee, callerOK, calleeOK) {
 					matched = true
 					break
 				}
@@ -13373,6 +13376,41 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	}
 	ctx.Mutable.AppendEvidence(projected)
 	return append(append([]types.EvidenceItem(nil), evidence...), projected...)
+}
+
+func callChainNoDirectedPathBoundaryEndpoints(ctx *types.BusContext, rm types.RequestModel) (string, string, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", "", false
+	}
+	waiver := ctx.Mutable.PrincipalSpanWaiver()
+	if waiver == nil || !waiver.IsActive() || waiver.Reason != types.PrincipalSpanWaiverNoDirectedPath {
+		return "", "", false
+	}
+	source, sink, ok := types.CallChainOrderedEndpointHints(rm)
+	return source, sink, ok
+}
+
+// callChainNoDirectedPathBoundaryRelation admits only an exact requested
+// endpoint joined to a unique model-authored principal member. It cannot pull
+// arbitrary calls from the endpoint body into the answer context, and it uses
+// no request/model/final prose. Existing evidence de-duplication still prevents
+// a normal source->principal edge from being projected twice.
+func callChainNoDirectedPathBoundaryRelation(active bool, source, sink, caller, callee string, callerMember, calleeMember bool) bool {
+	if !active {
+		return false
+	}
+	callerBoundary := callChainMatchesOrderedEndpoint(caller, source, sink)
+	calleeBoundary := callChainMatchesOrderedEndpoint(callee, source, sink)
+	return (callerBoundary && calleeMember) || (calleeBoundary && callerMember)
+}
+
+func callChainMatchesOrderedEndpoint(candidate string, endpoints ...string) bool {
+	for _, endpoint := range endpoints {
+		if types.CallChainEndpointCompatible(candidate, endpoint) && types.CallChainEndpointCompatible(endpoint, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func callChainWithExistingPrincipalParserEvidence(evidence, mutableEvidence []types.EvidenceItem) []types.EvidenceItem {

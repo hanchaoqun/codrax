@@ -4973,3 +4973,22 @@ buildAnalysisIR→Run 不可达，图无反向虚构边”为验收，不依赖�
 状态：`B573/B574=production-positive`；`B575=P1-high/next`；`runner=2/2`；`human=1/2`；
 `active-stream-248s=no-degrade`；`fixed-four-minute-active-degrade=forbidden`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.181 B575：no-directed-path 边界携带已读 endpoint↔principal parser 关系
+
+`callChainReadParserRelationHandoffEvidence` 新增一条严格 typed 的边界车道：仅当模型已经提交并通过
+`principal_span_waiver=no_directed_path`，请求仍持有 exact ordered source/sink，且已读 AST/Cangjie call 的一端双向精确兼容该请求 endpoint、
+另一端唯一解析到模型 principal member-set 时，才把该真实 call 投影到 finalizer evidence。r339 的 `gate.Run -> gate.RunWith` 因而与
+`buildAnalysisIR -> gate.RunWith`、`buildAnalysisIR -> gate.Run` 不可达边界同时可见，不再只给一个 endpoint definition 让模型猜 wrapper 方向。
+
+权限没有扩成“扫描 endpoint 函数的所有调用”：没有 active typed no-path waiver 时该车道关闭；counterpart 不在 principal member-set 时关闭；
+regex fallback、unread line、runtime Trace、端点歧义继续关闭；已存在等价 call evidence 仍按 stable key 去重。匹配只读 typed endpoint profile、
+waiver enum、parser relation、read closure 和 member-set，不读 waiver rationale、用户/模型/终稿 prose，也不按名字前缀把 Run/RunWith 当同一符号。
+
+系统仍不修改 AnswerDocument、Mermaid 或结论：它只提供一条源码本来就存在的反向/平行事实；模型决定是否展示、如何用业务语言解释边界。
+回归钉住 Go wrapper 正臂，以及无 waiver、regex provenance、非 principal counterpart 三个负臂；既有 Rust/Cangjie principal handoff 与
+unread/runtime/ambiguity 边界保持。
+
+状态：`B575=implemented/pending-r340`；`no-path-boundary-fact=exact-endpoint-to-unique-principal`；
+`arbitrary-endpoint-body-expansion=forbidden`；`raw-prose-hard-gate=none`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。
