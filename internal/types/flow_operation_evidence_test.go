@@ -13,6 +13,8 @@ func TestFlowOperationEvidenceGuideRequiresSyntaxEndpoints(t *testing.T) {
 		"field/type declaration does not prove that data entered or left it",
 		"declaration-only field/member line is a definition, never an initializer",
 		"initializer requires an exact value-bearing member binding",
+		"exact subject/object contains the carrier binding",
+		"unmodeled argument",
 		"Do not rename an endpoint to a semantic role or result label",
 		"participant names guide navigation only",
 	} {
@@ -129,6 +131,30 @@ func TestAnswerCodeIdentityIncidentViaDeclaredBindingRequiresExactTypedJoin(t *t
 				t.Fatal("incomplete or mismatched join must fail closed")
 			}
 		})
+	}
+}
+
+func TestAnswerCodeIdentityIncidentViaOperationStampedBindingNeedsNoDefinitionRow(t *testing.T) {
+	operation := EvidenceItem{
+		Source: "src/pipeline.go", LineStart: 20, Scope: ScopeLine,
+		GroundingStatus: GroundingGrounded, AnchorKind: AnchorAssignment,
+		Subject: "o.busCtx.EvidenceItems", Object: "output.EvidenceItems",
+		Snippet:       "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	if !AnswerCodeIdentityIncidentViaDeclaredBinding("BusContext", operation.Subject, operation, []EvidenceItem{operation}) {
+		t.Fatal("parser-stamped operation binding should align identity without a second declaration evidence row")
+	}
+	if AnswerCodeIdentityIncidentViaDeclaredBinding("OtherContext", operation.Subject, operation, []EvidenceItem{operation}) {
+		t.Fatal("operation binding must not cover a different participant type")
+	}
+	wrongOwner := operation
+	wrongOwner.OwnerIdentity = "Worker.apply"
+	if AnswerCodeIdentityIncidentViaDeclaredBinding("BusContext", wrongOwner.Subject, wrongOwner, []EvidenceItem{wrongOwner}) {
+		t.Fatal("operation binding must remain owner-scoped")
 	}
 }
 

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
@@ -112,6 +113,12 @@ func TestStampEvidenceTypedIdentityBindingsUsesExactParserDeclarations(t *testin
 	if operation.DeclaredBinding != "" || operation.DeclaredType != "" {
 		t.Fatalf("an operation must not inherit declaration identity directly: %+v", operation)
 	}
+	if len(operation.DeclaredIdentityBindings) != 1 ||
+		operation.DeclaredIdentityBindings[0] != (types.EvidenceDeclaredIdentityBinding{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}) {
+		t.Fatalf("operation should carry its exact parser-owned endpoint binding: %+v", operation.DeclaredIdentityBindings)
+	}
 }
 
 func TestStampEvidenceTypedIdentityBindingsFailsClosedOnAmbiguousOrUntypedDeclaration(t *testing.T) {
@@ -138,6 +145,85 @@ func TestStampEvidenceTypedIdentityBindingsFailsClosedOnAmbiguousOrUntypedDeclar
 				t.Fatalf("%s declaration must not publish a typed alias: %+v", tc.name, item)
 			}
 		})
+	}
+}
+
+func TestStampEvidenceTypedIdentityBindingsOperationFailsClosedWithoutExactOwnerOrEndpoint(t *testing.T) {
+	const source = "src/pipeline.go"
+	graph := callTargetTestGraph(&repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "apply", Kind: "method", Parent: "Worker", Line: 10, EndLine: 19},
+			{Name: "apply", Kind: "method", Parent: "Orchestrator", Line: 20, EndLine: 30},
+		},
+	})
+	for _, tc := range []struct {
+		name    string
+		symbols []repomap.Symbol
+		subject string
+		line    int
+	}{
+		{name: "wrong owner", subject: "o.busCtx.Items", line: 15},
+		{name: "missing endpoint segment", subject: "o.other.Items", line: 25},
+		{name: "ambiguous static type", subject: "o.busCtx.Items", line: 25, symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.OtherContext", Line: 6, EndLine: 6},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caseGraph := graph
+			if len(tc.symbols) > 0 {
+				file := *graph.FileIndex[source]
+				file.Symbols = append(append([]repomap.Symbol(nil), file.Symbols...), tc.symbols...)
+				caseGraph = callTargetTestGraph(&file)
+			}
+			caseGC := &ground.Context{Graph: caseGraph}
+			item := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Subject: tc.subject, Object: "value.Items",
+				Source: source, LineStart: tc.line, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment,
+				GroundingStatus: types.GroundingGrounded,
+			}
+			stampEvidenceTypedIdentityBindings(&item, caseGC)
+			if len(item.DeclaredIdentityBindings) != 0 {
+				t.Fatalf("non-exact operation must not publish endpoint bindings: %+v", item.DeclaredIdentityBindings)
+			}
+		})
+	}
+}
+
+func TestEmitEvidenceStampsExactOperationBindingWithoutDeclarationEvidence(t *testing.T) {
+	const source = "src/pipeline.go"
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, source, 20, "o.busCtx.AnalysisIR = output.AnalysisIR")
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(&repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "applyStageOutput", Kind: "method", Parent: "Orchestrator", Line: 10, EndLine: 30},
+		},
+	}))
+	params := json.RawMessage(`{"items":[{
+		"scope":"line","evidence_kind":"relationship","subject":"o.busCtx.AnalysisIR",
+		"predicate":"assigns","object":"output.AnalysisIR","source":"src/pipeline.go","line_start":20,
+		"summary":"the stage result is assigned to the shared context","anchor_kind":"assignment",
+		"anchor_symbol":"o.busCtx.AnalysisIR","snippet":"o.busCtx.AnalysisIR = output.AnalysisIR"
+	}]}`)
+	res, err := (&EmitEvidence{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute: err=%v result=%+v", err, res)
+	}
+	items := ctx.Mutable.EmittedEvidence()
+	if len(items) != 1 {
+		t.Fatalf("emitted items=%d, want 1", len(items))
+	}
+	item := items[0]
+	if item.OwnerIdentity != "Orchestrator.applyStageOutput" || len(item.DeclaredIdentityBindings) != 1 ||
+		item.DeclaredIdentityBindings[0].Type != "*types.BusContext" ||
+		item.DeclaredIdentityBindings[0].Binding != "Orchestrator.busCtx" {
+		t.Fatalf("exact operation lost parser-owned identity metadata: %+v", item)
+	}
+	if got := types.FlowOperationEvidence(items); len(got) != 1 {
+		t.Fatalf("identity metadata must leave the model-authored operation authoritative: %+v", got)
 	}
 }
 

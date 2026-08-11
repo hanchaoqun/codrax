@@ -547,14 +547,13 @@ func TestFlowParticipantCoverageTreatsExactReceiverOperationAsParticipantInciden
 }
 
 func TestFlowParticipantCoverageUsesExactStaticDeclaredBindingWithoutMintingEdge(t *testing.T) {
-	declaration := flowOperationEvidence(types.AnchorDefinition, "busCtx", "busCtx", 5)
-	declaration.DeclaredBinding = "Orchestrator.busCtx"
-	declaration.DeclaredType = "*types.BusContext"
-	declaration.DeclaredOwner = "Orchestrator"
 	operation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
 	operation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"
 	operation.OwnerIdentity = "Orchestrator.applyStageOutput"
-	ctx := flowOperationCompletionContext([]types.EvidenceItem{declaration, operation})
+	operation.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+	}}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{operation})
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"BusContext"}
 	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
 		Kind: types.DiagramArchitecture, Required: true,

@@ -4250,3 +4250,14 @@ C++ 案再次确认 B538：直接 call 门没有错，但缺虚分发、实现�
 
 状态：`B541b=implement-next`；`B538=open`；`B542=watch`；`model-authorship=preserved`；
 `active-stream=no-degrade@440s`；Trace causal authority=`unchanged`。
+
+#### §11.10.136 B541b：operation 自带 parser 静态身份，不再消耗声明证据回合
+
+emit-evidence 现从模型已选择且接地的 exact operation 端点提取 parser-owned 静态 binding/type/owner；同文件、同 callable owner、完整 segment、非歧义
+四项合取后才发布 system identity metadata。三个 coverage 消费面直接复用，不再要求第二条字段 definition evidence。helper 参数未成为 relation endpoint
+时不覆盖 carrier；动态/无类型、错 owner、命名近似、同 binding 冲突全部 fail-closed。
+
+该实现不改变 operation relation/方向/端点/源码，不生成边、不改图和模型答案；soft repair 仅指导模型优先找含 carrier binding 的真实 assignment/member
+operation。相关套件全绿，待 r322 exact-two 生产回放。
+
+状态：`B541b=implemented/pending-r322`；`model-operation-authority=preserved`；`trace-authority=unchanged`。

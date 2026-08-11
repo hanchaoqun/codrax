@@ -191,6 +191,19 @@ func TestAnswerCodeIdentityOwnsEndpointUsesExactOwnerSuffix(t *testing.T) {
 	}
 }
 
+func TestAnswerCodeIdentityContainsExactSegmentRejectsNamingGuess(t *testing.T) {
+	for _, identity := range []string{"o.busCtx.Items", "o->busCtx->Items", "o::busCtx::Items"} {
+		if !AnswerCodeIdentityContainsExactSegment(identity, "busCtx") {
+			t.Fatalf("exact segment not found in %q", identity)
+		}
+	}
+	for _, segment := range []string{"bus", "ctx", "BusContext", "bus_context"} {
+		if AnswerCodeIdentityContainsExactSegment("o.busCtx.Items", segment) {
+			t.Fatalf("naming guess %q must not match exact binding", segment)
+		}
+	}
+}
+
 func TestAnswerCodeIdentitySurfacesEquivalentNormalizesOnlyPresentation(t *testing.T) {
 	for _, pair := range [][2]string{
 		{"Logger::log", "Logger.log"},

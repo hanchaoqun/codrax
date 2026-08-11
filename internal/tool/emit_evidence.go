@@ -4095,6 +4095,15 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 		changed = true
 	}
 	if it.AnchorKind != types.AnchorDefinition {
+		_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+		var bindings []types.EvidenceDeclaredIdentityBinding
+		if ok && fi != nil {
+			bindings = parserDeclaredIdentityBindingsForOperation(fi, *it)
+		}
+		if !sameEvidenceDeclaredIdentityBindings(it.DeclaredIdentityBindings, bindings) {
+			it.DeclaredIdentityBindings = bindings
+			changed = true
+		}
 		return changed
 	}
 	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
@@ -4142,6 +4151,70 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 		changed = true
 	}
 	return changed
+}
+
+func parserDeclaredIdentityBindingsForOperation(fi *repomap.FileInfo, it types.EvidenceItem) []types.EvidenceDeclaredIdentityBinding {
+	if fi == nil || strings.TrimSpace(it.OwnerIdentity) == "" ||
+		(strings.TrimSpace(it.Subject) == "" && strings.TrimSpace(it.Object) == "") {
+		return nil
+	}
+	byBinding := make(map[string]types.EvidenceDeclaredIdentityBinding)
+	ambiguous := make(map[string]bool)
+	for idx := range fi.Symbols {
+		sym := fi.Symbols[idx]
+		name := strings.TrimSpace(sym.Name)
+		owner := strings.TrimSpace(sym.Parent)
+		declaredType := strings.TrimSpace(sym.DeclaredType)
+		if name == "" || owner == "" || declaredType == "" ||
+			(!types.AnswerCodeIdentityOwnsEndpoint(owner, it.OwnerIdentity) &&
+				!types.AnswerCodeIdentitySurfacesCompatible(owner, it.OwnerIdentity)) {
+			continue
+		}
+		if !types.AnswerCodeIdentityContainsExactSegment(it.Subject, name) &&
+			!types.AnswerCodeIdentityContainsExactSegment(it.Object, name) {
+			continue
+		}
+		binding := types.EvidenceDeclaredIdentityBinding{
+			Binding: owner + "." + name,
+			Type:    declaredType,
+			Owner:   owner,
+		}
+		if prior, ok := byBinding[binding.Binding]; ok {
+			if prior.Type != binding.Type || prior.Owner != binding.Owner {
+				ambiguous[binding.Binding] = true
+			}
+			continue
+		}
+		byBinding[binding.Binding] = binding
+	}
+	bindings := make([]types.EvidenceDeclaredIdentityBinding, 0, len(byBinding))
+	for key, binding := range byBinding {
+		if !ambiguous[key] {
+			bindings = append(bindings, binding)
+		}
+	}
+	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].Binding != bindings[j].Binding {
+			return bindings[i].Binding < bindings[j].Binding
+		}
+		if bindings[i].Type != bindings[j].Type {
+			return bindings[i].Type < bindings[j].Type
+		}
+		return bindings[i].Owner < bindings[j].Owner
+	})
+	return bindings
+}
+
+func sameEvidenceDeclaredIdentityBindings(left, right []types.EvidenceDeclaredIdentityBinding) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx] != right[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 func conflictingLineLocalCallableClaim(it types.EvidenceItem, fi *repomap.FileInfo, owner string) string {

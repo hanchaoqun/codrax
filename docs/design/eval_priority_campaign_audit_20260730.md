@@ -32688,3 +32688,21 @@ Go 案 440s 全程有工具、模型和 patch 进展并交付模型答案，继�
 
 状态：`B541=partial`；`B541b=next`；`B538=confirmed/open`；`B542=watch/high-severity`；
 `runner=2/2`；`human=0/2`；`active-stream=no-degrade@440s`；Trace=`not exercised/unchanged`。
+
+### 123.596 B541b：parser 将 operation 内唯一静态 binding 直接附为身份 metadata
+
+已根修 r321 acquisition 断层。模型发出并接地 assignment/initializer/member operation 后，emit-evidence 用同一文件 repomap、parser-owned enclosing
+callable、exact subject/object segment 查找声明字段；只在 declared owner 与 operation owner 一致时，把所有非歧义 binding/type/owner 作为
+`declared_identity_bindings` 附在该 operation。多个不同 binding 可同时保留；同一 binding 出现冲突类型则整项 fail-closed。大小写/下划线/词尾相似、错 owner、
+错 endpoint、无显式类型和动态语言都不能命中。
+
+三个 coverage 消费面现在可直接消费 operation 自带 metadata，不再要求模型另发 identity-only definition。definition-evidence 旧兼容臂仍保留，但
+definition 本身继续不进入 `FlowOperationEvidence`。关系种类、方向、subject/object、源码行仍完全来自模型已选择的 operation；metadata 不能生成新边。
+共享 soft 教学进一步要求：carrier 应优先定位 subject/object 中实际含 binding 的 assignment/initializer/member operation；carrier 只出现在未建模 helper
+参数中时，helper call 不能覆盖该 carrier。这是导航指导，不是 request/model/final prose hard gate。
+
+正反 pin 覆盖 operation-only 正臂、同 binding 冲突类型、错 owner、错 endpoint、命名猜测、definition-only，以及 Explorer completion、Finalizer
+checklist、AnswerDocument diagram 三面一致性。types/tool/agent/repomap/skill/tracediag/context/orchestrator 相关全量套件通过。
+
+状态：`B541b=implemented/relevant-suite-pass/pending-r322`；`extra-definition-round=removed`；
+`edge-authority=unchanged`；`dynamic/ambiguous=fail-closed`；Trace=`unchanged`。

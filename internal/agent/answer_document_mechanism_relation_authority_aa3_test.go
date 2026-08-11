@@ -380,19 +380,15 @@ func TestMechanismRelationAuthorityMapsExactStaticBindingToTypedParticipantAA3(t
 		}},
 		EvidenceItems: []types.EvidenceItem{
 			{
-				ID: "bus-context-declaration", Producer: types.EvidenceProducerExplorerEmitEvidence,
-				Kind: types.EvidenceDirect, Subject: "busCtx", Source: "internal/orchestrator/orchestrator.go", LineStart: 55,
-				AnchorKind: types.AnchorDefinition, AnchorSymbol: "busCtx", Scope: types.ScopeLine,
-				GroundingStatus: types.GroundingGrounded, DeclaredBinding: "Orchestrator.busCtx",
-				DeclaredType: "*types.BusContext", DeclaredOwner: "Orchestrator",
-			},
-			{
 				ID: "bus-context-write", Producer: types.EvidenceProducerExplorerEmitEvidence,
 				Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems", Predicate: "assigns", Object: "output.EvidenceItems",
 				Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
 				AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 				GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
 				OwnerIdentity: "Orchestrator.applyStageOutput",
+				DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+					Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+				}},
 			},
 		},
 	}

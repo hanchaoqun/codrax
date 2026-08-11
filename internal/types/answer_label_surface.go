@@ -330,6 +330,18 @@ func AnswerCodeIdentitySurfacesEquivalent(left, right string) bool {
 	)
 }
 
+// AnswerCodeIdentityContainsExactSegment reports whether an exact typed code
+// identity contains one complete normalized segment. It does not perform
+// substring, plural, or naming-convention inference.
+func AnswerCodeIdentityContainsExactSegment(identity, segment string) bool {
+	segments := answerCodeIdentitySegments(identity)
+	want := answerCodeIdentitySegments(segment)
+	if len(segments) == 0 || len(want) != 1 {
+		return false
+	}
+	return answerCodeIdentityContainsSegment(segments, want[0])
+}
+
 func answerCodeIdentitySegmentSlicesEqual(left, right []string) bool {
 	if len(left) == 0 || len(left) != len(right) {
 		return false

@@ -5,7 +5,7 @@ import "strings"
 // FlowOperationEvidenceEmissionGuide is the single semantic teaching source
 // shared by the explorer's completion repair and tests. The emit_evidence JSON
 // schema remains the authority for field names and enum values.
-const FlowOperationEvidenceEmissionGuide = "Read the operation sites that actually move the requested value/state/control: producer, transfer or merge boundary, and consumer. Treat analyzer-provided named participants as a soft exploration checklist: when relevant, inspect an operation incident to each participant; if no such site is proved, keep that participant independent and explicitly unproven rather than inventing a bridge. For a state carrier, container, or context object, inspect the exact writer and reader operation sites, such as setter/getter or member calls, direct assignments, and returns; its field/type declaration does not prove that data entered or left it. Emit one citable row per verified directed operation with exact syntax-authored subject/object and the matching anchor_kind (call, callback, assignment, initializer, return, or precedence): a call/callback uses the exact enclosing callable and invoked callee, an assignment/initializer uses the exact LHS receiver and RHS value/source, and a return uses the exact returning callable and returned value/source. A declaration-only field/member line is a definition, never an initializer; initializer requires an exact value-bearing member binding such as a struct/object/config literal entry. Do not rename an endpoint to a semantic role or result label such as a carrier field, component, or final answer; participant names guide navigation only and never become edge authority. The final diagram may choose typed relation_kind=data_flow to render a proved assignment tuple in execution direction RHS -> LHS. Definitions, type/field rosters, and nearby helper paths remain context only. If the inspected source cannot prove a transfer, preserve that as an unproven boundary instead of inventing an edge."
+const FlowOperationEvidenceEmissionGuide = "Read the operation sites that actually move the requested value/state/control: producer, transfer or merge boundary, and consumer. Treat analyzer-provided named participants as a soft exploration checklist: when relevant, inspect an operation incident to each participant; if no such site is proved, keep that participant independent and explicitly unproven rather than inventing a bridge. For a state carrier, container, or context object, inspect the exact writer and reader operation sites, such as setter/getter or member calls, direct assignments, and returns; its field/type declaration does not prove that data entered or left it. Prefer a verified assignment/initializer/member operation whose exact subject/object contains the carrier binding; the parser may align that binding's declared static type for participant identity. A helper call does not cover a carrier when the carrier appears only as an unmodeled argument rather than an emitted endpoint. Emit one citable row per verified directed operation with exact syntax-authored subject/object and the matching anchor_kind (call, callback, assignment, initializer, return, or precedence): a call/callback uses the exact enclosing callable and invoked callee, an assignment/initializer uses the exact LHS receiver and RHS value/source, and a return uses the exact returning callable and returned value/source. A declaration-only field/member line is a definition, never an initializer; initializer requires an exact value-bearing member binding such as a struct/object/config literal entry. Do not rename an endpoint to a semantic role or result label such as a carrier field, component, or final answer; participant names guide navigation only and never become edge authority. The final diagram may choose typed relation_kind=data_flow to render a proved assignment tuple in execution direction RHS -> LHS. Definitions, type/field rosters, and nearby helper paths remain context only. If the inspected source cannot prove a transfer, preserve that as an unproven boundary instead of inventing an edge."
 
 // FlowOperationEvidence returns citable current-source directed operations.
 // It is intentionally relevance-neutral: the hard completion safeguard may
@@ -106,6 +106,11 @@ func AnswerCodeIdentityIncidentViaDeclaredBinding(participant, endpoint string, 
 	if operationOwner == "" {
 		operationOwner = strings.TrimSpace(operation.OwnerSymbol)
 	}
+	for _, binding := range operation.DeclaredIdentityBindings {
+		if declaredIdentityBindingCoversParticipant(participant, endpoint, operationOwner, binding) {
+			return true
+		}
+	}
 	for _, declaration := range evidence {
 		if !declaration.IsCitable() || declaration.AnchorKind != AnchorDefinition ||
 			strings.TrimSpace(declaration.DeclaredBinding) == "" ||
@@ -117,22 +122,31 @@ func AnswerCodeIdentityIncidentViaDeclaredBinding(participant, endpoint string, 
 			RuntimeArtifactPathKind(declaration.Source) != "" {
 			continue
 		}
-		if !AnswerCodeIdentitySurfacesCompatible(participant, declaration.DeclaredType) {
-			continue
+		if declaredIdentityBindingCoversParticipant(participant, endpoint, operationOwner, EvidenceDeclaredIdentityBinding{
+			Binding: declaration.DeclaredBinding,
+			Type:    declaration.DeclaredType,
+			Owner:   declaration.DeclaredOwner,
+		}) {
+			return true
 		}
-		bindingSegments := answerCodeIdentitySegments(declaration.DeclaredBinding)
-		if len(bindingSegments) == 0 || !answerCodeIdentityContainsSegment(endpointSegments, bindingSegments[len(bindingSegments)-1]) {
-			continue
-		}
-		declaredOwner := strings.TrimSpace(declaration.DeclaredOwner)
-		if declaredOwner != "" && (operationOwner == "" ||
-			(!AnswerCodeIdentityOwnsEndpoint(declaredOwner, operationOwner) &&
-				!AnswerCodeIdentitySurfacesCompatible(declaredOwner, operationOwner))) {
-			continue
-		}
-		return true
 	}
 	return false
+}
+
+func declaredIdentityBindingCoversParticipant(participant, endpoint, operationOwner string, binding EvidenceDeclaredIdentityBinding) bool {
+	if !AnswerCodeIdentitySurfacesCompatible(participant, binding.Type) {
+		return false
+	}
+	bindingSegments := answerCodeIdentitySegments(binding.Binding)
+	endpointSegments := answerCodeIdentitySegments(endpoint)
+	if len(bindingSegments) == 0 || len(endpointSegments) == 0 ||
+		!answerCodeIdentityContainsSegment(endpointSegments, bindingSegments[len(bindingSegments)-1]) {
+		return false
+	}
+	declaredOwner := strings.TrimSpace(binding.Owner)
+	return declaredOwner == "" || (operationOwner != "" &&
+		(AnswerCodeIdentityOwnsEndpoint(declaredOwner, operationOwner) ||
+			AnswerCodeIdentitySurfacesCompatible(declaredOwner, operationOwner)))
 }
 
 func answerCodeIdentityContainsSegment(segments []string, want string) bool {

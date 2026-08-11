@@ -659,7 +659,12 @@ type EvidenceItem struct {
 	DeclaredBinding string `json:"declared_binding,omitempty"`
 	DeclaredType    string `json:"declared_type,omitempty"`
 	DeclaredOwner   string `json:"declared_owner,omitempty"`
-	Snippet         string `json:"snippet,omitempty"`
+	// DeclaredIdentityBindings are parser-stamped static bindings that occur
+	// inside this operation's already-validated exact endpoints. They only
+	// align endpoint identities with typed participants; they never add an
+	// endpoint or authorize a relation.
+	DeclaredIdentityBindings []EvidenceDeclaredIdentityBinding `json:"declared_identity_bindings,omitempty"`
+	Snippet                  string                            `json:"snippet,omitempty"`
 
 	// Grounding output: filled by the grounder. Downstream renderers
 	// branch on GroundingStatus; Tier and Note are human-readable.
@@ -794,6 +799,14 @@ type EvidenceItem struct {
 	// that finalizer output preserves these terms, but it must not
 	// invent or auto-fill them.
 	SurfaceTerms []string `json:"surface_terms,omitempty"`
+}
+
+// EvidenceDeclaredIdentityBinding is system-authored identity metadata for
+// one exact source binding present in an operation endpoint.
+type EvidenceDeclaredIdentityBinding struct {
+	Binding string `json:"binding"`
+	Type    string `json:"type"`
+	Owner   string `json:"owner,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on

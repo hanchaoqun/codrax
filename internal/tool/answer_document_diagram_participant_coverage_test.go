@@ -95,20 +95,17 @@ func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *
 		FromNode: "O", ToNode: "B", FromIdentity: "output.EvidenceItems",
 		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
 	}}
-	declaration := types.EvidenceItem{
-		ID: "bus-decl", Kind: types.EvidenceDirect, Subject: "busCtx",
-		Source: "src/pipeline.go", LineStart: 5, AnchorKind: types.AnchorDefinition,
-		AnchorSymbol: "busCtx", Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
-		DeclaredBinding: "Orchestrator.busCtx", DeclaredType: "*types.BusContext", DeclaredOwner: "Orchestrator",
-	}
 	operation := types.EvidenceItem{
 		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
 		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
 	}
-	if got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{declaration, operation}); len(got) != 0 {
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation}); len(got) != 0 {
 		t.Fatalf("business participant should align through its exact typed binding: %+v", got)
 	}
 	anchor := doc.Blocks[0].EdgeAnchors[0]
