@@ -31792,3 +31792,27 @@ repair 的 LHS/RHS 教学。现在二者合并为单一 action-required typed re
 状态：`B510-A3=implemented/package-suites-pass/pending-r300`；`B510-A2=pending-r300`；
 `business-label/exact-endpoint-layering=P1-audit-next`；`system-answer/relation-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace explicit-window projection/auto-supplement/on-chain causes=`unchanged`。
+
+### 123.543 r300：A3 获生产正证；call repair、资格型清单和业务展示层成为下一共因批
+
+`main@515dcf0c1` exact-two runner 1/2、人工 0/2。pipeline 中 A3 精确阻止带错误 assignment endpoints 的 closure，直接给
+`out.FinalAnswer <- o.appendSystemCaveatsToAnswer` JSON 字段和值；模型只重发一行即清债，证明 typed repair 不需要系统代写关系。B510-A2 也生效：participant 不再包含 Mermaid
+语法或表格列名。
+
+但 required 图中的 call mismatch 仍只落 grounding note，并同时显示 `Current actionable repair targets: none`。模型没有把 parser-owned exact caller/callee 重发为
+call-edge evidence；Finalizer 首稿于是用概念参与者画了未证 call/return，关系门正确拒绝，patch 却删除大部分边，最终只剩三条 stage precedence 和一条 append
+data_flow。runner 的浅表 regex PASS 掩盖了 AnalysisIR/EvidenceItems/AnswerDocument 交接缺失。立 `B510-A4-RELREPAIR2/P1-high`：把 required non-Trace
+source-relation 图的 exact call tuple 纳入与 assignment 对称的局部 typed repair；原 row 仍撤权，正确关系仍须模型重发。
+
+ArkTS runner/人工均 FAIL。四个真实 `@Entry` 与两个 `@Builder` 均有精确 evidence；`EntryAbility` 的 evidence、aggregate note 和最终行反而都明确写“无
+@Entry/@Component”，Explorer 仍把它放入 `@Entry` member_set，completion/finalizer 将该错误 model set 加冕为 authority。立
+`B513-QUALMEMBER1/P1-high`：资格型 source-inventory 集合需要逐成员 typed qualifying-family witness；不能用定义存在、业务近义、aggregate label/note 或最终 prose
+证明 decorator/annotation 资格。最优形需新增/复用 typed surface-family carrier，不做关键词 hard scan。
+
+另两项并行记账：Analyzer 已精确携带 `stage/输入/输出/状态载体` requested dimensions，最终表头仍退化为 `项目/列 2...`，立
+`B510-E-DIMHEADER/P1`；图以 `Agent*`/函数名为主，立 `B510-D-BUSINESSLAYER/P1`，采用“业务分组/动作说明 + 组内 exact endpoint”双层表达，业务 alias 永不升级为
+关系 authority。
+
+状态：`B510-A3=production-closed`；`B510-A2=production-positive`；`B510-A4=next`；
+`B513=typed-design-required`；`B510-D/E=open`；`runner=1/2,human=0/2`；
+`system-answer/relation-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；Trace families=`unchanged`。

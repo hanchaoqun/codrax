@@ -3712,3 +3712,18 @@ exact LHS/RHS 和 blocking 状态，不再由后构造者覆盖前构造者。�
 
 状态：`B510-A3=implemented/pending-production-replay`；`B510-A2=pending-production-replay`；
 `business-language-diagram-layer=P1-audit`；`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.87 r300：typed assignment repair 正证与两档新 P1
+
+pipeline 回放证明 B510-A3 端到端生效：错误 assignment 不获关系权威，completion 给 exact LHS/RHS，模型局部重发后才允许 closure。其余 call-shaped row 的
+caller/callee mismatch 仍只有 note 而无 structured repair，导致 Finalizer 没有足够 call authority；首稿关系门正确拒绝，patch 后图退化。下一批
+`B510-A4-RELREPAIR2` 将 call exact tuple 接入同一 producer-owned repair carrier，不改变 evidence/答案所有权。
+
+ArkTS 暴露 `B513-QUALMEMBER1`：`EntryAbility` 明确无 `@Entry`，仍进入 `@Entry` authoritative member_set。错误起于 model aggregate，但系统的 principal 加冕缺少
+逐成员 qualifier witness。修复必须基于 typed source-inventory/evidence surface family，不扫描 aggregate label/member note/最终答案。
+
+展示审计另记 `B510-D`（业务角色/动作 + 组内 exact endpoint 双层图）和 `B510-E`（typed requested dimensions 投影表头）；二者均为 soft authoring 支撑，不让系统代写
+模型关系或结论。
+
+状态：`B510-A3=production-closed`；`B510-A2=production-positive`；`B510-A4=next`；
+`B513/B510-D/B510-E=open`；Trace explicit windows/causal projection/auto-supplement/on-chain causes=`unchanged`。
