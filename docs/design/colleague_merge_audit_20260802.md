@@ -4574,3 +4574,17 @@ authority 明示 `target_direct_blocking_authority=not_provided`、`direct_block
 
 状态：`B562=production-partial`；`B563=next`；`B544=recurrent/P1-soft`；`runner=2/2`；`human=0/2`；
 `active-stream=no-degrade@1132s`；`system-answer/edge-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.160 B563：成员分隔符换行不再破坏 typed endpoint identity
+
+Mermaid label identity resolver 现额外构造“显示换行还原候选”：仅当后一行以 `.`、`::`、`->`、`#` 或 `/` 这类跨语言成员分隔符开头，且拼接结果本身是
+合法 code identity 时才进入候选集。候选仍必须唯一命中 citable typed evidence 的 subject/object/owner/anchor；换行、位置或相似度本身没有任何关系权限。
+因此 Java/Go/ArkTS/Cangjie/Rust/C/C++ 等语言的 method-qualified endpoint 可为图宽换行而不被截成 owner，同时普通
+`业务名称\\n阶段说明`、无分隔符多行、路径后缀和多身份歧义继续 fail-closed。
+
+端到端关系测试覆盖 `.`、`::`、`->` 三种代表语法及任意多行不得拼接的负臂；`internal/tool`、`internal/agent`、`internal/orchestrator`、
+`internal/tracediag` 全绿。修复只影响 source diagram 的精确身份解析，不读取用户/模型/终稿 prose，不补 edge、不改 relation kind/方向；runtime Trace family、
+显式时间窗、自动补齐和因果投影均未改。
+
+状态：`B563=implemented/pending-r332`；`display-wrap=typed-candidate-only`；`ambiguity=fail-closed`；
+`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。

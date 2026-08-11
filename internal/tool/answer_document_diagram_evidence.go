@@ -1078,7 +1078,9 @@ func diagramEvidenceEndpointSymbol(node string, labels map[string]string, eviden
 func diagramEvidenceLabelIdentityCandidates(label string) []string {
 	parts := []string{strings.TrimSpace(label)}
 	normalized := strings.NewReplacer("<br/>", "\n", "<br>", "\n", `\n`, "\n").Replace(label)
-	parts = append(parts, strings.Split(normalized, "\n")...)
+	lines := strings.Split(normalized, "\n")
+	parts = append(parts, lines...)
+	parts = append(parts, diagramEvidenceJoinedLabelIdentityCandidates(lines)...)
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
 		candidate := strings.TrimSpace(part)
@@ -1102,6 +1104,46 @@ func diagramEvidenceLabelIdentityCandidates(label string) []string {
 		}
 	}
 	return out
+}
+
+// diagramEvidenceJoinedLabelIdentityCandidates restores a code identity that
+// was split only for Mermaid presentation width, for example
+// `explorerEvaluator\n.ParseOutput` or `Service\n::run`. Joining is deliberately
+// narrower than general text normalization: every continuation line must
+// begin with a language-native member separator and the resulting surface must
+// itself be one exact code identity. The candidate remains inert until the
+// caller proves that one unique citable typed evidence endpoint owns it.
+func diagramEvidenceJoinedLabelIdentityCandidates(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for start := 0; start < len(lines)-1; start++ {
+		joined := strings.TrimSpace(lines[start])
+		if joined == "" {
+			continue
+		}
+		for end := start + 1; end < len(lines); end++ {
+			continuation := strings.TrimSpace(lines[end])
+			if !diagramEvidenceMemberContinuation(continuation) {
+				break
+			}
+			joined += continuation
+			candidate := diagramEvidenceExactInlineCodeIdentity(joined)
+			if candidate == "" || types.HasCodeOrConfigPathSuffix(candidate) ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(candidate, candidate) {
+				continue
+			}
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func diagramEvidenceMemberContinuation(value string) bool {
+	for _, separator := range []string{"::", "->", ".", "#", "/"} {
+		if strings.HasPrefix(value, separator) && len(value) > len(separator) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramEvidenceIdentityAppearsExactly(evidence []types.EvidenceItem, candidate string) bool {

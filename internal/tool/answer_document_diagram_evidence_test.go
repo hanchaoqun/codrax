@@ -702,6 +702,47 @@ func TestDiagramEvidenceLabelSymbol_OnlyStripsExactInlineCodeIdentityWrapper(t *
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_DisplayWrappedExactEndpointsPreserveTypedRelation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		caller string
+		callee string
+		from   string
+		to     string
+	}{
+		{name: "dot", caller: "explorerEvaluator.ParseOutput", callee: "ctx.Mutable.SetTurnAArtifacts", from: `explorerEvaluator\n.ParseOutput`, to: `ctx.Mutable\n.SetTurnAArtifacts`},
+		{name: "scope", caller: "clinic::VisitService::schedule", callee: "clinic::VisitRepository::insert", from: `clinic::VisitService\n::schedule`, to: `clinic::VisitRepository\n::insert`},
+		{name: "pointer", caller: "service->handle", callee: "repo->insert", from: `service\n->handle`, to: `repo\n->insert`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "wrapped", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n" +
+					`  A["` + tc.from + `"] --> B["` + tc.to + `"]` + "\n"},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+			}}}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)}); len(got) != 0 {
+				t.Fatalf("presentation-only member wrapping must retain the exact typed relation: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ArbitraryMultilineLabelCannotMintEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "business-lines", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n" +
+			`  A["explorerEvaluator\nParseOutput"] --> B["ctx.Mutable\nSetTurnAArtifacts"]` + "\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric},
+		[]types.EvidenceItem{diagramEvidenceTestCall("explorerEvaluator.ParseOutput", "ctx.Mutable.SetTurnAArtifacts")})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("arbitrary multiline prose must not be concatenated into typed endpoint authority: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_InlineCodeDuplicateIdentityIsStillDiagnosed(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "sequence", Kind: types.BlockDiagram,
