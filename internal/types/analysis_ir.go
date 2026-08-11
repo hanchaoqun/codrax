@@ -1619,8 +1619,9 @@ func (r DiagramParticipantRole) IsValid() bool {
 // input, not source authority: exact code endpoints and every visible edge
 // still require independently grounded evidence.
 type DiagramParticipantHint struct {
-	Identity string                 `json:"identity"`
-	Role     DiagramParticipantRole `json:"role"`
+	Identity    string                 `json:"identity"`
+	Role        DiagramParticipantRole `json:"role"`
+	SourceQuote string                 `json:"source_quote,omitempty"`
 }
 
 // DiagramContract is the finalizer-facing presentation contract for

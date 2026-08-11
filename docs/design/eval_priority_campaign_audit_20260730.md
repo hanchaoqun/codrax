@@ -31546,3 +31546,40 @@ diagram、required `stage_or_workflow` dimension、当前调查存在 grounded+c
 状态：`B507=implemented/package-suites-pass/pending-production-replay`；`B506=pending-production-replay`；`B508=queued`；
 `B509-PARTICIPANT-INFLATION=still-open`；`system-edge/diagram/answer-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
 Trace windows/auto-supplement/causal projection/on-chain root causes/business clues=`unchanged`。
+
+### 123.530 r294：stage authority 已到达，但 Analyzer 参与者猜测升级为硬债
+
+exact-two runner 2/2，人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r294_20260810_manual_audit.md`。
+
+Java 复放确认 B506 正向闭环：容量检查引用保持 `VisitService.java:18`，未再被 aggregate label-only 行覆盖。B508 仍在：Explorer 已读
+`AuditLog.java:6` 的 stdout 实现，却只发出 line 5 的 definition-shaped 行；Finalizer 的 callable authority 因此仍为
+`definition_status=unproven`，答案继续把输出日志表述成“审计落库”。discover-sink 选择修复还错误诱导模型补三层配置优先级，三轮后才收敛。
+
+read 用例证明 B507 的 checkout provider、prompt 接线与 recipe 消费资格已经生效：三条 `analyze -> explore -> extract -> finalize`
+precedence recipe 均到达 Finalizer。可见答案仍失败的独立根因是 B509：Analyzer 把未出现在请求中的 `Orchestrator`、`Agent` 标成
+`incident_required`，同时漏掉请求明确点名的 `EvidenceItems`、`AnswerDocument`、`Mutable`；该 planning guess 无逐席用户来源，却被 completion 和
+Finalizer 升为硬 presence/boundary 合同，造成 27 轮 Explore、33 条证据、7 次成文拒绝，最终图退化成 scheduler helper call chain。
+
+最优方案冻结：每个 diagram participant 增加 typed `source_quote`，必须是包含 exact identity 的最短当前请求原句；Analyzer 猜测、prescan、历史上下文
+均不能成为 hard participant authority。只有通过该精确 provenance 的席位进入 completion/finalizer obligations；edge authority 仍完全来自 grounded typed
+relations。该方案只做 verbatim provenance 校验，不做 request/final prose 关键词分类，不生成边、不改答案。
+
+状态：`B506=production-closed`；`B507=authority-wiring-production-closed`；`B509=P1-high/in-progress`；`B508=P1/open`；
+`system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+### 123.531 B509：参与者硬义务逐席绑定当前请求来源
+
+`diagram_hint.participants[]` 新增 presence-required 的 `source_quote`。每席必须携带包含该 exact identity 的当前请求 verbatim 片段；
+`emit_analysis` 在去除 REPL 历史前缀后做两级校验：quote 必须来自当前请求，identity 必须位于 quote 内。Analyzer 推断、prescan 与历史对话均不能
+取得 participant hard authority。经校验的来源随 typed IR 持久化；旧缓存或手工构造 IR 若缺来源，仅不进入 completion/finalizer hard obligations，
+不会被猜造成必连/必披露节点。
+
+该批没有把用户原文用于意图关键词分类，也不读取 thinking/final prose，不生成、改写或批准关系；edge authority 仍只来自 grounded typed relations。
+schema pin、拒绝 invented/missing/mismatched provenance、IR 持久化和 legacy fail-soft 均有回归；
+`go test ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator -count=1` 与
+`go test ./internal/tracediag ./internal/stageauthority -count=1` 全绿。
+
+状态：`B509=implemented/package-suites-pass/pending-r295-production-replay`；`B508=P1/open`；
+`system-relation/diagram/conclusion-authoring=none`；`raw-keyword/model/final-prose-hard-gate=none`；
+Trace explicit windows/auto-supplement/causal projection/on-chain cause families/business clues=`unchanged`。

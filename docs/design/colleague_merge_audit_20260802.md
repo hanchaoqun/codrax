@@ -3565,3 +3565,26 @@ checkout drift 负臂保留；三消费面接线测试及 stageauthority/types/t
 
 状态：`B507=implemented/pending-replay`；`B506=pending-replay`；`B508=queued`；`participant-inflation=separate-open`；
 `system-edge/answer-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.74 r294：B506/B507 正证与 participant authority 反例
+
+exact-two runner 2/2、人工 0/2。Java 的容量检查引用稳定在 `VisitService.java:18`，B506 关闭；终点 body 虽已读取但未形成精确 body evidence，
+`AuditLog.record` 仍为 definition-unproven 且答案误把 stdout 称为落库，B508 保持开放。read prompt 已出现三条 checkout-verified stage precedence
+recipes，证明 B507 四面接线生效；但 Analyzer 猜测的 `Orchestrator`/`Agent` 被无来源升级为 hard participant obligations，迫使 27 轮探索和 7 次成文
+修复，最终模型没有消费阶段 recipe。
+
+立 `B509-PARTPROV1/P1-high`：participant planning row 必须逐席携带包含 exact identity 的当前请求 verbatim `source_quote`，否则不得进入硬 obligation。
+这是 typed provenance 校验，不扫描关键词、不读取 final prose、不生成关系。显式窗 Trace、因果投影、自动补齐、链上根因/修向/业务线索均不触及。
+
+状态：`B506=closed`；`B507=production-authority-closed`；`B509=in-progress`；`B508=open`；`system-relation-authoring=none`。
+
+#### §11.10.75 B509：Analyzer 猜测不再升级为 participant 硬合同
+
+每个 `diagram_hint.participants[]` 现在必须携带 `source_quote`，且 emit 端在剥离历史会话前缀后的当前请求上验证 quote verbatim 存在、quote 含 exact
+identity。只有具备该 typed provenance 的参与者可进入 semantic view 的 completion/finalizer obligations；无来源的旧缓存 IR fail-soft 为非硬义务。
+
+这修的是 hard-authority 来源，不是关系内容：系统不补节点/边、不扫描用户关键词或模型/答案正文、不改变 relation evidence gate。schema、parser、IR、
+semantic-view 接线与 legacy 缺来源负臂均有 pin；types/tool/agent/orchestrator/tracediag/stageauthority 包套件全绿。
+
+状态：`B509=implemented/pending-r295-production-witness`；`B508=open`；`system-edge/answer-authoring=none`；
+Trace windows/causal projection/auto-supplement/on-chain root causes/business clues=`unchanged`。

@@ -3023,8 +3023,8 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"Dispatch", "sink":"Handler"},
 		"diagram_hint": {"kind": "call_dag", "required": false, "participants": [
-			{"identity":"Dispatch", "role":"incident_required"},
-			{"identity":"Handler", "role":"context_only"}
+			{"identity":"Dispatch", "role":"incident_required", "source_quote":"Dispatch"},
+			{"identity":"Handler", "role":"context_only", "source_quote":"Handler"}
 		]}
 	}`
 
@@ -3047,8 +3047,8 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		t.Fatalf("DiagramHint.Kind = %q, want %q", rm.DiagramHint.Kind, types.DiagramCallDAG)
 	}
 	if len(rm.DiagramHint.Participants) != 2 ||
-		rm.DiagramHint.Participants[0] != (types.DiagramParticipantHint{Identity: "Dispatch", Role: types.DiagramParticipantIncidentRequired}) ||
-		rm.DiagramHint.Participants[1] != (types.DiagramParticipantHint{Identity: "Handler", Role: types.DiagramParticipantContextOnly}) {
+		rm.DiagramHint.Participants[0] != (types.DiagramParticipantHint{Identity: "Dispatch", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Dispatch"}) ||
+		rm.DiagramHint.Participants[1] != (types.DiagramParticipantHint{Identity: "Handler", Role: types.DiagramParticipantContextOnly, SourceQuote: "Handler"}) {
 		t.Fatalf("DiagramHint.Participants = %+v, want typed roles preserved", rm.DiagramHint.Participants)
 	}
 	if !strings.Contains(res.Summary, "diagram_hint=call_dag") {
@@ -3064,14 +3064,17 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantPlanningContract); count != 2 {
 		t.Fatalf("diagram participant SSOT must describe diagram_hint and participants exactly once each, got %d in %s", count, raw)
 	}
+	if !strings.Contains(string(raw), `"required":["identity","role","source_quote"]`) {
+		t.Fatalf("diagram participant schema must require exact current-request provenance: %s", raw)
+	}
 }
 
 func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	required := true
-	unknownRole := []emitDiagramParticipantParam{{Identity: "StageA", Role: "required"}}
+	unknownRole := []emitDiagramParticipantParam{{Identity: "StageA", Role: "required", SourceQuote: "StageA"}}
 	duplicateIdentity := []emitDiagramParticipantParam{
-		{Identity: "ArkRunner", Role: "incident_required"},
-		{Identity: " arkrunner ", Role: "context_only"},
+		{Identity: "ArkRunner", Role: "incident_required", SourceQuote: "ArkRunner"},
+		{Identity: " arkrunner ", Role: "context_only", SourceQuote: "ArkRunner"},
 	}
 	tests := []struct {
 		name string
@@ -3088,10 +3091,25 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &duplicateIdentity},
 			want: "duplicates",
 		},
+		{
+			name: "missing participant provenance",
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required"}}},
+			want: "source_quote is empty",
+		},
+		{
+			name: "invented participant provenance",
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "Orchestrator", Role: "incident_required", SourceQuote: "Orchestrator"}}},
+			want: "must be copied verbatim",
+		},
+		{
+			name: "quote does not own identity",
+			hint: &emitDiagramHintParam{Kind: "flow", Required: &required, Participants: &[]emitDiagramParticipantParam{{Identity: "StageA", Role: "incident_required", SourceQuote: "show"}}},
+			want: "does not contain identity",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got, reason := parseDiagramHint(tc.hint); got != nil || !strings.Contains(reason, tc.want) {
+			if got, reason := parseDiagramHint("show StageA and ArkRunner", tc.hint); got != nil || !strings.Contains(reason, tc.want) {
 				t.Fatalf("parseDiagramHint()=(%+v,%q), want nil reason containing %q", got, reason, tc.want)
 			}
 		})

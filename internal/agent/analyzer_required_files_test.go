@@ -396,6 +396,9 @@ func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t 
 			types.ReadModePipelineTopologyFile: {
 				{Name: "pipelineTopology", Kind: "var", Line: 17},
 			},
+			types.ReadModePipelineOrchestratorFile: {
+				{Name: "runReadSchedulerLoop", Kind: "function", Line: 4524},
+			},
 		},
 		map[string]float64{
 			"internal/dataworkflow/stage.go": 9.0,

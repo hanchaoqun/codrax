@@ -71,8 +71,8 @@ func TestBuildAnswerSemanticView_PreservesTypedRelationAxis(t *testing.T) {
 
 func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *testing.T) {
 	participants := []DiagramParticipantHint{
-		{Identity: "Analyzer", Role: DiagramParticipantIncidentRequired},
-		{Identity: "BusContext", Role: DiagramParticipantContextOnly},
+		{Identity: "Analyzer", Role: DiagramParticipantIncidentRequired, SourceQuote: "Analyzer"},
+		{Identity: "BusContext", Role: DiagramParticipantContextOnly, SourceQuote: "BusContext"},
 		{Identity: "", Role: DiagramParticipantIncidentRequired},
 		{Identity: "Invalid", Role: DiagramParticipantRole("invalid")},
 	}
@@ -117,6 +117,21 @@ func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *
 				t.Fatalf("inactive lane leaked participant obligations: %+v", inactive.DiagramParticipantObligations)
 			}
 		})
+	}
+}
+
+func TestApplyDiagramParticipantObligationsIgnoresUnanchoredAnalyzerGuess(t *testing.T) {
+	view := &AnswerSemanticView{DiagramPlan: &DiagramFacetGraph{Kind: DiagramFlow, Required: true}}
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:        IntentExplain,
+		PredicateAxis: AxisFlow,
+		DiagramHint: &DiagramHint{Kind: DiagramFlow, Required: true, Participants: []DiagramParticipantHint{
+			{Identity: "AnalyzerInventedComponent", Role: DiagramParticipantIncidentRequired},
+		}},
+	}}
+	applyDiagramParticipantObligations(view, ir)
+	if len(view.DiagramParticipantObligations) != 0 {
+		t.Fatalf("participant without validated current-request provenance became a hard obligation: %+v", view.DiagramParticipantObligations)
 	}
 }
 

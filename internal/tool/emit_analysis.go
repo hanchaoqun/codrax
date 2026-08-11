@@ -384,8 +384,9 @@ type emitDiagramHintParam struct {
 }
 
 type emitDiagramParticipantParam struct {
-	Identity string `json:"identity"`
-	Role     string `json:"role"`
+	Identity    string `json:"identity"`
+	Role        string `json:"role"`
+	SourceQuote string `json:"source_quote"`
 }
 
 type emitEnumerationBoundaryParam struct {
@@ -874,10 +875,11 @@ func buildEmitAnalysisSchema() {
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"identity": map[string]any{"type": "string", "minLength": 1, "maxLength": 160, "description": "One explicitly named participant identity; keep its current-request/code surface, without adding a file location or prose description."},
-								"role":     map[string]any{"type": "string", "enum": []string{"incident_required", "context_only"}},
+								"identity":     map[string]any{"type": "string", "minLength": 1, "maxLength": 160, "description": "One explicitly named participant identity; keep its current-request/code surface, without adding a file location or prose description."},
+								"role":         map[string]any{"type": "string", "enum": []string{"incident_required", "context_only"}},
+								"source_quote": map[string]any{"type": "string", "minLength": 1, "description": "Shortest verbatim CURRENT-request phrase containing this exact participant identity. Analyzer inference, prescan output, and prior conversation are not participant authority."},
 							},
-							"required": []string{"identity", "role"},
+							"required": []string{"identity", "role", "source_quote"},
 						},
 					},
 				},
@@ -1549,7 +1551,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	diagramHint, diagramHintErr := parseDiagramHint(p.DiagramHint)
+	diagramHint, diagramHintErr := parseDiagramHint(raw, p.DiagramHint)
 	if diagramHintErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -5585,7 +5587,7 @@ func parsePredicateAxis(s string) (types.PredicateAxis, string) {
 // field into a typed DiagramHint. Empty / nil means "no hint". An
 // unrecognised non-empty value is rejected so a typo cannot silently
 // degrade to no hint.
-func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
+func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.DiagramHint, string) {
 	if p == nil {
 		return nil, ""
 	}
@@ -5619,6 +5621,16 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 		if len([]rune(identity)) > 160 {
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity is longer than 160 characters", i)
 		}
+		sourceQuote := strings.TrimSpace(raw.SourceQuote)
+		if sourceQuote == "" {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote is empty — copy the shortest verbatim CURRENT-request phrase containing %q", i, identity)
+		}
+		if !sourceQuoteAnchoredInCurrentRequest(rawRequest, sourceQuote) {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request", i)
+		}
+		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
+			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity)
+		}
 		role := types.DiagramParticipantRole(strings.TrimSpace(raw.Role))
 		if !role.IsValid() {
 			return nil, fmt.Sprintf(
@@ -5631,7 +5643,7 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].identity duplicates %q", i, identity)
 		}
 		seen[key] = true
-		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role})
+		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
 	}
 	return &types.DiagramHint{Kind: kind, Required: *p.Required, Participants: participants}, ""
 }

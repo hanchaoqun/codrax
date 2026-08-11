@@ -120,7 +120,7 @@ func applyDiagramParticipantObligations(view *AnswerSemanticView, ir *AnalysisIR
 		return
 	}
 	for _, participant := range rm.DiagramHint.Participants {
-		if strings.TrimSpace(participant.Identity) == "" || !participant.Role.IsValid() {
+		if strings.TrimSpace(participant.Identity) == "" || strings.TrimSpace(participant.SourceQuote) == "" || !participant.Role.IsValid() {
 			continue
 		}
 		view.DiagramParticipantObligations = append(view.DiagramParticipantObligations, participant)
