@@ -3480,3 +3480,18 @@ required-diagram 的展示 evidence 现只认 exact support id/line，typed Flow
 不抽象改挂、不删已证边。ChangePlan JSON SSOT 同步明确 probe id 全 plan 唯一且一个逻辑 probe 只选一个 carrier。
 
 agent/skill/types 全包绿。状态：`B500=v4-implemented`；`B501/B502=implemented`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.66 r290：B500/B502 生产正证与 participant role 波动边界
+
+exact-two runner 1/2、人工 1/2。write 计划首次即只在 change-local carrier 放置一个全局唯一 probe，正确应用一行补丁，B502 关闭。
+
+QF 的 StageReport `flow_findings=0,total=14260,complete=false`，对比 r289 的 57 条，证明 B500 v4 已关闭 file/proximity 旁路且没有篡改完整上游账本。
+终图仍漏 `Mutable`，但不是 scope 修复误删：Analyzer 将精确 `Mutable` 装饰成 `Mutable (pipeline state)` 并标 `context_only`，与已经存在且到达 prompt 的
+State/Context carrier SSOT 直接相违。finalizer 随后只按该 typed role 行事；B501 分层 recipe 在场但未被模型采用。
+
+没有独立 precise typed 信号可安全反转 analyzer role；禁止用 request/entities/final prose 关键词做硬 promotion，也不由系统补图。记
+`B503-PARTROLEVAR1/P2-high-impact-watch` 为单次模型合同波动，异构复发后再评估 schema 级交叉约束。Explorer 63 轮/31 mid-loop/11 completion
+另入 lifecycle 审计候选，不与关系权限混修。
+
+状态：`B500=v4-production-closed`；`B502=production-closed`；`B501=pending-production-witness`；
+`B503=P2-watch`；`system-relation/diagram/conclusion-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。

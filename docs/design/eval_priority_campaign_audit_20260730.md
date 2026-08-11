@@ -31406,3 +31406,29 @@ repair，不降低 duplicate-id validator。
 状态：`B500=v4-implemented/package-suites-pass/pending-production-replay`；`B501=implemented/pending-production-replay`；
 `B502=implemented/pending-production-replay`；`B491=production-positive`；`system-relation/diagram/answer-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace windows/causal projection/auto-supplement/on-chain cause families=`unchanged`。
+
+### 123.522 r290：principal scope 生产关闭；上游 participant role 单次违约
+
+`main@4611c2816` 严格并行 QF architecture read 与 Python write plan。runner 1/2、人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_write_r290_20260810_manual_audit.md`。
+
+write 案一次产出正确计划和一行补丁；新 JSON SSOT 被直接消费，唯一 probe 只放在 owning change 的
+`changes[0].verification_probes`，没有 top-level 重复、duplicate-id repair 或 replan。B502 获生产正证并关闭。
+
+QF 对 B500 v4 给出直接正证：finalizer-facing StageReport 的 `flow_findings` 从 r289 的 57 降为 0，原始
+`flow_findings_total=14260` 与 `complete=false` 保留，说明 file/近邻/兄弟 endpoint 旁路已关闭，未删除完整 StageOutput/TurnA。
+最终正文基本准确，但图只保留三条 exact Orchestrator call，六个高层 participant 断开，且完全漏掉 `Mutable`，runner 的
+`missing:Mutable` 与人工 fail 一致。
+
+根因不在 relation gate 或 B500：Analyzer 违反已有 `AnalysisDiagramParticipantPlanningContract`，把用户要求参与数据流的精确身份
+`Mutable` 改写为 `Mutable (pipeline state)`，并错误标成 `context_only`；后续 typed contract 因而明确要求不要为完整性连接它。
+同一 prompt 已逐字规定 State/Context carrier 在被请求连接时必须 `incident_required` 且 identity verbatim。当前没有第二个独立 precise typed
+载体否证该 role；`entities` 也是同一模型产物且无方向/连接权威。若系统据原始问题、实体词或最终答案硬抬角色，会违反“嘈声信号不作硬门”和禁止原文扫描红线。
+故立 `B503-PARTROLEVAR1/P2-high-impact-watch`，先按模型/Analyzer 单次合同波动记录；异构复发前不增硬门。
+
+B501 的语言无关 layered recipe 已到达 finalizer，但本模型未消费，保持 implemented/pending-production-witness。另观察 Explorer 63 iterations、31 次
+mid-loop、11 次 completion 与一次 prune；先立 typed lifecycle 审计候选，不据单例调预算或削 evidence。
+
+状态：`B500=v4-production-closed`；`B502=production-closed`；`B501=implemented/pending-production-witness`；
+`B503=P2-high-impact-watch/model-contract-variance`；`system-relation/diagram/answer-authoring=none`；
+`raw-request/model/final-prose-hard-gate=none`；Trace windows/causal projection/auto-supplement/on-chain causes/business clues=`unchanged`。
