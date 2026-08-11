@@ -3835,3 +3835,13 @@ Principal Enumeration Rows、Required Principal Member Set、pre-emit obligation
 
 全量 `internal/types`、`internal/agent`、`internal/tool` 回归通过；状态：
 `B516=implemented/package-suites-pass/pending-production-replay`。
+
+#### §11.10.97 B517：活跃 SSE 的 4 分钟无正文降级臂退役
+
+确认并修复 `B517-STREAMLIVE1/P0`：OpenAI SSE 原先在 hidden reasoning 持续到达、连接活跃时，仍以 1× `requestTimeout` 的 visible-idle 时钟取消请求，
+随后 Finalizer fallback 发布系统降级摘要。该信号不能证明模型不会产出正文，且会越过模型答案所有权。
+
+现退役 OpenAI SSE 的该铸错臂；首字节、真实 byte stall、2× request timeout 绝对上限继续独立生效。回归证明 reasoning 可越过 1× timeout 后正常返回正文，
+永久 heartbeat/reasoning 仍受 2× cap 约束。兼容 error/fallback 保留给其他 adapter 的显式 typed failure，不再由活跃 OpenAI-compatible 流产生。
+
+状态：`B517=implemented/package-suites-pass/pending-production-replay`；`system-answer-takeover-on-active-stream=removed`；Trace=`unchanged`。

@@ -646,17 +646,22 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	// the upstream stops sending useful stream progress for too
 	// long. The streaming HTTP client intentionally has no global
 	// http.Client.Timeout so legitimate long answers are not killed
-	// while bytes are flowing; instead the watchdog enforces four
+	// while bytes are flowing; instead the watchdog enforces three
 	// product-level caps:
 	//   - no first usable SSE chunk within streamFirstByteTimeout;
 	//   - no SSE progress after the stream starts within streamStallTimeout;
-	//   - no visible assistant/tool output within requestTimeout even
-	//     if hidden reasoning chunks keep the TCP/SSE stream active;
 	//   - total wall-clock above 2×requestTimeout regardless of flow —
-	//     a stream that keeps emitting visible deltas resets every idle
-	//     watchdog above, so without this cap a degenerate model can run
+	//     a stream that keeps emitting bytes resets the idle watchdog,
+	//     so without this cap a reasoning-heavy or degenerate model can run
 	//     arbitrarily long (customer dead-session 2026-07-03: 14m35s
 	//     against timeout=10m before the server length ceiling fired).
+	//
+	// Hidden reasoning is real model progress, not a terminal absence of
+	// answer. In particular, requestTimeout MUST NOT be reused as a
+	// visible-output idle gate: doing so killed a healthy active stream at
+	// four minutes and made the orchestrator publish a degraded evidence
+	// summary instead of waiting for the model's answer. The absolute total
+	// cap remains the bounded escape for a stream that reasons forever.
 	//
 	// Bug provenance: eval Batch I+J sgf-parsing — planner LLM
 	// streamed initial reasoning, then upstream went silent for
@@ -741,7 +746,7 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	defer close(bodyClosed)
 
 	// Start the stall watchdog. Tracker stores the Unix-nano time of
-	// the last usable assistant progress chunk read by the SSE scanner;
+	// the last SSE byte-bearing line read by the scanner;
 	// watchdog ticks every 5 s and cancels the request context when
 	// the gap exceeds streamStallTimeout. Cancellation closes the
 	// response body, so the scanner's next Read call returns an error
@@ -757,15 +762,11 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	// thinking they pressed Ctrl+C when really upstream stalled.
 	var lastReadNano atomic.Int64
 	lastReadNano.Store(time.Now().UnixNano())
-	var lastVisibleNano atomic.Int64
-	lastVisibleNano.Store(time.Now().UnixNano())
 	var firstByteReceived atomic.Bool
 	var watchdogFired atomic.Bool
 	var firstByteFired atomic.Bool
-	var noVisibleFired atomic.Bool
 	var totalCapFired atomic.Bool
-	var watchdogIdle atomic.Int64  // ns
-	var noVisibleIdle atomic.Int64 // ns
+	var watchdogIdle atomic.Int64 // ns
 	var totalCapElapsed atomic.Int64
 	streamStart := time.Now()
 	totalCap := streamTotalWallClockCap(o.requestTimeout)
@@ -774,7 +775,6 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	if stallTimeout <= 0 {
 		stallTimeout = defaultStreamStallTimeout
 	}
-	visibleTimeout := o.requestTimeout
 	// Tick interval is the smaller of the two thresholds / 4 to give
 	// the SHORTER timeout adequate detection resolution. Bounded
 	// above by streamStallTickInterval (5s) so long stallTimeouts
@@ -819,16 +819,6 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 						return
 					}
 				}
-				if visibleTimeout > 0 && firstByteReceived.Load() {
-					visibleIdle := time.Since(time.Unix(0, lastVisibleNano.Load()))
-					if visibleIdle > visibleTimeout {
-						logging.Warning("[llm/stream] stream produced no visible assistant/tool output for %v (requestTimeout=%v) while SSE was active; aborting", visibleIdle, visibleTimeout)
-						noVisibleIdle.Store(int64(visibleIdle))
-						noVisibleFired.Store(true)
-						cancel()
-						return
-					}
-				}
 				if totalCap > 0 {
 					if elapsed := time.Since(streamStart); elapsed > totalCap {
 						logging.Warning("[llm/stream] stream exceeded total wall-clock cap (%v > %v = %d×request timeout %v) while deltas were still flowing; aborting",
@@ -843,7 +833,7 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		}
 	}()
 
-	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, &lastVisibleNano)
+	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -863,11 +853,6 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		} else if firstByteFired.Load() {
 			err = &StreamFirstByteTimeoutError{
 				IdleFor: time.Duration(watchdogIdle.Load()),
-				Cause:   err,
-			}
-		} else if noVisibleFired.Load() {
-			err = &StreamNoVisibleOutputTimeoutError{
-				IdleFor: time.Duration(noVisibleIdle.Load()),
 				Cause:   err,
 			}
 		} else if totalCapFired.Load() {
@@ -1121,10 +1106,10 @@ func streamTotalWallClockCap(requestTimeout time.Duration) time.Duration {
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
 func parseSSEStream(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
-	return parseSSEStreamTracked(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte, nil)
+	return parseSSEStreamTracked(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte)
 }
 
-func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, visibleProgress *atomic.Int64) (Response, error) {
+func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -1160,10 +1145,10 @@ scan:
 		// not refusing to speak, and killing the request mid-heartbeat
 		// punished exactly the reasoning-model gateways that heartbeat
 		// while holding assistant output until thinking completes.
-		// firstByte / gotAnyChunk / visibleProgress semantics are
+		// firstByte / gotAnyChunk semantics are
 		// unchanged below: only a parseable data chunk counts as
 		// CONTENT, so the empty-stream verdict stays strict and the
-		// visible-output + total wall-clock watchdogs still bound a
+		// total wall-clock watchdog still bounds a
 		// provider that heartbeats forever without ever speaking.
 		if progress != nil {
 			progress.Store(time.Now().UnixNano())
@@ -1219,7 +1204,6 @@ scan:
 			continue
 		}
 		chunkProgress := chunk.Usage != nil
-		visibleChunkProgress := false
 		for _, ch := range chunk.Choices {
 			if strings.TrimSpace(ch.FinishReason) != "" ||
 				ch.Delta.Content != "" ||
@@ -1227,11 +1211,6 @@ scan:
 				strings.TrimSpace(ch.Delta.Role) != "" ||
 				len(ch.Delta.ToolCalls) > 0 {
 				chunkProgress = true
-			}
-			if strings.TrimSpace(ch.FinishReason) != "" ||
-				ch.Delta.Content != "" ||
-				len(ch.Delta.ToolCalls) > 0 {
-				visibleChunkProgress = true
 			}
 		}
 		if !chunkProgress {
@@ -1249,9 +1228,6 @@ scan:
 		}
 		if !gotAnyChunk && firstByte != nil {
 			firstByte.Store(true)
-		}
-		if visibleChunkProgress && visibleProgress != nil {
-			visibleProgress.Store(time.Now().UnixNano())
 		}
 		gotAnyChunk = true
 

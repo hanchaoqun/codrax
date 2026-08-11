@@ -107,54 +107,58 @@ func TestDoStreamRequest_FirstByteTimeoutFires(t *testing.T) {
 	}
 }
 
-func TestDoStreamRequest_HiddenReasoningOnlyHitsVisibleOutputTimeout(t *testing.T) {
+func TestDoStreamRequest_ActiveHiddenReasoningMayOutlastRequestTimeoutAndFinish(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		f, _ := w.(http.Flusher)
-		ticker := time.NewTicker(50 * time.Millisecond)
-		defer ticker.Stop()
-		for {
+		for i := 0; i < 13; i++ {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
+			case <-time.After(50 * time.Millisecond):
 				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n"))
 				if f != nil {
 					f.Flush()
 				}
 			}
 		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if f != nil {
+			f.Flush()
+		}
 	}))
 	defer server.Close()
 
 	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
 		Stream:                 true,
-		RequestTimeout:         350 * time.Millisecond,
+		RequestTimeout:         500 * time.Millisecond, // absolute cap = 1s
 		RetryMaxAttempts:       1,
 		StreamFirstByteTimeout: time.Second,
 		StreamStallTimeout:     5 * time.Second,
 	})
 
 	start := time.Now()
-	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatalf("expected no-visible-output timeout error; got nil")
+	if err != nil {
+		t.Fatalf("active hidden reasoning must not be mistaken for absent output: %v", err)
 	}
-	if !errors.Is(err, ErrStreamNoVisibleOutputTimeout) {
-		t.Fatalf("expected ErrStreamNoVisibleOutputTimeout in chain; got %v", err)
+	if resp.Content != "answer" {
+		t.Fatalf("late visible answer = %q, want answer", resp.Content)
 	}
-	if errors.Is(err, ErrStreamFirstByteTimeout) || errors.Is(err, ErrStreamStalled) {
-		t.Fatalf("hidden reasoning should trip visible-output timeout, not first-byte/stall: %v", err)
+	if elapsed <= 500*time.Millisecond {
+		t.Fatalf("test did not outlast requestTimeout; elapsed=%v", elapsed)
 	}
-	if elapsed > 2*time.Second {
-		t.Errorf("visible-output timeout took %v; expected <2s", elapsed)
+	if elapsed >= time.Second {
+		t.Fatalf("test must finish before the absolute total cap; elapsed=%v", elapsed)
 	}
 }
 
-func TestDoStreamRequest_ToolCallProgressAvoidsVisibleOutputTimeout(t *testing.T) {
+func TestDoStreamRequest_ToolCallStreamCompletesWithinTotalCap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -181,7 +185,7 @@ func TestDoStreamRequest_ToolCallProgressAvoidsVisibleOutputTimeout(t *testing.T
 
 	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
 		Stream:                 true,
-		RequestTimeout:         250 * time.Millisecond,
+		RequestTimeout:         400 * time.Millisecond, // absolute cap = 800ms
 		RetryMaxAttempts:       1,
 		StreamFirstByteTimeout: time.Second,
 		StreamStallTimeout:     5 * time.Second,
@@ -189,7 +193,7 @@ func TestDoStreamRequest_ToolCallProgressAvoidsVisibleOutputTimeout(t *testing.T
 
 	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	if err != nil {
-		t.Fatalf("tool-call deltas are visible protocol progress and should not timeout: %v", err)
+		t.Fatalf("tool-call stream should finish within the absolute total cap: %v", err)
 	}
 }
 
@@ -391,9 +395,9 @@ func TestDoStreamRequest_StallAfterFirstByteUsesStallTimeout(t *testing.T) {
 // opposite contract. Same reversal as the first-byte twin above: a
 // mid-stream heartbeat proves the connection and the server are alive,
 // so a stream that pauses its content past stallTimeout while
-// heartbeating and then finishes must succeed. The visible-output
-// watchdog (requestTimeout) and the total wall-clock cap still bound
-// the case where heartbeats flow forever without further content.
+// heartbeating and then finishes must succeed. The total wall-clock cap
+// still bounds the case where heartbeats flow forever without further
+// content.
 func TestDoStreamRequest_KeepAlivesResetStallWatchdog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

@@ -31982,3 +31982,20 @@ Finalizer 初始教学与 pre-emit 修补回合现在同源并置 `selection_fam
 
 状态：`B516=implemented/package-suites-pass/pending-production-replay`；`system-answer/member-authoring=none`；
 `raw-request/model/final-prose-hard-gate=none`；Trace explicit-window causal projection/auto-supplement/chain root causes=`unchanged`。
+
+### 123.553 B517：活跃推理流不得在 1× request timeout 被改写为降级答案
+
+确认 `B517-STREAMLIVE1/P0`：OpenAI-compatible SSE watchdog 同时维护 byte liveness 与 visible output 两套时钟；当 reasoning chunk 持续到达但尚未产生
+assistant content/tool call 时，后者在 `requestTimeout`（生产常见形为约 4 分钟）直接 cancel。该 typed error 被 Finalizer 专用 fallback 消费，跳过常规答案校验并发布
+系统整理的“降级答案”。因此“连接活跃但模型仍在思考”被错误等价为“模型不会产出答案”，系统提前接管了模型答案所有权。
+
+生产修复删除 OpenAI SSE 的 visible-idle cancel/铸错臂，保留三条独立安全边界：首个 usable SSE 超时、真实 byte silence stall、`2×requestTimeout`
+绝对总时长上限。hidden reasoning 现在既算 usable chunk 又算 byte progress，可以超过 1× request timeout 后正常交付正文；若永久推理/heartbeat，则仍由 2×
+绝对上限 fail-loud，不会无限挂死。`StreamNoVisibleOutputTimeoutError` 与编排 fallback 暂留为其他 adapter/历史显式 typed error 的兼容入口，但 OpenAI SSE 不再因活跃流
+自动铸造该错误。
+
+新回归用 500ms request timeout、连续 650ms reasoning、随后正文 `answer`，证明超过 1× budget 后仍成功且在 2× cap 前完成；同时保留 heartbeat-only 与
+持续 visible delta 的 total-cap 负臂、首字节/真实 stall 独立臂。`internal/llm` 全量与相关 `internal/orchestrator` 回归通过。
+
+状态：`B517=implemented/package-suites-pass/pending-production-replay`；`active-stream/degraded-answer-at-1x=removed`；
+`total-wall-clock-bound=preserved`；`model-answer-ownership=preserved`；Trace families=`unchanged`。

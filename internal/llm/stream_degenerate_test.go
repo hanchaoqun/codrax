@@ -141,7 +141,7 @@ func TestParseSSEStream_DegenerateBreakerFires(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestParseSSEStream_NormalLongContentNotTruncated(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +215,7 @@ var errStreamProbe = errors.New("probe")
 
 // TestDoStreamRequest_TotalWallClockCapFires covers the runaway case the
 // customer hit 2026-07-03: visible deltas keep flowing (resetting the
-// stall and visible-output watchdogs) but the request as a whole runs
+// stall watchdog) but the request as a whole runs
 // past every budget. The server emits a fresh visible delta every 30ms
 // forever; with requestTimeout=400ms the total cap (800ms) must abort.
 func TestDoStreamRequest_TotalWallClockCapFires(t *testing.T) {

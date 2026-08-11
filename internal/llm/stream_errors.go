@@ -129,18 +129,18 @@ func (e *StreamFirstByteTimeoutError) Is(target error) bool {
 	return target == ErrStreamFirstByteTimeout
 }
 
-// ErrStreamNoVisibleOutputTimeout is raised when a stream keeps sending
-// provider-native hidden reasoning / keepalive-like progress but never emits
-// user-visible assistant content or protocol tool-call data within the
-// request timeout. Transport-level watchdogs intentionally count hidden
-// reasoning as bytes, but the product must still bound "the user sees
-// 请求模型中 forever" hangs.
+// ErrStreamNoVisibleOutputTimeout is retained for compatibility with adapters
+// that may already return this typed error. The OpenAI SSE adapter no longer
+// mints it from an active hidden-reasoning stream: requestTimeout is not a
+// visible-output idle deadline, and the independent total wall-clock cap is
+// the bounded escape for a model that reasons forever.
 var ErrStreamNoVisibleOutputTimeout = errors.New("llm: upstream stream produced no visible output")
 
 // StreamNoVisibleOutputTimeoutError wraps the read-side cancellation when the
-// visible-output watchdog fires. It is intentionally not part of the in-adapter
-// retry allowlist: retrying a model that spends the whole request budget in
-// hidden reasoning can multiply wall-clock wait without improving recovery.
+// legacy/provider-specific visible-output watchdog fires. It is intentionally
+// not part of the in-adapter retry allowlist: retrying a model that spends the
+// whole request budget in hidden reasoning can multiply wall-clock wait without
+// improving recovery.
 type StreamNoVisibleOutputTimeoutError struct {
 	IdleFor time.Duration
 	Cause   error
