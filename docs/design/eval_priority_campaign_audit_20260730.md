@@ -31156,3 +31156,25 @@ declaration-only field/member 是 definition、绝非 initializer，initializer 
 
 状态：`B488=implemented/package-suite-pass/pending-production-replay`；`B489=implemented/package-suite-pass/pending-production-replay`；
 `system-edge/answer-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace causal/value machinery=`unchanged`。
+
+### 123.509 r284：B489 CPU 拓扑生产正证；B488 角色层生效、operation repair 链仍断
+
+`main@7da7b43d9` exact-two runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_stage_trace_r284_20260810_manual_audit.md`。
+
+Trace 的 wakeup completion 已精确发布 `waker_cpu=2`、`wakee_target_cpu=1`、跨 CPU，最终稿不再复现“worker 与 app 同一 CPU”的错误；显式窗、自动
+补采、链上 class verification/runnable 两席、actual/effective 双口径、因果投影和非链背景全部保留，B489 transport 获生产正证。finalizer 同时在 explorer
+已经明确 `priority_inversion_candidate=false` 后仍自行声称“持有数据或锁”并加反转候选；现有 prompt 已明确低优先级依赖不等于反转，typed aggregate 也给出
+相反值，因此记 `B494/P2-watch` 为模型结论波动，不扫描正文做 hard gate、不由系统替换结论。
+
+QF 证明 B488 第一层生效：Analyzer 六 participant 全部为 `incident_required`，Explorer 不再把 declaration-only 字段当 initializer，并实际读取
+`applyStageOutput`/`appendStageOutputEvidenceToMutable`。但它将 exact call 行发成 `predicate=writes, object=Mutable`；call normalizer 按既有红线不把显式
+non-call 语义静默改成 call，最终仅降为 text reference。工具反馈只说“缺 caller→callee”，没有发布 parser 已知的 exact tuple；completion 随后以无进展收敛，
+finalizer 5 次 patch 后只剩三条 stage precedence 与断开的 carrier，正文仍宣称共享流。确认：
+
+1. `B490-CALLREPAIR1/P1`：当 anchor_kind=call 因显式语义 endpoint 不匹配而降权，使用 exact source/parser relation 发布可复制 caller/callee repair tuple；不自动改写 evidence；
+2. `B493-FLOWNAV1/P1`：participant focused repair 除 typed missing identity 外，补入与之相关的 grounded source identity/type/method aliases，形成 bounded writer/reader navigation；这些词只用于搜索，不铸边；
+3. `B491-PARTALIAS1/P2`：typed request name `Mutable` 与 source type `MutableState` 让 boundary patch 重复五次并生成双节点；后续以 typed display/source alias recipe 降低心智，但不是本轮空边根因。
+
+状态：`B489=production-positive`；`B488=partial`；`B490/B493=P1-next`；`B491=P2`；`B494=P2-watch`；
+`runner=2/2,human=0/2`；`system-edge/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace causal/value machinery=`preserved`。

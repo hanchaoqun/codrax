@@ -3346,3 +3346,16 @@ assignment、return 等操作；declaration-only member 明确是 definition，i
 
 状态：`B488=implemented/pending-production-replay`；`B489=implemented/pending-production-replay`；
 `system-edge/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.53 r284：wakeup CPU 正证与 carrier operation repair 新残差
+
+exact-two runner 2/2、人工 0/2。Trace 已贯通 CPU2→CPU1 跨 CPU topology 且未再称同核，原有窗/补采/链上排序/双口径/投影/背景隔离通过；finalizer
+无视 explorer 的 `priority_inversion_candidate=false` 自行写反转候选，记 B494/P2-watch 模型波动，不新增 prose hard gate。
+
+QF 的 participant role 与 declaration/initializer 教学均生效，Explorer 已转向真实 orchestrator operation；但其 call row 用了 semantic `writes→Mutable`，
+安全降权后没有得到 parser exact caller/callee 修复 tuple，completion 收敛，finalizer 5 次 patch 后 carrier 仍断开。确认 B490（exact call repair recipe）与
+B493（repair targets 携 grounded source aliases/operations）为下一高 ROI 小批；B491（Mutable/MutableState visible alias churn）后置。
+
+所有方案只增加 typed/source-derived navigation 与修复信息，不自动创建 relation、diagram 或结论，不扫描 request/thinking/final prose；Trace families 不动。
+
+状态：`B489=production-positive`；`B488=partial`；`B490/B493=P1-next`；`B491=P2`；`B494=P2-watch`。
