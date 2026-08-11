@@ -541,7 +541,11 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 	}
 	if wakeupEdge == nil || wakeupEdge.Predicate != "wakeup_chain_edge" ||
 		wakeupEdge.Subject != "worker-21" || wakeupEdge.Object != "app-20" ||
+		!strings.Contains(wakeupEdge.Summary, "pre_wakeup_wait=14.000ms") ||
+		!strings.Contains(wakeupEdge.Summary, "latency_caliber=sleep_start_to_sched_wakeup") ||
+		strings.Contains(wakeupEdge.Summary, " latency=14.000ms") ||
 		!strings.Contains(wakeupEdgeNotes, "priority_inversion_candidate=true") ||
+		!strings.Contains(wakeupEdgeNotes, "wakeup_latency_caliber=sleep_start_to_sched_wakeup") ||
 		!strings.Contains(wakeupEdgeNotes, "waker_cpu=2") ||
 		!strings.Contains(wakeupEdgeNotes, "wakee_target_cpu=1") ||
 		!strings.Contains(wakeupEdgeNotes, "cpu_relation=cross_cpu") {

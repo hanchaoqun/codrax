@@ -1097,7 +1097,7 @@ type Query struct {
 	// the target's chain tree whose wakeup subtree contains the via thread
 	// are immune to the MaxBranches top-N cap, and ChainResult.ViaThread
 	// reports whether the via thread is ON a wakeup path to the target
-	// (per-hop latency) or only a scheduling-contention neighbor.
+	// (per-hop pre-wakeup wait) or only a scheduling-contention neighbor.
 	ViaThread          string
 	IncludeWindowStats bool
 	Limit              int
@@ -5726,7 +5726,8 @@ type ChainResult struct {
 	WakeupEdgeCensusOverflowEdges int `json:"wakeup_edge_census_overflow_edges,omitempty"`
 	// ViaThread is the RN-14a (§7.9) via verdict, present only when
 	// Query.ViaThread was set: either the via thread is ON a wakeup path to
-	// the target (depth + per-hop latency from existing wakeup edges, zero
+	// the target (depth + per-hop pre-wakeup wait from existing wakeup edges,
+	// zero
 	// new parsing) or it is NOT connected by any wakeup edge, in which case
 	// its influence is scheduling contention (runnable queuing), not a
 	// wakeup dependency — the decisive on-chain-root-cause vs
@@ -5754,7 +5755,7 @@ type ChainViaThreadReport struct {
 	// Depth is the via thread's minimum chain depth (hops from the target).
 	Depth int `json:"depth,omitempty"`
 	// Hops walks the wakeup edges from the via thread down to the target,
-	// one entry per hop, each with its wakeup latency.
+	// one entry per hop, each with its phase-qualified pre-wakeup wait.
 	Hops []ChainViaHop `json:"hops,omitempty"`
 	// PathComplete (§29.183 G5, additive split of the ON verdict — RN-14's
 	// OnChain node-set-membership binding stays untouched): true when Hops is
@@ -5771,12 +5772,22 @@ type ChainViaThreadReport struct {
 
 // ChainViaHop is one waker→wakee hop on the via thread's path to the target.
 type ChainViaHop struct {
-	Waker      ThreadRef `json:"waker"`
-	Wakee      ThreadRef `json:"wakee"`
-	LatencyMs  float64   `json:"latency_ms,omitempty"`
-	WakeupTs   float64   `json:"wakeup_ts,omitempty"`
-	WakeupLine int       `json:"wakeup_line,omitempty"`
+	Waker     ThreadRef `json:"waker"`
+	Wakee     ThreadRef `json:"wakee"`
+	LatencyMs float64   `json:"latency_ms,omitempty"`
+	// LatencyCaliber makes the LatencyMs phase boundary explicit. Empty is
+	// accepted only for legacy wire artifacts and is normalized at publish.
+	LatencyCaliber string  `json:"latency_caliber,omitempty"`
+	WakeupTs       float64 `json:"wakeup_ts,omitempty"`
+	WakeupLine     int     `json:"wakeup_line,omitempty"`
 }
+
+const (
+	// WakeupEdgeLatencyCaliberSleepStartToSchedWakeup is the only current
+	// WakeupEdge.LatencyMs caliber. It names a pre-wakeup sleep/blocking
+	// interval and must never be presented as post-wakeup scheduler latency.
+	WakeupEdgeLatencyCaliberSleepStartToSchedWakeup = "sleep_start_to_sched_wakeup"
+)
 
 type IPCGraphResult struct {
 	Window       TimeWindow           `json:"window"`
@@ -5900,14 +5911,20 @@ type WakeupEdge struct {
 	// absent/malformed CPU dimension distinct from an observed zero.  CPU
 	// relation describes placement only: a cross-CPU wakeup remains a causal
 	// dependency edge, but is not evidence of same-CPU occupancy competition.
-	WakerCPU                    int     `json:"waker_cpu,omitempty"`
-	WakerCPUKnown               bool    `json:"waker_cpu_known,omitempty"`
-	WakeeTargetCPU              int     `json:"wakee_target_cpu,omitempty"`
-	WakeeTargetCPUKnown         bool    `json:"wakee_target_cpu_known,omitempty"`
-	CPURelation                 string  `json:"cpu_relation,omitempty"`
-	WakeupTs                    float64 `json:"wakeup_ts"`
-	WakeupLine                  int     `json:"wakeup_line"`
+	WakerCPU            int     `json:"waker_cpu,omitempty"`
+	WakerCPUKnown       bool    `json:"waker_cpu_known,omitempty"`
+	WakeeTargetCPU      int     `json:"wakee_target_cpu,omitempty"`
+	WakeeTargetCPUKnown bool    `json:"wakee_target_cpu_known,omitempty"`
+	CPURelation         string  `json:"cpu_relation,omitempty"`
+	WakeupTs            float64 `json:"wakeup_ts"`
+	WakeupLine          int     `json:"wakeup_line"`
+	// LatencyMs is the pre-wakeup wait measured from the selected sleep or
+	// blocking segment start to this sched_wakeup row. It is NOT the runnable
+	// scheduling delay from sched_wakeup to the later switch-in. The legacy
+	// JSON key is retained for wire compatibility; LatencyCaliber makes the
+	// phase boundary explicit for every consumer.
 	LatencyMs                   float64 `json:"latency_ms,omitempty"`
+	LatencyCaliber              string  `json:"latency_caliber,omitempty"`
 	WakerPriority               int     `json:"waker_priority,omitempty"`
 	WakerPriorityClass          string  `json:"waker_priority_class,omitempty"`
 	WakerPrioritySource         string  `json:"waker_priority_source,omitempty"`

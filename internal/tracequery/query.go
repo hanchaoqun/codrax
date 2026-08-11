@@ -13705,7 +13705,7 @@ func chainThreadMatchesViaSelector(sel threadSelector, thread ThreadRef) bool {
 
 // attachChainViaThreadReport publishes the RN-14a via verdict onto the chain.
 // Both outcomes are affirmative statements (§7.4 wording discipline): ON path
-// reports depth and per-hop wakeup latency from the existing edges; NOT on
+// reports depth and per-hop pre-wakeup wait from the existing edges; NOT on
 // path states that the via thread's influence in this window is scheduling
 // contention (runnable queuing), not a wakeup dependency.
 func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
@@ -13750,7 +13750,7 @@ func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
 	report.Depth = depth
 	hopParts := make([]string, 0, len(report.Hops))
 	for _, hop := range report.Hops {
-		hopParts = append(hopParts, fmt.Sprintf("%s->%s=%.3fms", threadLabel(hop.Waker), threadLabel(hop.Wakee), hop.LatencyMs))
+		hopParts = append(hopParts, fmt.Sprintf("%s->%s=%.3fms[%s]", threadLabel(hop.Waker), threadLabel(hop.Wakee), hop.LatencyMs, hop.LatencyCaliber))
 	}
 	perHop := "n/a"
 	if len(hopParts) > 0 {
@@ -13759,7 +13759,7 @@ func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
 	// The typed path_complete token rides the Summary so the banner face
 	// (trace_query verbatim stanza) states the third state without prose
 	// re-parsing; the truncation arm keeps its prose caveat verbatim.
-	report.Summary = fmt.Sprintf("via_thread %s ON wakeup path: depth=%d, path_complete=%t, per-hop latency %s", threadLabel(viaThread), depth, complete, perHop)
+	report.Summary = fmt.Sprintf("via_thread %s ON wakeup path: depth=%d, path_complete=%t, per-hop pre-wakeup wait (sleep start -> sched_wakeup) %s", threadLabel(viaThread), depth, complete, perHop)
 	if !complete {
 		report.Summary += ";跨分支,逐跳序不可得 — no time-consistent (non-decreasing wakeup_ts) edge sequence reaches the target, hop list shows the reachable prefix only"
 	}
@@ -13804,12 +13804,17 @@ func viaMonotonicHops(res *ChainResult, via ThreadRef) ([]ChainViaHop, bool) {
 		sort.SliceStable(idxs, func(a, b int) bool { return res.Edges[idxs[a]].WakeupTs < res.Edges[idxs[b]].WakeupTs })
 	}
 	hopFromEdge := func(e *WakeupEdge) ChainViaHop {
+		caliber := strings.TrimSpace(e.LatencyCaliber)
+		if caliber == "" {
+			caliber = WakeupEdgeLatencyCaliberSleepStartToSchedWakeup
+		}
 		return ChainViaHop{
-			Waker:      e.Waker,
-			Wakee:      e.Wakee,
-			LatencyMs:  e.LatencyMs,
-			WakeupTs:   e.WakeupTs,
-			WakeupLine: e.WakeupLine,
+			Waker:          e.Waker,
+			Wakee:          e.Wakee,
+			LatencyMs:      e.LatencyMs,
+			LatencyCaliber: caliber,
+			WakeupTs:       e.WakeupTs,
+			WakeupLine:     e.WakeupLine,
 		}
 	}
 	// BFS over (pid, lastTs) states. Dominance: reaching a pid again is only
@@ -24975,6 +24980,7 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 		WakeupTs:                    wakeup.Ts,
 		WakeupLine:                  wakeup.Line,
 		LatencyMs:                   (wakeup.Ts - seg.StartTs) * 1000,
+		LatencyCaliber:              WakeupEdgeLatencyCaliberSleepStartToSchedWakeup,
 		WakerPriority:               wakerPrio,
 		WakerPriorityClass:          classifyTracePriority(q.TraceFlavor, wakerPrio),
 		WakerPrioritySource:         string(verdict.Subject.Caliber),

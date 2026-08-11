@@ -1260,6 +1260,7 @@ const (
 	// additive *_artifact_source(s) keys carry physical artifact:N identities;
 	// compatibility caliber fields are deliberately not renamed.
 	TraceNoteKeyWakeupTs                    = "wakeup_ts"
+	TraceNoteKeyWakeupLatencyCaliber        = "wakeup_latency_caliber"
 	TraceNoteKeyWakerPrioritySource         = "waker_priority_source"
 	TraceNoteKeyWakerPriorityArtifactSource = "waker_priority_artifact_source"
 	TraceNoteKeyWakeePrioritySource         = "wakee_priority_source"
@@ -2050,6 +2051,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"edges", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"nodes", "chain_path", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWakeupTs, "chain_path", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyWakeupLatencyCaliber, "chain_path", TraceNoteCarrierSoftConsumer},
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"waker_priority", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"wakee_priority", "chain_path", TraceNoteCarrierDisplayOnly},

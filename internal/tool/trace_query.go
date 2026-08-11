@@ -230,7 +230,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "max_depth": {"type":"integer","maximum":__WAKEUP_MAX_DEPTH__,"description":"wakeup_chain recursion limit; default __WAKEUP_MAX_DEPTH__ and hard maximum __WAKEUP_MAX_DEPTH__. The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
 	    "max_branches": {"type":"integer","maximum":__WAKEUP_MAX_BRANCHES__,"description":"Maximum branches to report; default __WAKEUP_MAX_BRANCHES__ and hard maximum __WAKEUP_MAX_BRANCHES__. Also caps per-node segment expansions at every chain depth (the guaranteed most-interesting segment plus budget-ranked extra sleep segments). The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
 	    "max_chain_nodes": {"type":"integer","maximum":__WAKEUP_MAX_CHAIN_NODES__,"description":"wakeup_chain global node budget; default __WAKEUP_MAX_CHAIN_NODES__ and hard maximum __WAKEUP_MAX_CHAIN_NODES__. Beyond each node's guaranteed most-interesting segment, additional sleep segments expand in wall-clock value order only while the chain node count stays below this budget; a chain_expansion_budget_reached caveat honestly counts candidates left unexpanded. Lower it toward 1 for the minimal single-segment-per-node chain. The engine also clamps larger values and discloses the effective value in result caveats."},
-    "via_thread": {"type":"string","description":"For view=wakeup_chain: optional thread selector (same forms as thread: pid, \"comm-pid\", or a full thread name; matched exactly, never by substring). Target-thread segments whose wakeup subtree contains this thread are expanded even when max_branches would drop them, and the result reports a via_thread verdict: ON a wakeup path to the target with depth and per-hop wakeup latency, or NOT connected by any wakeup edge in this window, meaning its influence is scheduling contention (runnable queuing) rather than a wakeup dependency. The ON verdict additionally carries typed path_complete: path_complete=true means the hop list is a complete time-consistent (non-decreasing wakeup_ts) path down to the target, while path_complete=false means the via thread IS on the chain's node set but no complete time-consistent hop sequence reaches the target, so the hop list is the reachable prefix only — still an ON verdict, never a contention verdict. Use it to test whether a runnable anchor thread sits on the user-focus thread's wakeup chain."},
+    "via_thread": {"type":"string","description":"For view=wakeup_chain: optional thread selector (same forms as thread: pid, \"comm-pid\", or a full thread name; matched exactly, never by substring). Target-thread segments whose wakeup subtree contains this thread are expanded even when max_branches would drop them, and the result reports a via_thread verdict: ON a wakeup path to the target with depth and per-hop pre-wakeup wait (sleep/blocking start to sched_wakeup, never post-wakeup scheduling delay), or NOT connected by any wakeup edge in this window, meaning its influence is scheduling contention (runnable queuing) rather than a wakeup dependency. The ON verdict additionally carries typed path_complete: path_complete=true means the hop list is a complete time-consistent (non-decreasing wakeup_ts) path down to the target, while path_complete=false means the via thread IS on the chain's node set but no complete time-consistent hop sequence reaches the target, so the hop list is the reachable prefix only — still an ON verdict, never a contention verdict. Use it to test whether a runnable anchor thread sits on the user-focus thread's wakeup chain."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
     "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible. On devices where each CPU cluster shares one frequency point, frequency-weighted results reuse a same-cluster sampled core's cpu_frequency timeline for cluster members without their own samples (each reuse is disclosed per row/caveat together with its membership source): an explicit map is the authoritative membership, and in its absence clusters are derived from identical cpu_frequency change-point timelines with downward core-number inheritance only (cores above the highest sampled core are never extrapolated), so pass the real topology whenever known — it always overrides the derivation."},
@@ -4532,6 +4532,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- %s\n", sanitizeForBanner(via.Summary))
 		}
 		for _, edge := range result.WakeupChain.Edges {
+			edge = traceQueryWakeupEdgeLatencyForPublication(edge)
 			priorityProof := ""
 			cpuProof := traceQueryWakeupEdgeCPUProof(edge)
 			if edge.WakerPrioritySource != "" {
@@ -4552,8 +4553,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if edge.PriorityRelationCaliber != "" {
 				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (pre_wakeup_wait %.3fms latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
+				sanitizeForBanner(edge.LatencyCaliber),
 				cpuProof,
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
 				priorityProof,
@@ -11761,6 +11763,7 @@ func traceQueryTypedWakeupBranchPathRichNotes(chain tracequery.ChainResult, br t
 
 func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string) []string {
 	edge = traceQueryPriorityWakeupEdgeForPublication(edge)
+	edge = traceQueryWakeupEdgeLatencyForPublication(edge)
 	relation := traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)
 	inversion := traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber)
 	// CHAIN-BUDGET 返工 P3⑤: the extra-lane segment ordinal travels on the
@@ -11777,6 +11780,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 		{"segment_ordinal", segmentOrdinal},
 		{types.TraceNoteKeyWakeupTs, traceQueryTimestampValue(edge.WakeupTs)},
 		{"latency", traceQueryObservationMSValue(edge.LatencyMs)},
+		{types.TraceNoteKeyWakeupLatencyCaliber, edge.LatencyCaliber},
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
 		{"wakee_priority", traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass)},
 		{types.TraceNoteKeyWakerPrioritySource, edge.WakerPrioritySource},
@@ -11795,6 +11799,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 
 func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	edge = traceQueryPriorityWakeupEdgeForPublication(edge)
+	edge = traceQueryWakeupEdgeLatencyForPublication(edge)
 	relation := traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)
 	inversion := traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber)
 	parts := []string{
@@ -11808,7 +11813,7 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 		parts = append(parts, fmt.Sprintf("segment_ordinal=%d", edge.SegmentOrdinal))
 	}
 	if edge.LatencyMs > 0 {
-		parts = append(parts, fmt.Sprintf("latency=%.3fms", edge.LatencyMs))
+		parts = append(parts, fmt.Sprintf("pre_wakeup_wait=%.3fms", edge.LatencyMs), "latency_caliber="+edge.LatencyCaliber)
 	}
 	if edge.WakerCPUKnown {
 		parts = append(parts, fmt.Sprintf("waker_cpu=%d", edge.WakerCPU))
@@ -14870,6 +14875,13 @@ func traceQueryPriorityCoverageForPublication(caliber string, provenLower, unkno
 
 func traceQueryPriorityWakeupEdgeForPublication(edge tracequery.WakeupEdge) tracequery.WakeupEdge {
 	return traceQueryPriorityWakeupEdgeForPublicationInUniverse(edge, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryWakeupEdgeLatencyForPublication(edge tracequery.WakeupEdge) tracequery.WakeupEdge {
+	if strings.TrimSpace(edge.LatencyCaliber) == "" {
+		edge.LatencyCaliber = tracequery.WakeupEdgeLatencyCaliberSleepStartToSchedWakeup
+	}
+	return edge
 }
 
 func traceQueryPriorityWakeupEdgeForPublicationInUniverse(edge tracequery.WakeupEdge, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupEdge {

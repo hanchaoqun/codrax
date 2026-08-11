@@ -5207,3 +5207,29 @@ edge、relation_kind 和 anchor JSON；disconnected supporting component 明确�
 状态：`B577b=production-positive`；`B581=next`；`B580=production-positive`；`B582=next`；
 `runner=2/2`；`human=0/2`；`finalizer-rejects=4`；`active-stream-316s=no-degrade`；
 `raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.190 B581：WakeupEdge 等待值补齐相位口径，禁止冒充唤醒后调度延迟
+
+代码复核确认 `WakeupEdge.LatencyMs` 的唯一生产公式为
+`(sched_wakeup.ts - selected_sleep_or_blocking_segment.start) * 1000`。它度量的是线程从进入该 sleep/blocking 段到
+`sched_wakeup` 的**唤醒前等待**，不是 `sched_wakeup → sched_switch(next=target)` 的 runnable 调度延迟，也不能证明相邻业务 span
+已完成或触发了 wakeup。旧实现却在 query banner、typed observation summary、via-thread 逐跳摘要和 finalizer wait evidence 四面分别发射
+`latency`、`per-hop latency`、`wakeup latency`，把确定性正确数值配上了错误相位语义；这是系统上下文污染，不是模型波动。
+
+本批保留兼容 wire key `latency_ms`，在 `WakeupEdge` 与 `ChainViaHop` 增加闭合口径
+`latency_caliber=sleep_start_to_sched_wakeup`。引擎新构造直接铸造该口径；legacy/手工结果在发布 chokepoint 按这个字段唯一既有定义补齐，
+不猜测其他延迟。查询横幅改为 `pre_wakeup_wait`，typed summary 同时给出值与 caliber，模型 wait-evidence 明确写出
+`sleep/blocking start → sched_wakeup`，via-thread 每跳也携带同一口径；`sched_wakeup → switch-in` 仍只由 runnable 调度账户提供，两个相位
+不得相加或改名。新增 note key 进入 registry，WakeupEdge R2' schema 完成逐字段处置后重钉；没有绕过 schema tripwire。
+
+该修复只校准系统提供给模型的精确信息，不从时间相邻推导业务完成依赖，不扫描终稿术语、不硬拒或重写模型答案，也不改变链构造、根因排序、
+可消除量、显式时间窗、因果投影或自动补齐。回归覆盖真实 BuildWakeupChain via hop 的 caliber、legacy edge 发布归一、query summary/note 双面、
+finalizer evidence 的正词与 `wakeup latency` 负 pin、note registry 和 tracediag schema pin。
+
+验证：`go test ./internal/tracequery ./internal/tool ./internal/context ./internal/tracediag` 中 tracequery/tool 全套先绿；字段重钉后
+`go test ./internal/context ./internal/tracediag`、typed observation/note 定向和 via-thread 定向均绿。下一批实施 B582，再以 exact-two
+Trace/read-combo 回放同时验收 B581/B582。
+
+状态：`B581=implemented/pending-r346`；`B582=next`；`legacy-latency-ms=preserved`；
+`post-wakeup-scheduler-latency=separate`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

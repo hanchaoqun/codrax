@@ -42,7 +42,7 @@ func buildViaChainIndex(t *testing.T) *Index {
 
 // TestWakeupChainViaThread_OnPathReportsDepthAndPerHopLatency pins the
 // on-chain verdict: via io-300 (depth 2) reports the full hop walk down to
-// the target with per-hop wakeup latency, all from existing wakeup edges.
+// the target with per-hop pre-wakeup wait, all from existing wakeup edges.
 func TestWakeupChainViaThread_OnPathReportsDepthAndPerHopLatency(t *testing.T) {
 	idx := buildViaChainIndex(t)
 	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.04, MinDurationMs: 0.05, ViaThread: "300"})
@@ -62,12 +62,12 @@ func TestWakeupChainViaThread_OnPathReportsDepthAndPerHopLatency(t *testing.T) {
 		t.Fatalf("hop walk must follow io-300 -> worker-200 -> app-100, got %+v", via.Hops)
 	}
 	for i, hop := range via.Hops {
-		if hop.LatencyMs <= 0 || hop.WakeupLine == 0 {
-			t.Fatalf("hop %d must carry per-hop wakeup latency and line anchor, got %+v", i, hop)
+		if hop.LatencyMs <= 0 || hop.LatencyCaliber != WakeupEdgeLatencyCaliberSleepStartToSchedWakeup || hop.WakeupLine == 0 {
+			t.Fatalf("hop %d must carry phase-qualified per-hop pre-wakeup wait and line anchor, got %+v", i, hop)
 		}
 	}
-	if !strings.Contains(via.Summary, "ON wakeup path: depth=2") || !strings.Contains(via.Summary, "per-hop latency") {
-		t.Fatalf("on-path summary must state depth and per-hop latency, got %q", via.Summary)
+	if !strings.Contains(via.Summary, "ON wakeup path: depth=2") || !strings.Contains(via.Summary, "per-hop pre-wakeup wait") || strings.Contains(via.Summary, "per-hop latency") {
+		t.Fatalf("on-path summary must state depth and phase-qualified per-hop pre-wakeup wait, got %q", via.Summary)
 	}
 }
 

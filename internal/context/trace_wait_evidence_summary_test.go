@@ -163,10 +163,10 @@ func TestTraceWaitEvidence_FinalizerScopesUnboundInventoryByTypedQuestion(t *tes
 // waker/wakee/timestamp; identical republications collapse; ts order.
 func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
-	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp):") {
+	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay):") {
 		t.Fatalf("wakeup edge lane missing:\n%s", summary)
 	}
-	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (wakeup latency 0.123ms)"
+	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (pre-wakeup wait: sleep/blocking start → sched_wakeup 0.123ms; latency_caliber=sleep_start_to_sched_wakeup)"
 	if got := strings.Count(summary, want); got != 1 {
 		t.Fatalf("identical edge republications must collapse to one row (got %d):\n%s", got, summary)
 	}
@@ -178,6 +178,9 @@ func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	}
 	if !strings.Contains(summary, "When the question asks WHO woke a thread (and when), use the sched_wakeup edge below") {
 		t.Fatalf("the waker consumption preamble is missing:\n%s", summary)
+	}
+	if strings.Contains(summary, "wakeup latency") {
+		t.Fatalf("pre-wakeup sleep/blocking time must never be mislabeled as post-wakeup scheduler latency:\n%s", summary)
 	}
 }
 

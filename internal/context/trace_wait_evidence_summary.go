@@ -393,8 +393,8 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	type wakeupEdge struct {
-		waker, wakee, ts, latency string
-		tsValue                   float64
+		waker, wakee, ts, latency, latencyCaliber string
+		tsValue                                   float64
 	}
 	var edges []wakeupEdge
 	seenEdges := map[string]bool{}
@@ -461,7 +461,11 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 				continue // identical republications collapse
 			}
 			seenEdges[key] = true
-			edge := wakeupEdge{waker: subject, wakee: wakee, ts: ts, latency: strings.TrimSpace(notes["latency"])}
+			caliber := strings.TrimSpace(notes[types.TraceNoteKeyWakeupLatencyCaliber])
+			if caliber == "" && strings.TrimSpace(notes["latency"]) != "" {
+				caliber = tracequery.WakeupEdgeLatencyCaliberSleepStartToSchedWakeup
+			}
+			edge := wakeupEdge{waker: subject, wakee: wakee, ts: ts, latency: strings.TrimSpace(notes["latency"]), latencyCaliber: caliber}
 			edge.tsValue, _ = strconv.ParseFloat(ts, 64)
 			edges = append(edges, edge)
 			continue
@@ -1071,14 +1075,14 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	if len(selectedEdges) > 0 {
-		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp):\n")
+		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay):\n")
 		for _, edge := range selectedEdges {
 			line := "- " + edge.waker + " → " + edge.wakee
 			if edge.ts != "" {
 				line += " at " + edge.ts
 			}
 			if edge.latency != "" {
-				line += " (wakeup latency " + edge.latency + "ms)"
+				line += " (pre-wakeup wait: sleep/blocking start → sched_wakeup " + edge.latency + "ms; latency_caliber=" + edge.latencyCaliber + ")"
 			}
 			b.WriteString(line + "\n")
 		}

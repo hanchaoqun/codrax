@@ -1294,8 +1294,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// lane, duplicate channel, skipped field, rank/value input, or priority
 	// override.  The model-facing typed observation has its own registry-pinned
 	// notes, while tracediag remains the zero-LLM audit face.
+	// B581-WAKEEDGEPHASECALIBER1 (2026-08-11) schema review: WakeupEdge
+	// gained LatencyCaliber beside the wire-compatible LatencyMs. It names
+	// that value as sleep/blocking-segment start -> sched_wakeup, preventing
+	// consumers from mistaking it for post-wakeup runnable scheduling delay.
+	// One per-edge scalar disclosure only: no bulk/dup/skip/rank/value lane or
+	// priority override.
 	reflect.TypeOf(tracequery.ChainNode{}):  "4860488d816c9a4ce6a24e7f2d9b3c2bdf998314dfdf80087ced1835673b0ede",
-	reflect.TypeOf(tracequery.WakeupEdge{}): "a8e5e156590c8af075f64f01edf8cffb91132b4495edd930432c0a3e2f655d84",
+	reflect.TypeOf(tracequery.WakeupEdge{}): "b94e0887e581b5d0bd3bd5bde3d7d29ac3cc92fbf07dab6601a71246c25daca8",
 	// WAKE-CENSUS-D 2A (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13) schema
 	// review: WakeupEdgeCensusPair now pinned in its own right (the ChainResult
 	// hash sees only the slice's type name, so pair-level field growth was
