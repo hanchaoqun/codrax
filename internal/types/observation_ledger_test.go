@@ -273,6 +273,54 @@ func TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists(t *te
 	}
 }
 
+func TestCompileObservationLedger_PerfObservationAuthorityOwnsRoleWithQuery(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		ToolResults: []ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []ObservationRecord{{
+				ID:       "trace-query:state:0",
+				Origin:   AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query",
+				Summary:  "typed state account",
+			}},
+		}},
+		PerfBundle: &PerfBundle{Observations: []PerfObservation{
+			{
+				Authority:  PerfObservationAuthorityPreTriageModelExtraction,
+				Kind:       "scheduler_hypothesis",
+				Subject:    "model scheduler interpretation",
+				Summary:    "model-authored mechanism",
+				LineStart:  7,
+				DurationMs: 5.8,
+			},
+			{
+				Authority:  PerfObservationAuthorityDeterministicValidator,
+				Kind:       "scheduler_phase",
+				Subject:    "target runnable interval",
+				Summary:    "typed wakeup-to-run interval",
+				LineStart:  8,
+				DurationMs: 0.8,
+			},
+		}},
+	})
+
+	pretriage := findObservationRecord(t, ledger, "perf:observation:0")
+	if pretriage.Role != AnswerAggregateRoleSupportingCoverage ||
+		pretriage.GroundingPolicy != ClaimGroundingSoft ||
+		pretriage.ProvenanceLane != ObservationProvenanceInferredUpstreamPossibility ||
+		!observationLedgerTestContainsString(pretriage.RichNotes, TraceNoteMarkerNavigationOnly) ||
+		!observationLedgerTestContainsString(pretriage.RichNotes, TraceNoteMarkerAdvisoryPretriage) {
+		t.Fatalf("pre-triage model semantics must remain navigation-only beside deterministic query: %+v", pretriage)
+	}
+	deterministic := findObservationRecord(t, ledger, "perf:observation:1")
+	if deterministic.Role != AnswerAggregateRolePrincipalAnswer ||
+		deterministic.GroundingPolicy != ClaimGroundingRepairable ||
+		deterministic.ProvenanceLane != ObservationProvenanceArtifactSpan {
+		t.Fatalf("validator-owned semantics must retain principal artifact authority: %+v", deterministic)
+	}
+}
+
 func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRuntimeRecords(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		ToolResults: []ToolResult{{

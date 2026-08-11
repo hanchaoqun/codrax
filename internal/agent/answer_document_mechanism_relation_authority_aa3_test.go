@@ -528,6 +528,11 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 		"Present them as independently proved segments",
 		"Do not place the components as consecutive numbered hops",
 		"does NOT prove the program can never connect them",
+		"internal validation metadata",
+		"Do not copy those tokens into Mermaid labels/Notes, titles, tables, or answer prose",
+		"Express each proved segment with the repository's domain participants and operations",
+		"if no useful domain annotation exists, omit the visible Note",
+		"This does not authorize a cross-component edge",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("copy-ready flow missing %q:\n%s", want, got)

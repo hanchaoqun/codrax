@@ -1357,7 +1357,7 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 	if suppressModelObservations {
 		projected.Observations = make([]types.PerfObservation, 0, len(ac.PerfTrace.Observations))
 		for _, obs := range ac.PerfTrace.Observations {
-			if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+			if obs.IsNavigationOnly() {
 				continue
 			}
 			projected.Observations = append(projected.Observations, obs)
@@ -1372,7 +1372,7 @@ func shouldSuppressModelPerfObservationsInPrompt(ac *types.AgentContext) bool {
 	}
 	hasModelObservation := false
 	for _, obs := range ac.PerfTrace.Observations {
-		if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+		if obs.IsNavigationOnly() {
 			hasModelObservation = true
 			break
 		}
@@ -4357,12 +4357,38 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	if len(bundle.Observations) > 0 {
 		fmt.Fprintf(&b, "**Trace observations** (%d):\n", len(bundle.Observations))
 		for _, obs := range bundle.Observations {
-			if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
-				b.WriteString("  ⚠ Entries with `authority=pretriage_model_extraction` are model-extracted navigation hypotheses. Verify their numeric, scheduler-class, mechanism, and causal claims with deterministic trace tools before using them in an answer.\n")
+			if obs.IsNavigationOnly() {
+				b.WriteString("  ⚠ Non-validator entries are model-extracted navigation locators. Their free-form subject, summary, evidence, and tags are deliberately withheld here; inspect the referenced raw trace region and use deterministic trace tools for numeric, scheduler-class, mechanism, and causal claims.\n")
 				break
 			}
 		}
 		for i, obs := range bundle.Observations {
+			if obs.IsNavigationOnly() {
+				fmt.Fprintf(&b, "  [%d] navigation_locator", i+1)
+				if obs.Authority != "" {
+					fmt.Fprintf(&b, " authority=%s", obs.Authority)
+				} else {
+					b.WriteString(" authority=unspecified_navigation_only")
+				}
+				if obs.LineStart > 0 {
+					if obs.LineEnd > obs.LineStart {
+						fmt.Fprintf(&b, " candidate_trace_lines=%d-%d", obs.LineStart, obs.LineEnd)
+					} else {
+						fmt.Fprintf(&b, " candidate_trace_line=%d", obs.LineStart)
+					}
+				}
+				if obs.StartTsMs > 0 {
+					fmt.Fprintf(&b, " candidate_start_ts_ms=%.3f", obs.StartTsMs)
+				}
+				if obs.EndTsMs > 0 {
+					fmt.Fprintf(&b, " candidate_end_ts_ms=%.3f", obs.EndTsMs)
+				}
+				if obs.DurationMs > 0 {
+					fmt.Fprintf(&b, " candidate_duration_ms=%.3f", obs.DurationMs)
+				}
+				b.WriteString("\n")
+				continue
+			}
 			label := strings.TrimSpace(obs.Subject)
 			if label == "" {
 				label = "observation"
@@ -4499,7 +4525,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
 	b.WriteString("- PerfFrame `janky` and PerfJank membership emitted by pre-triage are navigation candidates unless a separate typed refresh/deadline authority proves the verdict; trigger/tags/reason retain their independent causal-authority ceiling.\n")
 	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
-	b.WriteString("- `authority=pretriage_model_extraction` observations are navigation-only until independently verified; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
+	b.WriteString("- Non-validator trace observations are navigation-only and expose only candidate locators in this prompt; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
 	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")
 
 	return strings.TrimRight(b.String(), "\n")

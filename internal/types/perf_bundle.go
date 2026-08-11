@@ -175,6 +175,15 @@ type PerfObservation struct {
 	Confidence float64                  `json:"confidence,omitempty"`
 }
 
+// IsNavigationOnly reports whether this observation can be used only to
+// locate a trace region for deterministic follow-up. The zero authority is
+// intentionally fail-closed for bundles produced before Authority existed:
+// model-authored subject/summary text must not silently become semantic or
+// causal authority merely because the producer omitted the discriminator.
+func (o PerfObservation) IsNavigationOnly() bool {
+	return o.Authority != PerfObservationAuthorityDeterministicValidator
+}
+
 // PerfFrame represents a single UI frame the trace observed.
 // FrameNo + TsMs make each frame uniquely addressable so the
 // validator can detect duplicates.

@@ -658,6 +658,14 @@ func reconcileRuntimeObservationProducerPrecedence(records []ObservationRecord) 
 		if record.Origin != AnswerEvidenceOriginRuntimeArtifact || !runtimeObservationProducerIsPreTriage(record.Producer) {
 			continue
 		}
+		// PerfObservation is a mixed-authority carrier. Its compile path stamps
+		// model/legacy navigation rows explicitly; a validator-owned row uses
+		// the same producer family but must not be demoted merely because a
+		// later trace_query exists.
+		if strings.HasPrefix(record.ID, "perf:observation:") &&
+			!observationRecordHasRichNote(record, TraceNoteMarkerNavigationOnly) {
+			continue
+		}
 		if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
 			record.Role = AnswerAggregateRoleSupportingCoverage
 		}
@@ -3841,13 +3849,23 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 		})
 	}
 	for i, obs := range bundle.Observations {
+		role := AnswerAggregateRolePrincipalAnswer
+		groundingPolicy := AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, role)
+		provenanceLane := observationProvenanceLaneForPerfObservation(obs)
+		richNotes := cloneStringSlice(obs.Tags)
+		if obs.IsNavigationOnly() {
+			role = AnswerAggregateRoleSupportingCoverage
+			groundingPolicy = ClaimGroundingSoft
+			provenanceLane = ObservationProvenanceInferredUpstreamPossibility
+			richNotes = appendUniqueObservationString(richNotes, TraceNoteMarkerNavigationOnly)
+		}
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("perf:observation:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "perf_trace",
-			Role:            AnswerAggregateRolePrincipalAnswer,
-			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			ProvenanceLane:  observationProvenanceLaneForPerfObservation(obs),
+			Role:            role,
+			GroundingPolicy: groundingPolicy,
+			ProvenanceLane:  provenanceLane,
 			SourceRef:       perfObservationSourceRef(bundle, ""),
 			Span: ObservationSpan{
 				LineStart: obs.LineStart,
@@ -3862,7 +3880,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Unit:       "ms",
 			Summary:    strings.TrimSpace(obs.Summary),
 			RawExcerpt: strings.TrimSpace(obs.Evidence),
-			RichNotes:  cloneStringSlice(obs.Tags),
+			RichNotes:  richNotes,
 			Confidence: obs.Confidence,
 		})
 	}

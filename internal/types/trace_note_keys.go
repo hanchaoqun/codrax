@@ -1377,6 +1377,7 @@ const (
 // consumer MUST both reference these composites — never rebuild the string
 // from parts at a call site (the exact-match consumer would silently miss).
 const (
+	TraceNoteMarkerNavigationOnly        = TraceNoteKeyAdvisoryPretriage + "=true"
 	TraceNoteMarkerAdvisoryPretriage     = TraceNoteKeyAdvisoryPretriage + "; " + TraceNoteKeyDeterministicRuntimeQueryPresent + "=true"
 	TraceNoteMarkerLegacySummaryFallback = TraceNoteKeyLegacySummaryFallback + "=true; " + TraceNoteKeyNotAnswerGrade + "=true"
 )

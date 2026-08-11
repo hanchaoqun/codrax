@@ -273,7 +273,7 @@ func TestTraceNoteKeyLedgerMarkerSitesUseConstants(t *testing.T) {
 // a composite stale — or a composite edit that invents an unregistered token —
 // fails here instead of riding wire silence.
 func TestTraceNoteKeyLedgerMarkersDecomposeToRegistry(t *testing.T) {
-	for _, marker := range []string{TraceNoteMarkerAdvisoryPretriage, TraceNoteMarkerLegacySummaryFallback} {
+	for _, marker := range []string{TraceNoteMarkerNavigationOnly, TraceNoteMarkerAdvisoryPretriage, TraceNoteMarkerLegacySummaryFallback} {
 		for _, part := range strings.Split(marker, "; ") {
 			key := part
 			if k, _, ok := strings.Cut(part, "="); ok {

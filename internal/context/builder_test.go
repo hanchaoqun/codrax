@@ -3992,11 +3992,13 @@ func TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery(t *tes
 	}
 	for _, want := range []string{
 		"system validator observation remains available",
-		"legacy authority remains compatible",
 	} {
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("authority-compatible perf observation %q was dropped:\n%s", want, sec.Content)
 		}
+	}
+	if strings.Contains(sec.Content, "legacy authority remains compatible") {
+		t.Fatalf("authority-unspecified legacy model semantics must fail closed after deterministic trace_query:\n%s", sec.Content)
 	}
 	if strings.Contains(sec.Content, "Residue") ||
 		strings.Contains(sec.Content, "pre-triage availability note should stay out") {
@@ -4299,22 +4301,69 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
 		Observations: []types.PerfObservation{{
-			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
-			Kind:      "scheduler_hypothesis",
-			Subject:   "candidate scheduler explanation",
-			Summary:   "estimated mechanism",
-			LineStart: 7,
+			Authority:  types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:       "scheduler_hypothesis",
+			Subject:    "candidate scheduler explanation",
+			Summary:    "estimated mechanism",
+			Evidence:   "model-authored causal sentence",
+			LineStart:  7,
+			LineEnd:    9,
+			StartTsMs:  100,
+			EndTsMs:    108,
+			DurationMs: 8,
+			Tags:       []string{"model-authored-tag"},
 		}},
 	}
 	got := formatPerfTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"authority=pretriage_model_extraction",
-		"navigation hypotheses",
-		"Verify their numeric, scheduler-class, mechanism, and causal claims",
-		"navigation-only until independently verified",
+		"model-extracted navigation locators",
+		"candidate_trace_lines=7-9",
+		"candidate_start_ts_ms=100.000",
+		"candidate_end_ts_ms=108.000",
+		"candidate_duration_ms=8.000",
+		"expose only candidate locators",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("perf structured section missing model-authority boundary %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"candidate scheduler explanation",
+		"estimated mechanism",
+		"model-authored causal sentence",
+		"model-authored-tag",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("navigation-only model semantics leaked into downstream prompt as %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestFormatPerfTriageStructured_KeepsDeterministicObservationSemantics(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Authority:  types.PerfObservationAuthorityDeterministicValidator,
+			Kind:       "scheduler_phase",
+			Subject:    "target runnable interval",
+			Summary:    "wakeup to switch-in is 0.800ms",
+			Evidence:   "typed state transition",
+			LineStart:  6,
+			DurationMs: 0.8,
+			Tags:       []string{"runnable"},
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"target runnable interval authority=deterministic_validator",
+		"duration=0.800ms",
+		"tags=runnable",
+		"wakeup to switch-in is 0.800ms",
+		"evidence: typed state transition",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("deterministic observation semantics missing %q:\n%s", want, got)
 		}
 	}
 }

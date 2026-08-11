@@ -5151,3 +5151,30 @@ participant/operation 表达已证关系，若没有有价值的业务注释则�
 状态：`B577-soft=insufficient`；`B577b=next`；`B580=next-soft`；`B578=stable-positive`；
 `B579=unit-positive/production-pending`；`runner=2/2`；`human=1/2`；`active-stream-276s=no-degrade`；
 `raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.188 B577b/B580：预分析语义降为 locator；内部关系元数据退出读者词面
+
+`PerfObservation` 新增 validator-owned 权限判定 chokepoint：只有 `authority=deterministic_validator` 能携带结构化语义；
+`pretriage_model_extraction` 和旧 bundle 的空 authority 均 fail-closed 为 navigation-only。observation ledger 在 deterministic query 尚未发生前
+就把这类记录定为 `supporting_coverage + soft + inferred_upstream_possibility`，并用注册 marker 留存权限；稍后 query 出现时只追加既有
+pretriage-vs-query 优先级标记。validator-owned observation 即便共享 `perf_trace` producer，也不会被宽泛 producer precedence 误降级。
+
+下游 `formatPerfTriageStructured` 对 navigation-only observation 只发布 candidate trace line/start/end/duration locator；模型作者的
+Subject/Summary/Evidence/Tags 仍完整保存在原 `PerfBundle` 与审计 ledger，但不再作为结构化事实重复灌入 analyzer/explorer/finalizer。
+deterministic-validator 记录保持原全文、数值与 principal 权限。已有 trace_query 时，空 authority 的 legacy 自由语义也不再通过“兼容”名义逃逸。
+该改动没有删除原始 trace：模型仍可读取工件并调用 deterministic trace_query；没有扫描请求/推理/终稿文本，没有硬拒或系统改写答案，也没有变更
+显式窗、链上根因、优先级反转/调度/算力/D/IO/确定性 span 的计算与自动补齐。
+
+B580 在 typed component boundary 同源增加 reader-facing language boundary：`verified_component`、component index、
+`relation_segment_class`、`answer_role` 和 bridge/status token 明确仅是内部校验元数据，不得逐字进入 Mermaid Note、标题、表格或正文；模型应以仓库领域
+participant/operation 表达已证 segment，无有用业务注释时省略 Note。它是软教学，不是对模型输出的关键词硬门；不授权跨 component 边，也不由系统
+重写图或结论。
+
+回归覆盖：navigation 自由语义四字段均不进入 downstream prompt，但 line/time/duration locator 保留；validator-owned observation 全字段保留；
+pretriage 与 validator observation 在 deterministic query 同在时分别保持 supporting/principal；ledger marker registry tripwire 与 component boundary
+业务词面指令均钉住。定向 `internal/context`、`internal/types`、`internal/agent` 全绿，下一批用相同 Trace/read combo exact-two 做 production 验收。
+
+状态：`B577b=implemented/pending-r345`；`B580=implemented-soft/pending-r345`；
+`pretriage-freeform-downstream=withheld`；`deterministic-observation-authority=preserved`；
+`raw-trace-access=preserved`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`。
