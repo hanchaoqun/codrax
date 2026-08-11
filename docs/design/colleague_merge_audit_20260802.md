@@ -3787,3 +3787,15 @@ source-inventory 表均共享同一载体语义，同时保留 row-id/family/loc
 完整 `internal/tool` 套件 180.528s 全绿。
 
 状态：`B514=implemented/tool-suite-pass`；`B510-G=next`；`system-member-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.93 B515：HTML Mermaid 在 participant display alias 上补同源安全自愈
+
+`013600` 的 sequence source 含未引号 dotted aliases，统一 source normalizer 未覆盖，生产 repair counter 为 0。新增的 sequence participant label pass 只 quote `as`
+右侧 display；左侧 id、edge、方向与消息保持不变，并从 block normalizer/Markdown dump/HTML preview/terminal renderer 同源消费。无法安全解释的声明不猜修，沿既有 raw
+source + render-failure fallback 出厂。
+
+该批只修语法兼容，不补 `B510-G` 缺失的 stage/data relations；二者必须分批验收，避免“图能渲染”误记成“关系已闭环”。
+
+相关四包全绿：mermaidcompat 0.471s、render 1.984s、preview 1.042s、tool 177.508s。
+
+状态：`B515=implemented/package-suites-pass`；`B510-G=next`；`system-relation-authoring=none`；Trace families=`unchanged`。

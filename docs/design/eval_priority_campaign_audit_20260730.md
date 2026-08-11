@@ -31902,3 +31902,23 @@ typed fail-closed 约束保持不变。
 
 状态：`B514=implemented/tool-suite-pass`；`B510-G=P1-high-next`；`system-table/member-authoring=none`；
 `hard-prose-scan=none`；Trace families=`unchanged`。
+
+### 123.549 B515：sequence participant 展示标签跨 renderer 安全规范化
+
+`20260811-013600.798-94434.md` 除关系语义缺失外还有独立格式 GAP：图中出现未加引号的 dotted display alias，例如
+`participant Run as Orchestrator.Run`、`participant BusCtx as o.busCtx.AnalysisIR`；r302 的 `mermaid_source_repair_applied=0`，现有统一 normalizer 仅覆盖
+flowchart label 与少数 sequence message/stop 形，没有 participant alias 的跨 renderer 兼容层。不同 Mermaid 版本对该未引号形的词法接受不一致，不能把 HTML
+客户端 parse failure 留到用户端才发现。
+
+新增 `NormalizeSequenceParticipantDisplayLabels`：仅在 `sequenceDiagram` 内，对 `participant/actor <safe-id> as <display>` 的非简单、未引号 display 加标准双引号，
+并对 display 内 `&/"` 做实体化；左侧 participant id、所有 message edge、箭头方向和 message text 保持不变。already-quoted/simple alias、无 `as` declaration 与
+无法安全解释的 inline-comment 形保持原样。此 pass 进入 `NormalizeSourceForMarkdown` 单源，因此 full/patch block normalize、持久化 Markdown、HTML preview、终端 renderer
+同时生效；系统不增加/删除/改向任何关系。
+
+回归覆盖 `013600` dotted alias 形、actor/quoted/idempotence、edge topology before/after deep-equal，以及 full block production entry。不可恢复语法仍遵守 L7/HTML
+fallback：保留 raw source 并明确 render failure，不静默吞图。
+
+相关四包全绿：mermaidcompat 0.471s、render 1.984s、preview 1.042s、tool 177.508s。
+
+状态：`B515=implemented/package-suites-pass`；`B510-G=P1-high-next`；`system-edge/diagram-authoring=none`；
+`hard-prose-scan=none`；Trace families=`unchanged`。

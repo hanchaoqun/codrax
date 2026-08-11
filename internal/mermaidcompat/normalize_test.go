@@ -1,6 +1,7 @@
 package mermaidcompat
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -313,6 +314,54 @@ func TestNormalizeSequenceParticipantMessagePrefixes_LeavesDeclarationsAlone(t *
 	}, "\n")
 	if got := NormalizeSequenceParticipantMessagePrefixes(in); got != in {
 		t.Fatalf("valid declaration changed:\n%s", got)
+	}
+}
+
+func TestNormalizeSequenceParticipantDisplayLabels_QuotesCrossRendererSensitiveAliases(t *testing.T) {
+	in := strings.Join([]string{
+		"sequenceDiagram",
+		"    participant Run as Orchestrator.Run",
+		"    participant AnalyzePhase as Orchestrator.runAnalyzePhase",
+		"    participant analyze as analyze",
+		"    participant BusCtx as o.busCtx.AnalysisIR",
+		"    participant ir as ir",
+		"    Run->>AnalyzePhase: runAnalyzePhase",
+		"    BusCtx-->>ir: ir := o.busCtx.AnalysisIR",
+	}, "\n")
+
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`participant Run as "Orchestrator.Run"`,
+		`participant AnalyzePhase as "Orchestrator.runAnalyzePhase"`,
+		`participant analyze as analyze`,
+		`participant BusCtx as "o.busCtx.AnalysisIR"`,
+		`participant ir as ir`,
+		`Run->>AnalyzePhase: runAnalyzePhase`,
+		`BusCtx-->>ir: ir := o.busCtx.AnalysisIR`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("portable sequence normalization missing %q in:\n%s", want, got)
+		}
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("participant display-label normalization must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+	beforeEdges := ParseEdges(in)
+	afterEdges := ParseEdges(got)
+	if !reflect.DeepEqual(beforeEdges, afterEdges) {
+		t.Fatalf("display-label normalization changed message topology:\nbefore=%+v\nafter=%+v", beforeEdges, afterEdges)
+	}
+}
+
+func TestNormalizeSequenceParticipantDisplayLabels_PreservesQuotedLabelsAndInlineCommentUnknowns(t *testing.T) {
+	in := strings.Join([]string{
+		"sequenceDiagram",
+		`    participant A as "Already.Quoted"`,
+		"    actor B as Customer %% presentation note",
+		"    A->>B: call",
+	}, "\n")
+	if got := NormalizeSequenceParticipantDisplayLabels(in); got != in {
+		t.Fatalf("already-safe or unsupported comment-bearing declaration changed:\n%s", got)
 	}
 }
 

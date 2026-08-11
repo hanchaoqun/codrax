@@ -728,3 +728,30 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidParticipantBoundaries(t *testing
 		})
 	}
 }
+
+func TestNormalizeEmitAnswerBlock_QuotesSequenceParticipantDisplayLabelsWithoutChangingEdges(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "pipeline", Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramSequence), Language: "mermaid",
+			Body: strings.Join([]string{
+				"sequenceDiagram",
+				"    participant Run as Orchestrator.Run",
+				"    participant BusCtx as o.busCtx.AnalysisIR",
+				"    Run->>BusCtx: read AnalysisIR",
+			}, "\n"),
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize sequence diagram: %v", err)
+	}
+	for _, want := range []string{
+		`participant Run as "Orchestrator.Run"`,
+		`participant BusCtx as "o.busCtx.AnalysisIR"`,
+		`Run->>BusCtx: read AnalysisIR`,
+	} {
+		if got.Diagram == nil || !strings.Contains(got.Diagram.Body, want) {
+			t.Fatalf("normalized diagram missing %q: %+v", want, got.Diagram)
+		}
+	}
+}

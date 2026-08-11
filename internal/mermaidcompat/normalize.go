@@ -17,6 +17,7 @@ import (
 func NormalizeSourceForMarkdown(body string) string {
 	original := body
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
+	body = NormalizeSequenceParticipantDisplayLabels(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartClassRelationEdges(body)
@@ -36,6 +37,80 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeSequenceParticipantDisplayLabels quotes parser-sensitive display
+// labels in participant/actor declarations. Mermaid permits an alias such as
+//
+//	participant BusCtx as "o.busCtx.AnalysisIR"
+//
+// but renderer versions disagree on the unquoted dotted/spaced form. The
+// participant identifier on the left remains byte-identical, so message
+// topology and typed endpoint identity are untouched; only the presentation
+// label is made portable. Already quoted and simple identifier labels remain
+// unchanged, making the pass idempotent.
+func NormalizeSequenceParticipantDisplayLabels(body string) string {
+	if !isSequenceDiagram(body) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		trimmedLeft := strings.TrimLeft(line, " \t")
+		indent := line[:len(line)-len(trimmedLeft)]
+		keyword := ""
+		switch {
+		case strings.HasPrefix(trimmedLeft, "participant "):
+			keyword = "participant"
+		case strings.HasPrefix(trimmedLeft, "actor "):
+			keyword = "actor"
+		default:
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmedLeft, keyword+" "))
+		asAt := strings.Index(rest, " as ")
+		if asAt <= 0 {
+			continue
+		}
+		ident := strings.TrimSpace(rest[:asAt])
+		label := strings.TrimSpace(rest[asAt+4:])
+		if ident == "" || label == "" || sequenceParticipantDisplayLabelIsQuoted(label) ||
+			sequenceParticipantDisplayLabelIsSimple(label) {
+			continue
+		}
+		// A complete-line Mermaid comment is handled before this point; an
+		// inline %% suffix is not part of the supported declaration grammar.
+		// Leave it untouched instead of swallowing comment bytes into a label.
+		if strings.Contains(label, "%%") {
+			continue
+		}
+		safe := strings.ReplaceAll(label, "&", "&amp;")
+		safe = strings.ReplaceAll(safe, `"`, "&quot;")
+		lines[i] = indent + keyword + " " + ident + ` as "` + safe + `"`
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sequenceParticipantDisplayLabelIsQuoted(label string) bool {
+	if len(label) < 2 {
+		return false
+	}
+	return (label[0] == '"' && label[len(label)-1] == '"') ||
+		(label[0] == '\'' && label[len(label)-1] == '\'')
+}
+
+func sequenceParticipantDisplayLabelIsSimple(label string) bool {
+	for i, r := range label {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return label != ""
 }
 
 // NormalizeFlowchartClassRelationEdges repairs classDiagram generalization
