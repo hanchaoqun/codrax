@@ -4261,3 +4261,20 @@ emit-evidence 现从模型已选择且接地的 exact operation 端点提取 par
 operation。相关套件全绿，待 r322 exact-two 生产回放。
 
 状态：`B541b=implemented/pending-r322`；`model-operation-authority=preserved`；`trace-authority=unchanged`。
+
+#### §11.10.137 r322：B541b 正证与新 P0——同一成文 prompt 的参与者状态自冲突
+
+r322 exact-two runner 2/2、人工 `pass-with-caveat + fail`。B541b 已把 `o.busCtx.*` operation 对齐到 BusContext；最终 Current-Source Authority
+明确称六个点名 participant 全部 incident。可是 Diagram Contract 在同一 prompt 仍携带早期计算的 BusContext/Mutable uncovered boundary recipe，形成
+“已覆盖/未覆盖”同时必真的 typed 合同冲突。Finalizer 四次修补后保留 BusContext 孤点并删除载体数据流，图没有完成用户要求。立
+`B543-PARTICIPANTCAPSULESSOT1/P0-high`：最终 closure 的 participant state、boundary recipe、relation recipe、pre-emit check 必须同源同代；不补边、不放宽门、
+不扫描 prose。
+
+另立 `B545-ASSIGNENDPOINTSSOT1/P1-high`：采集教学把 `strings.TrimSpace(out.FinalAnswer)` 称 exact RHS，完成 repair 却要求 parser 截取的
+`strings.TrimSpace`；把 canonical operation tuple 独立附为 parser metadata，让所有硬门共享，模型保留可读 subject/object。Trace 案核心通过，仅把调度供给候选扩写为
+同步“阻塞”的机理口径越权，记 `B544/P2-soft`，只优化 typed 上下文，不硬改终稿。
+
+两案中 Trace 显式窗、因果投影、自动补齐、链上根因与实际占用/规则可消双轴未回归。464s 活跃链路持续有进展且正常交付模型答案，未发生四分钟降级。
+
+状态：`B541b=production-positive/partial`；`B543=P0-next`；`B545=P1-next`；`B544=P2-soft`；
+`active-stream=fixed-threshold-degrade-forbidden`；Trace causal authority=`unchanged`。

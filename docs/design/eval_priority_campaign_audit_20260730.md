@@ -32706,3 +32706,33 @@ checklist、AnswerDocument diagram 三面一致性。types/tool/agent/repomap/sk
 
 状态：`B541b=implemented/relevant-suite-pass/pending-r322`；`extra-definition-round=removed`；
 `edge-authority=unchanged`；`dynamic/ambiguous=fail-closed`；Trace=`unchanged`。
+
+### 123.597 r322：底层 identity bridge 生效，但 Finalizer 同页发布相反参与者合同
+
+`main@92a653580` exact-two runner 2/2，人工 `pass-with-caveat + fail`，详见
+`eval/parallel_selected_summary_evalcampaign_typed_binding_r322_20260811_manual_audit.md`。Go 案的 Current-Source Authority 已明确发布
+`incident=[BusContext Analyzer Explorer Extractor Finalizer Mutable]`、`no_incident=[]`，证明 B541b 可从
+`o.busCtx.AnalysisIR` 等 exact operation 取得静态 `BusContext` identity，底层 acquisition 正臂生效。
+
+但同一 Finalizer dispatch 较早构造的 Diagram Contract 仍发出 BusContext/Mutable 两条 `uncovered boundary_recipe`。模型同时收到“六席均有
+incident relation”与“两个载体必须作为 unproven 孤点”两份相反 typed 指令，四次成文修补后最终图删除载体数据流，只留下 BusContext 孤点；正文仍声称
+BusContext/Mutable 负责阶段间传递，图文失配。确认 `B543-PARTICIPANTCAPSULESSOT1/P0-high`：coverage、boundary recipe、relation recipe 和
+pre-emit stale-boundary 判定必须从同一份最终 evidence closure/同一 generation 生成，禁止 prompt 内保留早期快照。修复不得放宽 edge authority、不得系统补边、不得扫描
+request/model/final prose；只消除系统自相矛盾并让模型面对一个 typed 状态。
+
+探索阶段另确认 `B545-ASSIGNENDPOINTSSOT1/P1-high`：源码为
+`firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)`，emit-evidence 先接受模型用完整 RHS call expression，completion repair 又要求 object 精确等于
+parser 的 primary source identity `strings.TrimSpace`。采集 schema 的“exact RHS”教学与完成门的 canonical endpoint 口径不同源，模型必须反复猜工具内部截断规则。
+最优形不是放宽到任意文本，而是把 parser-owned canonical operation tuple 作为独立 typed metadata 一次附着；模型端 subject/object 保留可读事实，所有 relation/repair/
+completion 消费同一 canonical tuple，歧义表达继续 fail-closed。
+
+Trace 对照案保留显式窗、5 次 typed 查询、自动补齐、因果投影、链上 CookieMonsterCl/NetworkService 调度供给候选、ThreadPoolForeg D/IO、目标
+running 算力缺口、链上 VerifyClass 及实际占用/规则可消双轴；邻近/背景未升主因。模型将授权口径
+`lower_priority_dependency_only` 又写成“被低优先级线程阻塞”，记 `B544-TRACECLAIMCALIBER1/P2-soft`：应在模型上下文并置“已证调度供给”与
+“未证同步 blocker”的简短 typed 机理边界，由模型自行表述；禁止终稿关键词 hard gate 或系统替换结论。
+
+Go 案 464s 全程持续有模型/工具/patch 进展，系统等待到模型答案完成，没有按四分钟降级、系统代答或抽取临时推理。冻结不变量不变：活跃流无固定四分钟
+答案降级；只有真实首字节/进展超时、连接终止或耗尽重试才可重试、恢复既有模型草稿或 fail-loud，并必须披露。
+
+状态：`B541b=production-positive/consumer-snapshot-gap`；`B543=P0-next`；`B545=P1-next`；
+`B544=P2-soft`；`runner=2/2`；`human=1/2`；`active-stream=no-degrade@464s`；Trace causal authority=`unchanged`。
