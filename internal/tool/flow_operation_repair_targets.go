@@ -45,17 +45,22 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	}
 
 	keywords := append([]string(nil), surfaces...)
-	if len(keywords) == 0 {
-		for _, item := range evidence {
-			if !item.IsCitable() || !relationSourceInRequestedScope(item.Source, rm) {
-				continue
-			}
-			keywords = appendUniqueBounded(keywords,
-				[]string{item.Subject, item.Object, item.AnchorSymbol, item.OwnerSymbol},
-				maxFlowOperationRepairKeywords)
-			if len(keywords) == maxFlowOperationRepairKeywords {
-				break
-			}
+	// A request identity may name a field or conceptual carrier (`Mutable`)
+	// while grounded current-source evidence exposes its declared type or
+	// operation identity (`MutableState`, `applyStageOutput`). Carry those exact
+	// related surfaces into the bounded search plan even when the participant
+	// keyword list is non-empty. This is navigation-only: relation authority
+	// still requires a separately emitted citable operation row.
+	for _, item := range evidence {
+		if !item.IsCitable() || !relationSourceInRequestedScope(item.Source, rm) ||
+			(len(surfaces) > 0 && !flowRepairItemMatchesAnySurface(item, surfaces)) {
+			continue
+		}
+		keywords = appendUniqueBounded(keywords,
+			[]string{item.Subject, item.Object, item.AnchorSymbol, item.OwnerSymbol},
+			maxFlowOperationRepairKeywords)
+		if len(keywords) == maxFlowOperationRepairKeywords {
+			break
 		}
 	}
 

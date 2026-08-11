@@ -27,3 +27,9 @@ This scaffold is for human review. The runner records typed metrics and declared
 - B489 的 CPU topology transport 获直接生产正证；Trace 原有窗、补采、链上根因、双口径、投影与背景分层均隔离通过。B494 是 finalizer 在已获相反 typed 结论后的单次模型漂移，暂不以系统硬化接管。
 - B488 从“角色误分+声明伪 initializer”推进到“正确角色+真实操作导航”，但尚未形成 carrier 图边。下一批优先处理通用证据修复链：B490 在 call authority 降级时发布 exact parser caller/callee 修复 tuple；B493 让 participant repair 在 typed 名称之外携带相关 grounded evidence 的 source aliases/operations，帮助找到 carrier 方法的 writer/reader 两侧。两者都只提供精确信息，不自动生成图边或答案。
 - B491 记录为次级 churn：typed request identity `Mutable` 与源码 type `MutableState` 的 visible boundary recipe 可进一步减少重复节点/patch，但它不是空关系的根因，排在 B490/B493 之后。
+
+## Post-audit implementation status
+
+- B490 已实现：call row 因 semantic/mismatched endpoint 被安全降权时，若当前源码唯一证明 exact caller/callee，工具同轮发布可复制修复 tuple；系统不自动改写 evidence。
+- B493 已实现：flow participant repair 在 typed missing identity 之外携带相关 grounded source type/method aliases，仍是 bounded navigation-only，不能铸边。
+- `go test ./internal/tool -count=1` 全绿；B488 保持 partial，等待 r285 生产回放验证 operation evidence 与最终 carrier 图边是否真正形成。

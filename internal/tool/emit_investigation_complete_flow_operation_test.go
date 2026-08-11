@@ -253,6 +253,52 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 	}
 }
 
+func TestFlowOperationRepairTargetsCarryRelatedGroundedSourceAliases(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			Source: "internal/types/context.go", LineStart: 113,
+			GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition,
+			Subject: "MutableState", AnchorSymbol: "MutableState",
+		},
+		{
+			Source: "internal/orchestrator/orchestrator.go", LineStart: 8435,
+			GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition,
+			Subject: "applyStageOutput", Object: "BusContext", AnchorSymbol: "applyStageOutput",
+		},
+		{
+			Source: "internal/agent/finalizer.go", LineStart: 22,
+			GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition,
+			Subject: "NewFinalizerAgent", AnchorSymbol: "NewFinalizerAgent",
+		},
+	}
+	ctx := flowOperationCompletionContext(evidence)
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/context.go":             true,
+		"internal/orchestrator/orchestrator.go": true,
+	})
+	files, keywords := flowOperationRepairTargets(ctx, []string{"Mutable", "BusContext"}, evidence)
+	for _, want := range []string{"Mutable", "BusContext", "MutableState", "applyStageOutput"} {
+		if !flowTestSliceContains(keywords, want) {
+			t.Fatalf("related exact source alias %q missing from bounded navigation keywords: %v", want, keywords)
+		}
+	}
+	if flowTestSliceContains(keywords, "NewFinalizerAgent") {
+		t.Fatalf("unrelated grounded identity leaked into carrier navigation keywords: %v", keywords)
+	}
+	for _, want := range []string{"internal/types/context.go", "internal/orchestrator/orchestrator.go"} {
+		if !flowTestSliceContains(files, want) {
+			t.Fatalf("related source file %q missing from repair targets: %v", want, files)
+		}
+	}
+}
+
 func flowTestSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

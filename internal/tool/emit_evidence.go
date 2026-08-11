@@ -753,9 +753,16 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// reference while downgrading only its relation authority. This consumes
 		// parser/read-line facts and typed fields; request, summary, and final
 		// answer prose are not inspected.
+		exactCallCaller, exactCallCallee, exactCallKnown := exactCallEvidenceDirection(&built[i], gc)
 		if stabilizeUnprovenCallAnchorAuthority(&built[i], gc) {
 			r = ground.GroundItemScoped(&built[i], gc)
-			if appendGroundingNoteOnce(&built[i], "anchor_kind=call lacked one exact-line caller -> callee invocation; preserved as text_reference without call-edge authority") {
+			note := "anchor_kind=call lacked one exact-line caller -> callee invocation; preserved as text_reference without call-edge authority"
+			if exactCallKnown {
+				note = fmt.Sprintf(
+					"anchor_kind=call used semantic or mismatched endpoints, so it was preserved as text_reference without call-edge authority; the exact source/parser call tuple is evidence_kind=relationship subject=%q predicate=calls object=%q anchor_symbol=%q — re-emit that call row exactly, and keep any broader data-flow/write claim separate unless its own assignment/initializer/return operation proves it",
+					exactCallCaller, exactCallCallee, exactCallCallee)
+			}
+			if appendGroundingNoteOnce(&built[i], note) {
 				r.Note = built[i].GroundingNote
 			}
 		}
@@ -2840,31 +2847,8 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if !stampMissingCallPredicate && !callLikePredicates[predicate] {
 		return false
 	}
-	graph, fi, _, source, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	caller, callee, ok := exactCallEvidenceDirection(it, gc)
 	if !ok {
-		return false
-	}
-	candidates := emitPreferredCallTargetNames(it)
-	caller := enclosingCallableSymbolName(fi, it.LineStart)
-	callee := ""
-	// Prefer a graph-resolved semantic target (for example a Java field
-	// receiver `service.schedule` resolved to `VisitService.schedule`) over the
-	// byte-exact source expression. The source expression remains the fallback
-	// when the index cannot resolve a unique target; unresolved dynamic calls
-	// therefore keep their original bounded identity instead of being guessed.
-	if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
-		if target := graph.ResolveCallTarget(fi, *rel); target != nil {
-			callee = qualifiedEvidenceSymbolName(target)
-		}
-	}
-	if callee == "" {
-		if exact, ok := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); ok {
-			callee = exact
-		} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
-			callee = callRelationTargetName(graph, fi, rel)
-		}
-	}
-	if caller == "" || callee == "" {
 		return false
 	}
 	changed := false
@@ -2899,6 +2883,47 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
 	}
 	return changed
+}
+
+// exactCallEvidenceDirection returns the parser/read-line-owned caller and
+// callee for the cited call expression without consulting the model's
+// predicate. normalizeCallEvidenceDirection uses it only for call-like rows;
+// the evidence audit also uses it to explain how a semantic/mismatched call
+// row can be re-emitted after fail-closed downgrading. Returning the tuple is
+// guidance, not authority: the caller must still explicitly emit the exact
+// relationship row before downstream relation consumers can use it.
+func exactCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) (string, string, bool) {
+	if it == nil || gc == nil || it.AnchorKind != types.AnchorCall || it.LineStart <= 0 {
+		return "", "", false
+	}
+	graph, fi, _, source, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok {
+		return "", "", false
+	}
+	candidates := emitPreferredCallTargetNames(it)
+	caller := enclosingCallableSymbolName(fi, it.LineStart)
+	callee := ""
+	// Prefer a graph-resolved semantic target (for example a Java field
+	// receiver `service.schedule` resolved to `VisitService.schedule`) over the
+	// byte-exact source expression. The source expression remains the fallback
+	// when the index cannot resolve a unique target; unresolved dynamic calls
+	// therefore keep their original bounded identity instead of being guessed.
+	if rel, found := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); found {
+		if target := graph.ResolveCallTarget(fi, *rel); target != nil {
+			callee = qualifiedEvidenceSymbolName(target)
+		}
+	}
+	if callee == "" {
+		if exact, found := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); found {
+			callee = exact
+		} else if rel, found := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); found {
+			callee = callRelationTargetName(graph, fi, rel)
+		}
+	}
+	if caller == "" || callee == "" {
+		return "", "", false
+	}
+	return caller, callee, true
 }
 
 // realignExplicitCallEvidenceLine repairs a bounded line-number error only

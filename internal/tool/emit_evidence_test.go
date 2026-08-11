@@ -4501,6 +4501,44 @@ func TestEmitEvidence_LineRangeNameMentionCannotMintCallEdgeAuthority(t *testing
 	}
 }
 
+func TestEmitEvidence_SemanticCallEndpointsPublishExactParserRepairTuple(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 8472,
+		"appendStageOutputEvidenceToMutable(o.busCtx.Mutable, output.EvidenceItems)",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"internal/orchestrator/orchestrator.go": {
+			RelPath: "internal/orchestrator/orchestrator.go", Language: repomap.LangGo,
+			Symbols: []repomap.Symbol{{Name: "applyStageOutput", Kind: "method", Line: 8435, EndLine: 8500}},
+			Relations: []repomap.Relation{{
+				Kind: "call", Line: 8472,
+				ToEP: repomap.RelationEndpoint{Name: "appendStageOutputEvidenceToMutable"},
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"appendStageOutputEvidenceToMutable","predicate":"writes","object":"Mutable","source":"internal/orchestrator/orchestrator.go","line_start":8472,"summary":"writes evidence to Mutable","anchor_kind":"call","anchor_symbol":"appendStageOutputEvidenceToMutable"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("semantic call row should return typed repair feedback, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorTextReference ||
+		types.ClaimFormOf(got[0]) != types.ClaimTextReferenceFact {
+		t.Fatalf("semantic endpoints must not gain call authority: %+v", got)
+	}
+	for _, want := range []string{
+		`exact source/parser call tuple`,
+		`subject="applyStageOutput" predicate=calls object="appendStageOutputEvidenceToMutable"`,
+		`anchor_symbol="appendStageOutputEvidenceToMutable"`,
+		`keep any broader data-flow/write claim separate`,
+	} {
+		if !strings.Contains(got[0].GroundingNote, want) || !strings.Contains(res.Summary, want) {
+			t.Fatalf("exact call repair feedback missing %q: item=%+v summary=%s", want, got[0], res.Summary)
+		}
+	}
+}
+
 func TestEmitEvidence_RustQualifiedCallKeepsExactLineAndTypedEdge(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

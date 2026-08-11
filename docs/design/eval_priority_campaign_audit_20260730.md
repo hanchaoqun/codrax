@@ -31178,3 +31178,20 @@ finalizer 5 次 patch 后只剩三条 stage precedence 与断开的 carrier，�
 
 状态：`B489=production-positive`；`B488=partial`；`B490/B493=P1-next`；`B491=P2`；`B494=P2-watch`；
 `runner=2/2,human=0/2`；`system-edge/answer-authoring=none`；`raw-prose-hard-gate=none`；Trace causal/value machinery=`preserved`。
+
+### 123.510 B490+B493 完成：exact call 修复 tuple 与 carrier source-alias 导航
+
+B490 将 call fail-closed 降权后的反馈从抽象“caller→callee 缺失”升级为 source/parser 精确修复形：只有 cited line 的 enclosing callable 与 invoked target
+均可由 repomap/已读行唯一恢复时，grounding note 才发布可复制的 `evidence_kind=relationship, subject=<caller>, predicate=calls,
+object=<callee>, anchor_symbol=<callee>`。系统仍保留原 semantic/mismatched row 为 text reference，不自动改成 call，也明确要求更宽的 writes/data-flow 主张必须
+由独立 assignment/initializer/return operation 证明；registration/binding 等显式非 call 语义不会被洗成 call。
+
+B493 修正 participant focused repair 的导航盲区：原实现只要 typed identity 非空便不再加入 evidence surfaces，`Mutable` 因此无法携带已经 grounded 的
+`MutableState`/`applyStageOutput` 等源码别名。本批在现有 8-keyword/6-file 上限内，追加仅与 missing participant 匹配、位于 requested source scope 且 citable 的
+subject/object/anchor/owner identities。它们只帮助下一轮寻找 carrier writer/reader 方法，不进入 relation provider，也不能满足 completion/diagram gate。
+
+专项覆盖 semantic writes→call 降权仍无 authority、exact tuple 同轮可见、普通 name mention 无 tuple、既有多语言 call normalization，以及 related/unrelated
+source alias 正负臂；`go test ./internal/tool -count=1` 全绿。
+
+状态：`B490/B493=implemented/full-tool-suite-pass/pending-production-replay`；`B488=partial-await-r285`；`B491=P2`；
+`system-evidence/relation/answer-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。

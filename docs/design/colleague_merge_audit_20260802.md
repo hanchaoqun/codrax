@@ -3359,3 +3359,13 @@ B493（repair targets 携 grounded source aliases/operations）为下一高 ROI 
 所有方案只增加 typed/source-derived navigation 与修复信息，不自动创建 relation、diagram 或结论，不扫描 request/thinking/final prose；Trace families 不动。
 
 状态：`B489=production-positive`；`B488=partial`；`B490/B493=P1-next`；`B491=P2`；`B494=P2-watch`。
+
+#### §11.10.54 B490+B493：调用降权给 exact repair，carrier 搜索携源码别名
+
+当模型把 exact call 行写成 semantic writes/binds endpoint 时，工具继续 fail-closed 降为 text reference，但若 parser/已读行能唯一确定 caller/callee，现同轮
+给出完整可复制 call tuple；不自动改 evidence，宽语义仍须独立 operation 证明。participant repair 同时补入只与 missing identity 相关的 grounded source
+type/method aliases，修复 `Mutable` 搜不到 `MutableState` 的导航断层；上限与 requested source scope 过滤保持。
+
+两项均不读取 request/thinking/final prose，不铸 relation/diagram/answer。`internal/tool` 全包绿，待 r285 exact-two production replay。
+
+状态：`B490/B493=implemented/pending-production-replay`；`B488=partial`；`B491=P2`；Trace families=`unchanged`。
