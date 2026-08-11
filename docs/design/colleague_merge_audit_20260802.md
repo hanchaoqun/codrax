@@ -4637,3 +4637,25 @@ boundary 正臂保持通过。
 
 状态：`B564=implemented/pending-r333`；`unproven=zero-incident-document-wide`；`typed-edge=preserved-on-exact-endpoint`；
 `B565=open`；`system-edge/answer-authorship=none`；Trace causal authority=`unchanged`。
+
+#### §11.10.164 r333：B564 未被本轮 typed 清单触发；B544 机理上限送达但仍被模型忽略
+
+r333 exact-two runner 2/2、人工 0/2。QF 最终图只保留 Analyzer→Explorer→Extractor→Finalizer，Orchestrator、BusContext、MutableState、
+TaskState 均为断开节点，请求要求的共享状态/数据流没有进入图。深审确认本轮 analyzer 发出的 `diagram_hint.participants=[]`，虽然同一次 typed analysis 的
+relation scope 与 exact targets 已包含这些实体；因此 B564 没有 participant obligation 可执行，不能把本轮失败误记为 B564 回归。首次草稿中的多条无证数据流边被
+关系门正确拒绝，模型修补时删除关系后通过。立 `B566-ANALYZERPARTICIPANTSLATE1/P2-watch`：这是 analyzer structured output 的跨字段不一致，r331/r332
+又曾正确发出清单，先按模型波动观察；禁止扫描 relation quote、请求或答案 prose 后硬铸 participant，未来若稳定复现，只能从更上游 schema/typed planning
+一致性降低模型心智。
+
+Trace 案保留显式 5.000000..5.007000 窗、自动补采、因果投影、链上根因、背景隔离与实际占用/规则可消双轴。B544 新增的
+`mechanism_ceiling=on_chain_prewakeup_work_candidate_only` 及 target wait/completion/direct blocking 三项 `not_provided_by_this_seat` 已逐字进入 finalizer
+上下文，但模型仍称目标“被迫等待 VerifyClass 完成”，连续 r329/r331/r333 均复现，已不能归为单次波动。下一步只在最终选中席位确属
+`pre_wakeup_dependency` 且没有 typed blocking relation 时，于模型落笔前的最后 synthesis scope 发一条简短自然语言机理上限；若另有精确 blocker 则不发。
+该提示只读 typed 席位，不扫描/拒绝/改写模型 prose，不改变 Trace 排序、可消量、投影或模型结论所有权。
+
+活动模型流方面，r333 未触发任何固定累计时长降级。B560 不变量继续生效：reasoning/content/tool-call/finish/usage 任一真实模型进展存在时，即使超过约 4 分钟也
+不能按累计时长终止或降级回答；只有 transport-only、真实停滞、断链、调用方取消或独立安全边界可进入失败恢复，恢复也只能发布模型已有草稿并明确披露，系统不得代答。
+
+状态：`B564=implemented/not-exercised-r333`；`B566=P2-watch/model-variance`；`B544=recurrent/P1-next`；
+`runner=2/2`；`human=0/2`；`fixed-four-minute-active-degrade=retired`；`system-answer/edge-authorship=none`；
+Trace causal authority=`unchanged`。
