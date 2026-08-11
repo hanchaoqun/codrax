@@ -32668,3 +32668,23 @@ orchestrator 全量测试通过。
 
 状态：`B541=implemented/full-relevant-suite-pass/pending-r321`；`relation-authority=operation-only`；
 `dynamic-or-untyped=fail-closed`；`trace-authority=unchanged`；`active-stream-four-minute-degrade=forbidden`。
+
+### 123.595 r321：B541 消费层正确但 acquisition 未闭环；C++ 图与精确事实各暴露一层
+
+`main@37634133d` exact-two runner 2/2，人工 0/2，详见
+`eval/parallel_selected_summary_evalcampaign_typed_binding_r321_20260811_manual_audit.md`。Go 逻辑视图案中，B541 的 Finalizer 教学和三面谓词均在场，
+但严格桥要求模型另发 `Orchestrator.busCtx` 字段 definition；completion soft plan 只要求继续找 operation，没有教学“静态声明 + exact operation”的配对。
+模型因而围绕 helper call/错误 assignment 修补 23 个 Explorer 回合，最终仍将 Mutable/BusContext 作为 unproven 孤点。确认
+`B541b-TYPEDBINDACQUIRE1/P1-high`：在模型已选择并接地 exact operation 后，由 parser/repomap 把该 endpoint 的唯一静态 binding/type/owner 直接
+随 operation 写入 system-authored identity metadata；仍由 operation 独占 relation/方向/端点/源码，不要求模型为身份桥额外铸一条 declaration evidence。
+
+C++ 虚调用案 runner PASS 但人工 fail。首稿试图表达 `Sink.write -> ConsoleSink.write` 动态分发与工厂选择，现有 typed recipe 只有直接 call，图被关系门删除；
+确认既有 `B538-DYNAMICVISANNOT1/P1-high`。正文也把已读源码的 `fputs`+`fputc`/`stderr` 写成 `std::puts`/标准输出，并误称 `name()` 参与工厂匹配，
+登记 `B542-EXACTLINEFACTDRIFT1/P1-watch`。该事实漂移不能靠扫描最终答案关键词或系统替写；先审计 exact-line fact 在 Finalizer context 的结构化载体与
+跨语言复现，再决定是 soft preservation contract 还是更精确 claim/citation 绑定。
+
+Go 案 440s 全程有工具、模型和 patch 进展并交付模型答案，继续证明活动流不能按四分钟降级。该批未运行 Trace；B541/B538 均限定非 Trace source-flow lane，
+显式时间窗、自动补齐、因果投影、链上根因和实际占用/规则可消双轴保持不变。
+
+状态：`B541=partial`；`B541b=next`；`B538=confirmed/open`；`B542=watch/high-severity`；
+`runner=2/2`；`human=0/2`；`active-stream=no-degrade@440s`；Trace=`not exercised/unchanged`。

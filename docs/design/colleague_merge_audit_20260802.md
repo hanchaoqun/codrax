@@ -4238,3 +4238,15 @@ AnswerDocument hard participant coverage 共享一个 types-level 谓词，避�
 
 状态：`B541=implemented/pending-r321`；`model-edge-authorship=preserved`；`cross-language=explicit-static-type-only`；
 `trace-window/projection/autofill=unchanged`；`four-minute-active-stream-degrade=forbidden`。
+
+#### §11.10.135 r321：声明身份桥缺生产 acquisition，C++ 动态关系仍无可画载体
+
+r321 exact-two runner 2/2、人工 0/2。B541 types/consumer 实现存在，但生产模型没有额外发字段声明，completion 也没有给出 declaration+operation 配对教学，
+所以严格 join 无输入；23 个 Explorer 回合与 5 次 Finalizer 拒绝后，Mutable/BusContext 仍为孤点。下一批 B541b 将 parser 唯一静态 binding/type/owner
+直接附着到模型已选择且接地的 exact operation，只补身份 metadata，不生成 edge、不改模型端点/方向/答案。
+
+C++ 案再次确认 B538：直接 call 门没有错，但缺虚分发、实现和工厂 return/selection 的 typed 图层载体，首稿图只能被删除。另观察到探索证据中的
+`fputs`/`fputc`/`stderr` 在成文时漂移为 `std::puts`/标准输出，记 B542 异构复现与结构化上下文审计，不以终稿 prose hard gate 处理。
+
+状态：`B541b=implement-next`；`B538=open`；`B542=watch`；`model-authorship=preserved`；
+`active-stream=no-degrade@440s`；Trace causal authority=`unchanged`。
