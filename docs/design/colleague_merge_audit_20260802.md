@@ -3533,3 +3533,23 @@ coverage state 恒带原 typed identity，code resolution 只追加 alias；boun
 
 定向 coverage 与 tool/orchestrator 全包均绿（174.024s / 11.478s），待 r293 生产回放。状态：`B505=implemented/package-suites-pass`；
 `raw-prose-hard-gate=none`；Trace families=`unchanged`。
+
+#### §11.10.71 r293：B505 生产关闭；两个新确定性权限错位
+
+exact-two runner 2/2、人工 0/2。read 中带空格 typed identity 已可与自己的 boundary 精确匹配，旧 unknown+missing 互斥未复发，B505 关闭；但 Analyzer
+推断的七个组件被 `incident_required` hard presence contract 强制塞成断开节点，五次拒绝后图仍仅一条已证边。立 B507：planning participant slate 不能在
+无独立关系见证时等同最终关系权限，需把 explorer coverage guidance 与 final emit authority 分层。
+
+Java 模型原始容量检查引用为正确的 `VisitService.java:18`，确定性 normalizer 却以 aggregate 成员同名为由改成 `VisitController.java:18`。这是系统主动
+降质证据的 P0 红线 B506。`AuditLog.record` body 仅 stdout，最终“持久化”另记 B508 terminal-definition evidence gap。
+
+状态：`B505=closed`；`B506=P0/next`；`B507=P1-high`；`B508=P1`；`system-answer/edge-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.72 B506：更具体的 grounded citation 不被 label-only 行覆盖
+
+principal aggregate binder 增加单调 keep：当前 citation 同时对齐 item exact identity 且证明第二可见 typed attribute 时保持；否则才允许 exact aggregate
+support row 修正。旧的 wrong/missing citation 修复、歧义 fail-closed 与接线顺序不变。新增 `VisitService.schedule` 容量检查生产同形 pin和完整 pre-emit pin，
+tool/orchestrator 全包绿。
+
+该批不扫描 request/model/final prose，不改正文、结论、关系或图。状态：`B506=implemented/pending-replay`；`B507=next`；`B508=queued`；
+Trace windows/causal projection/auto-supplement/on-chain cause families/business clues=`unchanged`。

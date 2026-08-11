@@ -31499,3 +31499,32 @@ participant coverage state 现恒保留 analyzer typed identity 原值，解析�
 
 状态：`B505=implemented/package-suites-pass/pending-production-replay`；`B504=pending-direct-production-witness`；
 `system-relation/diagram/conclusion-authoring=none`；Trace windows/causal projection/auto-supplement/on-chain families=`unchanged`。
+
+### 123.527 r293：身份互斥关闭，但 participant 强制扩域与 citation 降质暴露
+
+`main@5766075ebe` 严格并行同一 read 架构关系案与 Java 调用链案，runner 2/2、人工 0/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_java_r293_20260810_manual_audit.md`。
+
+read 不再对 `Analyzer Agent`/`Finalizer Agent` 同时报 unknown 与 missing，B505 获生产正证并关闭。但仍有 5 次成文拒绝，终图只保留一条已证 call，七个
+Analyzer 推断出的组件被 hard participant contract 强制作为断开节点。该 list 本是 planning guidance，却在没有独立 relation witness 时成为 hard presence authority；
+既烧重试，也无法补回用户要求的完整阶段关系。立 `B507-PARTOBLIGAUTH1/P1-high`，下一批把探索覆盖指导与最终关系权限拆开；不得扫描 request/final prose，
+不得系统补边。
+
+Java 模型首稿四条 call 与容量检查均正确，`VisitService.schedule` 原始引用也是精确的 `VisitService.java:18`。系统随后用 principal aggregate 的 label-only
+support row 把它改成 `VisitController.java:18` 并删除正确引用，确认 `B506-CITMONO1/P0-redline`。另立 `B508-TERMINALBEHAVIOR1/P1`：callsite 只证明
+`VisitRepository.insert -> AuditLog.record`，而 `AuditLog.record` 函数体仅 `System.out.println`；最终“持久化/落库”是无 terminal body evidence 的模型过度主张。
+
+状态：`B505=production-closed`；`B506=P0/next`；`B507=P1-high/confirmed`；`B508=P1/confirmed`；
+`runner=2/2,human=0/2`；`system-relation/answer-authoring=none`；Trace families=`unchanged`。
+
+### 123.528 B506：principal aggregate citation 只允许单调改善
+
+principal aggregate 的 citation-only binder 现先检查模型当前引用：若 grounded evidence 同时对齐 exact item identity，并证明 item 可见的第二 typed 属性
+（例如调用目标、guard、route、owner），则保留该更具体引用；只有当前引用不具备这两个条件时，label-only aggregate support row 才能纠正它。由此
+`VisitService.schedule + VisitRepository.countOpenVisits` 的 `VisitService.java:18` 不再被 caller 侧同名成员行覆盖，原有错误/缺失 citation 修复臂保持。
+
+该判断只读结构化 item 字段与已 ground evidence，不读用户原文、thinking 或 rendered answer，不改正文、不铸事实。新增 Java 同形 regression 与完整 pre-emit
+接线 pin；`go test ./internal/tool ./internal/orchestrator -count=1` 全绿。
+
+状态：`B506=implemented/package-suites-pass/pending-production-replay`；`B507=next`；`B508=queued`；
+`system-prose/conclusion/relation-authoring=none`；Trace explicit windows/auto-supplement/causal projection/on-chain root causes/business clues=`unchanged`。

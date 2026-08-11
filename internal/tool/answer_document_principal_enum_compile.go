@@ -1399,7 +1399,9 @@ func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, 
 // The match is deliberately exact and unique after block scoping. We do not
 // inspect item prose, the raw request, model thoughts, or rendered answer text;
 // ambiguous duplicate member labels stand down rather than borrowing an
-// adjacent citation.
+// adjacent citation. An already-valid citation that grounds both the exact
+// member and another visible typed attribute is more specific than a
+// label-only aggregate support row and is preserved.
 func normalizePrincipalAggregateItemCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return 0
@@ -1414,6 +1416,7 @@ func normalizePrincipalAggregateItemCitationRefsWithContext(doc *types.AnswerDoc
 	}
 	allRows := principalEnumerationAllRows(sets)
 	allIndex := principalEnumerationExactLabelRowIndex(sets)
+	pctx := newPreEmitCheckContext(ctx)
 	changed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
@@ -1446,6 +1449,15 @@ func normalizePrincipalAggregateItemCitationRefsWithContext(doc *types.AnswerDoc
 			}
 			if principalEnumerationItemCitationCompatible(*item, doc, row) {
 				continue
+			}
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				label := strings.TrimSpace(item.Label)
+				text := preEmitItemNonLabelSurface(*item)
+				current := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+				if preEmitItemCitationAlignedWithContext(pctx, label, text, current) &&
+					preEmitCitationSupportsVisibleItemAttributeWithContext(pctx, label, text, current) {
+					continue
+				}
 			}
 			ref := appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart})
 			if ref < 0 || item.CitationRef == ref {

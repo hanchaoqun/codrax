@@ -204,6 +204,67 @@ func TestNormalizePrincipalAggregateItemCitationRefs_CallChainUsesExactSupportRo
 	}
 }
 
+func TestNormalizePrincipalAggregateItemCitationRefs_PreservesMoreSpecificTypedCallsite(t *testing.T) {
+	mu := types.NewMutableState("call chain with guarded service hop")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "controller-call", Kind: types.EvidenceRelationship,
+			Subject: "VisitController.create", Predicate: "calls", Object: "VisitService.schedule",
+			AnchorKind: types.AnchorCall, AnchorSymbol: "VisitService.schedule", OwnerSymbol: "VisitController.create",
+			Source: "src/main/java/com/clinic/web/VisitController.java", LineStart: 18,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "capacity-call", Kind: types.EvidenceRelationship,
+			Subject: "VisitService.schedule", Predicate: "calls", Object: "VisitRepository.countOpenVisits",
+			AnchorKind: types.AnchorCall, AnchorSymbol: "VisitRepository.countOpenVisits", OwnerSymbol: "VisitService.schedule",
+			Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 18,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "完整调用链", Value: "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"VisitController.create", "VisitService.schedule"},
+		SupportRefs: []string{
+			"src/main/java/com/clinic/web/VisitController.java:18",
+			"src/main/java/com/clinic/web/VisitController.java:18",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "path", Kind: types.BlockOrderedList, Title: "完整调用链",
+			Items: []types.AnswerBlockItem{{
+				ID: "service", Label: "VisitService.schedule",
+				Text: "调用 VisitRepository.countOpenVisits 执行容量检查。", CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "src/main/java/com/clinic/web/VisitController.java", Line: 18},
+			{File: "src/main/java/com/clinic/service/VisitService.java", Line: 18},
+		},
+	}
+
+	if fixed := normalizePrincipalAggregateItemCitationRefsWithContext(doc, ctx); fixed != 0 {
+		t.Fatalf("specific typed callsite must not be replaced by label-only aggregate support, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want model-selected typed capacity callsite 1", got)
+	}
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, newPreEmitCheckContext(ctx))
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "src/main/java/com/clinic/service/VisitService.java" || doc.Citations[ref].Line != 18 {
+		t.Fatalf("production normalization lost the typed capacity callsite: item=%+v citations=%+v", doc.Blocks[0].Items[0], doc.Citations)
+	}
+}
+
 func TestNormalizeContentBearingAggregateItemCitationRefs_UsesSupportingCoverageExactRows(t *testing.T) {
 	mu := types.NewMutableState("supporting aggregate citation")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
