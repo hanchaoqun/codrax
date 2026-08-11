@@ -32773,3 +32773,33 @@ renderer 与活动流超时策略未修改。
 
 状态：`B545=implemented/full-suite-pass/pending-r323`；`model-json-mind=lowered`；
 `canonical-relation-authority=unchanged`；`schema-change=none`；Trace causal authority=`unchanged`。
+
+### 123.600 r323：关系合同同代复绿，但“内部端点覆盖”仍可冒充“业务参与者可见”
+
+`main@46e5a6007` exact-two runner 2/2，人工 `pass-with-caveat + fail`，详见
+`eval/parallel_selected_summary_evalcampaign_relation_ssot_r323_20260811_manual_audit.md`。读模式案的同一 Finalizer prompt 只发布
+`incident=[analyzer explorer extractor finalizer Mutable BusContext]`，不再发布 BusContext/Mutable 的相反 boundary recipe；B543 的同源关系状态已获生产正证。
+本轮也未再出现 `firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)` 的完整 RHS 与 parser primary identity 自冲突；但模型未再次选择该原始 witness，
+因此 B545 只记 `no-recurrence/pending-exact-production-witness`，不以缺少触发虚报完全生产闭环。
+
+最终图仍不合格：正文解释 BusContext/Mutable 为阶段载体，Mermaid 却没有 BusContext 节点，也没有 Analyzer/Explorer/Extractor/Finalizer 与
+Mutable/BusContext 的业务数据流；图只保留四阶段 precedence、`executeTool -> buildToolBusContext`、`NewMutableState -> Mutable` 和
+`executeStageRequest -> dispatchStage -> BuildAgentContext` 等分离技术片段。确认
+`B548-PARTICIPANTVISIBLE1/P1-high`：participant coverage 当前把“某个 exact operation 通过 owner/declared binding 与 participant 对齐”直接当成
+“participant 已在图中可见”。应把两件事拆开：一是 evidence-backed incident relation，二是用户点名业务 participant 的可见 node/subgraph identity；
+前者不能替代后者。已有技术端点可放进以 participant 为业务标签的 Mermaid subgraph/group，系统只验证两份 typed 事实，不补边、不改标签、不生成答案。
+
+同时确认 `B549-PARTICIPANTRECIPEMAP1/P1`：首稿的多类关系错误修掉后，Finalizer 连续三轮只收到六席同形
+`available_typed_incident_edge_not_rendered`；虽然全局 capsule 包含 8 条可引用边，但没有按 participant 给出其 bounded candidate recipe，模型反复尝试
+`participant_boundaries` 后第 5 稿才从全局清单反查成功。最优形是给每个失败 participant 枚举有限个、原样引用的 exact typed edge 候选与
+anchor JSON，由模型选择呈现；候选是事实导航，不是系统选边或绘图，不得让一席候选变成“全部边必须画”的新硬合同。
+
+Trace 对照案 157s、Finalizer 首稿通过：4 次 typed query 覆盖 5 个维度族，显式窗、自动补齐、Trace 因果投影、链上根因、D/IO、算力缺口、
+VerifyClass 语义点及实际占用/规则可消双轴完整，邻近/背景未升主因。模型仍把可重叠 IO 行相加，并称主线程卡顿“完全来自 S 状态”，归入
+`B544/P2-soft` 的 typed 上下文精度改进；禁止扫描终稿作硬门或由系统替换结论。
+
+两案分别 157s/508s；508s 案超过四分钟后仍持续产生 Explorer/Finalizer 进展并最终交付模型答案。固定时长降级继续禁止：活动流只等待；只有真实
+first-byte/stall/连接终止/重试耗尽才可进入既有恢复链，且只能恢复模型已有草稿或 fail-loud 披露，不能系统代答。
+
+状态：`B543=production-positive`；`B545=no-recurrence/pending-exact-witness`；`B548=P1-high/next`；
+`B549=P1/next-or-same-file-batch`；`runner=2/2`；`human=1/2`；`active-stream=no-degrade@508s`；Trace causal authority=`unchanged`。

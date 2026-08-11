@@ -4302,3 +4302,21 @@ Cangjie、Rust、C++ 与 composite construction 回归及全仓测试通过。
 
 状态：`B545=implemented/full-suite-pass/pending-r323`；`endpoint-contract=single-source`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.140 r323：B543 生产闭环；参与者图仍有 visibility 与 repair-map 两层债
+
+r323 exact-two runner 2/2、人工 `pass-with-caveat + fail`。B543 获生产正证：同一成文 prompt 只发布六席全部 incident，不再出现
+BusContext/Mutable uncovered recipe。B545 的完整 RHS 自冲突未复现，但原 witness 未被本轮选择，故只记无回归、待 exact production witness。
+
+新确认 `B548-PARTICIPANTVISIBLE1/P1-high`：最终 Mermaid 没有 BusContext，也没有四 Agent 与 Mutable/BusContext 的业务数据流，却因内部 operation
+可经 owner/declared binding 对齐 participant 而通过 coverage。关系权威与展示完整性必须拆开：typed operation 证明 incident；用户点名 participant 还必须以
+业务 node/subgraph identity 可见。系统不补边、不选边、不改模型答案。
+
+新确认 `B549-PARTICIPANTRECIPEMAP1/P1`：六席 `available_typed_incident_edge_not_rendered` 连续三次重复，修补提示只给全局 relation capsule，
+没有逐席列 bounded exact candidate recipes，模型心智与成文重试过高。应发布候选映射但保持模型选择权，候选不得升级成“全部必画”。
+
+Trace 157s 首稿通过，显式窗、因果投影、自动补齐、链上根因、实际占用/规则可消双轴与确定性语义点均无回归；模型重叠 IO 求和和“完全来自 S 状态”
+继续归 B544 软指导，不扫描终稿硬改。读案 508s 活跃流全程未降级，固定四分钟系统代答继续禁止。
+
+状态：`B543=production-positive`；`B545=pending-exact-witness`；`B548=next`；`B549=next`；
+`active-stream=no-degrade@508s`；Trace causal authority=`unchanged`。
