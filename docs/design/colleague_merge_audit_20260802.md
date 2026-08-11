@@ -3515,3 +3515,21 @@ agent/orchestrator/types 套件全绿；回归覆盖 receipt 正负、旧 Explor
 B501 的 exact-endpoint 分层表达。
 
 状态：`B504=implemented/pending-production-replay`；`raw-prose-hard-gate=none`；`system-relation-authoring=none`；Trace families=`unchanged`。
+
+#### §11.10.69 r292：participant boundary 产生“必带且必删”互斥合同
+
+exact-two runner/人工 1/2。东湖 Trace 完整通过显式窗、补采、因果投影、链上五类修向、业务 span、actual/effective、可消除量及背景隔离，证明 B504 未污染 Trace。
+
+read 单 finalizer 20 次拒绝后降级。同一 structured rejection 对 `Analyzer Agent`/`Finalizer Agent` 同时报 `missing_unproven_boundary` 与
+`unknown_or_context_only_boundary`。根因为 participant typed display identity 含空格时不属于 code surface，coverage matcher 无法接受它与自己 exact 相等；
+边界先被判未知，未置 bounded 的 obligation 再被判缺失。这是确定性不可满足合同，立 B505/P0，不归模型波动。
+
+状态：`B505=P0/next`；`B504=pending-direct-witness`；`Trace=pass`；`system-edge-authoring=none`。
+
+#### §11.10.70 B505：exact typed participant 优先于 alias 兼容
+
+coverage state 恒带原 typed identity，code resolution 只追加 alias；boundary 先 exact 匹配 obligation，零命中才走现有 short/qualified compatibility。
+带空格显示身份现可合法声明 unproven，`Foo`/`pkg.Foo` 也不会因 tail alias 抢占 exact boundary。调用/数据流 relation gate、participant role 与图内容均未改。
+
+定向 coverage 与 tool/orchestrator 全包均绿（174.024s / 11.478s），待 r293 生产回放。状态：`B505=implemented/package-suites-pass`；
+`raw-prose-hard-gate=none`；Trace families=`unchanged`。

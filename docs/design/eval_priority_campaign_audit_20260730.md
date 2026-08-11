@@ -31465,3 +31465,37 @@ finalizer prompt compiler 现每 dispatch 先 fail-closed 清零，再仅在它�
 状态：`B504=implemented/package-suites-pass/pending-production-replay`；`B501=pending-model-consumption-replay`；
 `system-relation/diagram/conclusion-authoring=none`；`raw-request/model/final-prose-hard-gate=none`；
 Trace explicit windows/auto-supplement/causal projection/on-chain root-cause families/business clues=`unchanged`。
+
+### 123.525 r292：Trace 全能力守住；typed 显示身份无法与自身匹配
+
+`main@097f461de9` 严格并行同一 read 关系图与东湖显式窗多因 Trace。runner/人工均 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_qf_trace_r292_20260810_manual_audit.md`。
+
+Trace 人工通过：114.940ms 用户窗、确定性补采、ThreadPool→NetworkService→CookieMonster→主线程唤醒链、链上优先级反转、D/IO、调度供给、
+算力供给、`VerifyClass` 确定性工作、业务线索、实际占时轴、可消除量轴、代表窗及邻近/背景隔离均保留；`frame_causality=unproven` 和不可跨席相加边界诚实。
+一次缺 principal summary 的成文 patch 正常收敛。B504 未触发 post-finalize zero-edge 分支，故只记 Trace 隔离正证，不虚报生产关闭。
+
+read 在单个 finalizer dispatch 内 20 次拒绝后降级。确定性红线复现：同一拒绝同时发布
+`Analyzer Agent missing_unproven_boundary` 与 `Analyzer Agent unknown_or_context_only_boundary`，`Finalizer Agent` 同形。根因是 participant coverage
+只保留 `DiagramParticipantIdentitySurfaces` 返回的 code identity；带空格的 schema-valid typed display identity 无 entity 可解析时退回虽发生，但统一 comparator
+又拒绝空格，导致 exact boundary 永远无法与自己的 obligation 匹配。该行先被判 unknown，原 obligation 随后又被判 missing，形成不可满足合同。
+
+立 `B505-PARTSELF1/P0-redline`：typed obligation identity 自身必须是第一等 exact display surface；boundary 先按 exact obligation identity 唯一匹配，
+只有无 exact 命中时才走 short/qualified code alias 兼容。该规则读 typed IR 与结构化 diagram payload，不读 request/model prose，不放宽 relation authority。
+
+状态：`B505=P0/next`；`B504=implemented/pending-direct-production-witness`；`Trace=human-pass/non-regression`；
+`system-edge/answer-authoring=none`；`raw-prose-hard-gate=none`。
+
+### 123.526 B505：participant exact identity 单源消除互斥合同
+
+participant coverage state 现恒保留 analyzer typed identity 原值，解析出的 code identity 仅作为附加 alias。处理 boundary 时先对 obligation identity 做大小写不敏感的
+完整精确比较；只有零 exact match 才使用既有代码身份兼容。由此 `Analyzer Agent`、`Finalizer Agent` 等合法显示身份可作为断开节点与 `unproven` boundary，
+而 `Foo`/`pkg.Foo` 同时存在时，exact `pkg.Foo` 不再被 tail alias `Foo` 抢成歧义。
+
+该批只修 participant presence/boundary 的 identity 单源，不生成边、不把 context-only 变 incident-required、不修改 call/data-flow evidence gate。
+回归钉住带空格 sequence participant、qualified/tail alias exact precedence，以及原 stale/unknown/invisible/duplicate/Trace 隔离臂。
+
+`go test ./internal/tool ./internal/orchestrator -count=1` 全绿（174.024s / 11.478s）。
+
+状态：`B505=implemented/package-suites-pass/pending-production-replay`；`B504=pending-direct-production-witness`；
+`system-relation/diagram/conclusion-authoring=none`；Trace windows/causal projection/auto-supplement/on-chain families=`unchanged`。

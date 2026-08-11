@@ -86,9 +86,15 @@ func DiagramParticipantCoverageMismatches(
 	}
 	states := make([]state, 0, len(obligations))
 	for _, obligation := range obligations {
-		surfaces := types.DiagramParticipantIdentitySurfaces(rm, obligation)
-		if len(surfaces) == 0 {
-			surfaces = []string{strings.TrimSpace(obligation.Identity)}
+		// The analyzer's typed display identity is always its own exact
+		// presentation surface, including schema-valid labels with spaces such
+		// as "Analyzer Agent". Resolved code identities are additional aliases;
+		// they must not make the original typed identity impossible to name.
+		surfaces := []string{strings.TrimSpace(obligation.Identity)}
+		for _, resolved := range types.DiagramParticipantIdentitySurfaces(rm, obligation) {
+			if !diagramParticipantSurfaceListContainsExact(surfaces, resolved) {
+				surfaces = append(surfaces, resolved)
+			}
 		}
 		states = append(states, state{
 			obligation: obligation,
@@ -110,10 +116,26 @@ func DiagramParticipantCoverageMismatches(
 				})
 				continue
 			}
+			// Exact typed identity has precedence over short/qualified alias
+			// compatibility. Without this two obligations such as Foo and
+			// pkg.Foo can make the exact boundary "pkg.Foo" ambiguous; decorated
+			// identities can be rejected as unknown and simultaneously reported
+			// missing. Alias matching remains the fail-closed fallback only when
+			// no exact typed identity exists.
 			matches := make([]int, 0, 1)
 			for i := range states {
-				if diagramParticipantSurfaceMatches(states[i].surfaces, boundary.Participant) {
+				if strings.EqualFold(
+					strings.TrimSpace(states[i].obligation.Identity),
+					strings.TrimSpace(boundary.Participant),
+				) {
 					matches = append(matches, i)
+				}
+			}
+			if len(matches) == 0 {
+				for i := range states {
+					if diagramParticipantSurfaceMatches(states[i].surfaces, boundary.Participant) {
+						matches = append(matches, i)
+					}
 				}
 			}
 			if len(matches) != 1 {
@@ -293,7 +315,19 @@ func diagramParticipantSurfaceMatches(surfaces []string, candidate string) bool 
 		return false
 	}
 	for _, surface := range surfaces {
+		if strings.EqualFold(strings.TrimSpace(surface), candidate) {
+			return true
+		}
 		if types.AnswerCodeIdentitySurfacesCompatible(surface, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramParticipantSurfaceListContainsExact(surfaces []string, candidate string) bool {
+	for _, surface := range surfaces {
+		if strings.EqualFold(strings.TrimSpace(surface), strings.TrimSpace(candidate)) {
 			return true
 		}
 	}

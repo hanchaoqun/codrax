@@ -156,6 +156,58 @@ func TestDiagramParticipantCoverageUsesUniqueTypedDisplayAliasWithoutMintingRela
 	}
 }
 
+func TestDiagramParticipantCoverageAcceptsExactTypedDisplayIdentitiesWithSpaces(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer Agent", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer Agent", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramSequence, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n participant Analyzer_Agent as Analyzer Agent\n participant Finalizer_Agent as Finalizer Agent"},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "Analyzer Agent", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "Finalizer Agent", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, nil); len(got) != 0 {
+		t.Fatalf("exact schema-valid display identities must not be both unknown and missing: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageExactQualifiedBoundaryWinsOverTailAlias(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Foo", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "pkg.Foo", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n Foo\n pkg.Foo"},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "Foo", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "pkg.Foo", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, nil); len(got) != 0 {
+		t.Fatalf("exact typed identities must outrank otherwise ambiguous tail aliases: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageConsumesVerifiedStageAliasesInBothValidationPasses(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
