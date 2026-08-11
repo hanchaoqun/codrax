@@ -408,6 +408,57 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 	}
 }
 
+func TestTraceFinalLeaderMechanismCeilingIsSalientWithoutTypedTargetBlocker(t *testing.T) {
+	inWindow := true
+	leader := types.TraceCausalProjectionNode{
+		EvidenceID: "pre-wakeup-leader", Subject: "worker-200", Rank: 1,
+		EffectiveImpactMS: 4.6, ImpactMS: 4.6, StateKind: "running",
+		FixDirection: "self_workload", ChainDepth: 1, ChainRelevance: "on_chain",
+		WithinRequestedWindow: &inWindow,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel:      "customer.systrace",
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: "app-100", TotalMS: 7},
+		RankedSeats:        []types.TraceCausalProjectionNode{leader},
+		OnChainCauses:      []types.TraceCausalProjectionNode{leader},
+	}
+	got := renderTraceFinalSynthesisScope(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "absent")
+	for _, want := range []string{
+		"final_answer_mechanism_scope artifact=`customer.systrace`",
+		"subject=`worker-200`; target=`app-100`",
+		"only as on-chain work overlapping the interval before the target wakeup",
+		"No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("final leader mechanism ceiling missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceFinalLeaderMechanismCeilingYieldsToTypedTargetBlocker(t *testing.T) {
+	inWindow := true
+	leader := types.TraceCausalProjectionNode{
+		EvidenceID: "pre-wakeup-leader", Subject: "worker-200", Rank: 1,
+		EffectiveImpactMS: 4.6, ImpactMS: 4.6, StateKind: "running",
+		FixDirection: "self_workload", ChainDepth: 1, ChainRelevance: "on_chain",
+		WithinRequestedWindow: &inWindow,
+	}
+	blocker := types.TraceCausalProjectionNode{
+		EvidenceID: "typed-blocker", Subject: "app-100", BlockingKind: "monitor_contention",
+		BlockingPeer: "holder-300", WithinRequestedWindow: &inWindow,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel:      "customer.systrace",
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: "app-100", TotalMS: 7},
+		RankedSeats:        []types.TraceCausalProjectionNode{leader, blocker},
+		OnChainCauses:      []types.TraceCausalProjectionNode{leader, blocker},
+	}
+	got := renderTraceFinalSynthesisScope(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "absent")
+	if strings.Contains(got, "final_answer_mechanism_scope") {
+		t.Fatalf("negative mechanism ceiling must yield to exact typed target blocker:\n%s", got)
+	}
+}
+
 func TestTraceFinalDecisionLedgerDirectionLeaderPrefersPublishedOnChainMaximumOverAdjacentRank(t *testing.T) {
 	chain := types.TraceCausalProjectionNode{
 		EvidenceID: "full-chain-io", Subject: "chain-worker", Rank: 3,

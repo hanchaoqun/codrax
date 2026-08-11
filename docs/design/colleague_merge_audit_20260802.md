@@ -4659,3 +4659,15 @@ Trace 案保留显式 5.000000..5.007000 窗、自动补采、因果投影、链
 状态：`B564=implemented/not-exercised-r333`；`B566=P2-watch/model-variance`；`B544=recurrent/P1-next`；
 `runner=2/2`；`human=0/2`；`fixed-four-minute-active-degrade=retired`；`system-answer/edge-authorship=none`；
 Trace causal authority=`unchanged`。
+
+#### §11.10.165 B544：最终选中唤醒前席位获得简短 typed 机理边界
+
+final synthesis tail 现只对“已发布 fix-direction leader + `pre_wakeup_dependency` + 席自身无 `BlockingKind` + 目标无精确 typed waiter/holder”这一合取条件，
+追加一条简短自然语言边界：该席只能表述为目标唤醒前的链上重叠工作候选，不能据此声称目标等待该工作、等待其完成或被其直接阻塞。判定只读投影席位、目标状态账户与
+typed blocking relation；不扫描请求、模型推理或终稿，不拒绝、删除或替换模型答案，也不选择根因。
+
+若投影存在精确 target waiter/holder relation，该负边界整席不发，由既有 compact authority 发布更强阻塞凭证，避免软教学抹掉精确信号。提示只覆盖每个投影最多三个
+已发布方向 leader，并紧邻最终 synthesis scope，减少长上下文中重复字段对模型心智的消耗。无 Trace 排序、可消量、窗口、补采、投影树或答案渲染改动。
+
+状态：`B544=implemented/pending-r334`；`trigger=typed-final-seat-only`；`exact-blocker=preserved`；
+`raw-prose-hard-gate=none`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。

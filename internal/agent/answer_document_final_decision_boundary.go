@@ -307,8 +307,52 @@ func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvi
 			emitted++
 		}
 	}
+	b.WriteString(renderTraceFinalLeaderMechanismCeiling(set))
 	if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
 		fmt.Fprintf(&b, "  - frame_claim_scope=`selected_window_observations_only`; frame_evidence_status=`%s`; out_of_window_marker_role=`navigation_only`; frame_boundary_completion_deadline_authority=`not_provided`.\n", frameEvidenceStatus)
+	}
+	return b.String()
+}
+
+// renderTraceFinalLeaderMechanismCeiling gives the model one concise reminder
+// at the final synthesis tail when a published direction leader is upstream
+// work before the target wakeup but no typed target blocker exists. The
+// detailed per-row authority remains in the ledger above; this line only keeps
+// that typed distinction salient after a long prompt. An exact target
+// waiter/holder relation suppresses the negative reminder so stronger typed
+// authority is never erased. No request or answer prose is inspected.
+func renderTraceFinalLeaderMechanismCeiling(set types.TraceCausalProjectionSet) string {
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		target := ""
+		if projection.TargetStateAccount != nil {
+			target = strings.TrimSpace(projection.TargetStateAccount.Subject)
+		}
+		if target == "" || len(traceFinalTargetBlockingRelations(projection, target)) > 0 {
+			continue
+		}
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		seen := map[string]bool{}
+		emitted := 0
+		for _, node := range traceFinalFixDirectionLeaders(projection, 6) {
+			if traceDecisionNodePhase(node) != "pre_wakeup_dependency" || strings.TrimSpace(node.BlockingKind) != "" {
+				continue
+			}
+			identity := traceDecisionNodeIdentity(node)
+			if seen[identity] {
+				continue
+			}
+			seen[identity] = true
+			fmt.Fprintf(&b, "  - final_answer_mechanism_scope artifact=`%s`; subject=`%s`; target=`%s`: describe this selected leader only as on-chain work overlapping the interval before the target wakeup. No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it.\n",
+				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), traceDecisionPromptScalar(target))
+			emitted++
+			if emitted >= 3 {
+				break
+			}
+		}
 	}
 	return b.String()
 }
