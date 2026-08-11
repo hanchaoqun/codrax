@@ -175,6 +175,7 @@ var traceNoteKeyGoldenRows = []string{
 	"cpu_constraint_kind|state|hard_consumer",
 	"cpu_constraint_policy|state|hard_consumer",
 	"cpu_count|compute_supply|display_only",
+	"cpu_relation|chain_path|soft_consumer",
 	"cpus|cpu_load|hard_consumer",
 	"cpuset|cpu_load|display_only",
 	// AXIOM-V2 件2/件3 (2026-07-18): the cross-direction overlap pair roster
@@ -674,6 +675,8 @@ var traceNoteKeyGoldenRows = []string{
 	"wakee_priority_artifact_source|gating|display_only",
 	"wakee_priority_authority|gating|display_only",
 	"wakee_priority_source|gating|display_only",
+	"wakee_target_cpu|chain_path|soft_consumer",
+	"waker_cpu|chain_path|soft_consumer",
 	"waker_priority|chain_path|display_only",
 	"waker_priority_artifact_source|gating|display_only",
 	"waker_priority_source|gating|display_only",
