@@ -32755,3 +32755,21 @@ Trace 显式窗/因果投影/自动补齐、Mermaid renderer 与活动流超时�
 
 状态：`B543=implemented/full-suite-pass/pending-r323`；`participant-state=final-closure-SSOT`；
 `system-edge-authorship=none`；`B545=next`；Trace causal authority=`unchanged`。
+
+### 123.599 B545：模型可复制完整 RHS，硬关系仍只消费 parser canonical tuple
+
+赋值/初始化证据现同时区分两个面：模型可读面允许 `object` 直接逐字复制接地源码的完整 RHS expression；硬关系面继续由
+`AssignmentEvidenceEndpoints` 从同一行提取唯一 primary RHS identity 与 LHS receiver。以生产 witness 为例，
+`firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)` 可一次发成完整 expression，不再先接受后又要求模型猜内部截断为 `strings.TrimSpace`；
+后续 data-flow recipe 仍只使用 canonical `strings.TrimSpace -> firstFinalizeDraft`，不会把参数或整段 expression 当节点。
+
+只接受两种精确形：canonical primary identity，或与 grounded source RHS 字节一致的完整表达式。不同参数、不同表达式、概念角色、二元/三元表达式、字面量、
+解构和链式赋值仍 fail-closed。Call-chain selection、participant coverage 与 diagram value-flow 均改为消费 canonical tuple，避免可读 object 扩大硬门权限。
+没有新增 EvidenceItem/schema 字段，也没有 hash/cache epoch 迁移。
+
+跨语言正臂覆盖 Go/Java/Python/ArkTS/Cangjie/Rust/C++ 及 Go composite construction；emit-evidence required-flow 集成测试固定“完整 RHS 一次接受、
+无 action-required repair、canonical tuple 不变”。`go test ./...` 全绿，含 `internal/tool` 172.811s、`tracequery` 73.790s。Trace、write、JSON/Mermaid
+renderer 与活动流超时策略未修改。
+
+状态：`B545=implemented/full-suite-pass/pending-r323`；`model-json-mind=lowered`；
+`canonical-relation-authority=unchanged`；`schema-change=none`；Trace causal authority=`unchanged`。

@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssignmentEvidenceEndpointsMatchCrossLanguageSimpleTransfers(t *testing.T) {
 	tests := []struct {
@@ -29,6 +32,41 @@ func TestAssignmentEvidenceEndpointsMatchCrossLanguageSimpleTransfers(t *testing
 			if !AssignmentEvidenceEndpointsMatch(item) {
 				receiver, value, ok := AssignmentEvidenceEndpoints(item)
 				t.Fatalf("exact endpoints did not match: receiver=%q value=%q ok=%t item=%+v", receiver, value, ok, item)
+			}
+		})
+	}
+}
+
+func TestAssignmentEvidenceEndpointsAcceptsExactFullRHSExpressionButKeepsCanonicalIdentity(t *testing.T) {
+	tests := []struct {
+		name, snippet, subject, object, wantValue string
+	}{
+		{"go", `firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)`, "firstFinalizeDraft", "strings.TrimSpace(out.FinalAnswer)", "strings.TrimSpace"},
+		{"java", `this.handler = Objects.requireNonNull(selectedHandler);`, "handler", "Objects.requireNonNull(selectedHandler)", "Objects.requireNonNull"},
+		{"python", `self.backend = LocalBackend(config)`, "backend", "LocalBackend(config)", "LocalBackend"},
+		{"arkts", `this.state = await service.load(next)`, "this.state", "await service.load(next)", "service.load"},
+		{"cangjie", `this.value = makeValue(input)`, "value", "makeValue(input)", "makeValue"},
+		{"rust", `self.value = Arc::new(next);`, "self.value", "Arc::new(next)", "Arc::new"},
+		{"cpp", `this->sink_ = std::move(sink);`, "sink_", "std::move(sink)", "std::move"},
+		{"go_composite", `state = RuntimeState{Value: next}`, "state", "RuntimeState{Value: next}", "RuntimeState"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			item := EvidenceItem{AnchorKind: AnchorAssignment, Subject: tc.subject, Object: tc.object, Snippet: tc.snippet}
+			if !AssignmentEvidenceEndpointsMatch(item) {
+				t.Fatalf("exact full RHS expression should be accepted: %+v", item)
+			}
+			_, value, ok := AssignmentEvidenceEndpoints(item)
+			if !ok || value != tc.wantValue {
+				t.Fatalf("canonical RHS identity=%q ok=%t want %q", value, ok, tc.wantValue)
+			}
+			wrong := item
+			wrong.Object = strings.Replace(tc.object, "next", "other", 1)
+			if wrong.Object == item.Object {
+				wrong.Object += ".unexpected"
+			}
+			if AssignmentEvidenceEndpointsMatch(wrong) {
+				t.Fatalf("different full RHS expression gained authority: %+v", wrong)
 			}
 		})
 	}

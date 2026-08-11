@@ -3583,6 +3583,35 @@ func TestEmitEvidence_RequiredFlowPublishesExactAssignmentEndpointRepair(t *test
 	}
 }
 
+func TestEmitEvidence_RequiredFlowAcceptsExactFullRHSExpressionAndPublishesCanonicalTuple(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+	}}
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 5692,
+		"firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)",
+	)
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"firstFinalizeDraft","predicate":"assigns","object":"strings.TrimSpace(out.FinalAnswer)","source":"internal/orchestrator/orchestrator.go","line_start":5692,"summary":"finalizer output is trimmed into the first draft","anchor_kind":"assignment","anchor_symbol":"firstFinalizeDraft"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("exact full RHS expression failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("exact source RHS must not create contradictory canonical-endpoint repair: %+v", res.Repair)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorAssignment || !types.AssignmentEvidenceEndpointsMatch(got[0]) {
+		t.Fatalf("full RHS expression did not retain typed assignment authority: %+v", got)
+	}
+	receiver, value, ok := types.AssignmentEvidenceEndpoints(got[0])
+	if !ok || receiver != "firstFinalizeDraft" || value != "strings.TrimSpace" {
+		t.Fatalf("canonical tuple=(%q,%q,%t), want (firstFinalizeDraft,strings.TrimSpace,true)", receiver, value, ok)
+	}
+}
+
 func TestEmitEvidence_RequiredFlowRepairsMisclassifiedValueTransferAcrossLanguages(t *testing.T) {
 	tests := []struct {
 		name        string

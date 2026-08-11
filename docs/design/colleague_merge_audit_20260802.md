@@ -4290,3 +4290,15 @@ receiver/member 与 parser-stamped declared binding 不再分车道判断。pre-
 
 状态：`B543=implemented/full-suite-pass/pending-r323`；`B545=next`；
 `model-answer/edge-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.139 B545：完整 RHS 与 canonical relation endpoint 解耦
+
+assignment/initializer 允许模型逐字复制接地源码的完整 RHS expression，parser 从同一行独立提取唯一 primary source identity 供 completion、call-chain、
+participant coverage 和 diagram relation 使用。这样 `strings.TrimSpace(out.FinalAnswer)` 不再被系统先称 exact、后要求缩成 `strings.TrimSpace`；可读事实保留，
+硬关系仍为 canonical tuple。
+
+不同表达式、歧义/复合赋值与字面量不获 relation authority。方案无 EvidenceItem/schema/hash/cache 变更，不生成边或答案；Go、Java、Python、ArkTS、
+Cangjie、Rust、C++ 与 composite construction 回归及全仓测试通过。
+
+状态：`B545=implemented/full-suite-pass/pending-r323`；`endpoint-contract=single-source`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

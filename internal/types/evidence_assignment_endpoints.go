@@ -17,6 +17,22 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 	if item.AnchorKind != AnchorAssignment && item.AnchorKind != AnchorInitializer {
 		return "", "", false
 	}
+	lhs, rhs, ok := assignmentEvidenceSourceSides(item)
+	if !ok {
+		return "", "", false
+	}
+	receiver, ok = assignmentReceiverSurface(lhs)
+	if !ok {
+		return "", "", false
+	}
+	value, ok = assignmentPrimaryValueSurface(rhs)
+	if !ok {
+		return "", "", false
+	}
+	return receiver, value, true
+}
+
+func assignmentEvidenceSourceSides(item EvidenceItem) (lhs, rhs string, ok bool) {
 	line := firstAssignmentEvidenceLine(item.Snippet)
 	if line == "" {
 		return "", "", false
@@ -33,30 +49,32 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 	if count != 1 || op <= 0 || op+width >= len(line) {
 		return "", "", false
 	}
-	lhs := strings.TrimSpace(line[:op])
-	rhs := strings.TrimSpace(line[op+width:])
-	receiver, ok = assignmentReceiverSurface(lhs)
-	if !ok {
-		return "", "", false
-	}
-	value, ok = assignmentPrimaryValueSurface(rhs)
-	if !ok {
-		return "", "", false
-	}
-	return receiver, value, true
+	// Preserve a balanced closing brace in the readable RHS expression (for
+	// example Go/C++ composite construction). The canonical identity parser
+	// below may peel punctuation independently; only statement terminators are
+	// removed from the exact-expression comparison surface here.
+	return strings.TrimSpace(line[:op]), strings.TrimSpace(strings.TrimRight(line[op+width:], ",;")), true
 }
 
 // AssignmentEvidenceEndpointsMatch reports whether the model-authored
-// Subject/Object are the assignment's real LHS/RHS identities. A short or
-// locally de-qualified spelling may identify the exact line-local endpoint;
-// unrelated enclosing functions and nearby participants cannot.
+// Subject/Object own the assignment's real LHS/RHS source tuple. Object may be
+// either the parser's canonical primary RHS identity or the complete RHS
+// expression copied exactly from the grounded source line. Downstream relation
+// consumers still use AssignmentEvidenceEndpoints, so accepting the readable
+// expression never widens the canonical endpoint or direction.
 func AssignmentEvidenceEndpointsMatch(item EvidenceItem) bool {
 	receiver, value, ok := AssignmentEvidenceEndpoints(item)
 	if !ok {
 		return false
 	}
-	return assignmentEvidenceEndpointCompatible(item.Subject, receiver) &&
-		assignmentEvidenceEndpointCompatible(item.Object, value)
+	if !assignmentEvidenceEndpointCompatible(item.Subject, receiver) {
+		return false
+	}
+	if assignmentEvidenceEndpointCompatible(item.Object, value) {
+		return true
+	}
+	_, rhs, ok := assignmentEvidenceSourceSides(item)
+	return ok && strings.TrimSpace(item.Object) == rhs
 }
 
 // AssignmentEvidenceState returns the exact receiver and scalar state written
