@@ -31285,3 +31285,20 @@ write 案一行补丁正确，write-analysis 一次、计划一次、零 JSON re
 
 状态：`B498=implemented/full-agent-suite-pass/pending-production-replay`；`B495=production-closed`；
 `system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`；Trace families=`unchanged`。
+
+### 123.516 r287：B498 v1 生产否证与根修；Trace 主链通过但旧 generic caveat 复发
+
+`main@51a39c912` 严格并行 QF 架构关系与东湖真实多因 trace。runner 2/2；人工 Trace pass、QF fail，详见
+`eval/parallel_selected_summary_evalcampaign_qf_trace_r287_20260810_manual_audit.md`。
+
+Trace 一次成文：固定 114.940ms 请求窗，主因仅从 typed 唤醒链席加冕；优先级反转候选、调度延迟、算力供给、D/IO、类校验以及业务线程/span 名均未丢，
+◇ 邻近与 ▒ 背景没有升格，frame causality 明示 unproven。独立复发 `B499-RUNTIMEGENCAVEAT1/P1`：答案末尾系统补充仍说“建议结合源码”，违反
+runtime-only typed authority；这是旧 `E20260522-G13/G33/G153` 家族的生产 witness，不归因给模型。
+
+QF 否证 B498 v1：105KB finalizer context 仍含 `explorerSearchCache`、write-policy lexical groups 与 BaseAgent 无关 flow。原因是 whole-plan scope 自身过宽，
+`explorerEvaluator:69` 让同文件 45–64 行兄弟 owner 通过 ±24 位置匹配，facet sibling endpoint 也进入 flow。已把修复提升为：lexical order 必须同 owner；
+required-diagram 的可选 lexical/flow 统一服从实际展示的 bounded `Principal Support Path`；diagram-seed flow 与 enrichment flow 共用该 scope。无 diagram 或无 typed
+endpoint 的旧兼容车道保持。定向近邻反例与全 `internal/agent` 已绿，待 r288 生产回放。
+
+状态：`B498=v2-implemented/full-agent-suite-pass/pending-production-replay`；`B499=P1/next`；
+`trace-main-chain=human-pass`；`system-answer/conclusion-authoring=none`；`raw-request/model-prose-hard-gate=none`。

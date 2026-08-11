@@ -3419,3 +3419,11 @@ evidence ID/endpoint anchor 命中可进入可选 finalizer context；scope 无 
 `internal/agent` 全包绿。
 
 这是 prompt precision 修复，不改变证据权威、关系门、图、正文或 Trace 投影。状态：`B498=implemented/pending-production-replay`；Trace families=`unchanged`。
+
+#### §11.10.60 r287：第一版 support scope 被生产否证，提升为 owner/principal-floor 根修
+
+QF 生产 prompt 仍有 cache/write-policy 兄弟事实：whole-plan scope 的同文件 ±24 行与宽 endpoint 不是 principal connection。已改为 lexical 同 owner，且 required
+diagram 的两个 flow 发射面与 lexical capsule 共用实际展示的 bounded `Principal Support Path`；全 agent 绿，待生产重放。此批仍只减 advisory，不改关系/正文。
+
+东湖 trace 人工通过主链与五类修向边界，但系统末尾复发“建议结合源码”。立 `B499-RUNTIMEGENCAVEAT1/P1`，对应旧 G13/G33/G153 未收债；应按 typed
+runtime-only authority 抑制 generic accepted-path supplement，不扫描用户原文。状态：`B498=v2-pending-replay`；`B499=next`。

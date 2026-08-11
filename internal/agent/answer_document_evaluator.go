@@ -2905,11 +2905,7 @@ type answerDocLocalFactOrderGroup struct {
 // operation a condition guards. This is advisory model context, never an
 // answer rewrite or emit-time gate.
 func renderAnswerDocLocalFactOrderCapsule(ctx *types.AgentContext) string {
-	supportScope := supportLaneScopeFromPlan(
-		answerSupportPlan(ctx),
-		true,
-		extractorValueEvidenceRankProfileFor(ctx),
-	)
+	supportScope := supportLaneScopeForContext(ctx, true)
 	return renderAnswerDocLocalFactOrderCapsuleWithScope(ctx, supportScope)
 }
 
@@ -2932,11 +2928,11 @@ func renderAnswerDocLocalFactOrderCapsuleWithScope(ctx *types.AgentContext, supp
 			types.RuntimeArtifactPathKind(item.Source) != "" || claim == types.ClaimExternalObservation {
 			continue
 		}
-		if supportScope != nil && !supportScope.allowsEvidence(item) {
-			continue
-		}
 		owner := firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject)
 		if owner == "" {
+			continue
+		}
+		if supportScope != nil && !supportScope.allowsLocalFact(owner, item) {
 			continue
 		}
 		identity := answerDocEvidenceIdentity(item)
@@ -4140,7 +4136,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	appendSection("Diagram Node Allowlist", renderAnswerDocDiagramFileLabelSeed(ctx))
 	appendSection("Config Trace Precedence", renderAnswerDocDiagramConfigTraceSeed(ctx))
 	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
-	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
+	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings, supportLaneScopeForContext(ctx, true)))
 	appendSection("Principal Support Path", renderAnswerDocDiagramSupportSeed(ctx))
 	appendSection("Exact Resolution Anchors", renderAnswerDocDiagramExactResolutionSeed(ctx))
 
@@ -4334,17 +4330,19 @@ func requiredLogErrorMessages(bundle *types.LogBundle) []string {
 	return messages
 }
 
-func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
+func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest, supportScope *supportLaneScope) string {
 	if len(findings) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	limit := len(findings)
-	if limit > 3 {
-		limit = 3
-	}
-	for i := 0; i < limit; i++ {
-		ff := findings[i]
+	emitted := 0
+	for i, ff := range findings {
+		if i >= answerDocMaxFlowEnrichmentScan || emitted >= 3 {
+			break
+		}
+		if supportScope != nil && !supportScope.allowsFlowFinding(ff) {
+			continue
+		}
 		parts := make([]string, 0, 3)
 		if len(ff.Path) > 0 {
 			parts = append(parts, "path="+strings.Join(ff.Path, " -> "))
@@ -4359,6 +4357,7 @@ func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
 			continue
 		}
 		fmt.Fprintf(&b, "- %s\n", strings.Join(parts, " | "))
+		emitted++
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -4367,7 +4366,7 @@ func renderAnswerDocDiagramSupportSeed(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
 	}
-	entries := collectDiagramSupportEntries(ctx, 12)
+	entries := collectDiagramSupportEntries(ctx, answerDocDiagramSupportSeedLimit)
 	if len(entries) == 0 {
 		return ""
 	}
@@ -4386,6 +4385,8 @@ func renderAnswerDocDiagramSupportSeed(ctx *types.AgentContext) string {
 	}
 	return strings.TrimSpace(b.String())
 }
+
+const answerDocDiagramSupportSeedLimit = 12
 
 func collectDiagramSupportEntries(ctx *types.AgentContext, limit int) []types.AnswerSupportEntry {
 	if ctx == nil {
@@ -8865,7 +8866,68 @@ func supportLaneScopeForContext(ctx *types.AgentContext, supportRendered bool) *
 	if plan == nil {
 		return nil
 	}
+	// A required diagram already publishes one bounded principal support
+	// floor. Optional lexical/flow enrichment must follow that same visible
+	// floor instead of reopening every broad facet candidate in the full
+	// support plan. Other answer families retain the full-plan behavior.
+	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
+		if diagramScope := supportLaneScopeFromDiagramPlan(
+			plan,
+			answerDocDiagramSupportSeedLimit,
+			extractorValueEvidenceRankProfileFor(ctx),
+		); diagramScope != nil && diagramScope.constrain {
+			return diagramScope
+		}
+	}
 	return supportLaneScopeFromPlan(plan, supportRendered, extractorValueEvidenceRankProfileFor(ctx))
+}
+
+func supportLaneScopeFromDiagramPlan(
+	plan *types.AnswerSupportPlan,
+	limit int,
+	profile extractorValueRankProfile,
+) *supportLaneScope {
+	if plan == nil || limit <= 0 {
+		return nil
+	}
+	filtered := &types.AnswerSupportPlan{Family: plan.Family}
+	seen := make(map[string]bool)
+	selected := 0
+	for _, lane := range plan.Lanes {
+		if !answerSupportLaneAllowsDiagram(lane) {
+			continue
+		}
+		filteredLane := types.AnswerSupportLane{
+			Kind:          lane.Kind,
+			AllowedBlocks: append([]string(nil), lane.AllowedBlocks...),
+		}
+		for _, entry := range lane.Entries {
+			display := diagramSupportEntrySurface(entry)
+			if display == "" {
+				continue
+			}
+			key := strings.ToLower(display) + "\x00" + strings.ToLower(strings.TrimSpace(entry.Location))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			filteredLane.Entries = append(filteredLane.Entries, entry)
+			selected++
+			if selected >= limit {
+				break
+			}
+		}
+		if len(filteredLane.Entries) > 0 {
+			filtered.Lanes = append(filtered.Lanes, filteredLane)
+		}
+		if selected >= limit {
+			break
+		}
+	}
+	if selected == 0 {
+		return nil
+	}
+	return supportLaneScopeFromPlan(filtered, true, profile)
 }
 
 func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered bool, _ extractorValueRankProfile) *supportLaneScope {
@@ -9022,6 +9084,23 @@ func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
 		}
 	}
 	return false
+}
+
+func (s *supportLaneScope) allowsLocalFact(owner string, item types.EvidenceItem) bool {
+	if s == nil || !s.constrain {
+		return true
+	}
+	if s.hasEvidenceID(answerDocEvidenceIdentity(item)) {
+		return true
+	}
+	// Lexical order is an owner-local statement. A nearby line in the same
+	// file may belong to a sibling helper and cannot connect that helper to
+	// the principal support. When no typed owner/endpoint exists, fall back to
+	// the ordinary location/file compatibility behavior.
+	if len(s.anchors) > 0 {
+		return s.hasAnchor(owner)
+	}
+	return s.allowsEvidence(item)
 }
 
 func (s *supportLaneScope) requiresExactLocationForConcreteSourceEvidence(item types.EvidenceItem) bool {

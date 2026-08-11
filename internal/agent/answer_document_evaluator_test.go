@@ -1284,13 +1284,22 @@ func TestAnswerDocumentEvaluator_LocalFactOrderUsesCompiledSupportScope(t *testi
 	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
 		Lanes: []types.AnswerSupportLane{{
 			Kind: types.SupportLanePrincipalEvidence,
-			Entries: []types.AnswerSupportEntry{{
-				EvidenceID:   "support-stage-binding",
-				Source:       "internal/types/stage_binding.go",
-				LineStart:    10,
-				AnchorSymbol: "StageBinding",
-				Subject:      "StageBinding",
-			}},
+			Entries: []types.AnswerSupportEntry{
+				{
+					EvidenceID:   "support-stage-binding",
+					Source:       "internal/types/stage_binding.go",
+					LineStart:    10,
+					AnchorSymbol: "StageBinding",
+					Subject:      "StageBinding",
+				},
+				{
+					EvidenceID:   "support-explorer-component",
+					Source:       "internal/agent/explorer.go",
+					LineStart:    69,
+					AnchorSymbol: "explorerEvaluator",
+					Subject:      "explorerEvaluator",
+				},
+			},
 		}},
 	}, true, extractorValueRankComparison)
 
@@ -1300,6 +1309,50 @@ func TestAnswerDocumentEvaluator_LocalFactOrderUsesCompiledSupportScope(t *testi
 	}
 	if strings.Contains(got, "explorerSearchCache") || strings.Contains(got, "internal/agent/explorer.go") {
 		t.Fatalf("unrelated lexical group escaped the compiled support scope:\n%s", got)
+	}
+}
+
+func TestSupportLaneScopeFromDiagramPlan_UsesVisiblePrincipalFloor(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Lanes: []types.AnswerSupportLane{
+		{
+			Kind:          types.SupportLanePrincipalEvidence,
+			AllowedBlocks: []string{string(types.BlockDiagram)},
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-stage-output",
+				Text:         "StageOutput",
+				Source:       "internal/agent/agent.go",
+				LineStart:    36,
+				AnchorSymbol: "StageOutput",
+				Subject:      "StageOutput",
+			}},
+		},
+		{
+			Kind:          types.SupportLaneNearestMechanism,
+			AllowedBlocks: []string{string(types.BlockSection)},
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-write-policy",
+				Text:         "validateWriteAnalyzerToolPolicy",
+				Source:       "internal/agent/agent.go",
+				LineStart:    3248,
+				AnchorSymbol: "validateWriteAnalyzerToolPolicy",
+				Subject:      "validateWriteAnalyzerToolPolicy",
+			}},
+		},
+	}}
+	supportScope := supportLaneScopeFromDiagramPlan(plan, answerDocDiagramSupportSeedLimit, extractorValueRankComparison)
+	if supportScope == nil || !supportScope.hasAnchor("StageOutput") {
+		t.Fatal("diagram principal support entry did not reach advisory scope")
+	}
+	if supportScope.hasAnchor("validateWriteAnalyzerToolPolicy") {
+		t.Fatal("section-only sibling support widened the diagram advisory scope")
+	}
+
+	got := renderAnswerDocDiagramFlowSeed([]types.FlowFindingDigest{
+		{ID: "unrelated", Path: []string{"BaseAgent.executeTool", "validateWriteAnalyzerToolPolicy"}, Sources: []string{"internal/agent/agent.go"}},
+		{ID: "relevant", Path: []string{"StageOutput", "BusContext"}},
+	}, supportScope)
+	if !strings.Contains(got, "StageOutput -> BusContext") || strings.Contains(got, "validateWriteAnalyzerToolPolicy") {
+		t.Fatalf("diagram flow seed did not follow the visible principal support floor:\n%s", got)
 	}
 }
 
@@ -4121,6 +4174,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		},
 		FlowFindings: []types.FlowFindingDigest{{
 			Path:       []string{"Dispatch", "Handler"},
+			Sources:    []string{"internal/a.go"},
 			Conditions: []string{"kind == call"},
 		}},
 		AnswerChains: []types.AnswerChain{{
@@ -4164,7 +4218,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"`internal/a.go`",
 		"`internal/b.go`",
 		"### Log Triage",
-		"### Flow Findings",
 		"## First-Pass Diagram Reference",
 		"Supporting anchor locations belong OUTSIDE the fence",
 		// Log seed is now Mermaid (was bare-fence ASCII "innermost
@@ -4182,6 +4235,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 	}
 	if strings.Contains(prompt, "boundary_recipe[") {
 		t.Fatalf("Trace lane must not receive non-runtime participant-boundary recipes:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Dispatch -> Handler") {
+		t.Fatalf("unlinked flow finding must not widen the visible artifact support floor:\n%s", prompt)
 	}
 }
 
