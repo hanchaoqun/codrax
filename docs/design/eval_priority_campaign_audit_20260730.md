@@ -33038,3 +33038,19 @@ soft boundary teaching 与人工 eval witness，不为当前 C++ fixture 硬拟�
 
 状态：`B554/B555/B556/B557=production-positive`；`B558=close-to-watch`；`B559=P1-high/design-carrier-first`；
 `B560=P0-next`；`runner=2/2`；`human=1/2`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.614 B560：累计时长不再终止已有真实模型进展的活跃流
+
+stream watchdog 新增独立 `modelProgressReceived` 精确信号：reasoning content、assistant content、tool-call delta、finish reason 或 usage 任一到达后，
+`2×request_timeout` 总帽立即退出判定域。它不读取用户输入、模型语义或最终答案，只消费已解析 SSE 的 typed 字段；因此配置为 120s 时，持续推理/正文/工具调用
+超过 4 分钟不会被系统终止，也不会因此进入恢复稿或系统代答。
+
+总帽没有删除，而是收窄为 transport-liveness-only 逃生臂：纯 SSE comment、空 data frame、malformed keep-alive 或仅 role framing 可继续重置 byte-idle，
+但不能铸造 model progress，仍在 `2×request_timeout` 以 `StreamTotalTimeoutError` fail-loud。真实无字节停滞继续由 stall watchdog 处理；逐字周期退化继续由
+exact degeneration breaker 截断；用户/上层取消继续优先。三条正臂分别覆盖 hidden reasoning、varied visible content、streamed tool-call 全部跨过旧绝对帽后正常完成，
+keep-alive-only 负臂继续在总帽失败。
+
+`internal/llm`、`internal/agent`、`internal/orchestrator` 通过。该批不改 finalizer recovery、模型答案、JSON 教学、Trace 显式窗、自动补齐、因果投影或链上根因权威。
+
+状态：`B560=implemented/relevant-suites-pass`；`active-model-progress=no-elapsed-time-degrade`；
+`transport-only=bounded`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。

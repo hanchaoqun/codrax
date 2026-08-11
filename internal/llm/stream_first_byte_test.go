@@ -112,7 +112,7 @@ func TestDoStreamRequest_ActiveHiddenReasoningMayOutlastRequestTimeoutAndFinish(
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		f, _ := w.(http.Flusher)
-		for i := 0; i < 13; i++ {
+		for i := 0; i < 25; i++ {
 			select {
 			case <-r.Context().Done():
 				return
@@ -134,7 +134,7 @@ func TestDoStreamRequest_ActiveHiddenReasoningMayOutlastRequestTimeoutAndFinish(
 
 	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
 		Stream:                 true,
-		RequestTimeout:         500 * time.Millisecond, // absolute cap = 1s
+		RequestTimeout:         500 * time.Millisecond, // old absolute cap = 1s
 		RetryMaxAttempts:       1,
 		StreamFirstByteTimeout: time.Second,
 		StreamStallTimeout:     5 * time.Second,
@@ -153,12 +153,12 @@ func TestDoStreamRequest_ActiveHiddenReasoningMayOutlastRequestTimeoutAndFinish(
 	if elapsed <= 500*time.Millisecond {
 		t.Fatalf("test did not outlast requestTimeout; elapsed=%v", elapsed)
 	}
-	if elapsed >= time.Second {
-		t.Fatalf("test must finish before the absolute total cap; elapsed=%v", elapsed)
+	if elapsed <= time.Second {
+		t.Fatalf("test did not outlast the old absolute cap; elapsed=%v", elapsed)
 	}
 }
 
-func TestDoStreamRequest_ToolCallStreamCompletesWithinTotalCap(t *testing.T) {
+func TestDoStreamRequest_ActiveToolCallMayOutlastTotalCap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -173,7 +173,7 @@ func TestDoStreamRequest_ToolCallStreamCompletesWithinTotalCap(t *testing.T) {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-time.After(120 * time.Millisecond):
+			case <-time.After(300 * time.Millisecond):
 			}
 			_, _ = w.Write([]byte(chunk))
 			if f != nil {
@@ -191,9 +191,13 @@ func TestDoStreamRequest_ToolCallStreamCompletesWithinTotalCap(t *testing.T) {
 		StreamStallTimeout:     5 * time.Second,
 	})
 
+	start := time.Now()
 	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	if err != nil {
-		t.Fatalf("tool-call stream should finish within the absolute total cap: %v", err)
+		t.Fatalf("active tool-call progress must outlive the old absolute total cap: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed <= time.Second {
+		t.Fatalf("test did not reach the old watchdog firing tick; elapsed=%v", elapsed)
 	}
 }
 

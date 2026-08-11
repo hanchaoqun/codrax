@@ -4483,3 +4483,14 @@ r328 exact-two runner 2/2、人工 `fail + pass-with-caveat`。C++ 的 copy-read
 
 状态：`B554-B557=production-positive`；`B558=close-to-watch`；`B559=carrier-first/open`；`B560=P0-next`；
 `model-authorship=preserved`；Trace causal authority=`unchanged`。
+
+#### §11.10.154 B560：4 分钟活跃流不再被累计时长降级
+
+OpenAI-compatible SSE adapter 现把绝对总帽严格限定在“只有传输存活、尚无真实模型进展”的状态。reasoning、assistant content、tool-call delta、finish 或 usage
+任一出现即关闭该帽；累计耗时不再能终止健康活跃流或授权系统替换模型答案。纯 keep-alive/空帧/畸形心跳仍无 model-progress 权限，继续由
+`2×request_timeout` 有界 fail-loud；stall、精确重复退化和调用方取消均保持原强度。
+
+三类活跃正臂跨过旧帽后完成，keep-alive-only 负臂继续失败；`llm/agent/orchestrator` 通过。无 prompt/prose 扫描、无 finalizer 或 Trace 行为变化。
+
+状态：`B560=implemented`；`fixed-four-minute-active-degrade=retired`；`transport-only-cap=retained`；
+`model-authorship=preserved`；Trace causal authority=`unchanged`。

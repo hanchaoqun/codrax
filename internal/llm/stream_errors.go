@@ -169,21 +169,21 @@ func (e *StreamNoVisibleOutputTimeoutError) Is(target error) bool {
 	return target == ErrStreamNoVisibleOutputTimeout
 }
 
-// ErrStreamTotalTimeout is raised when a streaming request exceeds the total
-// wall-clock cap (2× the operator's request timeout). Streaming intentionally
-// carries no http.Client.Timeout so legitimate long answers are not killed
-// while visible bytes flow — but that left the worst case unbounded: a
-// degenerate stream that keeps emitting visible deltas resets every idle
-// watchdog and can run arbitrarily long (customer dead-session 2026-07-03:
-// 14m35s against timeout=10m). The total cap preserves the flowing-bytes
-// headroom while bounding the whole request.
+// ErrStreamTotalTimeout is raised when a streaming request exceeds the
+// transport-only wall-clock cap (2× the operator's request timeout) before any
+// real model progress arrives. Streaming intentionally carries no
+// http.Client.Timeout so legitimate reasoning, answer, and tool-call streams
+// are not killed while active. Keep-alive-only connections still reset byte
+// idle clocks, so this independent cap bounds that exact no-model-progress
+// state. Once real model progress starts, elapsed time alone is not authority
+// to stop the model or publish a degraded answer.
 var ErrStreamTotalTimeout = errors.New("llm: upstream stream exceeded total wall-clock cap")
 
-// StreamTotalTimeoutError wraps the read-side cancellation when the total
-// wall-clock watchdog fires. Intentionally NOT in the in-adapter retry
-// allowlist: content callbacks have usually fired by then, and replaying a
-// request that already consumed 2× the per-call budget multiplies wall-clock
-// damage instead of recovering.
+// StreamTotalTimeoutError wraps the read-side cancellation when the
+// transport-only wall-clock watchdog fires. Intentionally NOT in the
+// in-adapter retry allowlist: the provider kept a connection alive for 2× the
+// per-call budget without real model progress, so immediately replaying the
+// same request is more likely to multiply wall-clock damage than recover.
 type StreamTotalTimeoutError struct {
 	Elapsed time.Duration
 	Cap     time.Duration
@@ -195,9 +195,9 @@ func (e *StreamTotalTimeoutError) Error() string {
 		return ErrStreamTotalTimeout.Error()
 	}
 	if e.Cause != nil {
-		return fmt.Sprintf("upstream LLM stream ran %s, exceeding the total wall-clock cap %s (2×request timeout): %v", e.Elapsed, e.Cap, e.Cause)
+		return fmt.Sprintf("upstream LLM stream had no model progress for %s, exceeding the transport-only wall-clock cap %s (2×request timeout): %v", e.Elapsed, e.Cap, e.Cause)
 	}
-	return fmt.Sprintf("upstream LLM stream ran %s, exceeding the total wall-clock cap %s (2×request timeout)", e.Elapsed, e.Cap)
+	return fmt.Sprintf("upstream LLM stream had no model progress for %s, exceeding the transport-only wall-clock cap %s (2×request timeout)", e.Elapsed, e.Cap)
 }
 
 func (e *StreamTotalTimeoutError) Unwrap() error {

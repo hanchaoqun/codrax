@@ -141,7 +141,7 @@ func TestParseSSEStream_DegenerateBreakerFires(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestParseSSEStream_NormalLongContentNotTruncated(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,38 +206,38 @@ func TestStreamTotalTimeoutError_Sentinel(t *testing.T) {
 	if errors.Is(wrapped, ErrStreamStalled) || errors.Is(wrapped, ErrStreamFirstByteTimeout) {
 		t.Fatalf("total-timeout error must be distinct from stall/first-byte sentinels")
 	}
-	if !strings.Contains(wrapped.Error(), "total wall-clock cap") {
-		t.Fatalf("error message should name the total wall-clock cap, got %q", wrapped.Error())
+	if !strings.Contains(wrapped.Error(), "transport-only wall-clock cap") {
+		t.Fatalf("error message should name the transport-only wall-clock cap, got %q", wrapped.Error())
 	}
 }
 
 var errStreamProbe = errors.New("probe")
 
-// TestDoStreamRequest_TotalWallClockCapFires covers the runaway case the
-// customer hit 2026-07-03: visible deltas keep flowing (resetting the
-// stall watchdog) but the request as a whole runs
-// past every budget. The server emits a fresh visible delta every 30ms
-// forever; with requestTimeout=400ms the total cap (800ms) must abort.
-func TestDoStreamRequest_TotalWallClockCapFires(t *testing.T) {
+// TestDoStreamRequest_ActiveVisibleProgressMayOutlastTotalCap pins the
+// authority boundary: varied visible deltas are real model progress, so an
+// elapsed-time cap cannot terminate the stream or authorize a degraded answer.
+// Exact periodic loops are independently covered by the degeneration breaker;
+// byte silence is covered by the stall watchdog.
+func TestDoStreamRequest_ActiveVisibleProgressMayOutlastTotalCap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		f, _ := w.(http.Flusher)
-		ticker := time.NewTicker(30 * time.Millisecond)
-		defer ticker.Stop()
-		i := 0
-		for {
+		for i := 0; i < 35; i++ {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
-				i++
-				// Varied text so the degeneration breaker cannot fire first.
+			case <-time.After(30 * time.Millisecond):
 				_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok%d \"}}]}\n\n", i)
 				if f != nil {
 					f.Flush()
 				}
 			}
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if f != nil {
+			f.Flush()
 		}
 	}))
 	defer server.Close()
@@ -251,16 +251,16 @@ func TestDoStreamRequest_TotalWallClockCapFires(t *testing.T) {
 	})
 
 	start := time.Now()
-	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatalf("expected total wall-clock cap error; got nil")
+	if err != nil {
+		t.Fatalf("active visible model progress must not hit the transport-only cap: %v", err)
 	}
-	if !errors.Is(err, ErrStreamTotalTimeout) {
-		t.Fatalf("expected ErrStreamTotalTimeout in chain; got %v", err)
+	if elapsed <= 800*time.Millisecond {
+		t.Fatalf("test did not outlast the old total cap; elapsed=%v", elapsed)
 	}
-	if elapsed > 4*time.Second {
-		t.Fatalf("total cap took %v to fire; expected well under 4s", elapsed)
+	if !strings.Contains(resp.Content, "tok34") {
+		t.Fatalf("late visible content was not preserved: %q", resp.Content)
 	}
 }
