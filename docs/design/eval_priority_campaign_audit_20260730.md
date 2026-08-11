@@ -32928,3 +32928,27 @@ exact equality，不做关键词/语义扫描，也不改已有 block 的标题�
 
 状态：`B553=implemented/relevant-suites-pass/pending-r326`；`duplicate-title-shell=lossless-drop`；
 `unique/annotated-title=fail-closed`；`B552=open`；Trace causal authority=`unchanged`。
+
+### 123.608 r326：mixed relation Note 获正证；单实体 guard 与可选图逃逸仍开放
+
+`main@ba5826c96` exact-two runner 2/2，人工 `pass-with-caveat + fail`，详见
+`eval/parallel_selected_summary_evalcampaign_mixed_relation_r326_20260811_manual_audit.md`。C++ 案在一次精确 patch 后保留四条 call edge，并把 factory return
+作为无 anchor 的 `Note over` 保留；没有把 return 伪装为 call，也没有补造断开组件之间的桥。B551-B 的 binary non-message 映射获得生产正证。
+
+但同一案已接地的 `kind == "console"` guard 没进入 copy-ready capsule：当前 family-neutral recipe 构造先要求 `from + to`，天然只有 subject/condition 的
+guard 被过滤。确认 `B554-UNARYSEMANTICNOTE1/P1-high`：对可引用、typed 的单实体 control fact，以该 participant 上的无 anchor Note 保留；不得虚构 object、
+不得生成 self-call 或 edge。该原则也适用于未来明确建模为 unary 的状态/观察事实，必须逐 relation capability 显式开放，未知形继续 fail-closed。
+
+Python 案的 capsule 已含两条 call/callback 和一条 factory-result Note，但 optional-diagram 修补提示仍把“原样采用骨架”与“删除整图”并列成等价省事出口，模型选择删图。
+确认 `B555-OPTIONALDIAGRAMESCAPE1/P1`：只做软引导——当现有 typed skeleton 已携带有用关系结构时优先局部替换；只有模型判断该可选视觉不增加结构价值时才删。
+不得把可选图升级为硬要求，也不得由系统写图或替换模型结论。
+
+B550 同轮获生产正证：Python 终稿只披露“关系图主干及其已证关系”缺失，没有把完整正文泛化降级。B553 两案均无 title-only 重试。
+B552 本轮从“开放逃逸”校正为 `production-self-corrected/watch`：签名行上的错误 registration 被 grounding 明确拒绝，随后模型发射 line 17 guard 与 line 18 return
+并获接地；继续保留 source-owned regression pin，不因单次历史症状再加重复硬门。
+
+两案 141s/157s，无固定时长降级。活跃流即使超过 4 分钟仍必须等待；累计时长不是失败信号，只有 typed 首包超时、真实 stall、断链或重试耗尽才可恢复模型已有草稿
+或 fail-loud 披露，绝不允许系统生成替代答案。
+
+状态：`B551-B=production-positive/partial`；`B550=production-positive`；`B553=no-recurrence`；
+`B552=watch`；`B554=P1-high/next`；`B555=P1/next`；`runner=2/2`；`human=1/2`；Trace causal authority=`unchanged/not-exercised`。

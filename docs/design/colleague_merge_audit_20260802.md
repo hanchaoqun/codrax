@@ -4410,3 +4410,19 @@ facet/claim/role 等任何 annotation 的对象不吸收，继续给出精确 sc
 
 tool/types/orchestrator/tracediag 套件全绿。状态：`B553=implemented/pending-r326`；`retry-noise=exact-duplicate-only`；
 `model-content-deletion=forbidden`；`B552=open`；Trace causal authority=`unchanged`。
+
+#### §11.10.148 r326：B551-B/B550 生产正证与两项关系表达残余
+
+r326 exact-two runner 2/2、人工 `pass-with-caveat + fail`。C++ 修复稿保留四条 exact call edge 与 factory-return Note，证明非 message typed relation
+可以在 sequence 中无损保留且不扩大 invocation authority；Python 的 exact answer-coverage 附注只指出缺少“关系图主干及其已证关系”，B550 精确披露获正证；
+两案均未再出现 duplicate title-only 重试。
+
+新确认 `B554-UNARYSEMANTICNOTE1/P1-high`：已接地的 C++ branch guard 只有 subject+condition，当前 binary relation recipe 在缺 object 时直接过滤，导致图层丢失
+运行时选择条件。最优形是一席 participant 的无 anchor Note；禁止补 object、自环或关系边。新确认 `B555-OPTIONALDIAGRAMESCAPE1/P1`：Python 已有 call/callback+
+factory Note 的可靠 capsule，repair teaching 仍把删图作为同等最省力出口，模型遂删除整图。只应软引导优先替换已有 typed skeleton，保留模型判断无视觉价值时删除的权限。
+
+B552 本轮错误签名行 registration 被 grounding 拒绝，随后 exact guard/return 行获接地，改记 `production-self-corrected/watch`，不新增重复硬门。
+活动流累计 4 分钟继续不是降级条件；系统不得因仍活跃但耗时较长而生成或替换模型答案。
+
+状态：`B551-B=production-positive/partial`；`B550=production-positive`；`B553=no-recurrence`；
+`B552=watch`；`B554/B555=next`；`model-authorship=preserved`；Trace causal authority=`unchanged`。
