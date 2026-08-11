@@ -32624,3 +32624,25 @@ QF 逻辑视图暴露 B540 正臂缺口：Analyzer 的 `relation_scope_quote` �
 
 状态：`B540b=implemented/full-relevant-suite-pass`；`all-outside=schema-repair`；
 `partial-outside=row-local-drop`；`model-authorship=preserved`；Trace=`unchanged`。
+
+### 123.593 r320：scope 正臂闭合，跨语言声明类型到载体端点仍断层
+
+`main@84d0a24fa` exact-two runner 2/2，人工 `uncertain + fail`，详见
+`eval/parallel_selected_summary_evalcampaign_scope_trace_r320_20260811_manual_audit.md`。逻辑视图案中，Analyzer 首稿携带一个 scope 外
+Orchestrator，B540 逐行删除；其后同一 `relation_scope_quote` 合法覆盖 Analyzer/Explorer/Extractor/Finalizer/Mutable/BusContext 六席，证明
+B540b 没有误伤合法全量 participant。Mutable 通过精确成员 operation 获得 incident coverage；BusContext 则无法与
+`o.busCtx.EvidenceItems` 等精确源码端点对齐，三次成文修补后仍为孤点。runner 的 Mermaid edge 数量 oracle 因而是假绿。
+
+确认 `B541-CARRIERFLOWVIS1/P1-high` 的根因不是模型没努力，也不是应放宽 relation authority：现有 owner-suffix 只能识别
+`Mutable -> ctx.Mutable.SetTurnAArtifacts`，无法证明变量/字段 receiver `o.busCtx` 的声明类型是 `BusContext`。最优形是由各语言 parser/repomap
+发布精确声明类型或 receiver-type 绑定，并把它作为 endpoint identity/participant coverage 的只读别名载体；原 EvidenceItem 仍独占关系种类、方向、技术端点和可引用行。禁止大小写猜测、变量名近似、请求/模型/答案 prose 扫描，禁止由系统据类型绑定铸造 data-flow edge。
+
+Trace 案保留显式 5.000..5.007s 窗、因果投影、自动补齐、链上 VerifyClass 4.600ms 主席、runnable 0.800ms 次席、实际占用/规则可消双轴、
+`frame_evidence_status=absent` 与帧因果未证限定；邻近 CPU 供给没有升为主因。模型把“无 B/E span”扩写成“没有任何帧处理或渲染工作被执行”，
+但 absence of instrumentation 不能证明 absence of work，且同页已有 running=1.200ms，故只记证据口径软教学债；不扫描最终 prose，不由系统改写结论。
+
+两案 183s/450s，后者超过四分钟仍持续有模型流、工具调用和结构化修补。系统继续等待并发布模型原答案，没有合成、替换或提前降级。冻结活动流规则：
+四分钟不是答案降级阈值；只有真正首字节/进展超时才能走重试、恢复既有模型草稿或 fail-loud，且必须向用户披露，不能生成系统结论。
+
+状态：`B540b=production-positive`；`B541=production-confirmed/next`；`trace-core=pass`；
+`trace-prose-caliber=watch/soft-only`；`B517=no-system-degrade@450s`；`runner=2/2`；`human=0.5/2`。

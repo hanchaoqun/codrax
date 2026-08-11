@@ -4212,3 +4212,16 @@ r319 exact-two runner 2/2、人工 0/2。复合 sequence+table 案证明 B540 �
 
 状态：`B540=production-positive/partial`；`B540b=implemented/full-relevant-suite-pass`；`B541=open`；
 `runner=2/2`；`human=0/2`；`B517=positive@367s,400s`；Trace causal authority=`unchanged`。
+
+#### §11.10.133 r320：B540b 获生产正证，B541 收敛到声明类型身份投影
+
+r320 exact-two runner 2/2、人工 `uncertain + fail`。Analyzer 已能用同一关系面保留六个用户点名 participant，并逐行剔除 scope 外 Orchestrator；
+B540/B540b 的正反臂均获生产证据。Mutable 的精确成员 operation 可覆盖业务 participant，BusContext 却不能与
+`o.busCtx.EvidenceItems` 这类精确 variable/member endpoint 对齐，三次成文修补后仍是孤点。确认 B541 的施工边界：跨语言 parser 提供声明类型/receiver-type
+typed identity，coverage 只消费该别名；关系、方向、源码端点和答案仍由模型发射的 EvidenceItem 持有。禁止命名猜测、prose hard gate 与系统补边。
+
+Trace 对照案保留显式窗、自动补齐、因果投影、链上类校验/调度供给排序与实际占用/可消除双轴。模型对缺失 B/E instrumentation 有一次“未执行任何工作”
+的证据口径越界，只登记软教学债，不改答案。450s 活跃流始终等待模型并发布模型答案，未按四分钟降级或系统代答。
+
+状态：`B540b=production-positive`；`B541=confirmed/implement-next`；`trace-authority=unchanged`；
+`active-stream-degrade=forbidden/no-regression@450s`。
