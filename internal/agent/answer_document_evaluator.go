@@ -6732,20 +6732,7 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		if types.AggregateMemberSetIsScalarCountSupport(&rm, fact) {
 			continue
 		}
-		members := make([]string, 0, len(fact.Members))
-		seen := map[string]bool{}
-		for _, member := range fact.Members {
-			trimmed := strings.TrimSpace(member)
-			if trimmed == "" {
-				continue
-			}
-			key := strings.ToLower(trimmed)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			members = append(members, trimmed)
-		}
+		members := answerDocDistinctPrincipalMembers(fact.Members)
 		if len(members) == 0 {
 			continue
 		}
@@ -6788,6 +6775,32 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	b.WriteString("\n")
 	b.WriteString(renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs))
 	return b.String()
+}
+
+func answerDocDistinctPrincipalMembers(raw []string) []string {
+	members := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, member := range raw {
+		trimmed := strings.TrimSpace(member)
+		if trimmed == "" {
+			continue
+		}
+		// Principal member surfaces are source identities, not search tokens.
+		// Case-sensitive languages may legitimately publish two distinct
+		// symbols whose only spelling difference is case (for example an
+		// unexported helper and its exported wrapper in Go). The pre-emit
+		// contract is verbatim, so a case-folded dedup here silently shrinks the
+		// model-authored typed set and later forces a contradictory supplement.
+		// Preserve exact post-trim spelling. A producer that explicitly owns a
+		// case-insensitive identity domain must normalize its typed carrier
+		// before it reaches this language-neutral renderer.
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		members = append(members, trimmed)
+	}
+	return members
 }
 
 func answerDocPartitionPrincipalMemberSetRefs(refs []types.AnswerAggregateFactRef, rm *types.RequestModel, sets []types.EnumerationDisplaySet) (authoritative, advisory []types.AnswerAggregateFactRef) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -2603,6 +2604,19 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 	// (5) The no-dup contract still makes the oracle behavior explicit.
 	if !strings.Contains(got, "do not paraphrase or abbreviate") {
 		t.Errorf("missing paraphrase guard; got\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocPrincipalMemberSetContractPreservesCaseDistinctSymbols(t *testing.T) {
+	got := answerDocDistinctPrincipalMembers([]string{
+		" isTraceMarkPayload ",
+		"IsTraceMarkPayload",
+		"isTraceMarkPayload",
+		"",
+	})
+	want := []string{"isTraceMarkPayload", "IsTraceMarkPayload"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("case-distinct typed symbols must survive exact dedup: got=%q want=%q", got, want)
 	}
 }
 

@@ -4382,6 +4382,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// Large rowsets remain explicitly truncated and keep payload_ref as the
 	// lossless continuation rather than flooding the model context.
 	writeTraceTargetWaitOccurrencePreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
+	// B46-REL3 (2026-08-02): keep exact pair/ruler and non-authority
+	// boundaries before the compact board so StoreBlob's bounded head cannot
+	// expose the values while truncating their arithmetic/mechanism caliber.
+	// Exploration must see the comparison contract before it sees the first
+	// comparable value. This remains typed transport only and never selects a
+	// conclusion.
+	writeTraceRootCauseRelationAuthorityPreview(&b, result)
 	// B37-RANKPREVIEW (2026-08-01): root_cause_rank can share a composite
 	// result with enough wakeup/resource detail that StoreBlob's bounded head
 	// and tail preview hides the complete rank board in the omitted middle.
@@ -4391,10 +4398,6 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// preserves engine order and values, reads no request/answer prose, and
 	// neither elects a cause nor changes the full rank/projection sections.
 	writeTraceRootCauseRankPreview(&b, traceQueryRootCauseRankForHeadPreview(result), payloadRef)
-	// B46-REL3 (2026-08-02): keep exact pair/ruler and non-authority
-	// boundaries beside the compact board so exploration cannot form a stale
-	// cross-row sum before the same typed projection reaches Finalizer.
-	writeTraceRootCauseRelationAuthorityPreview(&b, result)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,

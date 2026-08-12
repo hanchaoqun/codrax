@@ -105,6 +105,9 @@ func TestTraceQuerySummaryBoundsPriorityInversionMechanismBesideRankRows(t *test
 	if authorityAt, bodyAt := strings.Index(got, want), strings.Index(got, "## Root cause rank"); authorityAt < 0 || bodyAt < 0 || authorityAt > bodyAt {
 		t.Fatalf("mechanism authority must remain in the head preview, authority=%d body=%d:\n%s", authorityAt, bodyAt, got)
 	}
+	if authorityAt, firstRowAt := strings.Index(got, "relation_authority scope="), strings.Index(got, "root_cause_rank_preview_row"); authorityAt < 0 || firstRowAt < 0 || authorityAt > firstRowAt {
+		t.Fatalf("arithmetic authority must precede the first comparable rank value, authority=%d first_row=%d:\n%s", authorityAt, firstRowAt, got)
+	}
 }
 
 func TestTraceQuerySummaryDoesNotEmitPriorityInversionMechanismWithoutTypedSeat(t *testing.T) {

@@ -33530,3 +33530,50 @@ Trace causal projection=`present-but-model-miscompared`。
 
 状态：`B604=implemented/awaiting-production-replay`；`authority-source=ClaimForm`；
 `path-or-language-heuristic=none`；`executable-source-anchor=unchanged`；`model-answer-ownership=preserved`。
+
+### 123.639 r361：B604 生产闭环；B603 暴露 transport-order 残差；成员身份大小写折叠
+
+`main@02588c2d6` exact-two runner `2/2`，人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r361_20260812_manual_audit.md`。
+
+read-combo 生产复放不再把 `internal/skill/defaults.go` 教学字符串当 parser 实现。模型实际读取
+`internal/tracequery/parse.go`、`query.go` 与 `trace_mark_integrity.go` 的可执行函数，正确区分 print-family 识别、trace-mark 动作解析、
+B/E 同步栈、S/F async cookie 配对；同时把 86.111ms runtime 实测、当前源码机制和 frame/deadline 未证分开。B604 收账为
+production positive。
+
+Trace D4 仍为人工失败。显式窗口、目标状态、typed 唤醒链、链上 rank、实际占用/现规则可消双轴、VerifyClass 业务线索、背景降级与
+frame-causality 边界都在；但模型仍生成两个未授权跨席总和（17.609ms、44.082ms），并把正值 10.331ms compute-delivery head-room
+绝对化为“供给充足/并非瓶颈”。Finalizer 上下文已精确携带 `cross_row_additivity=forbidden`、完整 on-chain roster 和
+`compute_delivery_positive=true ... never as absent`，因此不是投影或成文数据缺失。真正断点在 Explorer：root-rank tool result 先打印 12 个
+可比较值，再打印 relation authority；StoreBlob bounded preview 恰好在权限行之前截断。Explorer 已先形成错误 Σ 与供给否定，后续精确 handoff 未稳定纠偏。
+确认 B603 实现 partial，新增 `B605-RELATIONAUTHORITYBEFOREVALUE1/P1-high`：任何 bounded 数值 roster 必须先发布其比较/加法/机理权限，
+不能让值与尺子跨越截断边界。修复仅调整 typed transport 顺序，不扫描或拒绝模型正文，也不判断需求/供给结论。
+
+同一 read-combo 还确认 `B606-CASEEXACTMEMBERIDENTITY1/P1`。Explorer 提交的 principal member_set 有 7 个逐成员 source ref；
+`isTraceMarkPayload` 与 `IsTraceMarkPayload` 是两个不同函数。Finalizer 的 Required Principal Member Set 使用 `strings.ToLower` 去重，将其缩成 6；
+答案 mutation 又按原 typed fact 补发 7 项，造成正文重复和“必答面硬转软”披露。该问题不是 Go 专项：任何大小写敏感语言的符号、路径、配置键均可能被
+语言无关 renderer 静默合并。最优边界是 principal verbatim identity 只做 trim + exact dedup；若某生产者确实拥有大小写不敏感域，应在该生产者 typed
+carrier 内显式归一化，公共 renderer 不得代猜。
+
+r361 总管线分别 178s/269s；269s 案超过四分钟仍正常交付，没有以管线累计 elapsed 触发系统降级或代答。需准确区分：这证明长管线总时长不是降级权限，
+不等于一次连续模型流已在生产跑满四分钟。单流合同继续由 adapter 精确 pin 保证：已有真实 model progress 后，累计 elapsed 不得终止或发布降级答案；
+只有 first-byte timeout、真实 byte stall、transport break、caller cancel、安全事件或精确 decode degeneration 可进入披露式恢复。
+
+状态：`B604=production-positive/closed-watch`；`B603=partial`；`B605=confirmed/implemented-package-pass`；
+`B606=confirmed/implemented-package-pass`；`runner=2/2`；`human=1/2`；`model-conclusion-ownership=preserved`；
+`trace-projection=unchanged`；`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.640 B605/B606：先尺后值；principal symbol identity 改为 exact
+
+B605 将 `writeTraceRootCauseRelationAuthorityPreview` 调到 compact rank rows 之前。现有 typed comparison、exact subtotal、two-ruler、partition、
+priority-candidate mechanism ceiling 的内容和值完全不变；变化只在传输拓扑：Explorer 在看到第一个 `effective_impact` 前，先看到逐席比较、跨席 Σ 未授权、
+同链可能重叠及 lock-holder 未证。新增顺序 pin 要求 `relation_authority` 字节位置严格早于第一条 `root_cause_rank_preview_row`。
+
+B606 将 Required Principal Member Set 的 renderer 去重从 lower-case key 改为 exact post-trim key，并抽出单源 helper。新增正臂同时携带
+`isTraceMarkPayload`/`IsTraceMarkPayload`，重复的 exact `isTraceMarkPayload` 只保留一次；这既保住大小写敏感源身份，也不制造重复。
+
+两批均不读取用户输入、模型推理或最终答案原文，不新增 hard gate，不改 root-rank 选举、显式窗口、因果投影、系统补齐、读写路由、Mermaid/JSON 恢复或
+流式 breaker。完成包级回归后 exact-two 重放 Trace D4 + read-combo；若 Trace 仍偶发违反而上下文顺序已完整，则按模型波动记录，不再通过系统代写/正文扫描
+硬拟合结论。
+
+包级回归 `go test ./internal/tool ./internal/agent -count=1` 通过。状态：`B605/B606=package-pass/pending-production-replay`。
