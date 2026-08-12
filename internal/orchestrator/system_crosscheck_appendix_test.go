@@ -80,6 +80,71 @@ func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	}
 }
 
+func TestSystemCrossCheckAppendixPublishesTypedWakeupCPUTopologyWithoutProseScan(t *testing.T) {
+	record := types.ObservationRecord{
+		ID:              "trace_query:fixture#wakeup_chain_edge:1",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "fixture.systrace"},
+		Span:            types.ObservationSpan{LineStart: 10, LineEnd: 10},
+		Subject:         "worker-200",
+		Predicate:       "wakeup_chain_edge",
+		Object:          "app-100",
+		RichNotes: []string{
+			types.TraceNoteKeyWakeupWakerCPU + "=2",
+			types.TraceNoteKeyWakeupWakeeTargetCPU + "=1",
+			types.TraceNoteKeyWakeupCPURelation + "=cross_cpu",
+		},
+	}
+	sameCPU := record
+	sameCPU.ID = "trace_query:fixture#wakeup_chain_edge:2"
+	sameCPU.Subject = "producer-300"
+	sameCPU.Object = "consumer-400"
+	sameCPU.RichNotes = []string{
+		types.TraceNoteKeyWakeupWakerCPU + "=3",
+		types.TraceNoteKeyWakeupWakeeTargetCPU + "=3",
+		types.TraceNoteKeyWakeupCPURelation + "=same_cpu",
+	}
+	unknown := record
+	unknown.ID = "trace_query:fixture#wakeup_chain_edge:3"
+	unknown.Subject = "unknown-500"
+	unknown.RichNotes = []string{
+		types.TraceNoteKeyWakeupWakerCPU + "=4",
+		types.TraceNoteKeyWakeupWakeeTargetCPU + "=5",
+		types.TraceNoteKeyWakeupCPURelation + "=unknown",
+	}
+	mut := psgTraceMutable(record, record, sameCPU, unknown) // identical rows dedupe; non-closed relations stay silent
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+	doc := psgProseDoc("该窗口存在一条唤醒依赖。") // deliberately carries no CPU/thread token
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	out := &agent.StageOutput{FinalAnswer: "正文"}
+	o.attachSystemCrossCheckAppendix(out, "", nil)
+	atts := mut.AnswerDisplayAttachments()
+	if len(atts) != 1 {
+		t.Fatalf("typed wakeup topology should publish one appendix, got %+v", atts)
+	}
+	body := atts[0].Body
+	for _, want := range []string{
+		"唤醒拓扑 worker-200 → app-100",
+		"CPU2,目标投递 CPU1(跨核)",
+		"不构成同核占用、抢占或直接竞争证据",
+		"唤醒拓扑 producer-300 → consumer-400",
+		"CPU3,目标投递 CPU3(同核)",
+		"仅凭放置相同仍不能证明直接竞争",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("typed topology appendix missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Count(body, "唤醒拓扑 worker-200 → app-100") != 1 {
+		t.Fatalf("duplicate query rows must render one topology fact:\n%s", body)
+	}
+	if strings.Contains(body, "unknown-500") {
+		t.Fatalf("an unrecognized CPU relation must stay fail-closed:\n%s", body)
+	}
+}
+
 // TestSystemCrossCheckAppendixSilentWhenClean — zero findings → zero block,
 // answer untouched.
 func TestSystemCrossCheckAppendixSilentWhenClean(t *testing.T) {

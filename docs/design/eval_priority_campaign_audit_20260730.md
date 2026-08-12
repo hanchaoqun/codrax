@@ -33174,3 +33174,36 @@ checkout-verified `stageauthority`、当前仓 grounded evidence 与 typed flow/
 
 状态：`B593=implemented/targeted-tests-pass`；`analysis-json-contract=three-surface-aligned`；
 `dimension-semantics=soft`；`diagram-authorship=model-only`；Trace causal authority=`unchanged`。
+
+### 123.622 r352：B593 生产闭环；Trace 跨核拓扑在终稿内自冲突
+
+`main@a3affbfc9` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_readcombo_r352_20260812_manual_audit.md`。Read 案的首个有效 analysis 明确发出
+`requested_answer_dimensions={stage,input,output,state-carrier}`；同源 finalizer prompt 因而发布 checkout-verified 三条 stage precedence。尽管首稿仍虚构多条 call/data-flow，
+relation gate 只允许模型修补已有图，最终一个 sequenceDiagram 连续保留 `analyze -> explore -> extract -> finalize` 三边并配套四行输入/输出/载体表。
+B593 从 targeted pass 升为 production positive。两次 reject 的第二次仅因模型把已连参与者又列为 unproven boundary；修补后合法。箭头显示词仍偏内部术语、并遗留一条过时谨慎 caveat，
+记为模型措辞观察项，不以终稿关键词扫描建立硬门。
+
+Trace 案在 B544 上取得正向结果：5.000ms span 与 4.600ms effective attribution 已正确分口径，wake `5.005000` 早于 span end `5.005400`，终稿没有再写成
+“完成后才唤醒”；explicit 7ms window、链上根因排序、实际占用/规则可消双轴、类校验业务线索、调度供给、因果投影、自动补采、frame causality 未证及非链背景边界均保留。
+但出现新的同页精确矛盾：明细正确写 worker 在 CPU2、app 在 CPU1，摘要却说 worker 占 CPU1 且二者在同一核心重叠。trace_query payload 已发布
+`waker_cpu=2,wakee_target_cpu=1,cpu_relation=cross_cpu`，finalizer 也收到通用 topology 教学；因此不是解析/采集/计算 gap，而是模型跨块消费波动。
+确认 `B594-WAKECPUTOPOLOGYVISIBLE1/P1-soft-high`：在独立中性系统事实面对 exact typed topology 做无条件有限发布，让用户可直接核对；不扫描模型句子、不判正文错、
+不触发 retry、不修改正文或结论。
+
+状态：`B593=production-positive`；`B544=production-positive-this-run/watch`；`B594=in-progress`；
+`runner=2/2`；`human=1/2`；Trace causal authority=`preserved`；`model-body=byte-unchanged`。
+
+### 123.623 B594：跨核/同核唤醒放置进入中性 typed 对照面
+
+生产 system cross-check appendix 现直接消费 observation ledger 中 deterministic `wakeup_chain_edge` 行的
+`waker_cpu/wakee_target_cpu/cpu_relation`。三字段齐全且 relation 为 closed enum `same_cpu|cross_cpu` 时，最多发布 3 条去重事实：
+
+- `cross_cpu`：说明唤醒事件所在 CPU 与目标投递 CPU，并明确该边不构成同核占用、抢占或直接竞争证据；
+- `same_cpu`：只证明放置相同，直接竞争仍需独立兼容的 running/runnable overlap。
+
+该面完全不读取用户原文、模型推理、正文 token 或答案关系词；即使正文不出现 CPU/线程名也发布，所以既不是 prose 扫描硬门，也不会因模型恰好省略一句而沉默。它只新增独立系统附注，
+不进入 violation/retry，不修改 AnswerDocument，不选根因、不改排序、不画边。相同多次 query 的同一 `(waker,wakee,cpu,cpu,relation)` 行按 typed key 去重，并受 3 行 cap 约束。
+
+状态：`B594=implemented/relevant-suite-pass`；`cpu-topology=typed-prose-independent`；
+`system-verdict=none`；`model-answer-rewrite=none`；Trace causal authority=`unchanged`。

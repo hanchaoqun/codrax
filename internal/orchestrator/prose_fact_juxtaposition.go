@@ -51,6 +51,12 @@ import (
 const (
 	proseFactThreadCap = 6
 	proseFactCPUCap    = 3
+	// proseFactWakeupTopologyCap bounds the checkout-independent typed
+	// wakeup placement rows published without consulting model prose. These
+	// rows are especially important for separating cross-CPU dependency from
+	// same-CPU competition, but large fan-out chains must not crowd every
+	// other fact out of the appendix.
+	proseFactWakeupTopologyCap = 3
 	// proseFactPartitionCap bounds the FACT-REL arm-a four-state partition
 	// facts (§29.55.4 F2, 2026-07-13).
 	proseFactPartitionCap = 3
@@ -194,6 +200,50 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 	return out
 }
 
+func proseFactWakeupCPUTopologyFindings(ledger types.ObservationLedger) []proseScalarBindingFinding {
+	seen := map[string]bool{}
+	out := make([]proseScalarBindingFinding, 0, proseFactWakeupTopologyCap)
+	for _, record := range ledger.Records {
+		if len(out) >= proseFactWakeupTopologyCap {
+			break
+		}
+		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			strings.TrimSpace(record.Predicate) != "wakeup_chain_edge" ||
+			strings.TrimSpace(record.Subject) == "" || strings.TrimSpace(record.Object) == "" {
+			continue
+		}
+		wakerCPU, wakerOK := proseFactNoteInt(record.RichNotes, types.TraceNoteKeyWakeupWakerCPU)
+		wakeeCPU, wakeeOK := proseFactNoteInt(record.RichNotes, types.TraceNoteKeyWakeupWakeeTargetCPU)
+		relation := strings.TrimSpace(proseWallClockNoteValue(record.RichNotes, types.TraceNoteKeyWakeupCPURelation))
+		if !wakerOK || !wakeeOK || (relation != "same_cpu" && relation != "cross_cpu") {
+			continue
+		}
+		waker := strings.TrimSpace(record.Subject)
+		wakee := strings.TrimSpace(record.Object)
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d\x00%s", waker, wakee, wakerCPU, wakeeCPU, relation)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if relation == "cross_cpu" {
+			out = append(out, proseScalarBindingFinding{
+				entry: fmt.Sprintf("typed fact: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (cross-CPU); this edge is not evidence of same-CPU occupancy, preemption, or direct competition",
+					waker, wakee, wakerCPU, wakeeCPU),
+				entryZH: fmt.Sprintf("typed 事实:唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(跨核);该边不构成同核占用、抢占或直接竞争证据",
+					waker, wakee, wakerCPU, wakeeCPU),
+			})
+			continue
+		}
+		out = append(out, proseScalarBindingFinding{
+			entry: fmt.Sprintf("typed fact: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (same CPU); placement alone is not direct-competition evidence without a separate compatible running/runnable overlap",
+				waker, wakee, wakerCPU, wakeeCPU),
+			entryZH: fmt.Sprintf("typed 事实:唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(同核);仅凭放置相同仍不能证明直接竞争,还需独立的 running/runnable 重叠证据",
+				waker, wakee, wakerCPU, wakeeCPU),
+		})
+	}
+	return out
+}
+
 // proseTypedFactJuxtapositionFindings is the production appendix provider.
 // It may use exact entity/token presence only to select rows, then renders
 // values directly from the typed observation ledger. It never interprets a
@@ -234,6 +284,16 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 		}
 		seen[f.entryZH] = true
 		out = append(out, f)
+	}
+
+	// ── exact wakeup CPU topology (typed, prose-independent) ─────────────
+	// A cross-CPU wakeup remains an on-chain dependency but is not same-CPU
+	// occupancy/preemption/competition. Publish the exact placement fact in
+	// the neutral appendix whether or not the model happened to repeat either
+	// CPU token. This is an information carrier only: it never interprets,
+	// rejects, or rewrites the model's conclusion.
+	for _, finding := range proseFactWakeupCPUTopologyFindings(ledger) {
+		add(finding)
 	}
 
 	// ── engine typed degradation fact (target_cpu 退化) ──────────────────
