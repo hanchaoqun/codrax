@@ -11379,7 +11379,7 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 
 	var b strings.Builder
 	b.WriteString("## Perf Frame Verdict Authority\n\n")
-	b.WriteString("- Perf pre-triage carries measured frame/span durations, but the rows below do not carry a validator-owned device refresh rate, frame deadline, or frame budget. A true, false, or omitted pre-triage `janky` bit is therefore not a deterministic jank/non-jank verdict. Use a later typed trace_query deadline/frame authority when available; otherwise report the measured duration, do not introduce a refresh-rate budget or ratio as an observed fact, and leave the verdict unproven.\n")
+	b.WriteString("- Perf pre-triage carries measured frame/span durations, but the rows below do not carry a validator-owned device refresh rate, frame deadline, or frame budget. A true, false, or omitted pre-triage `janky` bit is therefore not a deterministic jank/non-jank verdict. Use a later typed trace_query deadline/frame authority when available; otherwise report the measured duration, do not introduce a refresh-rate budget or ratio as an observed fact, and leave the verdict unproven. This authority ceiling withholds only the deadline-miss, dropped-frame, and jank verdicts: the measured duration remains a direct quantitative observation and may be presented as a performance-investigation clue or hotspot candidate, but not as a proven frame failure, causal root, or excess-over-budget amount.\n")
 	for i, frame := range frames {
 		if i >= 8 {
 			fmt.Fprintf(&b, "- (%d additional pre-triage frame candidate(s) omitted from this compact authority view)\n", len(frames)-i)

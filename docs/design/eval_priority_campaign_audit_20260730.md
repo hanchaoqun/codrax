@@ -33899,3 +33899,48 @@ exact-two 重点验收 read-combo 的 investigation downgrade 从 13 次降为 0
 
 状态：`B616/B617/B618=implemented/targeted-pass/pending-production-replay`；`hard-prose-scan=none`；
 `system-answer-authorship=none`；`active-stream-fixed-age-degrade=forbidden`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.653 r368：异构权威硬门闭环；机制入口引用仍被扩权
+
+`main@689dbcaf7` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r368_20260812_manual_audit.md`。
+
+read-combo 250s，B616 获得生产正证：上一轮 13 次 `multi-topic explanation still lacks`/completion downgrade 本轮降为 0，checkpoint restart 为 0，
+Finalizer 首稿通过；总时长由 684s 降到 250s。runtime 数值、current-source 机制与证据边界各自按本 lane 权威闭环，没有再要求外部 trace 数值或边界子题
+虚构 repository anchor。B617/B618 本轮没有发生真实 patch，因此维持 targeted-positive、production-unexercised；prompt 内仍可携带私有 provenance，关键不变量是它不再成为可见
+selector 义务，本轮没有用户答案泄漏。
+
+人工仍失败，B611/B612 继续 partial。Explorer 读取 `FindSpanWindows` wrapper 与 `findSpanWindowsCompacted` 前 80 行，但实际 B/E switch、LIFO pop、生命周期 reset、
+malformed 清理与 unresolved-provenance fail-closed 位于后续未读 gutter；它仍在 evidence summary 中把这些未见操作概括成“按 PID 栈配对”。Finalizer 又把该概括压成“同一 PID 的 B/E
+按时间配对”。当前实现的精确同步 key 是 physical source identity + emitter TID，使用每 lane LIFO；`SpanPID` 是 payload/process membership 字段，不是同步栈唯一键；生命周期与畸形端点
+会按来源/发射者切断状态，来源不可唯一解析时整个 span 结果 fail-closed。wrapper 定义行只能证明委托，不能证明 callee 未读分支。
+
+同案还暴露 `B619-PERFCLUEVERDICTCALIBER1/P1-soft`：系统已经正确说明 pre-triage `janky=false` 没有 deadline authority，模型却把“86.111ms 是否构成性能线索”
+也绑定到刷新率/帧预算。absence 只撤销 deadline miss、dropped-frame、jank 与超预算量的定谳；86.111ms 仍是直接实测的 quantitative observation，可作为性能调查线索/hotspot
+candidate，只是不能据此单独宣称丢帧、根因或超预算多少。两种权限必须分层。
+
+Trace D4 的显式窗、状态账户、唤醒链、链上 rank、实际占时/现规则可消双轴、算力正值、D/IO、确定性语义工作、业务线索、邻近/背景降格、因果投影和自动补齐全部保留。
+模型再次把 typed 明示重叠的 23.994ms 与 19.041ms 加成 43.035ms，并将 priority-inversion candidate 升级为已定主机理；相同上下文有通过历史，继续记模型波动，禁止为此扫描
+请求/终稿、硬拒成文或由系统改写结论。
+
+状态：`B616=production-positive/closed`；`B617/B618=targeted-positive/production-unexercised`；
+`B611/B612=production-partial`；`B619=confirmed/implemented-soft/pending-r369`；`runner=2/2`；`human=0/2`；
+`raw-prose-hard-gate=none`；`system-answer-authorship=none`；`active-stream-fixed-age-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.654 B612b/B619：wrapper 与操作本体分证；性能线索和帧判决分权
+
+B612b 强化既有语言/事件族无关的 current-source 软证据梯。wrapper/public entry 的 gutter 只证明 delegation；若结论声称 correlation key、state mutation、stack/queue、
+ordering、reset、malformed 或 failure policy，Explorer 必须继续读取并引用真正执行该操作的 callee branch。函数名、注释或同一函数尚未读取的后半段不得被放进 evidence summary 冒充已见操作；
+未读层应如实标 unvisited。该变化只影响软教学，不成为 exploration completion gate，不扫描终稿，也不由系统生成机制链。
+
+B619 在既有 Perf Frame Verdict Authority 中补齐权限层次：无 validator-owned refresh/deadline/budget 时，pre-triage true/false/omitted 均不能裁定 jank 或 non-jank；但实测
+duration 仍是直接 quantitative observation，可以由模型作为 performance-investigation clue/hotspot candidate 解释。它不得被升级为已证 frame failure、causal root 或
+excess-over-budget amount。系统仍不替模型作“严重/不严重”结论，只把可用事实与禁止越界的边界同时交给模型。
+
+定向测试钉住 wrapper-only/inner-operation 分证教学与 duration-clue/jank-verdict 双权限。两项均不读取用户/模型/终稿原文，不改变 Trace 查询、显式窗、链上主因、因果投影、
+自动补齐或系统/模型答案所有权。`internal/agent` 定向测试全绿，下一轮 exact-two 继续用 read-combo 验收完整 sync correlation/lifecycle/consumer 解释，并换一条高优先级异维度案。
+
+状态：`B612b/B619=implemented/targeted-pass/pending-production-replay`；`source-operation-summary=exact-gutter-soft`；
+`measured-duration=direct-clue`；`jank-verdict=typed-deadline-only`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；`Trace causal authority=unchanged`。

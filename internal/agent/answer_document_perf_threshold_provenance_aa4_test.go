@@ -32,6 +32,10 @@ func TestPerfThresholdProvenanceKeepsPreTriageFrameVerdictUnprovenAA4(t *testing
 		"A true, false, or omitted pre-triage `janky` bit is therefore not a deterministic jank/non-jank verdict",
 		"do not introduce a refresh-rate budget or ratio as an observed fact",
 		"leave the verdict unproven",
+		"withholds only the deadline-miss, dropped-frame, and jank verdicts",
+		"measured duration remains a direct quantitative observation",
+		"performance-investigation clue or hotspot candidate",
+		"not as a proven frame failure, causal root, or excess-over-budget amount",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("perf threshold provenance missing %q:\n%s", want, got)

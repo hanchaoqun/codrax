@@ -443,6 +443,9 @@ func TestExplorer_BuildInitialInstruction_SoftCurrentSourceTraceStartsWithRuntim
 		"do not linearize mutually exclusive branches into one ordered chain",
 		"normal-path consumers separate from recovery, audit, advisory, and fallback lanes",
 		"A source citation supports only the operations visible in its cited gutter",
+		"A wrapper or public entry that delegates to another function proves only that delegation",
+		"Follow the call and cite the callee body through the exact branch that performs the claimed operation",
+		"Do not place unseen operations in an evidence summary",
 		"otherwise mark the layer unvisited and read the focused operation range",
 		"Start with `trace_query`",
 	} {
