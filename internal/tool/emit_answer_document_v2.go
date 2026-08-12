@@ -731,6 +731,19 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)
 	}
+	// B649-CITATIONPOOLCOLLISION1: quarantine every model-submitted
+	// out-of-range item reference before any typed repair is allowed to append
+	// citations. Otherwise an empty/short model pool plus refs such as
+	// 0,1,3,4,2 can be accidentally "made valid" by unrelated citations that
+	// earlier items append at those indexes. That turns a structurally invalid
+	// carrier into a wrong source binding solely because of iteration order.
+	// Detaching first is lossless for authority: the normalizers below may bind
+	// the item again only from typed evidence/source-inventory rows. No answer
+	// prose or request text is consulted.
+	if fixed := normalizeOutOfRangeCitationRefsBeforePoolGrowth(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeOutOfRangeCitationRefsBeforePoolGrowth", fixed)
+		logging.Warning("[%s] quarantined %d out-of-range item citation_ref value(s) before citation-pool growth", toolName, fixed)
+	}
 	if fixed := normalizeInvertedCitationLineRanges(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeInvertedCitationLineRanges", fixed)
 		logging.Warning("[%s] swapped %d inverted citation line range(s) (line/line_end transposition)", toolName, fixed)
@@ -925,6 +938,25 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		ctx.Mutable.SetPendingDetachedCitationDisclosures(pctx.detachedCitationDisclosures())
 	}
 	pctx.logPreEmitRepairSummary(toolName)
+}
+
+func normalizeOutOfRangeCitationRefsBeforePoolGrowth(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	poolSize := len(doc.Citations)
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			if item.CitationRef < poolSize {
+				continue
+			}
+			item.CitationRef = types.CitationRefUnset
+			fixed++
+		}
+	}
+	return fixed
 }
 
 // materializeDetachedCitationRefCaveats appends the user-visible disclosure

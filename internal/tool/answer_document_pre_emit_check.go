@@ -9833,8 +9833,8 @@ func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEm
 	if pctx == nil {
 		return types.Citation{}, false
 	}
-	labelKey := preEmitCodeIdentityKey(preEmitDefinitionCitationLabelBase(label))
-	if labelKey == "" {
+	labelSurface := preEmitDefinitionCitationLabelBase(label)
+	if preEmitCodeIdentityKey(labelSurface) == "" {
 		return types.Citation{}, false
 	}
 	type candidate struct {
@@ -9847,7 +9847,7 @@ func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEm
 		if ev.GroundingStatus == types.GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
 			continue
 		}
-		if !preEmitEvidenceExactEndpointKeyMatches(ev, labelKey) {
+		if !preEmitEvidenceEndpointMatchesDefinitionLabel(ev, labelSurface) {
 			continue
 		}
 		score := preEmitExactEndpointDefinitionScore(ev)
@@ -9884,6 +9884,32 @@ func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEm
 		return types.Citation{}, false
 	}
 	return best[0], true
+}
+
+// preEmitEvidenceEndpointMatchesDefinitionLabel compares already-typed code
+// identities using the shared cross-language segment contract. A source
+// evidence row may name Rust `collect_files` while the answer presents
+// `walker::collect_files`, or may use the corresponding Java/C++/ArkTS/
+// Cangjie qualified spelling. Qualified labels additionally require their
+// owner to be present in typed evidence, the source path, or an exact source
+// surface; a bare same-name tail cannot prove an arbitrary owner. The
+// definition score and uniqueness check above still fail closed on overloads
+// or same-name declarations.
+func preEmitEvidenceEndpointMatchesDefinitionLabel(ev types.EvidenceItem, label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	if matched, handled := preEmitQualifiedCodeSurfaceMatchesEvidence(label, ev); handled {
+		return matched
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint != "" && types.AnswerCodeIdentitySurfacesCompatible(label, endpoint) {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitDefinitionCitationLabelBase(label string) string {

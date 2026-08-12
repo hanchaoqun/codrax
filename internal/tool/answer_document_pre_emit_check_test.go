@@ -3871,6 +3871,53 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesTypedMemberRowB
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmit_QuarantinesOutOfRangeRefsBeforePoolGrowth(t *testing.T) {
+	mu := types.NewMutableState("explain the cross-module call chain")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Source: "src/main.rs", LineStart: 6, AnchorKind: types.AnchorDefinition, AnchorSymbol: "main", Subject: "main", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "src/main.rs", LineStart: 14, AnchorKind: types.AnchorDefinition, AnchorSymbol: "run", Subject: "run", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "src/walker.rs", LineStart: 4, AnchorKind: types.AnchorDefinition, AnchorSymbol: "collect_files", Subject: "collect_files", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "src/walker.rs", LineStart: 10, AnchorKind: types.AnchorDefinition, AnchorSymbol: "walk", Subject: "walk", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "src/main.rs", LineStart: 28, AnchorKind: types.AnchorDefinition, AnchorSymbol: "index_file", Subject: "index_file", GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{
+				{ID: "main", Label: "main", CitationRef: 0},
+				{ID: "run", Label: "run", CitationRef: 1},
+				{ID: "collect", Label: "walker::collect_files", CitationRef: 3},
+				{ID: "walk", Label: "walk", CitationRef: 4},
+				{ID: "index", Label: "index_file", CitationRef: 2},
+			},
+		}},
+	}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+
+	want := map[string]types.Citation{
+		"main":    {File: "src/main.rs", Line: 6},
+		"run":     {File: "src/main.rs", Line: 14},
+		"collect": {File: "src/walker.rs", Line: 4},
+		"walk":    {File: "src/walker.rs", Line: 10},
+		"index":   {File: "src/main.rs", Line: 28},
+	}
+	for _, item := range doc.Blocks[0].Items {
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			t.Fatalf("item %q citation_ref=%d did not regain a typed binding; pool=%+v", item.ID, item.CitationRef, doc.Citations)
+		}
+		got := doc.Citations[item.CitationRef]
+		if expected := want[item.ID]; got.File != expected.File || got.Line != expected.Line {
+			t.Fatalf("item %q citation=%s:%d, want %s:%d; pool=%+v", item.ID, got.File, got.Line, expected.File, expected.Line, doc.Citations)
+		}
+	}
+	if hints := preCheckItemCitationAlignmentWithContext(doc, nil, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("all repaired refs should satisfy final alignment, got %+v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesAlignedRelationAttributeBeforeDefinitionFallback(t *testing.T) {
 	mu := types.NewMutableState("list implementations and each registered route")
 	mu.AppendEvidence([]types.EvidenceItem{

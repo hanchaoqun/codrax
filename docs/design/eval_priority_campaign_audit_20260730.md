@@ -34812,3 +34812,44 @@ B647 的原因未封闭、方向 exact subtotal、状态 closed partition 等正
 `typed-negative-carrier=still-authoritative-when-present`；`system-answer/conclusion-rewrite=none`；
 `raw-prose-hard-gate=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.697 r388：Go 关系图转正；Rust 暴露引用池增长碰撞
+
+`main@da5da0aa9` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_sequence_rustchain_r388_20260812_manual_audit.md`。
+
+Go sequence case 正确发布两条并列汇合关系：`buildAnalysisIR -> gate.RunWith` 与
+`gate.Run -> gate.RunWith`，同时明确不存在 `buildAnalysisIR -> gate.Run`；participant 规范化、方向、
+typed call row 和图面一致，零拒绝。B633 图需求与 B634 canonical endpoint 在生产异构语言上均为正向。
+
+Rust case 的主链关系同样正确，但 `walker::collect_files` 被最终渲染为引用
+`src/main.rs:28(index_file)`。模型没有提交 `citations[]`，却提交了
+`0,1,3,4,2,5` 悬空索引；pre-emit 修复器从空池依序追加 main、run、walk、index_file 等引用时，
+原来的 ref=3 被无关的第四条新增引用意外“合法化”。最终 checker 已精确报告 current citation INVALID
+并列出正确候选，通用 citation lane 仍为 advisory，错误绑定因此出厂。登记 B649；这不是 Rust parser、
+关系证据缺失或模型随机波动，而是模型池索引与系统扩池的确定性交互。
+
+状态：`runner=2/2`；`human=1/2`；`B633/B634=production-positive`；
+`B649-CITATIONPOOLCOLLISION1=confirmed/P0`；`raw-prose-hard-gate=none`；
+`system-answer/relation-authorship=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.698 B649：先隔离悬空索引，再允许 typed 引用池扩充
+
+B649 在 pre-emit repair chain 首项冻结模型提交时的引用池长度；任何当时已经越界的 item ref 先统一
+置为 unset，不能被后续 append 的无关引用碰巧占中。现有 typed candidate-role、label、claim-role、
+source-inventory、aggregate-support normalizer 随后照常运行，仅凭结构化 evidence 重新绑定。于是模型仍可
+省略 citation pool 并获得安全修复，但修复结果不再取决于 item 遍历顺序或恰好新增了几条引用。
+
+Rust/C++/Java/ArkTS/Cangjie 等限定名的定义回绑复用统一 code-identity segment 语义；限定 owner 必须由
+typed endpoint、source path 或精确源码 surface 支持，同名尾部不会凭空证明任意 owner；多定义/重载继续
+fail-closed。回归直接复刻空池与 `0,1,3,4,2` 非顺序 refs，逐项验证 main/run/
+`walker::collect_files`/walk/index_file 均落到各自唯一定义，且最终 alignment checker 零提示。
+
+该修复只改变引用元数据，不读取用户请求、模型 reasoning 或可见答案 prose，不生成或改写模型结论，
+不将 advisory 扩成新的硬门。相关定向与全包测试、exact-two 生产回放在提交前后执行。
+
+状态：`B649=implemented/targeted-pass`；`out-of-range-ref=quarantined-before-pool-growth`；
+`qualified-identity=cross-language-owner-bounded`；`citation-hard-gate=unchanged`；
+`system-answer-rewrite=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
