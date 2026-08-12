@@ -204,10 +204,14 @@ func answerRelationOverlappingMemberAuthorities(projection TraceCausalProjection
 	return out
 }
 
-// TraceAnswerDecisionEliminableSeats is the single bounded seat selection for
-// both typed relation compilation and the finalizer's axis-B roster. Keeping
-// one selector prevents a relation authority from naming a seat that the
-// model cannot see after window preference or the display cap.
+// TraceAnswerDecisionEliminableSeats is the single bounded on-chain seat
+// selection for both typed relation compilation and the finalizer's axis-B
+// roster. RankedSeats deliberately preserves adjacent/background rank boards
+// too, but those boards are context rather than target-causal authority. They
+// must not be relabelled as an "effective attribution" merely because their
+// producer also assigned a positive rank. Keeping this one exact typed-lane
+// selector prevents both prompt faces from drifting while leaving every
+// off-chain row available through the separate contextual roster.
 func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit int) []TraceCausalProjectionNode {
 	pool := append([]TraceCausalProjectionNode(nil), projection.RankedSeats...)
 	if len(pool) == 0 {
@@ -217,7 +221,8 @@ func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit 
 	seats := make([]TraceCausalProjectionNode, 0, len(pool))
 	seen := map[string]bool{}
 	for _, node := range pool {
-		if node.Rank <= 0 || node.EffectiveImpactMS <= 0 ||
+		if strings.TrimSpace(node.ChainRelevance) != "on_chain" ||
+			node.Rank <= 0 || node.EffectiveImpactMS <= 0 ||
 			node.IsTargetSelfStateRow() || node.IsAggregateMetric() || node.OnChainOverflowFold ||
 			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 			continue

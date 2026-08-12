@@ -236,9 +236,9 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: target, TotalMS: 20},
 		WakeupPath:         []string{"worker-200", target},
 		RankedSeats: []types.TraceCausalProjectionNode{
-			{EvidenceID: "rank-1", Subject: "worker-200", Rank: 1, EffectiveImpactMS: 8, FixDirection: "io_dependency", WithinRequestedWindow: &inWindow},
-			{EvidenceID: "rank-2", Subject: "worker-201", Rank: 2, EffectiveImpactMS: 4, FixDirection: "io_dependency", WithinRequestedWindow: &inWindow},
-			{EvidenceID: "rank-3", Subject: target, Rank: 3, EffectiveImpactMS: 3, FixDirection: "scheduling", BlockingKind: "lock_contention", BlockingPeer: "holder-300", WithinRequestedWindow: &inWindow},
+			{EvidenceID: "rank-1", Subject: "worker-200", Rank: 1, EffectiveImpactMS: 8, FixDirection: "io_dependency", ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow},
+			{EvidenceID: "rank-2", Subject: "worker-201", Rank: 2, EffectiveImpactMS: 4, FixDirection: "io_dependency", ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow},
+			{EvidenceID: "rank-3", Subject: target, Rank: 3, EffectiveImpactMS: 3, FixDirection: "scheduling", ChainRelevance: "on_chain", BlockingKind: "lock_contention", BlockingPeer: "holder-300", WithinRequestedWindow: &inWindow},
 		},
 	}
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
@@ -281,11 +281,13 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 			{
 				EvidenceID: "micro-io", Subject: "micro-worker", Rank: 1,
 				EffectiveImpactMS: 2.202, FixDirection: "io_dependency",
+				ChainRelevance:         "on_chain",
 				RankQueryWindowStartTs: 10.02, RankQueryWindowEndTs: 10.07,
 			},
 			{
 				EvidenceID: "full-io", Subject: "full-worker", Rank: 3,
 				EffectiveImpactMS: 10.433, FixDirection: "io_dependency", ChainDepth: 2,
+				ChainRelevance:         "on_chain",
 				RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
 			},
 		},
@@ -317,12 +319,14 @@ func TestTraceFinalDecisionLedgerKeepsBlockedReasonCallerOnExactPartitionSeat(t 
 	unproven := types.TraceCausalProjectionNode{
 		EvidenceID: "unproven-seat", Subject: "worker-60555", Rank: 3,
 		StateKind: "d_sleep", EffectiveImpactMS: 10.433, FixDirection: "io_dependency",
+		ChainRelevance:               "on_chain",
 		DStateCauseUnprovenRemainder: true, BlockedReasonWindowCount: 17,
 		WithinRequestedWindow: &inWindow,
 	}
 	proved := types.TraceCausalProjectionNode{
 		EvidenceID: "proved-seat", Subject: "worker-60555", Rank: 5,
 		StateKind: "io_wait", EffectiveImpactMS: 7.386, FixDirection: "io_dependency",
+		ChainRelevance:      "on_chain",
 		BlockedReasonCaller: "fscache_page_wait_o", WithinRequestedWindow: &inWindow,
 	}
 	projection := types.TraceCausalProjection{

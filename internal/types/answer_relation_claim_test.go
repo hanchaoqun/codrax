@@ -366,6 +366,28 @@ func TestTraceOverlappingMembersCompileOneTypedOptionalBoundary(t *testing.T) {
 	}
 }
 
+func TestTraceAnswerDecisionEliminableSeatsRequiresTypedOnChainLane(t *testing.T) {
+	inside := true
+	onChain := TraceCausalProjectionNode{
+		EvidenceID: "on-chain", Subject: "target", Rank: 2,
+		EffectiveImpactMS: 6, ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
+	}
+	adjacent := TraceCausalProjectionNode{
+		EvidenceID: "adjacent", Subject: "neighbor", Rank: 1,
+		EffectiveImpactMS: 9, ChainRelevance: "adjacent", WithinRequestedWindow: &inside,
+	}
+	unknown := TraceCausalProjectionNode{
+		EvidenceID: "unknown", Subject: "legacy-unknown", Rank: 1,
+		EffectiveImpactMS: 12, WithinRequestedWindow: &inside,
+	}
+	got := TraceAnswerDecisionEliminableSeats(TraceCausalProjection{
+		RankedSeats: []TraceCausalProjectionNode{unknown, adjacent, onChain},
+	}, 8)
+	if len(got) != 1 || got[0].EvidenceID != "on-chain" {
+		t.Fatalf("only exact on-chain rank seats may enter the eliminable axis: %+v", got)
+	}
+}
+
 func TestTraceOverlappingMembersFailClosedWithoutExactPairIdentity(t *testing.T) {
 	base := TraceCausalProjectionNode{
 		Object: "runnable_wait", Rank: 1, Subject: "worker-a-11",

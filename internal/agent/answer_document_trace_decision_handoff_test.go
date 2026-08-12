@@ -41,13 +41,13 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 				EvidenceID: "priced-only", Subject: "Cookie-150", Object: "priority_inversion_candidate",
 				ImpactMS: 23.994, EffectiveImpactMS: 23.994, Rank: 1,
 				ChainDepth: 2, PriorityInversionCandidate: true,
-				FixDirection: "lock_priority", WithinRequestedWindow: &inside,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
 			},
 			{
 				EvidenceID: "supply", Subject: "target-100", Object: "running",
 				StateKind: "running", ImpactMS: 26.946, EffectiveImpactMS: 10.331, Rank: 2,
 				FixDirection: "frequency_thermal", SystemSupplement: true,
-				WithinRequestedWindow: &inside,
+				ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
 			},
 		},
 		BackgroundCauses: []types.TraceCausalProjectionNode{{
@@ -185,12 +185,12 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 				EvidenceID: "rank-production", Subject: "CookieMonsterCl-59843",
 				TypeToken: "priority_inversion_candidate", StateKind: "runnable",
 				Rank: 1, EffectiveImpactMS: 23.994, FixDirection: "lock_priority",
-				ChainDepth: 1, WithinRequestedWindow: &inside,
+				ChainDepth: 1, ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
 			},
 			{
 				EvidenceID: "ordinary-runnable", Subject: "ordinary-worker-9",
 				StateKind: "runnable", Rank: 2, EffectiveImpactMS: 3,
-				FixDirection: "lock_priority", ChainDepth: 1, WithinRequestedWindow: &inside,
+				FixDirection: "lock_priority", ChainDepth: 1, ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
 			},
 		},
 	}
@@ -326,6 +326,52 @@ func TestTraceDecisionContextCapKeepsTypedBackgroundLane(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed background handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceDecisionHandoffKeepsAdjacentRankOutOfEliminableAxis(t *testing.T) {
+	inside := true
+	onChain := types.TraceCausalProjectionNode{
+		EvidenceID: "chain-rank-1", Subject: "target-32788", Object: "running",
+		StateKind: "running", Rank: 1, ImpactMS: 74.915, EffectiveImpactMS: 65.912,
+		EffectiveImpactPublished: true, FixDirection: "frequency_thermal",
+		ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
+	}
+	adjacent := types.TraceCausalProjectionNode{
+		EvidenceID: "adjacent-rank-1", Subject: "logd.writer-1913", Object: "runnable_wait",
+		StateKind: "runnable", Rank: 1, ImpactMS: 49.623, EffectiveImpactMS: 49.623,
+		EffectiveImpactPublished: true, FixDirection: "scheduling_supply",
+		ChainRelevance: "adjacent", WithinRequestedWindow: &inside,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 10, WindowEndTs: 10.23319,
+		RankedSeats:    []types.TraceCausalProjectionNode{onChain, adjacent},
+		OnChainCauses:  []types.TraceCausalProjectionNode{onChain},
+		AdjacentCauses: []types.TraceCausalProjectionNode{adjacent},
+	}
+
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	axisStart := strings.Index(got, "axis_B_existing_rule_eliminable")
+	contextStart := strings.Index(got, "contextual_noncausal_rows")
+	if axisStart < 0 || contextStart < 0 || contextStart <= axisStart {
+		t.Fatalf("expected both ordered decision lanes:\n%s", got)
+	}
+	axis := got[axisStart:contextStart]
+	if !strings.Contains(axis, "subject=`target-32788`") ||
+		strings.Contains(axis, "logd.writer-1913") || strings.Contains(axis, "49.623") {
+		t.Fatalf("adjacent rank leaked into on-chain eliminable axis:\n%s", got)
+	}
+	context := got[contextStart:]
+	for _, want := range []string{
+		"lane=`adjacent`", "subject=`logd.writer-1913`", "value=49.623",
+		"target_causal_authority=`not_provided`", "cross_axis_addition=`forbidden`",
+	} {
+		if !strings.Contains(context, want) {
+			t.Fatalf("adjacent evidence was not preserved as context %q:\n%s", want, got)
 		}
 	}
 }

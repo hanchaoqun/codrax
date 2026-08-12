@@ -34176,3 +34176,46 @@ B626 在 facet 编译源头统一 call-chain 与 architecture 两个 family 的 
 状态：`B626=implemented/targeted-pass/pending-production-replay`；`diagram-authority=typed-intent-only`；
 `semantic-family-is-not-presentation-intent=true`；`relation-evidence-gates=unchanged`；`raw-prose-hard-gate=none`；
 `system-answer/diagram-authorship=none`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.667 r374：显式类型图完整；Trace Finalizer 把邻近席同时写成有效归因与非因果上下文
+
+`main@f84effcbd` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_typegraph_trace_fullspectrum_r374_20260812_manual_audit.md`。
+
+类型关系案完整列出 12 个 production `LoopController` 实现、各自文件和逐一实现关系，测试实现明确排除，图中没有虚构边；B626 的显式
+`diagram_hint(required=true)` 正臂得到生产验证。Analyzer 先把预扫描得到的全部实现类型都写成 participant 而超过 12 项上限，随后又自造
+`Evaluator 实现类型` 身份而与 source quote 不符，消耗两次结构重试；最终集合角色虽不理想，但 typed implementer graph 支撑的可见答案完整。该项记为软教学/模型服从效率观察，
+不新增词面硬门，也不以系统生成关系代替模型图。
+
+H7 Trace 案保留了显式 233.190ms 窗、目标状态、typed 唤醒链、链上-only 根因、算力/调度/D/IO/PI/确定性语义、业务线索、实际占用/现规则可消双轴、
+邻近背景降级、因果投影与自动补齐。模型仍出现两处错误：其一把 `tail_open=8.793ms state=sleep already_included=true` 写成窗外，并与独立的
+1.396ms 未归账并列；其二把 logd.writer/JankManager 等 adjacent 排名席称为“调度供给方向的有效归因”。系统投影末段本身正确显示邻近席有效归因列为 `—`，
+但 Finalizer handoff 的 Axis B 从混合 `RankedSeats` 直接取正 rank，而下一段 contextual roster 又把同一席声明为
+`target_causal_authority=not_provided`，构成确定性合同自冲突。立案 `B627-TRACEADJACENTEFFECTIVE1/P0` 与
+`B628-TRACESTATEAUTHORITYPRECEDENCE1/P1`。
+
+状态：`B626=production-positive`；`B627/B628=confirmed/implemented-targeted-pass`；`runner=2/2`；`human=1/2`；
+`principal-root-population=typed-on-chain-only`；`adjacent/background=context-only`；`system-answer-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.668 B627/B628：Axis B 只消费 typed on-chain 席；窗口边界账本声明最终优先级
+
+B627 将公共 `TraceAnswerDecisionEliminableSeats` 收口为精确 `ChainRelevance=on_chain`。完整 rank roster 仍同时保留 on-chain、adjacent 与 background
+各自的板序和数值；只有模型决策 Axis B 与其 typed overlap relation authority 使用 on-chain 子集。邻近/背景席继续原值进入
+`contextual_noncausal_rows`，携带 `target_causal_authority=not_provided` 与 `cross_axis_addition=forbidden`，可支撑背景判断和额外排查方向，
+但不再被同一 prompt 反向铸成“有效归因”。缺失 chain relevance 也 fail-closed，正 rank 不再替代因果凭证。生产同形回归固定
+65.912ms 链上 running 席进入 Axis B、49.623ms adjacent runnable 只进入 context；types 层另钉 on-chain/adjacent/unknown 三臂。
+
+B628 不改任何 trace 数值或答案块，只在 Finalizer 最后的 typed principal recap 明确账本关系：`head_carry`/`tail_open` 带
+`already_included=true` 时，是所选窗口内且已经包含在对应状态与 `accounted_total` 的墙钟，禁止重复相加、称为窗外或与 `unaccounted` 合并；只有
+`unaccounted` 是因边界不足而无法分配状态的独立余量。若较早的模型 aggregate/completion note 与之冲突，模型须以最终 typed account 为数值权威，
+但诊断、优先级和修向仍由模型自行给出；系统不扫描、不删除、不改写终稿。
+
+同批复核 B615：OpenAI SSE 主路径没有累计时长门，HTTP stream client 也无总 timeout；活跃 reasoning/content/tool/heartbeat 可越过旧 4 分钟 cap。
+退出只来自 pre-header/first-byte/mid-stream 精确 byte silence、transport error、caller cancel/deadline、安全、empty/malformed/decode 或精确退化重复。
+现有回归覆盖 active reasoning、active tool call 与 heartbeat-only 均越过旧 cap；不允许因 elapsed age 发布旧稿、空答案或系统降级答案。
+
+状态：`B627/B628=implemented/targeted+package-pass/pending-production-replay`；
+`rank-is-not-causal-authority=true`；`boundary-carry=already-in-partition`；`model-conclusion-ownership=preserved`；
+`active-stream-fixed-age-degrade=forbidden`；`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

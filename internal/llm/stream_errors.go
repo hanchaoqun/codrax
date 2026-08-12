@@ -135,8 +135,10 @@ func (e *StreamFirstByteTimeoutError) Is(target error) bool {
 // ErrStreamNoVisibleOutputTimeout is retained for compatibility with adapters
 // that may already return this typed error. The OpenAI SSE adapter no longer
 // mints it from an active hidden-reasoning stream: requestTimeout is not a
-// visible-output idle deadline, and the independent total wall-clock cap is
-// the bounded escape for a model that reasons forever.
+// visible-output idle deadline, and elapsed age alone is not precise authority
+// to terminate an active stream. Byte-silence watchdogs, transport failure,
+// caller cancellation/deadlines, safety, and decode failures remain the
+// bounded exit signals.
 var ErrStreamNoVisibleOutputTimeout = errors.New("llm: upstream stream produced no visible output")
 
 // StreamNoVisibleOutputTimeoutError wraps the read-side cancellation when the

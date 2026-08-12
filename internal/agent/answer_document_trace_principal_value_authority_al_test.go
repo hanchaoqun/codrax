@@ -79,6 +79,11 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		"`principal_state` is the selected-window authority",
 		"whole attachment's first-to-last timestamp extent",
 		"must never replace a `principal_state` value",
+		"`tail_open` marked `already_included=true`",
+		"selected-window wall clock already contained in its named state",
+		"never add it again, call it outside the selected window, or combine it with `unaccounted`",
+		"Only `unaccounted` is the separate uncovered remainder",
+		"use this final typed accounting while keeping the conclusion model-authored",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("principal-value recap missing %q:\n%s", want, got)
