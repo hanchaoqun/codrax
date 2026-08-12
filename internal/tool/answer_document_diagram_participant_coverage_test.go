@@ -153,6 +153,26 @@ func TestDiagramParticipantCoverageExactEndpointNodeIDMayCarryBusinessLabel(t *t
 	}
 }
 
+func TestDiagramParticipantCandidateEndpointSideIsDeterministic(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		fromIncident bool
+		toIncident   bool
+		want         string
+	}{
+		{name: "from", fromIncident: true, want: "from"},
+		{name: "to", toIncident: true, want: "to"},
+		{name: "both", fromIncident: true, toIncident: true, want: "from_or_to"},
+		{name: "neither", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := diagramParticipantCandidateEndpointSide(tc.fromIncident, tc.toIncident); got != tc.want {
+				t.Fatalf("participant endpoint side drift: got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
@@ -311,8 +331,9 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		`relation_kind:"data_flow"`,
 		`from_identity:"output.EvidenceItems"`,
 		`to_identity:"o.busCtx.EvidenceItems"`,
+		`participant_endpoint_side:"to"`,
 		`edge_anchor_identity_fields:{from_identity:"output.EvidenceItems",to_identity:"o.busCtx.EvidenceItems",relation_kind:"data_flow"}`,
-		`edge_action:"select_one_existing_typed_candidate_and_render_its_exact_direction"`,
+		`edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`identity_action:"use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"`,
 		`boundary_action:"omit_unproven_boundary"`,
 		"never replace those exact identities with the broader participant name",
@@ -335,7 +356,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 	}
 	got := diagramParticipantCoverageRepairActions(mismatches)
 	for _, want := range []string{
-		`repair_action["BusContext"]={issue:"available_typed_incident_edge_not_rendered",edge_action:"select_one_existing_typed_candidate_and_render_its_exact_direction"`,
+		`repair_action["BusContext"]={issue:"available_typed_incident_edge_not_rendered",edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"omit_unproven_boundary"}`,
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
 		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_no_typed_candidate_exists",identity_action:"add_exact_visible_disconnected_participant",boundary_action:"add_exactly_one_unproven_boundary"}`,

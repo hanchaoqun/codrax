@@ -34325,3 +34325,41 @@ hidden endpoint、disconnected boundary 回归继续通过。该规则与语言�
 `display-label=business-language`；`technical-edge-authority=unchanged`；`fuzzy-alias=forbidden`；
 `system-diagram/answer-authorship=none`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.674 r377：JSON 严格输出一次通过；关系 candidate 缺 endpoint side 导致模型反复补无证桥
+
+`main@ccf7fb603` exact-two runner `1/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_logicflow_json_r377_20260812_manual_audit.md`。
+
+JSON data lane 在 39s 内正确消费 `instructions.md` 与 `users.json`，保持源顺序筛出 active IDs，最终字节面仅有
+`{"ids":["u1","u3"]}`。没有 schema repair、额外解释、系统补文或重试；当前 JSON 教学、material coverage 与 terminal projection 未见合同矛盾。
+
+逻辑图案再次失败，但根因已经精确收窄。B630b 允许 exact participant endpoint node id + 业务 label 的结构形；当前 typed candidate 则只发
+`from_identity/to_identity/relation_kind`，没有告诉模型 `Mutable` 对应 canonical call 的 `to` 端。模型先把 `ctx.Mutable.*` 方法画为独立 node，随后尝试新增
+`method -> Mutable` 无证桥；关系证据门正确拒绝。另几轮把 Mutable 留作 disconnected node，也无法满足已有 typed incident。13 次拒绝后恢复旧稿，最终图仍没有
+BusContext containment、Mutable 仍断开，并暴露大量内部方法术语。立案 `B630c-DIAGRAMPARTICIPANTENDPOINTSIDE1/P0`。
+
+该案运行 728s，期间 reasoning/tool stream 持续活跃；没有任何按四分钟或 elapsed age 的降级。最终 degraded 只发生在模型已经完成 13 份结构草稿、且每份都被精确合同拒绝之后。
+活跃连接的墙钟年龄不得成为旧稿、空答案或系统代答触发器，这一红线保持不变。
+
+状态：`json-strict=production-positive`；`B630b=production-partial`；`B630c=confirmed/implemented-targeted-pass`；
+`B631=pending`；`runner=1/2`；`human=1/2`；`active-stream-fixed-age-degrade=absent`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.675 B630c：candidate 显式发布 participant endpoint side，禁止另造桥边
+
+B630c 给既有 typed candidate 增加纯结构映射 `participant_endpoint_side=from|to|from_or_to`。它由相同的 exact identity owner、static binding 或 checkout-verified
+stage row 判定产生，只说明 request participant 对应已证关系的哪一端；不新增 relation、不改方向、不选择候选。
+
+修复协议现在可执行且单义：模型自主选择一个已有 candidate，把该 candidate 保持为一条边；仅把声明的 endpoint side 的 Mermaid node id 设为 exact participant，
+`edge_anchors.from_identity/to_identity/relation_kind` 原样保留。禁止把技术方法画成一个 endpoint 后再新增 method→component bridge。若希望同时展示技术 endpoint 与业务组件，
+仍可把技术 endpoint 放入 exact participant 可见 group；两种形都由模型决定。
+
+该字段来自 schema 已接纳的 typed evidence，不扫描请求、reasoning 或终稿 prose。无关 label/node 仍不能借 incidence，BusContext 无 direct operation 时仍保留 direct-flow
+unproven boundary，字段 ownership 仍只用无箭头 containment。回归固定 assignment candidate 的 participant side 为 `to`，并覆盖 from/to/both/neither 四种确定性映射；
+统一 Diagram Contract 同步警告不得另造桥边。
+
+状态：`B630c=implemented/targeted-pass/pending-production-replay`；`candidate-endpoint-side=typed`；
+`single-edge-reuse=required`；`unanchored-bridge=forbidden`；`model-candidate/layout/authorship=preserved`；
+`raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。

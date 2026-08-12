@@ -64,7 +64,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
-	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. Alternatively, place the exact technical endpoint inside that participant's visible group. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
+	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
@@ -105,7 +105,7 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 		var edgeAction, identityAction, boundaryAction string
 		switch mismatch.Issue {
 		case DiagramParticipantCoverageTypedEdgeMissing:
-			edgeAction = "select_one_existing_typed_candidate_and_render_its_exact_direction"
+			edgeAction = "reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"
 			identityAction = "use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"
 			boundaryAction = "omit_unproven_boundary"
 		case DiagramParticipantCoverageIdentityMissing:
@@ -433,9 +433,10 @@ func diagramParticipantTypedIncidentCandidates(
 	surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
 	seen := make(map[string]bool)
 	rows := make([]string, 0, limit)
-	add := func(relation types.DiagramRelationKind, from, to, location string) {
+	add := func(relation types.DiagramRelationKind, from, to, location, participantEndpointSide string) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
-		if len(rows) >= limit || !relation.IsValid() || from == "" || to == "" {
+		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
+		if len(rows) >= limit || !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
 			return
 		}
 		key := strings.ToLower(string(relation) + "\x00" + from + "\x00" + to + "\x00" + location)
@@ -443,15 +444,17 @@ func diagramParticipantTypedIncidentCandidates(
 			return
 		}
 		seen[key] = true
-		rows = append(rows, fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-			strconv.Quote(string(relation)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(location),
+		rows = append(rows, fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			strconv.Quote(string(relation)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(participantEndpointSide), strconv.Quote(location),
 			strconv.Quote(from), strconv.Quote(to), strconv.Quote(string(relation))))
 	}
 	for _, relation := range stagePrecedence {
-		if stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.From) ||
-			stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.To) {
+		fromIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.From)
+		toIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.To)
+		if fromIncident || toIncident {
 			add(types.DiagramRelPrecedence, relation.From.AgentValue, relation.To.AgentValue,
-				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd))
+				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident))
 		}
 	}
 	for _, operation := range types.FlowOperationEvidence(evidence) {
@@ -464,23 +467,43 @@ func diagramParticipantTypedIncidentCandidates(
 			}
 			relation, from, to = types.DiagramRelDataFlow, value, receiver
 		}
-		incident := false
-		for _, surface := range surfaces {
-			if types.AnswerCodeIdentitySurfacesCompatible(surface, from) ||
-				types.AnswerCodeIdentitySurfacesCompatible(surface, to) ||
-				types.AnswerCodeIdentityOwnsEndpoint(surface, from) ||
-				types.AnswerCodeIdentityOwnsEndpoint(surface, to) ||
-				types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, from, operation, evidence) ||
-				types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, to, operation, evidence) {
-				incident = true
-				break
-			}
-		}
-		if incident {
-			add(relation, from, to, operation.DisplayLocation(true))
+		fromIncident := diagramParticipantCandidateEndpointMatches(surfaces, from, operation, evidence)
+		toIncident := diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
+		if fromIncident || toIncident {
+			add(relation, from, to, operation.DisplayLocation(true),
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident))
 		}
 	}
 	return rows
+}
+
+func diagramParticipantCandidateEndpointMatches(
+	surfaces []string,
+	endpoint string,
+	operation types.EvidenceItem,
+	evidence []types.EvidenceItem,
+) bool {
+	for _, surface := range surfaces {
+		if types.AnswerCodeIdentitySurfacesCompatible(surface, endpoint) ||
+			types.AnswerCodeIdentityOwnsEndpoint(surface, endpoint) ||
+			types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, endpoint, operation, evidence) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramParticipantCandidateEndpointSide(fromIncident, toIncident bool) string {
+	switch {
+	case fromIncident && toIncident:
+		return "from_or_to"
+	case fromIncident:
+		return "from"
+	case toIncident:
+		return "to"
+	default:
+		return ""
+	}
 }
 
 func diagramParticipantHasAvailableTypedIncident(
