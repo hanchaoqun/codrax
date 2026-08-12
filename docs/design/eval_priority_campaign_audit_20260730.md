@@ -33457,3 +33457,36 @@ AuditLog.record，并明确纠正：当前 `AuditLog.record` 只写 stdout，不
 状态：`B601=production-positive/closed-watch`；`B602=P2/watch-needs-second-witness`；`B600=pending`；
 `runner=2/2`；`human=2/2`；`optional-diagram=not-hardened`；`system-edge-authorship=none`；
 `active-stream=fixed-age-degrade-forbidden`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.636 r360：runner 2/2、人工 0/2；近场 Trace 口径与源码权威分层同时失守
+
+`main@f10cf98c6` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r360_20260812_manual_audit.md`。
+
+真实 Trace D4 案保留了用户显式 34579.472865..34579.587805s 窗、目标四态、typed 唤醒链、链上加冕、背景降级、VerifyClass 业务线索、
+主要时间占用/现规则可消双轴和 `frame causality unproven`。模型给出的“需求侧为主、供给侧次要”方向也与单席排序一致。人工仍判失败：lead 把
+CookieMonsterCl 23.994ms 与 NetworkService 19.041ms 两个同链席直接相加为约 43ms，再与 10.331ms supply seat 比较；这些墙钟席可能覆盖同一物理时间，
+projection 已明确“不可加和”。它还把 `priority_inversion_candidate` 直接解释成等待低优先级线程释放锁，而载体只有低优先级链上依赖及 typed effective impact，
+没有 holder/waiter/lock authority。
+
+确认 `B603-TRACERANKNEARCALIBER1/P1-high`。长 skill/tool 描述中虽已有“候选不证明锁”“席位不可相加”，但与 rank 数据相距太远，未能稳定支撑模型。
+根修是在每次 typed root-rank 数据旁发布短结构化口径：`row_comparison=individual_effective_impact`；除非一个 row 自带 aggregate/member-fold carrier，禁止跨 row Σ；
+priority-inversion family 同位发布 `dependency_impact_proven / lock_holder_unproven`。这是给模型精确信息，不判断供需结论、不扫描终稿、不拒绝答案、不代写 lead。
+
+read-combo 案正确区分 86.111ms 是 trace 实测、不是当前源码事实，也正确保持 frame/deadline verdict unproven；但把
+`internal/skill/defaults.go:1203` 称为 B/E span 配对的“实现位置”。只读代码核验表明该处是 `perf-triage-skill` 的 Workflow 教学字符串；真实 production pairing
+位于 `internal/tracequery/query.go`：`computeTraceMarksWithInventory` 与 `findSpanWindowsCompacted` 以 physical source + emitter PID 建栈，B push、unnamed E pop，
+并处理 lifecycle reset、malformed reset/fail-closed、跨查询窗 pairing、async S/F cookie pairing。`internal/hitraceconv/marker_payload.go` 的
+`directMarkerBufferFieldName` 只证明 binary event field name（print=buf，tracing_mark_write=buffer），不证明 B/E span lifecycle。
+
+确认 `B604-SOURCEIMPLEMENTATIONAUTHORITY1/P1-high`。模型教学/skill/prompt 字符串是“配置的指导政策”证据，不是“生产可执行实现”证据；普通 current-code mechanism
+问题不得用前者替代 parser/controller/runtime implementation。最优方案需要保留用户明确询问 prompt/skill 时的合法可见性，因此不能把 `internal/skill` 整目录硬排除；
+应按 typed source shape 分层：string-literal/configured guidance 只携带 policy/guidance authority，函数体内真实控制流/调用/赋值才携带 executable mechanism authority。
+source lens、evidence context 与 finalizer 必须看到该 authority，而不是靠路径或终稿关键词猜测。
+
+两案分别运行 167s/231s，模型流活跃期间均未发生累计时长降级；无 malformed JSON、无系统代答。read-combo 有一次 unavailable source-lens 修复，后续也需审计
+它是否因错误选中 prompt 字符串而浪费调查轮次。
+
+状态：`B603=P1-high/confirmed`；`B604=P1-high/confirmed`；`runner=2/2`；`human=0/2`；
+`answer-prose-gate=none`；`system-conclusion-authorship=none`；`active-stream=fixed-age-degrade-forbidden`；
+Trace causal projection=`present-but-model-miscompared`。
