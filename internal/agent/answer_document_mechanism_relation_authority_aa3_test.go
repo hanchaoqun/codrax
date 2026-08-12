@@ -820,10 +820,49 @@ func TestMechanismRelationRegistrationOwnerReferenceJoinFailsClosedAA3(t *testin
 	})
 }
 
+func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
+	aliases := []answerDocMechanismAliasRow{
+		{alias: "n1", identity: "FastTokenizer.tokenize"},
+		{alias: "n2", identity: "_fastlex.tokenize_bytes"},
+		{alias: "n3", identity: "py.tokenize_bytes"},
+		{alias: "n4", identity: "tokenize_bytes"},
+	}
+	handoff := answerDocRegisteredExportHandoff{
+		callTarget:         "_fastlex.tokenize_bytes",
+		registeredCallable: "py::tokenize_bytes",
+		bindingEvidenceID:  "binding",
+	}
+	rows := answerDocMechanismSemanticHandoffRows(aliases, []answerDocRegisteredExportHandoff{handoff})
+	if len(rows) != 1 || rows[0].from != "n2" || rows[0].to != "n3" {
+		t.Fatalf("registered export handoff did not map to exact existing endpoint aliases: %+v", rows)
+	}
+	var rendered strings.Builder
+	renderAnswerDocMechanismRelationAuthoringCapsule(&rendered, []answerDocMechanismRelationEdge{
+		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
+		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
+	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence)
+	for _, want := range []string{
+		"Note over n2,n3: Export binding is verified; describe the runtime boundary in business language, not as a call",
+		`edge_anchors_json=`,
+	} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("copy-ready sequence lost exact non-call export handoff %q:\n%s", want, rendered.String())
+		}
+	}
+
+	// Two compatible aliases would make the target ambiguous and must not
+	// create even a non-edge Note.
+	aliases = append(aliases, answerDocMechanismAliasRow{alias: "n5", identity: "py::tokenize_bytes"})
+	if got := answerDocMechanismSemanticHandoffRows(aliases, []answerDocRegisteredExportHandoff{handoff}); len(got) != 0 {
+		t.Fatalf("ambiguous callable aliases must fail closed: %+v", got)
+	}
+}
+
 func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence},
 		}},
 		EvidenceItems: []types.EvidenceItem{
 			{ID: "py-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py", LineStart: 21, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
@@ -837,6 +876,7 @@ func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testi
 		"registered_export=`_fastlex.tokenize_bytes`",
 		"registered_callable=`py::tokenize_bytes`",
 		"binding_endpoint_status=`exact_owner_reference_join`",
+		"semantic_handoff_note[1]=`n2,n5`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finalizer prompt lost exact registration handoff %q:\n%s", want, got)

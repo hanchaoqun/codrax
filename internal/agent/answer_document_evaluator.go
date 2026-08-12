@@ -7074,6 +7074,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	}
 	evidence, edges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
 	unaryAnnotations := answerDocMechanismUnaryAnnotations(evidence)
+	semanticHandoffs := answerDocRegisteredExportHandoffsForContext(ctx)
 	if acceptedFacts == 0 {
 		return ""
 	}
@@ -7115,6 +7116,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			&b,
 			edges,
 			unaryAnnotations,
+			semanticHandoffs,
 			answerDocMechanismCopyReadyRelationLimit(ctx),
 			answerDocMechanismCopyReadyDiagramKind(ctx),
 		)
@@ -7350,6 +7352,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	b *strings.Builder,
 	edges []answerDocMechanismRelationEdge,
 	unaryAnnotations []answerDocMechanismUnaryAnnotation,
+	semanticHandoffs []answerDocRegisteredExportHandoff,
 	limit int,
 	copyReadyKind types.DiagramKind,
 ) {
@@ -7420,6 +7423,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			participant: participantAlias,
 		})
 	}
+	handoffRows := answerDocMechanismSemanticHandoffRows(aliases, semanticHandoffs)
 	if copyReadyKind == types.DiagramNone {
 		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias as the node/participant ID; `from_node` and `to_node` must be these body identifiers. The identity below is endpoint authority, not mandatory primary display copy: author the visible label in the user's domain and keep the exact identity only as a secondary label when useful.\n")
 		for _, row := range aliases {
@@ -7441,6 +7445,10 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
+		for i, row := range handoffRows {
+			fmt.Fprintf(b, "- semantic_handoff_note[%d]=`%s,%s`; status=`registered_export_binding`; call_target=`%s`; registered_callable=`%s`; this is a non-call annotation, not an invocation edge.\n",
+				i+1, row.from, row.to, answerDocCallChainInline(row.handoff.callTarget), answerDocCallChainInline(row.handoff.registeredCallable))
+		}
 	} else {
 		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor array; replace only visible node/message/annotation wording with model-authored business/domain language. Do not compose a different story graph.\n")
 		for i, row := range unaryRows {
@@ -7451,7 +7459,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
-		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, unaryRows, copyReadyKind)
+		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, unaryRows, handoffRows, copyReadyKind)
 	}
 	if collapsedVisualDuplicates > 0 {
 		fmt.Fprintf(b, "- source_relation_duplicates_collapsed_for_visual=%d; source facts remain counted above, while the diagram keeps one arrow per exact typed endpoint relation.\n", collapsedVisualDuplicates)
@@ -7459,6 +7467,72 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if len(visualEdges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional unique typed relation(s) omitted only from this compact authoring view)\n", len(visualEdges)-len(bounded))
 	}
+}
+
+type answerDocMechanismSemanticHandoffRow struct {
+	from    string
+	to      string
+	handoff answerDocRegisteredExportHandoff
+}
+
+// answerDocRegisteredExportHandoffsForContext reuses the same exact
+// current-code-path join that powers the textual call-chain handoff. It adds
+// presentation input only: no EvidenceItem, call edge, answer sentence, or
+// conclusion is created here.
+func answerDocRegisteredExportHandoffsForContext(ctx *types.AgentContext) []answerDocRegisteredExportHandoff {
+	plan := answerSupportPlan(ctx)
+	if plan == nil || plan.Family != types.QFCallChain {
+		return nil
+	}
+	var entries []types.AnswerSupportEntry
+	for _, lane := range plan.Lanes {
+		if lane.Kind == types.SupportLaneCurrentCodePath {
+			entries = append(entries, lane.Entries...)
+		}
+	}
+	return answerDocRegisteredExportHandoffs(entries)
+}
+
+// answerDocMechanismSemanticHandoffRows maps an already-proved export binding
+// onto existing diagram aliases. Both endpoints must resolve uniquely. The
+// result is rendered only as a Note/non-edge fact, preserving the distinction
+// between registration and source-level invocation.
+func answerDocMechanismSemanticHandoffRows(
+	aliases []answerDocMechanismAliasRow,
+	handoffs []answerDocRegisteredExportHandoff,
+) []answerDocMechanismSemanticHandoffRow {
+	if len(aliases) == 0 || len(handoffs) == 0 {
+		return nil
+	}
+	resolve := func(identity string) (string, bool) {
+		match := ""
+		for _, row := range aliases {
+			if !types.AnswerCodeIdentitySurfacesEquivalent(row.identity, identity) {
+				continue
+			}
+			if match != "" && match != row.alias {
+				return "", false
+			}
+			match = row.alias
+		}
+		return match, match != ""
+	}
+	seen := make(map[string]bool)
+	out := make([]answerDocMechanismSemanticHandoffRow, 0, len(handoffs))
+	for _, handoff := range handoffs {
+		from, fromOK := resolve(handoff.callTarget)
+		to, toOK := resolve(handoff.registeredCallable)
+		if !fromOK || !toOK || from == to {
+			continue
+		}
+		key := from + "\x00" + to
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, answerDocMechanismSemanticHandoffRow{from: from, to: to, handoff: handoff})
+	}
+	return out
 }
 
 func answerDocMechanismUniqueVisualEdges(edges []answerDocMechanismRelationEdge) ([]answerDocMechanismRelationEdge, int) {
@@ -7784,6 +7858,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	aliases []answerDocMechanismAliasRow,
 	recipes []answerDocMechanismRecipeRow,
 	unaryAnnotations []answerDocMechanismUnaryAnnotationRow,
+	semanticHandoffs []answerDocMechanismSemanticHandoffRow,
 	kind types.DiagramKind,
 ) {
 	if b == nil || len(aliases) == 0 || len(recipes)+len(unaryAnnotations) == 0 {
@@ -7795,6 +7870,25 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		}
 	}
 	diagramRecipes, annotationRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
+	if kind == types.DiagramSequence && len(semanticHandoffs) > 0 {
+		// An exact owner/reference join gives the raw registration expression a
+		// business-level export/callable interpretation. Prefer that semantic
+		// Note and suppress only the duplicate low-level registration Note; the
+		// underlying typed recipe and validator authority remain unchanged.
+		consumedBindingEvidence := make(map[string]bool, len(semanticHandoffs))
+		for _, row := range semanticHandoffs {
+			consumedBindingEvidence[strings.TrimSpace(row.handoff.bindingEvidenceID)] = true
+		}
+		filtered := annotationRecipes[:0]
+		for _, recipe := range annotationRecipes {
+			evidenceID := strings.TrimSpace(firstNonEmptyAnswerDocString(recipe.edge.sourceItem.ID, recipe.edge.sourceItem.EvidenceRef))
+			if recipe.edge.relation == types.DiagramRelRegister && evidenceID != "" && consumedBindingEvidence[evidenceID] {
+				continue
+			}
+			filtered = append(filtered, recipe)
+		}
+		annotationRecipes = filtered
+	}
 	visualUnaryAnnotations := make([]answerDocMechanismUnaryAnnotationRow, 0, len(unaryAnnotations))
 	for _, row := range unaryAnnotations {
 		if answerDocMechanismUnaryAnnotationSafeForCopyReadyDiagram(kind, row.annotation.relation) {
@@ -7819,6 +7913,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	if kind == types.DiagramSequence {
 		for _, row := range visualUnaryAnnotations {
 			usedAliases[row.participant] = true
+		}
+		for _, row := range semanticHandoffs {
+			usedAliases[row.from] = true
+			usedAliases[row.to] = true
 		}
 	}
 	anchorJSON, err := json.Marshal(anchors)
@@ -7874,6 +7972,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		for _, row := range visualUnaryAnnotations {
 			fmt.Fprintf(b, "  Note over %s: %s\n", row.participant,
 				answerDocMechanismUnarySequenceNotePlaceholder(row.annotation))
+		}
+		for _, row := range semanticHandoffs {
+			fmt.Fprintf(b, "  Note over %s,%s: Export binding is verified; describe the runtime boundary in business language, not as a call\n",
+				row.from, row.to)
 		}
 	} else {
 		b.WriteString("flowchart TD\n")

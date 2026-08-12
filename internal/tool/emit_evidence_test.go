@@ -2995,6 +2995,45 @@ func TestEmitEvidence_OptionalInvalidRelationDoesNotBlockCompletion(t *testing.T
 	}
 }
 
+func TestCrossComponentCallChainInvalidRegistrationBlocksCompletionWithoutRequiredDiagram(t *testing.T) {
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqCallChain),
+		},
+		Predicates: types.SemanticPredicates{IsCrossComponent: true},
+	}}
+	in := emitEvidenceItem{
+		EvidenceKind: string(types.EvidenceRegistration),
+		Scope:        string(types.ScopeLine),
+		Source:       "bridge.rs",
+		AnchorKind:   string(types.AnchorCall),
+		AnchorSymbol: "add",
+		Subject:      "registry",
+	}
+	if !emitEvidenceValidationFailureBlocksCompletion(ctx, in) {
+		t.Fatal("an explicitly submitted cross-component binding row must remain repair debt even when the diagram is optional")
+	}
+	ctx.AnalysisIR.RequestModel.Predicates.IsCrossComponent = false
+	if emitEvidenceValidationFailureBlocksCompletion(ctx, in) {
+		t.Fatal("an optional single-component registration typo must keep the ordinary non-blocking policy")
+	}
+}
+
+func TestRegistrationEndpointErrorTeachesActualBindingExpression(t *testing.T) {
+	ctx := newEmitCtx()
+	res, err := (&EmitEvidence{}).Execute(ctx, json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"_fastlex","source":"bridge.rs","line_start":7,"anchor_kind":"definition","anchor_symbol":"_fastlex"}]}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for _, want := range []string{"actual binding expression", "registry.add(wrapper(target))", "anchor_kind=call", "object=wrapper(target)"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("registration repair teaching missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestRenderEmitSummary_ListsOnlyCurrentActionableRepairTargets(t *testing.T) {
 	current := []types.EvidenceItem{
 		{

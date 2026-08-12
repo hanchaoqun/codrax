@@ -263,6 +263,7 @@ func (t *EmitEvidence) Description() string {
 		"`object=\"inner\"`.\n\n" +
 		"For callback handoff evidence, use `evidence_kind=\"relationship\"`, `anchor_kind=\"callback\"`, " +
 		"`subject` = the receiving call/API expression, and `object` + `anchor_symbol` = the callable value as written on that same line. Example: `executor.submit(worker)` becomes subject=`executor.submit`, object=`worker`; do not relabel it as a direct call to `worker`.\n\n" +
+		"For registration/binding evidence, cite the expression that performs the binding, not its surrounding module or factory definition. Example: `registry.add(wrapper(target))` becomes evidence_kind=`registration`, anchor_kind=`call`, anchor_symbol=`add`, subject=`registry`, object=`wrapper(target)`. This proves the binding only; emit any downstream invocation as its own relationship/call row.\n\n" +
 		"Evidence entailment is bounded by the typed anchor and source span. A call-site item proves only " +
 		"that the caller invokes the callee; it does NOT prove the callee's internal guards, return value, " +
 		"side effects, or pipeline/stage ordering. A definition item proves the declaration/signature, not " +
@@ -2495,7 +2496,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	if kind == types.EvidenceRegistration &&
 		(strings.TrimSpace(in.Subject) == "" || strings.TrimSpace(in.Object) == "") {
 		return types.EvidenceItem{}, fmt.Errorf(
-			"items[%d]: registration items require both subject and object on the actual binding surface; factory selection is not registration — emit its branch guard as conditional/condition and its concrete return as direct/return",
+			"items[%d]: registration items require both subject and object on the actual binding expression; cite the line that visibly binds the slot/receiver to the target, not the surrounding module, factory, or container definition. For a source form registry.add(wrapper(target)), use anchor_kind=call, anchor_symbol=add, subject=registry, and object=wrapper(target). If the source instead selects a factory result, emit its branch guard as conditional/condition and its concrete return as direct/return",
 			index,
 		)
 	}
@@ -5709,11 +5710,26 @@ func emitEvidenceValidationFailureBlocksCompletion(ctx *types.BusContext, in emi
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyString([]string{in.EvidenceKind, in.LegacyKind})))
+	// A cross-component call-chain investigation that has explicitly submitted
+	// a registration row is declaring a typed boundary candidate. If that row
+	// is schema-invalid, allowing completion immediately strands the two proved
+	// invocation segments and pushes the Finalizer toward either an invented
+	// call edge or a misleadingly disconnected "complete" chain. Keep only
+	// this exact typed debt blocking until the model repairs or supersedes it.
+	// This gate reads no request/evidence prose and does not infer a binding:
+	// the model still has to cite the actual source expression and provide both
+	// endpoints. Runtime Trace uses its separate causal contract.
+	if types.EvidenceKind(kind) == types.EvidenceRegistration &&
+		types.ResolveQuestionFamily(rm) == types.QFCallChain &&
+		rm.Predicates.IsCrossComponent &&
+		rm.Intent != types.IntentRootCause {
+		return true
+	}
 	if rm.DiagramHint == nil || !rm.DiagramHint.Required ||
 		!types.PredicateAxisRequiresDiagramEdgeOwnership(rm.PredicateAxis) {
 		return false
 	}
-	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyString([]string{in.EvidenceKind, in.LegacyKind})))
 	switch types.EvidenceKind(kind) {
 	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceConditional:
 	default:

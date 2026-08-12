@@ -35471,6 +35471,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `B667-EMBEDDEDMEMBERLOCATIONFIRST1=implemented/targeted+core-pass/pending-production-replay`；
 `B668-PRINCIPALMEMBERTARGETDEFINITION1=implemented/targeted+core-pass/pending-production-replay`；
 `B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=observe-after-B667-replay`；
+
+### §123.717 r403：B669 从观察项升级并施工；写模式与活跃流红线复核（2026-08-12）
+
+1. 严格按双并发运行 `mr_poly_binding_chain + patch_python_typo`。Runner
+   `2/2 PASS`，人工 `1/2 PASS`。写模式计划正确且只修改 `main.py:20`
+   的 `retrun -> return`，说明关系批没有扰动基本 plan-only 车道。
+2. B667 获生产正证：Rust line 42 的 `py.tokenize_bytes -> tokenize_bytes`
+   已成为 typed call 并进入终稿。但 B669 确认不是模型随机波动：Explorer 已读
+   line 47 的真实 PyO3 注册表达式，却先把外围 `#[pymodule]` 定义提交成 sparse
+   registration；旧反馈只讲 factory guard/return，且 optional diagram 形没有把这条
+   typed 注册债保留到 completion。Finalizer 因而只能正确拒绝三次虚构 Native→Rust
+   call，最后接受两段断图。
+3. 泛化根修不识别 PyO3 关键词：注册证据教学统一指向实际 binding expression，
+   以 `registry.add(wrapper(target))` 说明 `registration/call + slot + target`；factory
+   selection 仍保持 conditional+return 的独立形。跨组件 `QFCallChain` 中模型已经明确
+   提交、但 schema-invalid 的 registration 会成为 completion debt，即使 diagram
+   optional 也不能被后来“证据够了”覆盖。判据只读 typed request/evidence 字段，
+   不扫用户/模型/答案原文，Trace 根因族不进入该门。
+4. 当既有精确 owner/reference join 已证明“外部导出槽绑定到内部 callable”时，统一
+   relation capsule 为 sequence skeleton 增加 `Note over export,callable` 的非箭头载体。
+   Note 无 `edge_anchors`、不铸 call、不改模型答案，模型仍负责业务文案和结论；端点
+   必须唯一，否则 fail-closed。该形覆盖 PyO3/JNI/FFI/native module/plugin/RPC，
+   不做单框架拟合。
+5. JSON 面：r403 首稿把 `blocks` 编成字符串，系统 tolerant recovery 成功保留了草稿
+   且记录 recovery event，没有空答案或系统代写。后续三次拒绝来自缺失 typed binding，
+   不是 JSON 修复失败。
+6. B664 再获生产接线 witness：日志明确跳过 analyzer 外层固定预算，由
+   first-byte/byte-stall watchdog 接管。活跃字节流不按 4ms、4s 或累计耗时降级；只允许
+   caller cancel/deadline、首字节超时、字节停滞、传输/解码失败结束。202 秒用例的
+   runtime=`none`，其耗时来自关系校验重试。
+
+状态更新：
+
+`B667-EMBEDDEDMEMBERLOCATIONFIRST1=production-closed`；
+`B668-PRINCIPALMEMBERTARGETDEFINITION1=production-positive`；
+`B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=implemented/targeted+core-pass/pending-production-replay`；
+`B664-ACTIVESTREAMUPPERBUDGET1=production-reconfirmed`。
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
