@@ -772,7 +772,7 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
 		logging.Warning("[%s] preserved %d source_inventory_row_id value(s) from exact typed label and citation location", toolName, fixed)
 	}
-	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
 	}

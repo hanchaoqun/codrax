@@ -9069,6 +9069,50 @@ func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_RepairsUniqueCod
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_LabelEvidenceOutranksBodyPeer(t *testing.T) {
+	mu := types.NewMutableState("explain the parallel call-chain frontier")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{ID: "direct", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "RunWith", Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, GroundingStatus: types.GroundingGrounded},
+		{ID: "wrapper", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "RunWith", Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
+		{ID: "definition", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "gate.Run", Subject: "gate.Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 2722, Quote: "ir.QualityGate = gate.RunWith(ir, th, mode, gateOpts)"},
+			{File: "internal/analysis/gate/gate.go", Line: 134, Quote: "func Run(ir *types.AnalysisIR, th Thresholds, mode string) types.GateReport {"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "hops", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{{
+				ID: "wrapper", Label: "gate.Run",
+				Text: "公开包装函数，独立调用 `gate.RunWith`。", CitationRef: 1,
+			}},
+		}},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc, pctx); fixed != 0 {
+		t.Fatalf("body peer must not steal an already typed-label-aligned citation, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want gate.Run definition citation 1", got)
+	}
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, pctx); fixed != 1 {
+		t.Fatalf("typed call-role pass must move the preserved label identity to its exact edge, fixed=%d doc=%+v", fixed, doc)
+	}
+	got := doc.Citations[doc.Blocks[0].Items[0].CitationRef]
+	if got.File != "internal/analysis/gate/gate.go" || got.Line != 135 {
+		t.Fatalf("final citation=%s:%d, want exact gate.Run -> gate.RunWith edge at gate.go:135", got.File, got.Line)
+	}
+	if hints := preCheckItemCitationAlignmentWithContext(doc, nil, pctx); len(hints) != 0 {
+		t.Fatalf("typed role repaired citation should remain label-aligned: %+v", hints)
+	}
+	if hints := preCheckCallChainItemCitationRoleAlignmentWithContext(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, pctx); len(hints) != 0 {
+		t.Fatalf("typed role repaired citation should satisfy call-role alignment: %+v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefs_LabelIdentityOutranksBodyBacktickHelper(t *testing.T) {
 	mu := types.NewMutableState("explain the walker call chain")
 	mu.AppendEvidence([]types.EvidenceItem{

@@ -35100,3 +35100,33 @@ boolean，不扫描用户、模型或最终答案 prose。最终模型仍自行�
 `system-answer/effect-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.709 r395：概念终点证据已贯通；引用主身份被正文 peer 反向污染
+
+`main@ad6a68c59` exact-two runner `1/2`，人工核心正确性 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_conceptual_terminal_r395_20260812_manual_audit.md`。B656 已获完整生产正证：
+Analyzer 在 Java 案直接选择 `discover_terminal`；Explorer 读取五个关键文件，最终上下文出现
+`selected_terminal_body_calls=parser_grounded`，其中精确列出
+`AuditLog.record -> System.out.println @ AuditLog.java:6`，模型 thinking 也消费到该第六跳。最终正文不再声称
+“完成审计落库”，但仍只写“记录审计/输出操作类型”，没有明确向用户指出 stdout 不是持久化，所以严格语义 oracle
+继续失败。由于精确信息和软边界已齐，继续加系统结论、答案关键词禁词或系统改写会越过模型结论权红线；该项暂按
+模型消费波动保留，后续异构模型/同案复放再判断，不做单 case 硬拟合。
+
+Go 案关系结论和图均正确，却暴露 B657。模型原始 `gate.Run` item 引用 `gate.go:134`；早期 backtick quote
+normalizer 看到正文里的 `gate.RunWith`，把 citation_ref 移到 `analyzer.go:2722`。后续结构校验已经从 typed evidence
+精确报告 `current_citation INVALID`、候选为 `gate.go:135/134`，但 citation policy 仅软提示并放行，导致错误 file:line
+最终可见。这不是模型波动：系统主动把正确引用改坏。
+
+B657 根修不提升 citation mismatch 为重试，也不解释正文语义：backtick 修复新增 typed context，若当前引用位置的
+EvidenceItem 已与结构化 label 对齐，则 label 主身份优先于正文中的 helper/callee backtick，不允许早期弱启发式搬走。
+之后既有 typed claim-role pass 仍可从 definition 行进一步精确移动到同一 label 所断言的 call edge；生产同形回归固定
+`gate.Run` + 正文 `gate.RunWith`：先保住 `gate.Run @ gate.go:134`，再由 typed call role 移至
+`gate.Run -> gate.RunWith @ gate.go:135`，不得落到 `buildAnalysisIR -> gate.RunWith @ analyzer.go:2722`。这同时适用
+Go、Java/Kotlin、C/C++、Rust、Python、JS/TS/ArkTS、Ruby、Swift、Lua、Cangjie 等代码身份。
+
+状态：`B656=production-positive`；`java-terminal-effect=model-consumption-residual/no-hard-fit`；
+`B657-LABELCITATIONBODYBACKTICKPOLLUTION1=implemented/targeted-pass`；
+`citation-priority=typed-label-identity>body-peer-token`；`typed-call-role-refinement=preserved`；
+`system-answer/relation-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
