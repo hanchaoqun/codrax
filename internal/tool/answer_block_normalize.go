@@ -229,7 +229,9 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 			return nil
 		}
 		labelPresent := strings.TrimSpace(item.Label) != ""
-		cells := normalizeTableStringSlice(item.Cells)
+		rawCells := normalizeTableStringSlice(item.Cells)
+		cells := append([]string(nil), rawCells...)
+		textPresent := strings.TrimSpace(item.Text) != ""
 		if text := strings.TrimSpace(item.Text); text != "" && !tableRowCellsContain(cells, text) {
 			cells = append(cells, text)
 		}
@@ -240,6 +242,10 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		if len(block.Columns) == 0 {
 			continue
 		}
+		if labelPresent && textPresent && len(rawCells) == len(block.Columns) {
+			return fmt.Errorf("%s.items[%d]: cells[] already supplies exactly %d values for the %d declared columns, while item.label and item.text add extra visible values. Keep cells[] unchanged and omit both item.label and item.text for this row; move any explanation into a separate non-table block. Do not add a column or rebuild other rows",
+				fieldPath, idx, len(rawCells), len(block.Columns))
+		}
 		convention := ""
 		switch {
 		case !labelPresent && len(cells) == len(block.Columns):
@@ -249,7 +255,7 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		case labelPresent && len(cells) == len(block.Columns):
 			convention = "synthetic_label_header"
 		default:
-			return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s). Preferred repair: omit item.label and item.text, then emit exactly one cells[] value per columns[] entry. The legacy alternative is label as the deliberate first visible column plus cells[]/text for every remaining column (columns[] may omit only that synthetic label header)",
+			return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s). Preferred repair: omit item.label and item.text, then emit exactly one cells[] value per columns[] entry. This is the one canonical repair shape. Put any prose explanation in a separate non-table block; do not rebuild valid sibling rows",
 				fieldPath, idx, len(cells), len(block.Columns))
 		}
 		if rowConvention == "" {
@@ -257,7 +263,7 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 			continue
 		}
 		if convention != rowConvention {
-			return fmt.Errorf("%s.items[%d]: structured table mixes row conventions (%s after %s); choose one table-wide row shape and keep it for every visible row: cells[] only, label plus columns[] including the label header, or label plus columns[] omitting the synthetic label header",
+			return fmt.Errorf("%s.items[%d]: structured table mixes row conventions (%s after %s). Choose one table-wide row shape using the canonical repair: omit item.label and item.text and emit exactly one cells[] value per columns[] entry for every visible row; put prose in a separate non-table block and do not rebuild unrelated blocks",
 				fieldPath, idx, convention, rowConvention)
 		}
 	}

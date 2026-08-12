@@ -130,7 +130,7 @@ func TestNormalizeEmitAnswerBlock_RejectsDeclaredMultiColumnRowWithoutValues(t *
 		"2 column header",
 		"Preferred repair: omit item.label and item.text",
 		"exactly one cells[] value per columns[] entry",
-		"label as the deliberate first visible column",
+		"one canonical repair shape",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
@@ -261,6 +261,35 @@ func TestNormalizeEmitAnswerBlock_RejectsMixedLabelAndCellOnlyRows(t *testing.T)
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("mixed label/cell error missing %q: %v", want, err)
 		}
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_TableRetryTeachesOneCanonicalCellsShape(t *testing.T) {
+	raw := emitAnswerBlockV2{
+		ID:      "ranked-trace-causes",
+		Kind:    string(types.BlockTable),
+		Columns: []string{"排序", "链上根因", "状态", "耗时", "可消除量", "修向"},
+		Items: []emitAnswerBlockItemV2{{
+			ID:    "cause-1",
+			Label: "供给缺口主导",
+			Text:  "保持链上证据与背景证据分栏",
+			Cells: []string{"#1", "算力供给不足", "running", "74.915ms", "65.912ms", "检查频率上限"},
+		}},
+	}
+	_, err := NormalizeEmitAnswerBlock(raw, "blocks[2]")
+	if err == nil {
+		t.Fatal("label/text plus a complete cells row must request a canonical repair")
+	}
+	for _, want := range []string{
+		"blocks[2].items[0]", "cells[] already supplies exactly 6 values", "Keep cells[] unchanged",
+		"omit both item.label and item.text", "separate non-table block", "Do not add a column or rebuild other rows",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("canonical table repair missing %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "legacy alternative") {
+		t.Fatalf("retry guidance must not teach competing row conventions: %v", err)
 	}
 }
 

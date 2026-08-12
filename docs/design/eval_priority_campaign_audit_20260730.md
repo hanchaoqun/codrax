@@ -35511,3 +35511,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.718 r404：B669 生产回放仍有后置漏口；Trace 与活跃流红线继续通过（2026-08-12）
+
+1. 在 `main@bb16842c7` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + real_trace_h7_self_seat_full_spectrum`。Runner
+   `2/2 PASS`，人工 `1/2 PASS`。完整记录在
+   `eval/parallel_selected_summary_evalcampaign_binding_trace_r404_20260812_manual_audit.md`。
+2. Polyglot 证实 B669 只闭合了 schema-invalid 入口，尚未覆盖 schema-valid、grounding
+   后失败的入口：模型已读 `core-rs/src/lib.rs:47` 的真实 binding，却把 line 46 定义行
+   提交成 registration。producer 正确撤销关系权威后又显示
+   `Current actionable repair targets: none`；后续成功 evidence 清掉局部债，Finalizer
+   三次拒绝虚构 call 后删除图。这不是模型波动，也不能靠放宽图门修。
+3. B670 泛化根修：只在 typed cross-component call-chain/registration 形中，从已经读给
+   模型的同文件、同 enclosing callable、±40 行源码抽取唯一
+   `receiver.bindingCall(argumentContaining(endpoint))` 结构。平衡括号解析支持嵌套包装和
+   macro，不识别 PyO3/语言/框架关键词；Rust/ArkTS/Cangjie/C++ 四形已钉。唯一匹配只
+   生成 copy-ready `registration/call` 修复义务，不铸 edge；歧义即 fail-open。义务跨
+   无关 emit 持久存在，且只由模型重提的 exact citable `registration_edge` 核销。
+4. H7 人工通过：显式 233.190ms 窗、Trace 因果投影、自动补齐、链上主因与
+   邻近/背景分栏均保持；正文同时保留实际占用/业务 span 与可消除供给、D-state、
+   priority/scheduling 两维。400 秒整轮仍由 first-byte/byte-stall watchdog 管理，任何
+   4ms 或累计年龄都没有降级权。
+5. H7 暴露 B671：首轮表格 JSON 的 cells 内混入字段残片；模型修掉残片后，又按旧错误
+   提示中的“legacy alternative”保留 6 cells + label + text，导致同一 7-vs-6 校验重复。
+   修复保持三种历史合法载体兼容，但失败教学只推荐一种 canonical shape：label/text
+   置空、每列一个 cells 值；当 cells 已满时明确要求原样保留 cells、把解释移到表外，
+   禁加列和重建兄弟行。系统不改写单元格、结论或答案。
+6. `go test ./internal/tool -count=1` 全绿；后续按双并发回放
+   `mr_poly_binding_chain + real_trace_h7_self_seat_full_spectrum` 验收关系债消费与成文
+   拒绝次数。B670/B671 合并前先记录审计与代码，提交后立即推送守住战果。
+
+状态：
+
+`B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=partial/post-grounding-counterexample`；
+`B670-POSTGROUNDREGISTRATIONBINDINGREPAIR1=implemented/targeted+internal-tool-pass/pending-production-replay`；
+`B671-TABLERETRYCANONICALSHAPE1=implemented/targeted+internal-tool-pass/pending-production-replay`；
+`B664-ACTIVESTREAMUPPERBUDGET1=production-reconfirmed-r404`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r404`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

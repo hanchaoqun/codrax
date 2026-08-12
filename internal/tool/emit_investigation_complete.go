@@ -3082,10 +3082,11 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 	for _, obligation := range obligations {
 		matched := false
 		for _, item := range evidence {
-			if !item.IsCitable() || item.LineStart != obligation.Line || item.AnchorKind != obligation.AnchorKind ||
+			if !item.IsCitable() ||
+				(obligation.EvidenceKind != "" && item.Kind != obligation.EvidenceKind) ||
+				item.LineStart != obligation.Line || item.AnchorKind != obligation.AnchorKind ||
 				canonicalRelationSourcePath(item.Source) != canonicalRelationSourcePath(obligation.Source) ||
-				!types.AnswerCodeIdentitySurfacesCompatible(item.Subject, obligation.Subject) ||
-				!types.AnswerCodeIdentitySurfacesCompatible(item.Object, obligation.Object) {
+				!emitEvidenceRepairObligationEndpointsMatch(obligation, item) {
 				continue
 			}
 			switch obligation.AnchorKind {
@@ -3094,7 +3095,11 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 					continue
 				}
 			case types.AnchorCall:
-				if !types.PredicateAxisHasMatchingAnchor(types.AxisCall, item) {
+				if obligation.EvidenceKind == types.EvidenceRegistration {
+					if types.ClaimFormOf(item) != types.ClaimRegistrationEdge {
+						continue
+					}
+				} else if !types.PredicateAxisHasMatchingAnchor(types.AxisCall, item) {
 					continue
 				}
 			}
@@ -3106,6 +3111,15 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 		}
 	}
 	return true
+}
+
+func emitEvidenceRepairObligationEndpointsMatch(obligation emitEvidenceRelationRepairObligation, item types.EvidenceItem) bool {
+	if obligation.EvidenceKind == types.EvidenceRegistration {
+		return types.AnswerCodeIdentitySurfacesCompatible(item.Subject, obligation.Subject) &&
+			strings.TrimSpace(item.Object) == strings.TrimSpace(obligation.Object)
+	}
+	return types.AnswerCodeIdentitySurfacesCompatible(item.Subject, obligation.Subject) &&
+		types.AnswerCodeIdentitySurfacesCompatible(item.Object, obligation.Object)
 }
 
 func cloneEmitInvestigationToolRepair(in *types.ToolRepair) *types.ToolRepair {

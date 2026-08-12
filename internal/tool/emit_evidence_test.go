@@ -6715,6 +6715,123 @@ func TestEmitEvidence_DefinitionCannotAuthorizeFactorySelectionObject(t *testing
 	}
 }
 
+func TestRegistrationBindingCallOnLine_CrossLanguageStructuralShapes(t *testing.T) {
+	tests := []struct {
+		name, line, endpoint, anchor, registry, object string
+	}{
+		{
+			name: "rust macro wrapper", line: "m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;",
+			endpoint: "tokenize_bytes", anchor: "add_function", registry: "m", object: "wrap_pyfunction!(tokenize_bytes, m)",
+		},
+		{
+			name: "arkts direct handler", line: "router.register(routeName, PageHandler)",
+			endpoint: "PageHandler", anchor: "register", registry: "router", object: "PageHandler",
+		},
+		{
+			name: "cangjie wrapper", line: "registry.bind(HandlerFactory.create(RequestHandler))",
+			endpoint: "RequestHandler", anchor: "bind", registry: "registry", object: "HandlerFactory.create(RequestHandler)",
+		},
+		{
+			name: "cpp receiver", line: "registry->add(make_handler<RequestHandler>());",
+			endpoint: "RequestHandler", anchor: "add", registry: "registry", object: "make_handler<RequestHandler>()",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			anchor, registry, object, _, ok := registrationBindingCallOnLine(tc.line, tc.endpoint)
+			if !ok || anchor != tc.anchor || registry != tc.registry || object != tc.object {
+				t.Fatalf("binding=(%q,%q,%q,%t), want (%q,%q,%q,true)", anchor, registry, object, ok, tc.anchor, tc.registry, tc.object)
+			}
+		})
+	}
+}
+
+func TestUniqueNearbyRegistrationBindingCallFailsOpenWhenMoreThanOneLineBindsEndpoint(t *testing.T) {
+	const source = "src/registry.ets"
+	gc := &ground.Context{LineIndex: map[string]map[int]string{
+		source: {
+			10: "primary.register(PageHandler)",
+			11: "fallback.register(PageHandler)",
+		},
+	}}
+	item := types.EvidenceItem{Source: source, LineStart: 10, Object: "PageHandler"}
+	if line, anchor, registry, object, ok := uniqueNearbyRegistrationBindingCall(gc, item); ok {
+		t.Fatalf("ambiguous binding lines must fail open, got line=%d anchor=%q registry=%q object=%q", line, anchor, registry, object)
+	}
+}
+
+func TestEmitEvidence_CrossComponentRegistrationDefinitionPublishesDurableBindingRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+	const source = "core-rs/src/lib.rs"
+	seedReadFileHistory(ctx, source, 45,
+		"#[pymodule]",
+		"fn _fastlex(m: &Bound<'_, PyModule>) -> PyResult<()> {",
+		"m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;",
+		"Ok(())",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "_fastlex", Kind: "function", Line: 46, EndLine: 49}},
+		},
+	}})
+
+	bad := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"_fastlex","predicate":"registers","object":"tokenize_bytes","source":"core-rs/src/lib.rs","line_start":46,"summary":"module registration","anchor_kind":"definition","anchor_symbol":"_fastlex"}]}`)
+	res, err := tool.Execute(ctx, bad)
+	if err != nil || !res.Success {
+		t.Fatalf("nearby definition should return typed repair, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "registration_binding_expression" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("missing durable binding repair: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		`source="core-rs/src/lib.rs"`, `line_start=47`, `anchor_symbol="add_function"`,
+		`subject="m"`, `object="wrap_pyfunction!(tokenize_bytes, m)"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("binding repair missing %q: %+v", want, res.Repair)
+		}
+	}
+	if strings.Contains(res.Summary, "Current actionable repair targets: none") ||
+		strings.Contains(res.Summary, "drop the item; do NOT spend read_file budget") {
+		t.Fatalf("summary contradicted durable binding repair:\n%s", res.Summary)
+	}
+	obligations, ok := decodeEmitEvidenceRelationRepairObligations(
+		res.Repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey])
+	if !ok || len(obligations) != 1 || obligations[0].EvidenceKind != types.EvidenceRegistration ||
+		obligations[0].Line != 47 || obligations[0].Object != "wrap_pyfunction!(tokenize_bytes, m)" {
+		t.Fatalf("binding obligation is not exact: %+v", obligations)
+	}
+	ctx.Mutable.AppendDispatchToolResult(res)
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "emit_evidence", Success: true, Summary: "unrelated later success"})
+	if pending := pendingBlockingEmitEvidenceItemValidationRepair(ctx); pending == nil ||
+		pending.Metadata["repair_scope"] != "registration_binding_expression" {
+		t.Fatalf("later unrelated emit cleared durable binding debt: %+v", pending)
+	}
+
+	corrected := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"m","predicate":"registers","object":"wrap_pyfunction!(tokenize_bytes, m)","source":"core-rs/src/lib.rs","line_start":47,"summary":"module binds the exported wrapper","anchor_kind":"call","anchor_symbol":"add_function"}]}`)
+	res, err = tool.Execute(ctx, corrected)
+	if err != nil || !res.Success {
+		t.Fatalf("exact binding expression rejected, err=%v result=%+v", err, res)
+	}
+	ctx.Mutable.AppendDispatchToolResult(res)
+	if pending := pendingBlockingEmitEvidenceItemValidationRepair(ctx); pending != nil {
+		t.Fatalf("model-owned exact binding emit did not clear debt: %+v", pending)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || !got[1].IsCitable() || types.ClaimFormOf(got[1]) != types.ClaimRegistrationEdge {
+		t.Fatalf("corrected model emit did not publish registration authority: %+v", got)
+	}
+}
+
 func TestEmitEvidence_FactoryGuardAndReturnRemainSeparateAuthoritativeRows(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

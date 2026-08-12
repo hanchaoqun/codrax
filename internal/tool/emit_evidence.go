@@ -720,6 +720,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	valueTransferClassificationRepairs := make([]emitEvidenceValueTransferClassificationRepair, 0)
 	assignmentEndpointRepairs := make([]emitEvidenceAssignmentEndpointRepair, 0)
 	callEndpointRepairs := make([]emitEvidenceCallEndpointRepair, 0)
+	registrationBindingRepairs := make([]emitEvidenceRegistrationBindingRepair, 0)
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
 	surfaceAlignmentRejected := make(map[int]bool)
@@ -884,7 +885,13 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			surfaceAlignmentRejected[i] = true
 			registrationAlignmentRejected = true
 		}
+		registrationBeforeEndpointAudit := built[i]
 		if !registrationAlignmentRejected && stabilizeRegistrationEndpointAuthority(&built[i], gc) {
+			if repair, ok := emitEvidenceRequiredRegistrationBindingRepair(
+				ctx, registrationBeforeEndpointAudit, builtParamIndexes[i], gc,
+			); ok {
+				registrationBindingRepairs = append(registrationBindingRepairs, repair)
+			}
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -924,6 +931,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	callEndpointRepairs = filterSatisfiedCallbackReceiverCallRepairs(callEndpointRepairs, repairEvidence)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
+	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
+		relationEndpointRepair, buildEmitEvidenceRegistrationBindingRepair(registrationBindingRepairs))
 	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
 	if relationEndpointRepair != nil {
 		validationRepairFields = append(validationRepairFields, relationEndpointRepair.Fields...)
@@ -3623,10 +3632,271 @@ func stabilizeRegistrationEndpointAuthority(it *types.EvidenceItem, gc *ground.C
 	it.GroundingStatus = types.GroundingUngrounded
 	it.GroundingTier = ""
 	appendGroundingNoteOnce(it, fmt.Sprintf(
-		"registration object %q is absent from the grounded binding surface at %s:%d; cite the actual registry/decorator/table binding. If this is factory selection, emit the branch guard as conditional/condition and the concrete return as direct/return. Do NOT repair this item by keeping the definition or wrapper line",
+		"registration object %q is absent from the grounded binding surface at %s:%d; cite the actual registry/decorator/table binding. If this is factory selection, emit the branch guard as conditional/condition and the concrete return as direct/return. Do not keep the definition or wrapper line as registration proof",
 		object, it.Source, it.LineStart,
 	))
 	return true
+}
+
+// emitEvidenceRegistrationBindingRepair is a producer-owned recipe for a
+// registration row that cited a nearby definition/wrapper while the already
+// read source contains one unique binding call for the same endpoint.  It is
+// deliberately only guidance: the downgraded row stays ungrounded and no
+// registration edge exists until the model emits this exact tuple itself.
+type emitEvidenceRegistrationBindingRepair struct {
+	itemIndex   int
+	source      string
+	line        int
+	anchor      string
+	registry    string
+	boundObject string
+}
+
+func emitEvidenceRequiredRegistrationBindingRepair(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+) (emitEvidenceRegistrationBindingRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.Kind != types.EvidenceRegistration ||
+		item.Scope != types.ScopeLine || item.LineStart <= 0 || strings.TrimSpace(item.Object) == "" {
+		return emitEvidenceRegistrationBindingRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	family := types.ResolveQuestionFamily(rm)
+	if family == types.QFRootCauseTrace || rm.Intent == types.IntentRootCause {
+		return emitEvidenceRegistrationBindingRepair{}, false
+	}
+	requiredShape := (family == types.QFCallChain && rm.Predicates.IsCrossComponent) ||
+		rm.PredicateAxis == types.AxisRegister ||
+		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqRegistration
+	if !requiredShape {
+		return emitEvidenceRegistrationBindingRepair{}, false
+	}
+
+	line, anchor, registry, object, ok := uniqueNearbyRegistrationBindingCall(gc, item)
+	if !ok {
+		return emitEvidenceRegistrationBindingRepair{}, false
+	}
+	return emitEvidenceRegistrationBindingRepair{
+		itemIndex: itemIndex, source: item.Source, line: line,
+		anchor: anchor, registry: registry, boundObject: object,
+	}, true
+}
+
+// uniqueNearbyRegistrationBindingCall inspects only source text that the model
+// has already received.  It recognizes the cross-language structural shape
+// receiver.bindingCall(wrapper(endpoint)) (including macro wrappers), without
+// framework names or request/final-answer prose.  Ambiguity fails open.
+func uniqueNearbyRegistrationBindingCall(gc *ground.Context, item types.EvidenceItem) (int, string, string, string, bool) {
+	if gc == nil || item.LineStart <= 0 {
+		return 0, "", "", "", false
+	}
+	visibleSource := ground.CanonicalContextPath(gc, item.Source)
+	lines := gc.LineIndex[visibleSource]
+	if len(lines) == 0 {
+		lines = gc.LineIndex[item.Source]
+	}
+	if len(lines) == 0 {
+		return 0, "", "", "", false
+	}
+	fi := emitEvidenceGraphFileInfo(gc, item.Source)
+	wantOwner := enclosingCallableSymbolName(fi, item.LineStart)
+	type candidate struct {
+		line, score              int
+		anchor, registry, object string
+	}
+	var candidates []candidate
+	for lineNo, text := range lines {
+		if lineNo < item.LineStart-40 || lineNo > item.LineStart+40 {
+			continue
+		}
+		if wantOwner != "" && enclosingCallableSymbolName(fi, lineNo) != wantOwner {
+			continue
+		}
+		anchor, registry, object, score, ok := registrationBindingCallOnLine(text, item.Object)
+		if ok {
+			candidates = append(candidates, candidate{lineNo, score, anchor, registry, object})
+		}
+	}
+	if len(candidates) != 1 {
+		return 0, "", "", "", false
+	}
+	best := candidates[0]
+	return best.line, best.anchor, best.registry, best.object, true
+}
+
+func registrationBindingCallOnLine(line, endpoint string) (string, string, string, int, bool) {
+	line = strings.TrimSpace(line)
+	endpoint = strings.TrimSpace(endpoint)
+	if line == "" || endpoint == "" {
+		return "", "", "", 0, false
+	}
+	masked := maskQuotedSourceForBinding(line)
+	endpointPos := indexIdentifierToken(masked, endpoint)
+	if endpointPos < 0 {
+		return "", "", "", 0, false
+	}
+	pairs := sourceParenPairs(masked)
+	type callCandidate struct {
+		anchor, registry, object string
+		score                    int
+	}
+	var best callCandidate
+	for open, close := range pairs {
+		if endpointPos <= open || endpointPos >= close {
+			continue
+		}
+		targetStart, target := sourceCallTargetBeforeParen(masked, open)
+		if target == "" {
+			continue
+		}
+		arg, ok := sourceCallArgumentContaining(line, masked, open+1, close, endpointPos)
+		if !ok {
+			continue
+		}
+		registry := sourceCallReceiver(target)
+		anchor := sourceCallLeaf(target)
+		if registry == "" {
+			registry = anchor
+		}
+		arg = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(arg), "?"))
+		if anchor == "" || registry == "" || arg == "" {
+			continue
+		}
+		score := close - targetStart
+		if registry != anchor {
+			score += 10000
+		}
+		if strings.TrimSpace(arg) != endpoint {
+			score += 1000
+		}
+		if score > best.score {
+			best = callCandidate{anchor: anchor, registry: registry, object: arg, score: score}
+		}
+	}
+	if best.score == 0 {
+		return "", "", "", 0, false
+	}
+	return best.anchor, best.registry, best.object, best.score, true
+}
+
+func maskQuotedSourceForBinding(line string) string {
+	out := []byte(line)
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(out); i++ {
+		b := out[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				out[i] = ' '
+				continue
+			}
+			if b == '\\' {
+				escaped = true
+				out[i] = ' '
+				continue
+			}
+			if b == quote {
+				quote = 0
+			}
+			out[i] = ' '
+			continue
+		}
+		if b == '\'' || b == '"' || b == '`' {
+			quote = b
+			out[i] = ' '
+		}
+	}
+	return string(out)
+}
+
+func sourceParenPairs(masked string) map[int]int {
+	pairs := make(map[int]int)
+	stack := make([]int, 0, 4)
+	for i := 0; i < len(masked); i++ {
+		switch masked[i] {
+		case '(':
+			stack = append(stack, i)
+		case ')':
+			if len(stack) == 0 {
+				continue
+			}
+			open := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			pairs[open] = i
+		}
+	}
+	return pairs
+}
+
+func sourceCallTargetBeforeParen(masked string, open int) (int, string) {
+	j := open - 1
+	for j >= 0 && (masked[j] == ' ' || masked[j] == '\t') {
+		j--
+	}
+	end := j + 1
+	for j >= 0 && (isCallTargetByte(masked[j]) || masked[j] == '!') {
+		j--
+	}
+	start := j + 1
+	if start >= end {
+		return 0, ""
+	}
+	target := strings.TrimSuffix(cleanCallExpressionTarget(masked[start:end]), "!")
+	return start, target
+}
+
+func sourceCallArgumentContaining(original, masked string, start, end, endpointPos int) (string, bool) {
+	argStart := start
+	depth := 0
+	for i := start; i <= end; i++ {
+		atEnd := i == end
+		if !atEnd {
+			switch masked[i] {
+			case '(', '[', '{':
+				depth++
+			case ')', ']', '}':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
+		if atEnd || (masked[i] == ',' && depth == 0) {
+			if endpointPos >= argStart && endpointPos < i {
+				return strings.TrimSpace(original[argStart:i]), true
+			}
+			argStart = i + 1
+		}
+	}
+	return "", false
+}
+
+func sourceCallReceiver(target string) string {
+	idx := -1
+	for _, sep := range []string{"->", "::", "."} {
+		if candidate := strings.LastIndex(target, sep); candidate > idx {
+			idx = candidate
+		}
+	}
+	if idx > 0 {
+		return strings.TrimSpace(target[:idx])
+	}
+	return ""
+}
+
+func sourceCallLeaf(target string) string {
+	idx, sepLen := -1, 0
+	for _, sep := range []string{"->", "::", "."} {
+		if candidate := strings.LastIndex(target, sep); candidate > idx {
+			idx, sepLen = candidate, len(sep)
+		}
+	}
+	if idx >= 0 {
+		return strings.TrimSpace(target[idx+sepLen:])
+	}
+	return strings.TrimSpace(target)
 }
 
 func evidenceEndpointVisibleOnGroundedSpan(gc *ground.Context, item types.EvidenceItem, endpoint string) bool {
@@ -4979,11 +5249,27 @@ const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obliga
 // required relation repair disappear.  Completion checks these keys against
 // the current typed evidence pool; it never scans request/model/answer prose.
 type emitEvidenceRelationRepairObligation struct {
-	AnchorKind types.AnchorKind `json:"anchor_kind"`
-	Source     string           `json:"source"`
-	Line       int              `json:"line"`
-	Subject    string           `json:"subject"`
-	Object     string           `json:"object"`
+	EvidenceKind types.EvidenceKind `json:"evidence_kind,omitempty"`
+	AnchorKind   types.AnchorKind   `json:"anchor_kind"`
+	Source       string             `json:"source"`
+	Line         int                `json:"line"`
+	Subject      string             `json:"subject"`
+	Object       string             `json:"object"`
+}
+
+func registrationBindingRepairObligations(in []emitEvidenceRegistrationBindingRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			EvidenceKind: types.EvidenceRegistration,
+			AnchorKind:   types.AnchorCall,
+			Source:       row.source,
+			Line:         row.line,
+			Subject:      row.registry,
+			Object:       row.boundObject,
+		})
+	}
+	return out
 }
 
 func valueTransferClassificationRepairObligations(in []emitEvidenceValueTransferClassificationRepair) []emitEvidenceRelationRepairObligation {
@@ -5517,6 +5803,44 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 	}
 }
 
+func buildEmitEvidenceRegistrationBindingRepair(in []emitEvidenceRegistrationBindingRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in)*8)
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields,
+			fmt.Sprintf("items[%d].evidence_kind", row.itemIndex),
+			fmt.Sprintf("items[%d].source", row.itemIndex),
+			fmt.Sprintf("items[%d].line_start", row.itemIndex),
+			fmt.Sprintf("items[%d].anchor_kind", row.itemIndex),
+			fmt.Sprintf("items[%d].anchor_symbol", row.itemIndex),
+			fmt.Sprintf("items[%d].subject", row.itemIndex),
+			fmt.Sprintf("items[%d].predicate", row.itemIndex),
+			fmt.Sprintf("items[%d].object", row.itemIndex),
+		)
+		rows = append(rows, fmt.Sprintf(
+			"items[%d] requires evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q (binding receiver/slot), predicate=%q, and object=%q (complete bound argument expression)",
+			row.itemIndex, string(types.EvidenceRegistration), row.source, row.line,
+			string(types.AnchorCall), row.anchor, row.registry, "registers", row.boundObject,
+		))
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "A load-bearing registration row cited a nearby definition or wrapper, but an already-read source line contains one unique receiver-call argument that binds the same endpoint. Re-emit only the named registration item with the exact syntax-owned tuple below. The system has not created or accepted this edge; only the corrected model emit may publish it: " + strings.Join(rows, "; "),
+		Fields: uniqueEmitEvidenceRepairFields(fields),
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "registration_binding_expression",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				registrationBindingRepairObligations(in)),
+		},
+	}
+}
+
 func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *types.ToolRepair {
 	if first == nil {
 		return second
@@ -5525,12 +5849,19 @@ func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *
 		return first
 	}
 	first.Fields = uniqueEmitEvidenceRepairFields(append(first.Fields, second.Fields...))
-	first.Hint += " Additional exact call repair: " + second.Hint
+	first.Hint += " Additional exact relation repair: " + second.Hint
 	if first.Metadata == nil {
 		first.Metadata = make(map[string]string)
 	}
 	first.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
-	first.Metadata["repair_scope"] = "assignment_endpoint_identity+call_endpoint_identity"
+	firstScope := strings.TrimSpace(first.Metadata["repair_scope"])
+	secondScope := strings.TrimSpace(second.Metadata["repair_scope"])
+	switch {
+	case firstScope == "":
+		first.Metadata["repair_scope"] = secondScope
+	case secondScope != "" && !strings.Contains("+"+firstScope+"+", "+"+secondScope+"+"):
+		first.Metadata["repair_scope"] = firstScope + "+" + secondScope
+	}
 	first.Metadata["completion_blocking"] = "true"
 	mergeEmitEvidenceRelationRepairObligationMetadata(first, second)
 	return first
@@ -5607,6 +5938,7 @@ func mergeEmitEvidenceValidationRepairs(validation, endpoint *types.ToolRepair) 
 	}
 	validation.Metadata["repair_scope"] = "item_validation+" + endpointScope
 	validation.Metadata["completion_blocking"] = "true"
+	mergeEmitEvidenceRelationRepairObligationMetadata(validation, endpoint)
 	return validation
 }
 
