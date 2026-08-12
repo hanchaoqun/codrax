@@ -179,7 +179,19 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" && !omitAdvisoryNumeric {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
-		if compactMembers {
+		if omitAdvisoryNumeric {
+			// Runtime aggregate members can smuggle the same unsupported
+			// arithmetic back into the prompt after the scalar value was
+			// correctly withheld (for example "direction A total = X+Y").
+			// Preserve only the structural receipt. Exact trace rows remain
+			// available through their typed support/projection lanes.
+			if len(fact.Members) > 0 {
+				fmt.Fprintf(&b, ", member_count=%d, members_omitted=runtime_advisory_without_typed_support", len(fact.Members))
+			}
+			if len(fact.MemberNotes) > 0 {
+				fmt.Fprintf(&b, ", member_note_count=%d, member_notes_omitted=runtime_advisory_without_typed_support", len(fact.MemberNotes))
+			}
+		} else if compactMembers {
 			fmt.Fprintf(&b, ", member_count=%d", len(fact.Members))
 			fmt.Fprintf(&b, ", members_rendered_in=authoritative_principal_member_rows")
 		} else if compactShadowed {

@@ -140,6 +140,43 @@ func TestTraceCausalProjectionSemanticPhysicalSeatDoesNotAdjudicateTwoChainDomai
 	}
 }
 
+func TestTraceCausalProjectionExactSemanticOccurrenceUsesAdjacentSeatOverBackgroundMirror(t *testing.T) {
+	adjacent := semanticAliasRecord("adjacent", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.000000, 10.200000)
+	background := semanticAliasRecord("background", "trace.systrace:10-20", 10,
+		10.100000, 10.100285, 10.000000, 10.200000)
+	for i, note := range adjacent.RichNotes {
+		switch {
+		case strings.HasPrefix(note, "chain_relevance="):
+			adjacent.RichNotes[i] = "chain_relevance=adjacent"
+		case strings.HasPrefix(note, "causality="):
+			adjacent.RichNotes[i] = "causality=adjacent_to_wakeup_chain"
+		}
+	}
+	for i, note := range background.RichNotes {
+		switch {
+		case strings.HasPrefix(note, "chain_relevance="):
+			background.RichNotes[i] = "chain_relevance=background"
+		case strings.HasPrefix(note, "causality="):
+			background.RichNotes[i] = "causality=background"
+		}
+	}
+
+	projection := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{background, adjacent}})
+	if len(projection.OnChainCauses) != 0 || len(projection.BackgroundCauses) != 0 || len(projection.AdjacentCauses) != 1 {
+		t.Fatalf("one physical off-chain semantic occurrence must use its unique adjacent seat: on=%+v adjacent=%+v background=%+v",
+			projection.OnChainCauses, projection.AdjacentCauses, projection.BackgroundCauses)
+	}
+	if len(projection.SemanticSpans) != 1 || projection.SemanticSpans[0].ChainRelevance != "adjacent" {
+		t.Fatalf("semantic inventory must keep one adjacent copy: %+v", projection.SemanticSpans)
+	}
+	for _, node := range []TraceCausalProjectionNode{projection.AdjacentCauses[0], projection.SemanticSpans[0]} {
+		if node.EvidenceID != "adjacent" || len(node.MergedEvidenceIDs) != 1 || node.MergedEvidenceIDs[0] != "background" {
+			t.Fatalf("adjacent seat must retain background mirror evidence: %+v", node)
+		}
+	}
+}
+
 func TestTraceCausalProjectionDuplicatePublicationNeverNearFoldsSemanticSpans(t *testing.T) {
 	a := TraceCausalProjectionNode{
 		Role:      TraceCausalRoleSemanticSpan,

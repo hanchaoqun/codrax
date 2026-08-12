@@ -5649,16 +5649,20 @@ func traceCausalProjectionDedupeSemanticAliasPublications(nodes []TraceCausalPro
 // query-window and producer provenance are properties of those observations,
 // not a second occurrence. When exactly one typed on-chain publication exists,
 // it owns the display seat and absorbs only exact-identity off-chain mirrors.
-// This is deliberately one-way: a background row can never mint chain/root
-// authority, and two independently on-chain query domains remain separate
-// rather than being adjudicated here. All evidence ids and locators survive.
+// With no on-chain publication, one exact adjacent publication likewise owns
+// the off-chain display seat over background mirrors: this preserves the
+// producer's stronger typed proximity without promoting the span onto the
+// causal chain. Multiple on-chain or multiple adjacent authorities remain
+// separate rather than being adjudicated here. All evidence ids and locators
+// survive.
 func traceCausalProjectionConvergeSemanticPhysicalSeats(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < 2 {
 		return nodes
 	}
 	type group struct {
-		members []int
-		onChain []int
+		members  []int
+		onChain  []int
+		adjacent []int
 	}
 	groups := make(map[string]*group, len(nodes))
 	for i, node := range nodes {
@@ -5674,15 +5678,25 @@ func traceCausalProjectionConvergeSemanticPhysicalSeats(nodes []TraceCausalProje
 		g.members = append(g.members, i)
 		if traceCausalProjectionNodeOnChain(node) {
 			g.onChain = append(g.onChain, i)
+		} else if strings.TrimSpace(node.ChainRelevance) == "adjacent" {
+			g.adjacent = append(g.adjacent, i)
 		}
 	}
 
 	drop := make(map[int]bool)
 	for _, g := range groups {
-		if len(g.members) < 2 || len(g.onChain) != 1 {
+		if len(g.members) < 2 || len(g.onChain) > 1 {
 			continue
 		}
-		survivorAt := g.onChain[0]
+		survivorAt := -1
+		switch {
+		case len(g.onChain) == 1:
+			survivorAt = g.onChain[0]
+		case len(g.adjacent) == 1:
+			survivorAt = g.adjacent[0]
+		default:
+			continue
+		}
 		survivor := &nodes[survivorAt]
 		for _, at := range g.members {
 			if at == survivorAt {

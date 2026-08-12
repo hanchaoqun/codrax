@@ -223,6 +223,49 @@ func TestRenderStructuredAggregateFactsRuntimeScalarWithTypedSupportKeepsValue(t
 	}
 }
 
+func TestRenderStructuredAggregateFactsExplicitTraceOnlyOmitsUnsupportedAggregateMembers(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateGroupedCount,
+		Label:      "repair direction subtotal",
+		Value:      "31.4ms",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Unit:       "ms",
+		Dimensions: []types.AnswerAggregateDimension{{Name: "fix_direction", Value: "lock_priority"}},
+		Members: []string{
+			"lock total = 7.405ms + 4.710ms",
+			"all directions are independent",
+		},
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause,
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"only analyze this trace"},
+		},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, forbidden := range []string{
+		"repair direction subtotal", "31.4ms", "fix_direction", "7.405ms", "independent",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("unsupported trace-only aggregate arithmetic leaked through %q:\n%s", forbidden, got)
+		}
+	}
+	for _, want := range []string{
+		"label_omitted=runtime_advisory_without_typed_support",
+		"value_omitted=runtime_advisory_without_typed_support",
+		"member_count=2",
+		"members_omitted=runtime_advisory_without_typed_support",
+		"arithmetic_operand=`not_authorized`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace-only aggregate omission receipt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderStructuredAggregateFactsScalarQuestionStillOmitsUnsupportedRuntimeNumber(t *testing.T) {
 	facts := []types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateScalar,

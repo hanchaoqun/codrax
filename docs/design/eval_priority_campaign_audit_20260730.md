@@ -34626,3 +34626,51 @@ B641 将 semantic 教学收紧为双向边界：“同窗 peer 出现”既不�
 `semantic-dedup=exact-typed-content`；`semantic-target-effect=unresolved-without-relation`；
 `system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.688 r384：Finalizer typed 权威在场但被探索期无凭证算术反污染；semantic 跨离链车道仍双席
+
+`main@e3e2f1cac` exact-two runner 再次 `2/2`，人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_direction_semantic_r384_20260812_manual_audit.md`。
+
+H11 的 Finalizer prompt 已在详细席位之前携带 B639 单源表：四个方向只发布 leader 58.320/7.405/3.956/3.670ms，明确同方向小计、跨方向总计和方向独立性均
+`not_provided`。但 Explorer 更早通过 `emit_investigation_complete.aggregate_facts` 提交了无 support ref 的 grouped_count；Normalize 虽把错误的 `26.204ms`
+值归一为成员数 3，成员字符串仍原样包含每方向加法、合计和“相互独立”。Structured Aggregate Facts 位于 Trace Decision Inputs 之后，导致弱模型再次采用后出现的低权威算术，
+正文重复宣称方向独立、同方向求和且效果可叠加。这不是需要扫终稿的模型词面问题，而是系统把已判为 runtime advisory 的成员文本重新当算术操作数暴露。
+
+H10 的独立 semantic inventory 生效，模型正确列出 `TextView$TextAppearanceAttributes.<init>` 1.781ms/行5969..6114 与
+`DecimalQuantity_DualStorageBCD.readIntToBcd` 0.607ms/行12611..12664，成员未再串名，也没有把两段写成目标 CompThread 自身工作。但 deterministic report
+仍将同一 exact family 作为邻近 E47 与背景 E52 各发布一次。现有 physical-seat convergence 只处理“唯一 on-chain + 弱车道镜像”；零 on-chain 时，即使唯一 adjacent 与
+background 的 subject/class/span/envelope/TGID 全同，也刻意保留两席，形成跨离链车道重复。
+
+两案分别 143s/195s，连接活跃并正常产生模型答案；固定四分钟年龄门没有参与。代码复核确认 OpenAI SSE 不再铸造 active-hidden-reasoning 的
+`StreamNoVisibleOutputTimeoutError` 或 total-age timeout；隐藏推理、tool-call 与 keep-alive 均重置/维持活跃进度。legacy provider 若返回旧无可见输出错误，
+`finalizerNoVisibleOutputFallback` 固定返回 nil，系统不得从旧 evidence/Turn-B 代写答案。只有真实首字节缺失、字节静默、传输/解码失败、调用方 cancel/deadline 等精确信号可失败；
+“连接仍活跃但四分钟没有最终答案”不构成降级权限。
+
+状态：`runner=2/2`；`human=0/2`；`B639=prompt-present/not-consumed-due-authority-pollution`；
+`B642-TRACEADVISORYMEMBERARITH1=confirmed/P0`；`B643-SEMANTICOFFCHAINMIRROR1=confirmed/P1-high`；
+`semantic-member-copy=production-positive`；`active-stream-age-degrade=absent/forbidden`；
+`system-answer-rewrite=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.689 B642/B643：无凭证 runtime aggregate 全面退出算术面；exact semantic 离链镜像收敛
+
+B642 修复两层同根 gap。第一层，`AggregateFactIsRuntimeObservationAdvisory` 不再只依赖 RequestModel 是否带回完整 Perf/Log bundle；typed
+`ExternalObservationPolicy.ExcludesCurrentSource()` 本身已证明这是显式 observation-only 运行，所以同样把无 support ref 的模型 aggregate 判为 advisory。第二层，scalar/count
+值被隐藏时，其 `members[]` 与 `member_notes[]` 也必须退出 Finalizer 算术面：系统只保留 member_count/note_count 与 omission receipt。否则成员字符串可携带“X+Y=Z”、
+“相互独立”等与被隐藏 value 同等有害的无凭证算术/关系。带 `trace_query:*` 等 typed support ref 的 aggregate 仍完整保留；普通源码/历史/写模式不受影响。该逻辑只读 typed
+request policy、fact kind 和 support-ref 语法，不检查用户原文、模型 thinking 或终稿。
+
+B643 将 exact semantic physical-seat convergence 扩展为单向离链优先级：同一精确物理 occurrence 若没有 on-chain authority、但恰有一个 typed adjacent publication，
+该 adjacent 席吸收 background 镜像并保留 loser EvidenceID/locator。它不提升为链上、不生成根因；若存在多个 on-chain 或多个 adjacent authority，继续 lossless 保留，等待上游裁定。
+物理身份仍要求 subject、原 span、kind/category/subcategory、semantic class、type、精确 start/end、TGID 全同，不使用近似时间或名称 fuzzy。
+
+定向回归覆盖：(1) 只有 explicit trace-only policy、没有复制 PerfBundle 的 RequestModel 仍隐藏 unsupported grouped scalar；(2) member 内嵌的方向加法和独立性字符串不再泄漏；
+(3) typed support ref 保持原值；(4) exact adjacent/background semantic 镜像只剩 adjacent 一席且证据合并；(5) 两个 on-chain domain 仍不裁并。
+`go test ./internal/types ./internal/agent ./internal/llm ./internal/orchestrator` 全绿。下一轮 exact-two 验收待提交后执行。
+
+状态：`B642=implemented/targeted-pass`；`B643=implemented/targeted-pass`；
+`runtime-advisory-value/member-arithmetic=withheld-with-receipt`；`typed-supported-aggregate=unchanged`；
+`semantic-offchain-exact-mirror=adjacent-wins-with-evidence-retained`；`multi-authority=lossless`；
+`system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。

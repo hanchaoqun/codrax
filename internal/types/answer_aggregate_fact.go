@@ -2753,7 +2753,8 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 // label/value prose against artifact prose: noisy text overlap cannot mint
 // numeric authority.
 func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
-	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() {
+	if rm == nil || (!rm.HasExternalOnlyRuntimeArtifact() &&
+		!rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
 		return false
 	}
 	if aggregateFactHasTypedSupportRef(fact) {
