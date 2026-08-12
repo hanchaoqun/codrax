@@ -33743,3 +33743,44 @@ B610 不在 Go 确定性层匹配“当前源码/当前代码”等用户措辞�
 
 状态：`B610=implemented/prompt-pin-pending-production-replay`；`request-text-hard-gate=none`；
 `current-source-lane=soft-typed-carrier`；`artifact/source-coordinate-separation=preserved`；`model-answer-ownership=preserved`。
+
+### 123.647 r365：current-source lane 与数值权限接线生效；分支拓扑/操作证据成为下一断点
+
+`main@cc6e81561` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r365_20260812_manual_audit.md`。
+
+read-combo 给出三项正证。第一，B610 生效：Analyzer 发出 active current-source profile，Explorer 实际调用 repo/source 工具，并在初读解码器后受 B609 三层教学驱动继续定位
+`findSpanWindowsCompacted`。第二，B608 生效：Finalizer 上下文明确没有 validator-owned refresh/deadline/frame-budget，终稿没有再发 60/90fps、16.67ms、预算比值等未证标尺；
+86.111ms 只作为工件实测时长，jank 保持未证。第三，流水线总时长 260s 仍保留模型首稿，patch 只补 typed selector，没有按固定 elapsed 清空或替换答案。
+
+人工仍失败，因为模型把两个互斥的物理解码 profile 线性化：buffer/string-carrier profile 与要求不存在任何 buffer/str/trace carrier 的 official structured-field profile 被写成
+“提取 buffer 后进入 structured path”。同时，引用只钉到 `findSpanWindowsCompacted` 函数入口，却宣称了后续才出现的 physical source + emitter PID key、LIFO、scheduler lifecycle reset、
+malformed reset、provenance unresolved 和 duration-order fail-closed；raw recovery witness 也在没有 normal-path selection/call anchor 时混入普通查询链。
+
+确认两个同根的泛化 gap：`B611-CURRENTSOURCEBRANCHTOPOLOGY1/P1-high`（互斥 guard/profile 缺少 alternative/dispatch 表达，recovery/audit/fallback 与 normal path 边界不足）和
+`B612-CURRENTSOURCEOPERATIONGUTTER1/P1-high`（函数入口引用被过度扩权为未读操作语义）。它们不应通过函数名表、事件族特判或终稿原文硬门修复；最优形是在已有 B609 软梯中增加：
+
+1. 不同 guard 选择的 sibling profiles 必须呈现为 alternative/dispatch branches，不得串成 ordered chain；
+2. recovery/audit/advisory/fallback 不得在缺少 current-source selection/call anchor 时冒充 normal consumer；
+3. correlation key、stack/queue、reset、malformed/order/fail policy 只能由包含该操作的 focused gutter 支撑，否则该层标为 unvisited 并继续定向读取。
+
+Trace D4 再次出现相同模型波动：跨重叠席相加并把 candidate 写成 proven blocking。精确上下文已同时携带不可直加和候选权限，且 r363 曾通过，因此不新增模型/答案原文扫描、
+硬拒或系统代写。显式窗、链上根因、邻近/背景分区、算力正值次席、占时/可消双轴、业务线索、因果投影和自动补齐均完整保留。
+
+关于“连接仍活跃但 4 分钟没有可见答案”：本轮 260s 是总流水线正证，不等价于单次连续 stream 超 4 分钟；单流不变量由 adapter 的 reasoning/tool-progress 测试固定：
+真实 reasoning/content/tool/finish/usage 进展后，累计 age/旧 total cap 不构成降级权限。只有 typed first-byte absence、真实 byte stall、transport break、caller cancel、安全事件或
+精确 decode degeneration 可以触发恢复；恢复也必须保留已有模型 carrier 并披露，不能用系统摘要替换仍在工作的模型。
+
+状态：`B608=production-positive`；`B610=production-positive`；`B609=production-partial`；
+`B611/B612=confirmed/soft-guidance-next`；`runner=2/2`；`human=0/2`；`trace-model-variance=no-hardening`；
+`answer-prose-gate=none`；`system-answer-authorship=none`；Trace causal projection/system supplement=`preserved`；
+`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.648 B611/B612：current-source 机制教学增加分支拓扑与逐操作证据纪律
+
+B609 软梯增加三条语言、路径、事件族无关的证据纪律：互斥 guard/profile 是 alternative/dispatch；recovery/audit/advisory/fallback 与 normal consumer 分 lane；source citation
+只支撑其 gutter 可见操作，生命周期语义必须由实际含 key/stack/reset/malformed/order/fail-policy 的 focused range 承担。该变化只影响 Explorer 的证据选择与模型教学，不读用户或终稿
+原文，不成为 completion gate，不强制固定函数/调用图，也不替模型写机制或结论。
+
+状态：`B611/B612=implemented/targeted-test-pending-production-replay`；`mechanism-topology=branch-aware-soft-guidance`；
+`operation-evidence=focused-gutter-soft-guidance`；`hard-gate=none`；`model-answer-ownership=preserved`。

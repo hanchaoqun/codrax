@@ -99,7 +99,8 @@ func renderRuntimeSourceNavigationPhasePrompt(ctx *types.AgentContext) string {
 // It is deliberately soft guidance: it neither scans answer prose nor blocks
 // completion. Its job is to prevent a parser field read, a sibling event
 // family, or an async path from being overclaimed as proof of a stateful
-// correlator and its final projection.
+// correlator and its final projection. It also keeps alternative decode
+// profiles and recovery lanes from being narrated as one normal-path chain.
 func renderCurrentSourceMechanismCoveragePrompt(ctx *types.AgentContext) string {
 	rm := requestModelFromContext(ctx)
 	if rm == nil || rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
@@ -121,5 +122,8 @@ func renderCurrentSourceMechanismCoveragePrompt(ctx *types.AgentContext) string 
 		"- **Decode / normalize:** how raw records, fields, identities, and direction markers are parsed. This layer alone does not prove how records are paired or accumulated.\n" +
 		"- **Stateful correlation / lifecycle:** the exact correlation key and source identity; direction; stack, queue, nesting, or adjacency semantics; lifecycle/reset boundaries; malformed/order handling; and fail-open/fail-closed behavior. Do not borrow these semantics from a sibling event family, another language adapter, or an async path.\n" +
 		"- **Consumer / projection:** how matched state becomes durations, spans, graph relations, emitted rows, or user-visible output, including filtering and completeness boundaries.\n" +
+		"Treat sibling decode profiles selected by different guards as alternatives or dispatch branches, not consecutive steps. State the selecting guard/profile and do not linearize mutually exclusive branches into one ordered chain.\n" +
+		"Keep normal-path consumers separate from recovery, audit, advisory, and fallback lanes unless a current-source selection or call anchor proves that the normal path consumes that lane.\n" +
+		"A source citation supports only the operations visible in its cited gutter. Claim a correlation key, stack/queue rule, reset boundary, malformed/order policy, or fail policy only from a range that contains that operation; otherwise mark the layer unvisited and read the focused operation range.\n" +
 		"Report which layers current-source evidence actually covers and state a boundary for unvisited layers. This is evidence guidance, not a completion gate and not permission to invent missing mechanism details.\n\n"
 }

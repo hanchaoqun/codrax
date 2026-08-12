@@ -439,6 +439,11 @@ func TestExplorer_BuildInitialInstruction_SoftCurrentSourceTraceStartsWithRuntim
 		"Stateful correlation / lifecycle",
 		"Consumer / projection",
 		"Do not borrow these semantics from a sibling event family",
+		"selected by different guards as alternatives or dispatch branches",
+		"do not linearize mutually exclusive branches into one ordered chain",
+		"normal-path consumers separate from recovery, audit, advisory, and fallback lanes",
+		"A source citation supports only the operations visible in its cited gutter",
+		"otherwise mark the layer unvisited and read the focused operation range",
 		"Start with `trace_query`",
 	} {
 		if !strings.Contains(prompt, want) {
