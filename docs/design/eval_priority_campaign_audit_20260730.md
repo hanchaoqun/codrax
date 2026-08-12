@@ -34737,3 +34737,42 @@ faithful-allow=principal、explicit-exclude=supporting，同时继续要求五�
 `authored-role-history=lossless`；`decorated-member-landing=lossless`；`production-code-change=none`；
 `system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.693 r386：方向小计生产转正；未知关系与未封闭原因仍被模型写成肯定结论
+
+`main@79717640f` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_direction_subtotal_r386_20260812_manual_audit.md`。
+
+H11 证明 B644 已生产生效：Finalizer handoff、最终边界与 ◎ 总览均发布锁与优先级方向精确互斥子集
+`7.405+4.710=12.115ms`，模型正文正确使用 12.115ms，没有退回 leader-only，也没有扩到 TOP 外两席或跨方向求总和。残余是模型把
+`unlisted_pair_physical_relation=unresolved`、`direction_independence_authority=not_provided` 写成“方向相互独立/无重叠”，随后又说跨方向不可相加，形成正文内部矛盾。
+缺失 overlap carrier 只证明联合计价没有授权，不能反向证明物理独立、互斥或无重叠，登记 B646。
+
+H10 的 semantic inventory 与 target/peer 边界继续正确：两条不同 JIT 成员、2.388ms 合计、1.781/0.607ms 和各自行号完整，另一线程的同窗语义事实未被提升为
+CompThread 自身因果。模型关于目标线程自身无此类 span 的窄结论成立，但又将“全部等待”封闭成 GPU fence + 65.912ms 算力供给；后者是 running 折算值而非等待，且 typed
+状态账还有未归因 sleep/等待。目标状态五态分区封闭的是“经历了什么状态”，不是“全部原因”；ranked seats 也不是原因的闭集，登记 B647。
+
+两案分别 119s/166s，活跃流正常完成；没有固定四分钟年龄降级、旧稿替代、空答或系统代写。显式窗口、Trace 因果投影、自动补齐、链上主因种群、邻近/背景边界和双轴均保留。
+
+状态：`runner=2/2`；`human=0/2`；`B644=production-positive`；
+`B646-TRACEUNKNOWNRELATIONSUMMARY1=confirmed/P0`；`B647-TRACECAUSEDECOMPOSITIONCLOSURE1=confirmed/P0`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`system-answer-rewrite=none`；
+`raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.694 B646/B647：最终 typed capsule 显式保留“关系未知”与“原因未封闭”
+
+B646/B647 不新增词面 validator，也不读取用户原文、模型 thinking 或最终答案。Trace Decision Inputs 与 Final Trace Decision Boundary 现在从既有 typed 投影发布同一条紧凑
+`compact_unknowns`：未列 pair 的跨方向物理关系保持 unresolved；缺少 overlap record 不证明 independent；目标状态分区或根因席位 roster 均不构成原因的 closed decomposition；只有
+一个精确 typed additive cause partition 才允许“全部由这些原因构成”。它与方向 leader/subtotal authority 相邻，避免长 prompt 中正确但分散的边界被弱模型总结压缩掉。
+
+这条 capsule 只给模型更精准、高显著的推理输入：模型仍决定诊断、推荐与可见措辞；系统不创建 answer block、不删除/替换模型结论、不因出现某个自然语言词而拒绝成文。方向内 exact
+subtotal、target 五态互斥加法、same-source partition 等已有正向 typed 关系继续有效；新提示只禁止把“没有关系凭证”反向解释成某一种物理关系，也不改变任何数值、榜位或投影人口。
+
+定向 pin 覆盖 handoff 与最终边界四个字段：`cross_direction_physical_relation=unresolved...`、
+`absent_overlap_record_proves_independence=false`、`cause_decomposition_status=not_closed...`、
+`exhaustive_cause_wording=requires_one_exact_typed_additive_cause_partition`。相关包全回归与下一轮 exact-two 生产验收待本批提交后执行。
+
+状态：`B646=implemented/targeted-pass`；`B647=implemented/targeted-pass`；
+`unknown-relation=preserved`；`cause-roster-closure=not-inferred`；`exact-positive-relation-carriers=unchanged`；
+`system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
