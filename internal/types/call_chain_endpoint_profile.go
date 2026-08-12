@@ -6,20 +6,22 @@ type CallChainSinkResolutionMode string
 
 // CallChainEndpointProfileTeaching is the single semantic teaching source for
 // the analyzer skill and emit_analysis schema. Field types and enum admission
-// remain schema-owned; this sentence only distinguishes the three mutually
+// remain schema-owned; this sentence only distinguishes the four mutually
 // exclusive endpoint-authority shapes.
-const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request code identity as source (never a file path or pre-scan candidate) and an empty sink only when the requested answer is which runtime implementation/class/handler is reached; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. Independently set runtime_selection_required=true only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, and copy the shortest contiguous verbatim request phrase into runtime_selection_source_quote; otherwise emit false and an empty quote. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint, path, or runtime selection; it never becomes endpoint authority."
+const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request code identity as source (never a file path or pre-scan candidate) and an empty sink only when the requested answer is which runtime implementation/class/handler is selected; use discover_terminal with an exact current-request code identity as source and an empty sink when grounded static call evidence must identify the terminal code endpoint for a conceptual destination; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. Independently set runtime_selection_required=true only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, and copy the shortest contiguous verbatim request phrase into runtime_selection_source_quote; otherwise emit false and an empty quote. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint, path, or runtime selection; it never becomes endpoint authority."
 
 const (
-	CallChainSinkResolutionExact        CallChainSinkResolutionMode = "exact"
-	CallChainSinkResolutionDiscover     CallChainSinkResolutionMode = "discover"
-	CallChainSinkResolutionDiscoverPath CallChainSinkResolutionMode = "discover_path"
+	CallChainSinkResolutionExact            CallChainSinkResolutionMode = "exact"
+	CallChainSinkResolutionDiscover         CallChainSinkResolutionMode = "discover"
+	CallChainSinkResolutionDiscoverTerminal CallChainSinkResolutionMode = "discover_terminal"
+	CallChainSinkResolutionDiscoverPath     CallChainSinkResolutionMode = "discover_path"
 )
 
 func CallChainSinkResolutionModeValues() []string {
 	return []string{
 		string(CallChainSinkResolutionExact),
 		string(CallChainSinkResolutionDiscover),
+		string(CallChainSinkResolutionDiscoverTerminal),
 		string(CallChainSinkResolutionDiscoverPath),
 	}
 }
@@ -38,16 +40,16 @@ type CallChainEndpointProfile struct {
 
 // RequiresRuntimeSelectionEvidence is the single typed selector for the
 // runtime-selection evidence lane. Discover mode already means that the
-// concrete destination itself must be selected. Exact/discover_path requests
-// enter the same lane only through the analyzer-authored, verbatim-anchored
-// boolean above. Consumers never infer this obligation from request, tool, or
-// answer prose.
+// concrete destination itself must be selected. Exact/discover_terminal/
+// discover_path requests enter the same lane only through the analyzer-authored,
+// verbatim-anchored boolean above. Consumers never infer this obligation from
+// request, tool, or answer prose.
 func (p *CallChainEndpointProfile) RequiresRuntimeSelectionEvidence() bool {
 	return p != nil && p.Active() && (p.DiscoverSinkActive() || p.RuntimeSelectionRequired)
 }
 
 func (p *CallChainEndpointProfile) Active() bool {
-	return p.ExactActive() || p.DiscoverSinkActive() || p.DiscoverPathActive()
+	return p.ExactActive() || p.DiscoverSinkActive() || p.DiscoverTerminalActive() || p.DiscoverPathActive()
 }
 
 func (p *CallChainEndpointProfile) ExactActive() bool {
@@ -73,6 +75,18 @@ func (p *CallChainEndpointProfile) DiscoverSinkActive() bool {
 	return source != "" && IsCodeIdentitySurface(source) && !callChainEndpointHintLooksLikePath(source)
 }
 
+// DiscoverTerminalActive preserves a current-request exact source while
+// leaving a conceptual terminal boundary to grounded static call evidence.
+// Unlike discover, it does not imply that a runtime implementation was
+// selected through registration, binding, construction, or dispatch.
+func (p *CallChainEndpointProfile) DiscoverTerminalActive() bool {
+	if p == nil || p.SinkMode != CallChainSinkResolutionDiscoverTerminal || strings.TrimSpace(p.Sink) != "" {
+		return false
+	}
+	source := strings.TrimSpace(p.Source)
+	return source != "" && IsCodeIdentitySurface(source) && !callChainEndpointHintLooksLikePath(source)
+}
+
 // DiscoverPathActive is the role-bounded call-chain lane. It applies when the
 // current request asks for a directional source-code path but names only
 // conceptual boundaries rather than exact code identities. Grounded
@@ -88,7 +102,8 @@ func (p *CallChainEndpointProfile) DiscoverPathActive() bool {
 // classification merely preselected. Exact source-to-sink reachability is a
 // hard contract, so both endpoint identities must have current-request
 // provenance. When the source is named but the sink is not, preserve the
-// useful source and deterministically demote to discover mode. When neither
+// useful source and deterministically demote to discover for an explicit
+// runtime-selection request, otherwise to discover_terminal. When neither
 // analyzer candidate has current-request provenance, discard both into
 // discover_path; grounded evidence then owns the path endpoint identities.
 func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMentioned []string) (*CallChainEndpointProfile, string) {
@@ -120,7 +135,7 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 			allowed[strings.ToLower(value)] = true
 		}
 	}
-	if profile.SinkMode == CallChainSinkResolutionDiscover {
+	if profile.SinkMode == CallChainSinkResolutionDiscover || profile.SinkMode == CallChainSinkResolutionDiscoverTerminal {
 		discardedSink := profile.Sink != ""
 		profile.Sink = ""
 		// A discover source is still endpoint authority. If the analyzer copied a
@@ -129,7 +144,8 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		// role-bound path investigation. This is the same demotion already used
 		// for an unproven code-looking source; it reads only the typed carrier and
 		// current-request provenance set.
-		if !profile.DiscoverSinkActive() || !allowed[strings.ToLower(profile.Source)] {
+		active := profile.DiscoverSinkActive() || profile.DiscoverTerminalActive()
+		if !active || !allowed[strings.ToLower(profile.Source)] {
 			return &CallChainEndpointProfile{
 					SinkMode:                    CallChainSinkResolutionDiscoverPath,
 					RuntimeSelectionRequired:    profile.RuntimeSelectionRequired,
@@ -138,7 +154,7 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 				"call_chain_endpoints discover source was not an exact current-request code identity; normalized to discover_path so a file path or analyzer candidate cannot become endpoint authority"
 		}
 		if discardedSink {
-			return profile, "call_chain_endpoints discover mode discarded a preselected sink; grounded exploration must identify the runtime destination"
+			return profile, "call_chain_endpoints " + string(profile.SinkMode) + " mode discarded a preselected sink; grounded exploration must identify the destination"
 		}
 		return profile, ""
 	}
@@ -150,8 +166,12 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		if sourceCodeIdentity && sourceMentioned && (!sinkCodeIdentity || !sinkMentioned) {
 			candidate := profile.Sink
 			profile.Sink = ""
-			profile.SinkMode = CallChainSinkResolutionDiscover
-			return profile, "call_chain_endpoints exact sink " + candidate + " was not an exact current-request code identity; demoted to discover mode so grounded exploration selects the runtime destination"
+			if profile.RuntimeSelectionRequired {
+				profile.SinkMode = CallChainSinkResolutionDiscover
+				return profile, "call_chain_endpoints exact sink " + candidate + " was not an exact current-request code identity; demoted to discover mode so grounded exploration proves the requested runtime selection"
+			}
+			profile.SinkMode = CallChainSinkResolutionDiscoverTerminal
+			return profile, "call_chain_endpoints exact sink " + candidate + " was not an exact current-request code identity; demoted to discover_terminal so grounded static call evidence identifies the conceptual destination without inventing runtime selection"
 		}
 		if (!sourceCodeIdentity || !sinkCodeIdentity || !sourceMentioned || !sinkMentioned) &&
 			!strings.EqualFold(profile.Source, profile.Sink) {
@@ -164,7 +184,7 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		}
 	}
 	if !profile.Active() {
-		return nil, "call_chain_endpoints requires exact mode with two distinct identities, discover mode with one exact source and an empty sink, or discover_path with both endpoint fields empty"
+		return nil, "call_chain_endpoints requires exact mode with two distinct identities, discover/discover_terminal mode with one exact source and an empty sink, or discover_path with both endpoint fields empty"
 	}
 	return profile, ""
 }

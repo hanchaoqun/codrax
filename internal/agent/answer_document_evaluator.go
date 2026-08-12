@@ -2865,7 +2865,7 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 		return ""
 	}
 	profile := ctx.AnalysisIR.RequestModel.CallChainEndpointProfile
-	if !profile.DiscoverSinkActive() && !profile.DiscoverPathActive() && !profile.RequiresRuntimeSelectionEvidence() {
+	if !profile.DiscoverSinkActive() && !profile.DiscoverTerminalActive() && !profile.DiscoverPathActive() && !profile.RequiresRuntimeSelectionEvidence() {
 		return ""
 	}
 	var b strings.Builder
@@ -2874,6 +2874,11 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
 		b.WriteString("- destination mode: `discover`; no preselected sink has answer authority\n")
 		b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
+	} else if profile.DiscoverTerminalActive() {
+		b.WriteString("## Call-chain conceptual terminal discovery\n\n")
+		fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
+		b.WriteString("- destination mode: `discover_terminal`; the request supplied a conceptual destination, not a preselected code sink or a runtime-selection claim\n")
+		b.WriteString("- Identify the terminal code endpoint from grounded static call edges, inspect its body, and keep the exact observed operations separate from the user's conceptual wording. A graph leaf is an investigation boundary, not proof that its name or body has the requested business effect.\n")
 	} else if profile.DiscoverPathActive() {
 		b.WriteString("## Call-chain role-bound relation composition\n\n")
 		b.WriteString("- endpoint mode: `discover_path`; the request supplied conceptual path boundaries, not preselected code endpoints\n")

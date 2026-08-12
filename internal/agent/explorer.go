@@ -1932,6 +1932,9 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	if rm.CallChainEndpointProfile.DiscoverPathActive() {
 		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
 	}
+	if rm.CallChainEndpointProfile.DiscoverTerminalActive() {
+		guide += "- Conceptual-terminal discovery preserves the exact requested source but does not preselect a code sink or assert runtime selection. Follow grounded static call edges from that source, preserve the load-bearing path, then inspect the grounded leaf callable's body. Keep exact observed operations distinct from the conceptual destination and do not infer a business effect from an identifier.\n"
+	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
 }
 
@@ -14315,10 +14318,10 @@ func (e *explorerEvaluator) buildRuntimeTargetCooperativeCalls(
 //
 // The selector is graph-shaped and fail-closed: exact mode uses its typed sink;
 // discover mode first joins the typed selection fact to an incoming call
-// target; discover_path falls back to leaves of the already-grounded call
-// graph. Only AST/Cangjie-parser relations whose exact source line was read are
-// admitted. No request, evidence Summary, model rationale, or answer prose is
-// scanned, and no synthetic edge is constructed.
+// target; discover_terminal and discover_path fall back to leaves of the
+// already-grounded call graph. Only AST/Cangjie-parser relations whose exact
+// source line was read are admitted. No request, evidence Summary, model
+// rationale, or answer prose is scanned, and no synthetic edge is constructed.
 func (e *explorerEvaluator) buildRuntimeTargetTerminalBodyCalls(
 	graph *repomap.Graph,
 	filesToScan map[string]bool,

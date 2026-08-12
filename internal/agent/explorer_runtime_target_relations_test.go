@@ -322,6 +322,39 @@ func TestBuildRuntimeTargetTerminalBodyCalls_RealJavaFixturePreservesTerminalEff
 	}
 }
 
+func TestBuildRuntimeTargetTerminalBodyCalls_ConceptualTerminalUsesGroundedStaticLeafWithoutRuntimeSelection(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", "eval", "fixtures", "java-layered-service"))
+	entries, err := repomap.ScanFiles(repoRoot)
+	if err != nil {
+		t.Fatalf("scan production-shaped Java fixture: %v", err)
+	}
+	graph := repomap.BuildGraph(repoRoot, repomap.ParseFiles(entries, repoRoot))
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.analysisIR.RequestModel.CallChainEndpointProfile = &types.CallChainEndpointProfile{
+		Source:   "VisitController.create",
+		SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+	}
+	eval.structuredEvidence = []types.EvidenceItem{
+		{ID: "first", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitController.create", Object: "VisitService.createVisit", Source: "src/main/java/com/clinic/controller/VisitController.java", LineStart: 18, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "second", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitService.createVisit", Object: "VisitRepository.insert", Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 17, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "third", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/main/java/com/clinic/repo/VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	readSet := map[string]bool{"src/main/java/com/clinic/repo/AuditLog.java": true}
+	closure := types.NewEvidenceClosure(repoRoot)
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{
+		"src/main/java/com/clinic/repo/AuditLog.java": {{Start: 1, End: 9}},
+	})
+
+	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
+	if len(got.evidence) != 1 || got.evidence[0].Subject != "AuditLog.record" || got.evidence[0].Object != "System.out.println" {
+		t.Fatalf("grounded conceptual-terminal leaf must expose its exact body effect without a fabricated runtime-selection fact: evidence=%+v markdown=%s", got.evidence, got.markdown)
+	}
+	if eval.callChainDiscoverySelectionPending() || eval.analysisIR.RequestModel.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
+		t.Fatal("static conceptual-terminal discovery must not request registration/binding/initializer evidence")
+	}
+}
+
 func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(t *testing.T) {
 	file := &repotypes.FileInfo{
 		RelPath: "src/Sinks.ets", Language: repotypes.LangArkTS,

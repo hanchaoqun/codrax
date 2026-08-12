@@ -490,9 +490,9 @@ func buildEmitAnalysisSchema() {
 				"type":        "object",
 				"description": types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
 				"properties": map[string]any{
-					"source":                         map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover; empty in discover_path and when not applicable."},
-					"sink":                           map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_path and when not applicable."},
-					"sink_mode":                      map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime destination to find; discover_path=both role-bound endpoint identities to find."},
+					"source":                         map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover/discover_terminal; empty in discover_path and when not applicable."},
+					"sink":                           map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_terminal/discover_path and when not applicable."},
+					"sink_mode":                      map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime-selected destination to prove; discover_terminal=exact source with conceptual terminal destination to identify from grounded static calls; discover_path=both role-bound endpoint identities to find."},
 					"runtime_selection_required":     map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched. This is independent of endpoint identity mode."},
 					"runtime_selection_source_quote": map[string]any{"type": "string", "description": "When runtime_selection_required=true, the shortest contiguous verbatim CURRENT-request phrase establishing that selection question; empty when false."},
 				},
@@ -3119,9 +3119,9 @@ func validateSourceCallChainEndpointDeclaration(
 		return ""
 	}
 	if !profile.Active() {
-		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source plus an exact sink or discover-mode empty sink, unless sink_mode=discover_path leaves both source and sink empty for grounded role-bound endpoint discovery; entities and exact_targets are unordered identity sets and cannot supply call direction"
+		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source plus an exact sink or discover/discover_terminal-mode empty sink, unless sink_mode=discover_path leaves both source and sink empty for grounded role-bound endpoint discovery; entities and exact_targets are unordered identity sets and cannot supply call direction"
 	}
-	if profile.DiscoverSinkActive() || profile.DiscoverPathActive() {
+	if profile.DiscoverSinkActive() || profile.DiscoverTerminalActive() || profile.DiscoverPathActive() {
 		return ""
 	}
 	exactEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{

@@ -57,20 +57,39 @@ func TestNormalizeCallChainEndpointProfileDemotesAnalyzerDiscoveredSink(t *testi
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Source.run", Sink: "Resolved.run"},
 		[]string{"Source.run", "Sink.run"},
-	); got == nil || !got.DiscoverSinkActive() || got.Source != "Source.run" || got.Sink != "" || reason == "" {
-		t.Fatalf("source-discovered endpoint must demote to discover mode: profile=%+v reason=%q", got, reason)
+	); got == nil || !got.DiscoverTerminalActive() || got.Source != "Source.run" || got.Sink != "" || reason == "" {
+		t.Fatalf("conceptual endpoint guessed by analysis must demote to static terminal discovery: profile=%+v reason=%q", got, reason)
 	}
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Source.run", Sink: "Rust implementation"},
 		[]string{"Source.run"},
-	); got == nil || !got.DiscoverSinkActive() || got.Source != "Source.run" || reason == "" {
-		t.Fatalf("named source plus semantic destination role should use runtime discovery: profile=%+v reason=%q", got, reason)
+	); got == nil || !got.DiscoverTerminalActive() || got.Source != "Source.run" || reason == "" {
+		t.Fatalf("named source plus semantic destination role should use terminal discovery: profile=%+v reason=%q", got, reason)
 	}
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Resolved.entry", Sink: "Resolved.run"},
 		[]string{"Source.run"},
 	); got == nil || !got.DiscoverPathActive() || reason == "" {
 		t.Fatalf("analyzer-resolved source and sink must become authority-free path discovery: profile=%+v reason=%q", got, reason)
+	}
+}
+
+func TestNormalizeCallChainEndpointProfile_UnprovenSinkKeepsRuntimeSelectionSeparate(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{
+			Source:                      "Source.run",
+			Sink:                        "ConcretePlugin.handle",
+			SinkMode:                    CallChainSinkResolutionExact,
+			RuntimeSelectionRequired:    true,
+			RuntimeSelectionSourceQuote: "which runtime plugin is selected",
+		},
+		[]string{"Source.run"},
+	)
+	if profile == nil || !profile.DiscoverSinkActive() || !profile.RequiresRuntimeSelectionEvidence() || reason == "" {
+		t.Fatalf("an independently declared runtime-selection request must retain discover semantics: profile=%+v reason=%q", profile, reason)
+	}
+	if profile.DiscoverTerminalActive() {
+		t.Fatalf("runtime-selected implementation must not be weakened to static terminal discovery: %+v", profile)
 	}
 }
 

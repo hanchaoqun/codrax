@@ -719,7 +719,7 @@ func callChainRequestedEndpointHints(rm RequestModel) []string {
 		add(sink)
 		return out
 	}
-	if rm.CallChainEndpointProfile.DiscoverSinkActive() {
+	if rm.CallChainEndpointProfile.DiscoverSinkActive() || rm.CallChainEndpointProfile.DiscoverTerminalActive() {
 		add(rm.CallChainEndpointProfile.Source)
 		return out
 	}

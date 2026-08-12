@@ -146,8 +146,9 @@ type RequestModel struct {
 
 	// CallChainEndpointProfile is the sole ordered source->sink request
 	// carrier. Discover preserves an explicit source while leaving a runtime
-	// destination unselected; discover_path leaves both role-bound endpoint
-	// identities to grounded exploration.
+	// destination unselected; discover_terminal preserves an explicit source
+	// while grounded static calls identify a conceptual terminal; discover_path
+	// leaves both role-bound endpoint identities to grounded exploration.
 	// Analyzer entity/exact-target arrays remain identity sets and must never be
 	// interpreted as directional by downstream hard gates.
 	CallChainEndpointProfile *CallChainEndpointProfile `json:"call_chain_endpoint_profile,omitempty"`

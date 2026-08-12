@@ -12684,6 +12684,28 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 	if strings.Contains(discoverPathGuide, "typed runtime-selection contract needs a separate selection fact") {
 		t.Fatalf("role-bound static path must not inherit runtime-selection teaching:\n%s", discoverPathGuide)
 	}
+	discoverTerminal := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "VisitController.create", SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}}
+	discoverTerminalGuide := renderExplorerCallChainEdgeEvidenceGuide(discoverTerminal)
+	for _, want := range []string{
+		"Conceptual-terminal discovery preserves the exact requested source",
+		"does not preselect a code sink or assert runtime selection",
+		"inspect the grounded leaf callable's body",
+		"do not infer a business effect from an identifier",
+	} {
+		if !strings.Contains(discoverTerminalGuide, want) {
+			t.Fatalf("discover-terminal edge handoff missing %q:\n%s", want, discoverTerminalGuide)
+		}
+	}
+	if strings.Contains(discoverTerminalGuide, "typed runtime-selection contract needs a separate selection fact") {
+		t.Fatalf("static conceptual terminal must not inherit runtime-selection teaching:\n%s", discoverTerminalGuide)
+	}
 
 	rootCauseTrace := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:   types.IntentRootCause,

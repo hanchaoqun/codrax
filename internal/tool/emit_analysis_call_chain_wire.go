@@ -8,14 +8,15 @@ import (
 
 // normalizeCallChainEndpointWireShape repairs endpoint-mode mismatches whose
 // intended schema shape is fully determined by the structured fields: both
-// discover and discover_path exclude a preselected ordered pair, while two
-// named endpoint fields are an exact pair. It does not decide whether either
+// discover, discover_terminal, and discover_path exclude a preselected ordered
+// pair, while two named endpoint fields are an exact pair. It does not decide whether either
 // identity came from the current request; NormalizeCallChainEndpointProfile
 // remains the provenance authority and will demote unproven candidates after
 // this local enum repair.
 func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile) (*types.CallChainEndpointProfile, string) {
 	if profile == nil ||
 		(profile.SinkMode != types.CallChainSinkResolutionDiscover &&
+			profile.SinkMode != types.CallChainSinkResolutionDiscoverTerminal &&
 			profile.SinkMode != types.CallChainSinkResolutionDiscoverPath) ||
 		strings.TrimSpace(profile.Source) == "" || strings.TrimSpace(profile.Sink) == "" {
 		return profile, ""
@@ -44,12 +45,15 @@ func validateCallChainEndpointWireShape(
 	if profile.SinkMode == types.CallChainSinkResolutionDiscover && strings.TrimSpace(profile.Sink) != "" {
 		return "call_chain_endpoints sink_mode=discover requires sink=\"\"; when the current request names that destination, keep the sink and use sink_mode=exact"
 	}
+	if profile.SinkMode == types.CallChainSinkResolutionDiscoverTerminal && strings.TrimSpace(profile.Sink) != "" {
+		return "call_chain_endpoints sink_mode=discover_terminal requires sink=\"\"; when the current request names that destination, keep the sink and use sink_mode=exact"
+	}
 	if profile.SinkMode == types.CallChainSinkResolutionDiscoverPath &&
 		(strings.TrimSpace(profile.Source) != "" || strings.TrimSpace(profile.Sink) != "") {
 		return "call_chain_endpoints sink_mode=discover_path requires source=\"\" and sink=\"\"; role-bound path endpoints must be selected from grounded exploration, not carried as analyzer candidates"
 	}
 	if destination, ok := callChainUniqueExactDestination(profile, exactTargets); ok {
-		return "call_chain_endpoints sink_mode=discover contradicts typed exact_targets: after removing source \"" +
+		return "call_chain_endpoints sink_mode=" + string(profile.SinkMode) + " contradicts typed exact_targets: after removing source \"" +
 			strings.TrimSpace(profile.Source) + "\", the unique named destination is \"" + destination +
 			"\"; use sink_mode=exact and set sink to that destination so directed reachability or a typed no_directed_path boundary is investigated"
 	}
@@ -123,7 +127,10 @@ func reconcileSourceCallChainAxis(
 // source plus exactly one other logical code identity. Multiple other targets,
 // a missing source, paths, or qualified identity ambiguity all fail open.
 func callChainUniqueExactDestination(profile *types.CallChainEndpointProfile, exactTargets []string) (string, bool) {
-	if profile == nil || profile.SinkMode != types.CallChainSinkResolutionDiscover || strings.TrimSpace(profile.Sink) != "" {
+	if profile == nil ||
+		(profile.SinkMode != types.CallChainSinkResolutionDiscover &&
+			profile.SinkMode != types.CallChainSinkResolutionDiscoverTerminal) ||
+		strings.TrimSpace(profile.Sink) != "" {
 		return "", false
 	}
 	source := strings.TrimSpace(profile.Source)

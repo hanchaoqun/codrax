@@ -35063,3 +35063,40 @@ Go 案继续正确给出并行汇聚结论，但图只用 note 描述 `gate.Run 
 `system-answer-rewrite=none`；`raw-user/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.708 r394：缓存已更新，剩余根因是“概念终点”被误判为“运行时选择”
+
+`main@32ee2d3b8` exact-two runner `1/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_terminal_cache_r394_20260812_manual_audit.md`。Go 案人工通过：正文和合法
+sequenceDiagram 都正确表达 `buildAnalysisIR -> gate.RunWith <- gate.Run`，说明当前 dispatch evidence 缓存修复没有
+回归关系面。Java 仍把 stdout 实现描述成“完成审计落库”，而最终 prompt 仍为
+`selected_terminal_body_calls=unproven`；因此 B655 已生效但不是最后一个阻断点。
+
+深挖确认新的 B656：端点 profile 只有 `exact / discover / discover_path` 三态，无法表达“请求明确了代码起点，但终点
+只是业务概念，需要沿静态调用图找到代码叶子”。Analyzer 从当前源码猜到 `AuditLog.record`，provenance normalizer
+正确拒绝把这个猜测铸成 exact sink，却把它降为 `discover`。`discover` 的既有语义是“哪个运行时
+implementation/class/handler 被选中”，会自动要求 registration/binding/initializer/return 类型的 typed selection
+evidence；r394 的静态 Java 调用链没有、也不该伪造这种证据，于是 grounded call leaf `AuditLog.record` 被拒绝，已读
+函数体里的 parser fact `AuditLog.record -> System.out.println` 无法进入末尾实现上限。
+
+B656 增加第四种 typed authority 形 `discover_terminal`：保留 current-request 精确 source、sink 为空，由 grounded
+静态 call graph 识别终点并检查其已读 body；它不自动索要运行时选择证据。若 analyzer 明确发出
+`runtime_selection_required=true`，同样的未证 sink 仍降为原 `discover` 并保持 fail-closed；若两个端点都只是概念角色，
+仍使用无端点权威的 `discover_path`。normalizer 只读取 schema 字段、current-request provenance set 与精确 typed
+boolean，不扫描用户、模型或最终答案 prose。最终模型仍自行判断 body operation 对业务目标意味着什么，系统不分类
+`println`、存储、持久性或任何领域结论。
+
+回归包括：类型层钉住静态概念终点与动态选择两路不可合并；真实 Java fixture 仅凭 grounded
+`VisitController.create -> ... -> AuditLog.record` 静态调用边即可把已读 body 的
+`AuditLog.record -> System.out.println` 送入 typed handoff，且不得产生 selection-pending；Explorer 软教学同时明确
+“叶子是调查边界、操作名不证明业务效果”。已有 ArkTS current-dispatch cache 回归继续覆盖证据时序，运行时 plugin
+选择回归继续要求 registration/return/initializer authority，因此不是放松现有证据门。
+
+状态：`B655=targeted-pass/production-positive-cache-layer`；
+`B656-CONCEPTUALTERMINALRUNTIMESELECTIONCONFLATION1=implemented/targeted-pass`；
+`endpoint-modes=exact|discover|discover_terminal|discover_path`；
+`runtime-selection=typed-explicit-or-discover-only/fail-closed`；
+`conceptual-terminal=grounded-static-call-leaf+read-body`；
+`system-answer/effect-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
