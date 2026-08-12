@@ -434,6 +434,11 @@ func TestExplorer_BuildInitialInstruction_SoftCurrentSourceTraceStartsWithRuntim
 		"`phase=runtime_probe_first`, `current_source_lane=required`, `current_source_requirement=soft`",
 		"one bounded `trace_query` runtime probe",
 		"soft current-source gaps should converge through bounded follow-up or a caveat",
+		"Current-Source Mechanism Coverage Ladder (soft guidance)",
+		"Decode / normalize",
+		"Stateful correlation / lifecycle",
+		"Consumer / projection",
+		"Do not borrow these semantics from a sibling event family",
 		"Start with `trace_query`",
 	} {
 		if !strings.Contains(prompt, want) {

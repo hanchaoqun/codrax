@@ -33666,3 +33666,36 @@ adapter 测试固定：真实 model progress 可越过旧 total cap，纯 transp
 状态：`B605=stable-production-positive`；`B607=production-positive/closed-watch`；
 `B608=P1/typed-authority-root-fix-next`；`B609=P1-high/confirmed`；`runner=2/2`；`human=1/2`；
 `system-answer-authorship=none`；Trace causal projection/system supplement=`preserved`；`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.644 B608/B609：未证运行时数值退出算术面；源码机制按三层软覆盖
+
+B608 代码复核确认，既有 role demotion 只把无 support-ref 的模型提取 runtime scalar/count 从 principal 降到 supporting，Finalizer 的
+Structured Aggregate Facts 仍逐字显示原 label/value/unit/dimensions。于是 `pretriage_model_extraction` 自行引入的 60fps/16.667ms/5.17x 虽然标为
+`demoted:runtime_observation_advisory_aggregate`，仍能被后续模型当作已观测算术操作数。这是 typed 权限与 prompt 投影不一致，不应继续归为单纯模型波动。
+
+根修只读取已有 typed 形状：外部 runtime artifact + 无 support refs + 非用户 scalar/count 义务 + scalar/count kind。命中时，context renderer 保留
+kind、supporting role、provenance、evidence origin 和审计回执，但不再投影 label/value/unit/dimensions，并显式携带
+`numeric_observation_authority=not_authorized`、`arithmetic_operand=not_authorized`。有任一显式 support ref 的同类数值保持完整可见；行为、成员集、业务线索等
+非数值 advisory 也不受影响。实现不匹配 `60fps`、任意数值正则、用户原文、模型 reason 或终稿，不修改或拒绝模型答案；若以后 trace/validator 提供真正
+refresh/deadline carrier，其 support-ref 数值自然走正权限臂。
+
+B609 新增语言、路径和事件族无关的 Current-Source Mechanism Coverage Ladder，仅在 typed profile 的
+`explain_current_mechanism` / `trace_current_flow` 模式下给 Explorer 软提示。三层分别是：
+
+1. decode/normalize：只证明原始记录、字段、身份和方向标记如何解析；
+2. stateful correlation/lifecycle：必须单独覆盖 correlation key/source identity、方向、stack/queue/nesting/adjacency、reset/lifecycle、畸形/顺序与 fail policy；
+3. consumer/projection：必须单独覆盖匹配状态如何变成 duration/span/relation/输出，以及过滤和完整性边界。
+
+提示明确禁止从 sibling event family、其他语言 adapter 或 async path 借用未读语义，并要求未覆盖层只作边界披露。它不是 completion gate，不扫描答案，不要求
+固定函数名，不代写 `findSpanWindowsCompacted` 的正确结论；Go/C/C++/Java/Python/ArkTS/Cangjie 及后续语言共用同一证据纪律。
+
+定向 pin 覆盖：无 typed support 的 runtime scalar 不得泄漏 label/value/unit、仍保留审计权限回执；有 support ref 的数值完整保留；soft current-source trace
+初始提示同时包含 decode/correlator/projection 三层及 sibling-family 禁借边界。定向测试通过，完整 agent 包回归后提交并进行下一组 exact-two 生产复放。
+
+流式降级边界本批不变：真实 reasoning/content/tool/finish/usage 模型进展已经出现后，累计 4 分钟或其他固定 elapsed 不构成降级回答权限；纯 transport keep-alive
+不等于模型进展，仍由 typed stall/total-timeout 有界。恢复只允许在 first-byte timeout、真实 byte stall、transport break、caller cancel、安全事件或精确 decode
+degeneration 后发布模型已有 carrier 并披露，不能因为“链接仍活跃但超过 4 分钟”替换或清空答案。
+
+状态：`B608=implemented/targeted-pass/pending-production-replay`；`B609=implemented/targeted-pass/pending-production-replay`；
+`numeric-authority=typed-support-ref`；`mechanism-coverage=soft-three-layer`；`answer-prose-gate=none`；
+`system-answer-authorship=none`；Trace causal projection/system supplement=`unchanged`；`active-stream-fixed-age-degrade=forbidden`。

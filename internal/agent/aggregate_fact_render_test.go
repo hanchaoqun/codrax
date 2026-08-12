@@ -121,7 +121,7 @@ func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testi
 	}
 }
 
-func TestRenderStructuredAggregateFactsRuntimeScalarTextOverlapStaysSupporting(t *testing.T) {
+func TestRenderStructuredAggregateFactsRuntimeScalarTextOverlapOmitsUnauthorizedNumericOperand(t *testing.T) {
 	facts := []types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateScalar,
 		Label: "target sleep duration",
@@ -143,12 +143,50 @@ func TestRenderStructuredAggregateFactsRuntimeScalarTextOverlapStaysSupporting(t
 	}}}
 
 	got := renderStructuredAggregateFactsForContext(ctx, facts)
-	if !strings.Contains(got, "label=target sleep duration") || !strings.Contains(got, "value=`20.020ms`") {
-		t.Fatalf("model runtime scalar should remain visible as reasoning context:\n%s", got)
+	for _, forbidden := range []string{"label=target sleep duration", "value=`20.020ms`", "unit=ms"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("unsupported model runtime scalar must not remain available as a numeric operand (%q):\n%s", forbidden, got)
+		}
 	}
 	if !strings.Contains(got, "role=`supporting_coverage`") ||
-		!strings.Contains(got, "demoted:runtime_observation_advisory_aggregate") {
+		!strings.Contains(got, "demoted:runtime_observation_advisory_aggregate") ||
+		!strings.Contains(got, "label_omitted=runtime_advisory_without_typed_support") ||
+		!strings.Contains(got, "numeric_observation_authority=`not_authorized`") ||
+		!strings.Contains(got, "arithmetic_operand=`not_authorized`") {
 		t.Fatalf("artifact-text overlap must not mint principal numeric authority:\n%s", got)
+	}
+}
+
+func TestRenderStructuredAggregateFactsRuntimeScalarWithTypedSupportKeepsValue(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateScalar,
+		Label:       "typed target duration",
+		Value:       "20.020ms",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "ms",
+		SupportRefs: []string{"trace_query:window_stats:E7"},
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "state_duration",
+			Summary:   "typed target duration 20.020ms",
+		}}},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, want := range []string{"label=typed target duration", "value=`20.020ms`", "support_refs=[`trace_query:window_stats:E7`]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("explicit typed support should preserve the numeric fact (%q):\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "numeric_observation_authority=`not_authorized`") {
+		t.Fatalf("supported runtime scalar must not be projected as unauthorized:\n%s", got)
 	}
 }
 

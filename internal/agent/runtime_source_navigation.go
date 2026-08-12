@@ -93,3 +93,33 @@ func renderRuntimeSourceNavigationPhasePrompt(ctx *types.AgentContext) string {
 	}
 	return b.String()
 }
+
+// renderCurrentSourceMechanismCoveragePrompt teaches a language- and
+// implementation-neutral evidence ladder for mechanism/flow explanations.
+// It is deliberately soft guidance: it neither scans answer prose nor blocks
+// completion. Its job is to prevent a parser field read, a sibling event
+// family, or an async path from being overclaimed as proof of a stateful
+// correlator and its final projection.
+func renderCurrentSourceMechanismCoveragePrompt(ctx *types.AgentContext) string {
+	rm := requestModelFromContext(ctx)
+	if rm == nil || rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		return ""
+	}
+	requested := false
+	for _, mode := range rm.CurrentSourceExplanationProfile.Modes {
+		if mode == types.CurrentSourceExplanationExplainCurrentMechanism ||
+			mode == types.CurrentSourceExplanationTraceCurrentFlow {
+			requested = true
+			break
+		}
+	}
+	if !requested {
+		return ""
+	}
+	return "### Current-Source Mechanism Coverage Ladder (soft guidance)\n\n" +
+		"When explaining a current implementation or flow, keep these source-owned layers separate and collect focused evidence for every layer the conclusion claims:\n" +
+		"- **Decode / normalize:** how raw records, fields, identities, and direction markers are parsed. This layer alone does not prove how records are paired or accumulated.\n" +
+		"- **Stateful correlation / lifecycle:** the exact correlation key and source identity; direction; stack, queue, nesting, or adjacency semantics; lifecycle/reset boundaries; malformed/order handling; and fail-open/fail-closed behavior. Do not borrow these semantics from a sibling event family, another language adapter, or an async path.\n" +
+		"- **Consumer / projection:** how matched state becomes durations, spans, graph relations, emitted rows, or user-visible output, including filtering and completeness boundaries.\n" +
+		"Report which layers current-source evidence actually covers and state a boundary for unvisited layers. This is evidence guidance, not a completion gate and not permission to invent missing mechanism details.\n\n"
+}

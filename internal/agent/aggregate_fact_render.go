@@ -120,6 +120,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 	for displayIdx := 0; displayIdx < maxFacts; displayIdx++ {
 		i := order[displayIdx]
 		fact := facts[i]
+		omitAdvisoryNumeric := aggregateFactRuntimeAdvisoryNumericMustOmitValue(opts.requestModel, fact)
 		compactMembers := opts.compactMemberSetRows[i] &&
 			fact.Kind == types.AnswerAggregateMemberSet &&
 			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
@@ -128,8 +129,23 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			fact.Kind == types.AnswerAggregateMemberSet &&
 			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
 			len(fact.Members) > 0
-		fmt.Fprintf(&b, "- kind=`%s`, label=%s", fact.Kind, fact.Label)
-		if compactShadowed {
+		fmt.Fprintf(&b, "- kind=`%s`", fact.Kind)
+		if omitAdvisoryNumeric {
+			// A model-extracted runtime scalar/count without typed support is
+			// useful as an audit receipt, but its label and value are not an
+			// authorized numeric observation. Keeping the raw value in the
+			// finalizer prompt after role demotion still lets it become an
+			// arithmetic operand (for example an invented frame budget). This
+			// projection is driven only by typed origin/shape/support fields;
+			// it does not inspect user or model prose and does not mutate the
+			// model-authored answer.
+			fmt.Fprintf(&b, ", label_omitted=runtime_advisory_without_typed_support, value_omitted=runtime_advisory_without_typed_support, numeric_observation_authority=`not_authorized`, arithmetic_operand=`not_authorized`")
+		} else {
+			fmt.Fprintf(&b, ", label=%s", fact.Label)
+		}
+		if omitAdvisoryNumeric {
+			// The omission receipt above is the complete value projection.
+		} else if compactShadowed {
 			fmt.Fprintf(&b, ", value_omitted=shadowed_by_authoritative_principal_rows")
 		} else {
 			fmt.Fprintf(&b, ", value=`%s`", fact.Value)
@@ -148,10 +164,10 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			!types.AnswerAggregateFactAuthorizesPrincipalContract(fact, opts.requestModel) {
 			fmt.Fprintf(&b, ", fact_authority=`advisory_model_inference`, principal_contract=`not_authorized`")
 		}
-		if fact.Unit != "" {
+		if fact.Unit != "" && !omitAdvisoryNumeric {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
 		}
-		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" {
+		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" && !omitAdvisoryNumeric {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
 		if compactMembers {
@@ -209,6 +225,22 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			maxFacts, len(facts), formatAggregateDroppedCategories(dropped))
 	}
 	return b.String()
+}
+
+func aggregateFactRuntimeAdvisoryNumericMustOmitValue(rm *types.RequestModel, fact types.AnswerAggregateFact) bool {
+	if !types.AggregateFactIsRuntimeObservationAdvisory(rm, fact) {
+		return false
+	}
+	switch fact.Kind {
+	case types.AnswerAggregateScalar,
+		types.AnswerAggregateTotalCount,
+		types.AnswerAggregateUniqueCount,
+		types.AnswerAggregateGroupedCount,
+		types.AnswerAggregateBucketCount:
+		return true
+	default:
+		return false
+	}
 }
 
 // formatAggregateDroppedCategories renders dropped aggregate-fact categories

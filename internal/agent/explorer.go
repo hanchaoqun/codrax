@@ -3652,6 +3652,9 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	if phase := renderRuntimeSourceNavigationPhasePrompt(ctx); phase != "" {
 		b.WriteString(phase)
 	}
+	if coverage := renderCurrentSourceMechanismCoveragePrompt(ctx); coverage != "" {
+		b.WriteString(coverage)
+	}
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
 	b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
