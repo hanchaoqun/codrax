@@ -34853,3 +34853,47 @@ fail-closed。回归直接复刻空池与 `0,1,3,4,2` 非顺序 refs，逐项验
 `qualified-identity=cross-language-owner-bounded`；`citation-hard-gate=unchanged`；
 `system-answer-rewrite=none`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.699 r389：B649 第一层生产触发；正文次级符号仍可抢占主标签引用
+
+`main@cf3f70b42` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_citation_replay_r389_20260812_manual_audit.md`。
+
+Go case 生产日志出现 `normalizeOutOfRangeCitationRefsBeforePoolGrowth×1`，证明 B649 能在引用池增长前隔离悬空
+索引。Rust 本轮模型自行提交了完整 citations[]，因此不经过该车道；但 backtick normalizer 读取同一 item
+正文中的 ``walk``，把结构化标签 `walker::collect_files` 原本正确的 callsite 引用移到 `walk` 定义。
+后续 label normalizer 又把“引用命中任一正文 code token”误作保留条件，最终 alignment checker 明确报告
+INVALID 仍按既有 citation advisory 放行。登记 B650，这是结构化主身份与正文次级身份的普遍优先级错误，
+不局限于 Rust。
+
+Go 同时暴露 B651：typed 源码事实是 `buildAnalysisIR -> gate.RunWith` 与
+`gate.Run -> gate.RunWith` 两支汇入，而模型写成 `gate.RunWith -> gate.Run`。首稿图使用未规范 participant
+alias 后被关系门拒绝；系统提供的安全 skeleton 删除了质量门主边，正文反向关系仍保留。图门正确阻止伪边，
+但 prompt recipe、endpoint alias 和 repair skeleton 没有形成一个能保留已证主关系的单源闭环，不能简单归为
+一次模型波动。
+
+状态：`runner=2/2`；`human=0/2`；`B649=production-positive/partial`；
+`B650-CITATIONLABELBODYPRIORITY1=confirmed/P0`；
+`B651-SEQUENCEENDPOINTDIRECTIONLOSS1=confirmed/P0`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`system-answer-rewrite=none`；
+`raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.700 B650：结构化 label 身份高于正文 code token
+
+B650 统一引用修复的身份优先级：当当前 citation quote 已直接携带 `item.label` 的精确 code surface 时，
+backtick quote lane 不再用 `item.text` 中的 helper、callee、attribute 或 peer 改写该行 citation。若 label 是
+非符号展示面，或当前引用本来就不支撑该 label，则正文明确 code token 的既有安全修复仍保留；因此路由/guard
+详情锚不会被错误搬回主题定义。
+
+label normalizer 的 backtick 提前退出条件也同步收窄：当前引用不仅要命中某个显式 code surface，还必须与
+结构化 label 的 typed evidence 对齐。这样正文 ``walk`` 不能让 `walker::collect_files` 停在错误定义；已经
+对齐的 callsite 仍保持模型选择，不被较弱 definition fallback 搬动。回归覆盖跨模块标签+正文 helper、
+原非符号 backtick 修复、B649 空池碰撞及既有 exact-location pin。
+
+实现不解释正文关系、不扫描用户请求或最终答案做硬门，也不改写模型内容；它只限制系统自己的引用元数据
+修复不能违反结构化主身份。
+
+状态：`B650=implemented/targeted-pass`；`item-label=primary-citation-identity`；
+`body-code-token=secondary-when-label-not-proven`；`citation-gate=unchanged/advisory`；
+`system-answer-rewrite=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

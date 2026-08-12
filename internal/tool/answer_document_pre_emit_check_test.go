@@ -9069,6 +9069,46 @@ func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_RepairsUniqueCod
 	}
 }
 
+func TestNormalizeItemCitationRefs_LabelIdentityOutranksBodyBacktickHelper(t *testing.T) {
+	mu := types.NewMutableState("explain the walker call chain")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "collect_files", Subject: "run", Predicate: "calls", Object: "walker::collect_files", Source: "src/main.rs", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "collect_files", Subject: "collect_files", Source: "src/walker.rs", LineStart: 4, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "walk", Subject: "walk", Source: "src/walker.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "src/main.rs", Line: 20, Quote: `let files = walker::collect_files(".");`},
+			{File: "src/walker.rs", Line: 4, Quote: "pub fn collect_files(root: &str) -> Vec<String> {"},
+			{File: "src/walker.rs", Line: 10, Quote: "fn walk(dir: &str, out: &mut Vec<String>) {"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID: "collect", Label: "walker::collect_files",
+				Text: "公共入口，内部委托给 `walk` 执行深度优先遍历。", CitationRef: 0,
+			}},
+		}},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed != 0 {
+		t.Fatalf("body helper must not steal a symbol-label citation, fixed=%d doc=%+v", fixed, doc)
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, pctx); fixed != 0 {
+		t.Fatalf("already aligned qualified-label callsite must remain stable, fixed=%d doc=%+v", fixed, doc)
+	}
+	got := doc.Citations[doc.Blocks[0].Items[0].CitationRef]
+	if got.File != "src/main.rs" || got.Line != 20 {
+		t.Fatalf("qualified label citation=%s:%d, want aligned callsite src/main.rs:20", got.File, got.Line)
+	}
+	if hints := preCheckItemCitationAlignmentWithContext(doc, nil, pctx); len(hints) != 0 {
+		t.Fatalf("label-first citation should satisfy final alignment, got %+v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_LeavesAmbiguousCodeSurface(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{

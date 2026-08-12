@@ -9613,6 +9613,16 @@ func normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc *types.AnswerDoc
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
+			// The structured label is the row's primary identity. If the current
+			// quote already carries that exact code surface, body backticks naming
+			// helpers/callees/peers must not move the row elsewhere. When the label
+			// is a prose/umbrella surface (or its current citation does not prove
+			// it), the established explicit-body-token repair remains available;
+			// this preserves legitimate guard/routing detail anchors.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationQuoteMatchesAnyCodeSurface(doc.Citations[item.CitationRef], []string{item.Label}) {
+				continue
+			}
 			surfaces := preEmitExplicitCodeSurfacesFromItem(*item)
 			if len(surfaces) == 0 {
 				continue
