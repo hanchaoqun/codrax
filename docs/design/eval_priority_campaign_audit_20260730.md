@@ -33313,3 +33313,27 @@ full-artifact、relation-analysis、多目标、跨组件与用户显式分桶�
 
 状态：`B598=implemented/targeted-pass/pending-r356`；`model-planning-authority=internal-only`；
 `trace-evidence-expansion=unchanged`；`answer-prose-gate=none`；`system-answer-rewrite=none`。
+
+### 123.630 r356：B598 回放闭环；Cangjie 修饰分类保持唯一成员语义
+
+`main@e35e7eba7` exact-two runner `2/2`、人工 `2/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_cangjie_r356_20260812_manual_audit.md`。
+
+Trace 案继续保留用户显式 7ms 窗、app-100 五态账、worker-200→app-100 typed 唤醒链、CPU2→CPU1 跨核拓扑、VerifyClass 类校验业务线索、
+实际占用/规则可消双轴、目标 0.800ms 调度供给席、链上唯一主因权限、邻近/背景降级、因果投影与自动补采。r355 中被系统包装成事实的 analyzer causal subtopic
+没有再进入 retained plan；最终模型把 4.600ms 类校验表述为窗口内最强候选，同时在同一模型答案中明确
+`frame_evidence_status=absent`、不等同于已证实的丢帧根因。系统投影只提供 typed 候选、顺序与 caliber，没有替换模型结论。
+
+本次 analyzer 自身没有发出 subtopic，因此生产证据证明的是污染载体未出现，而非实际命中 drop warning；删除正臂仍由定向测试固定，且 full-artifact、relation-analysis、
+多目标、跨组件和双 bucket 五类保留负臂继续覆盖。B598 从 pending replay 收到 clean production replay，后续保留异构窗观察，不再为单一措辞追加终稿扫描或硬门。
+
+Cangjie 案的 typed inventory 与终稿逐字覆盖 2 个 extend、2 个 foreign func、8 个唯一 public class，并保留每行 symbol、file:line 与 package。
+模型首个 completion 把 `public class:8` 与 `public abstract class:1/public sealed class:1` 重复相加为 10，但载体只有 8 个唯一成员；精确 member-set cardinality gate
+正确拒绝，下一轮把值修为 8，Animal/Service 仍分别保留 sealed/abstract 修饰。该重试是同一 typed carrier 的精确修正，不是相互矛盾合同，也没有靠删成员逃逸。
+
+两案均零 Finalizer reject、零 malformed JSON 恢复、零 Mermaid 修复、零系统代答。运行 157s/133s，未触发长流场景；B560 的独立回归与既有 351s/328s
+生产正证继续保证：reasoning/content/tool/finish/usage 任一真实模型进展出现后，累计时长不得触发 4 分钟降级，只有首包、真实 byte stall、断链、调用方取消、
+安全事件或精确退化信号可以进入恢复链，且只能发布模型已有载体并明确披露。
+
+状态：`B598=production-clean/targeted-positive/watch`；`cangjie-inventory=human-pass`；`runner=2/2`；`human=2/2`；
+`active-stream=fixed-age-degrade-forbidden`；`system-answer-authorship=none`；Trace causal authority=`preserved`。
