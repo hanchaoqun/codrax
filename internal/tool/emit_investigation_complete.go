@@ -13449,6 +13449,142 @@ type callChainPrincipalMemberSet struct {
 	SupportRefs []string
 }
 
+type callChainSourceGraphFileResolver interface {
+	SourceGraphFile(string) (*repotypes.Graph, *repotypes.FileInfo, string, bool)
+}
+
+type callChainParserRelationFile struct {
+	Graph  *repotypes.Graph
+	File   *repotypes.FileInfo
+	Source string
+}
+
+// callChainParserRelationFiles resolves parser relations by their visible
+// workspace source path. Mutable.SearchGraph is only a compatibility cache: in
+// a multi-repository run it can hold the Python/Java facade while the exact
+// principal member lives in a different active Rust/C++/ArkTS/Cangjie graph.
+// Treating that one cache pointer as the relation universe makes a complete
+// member roster silently lose true edges from sibling repositories.
+//
+// The owner-routed source resolver is deliberately driven only by structured
+// member locations and accepted evidence sources. It neither scans request or
+// model prose nor loads/evicts an inactive repository. The returned Source is
+// always the parent-workspace-visible path so read closure and citations share
+// one coordinate system.
+func callChainParserRelationFiles(ctx *types.BusContext, legacy *repotypes.Graph, memberSets []callChainPrincipalMemberSet, evidence []types.EvidenceItem) []callChainParserRelationFile {
+	var sources []string
+	seenSources := map[string]bool{}
+	addSource := func(raw string) {
+		raw = canonicalRelationSourcePath(raw)
+		if raw == "" || !types.HasCodeOrConfigPathSuffix(strings.ToLower(raw)) {
+			return
+		}
+		key := strings.ToLower(raw)
+		if seenSources[key] {
+			return
+		}
+		seenSources[key] = true
+		sources = append(sources, raw)
+	}
+	addLocation := func(raw string) {
+		_, location, ok := types.ParseAnswerSupportRefMemberLocation(raw)
+		if ok {
+			addSource(location.File)
+		}
+	}
+	for _, memberSet := range memberSets {
+		for _, member := range memberSet.Members {
+			addLocation(member)
+		}
+		for _, ref := range memberSet.SupportRefs {
+			addLocation(ref)
+		}
+	}
+	for _, item := range evidence {
+		if item.IsCitable() {
+			addSource(item.Source)
+		}
+	}
+	sort.Strings(sources)
+
+	var out []callChainParserRelationFile
+	seenFiles := map[string]bool{}
+	seenOwners := map[string]bool{}
+	add := func(graph *repotypes.Graph, fi *repotypes.FileInfo, visibleSource string) {
+		visibleSource = canonicalRelationSourcePath(visibleSource)
+		if graph == nil || fi == nil || visibleSource == "" {
+			return
+		}
+		ownerKey := fmt.Sprintf("%p:%p", graph, fi)
+		if seenOwners[ownerKey] {
+			return
+		}
+		key := strings.ToLower(visibleSource)
+		if seenFiles[key] {
+			return
+		}
+		seenOwners[ownerKey] = true
+		seenFiles[key] = true
+		out = append(out, callChainParserRelationFile{Graph: graph, File: fi, Source: visibleSource})
+	}
+
+	var resolver callChainSourceGraphFileResolver
+	if ctx != nil && ctx.MultiGraph != nil {
+		if candidate, ok := ctx.MultiGraph.(callChainSourceGraphFileResolver); ok && candidate != nil {
+			resolver = candidate
+		}
+	}
+	if resolver != nil {
+		for _, source := range sources {
+			graph, fi, _, ok := resolver.SourceGraphFile(source)
+			if ok {
+				add(graph, fi, source)
+			}
+		}
+	}
+
+	if legacy != nil {
+		files := make([]string, 0, len(legacy.FileIndex))
+		for file := range legacy.FileIndex {
+			files = append(files, file)
+		}
+		sort.Strings(files)
+		for _, file := range files {
+			fi := legacy.FileIndex[file]
+			if fi == nil {
+				continue
+			}
+			graphSource := canonicalRelationSourcePath(fi.RelPath)
+			if graphSource == "" {
+				graphSource = canonicalRelationSourcePath(file)
+			}
+			visibleSource := graphSource
+			if len(sources) > 0 {
+				matchedSource := ""
+				for _, source := range sources {
+					if !callChainSourcePathEquivalent(source, graphSource) {
+						continue
+					}
+					if matchedSource != "" {
+						// Two parent paths share one repository-internal suffix. The
+						// legacy graph cannot identify the owner, so only the exact
+						// owner-routed resolver may publish this file.
+						visibleSource = ""
+						break
+					}
+					matchedSource = source
+				}
+				if matchedSource == "" || visibleSource == "" {
+					continue
+				}
+			}
+			add(legacy, fi, visibleSource)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Source < out[j].Source })
+	return out
+}
+
 // callChainReadParserRelationHandoffEvidence carries exact parser-authored
 // calls from already-read principal members into the typed evidence stream.
 // The join is deliberately narrow: the relation must come from an AST-grade
@@ -13471,10 +13607,7 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 		types.IsProjectOrientationQuestion(rm) || types.RuntimeArtifactContextActiveFromBus(ctx) {
 		return evidence
 	}
-	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if !ok || graph == nil || len(graph.FileIndex) == 0 {
-		return evidence
-	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
 	if len(refs) == 0 {
 		refs = types.PrincipalAggregateMemberSetFactRefs(aggregateFacts)
@@ -13493,28 +13626,22 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	if len(memberSets) == 0 {
 		return evidence
 	}
+	parserFiles := callChainParserRelationFiles(ctx, graph, memberSets, evidence)
+	if len(parserFiles) == 0 {
+		return evidence
+	}
 	boundarySource, boundarySink, boundaryActive := callChainNoDirectedPathBoundaryEndpoints(ctx, rm)
 	mutableEvidence := ctx.Mutable.EmittedEvidence()
 	evidence = callChainWithExistingPrincipalParserEvidence(evidence, mutableEvidence)
 	authorityEvidence := append(append([]types.EvidenceItem(nil), evidence...), mutableEvidence...)
 
-	files := make([]string, 0, len(graph.FileIndex))
-	for file := range graph.FileIndex {
-		files = append(files, file)
-	}
-	sort.Strings(files)
 	const maxGaps = 8
 	gaps := make([]callChainReadParserRelationGap, 0, maxGaps)
 	seen := make(map[string]bool)
-	for _, file := range files {
-		fi := graph.FileIndex[file]
-		if fi == nil {
-			continue
-		}
-		fileSource := canonicalRelationSourcePath(fi.RelPath)
-		if fileSource == "" {
-			fileSource = canonicalRelationSourcePath(file)
-		}
+	for _, parserFile := range parserFiles {
+		ownerGraph := parserFile.Graph
+		fi := parserFile.File
+		fileSource := parserFile.Source
 		if fileSource == "" || !closure.HasRead(fileSource) {
 			continue
 		}
@@ -13524,17 +13651,14 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 				(rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser) {
 				continue
 			}
-			source := canonicalRelationSourcePath(rel.File)
-			if source == "" {
-				source = canonicalRelationSourcePath(fi.RelPath)
-			}
+			source := fileSource
 			if source == "" || !closure.HasReadLine(source, rel.Line) {
 				continue
 			}
 			callerSymbol := enclosingCallableSymbol(fi, rel.Line)
-			calleeSymbol := graph.ResolveCallTarget(fi, *rel)
+			calleeSymbol := ownerGraph.ResolveCallTarget(fi, *rel)
 			caller := qualifiedEvidenceSymbolNameInFile(fi, callerSymbol)
-			callee := callRelationTargetName(graph, fi, rel)
+			callee := callRelationTargetName(ownerGraph, fi, rel)
 			if caller == "" || callee == "" {
 				continue
 			}
@@ -13572,6 +13696,9 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 		}
 	}
 	if len(gaps) == 0 {
+		if graph == nil {
+			return evidence
+		}
 		return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, memberSets, evidence, authorityEvidence)
 	}
 	projected := make([]types.EvidenceItem, 0, len(gaps))
@@ -13601,6 +13728,9 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	ctx.Mutable.AppendEvidence(projected)
 	out := append(append([]types.EvidenceItem(nil), evidence...), projected...)
 	authorityEvidence = append(append([]types.EvidenceItem(nil), out...), mutableEvidence...)
+	if graph == nil {
+		return out
+	}
 	return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, memberSets, out, authorityEvidence)
 }
 

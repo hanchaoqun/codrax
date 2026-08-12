@@ -1182,6 +1182,177 @@ func TestCallChainReadParserRelationHandoffEvidence_SameNameWrapperCoreUsesExact
 	}
 }
 
+type callChainSourceGraphFileStub struct {
+	source string
+	graph  *repotypes.Graph
+	file   *repotypes.FileInfo
+}
+
+func (s *callChainSourceGraphFileStub) SourceGraphFile(source string) (*repotypes.Graph, *repotypes.FileInfo, string, bool) {
+	if s == nil || source != s.source || s.graph == nil || s.file == nil {
+		return nil, nil, "", false
+	}
+	return s.graph, s.file, s.file.RelPath, true
+}
+
+func TestCallChainReadParserRelationHandoffEvidence_MultiRepoOwnerGraphCarriesPrincipalMemberEdge(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "core-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "pub fn tokenize_bytes", AnchorSymbol: "tokenize_bytes", Source: "core-rs/src/lib.rs", LineStart: 10, LineEnd: 18, GroundingStatus: types.GroundingGrounded},
+		{ID: "helper-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "best_merge", AnchorSymbol: "best_merge", Source: "core-rs/src/lib.rs", LineStart: 20, LineEnd: 30, GroundingStatus: types.GroundingGrounded},
+	}
+	core := repotypes.Symbol{Name: "tokenize_bytes", Kind: "function", File: "src/lib.rs", Line: 10, EndLine: 18}
+	helper := &repotypes.Symbol{Name: "best_merge", Kind: "function", File: "src/lib.rs", Line: 20, EndLine: 30}
+	rustFile := &repotypes.FileInfo{
+		RelPath: "src/lib.rs", Language: repotypes.LangRust,
+		Symbols: []repotypes.Symbol{core, *helper},
+		Relations: []repotypes.Relation{{
+			Kind: "call", File: "src/lib.rs", Line: 13,
+			FromEP:     repotypes.RelationEndpoint{Name: "tokenize_bytes", File: "src/lib.rs", Line: 13},
+			ToEP:       repotypes.RelationEndpoint{Name: "best_merge", File: "src/lib.rs", Line: 13},
+			Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "rust_ast_identifier_call",
+		}},
+	}
+	rustGraph := &repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{"src/lib.rs": rustFile},
+		MethodIndex: map[repotypes.MethodKey]*repotypes.Symbol{
+			{Pkg: "src", Receiver: "", Name: "best_merge"}: helper,
+		},
+	}
+	// The compatibility graph deliberately belongs to the Python facade. A
+	// single-graph-only consumer cannot see the Rust line-13 relation.
+	pythonGraph := &repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"fastlex/tokenizer.py": {RelPath: "fastlex/tokenizer.py", Language: repotypes.LangPython},
+	}}
+	mut := types.NewMutableState("opaque cross-repository call-chain request")
+	mut.AppendEvidence(evidence)
+	mut.SetSearchGraph(pythonGraph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		MultiGraph: &callChainSourceGraphFileStub{
+			source: "core-rs/src/lib.rs", graph: rustGraph, file: rustFile,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"tokenize_bytes", "best_merge"}},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "complete cross-repository chain", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"tokenize_bytes (Rust core)", "best_merge (Rust helper)"},
+		SupportRefs: []string{"core-rs/src/lib.rs:10", "core-rs/src/lib.rs:20"},
+	}}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"core-rs/src/lib.rs": true})
+	closure.SetReadRanges(map[string][]types.LineRange{"core-rs/src/lib.rs": {{Start: 1, End: 49}}})
+
+	got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "core-rs/src/lib.rs", 13, "tokenize_bytes", "best_merge") {
+		t.Fatalf("owner-routed sibling repository graph must carry the exact already-read parser edge: %+v", got)
+	}
+	for _, item := range got {
+		if item.Producer == types.EvidenceProducerRepoMapPrincipalMemberCall && item.LineStart == 13 {
+			if item.Source != "core-rs/src/lib.rs" || item.Subject != "tokenize_bytes" || item.Object != "best_merge" {
+				t.Fatalf("projected edge lost parent-workspace coordinates or direction: %+v", item)
+			}
+			return
+		}
+	}
+	t.Fatal("owner-routed parser edge was not projected")
+}
+
+func TestCallChainParserRelationFiles_MultiRepoOwnerRoutingCoversSupportedLanguageMatrix(t *testing.T) {
+	extensions := map[string]string{
+		repotypes.LangGo: ".go", repotypes.LangPython: ".py", repotypes.LangJavaScript: ".js",
+		repotypes.LangTypeScript: ".ts", repotypes.LangJava: ".java", repotypes.LangKotlin: ".kt",
+		repotypes.LangRust: ".rs", repotypes.LangC: ".c", repotypes.LangCpp: ".cpp",
+		repotypes.LangRuby: ".rb", repotypes.LangSwift: ".swift", repotypes.LangLua: ".lua",
+		repotypes.LangProto: ".proto", repotypes.LangArkTS: ".ets", repotypes.LangCangjie: ".cj",
+	}
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			ext := extensions[language]
+			if ext == "" {
+				t.Fatalf("supported language %q lacks matrix fixture extension", language)
+			}
+			internalSource := "src/chain" + ext
+			visibleSource := "repo-" + language + "/" + internalSource
+			provenance := repotypes.ProvenanceTreeSitter
+			if language == repotypes.LangCangjie {
+				provenance = repotypes.ProvenanceCangjieParser
+			}
+			fi := &repotypes.FileInfo{
+				RelPath: internalSource, Language: language,
+				Symbols: []repotypes.Symbol{
+					{Name: "Caller", Kind: "function", File: internalSource, Line: 5, EndLine: 10},
+					{Name: "Helper", Kind: "function", File: internalSource, Line: 20, EndLine: 25},
+				},
+				Relations: []repotypes.Relation{{
+					Kind: "call", File: internalSource, Line: 7,
+					FromEP:     repotypes.RelationEndpoint{Name: "Caller", File: internalSource, Line: 7},
+					ToEP:       repotypes.RelationEndpoint{Name: "Helper", File: internalSource, Line: 7},
+					Confidence: repotypes.ConfidenceAST, Provenance: provenance,
+					ResolvedBy: language + "_parser_call",
+				}},
+			}
+			graph := &repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{internalSource: fi}}
+			evidence := []types.EvidenceItem{
+				{ID: "caller", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Caller", Source: visibleSource, LineStart: 5, GroundingStatus: types.GroundingGrounded},
+				{ID: "helper", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Helper", Source: visibleSource, LineStart: 20, GroundingStatus: types.GroundingGrounded},
+			}
+			mut := types.NewMutableState("opaque typed call-chain request")
+			mut.AppendEvidence(evidence)
+			ctx := &types.BusContext{
+				Mutable:    mut,
+				MultiGraph: &callChainSourceGraphFileStub{source: visibleSource, graph: graph, file: fi},
+				AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+					Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+					AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"Caller", "Helper"}},
+				}},
+			}
+			facts := []types.AnswerAggregateFact{{
+				Kind: types.AnswerAggregateMemberSet, Role: types.AnswerAggregateRolePrincipalAnswer,
+				Members: []string{"Caller", "Helper"}, SupportRefs: []string{visibleSource + ":5", visibleSource + ":20"},
+			}}
+			closure := types.NewEvidenceClosure("")
+			closure.SetReadSet(map[string]bool{visibleSource: true})
+			closure.SetReadRanges(map[string][]types.LineRange{visibleSource: {{Start: 1, End: 25}}})
+
+			got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+			if !callChainTypedEvidenceContainsExactParserRelation(got, visibleSource, 7, "Caller", "Helper") {
+				t.Fatalf("language-neutral owner routing dropped exact parser edge for %s: %+v", language, got)
+			}
+		})
+	}
+}
+
+func TestCallChainParserRelationFiles_AmbiguousLegacySuffixDoesNotChooseRepository(t *testing.T) {
+	fi := &repotypes.FileInfo{
+		RelPath: "src/chain.go", Language: repotypes.LangGo,
+		Symbols: []repotypes.Symbol{
+			{Name: "Caller", Kind: "function", File: "src/chain.go", Line: 5, EndLine: 10},
+			{Name: "Helper", Kind: "function", File: "src/chain.go", Line: 20, EndLine: 25},
+		},
+		Relations: []repotypes.Relation{{
+			Kind: "call", File: "src/chain.go", Line: 7,
+			ToEP: repotypes.RelationEndpoint{Name: "Helper"}, Confidence: repotypes.ConfidenceAST,
+			Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
+		}},
+	}
+	legacy := &repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{"src/chain.go": fi}}
+	members := []callChainPrincipalMemberSet{{
+		Members:     []string{"Caller", "Helper"},
+		SupportRefs: []string{"repo-a/src/chain.go:5", "repo-b/src/chain.go:20"},
+	}}
+	got := callChainParserRelationFiles(&types.BusContext{}, legacy, members, []types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Source: "repo-a/src/chain.go", LineStart: 5, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "repo-b/src/chain.go", LineStart: 20, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+	})
+	if len(got) != 0 {
+		t.Fatalf("ambiguous internal suffix must require owner routing, got %+v", got)
+	}
+}
+
 func TestCallChainReadRequestedTargetDefinitionHandoffEvidence_IsBoundedByTypedTargetAndFullReadSpan(t *testing.T) {
 	fallback := &repotypes.Symbol{Name: "_tokenize_slow", Kind: "method", Parent: "FastTokenizer", File: "fastlex/tokenizer.py", Line: 24, EndLine: 36}
 	fi := &repotypes.FileInfo{

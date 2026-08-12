@@ -35580,18 +35580,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
    line 13 有精确调用，旧 completion 仍以 `member_set` 直接跳过 principal span 关系检查。
    终稿因此文字说“完整链”，图却在 core 前断开 helper，且把 helper definition line 20
    当调用位置。节点集合证明“回答了谁”，不能证明“谁调用谁”。
-7. B672 最优施工形冻结：只对 typed call-chain principal members，使用 parser-owned
-   精确 source/line/caller/callee 与 read closure 找出成员间已读真边；缺失边形成
-   `emit_evidence relationship/call` 修复，而不是由系统铸边。成员数组顺序、label、
-   member_notes、raw request、thinking/final prose 都没有方向权威；同名、歧义、未读、
-   regex-only 或非 parser 关系继续 fail-closed。Trace root-cause 不进入该源码关系门。
+7. B672 最优施工形已落地：只对 typed call-chain principal members，使用 parser-owned
+   精确 source/line/caller/callee 与 read closure 找出成员间已读真边；该结构事实进入
+   Finalizer typed evidence，但系统不画边、不写答案、不替模型下结论。成员数组顺序、
+   label、member_notes、raw request、thinking/final prose 都没有方向权威；同名、歧义、
+   未读、regex-only 或非 parser 关系继续 fail-closed。根因还包括旧 handoff 只读取
+   `Mutable.SearchGraph()` 单仓兼容图：多仓运行中 Python/Java facade 与 Rust/C++/
+   ArkTS/Cangjie 实现分别驻留于不同 active graph，导致 sibling graph 真边不可见。新
+   owner-routed resolver 仅按结构化 member location / accepted evidence source 定位 active
+   graph，不加载或逐出仓，不做 suffix 猜测；两个子仓共享内部路径时必须由 owner 路由
+   唯一决定。完整 15 种 read-language 矩阵和歧义负臂已钉，`internal/tool` 全套通过。
 
 状态：
 
 `B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=production-positive`；
 `B670-POSTGROUNDREGISTRATIONBINDINGREPAIR1=implemented/targeted+internal-tool-pass/pending-direct-production-witness`；
 `B671-TABLERETRYCANONICALSHAPE1=production-closed`；
-`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=open/P1/next-batch`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=implemented/language-matrix+internal-tool-pass/pending-production-replay`；
 `B664-ACTIVESTREAMUPPERBUDGET1=production-reconfirmed-r405`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r405`；
