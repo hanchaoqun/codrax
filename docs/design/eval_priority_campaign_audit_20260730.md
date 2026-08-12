@@ -34260,3 +34260,23 @@ B629 把“证据来自哪类调查”与“该模型数值是否有证据”拆
 状态：`B629=implemented/targeted-pass/pending-production-replay`；`request-shape=evidence-lane-only`；
 `principal-numeric-authority=explicit-typed-support-only`；`model-record=retained/advisory`；`system-answer-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.671 B630：字段载体用 containment 分组表达，读写/传输仍须 operation 证据
+
+B630 修复的是关系表达层，不新增关系事实。统一 Diagram Contract 现在明确区分两种权限：
+
+1. exact type/field/property ownership declaration 只证明 owner 包含该 member/type；模型可用“field/type node 或 subgroup 嵌套在 owner subgraph”表达，必须无箭头、无 edge_anchor；
+2. call/read/write/assignment/return/data_flow/precedence 等有向关系仍必须来自各自 typed operation evidence，字段声明、名称相邻或容器身份均不能替代。
+
+因此 `BusContext.Mutable *MutableState` 可诚实画成 BusContext 内嵌 Mutable/MutableState 分组，Analyzer/Explorer 对 Mutable accessor 的已证调用仍画在精确技术 endpoint 上；
+系统不再迫使模型在“虚构 BusContext→Mutable 箭头”与“完全断开 BusContext”之间二选一。若 owner 没有独立有向 incident operation，既有
+`participant_boundaries(status=unproven)` 仍保留，但其语义收窄为“直接 call/transfer 未证”，不否定已证 containment。
+
+同一 ownership-versus-transfer 规则进入 Explorer operation 教学、通用架构图合同和 checkout-verified state-carrier capsule。它不依赖 Go、BusContext、Mutable 或本 eval 名称，
+覆盖所有语言中的 field/property/member/slot 及等价载体声明；只消费结构化 definition/operation 权限，不扫描请求、模型 reasoning 或终稿文本。
+系统不生成节点、分组、箭头或答案，模型仍决定是否画图以及业务语言；Mermaid L7 安全降级、显式关系证据门和 Trace 因果投影均不变。
+
+状态：`B630=implemented/targeted-pass/pending-production-replay`；`ownership=containment-group-only`；
+`directed-flow=typed-operation-only`；`participant-boundary=directed-relation-scope`；`cross-language=true`；
+`system-diagram/answer-authorship=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

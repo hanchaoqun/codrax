@@ -17,6 +17,8 @@ func TestFlowOperationEvidenceGuideRequiresSyntaxEndpoints(t *testing.T) {
 		"unmodeled argument",
 		"Do not rename an endpoint to a semantic role or result label",
 		"participant names guide navigation only",
+		"no-arrow containment grouping",
+		"never proves a read, write, transfer, execution order, or directed incident edge",
 	} {
 		if !strings.Contains(FlowOperationEvidenceEmissionGuide, want) {
 			t.Fatalf("flow-operation teaching lost cross-language endpoint rule %q", want)
