@@ -15024,7 +15024,10 @@ type chainAnchorInfo struct {
 // return (for example `return cls()`) only when exploration has already
 // established the owning callable in the same source file. Without the typed
 // projection in the key, a pre-emit cache fill would remain stale after a
-// later emit_evidence call established the owner.
+// later emit_evidence call established the owner. The projection must use the
+// current structured view, including Mutable evidence accepted during this
+// dispatch: e.structuredEvidence is only the dispatch-start/last-merge
+// snapshot and may lag behind emit_evidence while read coverage stays fixed.
 //
 // subject (CGEC C2) is the answer-subject classification produced by
 // the analyzer. When non-Unknown the chain ranker scores each chain
@@ -15038,7 +15041,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 		ctx = context.TODO()
 	}
 	coverageKey := concreteValuesReadCoverageKey(readSet, closure) +
-		concreteReturnOwnerAuthorityCoverageKey(e.structuredEvidence)
+		concreteReturnOwnerAuthorityCoverageKey(e.currentStructuredEvidence())
 	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey {
 		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
 		if ctx.Err() != nil {

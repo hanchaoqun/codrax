@@ -35035,3 +35035,31 @@ B654 将末尾合同压缩成 typed `selected_terminal_body_calls` 视图：只�
 `raw-user/model/final-prose-hard-gate=none`；`eval-oracle=semantic-relation/eval-only`；
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.707 r393：B654 未触发的确定性缓存时序 gap
+
+`main@5ecf350c3` exact-two runner `1/2`，人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_terminal_ceiling_r393_20260812_manual_audit.md`。Java 的 FAIL 不是
+eval 同义词漏匹配：正文仍把 `System.out` 称作“完成一次完整的审计落库”。本轮最终 prompt 更直接暴露根因：
+`selected_terminal_body_calls=unproven`，而同一个函数的源码已经完整读取，主路径 call edge 也已由
+`emit_evidence` 接收。
+
+根因在 Concrete Values 缓存键。Explorer 先完成文件读取并填充无终点 body call 的预览缓存，随后本 dispatch 的
+`emit_evidence` 才铸造主路径；缓存键却只读取 `e.structuredEvidence` 的 dispatch-start/上次合并快照，不读取
+`Mutable.EmittedEvidence()` 当前值。读范围未变化时缓存不会重算，所以精确 body call 永远进不了 Turn-A 和
+Finalizer。r392 恰好在证据后还有读取范围变化，缓存被动失效，因而掩盖了时序问题。
+
+B655 把缓存依赖改为 `currentStructuredEvidence()`，即只合并已有 typed snapshot 与当前 mutable typed evidence；
+仍不读取用户/模型/答案 prose。回归采用 ArkTS parser relation 固定跨语言形：相同 ReadSet/LineRange 下，第一次
+无主路径时不得铸造终点 effect；同 dispatch 追加 grounded `Entry.run -> AuditLog.record` 后必须失效旧缓存并生成
+`AuditLog.record -> Console.write`。这解决的是所有语言、所有“证据晚于预览缓存”场景，不是 Java 特判。
+
+Go 案继续正确给出并行汇聚结论，但图只用 note 描述 `gate.Run -> gate.RunWith`，关系表达弱于正文；记为后续统一
+图关系完整性观察项，不在 B655 批再加 case-specific 硬门。
+
+状态：`runner=1/2`；`human=1/2`；`B654=production-not-triggered`；
+`B655-CURRENTDISPATCHEVIDENCECACHE1=implemented/targeted-pending`；
+`cache-key=exact-read-coverage+current-typed-evidence`；`cross-language-fixture=ArkTS`；
+`system-answer-rewrite=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

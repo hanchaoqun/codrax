@@ -646,6 +646,59 @@ func TestGetConcreteValuesCached_RebuildsWhenTypedReturnOwnerAppears(t *testing.
 	}
 }
 
+func TestGetConcreteValuesCached_RebuildsWhenCurrentDispatchCallPathSelectsTerminal(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "src/Sinks.ets", Language: repotypes.LangArkTS,
+		Symbols: []repotypes.Symbol{
+			{Name: "record", Kind: "method", Parent: "AuditLog", File: "src/Sinks.ets", Line: 4, EndLine: 7},
+		},
+		Relations: []repotypes.Relation{
+			{Kind: "call", ToEP: repotypes.RelationEndpoint{Name: "write", Receiver: "Console"}, File: "src/Sinks.ets", Line: 6, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "js_ast_member_call"},
+		},
+	}
+	repoRoot := t.TempDir()
+	graph := repomap.BuildGraph(repoRoot, []*repotypes.FileInfo{file})
+	mut := types.NewMutableState("opaque")
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		mutable:      mut,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				SinkMode: types.CallChainSinkResolutionDiscoverPath,
+			},
+		}},
+	}
+	readSet := map[string]bool{"src/Sinks.ets": true}
+	closure := types.NewEvidenceClosure(repoRoot)
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"src/Sinks.ets": {{Start: 4, End: 6}}})
+
+	first := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, closure)
+	for _, item := range first.evidence {
+		if item.Producer == types.EvidenceProducerRepoMapTerminalBodyCall {
+			t.Fatalf("no typed path has selected a terminal before emit: %+v", first.evidence)
+		}
+	}
+
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID: "incoming", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "Entry.run", Object: "AuditLog.record", Source: "src/Entry.ets", LineStart: 2,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}})
+	second := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, closure)
+	found := false
+	for _, item := range second.evidence {
+		if item.Producer == types.EvidenceProducerRepoMapTerminalBodyCall &&
+			item.Subject == "AuditLog.record" && item.Object == "Console.write" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("same-dispatch typed call path must invalidate the stale preview and expose the selected terminal body: %+v", second.evidence)
+	}
+}
+
 func TestConcreteReturnOwnerHasTypedAuthority_FailsClosedOnAmbiguousShortOwner(t *testing.T) {
 	values := []concreteValue{
 		{file: "src/factory.ext", method: "Alpha.create", kind: concreteValueKindReturns, value: "buildAlpha()"},
