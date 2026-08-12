@@ -1093,6 +1093,65 @@ func TestCallChainReadParserRelationHandoffEvidence_AlreadyReadRosterEdgeIsProje
 	}
 }
 
+func TestCallChainReadParserRelationHandoffEvidence_SameNameWrapperCoreUsesExactMemberLocations(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "python-wrapper", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "FastTokenizer.tokenize", Predicate: "calls", Object: "_fastlex.tokenize_bytes", AnchorSymbol: "_fastlex.tokenize_bytes", Source: "bindings-py/fastlex/tokenizer.py", LineStart: 21, GroundingStatus: types.GroundingGrounded},
+		{ID: "wrapper-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "#[pyfunction] tokenize_bytes", AnchorSymbol: "tokenize_bytes", Source: "core-rs/src/lib.rs", LineStart: 40, GroundingStatus: types.GroundingGrounded},
+		{ID: "core-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "pub fn tokenize_bytes", AnchorSymbol: "tokenize_bytes", Source: "core-rs/src/lib.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+	}
+	core := &repotypes.Symbol{Name: "tokenize_bytes", Kind: "function", File: "src/lib.rs", Line: 10, EndLine: 18}
+	wrapper := repotypes.Symbol{Name: "tokenize_bytes", Kind: "function", Parent: "py", File: "src/lib.rs", Line: 40, EndLine: 43}
+	fi := &repotypes.FileInfo{
+		RelPath: "src/lib.rs", Language: repotypes.LangRust,
+		Symbols: []repotypes.Symbol{*core, wrapper},
+		Relations: []repotypes.Relation{{
+			Kind: "call", File: "src/lib.rs", Line: 42,
+			FromEP:     repotypes.RelationEndpoint{Name: "tokenize_bytes", Receiver: "py", File: "src/lib.rs", Line: 42},
+			ToEP:       repotypes.RelationEndpoint{Name: "tokenize_bytes", Receiver: "super", File: "src/lib.rs", Line: 42},
+			Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "rust_ast_scoped_call",
+		}},
+	}
+	graph := &repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{"src/lib.rs": fi},
+		MethodIndex: map[repotypes.MethodKey]*repotypes.Symbol{
+			{Pkg: "src", Receiver: "", Name: "tokenize_bytes"}: core,
+		},
+	}
+	mut := types.NewMutableState("opaque cross-language call-chain request")
+	mut.AppendEvidence(evidence)
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Complexity: types.ComplexityComplex, PredicateAxis: types.AxisCall,
+		Predicates:               types.SemanticPredicates{IsCrossComponent: true},
+		CallChainEndpointProfile: orderedCallChainEndpoints("FastTokenizer.tokenize", "tokenize_bytes"),
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: []string{"FastTokenizer.tokenize", "tokenize_bytes"}},
+	}}}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "complete cross-language chain", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"FastTokenizer.tokenize", "_fastlex.tokenize_bytes", "#[pyfunction] tokenize_bytes", "#[pymodule] _fastlex", "pub fn tokenize_bytes", "best_merge"},
+		SupportRefs: []string{"bindings-py/fastlex/tokenizer.py:18", "bindings-py/fastlex/tokenizer.py:21", "core-rs/src/lib.rs:40", "core-rs/src/lib.rs:46", "core-rs/src/lib.rs:10", "core-rs/src/lib.rs:20"},
+	}}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"src/lib.rs": true})
+
+	got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "src/lib.rs", 42, "py.tokenize_bytes", "tokenize_bytes") {
+		t.Fatalf("same-name wrapper/core parser edge must use exact member support locations: %+v", got)
+	}
+
+	// A location collision is not uniquely resolvable and must remain closed.
+	badRefs := append([]string(nil), facts[0].SupportRefs...)
+	badRefs[4] = "core-rs/src/lib.rs:40"
+	facts[0].SupportRefs = badRefs
+	mut2 := types.NewMutableState("opaque ambiguous cross-language call-chain request")
+	mut2.AppendEvidence(evidence)
+	mut2.SetSearchGraph(graph)
+	ctx.Mutable = mut2
+	if ambiguous := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(ambiguous) != len(evidence) {
+		t.Fatalf("same-name roles sharing one location must remain ambiguous: %+v", ambiguous)
+	}
+}
+
 func TestCallChainReadParserRelationHandoffEvidence_MissingMemberSupportCannotHideASTEdge(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		ID: "dispatch-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,

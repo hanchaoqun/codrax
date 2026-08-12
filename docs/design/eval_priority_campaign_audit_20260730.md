@@ -35373,3 +35373,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-age-degrade=retired-at-transport+evaluator-layers`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.715 r401：端点边界与唯一引用闭环；同名跨语言 wrapper/core 真边仍漏传
+
+在 `main@103ea3aeb` 上严格并发恰好两个案例：
+`qf_sequence_analyzer_gate` 与 `mr_poly_binding_chain`。runner 2/2 PASS，人工
+1/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_boundary_citation_replay_r401_20260812_manual_audit.md`。
+
+1. B662 获生产正证。Sequence 案的 Finalizer 首稿直接消费 typed
+   `parallel_convergence`，摘要和 Mermaid 都保持真实方向
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`；请求终点 `gate.Run` 进入独立
+   definition-only 边界块，没有成为 principal directed list 的伪末跳。零成文拒绝、
+   零 patch，上一轮反向假边消失。
+2. B663 也获生产正证。Polyglot 案中 `pub fn tokenize_bytes
+   (core-rs/src/lib.rs:10)` 的唯一 embedded `file:line` 与 citation 对齐后完整保留，
+   没有再被 detach；错误/多位置仍不获此权限。
+3. Polyglot 仍人工失败，确认 B665。Explorer 的 read window 已含
+   `py::tokenize_bytes -> super::tokenize_bytes @ core-rs/src/lib.rs:42`，Rust parser
+   也支持该 exact scoped-call identity；但 principal member_set 同时含
+   `#[pyfunction] tokenize_bytes @ :40` 与 `pub fn tokenize_bytes @ :10`。旧 parser
+   handoff 只按名称/尾名找唯一 member，遇同名即 fail-closed，完全没有消费与 members
+   等位的精确 support_refs，因而漏掉 wrapper→core 真边。Finalizer 只能把两个角色相邻
+   放进列表，无法证明所谓“完整调用链”。
+4. B665 根修把 member_set 载体保留为 `members + positional support_refs`，普通名称
+   唯一路径不变；只在同名歧义时，以 parser-owned Symbol.File/Symbol.Line 唯一命中
+   member 的精确声明位置。缺位置、个数不等、同位置冲突、非 AST/Cangjie parser、未读
+   callsite 都继续 fail-closed。它是跨语言通用身份闭包，可覆盖 Rust/PyO3、JNI、
+   C/C++ facade、ArkTS/Cangjie 等同名 wrapper/core，不从语言关键字或 prose 猜边。
+5. 另立 B666：答案把 `_tokenize_slow` 的实现说成“超出当前代码范围”，但完整函数体
+   已在 Analyzer/Explorer 的 read window 中。当前 typed evidence 只有 caller→fallback
+   调用点，没有 requested fallback entity 的 definition/body authority。后续应以 typed
+   entity、exact parser Symbol 和 read closure 做有界 supporting definition handoff；
+   暂不把“已读整个文件”直接等价为所有符号都可发射，避免上下文爆炸与错权威。
+6. B664 获生产接线 witness：流式 adapter 的 analyzer terminal emit-only 日志明确为
+   `llm_request_budget skipped ... ownership=stream_first_byte_and_byte_stall_watchdogs`。
+   本轮没有单次 stream 跨 180 秒，因此长活流行为由专项 4ms pin 和 capability matrix
+   证明；caller cancel/deadline、首字节静默、字节停滞、transport/decode 失败仍保留。
+7. 全部施工只消费 schema-valid typed fields、parser relation、精确 read closure 与
+   file:line；不扫描用户/模型/终稿 prose，不选择图边，不生成或替换模型结论。Trace
+   显式窗、因果投影、自动补齐、链上-only 主因、实际占用/规则可消双轴均未改。
+
+状态：`runner=2/2 PASS`；`human=1/2 PASS`；
+`B662-NODIRECTEDPATHREVERSEPEER1=production-closed`；
+`B663-EMBEDDEDLOCATIONCITEDETACH1=production-closed`；
+`B664-ACTIVESTREAMUPPERBUDGET1=implemented/core-closed/production-wiring-positive`；
+`B665-SAMENAMEWRAPPERCORELOCATION1=implemented/targeted-pass/pending-production-replay`；
+`B666-READDEFINITIONAUTHORITY1=filed/P1`；
+`system-answer/conclusion-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=retired-at-transport+evaluator-layers`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

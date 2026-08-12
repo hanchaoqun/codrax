@@ -13430,17 +13430,24 @@ type callChainReadParserRelationGap struct {
 	ResolvedBy string
 }
 
+type callChainPrincipalMemberSet struct {
+	Members     []string
+	SupportRefs []string
+}
+
 // callChainReadParserRelationHandoffEvidence carries exact parser-authored
 // calls from already-read principal members into the typed evidence stream.
 // The join is deliberately narrow: the relation must come from an AST-grade
 // parser and its exact callsite line must be in this run's read closure. A
 // relation is load-bearing when either (a) both endpoints resolve uniquely in
-// one model-authored principal member_set, (b) an explicit completeness
+// one model-authored principal member_set (same-name roles may be disambiguated
+// by their exact member support locations), (b) an explicit completeness
 // obligation joins a same-statement sibling already selected by the model, or
 // (c) an active typed no_directed_path boundary connects one exact requested
-// endpoint to one unique principal member. The last lane supplies the real
-// reverse/parallel wrapper fact that explains a boundary; it does not select a
-// diagram edge or write the eventual conclusion.
+// endpoint to one unique principal member, or (d) that exact requested sink
+// calls a peer already reachable from the source. The last two lanes supply
+// real reverse/parallel wrapper facts that explain a boundary; they do not
+// select a diagram edge or write the eventual conclusion.
 func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.EvidenceItem {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
 		return evidence
@@ -13458,13 +13465,16 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	if len(refs) == 0 {
 		refs = types.PrincipalAggregateMemberSetFactRefs(aggregateFacts)
 	}
-	var memberSets [][]string
+	var memberSets []callChainPrincipalMemberSet
 	for _, ref := range refs {
 		fact := ref.Fact
 		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) < 2 {
 			continue
 		}
-		memberSets = append(memberSets, append([]string(nil), fact.Members...))
+		memberSets = append(memberSets, callChainPrincipalMemberSet{
+			Members:     append([]string(nil), fact.Members...),
+			SupportRefs: append([]string(nil), fact.SupportRefs...),
+		})
 	}
 	if len(memberSets) == 0 {
 		return evidence
@@ -13507,15 +13517,17 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 			if source == "" || !closure.HasReadLine(source, rel.Line) {
 				continue
 			}
-			caller := qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, rel.Line))
+			callerSymbol := enclosingCallableSymbol(fi, rel.Line)
+			calleeSymbol := graph.ResolveCallTarget(fi, *rel)
+			caller := qualifiedEvidenceSymbolNameInFile(fi, callerSymbol)
 			callee := callRelationTargetName(graph, fi, rel)
 			if caller == "" || callee == "" {
 				continue
 			}
 			matched := false
-			for _, members := range memberSets {
-				callerIndex, callerOK := callChainUniqueMemberEndpointIndex(members, caller)
-				calleeIndex, calleeOK := callChainUniqueMemberEndpointIndex(members, callee)
+			for _, memberSet := range memberSets {
+				callerIndex, callerOK := callChainUniqueMemberEndpointIndexWithSymbol(memberSet.Members, memberSet.SupportRefs, caller, callerSymbol)
+				calleeIndex, calleeOK := callChainUniqueMemberEndpointIndexWithSymbol(memberSet.Members, memberSet.SupportRefs, callee, calleeSymbol)
 				if callerOK && ((calleeOK && callerIndex != calleeIndex) ||
 					(callChainCompletenessObligationActive(rm) &&
 						callChainTypedEvidenceContainsSiblingParserRelation(evidence, source, rel.Line, caller, callee))) ||
@@ -13698,6 +13710,62 @@ func callChainUniqueMemberEndpointIndex(members []string, endpoint string) (int,
 		match = i
 	}
 	return match, match >= 0
+}
+
+// callChainUniqueMemberEndpointIndexWithSymbol keeps the ordinary exact-name
+// path first, then resolves only a same-name ambiguity using the positional
+// member support location and the parser-owned declaration symbol. This is a
+// typed identity join, not a proximity guess: if no single member cites that
+// exact declaration line the endpoint remains ambiguous and no edge is minted.
+// It is language-neutral and covers common wrapper/core shapes where both
+// callables intentionally share a public name across an inline module, FFI,
+// JNI, C/C++ facade, ArkTS, or Cangjie boundary.
+func callChainUniqueMemberEndpointIndexWithSymbol(members, supportRefs []string, endpoint string, symbol *repotypes.Symbol) (int, bool) {
+	if index, ok := callChainUniqueMemberEndpointIndex(members, endpoint); ok {
+		return index, true
+	}
+	if symbol == nil || symbol.Line <= 0 || strings.TrimSpace(symbol.File) == "" || len(supportRefs) != len(members) {
+		return -1, false
+	}
+	match := -1
+	for i, member := range members {
+		base := types.NormalizedSurfaceSymbolTail(member)
+		if !types.CallChainEndpointCompatible(member, endpoint) &&
+			(base == "" || !types.CallChainEndpointCompatible(base, endpoint)) {
+			continue
+		}
+		_, location, parsed := types.ParseAnswerSupportRefMemberLocation(supportRefs[i])
+		if !parsed || !callChainMemberLocationMatchesSymbol(location, symbol) {
+			continue
+		}
+		if match >= 0 {
+			return -1, false
+		}
+		match = i
+	}
+	return match, match >= 0
+}
+
+func callChainMemberLocationMatchesSymbol(location types.AnswerSourceLocationSurface, symbol *repotypes.Symbol) bool {
+	if symbol == nil || symbol.Line <= 0 || strings.TrimSpace(symbol.File) == "" {
+		return false
+	}
+	citation := types.Citation{File: symbol.File, Line: symbol.Line}
+	if types.AnswerSourceLocationSurfaceMatchesCitation(location, citation) {
+		return true
+	}
+	// Multi-repo aggregate refs carry the workspace prefix while the active
+	// sub-repo graph stores repo-relative symbol paths. Match the same exact
+	// location in the reverse suffix direction; line identity remains exact.
+	symbolLocation := types.AnswerSourceLocationSurface{
+		File:      strings.TrimSpace(strings.ReplaceAll(symbol.File, `\`, `/`)),
+		LineStart: symbol.Line,
+		LineEnd:   symbol.Line,
+	}
+	return types.AnswerSourceLocationSurfaceMatchesCitation(symbolLocation, types.Citation{
+		File: location.File,
+		Line: location.LineStart,
+	})
 }
 
 func callChainTypedEvidenceContainsExactParserRelation(evidence []types.EvidenceItem, source string, line int, caller, callee string) bool {
