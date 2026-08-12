@@ -5368,3 +5368,22 @@ operator、exact endpoint 和 typed relation，不读 label/prose/request，不�
 状态：`B583=production-positive/closed`；`B584=production-positive/closed`；`B585=next`；`B586=next`；
 `runner=2/2`；`human=0/2`；`finalizer-rejects=4`；`active-stream=323s/no-elapsed-degrade`；
 `raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.196 B585：来源排除与答案成员排除在 analyzer JSON 边界彻底拆路
+
+`answer_exclusion_policy` 的 candidate role 枚举描述“哪些 principal answer row 成员不应出现”；
+`external_observation_policy.current_source_mode` 描述“当前源码/checkout 证据车道是否可用”。r347 中 analyzer 同时填写二者，且前者为
+`is_exclusion_requested=true + excluded_candidate_roles=[]`，说明只在外部策略段举例仍不足以克服“看到否定句就填 exclusion”这一 JSON
+心智捷径。
+
+本批在 analyzer 单一 OutputFormat 与 `emit_analysis` 参数 schema 两个模型可见面使用同一边界：source code、repository、current checkout
+是 evidence source，不是 candidate role；`only analyze this trace; do not analyze code` / `只分析 trace，不分析代码` 只进入
+`external_observation_policy.current_source_mode=exclude`。若没有同时排除 variable/test/generated/private 等真实答案成员，
+`answer_exclusion_policy` 必须省略或为 false，禁止用 true+空角色表达来源边界。反向也保持：答案成员排除不会关闭源码探索。
+
+这是教学与 schema 路由修正，没有新增读取用户原文的 deterministic 分支，没有把中文/英文例句变成硬关键词门，也没有系统代填、改写或接受
+畸形 JSON。回归同时钉住 skill SSOT 和实际工具 schema 的五条互斥语义；`go test ./internal/skill` 与 emit-analysis schema/执行定向测试全绿。
+
+状态：`B585=implemented/pending-r348`；`source-exclusion=external-observation-only`；
+`candidate-exclusion=principal-member-only`；`raw-prose-hard-gate=none`；`system-answer-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
