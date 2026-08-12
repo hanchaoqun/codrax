@@ -409,6 +409,44 @@ func TestFormatLogTriageStructured_ThreadSnapshotsStayContextOnly(t *testing.T) 
 	}
 }
 
+func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "arkts", Signals: []types.LogSignal{types.SignalCrash}},
+		Errors: []types.LogError{
+			{Type: "Error", Message: "native call failed"},
+			{Type: "panic", Message: "index out of bounds"},
+		},
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"independent observed error occurrences",
+		"similar messages do not establish a cross-error call/causal edge",
+		"explicit artifact marker proves an error-wrapping relation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("peer-error authority boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatLogTriageStructured_RendersValidatedCauseMarker(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "java", Signals: []types.LogSignal{types.SignalCrash}},
+		Errors: []types.LogError{{
+			Type:  "Outer",
+			Cause: &types.LogError{Type: "Inner"},
+			CauseRelation: &types.LogCauseRelation{
+				Authority: types.LogCauseAuthorityExplicitArtifactMarker,
+				Marker:    "Caused by: Inner: boom",
+			},
+		}},
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	if !strings.Contains(got, "explicit artifact marker: `Caused by: Inner: boom`") {
+		t.Fatalf("validated cause marker missing from context:\n%s", got)
+	}
+}
+
 // TestBuildPromptContext_LogTriageSection_RenderedForExplorer pins
 // the plumbing for downstream consumer agents: when a bundle is on
 // AgentContext.LogTriage, the explorer (and by symmetry extractor /

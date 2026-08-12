@@ -4222,11 +4222,12 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	if len(bundle.Errors) > 0 {
 		if len(bundle.Errors) > 1 {
 			fmt.Fprintf(&b, "### Errors (%d explicit occurrences)\n\n", len(bundle.Errors))
+			b.WriteString("Top-level entries are independent observed error occurrences. Their order, timestamps, tags, or similar messages do not establish a cross-error call/causal edge. Only an indented `caused by` child carrying an explicit artifact marker proves an error-wrapping relation.\n\n")
 		} else {
 			b.WriteString("### Error\n\n")
 		}
 		for i := range bundle.Errors {
-			renderLogError(&b, &bundle.Errors[i], 0, i+1)
+			renderLogError(&b, &bundle.Errors[i], 0, i+1, nil)
 			b.WriteString("\n")
 		}
 	}
@@ -4569,7 +4570,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 // the outermost-level sibling list. Cause chain depth is bounded by
 // logtriage.ValidateBundle (LogBundleCaps.MaxCauseDepth = 5) — this
 // function does not re-truncate; it trusts the upstream contract.
-func renderLogError(b *strings.Builder, e *types.LogError, depth, index int) {
+func renderLogError(b *strings.Builder, e *types.LogError, depth, index int, incomingRelation *types.LogCauseRelation) {
 	if e == nil {
 		return
 	}
@@ -4578,6 +4579,10 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int) {
 		fmt.Fprintf(b, "%d. **%s**", index, e.Type)
 	} else {
 		fmt.Fprintf(b, "%s↳ caused by **%s**", indent, e.Type)
+		if incomingRelation != nil {
+			fmt.Fprintf(b, " [explicit artifact marker: `%s`]",
+				truncateForPrompt(incomingRelation.Marker, 120))
+		}
 	}
 	if e.Message != "" {
 		fmt.Fprintf(b, " — %s", truncateForPrompt(e.Message, 200))
@@ -4590,7 +4595,7 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int) {
 
 	if e.Cause != nil {
 		b.WriteString("\n")
-		renderLogError(b, e.Cause, depth+1, 0)
+		renderLogError(b, e.Cause, depth+1, 0, e.CauseRelation)
 	}
 }
 

@@ -384,6 +384,10 @@ func cloneErrors(in []types.LogError) []types.LogError {
 			c := cloneErrorPtr(e.Cause)
 			out[i].Cause = c
 		}
+		if e.CauseRelation != nil {
+			rel := *e.CauseRelation
+			out[i].CauseRelation = &rel
+		}
 	}
 	return out
 }
@@ -406,6 +410,10 @@ func cloneErrorPtr(e *types.LogError) *types.LogError {
 	if e.Cause != nil {
 		out.Cause = cloneErrorPtr(e.Cause)
 	}
+	if e.CauseRelation != nil {
+		rel := *e.CauseRelation
+		out.CauseRelation = &rel
+	}
 	return &out
 }
 
@@ -417,6 +425,7 @@ func cloneErrorPtr(e *types.LogError) *types.LogError {
 func truncateCauseDepth(e types.LogError, maxDepth int) types.LogError {
 	if maxDepth <= 0 {
 		e.Cause = nil
+		e.CauseRelation = nil
 		return e
 	}
 	head := e
@@ -426,6 +435,7 @@ func truncateCauseDepth(e types.LogError, maxDepth int) types.LogError {
 	}
 	if cur != nil {
 		cur.Cause = nil
+		cur.CauseRelation = nil
 	}
 	return head
 }

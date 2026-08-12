@@ -57,6 +57,31 @@ func TestEmitLogTriageSchemaUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriageSchemaCarriesClosedCauseRelation(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal((&EmitLogTriage{}).Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	errors := schema["properties"].(map[string]any)["errors"].(map[string]any)
+	errorProps := errors["items"].(map[string]any)["properties"].(map[string]any)
+	relation, ok := errorProps["cause_relation"].(map[string]any)
+	if !ok {
+		t.Fatal("recursive error schema missing cause_relation")
+	}
+	if relation["additionalProperties"] != false {
+		t.Fatal("cause_relation must lock additionalProperties")
+	}
+	required, _ := relation["required"].([]any)
+	if len(required) != 2 || required[0] != "authority" || required[1] != "marker" {
+		t.Fatalf("cause_relation required=%v", required)
+	}
+	authority := relation["properties"].(map[string]any)["authority"].(map[string]any)
+	values, _ := authority["enum"].([]any)
+	if len(values) != 1 || values[0] != string(types.LogCauseAuthorityExplicitArtifactMarker) {
+		t.Fatalf("cause authority enum must stay closed: %v", values)
+	}
+}
+
 // TestEmitLogTriage_Schema_FrameLocksRawAndConfidence pins that
 // every frame must carry raw + confidence.
 func TestEmitLogTriage_Schema_FrameLocksRawAndConfidence(t *testing.T) {
@@ -422,6 +447,10 @@ func TestEmitLogTriage_Execute_AcceptsVerbatimNestedErrorMessages(t *testing.T) 
 		Errors: []emitLogTriageError{{
 			Type: "Outer", Message: "outer failure",
 			Cause: &emitLogTriageError{Type: "Inner", Message: "inner failure"},
+			CauseRelation: &emitLogTriageCauseRelation{
+				Authority: string(types.LogCauseAuthorityExplicitArtifactMarker),
+				Marker:    "Caused by: inner failure",
+			},
 		}},
 	})
 	if err != nil {
@@ -433,6 +462,72 @@ func TestEmitLogTriage_Execute_AcceptsVerbatimNestedErrorMessages(t *testing.T) 
 	}
 	if !res.Success || bus.Mutable.LogTriage() == nil {
 		t.Fatalf("verbatim root/cause messages should be admitted: %+v", res)
+	}
+	got := bus.Mutable.LogTriage().Errors[0]
+	if got.CauseRelation == nil ||
+		got.CauseRelation.Authority != types.LogCauseAuthorityExplicitArtifactMarker ||
+		got.CauseRelation.Marker != "Caused by: inner failure" {
+		t.Fatalf("validated cause authority missing: %+v", got.CauseRelation)
+	}
+}
+
+func TestEmitLogTriage_Execute_RejectsCauseFromAdjacentSimilarErrors(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test"),
+		AttachedLog: "04-15 14:40:01.512 E JsApp: Error: native call failed: index out of bounds\n" +
+			"04-15 14:40:01.513 F CjApp: panic: index out of bounds: index=5, size=3\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "arkts", Signals: []string{"crash"}},
+		Errors: []emitLogTriageError{{
+			Type:    "Error",
+			Message: "native call failed: index out of bounds",
+			Cause: &emitLogTriageError{
+				Type:    "panic",
+				Message: "index out of bounds: index=5, size=3",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "cause requires cause_relation") {
+		t.Fatalf("adjacent errors must not mint a cause edge: %+v", res)
+	}
+	if bus.Mutable.LogTriage() != nil {
+		t.Fatal("rejected inferred cause must not publish a bundle")
+	}
+}
+
+func TestEmitLogTriage_Execute_RejectsVerbatimButNonStructuralCauseMarker(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "outer failed\ninner failed one millisecond later\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "unknown", Signals: []string{"crash"}},
+		Errors: []emitLogTriageError{{
+			Type: "Outer", Message: "outer failed",
+			Cause: &emitLogTriageError{Type: "Inner", Message: "inner failed"},
+			CauseRelation: &emitLogTriageCauseRelation{
+				Authority: string(types.LogCauseAuthorityExplicitArtifactMarker),
+				Marker:    "inner failed one millisecond later",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "no supported explicit exception-chain marker") {
+		t.Fatalf("verbatim adjacency is not structural cause authority: %+v", res)
 	}
 }
 
@@ -599,10 +694,10 @@ func TestEmitLogTriage_Execute_RepairsStringWrappedErrorsArray(t *testing.T) {
 func TestEmitLogTriage_Execute_RepairsStringWrappedWholePayloadFromErrorsField(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),
-		AttachedLog: "Error: Cangjie native call failed: index out of bounds\npanic: index out of bounds: index=5, size=3",
+		AttachedLog: "Error: Cangjie native call failed: index out of bounds\nCaused by: panic: index out of bounds: index=5, size=3",
 	}
 	params := json.RawMessage(`{
-		"errors": "[{\"type\":\"panic\",\"message\":\"index out of bounds: index=5, size=3\",\"frames\":[{\"lang\":\"cangjie\",\"file\":\"src/bridge/Bridge.cj\",\"line\":18,\"func\":\"demo.bridge.ohSum\",\"raw\":\"at demo.bridge.ohSum(src/bridge/Bridge.cj:18)\",\"confidence\":0.95}],\"cause\":{\"type\":\"Error\",\"message\":\"Cangjie native call failed: index out of bounds\",\"frames\":[{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/bridges/NativeBridge.ets\",\"line\":33,\"func\":\"NativeBridge.invokeOhSum\",\"raw\":\"at NativeBridge.invokeOhSum (entry/src/main/ets/bridges/NativeBridge.ets:33:11)\",\"confidence\":0.95},{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/pages/Home.ets\",\"line\":54,\"func\":\"HomePage.computeTotal\",\"raw\":\"at HomePage.computeTotal (entry/src/main/ets/pages/Home.ets:54:7)\",\"confidence\":0.95}]}}],\"meta\":{\"lang\":\"arkts\",\"signals\":[\"crash\",\"logic\"],\"summary\":\"mixed ArkTS/Cangjie crash\"},\"observations\":[]}"
+		"errors": "[{\"type\":\"panic\",\"message\":\"index out of bounds: index=5, size=3\",\"frames\":[{\"lang\":\"cangjie\",\"file\":\"src/bridge/Bridge.cj\",\"line\":18,\"func\":\"demo.bridge.ohSum\",\"raw\":\"at demo.bridge.ohSum(src/bridge/Bridge.cj:18)\",\"confidence\":0.95}],\"cause\":{\"type\":\"Error\",\"message\":\"Cangjie native call failed: index out of bounds\",\"frames\":[{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/bridges/NativeBridge.ets\",\"line\":33,\"func\":\"NativeBridge.invokeOhSum\",\"raw\":\"at NativeBridge.invokeOhSum (entry/src/main/ets/bridges/NativeBridge.ets:33:11)\",\"confidence\":0.95},{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/pages/Home.ets\",\"line\":54,\"func\":\"HomePage.computeTotal\",\"raw\":\"at HomePage.computeTotal (entry/src/main/ets/pages/Home.ets:54:7)\",\"confidence\":0.95}]},\"cause_relation\":{\"authority\":\"explicit_artifact_marker\",\"marker\":\"Caused by: panic: index out of bounds: index=5, size=3\"}}],\"meta\":{\"lang\":\"arkts\",\"signals\":[\"crash\",\"logic\"],\"summary\":\"mixed ArkTS/Cangjie crash\"},\"observations\":[]}"
 	}`)
 
 	tool := &EmitLogTriage{}

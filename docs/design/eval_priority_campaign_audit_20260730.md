@@ -33207,3 +33207,34 @@ Trace 案在 B544 上取得正向结果：5.000ms span 与 4.600ms effective att
 
 状态：`B594=implemented/relevant-suite-pass`；`cpu-topology=typed-prose-independent`；
 `system-verdict=none`；`model-answer-rewrite=none`；Trace causal authority=`unchanged`。
+
+### 123.624 r353：跨语言日志的模型 cause 指针被误升为系统因果边
+
+`main@62b7e5cf5` exact-two runner `1/2`、人工 `0/1/1(pass/fail/uncertain)`，详见
+`eval/parallel_selected_summary_evalcampaign_write_mixedlang_r353_20260812_manual_audit.md`。ArkTS/Cangjie 日志案正确保留四个 literal frame 并指出两种语言各自的问题帧，
+但附件只有相邻的 ArkTS Error 与 Cangjie panic 两个显式 occurrence，没有 `Caused by` 或异常链分隔符。log_triager 仍按相似消息与 1ms 邻接把 panic 嵌入
+`errors[].cause`；旧 validator 只核验两条 message 是否逐字存在、显式错误数量是否过量，不核验 relationship。context renderer 随后无条件把该模型字段写成
+`↳ caused by`，终稿因此先把传播链写成确定事实、末尾才称其为推断。确认 `B595-LOGCAUSEAUTHORITY1/P0-redline`：noisy model grouping 获得 hard causal authority。
+
+Gson write 案的 patch 最小正确，project-declared `make check` 成功且覆盖 changed path；仓库另有可执行 Java main 行为测试，本机无 javac/java，故独立 behavior lane
+诚实进入 `runner_missing/unverified`。不能把 Python 源码 oracle 的 `source_static` 提升为 Java runtime behavior；这是 eval host 能力限制而非降低验证杆的代码修向。
+两案均小于 4 分钟，无 malformed JSON 恢复、系统代答或时长降级。
+
+状态：`B595=P0/in-progress`；`write-patch=applied/source-check-pass/behavior-unavailable`；
+`duration-fallback=not-fired`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+### 123.625 B595：所有日志 cause 边改为显式 artifact-marker 凭证合同
+
+`emit_log_triage` 的递归 error 现在把关系与节点分开：任一 `errors[].cause` 必须同时携带
+`cause_relation={authority:"explicit_artifact_marker",marker:"<verbatim separator line>"}`。运行时同时验证 marker 是附件逐字子串，且属于封闭的生产者结构分隔符：
+Java/Rust 常见 `Caused by:`、Python direct-cause separator、Python handling-context separator。只有 error message、相似文本、时间邻接、公共 tag/ID 或相邻 stack
+全部不能铸造该 carrier；无 marker 的多个显式错误只能作为 top-level peer occurrences，跨错误关系保持 unproven。新 runtime pin 覆盖“无凭证 cause”“逐字但非结构 marker”拒绝臂与
+显式 marker 接受臂；schema pin 固定 closed authority 和 exact marker 字段。
+
+下游 context 对已验证 cause 显示 exact marker，并对多 top-level errors 明示：它们是独立 observed occurrences，顺序/时间/tag/相似消息不证明跨错误 call/causal edge。
+系统不 flatten 后另造边、不扫描用户请求或终稿、不触发答案正文替换、不替模型下结论；它只阻止 noisy relation 进入 typed hard-authority lane。JSON shape-first 教学同步更新，减少模型
+同时面对“可填 cause”与“只能显式 cause”的矛盾心智。
+
+状态：`B595=implemented/affected-suites-pass/production-replay-pending`；
+`log-cause-authority=explicit-artifact-marker-only`；`peer-errors=cross-relation-unproven`；
+`system-answer-rewrite=none`；Trace causal authority=`unchanged`。

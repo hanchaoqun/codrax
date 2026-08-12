@@ -8,7 +8,7 @@ import "strings"
 // serializing native collections twice or treating the recursive cause pointer
 // as a peer-error array. Runtime decoding remains fail-closed unless a malformed
 // carrier can be repaired without changing this tree shape.
-const LogTriageJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one JSON object; meta and errors[].cause are native objects, while errors, every frames field, observations, meta.signals, and unknown_chunks are native arrays. Never quote or escape an object/array as a JSON string. errors[].cause is one recursive error object, never an array; independent error occurrences are separate errors[] entries."
+const LogTriageJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one JSON object; meta, errors[].cause, and errors[].cause_relation are native objects, while errors, every frames field, observations, meta.signals, and unknown_chunks are native arrays. Never quote or escape an object/array as a JSON string. errors[].cause is one recursive error object, never an array; every cause requires a sibling cause_relation object carrying a verbatim explicit artifact marker; independent error occurrences are separate errors[] entries."
 
 // LogBundle is the validated output of the log_triage pre-stage.
 // It carries the LLM's structured view of the user-attached runtime
@@ -323,11 +323,34 @@ type LogError struct {
 	Frames []LogFrame `json:"frames,omitempty"`
 
 	// Cause, when non-nil, is the wrapped / underlying error. The
-	// emit schema allows arbitrary depth but ValidateBundle enforces
-	// a configurable MaxCauseDepth (default 5) to defend against
-	// degenerate emissions.
+	// emit contract admits this edge only alongside CauseRelation, whose
+	// verbatim marker survived the deterministic structural-marker gate.
+	// The schema allows bounded recursion and ValidateBundle enforces a
+	// configurable MaxCauseDepth (default 5) to defend against degenerate
+	// emissions.
 	Cause *LogError `json:"cause,omitempty"`
+
+	// CauseRelation is the precise artifact authority for Cause. It is nil
+	// whenever Cause is nil. Similar messages, timestamp adjacency, shared
+	// frames, or model interpretation cannot mint this carrier.
+	CauseRelation *LogCauseRelation `json:"cause_relation,omitempty"`
 }
+
+// LogCauseRelation records the explicit artifact syntax that establishes one
+// chronological wrapping edge. Authority is intentionally a closed enum. The
+// marker is copied verbatim from the attached artifact and validated before
+// publication; it is not model prose and it never proves a source-code call
+// edge beyond the error-wrapping relation printed by the artifact.
+type LogCauseRelation struct {
+	Authority LogCauseAuthority `json:"authority"`
+	Marker    string            `json:"marker"`
+}
+
+type LogCauseAuthority string
+
+const (
+	LogCauseAuthorityExplicitArtifactMarker LogCauseAuthority = "explicit_artifact_marker"
+)
 
 // LogFrame is one stack-frame. The frame is "complete" when File,
 // Line>0, and Confidence>=MinResolvedConfidence are all present and

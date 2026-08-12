@@ -52,10 +52,16 @@ type emitLogTriageMeta struct {
 }
 
 type emitLogTriageError struct {
-	Type    string               `json:"type"`
-	Message string               `json:"message,omitempty"`
-	Frames  []emitLogTriageFrame `json:"frames,omitempty"`
-	Cause   *emitLogTriageError  `json:"cause,omitempty"`
+	Type          string                      `json:"type"`
+	Message       string                      `json:"message,omitempty"`
+	Frames        []emitLogTriageFrame        `json:"frames,omitempty"`
+	Cause         *emitLogTriageError         `json:"cause,omitempty"`
+	CauseRelation *emitLogTriageCauseRelation `json:"cause_relation,omitempty"`
+}
+
+type emitLogTriageCauseRelation struct {
+	Authority string `json:"authority"`
+	Marker    string `json:"marker"`
 }
 
 type emitLogTriageFrame struct {
@@ -181,6 +187,23 @@ func buildEmitLogTriageSchema() {
 		}
 		if depth > 0 {
 			props["cause"] = errorSchemaAtDepth(depth - 1)
+			props["cause_relation"] = map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"authority", "marker"},
+				"properties": map[string]any{
+					"authority": map[string]any{
+						"type": "string",
+						"enum": []string{string(types.LogCauseAuthorityExplicitArtifactMarker)},
+					},
+					"marker": map[string]any{
+						"type":        "string",
+						"minLength":   1,
+						"maxLength":   500,
+						"description": "One verbatim attached-artifact line that explicitly marks this cause/wrapping relation. Similar messages, timestamps, or adjacency are not markers.",
+					},
+				},
+			}
 		}
 		return map[string]any{
 			"type":                 "object",
@@ -321,6 +344,9 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 			"%s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists",
 			field, evidence,
 		))
+	}
+	if violation := firstInvalidLogTriageCauseRelation(p.Errors, authoritySurface); violation != "" {
+		authorityViolations = append(authorityViolations, violation)
 	}
 	if len(authorityViolations) > 0 {
 		return types.ToolResult{
@@ -504,6 +530,58 @@ func firstUnobservedLogTriageObservationEvidence(observations []emitLogTriageObs
 		}
 	}
 	return "", "", false
+}
+
+// firstInvalidLogTriageCauseRelation enforces the authority boundary for the
+// only relation-bearing field in a log error tree. A model may group frames
+// and copy messages, but it cannot turn message similarity, timestamp
+// adjacency, or two neighboring runtime tags into a chronological cause edge.
+// Every such edge must carry one exact artifact line containing a closed,
+// structural exception-chain marker. This reads the attached artifact and the
+// typed relation carrier only; user-request prose and final/model prose are
+// never inputs.
+func firstInvalidLogTriageCauseRelation(errors []emitLogTriageError, attachedLog string) string {
+	var walk func([]emitLogTriageError, string) string
+	walk = func(items []emitLogTriageError, prefix string) string {
+		for i := range items {
+			path := fmt.Sprintf("%s[%d]", prefix, i)
+			err := &items[i]
+			if err.Cause == nil {
+				if err.CauseRelation != nil {
+					return path + ".cause_relation is present without cause; omit both for independent error occurrences"
+				}
+				continue
+			}
+			if err.CauseRelation == nil {
+				return path + ".cause requires cause_relation with one verbatim explicit artifact marker; similar messages, timestamps, and adjacency do not establish a cause edge"
+			}
+			rel := err.CauseRelation
+			if strings.TrimSpace(rel.Authority) != string(types.LogCauseAuthorityExplicitArtifactMarker) {
+				return fmt.Sprintf("%s.cause_relation.authority=%q is not the closed explicit-artifact authority", path, rel.Authority)
+			}
+			marker := strings.TrimSpace(rel.Marker)
+			if marker == "" || !strings.Contains(attachedLog, marker) {
+				return fmt.Sprintf("%s.cause_relation.marker must be copied verbatim from the attached artifact; unobserved marker=%q", path, marker)
+			}
+			if !isExplicitLogCauseMarker(marker) {
+				return fmt.Sprintf("%s.cause_relation.marker=%q has no supported explicit exception-chain marker; emit the errors as peers and leave their cross-error relationship unproven", path, marker)
+			}
+			if nested := walk([]emitLogTriageError{*err.Cause}, path+".cause"); nested != "" {
+				return nested
+			}
+		}
+		return ""
+	}
+	return walk(errors, "errors")
+}
+
+func isExplicitLogCauseMarker(marker string) bool {
+	// These are producer-defined structural separators, not topical words.
+	// Keep the list deliberately closed: a new runtime form must add a fixture
+	// before it can mint a hard causal edge.
+	return strings.Contains(marker, "Caused by:") ||
+		strings.Contains(marker, "The above exception was the direct cause of the following exception:") ||
+		strings.Contains(marker, "During handling of the above exception, another exception occurred:")
 }
 
 func decodeEmitLogTriageParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitLogTriageParams, string, *types.ToolResult, error) {
@@ -722,6 +800,12 @@ func toValidateError(e *emitLogTriageError) types.LogError {
 	if e.Cause != nil {
 		c := toValidateError(e.Cause)
 		out.Cause = &c
+		if e.CauseRelation != nil {
+			out.CauseRelation = &types.LogCauseRelation{
+				Authority: types.LogCauseAuthority(e.CauseRelation.Authority),
+				Marker:    e.CauseRelation.Marker,
+			}
+		}
 	}
 	return out
 }

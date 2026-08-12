@@ -1470,6 +1470,16 @@ func TestLogTriageSkillUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	if strings.Count(sk.OutputFormat, types.LogTriageJSONShapeFirstTeaching) != 1 {
 		t.Fatalf("canonical JSON-shape teaching must appear exactly once, got %d", strings.Count(sk.OutputFormat, types.LogTriageJSONShapeFirstTeaching))
 	}
+	joined := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"cause_relation={authority:'explicit_artifact_marker'",
+		"Similar error text, adjacent timestamps",
+		"omit both fields for peer/adjacent errors",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("log-triage cause authority teaching missing %q:\n%s", want, joined)
+		}
+	}
 }
 
 func TestAnswerDocumentSkillFrontLoadsProjectedSchemaOwnership(t *testing.T) {
