@@ -33086,3 +33086,37 @@ write-controller 的 typed artifact context 现从 `ChangeReport.TestResults` �
 
 状态：`B561=implemented/relevant-suites-pass`；`partial-pass=visible`；`overall-unavailable=unchanged`；
 `zero-check-claim=typed-only`；Trace causal authority=`unchanged`。
+
+### 123.617 r350：Trace 时间机理自冲突与读流程关系/上下文缺口
+
+`main@f360a2951` exact-two runner `1/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_readcombo_r350_20260812_manual_audit.md`。Trace 案保留显式 7ms 窗、状态/排序、typed 唤醒链、实际占用/规则可消双轴、
+背景边界、因果投影和自动补采；B589 还在首轮分析中把与 current-source exclusion 完全同源的误发 answer exclusion 精确撤销，避免重复重试。但模型同页同时写出
+`wake=5.005000s`、`span_end=5.005400s`，又叙述成 VerifyClass 完成后才唤醒，并把 5.000400..5.005400 的 5ms 写成约 4ms。系统已有
+`on_chain_prewakeup_work_candidate_only` 限定，故这是模型对 typed 时间端点的机理/算术自冲突；继续留作 carrier-first 项，不允许扫描终稿词句硬门或由系统替换模型结论。
+
+读流程案有完整最终答案，也在一个 sequenceDiagram 中保留 StageAnalyze→StageExplore→StageExtract→StageFinalize 全主干；runner 仅因精确 `Mutable` 未出现失败。
+但三条 forward precedence 被画成 response `-->>`，确认 `B591-SEQUENCERELATIONOPERATOR1/P1-high`：以 diagram kind、解析后的 operator 与 schema-validated
+`relation_kind` 建立统一闭矩阵，不按语言/case 修补。另确认 `B592-PRINCIPALWORKFLOWCONTEXT1/P1-high`：explorer 没读 `internal/types/context.go`，把请求明确举例的
+Mutable 留在 unverified；终稿又把不连通的 `internal/analysis/dataflow.Analyze`、`loadOrLowerFile`、`digestFindings` 当作四阶段内部实现。应扩展 checkout-verified
+workflow provider 的状态载体与 principal/supporting 边界，不能靠终稿包含 `Mutable` 的硬门。
+
+两案分别 111s/206s；206s 是 3m26s，不是超过 4 分钟。二者均未发生固定时长降级。已有 B560 红线继续成立：一旦收到真实 reasoning/content/tool/finish/usage
+进展，累计时长不能终止流或授权降级答复；只有首包、真实 byte stall、传输中断、调用方取消、安全事件或精确退化 breaker 可以收敛，恢复也只能发布模型已有载体并披露。
+
+状态：`B589=production-positive`；`B591=P1-high/in-progress`；`B592=P1-high/next`；
+`runner=1/2`；`human=0/2`；Trace causal authority=`preserved`；`active-stream=no-elapsed-time-degrade`。
+
+### 123.618 B591：时序箭头与 typed 关系建立统一语义闭矩阵
+
+非 Trace sequenceDiagram 的共享 relation chokepoint 现统一校验 `parsed operator × relation_kind`。`-->>` 只表示 response/return：显式 `return` 保持合法，
+无 owner 且与前向 invocation 成对的 reverse reply 继续走既有结构判定；`call/callback/guard/import/precedence/contain/type_relation/observe/register/assignment/data_flow/temporal`
+任何 forward owner 使用 `-->>` 都精确失败，并要求只改 operator、保留已证 endpoints 与 relation owner。`call_reply_operator_conflict` 历史 issue 保持兼容，其他关系使用统一
+`sequence_relation_reply_operator_conflict`。
+
+闭矩阵只读取 Mermaid parser 的 operator 与 schema-validated edge anchor，不读取 edge message、用户原文、模型推理或终稿；不补图、不写边、不改结论。显式窗 Trace 图在函数入口
+继续隔离，因果投影/自动补齐/链上根因权威不变。测试遍历 `AllDiagramRelationKinds()`，另以 checkout-proved StageAnalyze→StageExplore 正负臂固定
+`A-->>E` 拒绝、`A->>E` 接受。
+
+状态：`B591=implemented/relevant-suites-pass`；`operator-matrix=typed-closed`；
+`system-diagram-authorship=none`；`B592=next`；Trace causal authority=`unchanged`。

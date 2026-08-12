@@ -4061,8 +4061,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			if mismatch.Issue == diagramCallEdgeIssueOccurrenceUnproven {
 				occurrenceBoundary = " Repeated visible call occurrences consume distinct grounded call-site rows; one typed call row cannot be replayed as several arrows. Collapse repeated endpoint pairs to one arrow, or provide one distinct citable call-site EvidenceItem per retained occurrence."
 			}
-			if mismatch.Issue == diagramCallEdgeIssueReplyOperatorConflict {
-				sequenceOperatorBoundary = " In a sequenceDiagram, an edge owned by relation_kind=call must use a forward invocation operator such as ->> (or the Mermaid async/lost invocation operators); -->> is a response/return operator and is legal without a reverse call anchor only when it is the reverse edge paired with a visible forward invocation. Change the operator, not the evidence-backed endpoints or relation."
+			if mismatch.Issue == diagramCallEdgeIssueReplyOperatorConflict || mismatch.Issue == diagramSequenceRelationReplyConflict {
+				sequenceOperatorBoundary = " In a sequenceDiagram, -->> is a response/return operator. An edge owned by relation_kind=" + string(mismatch.Relation) + " must use a compatible forward operator such as ->> (or, for an invocation, a Mermaid async/lost invocation operator); only relation_kind=return or an unanchored reverse reply structurally paired with a visible forward invocation may use -->>. Change the operator, not the evidence-backed endpoints or relation."
 			}
 		}
 		hints = append(hints, emitFixHint{

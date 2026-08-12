@@ -514,6 +514,49 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceCallReplyOperatorAppliesToGen
 	}
 }
 
+func TestDiagramSequenceReplyOperatorRelationConflict_ClosedMatrix(t *testing.T) {
+	for _, relation := range types.AllDiagramRelationKinds() {
+		t.Run(string(relation), func(t *testing.T) {
+			got, conflict := diagramSequenceReplyOperatorRelationConflict(map[types.DiagramRelationKind]bool{relation: true})
+			if relation == types.DiagramRelReturn {
+				if conflict || got != types.DiagramRelUnknown {
+					t.Fatalf("typed return must remain compatible with -->>: relation=%q conflict=%v", got, conflict)
+				}
+				return
+			}
+			if !conflict || got != relation {
+				t.Fatalf("forward relation %q must conflict with response syntax: relation=%q conflict=%v", relation, got, conflict)
+			}
+		})
+	}
+	if got, conflict := diagramSequenceReplyOperatorRelationConflict(nil); conflict || got != types.DiagramRelUnknown {
+		t.Fatalf("an unowned structural reply must remain available to the pairing check: relation=%q conflict=%v", got, conflict)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequencePrecedenceCannotUseReplyOperator(t *testing.T) {
+	relation := diagramTestReadModePrecedence()[0]
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "stage-sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant A as StageAnalyze",
+			"  participant E as StageExplore",
+			"  A-->>E: next stage",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "E", RelationKind: types.DiagramRelPrecedence}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, nil, []stageauthority.PrecedenceRelation{relation})
+	if len(got) != 1 || got[0].Issue != diagramSequenceRelationReplyConflict || got[0].Relation != types.DiagramRelPrecedence {
+		t.Fatalf("checkout-proved stage order rendered as a reply must fail only operator semantics: %+v", got)
+	}
+	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A-->>E", "A->>E", 1)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, nil, []stageauthority.PrecedenceRelation{relation}); len(got) != 0 {
+		t.Fatalf("the same typed precedence relation with forward syntax must pass: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceKeepsIndependentDiagramAuthority(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A->>B", "A-->>B", 1)

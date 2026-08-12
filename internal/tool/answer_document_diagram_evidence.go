@@ -43,6 +43,7 @@ const (
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
 	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
 	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
+	diagramSequenceRelationReplyConflict      = "sequence_relation_reply_operator_conflict"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
@@ -120,29 +121,42 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
 		typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
 		// Mermaid's -->> sequence operator is a response/return presentation,
-		// not a forward invocation. A model-authored relation_kind=call cannot
+		// not a forward invocation, precedence, callback, binding, or another
+		// forward semantic relation. A model-authored relation_kind cannot
 		// redefine that visible syntax. Keep this operator/relation consistency
 		// check independent from strict family coverage so an ordinary sequence
-		// diagram cannot escape it merely by being classified QFGeneric. Runtime
-		// trace diagrams returned above retain their separate causal authority.
+		// diagram cannot escape it merely by being classified QFGeneric. An
+		// explicit return owner and an unanchored structural reverse reply remain
+		// legal. Runtime trace diagrams returned above retain their separate
+		// causal authority.
 		if block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence {
 			operatorPairOccurrence := make(map[string]int)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				occurrence := operatorPairOccurrence[key]
 				operatorPairOccurrence[key] = occurrence + 1
-				if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" ||
-					!typedAnchorRelations[key][types.DiagramRelCall] {
+				if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" {
+					continue
+				}
+				relation, conflict := diagramSequenceReplyOperatorRelationConflict(typedAnchorRelations[key])
+				if !conflict {
 					continue
 				}
 				fromSymbol, toSymbol := diagramEvidenceEdgeEndpointSymbolsAtOccurrence(
 					edge.From, edge.To, occurrence, effectiveAnchors, labels, evidence,
 				)
+				issue := diagramSequenceRelationReplyConflict
+				if relation == types.DiagramRelCall {
+					// Preserve the established issue identity for downstream pins and
+					// historical diagnostics while the closed matrix covers every
+					// other forward relation through the generic issue.
+					issue = diagramCallEdgeIssueReplyOperatorConflict
+				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
-					BlockID: block.ID, Issue: diagramCallEdgeIssueReplyOperatorConflict,
+					BlockID: block.ID, Issue: issue,
 					FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 					FromSymbol: fromSymbol, ToSymbol: toSymbol,
-					Relation: types.DiagramRelCall,
+					Relation: relation,
 				})
 			}
 		}
@@ -393,6 +407,21 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+// diagramSequenceReplyOperatorRelationConflict is the closed semantic matrix
+// for an explicitly owned sequence edge rendered with Mermaid's response
+// operator. Relation ownership is schema-validated, so this helper never reads
+// message labels, request text, model prose, or rendered answer text. Return is
+// the only typed relation compatible with -->>; no owner is handled separately
+// as a possible structural reverse reply.
+func diagramSequenceReplyOperatorRelationConflict(relations map[types.DiagramRelationKind]bool) (types.DiagramRelationKind, bool) {
+	for _, relation := range types.AllDiagramRelationKinds() {
+		if relations[relation] && relation != types.DiagramRelReturn {
+			return relation, true
+		}
+	}
+	return types.DiagramRelUnknown, false
 }
 
 // diagramEvidenceEdgeEndpointSymbols resolves endpoint identity from the
