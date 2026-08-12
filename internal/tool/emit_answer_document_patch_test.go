@@ -108,6 +108,63 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DropsUniqueNestedItemIDsFromUnchangedBlockList(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1","i1"],
+		"replace_blocks":[{
+			"id":"list1",
+			"kind":"ordered_list",
+			"text":"updated list",
+			"claim_uses":[{"claim_form":"call_edge"}],
+			"items":[{"id":"i1","label":"A","citation_ref":0}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("a uniquely owned nested item id must not invalidate block-level unchanged ids: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || doc.Blocks[1].Text != "updated list" {
+		t.Fatalf("replacement did not apply after nested item-id tolerance: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_StillRejectsUnknownAndAmbiguousUnchangedIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   string
+		prep func(*types.AnswerDocumentV2)
+	}{
+		{name: "unknown", id: "not-a-block-or-item"},
+		{name: "ambiguous nested item", id: "shared", prep: func(doc *types.AnswerDocumentV2) {
+			doc.Blocks[0].Items = []types.AnswerBlockItem{{ID: "shared"}}
+			doc.Blocks[1].Items = append(doc.Blocks[1].Items, types.AnswerBlockItem{ID: "shared"})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := newPatchTestBusContext()
+			if tc.prep != nil {
+				doc := bus.Mutable.AnswerDocumentV2()
+				tc.prep(doc)
+				bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+			}
+			tool := &EmitAnswerDocumentPatch{}
+			params, _ := json.Marshal(map[string]any{"unchanged_block_ids": []string{tc.id}})
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("unexpected exec error: %v", err)
+			}
+			if res.Success || !strings.Contains(res.Summary, "not present in previous emit") {
+				t.Fatalf("%q must remain a strict unknown block id: %+v", tc.id, res)
+			}
+		})
+	}
+}
+
 func TestEmitAnswerDocumentPatch_AddBlockMissingIDStillRejects(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

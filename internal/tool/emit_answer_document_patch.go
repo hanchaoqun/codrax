@@ -260,6 +260,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] id/op duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := normalizeAnswerDocumentPatchNestedItemIDs(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] nested item id(s) removed from block-level preservation surface: %s",
+			strings.Join(fields, ", "))
+	}
 	if changed, fields := normalizeAnswerDocumentPatchBlockOps(prev, patch); changed {
 		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
 			strings.Join(fields, ", "))
@@ -333,6 +337,53 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// unchanged_block_ids is deliberately a block-level preservation surface.
+// Models sometimes copy item ids from the previous-emit JSON into that list
+// because item ids are shown beside block ids in the same payload. Treating a
+// uniquely owned nested item id as an unknown block makes an otherwise valid
+// replacement fail even though the parent block is inherited by default.
+//
+// This tolerance is structural, not fuzzy: only ids that are absent from the
+// previous block-id set and occur as a non-empty item id under exactly one
+// previous block are removed. Unknown strings, ambiguous duplicate item ids,
+// actual block ids, and every replace/add/remove target retain strict behavior.
+func normalizeAnswerDocumentPatchNestedItemIDs(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil || len(patch.UnchangedBlockIDs) == 0 {
+		return false, nil
+	}
+	blockIDs := make(map[string]bool, len(prev.Blocks))
+	itemOwnerCount := make(map[string]int)
+	for _, block := range prev.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			blockIDs[id] = true
+		}
+		seenInBlock := map[string]bool{}
+		for _, item := range block.Items {
+			id := strings.TrimSpace(item.ID)
+			if id == "" || seenInBlock[id] {
+				continue
+			}
+			seenInBlock[id] = true
+			itemOwnerCount[id]++
+		}
+	}
+	out := make([]string, 0, len(patch.UnchangedBlockIDs))
+	var fields []string
+	for _, raw := range patch.UnchangedBlockIDs {
+		id := strings.TrimSpace(raw)
+		if !blockIDs[id] && itemOwnerCount[id] == 1 {
+			fields = append(fields, fmt.Sprintf("unchanged_block_ids[%q] nested item dropped", id))
+			continue
+		}
+		out = append(out, raw)
+	}
+	if len(fields) == 0 {
+		return false, nil
+	}
+	patch.UnchangedBlockIDs = out
+	return true, fields
 }
 
 // preservePatchReplacementStableItemCitationRefs repairs a precise patch-only

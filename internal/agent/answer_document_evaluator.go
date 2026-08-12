@@ -12921,6 +12921,9 @@ func selectorCoverageValues(selector string) []string {
 		if len(match) < 3 {
 			continue
 		}
+		if observationSelectorKeyIsProvenanceLocator(match[1]) {
+			continue
+		}
 		value := strings.Trim(strings.TrimSpace(match[2]), `"'`)
 		if !selectorCoverageValueIsInformative(value) {
 			continue
@@ -12933,6 +12936,21 @@ func selectorCoverageValues(selector string) []string {
 		values = append(values, value)
 	}
 	return values
+}
+
+func observationSelectorKeyIsProvenanceLocator(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "artifact_span", "artifact_spans":
+		// trace_query uses these values to retain the private artifact path,
+		// line range, and clock domain that back a typed observation. They are
+		// citation/provenance coordinates, not a user-domain selector value.
+		// SourceRef/Span carry them through the audit lane; requiring the model
+		// to repeat them in visible prose leaks workspace paths and creates a
+		// repair round without improving the answer.
+		return true
+	default:
+		return false
+	}
 }
 
 func selectorCoverageValueIsInformative(value string) bool {

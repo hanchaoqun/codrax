@@ -211,6 +211,15 @@ func TestRequiresAnchorSkeletonNarrowsOptionalArchitectureAnchors(t *testing.T) 
 	if !generic.RequiresAnchorSkeleton(multiTopic) {
 		t.Fatal("generic multi-topic explanations still require the anchor skeleton")
 	}
+
+	mixedRuntimeSource := multiTopic
+	mixedRuntimeSource.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	if !generic.AllowsAnchorSkeleton(mixedRuntimeSource) {
+		t.Fatal("mixed runtime/source explanations may still render optional key anchors")
+	}
+	if generic.RequiresAnchorSkeleton(mixedRuntimeSource) {
+		t.Fatal("mixed runtime/source explanations must not require a repository anchor for every heterogeneous sub-topic")
+	}
 	mechanism := RequestModel{
 		Intent:        IntentExplain,
 		PredicateAxis: AxisCondition,

@@ -499,6 +499,22 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenExternalObservationSelectorValu
 	}
 }
 
+func TestSelectorCoverageValues_ExcludesTraceArtifactProvenanceCoordinates(t *testing.T) {
+	selector := "pid=2000 event=span_window;artifact_spans=/private/work/.codrax/blob/trace.txt:5-6[trace_seconds]"
+	got := selectorCoverageValues(selector)
+	joined := strings.Join(got, "|")
+	for _, want := range []string{"span_window"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("semantic selector value %q missing from %v", want, got)
+		}
+	}
+	for _, forbidden := range []string{"/private/work", "trace.txt", "trace_seconds"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("provenance coordinate %q must not become visible-answer coverage: %v", forbidden, got)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_ExclusionPolicyHidesConcreteCandidates(t *testing.T) {
 	mut := types.NewMutableState("list public symbols")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

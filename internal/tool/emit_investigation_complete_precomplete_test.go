@@ -5871,6 +5871,60 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ArchitectureSkipsAnalyzerExt
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MixedRuntimeSourceSkipsPerTopicRepoAnchors(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/hitraceconv/render.go": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Source:          "internal/hitraceconv/render.go",
+		LineStart:       241,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "decodeDirectMarkerPayload",
+		Kind:            types.EvidenceRelationship,
+		Subject:         "renderEventBodyDecisionWithPair",
+		Predicate:       "calls",
+		Object:          "decodeDirectMarkerPayload",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+				SubTopics: []types.SubTopic{
+					{Summary: "trace span parsing", Entities: []string{"decodeDirectMarkerPayload"}},
+					{Summary: "external span duration", Entities: []string{"RenderService", "DoFrame"}},
+					{Summary: "runtime/source evidence boundary"},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "typed runtime observations and grounded current-source mechanism evidence use separate authority lanes",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "multi-topic explanation still lacks") {
+		t.Fatalf("mixed runtime/source answer must not demand impossible repo anchors for external sub-topics: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade after heterogeneous authority lanes were grounded: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("InvestigationComplete should be set for the mixed runtime/source answer")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_WriteExplorationSkipsAnswerAnchorSkeleton(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{

@@ -33850,3 +33850,52 @@ current-source support-ref 责任、projected JSON enum 教学、活跃 heartbea
 状态：`B613/B614/B615=implemented/targeted-pass/pending-production-replay`；`active-heartbeat-fixed-age-degrade=removed`；
 `precise-exit-signals=byte-silence|transport|caller-cancel|safety|decode`；`request/model/final-prose-hard-scan=none`；
 `Trace causal projection/system supplement=unchanged`；`model-answer-ownership=preserved`。
+
+### 123.651 r367：活跃长流正证；异构子主题被同构源码锚硬门卡死
+
+`main@7abe2bed4` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r367_20260812_manual_audit.md`。
+
+read-combo 给出 B613/B614 的生产正证：Finalizer 第一稿只有模型自己的 mechanism ordered-list，系统没有再生成第二个 principal list 争抢
+`MaxCount=1`；动态 `claim_form.enum` 与静态 description 也没有再教出相反 form。B615 同时获得直接生产正证：单案总时长 684s，模型流越过旧约四分钟
+cap 后仍继续 Explore/Finalize，并由模型正常发出 7 个答案区块；系统没有按 elapsed age 清空、替换或降级回答。
+
+高时延的主因不是网络连接仍活跃，而是 `B616-MIXEDAUTHORITYANCHORSKELETON1/P1-high`。Analyzer 正确拆出三题：current-source span 解析机制、
+外部 RenderService 时长判断、runtime/current-source 证据边界。后两题分别由 typed trace 观测与边界权威支撑，本就不应拥有 RenderService 的当前仓库定义行；第三题甚至
+没有 code entity。generic `explanationAnchorBackboneDowngrade` 却统一要求每个 sub-topic 一个 repository anchor，模型已经读到
+`answer_document_evaluator.go:11382` 与 `context/builder.go:4353` 后，覆盖仍永久显示 1/3，累计 13 次 completion downgrade、16 次 midloop，期间发生一次
+checkpoint 重启。这是同构源码锚合同套在异构权威答案上的不可满足硬门。
+
+人工答案仍失败：模型把 `B|...|H:RenderService:DoFrame` 的名称前缀叙述为 `H|` 事件语法，并未完整、准确表达 sync correlation/lifecycle/consumer；B611/B612
+继续是 production-partial。Trace D4 的所有精确窗、链上根因、占时/可消、调度/算力/D/IO/语义业务线索、背景降级、因果投影和自动补齐仍完整，但模型再次跨重叠席相加并
+升级 candidate。相同 typed 合同有通过历史，继续按模型波动记录，不新增用户/模型/终稿原文硬门，也不由系统代写结论。
+
+另确认两条显示/协议 gap：`B617-PATCHNESTEDID1/P2`——Previous Emit 同时展示 block/item id，模型把 `h1/h2/h3/j1` 放进 block-only
+`unchanged_block_ids` 后被拒；`B618-PROVENANCESELECTORVISIBLE1/P2`——external selector coverage 把
+`artifact_spans=/.../.codrax/blob/...:5-6[trace_seconds]` 当用户可见语义值，诱导 patch 把私有工作路径写进答案。两者均不改变事实权限，却额外制造重试并污染可读性。
+
+状态：`B613/B614/B615=production-positive`；`B616/B617/B618=confirmed/implemented-targeted-pass/pending-replay`；
+`runner=2/2`；`human=0/2`；`fixed-age-degrade=absent`；`model-answer-ownership=preserved`；
+`Trace causal projection/system supplement=preserved`。
+
+### 123.652 B616/B617/B618：异构权威各守其门；补丁 ID 与定位 selector 收敛
+
+B616 只读取已有 typed `RuntimeQuestionProfile`：multi-topic generic answer 同时含 runtime lane 时，anchor skeleton 仍可作为可选展示，但不再作为 exploration closure 的
+逐子题 repository-line 硬门。runtime 事实继续由 observation/trace 权威校验，current-source 机制继续由 source evidence/facet/claim-form 权威校验；只是禁止把每个外部运行时
+问题强制改写成“必须找到当前仓库定义行”。纯 current-source generic multi-topic 仍保持逐题 anchor hard gate；architecture 的既有 optional 形不变；显式窗口
+`QFRootCauseTrace`、Trace 因果投影与自动补齐均不走该分支。
+
+B617 在 patch decode 后、结构校验前做精确 ID 归属归一化：`unchanged_block_ids` 中若某 id 不是 prev block id、但只在一个 prev block 下作为非空 item id 出现，
+则从 block-level preservation 列表移除；父 block 本就默认继承，内容不会丢失。真正未知 id、跨多个 block 的歧义 item id、所有 block id，以及 replace/add/remove 操作继续
+严格校验。该容错不猜字符串相似度，不修写答案，只消除 schema 层级误投。
+
+B618 将 `artifact_span/artifact_spans` 明确定性为 provenance locator key。其私有路径、行范围和 clock domain 继续留在 typed SourceRef/Span 审计面，但不再成为
+visible-answer selector coverage obligation；`pid/event/waker` 等真正的用户域 selector 仍需保留。实现不扫描模型或终稿，不按路径内容做删除，也不改变 trace observation
+本身，只避免补丁教学要求泄漏 `.codrax/blob` 绝对路径。
+
+定向测试覆盖：mixed runtime/source 仍 allows optional skeleton 但不 requires；纯 generic current-source 仍 requires；completion 可在异构权威分别落地后关闭；唯一 nested
+item id 容错、未知/歧义 id 负臂；artifact provenance locator 排除、semantic selector 正臂。包级 `internal/types`、定向 `internal/tool` 与 `internal/agent` 测试通过，下一轮
+exact-two 重点验收 read-combo 的 investigation downgrade 从 13 次降为 0、无 checkpoint restart、无 selector patch，同时继续观察 B611/B612 机制质量。
+
+状态：`B616/B617/B618=implemented/targeted-pass/pending-production-replay`；`hard-prose-scan=none`；
+`system-answer-authorship=none`；`active-stream-fixed-age-degrade=forbidden`；`Trace causal projection/system supplement=unchanged`。

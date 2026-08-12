@@ -142,6 +142,16 @@ func (v *AnswerSemanticView) RequiresAnchorSkeleton(rm RequestModel) bool {
 	if !subTopicsMayMaterializeCodeAnchorSkeleton(rm) {
 		return false
 	}
+	// A runtime/source-combination answer has heterogeneous authority lanes:
+	// runtime sub-topics are grounded by typed artifact observations, while only
+	// the current-source mechanism sub-topics can own repository line anchors.
+	// Requiring one repository anchor for every analyzer sub-topic makes external
+	// runtime facts (and boundary topics with no code entity) impossible to close.
+	// Keep the optional anchor skeleton for presentation, but leave hard closure
+	// to the independent runtime and current-source evidence contracts.
+	if rm.RuntimeQuestionProfile != nil {
+		return false
+	}
 	return v.Family == QFGeneric
 }
 
