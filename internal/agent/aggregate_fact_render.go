@@ -31,7 +31,15 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 		compactShadowedRows:      structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
 		principalContractIndexes: structuredAggregatePrincipalContractIndexes(ctx, facts),
 		requestModel:             aggregateFactRenderRequestModel(ctx),
+		supportEvidence:          aggregateFactRenderSupportEvidence(ctx),
 	})
+}
+
+func aggregateFactRenderSupportEvidence(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil || len(ctx.EvidenceItems) == 0 {
+		return nil
+	}
+	return ctx.EvidenceItems
 }
 
 func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.AnswerAggregateFact) int {
@@ -89,6 +97,7 @@ type aggregateFactRenderOptions struct {
 	compactShadowedRows      map[int]bool
 	principalContractIndexes map[int]bool
 	requestModel             *types.RequestModel
+	supportEvidence          []types.EvidenceItem
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -206,6 +215,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", support_refs=[%s]", refs)
 			}
 		}
+		if authority := aggregateMemberNoteSupportAuthority(fact, opts.supportEvidence); authority != "" {
+			fmt.Fprintf(&b, ", member_note_support_authority=[%s]", authority)
+		}
 		b.WriteString("\n")
 	}
 	if len(facts) > maxFacts {
@@ -225,6 +237,85 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			maxFacts, len(facts), formatAggregateDroppedCategories(dropped))
 	}
 	return b.String()
+}
+
+const aggregateMemberNoteSupportAuthorityLimit = 12
+
+// aggregateMemberNoteSupportAuthority binds each model-authored member note
+// to the deterministic ClaimForm of its positional support ref. A source
+// location is only an identity until it matches an accepted EvidenceItem; a
+// definition match proves a definition site, not the note's description of a
+// whole function body. This is a bounded prompt projection only: it does not
+// rewrite or delete model-authored notes, and it never parses user/final prose.
+func aggregateMemberNoteSupportAuthority(fact types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
+	if len(fact.MemberNotes) == 0 || len(fact.SupportRefs) == 0 || len(evidence) == 0 {
+		return ""
+	}
+	limit := len(fact.SupportRefs)
+	if len(fact.MemberNotes) < limit {
+		limit = len(fact.MemberNotes)
+	}
+	if limit > aggregateMemberNoteSupportAuthorityLimit {
+		limit = aggregateMemberNoteSupportAuthorityLimit
+	}
+	entries := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		_, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i])
+		if !ok {
+			continue
+		}
+		forms := aggregateSupportLocationClaimForms(location, evidence)
+		if len(forms) == 0 {
+			continue
+		}
+		parts := make([]string, 0, len(forms))
+		for _, form := range forms {
+			part := string(form)
+			if boundary := types.MechanismAuthorityBoundaryForClaimForm(form); boundary != "" {
+				part += "{" + boundary + "}"
+			}
+			parts = append(parts, part)
+		}
+		entries = append(entries, fmt.Sprintf("`%d:%s`", i+1, strings.Join(parts, "+")))
+	}
+	return strings.Join(entries, ", ")
+}
+
+func aggregateSupportLocationClaimForms(location types.AnswerSourceLocationSurface, evidence []types.EvidenceItem) []types.ClaimForm {
+	seen := map[types.ClaimForm]bool{}
+	forms := make([]types.ClaimForm, 0, 2)
+	for _, item := range evidence {
+		if item.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+			continue
+		}
+		if !aggregateSupportLocationMatchesEvidence(location, item) {
+			continue
+		}
+		form := types.ClaimFormOf(item)
+		if form == types.ClaimUnknown || seen[form] {
+			continue
+		}
+		seen[form] = true
+		forms = append(forms, form)
+	}
+	sort.SliceStable(forms, func(i, j int) bool { return forms[i] < forms[j] })
+	return forms
+}
+
+func aggregateSupportLocationMatchesEvidence(location types.AnswerSourceLocationSurface, item types.EvidenceItem) bool {
+	if types.AnswerSourceLocationSurfaceMatchesCitation(location, types.Citation{File: item.Source, Line: item.LineStart}) {
+		return true
+	}
+	end := item.LineEnd
+	if end < item.LineStart {
+		end = item.LineStart
+	}
+	surfaceText := fmt.Sprintf("%s:%d", item.Source, item.LineStart)
+	if end > item.LineStart {
+		surfaceText = fmt.Sprintf("%s:%d-%d", item.Source, item.LineStart, end)
+	}
+	evidenceLocation, ok := types.ParseAnswerSourceLocationSurface(surfaceText)
+	return ok && types.AnswerSourceLocationSurfaceMatchesCitation(evidenceLocation, types.Citation{File: location.File, Line: location.LineStart})
 }
 
 func aggregateFactRuntimeAdvisoryNumericMustOmitValue(rm *types.RequestModel, fact types.AnswerAggregateFact) bool {

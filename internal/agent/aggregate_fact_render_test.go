@@ -63,6 +63,39 @@ func TestRenderStructuredAggregateFactsPreservesBoundedSupportingMemberNotes(t *
 	}
 }
 
+func TestRenderStructuredAggregateFactsBindsMemberNotesToSupportClaimForms(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "parser steps",
+		Value:       "2",
+		Role:        types.AnswerAggregateRoleSupportingCoverage,
+		Members:     []string{"parse", "dispatch"},
+		MemberNotes: []string{"parses every body branch", "calls validate"},
+		SupportRefs: []string{"parse @ src/parser.go:10-30", "dispatch @ src/parser.go:42"},
+	}}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "src/parser.go", LineStart: 10, LineEnd: 30, Scope: types.ScopeLineRange, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+			{Source: "src/parser.go", LineStart: 42, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, want := range []string{
+		"member_note_support_authority=[",
+		"1:definition_fact{source_shape_authority=definition_site_only executable_body=unproven}",
+		"2:call_edge",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("aggregate note authority missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(got, "parses every body branch") {
+		t.Fatalf("authority projection must not delete model-authored notes:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsCapsSupportingMemberNotes(t *testing.T) {
 	var members, notes []string
 	for i := 0; i < 30; i++ {

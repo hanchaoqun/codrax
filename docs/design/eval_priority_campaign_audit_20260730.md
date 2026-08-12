@@ -34123,3 +34123,20 @@ B625 在 B623 的 required source-flow provenance gate 上增加完整性合取�
 状态：`B625=implemented/targeted-pass/pending-production-replay`；`co-listed-typed-sibling=row-required`；
 `whole-request-participant-inference=none`；`model-role/edge-ownership=preserved`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.664 B624b：aggregate member note 继承 positional support ClaimForm ceiling
+
+r372 证明仅在独立 Evidence/handoff 面声明 `definition_site_only` 仍不够：同一个 model-authored aggregate `member_set` 会把 members、member_notes 与 support_refs 再次并列给
+Finalizer，模型容易把“有 file:line”误读成“该 note 的全部函数体解释已证”。B624b 不删除 member note，也不尝试评价其自然语言；它在 Finalizer 的 aggregate prompt 上增加
+`member_note_support_authority` positional projection。
+
+投影逐个解析 schema 已接纳的 support_ref source location，并只与当前 accepted EvidenceItem 的 source/line/range、grounding 和 deterministic ClaimForm 对齐。结果例如：
+`1:definition_fact{source_shape_authority=definition_site_only executable_body=unproven}`、`2:call_edge`。其含义是第 1 条 note 最多证明定义入口存在，第 2 条最多证明该精确 call shape；
+多条 ref 不能自动铸造先后顺序、完整路径或分支等价。无法与 accepted evidence 精确对齐的 ref 不获得这项权限标签。
+
+该机制只作用于 prompt 证据权限，不修改 aggregate fact、模型答案或 citation；不扫描 member note、请求、reasoning 或终稿文本。它复用统一 support-ref parser、source-location matcher 和
+ClaimForm authority helper，适用于所有源码语言与机制类型。定向测试同时钉住 definition/call 两种位置权威和“原 member note 字节仍保留”。
+
+状态：`B624b=implemented/targeted-pass/pending-production-replay`；`member-note-authority=positional-typed`；
+`aggregate-model-content=preserved`；`path/order-synthesis=not-authorized-by-ref-count`；`raw-prose-hard-gate=none`；
+`system-answer-authorship=none`；`Trace causal projection/system supplement=unchanged`。
