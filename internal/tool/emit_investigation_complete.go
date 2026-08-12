@@ -13087,6 +13087,58 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 			return fmt.Sprintf("%s — principal_span_waiver=no_directed_path lacks exact endpoint existence proof.\n\nUnresolved or ambiguous endpoint(s): `%s`. Before declaring a no-path boundary, locate and read each exact endpoint and emit a grounded current-source definition or real call edge. A prefix sibling such as RunWith for Run, recovered anchor, runtime artifact, or waiver rationale cannot prove endpoint existence.",
 				EmitInvestigationCompleteDowngradePrefix, strings.Join(missing, "`, `"))
 		}
+		// A grounded definition or incident edge proves that an endpoint
+		// exists, but it does not prove the explorer inspected that endpoint
+		// before declaring a negative topology boundary. Keep the two
+		// contracts separate: no_directed_path is accepted only when each
+		// exact endpoint has a definition line or an outbound body call in the
+		// read closure. This consumes typed evidence + read ranges only; waiver
+		// rationale and model/user prose remain audit-only.
+		var unread []string
+		var unreadDemands []callChainEndpointBodyReadDemand
+		for _, endpoint := range []string{startHint, endHint} {
+			if !callChainExactEndpointBodyInspected(closure, evidence, endpoint) {
+				unread = append(unread, endpoint)
+				unreadDemands = append(unreadDemands, callChainExactEndpointBodyReadDemands(evidence, endpoint)...)
+			}
+		}
+		if len(unread) > 0 {
+			if len(unreadDemands) == 0 {
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairEmitEvidence,
+					Keywords:  append([]string(nil), unread...),
+					Tools:     []string{"repo_map", "grep", "read_file", "emit_evidence"},
+					Rationale: "no_directed_path requires direct read-closure inspection of both exact endpoint bodies; locate and read each endpoint definition/body before retrying",
+					Origin:    "pre_complete.call_chain_no_path_endpoint_body_locate",
+					Stage:     string(types.StageExplore),
+				})
+			} else {
+				seenDemand := make(map[string]bool)
+				for _, demand := range unreadDemands {
+					key := strings.ToLower(demand.File) + ":" + strconv.Itoa(demand.Line)
+					if demand.File == "" || demand.Line <= 0 || seenDemand[key] {
+						continue
+					}
+					seenDemand[key] = true
+					start := demand.Line - 4
+					if start < 1 {
+						start = 1
+					}
+					closure.AddRepair(types.RepairDirective{
+						Kind:       types.RepairReadFile,
+						Files:      []string{demand.File},
+						Keywords:   []string{demand.Endpoint},
+						Tools:      []string{"read_file", "emit_evidence"},
+						Rationale:  "read the exact endpoint definition/body before declaring no_directed_path so any reverse or parallel parser edge can be carried without guessing",
+						Origin:     "pre_complete.call_chain_no_path_endpoint_body_read",
+						Stage:      string(types.StageExplore),
+						LineRanges: []types.LineRange{{Start: start, End: demand.Line + 80}},
+					})
+				}
+			}
+			return fmt.Sprintf("%s — principal_span_waiver=no_directed_path lacks direct endpoint-body inspection.\n\nEndpoint body not present in the read closure: `%s`. A grep/repo-map row or grounded definition proves existence only; read the exact definition/body, emit any observed reverse or parallel call edge, then retry. The system will carry an AST-grade call from an already-read endpoint line, but it will not infer one from the waiver rationale.",
+				EmitInvestigationCompleteDowngradePrefix, strings.Join(unread, "`, `"))
+		}
 		return ""
 	}
 	if waiver != nil && waiver.IsActive() {
@@ -13114,6 +13166,75 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 	}
 	return fmt.Sprintf("%s — exact call-chain endpoint is not directionally proven.\n\nThe accepted source-code graph contains %d typed call edge(s); %s for `%s` -> `%s`. A symbol definition, a nearby helper, or a prefix sibling such as RunWith for Run cannot prove that direction. Emit grounded same-direction call-edge evidence if the path exists. If source inspection establishes that no such directed path exists, retry with principal_span_waiver.reason=no_directed_path and a concrete rationale, then present the nearest proven path and the endpoint boundary separately instead of inventing an edge.",
 		EmitInvestigationCompleteDowngradePrefix, edgeCount, resolution, startHint, endHint)
+}
+
+type callChainEndpointBodyReadDemand struct {
+	Endpoint string
+	File     string
+	Line     int
+}
+
+func callChainExactEndpointBodyReadDemands(evidence []types.EvidenceItem, endpoint string) []callChainEndpointBodyReadDemand {
+	out := make([]callChainEndpointBodyReadDemand, 0, 2)
+	for _, item := range evidence {
+		if !item.IsCitable() || item.LineStart <= 0 ||
+			types.RuntimeArtifactPathKind(item.Source) != "" ||
+			!types.HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) {
+			continue
+		}
+		matched := false
+		switch types.ClaimFormOf(item) {
+		case types.ClaimDefinitionFact:
+			proof := types.AnalyzeCallChainEndpointExistence([]types.EvidenceItem{item}, endpoint, endpoint)
+			matched = proof.StartProven && proof.EndProven && !proof.StartAmbiguous && !proof.EndAmbiguous
+		case types.ClaimCallEdge:
+			caller := strings.TrimSpace(item.OwnerSymbol)
+			if caller == "" {
+				caller = strings.TrimSpace(item.Subject)
+			}
+			matched = callChainMatchesOrderedEndpoint(caller, endpoint)
+		}
+		if matched {
+			out = append(out, callChainEndpointBodyReadDemand{Endpoint: endpoint, File: item.Source, Line: item.LineStart})
+		}
+	}
+	return out
+}
+
+// callChainExactEndpointBodyInspected distinguishes "the endpoint exists"
+// from "the endpoint body was inspected". A definition counts only when its
+// exact source line was returned by read_file. A call edge counts only for its
+// caller (the line lies in that caller's body), never for an inbound callee.
+// Singleton endpoint-existence analysis preserves the shared cross-language
+// owner/file qualification rules without scanning source or prose here.
+func callChainExactEndpointBodyInspected(closure *types.EvidenceClosure, evidence []types.EvidenceItem, endpoint string) bool {
+	if closure == nil || strings.TrimSpace(endpoint) == "" {
+		return false
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || item.LineStart <= 0 ||
+			types.RuntimeArtifactPathKind(item.Source) != "" ||
+			!types.HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) ||
+			!closure.HasReadLine(item.Source, item.LineStart) {
+			continue
+		}
+		switch types.ClaimFormOf(item) {
+		case types.ClaimDefinitionFact:
+			proof := types.AnalyzeCallChainEndpointExistence([]types.EvidenceItem{item}, endpoint, endpoint)
+			if proof.StartProven && proof.EndProven && !proof.StartAmbiguous && !proof.EndAmbiguous {
+				return true
+			}
+		case types.ClaimCallEdge:
+			caller := strings.TrimSpace(item.OwnerSymbol)
+			if caller == "" {
+				caller = strings.TrimSpace(item.Subject)
+			}
+			if callChainMatchesOrderedEndpoint(caller, endpoint) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainDirectedPathStatus, int) {

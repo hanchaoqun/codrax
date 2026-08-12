@@ -165,6 +165,10 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
 	})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/agent/analyzer.go":     true,
+		"internal/analysis/gate/gate.go": true,
+	})
 	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
 		RequestModel: types.RequestModel{
 			Intent:                   types.IntentTrace,
@@ -216,7 +220,7 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 		CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
 		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
 	}}}
-	params := json.RawMessage(`{"reason":"source inspection found no path","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"the collected graph reaches only gate.RunWith"}}`)
+	params := json.RawMessage(`{"reason":"source inspection found no path","confidence":"high","result_kind":"resolved","aggregate_facts":[{"kind":"member_set","role":"principal_answer","label":"nearest proven path","members":["buildAnalysisIR","gate.RunWith"],"support_refs":["internal/agent/analyzer.go:2666","internal/agent/analyzer.go:2666"]}],"principal_span_waiver":{"reason":"no_directed_path","rationale":"the collected graph reaches only gate.RunWith"}}`)
 	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
@@ -242,9 +246,111 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 		Subject: "gate", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go",
 		LineStart: 134, GroundingStatus: types.GroundingGrounded,
 	}})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{"internal/agent/analyzer.go": true})
+	mut.EvidenceClosure().SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/analyzer.go": {{Start: 2600, End: 2750}},
+	})
+	res, err = (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil || !res.Success || mut.IsInvestigationComplete() {
+		t.Fatalf("existence without direct endpoint-body inspection must keep the negative topology boundary open: res=%+v err=%v", res, err)
+	}
+	for _, want := range []string{"lacks direct endpoint-body inspection", "`gate.Run`"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("body-read downgrade missing %q: %s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "`buildAnalysisIR`, `gate.Run`") {
+		t.Fatalf("already-read caller body must not be re-requested: %s", res.Summary)
+	}
+	pending := mut.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].File != "internal/analysis/gate/gate.go" || len(pending[0].LineRanges) != 1 {
+		t.Fatalf("production-shaped body repair must request one bounded sink file range: %+v", pending)
+	}
+	mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"internal/analysis/gate/gate.go": {
+			RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate",
+			Symbols: []repotypes.Symbol{
+				{Name: "Run", Kind: "function", File: "internal/analysis/gate/gate.go", Line: 134, EndLine: 136},
+				{Name: "RunWith", Kind: "function", File: "internal/analysis/gate/gate.go", Line: 143, EndLine: 200},
+			},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/analysis/gate/gate.go", Line: 135,
+				ToEP: repotypes.RelationEndpoint{Name: "RunWith"}, Confidence: repotypes.ConfidenceAST,
+				Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
+			}},
+		},
+	}})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/agent/analyzer.go":     true,
+		"internal/analysis/gate/gate.go": true,
+	})
+	mut.EvidenceClosure().SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/analyzer.go":     {{Start: 1, End: 3000}},
+		"internal/analysis/gate/gate.go": {{Start: 1, End: 220}},
+	})
+	mut.EvidenceClosure().DrainSatisfiedPendingReads()
 	res, err = (&EmitInvestigationComplete{}).Execute(bus, params)
 	if err != nil || !res.Success || !mut.IsInvestigationComplete() {
-		t.Fatalf("both exact endpoints proven with no directed path should retain model-owned typed escape: res=%+v err=%v", res, err)
+		t.Fatalf("both exact endpoint bodies read with no directed path should retain model-owned typed escape: res=%+v err=%v", res, err)
+	}
+	if !callChainTypedEvidenceContainsExactParserRelation(mut.EmittedEvidence(), "internal/analysis/gate/gate.go", 135, "gate.Run", "gate.RunWith") {
+		t.Fatalf("accepted boundary must carry the already-read reverse/parallel wrapper edge into typed evidence: %+v", mut.EmittedEvidence())
+	}
+}
+
+func TestCallChainExactEndpointBodyInspected_AllExecutableLanguageSurfaces(t *testing.T) {
+	tests := []struct {
+		name, file, endpoint, local string
+	}{
+		{"go", "internal/gate/gate.go", "gate.Run", "Run"},
+		{"java", "src/Gate.java", "Gate.run", "run"},
+		{"kotlin", "src/Gate.kt", "Gate.run", "run"},
+		{"c", "src/gate.c", "gate_run", "gate_run"},
+		{"cpp", "src/Gate.cc", "Gate::Run", "Run"},
+		{"rust", "src/gate.rs", "gate::run", "run"},
+		{"python", "src/gate.py", "gate.run", "run"},
+		{"javascript", "src/gate.js", "gate.run", "run"},
+		{"typescript", "src/gate.ts", "gate.run", "run"},
+		{"ruby", "lib/Gate.rb", "Gate#run", "run"},
+		{"swift", "Sources/Gate.swift", "Gate.run", "run"},
+		{"lua", "src/gate.lua", "gate.run", "run"},
+		{"arkts", "entry/src/gate.ets", "gate.run", "run"},
+		{"cangjie", "src/gate/entry.cj", "gate.run", "run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			closure := types.NewEvidenceClosure("")
+			closure.SetReadSet(map[string]bool{tt.file: true})
+			closure.SetReadRanges(map[string][]types.LineRange{tt.file: {{Start: 20, End: 24}}})
+			evidence := []types.EvidenceItem{{
+				Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
+				Subject: tt.local, AnchorSymbol: tt.local, Source: tt.file, LineStart: 20,
+				GroundingStatus: types.GroundingGrounded,
+			}}
+			if !callChainExactEndpointBodyInspected(closure, evidence, tt.endpoint) {
+				t.Fatalf("read exact definition did not prove endpoint body inspection for %q", tt.endpoint)
+			}
+			closure.SetReadRanges(map[string][]types.LineRange{tt.file: {{Start: 21, End: 24}}})
+			if callChainExactEndpointBodyInspected(closure, evidence, tt.endpoint) {
+				t.Fatalf("definition outside read range must not prove endpoint body inspection for %q", tt.endpoint)
+			}
+		})
+	}
+}
+
+func TestCallChainExactEndpointBodyInspected_InboundEdgeDoesNotProveCalleeBody(t *testing.T) {
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"src/source.go": true})
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "source.Run", Object: "sink.Run", AnchorSymbol: "sink.Run",
+		Source: "src/source.go", LineStart: 30, GroundingStatus: types.GroundingGrounded,
+	}}
+	if callChainExactEndpointBodyInspected(closure, evidence, "sink.Run") {
+		t.Fatal("an inbound callsite is in the caller body and must not prove callee-body inspection")
+	}
+	if !callChainExactEndpointBodyInspected(closure, evidence, "source.Run") {
+		t.Fatal("an already-read outbound callsite should prove caller-body inspection")
 	}
 }
 

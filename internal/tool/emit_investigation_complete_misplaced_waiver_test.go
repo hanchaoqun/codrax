@@ -14,6 +14,10 @@ func TestEmitInvestigationComplete_RecoversNoDirectedPathWaiverFromStringEncoded
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
 	})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/agent/analyzer.go":     true,
+		"internal/analysis/gate/gate.go": true,
+	})
 	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:                   types.IntentTrace,
 		PredicateAxis:            types.AxisCall,

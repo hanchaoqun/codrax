@@ -34897,3 +34897,45 @@ label normalizer 的 backtick 提前退出条件也同步收窄：当前引用�
 `body-code-token=secondary-when-label-not-proven`；`citation-gate=unchanged/advisory`；
 `system-answer-rewrite=none`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.701 B651 根因：端点存在证明与端点函数体读闭包被错误合并
+
+r389 的生产记录纠正了初始判断：最终上下文缺少 `gate.Run -> gate.RunWith` 并不是 Go AST 提取器不会抽该边，
+也不是 Finalizer 已收到正确 typed edge 后单纯反转。Explorer 读取了 `analyzer.go`，所以
+`buildAnalysisIR -> gate.RunWith` 在精确读闭包；它只通过 grep/repo-map/定义证据看见 `gate.Run`，从未
+`read_file` 其 `gate.go:134-135` 函数体。既有 AST relation handoff 正确要求调用行已读，因此拒绝替模型补造
+未读关系；但 `no_directed_path` 接受门仅检查端点“存在”，把“有 grounded definition”误当成“已检查函数体”，
+随后接受负向拓扑边界。两个各自合理的精确合同在接线上形成缺口：负向结论获得的读权限比正向 AST 边更弱，
+最后模型只能依赖自己的错误解释，并在图拒绝后丢掉主关系。
+
+根修将两个 carrier 分离：端点 existence 仍只证明身份存在；`no_directed_path` 另要求 source/sink 各有一个已读
+definition 行或已读 outbound callsite。若某端点未读、但已有精确 definition location，系统发出包含文件与
+有界行窗的 `RepairReadFile`；若连位置都没有，才发定位/证据 repair。读完后，既有 AST-grade relation handoff
+可把真实 reverse/parallel wrapper edge 携入 typed evidence。它仍不从 waiver rationale、用户原文、模型
+reasoning 或最终答案推断方向，也不替模型成文。
+
+回归使用生产同形的“只读 analyzer caller、gate sink 仅有 definition”先红路径，验证只请求
+`internal/analysis/gate/gate.go` 一个有界窗；补读后验证 `gate.Run -> gate.RunWith` 由 parser relation 自动进入
+typed evidence。端点 body-read predicate 覆盖 Go、Java、Kotlin、C、C++、Rust、Python、JavaScript、
+TypeScript、Ruby、Swift、Lua、ArkTS、Cangjie；inbound callee callsite 明确不能假装 callee body 已读。
+
+状态：`B651=implemented/targeted-pass`；`endpoint-existence!=endpoint-body-inspection`；
+`negative-topology=requires-both-exact-endpoint-bodies-read`；
+`reverse/parallel-edge=AST-grade+read-closure-only`；`model/system-prose-scan=none`；
+`system-answer/relation-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.702 活跃流超过四分钟不得触发降级：主线复核
+
+用户再次明确“流式链接活跃、四分钟尚无最终答案时不要降级”。代码复核结论是当前主线已满足：OpenAI SSE
+client 没有累计时长总闸；heartbeat、reasoning、content、tool-call 任一持续字节活动都会刷新 liveness；只允许
+first-byte/byte-silence、明确 transport/decode failure、调用方 cancel/deadline 等精确信号结束请求。
+`finalizerNoVisibleOutputFallback` 保留为 L1 调度接缝但恒返回 nil，不能把仍在工作的模型替换成系统证据摘要。
+
+测试 `TestDoStreamRequest_KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel` 已固定：活跃心跳越过旧
+`2×request_timeout` 后只能由调用方 deadline 终止，不得铸造 legacy total-timeout；此前 H11 生产回放 321s
+也由同一模型流正常产出。这里的“4ms”若是字面毫秒同样不构成权限；系统不使用 elapsed age 判断答案缺席。
+
+状态：`active-stream-age-degrade=forbidden/already-fixed`；
+`over-4m-production-positive=H11-321s`；`transport/byte-silence/caller-cancel=only-failure-authorities`；
+`system-degraded-answer-while-stream-active=forbidden`；`new-code-change=none`。
