@@ -76,6 +76,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"diagnostic_profile":             true,
 		"answer_role_profile":            true,
 		"error_granularity_profile":      true,
+		"requested_answer_dimensions":    true,
 		"runtime_artifact_scope_profile": true,
 		"runtime_target_profile":         true,
 		"runtime_question_profile":       true,

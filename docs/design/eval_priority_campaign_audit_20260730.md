@@ -33138,3 +33138,39 @@ prompt 将这些字段发布为 context-only ownership facts，明确不证明�
 
 状态：`B592=implemented/relevant-suites-pass`；`context.go=investigation-not-membership-authority`；
 `homonym-boundary=soft-provider-guidance`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。
+
+### 123.620 r351：活跃长流正向验证与 read 主阶段关系 authority 掉线
+
+`main@f1f88ec83` exact-two runner `2/2`，人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_readcombo_r351_20260812_manual_audit.md`。Read 案连续运行 351s（5m51s），期间持续收到真实模型推理、正文与工具进展，
+最终产出完整模型答案；系统没有因累计超过 4 分钟降级、切换恢复稿或发布系统代答。这是 B560 的生产正臂。固定时长不构成降级权限；只允许首包超时、真实 byte stall、
+传输中断、调用方取消、安全事件或精确退化 breaker 收敛，且恢复仍只能发布已有模型载体并明确披露。
+
+B592 同样得到生产正向证据：explorer 实际读取 context.go，终稿保留 `BusContext/MutableState/AnalysisIR/EvidenceItems/AnswerDocument`，r350 的同名
+`dataflow.Analyze/loadOrLowerFile/digestFindings` 污染未复发。但 runner PASS 仍是人工失败：analyzer 在 sub_topics 中明确识别“阶段输入/输出/状态载体表”，却没有发出
+`requested_answer_dimensions`，同时因 participant quote 校验把 diagram participant slate 清空。于是 prompt 与 validator 共享的 checkout-verified
+`StageAnalyze -> StageExplore -> StageExtract -> StageFinalize` precedence authority 均未激活。首稿虚构大量 call/data-flow，三轮修补后模型通过删除全部阶段关系逃出校验，
+最终图只剩 `runAnalyzePhase -> dispatchStage` 与 `runTaskGraph -> runReadSchedulerLoop` 两条孤立调用边，完全没有用户要求的四阶段时序。确认
+`B593-ANALYSISDIMENSIONDECLARATION1/P1-high`：这是 typed request-shape 掉线，不是 Mermaid 单 case 或模型波动。
+
+Trace 案继续保留显式窗、typed 链、两轴可消、因果投影、自动补采与非链背景边界；但 B544 再次复发：同页 typed 时间是 span
+`5.000400..5.005400`、wake `5.005000`，模型仍写成“5ms 约 4ms”及“工作完成后才唤醒”。后续只能增强 typed temporal/mechanism carrier 的模型可见性，
+禁止扫描终稿措辞硬拒或由系统改写结论。
+
+状态：`B560=production-positive@351s`；`B592=production-positive`；`B593=P1-high/in-progress`；
+`runner=2/2`；`human=0/2`；Trace causal authority=`preserved`；`system-answer-authorship=none`。
+
+### 123.621 B593：分析 JSON 必须显式声明答案维度，软语义不变
+
+`emit_analysis` 的 JSON schema、analysis skill workflow 与 OutputFormat 现统一要求每次显式提交 `requested_answer_dimensions`。没有显式维度时提交
+`is_dimensioned_answer=false + confidence`；用户明确要求阶段/流程表、输入/输出/状态载体、图表或其他可见维度时提交 true 并携带 anchored dimensions。
+这消除了旧合同中的矛盾：总体教学要求“每个发出的字段来自当前请求”，但又把唯一的可见维度载体标为 optional，允许 analyzer 明知存在阶段表仍完全漏发。
+
+该变更只强制 typed true/false **声明**，不把 dimensions 升格为代码事实或最终答案硬门。active dimension 仍经现有 provenance normalization 软归一；stage precedence 仍必须由
+checkout-verified `stageauthority`、当前仓 grounded evidence 与 typed flow/required-diagram 共同授权；图边仍由模型创作并由 relation owner 校验，系统不读取用户/终稿关键词、不插边、
+不替换模型结论。Trace intent/QF 在 stage authority 入口继续 fail-closed，显式窗、自动补齐、因果投影与链上根因权威不变。
+
+测试新增 schema required pin，并把 schema/skill/output-format 三面一致性纳入既有 guard；false 默认进入测试 helper，显式 true fixture 不被重复 JSON key 覆盖。
+
+状态：`B593=implemented/targeted-tests-pass`；`analysis-json-contract=three-surface-aligned`；
+`dimension-semantics=soft`；`diagram-authorship=model-only`；Trace causal authority=`unchanged`。

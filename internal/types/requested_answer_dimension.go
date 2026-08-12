@@ -130,8 +130,9 @@ func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAn
 }
 
 // RequestedAnswerDimensionProfile is analyzer-emitted presentation guidance.
-// It is deliberately soft: invalid or unanchored entries are dropped, and the
-// absence of the profile never blocks analysis or finalization.
+// The analyzer tool schema requires an explicit active/inactive declaration,
+// while its semantics remain deliberately soft: invalid or unanchored entries
+// are dropped and an inactive profile never blocks finalization.
 type RequestedAnswerDimensionProfile struct {
 	IsDimensionedAnswer bool                       `json:"is_dimensioned_answer"`
 	Dimensions          []RequestedAnswerDimension `json:"dimensions,omitempty"`

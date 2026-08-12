@@ -799,7 +799,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Optional soft typed profile for visible answer dimensions the CURRENT request explicitly asks the final answer to preserve, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. This is presentation guidance only, not an evidence origin and not a hard validation gate.",
+				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Active dimensions remain soft presentation guidance, not an evidence origin and not a hard validation gate.",
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
@@ -948,6 +948,7 @@ func buildEmitAnalysisSchema() {
 			"predicate_axis",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
+			"requested_answer_dimensions",
 			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "completeness_obligation", "call_chain_endpoints",
 		},
 	}

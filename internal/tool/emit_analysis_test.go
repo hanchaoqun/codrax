@@ -82,6 +82,13 @@ func withV4Required(partial string) string {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
 	defaults := v4DefaultsJSON
+	if !strings.Contains(trimmed, `"requested_answer_dimensions"`) {
+		defaults += `,
+	"requested_answer_dimensions": {
+		"is_dimensioned_answer": false,
+		"confidence": 0.7
+	}`
+	}
 	if !strings.Contains(trimmed, `"runtime_target_profile"`) && !strings.Contains(trimmed, `"runtime_targets"`) {
 		defaults += `,
 	"runtime_target_profile": {
@@ -693,6 +700,25 @@ func TestEmitAnalysisSchemaRequiresExplicitCompletenessDecision(t *testing.T) {
 	} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("completeness schema description missing %q: %q", want, description)
+		}
+	}
+}
+
+func TestEmitAnalysisSchemaRequiresExplicitAnswerDimensionDecision(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &root); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	required, _ := root["required"].([]any)
+	if !slices.Contains(required, any("requested_answer_dimensions")) {
+		t.Fatalf("root required fields omit requested_answer_dimensions: %#v", required)
+	}
+	properties := root["properties"].(map[string]any)
+	profile := properties["requested_answer_dimensions"].(map[string]any)
+	description, _ := profile["description"].(string)
+	for _, want := range []string{"Required typed declaration", "is_dimensioned_answer=false", "not an evidence origin"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("requested-answer-dimension schema description missing %q: %q", want, description)
 		}
 	}
 }
