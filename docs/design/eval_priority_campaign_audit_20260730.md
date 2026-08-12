@@ -33429,3 +33429,31 @@ JSON 恢复或长流 breaker。下一步先跑 `internal/tool` 全套，再 exac
 状态：`B601=implemented/internal-tool-pass/pending-production-replay`；`relation-source=model-authored`；
 `repair-source=unique-parser/read-line-tuple`；`answer-prose-gate=none`；`system-edge-authorship=none`；
 `active-stream=fixed-age-degrade-forbidden`。
+
+### 123.635 r359：B601 生产闭环；可选图 recipe 消费仍有一次无效重画
+
+`main@3db1f7dc0` exact-two runner `2/2`、人工 `2/2`，详见
+`eval/parallel_selected_summary_evalcampaign_pycallback_javacall_r359_20260812_manual_audit.md`。
+
+Python 复放中，首批 model-authored `run_pipeline -> plugin.handle` call-shaped 行仍被正确归类为
+`loop.run_in_executor -> handle` callback handoff；B601 同轮返回 `callback_receiver_call_pair`，明确要求另发
+`run_pipeline -> loop.run_in_executor`。模型下一轮主动补发 exact call，最终上下文报告
+`grounded_callsite_facts=2 / explicit_typed_directed_relations=4`，且原先两个 verified components 合并为一个：
+`resolve | JsonPlugin 实例 | run_pipeline | loop.run_in_executor | handle`。正文正确保留 JsonPlugin、registry lookup/`cls()` 实例化、
+import-time `@register("json")`、executor callback 和 cooperative MRO。B601 从 pending replay 收账为 production positive。
+
+同案的可选 sequence 图仍有一档独立观察：Finalizer 已收到 exact recipe
+`run_pipeline -> resolve`、`run_pipeline -> loop.run_in_executor`、`loop.run_in_executor -> handle`，第一稿却自行扩写 Caller、REGISTRY lookup、
+Mixin/Base 等未经同向 typed relation 证明的消息；validator 精确拒绝后，模型按“diagram optional”教学删除整块。最终 hop list 与正文仍正确，因此人工通过。
+当前 request 没有显式要求图，typed `diagram_hint` 也不存在，故不能把 optional diagram 硬化为必带；否则会制造“可选”与“必带”的冲突合同。
+记录 `B602-OPTIONALRECIPECONSUMPTION1/P2-watch`：后续只考虑把已存在 exact recipe 变成更短、更近的软 copy-first 教学，降低模型重画心智；不得由系统代画、
+不得扫描终稿关系词、不得把所有 call-chain 答案强制成图。需等待另一个异构生产 witness 后再施工，避免为单例过拟合。
+
+Java 普通 direct-call 对照 117s 一轮成文通过，无 callback 配对 repair。答案逐跳覆盖 controller → service、配置阈值与 count guard、repository insert、
+AuditLog.record，并明确纠正：当前 `AuditLog.record` 只写 stdout，不是真正数据库持久化。图同样未被用户显式请求，逐跳 list 已承载关系，不记缺图失败。
+
+两案均无 malformed JSON、无系统代答、无固定时长降级。Python 140s、Java 117s；真实模型流活跃期间累计 elapsed 不产生恢复权限。
+
+状态：`B601=production-positive/closed-watch`；`B602=P2/watch-needs-second-witness`；`B600=pending`；
+`runner=2/2`；`human=2/2`；`optional-diagram=not-hardened`；`system-edge-authorship=none`；
+`active-stream=fixed-age-degrade-forbidden`；Trace causal authority=`unchanged/not-exercised`。
