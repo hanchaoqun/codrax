@@ -35279,3 +35279,44 @@ runner 2/2 PASS，人工 1/2 PASS；详见
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.713 r399：完整等待清单与供给折算角色生产闭环；微型 write-plan JSON 单次恢复观察
+
+在 `main@cc20bae7f` 上严格并发恰好两个案例：
+`real_trace_h7_self_seat_full_spectrum` 与 `patch_cpp_typo`。runner 与人工均
+2/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_trace_write_r399_20260812_manual_audit.md`。
+
+1. B660/B661 获得生产正证。Finalizer 决策尾部实际收到
+   `target_wait_enumeration_authority`：同一 deterministic result 的目标等待 roster
+   明确为 `1..11` 完整、36.757ms，候选/display cap 不降低它；同时收到
+   `supply_fold_value_authority`：目标 running 席的精确角色方程为
+   `9.003ms ideal + 65.912ms deficit = 74.915ms folded running`。
+2. 模型首稿正确消费：完整列出 11 段，没有再说 #9–#11 未列出或推算残余约
+   9.8ms；9.003ms 被称为理想等价运行，65.912ms 是唯一供给折算缺口。
+   12 条/Σ39.157ms blocked-reason census 继续与 11 段/36.757ms scheduler account
+   分账，B658 也维持闭环。
+3. 显式 233.190ms 用户窗、三次 typed query、完整 Trace 因果投影、系统补齐、链上
+   根因人口、实际占用/现规则可消双轴、D-state、算力/调度/优先级候选、业务 span
+   线索及邻近/背景隔离均保留；零 finalizer reject、零 patch、零系统替写。
+4. C++ 案是 plan-only 正证，不冒充 apply/verify：生成唯一 `main.cpp` 单行
+   `retrun -> return` 的 `kind=patch` unified diff，并通过 plan preflight；其余源码
+   未进入变更清单。
+5. 该案 Analyzer 首轮自行使用废弃名 `required_answer_dimensions`，严格解码器给出
+   精确 `requested_answer_dimensions` 建议后第二轮成功。提示、schema 与仓内教学均只
+   发布正确名，因此不是“系统一边要求、一边拒绝”的合同冲突；暂按可恢复模型波动
+   观察，不静默吞别名，也不加终稿扫描硬门。微型 write-plan 的 Analyzer 上下文仍达
+   46k token，记为跨案例复现后再处理的模型心智/效率观察，当前不凭单样本改架构。
+6. 活跃流不按累计年龄降级：四分钟以及字面 `4ms` 都无权限。只有 caller cancel /
+   deadline、首字节静默、字节停滞或精确 transport/decode 失败可终止或进入有界恢复。
+
+状态：`runner=2/2 PASS`；`human=2/2 PASS`；
+`B660-COMPLETEWAITROSTERCAPROLE1=production-closed`；
+`B661-SUPPLYFOLDVALUEROLE1=production-closed`；
+`B658-BLOCKEDREASONSTATEJOINLOSS1=production-closed/retained`；
+`write-plan-cpp-patch=production-positive/plan-only`；
+`json-contract-conflict=not-found`；`json-field-slip=recoverable-model-variance/observe`；
+`system-answer/conclusion-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=retained`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
