@@ -32,8 +32,9 @@ type ToolJSONSurfaceDescriptor struct {
 }
 
 // AcceptedEvidenceRef is the bounded evidence identity that survives stage
-// handoff. It intentionally carries coordinates and owner/anchor identifiers
-// only; downstream hard gates still consume EvidenceItem / ObservationRecord.
+// handoff. It intentionally carries coordinates, owner/anchor identifiers and
+// the deterministic ClaimForm needed to preserve source-shape authority;
+// downstream hard gates still consume EvidenceItem / ObservationRecord.
 type AcceptedEvidenceRef struct {
 	ID              string          `json:"id,omitempty"`
 	Kind            EvidenceKind    `json:"kind,omitempty"`
@@ -44,6 +45,7 @@ type AcceptedEvidenceRef struct {
 	Subject         string          `json:"subject,omitempty"`
 	OwnerSymbol     string          `json:"owner_symbol,omitempty"`
 	AnchorSymbol    string          `json:"anchor_symbol,omitempty"`
+	ClaimForm       ClaimForm       `json:"claim_form,omitempty"`
 	SourcePathRole  SourcePathRole  `json:"source_path_role,omitempty"`
 	GroundingStatus GroundingStatus `json:"grounding_status,omitempty"`
 }
@@ -492,6 +494,7 @@ func AcceptedEvidenceRefFromEvidenceItem(item EvidenceItem) (AcceptedEvidenceRef
 		Subject:         trimToolHandoffText(item.Subject),
 		OwnerSymbol:     trimToolHandoffText(item.OwnerSymbol),
 		AnchorSymbol:    trimToolHandoffText(item.AnchorSymbol),
+		ClaimForm:       ClaimFormOf(item),
 		SourcePathRole:  ClassifySourcePathRole(source),
 		GroundingStatus: item.GroundingStatus,
 	}

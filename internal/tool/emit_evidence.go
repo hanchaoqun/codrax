@@ -4849,6 +4849,12 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		if it.Salience.IsSet() {
 			fmt.Fprintf(&b, "      salience: %s\n", it.Salience)
 		}
+		if form := types.ClaimFormOf(it); form != types.ClaimUnknown {
+			fmt.Fprintf(&b, "      claim_form: %s\n", form)
+		}
+		if boundary := types.EvidenceMechanismAuthorityBoundary(it); boundary != "" {
+			fmt.Fprintf(&b, "      source authority: %s\n", boundary)
+		}
 		switch it.GroundingStatus {
 		case types.GroundingGrounded:
 			fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)

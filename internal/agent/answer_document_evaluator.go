@@ -6845,12 +6845,13 @@ const answerDocMaxRelationSurfaceRows = 10
 const answerDocMaxTypedRelationRoleRows = 24
 
 type answerDocRelationSurfaceRow struct {
-	role    string
-	label   string
-	loc     string
-	surface string
-	score   int
-	index   int
+	role              string
+	label             string
+	loc               string
+	surface           string
+	authorityBoundary string
+	score             int
+	index             int
 }
 
 func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) string {
@@ -6979,6 +6980,9 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 		}
 		if row.loc != "" {
 			fmt.Fprintf(&b, " @ %s", row.loc)
+		}
+		if row.authorityBoundary != "" {
+			fmt.Fprintf(&b, "; %s", row.authorityBoundary)
 		}
 		if row.surface != "" {
 			fmt.Fprintf(&b, ": %s", row.surface)
@@ -8263,12 +8267,13 @@ func answerDocRelationSurfaceRowForEvidence(ctx *types.AgentContext, item types.
 		surface = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, surface)
 	}
 	return answerDocRelationSurfaceRow{
-		role:    answerDocRelationSurfaceRole(item),
-		label:   label,
-		loc:     item.DisplayLocation(true),
-		surface: surface,
-		score:   answerDocRelationSurfaceScore(item),
-		index:   index,
+		role:              answerDocRelationSurfaceRole(item),
+		label:             label,
+		loc:               item.DisplayLocation(true),
+		surface:           surface,
+		authorityBoundary: types.EvidenceMechanismAuthorityBoundary(item),
+		score:             answerDocRelationSurfaceScore(item),
+		index:             index,
 	}, true
 }
 

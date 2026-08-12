@@ -41,3 +41,11 @@ func TestEvidenceMechanismAuthorityBoundaryUsesClaimFormNotPath(t *testing.T) {
 		})
 	}
 }
+
+func TestMechanismAuthorityBoundaryForClaimFormMatchesEvidenceProjection(t *testing.T) {
+	item := EvidenceItem{AnchorKind: AnchorTextReference}
+	want := EvidenceMechanismAuthorityBoundary(item)
+	if got := MechanismAuthorityBoundaryForClaimForm(ClaimFormOf(item)); got != want {
+		t.Fatalf("claim-form boundary = %q, want %q", got, want)
+	}
+}

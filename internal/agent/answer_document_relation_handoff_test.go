@@ -169,6 +169,35 @@ func TestRenderAnswerDocRelationSurfaceHandoffIncludesStructuredBoundaryRows(t *
 	}
 }
 
+func TestRenderAnswerDocRelationSurfaceHandoffPreservesTextReferenceAuthority(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:                 "teaching-1",
+			Kind:               types.EvidenceMechanism,
+			Source:             "internal/skill/defaults.go",
+			LineStart:          1203,
+			AnchorKind:         types.AnchorTextReference,
+			AnchorSymbol:       "span parsing rule",
+			Subject:            "span parsing rule",
+			Summary:            "Walk every B/E span pair.",
+			LoadBearingSummary: true,
+			GroundingStatus:    types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocRelationSurfaceHandoff(ctx)
+	for _, want := range []string{
+		"internal/skill/defaults.go:1203",
+		"source_shape_authority=visible_text_only executable_mechanism=unproven",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("text-reference authority missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocRelationSurfaceHandoffPrioritizesStructuredGateRows(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

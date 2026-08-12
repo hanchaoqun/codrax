@@ -50,6 +50,7 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 			LineStart:       12,
 			OwnerSymbol:     "main",
 			AnchorSymbol:    "run",
+			ClaimForm:       types.ClaimTextReferenceFact,
 			SourcePathRole:  types.SourcePathRoleProduction,
 			GroundingStatus: types.GroundingRecovered,
 		}},
@@ -72,6 +73,8 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 		"evidence_grounding=`recovered:1`",
 		"evidence=`ev-1` @ `internal/app/main.py:12`",
 		"owner=`main`",
+		"claim_form=`text_reference_fact`",
+		"authority=`source_shape_authority=visible_text_only executable_mechanism=unproven`",
 		"grounding=`recovered`",
 	} {
 		if !strings.Contains(out, want) {

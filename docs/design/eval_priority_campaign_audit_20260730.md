@@ -33577,3 +33577,54 @@ B606 将 Required Principal Member Set 的 renderer 去重从 lower-case key 改
 硬拟合结论。
 
 包级回归 `go test ./internal/tool ./internal/agent -count=1` 通过。状态：`B605/B606=package-pass/pending-production-replay`。
+
+### 123.641 r362：先尺后值生产闭环；B604 真实消费面仍漏接
+
+`main@93340ac92` exact-two runner `2/2`，人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r362_20260812_manual_audit.md`。
+
+Trace D4 给出 B605 生产正证：模型不再构造 17.609ms/44.082ms 的跨席总和，明确保留 10.331ms compute-delivery deficit 为正值次席，
+并由模型自己判断需求侧是主要方向。显式窗口、目标状态、typed 唤醒链、链上 rank、实际占用/现规则可消双轴、VerifyClass 业务线索、邻近/背景降级、
+frame-causality 边界与系统补采全部保持。priority-inversion 候选也被限定为低优先级链上依赖，不再宣称已证 lock holder。
+
+read-combo 暴露 B604 的生产接线残差。`ClaimForm=text_reference_fact` 虽已进入 StageReport/Knowledge Pool 的若干渲染器，但本轮真正可见的三条消费面没有它：
+
+1. Explorer 调用 `emit_evidence` 后的同轮 summary 只回报 grounded/recovered，没有 source-shape authority；
+2. Accepted Evidence Handoff 只携带坐标、owner/anchor、path role 与 grounding；
+3. Finalizer Relation Role Handoff 把该行写成普通 `supporting_role_or_boundary`，没有 `executable_mechanism=unproven`。
+
+因此模型再次把 `internal/skill/defaults.go:1203` 的教学字符串引用为 span parser 实现；随后虽找到 `ExactTraceMark` 的输入/输出转换，仍漏掉真正负责 B/E 栈、
+跨窗配对、lifecycle reset 与 async S/F cookie 的 `findSpanWindowsCompacted`，并错误概括成“相邻 B/E 时间差”。这不是路径分类错，而是 typed 权限没有沿生产 carrier 到达模型。
+确认 `B607-MECHANISMAUTHORITYPRODUCTIONCARRIER1/P1-high`。
+
+同案另记 `B608-UNTYPEDFRAMEBASELINE1/P1-watch`：perf triager 在 artifact 没有 refresh/deadline 字面载体时仍自行引入 60fps/16.7ms，并把 86.111ms 算为
+5.16x。现有 prompt 已明确禁止这种升级，Finalizer 也收到 `frame/deadline authority=not_provided`，故当前更接近模型波动/软教学未服从；不能通过扫描 meta summary、
+模型推理或终稿中的 `60fps`/数值形状做 hard gate。后续只允许从新增 typed refresh/deadline carrier 授权基线与比例，等待异构 witness 再决定是否补近场软载体。
+
+r362 read-combo 总管线 288s，超过四分钟仍正常交付；这再次证明管线累计时长不是降级权限，但不等价于单个连续模型流超过四分钟。adapter 合同保持：
+只要 reasoning/content/tool/finish/usage 任一真实模型进展已经出现，固定 elapsed 不得中止流或授权系统降级答案；只有 first-byte timeout、真实 byte stall、
+transport break、caller cancel、安全事件或精确 decode degeneration 可以进入恢复，且恢复只发布模型已有载体并披露。
+
+状态：`B605=production-positive/closed-watch`；`B606=targeted-positive/pending-heterogeneous-replay`；
+`B607=P1-high/implemented-tests-pending-replay`；`B608=P1-watch/no-hardening`；`runner=2/2`；`human=1/2`；
+`system-conclusion-authorship=none`；Trace causal authority=`preserved`；`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.642 B607：ClaimForm 权限进入三个真实生产 carrier
+
+B607 不增加路径黑名单、语言特判或答案硬门，而是把既有 `ClaimForm` 单源接到 r362 实际漏失的三个位置：
+
+- `emit_evidence` same-turn summary 在每个 accepted row 旁发布 `claim_form`；文本/字面值行同时发布
+  `source_shape_authority=... executable_mechanism=unproven`，让 Explorer 在继续导航前立即看到权限；
+- `AcceptedEvidenceRef` 新增 typed `ClaimForm`，跨阶段 renderer 再由 `MechanismAuthorityBoundaryForClaimForm` 派生同一权限，不复制模型 prose；
+- `answerDocRelationSurfaceRow` 新增 `authorityBoundary`，Finalizer 的 Relation Role Handoff 在位置与 surface 之间同位发布，避免
+  `supporting_role_or_boundary` 抹平 text-reference 与 executable-call 的区别。
+
+真实 call/callback/assignment/guard/return 等 ClaimForm 不接收 `executable_mechanism=unproven`；用户明确询问 prompt、skill、配置或文档时，文本证据仍可证明
+“写了什么”，只是不能单独证明生产执行“做了什么”。系统不拒绝证据、不补写源码机制、不删除引用、不改模型答案；是否继续查 parser/controller/runtime 实现仍由模型决定。
+
+定向 pin 覆盖：ClaimForm helper 单源一致性、accepted handoff 保留 text-reference form、typed handoff 发射权限、Relation Role Handoff 发射权限、
+same-turn emit summary 发射权限。`go test ./internal/types ./internal/tool ./internal/agent -count=1` 在修正测试载体后通过；另单独复核长流合同
+`TestDoStreamRequest_ActiveVisibleProgressMayOutlastTotalCap` 与 keep-alive-only 负臂，确认活跃模型进展与纯 transport heartbeat 被区分。
+
+状态：`B607=implemented/package-pass/pending-production-replay`；`authority-source=ClaimForm`；`same-turn-visible=true`；
+`hard-gate=none`；`model-answer-ownership=preserved`；Trace causal projection/system supplement=`unchanged`。

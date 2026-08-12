@@ -56,6 +56,26 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRepairAndObservations(t *testi
 	}
 }
 
+func TestAcceptedEvidenceRefPreservesClaimFormAuthority(t *testing.T) {
+	ref, ok := AcceptedEvidenceRefFromEvidenceItem(EvidenceItem{
+		ID:              "teaching",
+		Source:          "internal/skill/defaults.go",
+		LineStart:       1203,
+		AnchorKind:      AnchorTextReference,
+		AnchorSymbol:    "span parsing rule",
+		GroundingStatus: GroundingGrounded,
+	})
+	if !ok {
+		t.Fatal("expected accepted evidence ref")
+	}
+	if ref.ClaimForm != ClaimTextReferenceFact {
+		t.Fatalf("claim form = %q, want %q", ref.ClaimForm, ClaimTextReferenceFact)
+	}
+	if got := MechanismAuthorityBoundaryForClaimForm(ref.ClaimForm); got != "source_shape_authority=visible_text_only executable_mechanism=unproven" {
+		t.Fatalf("mechanism authority = %q", got)
+	}
+}
+
 func TestToolHandoffCarrierFromToolResultUsesJSONSurfaceMetadata(t *testing.T) {
 	surface := NormalizeToolJSONSurfaceDescriptor(ToolJSONSurfaceDescriptor{
 		ToolName:           "emit_evidence",

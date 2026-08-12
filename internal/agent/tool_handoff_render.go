@@ -176,6 +176,12 @@ func renderTypedToolHandoffEvidenceRefs(refs []types.AcceptedEvidenceRef, limit 
 		if ref.AnchorSymbol != "" {
 			fmt.Fprintf(&b, " anchor=%s", quoteHandoffValue(ref.AnchorSymbol))
 		}
+		if ref.ClaimForm != types.ClaimUnknown {
+			fmt.Fprintf(&b, " claim_form=%s", quoteHandoffValue(string(ref.ClaimForm)))
+		}
+		if boundary := types.MechanismAuthorityBoundaryForClaimForm(ref.ClaimForm); boundary != "" {
+			fmt.Fprintf(&b, " authority=%s", quoteHandoffValue(boundary))
+		}
 		if ref.SourcePathRole != "" {
 			fmt.Fprintf(&b, " role=%s", quoteHandoffValue(string(ref.SourcePathRole)))
 		}

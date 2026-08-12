@@ -2879,6 +2879,28 @@ func TestRenderEmitSummary_SplitsCurrentBatchFromCumulativeAudit(t *testing.T) {
 	}
 }
 
+func TestRenderEmitSummary_SurfacesTextReferenceMechanismBoundaryInSameTurn(t *testing.T) {
+	items := []types.EvidenceItem{{
+		Source:          "internal/skill/defaults.go",
+		LineStart:       1203,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   "line_text",
+		Kind:            types.EvidenceMechanism,
+		AnchorKind:      types.AnchorTextReference,
+		AnchorSymbol:    "span parsing rule",
+		Subject:         "span parsing rule",
+	}}
+	summary := renderEmitSummary(nil, items, []ground.Report{{AdjustedLine: 1203}}, items)
+	for _, want := range []string{
+		"claim_form: text_reference_fact",
+		"source authority: source_shape_authority=visible_text_only executable_mechanism=unproven",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("same-turn authority feedback missing %q:\n%s", want, summary)
+		}
+	}
+}
+
 func TestEmitEvidence_PartialValidationFailureReturnsExactTypedRepair(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

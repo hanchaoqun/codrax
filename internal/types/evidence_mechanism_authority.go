@@ -12,7 +12,15 @@ package types
 // assignments, guards, returns and other executable shapes retain their
 // existing, more specific ClaimForm contracts.
 func EvidenceMechanismAuthorityBoundary(item EvidenceItem) string {
-	switch ClaimFormOf(item) {
+	return MechanismAuthorityBoundaryForClaimForm(ClaimFormOf(item))
+}
+
+// MechanismAuthorityBoundaryForClaimForm projects the same boundary from an
+// already-derived ClaimForm. Cross-stage identity carriers intentionally keep
+// ClaimForm rather than copying a free-form sentence; prompt renderers can use
+// this helper without reconstructing or weakening the original EvidenceItem.
+func MechanismAuthorityBoundaryForClaimForm(form ClaimForm) string {
+	switch form {
 	case ClaimTextReferenceFact:
 		return "source_shape_authority=visible_text_only executable_mechanism=unproven"
 	case ClaimLiteralValueFact:
