@@ -298,7 +298,7 @@ func TestTraceSameSourcePartitionRequiresExactVisibleTypedPair(t *testing.T) {
 	}
 }
 
-func TestTraceOverlappingMembersCompileOneTypedOptionalBoundary(t *testing.T) {
+func TestTraceEnvelopeOverlapDoesNotMintPhysicalRelationAuthority(t *testing.T) {
 	inside := true
 	base := TraceCausalProjectionNode{
 		Object: "runnable_wait", EffectiveImpactPublished: true,
@@ -337,32 +337,8 @@ func TestTraceOverlappingMembersCompileOneTypedOptionalBoundary(t *testing.T) {
 			got = append(got, authority)
 		}
 	}
-	if len(got) != 1 {
-		t.Fatalf("overlap authorities=%d, want 1: %+v", len(got), got)
-	}
-	authority := got[0]
-	if authority.RequiredForClosure || authority.PhysicalRelation != AnswerPhysicalRelationOverlap ||
-		authority.Addition != AnswerRelationAdditionForbidden || len(authority.MemberRefs) != 2 ||
-		len(authority.MemberValuesMS) != 2 || authority.MemberValuesMS[0] != 23.994 || authority.MemberValuesMS[1] != 19.041 ||
-		authority.MeasuredOverlapMS == nil || *authority.MeasuredOverlapMS != 90 ||
-		authority.ComparisonValueMS == nil || *authority.ComparisonValueMS != 23.994 ||
-		authority.ComparisonRule != "max_member_only_no_subtotal" ||
-		authority.FixDirection != "lock_priority" || authority.ChainLane != "on_chain" {
-		t.Fatalf("overlap authority drifted: %+v", authority)
-	}
-	claim := AnswerRelationClaim{
-		AuthorityID: authority.ID, MemberRefs: append([]string(nil), authority.MemberRefs...),
-		PhysicalRelation: authority.PhysicalRelation, Addition: authority.Addition,
-	}
-	if err := ValidateAnswerRelationClaims([]AnswerRelationClaim{claim}, authorities, false); err != nil {
-		t.Fatalf("exact optional overlap claim rejected: %v", err)
-	}
-	claim.Addition = AnswerRelationAdditionAuthorized
-	if err := ValidateAnswerRelationClaims([]AnswerRelationClaim{claim}, authorities, false); err == nil {
-		t.Fatal("overlap addition drift was accepted")
-	}
-	if err := ValidateAnswerRelationClaims(nil, authorities, false); err != nil {
-		t.Fatalf("omitted optional overlap JSON must not trigger a format retry: %v", err)
+	if len(got) != 0 {
+		t.Fatalf("broad row envelopes must not mint a physical overlap authority: %+v", got)
 	}
 }
 

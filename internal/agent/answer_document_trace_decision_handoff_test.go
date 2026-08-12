@@ -223,7 +223,7 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 	}
 }
 
-func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing.T) {
+func TestTraceDecisionHandoffDoesNotPromoteBroadEnvelopesToPhysicalOverlap(t *testing.T) {
 	inside := true
 	board := func(node types.TraceCausalProjectionNode) types.TraceCausalProjectionNode {
 		node.Object = "runnable_wait"
@@ -254,42 +254,60 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 				StartTs: 10.030, EndTs: 10.080, WithinRequestedWindow: &inside}),
 		},
 	}
-	leftRef := types.TraceAnswerRelationMemberRef(projection.RankedSeats[0])
-	rightRef := types.TraceAnswerRelationMemberRef(projection.RankedSeats[1])
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, forbidden := range []string{
+		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:",
+		"measured_envelope_overlap=90.000ms",
+		"members_independent=`false`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("broad envelope leaked as physical relation through %q:\n%s", forbidden, got)
+		}
+	}
+	for _, want := range []string{"relation_authority=`typed_pair_only`", "cross_row_additivity=`not_authorized_without_exact_pair_carrier`"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("safe unresolved relation guidance missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T) {
+	inside := true
+	projection := types.TraceCausalProjection{WindowStartTs: 10, WindowEndTs: 10.2}
+	for i := 0; i < 10; i++ {
+		projection.OnChainCauses = append(projection.OnChainCauses, types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("state-%d", i), Subject: "target-7", StateKind: "running",
+			ImpactMS: float64(100 - i), WithinRequestedWindow: &inside,
+		})
+	}
+	projection.SemanticSpans = []types.TraceCausalProjectionNode{{
+		EvidenceID: "semantic-jit", Subject: "Jit thread pool-12", SemanticClass: "jit_compile",
+		SpanName: "JIT compilation", ImpactMS: 2.388, LineStart: 5969, LineEnd: 12664,
+		FamilyMemberCount: 2, FamilyMemberMaxMS: 1.781,
+		FamilyMemberRoster:     []string{"JIT compiling TextView.<init>()", "JIT compiling DecimalQuantity.readIntToBcd()"},
+		FamilyMemberLineRanges: [][2]int{{5969, 6114}, {12611, 12664}},
+		FamilyMemberWallMS:     []float64{1.781, 0.607},
+		WithinRequestedWindow:  &inside,
+	}}
+
 	got := renderAnswerDocTraceDecisionHandoffSet(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:",
-		fmt.Sprintf("\"member_refs\":[\"%s\",\"%s\"]", leftRef, rightRef),
-		fmt.Sprintf("member_values=`%s:23.994ms,%s:19.041ms`", leftRef, rightRef),
-		"fix_direction=`lock_priority`",
-		"chain_lane=`on_chain`",
-		"\"physical_relation\":\"overlap\"",
-		"measured_envelope_overlap=90.000ms",
-		"members_independent=`false`",
-		"\"addition\":\"forbidden\"",
-		"comparison_rule=`max_member_only_no_subtotal`",
-		"comparison_value=23.994ms",
-		"arithmetic_instruction=`preserve_each_member_but_never_publish_their_sum_as_a_total_or_eliminable_amount`",
-		fmt.Sprintf("relation_member_ref=`%s`", leftRef),
-		fmt.Sprintf("relation_member_ref=`%s`", rightRef),
+		"deterministic_semantic_spans (typed in-window work inventory",
+		"subject=`Jit thread pool-12`; semantic_class=`jit_compile`; span=`JIT compilation`; total=2.388ms; occurrences=2; member_max=1.781ms; lines=5969..12664",
+		"member_1 span=`JIT compiling TextView.<init>()`; duration=1.781ms; lines=5969..6114",
+		"member_2 span=`JIT compiling DecimalQuantity.readIntToBcd()`; duration=0.607ms; lines=12611..12664",
+		"Its presence does not by itself prove that the target waited for it",
+		"its absence must not be inferred from a target-thread-only keyword search",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("typed pre-final overlap relation missing %q:\n%s", want, got)
+			t.Fatalf("semantic member handoff missing %q:\n%s", want, got)
 		}
-	}
-	authorityStart := strings.Index(got, "typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:")
-	authorityEnd := strings.Index(got[authorityStart:], "final_relation_claim_carrier:")
-	authoritySection := got[authorityStart : authorityStart+authorityEnd]
-	if strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[2])) ||
-		strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[3])) ||
-		strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[4])) {
-		t.Fatalf("cross-direction pair must not add prompt noise:\n%s", got)
-	}
-	if strings.Index(got, "typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:") > strings.Index(got, "axis_B_existing_rule_eliminable") {
-		t.Fatalf("typed overlap authority must precede the detailed seats:\n%s", got)
 	}
 }
 

@@ -318,7 +318,7 @@ func TestSameSourcePartitionAuthorityIDMatchesHeadAndLedger(t *testing.T) {
 	}
 }
 
-func TestOverlappingMembersAuthorityMatchesHeadAndLedgerWithoutMandatoryJSON(t *testing.T) {
+func TestBroadRankEnvelopesDoNotMintOverlapAuthorityInHeadOrLedger(t *testing.T) {
 	target := tracequery.ThreadRef{Comm: "target", PID: 7}
 	rank := &tracequery.RootCauseRankResult{
 		Target: target, Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.2}, BoardParamsFingerprint: "board-overlap",
@@ -350,26 +350,17 @@ func TestOverlappingMembersAuthorityMatchesHeadAndLedgerWithoutMandatoryJSON(t *
 		return nil
 	}
 	pre, post := find(previewAuthorities), find(compiledAuthorities)
-	if pre == nil || post == nil || pre.ID != post.ID || !types.AnswerRelationClaimsEqual(
-		[]types.AnswerRelationClaim{{AuthorityID: pre.ID, MemberRefs: pre.MemberRefs, PhysicalRelation: pre.PhysicalRelation, Addition: pre.Addition}},
-		[]types.AnswerRelationClaim{{AuthorityID: post.ID, MemberRefs: post.MemberRefs, PhysicalRelation: post.PhysicalRelation, Addition: post.Addition}},
-	) {
-		t.Fatalf("head/ledger overlap authority drifted: preview=%+v compiled=%+v records=%+v", pre, post, records)
-	}
-	if pre.RequiredForClosure || pre.MeasuredOverlapMS == nil || *pre.MeasuredOverlapMS != 90 ||
-		pre.ComparisonValueMS == nil || *pre.ComparisonValueMS != 23.994 {
-		t.Fatalf("overlap calibration/optionality drifted: %+v", pre)
+	if pre != nil || post != nil {
+		t.Fatalf("broad row envelopes must not mint head/ledger overlap authority: preview=%+v compiled=%+v records=%+v", pre, post, records)
 	}
 	summary := traceQuerySummary(result, traceQueryParams{View: result.View}, "customer.systrace", "/tmp/result.json")
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		"relation_claim_copy={\"authority_id\":\"trace:overlapping_members:",
-		"\"physical_relation\":\"overlap\",\"addition\":\"forbidden\"} copy_policy=optional_prefer_omit typed_authority_auto_carried=true",
 		"relation_diagnostic_only not_json_claim_fields=true",
-		"members_independent=false measured_envelope_overlap=90.000ms",
-		"comparison_rule=max_member_only_no_subtotal comparison_value=23.994ms",
+		"measured_envelope_overlap=90.000ms",
 	} {
-		if !strings.Contains(summary, want) {
-			t.Fatalf("overlap relation preview missing %q:\n%s", want, summary)
+		if strings.Contains(summary, forbidden) {
+			t.Fatalf("rank envelope leaked as physical relation through %q:\n%s", forbidden, summary)
 		}
 	}
 }

@@ -160,6 +160,23 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 					span.StartLine, maxInt(span.StartLine, span.EndLine), span.Basis)
 			}
 		}
+		semanticSpans := traceDecisionSemanticOptimizationSpans(projection, 0)
+		if len(semanticSpans) > 0 {
+			b.WriteString("- deterministic_semantic_spans (typed in-window work inventory; not automatically target-thread work, causal, or eliminable):\n")
+			for _, node := range semanticSpans {
+				fmt.Fprintf(&b, "  - subject=`%s`; semantic_class=`%s`; span=`%s`; total=%.3fms",
+					strings.TrimSpace(node.Subject), strings.TrimSpace(node.SemanticClass), strings.TrimSpace(node.SpanName), node.ImpactMS)
+				if count, maxMS := traceDecisionNodeMultiplicity(node); count > 1 {
+					fmt.Fprintf(&b, "; occurrences=%d; member_max=%.3fms", count, maxMS)
+				}
+				if node.LineStart > 0 {
+					fmt.Fprintf(&b, "; lines=%d..%d", node.LineStart, maxInt(node.LineStart, node.LineEnd))
+				}
+				fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
+				traceDecisionWriteSemanticMembers(&b, node, 8)
+			}
+			b.WriteString("  This inventory is a dedicated visibility lane: state separately whether a span ran on the selected target, another on-chain thread, or only a process/window peer. Its presence does not by itself prove that the target waited for it; its absence must not be inferred from a target-thread-only keyword search when this typed inventory is non-empty.\n")
+		}
 
 		seats := traceDecisionEliminableSeats(projection, 8)
 		if len(seats) > 0 {
@@ -688,6 +705,62 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 		out = out[:limit]
 	}
 	return out
+}
+
+// traceDecisionSemanticOptimizationSpans keeps typed deterministic semantic
+// work visible independently of the generic Axis-A top-N. A small JIT/class
+// verification/GC family can otherwise disappear behind longer scheduler and
+// business-span rows even when the user asks for that exact work class. This
+// is prompt-only typed transport: it neither promotes the span onto the
+// elected wakeup chain nor authors a diagnosis.
+func traceDecisionSemanticOptimizationSpans(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	out := make([]types.TraceCausalProjectionNode, 0, len(projection.SemanticSpans))
+	seen := map[string]bool{}
+	for _, node := range projection.SemanticSpans {
+		if node.ImpactMS <= 0 || strings.TrimSpace(node.SemanticClass) == "" ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		key := traceDecisionNodeIdentity(node)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, node)
+	}
+	out = traceDecisionPreferProjectionWindowNodes(projection, out)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].ImpactMS != out[j].ImpactMS {
+			return out[i].ImpactMS > out[j].ImpactMS
+		}
+		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func traceDecisionWriteSemanticMembers(b *strings.Builder, node types.TraceCausalProjectionNode, limit int) {
+	if b == nil || node.FamilyMemberCount <= 0 ||
+		len(node.FamilyMemberRoster) != node.FamilyMemberCount ||
+		len(node.FamilyMemberLineRanges) != node.FamilyMemberCount ||
+		len(node.FamilyMemberWallMS) != node.FamilyMemberCount {
+		return
+	}
+	count := node.FamilyMemberCount
+	if limit > 0 && count > limit {
+		count = limit
+	}
+	for index := 0; index < count; index++ {
+		rangeValue := node.FamilyMemberLineRanges[index]
+		fmt.Fprintf(b, "    - member_%d span=`%s`; duration=%.3fms; lines=%d..%d\n",
+			index+1, traceDecisionPromptScalar(node.FamilyMemberRoster[index]),
+			node.FamilyMemberWallMS[index], rangeValue[0], rangeValue[1])
+	}
+	if count < node.FamilyMemberCount {
+		fmt.Fprintf(b, "    - members_omitted=%d; complete_roster_available_in_projection=`true`\n", node.FamilyMemberCount-count)
+	}
 }
 
 func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {

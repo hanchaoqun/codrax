@@ -34542,3 +34542,44 @@ Cangjie 一次成文通过：2 个 extend、2 个同名 `native_add`、8 个 pub
 `same-base-cross-row-merge=absent/fail-closed`；`single-actionable-family-retry=model-variance/advisory`；
 `system-answer/inventory-row-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.684 r382：runner 双绿、人工双红；广包络伪重叠与 semantic TOP-N 静默丢席
+
+`main@81567bb9d` exact-two runner 为 `2/2`，人工为 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_elim_semantic_r382_20260812_manual_audit.md`。两案均保留显式窗 Trace 因果投影、链上根因排序、实际占用/业务线索与规则计价可消除量双轴；邻近和背景没有被提升为主因。
+
+H11 的正文同时声称 IO 席 #5=3.670ms 与 #6=3.598ms 存在 42.193ms 物理重叠，又称四个修复方向间没有 typed overlap/dependency。日志证明 42.193ms
+不是模型凭空生成：`CompileTraceAnswerRelationAuthorities` 把同方向两条 rank row 的整个 `StartTs..EndTs` 包络交集当成
+`physical_relation=overlap`，并在 `relation_diagnostic_only` 中发布 `measured_envelope_overlap=42.193ms`。rank row 包络覆盖的是观察范围，不是席位贡献的逐段支持集；交集甚至可大于
+任一 effective seat。与此同时 handoff 又要求只有精确 typed pair 才能宣称 overlap，形成系统自身的精确合同矛盾。
+
+H10 的 Explorer 已查到同一应用进程 `Jit thread pool-17284` 上 2 个 JIT span：1.781ms/行5969..6114 与 0.607ms/行12611..12664。
+自动补齐也形成 `semantic_class=JIT编译` family，系统投影正确列出合计2.388ms；但 Finalizer 的高显著 Trace Decision Inputs 将 SemanticSpans 与一般状态行共用
+Axis-A TOP8，较小的 JIT family 被更长的 sleep/running 行挤掉。模型只看到目标线程关键词零命中，正文写“窗口内没有 JIT”，随后系统附录又列出两条 JIT，造成正文/附录矛盾。
+这不是系统应替模型改结论的理由，而是系统没有把已拥有的 typed 语义事实精准交给模型。
+
+H10 总时长 255s 且连接持续活跃，越过 4 分钟仍收到并发布本轮模型答案；没有用旧稿、空答或系统答案降级。该生产结果再次验证固定年龄不是降级权限。
+
+状态：`runner=2/2`；`human=0/2`；`B637-TRACEENVELOPEOVERLAP1=confirmed/P0`；
+`B638-TRACESEMANTICTOPN1=confirmed/P0`；`active-stream-over-4m=production-positive/no-age-degrade`；
+`model-ownership=preserved`；`raw-request/model/final-prose-hard-gate=none`。
+
+### 123.685 B637/B638：物理关系只读精确载体；确定性语义 span 获得独立完整车道
+
+B637 删除由 broad rank-row envelope 自动铸造 `AnswerRelationAuthorityOverlappingMembers` 的路径。相同 board、方向、lane 与时间包络相交只能说明两条观察范围有交集，不能证明
+两份计价席共享物理贡献；因此不再产生 `physical_relation=overlap`、`members_independent=false` 或 `measured_envelope_overlap`。无精确 pair carrier 时保留既有安全合同：物理关系
+`unresolved`、跨行相加无授权。同方向仍逐席保留，并用已发布 leader/max 口径给修复方向排序；系统不删模型文字、不扫描终稿，也不替模型判断关系。真正的
+`cross_direction_overlaps` 逐段支持集载体仍随各席进入 handoff/投影，不受本批影响。
+
+B638 在 Trace Decision Inputs 中增加独立 `deterministic_semantic_spans` typed 车道，不再与通用 Axis-A TOP-N 争席。每个已发布 semantic family 携带线程、语义类别、span 名、
+合计、次数、单段最大、总行号范围；完整 member carriers 可用时，再逐成员携带原 span、时长和行号。教学明确要求模型区分“目标线程自身、链上其他线程、同进程/同窗 peer”，
+不得因目标线程关键词零命中覆盖非空 typed inventory，也不得仅凭同窗出现推断目标等待/因果/可消除量。该车道是 prompt-only 精确信息，不创建答案块、根因或结论。
+
+定向回归覆盖：(1) 两条 broad envelope 交叠不再在 types、trace-query head/ledger、Finalizer handoff 任一面铸造 physical overlap；(2) 十条更大 Axis-A 状态行存在时，
+2.388ms JIT family 及两条 1.781/0.607ms 成员仍完整进入 Finalizer typed context；(3) 目标等待关系仍显式未证。相关包全回归和 exact-two 生产复放待本批提交后执行。
+
+状态：`B637=implemented/targeted-pass`；`B638=implemented/targeted-pass`；
+`broad-envelope-physical-authority=retired`；`exact-cross-direction-overlap-carrier=preserved`；
+`semantic-family-topn-competition=removed`；`semantic-members=typed-prompt-only`；
+`system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。

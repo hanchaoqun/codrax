@@ -128,78 +128,6 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 			})
 		}
 		out = append(out, answerRelationSameSourcePartitionAuthorities(projection)...)
-		out = append(out, answerRelationOverlappingMemberAuthorities(projection, 8, 6)...)
-	}
-	return out
-}
-
-// answerRelationOverlappingMemberAuthorities compiles a bounded exact
-// non-additivity relation for ranked eliminable seats whose faithful typed
-// envelopes overlap. This is relation metadata only: it neither changes rank
-// nor chooses a diagnosis. Pair admission uses no request/model prose and no
-// similarity heuristic:
-//   - both rows are positive published rank seats from one exact rank board;
-//   - both carry the same non-empty engine fix direction and causal lane;
-//   - both expose distinct stable member identities and faithful unmerged
-//     timestamp envelopes with a positive measured intersection.
-//
-// The member comparison is max-only because the shared wall clock makes a
-// sum unsafe. This is deliberately optional model metadata
-// (RequiredForClosure=false): the typed authority is always available to the
-// reasoning model, while omitting a JSON copy never creates a format retry.
-func answerRelationOverlappingMemberAuthorities(projection TraceCausalProjection, seatLimit, relationLimit int) []AnswerRelationAuthority {
-	seats := TraceAnswerDecisionEliminableSeats(projection, seatLimit)
-	if len(seats) < 2 || relationLimit == 0 {
-		return nil
-	}
-	var out []AnswerRelationAuthority
-	for i := 0; i < len(seats); i++ {
-		left := seats[i]
-		leftDirection := strings.TrimSpace(left.FixDirection)
-		leftLane := strings.TrimSpace(left.ChainRelevance)
-		leftBoard, leftBoardKnown := answerRelationRankBoardIdentity(left)
-		leftRef := answerRelationRankSeatMemberRef(left)
-		if !left.EffectiveImpactPublished || leftDirection == "" || leftLane == "" || !leftBoardKnown || leftRef == "" {
-			continue
-		}
-		for j := i + 1; j < len(seats); j++ {
-			right := seats[j]
-			rightRef := answerRelationRankSeatMemberRef(right)
-			rightBoard, rightBoardKnown := answerRelationRankBoardIdentity(right)
-			if !right.EffectiveImpactPublished || right.Rank == left.Rank || rightRef == "" || rightRef == leftRef ||
-				!rightBoardKnown || rightBoard != leftBoard ||
-				strings.TrimSpace(right.FixDirection) != leftDirection ||
-				strings.TrimSpace(right.ChainRelevance) != leftLane {
-				continue
-			}
-			overlapMS, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right)
-			if !ok {
-				continue
-			}
-			leftMS := answerRelationPublishedMS(left.EffectiveImpactMS)
-			rightMS := answerRelationPublishedMS(right.EffectiveImpactMS)
-			comparisonMS := math.Max(leftMS, rightMS)
-			overlapMS = answerRelationPublishedMS(overlapMS)
-			memberRefs := []string{leftRef, rightRef}
-			memberValues := []float64{leftMS, rightMS}
-			out = append(out, AnswerRelationAuthority{
-				ID:                 "trace:overlapping_members:" + answerRelationOverlapFingerprint(memberRefs, memberValues, overlapMS),
-				Kind:               AnswerRelationAuthorityOverlappingMembers,
-				MemberRefs:         memberRefs,
-				PhysicalRelation:   AnswerPhysicalRelationOverlap,
-				Addition:           AnswerRelationAdditionForbidden,
-				RequiredForClosure: false,
-				MemberValuesMS:     memberValues,
-				MeasuredOverlapMS:  answerRelationFloatPointer(overlapMS),
-				ComparisonValueMS:  answerRelationFloatPointer(comparisonMS),
-				ComparisonRule:     "max_member_only_no_subtotal",
-				FixDirection:       leftDirection,
-				ChainLane:          leftLane,
-			})
-			if relationLimit > 0 && len(out) >= relationLimit {
-				return out
-			}
-		}
 	}
 	return out
 }
@@ -310,17 +238,6 @@ func answerRelationRankBoardIdentity(node TraceCausalProjectionNode) (string, bo
 		return "", false
 	}
 	return fmt.Sprintf("%s\x00%s\x00%.6f\x00%.6f", target, params, start, end), true
-}
-
-func answerRelationOverlapFingerprint(memberRefs []string, memberValues []float64, overlapMS float64) string {
-	raw := fmt.Sprintf("%s|%.3f,%.3f|overlap=%.3f",
-		strings.Join(memberRefs, ","), memberValues[0], memberValues[1], overlapMS)
-	sum := sha256.Sum256([]byte(raw))
-	return fmt.Sprintf("%x", sum[:8])
-}
-
-func answerRelationFloatPointer(value float64) *float64 {
-	return &value
 }
 
 // answerRelationSameSourcePartitionAuthorities compiles the engine-minted
