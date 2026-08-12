@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -242,6 +243,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 	}
 	type directionRecord struct {
 		key, value string
+		direction  string
 		leader     types.TraceCausalProjectionNode
 		count      int
 	}
@@ -258,7 +260,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 			}
 			identity := key + "\x00" + value
 			record := byDirection[identity]
-			record.key, record.value, record.count = key, value, record.count+1
+			record.key, record.value, record.direction, record.count = key, value, strings.TrimSpace(node.FixDirection), record.count+1
 			if record.leader.Rank == 0 || node.EffectiveImpactMS > record.leader.EffectiveImpactMS ||
 				(node.EffectiveImpactMS == record.leader.EffectiveImpactMS && node.Rank < record.leader.Rank) {
 				record.leader = node
@@ -267,6 +269,10 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 		}
 		if len(byDirection) == 0 {
 			continue
+		}
+		sectionByDirection := map[string]types.TraceAnswerDirectionSection{}
+		for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
+			sectionByDirection[section.Direction] = section
 		}
 		records := make([]directionRecord, 0, len(byDirection))
 		for _, record := range byDirection {
@@ -282,17 +288,34 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 		if label == "" {
 			label = fmt.Sprintf("trace-%d", projectionIndex+1)
 		}
-		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`single_published_leader_not_direction_subtotal`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_direction_members_or_direction_leaders`.\n", label)
+		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_across_directions_or_unlisted_members`.\n", label)
 		for _, record := range records {
-			fmt.Fprintf(b, "  - %s=`%s`; member_count=%d; leader_rank=#%d; leader_subject=`%s`; leader_value=%.3fms; same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`",
-				record.key, record.value, record.count, record.leader.Rank,
-				strings.TrimSpace(record.leader.Subject), record.leader.EffectiveImpactMS)
+			section, sectionOK := sectionByDirection[record.direction]
+			leader := record.leader
+			if sectionOK && section.Leader.Rank > 0 {
+				leader = section.Leader
+			}
+			fmt.Fprintf(b, "  - %s=`%s`; member_count=%d; leader_rank=#%d; leader_subject=`%s`; leader_value=%.3fms",
+				record.key, record.value, record.count, leader.Rank,
+				strings.TrimSpace(leader.Subject), leader.EffectiveImpactMS)
 			switch {
-			case traceDecisionNodeIsPriorityInversionCandidate(record.leader):
+			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal:
+				fmt.Fprintf(b, "; same_direction_subtotal_authority=`typed_pairwise_disjoint_section`; published_direction_value=`exact_subtotal`; direction_subtotal=%.3fms; subtotal_member_count=%d",
+					section.SubtotalMS, len(section.Members))
+				if len(section.MemberRefs) == len(section.Members) {
+					fmt.Fprintf(b, "; subtotal_member_refs=`%s`", strings.Join(section.MemberRefs, ","))
+				}
+			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
+				b.WriteString("; same_direction_subtotal_authority=`forbidden_by_typed_overlap`; published_direction_value=`leader_only`")
+			default:
+				b.WriteString("; same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`")
+			}
+			switch {
+			case traceDecisionNodeIsPriorityInversionCandidate(leader):
 				b.WriteString("; mechanism_boundary=`lower_priority_dependency_supply_only`; lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`")
-			case strings.TrimSpace(record.leader.FixDirection) == "frequency_thermal":
+			case strings.TrimSpace(leader.FixDirection) == "frequency_thermal":
 				b.WriteString("; mechanism_boundary=`compute_supply_opportunity`; policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`")
-			case strings.TrimSpace(record.leader.FixDirection) == "io_dependency":
+			case strings.TrimSpace(leader.FixDirection) == "io_dependency":
 				b.WriteString("; mechanism_boundary=`typed_io_or_kernel_wait_seat`; kernel_callsite_proves_resource_or_holder=`false`")
 			}
 			b.WriteString("\n")

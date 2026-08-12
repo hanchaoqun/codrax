@@ -495,18 +495,18 @@ func runtimeTraceProjElimSectionsFor(chain []runtimeTraceProjElimEntry) []runtim
 
 // runtimeTraceProjElimSectionArithmetic is the 小计阶梯 verdict (防假算术:
 // arithmetic only on proof, silence otherwise — 宁漏勿假指).
-type runtimeTraceProjElimSectionArithmetic int
+type runtimeTraceProjElimSectionArithmetic = types.TraceAnswerDirectionArithmetic
 
 const (
 	// elimSectionArithmeticNone — single seat / 未定节 / carrier absent (L3)
 	// / cross-board members: zero arithmetic, the head speaks 最大可消 only.
-	elimSectionArithmeticNone runtimeTraceProjElimSectionArithmetic = iota
+	elimSectionArithmeticNone = types.TraceAnswerDirectionArithmeticNone
 	// elimSectionArithmeticSubtotal — L1: every member carries a faithful
 	// typed envelope and the envelopes are pairwise exclusive → Σ 小计.
-	elimSectionArithmeticSubtotal
+	elimSectionArithmeticSubtotal = types.TraceAnswerDirectionArithmeticSubtotal
 	// elimSectionArithmeticOverlap — L2: faithful envelopes measurably
 	// overlap → the seat count plus 合计不可直加, never a Σ.
-	elimSectionArithmeticOverlap
+	elimSectionArithmeticOverlap = types.TraceAnswerDirectionArithmeticOverlap
 )
 
 // runtimeTraceProjElimEnvelopeToleranceMs mirrors the engine checker's
@@ -536,50 +536,13 @@ const runtimeTraceProjElimEnvelopeToleranceMs = types.TraceCausalProjectionFaith
 // {空,具名} mixed form: the bare seat could belong to ANY of them), the
 // single-board premise is unproven → L3 (缺席不进算术, 宁漏勿假).
 func runtimeTraceProjElimSectionLadder(section runtimeTraceProjElimSection, multiBoardRuler, boardHasNamedTargets bool) (runtimeTraceProjElimSectionArithmetic, float64) {
-	if section.direction == "" || len(section.entries) < 2 {
-		return elimSectionArithmeticNone, 0
-	}
-	if multiBoardRuler {
-		return elimSectionArithmeticNone, 0 // 跨板尺 — 单板前提已失 → 零算术
-	}
-	boards := map[string]bool{}
-	subtotalUs := int64(0)
-	type envelope struct{ start, end float64 }
-	envelopes := make([]envelope, 0, len(section.entries))
+	members := make([]types.TraceCausalProjectionNode, 0, len(section.entries))
 	for _, entry := range section.entries {
-		node := entry.row.Node
-		if target := strings.TrimSpace(node.RankBoardTarget); target != "" {
-			boards[runtimeTraceCausalProjectionCanonicalNode(target)] = true
-		} else if boardHasNamedTargets {
-			return elimSectionArithmeticNone, 0 // 板身份缺失于具名板 → 零算术
-		}
-		// §29.183 G8: envelope existence via the shared predicate — a member
-		// whose faithful envelope starts at exactly ts=0 (rebased [0,end]
-		// trace) keeps its Σ-subtotal eligibility; the (0,0) absence pair
-		// still steps down to L3 (no envelope = no exclusivity proof).
-		if !types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) || node.MergedCount > 1 {
-			return elimSectionArithmeticNone, 0 // 载体缺席/不忠实 → L3 零算术
-		}
-		envelopes = append(envelopes, envelope{start: node.StartTs, end: node.EndTs})
-		// 修补轮 件6③: the subtotal sums the members' PRINTED µs (the %.3f
-		// face the row below publishes) — one rounding path shared with the
-		// reconstruction pin, so a .0005-neighbourhood binary-float seat can
-		// never make the head disagree with its own rows by 1µs.
-		subtotalUs += runtimeTraceProjElimPrintedUs(node.EffectiveImpactMS)
+		members = append(members, entry.row.Node)
 	}
-	if len(boards) > 1 {
-		return elimSectionArithmeticNone, 0 // 跨板不可相加 — 零算术
-	}
-	for i := 0; i < len(envelopes); i++ {
-		for j := i + 1; j < len(envelopes); j++ {
-			if _, ok := types.TraceCausalProjectionFaithfulEnvelopeOverlapMS(
-				section.entries[i].row.Node, section.entries[j].row.Node,
-			); ok {
-				return elimSectionArithmeticOverlap, 0
-			}
-		}
-	}
-	return elimSectionArithmeticSubtotal, float64(subtotalUs) / 1000
+	return types.TraceAnswerDirectionSectionArithmetic(
+		section.direction, members, multiBoardRuler, boardHasNamedTargets,
+	)
 }
 
 // runtimeTraceProjElimPrintedUs returns the integer µs of a value's PRINTED
@@ -1872,6 +1835,70 @@ func runtimeTraceProjElimChainRosterFor(model runtimeTraceProjTreeModel) runtime
 	return roster
 }
 
+// runtimeTraceProjElimBoardScope is the single board-identity premise for the
+// visible section subtotal and the pre-final model handoff. It reads the full
+// post-aggregation board, so a TOP-N slice cannot hide a cross-board member.
+func runtimeTraceProjElimBoardScope(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry) (bool, map[string]bool) {
+	rulerSubject := strings.TrimSpace(model.Target)
+	if rulerSubject == "" {
+		rulerSubject = strings.TrimSpace(model.FlatAnchorThread)
+	}
+	rulerSubjectKey := runtimeTraceCausalProjectionCanonicalNode(rulerSubject)
+	multiBoardRuler := false
+	namedTargets := map[string]bool{}
+	for i := range board {
+		label := strings.TrimSpace(board[i].row.Node.RankBoardTarget)
+		if label == "" {
+			continue
+		}
+		namedTargets[runtimeTraceCausalProjectionCanonicalNode(label)] = true
+		if rulerSubjectKey != "" && runtimeTraceCausalProjectionCanonicalNode(label) != rulerSubjectKey {
+			multiBoardRuler = true
+		}
+	}
+	if rulerSubjectKey == "" && len(namedTargets) >= 2 {
+		multiBoardRuler = true
+	}
+	return multiBoardRuler, namedTargets
+}
+
+// TraceAnswerDecisionDirectionSections exports the exact deterministic
+// eliminable-overview population as typed prompt authority. It deliberately
+// builds the same tree model, runs the same admission/convergence/TOP-N plus
+// semantic-fallback roster, and consumes the same arithmetic predicate as the
+// rendered ▸ section heads. The model therefore cannot be told "leader only"
+// when the answer appendix publishes an exact disjoint subtotal (or vice
+// versa). This function does not author visible answer prose.
+func TraceAnswerDecisionDirectionSections(projection types.TraceCausalProjection) []types.TraceAnswerDirectionSection {
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	roster := runtimeTraceProjElimChainRosterFor(model)
+	multiBoardRuler, namedTargets := runtimeTraceProjElimBoardScope(model, roster.board)
+	sections := runtimeTraceProjElimSectionsFor(roster.renderedChain)
+	out := make([]types.TraceAnswerDirectionSection, 0, len(sections))
+	for _, section := range sections {
+		if strings.TrimSpace(section.direction) == "" {
+			continue
+		}
+		published := types.TraceAnswerDirectionSection{Direction: section.direction}
+		for _, entry := range section.entries {
+			node := entry.row.Node
+			published.Members = append(published.Members, node)
+			if published.Leader.Rank == 0 || node.EffectiveImpactMS > published.Leader.EffectiveImpactMS ||
+				(node.EffectiveImpactMS == published.Leader.EffectiveImpactMS && node.Rank < published.Leader.Rank) {
+				published.Leader = node
+			}
+			if ref := types.TraceAnswerRelationMemberRef(node); ref != "" {
+				published.MemberRefs = append(published.MemberRefs, ref)
+			}
+		}
+		published.Arithmetic, published.SubtotalMS = types.TraceAnswerDirectionSectionArithmetic(
+			published.Direction, published.Members, multiBoardRuler, len(namedTargets) > 0,
+		)
+		out = append(out, published)
+	}
+	return out
+}
+
 func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	if !projection.RootCauseFamilyObserved {
 		return ""
@@ -1916,26 +1943,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// (the single-thread ruler claim is then FALSE), or — subject-less flat
 	// heads — when the members span ≥2 distinct named boards. Typed inputs
 	// only; identity-less rows never flip the head.
-	rulerSubject := strings.TrimSpace(model.Target)
-	if rulerSubject == "" {
-		rulerSubject = strings.TrimSpace(model.FlatAnchorThread)
-	}
-	rulerSubjectKey := runtimeTraceCausalProjectionCanonicalNode(rulerSubject)
-	multiBoardRuler := false
-	namedTargets := map[string]bool{}
-	for i := range board {
-		label := strings.TrimSpace(board[i].row.Node.RankBoardTarget)
-		if label == "" {
-			continue
-		}
-		namedTargets[runtimeTraceCausalProjectionCanonicalNode(label)] = true
-		if rulerSubjectKey != "" && runtimeTraceCausalProjectionCanonicalNode(label) != rulerSubjectKey {
-			multiBoardRuler = true
-		}
-	}
-	if rulerSubjectKey == "" && len(namedTargets) >= 2 {
-		multiBoardRuler = true
-	}
+	multiBoardRuler, namedTargets := runtimeTraceProjElimBoardScope(model, board)
 	model.Marks.mark(runtimeTraceProjMarkElimOverview)
 	// RUN2FIX-A 件1: the chain-bearing form promise now names the
 	// 方向未定/复合 tail rule, so the tail section's legend entry teaches on

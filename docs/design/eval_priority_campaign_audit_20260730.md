@@ -34674,3 +34674,48 @@ B643 将 exact semantic physical-seat convergence 扩展为单向离链优先级
 `semantic-offchain-exact-mirror=adjacent-wins-with-evidence-retained`；`multi-authority=lossless`；
 `system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.690 r385：两项生产转正；方向精确小计与 leader-only handoff 发生系统自冲突
+
+`main@eb9378f06` exact-two runner `2/2`，人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_authority_isolation_r385_20260812_manual_audit.md`。
+
+H10 人工通过。B643 将同一 exact JIT occurrence 的 adjacent/background 镜像收敛为一席；Finalizer 与投影均只见一个 2.388ms family，模型逐条保留
+TextView 1.781ms/5969..6114 与 DecimalQuantity 0.607ms/12611..12664，没有因目标线程关键词零命中否认非空 typed inventory，也没有把同窗 peer 提升成目标因果。
+
+H11 的 B642 同样生产生效：模型 aggregate 内嵌的 18.853/8.622/31.4ms 加法和“方向独立”没有再进入上下文或答案；模型只使用 typed leader 值，明确跨方向物理关系
+unresolved。不过该案暴露 B644：系统最终 ◎ 总览已经用两席精确区间判定 `7.405+4.710=12.115ms(区间互斥)`，而 pre-final
+`repair_direction_authority` 和 Final Trace Boundary 仍固定声明 `direction_subtotal_authority=not_provided`。模型服从后者，将锁方向降成 7.405ms leader-only。
+这不是模型波动，而是 tool 私有算术与 agent 手抄合同互相矛盾。
+
+两案分别 122s/187s，活跃流正常完成，未发生固定年龄降级、旧稿替换或系统代写；显式时间窗、Trace 因果投影、链上主因种群、邻近/背景边界、实际占用/业务线索与规则可消双轴均保留。
+
+状态：`runner=2/2`；`human=1/2`；`B642=production-positive`；`B643=production-positive`；
+`B644-TRACEDIRECTIONSUBTOTALAUTH1=confirmed/P0`；`system-answer/relation-authorship=none`；
+`raw-prose-hard-gate=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.691 B644：方向小计、展示人口与 Finalizer 权威同源
+
+B644 把方向节算术从 tool 私有枚举提升为 `types.TraceAnswerDirectionSectionArithmetic` 单一精确谓词：仅当同方向至少两席、每席有 faithful 未合并区间、板身份单一且无歧义、
+所有区间逐对互斥时，才按席行实际展示的 `%.3fms` 微秒值发布 exact subtotal；任一真实重叠进入 `overlap_nonadditive`，缺区间、merged carrier、跨板、具名板中的匿名席或单席均
+fail-closed，不从共享方向标签猜关系。
+
+更关键的是，agent 不再从完整 RankedSeats 自行重建“方向表”。`tool.TraceAnswerDecisionDirectionSections` 直接复用最终报告的同一 tree model、overview admission/convergence、
+chain TOP5、semantic fallback、board scope 与 section grouping，输出 typed section。Trace Decision Inputs 与 Final Trace Boundary 均消费该结果：exact subtotal 存在时发布
+`published_direction_value=exact_subtotal`、12.115ms、成员数和可用的 typed member refs；真实重叠显式禁止；其余继续 leader-only。方向总成员数与小计展示成员数分开，避免把 TOP 外席
+悄悄算入显示小计。跨方向 `joint_total_authority` 始终 not_provided，精确方向内加法绝不顺带铸造跨方向独立或可叠加。
+
+这批只改善给模型的精确信息：不检查用户原文/模型 thinking/终稿 prose，不拒绝某种结论词，不写入或替换模型答案。定向正反例覆盖 7.405+4.710=12.115ms 互斥小计与
+同一两席改为区间重叠后的立即降级；真实 donghu 旗舰渲染 pin 继续验证可见 12.115ms。`go test ./internal/agent ./internal/types ./internal/llm ./internal/orchestrator`
+以及方向 authority/tool 真实与合成定向套件全绿。
+
+全 `internal/tool` 套件另暴露一个与 B644 无代码交集的既存红针：`TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff` 中 accepted-exclude 车道的 principal
+`链路节点` aggregate 落地后 Role 为空。该失败在本批 relation/direction 路径之外，登记为 `B645-SUPPREFTOLPRINCIPALROLE1=P1-high/pending-audit`，下一批先核代码语义再修，
+不为让测试转绿盲改期待值。
+
+状态：`B644=implemented/targeted-pass`；`direction-section-population=renderer-shared`；
+`direction-subtotal=exact-disjoint-only`；`overlap/missing-envelope/cross-board=fail-closed`；
+`cross-direction-joint-total=not-provided`；`system-answer/relation-authorship=none`；
+`raw-prose-hard-gate=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；`B645=pending-audit`。

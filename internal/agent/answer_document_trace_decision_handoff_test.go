@@ -319,7 +319,7 @@ func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T
 	}
 }
 
-func TestTraceDecisionHandoffPublishesLeaderOnlyRepairDirectionAuthority(t *testing.T) {
+func TestTraceDecisionHandoffFallsBackToLeaderWithoutExactDirectionFold(t *testing.T) {
 	inside := true
 	seat := func(rank int, subject, direction, typeToken string, value float64) types.TraceCausalProjectionNode {
 		return types.TraceCausalProjectionNode{
@@ -346,10 +346,10 @@ func TestTraceDecisionHandoffPublishesLeaderOnlyRepairDirectionAuthority(t *test
 	)
 	for _, want := range []string{
 		"repair_direction_authority: artifact=`customer.trace`",
-		"value_role=`single_published_leader_not_direction_subtotal`",
+		"value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`",
 		"joint_total_authority=`not_provided`",
 		"direction_independence_authority=`not_provided`",
-		"instruction=`do_not_sum_direction_members_or_direction_leaders`",
+		"instruction=`do_not_sum_across_directions_or_unlisted_members`",
 		"fix_direction=`frequency_thermal`; member_count=1; leader_rank=#1; leader_subject=`target`; leader_value=58.320ms",
 		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2; leader_subject=`worker-a`; leader_value=7.405ms",
 		"fix_direction=`io_dependency`; member_count=2; leader_rank=#5; leader_subject=`target`; leader_value=3.670ms",
@@ -365,6 +365,49 @@ func TestTraceDecisionHandoffPublishesLeaderOnlyRepairDirectionAuthority(t *test
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("direction authority fabricated subtotal %q:\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.T) {
+	inside := true
+	seat := func(rank int, subject, direction string, value, start, end float64) types.TraceCausalProjectionNode {
+		token := "priority_inversion_candidate"
+		if direction == "frequency_thermal" {
+			token = "running"
+		}
+		return types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("seat-%d", rank), Rank: rank, Subject: subject,
+			Object: token, TypeToken: token,
+			FixDirection: direction, EffectiveImpactMS: value, EffectiveImpactPublished: true,
+			ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
+			StartTs: start, EndTs: end, RankBoardTarget: "target-100",
+			RankBoardParamsFingerprint: "board-a", RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+		}
+	}
+	seats := []types.TraceCausalProjectionNode{
+		seat(1, "target-100", "frequency_thermal", 58.320, 10, 10.05),
+		seat(2, "worker-a", "lock_priority", 7.405, 10.051, 10.06),
+		seat(3, "worker-b", "lock_priority", 4.710, 10.061, 10.07),
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.trace", WindowStartTs: 10, WindowEndTs: 10.1,
+		WakeupPath: []string{"worker-a", "target-100"}, RankedSeats: seats, OnChainCauses: seats,
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2",
+		"same_direction_subtotal_authority=`typed_pairwise_disjoint_section`",
+		"published_direction_value=`exact_subtotal`; direction_subtotal=12.115ms; subtotal_member_count=2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("exact direction subtotal authority missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "joint_total_authority=`provided`") {
+		t.Fatalf("one direction subtotal must not mint a cross-direction total:\n%s", got)
 	}
 }
 

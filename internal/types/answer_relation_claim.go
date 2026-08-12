@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -130,6 +131,67 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 		out = append(out, answerRelationSameSourcePartitionAuthorities(projection)...)
 	}
 	return out
+}
+
+// TraceAnswerDirectionArithmetic is the shared typed arithmetic verdict used
+// by the deterministic eliminable overview and both model decision surfaces.
+// The zero value deliberately means that no subtotal authority exists.
+type TraceAnswerDirectionArithmetic string
+
+const (
+	TraceAnswerDirectionArithmeticNone     TraceAnswerDirectionArithmetic = ""
+	TraceAnswerDirectionArithmeticSubtotal TraceAnswerDirectionArithmetic = "disjoint_subtotal"
+	TraceAnswerDirectionArithmeticOverlap  TraceAnswerDirectionArithmetic = "overlap_nonadditive"
+)
+
+// TraceAnswerDirectionSection is one repair-direction section on the bounded
+// overview face. Members are the exact published section population, not all
+// same-label rows in the lossless ranked-seat roster.
+type TraceAnswerDirectionSection struct {
+	Direction  string
+	Members    []TraceCausalProjectionNode
+	Leader     TraceCausalProjectionNode
+	Arithmetic TraceAnswerDirectionArithmetic
+	SubtotalMS float64
+	MemberRefs []string
+}
+
+// TraceAnswerDirectionSectionArithmetic is the one arithmetic predicate for a
+// repair-direction section. It never infers a relation from a direction label:
+// every member must have a faithful unmerged envelope, one unambiguous board,
+// and pairwise-disjoint support before a subtotal is authorized.
+func TraceAnswerDirectionSectionArithmetic(direction string, members []TraceCausalProjectionNode, multiBoard, boardHasNamedTargets bool) (TraceAnswerDirectionArithmetic, float64) {
+	if strings.TrimSpace(direction) == "" || len(members) < 2 || multiBoard {
+		return TraceAnswerDirectionArithmeticNone, 0
+	}
+	boards := map[string]bool{}
+	subtotalUS := int64(0)
+	for _, node := range members {
+		if target := strings.TrimSpace(node.RankBoardTarget); target != "" {
+			boards[traceCausalProjectionCanonicalNode(target)] = true
+		} else if boardHasNamedTargets {
+			return TraceAnswerDirectionArithmeticNone, 0
+		}
+		if !TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) || node.MergedCount > 1 {
+			return TraceAnswerDirectionArithmeticNone, 0
+		}
+		printed, err := strconv.ParseFloat(strconv.FormatFloat(node.EffectiveImpactMS, 'f', 3, 64), 64)
+		if err != nil {
+			return TraceAnswerDirectionArithmeticNone, 0
+		}
+		subtotalUS += int64(printed*1000 + 0.5)
+	}
+	if len(boards) > 1 {
+		return TraceAnswerDirectionArithmeticNone, 0
+	}
+	for i := range members {
+		for j := i + 1; j < len(members); j++ {
+			if _, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(members[i], members[j]); ok {
+				return TraceAnswerDirectionArithmeticOverlap, 0
+			}
+		}
+	}
+	return TraceAnswerDirectionArithmeticSubtotal, float64(subtotalUS) / 1000
 }
 
 // TraceAnswerDecisionEliminableSeats is the single bounded on-chain seat

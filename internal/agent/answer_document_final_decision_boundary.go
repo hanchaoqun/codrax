@@ -244,8 +244,16 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 		if len(leaders) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`single_published_leader_only`; direction_subtotal_authority=`not_provided_without_exact_fold`. Do not sum same-direction seats merely because their labels share a direction.\n", label)
+		sections := map[string]types.TraceAnswerDirectionSection{}
+		for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
+			sections[section.Direction] = section
+		}
+		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`exact_typed_subtotal_when_published_else_single_leader`; cross_direction_joint_total_authority=`not_provided`. Do not sum same-direction seats merely because their labels share a direction, and never add direction values across directions without a separate typed carrier.\n", label)
 		for _, node := range leaders {
+			section, sectionOK := sections[strings.TrimSpace(node.FixDirection)]
+			if sectionOK && section.Leader.Rank > 0 {
+				node = section.Leader
+			}
 			key, value, ok := traceDecisionModelFacingDirection(node)
 			if !ok {
 				continue
@@ -253,6 +261,18 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			fmt.Fprintf(&b, "  - %s=`%s`", key, value)
 			fmt.Fprintf(&b, "; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
 				node.Rank, strings.TrimSpace(node.Subject), node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+			switch {
+			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal:
+				fmt.Fprintf(&b, "; direction_subtotal_authority=`typed_pairwise_disjoint_section`; direction_subtotal=%.3fms; subtotal_member_count=%d",
+					section.SubtotalMS, len(section.Members))
+				if len(section.MemberRefs) == len(section.Members) {
+					fmt.Fprintf(&b, "; subtotal_member_refs=`%s`", strings.Join(section.MemberRefs, ","))
+				}
+			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
+				b.WriteString("; direction_subtotal_authority=`forbidden_by_typed_overlap`")
+			default:
+				b.WriteString("; direction_subtotal_authority=`not_provided_without_exact_fold`")
+			}
 			if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
 				fmt.Fprintf(&b, "; leader_state_kind=`%s`", stateKind)
 			}

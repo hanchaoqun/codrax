@@ -139,12 +139,12 @@ func TestG8TimestampZeroElimSubtotalEligibility(t *testing.T) {
 	}
 	arithmetic, subtotal := runtimeTraceProjElimSectionLadder(section, false, false)
 	if arithmetic != elimSectionArithmeticSubtotal || subtotal != 5.0 {
-		t.Fatalf("disjoint envelopes with a zero start must keep Σ eligibility, got arithmetic=%d subtotal=%v", arithmetic, subtotal)
+		t.Fatalf("disjoint envelopes with a zero start must keep Σ eligibility, got arithmetic=%v subtotal=%v", arithmetic, subtotal)
 	}
 	// Negative arm: the (0,0) absence envelope steps the section down to L3.
 	section.entries[0] = entry("worker-1", 3.0, 0, 0)
 	arithmetic, subtotal = runtimeTraceProjElimSectionLadder(section, false, false)
 	if arithmetic != elimSectionArithmeticNone || subtotal != 0 {
-		t.Fatalf("the (0,0) absence envelope must still zero the arithmetic, got arithmetic=%d subtotal=%v", arithmetic, subtotal)
+		t.Fatalf("the (0,0) absence envelope must still zero the arithmetic, got arithmetic=%v subtotal=%v", arithmetic, subtotal)
 	}
 }
