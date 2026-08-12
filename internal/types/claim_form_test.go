@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // TestClaimForm_AllValuesValidExceptUnknown pins the IsValid contract.
 // ClaimUnknown is intentionally NOT valid (it is the safe fallback);
@@ -81,9 +84,39 @@ func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
 		}
 	}
-	for _, c := range []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
 		if !c.SupportsCitationRoleAlignment() {
 			t.Fatalf("claim form %q should support typed citation-role alignment", c)
+		}
+	}
+}
+
+func TestEvidenceClaimRoleAssertedByAnswerSurface_GuardConditionLanguageShapes(t *testing.T) {
+	conditions := []string{
+		"if ready {",    // Go
+		"if ready:",     // Python
+		"if (ready) {",  // Java / Kotlin / JS / TS / ArkTS / C / C++
+		"if ready",      // Ruby
+		"if ready {",    // Rust / Swift
+		"if ready then", // Lua
+		"if (ready) {",  // Cangjie
+	}
+	for i, condition := range conditions {
+		ev := EvidenceItem{
+			ID:              fmt.Sprintf("guard-%d", i),
+			Kind:            EvidenceConditional,
+			AnchorKind:      AnchorCondition,
+			Subject:         "Pipeline.run",
+			Condition:       condition,
+			Source:          "src/sample",
+			LineStart:       i + 1,
+			GroundingStatus: GroundingGrounded,
+		}
+		if !EvidenceClaimRoleAssertedByAnswerSurface(ev, []ClaimForm{ClaimGuardCondition}, condition, "nearby explanation") {
+			t.Fatalf("typed guard condition %q was not recognized", condition)
+		}
+		if EvidenceClaimRoleAssertedByAnswerSurface(ev, []ClaimForm{ClaimGuardCondition}, "Pipeline.run", condition) {
+			t.Fatalf("body-only condition %q must not turn a callable label into a guard assertion", condition)
 		}
 	}
 }

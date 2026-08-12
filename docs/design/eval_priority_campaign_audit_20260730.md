@@ -35601,3 +35601,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r405`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.720 r406：Trace 双轴再获正证；typed guard 引用错绑与草稿片段泄漏（2026-08-12）
+
+1. 在 `main@c95dcc434` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + real_trace_h7_self_seat_full_spectrum`。Runner
+   `2/2 PASS`，人工 `1 pass / 1 partial`；完整记录在
+   `eval/parallel_selected_summary_evalcampaign_multirepo_edge_trace_r406_20260812_manual_audit.md`。
+2. H7 人工通过。显式 `13762.791708..13763.024898`（233.190ms）窗口完整保留；模型正文先
+   总结自身 running 算力供给 65.912ms、D-state 36.757ms 与
+   `dma_fence_default_w`，并保留优先级反转、调度供给、IO 和确定性语义 span 等排查维度。
+   实际占用/业务线索与现规则可消除量仍是两个独立回答轴；邻近及背景证据明确不能进入主因
+   席。Trace 因果投影、系统补齐、模型结论所有权均未改变，零成文拒绝。
+3. 活跃流红线再获接线正证：Analyzer 日志明确记录
+   `ownership=stream_first_byte_and_byte_stall_watchdogs`。系统不得因为流已活跃 4ms、4s、
+   4min 或任意固定累计年龄而降级；只有 caller 显式 cancel/deadline、无首字节、字节停滞、
+   transport/decode failure 是精确终止或有界恢复信号。所谓“4ms 没形成完整答案”没有降级权。
+4. Polyglot 本轮 completion 没有提交 principal `member_set`，所以 B672 的 typed member-edge
+   handoff 没有触发，line 13 的 `tokenize_bytes -> best_merge` 仍未进入终稿。该实现通过语言
+   矩阵与核心套件，但本轮不能被记为生产闭环；继续等待模型产出相应 structured carrier 的
+   生产回放，不以答案关键词或强制系统画边替代模型。
+5. 新确认 B673：模型提交的列表项已有 `candidate_role=guard_condition`、block 也有
+   `claim_form=guard_condition`，且证据池已有 grounded `Condition="if _HAVE_NATIVE:" @ line 20`；
+   旧角色对齐却不给 guard 身份，后续通用 citation normalizer 把它错误保留/改绑到 line 22
+   fallback call。根修把 guard 纳入 typed display-surface role，只以 grounded `Condition`
+   （以及结构锚）选择唯一引用；Subject/Owner 不参与 guard 行消歧，以免与相邻调用共名。
+   多个同条件候选继续 fail-open，不猜行号、不改项目文字或模型结论。生产 pre-emit 正臂、
+   歧义负臂和多语言条件形测试均已钉。
+6. 同轮终稿泄漏 `"MB: add_function` 草稿片段，记为 B674。它没有 schema-valid typed
+   “这是草稿”信号，因此不得扫描 `MB:` 或其他模型/答案字符串做硬删除。仅在 Finalizer
+   workflow 增加语言无关软教学：所有可见字段须为读者成文，发射前清理 drafting prefix、
+   scratch label、transport fragment、残缺引号和 validator/repair shorthand；保留真实技术
+   标识并用用户业务语言解释。该项需生产回放，模型波动可被诚实记录但不能硬拟合。
+7. `go test ./internal/types ./internal/skill ./internal/tool -count=1` 全绿（tool 166.866s）。
+   全部确定性改动只消费 schema-valid candidate role / claim form / typed evidence Condition，
+   不扫描 raw request、thinking 或 final prose，不生成图边、不替模型作答；Trace 显式窗、
+   因果投影、自动补齐与链上-only 主因合同保持不变。
+
+状态：
+
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=implemented/language-matrix+internal-tool-pass/pending-production-replay`；
+`B673-GUARDCONDITIONCITATION1=implemented/production-chain+ambiguity+language-shape-pins-pass/pending-production-replay`；
+`B674-DRAFTMARKERLEAK1=soft-teaching-only/pending-production-replay/no-prose-hard-gate`；
+`B664-ACTIVESTREAMUPPERBUDGET1=production-reconfirmed-r406`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r406`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

@@ -890,6 +890,7 @@ func TestFinalizerSkillUsesProjectedSchemaAsSingleJSONFieldAuthority(t *testing.
 		"content-placement guide, not a second JSON schema",
 		"one complete structured tool call per attempt",
 		"rejected attempts may be corrected",
+		"remove accidental drafting prefixes, scratch labels, transport fragments, unmatched quote remnants, and validator/repair shorthand",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("answer-document-skill missing schema-ownership guidance %q:\n%s", want, blob)

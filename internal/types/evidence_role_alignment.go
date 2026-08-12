@@ -51,10 +51,10 @@ func (c ClaimForm) CitationRoleIdentityKind() ClaimCitationRoleIdentityKind {
 	switch c {
 	case ClaimCallEdge, ClaimCallbackHandoff, ClaimImportEdge, ClaimRegistrationEdge:
 		return ClaimCitationRoleDirectedEdge
-	case ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact,
+	case ClaimGuardCondition, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact,
 		ClaimTextReferenceFact:
 		return ClaimCitationRoleDisplaySurface
-	case ClaimDefinitionFact, ClaimGuardCondition, ClaimAssignmentFact,
+	case ClaimDefinitionFact, ClaimAssignmentFact,
 		ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimCitationRoleIdentityNone
 	default:
@@ -316,6 +316,17 @@ func evidenceDisplayRoleTerms(ev EvidenceItem) []string {
 			continue
 		}
 		add(term)
+	}
+	// A grounded guard carries its branch identity in Condition. Subject and
+	// AnchorSymbol normally name the owning callable / referenced value, so
+	// neither can distinguish the guard line from a nearby call or assignment
+	// that mentions the same identifier. Condition is a typed, source-grounded
+	// field and therefore gives list/table items a precise citation selector
+	// without scanning request or answer prose for inferred guard words.
+	if form == ClaimGuardCondition {
+		add(ev.Condition)
+		add(ev.AnchorSymbol)
+		return out
 	}
 	add(ev.Subject)
 	add(ev.Object)

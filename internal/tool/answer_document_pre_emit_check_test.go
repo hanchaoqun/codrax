@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -688,6 +689,92 @@ func TestNormalizeAnswerDocumentForPreEmit_RebindsScalarCodeIdentityCitation(t *
 	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, pctx)
 	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
 		t.Fatalf("production pre-emit chain scalar citation_ref=%d, want target endpoint 1", got)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmit_RebindsTypedGuardConditionCitation(t *testing.T) {
+	mu := types.NewMutableState("explain the native tokenizer call chain")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "native-guard",
+			Kind:            types.EvidenceConditional,
+			Source:          "bindings/tokenizer.py",
+			LineStart:       20,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "_HAVE_NATIVE",
+			Subject:         "FastTokenizer.tokenize",
+			Condition:       "if _HAVE_NATIVE:",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "slow-return",
+			Kind:            types.EvidenceRelationship,
+			Source:          "bindings/tokenizer.py",
+			LineStart:       22,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "_tokenize_slow",
+			Subject:         "FastTokenizer.tokenize",
+			Predicate:       "calls",
+			Object:          "FastTokenizer._tokenize_slow",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "bindings/tokenizer.py", Line: 20, Quote: "if _HAVE_NATIVE:"},
+			{File: "bindings/tokenizer.py", Line: 22, Quote: "return self._tokenize_slow(text)"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "native-route",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimGuardCondition}},
+			Items: []types.AnswerBlockItem{{
+				ID:            "native-guard",
+				Label:         "if _HAVE_NATIVE:",
+				Text:          "原生实现可用时进入原生分词路径。",
+				CandidateRole: types.AnswerCandidateRoleGuardCondition,
+				CitationRef:   1,
+			}},
+		}},
+	}
+
+	pctx := newPreEmitCheckContext(ctx)
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, pctx)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("production pre-emit chain guard citation_ref=%d, want exact typed condition 0", got)
+	}
+	if hints := preCheckCallChainItemCitationRoleAlignmentWithContext(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, pctx); len(hints) != 0 {
+		t.Fatalf("typed guard citation should satisfy call-chain role alignment: %+v", hints)
+	}
+}
+
+func TestPreEmitUniqueTypedGuardConditionCitation_AmbiguousConditionFailsOpen(t *testing.T) {
+	mu := types.NewMutableState("compare repeated feature guards")
+	for i, line := range []int{20, 40} {
+		mu.AppendEvidence([]types.EvidenceItem{{
+			ID:              fmt.Sprintf("guard-%d", i),
+			Kind:            types.EvidenceConditional,
+			Source:          "bindings/tokenizer.py",
+			LineStart:       line,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "_HAVE_NATIVE",
+			Subject:         fmt.Sprintf("Tokenizer%d.tokenize", i),
+			Condition:       "if _HAVE_NATIVE:",
+			GroundingStatus: types.GroundingGrounded,
+		}})
+	}
+	ctx := &types.BusContext{Mutable: mu}
+	item := types.AnswerBlockItem{
+		ID:            "ambiguous-guard",
+		Label:         "if _HAVE_NATIVE:",
+		CandidateRole: types.AnswerCandidateRoleGuardCondition,
+		CitationRef:   0,
+	}
+	if got, ok := preEmitUniqueTypedClaimRoleCitationForItemWithContext(
+		newPreEmitCheckContext(ctx), item, []types.ClaimForm{types.ClaimGuardCondition}); ok {
+		t.Fatalf("repeated typed guard must remain ambiguous instead of guessing %+v", got)
 	}
 }
 
