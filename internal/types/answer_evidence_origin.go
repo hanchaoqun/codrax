@@ -166,7 +166,14 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 		}
 		return true
 	}
-	for _, origin := range AnswerAggregateFactEvidenceOrigins(fact, rm) {
+	// Request shape may classify an otherwise untyped model aggregate into an
+	// evidence lane for display (for example, a trace attachment makes the
+	// aggregate runtime-shaped). That classification does not prove the
+	// aggregate's value, membership, order, or relation. Principal contracts
+	// therefore consume only origins carried explicitly by the fact; inferred
+	// origins remain useful advisory metadata through
+	// AnswerAggregateFactEvidenceOrigins.
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
 		switch origin {
 		case AnswerEvidenceOriginUnknown, AnswerEvidenceOriginSystemInference:
 			continue
@@ -274,7 +281,8 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 			add(AnswerEvidenceOriginVCSMetadata)
 		case "vcs_diff", "git_diff", "diff_hunk":
 			add(AnswerEvidenceOriginVCSDiff)
-		case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace", "trace_query":
+		case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace", "trace_query",
+			"attached-log", "attached_log", "attached-trace", "attached_trace":
 			add(AnswerEvidenceOriginRuntimeArtifact)
 		case "command_measurement", "exec_command", "command_count", "line_count", "file_count":
 			add(AnswerEvidenceOriginCommandMeasurement)

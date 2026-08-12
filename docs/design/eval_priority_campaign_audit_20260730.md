@@ -34219,3 +34219,44 @@ B628 不改任何 trace 数值或答案块，只在 Finalizer 最后的 typed pr
 `rank-is-not-causal-authority=true`；`boundary-carry=already-in-partition`；`model-conclusion-ownership=preserved`；
 `active-stream-fixed-age-degrade=forbidden`；`raw-request/model/final-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.669 r375：邻近归因冲突已消失；请求形状仍把模型 scalar 误铸成运行时主值
+
+`main@b129e77a0` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_logicflow_r375_20260812_manual_audit.md`。
+
+H7 验证 B627 已在生产生效：49.623ms 等 adjacent 席只保留为 target-causal authority 未提供的背景，Finalizer 没再称其为目标有效归因；显式 233.190ms 窗、目标状态、typed 唤醒链、链上-only 根因、
+算力/调度/D/IO/PI/确定性语义、业务线索、实际占用/现规则可消双轴、因果投影和自动补齐均保留。B628 的 typed recap 也精确进入最终 prompt，明确
+`tail_open=8.793ms state=sleep already_included=true`，但模型仍写成“已排除尾部”和“部分尾部未计入”。
+
+深挖确认冲突来自 Explorer 的 model-authored `scalar_value(尾部开放=8.793ms, principal_answer)`：它没有 support_refs，却因为 RequestModel 附带 PerfTrace 且被识别为 scalar-shaped，
+在 aggregate prompt 中继续以主数值出现。`AnswerAggregateFactEvidenceOrigins` 用请求形状推断 `runtime_artifact` 本来只是展示分类，
+`AnswerAggregateFactAuthorizesPrincipalContract` 与 runtime advisory 判定却把这项推断当成事实来源权限。请求说明“这是 trace 问题/这是标量问题”，不能证明模型整理出的任何具体数值；
+这是信号权限倒置，不应继续靠尾部措辞教学修补。立案 `B629-RUNTIMEAGGREGATEREQUESTORIGIN1/P0`。
+
+逻辑视图案最终保留四阶段 precedence 和 analyzer/explorer 对 Mutable accessor 的已证调用，但 BusContext 被迫作为 disconnected/unproven participant；正文又称它在图中与 MutableState 保持连接，
+形成可见自相矛盾并消耗 5 次成文拒绝。系统其实已经持有精确 `state_carrier(owner=BusContext, field=Mutable, type=*MutableState)`，但 prompt 明令 carrier context-only，
+participant relation gate 也不消费 typed containment/grouping。这不是缺源码，而是图层缺少“字段载体→可见分组/包含”的诚实表达通道。立案
+`B630-DIAGRAMSTATECARRIERRELATION1/P1-high`，禁止以系统自造箭头解决。
+
+状态：`B627=production-positive`；`B628=production-partial/subsumed-by-B629`；`B629=confirmed/implemented-targeted-pass`；
+`B630=confirmed/pending`；`runner=2/2`；`human=0/2`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.670 B629：证据 lane 的请求推断不得变成模型 aggregate 的事实权限
+
+B629 把“证据来自哪类调查”与“该模型数值是否有证据”拆成两层。`AnswerAggregateFactEvidenceOrigins` 继续允许请求形状把无类型 aggregate 分类为 runtime/VCS/command 等 lane，
+以便保留、审计和展示；但 `AnswerAggregateFactAuthorizesPrincipalContract` 只消费 fact 自身携带的显式 origin/support，typed relation marker 或精确 file:line，
+不再让请求级 fallback origin 驱动 MUST-render、hard gate、hallucination exemption 或系统主块。
+
+对 external-only runtime 的 scalar/count，`IsScalarAnswer`/`IsCountQuestion` 只决定答案形状，不再替代数值 provenance。没有 typed support ref 的模型数值被保留为 advisory record，
+但 prompt 省略 label/value/unit，并明确 `numeric_observation_authority=not_authorized` 与 `arithmetic_operand=not_authorized`；最终 typed trace observation、principal_state、rank/chain ledger
+仍按原协议完整进入 Finalizer。support ref 必须由共享 grammar 解析成 trace_query、attached-log/trace、command、VCS、connector 或精确 file:line，任意非空自由文本不再旁路权限；
+同批把既有 `attached-log`/`attached-trace` producer token 纳入统一 typed grammar。
+
+该修复不读取 aggregate label/value、用户请求、reasoning 或终稿词面，不删除模型结论，也不由系统产生新结论；它只阻止无证模型整理值与后到的 typed 权威账本竞争。
+回归覆盖 scalar-shaped trace request 的 8.793ms 同形值必须去数值化、typed trace ref 正臂保留、请求推断 origin 仍可展示但不授权，以及既有 log/trace support ref 兼容。
+
+状态：`B629=implemented/targeted-pass/pending-production-replay`；`request-shape=evidence-lane-only`；
+`principal-numeric-authority=explicit-typed-support-only`；`model-record=retained/advisory`；`system-answer-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。

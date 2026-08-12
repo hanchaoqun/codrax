@@ -570,3 +570,31 @@ func TestAnswerAggregateFactAuthorizesPrincipalContract_RejectsPureInferenceButK
 		t.Fatal("system-verified typed relation marker should authorize the principal contract")
 	}
 }
+
+func TestAnswerAggregateFactAuthorizesPrincipalContract_RequestInferredRuntimeOriginIsAdvisory(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateScalar,
+		Label: "model runtime scalar",
+		Value: "8.793ms",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+	}
+	rm := &RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Authority: PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "state_duration",
+		}}},
+	}
+	if origins := AnswerAggregateFactEvidenceOrigins(fact, rm); len(origins) != 1 || origins[0] != AnswerEvidenceOriginRuntimeArtifact {
+		t.Fatalf("request-shaped fact should retain advisory runtime classification, got %+v", origins)
+	}
+	if AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+		t.Fatal("request-inferred runtime origin must not authorize a model-authored principal scalar")
+	}
+
+	fact.SupportRefs = []string{"trace_query:principal_state:E7"}
+	if !AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+		t.Fatal("explicit typed trace support should authorize the principal scalar")
+	}
+}

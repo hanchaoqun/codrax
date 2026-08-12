@@ -2746,33 +2746,53 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 // ownership, upstream data construction, root-cause provenance, or an exact
 // numeric observation. External artifacts can directly prove error classes,
 // frames, spans, timing, and literal content through their typed observation
-// rows. A model-authored aggregate needs explicit support refs, a scalar/count
-// answer obligation, or current-source evidence before it can become the
-// principal answer lane. This predicate deliberately does not match aggregate
+// rows. A model-authored aggregate needs a typed support ref or current-source
+// evidence before it can become the principal answer lane. Merely asking a
+// scalar/count question establishes the answer shape, not the provenance of a
+// model-authored number. This predicate deliberately does not match aggregate
 // label/value prose against artifact prose: noisy text overlap cannot mint
 // numeric authority.
 func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
 	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() {
 		return false
 	}
-	if len(fact.SupportRefs) > 0 {
+	if aggregateFactHasTypedSupportRef(fact) {
 		return false
 	}
 	switch fact.Kind {
 	case AnswerAggregateBehaviorOutcome, AnswerAggregateErrorGranularity:
 		return true
 	case AnswerAggregateScalar:
-		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
+		return true
 	case AnswerAggregateTotalCount,
 		AnswerAggregateUniqueCount,
 		AnswerAggregateGroupedCount,
 		AnswerAggregateBucketCount:
-		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
+		return true
 	case AnswerAggregateMemberSet:
 		return runtimeObservationMemberSetIsAdvisory(rm, fact)
 	default:
 		return false
 	}
+}
+
+// aggregateFactHasTypedSupportRef distinguishes a producer-bound witness from
+// a non-empty model string. A support_refs entry is authority only when the
+// shared support-ref grammar resolves it to an evidence origin or to an exact
+// current-source coordinate. This keeps malformed/free-form refs from
+// bypassing runtime numeric authority while preserving trace_query,
+// attached-log/trace, command, VCS, connector, and file:line witnesses.
+func aggregateFactHasTypedSupportRef(fact AnswerAggregateFact) bool {
+	if answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+		return true
+	}
+	for _, ref := range fact.SupportRefs {
+		origin := AnswerEvidenceOriginFromSupportRef(ref)
+		if origin != AnswerEvidenceOriginUnknown && origin != AnswerEvidenceOriginSystemInference {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeObservationMemberSetIsAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {

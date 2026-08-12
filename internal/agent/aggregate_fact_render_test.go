@@ -223,6 +223,44 @@ func TestRenderStructuredAggregateFactsRuntimeScalarWithTypedSupportKeepsValue(t
 	}
 }
 
+func TestRenderStructuredAggregateFactsScalarQuestionStillOmitsUnsupportedRuntimeNumber(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "window boundary remainder",
+		Value: "8.793ms",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "ms",
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsScalarAnswer:       true,
+		},
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "state_duration",
+		}}},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, forbidden := range []string{"label=window boundary remainder", "value=`8.793ms`", "unit=ms"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("request shape must not authorize an unsupported model runtime scalar (%q):\n%s", forbidden, got)
+		}
+	}
+	for _, want := range []string{
+		"role=`supporting_coverage`",
+		"label_omitted=runtime_advisory_without_typed_support",
+		"numeric_observation_authority=`not_authorized`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unsupported runtime scalar missing advisory marker %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderStructuredAggregateFactsShowsUnifiedEvidenceOrigin(t *testing.T) {
 	facts := []types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateScalar,

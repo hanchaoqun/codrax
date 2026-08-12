@@ -3247,8 +3247,8 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeObservationAdvisory
 
 	scalarRM := rm
 	scalarRM.Predicates.IsScalarAnswer = true
-	if role := AnswerAggregateFactRoleForRequest(facts[3], &scalarRM); role != AnswerAggregateRolePrincipalAnswer {
-		t.Fatalf("scalar runtime questions should preserve scalar aggregate principal role, got %q", role)
+	if role := AnswerAggregateFactRoleForRequest(facts[3], &scalarRM); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("scalar answer shape must not mint authority for an unsupported model runtime value, got %q", role)
 	}
 
 	rm.LogTriage.ResolvedFiles = []string{"ets/components/UserCard.ets"}
@@ -3348,8 +3348,8 @@ func TestNormalizeAggregateFactRolesForRequest_RuntimeTextOverlapCannotMintScala
 
 	scalarRM := rm
 	scalarRM.Predicates.IsScalarAnswer = true
-	if role := AnswerAggregateFactRoleForRequest(fact, &scalarRM); role != AnswerAggregateRolePrincipalAnswer {
-		t.Fatalf("typed scalar-answer obligation should keep the scalar principal, got %q", role)
+	if role := AnswerAggregateFactRoleForRequest(fact, &scalarRM); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("scalar-answer obligation must not substitute for typed numeric support, got %q", role)
 	}
 }
 
