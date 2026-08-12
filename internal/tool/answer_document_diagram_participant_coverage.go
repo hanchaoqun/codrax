@@ -64,7 +64,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
-	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain visible as a Mermaid node/participant or subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. Prefer placing the exact technical endpoint inside that participant's visible group, or use the participant as the visible node label while preserving exact technical identities in edge_anchors. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
+	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. Alternatively, place the exact technical endpoint inside that participant's visible group. Only when no typed incident relation exists may the participant remain a disconnected visible node with exactly one {participant:<typed identity>,status:\"unproven\"} row. For a disconnected boundary, make the exact typed identity the Mermaid node id or the first visible node label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants are connected. Remove stale, unknown, context_only, or already-connected boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
@@ -106,7 +106,7 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 		switch mismatch.Issue {
 		case DiagramParticipantCoverageTypedEdgeMissing:
 			edgeAction = "select_one_existing_typed_candidate_and_render_its_exact_direction"
-			identityAction = "show_the_participant_as_one_candidate_endpoint_label_or_its_visible_group"
+			identityAction = "use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"
 			boundaryAction = "omit_unproven_boundary"
 		case DiagramParticipantCoverageIdentityMissing:
 			edgeAction = "retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate"
@@ -581,6 +581,16 @@ func diagramParticipantVisibleEndpointCarriesIdentity(
 	typedEndpoint string,
 	labels map[string]string,
 ) bool {
+	// Mermaid node IDs are the stable structured identity lane while labels are
+	// intentionally free to use concise business language.  When the model
+	// makes the exact typed participant the endpoint node ID, and the same edge
+	// retains its canonical technical identity in edge_anchors, that is an
+	// explicit model-authored participant mapping.  Requiring the visible label
+	// to repeat the internal identity would contradict the display contract and
+	// can strand an otherwise valid evidence-backed edge in a retry loop.
+	if diagramParticipantSurfaceMatches(surfaces, node) {
+		return true
+	}
 	// An exact structured endpoint-to-participant identity is already the
 	// model-authored mapping for this visible node. Its label may therefore be
 	// business language (for example "理解请求" for Analyzer) without exposing

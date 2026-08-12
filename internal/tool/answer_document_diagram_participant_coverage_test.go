@@ -127,6 +127,32 @@ func TestDiagramParticipantCoverageUsesExactOperationOwnerForBusinessParticipant
 	}
 }
 
+func TestDiagramParticipantCoverageExactEndpointNodeIDMayCarryBusinessLabel(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"准备分析\"] --> Mutable[\"共享可变状态\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "Mutable", FromIdentity: "analyzerEvaluator.BuildInitialInstruction",
+		ToIdentity: "ctx.Mutable.SetSearchGraph", RelationKind: types.DiagramRelCall,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"analyzerEvaluator.BuildInitialInstruction", "ctx.Mutable.SetSearchGraph",
+	)}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("exact participant endpoint node id plus business label should preserve typed incidence: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"准备分析\"] --> Other[\"共享可变状态\"]"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "Other"
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageIdentityMissing {
+		t.Fatalf("an unrelated endpoint node id must not borrow participant identity from a generic label: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
@@ -287,7 +313,7 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		`to_identity:"o.busCtx.EvidenceItems"`,
 		`edge_anchor_identity_fields:{from_identity:"output.EvidenceItems",to_identity:"o.busCtx.EvidenceItems",relation_kind:"data_flow"}`,
 		`edge_action:"select_one_existing_typed_candidate_and_render_its_exact_direction"`,
-		`identity_action:"show_the_participant_as_one_candidate_endpoint_label_or_its_visible_group"`,
+		`identity_action:"use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"`,
 		`boundary_action:"omit_unproven_boundary"`,
 		"never replace those exact identities with the broader participant name",
 		"not a requirement to render every candidate",

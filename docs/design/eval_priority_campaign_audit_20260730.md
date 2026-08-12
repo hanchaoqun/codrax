@@ -34280,3 +34280,48 @@ B630 修复的是关系表达层，不新增关系事实。统一 Diagram Contra
 `directed-flow=typed-operation-only`；`participant-boundary=directed-relation-scope`；`cross-language=true`；
 `system-diagram/answer-authorship=none`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.672 r376：Trace 数值权限已闭环；图层结构身份与展示身份自冲突导致九次拒绝
+
+`main@9b6aba09f` exact-two runner `1/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_logicflow_r376_20260812_manual_audit.md`。
+
+H7 Trace 案验证 B629 正向生效：Finalizer 不再消费无 support 的“尾部开放=8.793ms”模型 scalar 主值，正文明确
+running=74.915ms、D=36.757ms、runnable=1.536ms、sleep=118.586ms，并且只把 typed window account 的
+`unaccounted=1.396ms` 作为未归账边界残差。显式时间窗、目标线程状态、on-chain-only 排名、优先级反转候选、调度/算力供给、D/IO、确定性语义 JIT、
+链上业务 span、实际占用/现规则可消双轴、邻近背景降级、因果投影和自动补齐全部保留。B627/B628/B629 可转 production-positive。
+
+逻辑图案不是模型波动。B630 的 containment 教学和 `state_carrier` typed facts 已进入 prompt，模型也保留 BusContext 直接流未证边界，并把已证
+`analyzerEvaluator.BuildInitialInstruction -> ctx.Mutable.SetSearchGraph` 画到 endpoint node id `Mutable`。但 participant coverage 的身份存在门把 exact node id
+视为 `Mutable`，incident 门却只检查可见 label/group；当 label 使用更友好的 `MutableState` 时，同一结构被报
+`available_typed_incident_edge_not_rendered`。这与统一展示教学“stable ID 保存结构身份、label 使用业务语言”自冲突，造成 9 次成文拒绝、421s 后恢复旧稿和
+`degraded_answer_checks_skipped`。立案 `B630b-DIAGRAMNODEIDENTITYDISPLAY1/P0`。
+
+Trace 案另暴露效率 gap `B631-TRACEPAYLOADNAVIGATION1/P1`：`root_cause_rank` inline 结果已给 payload_ref 和 compacted 统计，但“全部小来源”需要继续读取时，模型只有通用
+`read_file` 行分页，连续遍历 33720 行 JSON，形成 17 轮、12 次 read、49% context。后续应提供 schema-driven section/rank cursor 或 compact sidecar，保持完整 payload、
+原始证据、排序和 SHA 权限不变；不得通过缩减候选、截断小项或放宽因果门换速度。
+
+两案分别 286s、421s，模型流持续活跃且都越过四分钟；系统没有按年龄触发降级。逻辑图案的降级只由精确结构合同连续失败触发。固定 elapsed 不能成为恢复旧稿、空答案或系统代答的信号。
+
+状态：`B627/B628/B629=production-positive`；`B630=production-partial`；`B630b=confirmed/implemented-targeted-pass`；
+`B631=confirmed/pending`；`runner=1/2`；`human=1/2`；`active-stream-fixed-age-degrade=absent`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.673 B630b：精确 Mermaid node id 承载结构身份，业务 label 不再破坏 incidence
+
+B630b 统一 participant identity 的两个既有校验面：当模型把 exact typed participant 作为已证边的 Mermaid endpoint node id 时，该 node id 就是结构身份；可见 label 可使用
+简洁业务语言。边仍必须真实终止于同一个 node id，`edge_anchors.from_identity/to_identity` 仍必须保存候选给出的精确技术 endpoint 和方向。另一个合法形仍是把精确技术
+endpoint 放在以 participant 命名的可见 group 内。
+
+本批不允许任意 label、substring 或 owner 名借 incidence：无关 node id 即使使用相同泛化 label 仍 fail-closed；独立 disconnected participant 也不能借别处技术边。
+因此这不是放宽关系证据，而是消除“identityVisible 接受 node id、visibleIncident 拒绝同一 node id”的内部合同矛盾。统一 Diagram Contract 和精确 repair action 同步说明该形，
+降低模型在 JSON/图结构上的心智负担；系统仍不选择候选、不生成节点/分组/边，也不改写模型答案。
+
+回归覆盖 exact participant node id + 业务 label + canonical operation anchor 正臂，以及相同业务 label 配无关 node id 的负臂；既有 group、exact receiver、static binding、
+hidden endpoint、disconnected boundary 回归继续通过。该规则与语言、组件名称、Mermaid family 无关。
+
+状态：`B630b=implemented/targeted-pass/pending-production-replay`；`structured-identity=exact-endpoint-node-id`；
+`display-label=business-language`；`technical-edge-authority=unchanged`；`fuzzy-alias=forbidden`；
+`system-diagram/answer-authorship=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

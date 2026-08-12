@@ -4296,6 +4296,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"nesting the exact field/type node or subgroup inside the exact owner subgraph",
 		"containment/grouping is not a call, transfer, execution order",
 		"language-neutral across fields, properties, members, slots",
+		"an exact typed participant may be the stable Mermaid endpoint node ID while its visible label uses concise business language",
+		"The proved edge must terminate on that same node ID",
 		"One merge function does not prove that every source field is stored in the destination",
 		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",
 		"## Diagram Seeds",
