@@ -8705,11 +8705,20 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"language model authors only the request classification",
 		"deterministic code then normalizes and compiles",
 		"do not attribute deterministically derived artifacts directly to the language model",
+		"principal authority for the selected read workflow's stage responsibilities",
+		"merely reuses a word such as analyze, explore, extract, finalize",
+		"Do not use a homonymous helper to redefine the stage row",
 		"stage_binding[1]: stage=`StageAnalyze` (`analyze`)",
 		"agent=`AgentAnalyzer` (`analyzer`)",
 		"primary_artifacts=`AnalysisIR, TaskGraph, EvidencePlan, AnswerContract, HypothesisSet, QualityGate`",
 		"stage_binding[4]: stage=`StageFinalize` (`finalize`)",
 		"source=`internal/types/stage_binding.go:",
+		"### Verified shared state-carrier fields",
+		"field-ownership facts, not stage edges or per-stage read/write claims",
+		"state_carrier[1]: owner=`BusContext`; field=`Mutable`; type=`*MutableState`; source=`internal/types/context.go:",
+		"owner=`BusContext`; field=`AnalysisIR`; type=`*AnalysisIR`",
+		"owner=`MutableState`; field=`answerDocumentV2`; type=`*AnswerDocumentV2`",
+		"does not authorize the system to replace the model's conclusion or answer",
 		"### User-facing workflow display guidance",
 		"responsibility` above is the wording basis",
 		"business action first and the exact stage identity second",
@@ -10917,6 +10926,21 @@ func writeStageBindingFixture(t *testing.T, repo string) {
 	enums := "package types\n\ntype PipelineStage string\n\nfunc AllMainStages() []PipelineStage {\n\treturn []PipelineStage{" + strings.Join(mainStageIdents, ", ") + "}\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "enums.go"), []byte(enums), 0o644); err != nil {
 		t.Fatalf("write stage sequence fixture: %v", err)
+	}
+	contextSource := `package types
+type MutableState struct { answerDocumentV2 *AnswerDocumentV2 }
+type BusContext struct {
+ Mutable *MutableState
+ PipelineStage PipelineStage
+ ActiveAgent AgentName
+ EvidenceItems []EvidenceItem
+ AnswerChains []AnswerChain
+ AnswerSymbols []AnswerSymbol
+ StageReports []StageReport
+ AnalysisIR *AnalysisIR
+}`
+	if err := os.WriteFile(filepath.Join(dir, "context.go"), []byte(contextSource), 0o644); err != nil {
+		t.Fatalf("write state carrier fixture: %v", err)
 	}
 }
 

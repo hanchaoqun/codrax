@@ -33120,3 +33120,21 @@ workflow provider 的状态载体与 principal/supporting 边界，不能靠终�
 
 状态：`B591=implemented/relevant-suites-pass`；`operator-matrix=typed-closed`；
 `system-diagram-authorship=none`；`B592=next`；Trace causal authority=`unchanged`。
+
+### 123.619 B592：主流程职责与共享状态载体分层，隔离同名子系统污染
+
+概念性 read workflow 的候选调查集由四个 stage membership/order authority 文件扩为五个 investigation 文件：新增
+`internal/types/context.go`，但它被明确标为 state-carrier 调查源，不能单凭存在激活或扩张阶段成员/顺序权威。`ReadModePipelineAuthorityFiles` 继续只含原四个文件，
+`ReadModePipelineInvestigationFiles` 才追加 context。全局 required-files cap 仍为 3；仅当 analyzer entity 通过 repo graph 精确解析到 context.go 中的载体声明时，软导航优先级调整为
+`stage_binding.go, context.go, enums.go`，从而在三席内保留职责、载体、顺序。普通 workflow 不因宽泛“状态”概念词挤掉拓扑调查文件。
+
+新增 checkout-verified AST provider 独立核验 `BusContext` 的 `Mutable/PipelineStage/ActiveAgent/EvidenceItems/AnswerChains/AnswerSymbols/StageReports/AnalysisIR`
+以及 `MutableState.answerDocumentV2` 的 exact owner/type/source line。任一字段缺失或类型漂移时只关闭 state-carrier 提示，不抹除 separately verified stage authority。Finalizer
+prompt 将这些字段发布为 context-only ownership facts，明确不证明每阶段读写、不授权图边，也不授权系统替代模型结论。
+
+同一 prompt 进一步固定 principal/supporting 边界：当前 selected read workflow 的阶段职责与 primary artifacts 只由 checkout-verified stage binding 行定义；其他 evidence 即使
+同名为 analyze/explore/extract/finalize/pipeline/dataflow/load/digest，只要没有 typed current-read relation 连接 exact identity，就只能作为独立 supporting subsystem，不能改写
+阶段职责或虚构内部子步骤。该规则纯软指导，不扫描用户/模型/终稿关键词，不增设答案 contains gate，不删证据、不代写答案。Trace 路由、显式窗、因果投影、自动补齐与链上根因权威均未改。
+
+状态：`B592=implemented/relevant-suites-pass`；`context.go=investigation-not-membership-authority`；
+`homonym-boundary=soft-provider-guidance`；`system-answer-authorship=none`；Trace causal authority=`unchanged`。

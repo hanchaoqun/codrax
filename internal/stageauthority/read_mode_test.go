@@ -63,6 +63,47 @@ func TestLoadReadModeFailsClosedOnSequenceOrBindingDrift(t *testing.T) {
 	}
 }
 
+func TestLoadReadModeStateCarriersVerifiesExactFieldOwnership(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, filepath.FromSlash(types.ReadModePipelineContextFile))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package types
+type MutableState struct { answerDocumentV2 *AnswerDocumentV2 }
+type BusContext struct {
+ Mutable *MutableState
+ PipelineStage PipelineStage
+ ActiveAgent AgentName
+ EvidenceItems []EvidenceItem
+ AnswerChains []AnswerChain
+ AnswerSymbols []AnswerSymbol
+ StageReports []StageReport
+ AnalysisIR *AnalysisIR
+}`
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows, ok := LoadReadModeStateCarriers(repo)
+	if !ok || len(rows) != len(readModeStateCarrierFieldSpecs) {
+		t.Fatalf("state carriers=%+v ok=%v", rows, ok)
+	}
+	if rows[0].Owner != "BusContext" || rows[0].Field != "Mutable" || rows[0].Type != "*MutableState" || rows[0].File != types.ReadModePipelineContextFile || rows[0].Line <= 0 {
+		t.Fatalf("unexpected first carrier row: %+v", rows[0])
+	}
+	if rows[len(rows)-1].Owner != "MutableState" || rows[len(rows)-1].Field != "answerDocumentV2" {
+		t.Fatalf("structured answer carrier missing: %+v", rows)
+	}
+
+	drifted := strings.Replace(source, "EvidenceItems []EvidenceItem", "EvidenceItems []string", 1)
+	if err := os.WriteFile(path, []byte(drifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rows, ok := LoadReadModeStateCarriers(repo); ok || rows != nil {
+		t.Fatalf("drifted field type must fail closed: %+v", rows)
+	}
+}
+
 func TestMatchesRequiredMainStageParticipantSlate(t *testing.T) {
 	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
 	if !ok {

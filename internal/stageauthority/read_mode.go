@@ -6,7 +6,9 @@
 package stageauthority
 
 import (
+	"bytes"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -52,6 +54,30 @@ type ReadModeAuthority struct {
 	Main                 []StageRow
 	ConditionalPreStages []types.StageBinding
 	Precedence           []PrecedenceRelation
+}
+
+// StateCarrierField is one checkout-verified field ownership fact from the
+// read pipeline's shared BusContext/MutableState carrier. It proves only that
+// the named field and exact Go type exist on that owner. It does not prove
+// that every stage reads/writes the field or authorize a diagram edge.
+type StateCarrierField struct {
+	Owner string
+	Field string
+	Type  string
+	File  string
+	Line  int
+}
+
+var readModeStateCarrierFieldSpecs = []StateCarrierField{
+	{Owner: "BusContext", Field: "Mutable", Type: "*MutableState"},
+	{Owner: "BusContext", Field: "PipelineStage", Type: "PipelineStage"},
+	{Owner: "BusContext", Field: "ActiveAgent", Type: "AgentName"},
+	{Owner: "BusContext", Field: "EvidenceItems", Type: "[]EvidenceItem"},
+	{Owner: "BusContext", Field: "AnswerChains", Type: "[]AnswerChain"},
+	{Owner: "BusContext", Field: "AnswerSymbols", Type: "[]AnswerSymbol"},
+	{Owner: "BusContext", Field: "StageReports", Type: "[]StageReport"},
+	{Owner: "BusContext", Field: "AnalysisIR", Type: "*AnalysisIR"},
+	{Owner: "MutableState", Field: "answerDocumentV2", Type: "*AnswerDocumentV2"},
 }
 
 // WorkflowSelection is the checkout-verified contiguous read-mode stage span
@@ -321,6 +347,80 @@ func LoadReadMode(repoRoot string) (ReadModeAuthority, bool) {
 		ConditionalPreStages: types.ReadModeConditionalPreStageBindings(),
 		Precedence:           relations,
 	}, true
+}
+
+// LoadReadModeStateCarriers verifies the exact shared carrier fields in the
+// checked-out context.go. It is intentionally independent from LoadReadMode:
+// failure here suppresses only state-carrier guidance and must not erase a
+// separately verified stage membership/order authority.
+func LoadReadModeStateCarriers(repoRoot string) ([]StateCarrierField, bool) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil, false
+	}
+	rel := types.ReadModePipelineContextFile
+	path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return verifiedReadModeStateCarrierFields(path, rel, data)
+}
+
+func verifiedReadModeStateCarrierFields(path, rel string, data []byte) ([]StateCarrierField, bool) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, data, 0)
+	if err != nil {
+		return nil, false
+	}
+	typeFields := make(map[string]map[string]StateCarrierField)
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok || structType.Fields == nil {
+				continue
+			}
+			owner := typeSpec.Name.Name
+			if owner != "BusContext" && owner != "MutableState" {
+				continue
+			}
+			if typeFields[owner] == nil {
+				typeFields[owner] = make(map[string]StateCarrierField)
+			}
+			for _, field := range structType.Fields.List {
+				var rendered bytes.Buffer
+				if err := format.Node(&rendered, fset, field.Type); err != nil {
+					return nil, false
+				}
+				for _, name := range field.Names {
+					if _, duplicate := typeFields[owner][name.Name]; duplicate {
+						return nil, false
+					}
+					typeFields[owner][name.Name] = StateCarrierField{
+						Owner: owner, Field: name.Name, Type: rendered.String(),
+						File: rel, Line: fset.Position(name.Pos()).Line,
+					}
+				}
+			}
+		}
+	}
+	out := make([]StateCarrierField, 0, len(readModeStateCarrierFieldSpecs))
+	for _, want := range readModeStateCarrierFieldSpecs {
+		got, ok := typeFields[want.Owner][want.Field]
+		if !ok || got.Type != want.Type || got.Line <= 0 {
+			return nil, false
+		}
+		out = append(out, got)
+	}
+	return out, true
 }
 
 // BindingIdentifiers returns the exact declaration identifiers for a

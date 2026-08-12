@@ -18,6 +18,7 @@ const (
 	ReadModePipelineStageBindingFile = "internal/types/stage_binding.go"
 	ReadModePipelineTopologyFile     = "internal/orchestrator/topology.go"
 	ReadModePipelineOrchestratorFile = "internal/orchestrator/orchestrator.go"
+	ReadModePipelineContextFile      = "internal/types/context.go"
 )
 
 var builtinStageBindings = []StageBinding{
@@ -171,6 +172,15 @@ func ReadModePipelineAuthorityFiles() []string {
 		ReadModePipelineTopologyFile,
 		ReadModePipelineOrchestratorFile,
 	}
+}
+
+// ReadModePipelineInvestigationFiles adds the shared state-carrier source to
+// the stage membership/order authority files. context.go is investigation
+// context, not stage membership authority: callers must not use its presence
+// alone to activate or widen the canonical read lane.
+func ReadModePipelineInvestigationFiles() []string {
+	out := ReadModePipelineAuthorityFiles()
+	return append(out, ReadModePipelineContextFile)
 }
 
 // StageBindingForStage returns the canonical built-in binding for a

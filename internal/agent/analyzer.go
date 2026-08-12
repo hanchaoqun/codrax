@@ -3112,6 +3112,14 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		}
 	}
 	if authority := stageTopologyAuthorityRequiredFiles(graph, rm, entities); len(authority) > 0 {
+		// GraphFromAgentContextOrLoad may return a query-narrowed view. The
+		// AgentContext graph remains the full current-checkout identity index;
+		// use it only to order already-admitted authority files, never to admit
+		// the workflow lane or create an answer fact.
+		fullGraph, _ := ctx.SearchGraph.(*repomap.Graph)
+		if stageTopologyAuthorityHasStateCarrierEntity(fullGraph, entities) {
+			authority = prioritizeReadModeStateCarrierInvestigationFiles(authority)
+		}
 		hi = append(hi, authority...)
 	}
 	// Config-trace seeder. When the target is a config key, the group's
@@ -3257,7 +3265,22 @@ func stageTopologyAuthorityRequiredFiles(graph *repomap.Graph, rm types.RequestM
 		(!stageTopologyAuthorityHasStageEntity(graph, entities) && !stageTopologyAuthorityHasTypedWorkflowDimension(rm)) {
 		return nil
 	}
-	files := types.ReadModePipelineAuthorityFiles()
+	files := types.ReadModePipelineInvestigationFiles()
+	if stageTopologyAuthorityHasStateCarrierEntity(graph, entities) {
+		// The global analyzer required-file cap is three. When a checkout-
+		// resolved request entity is itself declared in the shared carrier
+		// source, keep responsibility + carrier + order in those three slots;
+		// topology/orchestrator remain available to the ranker and follow-up
+		// reads. This is soft navigation priority from an exact graph identity,
+		// not an answer gate or a claim that context.go defines stage order.
+		files = []string{
+			types.ReadModePipelineStageBindingFile,
+			types.ReadModePipelineContextFile,
+			types.ReadModePipelineEnumsFile,
+			types.ReadModePipelineTopologyFile,
+			types.ReadModePipelineOrchestratorFile,
+		}
+	}
 	out := make([]string, 0, len(files))
 	for _, file := range files {
 		if _, ok := graph.FileIndex[file]; ok {
@@ -3322,6 +3345,56 @@ func stageTopologyAuthorityHasStageEntity(graph *repomap.Graph, entities []strin
 		}
 	}
 	return false
+}
+
+func stageTopologyAuthorityHasStateCarrierEntity(graph *repomap.Graph, entities []string) bool {
+	if graph == nil || len(entities) == 0 {
+		return false
+	}
+	for _, entity := range entities {
+		name := stageTopologyEntitySymbolName(entity)
+		if name == "" {
+			continue
+		}
+		for _, sym := range graph.SymbolDefs[name] {
+			if sym == nil {
+				continue
+			}
+			path := strings.TrimPrefix(strings.TrimSpace(strings.ReplaceAll(sym.File, "\\", "/")), "./")
+			if path == types.ReadModePipelineContextFile {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func prioritizeReadModeStateCarrierInvestigationFiles(files []string) []string {
+	priority := []string{
+		types.ReadModePipelineStageBindingFile,
+		types.ReadModePipelineContextFile,
+		types.ReadModePipelineEnumsFile,
+		types.ReadModePipelineTopologyFile,
+		types.ReadModePipelineOrchestratorFile,
+	}
+	present := make(map[string]bool, len(files))
+	for _, file := range files {
+		present[file] = true
+	}
+	out := make([]string, 0, len(files))
+	for _, file := range priority {
+		if present[file] {
+			out = append(out, file)
+			delete(present, file)
+		}
+	}
+	for _, file := range files {
+		if present[file] {
+			out = append(out, file)
+			delete(present, file)
+		}
+	}
+	return out
 }
 
 func stageTopologyEntitySymbolName(entity string) string {

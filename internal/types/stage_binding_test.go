@@ -47,6 +47,19 @@ func TestReadModePipelineAuthorityFiles(t *testing.T) {
 	}
 }
 
+func TestReadModePipelineInvestigationFilesKeepsContextOutOfMembershipAuthority(t *testing.T) {
+	authority := ReadModePipelineAuthorityFiles()
+	investigation := ReadModePipelineInvestigationFiles()
+	if len(investigation) != len(authority)+1 || investigation[len(investigation)-1] != ReadModePipelineContextFile {
+		t.Fatalf("investigation files = %v, want authority files plus %q", investigation, ReadModePipelineContextFile)
+	}
+	for _, file := range authority {
+		if file == ReadModePipelineContextFile {
+			t.Fatalf("state-carrier source must not activate stage membership authority: %v", authority)
+		}
+	}
+}
+
 func TestReadModeStageBindingsCarryResponsibilitiesAndArtifacts(t *testing.T) {
 	for _, binding := range ReadModeMainStageBindings() {
 		if strings.TrimSpace(binding.Responsibility) == "" {

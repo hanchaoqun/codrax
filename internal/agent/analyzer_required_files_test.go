@@ -399,6 +399,10 @@ func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t 
 			types.ReadModePipelineOrchestratorFile: {
 				{Name: "runReadSchedulerLoop", Kind: "function", Line: 4524},
 			},
+			types.ReadModePipelineContextFile: {
+				{Name: "BusContext", Kind: "type", Line: 7177},
+				{Name: "MutableState", Kind: "type", Line: 143},
+			},
 		},
 		map[string]float64{
 			"internal/dataworkflow/stage.go": 9.0,
@@ -413,7 +417,7 @@ func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t 
 	}
 
 	got := stageTopologyAuthorityRequiredFiles(graph, rm, []string{"StageCoverRequiredMaterials"})
-	want := types.ReadModePipelineAuthorityFiles()
+	want := types.ReadModePipelineInvestigationFiles()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("authority files = %v, want %v", got, want)
 	}
@@ -431,6 +435,7 @@ func TestStageTopologyAuthorityRequiredFiles_TypedConceptualWorkflowDoesNotNeedS
 			types.ReadModePipelineStageBindingFile: {{Name: "StageBinding", Kind: "type", Line: 6}},
 			types.ReadModePipelineTopologyFile:     {{Name: "pipelineTopology", Kind: "var", Line: 17}},
 			types.ReadModePipelineOrchestratorFile: {{Name: "runReadSchedulerLoop", Kind: "function", Line: 4524}},
+			types.ReadModePipelineContextFile:      {{Name: "BusContext", Kind: "type", Line: 7177}},
 		},
 		nil,
 	)
@@ -453,7 +458,7 @@ func TestStageTopologyAuthorityRequiredFiles_TypedConceptualWorkflowDoesNotNeedS
 	}
 
 	got := stageTopologyAuthorityRequiredFiles(graph, rm, []string{"analyze", "finalizer"})
-	want := types.ReadModePipelineAuthorityFiles()
+	want := types.ReadModePipelineInvestigationFiles()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("typed conceptual workflow authority files = %v, want %v", got, want)
 	}
@@ -474,7 +479,7 @@ func TestStageTopologyAuthorityRequiredFiles_TypedConceptualWorkflowDoesNotNeedS
 func TestAnalyzerRequiredFiles_TypedConceptualWorkflowWiresAuthoritySeeder(t *testing.T) {
 	repoRoot := t.TempDir()
 	fileSymbols := make(map[string][]repomap.Symbol)
-	for i, rel := range types.ReadModePipelineAuthorityFiles() {
+	for i, rel := range types.ReadModePipelineInvestigationFiles() {
 		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", rel, err)
 		}
@@ -510,6 +515,57 @@ func TestAnalyzerRequiredFiles_TypedConceptualWorkflowWiresAuthoritySeeder(t *te
 	want := types.ReadModePipelineAuthorityFiles()[:maxAnalyzerRequiredFilesCap()]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("wired conceptual workflow required files = %v, want %v", got, want)
+	}
+}
+
+func TestAnalyzerRequiredFiles_TypedWorkflowPrioritizesExactStateCarrierWithinCap(t *testing.T) {
+	repoRoot := t.TempDir()
+	fileSymbols := map[string][]repomap.Symbol{
+		types.ReadModePipelineEnumsFile:        {{Name: "StageAnalyze", Kind: "const", Line: 1}},
+		types.ReadModePipelineStageBindingFile: {{Name: "StageBinding", Kind: "type", Line: 1}},
+		types.ReadModePipelineTopologyFile:     {{Name: "pipelineTopology", Kind: "var", Line: 1}},
+		types.ReadModePipelineOrchestratorFile: {{Name: "runReadSchedulerLoop", Kind: "function", Line: 1}},
+		types.ReadModePipelineContextFile:      {{Name: "BusContext", Kind: "type", Line: 1}},
+	}
+	for rel := range fileSymbols {
+		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	graph := buildRankerGraph(fileSymbols, nil)
+	if !stageTopologyAuthorityHasStateCarrierEntity(graph, []string{"BusContext"}) {
+		t.Fatalf("exact BusContext definition was not recognized: %+v", graph.SymbolDefs["BusContext"])
+	}
+	mu := types.NewMutableState("explain the read workflow state")
+	mu.SetSearchGraph(graph)
+	ctx := &types.AgentContext{RepoRoot: repoRoot, Mutable: mu, SearchGraph: graph}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism), Entities: []string{"analyze", "finalizer", "BusContext"}},
+		Predicates:    types.SemanticPredicates{HasPerMemberTable: true},
+		DiagramHint:   &types.DiagramHint{Required: true, Kind: types.DiagramSequence},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label: "stage", Role: types.RequestedAnswerDimensionStageWorkflow, Required: true, Index: 1,
+			}},
+		},
+	}
+	want := []string{
+		types.ReadModePipelineStageBindingFile,
+		types.ReadModePipelineContextFile,
+		types.ReadModePipelineEnumsFile,
+	}
+	if got := analyzerRequiredFiles(ctx, rm); !reflect.DeepEqual(got, want) {
+		t.Fatalf("state-carrier workflow required files = %v, want %v", got, want)
+	}
+
+	if got := stageTopologyAuthorityHasStateCarrierEntity(graph, []string{"WorkflowState"}); got {
+		t.Fatal("an unrelated conceptual state word must not activate context priority")
 	}
 }
 

@@ -18579,6 +18579,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("- Stage membership and stage order do not prove internal function-to-function calls. Use explicit grounded call edges for those finer mechanism claims.\n\n")
 	b.WriteString("### Verified stage responsibilities and artifact provenance\n\n")
 	b.WriteString("- The analyze stage has a split producer boundary: the language model authors only the request classification submitted through its analysis emit tool; deterministic code then normalizes and compiles the downstream planning, evidence, hypothesis, quality, and answer contracts. Preserve that producer split; do not attribute deterministically derived artifacts directly to the language model.\n")
+	b.WriteString("- The stage_binding rows below are the principal authority for the selected read workflow's stage responsibilities and primary artifacts. A separately grounded helper or subsystem that merely reuses a word such as analyze, explore, extract, finalize, pipeline, dataflow, load, or digest remains supporting evidence unless a typed current-read relation connects its exact identity to one of these stages. Do not use a homonymous helper to redefine the stage row or invent an internal substep; explain a genuinely relevant unconnected subsystem separately. This is authoring guidance only, not a final-text keyword gate.\n")
 	b.WriteString("- These rows are precise context for your answer. You remain the answer author: explain or diagram them when relevant, and do not present this prompt as a system-authored answer supplement.\n")
 	for i, row := range main {
 		artifacts := make([]string, 0, len(row.PrimaryArtifacts))
@@ -18590,6 +18591,15 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 		fmt.Fprintf(&b, "- stage_binding[%d]: stage=`%s` (`%s`); agent=`%s` (`%s`); skill=`%s`; responsibility=%q; primary_artifacts=`%s`; source=`%s:%d`.\n",
 			i+1, row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill,
 			row.Responsibility, strings.Join(artifacts, ", "), row.File, row.Line)
+	}
+	if carriers, ok := stageauthority.LoadReadModeStateCarriers(ctx.RepoRoot); ok && len(carriers) > 0 {
+		b.WriteString("\n### Verified shared state-carrier fields\n\n")
+		b.WriteString("- These are checkout-verified field-ownership facts, not stage edges or per-stage read/write claims. The shared context carrier accumulates cross-stage state, and its mutable pointer identifies the tool-writable region. Keep carriers context-only in a diagram unless independent typed evidence proves a directed relation.\n")
+		b.WriteString("- The structured-answer field on the tool-writable carrier buffers the model-authored document; its existence does not authorize the system to replace the model's conclusion or answer.\n")
+		for i, carrier := range carriers {
+			fmt.Fprintf(&b, "- state_carrier[%d]: owner=`%s`; field=`%s`; type=`%s`; source=`%s:%d`.\n",
+				i+1, carrier.Owner, carrier.Field, carrier.Type, carrier.File, carrier.Line)
+		}
 	}
 	b.WriteString("\n### User-facing workflow display guidance\n\n")
 	b.WriteString("- Use stable Mermaid-safe node/participant IDs and preserve the chosen exact stage or agent identity pair in `edge_anchors.from_identity/to_identity`; make the visible title/action understandable in the user's domain. The verified `responsibility` above is the wording basis; summarize or localize it instead of exposing agent names, Go function names, `relation_kind`, `claim_form`, or recipe vocabulary as the main visual copy.\n")
