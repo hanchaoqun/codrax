@@ -35,6 +35,7 @@ const (
 	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
 	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
+	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
@@ -108,6 +109,35 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		if block.Diagram != nil {
 			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
 		}
+		effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
+		typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
+		// Mermaid's -->> sequence operator is a response/return presentation,
+		// not a forward invocation. A model-authored relation_kind=call cannot
+		// redefine that visible syntax. Keep this operator/relation consistency
+		// check independent from strict family coverage so an ordinary sequence
+		// diagram cannot escape it merely by being classified QFGeneric. Runtime
+		// trace diagrams returned above retain their separate causal authority.
+		if block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence {
+			operatorPairOccurrence := make(map[string]int)
+			for _, edge := range parsedEdges {
+				key := diagramEvidenceEdgeKey(edge.From, edge.To)
+				occurrence := operatorPairOccurrence[key]
+				operatorPairOccurrence[key] = occurrence + 1
+				if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" ||
+					!typedAnchorRelations[key][types.DiagramRelCall] {
+					continue
+				}
+				fromSymbol, toSymbol := diagramEvidenceEdgeEndpointSymbolsAtOccurrence(
+					edge.From, edge.To, occurrence, effectiveAnchors, labels, evidence,
+				)
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramCallEdgeIssueReplyOperatorConflict,
+					FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
+					FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					Relation: types.DiagramRelCall,
+				})
+			}
+		}
 		visibleBodyEdgeKeys := make(map[string]bool, len(parsedEdges))
 		if block.Kind == types.BlockDiagram && block.Diagram != nil {
 			for _, edge := range parsedEdges {
@@ -115,7 +145,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 		}
 		if strictBodyCoverage {
-			effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
 			// The same visible actor/component pair may legitimately carry
 			// several operation-level calls. In that shape each distinct exact
 			// identity pair needs its own visible occurrence. Otherwise a second
@@ -132,7 +161,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				})
 			}
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
-			typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
 			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			callOccurrenceUse := make(map[string]int)
 			bodyPairOccurrence := make(map[string]int)

@@ -5387,3 +5387,25 @@ operator、exact endpoint 和 typed relation，不读 label/prose/request，不�
 状态：`B585=implemented/pending-r348`；`source-exclusion=external-observation-only`；
 `candidate-exclusion=principal-member-only`；`raw-prose-hard-gate=none`；`system-answer-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.197 B586：sequence 调用关系与回复 operator 建立同一 typed 语义合同
+
+Mermaid `-->>` 是 dotted response/return presentation。旧 gate 已经要求无 anchor 的 `-->>` 只有在反向存在可见 invocation 时才可免检，
+却又允许同向 `relation_kind=call` anchor 把独立 `-->>` 重新解释为调用。r347 因而出现“typed endpoint/direction 正确、可见线型却告诉
+读者这是回复”的双真相；模型甚至可用换 operator 规避对正向调用语义的清晰表达。
+
+本批在共享 source-diagram relation chokepoint 增加 `call_reply_operator_conflict`：任意非 Trace `sequenceDiagram` 中，只要既有
+typed owner 声明 `relation_kind=call`，可见边就必须使用 invocation operator（如 `->>`，异步/丢失调用仍使用 Mermaid 对应
+`-)`/`-x` 家族）；`-->>` 不得由 call anchor 改义。合法 `A->>B` 加 `B-->>A` 结构化回复继续通过，反向恰好还存在另一条 typed call
+证据也不会把回复重新捕获；若确实是反向调用，模型应保留 exact endpoint 和 call anchor，只把 operator 改为 invocation 形。
+
+该检查对所有问题 family 生效，避免 QFGeneric 成为绕过车道；它只读取 block kind、Mermaid parser operator、exact endpoint 和 typed
+relation enum，不读取 message label、请求、reasoning 或终稿 prose。系统不生成图、不翻转边、不改关系、不替模型回答。QFRootCauseTrace
+在入口继续完整绕过源码图合同，显式时间窗因果投影及自动补齐不受影响。
+
+回归覆盖 typed forward call 的 dotted 冲突、generic-family 同形、合法 paired reply、无 anchor 独立 dotted fail-closed、显式反向 call
+同时报告 operator 与证据问题，以及 Trace 独立权限负臂；sequence 定向测试全绿。
+
+状态：`B586=implemented/pending-r348`；`sequence-call-operator=invocation-only`；
+`paired-response=preserved`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

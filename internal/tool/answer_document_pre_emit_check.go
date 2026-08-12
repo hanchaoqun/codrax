@@ -4037,10 +4037,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	}
 	if len(otherParts) > 0 {
 		occurrenceBoundary := ""
+		sequenceOperatorBoundary := ""
 		for _, mismatch := range otherMismatches {
 			if mismatch.Issue == diagramCallEdgeIssueOccurrenceUnproven {
 				occurrenceBoundary = " Repeated visible call occurrences consume distinct grounded call-site rows; one typed call row cannot be replayed as several arrows. Collapse repeated endpoint pairs to one arrow, or provide one distinct citable call-site EvidenceItem per retained occurrence."
-				break
+			}
+			if mismatch.Issue == diagramCallEdgeIssueReplyOperatorConflict {
+				sequenceOperatorBoundary = " In a sequenceDiagram, an edge owned by relation_kind=call must use a forward invocation operator such as ->> (or the Mermaid async/lost invocation operators); -->> is a response/return operator and is legal without a reverse call anchor only when it is the reverse edge paired with a visible forward invocation. Change the operator, not the evidence-backed endpoints or relation."
 			}
 		}
 		hints = append(hints, emitFixHint{
@@ -4048,7 +4051,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, otherMismatches),
 			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge; restore the matching evidence-backed arrow or remove stale metadata instead of emitting a hidden metadata-only graph. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with its forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses an explicitly typed non-call relation such as callback, register, assignment, data_flow, return, declared type, guard, observation, containment, or ordering, keep that honest relation_kind and its matching evidence instead of inventing call authority; add missing anchors, restore matching evidence-backed body edges, or remove/correct unsupported visible edges/stale anchors." + occurrenceBoundary + " Mismatches: " +
-				strings.Join(otherParts, "; ") + diagramRelationSurgicalRepairInstruction,
+				strings.Join(otherParts, "; ") + sequenceOperatorBoundary + diagramRelationSurgicalRepairInstruction,
 			Reason:                      "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
 			DiagramRelationFailurePairs: failurePairs,
 		})

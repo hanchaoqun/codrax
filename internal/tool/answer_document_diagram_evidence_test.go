@@ -493,6 +493,36 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyIsNotACallEdge(t *testin
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceCallCannotUseReplyOperator(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A->>B", "A-->>B", 1)
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueReplyOperatorConflict ||
+		got[0].FromNode != "A" || got[0].ToNode != "B" {
+		t.Fatalf("a typed forward call rendered as a reply must fail only the operator contract: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceCallReplyOperatorAppliesToGenericFamily(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A->>B", "A-->>B", 1)
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueReplyOperatorConflict {
+		t.Fatalf("generic classification must not bypass sequence call/operator consistency: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceKeepsIndependentDiagramAuthority(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A->>B", "A-->>B", 1)
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}, nil)
+	if len(got) != 0 {
+		t.Fatalf("runtime trace causal diagrams must stay outside source sequence contracts: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceMessagePayloadCannotPolluteSiblingEndpointIdentity(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
@@ -564,8 +594,10 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotHideReverseCallAnc
 	})
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
-	if len(got) != 1 || got[0].FromSymbol != "Beta.Run" || got[0].ToSymbol != "Alpha.Run" {
-		t.Fatalf("an explicit reverse call anchor must still prove its own direction: %+v", got)
+	if len(got) != 2 || got[0].Issue != diagramCallEdgeIssueReplyOperatorConflict ||
+		got[1].Issue != diagramCallEdgeIssueNoEvidence ||
+		got[0].FromSymbol != "Beta.Run" || got[0].ToSymbol != "Alpha.Run" {
+		t.Fatalf("an explicit reverse call anchor must use invocation syntax and prove its own direction: %+v", got)
 	}
 }
 
