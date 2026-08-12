@@ -33490,3 +33490,21 @@ source lens、evidence context 与 finalizer 必须看到该 authority，而不�
 状态：`B603=P1-high/confirmed`；`B604=P1-high/confirmed`；`runner=2/2`；`human=0/2`；
 `answer-prose-gate=none`；`system-conclusion-authorship=none`；`active-stream=fixed-age-degrade-forbidden`；
 Trace causal projection=`present-but-model-miscompared`。
+
+### 123.637 B603：根因排序近场口径已落地；不选举、不代写、不扫描答案
+
+`B603-TRACERANKNEARCALIBER1` 已按 typed 数据面根修。`trace_query` 在 compact root-rank roster 同位发布
+`rank_value_comparison`：比较基准是每席自身的 `effective_impact`；同链席仍可能覆盖同一物理时间；除非存在精确 typed subtotal / member-fold
+载体，跨席求和恒未授权。已有 exact subtotal、two-ruler、partition 等正权限载体保持不变，故这不是“一律不准相加”的新硬门。
+
+只有发布后的 root-rank 板仍包含 typed 优先级反转家族席时，才额外发布
+`priority_inversion_candidate_authority`：已证边界是低优先级链上依赖及 gated runnable + running compute-deficit；候选自身不证明 lock、holder 或 release，
+锁机理仍需独立 typed lock-holder relation。普通 runnable/supply/IO/semantic 板不接收这条专项提示。
+
+实现只读 engine typed rows，不读用户请求、explorer/finalizer 输出或最终答案；不选举主因、不判断供需主次、不修改/拒绝模型结论，显式窗、Trace 因果投影、
+链上根因权限、背景降级和系统补齐均未改。新增三臂 pin：通用逐席口径、反转席专项机理边界、无反转席时不得发射专项提示；完整
+`go test ./internal/tool -count=1` 通过（177.299s）。
+
+状态：`B603=implemented/awaiting-production-replay`；`B604=P1-high/confirmed`；
+`cross-row-sum=typed-authority-only`；`lock-mechanism=separate-typed-proof`；
+`model-conclusion-ownership=preserved`；`trace-projection=unchanged`。

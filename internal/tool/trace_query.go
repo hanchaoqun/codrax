@@ -8023,8 +8023,28 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 		return
 	}
 	b.WriteString("relation_authority scope=root_cause_rank policy=typed_pair_only\n")
+	// B603-TRACERANKNEARCALIBER1 (2026-08-11): the rank board compares
+	// independently published seats by each row's effective attribution.  A
+	// shared chain, subject, state, or repair direction does not prove that two
+	// seats are disjoint; only an exact typed subtotal/member-fold carrier may
+	// authorize addition.  Keep this geometry beside the compact roster so a
+	// bounded explorer preview cannot replace it with an attractive but
+	// invalid cross-row sum.  This is data semantics only: it neither selects
+	// a winner nor inspects/authors the model's conclusion.
+	b.WriteString("- rank_value_comparison basis=effective_impact_per_row row_comparison=individual_effective_impact cross_row_sum=forbidden_without_exact_typed_subtotal same_chain_rows_may_overlap=true member_fold=consume_published_member_fold_caliber\n")
 	b.WriteString("- rank_row_state_breakdown scope=this_row_only cross_row_containment=unproven_without_exact_pair_carrier cross_row_overlap=unproven_without_exact_pair_carrier\n")
 	b.WriteString("- fix_direction role=repair_classification_only same_direction_addition=not_authorized_without_exact_typed_subtotal\n")
+	for _, item := range rank.Items {
+		if !tracequery.RootCauseTypeIsPriorityInversion(item.Type) {
+			continue
+		}
+		// The inversion family proves a lower-priority on-chain dependency and
+		// publishes only its gated runnable plus running compute-deficit
+		// opportunity.  It does not manufacture a lock, holder, or release
+		// event.  Those mechanisms need their own explicit typed relation.
+		b.WriteString("- priority_inversion_candidate_authority dependency_relation=typed_lower_priority_on_chain effective_impact=gated_runnable_plus_running_compute_deficit lock_holder=unproven_without_explicit_typed_lock_holder_relation candidate_alone_proves_lock=false\n")
+		break
+	}
 
 	projection := types.TraceCausalProjection{
 		WindowStartTs: rank.Window.StartTs,

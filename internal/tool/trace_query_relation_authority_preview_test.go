@@ -44,6 +44,7 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
 	for _, want := range []string{
 		"relation_authority scope=root_cause_rank policy=typed_pair_only",
+		"rank_value_comparison basis=effective_impact_per_row row_comparison=individual_effective_impact cross_row_sum=forbidden_without_exact_typed_subtotal same_chain_rows_may_overlap=true member_fold=consume_published_member_fold_caliber",
 		"rank_row_state_breakdown scope=this_row_only cross_row_containment=unproven_without_exact_pair_carrier",
 		"fix_direction role=repair_classification_only same_direction_addition=not_authorized_without_exact_typed_subtotal",
 		"self_wall_clock_seats=#4:3.956ms,#13:1.193ms self_wall_clock_subtotal=5.149ms",
@@ -76,6 +77,49 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 	}
 	if relationAt, bodyAt := strings.Index(got, "relation_authority scope="), strings.Index(got, "## Root cause rank"); relationAt < 0 || bodyAt < 0 || relationAt > bodyAt {
 		t.Fatalf("relation authority must remain in the model-visible head, relation=%d body=%d:\n%s", relationAt, bodyAt, got)
+	}
+}
+
+func TestTraceQuerySummaryBoundsPriorityInversionMechanismBesideRankRows(t *testing.T) {
+	result := tracequery.Result{
+		View: "root_cause_rank",
+		RootCauseRank: &tracequery.RootCauseRankResult{Items: []tracequery.RootCauseRankItem{
+			{
+				Rank: 1, Type: "priority_inversion_candidate", Thread: tracequery.ThreadRef{Comm: "worker", PID: 42},
+				ImpactMs: 8, CumulativeImpactMs: 8, EffectiveImpactMs: 8,
+				GatedRunnableMs: 6, GatedRunningDeficitMs: 2,
+				PriorityRelationCaliber: "closed_range_stable", PriorityRelationProvenLowerMs: 8,
+				PriorityRelationArtifactSources: []string{"compat:index"},
+			},
+			{Rank: 2, Type: "runnable_wait", Thread: tracequery.ThreadRef{Comm: "peer", PID: 43}, EffectiveImpactMs: 4},
+		}},
+	}
+	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
+	want := "priority_inversion_candidate_authority dependency_relation=typed_lower_priority_on_chain effective_impact=gated_runnable_plus_running_compute_deficit lock_holder=unproven_without_explicit_typed_lock_holder_relation candidate_alone_proves_lock=false"
+	if !strings.Contains(got, want) {
+		t.Fatalf("priority-inversion row must carry its typed mechanism boundary near the rank board:\n%s", got)
+	}
+	if strings.Count(got, "priority_inversion_candidate_authority ") != 1 {
+		t.Fatalf("one board-level mechanism boundary expected, got:\n%s", got)
+	}
+	if authorityAt, bodyAt := strings.Index(got, want), strings.Index(got, "## Root cause rank"); authorityAt < 0 || bodyAt < 0 || authorityAt > bodyAt {
+		t.Fatalf("mechanism authority must remain in the head preview, authority=%d body=%d:\n%s", authorityAt, bodyAt, got)
+	}
+}
+
+func TestTraceQuerySummaryDoesNotEmitPriorityInversionMechanismWithoutTypedSeat(t *testing.T) {
+	result := tracequery.Result{
+		View: "root_cause_rank",
+		RootCauseRank: &tracequery.RootCauseRankResult{Items: []tracequery.RootCauseRankItem{{
+			Rank: 1, Type: "runnable_wait", Thread: tracequery.ThreadRef{Comm: "worker", PID: 42}, EffectiveImpactMs: 8,
+		}}},
+	}
+	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
+	if strings.Contains(got, "priority_inversion_candidate_authority") {
+		t.Fatalf("a board without a typed inversion seat must not receive inversion mechanism guidance:\n%s", got)
+	}
+	if !strings.Contains(got, "rank_value_comparison basis=effective_impact_per_row") {
+		t.Fatalf("the general per-seat comparison geometry must remain available:\n%s", got)
 	}
 }
 
