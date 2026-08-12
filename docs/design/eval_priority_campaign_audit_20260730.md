@@ -35006,3 +35006,32 @@ finalizer 回归同时钉住 body fact 可用与语义不得升级。合同适�
 `terminal-effect-semantic-upgrade=forbidden`；`eval-key-function-selection=model-owned`；
 `raw-user/model/final-prose-hard-gate=none`；`system-answer-rewrite=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.706 r392：body fact 已到末尾但仍被概念目标污染，B654 收窄为终点实现上限
+
+`main@da7ac1171` exact-two runner `2/2`，人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_terminal_effect_r392_20260812_manual_audit.md`。Go 案正确表达
+`buildAnalysisIR -> gate.RunWith <- gate.Run`，合法 Mermaid 与 17 个有引用的中间调用均保留，证明 B651/B652
+关系与读闭包继续工作；五个固定函数名 oracle 退役后不再假红。该案仍出现五次 complete 尝试，暂记为跨案
+churn 观察量，不能从一个 case 铸造新的硬门。
+
+Java 案再次证明 `AuditLog.record -> System.out.println` 的 parser-grounded body call 已进入最终 prompt，但模型仍写
+“打印到控制台，完成审计落库”。B653 消除了合同自冲突，却没有解决 44k prompt 中前序模型聚合把概念目标/层名
+反复写成实现事实、压过末尾证据上限的问题；原 eval 只检查四跳与容量节点，因此 runner 假绿。
+
+B654 将末尾合同压缩成 typed `selected_terminal_body_calls` 视图：只读取 producer 精确等于
+`repomap_terminal_body_call`、已落地且可引用的 call edge，逐行给出 caller、exact operation、source 与
+`effect_scope=exact_call_only`；模型必须自行解释这些事实，系统不分类副作用、不扫描用户/模型/答案 prose、不改写
+答案。无 body call 时仍允许独立 definition/mechanism 事实；两者都无时才停在“链到达终点”。多叶终点按 owner
+轮询占用 8 行预算，避免一个 utility-heavy 配置函数挤掉审计/存储/传输/渲染等业务终点，因而不依赖 Java、
+`println` 或“落库”关键词。
+
+`sr_java_call_chain` 的 eval-only primary oracle 同步增加当前实现与持久化语义必须区分的语义关系；它只评估生产
+答案，不进入产品 prompt、路由或硬门。不能用固定推荐句或单 token 禁词替代该关系。
+
+状态：`runner=2/2`；`human=1/2`；`B653=production-negative/partial`；
+`B654-TERMINALIMPLEMENTATIONCEILING1=implemented/targeted-pass`；
+`terminal-body-budget=round-robin-by-parser-owner`；`system-answer-rewrite=none`；
+`raw-user/model/final-prose-hard-gate=none`；`eval-oracle=semantic-relation/eval-only`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

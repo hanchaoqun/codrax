@@ -13,15 +13,89 @@ import (
 // renderAnswerDocCallChainFinalEvidenceBoundary keeps the last prompt surface
 // aligned with the typed call-chain contract. It is language-agnostic and
 // prompt-only: names and request wording never become behavior authority.
-func renderAnswerDocCallChainFinalEvidenceBoundary(view *types.AnswerSemanticView) string {
+func renderAnswerDocCallChainFinalEvidenceBoundary(ctx *types.AgentContext, view *types.AnswerSemanticView) string {
 	if view == nil || view.Family != types.QFCallChain {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Final Call-Chain Evidence Boundary\n\n")
 	b.WriteString("- You own the explanation. Preserve only directed hops carried by grounded caller-to-callee evidence. A call-site proves that edge, not the callee's body, side effect, storage medium, synchronization mode, or completion semantics.\n")
-	b.WriteString("- Describe a terminal endpoint's internal behavior only from separate exact terminal-body proof: a grounded definition/mechanism row, or a parser-grounded `body_call_fact` whose callsite lies inside the already-read selected terminal body. Cite that implementation line when the behavior matters. A body call proves only that exact operation; for example, a console/logging call does not by itself prove database storage, durability, flushing, synchronization, or completion semantics. Class names, method names, comments, layer labels, and the wording of the request do not mint implementation authority. If no terminal-body proof is available, say only that the chain reaches or invokes the endpoint.\n")
+	b.WriteString("- Keep the requested conceptual destination separate from the current implementation. Class names, method names, comments, layer labels, and request wording do not prove what the endpoint currently does.\n")
+	b.WriteString(renderAnswerDocSelectedTerminalImplementationBoundary(ctx))
 	b.WriteString("- Keep the model-authored summary useful and concise; this boundary supplies evidence caliber only and does not author a conclusion.\n\n")
+	return b.String()
+}
+
+// renderAnswerDocSelectedTerminalImplementationBoundary repeats only the
+// parser-grounded operations discovered inside an already-read selected
+// terminal body. It is deliberately a prompt-tail evidence view, not an
+// effect classifier: the system neither infers business semantics from callee
+// names nor inspects/replaces model prose.
+func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return "- selected_terminal_body_calls=`unproven`: use separately grounded terminal definition/mechanism facts when present; otherwise say only that the grounded chain reaches or invokes the endpoint.\n"
+	}
+	type row struct {
+		caller   string
+		callee   string
+		location string
+	}
+	groups := make(map[string][]row)
+	var groupOrder []string
+	seen := make(map[string]bool)
+	for _, item := range ctx.EvidenceItems {
+		if item.Producer != types.EvidenceProducerRepoMapTerminalBodyCall ||
+			types.ClaimFormOf(item) != types.ClaimCallEdge || !item.IsCitable() {
+			continue
+		}
+		caller := strings.TrimSpace(item.Subject)
+		callee := strings.TrimSpace(item.Object)
+		location := strings.TrimSpace(item.DisplayLocation(true))
+		if caller == "" || callee == "" || location == "" {
+			continue
+		}
+		key := strings.ToLower(caller + "\x00" + callee + "\x00" + location)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		groupKey := strings.ToLower(caller)
+		if _, ok := groups[groupKey]; !ok {
+			groupOrder = append(groupOrder, groupKey)
+		}
+		groups[groupKey] = append(groups[groupKey], row{caller: caller, callee: callee, location: location})
+	}
+	rows := make([]row, 0, 8)
+	// Preserve at least one exact operation from every selected terminal/leaf
+	// callable before taking a second operation from a noisy utility-heavy
+	// body. Otherwise one configuration helper can crowd the requested audit,
+	// storage, transport, or rendering terminal out of the bounded prompt tail.
+	for depth := 0; len(rows) < 8; depth++ {
+		added := false
+		for _, key := range groupOrder {
+			if depth >= len(groups[key]) {
+				continue
+			}
+			rows = append(rows, groups[key][depth])
+			added = true
+			if len(rows) >= 8 {
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	if len(rows) == 0 {
+		return "- selected_terminal_body_calls=`unproven`: use separately grounded terminal definition/mechanism facts when present; otherwise say only that the grounded chain reaches or invokes the endpoint.\n"
+	}
+
+	var b strings.Builder
+	b.WriteString("- selected_terminal_body_calls=`parser_grounded`; each row proves only its exact operation. Describe that operation and keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them; separately grounded terminal definition/mechanism facts remain valid:\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "  - caller=`%s`; exact_operation=`%s`; source=`%s`; effect_scope=`exact_call_only`.\n",
+			answerDocCallChainInline(row.caller), answerDocCallChainInline(row.callee), answerDocCallChainInline(row.location))
+	}
 	return b.String()
 }
 

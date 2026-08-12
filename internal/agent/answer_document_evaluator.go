@@ -921,7 +921,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// salient than the evidence caliber. These are soft, typed-input prompts:
 	// neither helper inspects model prose nor creates/replaces answer blocks.
 	if !trace.appendSection(&b, "call_chain_final_evidence_boundary", func() string {
-		return renderAnswerDocCallChainFinalEvidenceBoundary(view)
+		return renderAnswerDocCallChainFinalEvidenceBoundary(ctx, view)
 	}) {
 		return b.String()
 	}

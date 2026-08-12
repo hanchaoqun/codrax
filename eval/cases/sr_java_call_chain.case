@@ -7,4 +7,5 @@ EXPECT_PRIMARY_MATCHES_REGEX="VisitController\.?(create)?
 VisitService\.?(schedule)?
 VisitRepository\.?(insert)?
 AuditLog\.?(record)?
-(容量|capacity|max).*(schedule|VisitService)|(schedule|VisitService).*(容量|capacity|max)"
+(容量|capacity|max).*(schedule|VisitService)|(schedule|VisitService).*(容量|capacity|max)
+(System\.out\.println|控制台|标准输出).*(不|未|only|not).*(落库|持久|数据库|durab|persist)|(不|未|only|not).*(落库|持久|数据库|durab|persist).*(System\.out\.println|控制台|标准输出)"

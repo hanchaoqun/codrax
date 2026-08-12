@@ -20,11 +20,11 @@ func TestFinalCallChainEvidenceBoundaryIsLanguageAgnosticAndLast(t *testing.T) {
 	for _, want := range []string{
 		"## Final Call-Chain Evidence Boundary",
 		"A call-site proves that edge, not the callee's body",
-		"parser-grounded `body_call_fact`",
-		"console/logging call does not by itself prove database storage",
+		"Keep the requested conceptual destination separate from the current implementation",
+		"selected_terminal_body_calls=`unproven`",
 		"storage medium",
-		"Class names, method names, comments, layer labels, and the wording of the request do not mint implementation authority",
-		"say only that the chain reaches or invokes the endpoint",
+		"Class names, method names, comments, layer labels, and request wording do not prove what the endpoint currently does",
+		"say only that the grounded chain reaches or invokes the endpoint",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("call-chain final boundary missing %q:\n%s", want, prompt)
@@ -51,12 +51,39 @@ func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutU
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"body_call_facts=`AuditLog.record -> System.out.println @ src/AuditLog.java:6`",
-		"parser-grounded `body_call_fact`",
-		"does not by itself prove database storage, durability, flushing, synchronization, or completion semantics",
+		"selected_terminal_body_calls=`parser_grounded`",
+		"caller=`AuditLog.record`; exact_operation=`System.out.println`; source=`src/AuditLog.java:6`; effect_scope=`exact_call_only`",
+		"keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("terminal-body fact and final authority must agree on %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestSelectedTerminalImplementationBoundaryRoundRobinsLeafOwnersBeforeFillingBudget(t *testing.T) {
+	ctx := &types.AgentContext{}
+	for line := 1; line <= 8; line++ {
+		ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
+			ID: "config", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Config.resolve", Object: "helper.call", OwnerSymbol: "Config.resolve",
+			Source: "src/Config.java", LineStart: line, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapTerminalBodyCall,
+		})
+	}
+	ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
+		ID: "audit", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "AuditLog.record", Object: "System.out.println", OwnerSymbol: "AuditLog.record",
+		Source: "src/AuditLog.java", LineStart: 6, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapTerminalBodyCall,
+	})
+
+	got := renderAnswerDocSelectedTerminalImplementationBoundary(ctx)
+	if !strings.Contains(got, "caller=`AuditLog.record`; exact_operation=`System.out.println`") {
+		t.Fatalf("a noisy first leaf must not crowd a second selected terminal out of the bounded tail:\n%s", got)
+	}
+	if strings.Count(got, "caller=`Config.resolve`") != 7 {
+		t.Fatalf("bounded round-robin view should use remaining seven rows for first leaf, got:\n%s", got)
 	}
 }
 
