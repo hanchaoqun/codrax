@@ -28,6 +28,13 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	Relation   types.DiagramRelationKind
 }
 
+// IsRequestedStagePrecedenceSpineIncomplete exposes the typed completeness
+// diagnosis to the post-finalizer validator without exporting the internal
+// issue vocabulary as another mutable string contract.
+func (m DiagramCallEdgeEvidenceMismatch) IsRequestedStagePrecedenceSpineIncomplete() bool {
+	return m.Issue == diagramRequestedStageSpineIncomplete
+}
+
 const (
 	diagramCallEdgeIssueDuplicateParticipant  = "duplicate_participant_identity"
 	diagramCallEdgeIssueMissingAnchor         = "missing_call_anchor"
@@ -43,6 +50,7 @@ const (
 	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
+	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call

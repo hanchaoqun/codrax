@@ -3950,11 +3950,30 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	// type_relation anchor. This authorizes that exact direction; it does not
 	// add an edge, choose a member, or inspect labels/request/prose.
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, pctx.ctx, evidence)
-	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, diagramVerifiedReadModeStagePrecedence(pctx.ctx, view))
+	stagePrecedence := diagramVerifiedReadModeStagePrecedence(pctx.ctx, view)
+	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+	if len(mismatches) == 0 {
+		mismatches = DiagramRequestedStagePrecedenceSpineMismatches(doc, view, stagePrecedence)
+	}
 	if len(mismatches) == 0 {
 		return nil
 	}
 	failurePairs := diagramRelationFailurePairFingerprints(mismatches)
+	if mismatches[0].Issue == diagramRequestedStageSpineIncomplete {
+		parts := make([]string, 0, len(mismatches))
+		for _, mismatch := range mismatches {
+			parts = append(parts, fmt.Sprintf("%s -> %s", mismatch.FromSymbol, mismatch.ToSymbol))
+		}
+		return []emitFixHint{{
+			Field:               "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[relation_kind=precedence]",
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
+			ExpectedShape: "preserve supporting grounded diagrams if useful, and make at least one model-authored diagram contain the complete connected requested precedence spine using visible edges plus relation_kind=precedence owners. Missing from the best current diagram: " +
+				strings.Join(parts, "; "),
+			Reason:                      "checkout-verified requested stage relations are principal answer scope. Supporting call or implementation-detail diagrams may accompany that scope but cannot replace it; this check reads only the model-authored visible relation spine and never inserts or rewrites an edge.",
+			DiagramRelationFailurePairs: failurePairs,
+		}}
+	}
 	if mismatches[0].Issue == diagramCallEdgeIssueDuplicateParticipant {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {

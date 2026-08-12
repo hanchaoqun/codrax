@@ -2463,6 +2463,31 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	sort.Strings(blockIDs)
 	out := make([]types.Violation, 0, len(blockIDs))
 	for _, blockID := range blockIDs {
+		requestedSpine := false
+		for _, mismatch := range mismatches {
+			if mismatch.BlockID == blockID && mismatch.IsRequestedStagePrecedenceSpineIncomplete() {
+				requestedSpine = true
+				break
+			}
+		}
+		if requestedSpine {
+			out = append(out, types.Violation{
+				Kind: types.ViolDiagramCallEdgeUnproven,
+				Detail: fmt.Sprintf(
+					"answer block id=%q does not contain the complete connected checkout-verified requested stage precedence spine: [%s]",
+					blockID, strings.Join(byBlock[blockID], "; ")),
+				Repair:     "Keep grounded supporting diagrams if useful, and make one model-authored principal diagram visibly preserve every requested adjacent stage relation with relation_kind=precedence. Do not invent calls or replace the requested spine with implementation-detail edges.",
+				ClusterKey: blockClusterKey(blockID, "requested_stage_precedence_spine"),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "requested_stage_precedence_spine",
+					Reason:     "typed requested stage relation spine is absent, partial, distributed, or visually disconnected",
+					Confidence: 0.99,
+				},
+				Stage:               string(types.StageFinalize),
+				RepairLocusOverride: types.LocusFinalizer,
+			})
+			continue
+		}
 		out = append(out, types.Violation{
 			Kind: types.ViolDiagramCallEdgeUnproven,
 			Detail: fmt.Sprintf(

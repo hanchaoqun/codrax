@@ -5518,3 +5518,27 @@ reasoning/终稿，不按语言关键词分类。模型仍负责分析和回答�
 状态：`B589=implemented/pending-r350`；`source-boundary/member-exclusion=exact-provenance-split`；
 `independent-answer-exclusion=preserved`；`raw-prose-hard-gate=none`；`system-answer-authorship=none`；
 Trace explicit-window/target/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.203 B590：required 主关系脊柱建立 provider 驱动的可见完整性合同
+
+B588 已把 checkout-verified read-mode stage precedence 送入 finalizer prompt 与单边 relation authority，但旧 validator 只回答“模型画出的边是否有证”，
+不回答“typed request 明确要求的整条 principal spine 是否真的出现在图中”。因此 r349 的 supporting call 图每条边都可能各自合法，却完全替代
+Analyzer→Explorer→Extractor→Finalizer 主脊。继续加教学无法保证模型最终选择，系统直接补图又会越过模型成文权。
+
+本批在同一 stageauthority provider 上增加 request-scoped completeness 消费面：仅当 typed request 要求 diagram，且 provider 根据
+checkout + typed request/evidence 选出非空 contiguous precedence span 时，要求至少一张模型成文图同时满足三件事：全部相邻 relation 都有
+可见 Mermaid edge；每条 edge 有 `relation_kind=precedence` typed owner；相邻关系共享同一个可见中间 node，构成一条 connected spine。
+把三条边拆到多张图、用多个同标签 node 伪装断开的三段、仅画 Orchestrator/helper supporting calls 都不能履约。其它 grounded 支撑图可完整保留。
+
+这不是“所有图必须完整”的全局硬化：未选出 request-scoped provider spine、optional diagram、普通跨语言源码图、call/dataflow/type relation 图均
+保持原子边取证合同；required diagram block 本身缺失仍由既有 block coverage 单独诊断。Trace family 在 provider 和 checker 两个入口均显式绕开，
+显式时间窗、因果投影、自动补齐与链上根因权限不变。
+
+pre-emit 与 post-finalizer 共用同一 checker。失败提示只列 provider 选出的缺失相邻关系，要求模型保留支撑图并自行补全 principal diagram；
+系统不插边、不改 relation kind、不替换答案。回归钉住完整单图通过、单边/支撑图失败、跨图分片失败、同标签不同 node 的可见断链失败、
+Trace bypass，以及 pre-emit/post-finalizer 两个生产挂点。
+
+状态：`B590=implemented/pending-r350`；`requested-principal-spine=one-connected-model-diagram`；
+`supporting-diagrams=preserved`；`provider=checkout-verified`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`；
+`active-stream-fixed-time-degrade=forbidden`。

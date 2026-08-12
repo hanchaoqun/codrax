@@ -58,7 +58,11 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		// model authored a type_relation anchor, and it admits only coverage-
 		// gate-eligible provider rows; it never adds or rewrites a visible edge.
 		evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
-		return DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+		mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+		if len(mismatches) == 0 {
+			mismatches = DiagramRequestedStagePrecedenceSpineMismatches(doc, view, stagePrecedence)
+		}
+		return mismatches
 	}
 	copyDoc := *doc
 	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
@@ -68,7 +72,11 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		}
 	}
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(&copyDoc, ctx, evidence)
-	return DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
+	mismatches := DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
+	if len(mismatches) == 0 {
+		mismatches = DiagramRequestedStagePrecedenceSpineMismatches(&copyDoc, view, stagePrecedence)
+	}
+	return mismatches
 }
 
 // preCheckReportLocalRuntimeTemporalDiagramAuthority binds an optional frame
