@@ -13519,7 +13519,8 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 				if callerOK && ((calleeOK && callerIndex != calleeIndex) ||
 					(callChainCompletenessObligationActive(rm) &&
 						callChainTypedEvidenceContainsSiblingParserRelation(evidence, source, rel.Line, caller, callee))) ||
-					callChainNoDirectedPathBoundaryRelation(boundaryActive, boundarySource, boundarySink, caller, callee, callerOK, calleeOK) {
+					callChainNoDirectedPathBoundaryRelation(boundaryActive, boundarySource, boundarySink, caller, callee, callerOK, calleeOK) ||
+					callChainNoDirectedPathReachableBoundaryPeerRelation(boundaryActive, boundarySource, boundarySink, caller, callee, authorityEvidence) {
 					matched = true
 					break
 				}
@@ -13599,6 +13600,29 @@ func callChainNoDirectedPathBoundaryRelation(active bool, source, sink, caller, 
 	callerBoundary := callChainMatchesOrderedEndpoint(caller, source, sink)
 	calleeBoundary := callChainMatchesOrderedEndpoint(callee, source, sink)
 	return (callerBoundary && calleeMember) || (calleeBoundary && callerMember)
+}
+
+// callChainNoDirectedPathReachableBoundaryPeerRelation preserves one precise
+// topology shape that a principal member roster cannot necessarily name: the
+// exact requested sink calls a node already reachable from the exact source.
+// This is the common reverse-wrapper / parallel-convergence boundary:
+//
+//	source -> ... -> peer <- requested sink
+//
+// The join is deliberately one-way.  Carrying peer -> requested sink after the
+// no-directed-path check could create the very source -> sink path the accepted
+// waiver says was absent.  The caller must therefore be the exact requested
+// sink, the parser callsite must already be read by the outer handoff, and the
+// peer must be reachable from the exact source through existing citable typed
+// call edges.  No member-set order, source proximity, request prose, model
+// rationale, or final-answer text participates.
+func callChainNoDirectedPathReachableBoundaryPeerRelation(active bool, source, sink, caller, callee string, evidence []types.EvidenceItem) bool {
+	if !active || !callChainMatchesOrderedEndpoint(caller, sink) ||
+		callChainMatchesOrderedEndpoint(callee, sink) {
+		return false
+	}
+	analysis := types.AnalyzeCallChainEvidenceGraph(evidence, source, callee)
+	return len(analysis.DirectedPath) > 0
 }
 
 func callChainMatchesOrderedEndpoint(candidate string, endpoints ...string) bool {

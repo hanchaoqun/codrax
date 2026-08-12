@@ -22,15 +22,11 @@ import (
 // (customer witness MiniMax-M2.7).
 const retiredTerminalEmitOnlyDefaultSeconds = 45
 
-// TestAnalyzerTerminalEmitOnlyBudget_ReasoningGatewayScaledReplay
-// replays the customer failure at 1000× compression (seconds →
-// milliseconds): a gateway that holds ALL output for a 90-unit
-// thinking phase dies under the retired 45-unit budget and survives
-// under the current default. The alive arm consumes the CURRENT
-// default through the real analyzer evaluator (the same value
-// agent.go wires into context.WithTimeout), so reverting the default
-// to 45 turns this test red twice — the budget-ordering guard fails
-// and the alive Chat dies with context.DeadlineExceeded.
+// TestAnalyzerTerminalEmitOnlyBudget_ReasoningGatewayScaledReplay keeps the
+// non-streaming ownership arm pinned: a gateway that buffers its entire JSON
+// response still needs the configured evaluator wall budget. Streaming
+// adapters advertise their own first-byte/byte-stall watchdogs and BaseAgent
+// deliberately does not layer this cumulative-age budget over them.
 func TestAnalyzerTerminalEmitOnlyBudget_ReasoningGatewayScaledReplay(t *testing.T) {
 	restoreAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.DefaultAnalysisLimits())

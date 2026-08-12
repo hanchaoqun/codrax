@@ -200,3 +200,28 @@ func TestNormalizeAnswerDocumentForPreEmit_DoesNotAuthorRequiredMechanismAnchors
 		t.Fatal("missing call-chain endpoint must remain a model-actionable typed hard hint")
 	}
 }
+
+func TestPreCheckCallChainEndpoints_NoDirectedPathRepairKeepsSinkOutsidePrincipalPath(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "Nearest proven path ends at gate.RunWith.",
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{
+			{Text: "buildAnalysisIR", Kind: types.ContractTermSymbol},
+			{Text: "gate.Run", Kind: types.ContractTermSymbol},
+		},
+		CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
+			Disposition: types.CallChainEndpointNoDirectedPath, SourceEndpoint: "buildAnalysisIR", RequestedSink: "gate.Run",
+		},
+	}
+	hints := preCheckCallChainEndpoints(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("missing exact endpoints should produce one typed repair, got %+v", hints)
+	}
+	for _, want := range []string{"no_directed_path", "separate supporting boundary item/block", "not as the last hop"} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("boundary-aware repair missing %q: %+v", want, hints[0])
+		}
+	}
+}

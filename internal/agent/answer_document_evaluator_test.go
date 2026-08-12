@@ -964,6 +964,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"reverse or parallel typed calls",
 		"both arrowheads point toward the shared frontier",
 		"never rewrite `source -> ... -> frontier <- ... <- requested_sink`",
+		"separate supporting item/block",
 		"model owns the conclusion",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -1466,6 +1467,7 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf
 		"requested_sink_incident_call_evidence=`not_emitted`",
 		"does not prove the endpoint is a leaf",
 		"Keep that local topology unproven",
+		"not as the last hop of the principal directed ordered_list",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("definition-only topology boundary missing %q:\n%s", want, got)

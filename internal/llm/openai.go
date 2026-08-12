@@ -377,6 +377,14 @@ func (o *OpenAIAdapter) MaxOutputTokens() int { return o.maxOutputTokens }
 // in the startup log so operators can sanity-check yaml resolution.
 func (o *OpenAIAdapter) RequestTimeout() time.Duration { return o.requestTimeout }
 
+// StreamingLivenessWatchdogEnabled reports that the streaming transport uses
+// first-byte and byte-stall watchdogs instead of an absolute request-age cap.
+// This lets evaluator-level budget wrappers preserve a live stream while still
+// applying their wall budget to non-streaming requests.
+func (o *OpenAIAdapter) StreamingLivenessWatchdogEnabled() bool {
+	return o != nil && o.stream
+}
+
 // RetryMaxAttempts returns the resolved attempt count for the
 // transient-error retry loop (429 / 5xx).
 func (o *OpenAIAdapter) RetryMaxAttempts() int { return o.retryMaxAttempts }

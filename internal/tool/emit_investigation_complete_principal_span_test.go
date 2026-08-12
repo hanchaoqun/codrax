@@ -1182,6 +1182,17 @@ func TestCallChainReadParserRelationHandoffEvidence_NoDirectedPathProjectsExactB
 		t.Fatalf("typed no-path boundary must carry the already-read exact wrapper direction into finalizer evidence: %+v", got)
 	}
 
+	// The principal aggregate may enumerate only intraprocedural work inside
+	// the source and omit the terminal sibling itself. The exact source still
+	// reaches RunWith through accepted typed evidence, so an already-read AST
+	// edge from the exact requested sink back to that reachable peer remains a
+	// precise parallel-convergence fact. It must not depend on roster spelling.
+	ctx, closure, facts = makeCtx(true, repotypes.ProvenanceTreeSitter, "binder.BindByRelevance")
+	got = callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "internal/analysis/gate/gate.go", 135, "gate.Run", "gate.RunWith") {
+		t.Fatalf("typed no-path boundary must carry exact requested-sink -> source-reachable peer even when peer is absent from the roster: %+v", got)
+	}
+
 	ctx, closure, facts = makeCtx(false, repotypes.ProvenanceTreeSitter, "gate.RunWith")
 	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
 		t.Fatalf("endpoint-to-roster expansion must be inactive without a typed no_directed_path boundary: %+v", got)
@@ -1191,8 +1202,14 @@ func TestCallChainReadParserRelationHandoffEvidence_NoDirectedPathProjectsExactB
 		t.Fatalf("regex boundary relation must not acquire typed authority: %+v", got)
 	}
 	ctx, closure, facts = makeCtx(true, repotypes.ProvenanceTreeSitter, "other.Member")
-	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); len(got) != len(evidence) {
-		t.Fatalf("an arbitrary endpoint-body call outside the principal member set must not be projected: %+v", got)
+	if got := callChainReadParserRelationHandoffEvidence(ctx, closure, facts, evidence); !callChainTypedEvidenceContainsExactParserRelation(got, "internal/analysis/gate/gate.go", 135, "gate.Run", "gate.RunWith") {
+		t.Fatalf("requested-sink call to a source-reachable peer must not depend on unrelated roster spelling: %+v", got)
+	}
+	if callChainNoDirectedPathReachableBoundaryPeerRelation(true, "buildAnalysisIR", "gate.Run", "gate.Run", "unrelated.Helper", evidence) {
+		t.Fatal("requested sink must not pull an arbitrary endpoint-body call whose callee is outside the typed source-reachable graph")
+	}
+	if callChainNoDirectedPathReachableBoundaryPeerRelation(true, "buildAnalysisIR", "gate.Run", "gate.RunWith", "gate.Run", evidence) {
+		t.Fatal("peer -> requested sink direction must never be auto-carried after a typed no_directed_path boundary")
 	}
 }
 

@@ -2857,6 +2857,9 @@ func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) str
 	b.WriteString("- Satisfy this with `blocks[].items[].label`, a section/table block `title`, or typed diagram `edge_anchors` endpoints.\n")
 	b.WriteString("- If the main explanation is prose-only, add a compact ordered_list or table of key anchors; each item label should be the exact anchor and carry the relevant `citation_ref` when available.\n")
 	b.WriteString("- Do not rely on prose-only mentions. The validator compares the typed anchor list above with structured AnswerDocument fields.\n\n")
+	if boundary := view.CallChainEndpointBoundary; boundary != nil && boundary.Active() {
+		b.WriteString("- This answer also has a typed no-directed-path endpoint boundary. Keep the requested sink visible as a separate supporting boundary item/block; do not append it as a hop in the principal directed ordered_list merely to satisfy this anchor contract.\n\n")
+	}
 	return b.String()
 }
 
@@ -3756,6 +3759,7 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 		b.WriteString("- For `parallel_convergence`, read the displayed topology literally: both arrowheads point toward the shared frontier. In prose and Mermaid, keep the two inbound paths separate; never rewrite `source -> ... -> frontier <- ... <- requested_sink` as `source -> frontier -> requested_sink`.\n")
 	}
 	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
+	b.WriteString("- Keep that requested-sink boundary in a separate supporting item/block, not as the last hop of the principal directed ordered_list. A definition-only boundary is visible context, not an extra path member.\n")
 	b.WriteString("- The summary, principal member roster, and diagram must share this disposition. The model owns the conclusion; this typed context supplies the evidence boundary only.\n\n")
 	return b.String()
 }

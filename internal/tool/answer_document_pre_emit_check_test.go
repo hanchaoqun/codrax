@@ -8992,6 +8992,41 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_CallableLineLabelsKeepEx
 	}
 }
 
+func TestDetachInvalidItemCitationRefsWithoutSafeCandidate_KeepsEmbeddedExplicitSourceLocation(t *testing.T) {
+	mu := types.NewMutableState("explain a cross-language binding chain")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID: "core-definition", Kind: types.EvidenceDirect,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "tokenize_bytes", Subject: "tokenize_bytes",
+		Source: "core-rs/src/lib.rs", LineStart: 10, GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mu}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File: "core-rs/src/lib.rs", Line: 10,
+			Quote: "pub fn tokenize_bytes(input: &[u8], table: &MergeTable) -> Vec<u32> {",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID: "native-chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID: "core", Label: "pub fn tokenize_bytes (core-rs/src/lib.rs:10)",
+				Text: "Rust core implementation.", CitationRef: 0,
+			}},
+		}},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	if surfaces := preEmitExplicitSourceLocationSurfaces(doc.Blocks[0].Items[0].Label); len(surfaces) != 1 {
+		t.Fatalf("embedded explicit location should parse uniquely, got %+v", surfaces)
+	}
+	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed != 0 {
+		t.Fatalf("exact embedded file:line citation must survive detach, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want exact submitted citation 0", got)
+	}
+}
+
 func TestPreEmitCallableLineLabelParts_CrossLanguageQualifiedCallables(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

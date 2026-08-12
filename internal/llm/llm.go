@@ -181,3 +181,15 @@ type Adapter interface {
 	RequestTimeout() time.Duration
 	RetryMaxAttempts() int
 }
+
+// StreamingLivenessReporter is an optional adapter capability used by callers
+// that would otherwise add a fixed wall-clock deadline around one model round.
+// A true value means the adapter's streaming path already owns precise
+// first-byte and mid-stream byte-silence watchdogs. Callers must not layer an
+// elapsed-age timeout over that request: heartbeat/reasoning/tool-call bytes are
+// positive liveness and may legitimately continue beyond a configured request
+// duration. Explicit caller cancellation/deadlines still propagate through the
+// Chat context.
+type StreamingLivenessReporter interface {
+	StreamingLivenessWatchdogEnabled() bool
+}

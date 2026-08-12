@@ -321,9 +321,22 @@ func TestRequestTelemetry_CarriesFirstByteCeiling(t *testing.T) {
 	if got := BuildRequestTelemetry(wrapped, nil, nil).StreamFirstByteTimeout; got != 3*time.Minute {
 		t.Fatalf("TelemetryAdapter must delegate the first-byte ceiling; got %v", got)
 	}
+	wrappedLiveness, ok := wrapped.(StreamingLivenessReporter)
+	if !ok || !wrappedLiveness.StreamingLivenessWatchdogEnabled() {
+		t.Fatal("TelemetryAdapter must preserve streaming-liveness ownership")
+	}
 	fb := NewFallbackAdapter(adapter)
 	if got := BuildRequestTelemetry(fb, nil, nil).StreamFirstByteTimeout; got != 3*time.Minute {
 		t.Fatalf("FallbackAdapter must delegate the head adapter's first-byte ceiling; got %v", got)
+	}
+	if !fb.StreamingLivenessWatchdogEnabled() {
+		t.Fatal("all-streaming fallback stack must preserve streaming-liveness ownership")
+	}
+	nonStreaming := NewOpenAIAdapter(testAPIKey, "m", "http://example.test", AdapterOptions{
+		Stream: false, RequestTimeout: 10 * time.Second, RetryMaxAttempts: 1,
+	})
+	if NewFallbackAdapter(adapter, nonStreaming).StreamingLivenessWatchdogEnabled() {
+		t.Fatal("heterogeneous fallback stack must retain the evaluator wall budget for its non-streaming leg")
 	}
 }
 

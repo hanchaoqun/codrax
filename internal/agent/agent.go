@@ -2435,11 +2435,24 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				ToolNames:          sortedToolSchemaNames(effectiveTools),
 				ToolChoice:         toolChoice,
 			}); timeout > 0 {
-				var cancel context.CancelFunc
-				requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
-				cancelRequestCtx = cancel
-				logging.Debug("[diag %s] iter=%d phase=llm_request_budget timeout=%s reason=%s tools=%s",
-					b.name, i, timeout, reason, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
+				if streaming, ok := b.deps.LLM.(llm.StreamingLivenessReporter); ok &&
+					streaming.StreamingLivenessWatchdogEnabled() {
+					// A streaming adapter already has precise liveness gates for
+					// no-first-byte and mid-stream byte silence. Do not turn this
+					// evaluator budget into a fixed stream-age kill switch: active
+					// heartbeat/reasoning/tool-call bytes may legitimately outlive it.
+					// The parent task context still carries explicit user/deadline
+					// cancellation. Non-streaming adapters continue to receive the
+					// evaluator wall budget below.
+					logging.Debug("[diag %s] iter=%d phase=llm_request_budget skipped timeout=%s reason=%s ownership=stream_first_byte_and_byte_stall_watchdogs",
+						b.name, i, timeout, reason)
+				} else {
+					var cancel context.CancelFunc
+					requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
+					cancelRequestCtx = cancel
+					logging.Debug("[diag %s] iter=%d phase=llm_request_budget timeout=%s reason=%s tools=%s",
+						b.name, i, timeout, reason, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
+				}
 			}
 		}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry)

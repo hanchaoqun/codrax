@@ -155,6 +155,14 @@ func (t *TelemetryAdapter) RetryMaxAttempts() int {
 	return t.inner.RetryMaxAttempts()
 }
 
+func (t *TelemetryAdapter) StreamingLivenessWatchdogEnabled() bool {
+	if t == nil || t.inner == nil {
+		return false
+	}
+	reporter, ok := t.inner.(StreamingLivenessReporter)
+	return ok && reporter.StreamingLivenessWatchdogEnabled()
+}
+
 // StreamFirstByteTimeout delegates the optional reporter capability so
 // wrapping an adapter in telemetry does not hide its first-byte
 // ceiling from the heartbeat surface.

@@ -35320,3 +35320,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=retained`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.714 r400：无路径端点席位、跨语言精确引用与活跃流上层固定年龄门
+
+在 `main@f42761d3f` 上严格并发恰好两个案例：
+`qf_sequence_analyzer_gate` 与 `mr_poly_binding_chain`。runner 2/2 PASS，人工
+0/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_sequence_polyglot_r400_20260812_manual_audit.md`。
+
+1. Sequence 案不是简单模型波动。Explorer 已正确声明 typed
+   `principal_span_waiver=no_directed_path`；真实关系为
+   `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith`，不存在
+   `buildAnalysisIR -> gate.Run`。关系 validator 也正确拒绝模型首稿的反向假边。
+2. B662 的机制 gap 有两层：principal member roster 未显式列出 `gate.RunWith` 时，
+   已读精确 sink body 的 AST 边 `gate.Run -> gate.RunWith` 没有进入 Finalizer，边界
+   胶囊只能标 `endpoint_unresolved`；随后 required endpoint anchor 硬门要求
+   `gate.Run` 必须进入结构字段，却没有强调 definition-only 边界必须单列，模型把它
+   追加成 principal ordered_list 最后一跳，并在正文虚构 `RunWith -> Run`。
+3. B662 根修只消费 typed `no_directed_path`、精确 source/sink、已读 AST/Cangjie
+   callsite 和 citable call-edge reachability：仅当 exact sink 调用一个已由 exact
+   source 可达的 peer 时，按真实方向投影 `source -> peer <- sink`。`peer -> sink`、
+   未读/regex/任意 endpoint-body call、定义邻近与 roster 顺序均无权限。提示与硬门
+   修补形同步要求 exact sink 进入独立 supporting boundary item/block，不得成为主路径
+   最后一跳；模型仍自行写解释、图和结论。
+4. Polyglot 案首轮把 `blocks` 写成 JSON string，局部恢复只能结构化还原 3/4 block，
+   系统拒绝有损恢复是正确的；第二轮 native JSON 成功。确定性错误在随后 citation
+   detach：`pub fn tokenize_bytes (core-rs/src/lib.rs:10)` 已携带唯一结构化 file:line，
+   citation 也精确指向 Rust line 10，却被当作无安全候选摘除，最终核心实现无引用。
+5. B663 把唯一 embedded `file:line` 与 citation 的精确对齐设为 monotone keep 条件，
+   复用已有跨语言 path-suffix 解析，覆盖 Go/Java/Kotlin/C/C++/Rust/Python/ArkTS/
+   Cangjie 等；错误位置、多个位置、无结构位置和仅正文 name-drop 继续不能保护引用。
+   Cargo.toml/cdylib 事实仅放在不可挂引用 caveat 的 presentation 债另行观察，本批不为
+   单 case 扩大 answer schema。
+6. 专项代码审计发现 B664 红线：streaming OpenAI adapter 已明确取消 total-age cap，
+   但 BaseAgent 的 Analyzer terminal emit-only budget 仍在外层固定套 180s
+   `context.WithTimeout`。所以持续 heartbeat/reasoning/tool-call bytes 的活跃流仍可能被
+   上层按累计年龄取消，再触发 stage retry/降级；此前文档写“4 分钟无权限”不完整。
+7. B664 新增 typed `StreamingLivenessReporter` 并贯穿 OpenAI、Telemetry 与
+   Fallback：只有整条 fallback 栈都具备精确流式看护时，BaseAgent 才跳过 evaluator
+   固定墙钟；混合栈仍保留非流式保护。caller cancel/deadline、首字节静默、字节停滞、
+   transport/decode 错误仍有终止/有界恢复权限。累计 4 分钟与字面 `4ms` 均无权限。
+8. 全部变更不扫描用户/模型/最终答案 prose，不生成或替换答案/结论，不新增 Trace
+   根因硬门；显式窗、Trace 因果投影、系统补齐、链上-only 主因、实际占用/规则可消
+   双轴和 adjacent/background 降格均未改。`internal/tool/types/agent/llm` 全套通过。
+
+状态：`runner=2/2 PASS`；`human=0/2 PASS`；
+`B662-NODIRECTEDPATHREVERSEPEER1=implemented/targeted+core-pass/pending-production-replay`；
+`B663-EMBEDDEDLOCATIONCITEDETACH1=implemented/targeted+core-pass/pending-production-replay`；
+`B664-ACTIVESTREAMUPPERBUDGET1=implemented/targeted+core-pass`；
+`json-string-block-recovery=correct-fail-closed/retry-native-json`；
+`system-answer/conclusion-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=retired-at-transport+evaluator-layers`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

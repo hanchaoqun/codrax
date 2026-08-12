@@ -116,11 +116,14 @@ type AnalysisLimits struct {
 	// coupling between the pre-scan loop and the classification.
 	WarnBelowKeywordHitRatio float64
 
-	// TerminalEmitOnlyRequestTimeoutSeconds bounds a single LLM request
-	// after the analyzer has deterministically narrowed the tool surface to
-	// emit_analysis only. This is a protocol/liveness budget, not a semantic
-	// hard gate: a timeout fails the current analyze attempt loudly and lets
-	// the orchestrator's stage retry budget decide whether to re-dispatch.
+	// TerminalEmitOnlyRequestTimeoutSeconds bounds a single NON-STREAMING LLM
+	// request after the analyzer has deterministically narrowed the tool surface
+	// to emit_analysis only. Streaming adapters with precise first-byte and
+	// byte-stall watchdogs ignore this cumulative-age budget; active bytes are
+	// positive liveness and must not trigger stage retry or degraded output.
+	// This is a protocol/liveness budget, not a semantic hard gate: on a
+	// non-streaming timeout the current analyze attempt fails loudly and the
+	// orchestrator's stage retry budget decides whether to re-dispatch.
 	// Non-positive values inherit the code default through SetAnalysisLimits.
 	//
 	// EVOLUTION RECORD (2026-07-15, STREAM-WAIT-2 §29.92.1): default

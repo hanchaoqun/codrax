@@ -2237,6 +2237,24 @@ func (*contextDeadlineLLM) MaxOutputTokens() int          { return 4096 }
 func (*contextDeadlineLLM) RequestTimeout() time.Duration { return 0 }
 func (*contextDeadlineLLM) RetryMaxAttempts() int         { return 0 }
 
+type streamingLivenessBudgetLLM struct {
+	sawDeadline bool
+}
+
+func (l *streamingLivenessBudgetLLM) Chat(ctx context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	_, l.sawDeadline = ctx.Deadline()
+	return llm.Response{Content: "active stream completed"}, nil
+}
+
+func (*streamingLivenessBudgetLLM) ModelID() string               { return "streaming-liveness" }
+func (*streamingLivenessBudgetLLM) MaxContextTokens() int         { return 128000 }
+func (*streamingLivenessBudgetLLM) MaxOutputTokens() int          { return 4096 }
+func (*streamingLivenessBudgetLLM) RequestTimeout() time.Duration { return time.Minute }
+func (*streamingLivenessBudgetLLM) RetryMaxAttempts() int         { return 1 }
+func (*streamingLivenessBudgetLLM) StreamingLivenessWatchdogEnabled() bool {
+	return true
+}
+
 func TestBaseAgentAppliesEvaluatorLLMRequestBudget(t *testing.T) {
 	llmAdapter := &contextDeadlineLLM{}
 	eval := &requestBudgetEvaluator{timeout: 20 * time.Millisecond, reason: "test_budget"}
@@ -2261,6 +2279,25 @@ func TestBaseAgentAppliesEvaluatorLLMRequestBudget(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("request budget should fail fast, elapsed=%s", elapsed)
+	}
+}
+
+func TestBaseAgentDoesNotTurnEvaluatorBudgetIntoActiveStreamAgeGate(t *testing.T) {
+	llmAdapter := &streamingLivenessBudgetLLM{}
+	eval := &requestBudgetEvaluator{timeout: 4 * time.Millisecond, reason: "terminal_emit_only"}
+	b := NewBaseAgent(types.AgentAnalyzer, &Dependencies{
+		LLM: llmAdapter, Tools: tool.NewRegistry(), MaxIterations: 1, Emit: func(render.Event) {},
+	}, eval)
+
+	_, err := b.Execute(&types.AgentContext{
+		AgentName: types.AgentAnalyzer, Stage: types.StageAnalyze,
+		Mutable: types.NewMutableState("active stream has precise liveness"),
+	}, &skill.Config{})
+	if err != nil {
+		t.Fatalf("streaming liveness owner should complete without evaluator age deadline: %v", err)
+	}
+	if llmAdapter.sawDeadline {
+		t.Fatal("fixed evaluator wall budget must not be layered over a precise streaming watchdog")
 	}
 }
 

@@ -115,6 +115,23 @@ func (f *FallbackAdapter) RetryMaxAttempts() int {
 	return 0
 }
 
+// StreamingLivenessWatchdogEnabled is true only when every configured fallback
+// leg advertises precise streaming liveness. A heterogeneous stack fails closed
+// to the ordinary evaluator wall budget because a later non-streaming leg could
+// otherwise lose its only request timeout.
+func (f *FallbackAdapter) StreamingLivenessWatchdogEnabled() bool {
+	if f == nil || len(f.adapters) == 0 {
+		return false
+	}
+	for _, adapter := range f.adapters {
+		reporter, ok := adapter.(StreamingLivenessReporter)
+		if !ok || !reporter.StreamingLivenessWatchdogEnabled() {
+			return false
+		}
+	}
+	return true
+}
+
 // StreamFirstByteTimeout delegates the optional reporter capability to
 // the head adapter, matching the sizing-accessor convention above.
 func (f *FallbackAdapter) StreamFirstByteTimeout() time.Duration {

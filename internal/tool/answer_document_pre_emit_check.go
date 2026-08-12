@@ -3256,6 +3256,7 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 			}
 			if callableLineAligned ||
 				types.AnswerLocationLabelMatchesCitation(label, cit) ||
+				preEmitItemHasAlignedUniqueExplicitSourceLocation(*item, cit) ||
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) ||
 				preEmitCitationEnclosingFunctionSupportsLabel(label, cit) ||
 				preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) ||
@@ -13163,9 +13164,17 @@ func preCheckRequiredMechanismAnchorSet(doc *types.AnswerDocumentV2, view *types
 	}
 	return []emitFixHint{{
 		Field:         "blocks[].items[].label",
-		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Preserve each missing anchor as one of: an exact standalone ordered_list/table label; an exact endpoint in a single-edge label whose block claim_uses declares the matching typed identity relation; or the visible node identity declared for an endpoint of a typed diagram edge. Sequence message text/parameters are not endpoint identity. Use a matching citation_ref when available. If collected typed evidence proves only a sibling/nearby symbol or does not prove a path to the exact endpoint, keep the exact requested label and disclose that evidence boundary in the item text instead of substituting the nearby symbol.",
+		ExpectedShape: requiredMechanismAnchorRepairShape(view, labels),
 		Reason:        "the typed mechanism-anchor contract requires exact endpoint anchors in structured fields; summary prose alone cannot satisfy this boundary.",
 	}}
+}
+
+func requiredMechanismAnchorRepairShape(view *types.AnswerSemanticView, labels []string) string {
+	shape := "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Preserve each missing anchor as one of: an exact standalone ordered_list/table label; an exact endpoint in a single-edge label whose block claim_uses declares the matching typed identity relation; or the visible node identity declared for an endpoint of a typed diagram edge. Sequence message text/parameters are not endpoint identity. Use a matching citation_ref when available. If collected typed evidence proves only a sibling/nearby symbol or does not prove a path to the exact endpoint, keep the exact requested label and disclose that evidence boundary in the item text instead of substituting the nearby symbol."
+	if view != nil && view.CallChainEndpointBoundary != nil && view.CallChainEndpointBoundary.Active() {
+		shape += " This call-chain has a typed no_directed_path endpoint boundary: place the requested sink in a separate supporting boundary item/block, not as the last hop of the principal directed ordered_list. Definition-only endpoint visibility does not make it a reachable path member."
+	}
+	return shape
 }
 
 func sanitizeRequiredMechanismAnchorID(label string) string {
