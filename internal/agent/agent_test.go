@@ -2239,10 +2239,20 @@ func (*contextDeadlineLLM) RetryMaxAttempts() int         { return 0 }
 
 type streamingLivenessBudgetLLM struct {
 	sawDeadline bool
+	delay       time.Duration
 }
 
 func (l *streamingLivenessBudgetLLM) Chat(ctx context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
 	_, l.sawDeadline = ctx.Deadline()
+	if l.delay > 0 {
+		timer := time.NewTimer(l.delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return llm.Response{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	return llm.Response{Content: "active stream completed"}, nil
 }
 
@@ -2283,12 +2293,13 @@ func TestBaseAgentAppliesEvaluatorLLMRequestBudget(t *testing.T) {
 }
 
 func TestBaseAgentDoesNotTurnEvaluatorBudgetIntoActiveStreamAgeGate(t *testing.T) {
-	llmAdapter := &streamingLivenessBudgetLLM{}
+	llmAdapter := &streamingLivenessBudgetLLM{delay: 40 * time.Millisecond}
 	eval := &requestBudgetEvaluator{timeout: 4 * time.Millisecond, reason: "terminal_emit_only"}
 	b := NewBaseAgent(types.AgentAnalyzer, &Dependencies{
 		LLM: llmAdapter, Tools: tool.NewRegistry(), MaxIterations: 1, Emit: func(render.Event) {},
 	}, eval)
 
+	start := time.Now()
 	_, err := b.Execute(&types.AgentContext{
 		AgentName: types.AgentAnalyzer, Stage: types.StageAnalyze,
 		Mutable: types.NewMutableState("active stream has precise liveness"),
@@ -2298,6 +2309,9 @@ func TestBaseAgentDoesNotTurnEvaluatorBudgetIntoActiveStreamAgeGate(t *testing.T
 	}
 	if llmAdapter.sawDeadline {
 		t.Fatal("fixed evaluator wall budget must not be layered over a precise streaming watchdog")
+	}
+	if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+		t.Fatalf("active stream did not outlive the 4ms evaluator budget; elapsed=%s", elapsed)
 	}
 }
 

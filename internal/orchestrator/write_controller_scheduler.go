@@ -2830,19 +2830,7 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 	if len(items) > 4 {
 		items = items[:4]
 	}
-	purpose := repairFollowupPurposeForItems(items)
-	expectedPaths := impactRepairExpectedPaths(items)
-	criteria := impactRepairSuccessCriteria(items)
-	batch := writeflow.WriteBatchPlan{
-		ID:                   nextRepairBatchID(run, run.ActiveBatchID, "cumulative-review"),
-		Goal:                 impactRepairFollowupGoal(items),
-		Purpose:              purpose,
-		ExecutionMode:        types.WriteWorkflowBatchExecutionVerifyOnly,
-		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: false,
-		ExpectedPaths:        expectedPaths,
-		SuccessCriteria:      criteria,
-	}
+	batch := newImpactRepairFollowupBatch(run, run.ActiveBatchID, "cumulative-review", items)
 	oldBatchID := strings.TrimSpace(run.ActiveBatchID)
 	appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_requested",
 		"typed cumulative actual-diff review found uncovered source proof after a non-failed verifier attempt")
@@ -7887,18 +7875,26 @@ func impactObligationRepairFollowupDecision(run *types.WriteWorkflowRun, activeB
 		items = items[:4]
 	}
 	purpose := repairFollowupPurposeForItems(items)
-	id := nextRepairBatchID(run, activeBatchID, repairFollowupBatchIDSuffix(purpose))
-	expectedPaths := impactRepairExpectedPaths(items)
-	criteria := impactRepairSuccessCriteria(items)
+	batch := newImpactRepairFollowupBatch(run, activeBatchID, repairFollowupBatchIDSuffix(purpose), items)
+	return &batch, false
+}
+
+// newImpactRepairFollowupBatch is the single constructor for both the normal
+// post-verify queue and the cumulative actual-diff queue. Keeping execution
+// mode derivation here prevents identical typed obligations from taking
+// different workflow lanes merely because they were discovered by a later
+// cumulative review pass.
+func newImpactRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID, idSuffix string, items []impactRepairQueueItem) writeflow.WriteBatchPlan {
+	purpose := repairFollowupPurposeForItems(items)
 	batch := writeflow.WriteBatchPlan{
-		ID:                   id,
+		ID:                   nextRepairBatchID(run, activeBatchID, idSuffix),
 		Goal:                 impactRepairFollowupGoal(items),
 		Purpose:              purpose,
 		ExecutionMode:        types.WriteWorkflowBatchExecutionVerifyOnly,
 		Status:               writeflow.BatchReadyForChangePlan,
 		NeedsCodeExploration: false,
-		ExpectedPaths:        expectedPaths,
-		SuccessCriteria:      criteria,
+		ExpectedPaths:        impactRepairExpectedPaths(items),
+		SuccessCriteria:      impactRepairSuccessCriteria(items),
 	}
 	if sourceStaticInlineProofItemsOnly(items) {
 		// Static-only capability is already the completed observation. Repeating
@@ -7907,7 +7903,7 @@ func impactObligationRepairFollowupDecision(run *types.WriteWorkflowRun, activeB
 		batch.ExecutionMode = ""
 		batch.Goal = "Author bounded direct-runtime verification probes for changed production paths that currently have source-static coverage only; execute the already-applied behavior without modifying source unless the typed probe itself proves a remaining defect."
 	}
-	return &batch, false
+	return batch
 }
 
 func sourceStaticInlineProofItemsOnly(items []impactRepairQueueItem) bool {

@@ -281,6 +281,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej, paths := validatePassingProbeReplanAppliedPathMutation(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "replan_passing_probe_applied_path_mutation", rej, []string{"$.changes", "$.verification_probes"}, paths)
 	}
+	if rej, paths := validatePureProofFollowupProductionChanges(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "proof_followup_production_edit_without_failure", rej, []string{"$.changes", "$.verification_probes"}, paths)
+	}
 	if rej, pack := validateFullModifyCompletenessWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
 	}
@@ -356,6 +359,47 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
+}
+
+// validatePureProofFollowupProductionChanges keeps a controller-authorized
+// proof-only batch on its typed lane. In the absence of a failure handoff for
+// the active batch, production source bytes are already applied and the batch
+// may only add/execute bounded verification probes. This gate reads durable
+// workflow purpose, progress authorization, handoff batch ID, and typed path
+// roles; it never interprets request, plan, patch, or answer prose.
+//
+// It intentionally runs before structured edits are compiled. Otherwise a
+// malformed source edit can consume repair rounds even though that edit was
+// never authorized in the first place.
+func validatePureProofFollowupProductionChanges(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
+	if ctx == nil || ctx.Mutable == nil || len(changes) == 0 {
+		return "", nil
+	}
+	batch, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun())
+	if !ok || strings.TrimSpace(batch.Purpose) != "verification_proof_followup" {
+		return "", nil
+	}
+	if handoff := ctx.Mutable.VerifyFailureHandoff(); handoff != nil &&
+		strings.TrimSpace(handoff.BatchID) == strings.TrimSpace(batch.ID) {
+		return "", nil
+	}
+	var paths []string
+	for _, change := range changes {
+		for _, raw := range []string{change.Path, change.NewPath} {
+			path := canonicalOptionalPlanPathIdentity(raw)
+			if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+				continue
+			}
+			paths = append(paths, path)
+		}
+	}
+	paths = sortedUniqueNonEmpty(paths)
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf(
+		"typed verification proof follow-up has no active verification-failure handoff for batch %q; refusing production source changes for %s. Emit changes: [] with verification_probes[] that exercise the already-applied worktree. A later typed probe failure for this batch may authorize a separate source repair.",
+		strings.TrimSpace(batch.ID), strings.Join(paths, ", ")), paths
 }
 
 // validateVerificationProbeTargetLanguageCompatibility prevents an inline

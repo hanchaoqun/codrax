@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.723 r409：累计补证车道漂移根修；图保留正证与活跃流 4ms 专审（2026-08-12）
+
+1. 在 `main@d015d6116` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_staticproof_diagram_r409_20260812_manual_audit.md`。
+2. Zod 证明 r408 的 controller 上下文修复已生产生效：模型明确读到两条
+   `capability=source_static` 和“不得据此选择 all_verified”的边界。终态仍 unverified
+   不是模型波动，也不是代码失败，而是新确认 B679：相同 typed proof queue 有两个 batch
+   构造入口。普通入口会把纯 `production_path_source_static_only + probe_language` 路由到
+   ReadyForChangePlan；旧累计 actual-diff 入口却独立硬编码 `verify_only`，于是重复 `make check`
+   而永远不生成 JavaScript 行为探针。
+3. 根修将两入口收敛为唯一 `newImpactRepairFollowupBatch`。只有所有 queue item 均为
+   source-static 且各自拥有明确 inline runtime 时才直接生成探针计划；只要混有行为合同缺证、
+   其他 impact obligation 或 native-only 语言，就继续 verify-only/诚实 unverified。判断只读
+   typed code/path/probe language，不扫描 request、计划正文、patch 或答案。
+4. 同批关闭 B680：纯 proof-followup 在没有同批 verify-failure handoff 时，旧系统会先编译
+   模型提交的生产 structured edit，产生 stale anchor/no-op 等无效修补轮，最后才由 scheduler
+   拒绝修源码。现将 production-source 边界放到两 emitter 共用的 full-content seam，并给
+   skeleton 入口同一早门；它在 structured edit 编译前拒绝。测试/fixture/doc 等辅助路径保留，
+   同批 typed 验证失败可重新授权生产修复，`impact_and_verification_proof_followup` 也不被误封。
+5. Polyglot 最终保留合法四节点 sequence diagram，B672 获生产图保留正证。终稿却把已经读过
+   的 `_tokenize_slow` 回退细节写成“仍需确认”，属于 evidence→final 上下文/模型成文缩水，
+   不是关系图缺边；不以强制留文、答案关键词门或系统改写结论处理，继续异构回放观察。
+6. 按用户追加要求完成 active-stream 专审。built-in OpenAI streaming 没有 absolute total-age
+   cap；每个 SSE line（含 heartbeat、reasoning、tool-call/malformed framing bytes）刷新 byte
+   liveness。Analyzer 的 terminal emit-only `4ms` 只用于非流式请求；当 adapter 声明精确
+   first-byte/byte-stall owner 时 BaseAgent 不安装该 deadline。原 pin 已加强为 adapter 延迟
+   `40ms` 后仍完整返回，从行为上证明跨过 4ms 不降级。唯一精确终止权仍是 caller cancel/
+   deadline、无首字节、byte stall、transport/decode failure；失败后只可重试、保留并披露先前
+   模型草稿或 fail-loud，不得根据 evidence 自铸答案。
+7. 本批不改 Read/Trace。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因以及
+   实际占用/业务线索与规则计价可消除量双轴均保持；邻近/背景仍只能作为支持排查方向。
+
+状态：
+
+`B679-CUMULATIVESOURCESTATICLANEDRIFT1=implemented/single-constructor+pinned`；
+`B680-PROOFFOLLOWUPPRECOMPILEBOUNDARY1=implemented/full-content+skeleton-pins`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=production-positive-r409`；
+`B678-STATICCAPABILITYPROOFFOLLOWUP1=production-context-positive/r409-routing-gap-fixed`；
+`active-stream-4ms-degrade=forbidden/40ms-behavior-pin-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.722 r408：写补证链正向一半；静态能力未进入 controller 决策（2026-08-12）
 
 1. 在 `main@8d0d244de` 严格并发恰好两个案例：

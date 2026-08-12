@@ -6840,6 +6840,27 @@ func TestImpactObligationRepairFollowupSchedulesHardContractAfterSourceStaticOnl
 	}
 }
 
+func TestNewImpactRepairFollowupBatchKeepsSourceStaticLaneAcrossDiscoveryEntrypoints(t *testing.T) {
+	items := []impactRepairQueueItem{{
+		Code:          "production_path_source_static_only",
+		Path:          "src/client.ts",
+		ProbeLanguage: "javascript",
+	}}
+	for _, suffix := range []string{"proof-repair", "cumulative-review"} {
+		t.Run(suffix, func(t *testing.T) {
+			batch := newImpactRepairFollowupBatch(nil, "batch-1", suffix, items)
+			if batch.Purpose != "verification_proof_followup" || batch.ExecutionMode != "" ||
+				batch.Status != writeflow.BatchReadyForChangePlan {
+				t.Fatalf("source-static typed obligation drifted by discovery entrypoint: %+v", batch)
+			}
+			if !containsString(batch.ExpectedPaths, "src/client.ts") ||
+				!strings.Contains(strings.Join(batch.SuccessCriteria, "\n"), "probe_language=javascript") {
+				t.Fatalf("direct proof authority was not preserved: %+v", batch)
+			}
+		})
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{

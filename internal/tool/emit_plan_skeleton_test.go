@@ -155,3 +155,28 @@ func TestEmitPlanSkeleton_RejectsDuplicatePath(t *testing.T) {
 		t.Fatalf("summary should include transparent repair pack line, got: %s", res.Summary)
 	}
 }
+
+func TestEmitPlanSkeleton_PureProofFollowupRejectsProductionMetadataImmediately(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState(""), Mode: types.ModeApply, PipelineStage: types.StagePlan}
+	bus.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-proof-skeleton", ActiveBatchID: "batch-proof",
+		Batches:        []types.WriteWorkflowBatch{{ID: "batch-proof", Purpose: "verification_proof_followup"}},
+		ProgressLedger: []types.WriteWorkflowProgress{{ReasonCode: "verification_proof_followup_requested"}},
+	})
+	params := json.RawMessage(`{
+		"request":"close behavior proof",
+		"summary":"A pure proof follow-up must verify the already-applied source instead of opening a production mutation placeholder.",
+		"changes":[{"path":"src/widget.ts","kind":"patch","rationale":"unauthorized proof mutation"}],
+		"verification_probes":[{"language":"javascript","code":"if (1 !== 1) process.exit(1);"}]
+	}`)
+	res, err := (&EmitPlanSkeleton{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "proof_followup_production_edit_without_failure") {
+		t.Fatalf("skeleton must share the pure-proof production boundary: %+v", res)
+	}
+	if bus.Mutable.PartialChangePlan() != nil {
+		t.Fatal("rejected proof mutation must not install a partial plan")
+	}
+}

@@ -313,6 +313,66 @@ func TestEmitChangePlan_ProofFollowupProbeOnlyPlanRejectsTargetLanguageMismatch(
 	}
 }
 
+func TestEmitChangePlan_PureProofFollowupRejectsProductionEditBeforeStructuredCompile(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "widget.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.RepoRoot = repo
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-proof-boundary", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-proof", Status: types.WriteWorkflowBatchReadyToPlan,
+			Purpose: "verification_proof_followup", ExpectedPaths: []string{"src/widget.ts"},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-source", ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	params := json.RawMessage(`{
+		"request":"close TypeScript proof",
+		"summary":"This invalid source repair must be rejected by typed proof authority before its stale edit is compiled.",
+		"changes":[{
+			"path":"src/widget.ts","kind":"patch","rationale":"unnecessary proof mutation",
+			"edits":[{"kind":"replace","start_line":1,"end_line":1,"old_text":"not present","content":"export const value = 2;"}]
+		}],
+		"verification_probes":[{"language":"javascript","code":"if (1 !== 1) process.exit(1);","changed_symbol_refs":["path:src/widget.ts"]}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "proof_followup_production_edit_without_failure") {
+		t.Fatalf("pure proof production edit must fail on typed authority first: %+v", res)
+	}
+	if strings.Contains(res.Summary, "old_text mismatch") || strings.Contains(res.Summary, "structured_edit") {
+		t.Fatalf("unauthorized production edit reached structured edit compilation: %s", res.Summary)
+	}
+}
+
+func TestValidatePureProofFollowupProductionChangesAllowsAuxiliaryOrTypedFailureRepair(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-proof-boundary", ActiveBatchID: "batch-proof",
+		Batches:        []types.WriteWorkflowBatch{{ID: "batch-proof", Purpose: "verification_proof_followup"}},
+		ProgressLedger: []types.WriteWorkflowProgress{{ReasonCode: "verification_proof_followup_requested"}},
+	})
+	if rej, _ := validatePureProofFollowupProductionChanges(ctx, []types.FileChange{{Path: "tests/widget.test.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("auxiliary proof material must remain available: %s", rej)
+	}
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-proof", PlanID: "probe-plan", Attempt: 1})
+	if rej, _ := validatePureProofFollowupProductionChanges(ctx, []types.FileChange{{Path: "src/widget.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("typed same-batch failure must authorize production repair: %s", rej)
+	}
+}
+
 func TestEmitChangePlan_ProbeOnlyPlanRejectedOutsideProofFollowup(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
