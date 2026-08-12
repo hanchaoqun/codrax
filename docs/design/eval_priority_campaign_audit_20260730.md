@@ -34939,3 +34939,42 @@ first-byte/byte-silence、明确 transport/decode failure、调用方 cancel/dea
 状态：`active-stream-age-degrade=forbidden/already-fixed`；
 `over-4m-production-positive=H11-321s`；`transport/byte-silence/caller-cancel=only-failure-authorities`；
 `system-degraded-answer-while-stream-active=forbidden`；`new-code-change=none`。
+
+### 123.703 r390：端点函数体门生产转正，但强制读取窗过宽
+
+`main@a28a7af84` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_endpoint_read_r390_20260812_manual_audit.md`。Go 案最终正确保留
+`buildAnalysisIR -> gate.RunWith <- gate.Run` 两支汇聚，Mermaid 与正文方向一致，证明 B651 的“端点存在不等于
+端点函数体已读”门在生产生效；没有系统生成关系，也没有从用户/模型/答案原文推断边。
+
+同时确认 B652：repair 已知道 `gate.Run` 定义位于 134 行，却固定请求 `line-4..line+80`。模型先精确读取
+134–136 后，forced-read 仍因没有覆盖整个宽窗而继续阻塞，最终被迫读取 130–215，探索累计 11 次完成尝试。
+这是 typed repair 自己的范围合同过宽，不是模型波动。三行函数不应要求读取相邻 `RunWith` 与
+`IsHardRejectingCheck` 才承认完成。
+
+Java 案四跳和容量检查均正确，但人工判失败：`AuditLog.record` 的真实终端副作用只是
+`System.out.println`，答案却把“输出到标准输出”继续称为“完成审计落库”。这不是关系丢失；是终端实现语义没有
+被提升为必须并置的 typed endpoint-effect 事实，模型把用户的目标名当成当前实现事实。登记
+`B653-TERMINALEFFECTGOALFACTCOLLAPSE1`，后续应从 parser/read-closure 的终端函数体铸造中性 effect carrier，
+用软教学要求区分“目标/命名”和“当前副作用”；不得扫描“落库”等用户词做硬门，也不得由系统改写结论。
+
+状态：`B651=production-positive`；`B652-ENDPOINTREADWINDOWOVERREACH1=confirmed/P1`；
+`B653-TERMINALEFFECTGOALFACTCOLLAPSE1=confirmed/P1`；`runner=2/2`；`human=1/2`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`system-answer/relation-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.704 B652：端点强制读取按 parser 符号范围收口
+
+端点 repair 不再使用固定 `line-4..line+80`。当当前 search graph 有 endpoint 的 parser-owned symbol 时，读取窗
+直接采用声明的 `Line..EndLine`；因此 Go 三行 wrapper 只请求 134–136，Java/C++/Rust/ArkTS/Cangjie 等语言也
+复用各自 extractor 已有的函数范围。只有缓存/索引尚无符号范围时，才退到从精确定义行开始的 17 行小窗；该
+fallback 只用于取得真实源码，不能自行证明调用边，后续关系仍必须由已读 callsite 与 AST relation handoff 铸造。
+
+回归固定三项：无 graph 时 repair 只发一个 `[134,150]` 小窗；有 graph 时严格缩到 `[134,136]`；读完 sink
+函数体后真实 `gate.Run -> gate.RunWith` 仍由 parser relation 进入证据池。该修复不读取任何用户或模型 prose，
+不改变 `no_directed_path` 的证据强度，也不影响 Trace 显式窗、链上根因、因果投影和自动补齐。
+
+状态：`B652=implemented/targeted-pass`；`repair-range=parser-symbol-span-first`；
+`fallback=definition-line+16/bounded`；`relation-authority=AST+read-closure-only`；
+`raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

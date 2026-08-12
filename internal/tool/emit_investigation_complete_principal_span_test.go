@@ -266,6 +266,9 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 	if len(pending) != 1 || pending[0].File != "internal/analysis/gate/gate.go" || len(pending[0].LineRanges) != 1 {
 		t.Fatalf("production-shaped body repair must request one bounded sink file range: %+v", pending)
 	}
+	if got := pending[0].LineRanges[0]; got.Start != 134 || got.End != 150 {
+		t.Fatalf("without a parser graph, endpoint repair must use the bounded definition fallback [134,150], got %+v", got)
+	}
 	mut.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
 		"internal/analysis/gate/gate.go": {
 			RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate",
@@ -280,6 +283,9 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExis
 			}},
 		},
 	}})
+	if start, end := callChainEndpointBodyReadRange(bus, "internal/analysis/gate/gate.go", 134, "gate.Run"); start != 134 || end != 136 {
+		t.Fatalf("parser-owned symbol span must narrow the endpoint read to Run's exact body, got [%d,%d]", start, end)
+	}
 	mut.EvidenceClosure().SetReadSet(map[string]bool{
 		"internal/agent/analyzer.go":     true,
 		"internal/analysis/gate/gate.go": true,

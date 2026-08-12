@@ -13099,7 +13099,7 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 		for _, endpoint := range []string{startHint, endHint} {
 			if !callChainExactEndpointBodyInspected(closure, evidence, endpoint) {
 				unread = append(unread, endpoint)
-				unreadDemands = append(unreadDemands, callChainExactEndpointBodyReadDemands(evidence, endpoint)...)
+				unreadDemands = append(unreadDemands, callChainExactEndpointBodyReadDemands(ctx, evidence, endpoint)...)
 			}
 		}
 		if len(unread) > 0 {
@@ -13120,10 +13120,6 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 						continue
 					}
 					seenDemand[key] = true
-					start := demand.Line - 4
-					if start < 1 {
-						start = 1
-					}
 					closure.AddRepair(types.RepairDirective{
 						Kind:       types.RepairReadFile,
 						Files:      []string{demand.File},
@@ -13132,7 +13128,7 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 						Rationale:  "read the exact endpoint definition/body before declaring no_directed_path so any reverse or parallel parser edge can be carried without guessing",
 						Origin:     "pre_complete.call_chain_no_path_endpoint_body_read",
 						Stage:      string(types.StageExplore),
-						LineRanges: []types.LineRange{{Start: start, End: demand.Line + 80}},
+						LineRanges: []types.LineRange{{Start: demand.Start, End: demand.End}},
 					})
 				}
 			}
@@ -13172,9 +13168,11 @@ type callChainEndpointBodyReadDemand struct {
 	Endpoint string
 	File     string
 	Line     int
+	Start    int
+	End      int
 }
 
-func callChainExactEndpointBodyReadDemands(evidence []types.EvidenceItem, endpoint string) []callChainEndpointBodyReadDemand {
+func callChainExactEndpointBodyReadDemands(ctx *types.BusContext, evidence []types.EvidenceItem, endpoint string) []callChainEndpointBodyReadDemand {
 	out := make([]callChainEndpointBodyReadDemand, 0, 2)
 	for _, item := range evidence {
 		if !item.IsCitable() || item.LineStart <= 0 ||
@@ -13195,10 +13193,58 @@ func callChainExactEndpointBodyReadDemands(evidence []types.EvidenceItem, endpoi
 			matched = callChainMatchesOrderedEndpoint(caller, endpoint)
 		}
 		if matched {
-			out = append(out, callChainEndpointBodyReadDemand{Endpoint: endpoint, File: item.Source, Line: item.LineStart})
+			start, end := callChainEndpointBodyReadRange(ctx, item.Source, item.LineStart, endpoint)
+			out = append(out, callChainEndpointBodyReadDemand{
+				Endpoint: endpoint, File: item.Source, Line: item.LineStart, Start: start, End: end,
+			})
 		}
 	}
 	return out
+}
+
+// callChainEndpointBodyReadRange prefers the parser-owned declaration span
+// already published in the run search graph. A precise symbol EndLine prevents
+// the forced-read queue from demanding unrelated neighbouring functions and
+// re-blocking after the endpoint body itself was read. When symbol metadata is
+// unavailable, a small bounded fallback covers the definition and nearby body;
+// AST relation handoff still requires its exact callsite line to be read.
+func callChainEndpointBodyReadRange(ctx *types.BusContext, source string, line int, endpoint string) (int, int) {
+	start, end := line, line+16
+	if line <= 0 {
+		return 0, 0
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return start, end
+	}
+	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return start, end
+	}
+	wantSource := canonicalRelationSourcePath(source)
+	for file, fi := range graph.FileIndex {
+		if fi == nil {
+			continue
+		}
+		candidateSource := canonicalRelationSourcePath(fi.RelPath)
+		if candidateSource == "" {
+			candidateSource = canonicalRelationSourcePath(file)
+		}
+		if candidateSource != wantSource {
+			continue
+		}
+		sym := enclosingCallableSymbol(fi, line)
+		if sym == nil || !callChainMatchesOrderedEndpoint(qualifiedEvidenceSymbolNameInFile(fi, sym), endpoint) {
+			continue
+		}
+		if sym.Line > 0 {
+			start = sym.Line
+		}
+		if sym.EndLine >= start {
+			end = sym.EndLine
+		}
+		return start, end
+	}
+	return start, end
 }
 
 // callChainExactEndpointBodyInspected distinguishes "the endpoint exists"
