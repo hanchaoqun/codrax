@@ -8,11 +8,11 @@ ID="qf_sequence_analyzer_gate"
 NAME="diagram — sequence buildAnalysisIR to gate.Run"
 QUESTION="请用 Mermaid 时序图展示 analyzer.go 里 buildAnalysisIR 到 gate.Run 的调用顺序，并在图后列出关键中间函数。"
 EXPECT_CONTAINS="buildAnalysisIR gate.Run"
-EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)
-(normalizer\.Normalize|compiler\.Compile|hdp\.Plan|binder\.BindByRelevance|RecomputeBudget)'
+EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)'
 # Key-intermediate selection remains model-owned: requiring one specific early
-# helper overfits a 235-call orchestration body. The structural oracle keeps
-# the actual reachable edge and the exact endpoint boundary edge.
+# helper overfits a 235-call orchestration body. The structural oracle below
+# keeps the actual reachable edge and exact endpoint boundary edge, while the
+# ordinary answer shape already requires the requested intermediate list.
 EXPECT_MATCHES_TEXT_REGEX='buildAnalysisIR.*gate\.RunWith.*analyzer\.go:[0-9]+
 gate\.Run([^A-Za-z0-9_]|$).*RunWith.*gate\.go:[0-9]+'
 EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer 系统按已验证证据补充 System-verified"

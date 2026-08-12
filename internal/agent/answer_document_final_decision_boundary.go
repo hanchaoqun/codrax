@@ -20,7 +20,7 @@ func renderAnswerDocCallChainFinalEvidenceBoundary(view *types.AnswerSemanticVie
 	var b strings.Builder
 	b.WriteString("## Final Call-Chain Evidence Boundary\n\n")
 	b.WriteString("- You own the explanation. Preserve only directed hops carried by grounded caller-to-callee evidence. A call-site proves that edge, not the callee's body, side effect, storage medium, synchronization mode, or completion semantics.\n")
-	b.WriteString("- Describe a terminal endpoint's internal behavior only from a separate grounded definition/mechanism row for that endpoint, and cite that implementation line when the behavior matters. Class names, method names, comments, layer labels, and the wording of the request do not mint implementation authority. If no terminal-body proof is available, say only that the chain reaches or invokes the endpoint.\n")
+	b.WriteString("- Describe a terminal endpoint's internal behavior only from separate exact terminal-body proof: a grounded definition/mechanism row, or a parser-grounded `body_call_fact` whose callsite lies inside the already-read selected terminal body. Cite that implementation line when the behavior matters. A body call proves only that exact operation; for example, a console/logging call does not by itself prove database storage, durability, flushing, synchronization, or completion semantics. Class names, method names, comments, layer labels, and the wording of the request do not mint implementation authority. If no terminal-body proof is available, say only that the chain reaches or invokes the endpoint.\n")
 	b.WriteString("- Keep the model-authored summary useful and concise; this boundary supplies evidence caliber only and does not author a conclusion.\n\n")
 	return b.String()
 }

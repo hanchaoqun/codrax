@@ -20,6 +20,8 @@ func TestFinalCallChainEvidenceBoundaryIsLanguageAgnosticAndLast(t *testing.T) {
 	for _, want := range []string{
 		"## Final Call-Chain Evidence Boundary",
 		"A call-site proves that edge, not the callee's body",
+		"parser-grounded `body_call_fact`",
+		"console/logging call does not by itself prove database storage",
 		"storage medium",
 		"Class names, method names, comments, layer labels, and the wording of the request do not mint implementation authority",
 		"say only that the chain reaches or invokes the endpoint",
@@ -30,6 +32,31 @@ func TestFinalCallChainEvidenceBoundaryIsLanguageAgnosticAndLast(t *testing.T) {
 	}
 	if strings.LastIndex(prompt, "## Final Call-Chain Evidence Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {
 		t.Fatalf("call-chain evidence boundary must follow generic structure guidance:\n%s", prompt)
+	}
+}
+
+func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutUpgradingItsSemantics(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("opaque"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "body", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "AuditLog.record", Object: "System.out.println", OwnerSymbol: "AuditLog.record",
+			Source: "src/AuditLog.java", LineStart: 6, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapTerminalBodyCall,
+		}},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"body_call_facts=`AuditLog.record -> System.out.println @ src/AuditLog.java:6`",
+		"parser-grounded `body_call_fact`",
+		"does not by itself prove database storage, durability, flushing, synchronization, or completion semantics",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("terminal-body fact and final authority must agree on %q:\n%s", want, prompt)
+		}
 	}
 }
 

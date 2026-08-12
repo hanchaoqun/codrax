@@ -292,6 +292,36 @@ func TestBuildRuntimeTargetTerminalBodyCalls_PromotesSelectedTerminalUtilityCall
 	}
 }
 
+func TestBuildRuntimeTargetTerminalBodyCalls_RealJavaFixturePreservesTerminalEffect(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", "eval", "fixtures", "java-layered-service"))
+	entries, err := repomap.ScanFiles(repoRoot)
+	if err != nil {
+		t.Fatalf("scan production-shaped Java fixture: %v", err)
+	}
+	graph := repomap.BuildGraph(repoRoot, repomap.ParseFiles(entries, repoRoot))
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.structuredEvidence = []types.EvidenceItem{
+		{ID: "incoming", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/main/java/com/clinic/repo/VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "selection", Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, Subject: "audit", Object: "AuditLog", Snippet: "private final AuditLog audit = new AuditLog();", Source: "src/main/java/com/clinic/repo/VisitRepository.java", LineStart: 9, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	readSet := map[string]bool{
+		"src/main/java/com/clinic/repo/VisitRepository.java": true,
+		"src/main/java/com/clinic/repo/AuditLog.java":        true,
+	}
+	closure := types.NewEvidenceClosure(repoRoot)
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{
+		"src/main/java/com/clinic/repo/VisitRepository.java": {{Start: 1, End: 27}},
+		"src/main/java/com/clinic/repo/AuditLog.java":        {{Start: 1, End: 9}},
+	})
+
+	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
+	if len(got.evidence) != 1 || got.evidence[0].Subject != "AuditLog.record" || got.evidence[0].Object != "System.out.println" {
+		t.Fatalf("real parsed terminal effect must reach typed handoff, graph file=%+v evidence=%+v markdown=%s",
+			graph.FileIndex["src/main/java/com/clinic/repo/AuditLog.java"], got.evidence, got.markdown)
+	}
+}
+
 func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(t *testing.T) {
 	file := &repotypes.FileInfo{
 		RelPath: "src/Sinks.ets", Language: repotypes.LangArkTS,

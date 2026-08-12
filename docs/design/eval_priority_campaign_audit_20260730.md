@@ -34978,3 +34978,31 @@ fallback 只用于取得真实源码，不能自行证明调用边，后续关�
 `fallback=definition-line+16/bounded`；`relation-authority=AST+read-closure-only`；
 `raw-prose-hard-gate=none`；`system-answer-rewrite=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.705 r391：B652 生产降噪；B653 是终点 body fact 与末尾教学自冲突
+
+`main@35908588e` exact-two runner `1/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_endpoint_span_r391_20260812_manual_audit.md`。Go 案从 r390 的 11 次
+完成尝试降至 6 次，最终模型正确表达 `buildAnalysisIR -> gate.RunWith <- gate.Run`、输出合法 sequenceDiagram，
+并列出 17 个有引用的关键函数。runner 的 FAIL 不是产品失败：case 一面注释“关键中间函数选择由模型拥有”，一面
+仍硬要求 `normalizer.Normalize/compiler.Compile/hdp.Plan/binder.BindByRelevance/RecomputeBudget` 至少出现一个；
+本轮模型选择同一函数体内其他 load-bearing reconcile/check 函数即被拒。用例已删除这组单 type 名单，仅保留
+Mermaid 结构、真实 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith` 两条关系 oracle。
+
+Java 案把 B653 根因收窄：生产最终上下文已经含独立 typed
+`body_call_facts=AuditLog.record -> System.out.println @ AuditLog.java:6`，说明 parser、终点读取、evidence handoff
+都工作；但最终 evidence boundary 又教“只有 definition/mechanism row 才能说明 endpoint internal behavior”。同一
+prompt 一边给 body operation 权威、一边否认该权威，模型最终把 stdout 与用户概念目标“落库”粘连。修复统一
+软合同：已读 selected-terminal body 内的 parser-grounded `body_call_fact` 与 definition/mechanism 都是合法的
+精确行为事实；但一个 body call 只证明该操作，console/logging 不证明 DB storage、durability、flush、同步或完成。
+系统不替模型写“未落库”，也不扫描用户/答案中的“落库”词做硬门。
+
+真实 Java fixture 回归直接经生产 parser 构图，固定 `AuditLog.record -> System.out.println` 能进入 typed handoff；
+finalizer 回归同时钉住 body fact 可用与语义不得升级。合同适用于所有已有 parser 的语言，不按 Java、println 或
+审计 case 特判。
+
+状态：`B652=production-positive`；`B653=implemented/targeted-pass`；
+`terminal-effect-authority=parser-body-call|grounded-definition|mechanism`；
+`terminal-effect-semantic-upgrade=forbidden`；`eval-key-function-selection=model-owned`；
+`raw-user/model/final-prose-hard-gate=none`；`system-answer-rewrite=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
