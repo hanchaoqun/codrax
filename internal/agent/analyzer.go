@@ -3253,7 +3253,8 @@ func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
 }
 
 func stageTopologyAuthorityRequiredFiles(graph *repomap.Graph, rm types.RequestModel, entities []string) []string {
-	if graph == nil || !stageTopologyAuthorityRequestShape(rm) || !stageTopologyAuthorityHasStageEntity(graph, entities) {
+	if graph == nil || !stageTopologyAuthorityRequestShape(rm) ||
+		(!stageTopologyAuthorityHasStageEntity(graph, entities) && !stageTopologyAuthorityHasTypedWorkflowDimension(rm)) {
 		return nil
 	}
 	files := types.ReadModePipelineAuthorityFiles()
@@ -3266,9 +3267,32 @@ func stageTopologyAuthorityRequiredFiles(graph *repomap.Graph, rm types.RequestM
 	return out
 }
 
+// stageTopologyAuthorityHasTypedWorkflowDimension admits the canonical
+// topology sources when the analyzer already produced a schema-validated
+// conceptual-workflow answer shape. This avoids making a user say a Go const
+// such as StageAnalyze before the explorer can discover the owning topology.
+// It supplies required reads only: checkout verification and model-authored
+// evidence still own the eventual member set and relations.
+func stageTopologyAuthorityHasTypedWorkflowDimension(rm types.RequestModel) bool {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionStageWorkflow {
+			return true
+		}
+	}
+	return false
+}
+
 func stageTopologyAuthorityRequestShape(rm types.RequestModel) bool {
 	if rm.Scenario != types.ScenarioArchitectureExplain {
 		return false
+	}
+	if stageTopologyAuthorityHasTypedWorkflowDimension(rm) {
+		return true
 	}
 	if rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate {
 		return true

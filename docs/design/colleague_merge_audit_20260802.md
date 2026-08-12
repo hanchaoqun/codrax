@@ -5452,3 +5452,23 @@ startup 语义、layer-4 entities/intent，并把 model observation 缩到 artif
 状态：`B587=implemented/pending-r349`；`pretriage=navigation-only`；`analyzer-artifact-scalar=scalar-request-only`；
 `hard-observation-profile=deterministic-authority-only`；`system-answer-authorship=none`；
 Trace explicit-window/target/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.200 B588：typed 概念工作流维度稳定播种 canonical topology
+
+旧 `stageTopologyAuthorityRequiredFiles` 只在 analyzer entities 中某个名字以 `Stage` 开头、且 repomap 将其解析为 const 时才播种 read-mode
+authority files。这个条件适用于“枚举 Stage* 常量”，却漏掉更常见的概念请求：用户说 analyze 到 finalizer、analyzer 输出
+`scenario=architecture_explain + predicate_axis=flow + required diagram + required stage_or_workflow dimension`，没有义务知道源码常量名。
+结果 canonical binding/sequence 没被读，Explorer 可被任意同名 helper（如 `dataflow.Analyze`）吸走。
+
+本批增加第二条完全 typed 的播种臂：上述四个 schema-validated 信号同时成立时，无需 `Stage*` entity 即把当前 checkout 的
+`internal/types/enums.go`、`internal/types/stage_binding.go`、`internal/orchestrator/topology.go` 等 authority sources 放入 RequiredFiles
+高优先级席。播种仅要求读取；`stageauthority.LoadReadMode` 仍需逐 AST 验证 checkout 与编译时 stage table/sequence 一致，模型仍需基于读取结果
+产出证据、表格和图。系统不直接补 Analyzer/Explorer/Extractor/Finalizer 成员，不生成 precedence/call/dataflow 边，也不改终稿。
+
+门只读 intent/family、scenario、predicate_axis、DiagramHint.required 和 RequestedAnswerDimension.role；不读用户、reasoning、答案 prose。
+Trace intent/QFRootCauseTrace 显式拒绝该臂，因此时间窗、因果投影和自动补齐完全不受影响。回归既钉 helper，也钉
+`analyzerRequiredFiles` 实际接线，避免未来出现“局部函数绿但生产挂点删掉仍全绿”的 M4 缺口。
+
+状态：`B588=implemented/pending-r349`；`canonical-topology=required-read-only`；`checkout-verification=fail-closed`；
+`homonymous-helper=no-membership-authority`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

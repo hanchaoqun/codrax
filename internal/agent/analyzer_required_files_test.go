@@ -419,6 +419,100 @@ func TestStageTopologyAuthorityRequiredFiles_StageLikeArchitectureEnumeration(t 
 	}
 }
 
+func TestStageTopologyAuthorityRequiredFiles_TypedConceptualWorkflowDoesNotNeedStageConstEntity(t *testing.T) {
+	graph := buildRankerGraph(
+		map[string][]repomap.Symbol{
+			types.ReadModePipelineEnumsFile: {
+				{Name: "StageAnalyze", Kind: "const", Line: 33},
+				{Name: "StageExplore", Kind: "const", Line: 34},
+				{Name: "StageExtract", Kind: "const", Line: 35},
+				{Name: "StageFinalize", Kind: "const", Line: 36},
+			},
+			types.ReadModePipelineStageBindingFile: {{Name: "StageBinding", Kind: "type", Line: 6}},
+			types.ReadModePipelineTopologyFile:     {{Name: "pipelineTopology", Kind: "var", Line: 17}},
+			types.ReadModePipelineOrchestratorFile: {{Name: "runReadSchedulerLoop", Kind: "function", Line: 4524}},
+		},
+		nil,
+	)
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		Predicates: types.SemanticPredicates{
+			HasPerMemberTable: true,
+		},
+		DiagramHint: &types.DiagramHint{Required: true, Kind: types.DiagramSequence},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Confidence:          0.95,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label: "stage", Role: types.RequestedAnswerDimensionStageWorkflow, Required: true, Index: 1,
+			}},
+		},
+	}
+
+	got := stageTopologyAuthorityRequiredFiles(graph, rm, []string{"analyze", "finalizer"})
+	want := types.ReadModePipelineAuthorityFiles()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("typed conceptual workflow authority files = %v, want %v", got, want)
+	}
+
+	nonWorkflow := rm
+	nonWorkflow.RequestedAnswerDimensions = &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Confidence:          0.95,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "input", Role: types.RequestedAnswerDimensionOther, Required: true, Index: 1,
+		}},
+	}
+	if got := stageTopologyAuthorityRequiredFiles(graph, nonWorkflow, []string{"analyze", "finalizer"}); got != nil {
+		t.Fatalf("non-workflow dimension activated stage authority: %v", got)
+	}
+}
+
+func TestAnalyzerRequiredFiles_TypedConceptualWorkflowWiresAuthoritySeeder(t *testing.T) {
+	repoRoot := t.TempDir()
+	fileSymbols := make(map[string][]repomap.Symbol)
+	for i, rel := range types.ReadModePipelineAuthorityFiles() {
+		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+		fileSymbols[rel] = []repomap.Symbol{{Name: "Authority" + string(rune('A'+i)), Kind: "type", Line: 1}}
+	}
+	graph := buildRankerGraph(fileSymbols, nil)
+	mu := types.NewMutableState("explain the read workflow")
+	mu.SetSearchGraph(graph)
+	ctx := &types.AgentContext{RepoRoot: repoRoot, Mutable: mu, SearchGraph: graph}
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"analyze", "finalizer"},
+		},
+		Predicates:  types.SemanticPredicates{HasPerMemberTable: true},
+		DiagramHint: &types.DiagramHint{Required: true, Kind: types.DiagramSequence},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Confidence:          0.95,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label: "stage", Role: types.RequestedAnswerDimensionStageWorkflow, Required: true, Index: 1,
+			}},
+		},
+	}
+
+	got := analyzerRequiredFiles(ctx, rm)
+	want := types.ReadModePipelineAuthorityFiles()[:maxAnalyzerRequiredFilesCap()]
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("wired conceptual workflow required files = %v, want %v", got, want)
+	}
+}
+
 func TestStageTopologyAuthorityRequiredFiles_DoesNotFireForNonStageOrNonArchitecture(t *testing.T) {
 	graph := buildRankerGraph(
 		map[string][]repomap.Symbol{
