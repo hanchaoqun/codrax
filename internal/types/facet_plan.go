@@ -1121,16 +1121,17 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			uncertaintyBoundaryFacet(FacetOptional),
 		}, common...)
 	case QFCallChain:
-		return append([]FacetRequirement{
+		facets := []FacetRequirement{
 			{Kind: FacetPrincipalPathEdge, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			{Kind: FacetBranchGuard, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimGuardCondition}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimRegistrationEdge}},
-			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimGuardCondition, ClaimRegistrationEdge}},
-		}, common...)
+		}
+		facets = append(facets, diagramFacetRequirements(rm,
+			ClaimCallEdge, ClaimCallbackHandoff, ClaimGuardCondition, ClaimRegistrationEdge)...)
+		return append(facets, common...)
 	case QFEnumeration:
 		forms := []ClaimForm{
 			ClaimDefinitionFact,
@@ -1155,15 +1156,16 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			uncertaintyBoundaryFacet(FacetSoftRequired),
 		}, common...)
 	case QFArchitecture:
-		return append([]FacetRequirement{
+		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetComponentRelation, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
-			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
 			uncertaintyBoundaryFacet(FacetOptional),
-		}, common...)
+		}
+		facets = append(facets, diagramFacetRequirements(rm,
+			ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole)...)
+		return append(facets, common...)
 	case QFComparison:
 		// R4.4 (post_shape_residual_audit.md, 2026-05-04): the
 		// shared commonFacets() helper already appends a
@@ -1207,6 +1209,33 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append(facets, common...)
 	}
 	return nil
+}
+
+// diagramFacetRequirements keeps answer-shape authority with the typed
+// presentation contract. A call-chain or architecture family describes the
+// semantics of the requested explanation; it does not, by itself, prove that
+// the user requested a rendered graph. Treating every such family as
+// soft-required made an optional diagram that the model honestly removed after
+// validation reappear as a user-visible "requested diagram is missing" debt.
+//
+// Required=true is analyzer-schema-validated provenance from the current
+// request (or its typed presentation directive), so it may drive a hard facet.
+// A merely preferred/advisory kind remains enrichment-only. With no typed
+// diagram hint at all, omit the facet entirely so a semantic question family
+// cannot add graph authoring work or a completion caveat by itself.
+func diagramFacetRequirements(rm RequestModel, forms ...ClaimForm) []FacetRequirement {
+	if rm.DiagramHint == nil || rm.DiagramHint.Kind == DiagramNone || !rm.DiagramHint.Kind.IsValid() {
+		return nil
+	}
+	required := FacetOptional
+	if rm.DiagramHint.Required {
+		required = FacetHardRequired
+	}
+	return []FacetRequirement{{
+		Kind:            FacetDiagramSpine,
+		Required:        required,
+		AcceptableForms: append([]ClaimForm(nil), forms...),
+	}}
 }
 
 func uncertaintyBoundaryFacet(required FacetRequiredness) FacetRequirement {

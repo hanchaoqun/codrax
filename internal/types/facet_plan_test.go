@@ -455,6 +455,49 @@ func TestCompileFacetCoverage_PureHistoryNarrativeDoesNotRequireCurrentSource(t 
 	}
 }
 
+func TestFamilyTemplate_DiagramFacetTracksExplicitPresentationIntent(t *testing.T) {
+	base := RequestModel{
+		Intent:        IntentTrace,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+	}
+	for _, family := range []QuestionFamily{QFCallChain, QFArchitecture} {
+		assertRequiredness := func(t *testing.T, rm RequestModel, want FacetRequiredness, wantPresent bool) {
+			t.Helper()
+			for _, req := range familyTemplate(family, rm) {
+				if req.Kind != FacetDiagramSpine {
+					continue
+				}
+				if !wantPresent {
+					t.Fatalf("family=%s must not synthesize diagram_spine without typed diagram intent", family)
+				}
+				if req.Required != want {
+					t.Fatalf("family=%s diagram_spine requiredness=%s, want %s", family, req.Required, want)
+				}
+				return
+			}
+			if wantPresent {
+				t.Fatalf("family=%s missing diagram_spine facet", family)
+			}
+		}
+
+		t.Run(string(family)+"/not_requested", func(t *testing.T) {
+			assertRequiredness(t, base, FacetOptional, false)
+		})
+		t.Run(string(family)+"/advisory_only", func(t *testing.T) {
+			rm := base
+			rm.DiagramHint = &DiagramHint{Kind: DiagramSequence, Required: false}
+			assertRequiredness(t, rm, FacetOptional, true)
+		})
+		t.Run(string(family)+"/explicitly_required", func(t *testing.T) {
+			rm := base
+			rm.DiagramHint = &DiagramHint{Kind: DiagramSequence, Required: true}
+			assertRequiredness(t, rm, FacetHardRequired, true)
+		})
+	}
+}
+
 func TestResolveQuestionFamily_ArchitectureNarrativeBeatsEnumerationDrift(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

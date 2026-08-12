@@ -34140,3 +34140,39 @@ ClaimForm authority helper，适用于所有源码语言与机制类型。定向
 状态：`B624b=implemented/targeted-pass/pending-production-replay`；`member-note-authority=positional-typed`；
 `aggregate-model-content=preserved`；`path/order-synthesis=not-authorized-by-ref-count`；`raw-prose-hard-gate=none`；
 `system-answer-authorship=none`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.665 r373：写模式诚实停在 runner_missing；普通调用链被错误套入图层欠账
+
+`main@b5d67da9d` exact-two runner `1/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_cpp_relation_java_write_r373_20260812_manual_audit.md`。
+
+Java write 案修改正确且边界干净：只在 `LazilyParsedNumber` 上增加基于原始字符串值的 `equals`/`hashCode`，不改测试。`make check` 的 Python source/static
+检查通过；系统随后主动尝试更高权限的 manifestless Java main 行为测试，但宿主没有 Java runtime。最终 `runner_missing`、`verification_status=unavailable`、
+`unverified` 是正确 fail-loud，不能为了 eval PASS 把静态检查签成 Java 行为验证，也不能跳过更高 caliber 的已发现测试面。
+
+C++ read 案机器 PASS、人工 fail。模型正确拆出 `make_sink -> SinkRegistry::create` 与 `Logger::log -> sink_->write` 两段，并承认没有证据证明 factory 返回值如何绑定到
+Logger。可它在后续条目又断言 `sink_` 实际绑定 `ConsoleSink`，形成自相矛盾；“stderr 每次直接落地终端”也超出当前源码证明。该模型证据服从问题继续观察，禁止以终稿字符串门或
+系统代写正文修补。
+
+更确定的系统问题立案 `B626-DIAGRAMINTENTDEBT1/P1`：本题 RequestModel 没有 `diagram_hint`，用户只问完整调用路径和 runtime selection。Finalizer 自愿画了一个
+可选 Mermaid，严格关系门正确拒绝其中未证 caller/dispatch 边，模型也按指导删除整图；但 QFCallChain facet 模板无条件把 `diagram_spine` 固定为 soft-required，答案发布层随后又
+把它翻译成“答案未完整呈现这些已要求的内容：关系图主干及其已证关系”。语义 family 被错误当成展示意图，造成一次可避免拒绝、错误降级 caveat 和额外模型心智。
+
+状态：`B626=confirmed/implemented-targeted-pass`；`java-patch=correct`；`java-runtime=missing/honest-unverified`；
+`runner=1/2`；`human=1/2`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.666 B626：图层合同只由 typed presentation intent 铸造
+
+B626 在 facet 编译源头统一 call-chain 与 architecture 两个 family 的 diagram authority。问题 family 只描述答案的语义结构，不再自动创建 `diagram_spine`：
+
+1. `diagram_hint` 缺席、kind=none 或非法时，template 完全不发图 facet，Finalizer 不收到无请求图的丰富度教学，发布层也不可能把图缺失说成用户要求未满足；
+2. schema 已接纳的 advisory `diagram_hint(required=false)` 才创建 OPTIONAL facet，可在关系证据充分且图确实提升可读性时由模型自主采用；
+3. 当前请求或 typed presentation directive 明确要求图、且 `required=true` 时创建 HARD facet，既有 supported-kind/evidence 降级与 Mermaid 安全渲染继续工作。
+
+这不是放宽图边校验。所有可见 relation 仍须使用相同 typed endpoint、方向和证据权限；optional 图可被模型诚实删除，required 图仍 fail-closed。系统没有创建、补齐、重定向、
+删除任何模型关系，也不读取用户/模型/终稿 prose 关键词。定向回归覆盖 QFCallChain/QFArchitecture 的 absent、advisory、explicit-required 三臂，同时保留无 optional facet 时的精简 prompt。
+
+状态：`B626=implemented/targeted-pass/pending-production-replay`；`diagram-authority=typed-intent-only`；
+`semantic-family-is-not-presentation-intent=true`；`relation-evidence-gates=unchanged`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；`Trace causal projection/system supplement=unchanged`。

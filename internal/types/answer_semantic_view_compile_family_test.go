@@ -881,7 +881,12 @@ func TestCompileArchitecture_RelationTeachingIncludesWorkflowAndGuardForms(t *te
 		}
 	}
 
-	template := familyTemplate(QFArchitecture, irForArchitecture().RequestModel)
+	rm := irForArchitecture().RequestModel
+	// A diagram facet exists only when typed presentation intent asks for or
+	// recommends a graph. The architecture family alone must not manufacture
+	// that answer-shape obligation.
+	rm.DiagramHint = &DiagramHint{Kind: DiagramArchitecture, Required: false}
+	template := familyTemplate(QFArchitecture, rm)
 	for _, facet := range []AnswerFacetKind{FacetComponentRelation, FacetDiagramSpine} {
 		found := false
 		for _, req := range template {
