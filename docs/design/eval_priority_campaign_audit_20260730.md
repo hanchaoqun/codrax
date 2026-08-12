@@ -33727,3 +33727,19 @@ VerifyClass 业务线索、因果投影和确定性补采均未丢失。
 状态：`B608=second-root-fix/targeted-pass/pending-replay`；`B609=not-exercised`；`B610=confirmed/soft-guidance-next`；
 `runner=1/2`；`human=0/2`；`trace-model-variance=no-hardening`；`answer-prose-gate=none`；
 `system-answer-authorship=none`；Trace causal projection/system supplement=`preserved`；`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.646 B610：current-source profile 二元教学收敛，不新增原文硬门
+
+B610 不在 Go 确定性层匹配“当前源码/当前代码”等用户措辞，也不从 requested dimensions、perf summary 或模型终稿反推 profile。修复只缩短并前置 Analyzer 的
+软决策：先问“当前请求是否显式要求把外部观察与当前 source/implementation 结合”；若是，必须发 active profile，再选择 mechanism/flow/status/compare 等 typed mode；
+若只问工件自身内容，profile 保持 inactive。
+
+同位明确四个不能关闭显式 source lane 的相邻事实：`resolved_files=0`、工件坐标不是源码引用、runtime-only observation、工件符号无法映射 repo。这些事实只规定
+外部坐标与源码证明分 lane，不能推出“用户没有要求当前源码”。教学加入中英文正形但不成为 validator 关键词表；因此模型仍拥有意图分类，系统不会因表面词误命中而
+强行读仓库，也不会把 soft source lane 变成 completion hard gate。
+
+新增 prompt pin 固定 binary decision、正形、`resolved_files=0` 非否定、禁止反向 rationale 与 artifact-only 负臂。下一轮 exact-two 只有 profile 真正发出后才能验收 B609；
+若模型仍偶发漏发且没有新的 precise typed request carrier，不通过 deterministic 原文扫描硬化。
+
+状态：`B610=implemented/prompt-pin-pending-production-replay`；`request-text-hard-gate=none`；
+`current-source-lane=soft-typed-carrier`；`artifact/source-coordinate-separation=preserved`；`model-answer-ownership=preserved`。

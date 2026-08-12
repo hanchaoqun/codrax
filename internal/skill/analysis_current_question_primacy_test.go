@@ -82,6 +82,22 @@ func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_CurrentSourceProfileCannotBeClosedByArtifactResolution(t *testing.T) {
+	out := analysisSkillPrompt(t)
+	for _, want := range []string{
+		"Make one binary decision from the CURRENT request before looking at artifact resolution",
+		"结合当前源码解释",
+		"resolved_files=0",
+		"does NOT negate that explicit source request",
+		"Do not emit `false` with a rationale that source is unnecessary",
+		"If the request asks only what the artifact itself shows and does not ask for current implementation, leave the profile inactive",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("current-source mixed-lane teaching missing %q", want)
+		}
+	}
+}
+
 func TestAnalysisSkill_CurrentQuestionPrimacyAllowsOnlyEvidenceGatedCallEndpointConcretization(t *testing.T) {
 	out := currentQuestionPrimacyBlock(t)
 	for _, want := range []string{
