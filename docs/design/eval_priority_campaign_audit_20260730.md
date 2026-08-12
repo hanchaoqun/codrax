@@ -34516,3 +34516,29 @@ typed location 教学明确同一行可见且 citation 非替代。相关 `inter
 `row-id-authority=exact-unchanged`；`display-base=exact-row-id-selected-only`；`location-guidance=typed-soft`；
 `system-answer/inventory-row-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.683 r381：ArkTS/Cangjie 跨语言生产闭环；显示基名未扩大成跨行别名
+
+`main@7d7fe7caa` exact-two runner `2/2`、人工 `2/2`，详见
+`eval/parallel_selected_summary_evalcampaign_arkts_cangjie_r381_20260812_manual_audit.md`。
+
+ArkTS 在 r380 的事实集不变：4 个 `@Entry`、2 个 `@Builder` 全部找全。B635 生产生效后，模型沿用 `Index`、`ParentComponent` 等 reader-facing 基名并
+逐字携带精确 row id，六条 row-id 合同全部一次通过；没有再删除 row id、重排 block 或重复六轮同因修补。B636 的 typed location 教学也被消费：六条正文均显式列出
+完整 repo-relative 文件路径和行号，而非只留在尾部引用池。
+
+该案仍有一次与 B635 无关的拒绝：模型从 `@Entry` 标题猜了 `source_inventory_family=@entry`，但该组 typed rows 未暴露这个 family；validator 正确要求省略，模型下一轮
+只替换该 block 并通过。Principal Enumeration Rows 已写明“仅复制非空 surface_family、不得从 title/path/language 推断”，修补提示也给出唯一允许值 `@builder`；这是
+一次可行动、未循环的模型偏差。为消除一次重试而系统补写/删除字段或再造 hard gate，收益低且会越过模型所有权，因此不立新施工件。
+
+Cangjie 一次成文通过：2 个 extend、2 个同名 `native_add`、8 个 public class 全部保留。`native_add (demo.bridge)` 与
+`native_add (demo.ffi)` 由各自精确 row id/位置区分；`extend Cart` 与 `public class Cart` 也没有因共享基名跨族合并，证明 B635 只在已经精确选中的一行内允许括注基名，
+不是全局 fuzzy alias。每条可见 bullet 都携带精确文件:行引用和 package。模型没有在 text 中再次复制文件路径，但 renderer 将 citation 显示在同一条 row，用户所求
+位置仍直接可见且 typed inventory oracle 通过；不以重复文本为由引入 prose 扫描或硬门。
+
+两案分别 127s/116s，连接活跃且正常完成，没有按 4 分钟、request timeout 字面值或“尚无最终答案”降级。答案均为模型成文；系统只验证/绑定 typed identity 与 citation，
+未生成成员、说明或结论。没有 diagram 权限，未触碰 Trace 投影。
+
+状态：`runner=2/2`；`human=2/2`；`B635=production-positive`；`B636=production-positive`；
+`same-base-cross-row-merge=absent/fail-closed`；`single-actionable-family-retry=model-variance/advisory`；
+`system-answer/inventory-row-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
