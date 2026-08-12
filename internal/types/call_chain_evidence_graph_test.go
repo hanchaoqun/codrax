@@ -104,8 +104,29 @@ func TestAnalyzeCallChainEvidenceGraph_ParallelConvergencePreservesBothDirection
 		t.Fatalf("parallel convergence capsule missing: %+v", got)
 	}
 	if got.SourcePath[0].From != "buildAnalysisIR" || got.SourcePath[0].To != "gate.RunWith" ||
-		got.SinkPath[0].From != "gate.Run" || got.SinkPath[0].To != "RunWith" {
+		got.SinkPath[0].From != "gate.Run" || got.SinkPath[0].To != "gate.RunWith" {
 		t.Fatalf("real edge directions changed: source=%+v sink=%+v", got.SourcePath, got.SinkPath)
+	}
+}
+
+func TestAnalyzeCallChainEvidenceGraph_CanonicalizesOnlyUniqueQualifiedEndpointDisplay(t *testing.T) {
+	unique := AnalyzeCallChainEvidenceGraph([]EvidenceItem{
+		groundedCallEdge("E1", "left.go", 10, "Left.start", "pkg.RunWith"),
+		groundedCallEdge("E2", "right.go", 20, "Right.start", "RunWith"),
+	}, "Left.start", "Right.start")
+	if unique.EdgeCount != 2 || unique.SharedFrontier != "pkg.RunWith" ||
+		len(unique.SourcePath) != 1 || len(unique.SinkPath) != 1 ||
+		unique.SourcePath[0].To != "pkg.RunWith" || unique.SinkPath[0].To != "pkg.RunWith" {
+		t.Fatalf("unique qualified endpoint was not published as one identity: %+v", unique)
+	}
+
+	ambiguous := AnalyzeCallChainEvidenceGraph([]EvidenceItem{
+		groundedCallEdge("E1", "a.go", 10, "Left.start", "a.RunWith"),
+		groundedCallEdge("E2", "b.go", 20, "Right.start", "b.RunWith"),
+		groundedCallEdge("E3", "c.go", 30, "Third.start", "RunWith"),
+	}, "Left.start", "Third.start")
+	if ambiguous.SharedFrontier != "" || len(ambiguous.SourcePath) != 0 || len(ambiguous.SinkPath) != 0 {
+		t.Fatalf("ambiguous same-tail endpoints must remain separate: %+v", ambiguous)
 	}
 }
 

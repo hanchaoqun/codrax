@@ -959,7 +959,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"directed_topology_shape=`buildAnalysisIR -> ... -> gate.RunWith <- ... <- gate.Run`",
 		"two independently grounded inbound paths converge on the shared frontier",
 		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
-		"requested_sink_path: `gate.Run` -> `RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
+		"requested_sink_path: `gate.Run` -> `gate.RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
 		"not a reachable-chain member declaration",
 		"reverse or parallel typed calls",
 		"both arrowheads point toward the shared frontier",
@@ -969,6 +969,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("typed endpoint-boundary prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "node_alias[n4]=`RunWith`") {
+		t.Fatalf("one canonical call endpoint must not be republished under a short duplicate identity:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "verified_relation_component_count=1") ||
+		!strings.Contains(prompt, "node_alias[n2]=`gate.RunWith`") ||
+		!strings.Contains(prompt, `"to_identity":"RunWith"`) {
+		t.Fatalf("relation recipe did not reuse the shared canonical endpoint identity:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith") {
 		t.Fatalf("free-form waiver rationale must remain audit-only, not prompt authority:\n%s", prompt)

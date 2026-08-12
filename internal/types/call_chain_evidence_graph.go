@@ -142,7 +142,7 @@ func ResolveUniqueQualifiedCallEndpoint(evidence []EvidenceItem, short string) (
 // current-source call edges. Definitions, recovered rows, runtime artifacts,
 // prose, source order and prefix siblings cannot mint reachability.
 func AnalyzeCallChainEvidenceGraph(evidence []EvidenceItem, startHint, endHint string) CallChainEvidenceGraphAnalysis {
-	publicEdges := callChainEvidenceEdges(evidence)
+	publicEdges := CanonicalCallChainEvidenceEdges(evidence)
 	analysis := CallChainEvidenceGraphAnalysis{EdgeCount: len(publicEdges)}
 	if len(publicEdges) == 0 {
 		return analysis
@@ -192,6 +192,55 @@ func AnalyzeCallChainEvidenceGraph(evidence []EvidenceItem, startHint, endHint s
 		return callChainContainsKey(ends.candidates, edge.fromKey) || callChainContainsKey(ends.candidates, edge.toKey)
 	}, 3)
 	return analysis
+}
+
+// CanonicalCallChainEvidenceEdges publishes the same endpoint identity that
+// the shared call-graph key already uses. It only rewrites a short spelling
+// when the bounded citable edge set contains exactly one qualified spelling
+// for that operation tail; ambiguous same-tail identities remain separate.
+// Evidence cardinality, direction, IDs, and source locations are unchanged.
+func CanonicalCallChainEvidenceEdges(evidence []EvidenceItem) []CallChainEvidenceEdge {
+	return canonicalizeCallChainEvidenceEdges(callChainEvidenceEdges(evidence))
+}
+
+func canonicalizeCallChainEvidenceEdges(edges []CallChainEvidenceEdge) []CallChainEvidenceEdge {
+	if len(edges) == 0 {
+		return nil
+	}
+	canonical := newSharedCallChainCanonicalizer(edges)
+	displays := make(map[string]string)
+	for _, edge := range edges {
+		for _, raw := range []string{edge.From, edge.To} {
+			key := canonical.key(raw)
+			if key != "" {
+				displays[key] = callChainPreferredDisplayIdentity(displays[key], raw)
+			}
+		}
+	}
+	out := make([]CallChainEvidenceEdge, 0, len(edges))
+	for _, edge := range edges {
+		from, to := displays[canonical.key(edge.From)], displays[canonical.key(edge.To)]
+		if from == "" || to == "" {
+			continue
+		}
+		edge.From, edge.To = from, to
+		out = append(out, edge)
+	}
+	return out
+}
+
+func callChainPreferredDisplayIdentity(existing, candidate string) string {
+	existing = strings.TrimSpace(existing)
+	candidate = strings.TrimSpace(candidate)
+	if existing == "" {
+		return candidate
+	}
+	existingQualified := sharedCallChainQualifiedOwner(sharedCallChainIdentity(existing)) != ""
+	candidateQualified := sharedCallChainQualifiedOwner(sharedCallChainIdentity(candidate)) != ""
+	if candidateQualified && !existingQualified {
+		return candidate
+	}
+	return existing
 }
 
 func callChainEvidenceEdges(evidence []EvidenceItem) []CallChainEvidenceEdge {

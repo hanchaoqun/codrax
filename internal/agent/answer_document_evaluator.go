@@ -6999,10 +6999,12 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 }
 
 type answerDocMechanismRelationEdge struct {
-	from     string
-	to       string
-	relation types.DiagramRelationKind
-	loc      string
+	from       string
+	to         string
+	anchorFrom string
+	anchorTo   string
+	relation   types.DiagramRelationKind
+	loc        string
 	// requestSpine marks a relation selected by a request-scoped typed
 	// authority provider, rather than a merely relevant grounded sibling. It
 	// is presentation planning metadata only: it cannot mint an edge, bridge
@@ -7128,6 +7130,12 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		return nil, nil, 0, 0
 	}
 	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	canonicalCallEdges := make(map[string]types.CallChainEvidenceEdge)
+	for _, edge := range types.CanonicalCallChainEvidenceEdges(evidence) {
+		if key := answerDocCanonicalCallEdgeKey(edge.EvidenceID, edge.Source, edge.LineStart); key != "" {
+			canonicalCallEdges[key] = edge
+		}
+	}
 	acceptedFacts := 0
 	callsiteFacts := 0
 	stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx)
@@ -7165,7 +7173,20 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		}
 		from := answerDocMechanismEvidenceEndpoint(item, fromRaw)
 		to := answerDocMechanismEvidenceEndpoint(item, toRaw)
+		anchorFrom, anchorTo := "", ""
 		if relation == types.DiagramRelCall {
+			evidenceID := firstNonEmptyAnswerDocString(item.ID, item.EvidenceRef)
+			if key := answerDocCanonicalCallEdgeKey(evidenceID, item.Source, item.LineStart); key != "" {
+				if edge, ok := canonicalCallEdges[key]; ok {
+					if !types.AnswerCodeIdentitySurfacesEquivalent(from, edge.From) {
+						anchorFrom = from
+					}
+					if !types.AnswerCodeIdentitySurfacesEquivalent(to, edge.To) {
+						anchorTo = to
+					}
+					from, to = edge.From, edge.To
+				}
+			}
 			// A call-site may carry a reader-friendly module/type-qualified
 			// callee while the same callable's body necessarily uses its short
 			// parser owner. Reuse the shared fail-closed identity bridge before
@@ -7189,6 +7210,8 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		edges = append(edges, answerDocMechanismRelationEdge{
 			from:       from,
 			to:         to,
+			anchorFrom: anchorFrom,
+			anchorTo:   anchorTo,
 			relation:   relation,
 			loc:        item.DisplayLocation(true),
 			sourceItem: item,
@@ -7196,6 +7219,15 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 	}
 	acceptedFacts += len(stagePrecedence)
 	return evidence, edges, acceptedFacts, callsiteFacts
+}
+
+func answerDocCanonicalCallEdgeKey(evidenceID, source string, line int) string {
+	evidenceID = strings.TrimSpace(evidenceID)
+	if evidenceID == "" {
+		return ""
+	}
+	return strings.ToLower(evidenceID) + "\x00" +
+		strings.ToLower(strings.TrimSpace(source)) + "\x00" + strconv.Itoa(line)
 }
 
 // answerDocMechanismRelationProjection projects one already-typed
@@ -7313,8 +7345,8 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		typedAnchor := types.DiagramEdgeAnchor{
 			FromNode:     fromAlias,
 			ToNode:       toAlias,
-			FromIdentity: edge.from,
-			ToIdentity:   edge.to,
+			FromIdentity: firstNonEmptyAnswerDocString(edge.anchorFrom, edge.from),
+			ToIdentity:   firstNonEmptyAnswerDocString(edge.anchorTo, edge.to),
 			RelationKind: edge.relation,
 		}
 		payload, err := json.Marshal(typedAnchor)

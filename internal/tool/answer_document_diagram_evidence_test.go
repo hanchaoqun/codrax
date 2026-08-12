@@ -2773,6 +2773,24 @@ func TestDiagramCallEdgeEvidenceMismatches_AbsentEvidenceCannotAuthorizeDirectio
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_CanonicalNodeKeepsRawEvidenceAnchor(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant G as gate.Run\n  participant W as gate.RunWith\n  G->>W: calls\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "G", ToNode: "W", FromIdentity: "gate.Run", ToIdentity: "RunWith",
+			RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("gate.Run", "RunWith")}); len(got) != 0 {
+		t.Fatalf("canonical visible node with unchanged raw evidence anchor was rejected: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DoesNotGateTraceProjectionFamily(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFRootCauseTrace}
 	doc := diagramEvidenceTestDoc("B", "A")

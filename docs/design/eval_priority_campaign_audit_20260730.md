@@ -34446,3 +34446,25 @@ emit_analysis 会确定性归一为 `required=false` 并披露 warning，而不�
 状态：`B633=implemented/package-pass/pending-production-replay`；`hard-visual-authority=typed-boolean-only`；
 `free-form-directive=soft-presentation-only`；`ordinary-relation-diagram=optional`；`system-diagram/answer-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.680 B634：调用图 key、Finalizer capsule 与严格校验共享唯一 canonical endpoint
+
+B634 将既有 call-graph canonical key 的身份裁定发布为共享只读投影 `CanonicalCallChainEvidenceEdges`。当 bounded citable call-edge 集合中，
+一个短 operation tail 只对应一个 qualified endpoint 时，所有消费者使用同一 qualified display identity；若存在两个 owner 的同名 operation，短名保持独立，
+绝不合并。投影逐边复制，只改显示身份，边数、方向、EvidenceID、文件和行号字节保持。
+
+此前 graph reachability 已把 `gate.RunWith` 与 `RunWith` 作为同一 key，Typed Call-Chain Boundary 也发布共享 frontier；但通用 relation authoring capsule
+重新从原始 evidence 生成 alias，导致 `gate.RunWith` 与 `RunWith` 再次分裂成两个节点。现在 endpoint boundary、relation topology、component partition、
+node alias、copy-ready edge recipe 和 strict diagram evidence gate 全部消费同一 canonical pair。对应拓扑从错误的“两组断开边”恢复为一个共享终点的单组件图，
+仍然不把两条入边改写为 source→sink 链。
+
+canonical identity 只用于共享可见 node/alias；每条 recipe 的 `from_identity/to_identity` 仍保存该 call-site 的原始 typed endpoint。因此严格 gate
+继续按原始同向 pair、调用次数和定义/owner 歧义校验，不能把一条边的 source 和另一条边的 target 拼接。歧义 fixture 同时存在 `a.RunWith`、
+`b.RunWith` 与裸 `RunWith` 时继续拒绝合并。系统不创建 node/edge、不生成 Mermaid、不改变模型结论；它只消除自己向模型发布的身份自冲突。
+
+回归覆盖 parallel convergence 两条边共享一个 `gate.RunWith`、同名多 owner 不合并、relation recipe 不再出现裸 `RunWith` 重复节点、canonical node +
+原始 edge anchor 通过严格 evidence gate，以及原有调用次数、定义歧义、跨语言分隔符、qualified owner、反向/断开图与 Trace 家族隔离。
+
+状态：`B634=implemented/targeted-pass/pending-production-replay`；`canonical-endpoint=single-shared-projection`；
+`edge-count/direction/evidence-location=unchanged`；`ambiguous-same-tail=fail-closed`；`system-node/edge/authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
