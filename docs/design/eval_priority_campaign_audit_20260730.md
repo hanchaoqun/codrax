@@ -33990,3 +33990,48 @@ exact-two，但不再用同一 Trace D4 波动题，优先选一条图关系/读
 状态：`B620/B621=implemented/targeted-pass/pending-production-replay`；`branch-topology=finalizer-soft-authority`；
 `scheduler-absence=unavailable-not-running`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.657 r370：真实 Python 验证闭环；逻辑图的技术边与业务节点被错误拼接
+
+`main@cef1da3aa` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_graph_logic_write_r370_20260812_manual_audit.md`。
+
+Python write case 是正向控制。模型只修改 `relativedelta.py`：构造阶段用 `float.is_integer()` 判断 whole-number float，转换为 `int`；fractional float 抛
+`ValueError`；测试文件保持原样。verification report 记录真实执行 `python3 -m unittest discover -v`、四个具名测试与一个行为 probe 均通过、changed path 获得
+`target_behavior/project_runner` 覆盖。该案没有把静态源码检查冒充语言行为验证，也没有 replan 或系统代写。
+
+逻辑图机器 oracle 虽 PASS，人工必须判 fail。用户明确要求 analyzer/explorer/extractor/finalizer 与 Mutable/BusContext 之间的数据流；最终 Mermaid 却只保留四阶段
+precedence spine 和三条内部 operation call，`Mutable`、`BusContext` 成为完全断开的装饰节点。图里还直接显示
+`explorerEvaluator.BuildInitialInstruction`、`o.busCtx.Mutable.SetResult`、`precedence`、`call`，没有形成面向用户的组件/载体关系视图。
+
+四次 Finalizer 拒绝证明这不是单纯模型波动。精确根因立案为 `B622-DIAGRAMPARTICIPANTINCIDENTJOIN1/P1-high`：participant coverage 分别计算
+`visibleCovered` 与 `identityVisible`。技术边的 canonical endpoint 通过 owner/static-binding bridge 被判 incident；另一个完全断开的业务节点又独立满足 identity visible；两项
+在不同节点甚至不同图块上为真后，系统错误合成为“该业务 participant 已连接”，并进一步要求删除 `participant_boundaries`。这违反了显示语义：技术关系权威和业务显示身份必须落在
+同一个可见端点，或技术端点必须位于该业务 participant 的可见 subgraph/group 内；不能跨节点拼接两个真值。
+
+B620/B621 本轮未走对应 runtime/current-source combo，维持 targeted-positive、production-pending。read case 总时长 346s，超过旧约四分钟固定 cap 后仍由模型完成并保留
+答案，B615 再获一条 active-stream 正证：系统没有因 elapsed age 切旧稿/空答案。
+
+状态：`B622=confirmed/implemented-targeted-pass/pending-replay`；`runner=2/2`；`human=1/2`；
+`python-real-execution=positive`；`active-stream-fixed-age-degrade=absent`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.658 B622：participant 连通性按同一可见端点/分组合取
+
+B622 收紧跨语言、跨图 family 共用的 participant coverage 判定。typed edge 的 canonical endpoint 继续是关系种类、方向与证据行的唯一权威。若 canonical endpoint
+本身与 participant 是精确身份对齐，模型可继续给该同一节点使用“理解请求/收集证据”之类业务 label，不要求暴露内部符号。只有 endpoint 只是通过 receiver owner 或
+parser-stamped static binding 对齐到外层业务 participant 时，它还必须在同一条可见边上满足以下二者之一：
+
+1. 对应 Mermaid endpoint 的 node id/首要可见 label 明确展示该 participant；
+2. 对应技术 endpoint 位于以该 participant 命名的可见 subgraph（含嵌套 group）中。
+
+单独放在别处的 disconnected participant node 不再能借用技术边 incidence。此时 validator 保持 fail-closed，并给模型已有 typed candidate 与精确 endpoint identities；模型仍自主
+选择一条已证边、业务 label/group 和布局。系统不会创建、删除、重定向或补写图边。
+
+新增回归先构造 `o.busCtx.EvidenceItems` typed assignment edge + 独立 `BusContext` 节点，固定必须报
+`available_typed_incident_edge_not_rendered`；再把同一技术 edge 放入 `BusContext` 可见 subgraph，固定可通过。既有 business-label + canonical anchor、exact receiver owner、
+static binding、hidden-operation 负臂同步通过，避免为了本案破坏 Java/C++/Python/ArkTS/Cangjie 等共同使用的 endpoint authority。
+
+状态：`B622=implemented/targeted-pass/pending-production-replay`；`same-visible-endpoint-or-group=required`；
+`typed-edge-authority=unchanged`；`model-visible-edge-ownership=preserved`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

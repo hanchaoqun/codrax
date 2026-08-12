@@ -544,7 +544,21 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 				continue
 			}
 			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
-			if diagramParticipantIncidentEndpointMatches(surfaces, from, evidence) || diagramParticipantIncidentEndpointMatches(surfaces, to, evidence) {
+			// A technical endpoint owned by a requested component proves the
+			// relation, but it does not by itself prove that the visible graph
+			// connects that component. Keep technical authority and display
+			// identity on the same endpoint: the endpoint must either carry the
+			// requested participant label or sit inside its visible subgraph.
+			// Otherwise a disconnected `BusContext` node plus an unrelated
+			// `o.busCtx.Mutable.SetResult` edge would be accepted as a connected
+			// BusContext, even though the user-visible graph contains no such
+			// relation.
+			if diagramParticipantIncidentEndpointMatches(surfaces, from, evidence) &&
+				diagramParticipantVisibleEndpointCarriesIdentity(*block, surfaces, edge.From, from, labels) {
+				return true
+			}
+			if diagramParticipantIncidentEndpointMatches(surfaces, to, evidence) &&
+				diagramParticipantVisibleEndpointCarriesIdentity(*block, surfaces, edge.To, to, labels) {
 				return true
 			}
 			if relations[types.DiagramRelPrecedence] && diagramParticipantHasVerifiedStageIncident(
@@ -555,6 +569,99 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 			) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func diagramParticipantVisibleEndpointCarriesIdentity(
+	block types.AnswerBlock,
+	surfaces []string,
+	node string,
+	typedEndpoint string,
+	labels map[string]string,
+) bool {
+	// An exact structured endpoint-to-participant identity is already the
+	// model-authored mapping for this visible node. Its label may therefore be
+	// business language (for example "理解请求" for Analyzer) without exposing
+	// an internal symbol. The stricter label/group requirement below applies
+	// only to broader owner/static-binding bridges.
+	for _, surface := range surfaces {
+		if types.AnswerCodeIdentitySurfacesCompatible(surface, typedEndpoint) {
+			return true
+		}
+	}
+	if diagramParticipantSurfaceMatches(surfaces, diagramParticipantVisibleEndpoint(node, labels)) {
+		return true
+	}
+	return diagramParticipantNodeInsideVisibleSubgraph(block, surfaces, node)
+}
+
+// diagramParticipantNodeInsideVisibleSubgraph keeps the component/group
+// presentation lane precise. A model may preserve an exact technical node
+// label for evidence matching and place it inside a business-facing component
+// subgraph. That is a visible incident relation. Merely declaring the same
+// business participant as a disconnected node elsewhere is not.
+func diagramParticipantNodeInsideVisibleSubgraph(block types.AnswerBlock, surfaces []string, node string) bool {
+	if block.Kind != types.BlockDiagram || block.Diagram == nil || strings.TrimSpace(node) == "" {
+		return false
+	}
+	var matchingStack []bool
+	for _, line := range strings.Split(block.Diagram.Body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "subgraph ") {
+			parentMatches := len(matchingStack) > 0 && matchingStack[len(matchingStack)-1]
+			matchingStack = append(matchingStack, parentMatches || diagramParticipantSubgraphLineMatches(trimmed, surfaces))
+			continue
+		}
+		if lower == "end" {
+			if len(matchingStack) > 0 {
+				matchingStack = matchingStack[:len(matchingStack)-1]
+			}
+			continue
+		}
+		if len(matchingStack) == 0 || !matchingStack[len(matchingStack)-1] {
+			continue
+		}
+		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+			if strings.EqualFold(strings.TrimSpace(decl.Ident), strings.TrimSpace(node)) {
+				return true
+			}
+		}
+		for _, edge := range mermaidcompat.ParseEdges("flowchart TD\n" + line) {
+			if strings.EqualFold(strings.TrimSpace(edge.From), strings.TrimSpace(node)) ||
+				strings.EqualFold(strings.TrimSpace(edge.To), strings.TrimSpace(node)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func diagramParticipantSubgraphLineMatches(line string, surfaces []string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "subgraph ") {
+		return false
+	}
+	rest := strings.TrimSpace(trimmed[len("subgraph "):])
+	if rest == "" {
+		return false
+	}
+	candidates := []string{rest}
+	if idx := strings.IndexAny(rest, "[\""); idx > 0 {
+		candidates = append(candidates, strings.TrimSpace(rest[:idx]))
+	}
+	if open := strings.IndexAny(rest, "[\""); open >= 0 {
+		label := strings.TrimSpace(rest[open:])
+		label = strings.Trim(label, "[](){}\"' ")
+		if label != "" {
+			candidates = append(candidates, label)
+		}
+	}
+	for _, candidate := range candidates {
+		if diagramParticipantSurfaceMatches(surfaces, candidate) {
+			return true
 		}
 	}
 	return false

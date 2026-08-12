@@ -223,6 +223,38 @@ func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusiness
 	}
 }
 
+func TestDiagramParticipantCoverageDoesNotJoinDisconnectedBusinessNodeToTechnicalEdge(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n O[\"output.EvidenceItems\"] --> F[\"ActiveAgent\"]\n B[\"BusContext\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "O", ToNode: "F", FromIdentity: "output.EvidenceItems",
+		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
+	}}
+	operation := types.EvidenceItem{
+		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
+		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation})
+	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageTypedEdgeMissing {
+		t.Fatalf("a disconnected business node must not borrow incidence from a technical edge elsewhere: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n subgraph B [\"BusContext\"]\n  O[\"output.EvidenceItems\"] --> F[\"ActiveAgent\"]\n end"
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation}); len(got) != 0 {
+		t.Fatalf("an exact technical endpoint inside the visible participant group should pass: %+v", got)
+	}
+}
+
 func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticipant(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
