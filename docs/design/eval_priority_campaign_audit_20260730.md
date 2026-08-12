@@ -35551,3 +35551,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r404`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.719 r405：注册绑定生产闭环；节点完备仍不能替代关系完备（2026-08-12）
+
+1. 在 `main@cf039a2dc` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + real_trace_h7_self_seat_full_spectrum`。Runner
+   `2/2 PASS`，人工 `1 PASS / 1 partial`；完整记录在
+   `eval/parallel_selected_summary_evalcampaign_binding_trace_r405_20260812_manual_audit.md`。
+2. B669 获生产正证。本轮首批 registration 是 schema-invalid，既有 B669 教学给出
+   actual binding expression 形后，模型重提 `core-rs/src/lib.rs:47` 的
+   `m.add_function(wrap_pyfunction!(tokenize_bytes,m))`；它成为 typed
+   `registration_or_binding`，最终 sequence 图以非调用 Note 保留导出绑定，没有再伪造
+   native→wrapper 调用。B670 的 schema-valid/post-grounding 车道仍只有专项跨语言测试，
+   本轮没有直接覆盖，继续等待精确生产 witness。
+3. B671 获生产闭环。H7 一次成文通过，零 table convention 往返；canonical
+   `cells-only` 教学消除了“cells 已满还要求加 label/text”的矛盾，同时历史合法载体仍
+   兼容，系统没有重写任何单元格或答案。
+4. H7 人工通过：显式 `13762.791708..13763.024898` 窗完整保留；模型先按五态与业务
+   span 回答实际耗时，再独立排序链上 self-running/算力供给、D-state
+   `dma_fence_default_w`、优先级反转、调度供给与 IO 等可消除方向。邻近与背景行明确
+   降为额外排查，不进入主因；Trace 因果投影和系统补齐都在，零成文拒绝。
+5. 活跃流红线再次获接线证据：Analyzer 明确记录
+   `ownership=stream_first_byte_and_byte_stall_watchdogs`。字面 4ms、4s、4min 或任意
+   固定累计年龄均不能在仍有字节流时触发降级；只有 caller cancel/deadline、无首字节、
+   字节停滞、transport/decode failure 保留结束或有界恢复权限。
+6. 新确认 B672：Polyglot 的 principal member_set 列出五个所谓完整链节点并包含
+   `best_merge`，但 typed evidence 没有 `tokenize_bytes -> best_merge`；尽管已读函数体
+   line 13 有精确调用，旧 completion 仍以 `member_set` 直接跳过 principal span 关系检查。
+   终稿因此文字说“完整链”，图却在 core 前断开 helper，且把 helper definition line 20
+   当调用位置。节点集合证明“回答了谁”，不能证明“谁调用谁”。
+7. B672 最优施工形冻结：只对 typed call-chain principal members，使用 parser-owned
+   精确 source/line/caller/callee 与 read closure 找出成员间已读真边；缺失边形成
+   `emit_evidence relationship/call` 修复，而不是由系统铸边。成员数组顺序、label、
+   member_notes、raw request、thinking/final prose 都没有方向权威；同名、歧义、未读、
+   regex-only 或非 parser 关系继续 fail-closed。Trace root-cause 不进入该源码关系门。
+
+状态：
+
+`B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=production-positive`；
+`B670-POSTGROUNDREGISTRATIONBINDINGREPAIR1=implemented/targeted+internal-tool-pass/pending-direct-production-witness`；
+`B671-TABLERETRYCANONICALSHAPE1=production-closed`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=open/P1/next-batch`；
+`B664-ACTIVESTREAMUPPERBUDGET1=production-reconfirmed-r405`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r405`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
