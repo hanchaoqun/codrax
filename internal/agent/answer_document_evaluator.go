@@ -11332,6 +11332,7 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 		frameNo    int
 		tsMS       float64
 		durationMS float64
+		janky      bool
 		authority  types.PerfObservationAuthority
 	}
 	frames := make([]frameCandidate, 0)
@@ -11341,7 +11342,12 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 			continue
 		}
 		for _, frame := range perf.Frames {
-			if !frame.Janky {
+			// A false/omitted Janky bit is not a validator-owned non-jank
+			// verdict. In fact this is the normal fail-closed shape emitted by
+			// current pre-triage when the artifact has no refresh/deadline
+			// carrier. Withholding this authority note unless Janky was true
+			// made the safer producer output paradoxically less safe downstream.
+			if frame.JankAuthority == types.PerfObservationAuthorityDeterministicValidator {
 				continue
 			}
 			key := fmt.Sprintf("%s\x00%d\x00%.9f\x00%.9f",
@@ -11362,6 +11368,7 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 				frameNo:    frame.FrameNo,
 				tsMS:       frame.TsMs,
 				durationMS: frame.DurationMs,
+				janky:      frame.Janky,
 				authority:  authority,
 			})
 		}
@@ -11372,15 +11379,15 @@ func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) st
 
 	var b strings.Builder
 	b.WriteString("## Perf Frame Verdict Authority\n\n")
-	b.WriteString("- Perf pre-triage carries measured frame durations, but this bundle does not carry a validator-owned device refresh rate, frame deadline, or frame budget. `janky=true` is therefore a navigation candidate, not a deterministic jank/non-jank verdict. Use a later typed trace_query deadline/frame authority when available; otherwise report the duration and leave the verdict unproven.\n")
+	b.WriteString("- Perf pre-triage carries measured frame/span durations, but the rows below do not carry a validator-owned device refresh rate, frame deadline, or frame budget. A true, false, or omitted pre-triage `janky` bit is therefore not a deterministic jank/non-jank verdict. Use a later typed trace_query deadline/frame authority when available; otherwise report the measured duration, do not introduce a refresh-rate budget or ratio as an observed fact, and leave the verdict unproven.\n")
 	for i, frame := range frames {
 		if i >= 8 {
 			fmt.Fprintf(&b, "- (%d additional pre-triage frame candidate(s) omitted from this compact authority view)\n", len(frames)-i)
 			break
 		}
 		fmt.Fprintf(&b,
-			"- frame[%d] source=`%s`; frame_no=%d; ts_ms=%.3f; duration_ms=%.3f; jank_verdict_authority=`%s`\n",
-			i+1, frame.source, frame.frameNo, frame.tsMS, frame.durationMS, frame.authority)
+			"- frame[%d] source=`%s`; frame_no=%d; ts_ms=%.3f; duration_ms=%.3f; pretriage_janky=%t; jank_verdict_authority=`%s`\n",
+			i+1, frame.source, frame.frameNo, frame.tsMS, frame.durationMS, frame.janky, frame.authority)
 	}
 	b.WriteString("\n")
 	return b.String()

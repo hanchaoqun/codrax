@@ -33699,3 +33699,31 @@ degeneration 后发布模型已有 carrier 并披露，不能因为“链接仍�
 状态：`B608=implemented/targeted-pass/pending-production-replay`；`B609=implemented/targeted-pass/pending-production-replay`；
 `numeric-authority=typed-support-ref`；`mechanism-coverage=soft-three-layer`；`answer-prose-gate=none`；
 `system-answer-authorship=none`；Trace causal projection/system supplement=`unchanged`；`active-stream-fixed-age-degrade=forbidden`。
+
+### 123.645 r364：两项接线残差；结构 1/2、人工 0/2
+
+`main@32084e3fe` exact-two runner `1/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r364_20260812_manual_audit.md`。
+
+read-combo 证明 B608 的 aggregate-value omission 方向正确但不足以独立闭环。Analyzer 本轮无视原请求中显式的“结合当前源码”，发出
+`current_source_explanation_profile.is_current_source_explanation_requested=false`，并在 rationale 中反向声明“不需要打开当前源码 lane”。因此 Explorer 完全没有调用
+repo/source 工具，B609 三层机制教学没有进入 prompt，终稿再次把 sync span 配对写成 payload PID + 相邻 B/E，也没有任何当前源码引用。确认
+`B610-CURRENTSOURCEPROFILESOFTOMISSION1/P1`：修复只能降低 Analyzer 心智并补明确正反例，不能由确定性层扫描请求关键词强铸 profile，也不能把 soft lane 变成硬 completion gate。
+
+同一终稿仍自行引入 60/90fps、16.67/11.11ms 与 5.2x/7.8x。进一步核查发现 Finalizer 的
+`renderAnswerDocPerfThresholdProvenanceAuthority` 只枚举 `frame.Janky=true` 行；而 pre-triage 按权限红线在无 refresh/deadline 时正确发出
+`janky=false/omitted`，反而使整个“无 frame-budget 权限”段空产。也就是说，更保守的 producer 形态让 downstream 获得更少权限信息。B608 第二根修将枚举条件改为
+`JankAuthority != deterministic_validator`：true/false/omitted 的 pre-triage bit 都展示同一未证边界，并明确不得把 refresh budget/ratio 写成 observed fact；真正 validator
+authority 行不受此提示降级。
+
+Trace D4 runner 结构通过，但人工失败：模型将 CookieMonsterCl 23.994ms 与 NetworkService 19.041ms 跨席相加为 43.035ms，并把
+priority-inversion candidate 升级为“真实瓶颈/调度阻塞”。同一上下文已在数值前携带逐席比较、跨席不可加和、候选不证明 lock-holder/synchronous blocking；r363
+在同合同下通过，故当前按模型波动记录，不追加终稿原文扫描、硬拒或系统代写。显式窗、typed 唤醒链、链上/邻近/背景、10.331ms 正值供给次席、占时/可消双轴、
+VerifyClass 业务线索、因果投影和确定性补采均未丢失。
+
+两案运行 144s/174s；没有固定 elapsed 降级或答案消失。read-combo 的模型首稿已成功落地 5 个区块，后续 patch 只补 typed external selectors，并保留模型结论。
+“连接/模型流活跃超过 4 分钟不降级”不变量不因本批时长变化：真实模型进展后固定 age 仍不构成恢复权限。
+
+状态：`B608=second-root-fix/targeted-pass/pending-replay`；`B609=not-exercised`；`B610=confirmed/soft-guidance-next`；
+`runner=1/2`；`human=0/2`；`trace-model-variance=no-hardening`；`answer-prose-gate=none`；
+`system-answer-authorship=none`；Trace causal projection/system supplement=`preserved`；`active-stream-fixed-age-degrade=forbidden`。
