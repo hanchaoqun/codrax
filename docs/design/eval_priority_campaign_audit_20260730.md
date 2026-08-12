@@ -33508,3 +33508,25 @@ Trace causal projection=`present-but-model-miscompared`。
 状态：`B603=implemented/awaiting-production-replay`；`B604=P1-high/confirmed`；
 `cross-row-sum=typed-authority-only`；`lock-mechanism=separate-typed-proof`；
 `model-conclusion-ownership=preserved`；`trace-projection=unchanged`。
+
+### 123.638 B604：可见文本/字面值与可执行实现权限已按 ClaimForm 分层
+
+生产工件核验确认，r360 的 `defaults.go:1203/1204` 两条证据从未被 grounder 伪装成 definition/call；模型明确发射的是
+`anchor_kind=text_reference`，系统也投影成 `text_reference_fact`。真实 gap 是该 typed 形状在后续跨阶段显示中只剩位置和文本，没有把
+“可见文本不是可执行实现证明”的权限边界带给 Extractor/Finalizer，致使模型将正确的教学内容错误升级为 parser 的实现位置。
+
+新增路径/语言无关的单源 `EvidenceMechanismAuthorityBoundary`：
+
+- `text_reference_fact` → `source_shape_authority=visible_text_only executable_mechanism=unproven`；
+- `literal_value_fact` → `source_shape_authority=literal_value_only executable_mechanism=unproven`；
+- 其他锚点不由该 helper 正向认证或降级，继续服从 call/callback/assignment/guard/return/definition 等各自既有精确合同。
+
+同一边界现随 Explorer StageReport、Knowledge/Evidence Pool 和 Finalizer typed-enrichment role tag 三面传递。实现不识别 `internal/skill`、`docs` 等路径，
+也不扫描用户或模型原文；普通 Go prompt、任意文档、ArkTS 字面量、Cangjie 字面量得到同形处置。用户若明确询问 prompt/skill，文本仍完整可见且可作为
+“配置了什么教学/政策”的直接证据；它只不能单独冒充运行时控制流。真实 call 锚点负臂确认不携带 `executable_mechanism=unproven`。
+
+完整回归：`go test ./internal/types ./internal/context ./internal/agent -count=1` 通过（25.492s / 1.467s / 9.725s）。未增加终稿硬拒、
+未修改模型答案、未改变 Trace 显式窗/因果投影/系统补齐或读写模式路由。
+
+状态：`B604=implemented/awaiting-production-replay`；`authority-source=ClaimForm`；
+`path-or-language-heuristic=none`；`executable-source-anchor=unchanged`；`model-answer-ownership=preserved`。

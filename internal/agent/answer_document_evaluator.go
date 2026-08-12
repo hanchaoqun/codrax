@@ -9239,6 +9239,9 @@ func answerDocEvidenceRoleTag(item types.EvidenceItem) string {
 	if item.Authority != "" {
 		parts = append(parts, "authority="+string(item.Authority))
 	}
+	if boundary := types.EvidenceMechanismAuthorityBoundary(item); boundary != "" {
+		parts = append(parts, boundary)
+	}
 	return strings.Join(parts, ", ")
 }
 

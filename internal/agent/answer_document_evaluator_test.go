@@ -1667,6 +1667,24 @@ func TestRenderAnswerDocTypedExplorationEnrichment_RendersStructuredRowsAndFlow(
 	}
 }
 
+func TestRenderAnswerDocTypedExplorationEnrichmentCarriesTextAuthority(t *testing.T) {
+	got := answerDocEvidenceRoleTag(types.EvidenceItem{
+		ID: "policy-text", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Source: "internal/skill/defaults.go", LineStart: 1203,
+		AnchorKind: types.AnchorTextReference, AnchorSymbol: "B/E pairing teaching",
+		GroundingStatus: types.GroundingGrounded,
+	})
+	for _, want := range []string{
+		"claim_form=text_reference_fact",
+		"source_shape_authority=visible_text_only",
+		"executable_mechanism=unproven",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed enrichment lost %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocTypedExplorationEnrichment_TraceKeepsExpandedFlowRows(t *testing.T) {
 	flows := make([]types.FlowFindingDigest, 0, 14)
 	for i := 1; i <= 14; i++ {

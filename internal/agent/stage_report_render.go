@@ -412,6 +412,14 @@ func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.E
 			parts = append(parts, tag)
 		}
 	}
+	// B604-SOURCEIMPLEMENTATIONAUTHORITY1 (2026-08-11): a grounded
+	// text_reference/string_literal can prove the visible text or literal
+	// value, but not that production execution implements that prose. Carry
+	// the ClaimForm-derived boundary through Explorer -> Extractor/Finalizer;
+	// do not infer it from skill/doc paths or from model wording.
+	if boundary := types.EvidenceMechanismAuthorityBoundary(ev); boundary != "" {
+		parts = append(parts, "("+boundary+")")
+	}
 	// Call/callback endpoints alone omit exact arguments that can carry the
 	// decisive value (output stream, selector, flag, payload field, etc.). The
 	// grounder has already replaced Snippet with the verified source line, so a
@@ -483,6 +491,8 @@ func anchorKindDisplayTag(k types.AnchorKind) string {
 		return "(import)"
 	case types.AnchorStringLiteral:
 		return "(string literal)"
+	case types.AnchorTextReference:
+		return "(text reference)"
 	}
 	return ""
 }

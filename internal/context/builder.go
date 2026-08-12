@@ -2521,14 +2521,24 @@ func typedRelationDedupKey(subject, object string, ak types.AnchorKind) string {
 }
 
 func evidencePromptLine(item types.EvidenceItem, opts evidenceRenderOptions) string {
+	var line string
 	if opts.AuthoritativeSurface {
-		return types.EvidenceAuthoritativeSurfaceText(item, true)
+		line = types.EvidenceAuthoritativeSurfaceText(item, true)
+	} else {
+		contract := (*types.ExactResolutionContract)(nil)
+		if opts.NeutralizeExactResolution {
+			contract = opts.ExactResolutionContract
+		}
+		line = types.EvidencePreferredSurfaceText(item, contract, true)
 	}
-	contract := (*types.ExactResolutionContract)(nil)
-	if opts.NeutralizeExactResolution {
-		contract = opts.ExactResolutionContract
+	if boundary := types.EvidenceMechanismAuthorityBoundary(item); boundary != "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return boundary
+		}
+		return line + " (" + boundary + ")"
 	}
-	return types.EvidencePreferredSurfaceText(item, contract, true)
+	return line
 }
 
 func isStructuredEvidenceItem(item types.EvidenceItem) bool {

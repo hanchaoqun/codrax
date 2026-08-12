@@ -600,6 +600,41 @@ func TestRenderExplorerStageReport_AnchorKindTag(t *testing.T) {
 	}
 }
 
+func TestFormatEvidenceLineForReportCarriesNonExecutableTextAuthority(t *testing.T) {
+	tests := []struct {
+		name       string
+		anchorKind types.AnchorKind
+		wantTag    string
+		wantAuth   string
+	}{
+		{
+			name:       "visible policy or documentation text",
+			anchorKind: types.AnchorTextReference,
+			wantTag:    "(text reference)",
+			wantAuth:   "source_shape_authority=visible_text_only executable_mechanism=unproven",
+		},
+		{
+			name:       "source literal value",
+			anchorKind: types.AnchorStringLiteral,
+			wantTag:    "(string literal)",
+			wantAuth:   "source_shape_authority=literal_value_only executable_mechanism=unproven",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := types.EvidenceItem{
+				Kind: types.EvidenceDirect, AnchorKind: tc.anchorKind,
+				AnchorSymbol: "pairing rule", Source: "any/language/source.ext", LineStart: 12,
+				GroundingStatus: types.GroundingGrounded,
+			}
+			got := formatEvidenceLineForReport(ev, nil)
+			if !strings.Contains(got, tc.wantTag) || !strings.Contains(got, tc.wantAuth) {
+				t.Fatalf("cross-stage evidence line lost source-shape authority:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestRenderExplorerStageReport_KindAgnostic(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{Kind: types.EvidenceConcrete, Subject: "X", Source: "a.go", LineStart: 1},
