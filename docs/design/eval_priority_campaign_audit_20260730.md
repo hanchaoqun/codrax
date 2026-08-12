@@ -35649,6 +35649,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.724 r410：纯补证批自证污染闭环；关系 carrier 已到但模型主动撤图（2026-08-12）
+
+1. 在 `main@103704cd7` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`，人工
+   `1 partial / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_staticproof_diagram_r410_20260812_manual_audit.md`。
+2. B679 获生产正证：累计 source-static 缺口不再重复 verify-only，而是进入直接 probe
+   计划车道。Zod 原始生产修复仍正确；新失败不是代码失败，而是 proof-only 边界不完整。
+3. 新确认 B681：旧 B680 只拒 proof-only 的生产路径改动，测试/fixture/doc 等辅助路径仍
+   可写。模型因而重复追加 TypeScript tests，并新增复制 `finalizeDefault` 算法的 Python
+   脚本；脚本签绿只证明副本，不能证明 TypeScript 生产实现。这是通用“验证批创建自己的
+   oracle”自证污染，不是单 case 拟合问题。
+4. 根修在两 emitter 共用的 pre-compile seam 与 scheduler 后备门统一合同：exact
+   `verification_proof_followup` 且没有同批 typed `VerifyFailureHandoff` 时，任何
+   `changes[]` 都拒绝；生产、测试、fixture、文档和其他辅助文件没有例外。same-batch probe
+   failure 可以重新授权修复；mixed `impact_and_verification_proof_followup` 保留合法变更。
+   planner 教学同步为 `changes=[] + verification_probes[]`，明确不得用辅助文件制造证据。
+5. 该门只消费 durable batch purpose/progress、handoff batch ID 和 schema-valid changes；
+   不扫描 request、patch、probe code、thinking 或答案原文，不解释语言语义，也不降低验证
+   caliber。共同 full-content、skeleton、scheduler、same-batch handoff 和 mixed-purpose
+   正负 pin 已补齐。
+6. 新留档 B682（P1 设计项）：本轮两个 probe 均用 inline runtime 包装外部命令；schema
+   已软教学禁止，runtime-family×target-path 也只能证明语言兼容，不能证明 probe 直接
+   import/execute 目标。正确根修应增加 parser-owned typed direct-target carrier/执行证明并
+   覆盖全部 probe runtime；禁止按 `child_process`、`subprocess`、`npx` 等模型代码字符串
+   建硬门。
+7. Poly 正文完整保留跨语言调用与 fallback；其第一稿错误自绘图被正确拒绝。系统随后提供
+   五条 typed 真边的 copy-ready skeleton，模型逐条承认有证据后又自相矛盾地称前两条缺证并
+   主动删除 optional 图。关系 carrier 已抵达 finalizer，因此本轮按模型修补波动记录，不
+   新造硬门、不强制留图、不由系统代画。
+8. active-stream 4ms 红线再审：4ms 仅是非流式 terminal emit-only evaluator budget；精确
+   streaming liveness owner 在场时不安装该 deadline。SSE 任意字节刷新活跃性，所以链接活跃
+   但 4ms 内尚无完整答案绝不能降级。只有 caller cancel/deadline、无首字节、byte stall、
+   transport/decode failure 可结束或触发有界恢复；失败时可披露并保留模型草稿，不能由证据
+   合成替代答案。
+9. Read/Trace 车道零改动。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因，及
+   实际占用/业务线索与规则计价可消除量双轴保持；邻近和背景仍只能支撑额外排查方向。
+
+状态：
+
+`B679-CUMULATIVESOURCESTATICLANEDRIFT1=production-positive-r410`；
+`B680-PROOFFOLLOWUPPRECOMPILEBOUNDARY1=superseded-by-B681`；
+`B681-PROOFFOLLOWUPNOSELFORACLE1=implemented/full-content+skeleton+scheduler-pins-pass`；
+`B682-PROBEDIRECTTARGETAUTHORITY1=open/P1/design-required/no-prose-code-keyword-gate`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=typed-carrier-positive/model-patch-volatile-r410`；
+`active-stream-4ms-degrade=forbidden/40ms-behavior-pin-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.723 r409：累计补证车道漂移根修；图保留正证与活跃流 4ms 专审（2026-08-12）
 
 1. 在 `main@d015d6116` 严格并发恰好两个案例：

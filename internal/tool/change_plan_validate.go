@@ -281,8 +281,8 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej, paths := validatePassingProbeReplanAppliedPathMutation(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "replan_passing_probe_applied_path_mutation", rej, []string{"$.changes", "$.verification_probes"}, paths)
 	}
-	if rej, paths := validatePureProofFollowupProductionChanges(ctx, changes); rej != "" {
-		return rej, planRepairPackFromReason(toolName, "proof_followup_production_edit_without_failure", rej, []string{"$.changes", "$.verification_probes"}, paths)
+	if rej, paths := validatePureProofFollowupChanges(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "proof_followup_changes_without_failure", rej, []string{"$.changes", "$.verification_probes"}, paths)
 	}
 	if rej, pack := validateFullModifyCompletenessWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
@@ -361,17 +361,19 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	return "", nil
 }
 
-// validatePureProofFollowupProductionChanges keeps a controller-authorized
-// proof-only batch on its typed lane. In the absence of a failure handoff for
-// the active batch, production source bytes are already applied and the batch
-// may only add/execute bounded verification probes. This gate reads durable
-// workflow purpose, progress authorization, handoff batch ID, and typed path
-// roles; it never interprets request, plan, patch, or answer prose.
+// validatePureProofFollowupChanges keeps a controller-authorized proof-only
+// batch on its typed lane. In the absence of a failure handoff for the active
+// batch, the worktree is already applied and the batch may only add/execute
+// bounded verification probes. It may not mutate production, test, fixture,
+// documentation, or other auxiliary bytes: allowing a proof batch to create
+// its own oracle would make the evidence self-fulfilling. This gate reads only
+// durable workflow purpose, progress authorization, and handoff batch ID; it
+// never interprets request, plan, patch, probe, or answer prose.
 //
 // It intentionally runs before structured edits are compiled. Otherwise a
 // malformed source edit can consume repair rounds even though that edit was
 // never authorized in the first place.
-func validatePureProofFollowupProductionChanges(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
+func validatePureProofFollowupChanges(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
 	if ctx == nil || ctx.Mutable == nil || len(changes) == 0 {
 		return "", nil
 	}
@@ -384,21 +386,23 @@ func validatePureProofFollowupProductionChanges(ctx *types.BusContext, changes [
 		return "", nil
 	}
 	var paths []string
-	for _, change := range changes {
+	for i, change := range changes {
+		found := false
 		for _, raw := range []string{change.Path, change.NewPath} {
 			path := canonicalOptionalPlanPathIdentity(raw)
-			if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			if path == "" {
 				continue
 			}
 			paths = append(paths, path)
+			found = true
+		}
+		if !found {
+			paths = append(paths, fmt.Sprintf("changes[%d]", i))
 		}
 	}
 	paths = sortedUniqueNonEmpty(paths)
-	if len(paths) == 0 {
-		return "", nil
-	}
 	return fmt.Sprintf(
-		"typed verification proof follow-up has no active verification-failure handoff for batch %q; refusing production source changes for %s. Emit changes: [] with verification_probes[] that exercise the already-applied worktree. A later typed probe failure for this batch may authorize a separate source repair.",
+		"typed verification proof follow-up has no active verification-failure handoff for batch %q; refusing file changes for %s. Emit changes: [] with verification_probes[] that exercise the already-applied worktree. A pure proof batch cannot create or edit production, test, fixture, documentation, or other auxiliary evidence; a later typed probe failure for this batch may authorize a separate repair.",
 		strings.TrimSpace(batch.ID), strings.Join(paths, ", ")), paths
 }
 

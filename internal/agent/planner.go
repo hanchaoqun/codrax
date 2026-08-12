@@ -663,7 +663,7 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	}
 	var b strings.Builder
 	b.WriteString("## Verification proof materialization\n\n")
-	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing source repair. Materialize verification by emitting `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Source edits belong in a separate impact repair batch after a typed verification-failure handoff proves code still needs repair.\n")
+	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Materialize verification by emitting `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
 	if len(batch.ExpectedPaths) > 0 {
 		fmt.Fprintf(&b, "- expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))
 	}

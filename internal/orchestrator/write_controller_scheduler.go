@@ -1249,7 +1249,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	testContractReplanRetried := false
 	testContractSourceOnlyReplanRetried := false
 	proofProbeReplanRetried := false
-	proofSourceEditReplanRetried := false
+	proofEditReplanRetried := false
 	proofNonExecutableReplanRetried := false
 	lastStallSignature := ""
 	for {
@@ -1388,20 +1388,20 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
 				o.busCtx.Mutable.SetChangePlan(plan)
 			}
-			if !proofSourceEditReplanRetried {
-				if hint, paths := proofFollowupProductionEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
-					proofSourceEditReplanRetried = true
+			if !proofEditReplanRetried {
+				if hint, paths := proofFollowupEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
+					proofEditReplanRetried = true
 					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 					if existing != "" {
 						existing += "\n\n"
 					}
 					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
 					o.busCtx.TaskState.LastError = ""
-					logging.Warning("[orchestrator] pure proof follow-up tried to edit production source without typed failure evidence; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					logging.Warning("[orchestrator] pure proof follow-up tried to edit files without typed failure evidence; retrying bounded planning once paths=%s", strings.Join(paths, ","))
 					continue
 				}
-			} else if hint, paths := proofFollowupProductionEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
-				return fmt.Errorf("pure proof follow-up ChangePlan edited production source without typed failure evidence in %s", strings.Join(paths, ","))
+			} else if hint, paths := proofFollowupEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
+				return fmt.Errorf("pure proof follow-up ChangePlan edited files without typed failure evidence in %s", strings.Join(paths, ","))
 			}
 			if !proofNonExecutableReplanRetried {
 				if hint, paths := proofFollowupNonExecutableChangeHint(batch, plan); hint != "" {
@@ -7672,42 +7672,49 @@ func proofFollowupProbeRequiredHint(batch *writeflow.WriteBatchPlan, plan *types
 		b.WriteString(strings.Join(batch.SuccessCriteria, " | "))
 		b.WriteString(".")
 	}
-	b.WriteString(" Code changes may be included only if the probe or exact current bytes show another code repair is needed; do not emit a prose-only or code-only proof plan.")
+	b.WriteString(" Do not emit a prose-only or code-only proof plan; materialization must stay within the active batch's typed purpose and failure authority.")
 	return b.String()
 }
 
-func proofFollowupProductionEditWithoutFailureHint(mu *types.MutableState, batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) (string, []string) {
+func proofFollowupEditWithoutFailureHint(mu *types.MutableState, batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) (string, []string) {
 	if batch == nil || plan == nil || strings.TrimSpace(batch.Purpose) != "verification_proof_followup" || len(plan.Changes) == 0 {
 		return "", nil
 	}
 	if activeBatchHasVerifyFailureHandoff(mu, batch.ID) {
 		return "", nil
 	}
-	paths := proofFollowupProductionChangePaths(plan)
+	paths := proofFollowupChangePaths(plan)
 	if len(paths) == 0 {
 		return "", nil
 	}
 	var b strings.Builder
-	b.WriteString("## Typed proof-follow-up source-edit boundary\n\n")
-	b.WriteString("This batch is a pure verification proof follow-up and there is no active typed verification-failure handoff for this batch. It must not modify production source just to close proof metadata. Emit changes: [] with verification_probes[] for the already-applied worktree, or ask the controller to split a separate impact repair batch when a typed probe failure proves source behavior still needs a repair.\n\n")
-	b.WriteString("Production source paths in the rejected proof plan:\n")
+	b.WriteString("## Typed proof-follow-up no-change boundary\n\n")
+	b.WriteString("This batch is a pure verification proof follow-up and there is no active typed verification-failure handoff for this batch. It must not modify production, tests, fixtures, documentation, or other auxiliary bytes to create its own evidence. Emit changes: [] with verification_probes[] for the already-applied worktree, or wait for a typed probe failure to authorize a separate repair.\n\n")
+	b.WriteString("Paths in the rejected proof plan:\n")
 	for _, p := range paths {
 		fmt.Fprintf(&b, "- %s\n", p)
 	}
 	return strings.TrimSpace(b.String()), paths
 }
 
-func proofFollowupProductionChangePaths(plan *types.ChangePlan) []string {
+func proofFollowupChangePaths(plan *types.ChangePlan) []string {
 	if plan == nil {
 		return nil
 	}
 	var paths []string
-	for _, change := range plan.Changes {
-		path := normalizeControllerPath(change.Path)
-		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
-			continue
+	for i, change := range plan.Changes {
+		found := false
+		for _, raw := range []string{change.Path, change.NewPath} {
+			path := normalizeControllerPath(raw)
+			if path == "" {
+				continue
+			}
+			paths = append(paths, path)
+			found = true
 		}
-		paths = append(paths, path)
+		if !found {
+			paths = append(paths, fmt.Sprintf("changes[%d]", i))
+		}
 	}
 	return dedupTrimControllerStrings(paths)
 }

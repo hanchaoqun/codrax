@@ -1116,9 +1116,10 @@ scan:
 		// while holding assistant output until thinking completes.
 		// firstByte / gotAnyChunk semantics are
 		// unchanged below: only a parseable data chunk counts as
-		// CONTENT, so the empty-stream verdict stays strict and the
-		// total wall-clock watchdog still bounds a
-		// provider that heartbeats forever without ever speaking.
+		// CONTENT, so the empty-stream verdict stays strict. A caller
+		// cancellation/deadline remains the absolute bound; an active
+		// byte-producing stream is never degraded merely because a
+		// fixed amount of wall-clock time elapsed.
 		if progress != nil {
 			progress.Store(time.Now().UnixNano())
 		}

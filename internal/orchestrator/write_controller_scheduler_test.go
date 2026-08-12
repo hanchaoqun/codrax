@@ -10697,8 +10697,8 @@ func TestRunControllerPlanBatch_ProofFollowupAcceptsProbeOnlyPlan(t *testing.T) 
 	}
 }
 
-func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToProbeOnly(t *testing.T) {
-	mu := types.NewMutableState("pure proof followup rejects production source edit")
+func TestRunControllerPlanBatch_PureProofFollowupRetriesAuxiliaryPatchToProbeOnly(t *testing.T) {
+	mu := types.NewMutableState("pure proof followup rejects self-authored auxiliary evidence")
 	run := &types.WriteWorkflowRun{
 		RunID:         "wf-proof-source-edit",
 		Status:        types.WriteWorkflowRunInProgress,
@@ -10729,14 +10729,14 @@ func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToP
 		planCalls++
 		if planCalls == 1 {
 			mu.SetChangePlan(&types.ChangePlan{
-				ID:          "plan-source-edit",
+				ID:          "plan-auxiliary-edit",
 				Status:      types.PlanStatusPending,
-				Summary:     "repair source while closing proof",
-				TargetPaths: []string{"pkg/axis.py"},
+				Summary:     "add a test while closing proof",
+				TargetPaths: []string{"tests/test_axis.py"},
 				Changes: []types.FileChange{{
-					Path:  "pkg/axis.py",
+					Path:  "tests/test_axis.py",
 					Kind:  "patch",
-					Patch: "diff --git a/pkg/axis.py b/pkg/axis.py\n--- a/pkg/axis.py\n+++ b/pkg/axis.py\n@@ -10,1 +10,1 @@\n-return value\n+return converted\n",
+					Patch: "diff --git a/tests/test_axis.py b/tests/test_axis.py\n--- a/tests/test_axis.py\n+++ b/tests/test_axis.py\n@@ -10,0 +11,1 @@\n+assert Axis().convert(1) is not None\n",
 				}},
 				VerificationProbes: []types.VerificationProbe{{
 					ID:                "axis-convert-proof",
@@ -10771,7 +10771,7 @@ func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToP
 		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
 	}
 	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
-		t.Fatalf("pure proof follow-up should retry production source patch and accept probe-only plan, got %v", err)
+		t.Fatalf("pure proof follow-up should retry auxiliary patch and accept probe-only plan, got %v", err)
 	}
 	if planCalls != 2 {
 		t.Fatalf("plan calls = %d, want 2", planCalls)
@@ -10781,7 +10781,7 @@ func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToP
 	}
 	hint := mu.PlanningHint()
 	if !strings.Contains(hint, "pure verification proof follow-up") || !strings.Contains(hint, "changes: []") {
-		t.Fatalf("planning hint should preserve typed pure-proof source-edit boundary, got:\n%s", hint)
+		t.Fatalf("planning hint should preserve typed pure-proof no-change boundary, got:\n%s", hint)
 	}
 }
 

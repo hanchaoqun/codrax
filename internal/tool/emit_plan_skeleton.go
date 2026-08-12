@@ -251,9 +251,9 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	if rej, pack := validatePlanGraphIntegrityWithRepair(t.Name(), fcs); rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
 	}
-	if rej, paths := validatePureProofFollowupProductionChanges(ctx, fcs); rej != "" {
+	if rej, paths := validatePureProofFollowupChanges(ctx, fcs); rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
-			planRepairPackFromReason(t.Name(), "proof_followup_production_edit_without_failure", rej, []string{"$.changes", "$.verification_probes"}, paths)), nil
+			planRepairPackFromReason(t.Name(), "proof_followup_changes_without_failure", rej, []string{"$.changes", "$.verification_probes"}, paths)), nil
 	}
 	// Method M: typed-signal hard gate on task.scope=micro →
 	// kind=patch (see validatePlanScopeKindAlignment for full

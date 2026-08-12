@@ -349,7 +349,7 @@ func TestEmitChangePlan_PureProofFollowupRejectsProductionEditBeforeStructuredCo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "proof_followup_production_edit_without_failure") {
+	if res.Success || !strings.Contains(res.Summary, "proof_followup_changes_without_failure") {
 		t.Fatalf("pure proof production edit must fail on typed authority first: %+v", res)
 	}
 	if strings.Contains(res.Summary, "old_text mismatch") || strings.Contains(res.Summary, "structured_edit") {
@@ -357,19 +357,33 @@ func TestEmitChangePlan_PureProofFollowupRejectsProductionEditBeforeStructuredCo
 	}
 }
 
-func TestValidatePureProofFollowupProductionChangesAllowsAuxiliaryOrTypedFailureRepair(t *testing.T) {
+func TestValidatePureProofFollowupChangesRejectsAuxiliaryAndAllowsTypedFailureRepair(t *testing.T) {
 	ctx := newTestBusCtx()
 	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
 		RunID: "wf-proof-boundary", ActiveBatchID: "batch-proof",
 		Batches:        []types.WriteWorkflowBatch{{ID: "batch-proof", Purpose: "verification_proof_followup"}},
 		ProgressLedger: []types.WriteWorkflowProgress{{ReasonCode: "verification_proof_followup_requested"}},
 	})
-	if rej, _ := validatePureProofFollowupProductionChanges(ctx, []types.FileChange{{Path: "tests/widget.test.ts", Kind: "patch"}}); rej != "" {
-		t.Fatalf("auxiliary proof material must remain available: %s", rej)
+	if rej, paths := validatePureProofFollowupChanges(ctx, []types.FileChange{{Path: "tests/widget.test.ts", Kind: "patch"}}); rej == "" {
+		t.Fatal("pure proof batch must not create its own auxiliary evidence")
+	} else if len(paths) != 1 || paths[0] != "tests/widget.test.ts" {
+		t.Fatalf("rejected auxiliary paths = %+v, want tests/widget.test.ts", paths)
 	}
 	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-proof", PlanID: "probe-plan", Attempt: 1})
-	if rej, _ := validatePureProofFollowupProductionChanges(ctx, []types.FileChange{{Path: "src/widget.ts", Kind: "patch"}}); rej != "" {
-		t.Fatalf("typed same-batch failure must authorize production repair: %s", rej)
+	if rej, _ := validatePureProofFollowupChanges(ctx, []types.FileChange{{Path: "src/widget.ts", Kind: "patch"}, {Path: "tests/widget.test.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("typed same-batch failure must authorize bounded repair material: %s", rej)
+	}
+}
+
+func TestValidatePureProofFollowupChangesLeavesMixedImpactBatchUnchanged(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-mixed-boundary", ActiveBatchID: "batch-mixed",
+		Batches:        []types.WriteWorkflowBatch{{ID: "batch-mixed", Purpose: "impact_and_verification_proof_followup"}},
+		ProgressLedger: []types.WriteWorkflowProgress{{ReasonCode: "verification_proof_followup_requested"}},
+	})
+	if rej, _ := validatePureProofFollowupChanges(ctx, []types.FileChange{{Path: "tests/widget.test.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("mixed impact repair batch must retain its authorized change lane: %s", rej)
 	}
 }
 
