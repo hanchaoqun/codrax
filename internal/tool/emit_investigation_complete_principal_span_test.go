@@ -1139,6 +1139,36 @@ func TestCallChainReadParserRelationHandoffEvidence_SameNameWrapperCoreUsesExact
 		t.Fatalf("same-name wrapper/core parser edge must use exact member support locations: %+v", got)
 	}
 
+	// A structured member may carry its own exact location. That identity is
+	// stronger than an aggregate support_refs list with an accidental extra
+	// entry, so same-name roles remain resolvable without positional guessing.
+	embeddedFacts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "complete cross-language chain", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"FastTokenizer.tokenize (bindings-py/fastlex/tokenizer.py:18)",
+			"_HAVE_NATIVE guard (bindings-py/fastlex/tokenizer.py:20)",
+			"_fastlex.tokenize_bytes (bindings-py/fastlex/tokenizer.py:21)",
+			"_fastlex pymodule export (core-rs/src/lib.rs:45-49)",
+			"tokenize_bytes #[pyfunction] wrapper (core-rs/src/lib.rs:39-43)",
+			"tokenize_bytes core Rust impl (core-rs/src/lib.rs:10-17)",
+			"_tokenize_slow pure-Python fallback (bindings-py/fastlex/tokenizer.py:24-36)",
+		},
+		SupportRefs: []string{
+			"bindings-py/fastlex/tokenizer.py:18", "bindings-py/fastlex/tokenizer.py:20",
+			"bindings-py/fastlex/tokenizer.py:21", "bindings-py/fastlex/tokenizer.py:22",
+			"core-rs/src/lib.rs:47", "core-rs/src/lib.rs:40", "core-rs/src/lib.rs:10",
+			"bindings-py/fastlex/tokenizer.py:24",
+		},
+	}}
+	mutEmbedded := types.NewMutableState("opaque embedded-location cross-language call-chain request")
+	mutEmbedded.AppendEvidence(evidence)
+	mutEmbedded.SetSearchGraph(graph)
+	ctx.Mutable = mutEmbedded
+	got = callChainReadParserRelationHandoffEvidence(ctx, closure, embeddedFacts, evidence)
+	if !callChainTypedEvidenceContainsExactParserRelation(got, "src/lib.rs", 42, "py.tokenize_bytes", "tokenize_bytes") {
+		t.Fatalf("embedded exact member locations must survive extra aggregate support refs: %+v", got)
+	}
+
 	// A location collision is not uniquely resolvable and must remain closed.
 	badRefs := append([]string(nil), facts[0].SupportRefs...)
 	badRefs[4] = "core-rs/src/lib.rs:40"
@@ -1192,7 +1222,7 @@ func TestCallChainReadRequestedTargetDefinitionHandoffEvidence_IsBoundedByTypedT
 	closure.SetReadSet(map[string]bool{"fastlex/tokenizer.py": true})
 	closure.SetReadRanges(map[string][]types.LineRange{"fastlex/tokenizer.py": {{Start: 24, End: 36}}})
 	ctx := makeCtx([]string{"FastTokenizer.tokenize", "_tokenize_slow"})
-	got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call})
+	got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, nil, []types.EvidenceItem{call}, []types.EvidenceItem{call})
 	found := false
 	for _, item := range got {
 		if item.Producer == types.EvidenceProducerRepoMapRequestedTargetDefinition && item.LineStart == 24 && item.LineEnd == 36 {
@@ -1209,8 +1239,15 @@ func TestCallChainReadRequestedTargetDefinitionHandoffEvidence_IsBoundedByTypedT
 	// A parser-resolved call target not named by the typed request is context,
 	// not automatically answer-bearing.
 	ctx = makeCtx([]string{"FastTokenizer.tokenize"})
-	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
+	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, nil, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
 		t.Fatalf("unrequested target must not be auto-projected: %+v", got)
+	}
+	principalMembers := []callChainPrincipalMemberSet{{Members: []string{
+		"FastTokenizer.tokenize (bindings-py/fastlex/tokenizer.py:18-22)",
+		"_tokenize_slow pure-Python fallback (bindings-py/fastlex/tokenizer.py:24-36)",
+	}}}
+	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, principalMembers, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 2 {
+		t.Fatalf("structured principal target member must authorize only its bounded definition handoff: %+v", got)
 	}
 
 	// Seeing both boundary lines with an unread middle cannot authorize claims
@@ -1222,7 +1259,7 @@ func TestCallChainReadRequestedTargetDefinitionHandoffEvidence_IsBoundedByTypedT
 		{Start: 36, End: 36},
 	}})
 	ctx = makeCtx([]string{"FastTokenizer.tokenize", "_tokenize_slow"})
-	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, partial, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
+	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, partial, graph, nil, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
 		t.Fatalf("partial target read must remain fail-closed: %+v", got)
 	}
 }

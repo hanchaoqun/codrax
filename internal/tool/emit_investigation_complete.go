@@ -13558,7 +13558,7 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 		}
 	}
 	if len(gaps) == 0 {
-		return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, evidence, authorityEvidence)
+		return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, memberSets, evidence, authorityEvidence)
 	}
 	projected := make([]types.EvidenceItem, 0, len(gaps))
 	for _, gap := range gaps {
@@ -13587,7 +13587,7 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 	ctx.Mutable.AppendEvidence(projected)
 	out := append(append([]types.EvidenceItem(nil), evidence...), projected...)
 	authorityEvidence = append(append([]types.EvidenceItem(nil), out...), mutableEvidence...)
-	return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, out, authorityEvidence)
+	return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, memberSets, out, authorityEvidence)
 }
 
 // callChainReadRequestedTargetDefinitionHandoffEvidence carries a bounded
@@ -13597,18 +13597,25 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 // answer authority. Admission is a strict conjunction:
 //
 //   - an existing citable typed call edge selects the target;
-//   - a primary/secondary typed analyzer entity matches that target;
+//   - a typed analyzer entity or structured principal member matches it;
 //   - the repository parser resolves the target to exactly one Symbol; and
 //   - the complete parser-owned declaration span is inside the read closure.
 //
 // The emitted row is a definition fact only. It cannot create a call/path edge,
 // principal membership, execution claim, or answer text. Regex, source prose,
 // model rationale and final-answer text are never consulted.
-func callChainReadRequestedTargetDefinitionHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, graph *repotypes.Graph, evidence, authorityEvidence []types.EvidenceItem) []types.EvidenceItem {
+func callChainReadRequestedTargetDefinitionHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, graph *repotypes.Graph, memberSets []callChainPrincipalMemberSet, evidence, authorityEvidence []types.EvidenceItem) []types.EvidenceItem {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || graph == nil {
 		return evidence
 	}
 	requested := callChainTypedRequestedEntitySet(ctx.AnalysisIR.RequestModel)
+	for _, memberSet := range memberSets {
+		for _, member := range memberSet.Members {
+			identity := callChainAggregateMemberIdentity(member)
+			requested = callChainAppendRequestedEntity(requested, identity)
+			requested = callChainAppendRequestedEntity(requested, types.NormalizedSurfaceSymbolTail(identity))
+		}
+	}
 	if len(requested) == 0 {
 		return evidence
 	}
@@ -13662,26 +13669,37 @@ func callChainReadRequestedTargetDefinitionHandoffEvidence(ctx *types.BusContext
 
 func callChainTypedRequestedEntitySet(rm types.RequestModel) []string {
 	var out []string
-	add := func(raw string) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" || types.HasCodeOrConfigPathSuffix(strings.ToLower(raw)) {
-			return
-		}
-		for _, existing := range out {
-			if types.CallChainEndpointCompatible(existing, raw) && types.CallChainEndpointCompatible(raw, existing) {
-				return
-			}
-		}
-		out = append(out, raw)
-	}
 	entities := rm.AnalyzerHints.PrimaryEntities
 	if len(entities) == 0 {
 		entities = rm.AnalyzerHints.Entities
 	}
 	for _, entity := range entities {
-		add(entity)
+		out = callChainAppendRequestedEntity(out, entity)
 	}
 	return out
+}
+
+func callChainAppendRequestedEntity(out []string, raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || types.HasCodeOrConfigPathSuffix(strings.ToLower(raw)) {
+		return out
+	}
+	for _, existing := range out {
+		if types.CallChainEndpointCompatible(existing, raw) && types.CallChainEndpointCompatible(raw, existing) {
+			return out
+		}
+	}
+	return append(out, raw)
+}
+
+func callChainAggregateMemberIdentity(member string) string {
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	if label, _, ok := types.AnswerAggregateDecoratedLabelParts(member); ok && strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	return strings.TrimSpace(member)
 }
 
 func callChainMatchesAnyRequestedEntity(candidate string, requested []string) bool {
@@ -13913,13 +13931,40 @@ func callChainUniqueMemberEndpointIndexWithSymbol(members, supportRefs []string,
 	if index, ok := callChainUniqueMemberEndpointIndex(members, endpoint); ok {
 		return index, true
 	}
-	if symbol == nil || symbol.Line <= 0 || strings.TrimSpace(symbol.File) == "" || len(supportRefs) != len(members) {
+	if symbol == nil || symbol.Line <= 0 || strings.TrimSpace(symbol.File) == "" {
 		return -1, false
 	}
+	// Prefer a location embedded in each structured member. This keeps the
+	// identity and its declaration inseparable and remains valid even when a
+	// model supplied an extra aggregate-level support ref. It is still an exact
+	// typed file:line join; prose outside the member carrier is not consulted.
 	match := -1
 	for i, member := range members {
-		base := types.NormalizedSurfaceSymbolTail(member)
-		if !types.CallChainEndpointCompatible(member, endpoint) &&
+		identity := callChainAggregateMemberIdentity(member)
+		base := types.NormalizedSurfaceSymbolTail(identity)
+		if !types.CallChainEndpointCompatible(identity, endpoint) &&
+			(base == "" || !types.CallChainEndpointCompatible(base, endpoint)) {
+			continue
+		}
+		_, location, parsed := types.ParseAnswerSupportRefMemberLocation(member)
+		if !parsed || !callChainMemberLocationMatchesSymbol(location, symbol) {
+			continue
+		}
+		if match >= 0 {
+			return -1, false
+		}
+		match = i
+	}
+	if match >= 0 {
+		return match, true
+	}
+	if len(supportRefs) != len(members) {
+		return -1, false
+	}
+	for i, member := range members {
+		identity := callChainAggregateMemberIdentity(member)
+		base := types.NormalizedSurfaceSymbolTail(identity)
+		if !types.CallChainEndpointCompatible(identity, endpoint) &&
 			(base == "" || !types.CallChainEndpointCompatible(base, endpoint)) {
 			continue
 		}
@@ -13944,17 +13989,15 @@ func callChainMemberLocationMatchesSymbol(location types.AnswerSourceLocationSur
 		return true
 	}
 	// Multi-repo aggregate refs carry the workspace prefix while the active
-	// sub-repo graph stores repo-relative symbol paths. Match the same exact
-	// location in the reverse suffix direction; line identity remains exact.
-	symbolLocation := types.AnswerSourceLocationSurface{
-		File:      strings.TrimSpace(strings.ReplaceAll(symbol.File, `\`, `/`)),
-		LineStart: symbol.Line,
-		LineEnd:   symbol.Line,
+	// sub-repo graph stores repo-relative symbol paths. Match the reverse suffix
+	// direction and require the parser declaration line to lie in the member's
+	// exact structured location range (a callable member commonly cites its
+	// full declaration span rather than only the declaration line).
+	end := location.LineEnd
+	if end <= 0 {
+		end = location.LineStart
 	}
-	return types.AnswerSourceLocationSurfaceMatchesCitation(symbolLocation, types.Citation{
-		File: location.File,
-		Line: location.LineStart,
-	})
+	return callChainSourcePathEquivalent(location.File, symbol.File) && symbol.Line >= location.LineStart && symbol.Line <= end
 }
 
 func callChainTypedEvidenceContainsExactParserRelation(evidence []types.EvidenceItem, source string, line int, caller, callee string) bool {

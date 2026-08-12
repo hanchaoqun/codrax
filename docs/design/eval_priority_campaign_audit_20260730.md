@@ -35427,3 +35427,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-age-degrade=retired-at-transport+evaluator-layers`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.716 r402：Trace 红线守住；结构化成员位置与请求目标权威仍有两处缺口
+
+在 `main@cae8aa5f5` 上严格并发恰好两个案例：`mr_poly_binding_chain` 与
+`real_trace_h7_self_seat_full_spectrum`。runner 2/2 PASS，人工 1/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_target_definition_trace_guard_r402_20260812_manual_audit.md`。
+
+1. H7 人工通过。显式 233.190ms 窗不丢，模型正文先按修向总结链上
+   65.912ms 自身 running 算力供给、36.757ms D-state/dma_fence、优先级反转、
+   调度供给及微量 IO；业务 span 独立回答“实际时间花在哪里”，不自动计价。邻近
+   runnable/cpuset 与背景 IO/CPU 压力明确写成非链上支撑，未越权取代主因；Trace 因果
+   投影与系统补齐仍在，零成文拒绝、零 patch、零答案替换。
+2. Polyglot runner 虽 PASS，人工仍失败。B666 的用户可见症状部分改善：终稿引用
+   `_tokenize_slow @ :24` 并说明真实循环，不再声称“实现超出范围”。但新
+   `repomap_requested_target_definition` 没触发，因为本轮 Analyzer primary entities
+   只有四个入口/桥名，漏了 fallback；结构化 principal member_set 已明确携带 fallback，
+   旧 B666 尚未消费该 typed 目标载体。
+3. B667 确认：同一结构化 member_set 有 7 个成员、8 个 observation-shaped
+   `support_refs`。每个 member 自身已经带精确 `file:line/range`，包括同名 Rust
+   `#[pyfunction] tokenize_bytes @ :39-43` 与 core `tokenize_bytes @ :10-17`；旧 B665
+   却先要求 refs 与 members 等长，因而整组无法用自带位置消歧，漏发 line 42 的 exact
+   wrapper→core call。最优泛化形是 member 内嵌位置优先、等长 positional ref 后备；
+   两者都必须 exact file suffix + parser declaration line-in-range，碰撞继续 fail-closed。
+4. B668 根修：B666 请求目标集合扩成「Analyzer primary typed entity ∪ request-aware
+   principal member identity/tail」。它仍只允许 citable typed call edge 选目标、parser
+   唯一 ResolveCallTarget、完整声明 span 单区间已读的四项合取；principal roster 只表达
+   用户要回答哪些节点，不能自造 relation、execution、路径或结论。
+5. r402 首稿图另暴露待回放观察 B669：首稿把 PyO3 binding 当调用/回调箭头而被正确
+   拒绝，patch 后变成 Python→export 与 wrapper→core 两个不连接子图。系统已有语言中立
+   `registration_binding_fact` 和 registered-export owner/reference join，并明确要求 sequence
+   图对未证 binding 用 Note、不得伪造 call；本轮 line 42 缺失使 downstream join 无法
+   闭合。先由 B667 恢复精确 call 后回放；若 typed binding handoff 已完整而图仍断裂，再
+   将 B669 升级为骨架消费 gap，不建立 PyO3 专用关键词规则。
+6. B667/B668 已实现并通过定向正/负臂及 `internal/tool/types/agent/orchestrator` 全套：
+   extra observation ref + member 内嵌位置可恢复同名边；同位置冲突仍拒绝；principal
+   fallback member 可补 supporting definition；未请求目标、partial body 均拒绝。全过程
+   不扫描 raw request、模型推理或终稿 prose，不改变 Trace/图结论，不新增硬化答案。
+
+状态：`runner=2/2 PASS`；`human=1/2 PASS`；
+`B665-SAMENAMEWRAPPERCORELOCATION1=partial/r402-extra-ref-counterexample`；
+`B666-READDEFINITIONAUTHORITY1=partial/r402-primary-entity-omission-counterexample`；
+`B667-EMBEDDEDMEMBERLOCATIONFIRST1=implemented/targeted+core-pass/pending-production-replay`；
+`B668-PRINCIPALMEMBERTARGETDEFINITION1=implemented/targeted+core-pass/pending-production-replay`；
+`B669-REGISTEREDBRIDGEDIAGRAMCONTINUITY1=observe-after-B667-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
