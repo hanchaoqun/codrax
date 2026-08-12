@@ -399,9 +399,10 @@ func TestDoStreamRequest_StallAfterFirstByteUsesStallTimeout(t *testing.T) {
 // opposite contract. Same reversal as the first-byte twin above: a
 // mid-stream heartbeat proves the connection and the server are alive,
 // so a stream that pauses its content past stallTimeout while
-// heartbeating and then finishes must succeed. The total wall-clock cap
-// still bounds the case where heartbeats flow forever without further
-// content.
+// heartbeating and then finishes must succeed. There is deliberately no
+// total wall-clock cap for a heartbeat-active stream; the following test
+// pins that only caller cancellation/deadline may end the heartbeat-only
+// shape. This test finishes normally after the pause.
 func TestDoStreamRequest_KeepAlivesResetStallWatchdog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

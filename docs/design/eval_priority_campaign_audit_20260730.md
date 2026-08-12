@@ -34363,3 +34363,44 @@ unproven boundary，字段 ownership 仍只用无箭头 containment。回归固�
 状态：`B630c=implemented/targeted-pass/pending-production-replay`；`candidate-endpoint-side=typed`；
 `single-edge-reuse=required`；`unanchored-bridge=forbidden`；`model-candidate/layout/authorship=preserved`；
 `raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.676 r378：participant endpoint side 生效；调用链端点模式旁路了既有无路径车道
+
+`main@f939c9a6b` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_logicflow_sequence_r378_20260812_manual_audit.md`。
+
+逻辑视图案验证 B630c 已在生产 repair 面生效。首稿仍画出 Orchestrator 到四阶段、BusContext→Mutable、各阶段到 carrier 等 11 条无证箭头；严格关系门逐条拒绝。
+第二轮 repair 明确发布 `typed_candidate[BusContext]` 的 `participant_endpoint_side=to`，模型最终把该 candidate 保持为一条 data-flow 边，仅把 to 端 node id 映射到
+BusContext，并保留精确 `from_identity=output.AnalysisIR`、`to_identity=o.busCtx.AnalysisIR`，没有再造 method→component 桥。Mutable 没有有向 operation candidate，
+最终作为可见 disconnected participant 并披露 direct relation 未证。四阶段 precedence、组件责任和 carrier 写入事实保留。模型没有采用 B630 允许的无箭头 containment 分组，且经历
+4 次成文拒绝后才收敛，属于效率/表达观察；最终关系诚实，可将 B630c 转 production-positive。
+
+时序案例机器 PASS、人工 fail。源码精确事实是 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith`，即两条并行入边汇聚到 RunWith；不存在题设方向的
+`buildAnalysisIR -> ... -> gate.Run`。最终图没有虚构该边，但模型在摘要和 gate.Run 条目两次反向声称 “RunWith 是 Run 的包装入口/内部调用 Run”。深挖发现已有 exact endpoint existence、
+directed reachability、`no_directed_path` waiver、parallel-convergence capsule 和 Finalizer 边界教学全部完整；本次未进入的原因是 Analyzer 首轮同时填写
+source=buildAnalysisIR、sink=gate.Run，却误把 enum 写成 discover_path。wire validator 只提示 discover_path 必须清空端点；模型照做后，端点权威和全部无路径协议被旁路。
+立案 `B632-CALLCHAINENDPOINTMODE1/P0`。
+
+逻辑案 526s、流式链接持续活跃并越过四分钟；系统没有按 elapsed age、连接年龄或“尚无最终答案”降级。四分钟不是发布旧稿、空答案、系统代答或恢复草稿的合法信号；该案软化只在
+模型已完成四份结构稿且均被精确关系合同拒绝后发生。时序案 183s。两案都没有 raw prose hard gate 或系统结论/图关系代写。
+
+状态：`B630c=production-positive`；`B632=confirmed/implemented-targeted-pass`；`runner=2/2`；`human=1/2`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.677 B632：双有序端点统一正规化为 exact，再由 provenance 决定权限
+
+B632 扩展既有 call-chain wire enum repair：当 schema 已同时携带非空 `source` 与 `sink` 两个有序字段时，无论模型把 mode 误写为 `discover` 还是 `discover_path`，本地结构
+都先正规化为 `exact`。这不是从实体提及顺序、请求原文或模型终稿猜调用方向；方向就是 Analyzer 已填写的唯一 ordered carrier。随后继续由同一个
+`NormalizeCallChainEndpointProfile` 校验两个身份是否都来自当前请求且是代码身份：任一候选无权威时，仍自动清空并降为 discover_path，不铸造 endpoint 或 path。
+
+这样，精确双端点任务进入既有 directed reachability 合同：有路径则由 accepted call edges 支撑；无路径则必须证明两端存在，模型显式选择 `no_directed_path`，再把 reverse、parallel
+convergence 或 disjoint frontier 的真实方向作为 typed capsule 交给 Finalizer。系统只提供事实边界，不把“无路径”直接写成用户结论，也不扫描或修改模型正文。单端点
+discover_path 仍 fail-loud，概念边界的空端点 discover_path 保持原行为。
+
+定向回归覆盖当前请求双端点 + discover_path 误枚举自动转 exact、非当前请求的伪双端点经 provenance 再降回 discover_path、既有 discover 双端点修复与单端点
+discover_path 拒绝。修复位于关系请求建模接线，不触碰 Finalizer、Mermaid renderer、Trace 投影或写模式。
+
+状态：`B632=implemented/targeted+package-pass/pending-production-replay`；`ordered-pair=exact-shape`；
+`endpoint-provenance=unchanged`；`no-path-conclusion=model-owned`；`request/entity-order-inference=none`；
+`raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。

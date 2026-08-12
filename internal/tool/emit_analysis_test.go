@@ -1386,6 +1386,70 @@ func TestEmitAnalysis_SourceCallChainNormalizesDiscoverModeWithTwoNamedEndpoints
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainNormalizesDiscoverPathModeWithTwoNamedEndpoints(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["buildAnalysisIR","gate.Run","call","sequence"],
+		"entities":["buildAnalysisIR","gate.Run"],
+		"exact_targets":["buildAnalysisIR","gate.Run"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"buildAnalysisIR","sink":"gate.Run","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("two ordered endpoint fields must survive a discover_path enum mismatch: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.ExactActive() || profile.Source != "buildAnalysisIR" || profile.Sink != "gate.Run" {
+		t.Fatalf("enum repair must preserve the current-request ordered endpoint pair as exact: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "normalized call_chain_endpoints sink_mode from discover_path to exact") {
+		t.Fatalf("discover_path enum repair must remain auditable: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainDiscoverPathEnumRepairDoesNotMintUnprovenEndpointAuthority(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释命令入口到网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":["Invented.entry","Invented.exit"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"Invented.entry","sink":"Invented.exit","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("unproven endpoint candidates should normalize without becoming authority: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverPathActive() || profile.Source != "" || profile.Sink != "" {
+		t.Fatalf("provenance authority must still demote unproven endpoints after enum repair: %+v", profile)
+	}
+	for _, want := range []string{
+		"normalized call_chain_endpoints sink_mode from discover_path to exact",
+		"normalized to discover_path",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("enum repair and authority demotion must both remain auditable; missing %q in %q", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainEnumRepairDoesNotMintUnprovenEndpointAuthority(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

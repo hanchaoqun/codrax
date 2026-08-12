@@ -6,20 +6,24 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// normalizeCallChainEndpointWireShape repairs the one endpoint-mode mismatch
-// whose intended schema shape is fully determined by the structured fields:
-// discover carries exactly one named source, while two named endpoints are an
-// exact pair. It does not decide whether either identity came from the current
-// request; NormalizeCallChainEndpointProfile remains the provenance authority
-// and will demote unproven candidates after this local enum repair.
+// normalizeCallChainEndpointWireShape repairs endpoint-mode mismatches whose
+// intended schema shape is fully determined by the structured fields: both
+// discover and discover_path exclude a preselected ordered pair, while two
+// named endpoint fields are an exact pair. It does not decide whether either
+// identity came from the current request; NormalizeCallChainEndpointProfile
+// remains the provenance authority and will demote unproven candidates after
+// this local enum repair.
 func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile) (*types.CallChainEndpointProfile, string) {
-	if profile == nil || profile.SinkMode != types.CallChainSinkResolutionDiscover ||
+	if profile == nil ||
+		(profile.SinkMode != types.CallChainSinkResolutionDiscover &&
+			profile.SinkMode != types.CallChainSinkResolutionDiscoverPath) ||
 		strings.TrimSpace(profile.Source) == "" || strings.TrimSpace(profile.Sink) == "" {
 		return profile, ""
 	}
 	normalized := *profile
+	previousMode := normalized.SinkMode
 	normalized.SinkMode = types.CallChainSinkResolutionExact
-	return &normalized, "normalized call_chain_endpoints sink_mode from discover to exact because both ordered endpoint fields were present; current-request provenance checks still apply"
+	return &normalized, "normalized call_chain_endpoints sink_mode from " + string(previousMode) + " to exact because both ordered endpoint fields were present; current-request provenance checks still apply"
 }
 
 // validateCallChainEndpointWireShape rejects a schema-level contradiction
