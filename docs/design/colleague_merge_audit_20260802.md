@@ -5333,3 +5333,38 @@ source-flow participant 车道。`go test ./internal/types ./internal/skill`、`
 `ambiguous-symbol=soft-navigation-only`；`model-participant-authorship=preserved`；`raw-prose-hard-gate=none`；
 `system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`；
 `active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.195 r347：表格/端点拆权生产转正；来源排除 JSON 错路由与回复箭头语义缺口立案
+
+r347 exact-two runner 2/2、人工 0/2。Trace 案 126s：显式 5.000..5.007s 窗、目标 running/runnable/sleep/D/IO
+账户、链上 VerifyClass 4.600ms 与 runnable 0.800ms 排序、实际占时/规则可消双轴、frame absent 限定、因果投影以及 B581
+`sleep/blocking start -> sched_wakeup` 口径全部存在。模型终稿仍出现两处自由语义漂移：把结束于 5.005400 的 VerifyClass
+说成在 5.005000 wakeup 之前“完成后唤醒”，并把 idle/1 叙述为抢占 CPU 的竞争者。系统给出的 typed context 已明确 span
+晚于 wakeup 且 idle 不构成竞争，因此该项按人工失败记录；禁止通过扫描或替换终稿纠正模型结论，后续只观察跨样例复现，必要时升级模型自填
+structured claim carrier。
+
+Trace analyzer 同时暴露 `B585-SOURCEEXCLUSIONCARRIER1/P1-high`：用户明确说只分析 trace、不分析源码，模型虽然正确填写
+`external_observation_policy.current_source_mode=exclude`，又把同一句话错误复制进 `answer_exclusion_policy`，设置
+`is_exclusion_requested=true` 但 `excluded_candidate_roles=[]`，造成分析 JSON 拒绝/重试。前者约束证据来源，后者只排除 principal answer
+row 的 candidate role；源码/仓库不是 candidate role，两个合同不应重叠。最优方案是同时在 analyzer SSOT 与 JSON schema 明确互斥路由：
+禁止源码/当前 checkout 属于 external observation policy；只有变量、测试、生成文件、私有符号等答案成员类别进入 answer exclusion。
+这只是教学/结构合同修正，不从用户文本二次硬判。
+
+read combo 案 323s。B583 production positive：最终阶段表的四行统一为五列，StageFinalize 不再左移；B584 production positive：
+provenance 报告三个 `ambiguous_symbol`，Explorer 收到 `source_operation_required=[]` 与
+`request_visible_boundary_only=[analyze finalizer]`，不再为 `codrax read mode`/`stage` 搜索虚构 operation。探索由 r346 的
+47 次 iteration/34 reads/499s 降为 25 次/25 reads/323s。参与者没有被系统删改，源码端点权限拆分已进入真实链路。
+
+但该案四次成文拒绝后仍以 `runReadSchedulerLoop-->>executeStageRequest` 和
+`renderFinalAnswerWithLastMileSupplements-->>BuildAgentContext` 表达正向调用。现有结构规则只把“反向且与实线 invocation
+配对”的 `-->>` 认作免锚回复，却允许显式 `relation_kind=call` 的独立 `-->>` 通过；于是 typed 调用方向正确，读者看到的时序语义却是
+回复线。这是 `B586-SEQUENCECALLREPLYOPERATOR1/P1-high`：对 sequenceDiagram 中显式 call owner，正向调用必须使用非回复 operator；
+`-->>` 只允许作为与反向可见 invocation 配对的结构化 response，不能靠 call anchor 改写 Mermaid operator 的含义。判定只读 diagram kind、
+operator、exact endpoint 和 typed relation，不读 label/prose/request，不生成或修改图。
+
+323s 活跃模型流持续超过四分钟并由原模型正常完成，没有切旧稿、抽取半成品或系统代答。累计时长仍不是恢复信号；只有首字节超时、真实
+静默、transport 断链、调用方取消或独立安全边界可进入恢复，恢复也只能发布模型已产生载体并披露。
+
+状态：`B583=production-positive/closed`；`B584=production-positive/closed`；`B585=next`；`B586=next`；
+`runner=2/2`；`human=0/2`；`finalizer-rejects=4`；`active-stream=323s/no-elapsed-degrade`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`。
