@@ -35677,9 +35677,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 6. 不降低验证杆：`make check` 在该 fixture 中只是 source-static 证据，不能替代四条显式
    runtime contract，因此补行为探针本身是正确方向；修复的是语言权威接线，不是把静态绿
    冒充行为绿。专项 target-path、emit integration、持久化正负形测试均已通过。
-7. 下一施工项 B677：verify-failure replan 把已经在工作树里的三个测试再追加一遍。
-   最优通用判据冻结为 typed verify-failure handoff + insertion-only hunk + 整段 exact bytes
-   已存在；不得按测试名、语言、任务文字或答案内容硬拟合。
+7. B677 已施工：verify-failure replan 把已经在工作树里的三个测试再追加一遍。
+   通用判据严格限定为 typed verify-failure handoff + insertion-only hunk + 非平凡整段 exact
+   bytes 已存在。任一 hunk 含删除即整体退出该门；首轮计划、短片段、非精确内容、文档与
+   非源码路径均 fail-open，不按测试名、语言语义、任务文字或答案内容硬拟合。15 种读语言
+   （含 ArkTS/Cangjie）共享同一结构实现与矩阵 pin。
 8. Read/Trace 路径零改动。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际
    占用/业务语义与规则可消除量双轴均保持；邻近与背景不能晋升主因。活跃字节流也不因
    4ms、4s 或固定累计年龄降级，结束/恢复权仍仅属于 caller cancel/deadline、无首字节、
@@ -35691,7 +35693,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B674-DRAFTMARKERLEAK1=soft-teaching-positive-r407/no-prose-hard-gate`；
 `B675-PROBEONLYTARGETLANGUAGE1=implemented/targeted-pins-pass`；
 `B676-PROBEONLYDURABILITY1=implemented/strict-shape-pins-pass`；
-`B677-REPLANALREADYINSERTEDBLOCK1=confirmed/next-batch`；
+`B677-REPLANALREADYINSERTEDBLOCK1=implemented/language-matrix+carveout+full-seam-pins-pass`；
 `B672-PRINCIPALMEMBERSETEDGECOVERAGE1=pending-production-closure`；
 `active-stream-4ms-degrade=forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

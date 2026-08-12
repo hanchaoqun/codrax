@@ -38,11 +38,14 @@ This scaffold is for human review. The runner records typed metrics and declared
 5. `B676-PROBEONLYDURABILITY1` is confirmed. A controller-owned no-change plan with
    non-empty typed probes and target paths is a valid verification artifact, not an
    ordinary empty source plan. Persistence must admit only that strict shape.
-6. `B677-REPLANALREADYINSERTEDBLOCK1` is confirmed. A verify-failure replan can
+6. `B677-REPLANALREADYINSERTEDBLOCK1` is implemented. A verify-failure replan can
    append an insertion-only block that is already present in the current worktree;
-   the existing duplicate gate only compares added runs inside the new patch. The
-   next batch will use typed verify-failure state plus exact current bytes and an
-   insertion-only hunk shape, without semantic/prose heuristics.
+   the existing duplicate gate only compared added runs inside the new patch. The
+   repair uses typed verify-failure state plus exact current bytes and a whole-hunk
+   insertion-only shape. Any removal in the hunk, ordinary first-pass plans, short
+   fragments, non-exact blocks and non-source files fail open. The same structural
+   implementation is pinned across all 15 read languages, including ArkTS and
+   Cangjie; it has no semantic or prose heuristic.
 
 ## Red-line audit
 

@@ -296,6 +296,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "patch_duplicate_insertions", rej, []string{"$.changes[].patch", "$.changes[].edits"}, nil)
 	}
+	if rej, paths := validateVerifyFailureReplanAlreadyPresentInsertions(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "replan_insertion_already_present", rej, []string{"$.changes[].patch", "$.changes[].edits"}, paths)
+	}
 	if rej, paths := validateNewSourceDelimiterImbalance(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "planned_source_delimiter_imbalance", rej, []string{"$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, paths)
 	}
@@ -3000,13 +3003,150 @@ func validatePlanPatchDuplicateInsertions(changes []types.FileChange) string {
 	return ""
 }
 
+// validateVerifyFailureReplanAlreadyPresentInsertions rejects a precise
+// planner-stutter shape: during a typed post-apply verify-failure replan, an
+// insertion-only patch hunk proposes a non-trivial exact source block that is
+// already present in the current worktree. It does not compare prose or use
+// similarity. Hunks containing any removal, ordinary first-pass plans, short
+// fragments, non-source files, and non-exact blocks all fail open.
+func validateVerifyFailureReplanAlreadyPresentInsertions(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
+	if ctx == nil || ctx.Mutable == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return "", nil
+	}
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	if handoff == nil || handoff.Attempt <= 0 ||
+		(strings.TrimSpace(handoff.PlanID) == "" && strings.TrimSpace(handoff.BatchID) == "") {
+		return "", nil
+	}
+	for _, change := range changes {
+		path := canonicalPlanPathIdentity(change.Path)
+		if strings.TrimSpace(change.Kind) != "patch" || strings.TrimSpace(change.Patch) == "" ||
+			!duplicateInsertionPathEligible(path) {
+			continue
+		}
+		current, ok := readCurrentRepoSourceForExactBlock(ctx.RepoRoot, path)
+		if !ok {
+			continue
+		}
+		for _, block := range insertionOnlyAddedBlocks(change.Patch) {
+			if !duplicateAddedBlockIsSourceLike(block) || !sourceContainsExactLineBlock(current, block) {
+				continue
+			}
+			return fmt.Sprintf(
+				"typed verify-failure replan change %q proposes an insertion-only block that already exists exactly in the current applied worktree (%d lines, first line %q). Remove that already-present insertion from the replan and retain only source changes or proof steps that address the remaining typed verification failure.",
+				path, len(block), strings.TrimSpace(block[0])), []string{path}
+		}
+	}
+	return "", nil
+}
+
+func readCurrentRepoSourceForExactBlock(repoRoot, repoPath string) ([]string, bool) {
+	rootAbs, err := filepath.Abs(strings.TrimSpace(repoRoot))
+	if err != nil || strings.TrimSpace(repoPath) == "" {
+		return nil, false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return nil, false
+	}
+	target := filepath.Join(resolvedRoot, filepath.FromSlash(repoPath))
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return nil, false
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return nil, false
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return nil, false
+	}
+	return strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), true
+}
+
+func insertionOnlyAddedBlocks(patch string) [][]string {
+	var blocks [][]string
+	var run []string
+	var hunkRuns [][]string
+	inHunk := false
+	hasRemoval := false
+	flushRun := func() {
+		if !inHunk {
+			run = nil
+			return
+		}
+		start, end := 0, len(run)
+		for start < end && strings.TrimSpace(run[start]) == "" {
+			start++
+		}
+		for end > start && strings.TrimSpace(run[end-1]) == "" {
+			end--
+		}
+		if start < end {
+			hunkRuns = append(hunkRuns, append([]string(nil), run[start:end]...))
+		}
+		run = nil
+	}
+	flushHunk := func() {
+		flushRun()
+		if inHunk && !hasRemoval {
+			blocks = append(blocks, hunkRuns...)
+		}
+		hunkRuns = nil
+		inHunk = false
+		hasRemoval = false
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(patch, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, "@@") {
+			flushHunk()
+			inHunk = true
+			continue
+		}
+		if !inHunk {
+			continue
+		}
+		if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			hasRemoval = true
+			flushRun()
+			continue
+		}
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			run = append(run, line[1:])
+			continue
+		}
+		flushRun()
+	}
+	flushHunk()
+	return blocks
+}
+
+func sourceContainsExactLineBlock(source, block []string) bool {
+	if len(block) == 0 || len(source) < len(block) {
+		return false
+	}
+	for start := 0; start+len(block) <= len(source); start++ {
+		match := true
+		for i := range block {
+			if source[start+i] != block[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 func duplicateInsertionPathEligible(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".kts",
 		".rs", ".rb", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp",
 		".cs", ".swift", ".php", ".scala", ".m", ".mm", ".sh", ".bash",
-		".zsh", ".fish":
+		".zsh", ".fish", ".ets", ".cj", ".lua", ".proto", ".cu", ".cuh":
 		return true
 	default:
 		return false

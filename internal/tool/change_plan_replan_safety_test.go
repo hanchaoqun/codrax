@@ -180,6 +180,160 @@ func TestPassingProbeReplanRequiresTypedAppliedWork(t *testing.T) {
 	}
 }
 
+func TestVerifyFailureReplanRejectsInsertionBlockAlreadyPresentInWorktree(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "tests", "widget.test.ts")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	current := `describe("prefault", () => {
+  expect(run(false)).toBe(false);
+  expect(run(0)).toBe(0);
+  expect(run("")).toBe("");
+});
+`
+	if err := os.WriteFile(path, []byte(current), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = root
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "prior", BatchID: "batch-1", Attempt: 2})
+	patch := `--- a/tests/widget.test.ts
++++ b/tests/widget.test.ts
+@@ -5,0 +6,5 @@
++describe("prefault", () => {
++  expect(run(false)).toBe(false);
++  expect(run(0)).toBe(0);
++  expect(run("")).toBe("");
++});
+`
+	rej, paths := validateVerifyFailureReplanAlreadyPresentInsertions(ctx, []types.FileChange{{
+		Path: "tests/widget.test.ts", Kind: "patch", Patch: patch,
+	}})
+	if rej == "" {
+		t.Fatal("typed verify-failure replan must reject an exact already-present insertion block")
+	}
+	for _, want := range []string{"insertion-only block", "already exists exactly", "tests/widget.test.ts"} {
+		if !strings.Contains(rej, want) {
+			t.Fatalf("rejection missing %q: %s", want, rej)
+		}
+	}
+	if len(paths) != 1 || paths[0] != "tests/widget.test.ts" {
+		t.Fatalf("repair paths = %#v", paths)
+	}
+}
+
+func TestVerifyFailureReplanAlreadyPresentInsertionGateCarveouts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "src", "widget.ts")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	current := "const one = 1;\nconst two = 2;\nconst three = 3;\n"
+	if err := os.WriteFile(path, []byte(current), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	base := newTestBusCtx()
+	base.RepoRoot = root
+	base.Mode = types.ModeApply
+	base.PipelineStage = types.StagePlan
+	insertOnly := `--- a/src/widget.ts
++++ b/src/widget.ts
+@@ -3,0 +4,3 @@
++const one = 1;
++const two = 2;
++const three = 3;
+`
+	change := []types.FileChange{{Path: "src/widget.ts", Kind: "patch", Patch: insertOnly}}
+	if rej, _ := validateVerifyFailureReplanAlreadyPresentInsertions(base, change); rej != "" {
+		t.Fatalf("ordinary first-pass plan must fail open: %s", rej)
+	}
+	base.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "prior", Attempt: 1})
+	replacement := `--- a/src/widget.ts
++++ b/src/widget.ts
+@@ -1,3 +1,3 @@
+-const old = 0;
++const one = 1;
++const two = 2;
++const three = 3;
+`
+	if rej, _ := validateVerifyFailureReplanAlreadyPresentInsertions(base, []types.FileChange{{Path: "src/widget.ts", Kind: "patch", Patch: replacement}}); rej != "" {
+		t.Fatalf("hunk with an explicit removal is a replacement and must fail open: %s", rej)
+	}
+	different := strings.Replace(insertOnly, "const three = 3;", "const four = 4;", 1)
+	if rej, _ := validateVerifyFailureReplanAlreadyPresentInsertions(base, []types.FileChange{{Path: "src/widget.ts", Kind: "patch", Patch: different}}); rej != "" {
+		t.Fatalf("non-exact insertion must fail open: %s", rej)
+	}
+}
+
+func TestVerifyFailureReplanAlreadyPresentInsertionCoversReadLanguageMatrix(t *testing.T) {
+	for _, ext := range []string{
+		".go", ".py", ".js", ".ts", ".ets", ".cj", ".kt", ".rb", ".swift",
+		".lua", ".proto", ".java", ".rs", ".c", ".cpp",
+	} {
+		t.Run(ext, func(t *testing.T) {
+			root := t.TempDir()
+			name := "fixture" + ext
+			current := "first_call();\nsecond_call();\nthird_call();\n"
+			if err := os.WriteFile(filepath.Join(root, name), []byte(current), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			ctx := newTestBusCtx()
+			ctx.RepoRoot = root
+			ctx.Mode = types.ModeApply
+			ctx.PipelineStage = types.StagePlan
+			ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "prior", Attempt: 1})
+			patch := "--- a/" + name + "\n+++ b/" + name + "\n@@ -3,0 +4,3 @@\n+first_call();\n+second_call();\n+third_call();\n"
+			if rej, _ := validateVerifyFailureReplanAlreadyPresentInsertions(ctx, []types.FileChange{{Path: name, Kind: "patch", Patch: patch}}); rej == "" {
+				t.Fatalf("supported read language %s must share exact replan-stutter protection", ext)
+			}
+		})
+	}
+}
+
+func TestInsertionOnlyAddedBlocksRejectsWholeHunkWhenRemovalAppearsAfterAddition(t *testing.T) {
+	patch := `--- a/widget.ts
++++ b/widget.ts
+@@ -1,4 +1,6 @@
++first_call();
++second_call();
++third_call();
+ context();
+-old_call();
++new_call();
+`
+	if blocks := insertionOnlyAddedBlocks(patch); len(blocks) != 0 {
+		t.Fatalf("any removal in a hunk must make all of its added runs ineligible, got %#v", blocks)
+	}
+}
+
+func TestPlanFullContentWiresAlreadyPresentReplanInsertionGate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.ts"), []byte("call(false);\ncall(0);\ncall(\"\");\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = root
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-1", Attempt: 1})
+	patch := `--- a/widget.ts
++++ b/widget.ts
+@@ -3,0 +4,3 @@
++call(false);
++call(0);
++call("");
+`
+	rej, pack := validatePlanFullContentWithRepair(ctx, "emit_change_plan", "repair after verify", []types.FileChange{{
+		Path: "widget.ts", Kind: "patch", Patch: patch, Rationale: "repair",
+	}}, nil)
+	if rej == "" || pack == nil || pack.ReasonCode != "replan_insertion_already_present" {
+		t.Fatalf("full-content seam must return typed repair pack: rej=%q pack=%+v", rej, pack)
+	}
+}
+
 func TestNewSourceDelimiterImbalanceRejectsCorruptedTypeScriptReplanShape(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "src", "client.ts")
