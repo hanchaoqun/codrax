@@ -7549,6 +7549,7 @@ type impactRepairQueueItem struct {
 	CoverageStatus string
 	EvidenceRef    string
 	Source         string
+	ProbeLanguage  string
 	Priority       int
 }
 
@@ -7899,7 +7900,27 @@ func impactObligationRepairFollowupDecision(run *types.WriteWorkflowRun, activeB
 		ExpectedPaths:        expectedPaths,
 		SuccessCriteria:      criteria,
 	}
+	if sourceStaticInlineProofItemsOnly(items) {
+		// Static-only capability is already the completed observation. Repeating
+		// the same project check in a verify-only batch cannot strengthen it;
+		// route directly to one bounded probe-authoring plan instead.
+		batch.ExecutionMode = ""
+		batch.Goal = "Author bounded direct-runtime verification probes for changed production paths that currently have source-static coverage only; execute the already-applied behavior without modifying source unless the typed probe itself proves a remaining defect."
+	}
 	return &batch, false
+}
+
+func sourceStaticInlineProofItemsOnly(items []impactRepairQueueItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.Code) != "production_path_source_static_only" ||
+			strings.TrimSpace(item.ProbeLanguage) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // proofFollowupWouldRepeatStableUnavailableProbe identifies the narrow case
@@ -8098,6 +8119,9 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 	for _, item := range verificationProofLedgerRepairQueueItems(plan, report) {
 		add(item)
 	}
+	for _, item := range sourceStaticInlineProofRepairQueueItems(plan, report) {
+		add(item)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
@@ -8108,6 +8132,80 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 		items = items[:limit]
 	}
 	return items
+}
+
+// sourceStaticInlineProofRepairQueueItems turns a precise report capability
+// gap into one bounded proof obligation only when Codrax has a direct inline
+// runtime for that changed source family. It never scans commands, source,
+// task prose, or model output. Native-only families remain honestly unverified
+// and must close through their project runner rather than a cross-language
+// command wrapper.
+func sourceStaticInlineProofRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
+	if plan == nil || report == nil || !report.Passed ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		return nil
+	}
+	type pathAuthority struct {
+		seenStatic bool
+		strong     bool
+	}
+	byPath := map[string]pathAuthority{}
+	for _, row := range report.ChangedPathCoverage {
+		path := normalizeControllerPath(row.Path)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		authority := byPath[path]
+		if row.Status == types.ChangedPathVerificationCovered {
+			switch row.Capability {
+			case types.VerificationCapabilityTargetExecution, types.VerificationCapabilityTargetBehavior:
+				authority.strong = true
+			case types.VerificationCapabilitySourceStatic, types.VerificationCapabilitySyntaxOnly, types.VerificationCapabilityUnknown:
+				authority.seenStatic = true
+			}
+		}
+		byPath[path] = authority
+	}
+	paths := make([]string, 0, len(byPath))
+	for path, authority := range byPath {
+		if authority.seenStatic && !authority.strong && controllerDirectInlineProbeLanguage(path) != "" {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	out := make([]impactRepairQueueItem, 0, len(paths))
+	for _, path := range paths {
+		out = append(out, impactRepairQueueItem{
+			ID:             "source-static-inline-proof:" + path,
+			Code:           "production_path_source_static_only",
+			Kind:           "changed_symbol",
+			Path:           path,
+			CoverageStatus: impactCoverageUnverified,
+			EvidenceRef:    "changed_path_coverage:" + path,
+			Source:         "changed_path_coverage",
+			ProbeLanguage:  controllerDirectInlineProbeLanguage(path),
+			Priority:       impactRepairPriority("changed_symbol"),
+		})
+	}
+	return out
+}
+
+func controllerDirectInlineProbeLanguage(path string) string {
+	for _, family := range types.VerificationLanguageFamiliesFromPath(path) {
+		switch family {
+		case types.VerificationLanguageGo:
+			return "go"
+		case types.VerificationLanguagePython:
+			return "python"
+		case types.VerificationLanguageJavaScript, types.VerificationLanguageTypeScript:
+			return "javascript"
+		case types.VerificationLanguageRuby:
+			return "ruby"
+		case types.VerificationLanguageJava:
+			return "java"
+		}
+	}
+	return ""
 }
 
 func filterPassedVerifyGraphTelemetryItems(run *types.WriteWorkflowRun, activeBatchID string, items []impactRepairQueueItem) []impactRepairQueueItem {
@@ -8583,6 +8681,7 @@ func normalizeImpactRepairQueueItem(item impactRepairQueueItem) impactRepairQueu
 	item.CoverageStatus = strings.TrimSpace(item.CoverageStatus)
 	item.EvidenceRef = strings.TrimSpace(item.EvidenceRef)
 	item.Source = strings.TrimSpace(item.Source)
+	item.ProbeLanguage = strings.TrimSpace(item.ProbeLanguage)
 	if item.Kind == "" {
 		item.Kind = "semantic_coverage"
 	}
@@ -8605,6 +8704,7 @@ func impactRepairQueueItemDedupeKey(item impactRepairQueueItem) string {
 		item.Symbol,
 		item.ContractRef,
 		item.EvidenceRef,
+		item.ProbeLanguage,
 	}, "|")
 	key = strings.Trim(key, "|")
 	if key == "" {
@@ -8660,7 +8760,7 @@ func impactRepairQueueItemFromVerificationProof(item impactRepairQueueItem) bool
 		return true
 	}
 	switch item.Code {
-	case "changed_symbol_without_probe_coverage", "behavior_contract_without_verify_coverage":
+	case "changed_symbol_without_probe_coverage", "behavior_contract_without_verify_coverage", "production_path_source_static_only":
 		return true
 	default:
 		return false
@@ -8751,6 +8851,9 @@ func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
 		}
 		if impactRepairQueueItemFromVerificationProof(item) {
 			parts = append(parts, "verification_probe_required=true")
+		}
+		if item.ProbeLanguage != "" {
+			parts = append(parts, "probe_language="+item.ProbeLanguage)
 		}
 		if item.EvidenceRef != "" {
 			parts = append(parts, "evidence_ref="+item.EvidenceRef)

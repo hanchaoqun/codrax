@@ -249,6 +249,30 @@ func TestWriteControllerPromptPreservesPartialVerificationEvidence(t *testing.T)
 	}
 }
 
+func TestWriteControllerPromptDisclosesChangedPathCapabilityBoundary(t *testing.T) {
+	mut := types.NewMutableState("static path verification")
+	mut.SetChangePlan(&types.ChangePlan{ID: "plan-static", Status: types.PlanStatusApplied})
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID: "plan-static", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	})
+	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	for _, want := range []string{
+		"changed_path_verification: path=src/widget.ts status=covered caliber=declared_project_check capability=source_static",
+		"source_static/syntax_only coverage proves source shape only",
+		"do not select all_verified from report passed status alone",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("controller prompt lost typed path capability %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderWriteControllerRunSection_CanonicalAttemptState(t *testing.T) {
 	mu := types.NewMutableState("canonical state")
 	run := types.WriteWorkflowRun{

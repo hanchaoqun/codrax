@@ -271,6 +271,13 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		passedResults, failedResults := writeControllerVerificationResultCounts(report)
 		fmt.Fprintf(&b, "- verification_evidence: status=%s passed_results=%d failed_results=%d total_results=%d\n",
 			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
+		for _, row := range writeControllerChangedPathCoverageRows(report.ChangedPathCoverage, 8) {
+			fmt.Fprintf(&b, "- changed_path_verification: path=%s status=%s caliber=%s capability=%s\n",
+				row.Path, row.Status, row.Caliber, row.Capability)
+		}
+		if writeControllerHasProductionSourceStaticOnlyCoverage(report.ChangedPathCoverage) {
+			b.WriteString("- changed_path_verification_boundary: source_static/syntax_only coverage proves source shape only; it is not target execution or target behavior, so do not select all_verified from report passed status alone\n")
+		}
 		if passedResults > 0 && report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 			b.WriteString("- verification_evidence_boundary: passed_results are retained partial evidence; the non-passed verification status means required verification remains incomplete and must not be described as zero checks or as fully verified\n")
 		}
@@ -282,6 +289,43 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func writeControllerChangedPathCoverageRows(rows []types.ChangedPathVerificationCoverage, limit int) []types.ChangedPathVerificationCoverage {
+	out := make([]types.ChangedPathVerificationCoverage, 0, len(rows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		path := strings.TrimSpace(row.Path)
+		if path == "" {
+			continue
+		}
+		key := strings.Join([]string{path, string(row.Status), string(row.Caliber), string(row.Capability)}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		row.Path = path
+		out = append(out, row)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func writeControllerHasProductionSourceStaticOnlyCoverage(rows []types.ChangedPathVerificationCoverage) bool {
+	for _, row := range rows {
+		path := strings.TrimSpace(row.Path)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) ||
+			row.Status != types.ChangedPathVerificationCovered {
+			continue
+		}
+		switch row.Capability {
+		case types.VerificationCapabilitySourceStatic, types.VerificationCapabilitySyntaxOnly, types.VerificationCapabilityUnknown:
+			return true
+		}
+	}
+	return false
 }
 
 func writeControllerVerificationResultCounts(report *types.ChangeReport) (passed, failed int) {

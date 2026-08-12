@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.722 r408：写补证链正向一半；静态能力未进入 controller 决策（2026-08-12）
+
+1. 在 `main@8d0d244de` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；完整日志见
+   `eval/parallel_selected_summary_evalcampaign_write_relation_r408_20260812_manual_audit.md`。
+2. W1/W2 获生产正证。Zod 第二轮没有重复插入三组 falsy tests，也没有让 Go probe
+   面向 TypeScript 进入执行；源码和测试均正确，`make check` 通过。终态仍 unverified
+   的原因是两条 changed path 只有 `capability=source_static`，不是代码失败，也不能为了
+   eval 变绿而降低行为证明杆。
+3. 新确认 B678：Controller 初始上下文仅显示
+   `verification_evidence: status=passed passed_results=1`，遗漏 report 内 exact
+   `changed_path_coverage[].capability=source_static`。模型据现有上下文选择 `all_verified`
+   是可解释的；系统只在后置 normalize 将它降为 unverified，此时已经错过生成 proof
+   follow-up。最优根修有两层：在 controller artifact section 有界渲染 path/status/caliber/
+   capability，并明确 source_static/syntax_only 不是 target execution/behavior；确定性调度器
+   对仅静态且存在直接 inline runtime 的生产路径，直接追加一次 ReadyForChangePlan 的
+   verification_proof_followup，不先无效重跑同一 verify-only 静态命令。
+4. 该补证路由只消费 typed path/capability/status/runtime-family：Go→Go、Python→Python、
+   JS/TS→JavaScript、Ruby→Ruby、Java→Java。C/C++/Rust/ArkTS/Cangjie/Kotlin/Swift/Lua/
+   Proto 等没有 inline executor 时继续诚实 unverified，等待 project-native runner，禁止用
+   另一语言脚本包装编译/测试命令。15 语言矩阵与 TypeScript controller 集成 pin 已通过。
+5. B672 在 r408 获 typed handoff 生产正证：Finalizer 收到四条真边组成的 copy-ready
+   skeleton，包括 `tokenize_bytes -> best_merge` 与 wrapper→core。模型第一稿没有使用其 node
+   topology，而自行画出五条未证边，validator 正确拒绝；第二稿理解 skeleton 后仍主动删掉
+   optional diagram。最终文字/列表保留了完整 hop 与 fallback，因此这是图保留 authoring partial，
+   不再是系统缺边；不得通过强制留图、系统代画或答案重写硬闭环。
+6. Poly 最终仍有“系统补充：输出维度核对”块，内容虽不改结论但偏内部术语，继续作为既有
+   低优先展示债观察；本批不为该 case 增加答案关键词删除门。
+7. Read/Trace 零改动。显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务语义
+   与规则可消除量双轴保持；邻近/背景仅作支持。活跃流没有 4ms 固定年龄降级，结束/恢复权
+   仍只属于 cancel/deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B675-PROBEONLYTARGETLANGUAGE1=production-positive-r408`；
+`B677-REPLANALREADYINSERTEDBLOCK1=production-positive-r408`；
+`B678-STATICCAPABILITYPROOFFOLLOWUP1=implemented/controller-context+direct-runtime-matrix-pins-pass`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=typed-handoff-production-positive/diagram-authoring-partial`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.721 r407：guard 引用生产闭环；补证批语言权威与持久化断层（2026-08-12）
 
 1. 在 `main@774de7a38` 严格并发恰好两个案例：

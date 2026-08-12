@@ -5319,6 +5319,86 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithoutProbeFinish
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSourceStaticInlineLanguageAppendsProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("source-static TypeScript needs bounded behavior proof")
+	plan := &types.ChangePlan{
+		ID: "plan-static-ts", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.ts", "tests/widget.test.ts"},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults:      []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "source-check", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "make", Source: "test_surface_default", Outcome: "executed"}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}, {
+			Path: "tests/widget.test.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-static-ts", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", PlanID: plan.ID, Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, ReasonCode: "done",
+		FinishDisposition: writeflow.FinishDispositionAllVerified,
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil ||
+		got.Batch.Purpose != "verification_proof_followup" || got.Batch.ExecutionMode != "" ||
+		got.Batch.Status != writeflow.BatchReadyForChangePlan {
+		t.Fatalf("inline-capable static-only production path should append bounded proof follow-up: %+v", got)
+	}
+	if len(got.Batch.ExpectedPaths) != 1 || got.Batch.ExpectedPaths[0] != "src/widget.ts" {
+		t.Fatalf("auxiliary test path must not become a production proof target: %+v", got.Batch.ExpectedPaths)
+	}
+	criteria := strings.Join(got.Batch.SuccessCriteria, "\n")
+	if !strings.Contains(criteria, "verification_probe_required=true") || !strings.Contains(criteria, "probe_language=javascript") {
+		t.Fatalf("follow-up must carry typed probe requirement: %+v", got.Batch.SuccessCriteria)
+	}
+}
+
+func TestSourceStaticInlineProofRepairQueueLanguageMatrix(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"src/a.go", true}, {"src/a.py", true}, {"src/a.js", true}, {"src/a.ts", true},
+		{"src/a.rb", true}, {"src/A.java", true},
+		{"src/a.c", false}, {"src/a.cpp", false}, {"src/a.rs", false},
+		{"src/a.ets", false}, {"src/a.cj", false}, {"src/a.kt", false},
+		{"src/a.swift", false}, {"src/a.lua", false}, {"src/a.proto", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			plan := &types.ChangePlan{ID: "p", TargetPaths: []string{tc.path}}
+			report := &types.ChangeReport{
+				PlanID: "p", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+				ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+					Path: tc.path, Status: types.ChangedPathVerificationCovered,
+					Capability: types.VerificationCapabilitySourceStatic,
+				}},
+			}
+			got := sourceStaticInlineProofRepairQueueItems(plan, report)
+			if (len(got) > 0) != tc.want {
+				t.Fatalf("path=%s inline proof queue=%+v want=%t", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReportHasProductionPathWithoutTargetExecutionCoverageAcceptsPathBoundBehaviorProof(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:             true,
