@@ -33944,3 +33944,49 @@ excess-over-budget amount。系统仍不替模型作“严重/不严重”结论
 状态：`B612b/B619=implemented/targeted-pass/pending-production-replay`；`source-operation-summary=exact-gutter-soft`；
 `measured-duration=direct-clue`；`jank-verdict=typed-deadline-only`；`raw-prose-hard-gate=none`；
 `system-answer/diagram-authorship=none`；`Trace causal authority=unchanged`。
+
+### 123.655 r369：操作下钻生效，但分支拓扑在 Finalizer 扁平化；写模式诚实拒绝弱验证签章
+
+`main@45b003ab8` exact-two runner `1/2`；人工 read fail、write pass，详见
+`eval/parallel_selected_summary_evalcampaign_trace_mechanism_write_r369_20260812_manual_audit.md`。
+
+read-combo 414s。B612b 获得明确生产正证：Explorer 不再停在 `FindSpanWindows` wrapper 或 callee 前 80 行，而是继续读取同步 B push、E LIFO pop、
+`traceSpanFromEvents` duration 本体，并形成 13 条 grounded evidence。此前“入口引用扩权为未读操作”的问题收敛。
+
+但最终答案仍失败，说明证据深度正确不等于跨阶段拓扑正确。Explorer 同时读取 exact-marker fast path 与 generic `EventTraceMark` fallback 后，扁平 evidence/aggregate handoff
+没有保留 guard/profile alternative 关系；Finalizer 因而把 `parseExactTraceMark -> exactTraceMarkEvent` 与 fallback 的 `parseTraceMarkValidated` 串成一条必经流水线。它又把 raw
+unnamed end `E|2000` 重写成不存在的 `E|2000|H:RenderService:DoFrame`，未完整呈现 physical-source+emitter-TID 的同步 key、生命周期 reset 与 unresolved provenance
+fail-closed。立案 `B620-MECHANISMBRANCHFINALIZER1/P1-soft-first`：B611/B612 的 branch/gutter 纪律必须进入 Finalizer，而不能只存在于 Explorer。
+
+另确认 `B621-SCHEDABSENCEPOSITIVE1/P1-high`：两行最小附件没有 scheduler events，只能说明 scheduler residency/decomposition unavailable；模型却写成“可以确认 86.111ms
+是 On-CPU、无调度等待、瓶颈在渲染管线”。这是缺失证据被反向铸成肯定事实，不是性能观点差异。系统应给出统一权限：无 `sched_switch`/`sched_wakeup`/typed state ledger
+时，只能报告 span wall-clock，不能证明 running、no blocking、no runnable delay 或 CPU-bound。
+
+B619 为 partial：模型保留“86.111ms 可作为性能调查线索、jank 未证”这一正确双层，但仍自行引入 60fps/16.67ms 与 5.2x 比值；Finalizer prompt 已明确禁止无 typed
+refresh/deadline 时引入预算或比值，因此该部分按模型服从性波动记录，不升级成终稿关键词门或系统重写。
+
+write case 的 runner FAIL 是正确 fail-loud，不是产品退化。模型只改 `cli/src/api/templates/js-binding.ts` 一行，将 raw truthiness 改成
+`=== 'true' || === 'error'`，没有改测试期望；`make check` 与 Python oracle 通过。fixture 的 Make target 只执行 Python source/static checker，没有 Node/ts-node 真实执行
+`tests/js-binding.test.ts`，所以终态诚实标记 `production_verification_source_static_only`，没有在弱证明上签 `all_verified`。该跑没有 replan，不能替代 T7-1 累计验证域验收。
+
+状态：`B612b=production-depth-positive`；`B619=production-partial`；`B620/B621=confirmed/implemented-soft/pending-r370`；
+`write-patch=correct`；`write-final=honest-unverified`；`write-replan-domain=unexercised`；`runner=1/2`；
+`raw-prose-hard-gate=none`；`system-answer-authorship=none`；`active-stream-fixed-age-degrade=forbidden`；
+`Trace causal projection/system supplement=unchanged`。
+
+### 123.656 B620/B621：分支/操作权限贯通 Finalizer；scheduler 缺失不再冒充 On-CPU
+
+B620 在已有 typed `CurrentSourceExplanationProfile` 选择下，把 Explorer 侧的机制证据纪律同源带到 Finalizer：多条 grounded fact 不自动形成 ordered pipeline；不同 guard/profile
+选择的 parser paths 是 alternative/dispatch；wrapper/public entry 只证明 delegation；correlation key、stack/queue、reset、malformed/order/fail policy 必须来自实际可见该操作的
+cited gutter。它是软上下文，模型仍负责决定答案结构和结论；没有系统生成路径、补边、删段或扫描终稿。
+
+B621 在 `Runtime Trace Answer Guidance` 增加统一 absence authority：窗口无 scheduler rows 的 typed 事实是 `scheduler decomposition unavailable`。只有独立 typed state ledger
+才能声明 running/runnable/sleep/D/IO；单凭 absence 禁止推导 continuous On-CPU、no blocking、no runnable delay 或 CPU-bound。这条规则适用于任意 trace/span/event family，
+不识别 RenderService、DoFrame、86ms 或某个语言/平台关键词。
+
+定向测试钉住中英文 current-source profile 的 branch/wrapper/gutter 教学，以及 typed runtime trace 的 scheduler-absence 权限。`internal/agent` 定向测试全绿；下一轮继续
+exact-two，但不再用同一 Trace D4 波动题，优先选一条图关系/读模式与一条能真实执行语言行为的写模式，以验证泛化而非单案拟合。
+
+状态：`B620/B621=implemented/targeted-pass/pending-production-replay`；`branch-topology=finalizer-soft-authority`；
+`scheduler-absence=unavailable-not-running`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

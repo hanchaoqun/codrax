@@ -5937,6 +5937,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"t_wake→t_run is runnable scheduling delay",
 		"Never label the total non-running interval as wakeup latency",
 		"do not invent an unrequested duration",
+		"Scheduler evidence-absence hint",
+		"unavailable scheduler residency, not proven continuous On-CPU execution",
+		"cannot prove running time, no blocking, no runnable delay, or a CPU-bound bottleneck",
+		"scheduler decomposition is unavailable",
 		"Scheduler residency and cross-subject causality hint",
 		"S, D, or `io_wait` is not occupying a CPU",
 		"typed wakeup/IPC/lock/flow/dependency connector",
@@ -6637,6 +6641,10 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileSoftAuthorityRen
 		"调度链路",
 		"精确符号、函数、配置键、错误类型或字面量锚点",
 		"无法追到完整当前源码调用链",
+		"多条源码事实不会自动组成一条顺序流水线",
+		"alternative/dispatch 分支",
+		"wrapper/public entry 只证明委托",
+		"只有引用 gutter 中实际可见的操作才能进入机制结论",
 		"Current repository citations may still be used",
 	} {
 		if !strings.Contains(prompt, want) {
