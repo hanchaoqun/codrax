@@ -113,7 +113,8 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	if !authority.RuntimeTrace {
 		return ""
 	}
-	set := types.CompileTraceCausalProjectionSet(answerDocObservationLedger(ctx))
+	ledger := answerDocObservationLedger(ctx)
+	set := types.CompileTraceCausalProjectionSet(ledger)
 	var requestModel *types.RequestModel
 	if ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
@@ -144,10 +145,14 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
 	b.WriteString(renderTraceFinalTimeRoleAuthority(set))
-	b.WriteString(renderTraceFinalBlockedReasonStateRelation(set, answerDocObservationLedger(ctx)))
+	b.WriteString(renderTraceFinalBlockedReasonStateRelation(set, ledger))
+	if types.RuntimeTraceTargetWaitMaterializationAllowed(requestModel, set) {
+		b.WriteString(renderTraceFinalTargetWaitEnumerationAuthority(ledger, requestModel))
+	}
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
+	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
 	switch {
 	case hasActual && hasEliminable:
 		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule eliminable impact, and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
@@ -159,11 +164,46 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString("- available_axes=`none`: stay within the target-state, path, and evidence-boundary facts; do not invent a ranked cause.\n")
 	}
 	b.WriteString(renderTraceFinalCompactAuthorityLedger(set))
-	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(answerDocObservationLedger(ctx).Records)))
+	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(ledger.Records)))
 	b.WriteString("- compact_unknowns: evidence_absence_implication=`unknown_not_false`; target_direct_blocking_not_established_does_not_prove_no_external_blocking=`true`; cross_direction_physical_relation=`unresolved_unless_an_exact_pair_row_says_otherwise`; absent_overlap_record_proves_independence=`false`; cause_decomposition_status=`not_closed_by_state_partition_or_ranked_seat_roster`; exhaustive_cause_wording=`requires_one_exact_typed_additive_cause_partition`. An unestablished typed mechanism is unknown, not physically absent; missing relation evidence authorizes neither `independent` nor `no overlap`; a target state partition closes only what state the target experienced, not why it experienced it.\n")
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	return b.String()
+}
+
+// renderTraceFinalTargetWaitEnumerationAuthority keeps a complete target-wait
+// occurrence rowset authoritative at the final decision tail. Generic
+// root-cause/blocking candidate views may be compacted independently; their
+// display cap cannot turn an already-complete same-result target roster into
+// "missing" physical occurrences. This is typed prompt context only and does
+// not inspect or rewrite the model answer.
+func renderTraceFinalTargetWaitEnumerationAuthority(ledger types.ObservationLedger, rm *types.RequestModel) string {
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, rm)
+	if len(waits) == 0 {
+		return ""
+	}
+	hasRequestedPrincipal := false
+	for _, wait := range waits {
+		if wait.IsRequestedScopePrincipal() {
+			hasRequestedPrincipal = true
+			break
+		}
+	}
+	var b strings.Builder
+	for _, wait := range waits {
+		if hasRequestedPrincipal && !wait.IsRequestedScopePrincipal() {
+			continue
+		}
+		role := strings.TrimSpace(string(wait.RequestedScopeRole))
+		if role == "" {
+			role = "unclassified"
+		}
+		fmt.Fprintf(&b, "- target_wait_enumeration_authority artifact=`%s`; subject=`%s`; selected_window=`%.6f..%.6f`; scope_role=`%s`; rowset_permission=`exact_complete_same_result`; occurrence_count=%d; complete_occurrence_ordinals=`1..%d`; wall_clock_sum=%.3fms; candidate_view_compaction_role=`does_not_downgrade_this_rowset`; missing_occurrence_inference=`forbidden`; residual_count_or_duration_estimation=`forbidden`. Every declared occurrence row is already present in the typed principal roster above. A capped root-cause, blocking, or display view may omit candidates from its own view, but it does not prove that any occurrence in this complete target-wait rowset is missing from the trace.\n",
+			traceDecisionPromptScalar(wait.ArtifactLabel), traceDecisionPromptScalar(wait.Subject),
+			wait.WindowStartTs, wait.WindowEndTs, traceDecisionPromptScalar(role),
+			wait.Count, wait.Count, wait.WallClockMS)
+	}
 	return b.String()
 }
 
@@ -563,6 +603,70 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) str
 		}
 	}
 	return b.String()
+}
+
+// renderTraceFinalSupplyFoldValueAuthority publishes the exact role equation
+// already carried by supply_fold_deficit_ms / supply_fold_ideal_ms /
+// fold_basis. It prevents a measured occupancy minus an effective attribution
+// from being re-labelled as the supply deficit. Values remain engine-owned;
+// diagnosis and wording remain model-owned, and no final prose is scanned.
+func renderTraceFinalSupplyFoldValueAuthority(set types.TraceCausalProjectionSet) string {
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		pool := make([]types.TraceCausalProjectionNode, 0,
+			len(projection.RankedSeats)+len(projection.OnChainCauses)+len(projection.PrimaryRootCauses))
+		pool = append(pool, projection.RankedSeats...)
+		pool = append(pool, projection.PrimaryRootCauses...)
+		pool = append(pool, projection.OnChainCauses...)
+		seen := map[string]bool{}
+		emitted := 0
+		for _, node := range pool {
+			identity := traceDecisionNodeIdentity(node)
+			if seen[identity] || !node.SupplyFoldComputed || strings.TrimSpace(node.StateKind) != "running" {
+				continue
+			}
+			seen[identity] = true
+			deficit := node.SupplyFoldDeficitMS
+			ideal := node.SupplyFoldIdealMS
+			known := node.SupplyFoldKnownMS
+			unknown := node.SupplyFoldUnknownMS
+			foldedTotal := deficit + ideal
+			if !traceFinalFiniteNonNegative(deficit) || !traceFinalFiniteNonNegative(ideal) ||
+				!traceFinalFiniteNonNegative(known) || !traceFinalFiniteNonNegative(unknown) || foldedTotal <= 0 {
+				continue
+			}
+			coverageTotal := known + unknown
+			if coverageTotal > 0 && math.Abs(coverageTotal-foldedTotal) > 0.002 {
+				continue
+			}
+			measured := traceFinalMeasuredStateOccupancy(node)
+			effectiveRelation := "separate_typed_value"
+			if node.EffectiveImpactMS > 0 && math.Abs(node.EffectiveImpactMS-deficit) < 0.0005 {
+				effectiveRelation = "same_numeric_value_as_supply_deficit_for_this_seat"
+			}
+			measuredRelation := "separate_typed_value"
+			if measured > 0 && math.Abs(measured-foldedTotal) < 0.0005 {
+				measuredRelation = "same_numeric_value_as_folded_running_total"
+			}
+			fmt.Fprintf(&b, "- supply_fold_value_authority artifact=`%s`; subject=`%s`; state_kind=`running`; folded_running_total=%.3fms; ideal_equivalent_running=%.3fms; low_frequency_supply_deficit=%.3fms; equation=`ideal_equivalent_running + low_frequency_supply_deficit = folded_running_total`; frequency_covered_running=%.3fms; frequency_uncovered_running=%.3fms; measured_state_occupancy=%.3fms; measured_to_folded_relation=`%s`; effective_attribution=%.3fms; effective_to_deficit_relation=`%s`; occupancy_minus_effective_role=`not_a_supply_deficit_formula`; row_identity=`%s`. Use the engine-published deficit for the supply-fold opportunity. Do not derive or rename measured occupancy minus effective attribution as another supply deficit.\n",
+				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)),
+				foldedTotal, ideal, deficit, known, unknown, measured, measuredRelation,
+				node.EffectiveImpactMS, effectiveRelation, traceDecisionPromptScalar(identity))
+			emitted++
+			if emitted >= 8 {
+				break
+			}
+		}
+	}
+	return b.String()
+}
+
+func traceFinalFiniteNonNegative(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
 
 func traceFinalMeasuredStateOccupancy(node types.TraceCausalProjectionNode) float64 {

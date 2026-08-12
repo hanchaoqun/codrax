@@ -35232,3 +35232,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.712 r398：关系图同源与计数域隔离转正；完整枚举/折算方程仍缺最终角色关系
+
+在 `main@a27aafbf6` 上严格并发恰好两个案例：
+`qf_type_relation_loop_controller` 与 `real_trace_h7_self_seat_full_spectrum`。
+runner 2/2 PASS，人工 1/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_relation_trace_r398_20260812_manual_audit.md`。
+
+1. B659 生产闭环。Finalizer 诊断从上一轮的
+   `explicit_typed_directed_relations=0` 转为 12；模型首稿即生成合法 Mermaid，12 条
+   production 实现边全部为 `implementer -> LoopController`，实现/文件表完整，三个
+   test-only 类型仍在辅助范围外。零成文拒绝、零 patch、零系统代写。
+2. B658 也获生产正证：模型分别写明目标 scheduler D-state 为 11 段/36.757ms，
+   `blocked_reason` 是独立的 12 条/Σ39.157ms，并明确两者口径不可互换或合并；上一轮
+   8/4/4 编造消失。
+3. Trace 仍人工失败。前置 Principal Values 已完整列出 11 条 occurrence，但后部全局
+   `enumeration_status=incomplete` 描述的是 root-cause/blocking 候选显示 cap；模型把它
+   误读为物理 trace 缺了 #9–#11 三段，进而用总量减已显示量推算“约9.8ms”。这是
+   完整目标 roster 与候选显示压缩之间缺 typed 优先级关系，不是需要扫终稿关键词。
+4. 同页还把两个量都命名为供给缺口：摘要与系统投影称 65.912ms 是 supply-fold
+   deficit；正文又把 `74.915−65.912=9.003ms` 称为缺口。现有 Final Boundary 只携带
+   measured occupancy 与 effective attribution 的 distinct 关系，没有携带已有
+   `ideal + deficit = folded running` 精确方程，模型因而错误重算角色。
+5. B660 在完整 same-result 目标等待 roster 存在且该 roster 获 typed 展示权限时发布
+   `target_wait_enumeration_authority`：明确 occurrence ordinals 已全部在 typed principal
+   roster 中，root-cause/blocking/display view 的 cap 不降低物理 roster 完整性，禁止
+   missing-occurrence 与 residual-duration 推算。只要缺一行、冲突、非确定性来源，
+   或窄事实查询未请求 wait-occurrence 家族，即 fail-closed。
+6. B661 发布 `supply_fold_value_authority`：直接携带
+   `ideal_equivalent_running + low_frequency_supply_deficit = folded_running_total`，并
+   标注 measured/effective 与 fold 值是同值还是独立 typed 值，以及
+   `occupancy_minus_effective_role=not_a_supply_deficit_formula`。方程只来自已有
+   fold_basis/deficit/ideal typed 字段；coverage sum 不守恒时不发布。
+7. 两项都是 Finalizer 尾部 prompt-only 精确信息，不读取用户/模型/终稿 prose，不
+   增加 emit-time 拒绝，不生成答案句子，也不改 Trace 投影、排名、窗选举、系统补齐
+   或任何值。定向 helper 与完整生产接线 pin 全绿；核心
+   `agent/types/tool/orchestrator` 全绿，待下一 exact-two 生产回放。
+
+状态：`runner=2/2 PASS`；`human=1/2 PASS`；
+`B659=production-closed`；`B658=production-closed`；
+`B660-COMPLETEWAITROSTERCAPROLE1=implemented/targeted+core-pass/pending-production-replay`；
+`B661-SUPPLYFOLDVALUEROLE1=implemented/targeted+core-pass/pending-production-replay`；
+`system-answer/conclusion-authorship=none`；`hard-gate=none-added`；
+`raw-user/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

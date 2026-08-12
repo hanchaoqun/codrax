@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -306,6 +307,87 @@ func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateI
 	}
 }
 
+func TestTraceFinalTargetWaitEnumerationAuthorityOverridesCandidateDisplayCaps(t *testing.T) {
+	const subject = "CompThread_0-2955"
+	count := 3
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, Path: "/captures/donghu.ftrace", ArtifactID: "donghu.ftrace",
+	}
+	records := []types.ObservationRecord{{
+		ID: "trace_query:window#target_window_wait_occurrences", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span: types.ObservationSpan{StartTs: 10, EndTs: 10.020}, Predicate: "target_window_wait_occurrences",
+		Subject: subject, Object: "complete", Value: "3", ResultCount: &count,
+	}}
+	for i := 1; i <= count; i++ {
+		start := 10 + float64(i)*0.002
+		records = append(records, types.ObservationRecord{
+			ID:     fmt.Sprintf("trace_query:window#target_window_wait_occurrence:%d", i),
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			Span:      types.ObservationSpan{StartTs: start, EndTs: start + 0.001},
+			Predicate: "target_window_wait_occurrence", Subject: subject,
+			Object: "state=d_sleep;iowait=0;caller=dma_fence_default_w", Value: "1.000", Unit: "ms",
+		})
+	}
+	rm := &types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 2955, Thread: subject, Source: "user_explicit",
+	}}}
+	got := renderTraceFinalTargetWaitEnumerationAuthority(types.ObservationLedger{Records: records}, rm)
+	for _, want := range []string{
+		"rowset_permission=`exact_complete_same_result`",
+		"occurrence_count=3",
+		"complete_occurrence_ordinals=`1..3`",
+		"wall_clock_sum=3.000ms",
+		"candidate_view_compaction_role=`does_not_downgrade_this_rowset`",
+		"missing_occurrence_inference=`forbidden`",
+		"residual_count_or_duration_estimation=`forbidden`",
+		"does not prove that any occurrence in this complete target-wait rowset is missing",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("complete wait enumeration authority missing %q:\n%s", want, got)
+		}
+	}
+
+	records = records[:len(records)-1]
+	if got := renderTraceFinalTargetWaitEnumerationAuthority(types.ObservationLedger{Records: records}, rm); got != "" {
+		t.Fatalf("incomplete same-result rowset must fail closed: %s", got)
+	}
+}
+
+func TestTraceFinalSupplyFoldValueAuthorityPublishesTypedEquation(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		EvidenceID: "rank-1", Subject: "CompThread_0-2955", StateKind: "running",
+		CumulativeImpactMS: 74.915, EffectiveImpactMS: 65.912,
+		SupplyFoldComputed: true, SupplyFoldDeficitMS: 65.912, SupplyFoldIdealMS: 9.003,
+		SupplyFoldKnownMS: 74.915,
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		ArtifactLabel: "donghu.ftrace", RankedSeats: []types.TraceCausalProjectionNode{node},
+	}}}
+	got := renderTraceFinalSupplyFoldValueAuthority(set)
+	for _, want := range []string{
+		"folded_running_total=74.915ms",
+		"ideal_equivalent_running=9.003ms",
+		"low_frequency_supply_deficit=65.912ms",
+		"equation=`ideal_equivalent_running + low_frequency_supply_deficit = folded_running_total`",
+		"effective_to_deficit_relation=`same_numeric_value_as_supply_deficit_for_this_seat`",
+		"occupancy_minus_effective_role=`not_a_supply_deficit_formula`",
+		"Do not derive or rename measured occupancy minus effective attribution as another supply deficit",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("supply-fold value authority missing %q:\n%s", want, got)
+		}
+	}
+
+	conflicted := node
+	conflicted.SupplyFoldKnownMS = 70
+	set.Projections[0].RankedSeats = []types.TraceCausalProjectionNode{conflicted}
+	if got := renderTraceFinalSupplyFoldValueAuthority(set); got != "" {
+		t.Fatalf("inconsistent fold coverage must fail closed: %s", got)
+	}
+}
+
 func TestFinalizerPromptCarriesBlockedReasonStateRelationAtProductionBoundary(t *testing.T) {
 	count := 12
 	ref := types.ObservationSourceRef{
@@ -357,6 +439,91 @@ func TestFinalizerPromptCarriesBlockedReasonStateRelationAtProductionBoundary(t 
 	}
 	if strings.LastIndex(prompt, "blocked_reason_state_relation") < strings.LastIndex(prompt, "## Submission Checklist") {
 		t.Fatalf("census/state relation must stay in the final typed decision boundary:\n%s", prompt)
+	}
+}
+
+func TestFinalizerPromptCarriesCompleteWaitAndSupplyFoldRelationsAtProductionBoundary(t *testing.T) {
+	const (
+		subject = "CompThread_0-2955"
+		start   = 13762.791708
+		end     = 13763.024898
+	)
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "donghu.ftrace", ArtifactKind: "trace",
+	}
+	root := types.ObservationRecord{
+		ID: "root-running", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span:      types.ObservationSpan{StartTs: start, EndTs: end, LineStart: 140, LineEnd: 26117},
+		Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:" + subject,
+		Subject: subject, Object: "running", Value: "74.915", Unit: "ms",
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain", "dominant_state=running",
+			"cumulative_impact_ms=74.915", "effective_impact_ms=65.912",
+			types.TraceNoteKeyFoldBasis + "=known=74.915ms,unknown=0.000ms",
+			types.TraceNoteKeySupplyFoldDeficitMS + "=65.912",
+			types.TraceNoteKeySupplyFoldIdealMS + "=9.003",
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+		},
+	}
+	state := types.ObservationRecord{
+		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Predicate: "target_window_states", ClaimKey: "target_window_states:" + subject,
+		Subject: subject, Object: "state_partition", Value: "233.190", Unit: "ms",
+		RichNotes: []string{
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+			types.TraceNoteKeyRunning + "=74.915", types.TraceNoteKeyRunnable + "=1.536",
+			types.TraceNoteKeySleep + "=118.586", types.TraceNoteKeyDState + "=36.757",
+			types.TraceNoteKeyIOWait + "=0.000", types.TraceNoteKeyTotal + "=231.794",
+		},
+	}
+	count := 3
+	waitAggregate := types.ObservationRecord{
+		ID: "trace_query:window#target_window_wait_occurrences", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span: types.ObservationSpan{StartTs: start, EndTs: end}, Predicate: "target_window_wait_occurrences",
+		Subject: subject, Object: "complete", Value: "3", ResultCount: &count,
+	}
+	records := []types.ObservationRecord{root, state, waitAggregate}
+	for i := 1; i <= count; i++ {
+		rowStart := start + float64(i)*0.002
+		records = append(records, types.ObservationRecord{
+			ID:     fmt.Sprintf("trace_query:window#target_window_wait_occurrence:%d", i),
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			Span:      types.ObservationSpan{StartTs: rowStart, EndTs: rowStart + 0.001},
+			Predicate: "target_window_wait_occurrence", Subject: subject,
+			Object: "state=d_sleep;iowait=0;caller=dma_fence_default_w", Value: "1.000", Unit: "ms",
+		})
+	}
+	ctx := answerDocCausalCeilingTestContext(false)
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 2955, Thread: subject, Source: "user_explicit",
+	}}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "root_cause_rank"},
+		Observations:           records,
+	}}})
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"target_wait_enumeration_authority artifact=`donghu.ftrace`",
+		"candidate_view_compaction_role=`does_not_downgrade_this_rowset`",
+		"missing_occurrence_inference=`forbidden`",
+		"supply_fold_value_authority artifact=`donghu.ftrace`",
+		"low_frequency_supply_deficit=65.912ms",
+		"ideal_equivalent_running=9.003ms",
+		"occupancy_minus_effective_role=`not_a_supply_deficit_formula`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("production Finalizer prompt lost %q:\n%s", want, prompt)
+		}
+	}
+	for _, marker := range []string{"target_wait_enumeration_authority", "supply_fold_value_authority"} {
+		if strings.LastIndex(prompt, marker) < strings.LastIndex(prompt, "## Submission Checklist") {
+			t.Fatalf("%s must remain in the final typed decision boundary:\n%s", marker, prompt)
+		}
 	}
 }
 
