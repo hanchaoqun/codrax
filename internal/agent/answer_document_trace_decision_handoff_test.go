@@ -283,7 +283,7 @@ func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T
 			ImpactMS: float64(100 - i), WithinRequestedWindow: &inside,
 		})
 	}
-	projection.SemanticSpans = []types.TraceCausalProjectionNode{{
+	semantic := types.TraceCausalProjectionNode{
 		EvidenceID: "semantic-jit", Subject: "Jit thread pool-12", SemanticClass: "jit_compile",
 		SpanName: "JIT compilation", ImpactMS: 2.388, LineStart: 5969, LineEnd: 12664,
 		FamilyMemberCount: 2, FamilyMemberMaxMS: 1.781,
@@ -291,7 +291,11 @@ func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T
 		FamilyMemberLineRanges: [][2]int{{5969, 6114}, {12611, 12664}},
 		FamilyMemberWallMS:     []float64{1.781, 0.607},
 		WithinRequestedWindow:  &inside,
-	}}
+	}
+	semanticSupplement := semantic
+	semanticSupplement.EvidenceID = "semantic-jit-supplement"
+	semanticSupplement.SystemSupplement = true
+	projection.SemanticSpans = []types.TraceCausalProjectionNode{semantic, semanticSupplement}
 
 	got := renderAnswerDocTraceDecisionHandoffSet(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
@@ -302,11 +306,64 @@ func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T
 		"subject=`Jit thread pool-12`; semantic_class=`jit_compile`; span=`JIT compilation`; total=2.388ms; occurrences=2; member_max=1.781ms; lines=5969..12664",
 		"member_1 span=`JIT compiling TextView.<init>()`; duration=1.781ms; lines=5969..6114",
 		"member_2 span=`JIT compiling DecimalQuantity.readIntToBcd()`; duration=0.607ms; lines=12611..12664",
-		"Its presence does not by itself prove that the target waited for it",
-		"its absence must not be inferred from a target-thread-only keyword search",
+		"Its presence neither proves an effect on the target nor proves no effect",
+		"Its absence must not be inferred from a target-thread-only keyword search",
+		"Every member row is a distinct typed span",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("semantic member handoff missing %q:\n%s", want, got)
+		}
+	}
+	if count := strings.Count(got, "subject=`Jit thread pool-12`; semantic_class=`jit_compile`"); count != 1 {
+		t.Fatalf("same typed semantic family from exploration and supplement rendered %d times:\n%s", count, got)
+	}
+}
+
+func TestTraceDecisionHandoffPublishesLeaderOnlyRepairDirectionAuthority(t *testing.T) {
+	inside := true
+	seat := func(rank int, subject, direction, typeToken string, value float64) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("seat-%d", rank), Rank: rank, Subject: subject,
+			FixDirection: direction, TypeToken: typeToken, Object: typeToken,
+			EffectiveImpactMS: value, EffectiveImpactPublished: true,
+			ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
+		}
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.trace",
+		RankedSeats: []types.TraceCausalProjectionNode{
+			seat(1, "target", "frequency_thermal", "running", 58.320),
+			seat(2, "worker-a", "lock_priority", "priority_inversion_candidate", 7.405),
+			seat(3, "worker-b", "lock_priority", "priority_inversion_candidate", 4.710),
+			seat(4, "target", "scheduling_supply", "runnable_wait", 3.956),
+			seat(5, "target", "io_dependency", "io_latency", 3.670),
+			seat(6, "worker-a", "io_dependency", "d_state_or_io_wait", 3.598),
+		},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"repair_direction_authority: artifact=`customer.trace`",
+		"value_role=`single_published_leader_not_direction_subtotal`",
+		"joint_total_authority=`not_provided`",
+		"direction_independence_authority=`not_provided`",
+		"instruction=`do_not_sum_direction_members_or_direction_leaders`",
+		"fix_direction=`frequency_thermal`; member_count=1; leader_rank=#1; leader_subject=`target`; leader_value=58.320ms",
+		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2; leader_subject=`worker-a`; leader_value=7.405ms",
+		"fix_direction=`io_dependency`; member_count=2; leader_rank=#5; leader_subject=`target`; leader_value=3.670ms",
+		"same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`",
+		"policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`",
+		"lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repair direction authority missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"18.853", "7.268", "31.4"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("direction authority fabricated subtotal %q:\n%s", forbidden, got)
 		}
 	}
 }

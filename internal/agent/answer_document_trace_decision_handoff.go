@@ -76,6 +76,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	}
 	b.WriteString("- Do not add values across arbitrary rows, fix directions, wall-clock and cpu·ms, or overlapping seats. Addition is authorized only by an exact typed additive carrier, such as the target's closed engine-state partition or a same-source disjoint bipartition with its published subtotal. Mutually exclusive partition members may be added to reconstruct that exact partition total; do not misstate mutual exclusion as general non-additivity. A high occupancy is not automatically eliminable; a high eliminable estimate is not automatically proven frame causality.\n")
 	b.WriteString("- relation_authority=`typed_pair_only`: different state names, metric families, fix directions, rows, or threads do not by themselves prove independence, containment, overlap, mutual exclusion, or additivity. State one of those pairwise relations only from an exact typed relation/fold carrier or the target's closed engine-state partition. When a pair has no such carrier, say its physical relationship is unresolved and that cross-row addition is not authorized; do not upgrade missing relation evidence into the stronger physical claim that the rows are independent or intrinsically non-additive.\n")
+	traceDecisionWriteRepairDirectionAuthority(&b, set)
 	traceDecisionWriteRelationClaimHandoff(&b, set, acceptedClaims)
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: keep the synthesis useful but calibrated as the strongest candidate / first validation direction, not a proven dropped-frame cause.\n")
@@ -175,7 +176,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
 				traceDecisionWriteSemanticMembers(&b, node, 8)
 			}
-			b.WriteString("  This inventory is a dedicated visibility lane: state separately whether a span ran on the selected target, another on-chain thread, or only a process/window peer. Its presence does not by itself prove that the target waited for it; its absence must not be inferred from a target-thread-only keyword search when this typed inventory is non-empty.\n")
+			b.WriteString("  This inventory is a dedicated visibility lane: state separately whether a span ran on the selected target, another on-chain thread, or only a process/window peer. Its presence neither proves an effect on the target nor proves no effect; the relationship stays unresolved without a typed relation. Its absence must not be inferred from a target-thread-only keyword search when this typed inventory is non-empty. Every member row is a distinct typed span: copy that member's own span name, duration, and line range instead of reusing the family representative's name.\n")
 		}
 
 		seats := traceDecisionEliminableSeats(projection, 8)
@@ -227,6 +228,76 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// traceDecisionWriteRepairDirectionAuthority is the compact, single-source
+// interpretation of the detailed Axis-B roster. It gives the model the exact
+// value role needed for a repair-direction answer without asking it to infer
+// arithmetic or physical relations from a long list of seats. This is typed
+// prompt context only: it does not inspect prose, reject an answer, or
+// materialize a conclusion.
+func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.TraceCausalProjectionSet) {
+	if b == nil {
+		return
+	}
+	type directionRecord struct {
+		key, value string
+		leader     types.TraceCausalProjectionNode
+		count      int
+	}
+	for projectionIndex, projection := range set.Projections {
+		seats := traceDecisionEliminableSeats(projection, 0)
+		if len(seats) == 0 {
+			continue
+		}
+		byDirection := map[string]directionRecord{}
+		for _, node := range seats {
+			key, value, ok := traceDecisionModelFacingDirection(node)
+			if !ok {
+				continue
+			}
+			identity := key + "\x00" + value
+			record := byDirection[identity]
+			record.key, record.value, record.count = key, value, record.count+1
+			if record.leader.Rank == 0 || node.EffectiveImpactMS > record.leader.EffectiveImpactMS ||
+				(node.EffectiveImpactMS == record.leader.EffectiveImpactMS && node.Rank < record.leader.Rank) {
+				record.leader = node
+			}
+			byDirection[identity] = record
+		}
+		if len(byDirection) == 0 {
+			continue
+		}
+		records := make([]directionRecord, 0, len(byDirection))
+		for _, record := range byDirection {
+			records = append(records, record)
+		}
+		sort.SliceStable(records, func(i, j int) bool {
+			if records[i].leader.EffectiveImpactMS != records[j].leader.EffectiveImpactMS {
+				return records[i].leader.EffectiveImpactMS > records[j].leader.EffectiveImpactMS
+			}
+			return records[i].value < records[j].value
+		})
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", projectionIndex+1)
+		}
+		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`single_published_leader_not_direction_subtotal`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_direction_members_or_direction_leaders`.\n", label)
+		for _, record := range records {
+			fmt.Fprintf(b, "  - %s=`%s`; member_count=%d; leader_rank=#%d; leader_subject=`%s`; leader_value=%.3fms; same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`",
+				record.key, record.value, record.count, record.leader.Rank,
+				strings.TrimSpace(record.leader.Subject), record.leader.EffectiveImpactMS)
+			switch {
+			case traceDecisionNodeIsPriorityInversionCandidate(record.leader):
+				b.WriteString("; mechanism_boundary=`lower_priority_dependency_supply_only`; lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`")
+			case strings.TrimSpace(record.leader.FixDirection) == "frequency_thermal":
+				b.WriteString("; mechanism_boundary=`compute_supply_opportunity`; policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`")
+			case strings.TrimSpace(record.leader.FixDirection) == "io_dependency":
+				b.WriteString("; mechanism_boundary=`typed_io_or_kernel_wait_seat`; kernel_callsite_proves_resource_or_holder=`false`")
+			}
+			b.WriteString("\n")
+		}
+	}
 }
 
 // renderTraceFrameEvidenceStatusSemantics is the single prompt source for the
@@ -721,7 +792,7 @@ func traceDecisionSemanticOptimizationSpans(projection types.TraceCausalProjecti
 			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 			continue
 		}
-		key := traceDecisionNodeIdentity(node)
+		key := traceDecisionSemanticInventoryIdentity(node)
 		if seen[key] {
 			continue
 		}
@@ -739,6 +810,23 @@ func traceDecisionSemanticOptimizationSpans(projection types.TraceCausalProjecti
 		out = out[:limit]
 	}
 	return out
+}
+
+func traceDecisionSemanticInventoryIdentity(node types.TraceCausalProjectionNode) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\x00%s\x00%s\x00%.6f\x00%d\x00%d\x00%d\x00",
+		strings.TrimSpace(node.Subject), strings.TrimSpace(node.SemanticClass), strings.TrimSpace(node.SpanName),
+		node.ImpactMS, node.LineStart, node.LineEnd, node.FamilyMemberCount)
+	for index, member := range node.FamilyMemberRoster {
+		fmt.Fprintf(&b, "%d:%s\x01", index, strings.TrimSpace(member))
+	}
+	for index, lineRange := range node.FamilyMemberLineRanges {
+		fmt.Fprintf(&b, "%d:%d..%d\x01", index, lineRange[0], lineRange[1])
+	}
+	for index, value := range node.FamilyMemberWallMS {
+		fmt.Fprintf(&b, "%d:%.6f\x01", index, value)
+	}
+	return b.String()
 }
 
 func traceDecisionWriteSemanticMembers(b *strings.Builder, node types.TraceCausalProjectionNode, limit int) {

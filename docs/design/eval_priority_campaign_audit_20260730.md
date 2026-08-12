@@ -34583,3 +34583,46 @@ B638 在 Trace Decision Inputs 中增加独立 `deterministic_semantic_spans` ty
 `semantic-family-topn-competition=removed`；`semantic-members=typed-prompt-only`；
 `system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.686 r383：两项根修均生产生效，但修向小计/独立性与 semantic 双写仍阻止人工转绿
+
+`main@f818ee2d0` exact-two runner 再次 `2/2`，人工仍为 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_relation_semantic_r383_20260812_manual_audit.md`。
+
+H11 不再收到或复述 42.193ms broad-envelope overlap，B637 生产主断言成立。但模型仍从详细席位表自行相加：锁/优先级方向 18.853ms、IO方向 8.622ms，并进一步给出跨方向约31.4ms；
+这些 subtotal 没有 exact fold authority。更明显的是，同一答案摘要写“四方向相互独立”，关系段又写“不能断言独立或重叠”，形成模型正文内部矛盾。频率段还把“策略上限存在”写成
+“证明热/功耗治理约束”，越过 typed `不单独证明热机制或实际绑定影响` 边界。现有规则虽然正确，但分散在长 prompt 的 relation、seat composition、final boundary 三处；模型没有一张
+可直接消费的方向值角色/关系矩阵，属于高显著上下文表达不足，而不是应通过正文硬门或系统改写解决的问题。
+
+H10 的 B638 主断言也生产成立：模型正文列出两条 JIT 成员的 1.781/0.607ms 和各自行号，并区分 Jit thread pool 与 CompThread 自身。残余是 projection 中相同 typed family
+从模型探索和 deterministic supplement 各出现一份，Finalizer context、树和证据表均双写；另外模型在表格中把第二条 DecimalQuantity 名称误抄成第一条 TextView 名称，并把
+“非目标线程”越推为“因此不影响目标执行流”。前者是精确内容去重 gap；后两者适合用成员逐行复制和双向因果边界软教学修正，不能让系统代写表格或扫描终稿。
+
+两案 95s/156s 正常完成，零成文拒绝、零 unavailable、零旧稿降级；本轮没有达到四分钟，r382 的 255s 生产正例继续作为 active stream 不按年龄降级的验收证据。
+
+状态：`runner=2/2`；`human=0/2`；`B637=production-positive`；`B638=production-positive`；
+`B639-TRACEDIRECTIONDECISIONTABLE1=confirmed/P0`；`B640-TRACESEMANTICCONTENTDEDUP1=confirmed/P1-high`；
+`B641-TRACESEMANTICMEMBERBOUNDARY1=confirmed/P1`；`system-answer-rewrite=none`；
+`raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.687 B639–B641：修向关系单源表、semantic 内容去重与成员边界教学
+
+B639 在详细 Axis-B 席位之前发布紧凑 `repair_direction_authority`。每个 typed 修向只给“单一已发布 leader”，同时携带成员数、leader rank/subject/value，明确
+`published_direction_value=leader_only`、`same_direction_subtotal_authority=not_provided`、`joint_total_authority=not_provided`。未列出的 pair 物理关系保持 unresolved；只有每席已有的
+精确 `physical_overlap_n` carrier 可声明具体重叠。方向独立性无 authority，禁止把“不能相加”改写成“物理独立”。频率方向增加机制边界：compute-supply opportunity 不证明 thermal
+throttling/实际绑定；优先级候选增加 lower-priority dependency supply 边界，不证明 holder/PI inheritance；IO caller 不证明资源或持有者。这些都是 typed prompt facts，不是答案句子。
+
+B640 将 semantic inventory 去重键从带 evidence/source lane 的 observation identity 改成 typed 内容身份：subject、semantic class、family representative、合计、行号、完整 member
+roster/时长/行号共同相同才合并。探索与补齐同一事实只显示一次；任何成员、时长或行号不同都保留，避免以名字近似误合并。
+
+B641 将 semantic 教学收紧为双向边界：“同窗 peer 出现”既不证明影响目标，也不证明不影响；关系无 typed carrier 时保持 unresolved。每条 member 是独立 typed span，模型应逐行复制
+该成员自己的名称、时长和行号，不能复用 family representative。仍不增加终稿词面扫描、拒绝或系统修补。
+
+定向回归覆盖：四方向六席只发布 58.320/7.405/3.956/3.670 四个 leader，不生成 18.853/8.622/31.4；同一 JIT family 的探索/补齐双记录只出现一次；两条成员保留不同名称、
+1.781/0.607ms 和各自行号；broad envelope 继续不铸 physical overlap。相关包全回归和下一轮 exact-two 待提交后执行。
+
+状态：`B639=implemented/targeted-pass`；`B640=implemented/targeted-pass`；`B641=implemented/targeted-pass`；
+`direction-value-role=leader-only`；`same/cross-direction-subtotal=not-provided-without-exact-fold`；
+`semantic-dedup=exact-typed-content`；`semantic-target-effect=unresolved-without-relation`；
+`system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
