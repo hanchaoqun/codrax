@@ -2232,7 +2232,7 @@ func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) 
 // escape. It consumes only schema-validated typed fields; it never infers a
 // relation from request/model prose and never changes a role itself.
 //
-// Two structural mistakes fail loudly:
+// Three structural mistakes fail loudly:
 //  1. one participant identity is a delimiter-joined spelling of two or more
 //     distinct analyzer entities, which would collapse separate coverage
 //     obligations into one alias;
@@ -2240,6 +2240,9 @@ func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) 
 //     participant identity, or a delimiter-only roster of typed participants,
 //     as provenance. A name or roster proves presence, not that the user asked
 //     to keep the actor outside the relation path.
+//  3. one admitted participant source_quote co-lists another typed entity but
+//     that entity has no participant row. The shared quote cannot authorize one
+//     actor while silently dropping its explicitly co-listed sibling.
 //
 // A wider verbatim source_quote remains the typed escape for a genuinely
 // requested surrounding boundary. The model chooses the corrected role or
@@ -2250,6 +2253,12 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		return ""
 	}
 	var conflicts []string
+	participantKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		if key := diagramParticipantProvenanceKey(participant.Identity); key != "" {
+			participantKeys[key] = true
+		}
+	}
 	for i, participant := range rm.DiagramHint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
 		if identity == "" {
@@ -2274,6 +2283,24 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 					i, identity, provenanceShape,
 				))
 			}
+		}
+		var omittedCoListed []string
+		seenCoListed := map[string]bool{}
+		for _, rawEntity := range rm.AnalyzerHints.Entities {
+			entity := strings.TrimSpace(rawEntity)
+			key := diagramParticipantProvenanceKey(entity)
+			if entity == "" || key == "" || participantKeys[key] || seenCoListed[key] ||
+				!sourceQuoteAnchoredInCurrentRequest(participant.SourceQuote, entity) {
+				continue
+			}
+			seenCoListed[key] = true
+			omittedCoListed = append(omittedCoListed, entity)
+		}
+		if len(omittedCoListed) > 0 {
+			conflicts = append(conflicts, fmt.Sprintf(
+				"diagram_hint.participants[%d].source_quote for %q also names typed relation entity/entities %v but they have no participant row; emit one row per co-listed actor, or narrow source_quote to an exact current-request phrase that does not name them",
+				i, identity, omittedCoListed,
+			))
 		}
 	}
 	return strings.Join(conflicts, "; ")

@@ -3571,6 +3571,39 @@ func TestEmitAnalysis_Execute_RejectsParticipantRosterAsContextOnlyProvenance(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsOmittedEntityCoListedByParticipantSourceQuote(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"entities":["Analyzer","Explorer","Extractor","Finalizer","Mutable","BusContext","Orchestrator"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[
+			{"identity":"Analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"Explorer","role":"incident_required","source_quote":"explorer"},
+			{"identity":"Extractor","role":"incident_required","source_quote":"extractor"},
+			{"identity":"Finalizer","role":"incident_required","source_quote":"finalizer"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"Mutable/BusContext"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, `source_quote for "BusContext" also names typed relation entity/entities [Mutable]`) ||
+		!strings.Contains(res.Summary, "emit one row per co-listed actor") {
+		t.Fatalf("one shared provenance quote must not authorize BusContext while silently omitting Mutable: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("an incomplete co-listed participant slate must not publish a RequestModel")
+	}
+}
+
 func TestEmitAnalysis_Execute_AllowsExplicitContextBoundaryProvenanceAndSeparateIncidentCarriers(t *testing.T) {
 	raw := "画出 Analyzer 到 Finalizer 的数据流，并把 SurroundingSystem 仅作为周边边界；数据经过 Mutable 和 BusContext"
 	mu := types.NewMutableState(raw)

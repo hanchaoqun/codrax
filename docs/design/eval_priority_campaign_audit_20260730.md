@@ -34088,3 +34088,38 @@ EvidenceItem 投影、跨阶段 AcceptedEvidenceRef 渲染和中英文 Finalizer
 状态：`B624=implemented/targeted-pass/pending-production-replay`；`definition-locator=definition-only`；
 `body-operation=exact-gutter-or-typed-operation-anchor`；`model-summary-authority=no-escalation`；
 `raw-prose-hard-gate=none`；`system-answer-authorship=none`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.662 r372：definition ceiling 已贯通但仍被软越界；participant 漏行成为新逃逸
+
+`main@bacc46427` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_graph_trace_source_r372_20260812_manual_audit.md`。
+
+逻辑图案显示 B623 的负臂有效：Analyzer 不再提交 `Mutable(role=context_only)`。但它改为只提交 BusContext，且 BusContext 的同一 provenance quote 仍是
+`Mutable/BusContext`。既有校验检查每个 row 是否有来源，却不检查一个已接纳 quote 中共同点名的 typed sibling 是否各自有 row；Explorer 因而从未获得 Mutable relation obligation，
+最终图仍是四阶段 spine + 断开 BusContext，Mutable 完全缺席。立案 `B625-DIAGRAMPARTICIPANTCOLISTOMISSION1/P1-high`。
+
+trace/current-source 案显示 B624 的新 authority 已进入 Explorer report、Finalizer current-source 指引和 typed accepted-evidence handoff；答案正确保留 H:，选择 emitter/HeaderPID
+lane 的 LIFO 恢复，也未从 scheduler absence 推出 On-CPU。仍有确定性越界：模型把 SQL/raw-marker recovery path 称为通用“完整链路”，并称只解析 payload 的
+`parseTraceMarkValidated` 会提取时间戳。definition ceiling 是正确软权限，但 aggregate member_notes/completion reason 仍可携带模型函数体概括并在 Finalizer 中压过它，B624
+因此为 production-partial，后续需继续收窄模型整理层而不是扫描终稿或由系统代写机制。
+
+第二案 321s，模型流超过四分钟后正常完成；没有 fixed-age degrade、旧稿替换或空答案。系统只应对精确 transport/byte-silence/caller cancel/safety/decode failure 响应。
+
+状态：`B623=production-negative-shape-closed`；`B625=confirmed/implemented-targeted-pass`；
+`B624=production-partial`；`B621=production-positive`；`runner=2/2`；`human=0/2`；
+`active-stream-fixed-age-degrade=absent`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+`Trace causal projection/system supplement=unchanged`。
+
+### 123.663 B625：同一 participant provenance quote 中的 typed sibling 不得漏行
+
+B625 在 B623 的 required source-flow provenance gate 上增加完整性合取，但不从整段用户请求或终稿推断参与者。判定只遍历已经接纳的 participant source_quote；当该 quote
+除当前 identity 外，还精确包含 Analyzer typed entity roster 中的另一个 identity，而 participant slate 没有该 sibling row 时，本次分析结构 fail-loud。修复提示允许模型自行选择：
+为共同点名的 actor 各发一行，或把 source_quote 收窄为 current-request 中不点名 sibling 的精确短语。
+
+这条规则覆盖 `/、,，&` 之外的自然短语，因为身份匹配复用现有 token-boundary provenance matcher；同时不会把 relation_scope_quote 中的 `pipeline`、系统边界或展示语法一概提升为
+参与者，只约束模型已经拿来授权某个 participant 的局部来源片段。新增生产同形回归钉住 BusContext row 引用 `Mutable/BusContext` 却漏 Mutable 必须失败；显式 surrounding context、
+完整六 participant、Trace/non-flow 车道保持不变。系统不晋升 role、不生成边、不修改答案。
+
+状态：`B625=implemented/targeted-pass/pending-production-replay`；`co-listed-typed-sibling=row-required`；
+`whole-request-participant-inference=none`；`model-role/edge-ownership=preserved`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
