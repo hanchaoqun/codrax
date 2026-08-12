@@ -141,7 +141,7 @@ func TestParseSSEStream_DegenerateBreakerFires(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestParseSSEStream_NormalLongContentNotTruncated(t *testing.T) {
 
 	var progress atomic.Int64
 	var firstByte atomic.Bool
-	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte, nil)
+	resp, err := parseSSEStreamTracked(strings.NewReader(stream.String()), nil, nil, nil, &progress, &firstByte)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,16 +187,7 @@ func TestParseSSEStream_NormalLongContentNotTruncated(t *testing.T) {
 	}
 }
 
-// --- total wall-clock cap ---
-
-func TestStreamTotalWallClockCap(t *testing.T) {
-	if got := streamTotalWallClockCap(0); got != 0 {
-		t.Fatalf("unset requestTimeout must disable the cap, got %v", got)
-	}
-	if got := streamTotalWallClockCap(10 * time.Minute); got != 20*time.Minute {
-		t.Fatalf("cap must be 2×requestTimeout, got %v", got)
-	}
-}
+// --- legacy total wall-clock error compatibility ---
 
 func TestStreamTotalTimeoutError_Sentinel(t *testing.T) {
 	wrapped := &StreamTotalTimeoutError{Elapsed: 21 * time.Minute, Cap: 20 * time.Minute, Cause: errStreamProbe}

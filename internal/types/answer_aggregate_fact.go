@@ -2299,7 +2299,9 @@ func AggregateMemberSetIsMechanismNarrativeSupport(rm *RequestModel, fact Answer
 		RequiresRelationMemberSetHandoff(*rm) {
 		return false
 	}
-	return IsSingleTopicMechanismExplanation(*rm) || rm.Predicates.IsRelationalLookup
+	return IsSingleTopicMechanismExplanation(*rm) ||
+		rm.Predicates.IsRelationalLookup ||
+		IsDiagnosticCurrentSourceMechanismNarrative(*rm)
 }
 
 // AggregateFactIsNarrativeHistorySupport reports whether a history aggregate

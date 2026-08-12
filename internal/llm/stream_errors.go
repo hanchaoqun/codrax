@@ -92,13 +92,16 @@ var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
 // empty-stream state. Pre-evolution the watchdog ignored keep-alive
 // bytes entirely, which killed reasoning-model gateways that heartbeat
 // while holding all assistant output until thinking completes. A
-// comment-only stream is still bounded by the total wall-clock cap
-// (2×request timeout), so a provider cannot heartbeat forever.
+// heartbeat-active stream now remains alive until real byte silence,
+// transport failure, or caller cancellation; elapsed age alone is not a
+// failure signal.
 //
 // Why two timeouts: thinking models routinely pause 30-60s between
-// thinking blocks, so stallTimeout sits much higher. But "request
-// accepted, server sends nothing at all" still needs a bounded
-// pre-output watchdog.
+// thinking blocks, so stallTimeout sits much higher. A byte-silent request is
+// bounded by first-byte/stall watchdogs; a heartbeat-active request is not
+// terminated from elapsed age alone because some reasoning gateways expose no
+// model delta until the final answer. The caller still owns explicit
+// cancellation/deadlines.
 //
 // IdleFor records how long the request went with no upstream bytes
 // before the watchdog fired. Unwrap returns the underlying ctx
@@ -169,14 +172,10 @@ func (e *StreamNoVisibleOutputTimeoutError) Is(target error) bool {
 	return target == ErrStreamNoVisibleOutputTimeout
 }
 
-// ErrStreamTotalTimeout is raised when a streaming request exceeds the
-// transport-only wall-clock cap (2× the operator's request timeout) before any
-// real model progress arrives. Streaming intentionally carries no
-// http.Client.Timeout so legitimate reasoning, answer, and tool-call streams
-// are not killed while active. Keep-alive-only connections still reset byte
-// idle clocks, so this independent cap bounds that exact no-model-progress
-// state. Once real model progress starts, elapsed time alone is not authority
-// to stop the model or publish a degraded answer.
+// ErrStreamTotalTimeout is retained for compatibility with adapters that may
+// already return this typed error. The OpenAI SSE adapter no longer mints it:
+// elapsed age, including a heartbeat-only interval, is not precise authority to
+// stop an active reasoning gateway or publish a degraded system answer.
 var ErrStreamTotalTimeout = errors.New("llm: upstream stream exceeded total wall-clock cap")
 
 // StreamTotalTimeoutError wraps the read-side cancellation when the

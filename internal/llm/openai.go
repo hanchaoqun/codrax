@@ -646,24 +646,23 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	// the upstream stops sending useful stream progress for too
 	// long. The streaming HTTP client intentionally has no global
 	// http.Client.Timeout so legitimate long answers are not killed
-	// while bytes are flowing; instead the watchdog enforces three
-	// product-level caps:
+	// while bytes are flowing; instead the watchdog enforces two
+	// precise liveness caps:
 	//   - no first usable SSE chunk within streamFirstByteTimeout;
 	//   - no SSE progress after the stream starts within streamStallTimeout;
-	//   - transport-only wall-clock above 2×requestTimeout before any real
-	//     model progress. Keep-alive bytes reset the idle watchdog, so this
-	//     cap bounds a connection that only proves transport liveness.
 	//
 	// Hidden reasoning is real model progress, not a terminal absence of
 	// answer. In particular, requestTimeout MUST NOT be reused as a
 	// visible-output idle gate: doing so killed a healthy active stream at
 	// four minutes and made the orchestrator publish a degraded evidence
 	// summary instead of waiting for the model's answer. The absolute total
-	// cap MUST also stop applying after reasoning/content/tool progress begins:
-	// elapsed time is not a precise failure signal and cannot authorize replacing
-	// a still-working model with a degraded system answer. Exact periodic visible
-	// repetition remains bounded by the degeneration breaker; true byte silence
-	// remains bounded by the stall watchdog; callers still own cancellation.
+	// cap is intentionally absent even before visible model progress: reasoning
+	// gateways may expose only transport heartbeat bytes while they hold hidden
+	// reasoning and the final answer. Elapsed time is not a precise failure signal
+	// and cannot authorize replacing a still-working model with a degraded system
+	// answer. Exact periodic visible repetition remains bounded by the degeneration
+	// breaker; true byte silence remains bounded by the stall watchdog; callers
+	// still own explicit cancellation/deadlines.
 	//
 	// Bug provenance: eval Batch I+J sgf-parsing — planner LLM
 	// streamed initial reasoning, then upstream went silent for
@@ -765,14 +764,9 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 	var lastReadNano atomic.Int64
 	lastReadNano.Store(time.Now().UnixNano())
 	var firstByteReceived atomic.Bool
-	var modelProgressReceived atomic.Bool
 	var watchdogFired atomic.Bool
 	var firstByteFired atomic.Bool
-	var totalCapFired atomic.Bool
 	var watchdogIdle atomic.Int64 // ns
-	var totalCapElapsed atomic.Int64
-	streamStart := time.Now()
-	totalCap := streamTotalWallClockCap(o.requestTimeout)
 	watchDone := make(chan struct{})
 	stallTimeout := o.streamStallTimeout
 	if stallTimeout <= 0 {
@@ -822,21 +816,11 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 						return
 					}
 				}
-				if totalCap > 0 && !modelProgressReceived.Load() {
-					if elapsed := time.Since(streamStart); elapsed > totalCap {
-						logging.Warning("[llm/stream] stream exceeded transport-only wall-clock cap (%v > %v = %d×request timeout %v) without model progress; aborting",
-							elapsed.Round(time.Second), totalCap, streamTotalWallClockCapMultiplier, o.requestTimeout)
-						totalCapElapsed.Store(int64(elapsed))
-						totalCapFired.Store(true)
-						cancel()
-						return
-					}
-				}
 			}
 		}
 	}()
 
-	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, &modelProgressReceived)
+	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -856,12 +840,6 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		} else if firstByteFired.Load() {
 			err = &StreamFirstByteTimeoutError{
 				IdleFor: time.Duration(watchdogIdle.Load()),
-				Cause:   err,
-			}
-		} else if totalCapFired.Load() {
-			err = &StreamTotalTimeoutError{
-				Elapsed: time.Duration(totalCapElapsed.Load()),
-				Cap:     totalCap,
 				Cause:   err,
 			}
 		} else if watchdogFired.Load() {
@@ -1066,27 +1044,7 @@ const (
 	// scanner work). Not operator-tunable: the 100 ms bound is a
 	// kernel-scheduling sanity floor, not a knob worth exposing.
 	streamWatchdogMinTickInterval = 100 * time.Millisecond
-	// streamTotalWallClockCapMultiplier scales requestTimeout into the
-	// absolute wall-clock ceiling for one streaming attempt. 2× keeps
-	// the historical decision that flowing visible bytes may run past
-	// the request timeout (long legitimate answers), while bounding the
-	// degenerate case where deltas flow forever and reset every idle
-	// watchdog. Not operator-tunable: operators already own the base
-	// requestTimeout knob; a second multiplier knob would just be a
-	// harder-to-reason-about alias for it.
-	streamTotalWallClockCapMultiplier = 2
 )
-
-// streamTotalWallClockCap derives the absolute per-attempt wall-clock
-// ceiling for a streaming request. Zero (unset requestTimeout) keeps
-// the cap disabled, matching the non-streaming path where the HTTP
-// client timeout is likewise absent.
-func streamTotalWallClockCap(requestTimeout time.Duration) time.Duration {
-	if requestTimeout <= 0 {
-		return 0
-	}
-	return requestTimeout * streamTotalWallClockCapMultiplier
-}
 
 // parseSSEStream reads SSE frames from r and folds them into a single
 // Response. Factored out so the parser is unit-testable without a
@@ -1109,10 +1067,10 @@ func streamTotalWallClockCap(requestTimeout time.Duration) time.Duration {
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
 func parseSSEStream(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
-	return parseSSEStreamTracked(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte, nil)
+	return parseSSEStreamTracked(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte)
 }
 
-func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, modelProgress *atomic.Bool) (Response, error) {
+func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -1207,7 +1165,6 @@ scan:
 			continue
 		}
 		chunkProgress := chunk.Usage != nil
-		semanticProgress := chunk.Usage != nil
 		for _, ch := range chunk.Choices {
 			if strings.TrimSpace(ch.FinishReason) != "" ||
 				ch.Delta.Content != "" ||
@@ -1215,12 +1172,6 @@ scan:
 				strings.TrimSpace(ch.Delta.Role) != "" ||
 				len(ch.Delta.ToolCalls) > 0 {
 				chunkProgress = true
-			}
-			if strings.TrimSpace(ch.FinishReason) != "" ||
-				ch.Delta.Content != "" ||
-				ch.Delta.ReasoningContent != "" ||
-				len(ch.Delta.ToolCalls) > 0 {
-				semanticProgress = true
 			}
 		}
 		if !chunkProgress {
@@ -1232,15 +1183,13 @@ scan:
 			// frames" starved reasoning-model gateways) — but they do
 			// NOT prove the model has begun answering, so they must not
 			// flip firstByte / gotAnyChunk / visible progress. The
-			// total wall-clock cap (2×request timeout) still bounds a
-			// provider that keeps the request open on keep-alives alone.
+			// No elapsed-age gate is applied here: some reasoning gateways
+			// expose only these heartbeat frames until the final answer.
+			// Explicit caller cancellation remains the escape hatch.
 			continue
 		}
 		if !gotAnyChunk && firstByte != nil {
 			firstByte.Store(true)
-		}
-		if semanticProgress && modelProgress != nil {
-			modelProgress.Store(true)
 		}
 		gotAnyChunk = true
 

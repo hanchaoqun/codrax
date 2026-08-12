@@ -110,6 +110,33 @@ func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectedClaimEnumIsSoleAvailabilityTeaching(t *testing.T) {
+	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{{
+		Kind:                 types.BlockOrderedList,
+		Required:             true,
+		MinCount:             1,
+		MaxCount:             1,
+		AcceptableClaimForms: []types.ClaimForm{types.ClaimDefinitionFact},
+	}}}
+	_, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	claimUses := blockProps["claim_uses"].(map[string]any)
+	description, _ := claimUses["description"].(string)
+	if !strings.Contains(description, "sibling projected claim_form.enum is the sole availability authority") {
+		t.Fatalf("claim teaching must identify the projected enum as the only availability source: %q", description)
+	}
+	for _, absentForm := range []string{"text_reference_fact", "literal_value_fact", "callback_handoff"} {
+		if strings.Contains(description, absentForm) {
+			t.Fatalf("projected description must not advertise unavailable form %q: %q", absentForm, description)
+		}
+	}
+	claimItem := claimUses["items"].(map[string]any)
+	claimProps := claimItem["properties"].(map[string]any)
+	enum := claimProps["claim_form"].(map[string]any)["enum"].([]any)
+	if len(enum) != 1 || enum[0] != string(types.ClaimDefinitionFact) {
+		t.Fatalf("projected claim enum=%v, want only definition_fact", enum)
+	}
+}
+
 func TestEmitAnswerDocumentSchema_SourceDiagramEdgeOwnershipUsesTypedSingleSource(t *testing.T) {
 	raw := string((&EmitAnswerDocument{}).Parameters())
 	if !strings.Contains(raw, types.GroundedSourceDiagramEdgeOwnershipContract) {

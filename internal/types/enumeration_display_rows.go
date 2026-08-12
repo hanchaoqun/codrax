@@ -155,22 +155,7 @@ func enumerationDisplayConflictsWithDiagnosticCurrentSourceMechanism(rm RequestM
 	if aggregateRequestRequiresPathMemberSetAsPrincipal(rm) {
 		return false
 	}
-	if !enumerationDisplayHasCurrentSourceDiagnosticShape(rm) {
-		return false
-	}
-	return rm.Predicates.IsDiagnosticQuestion ||
-		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
-		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
-		rm.Intent == IntentRootCause ||
-		rm.Scenario == ScenarioRootCause ||
-		rm.Scenario == ScenarioPerformanceBottleneck
-}
-
-func enumerationDisplayHasCurrentSourceDiagnosticShape(rm RequestModel) bool {
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
-		return true
-	}
-	return rm.DiagnosticProfile.CurrentVersionCheck
+	return IsDiagnosticCurrentSourceMechanismNarrative(rm)
 }
 
 // CompileEnumerationDisplaySets compiles accepted complete principal

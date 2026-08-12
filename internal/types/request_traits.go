@@ -543,6 +543,30 @@ func RequiresSourceOperationSiteMemberSetHandoff(rm RequestModel) bool {
 	return sourceOperationSiteHasTypedSurface(rm)
 }
 
+// IsDiagnosticCurrentSourceMechanismNarrative reports whether the request asks
+// for a diagnostic/root-cause explanation that relates an external observation
+// back to the current checkout. In this shape, explorers may use member_set
+// facts to keep mechanism branches and evidence locations organized, but that
+// set is not itself a user-requested closed answer slate.
+//
+// Callers that materialize or hard-gate member sets must still give precedence
+// to explicit typed set obligations (enumeration, relation, source-operation,
+// or change-impact profiles). This predicate deliberately consumes only typed
+// request fields; it never scans the raw request, model prose, labels, or source
+// language syntax.
+func IsDiagnosticCurrentSourceMechanismNarrative(rm RequestModel) bool {
+	if rm.CurrentSourceExplanationProfile == nil ||
+		!rm.CurrentSourceExplanationProfile.Active() {
+		return false
+	}
+	return rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		rm.Intent == IntentRootCause ||
+		rm.Scenario == ScenarioRootCause ||
+		rm.Scenario == ScenarioPerformanceBottleneck
+}
+
 func sourceOperationSiteHasTypedSetBoundary(rm RequestModel) bool {
 	if rm.Intent == IntentEnumerate ||
 		rm.Predicates.IsCategoryEnumeration ||

@@ -8599,6 +8599,15 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	if rm == nil {
 		return false
 	}
+	// A support-role mechanism outline is still a current-source claim when
+	// the request explicitly asks to relate the runtime observation back to
+	// the checkout. Demoting that outline from the visible principal slate
+	// must not let an attached trace implicitly reclassify decorated source
+	// identities as artifact-local rows. Only an explicit fact-level runtime
+	// origin can take the runtime evidence lane here.
+	if aggregateMemberSetRequiresCurrentSourceGrounding(ctx, fact) {
+		return false
+	}
 	if authority := runtimeSourceAnswerAuthorityForCompletionWithAggregateFacts(ctx, []types.AnswerAggregateFact{fact}); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
 		if !runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority) {
 			return false
@@ -8768,6 +8777,20 @@ func requestModelForAggregateSupport(ctx *types.BusContext) *types.RequestModel 
 		return ctx.Mutable.RequestModel()
 	}
 	return nil
+}
+
+// aggregateMemberSetRequiresCurrentSourceGrounding keeps evidence-source
+// responsibility independent from final-answer visibility. A member_set may be
+// demoted to supporting_coverage because it is a mechanism outline rather than
+// a user-requested closed slate; when the request explicitly asks for current
+// source, that outline still cannot be dropped, rewritten, or treated as an
+// artifact-local fact without an explicit fact-level runtime origin.
+func aggregateMemberSetRequiresCurrentSourceGrounding(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	rm := requestModelForAggregateSupport(ctx)
+	return rm != nil &&
+		rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active() &&
+		!aggregateFactHasExplicitRuntimeArtifactOrigin(fact)
 }
 
 func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
@@ -15547,6 +15570,7 @@ func dropUnsupportedDecoratedMemberSets(ctx *types.BusContext, facts []types.Ans
 		if fact.Kind != types.AnswerAggregateMemberSet ||
 			role == types.AnswerAggregateRoleUnknown ||
 			(role.IsPrincipal() && !includePrincipal) ||
+			aggregateMemberSetRequiresCurrentSourceGrounding(ctx, fact) ||
 			len(fact.SupportRefs) > 0 ||
 			!aggregateMemberSetHasUnsupportedDecoratedCodeMembersForContext(ctx, fact) {
 			out = append(out, fact)
@@ -15645,6 +15669,15 @@ func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind stri
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
+	// Visibility and grounding are separate contracts. A current-source
+	// diagnostic member_set may be narrative support rather than a visible
+	// answer slate, but its decorated source identities still need grounded
+	// per-member refs. Do not erase the decoration into member_notes and thereby
+	// make that evidence debt disappear. An explicitly runtime-origin fact keeps
+	// the established artifact-local repair lane.
+	if aggregateMemberSetRequiresCurrentSourceGrounding(ctx, fact) {
+		return false
+	}
 	// SUPPREF-TOL (§29.104.13): under a typed explicit user exclude boundary
 	// ("只分析这份 trace，不分析代码" — CSP #63 chokepoint precedent in
 	// AnswerAggregateFactEvidenceOrigins), a current-source grounding

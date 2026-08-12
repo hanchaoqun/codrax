@@ -2230,6 +2230,73 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageAdvisoryForNarrative(t *test
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_CurrentSourceDiagnosticDoesNotCompeteWithModelPathList(t *testing.T) {
+	mu := types.NewMutableState("current-source diagnostic mechanism handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "B/E span 解析链路操作节点",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"recognize trace marker family",
+			"pair begin/end records",
+			"publish bounded duration",
+		},
+	}})
+	mu.SetInvestigationComplete("mechanism support ledger ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentRootCause,
+			Scenario:      types.ScenarioRootCause,
+			PredicateAxis: types.AxisFlow,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+					types.CurrentSourceExplanationTraceCurrentFlow,
+				},
+				SourceQuotes: []string{"结合当前源码解释"},
+				Confidence:   0.9,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "span 解析机制"},
+				{Summary: "耗时评估"},
+				{Summary: "证据边界"},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "span-parse-chain",
+		Kind:        types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{{
+			ID:   "hop-1",
+			Text: "模型根据已读源码解释主路径和分支边界。",
+		}},
+	}}}
+	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{{
+		Kind:     types.BlockOrderedList,
+		Required: true,
+		MinCount: 1,
+		MaxCount: 1,
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("system must not append a competing ordered_list for a diagnostic support ledger: fixed=%d blocks=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "span-parse-chain" {
+		t.Fatalf("model-authored mechanism path must remain the sole list carrier: %+v", doc.Blocks)
+	}
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("system normalization must not create an over-max repair loop: %+v", hints)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRows(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

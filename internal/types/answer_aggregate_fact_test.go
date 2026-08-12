@@ -2970,6 +2970,67 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesMechanismMemberSetAtSource
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesMultiTopicCurrentSourceDiagnosticMemberSet(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "B/E span 解析链路操作节点",
+		Value: "3",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"recognize trace marker family",
+			"pair begin/end records",
+			"publish bounded duration",
+		},
+	}}
+	rm := RequestModel{
+		Intent:        IntentRootCause,
+		Scenario:      ScenarioRootCause,
+		PredicateAxis: AxisFlow,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes: []CurrentSourceExplanationMode{
+				CurrentSourceExplanationExplainCurrentMechanism,
+				CurrentSourceExplanationTraceCurrentFlow,
+			},
+			SourceQuotes: []string{"结合当前源码解释"},
+			Confidence:   0.9,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "span 解析机制"},
+			{Summary: "耗时评估"},
+			{Summary: "证据边界"},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(got[0].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("multi-topic current-source diagnostic member_set should support the model narrative, got %+v", got[0])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 0 {
+		t.Fatalf("diagnostic mechanism outline must not become a principal answer slate: %+v", refs)
+	}
+	if ShouldCompileEnumerationDisplaySetsForRequest(rm) {
+		t.Fatal("diagnostic mechanism outline must not authorize deterministic visible rows")
+	}
+
+	explicit := rm
+	explicit.Predicates.HasPerMemberTable = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &explicit)
+	if role := NormalizeAnswerAggregateRole(got[0].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit typed source-operation set must remain principal, got %+v", got[0])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &explicit); len(refs) != 1 {
+		t.Fatalf("explicit typed source-operation set lost its principal authority: %+v", refs)
+	}
+	if !ShouldCompileEnumerationDisplaySetsForRequest(explicit) {
+		t.Fatal("explicit typed source-operation set must retain deterministic row authority")
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceOperationSitesRemainPrincipal(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,

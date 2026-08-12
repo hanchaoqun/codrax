@@ -240,14 +240,10 @@ func projectClaimUsesEnum(blockProps map[string]any, view *types.AnswerSemanticV
 			enum = append(enum, string(f))
 		}
 	}
-	// The description string carries the inline enum list verbatim;
-	// keep it as-is to preserve LLM teaching, but rewrite the JSON
-	// items[].properties.claim_form.enum if such a node exists. The
-	// canonical schema declares claim_uses as a typed array but
-	// leaves the inner shape opaque (description prose carries the
-	// enum); injecting an items.properties.claim_form.enum lets a
-	// strict-mode schema reader see the projected list while keeping
-	// the description backward-compatible.
+	// Availability comes only from the projected JSON enum. The field
+	// description deliberately does not advertise individual conditional
+	// forms, so a strict-mode reader cannot be taught a value that this
+	// dispatch then rejects.
 	itemsNode, ok := claimUsesField["items"].(map[string]any)
 	if !ok {
 		itemsNode = map[string]any{"type": "object"}

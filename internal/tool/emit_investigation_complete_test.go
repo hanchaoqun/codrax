@@ -8005,7 +8005,7 @@ func TestEmitInvestigationComplete_CurrentSourceTraceRequestStillRequiresDecorat
 		t.Fatalf("completion-form support_refs debt should downgrade, not tool-fail: %s", res.Summary)
 	}
 	if mut.IsInvestigationComplete() {
-		t.Fatal("explicit current-source trace request must not close a decorated source member_set without support_refs")
+		t.Fatalf("explicit current-source trace request must not close a decorated source member_set without support_refs: summary=%s facts=%+v", res.Summary, mut.StableInvestigationAggregateFacts())
 	}
 	if !strings.Contains(res.Summary, "support_refs is empty") {
 		t.Fatalf("expected support_refs downgrade, got: %s", res.Summary)

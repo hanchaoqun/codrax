@@ -33784,3 +33784,69 @@ B609 软梯增加三条语言、路径、事件族无关的证据纪律：互斥
 
 状态：`B611/B612=implemented/targeted-test-pending-production-replay`；`mechanism-topology=branch-aware-soft-guidance`；
 `operation-evidence=focused-gutter-soft-guidance`；`hard-gate=none`；`model-answer-ownership=preserved`。
+
+### 123.649 r366：系统枚举载体与模型机制列表争配额；JSON schema 自相矛盾；Trace 模型波动
+
+`main@55fc413b8` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r366_20260812_manual_audit.md`。
+
+read-combo 给出 B611/B612 的部分正证：Explorer 已读取 normal/recovery 分支、sync correlator 与逐操作 gutter，且 Finalizer 首个完整草稿确实生成了模型自己的
+`span-parse-chain`。但生产路径出现更早、更确定的系统自冲突，导致该关系列表最终被挤掉。
+
+第一处是动态 JSON 教学冲突。通用 `claim_uses` description 正向解释 `text_reference_fact`，本 dispatch 的 projected
+`claim_form.enum` 却不包含它。模型在首轮明确指出 description 与 enum 相反并被迫重发。conditional field 的可用值只能来自本轮 enum；静态 prose 不得教授本轮不接受的值。
+
+第二处是载体所有权冲突。模型第二稿只有 `summary + ordered_list + caveat`，其中仅一块 ordered list；pre-emit 的
+`normalizeAggregateMemberSetCarriers` 又把 explorer 的 7 项机制 member_set 自动铸造成
+`AnswerSystemGeneratedPrincipalEnumerationRows/ordered_list`。随后 RequiredBlocks 的 `MaxCount=1` 在系统修补之后计数为 2，连续拒绝模型。patch 提示不暴露系统 block，
+模型只能反复修改自己可见的一块；删除模型机制列表时一度成功，随后因 required min 再补列表又触发同一 max。475s 主要来自 7 次确定性成文拒绝和 5 次 patch，
+不是“模型连接活跃四分钟后主动降级”。最终系统清单替代模型机制关系，并反向披露“主路径关系缺失”，确认
+`B613-AGGREGATECARRIERCARDINALITY1/P1-high`。
+
+根因不是 ordered_list 这个具体 kind，而是两个 typed 消费面不一致：`CompileEnumerationDisplaySets` 已知道 current-source diagnostic mechanism 的 member_set
+是支持账本，`PrincipalAggregateMemberSetFactRefsForRequest`/system carrier 却仍把同一事实当 principal。最优根修是共享 typed request-shape 判据；无显式 exhaustive、
+relation、source-operation-site 或 change-impact 集合义务时，member_set 只保留给模型作为覆盖/证据上下文，不得成为系统可见清单、硬 completeness 或 required-block
+配额消费者。事实降为 supporting coverage 只改变可见性，不能放松 current-source 每成员 support-ref 的证据责任。
+
+Trace D4 的显式窗、目标状态、typed 唤醒链、链上 rank、实际占用/现规则可消双轴、D/IO、调度/算力、确定性语义工作、业务线索、背景降级、因果投影和系统补齐全部在；
+模型仍把重叠的 23.994ms 与 19.041ms 相加为 43.035ms，并把 priority-inversion candidate 升格为已定阻塞机理。相同精确合同在 r362/r363 曾通过，继续按模型波动记录，
+不增加终稿原文扫描、硬拒或系统代写。
+
+状态：`B611/B612=production-partial`；`B613=confirmed/implemented-tests-pending-replay`；
+`B614-DYNAMICSCHEMAPROSECONFLICT1=confirmed/implemented-tests-pending-replay`；`runner=2/2`；`human=0/2`；
+`trace-model-variance=no-hardening`；`system-generated-block-vs-model-quota=forbidden`；`model-answer-ownership=preserved`。
+
+### 123.650 B613/B614/B615：统一机制账本权限；schema enum 单一权威；撤销四分钟活跃心跳超龄降级
+
+B613 新增语言、路径、事件族无关的 `IsDiagnosticCurrentSourceMechanismNarrative` typed request trait，并让枚举展示编译与 aggregate role/principal refs 共同消费。
+current-source profile active 且属于 diagnostic/root-cause/performance narrative 时，完整 member_set 可继续精确携带探索分支、操作点和逐成员证据，但默认角色是
+`supporting_coverage`：不自动生成 `ordered_list`，不进入 principal member completeness，也不与模型 required path/list 抢配额。显式 exhaustive enumeration、relation set、
+source-operation-site、change-impact 仍优先并保持 principal，避免为了本案削弱真正的“所有/逐项/写入点”回答。
+
+同批补了 grounding/visibility 解耦。附着 trace 并明确要求结合当前源码时，支持账本中的 decorated source identity 仍必须有 grounded `support_refs`；系统不能因为它不再是
+可见主列表，就把它当 artifact-local 行、剥掉 qualifier 或在 optional handoff 中静默丢弃。既有生产测试重新抓住并固定了这一不变量。
+
+B614 将 `claim_uses` JSON description 改为只说明结构与“sibling projected claim_form.enum 是唯一 availability authority”，删除对条件 form 的静态正向枚举。
+投影测试固定：当 enum 只有 `definition_fact` 时，description 不得出现 `text_reference_fact`、`literal_value_fact` 或 `callback_handoff`；模型不再承担系统说明和 schema
+互相矛盾的心智成本。
+
+B615 复核确认 OpenAI SSE adapter 仍有旧的 transport-only total cap：在没有公开 reasoning/content/tool delta、但连接持续 heartbeat 时，以
+`2×request_timeout` 中止；默认 120s 配置下恰好约 4 分钟。该 elapsed 门无法区分“推理网关仍在工作但隐藏 reasoning”和“永远 heartbeat”，不是可授权系统降级的精确信号。
+本批删除 adapter 主路径的 total-cap 发射臂：
+
+- reasoning/content/tool/finish/usage 进展当然持续等待；
+- 只有 heartbeat/合法 SSE framing、尚无可见答案时也不再因累计 4 分钟退出；
+- byte-silent pre-header/first-byte/mid-stream 仍分别由 typed first-byte/stall watchdog 处理；
+- transport failure、caller cancel/deadline、安全事件、最终 empty/malformed/decode failure 继续 fail-loud；
+- 周期性可见退化仍由精确 degeneration breaker 处理；
+- `StreamTotalTimeoutError` 只保留兼容其他 adapter，OpenAI SSE adapter 不再铸造它。
+
+新的 keep-alive 回归以 400ms request timeout 构造旧 800ms cap，并让连接持续 heartbeat 至 1.2s caller deadline；断言它越过旧 cap，最终只能返回 caller
+`context.DeadlineExceeded`，不得返回 legacy total-timeout。该改变不会让系统代写答案：相反，它移除了仅凭 age 清空/替换模型载体的权限。用户仍可显式取消；真正断流仍快速退出。
+
+定向回归覆盖：多主题 current-source diagnostic member_set role/principal/display 三面一致、显式 source-operation 集合正臂、pre-emit 模型唯一 ordered-list 不被系统补表、
+current-source support-ref 责任、projected JSON enum 教学、活跃 heartbeat 越过旧 cap，以及 active reasoning/content/tool 越过旧 cap。
+
+状态：`B613/B614/B615=implemented/targeted-pass/pending-production-replay`；`active-heartbeat-fixed-age-degrade=removed`；
+`precise-exit-signals=byte-silence|transport|caller-cancel|safety|decode`；`request/model/final-prose-hard-scan=none`；
+`Trace causal projection/system supplement=unchanged`；`model-answer-ownership=preserved`。

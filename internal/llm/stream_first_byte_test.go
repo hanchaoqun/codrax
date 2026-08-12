@@ -291,9 +291,9 @@ func TestDoStreamRequest_FirstByteTimeoutCancelsPreHeaderDo(t *testing.T) {
 // breathing"), so a stream that heartbeats past firstByteTimeout and
 // THEN delivers real data must succeed. The empty-stream verdict
 // (gotAnyChunk) still counts only parseable data chunks — covered by
-// the StreamEmptyError matrix tests — and a heartbeat-forever stream
-// is still bounded by the total wall-clock cap
-// (TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap).
+// the StreamEmptyError matrix tests. A heartbeat-active stream is not
+// terminated from elapsed age alone; the caller's explicit cancellation is
+// pinned by TestDoStreamRequest_KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel.
 func TestDoStreamRequest_KeepAlivesResetFirstByteWatchdog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -451,12 +451,12 @@ func TestDoStreamRequest_KeepAlivesResetStallWatchdog(t *testing.T) {
 	}
 }
 
-// TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap is the
-// negative arm of the §29.92 keep-alive evolution: liveness resets
-// must NOT make the wait unbounded. A provider that heartbeats forever
-// without ever producing a data chunk is cut by the total wall-clock
-// cap (2×request timeout) with the typed total-timeout error.
-func TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap(t *testing.T) {
+// TestDoStreamRequest_KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel
+// pins the ownership boundary: a reasoning gateway may expose only heartbeat
+// bytes while holding its hidden reasoning and final answer. Elapsed age alone
+// must not cancel that active connection or authorize a degraded answer; the
+// caller's explicit context cancellation remains authoritative.
+func TestDoStreamRequest_KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -485,18 +485,20 @@ func TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap(t *testing.T) {
 		StreamStallTimeout:     10 * time.Second,
 	})
 
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
 	start := time.Now()
-	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	_, err := adapter.Chat(ctx, []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatalf("heartbeat-forever stream must still be bounded; got nil error")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("heartbeat-active stream must end only from caller deadline, got %v", err)
 	}
-	if !errors.Is(err, ErrStreamTotalTimeout) {
-		t.Fatalf("expected ErrStreamTotalTimeout to bound a keep-alive-only stream; got %v", err)
+	if errors.Is(err, ErrStreamTotalTimeout) {
+		t.Fatalf("elapsed age must not mint the legacy total-timeout signal: %v", err)
 	}
-	if elapsed > 5*time.Second {
-		t.Errorf("total cap should fire near 800ms; elapsed=%v", elapsed)
+	if elapsed <= 800*time.Millisecond {
+		t.Fatalf("stream did not outlive the old 2×request-timeout cap; elapsed=%v", elapsed)
 	}
 }
 
