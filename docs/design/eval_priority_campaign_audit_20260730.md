@@ -34468,3 +34468,51 @@ canonical identity 只用于共享可见 node/alias；每条 recipe 的 `from_id
 状态：`B634=implemented/targeted-pass/pending-production-replay`；`canonical-endpoint=single-shared-projection`；
 `edge-count/direction/evidence-location=unchanged`；`ambiguous-same-tail=fail-closed`；`system-node/edge/authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.681 r380：写模式最小修复为真 PASS；ArkTS 找全事实却被 row-id/display 合同困住
+
+`main@3b01bf716` exact-two runner 为 `1/2`，人工为 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_write_arkts_r380_20260812_manual_audit.md`。
+
+写模式 `patch_go_typo` 只把 `retrun` 改为 `return`，最终 diff 一行；计划探针、定向测试、全项目 `go test -json ./...` 与四项 verification obligation
+全部通过。未见计划恢复清空验证域、越界文件、系统代写结论或为了通过 oracle 扩大补丁。`verification_probe_missing_plan_contract_ref` 仅为 advisory，独立项目 runner
+仍真实执行并覆盖 `main.go`，本轮不升级为高优先级 gap。
+
+ArkTS 的 repo map、source lens 与模型推理找全 4 个 `@Entry` 和 2 个 `@Builder`，成员名、数量、文件与行号均正确，不是语言提取器漏检。失败来自两处下游合同：
+
+- `B635-SOURCEINVENTORYROWIDDISPLAY1/P0`：typed row 是 `member=Index (struct)`，模型用用户向标签 `Index` 并逐字复制该行 `row_id`。validator
+  只允许“item 带括注→row 基名”的单向别名，不允许“row 带语言种类括注→item 基名”；精确 row id 已唯一选中成员/族/位置仍被拒。统一错误又谎称 row id
+  未知或不同成员，模型连续六轮重抄同值、重排 block，最后删除 row id 才过。属于精确载体与显示载体职责混淆及不可行动修补提示，不是模型波动。
+- `B636-SOURCEINVENTORYVISIBLELOCATION1/P1-high`：Analyzer 已产生 typed `requested_fields=[name,location]`，Principal Enumeration Rows 也有精确 location，
+  但教学只说用 location 构建 clear cells，未明确 citation 不能代替可见请求字段。模型把文件路径全部留在 citations，正文每行只写“第 N 行”；引用能证明成员，却没有回答
+  “分别列出文件路径”。这是 typed 上下文足够、发布教学不够精确。
+
+本轮两案分别 91s/205s，不涉及固定四分钟降级。既有 LLM transport 回归已钉：active varied visible progress 可以越过 transport total cap；OpenAI SSE 不再铸造
+`StreamNoVisibleOutputTimeoutError` 或 total-age timeout；Finalizer legacy seam 返回 nil，不能从先前 evidence 合成系统答案。只有 first-byte/byte-silence、传输失败、调用方
+cancel/deadline、安全、解码或结构重试耗尽可触发明确披露的失败/恢复。持续活跃连接的年龄不是发布旧稿、空答或降级答的权限。
+
+状态：`runner=1/2`；`human=1/2`；`B635=confirmed`；`B636=confirmed`；
+`ArkTS extraction/facts=complete`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`raw-request/model/final-prose-hard-gate=none`；`system-answer-rewrite=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.682 B635/B636：精确行身份与用户向显示拆分；位置字段发布为同一行可见义务
+
+B635 保留 `source_inventory_row_id` 作为唯一 typed member/family/location/citation selector。只有在该精确 row id 已存在、属于当前 block 的 typed family partition 时，
+可见第一值才额外允许 row 的精确括注基名：例如 `Index (struct)` 可显示 `Index`。同名多行仍靠不同 row id 区分；任意子串、item text、block title、用户原文与终稿 prose
+都不参与该硬判断。未知 row id、越族 row id、完全不同的显示身份继续 fail-closed。
+
+修补提示也按失败原因拆开：row id 有效但 display 不同，会明确打印已选 member、实际 first visible value、应保留的 row id 及允许的精确 display/base；不再诱导模型
+重复抄 row id 或删除正确载体。Prompt 同步说明 source-inventory 的 identity/display 分工，不再与“所有 member 括注必须逐字成为 label”形成矛盾；箭头、关系分隔符和非括注身份
+继续 exact。
+
+B636 只读 `SourceInventoryProfile.RequestedFields` 的 typed `location` 枚举，向 Finalizer 发布软结构教学：每行把精确 location 放入同一 item 的 text/cells，表格优先
+Location/文件路径列；citation 证明该行但不能替代用户要求的可见文件路径。该批没有 deterministic supplement、正文扫描或系统改写，模型仍决定说明、分组和结论。
+
+定向回归覆盖 exact row id + `Index` 基名通过、同 row id + `Other` 得到包含真实差异的单条修补、非 source-inventory 装饰 member 的既有 verbatim 合同不变、
+typed location 教学明确同一行可见且 citation 非替代。相关 `internal/tool`、`internal/agent` 定向回归全绿；全相关包回归与生产 ArkTS+Cangjie exact-two 待完成。
+
+状态：`B635=implemented/targeted-pass`；`B636=implemented/targeted-pass`；
+`row-id-authority=exact-unchanged`；`display-base=exact-row-id-selected-only`；`location-guidance=typed-soft`；
+`system-answer/inventory-row-authorship=none`；`raw-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。

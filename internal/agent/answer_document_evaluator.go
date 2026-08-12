@@ -8499,11 +8499,26 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 	var b strings.Builder
 	b.WriteString("## Required Principal Member Set\n\n")
 	b.WriteString("The authoritative principal member rows are rendered once in `Principal Enumeration Rows` above. ")
-	b.WriteString("Every `row.member` there MUST appear verbatim in the visible answer, including decorators in parentheses, arrows, separators, and source-location text. ")
-	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
-		b.WriteString("Carry those rows as structured items in a principal `section`, `ordered_list`, `bullet_list`, or `table`; for `section`, use `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the member carrier; do not paraphrase or abbreviate any row member.\n\n")
+	sourceInventory := rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()
+	if sourceInventory {
+		b.WriteString("Every typed row there MUST appear once as a structured item with its exact `source_inventory_row_id`. The visible first value may use the exact `display_label` or, for a parenthesized language-kind member such as `Index (struct)`, its exact base `Index`; keep the qualifier as same-row category/detail instead of inventing another member. Arrows, separators, and non-parenthesized identities remain exact. ")
 	} else {
-		b.WriteString("The pre-emit oracle checks the same row identities against `blocks[].items[].label/text/cells OR blocks[].text`; do not paraphrase or abbreviate them.\n\n")
+		b.WriteString("Every `row.member` there MUST appear verbatim in the visible answer, including decorators in parentheses, arrows, separators, and source-location text. ")
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
+		b.WriteString("Carry those rows as structured items in a principal `section`, `ordered_list`, `bullet_list`, or `table`; for `section`, use `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the member carrier; ")
+		if sourceInventory {
+			b.WriteString("do not drop, merge, or invent rows, and use only the exact display alternatives stated above.\n\n")
+		} else {
+			b.WriteString("do not paraphrase or abbreviate any row member.\n\n")
+		}
+	} else {
+		b.WriteString("The pre-emit oracle checks the same row identities against `blocks[].items[].label/text/cells OR blocks[].text`; ")
+		if sourceInventory {
+			b.WriteString("do not drop, merge, or invent rows, and use only the exact display alternatives stated above.\n\n")
+		} else {
+			b.WriteString("do not paraphrase or abbreviate them.\n\n")
+		}
 	}
 	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
 		b.WriteString("This request's member_set is a source operation-site set: render it as the principal write/call/registration/entry-point list or table before broad mechanism prose. Use member-specific support refs for the operation-site citation; constants, literal target paths, config keys, or registry names are row details and must not replace the citation for the function/call/write site itself.\n\n")
@@ -8724,6 +8739,9 @@ func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Source-inventory row contract: the requested answer fields are `%s`.\n", strings.Join(fields, "`, `"))
+	if profile.RequestsField(types.SourceInventoryFieldLocation) {
+		b.WriteString("- `location` is a user-visible row field: copy each row's exact `location` into that same item's text/cells (prefer a Location/文件路径 column for tables). A bound `citation_ref` proves the row but does not replace the requested visible file path.\n")
+	}
 	if profile.RequiresConstSet {
 		b.WriteString("- `requires_const_set=true` is a membership qualifier for enum-like types; it does not by itself mean the final answer should list every const/member value.\n")
 	}

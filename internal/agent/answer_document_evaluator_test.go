@@ -3679,6 +3679,45 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 	}
 }
 
+func TestRenderAnswerDocSourceInventoryRowGuidance_LocationIsVisibleRowField(t *testing.T) {
+	mut := types.NewMutableState("enumerate ArkTS entries")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "@Entry pages", Value: "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Index (struct)"},
+		SupportRefs: []string{"Index (struct) @ src/Index.ets:5"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+			},
+			Confidence: 0.95,
+		},
+	}}, Mutable: mut}
+	got := renderAnswerDocSourceInventoryRowGuidance(ctx)
+	for _, want := range []string{
+		"`location` is a user-visible row field",
+		"same item's text/cells",
+		"does not replace the requested visible file path",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("location row guidance missing %q:\n%s", want, got)
+		}
+	}
+	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
+	if !strings.Contains(contract, "exact `display_label`") ||
+		!strings.Contains(contract, "exact base `Index`") ||
+		strings.Contains(contract, "Every `row.member` there MUST appear verbatim") ||
+		strings.Contains(contract, "do not paraphrase or abbreviate any row member") {
+		t.Fatalf("source-inventory member contract did not publish its row-id/display split:\n%s", contract)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundaryForPriorContext(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

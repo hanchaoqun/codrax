@@ -5175,6 +5175,67 @@ func TestPreEmitSourceInventoryHardRowsForBlock_DecoratorMarkerOutranksDisplayFa
 	}
 }
 
+func TestPreCheckSourceInventoryRowIDBindings_AcceptsExactDecoratedRowBaseDisplay(t *testing.T) {
+	mu := types.NewMutableState("enumerate ArkTS @Entry pages")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 1, Total: 1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Index", Role: types.AnswerCandidateRoleType,
+				File: "src/Index.ets", Line: 5, Language: "arkts",
+				SurfaceTerms:  []string{"Index", "Index (struct)", "@Entry"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "@Entry pages", Value: "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Index (struct)"},
+		SupportRefs: []string{"Index (struct) @ src/Index.ets:5"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"@Entry"},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+			Confidence:        0.95,
+		},
+	}}}
+	rowID := ""
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		for _, row := range set.Rows {
+			if row.Member == "Index (struct)" {
+				rowID = row.RowID
+				break
+			}
+		}
+	}
+	if rowID == "" {
+		t.Fatalf("missing prompt-visible decorated row: %+v", preEmitSourceInventoryTypedPrincipalSets(ctx))
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "entry", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+		Items:    []types.AnswerBlockItem{{ID: "index", Label: "Index", SourceInventoryRowID: rowID}},
+	}}}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact row-id plus exact parenthesized base display must pass: %+v", hints)
+	}
+	doc.Blocks[0].Items[0].Label = "Other"
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, rowID) ||
+		!strings.Contains(hints[0].Reason, "Other") ||
+		!strings.Contains(hints[0].Reason, "Index (struct)") {
+		t.Fatalf("wrong display identity must receive a row-specific repair, got %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
 	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

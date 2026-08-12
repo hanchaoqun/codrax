@@ -2197,13 +2197,19 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 			rowID := strings.TrimSpace(item.SourceInventoryRowID)
 			if rowID != "" {
 				row, ok := rowsByID[rowID]
-				if !ok || !principalEnumerationItemExactLabelMatchesRow(item, row) ||
+				if !ok || !principalEnumerationItemExactRowIDDisplayMatchesRow(item, row) ||
 					!preEmitSourceInventoryRowsContainAliasIdentity(allowedRows, row) {
+					expected := "copy the exact row_id for this item from Principal Enumeration Rows; remove the field only when this is not a source-inventory row"
+					reason := "the submitted typed row id is unknown or lies outside this block's typed source_inventory_family partition; titles and prose cannot repair row identity."
+					if ok && preEmitSourceInventoryRowsContainAliasIdentity(allowedRows, row) {
+						expected = fmt.Sprintf("keep source_inventory_row_id=%q and make the item's first visible value identify that row (exact member/display_label %q, or its exact parenthesized base %q)", rowID, principalEnumerationPreferredRowDisplay(row), principalEnumerationParenthesizedRowBase(row))
+						reason = fmt.Sprintf("the row_id is valid and selects member %q, but the item's structured first visible value is %q; repair the display identity rather than changing or removing the exact row_id.", principalEnumerationPreferredRowDisplay(row), identity)
+					}
 					hints = append(hints, sourceInventoryRowIDHardHint(
 						bi,
 						ii,
-						"copy the exact row_id for this item from Principal Enumeration Rows; remove the field only when this is not a source-inventory row",
-						"the submitted typed row id is unknown, names a different member, or lies outside this block's typed source_inventory_family partition; titles and prose cannot repair row identity.",
+						expected,
+						reason,
 					))
 				}
 				continue
@@ -2232,6 +2238,38 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 		}
 	}
 	return hints
+}
+
+// principalEnumerationItemExactRowIDDisplayMatchesRow validates only the
+// visible display identity attached to an already exact row-id selection. The
+// typed row may expose a language-kind qualifier such as "Index (struct)"
+// while the reader-facing item uses its exact base "Index". Once row_id has
+// selected that one member/family/location tuple, accepting the base does not
+// guess or merge rows; duplicate bases remain disambiguated by the row id.
+// Arbitrary substrings and item prose are deliberately excluded.
+func principalEnumerationItemExactRowIDDisplayMatchesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	if principalEnumerationItemExactLabelMatchesRow(item, row) {
+		return true
+	}
+	identityKey := normalizeEnumerationDisplayTableKey(principalEnumerationItemPrimaryIdentity(item))
+	baseKey := normalizeEnumerationDisplayTableKey(principalEnumerationParenthesizedRowBase(row))
+	return identityKey != "" && baseKey != "" && identityKey == baseKey
+}
+
+func principalEnumerationParenthesizedRowBase(row types.EnumerationDisplayRow) string {
+	for _, raw := range []string{row.DisplayLabel, row.Member} {
+		if base, _, ok := types.AnswerAggregateDecoratedLabelParts(raw); ok && strings.TrimSpace(base) != "" {
+			return strings.TrimSpace(base)
+		}
+	}
+	return ""
+}
+
+func principalEnumerationPreferredRowDisplay(row types.EnumerationDisplayRow) string {
+	if display := strings.TrimSpace(row.DisplayLabel); display != "" {
+		return display
+	}
+	return strings.TrimSpace(row.Member)
 }
 
 func sourceInventoryRowIDHardHint(blockIndex, itemIndex int, expectedShape, reason string) emitFixHint {
