@@ -34035,3 +34035,39 @@ static binding、hidden-operation 负臂同步通过，避免为了本案破坏 
 状态：`B622=implemented/targeted-pass/pending-production-replay`；`same-visible-endpoint-or-group=required`；
 `typed-edge-authority=unchanged`；`model-visible-edge-ownership=preserved`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.659 r371：连通性修复生效；typed 参与者名单仍可冒充背景证明
+
+`main@1bbac6d52` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_graph_trace_source_r371_20260812_manual_audit.md`。
+
+逻辑图案验证 B622 已在生产生效：独立 BusContext 节点不再借另一条内部技术边通过 incident coverage，Finalizer 保留了“未证关系边界”。但根问题前移到 Analyzer：
+它把用户明确要求连接的 `Mutable` 标为 `context_only`，并以 `Mutable/BusContext` 作为 source_quote。原校验只拒绝裸 identity，因此两个 typed 参与者的 delimiter roster
+被误当成“明确的周边边界短语”。Explorer 随后没有读取 Mutable/BusContext 的真实状态流，最终图只剩四阶段 precedence，Mutable 缺席、BusContext 断开。机器 edge-count
+oracle 仍 PASS，人工必须 fail。立案 `B623-DIAGRAMPARTICIPANTROSTERBOUNDARY1/P1-high`。
+
+trace/current-source 案验证 B621 正向生效：scheduler rows 缺失没有再被写成连续 On-CPU、无阻塞或 CPU-bound。但机制答案仍把同步 key 的 emitter event PID/TID
+说成 payload `SpanPID`，把只识别 I38/M0538 形的 `isInstanceTag` 错说成会剥离 `H:`，并自行引入无 typed deadline 的 60fps/16.67ms 例子。Explorer 已下钻源码，错误仍进入
+Finalizer，说明 B612b/B620 的软教学不够：`emit_evidence` 接受了模型合成伪代码 snippet/summary；definition/line-range grounding 只证明 locator/symbol 存在，却让该摘要看起来获得
+完整 operation authority。立案 `B624-SOURCELOCATOROPERATIONAUTHORITY1/P1-high`，需把定义位置权威与操作内容权威拆分。
+
+两案分别 291s、306s，均超过四分钟且在活跃模型流上正常完成，没有按 elapsed age 降级、切旧稿或空答案；B615 再获两条生产正证。固定时长从来不是失败信号，只有
+transport error、精确 byte-silence、caller cancel、safety 或 decode failure 才能触发相应恢复车道。
+
+状态：`B622=production-positive`；`B623=confirmed/implemented-targeted-pass`；`B624=confirmed/pending`；
+`B621=production-positive`；`runner=2/2`；`human=0/2`；`active-stream-fixed-age-degrade=absent`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；`Trace causal projection/system supplement=unchanged`。
+
+### 123.660 B623：context_only 的来源必须是边界陈述，不得是参与者名单
+
+B623 在 required source-flow 的既有 typed participant provenance gate 上补齐第二种逃逸形。`context_only` 的 `source_quote` 若只是裸 identity，或只是由 `/、,，&`
+连接的两个及以上 Analyzer typed entities，则拒绝本次分析结构并要求模型自行选择：改为 `incident_required`，或复制一个明确把该节点限定为 surrounding context 的更宽原句。
+参与者名单只证明多个实体被共同点名，不证明其中任一个位于关系外。
+
+该判定只消费 schema-validated `predicate_axis`、`diagram_hint.required`、participant identity/role/source_quote 与 Analyzer entity roster；不扫描用户原始请求、模型 reasoning 或终稿，
+也不根据名称猜载体类型。新增回归钉住 `Mutable(role=context_only, source_quote="Mutable/BusContext")` 必须失败，同时保留
+`把 SurroundingSystem 仅作为周边边界` 的显式 escape，以及 Trace/non-flow 不进入该门。系统仍不晋升角色、不生成或补写关系边。
+
+状态：`B623=implemented/targeted-pass/pending-production-replay`；`typed-roster-is-not-boundary=true`；
+`explicit-surrounding-boundary=preserved`；`model-role/edge-ownership=preserved`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。

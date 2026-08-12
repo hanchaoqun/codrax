@@ -3532,11 +3532,42 @@ func TestEmitAnalysis_Execute_RejectsCompositeAndBareContextOnlyRequiredFlowPart
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.Success || !strings.Contains(res.Summary, "collapses distinct typed entities [Mutable BusContext]") ||
-		!strings.Contains(res.Summary, "source_quote is only the bare identity") {
+		!strings.Contains(res.Summary, "source_quote is only the typed participant roster [Mutable BusContext]") {
 		t.Fatalf("composite/bare context escape must fail with copy-ready typed guidance: %+v", res)
 	}
 	if mu.RequestModel() != nil {
 		t.Fatal("rejected participant slate must not publish a RequestModel")
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsParticipantRosterAsContextOnlyProvenance(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"Mutable","role":"context_only","source_quote":"Mutable/BusContext"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "typed participant roster [Mutable BusContext]") ||
+		!strings.Contains(res.Summary, "does not prove surrounding context") {
+		t.Fatalf("a delimiter-only participant roster must not demote one relation member to context-only: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected participant-role provenance must not publish a RequestModel")
 	}
 }
 

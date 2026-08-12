@@ -2237,8 +2237,9 @@ func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) 
 //     distinct analyzer entities, which would collapse separate coverage
 //     obligations into one alias;
 //  2. context_only on a required source-flow diagram carries only the bare
-//     participant identity as provenance. A bare name proves presence, not
-//     that the user asked to keep the actor outside the relation path.
+//     participant identity, or a delimiter-only roster of typed participants,
+//     as provenance. A name or roster proves presence, not that the user asked
+//     to keep the actor outside the relation path.
 //
 // A wider verbatim source_quote remains the typed escape for a genuinely
 // requested surrounding boundary. The model chooses the corrected role or
@@ -2260,12 +2261,19 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 				i, identity, members,
 			))
 		}
-		if participant.Role == types.DiagramParticipantContextOnly &&
-			diagramParticipantProvenanceKey(participant.SourceQuote) == diagramParticipantProvenanceKey(identity) {
-			conflicts = append(conflicts, fmt.Sprintf(
-				"diagram_hint.participants[%d] marks %q context_only but source_quote is only the bare identity; for a required source-flow visual, copy a wider verbatim CURRENT-request phrase that explicitly scopes it as surrounding context, or use role=incident_required",
-				i, identity,
-			))
+		if participant.Role == types.DiagramParticipantContextOnly {
+			bareIdentity := diagramParticipantProvenanceKey(participant.SourceQuote) == diagramParticipantProvenanceKey(identity)
+			rosterMembers := compositeDiagramParticipantTypedEntities(participant.SourceQuote, rm.AnalyzerHints.Entities)
+			if bareIdentity || len(rosterMembers) >= 2 {
+				provenanceShape := "only the bare identity"
+				if len(rosterMembers) >= 2 {
+					provenanceShape = fmt.Sprintf("only the typed participant roster %v", rosterMembers)
+				}
+				conflicts = append(conflicts, fmt.Sprintf(
+					"diagram_hint.participants[%d] marks %q context_only but source_quote is %s; for a required source-flow visual, a participant roster does not prove surrounding context: copy a wider verbatim CURRENT-request phrase that explicitly scopes it as surrounding context, or use role=incident_required",
+					i, identity, provenanceShape,
+				))
+			}
 		}
 	}
 	return strings.Join(conflicts, "; ")
