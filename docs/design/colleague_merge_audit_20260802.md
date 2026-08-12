@@ -5255,3 +5255,51 @@ principal block，但仍存在于完整 capsule；component bridge 继续 unprov
 状态：`B582=implemented/pending-r346`；`principal-recipe=typed-subset-only`；
 `supporting-relations=preserved-outside-principal`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.192 r346：等待相位与请求主脊生产转正；表格行协议混用、泛化标签取证死循环立案
+
+r346 exact-two runner 2/2、人工 1/2。Trace 案 122s，B581 production positive：5.000ms 不再以 `wakeup latency`
+发布，而是明确为 sleep/blocking 段起点到 `sched_wakeup` 的 pre-wakeup wait；答案同时说明 VerifyClass span 结束晚于
+`sched_wakeup`，没有从时间邻近虚构“完成后才唤醒”的依赖。显式 5.000..5.007s 窗、目标四态、链上 VerifyClass
+4.600ms 与 runnable 0.800ms 排序、实际占时/规则可消双轴、frame absent 限定和因果投影全部保持。
+
+read combo 案 499s，B582 production positive：首稿仍忽略 compact principal recipe 并画入无证 orchestrator call，但仅一次
+finalizer reject 后，第二稿完整保留 `Analyze → Explore → Extract → Finalize` 三条 typed precedence 主脊；支撑 call 没有再挤掉或替换主脊。
+相较 r345 的四次拒绝和主脊缺边，repair 心智与结果均明显改善。
+
+该案同时确认两个新 GAP。`B583-TABLEROWMODEMIX1/P1-high`：同一 structured table 的前三个 label-first 行使用
+`len(cells)==len(columns)`（columns 省略 label header），最后一行使用 `len(cells)+1==len(columns)`（columns 包含 label header）。
+旧 normalizer 对每行独立判合法，却不要求全表协议一致；renderer 按表级 `hasLabel/maxCells` 统一渲染，导致最后一行从 Stage 起整体左移一列，runner
+仍签 PASS。最优解是只读 schema carrier 的精确硬门：全表固定一种 row convention，禁止同行混用；不按表头或单元格词义推断，不补值、不改写模型内容。
+
+`B584-PARTICIPANTROLEENDPOINT1/P1-high`：analyzer 为满足 request-verbatim provenance，把 `codrax read mode`、`stage` 等泛化请求标签
+铸成 `incident_required`；completion gate 随后要求每个标签必须有 citable source operation。它们是读者可见范围/领域标签，不是源码 endpoint，因而
+结构上无法满足，造成 47 次 explorer iteration、11 次 midloop inject、34 次 read 与 499s 延迟，并在终稿留下两个断开且无价值的 participant。
+需要在 typed participant role 中区分“请求可见上下文身份”和“源码操作入射义务”，不能删掉 provenance，也不能靠扫描请求/答案词语放宽所有证据门。
+
+499s 活跃模型流由原模型正常交付，没有按累计时长降级、切旧稿或发布系统答案。运行时不变量继续冻结：真实 reasoning/content/tool delta
+活跃时，4 分钟或任何固定累计时长都不构成恢复条件；只有首字节超时、真实 stall、transport 断链、调用方取消或独立安全边界可以恢复，且恢复只能发布
+模型已产生载体并明确披露。
+
+状态：`B581=production-positive/closed`；`B582=production-positive/closed`；`B583=confirmed/next`；
+`B584=confirmed/design-audit-next`；`runner=2/2`；`human=1/2`；`finalizer-rejects=1`；
+`active-stream=499s/no-elapsed-degrade`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`。
+
+#### §11.10.193 B583：结构化表格采用全表单一行协议，拒绝合法单行的非法组合
+
+根因不是 renderer 少了一个补齐分支，而是 normalizer 只逐行接受三种独立合法形：纯 `cells[]`、label 加包含 label header 的 columns、
+label 加省略 label header 的 columns；它没有记录首个可见行选择的协议，导致后续行可以切换协议。渲染器只能对整张表选择一次 label 列与列宽，
+因此协议混用必然把某些行错列。静默补空单元格或按文本含义猜测列归属都会替模型编造数据，不可采用。
+
+本批在 `validateEmitAnswerStructuredTableRows` 内建立 table-wide precise carrier invariant：当 columns 存在时，第一个可见 row 固定三种协议之一，
+后续每行必须完全一致；混用 label presence 或两种 labeled width 均在 emit JSON 边界给出带 `items[index]` 的可修复错误。无 columns 的 fallback table、
+完整 Markdown table 以及三种各自全表一致的合法形保持不变。该硬门只读取 schema 字段、布尔 label presence 与整数 cell/header 数量，不读取用户输入、
+标题、表头词义、单元格文本或模型终稿 prose；系统既不补单元格也不改模型结论。
+
+回归覆盖 r346 原形（同为 label row、先 synthetic-label-header 后 label-header-in-columns）和 label-first/cell-only 混用两类负臂；三种单独合法形继续通过。
+定向 normalizer tests 与 `go test ./internal/tool` 全套均绿。
+
+状态：`B583=implemented/pending-r347`；`table-row-convention=single-per-table`；
+`model-cell-authorship=preserved`；`raw-prose-hard-gate=none`；`system-answer/table-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

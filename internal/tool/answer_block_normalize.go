@@ -222,6 +222,7 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		return nil
 	}
 	visibleRows := 0
+	rowConvention := ""
 	for idx, item := range block.Items {
 		if types.AnswerTextLooksLikeMarkdownTable(item.Label) ||
 			types.AnswerTextLooksLikeMarkdownTable(item.Text) {
@@ -239,15 +240,26 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		if len(block.Columns) == 0 {
 			continue
 		}
-		valid := len(cells) == len(block.Columns)
-		if labelPresent {
-			valid = valid || len(cells)+1 == len(block.Columns)
+		convention := ""
+		switch {
+		case !labelPresent && len(cells) == len(block.Columns):
+			convention = "cells_only"
+		case labelPresent && len(cells)+1 == len(block.Columns):
+			convention = "label_header_in_columns"
+		case labelPresent && len(cells) == len(block.Columns):
+			convention = "synthetic_label_header"
+		default:
+			return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s); use either cells[] with one value per column and no label, or label as the first visible value plus cells[]/text for every remaining column (columns[] may omit only the synthetic label header)",
+				fieldPath, idx, len(cells), len(block.Columns))
 		}
-		if valid {
+		if rowConvention == "" {
+			rowConvention = convention
 			continue
 		}
-		return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s); use either cells[] with one value per column and no label, or label as the first visible value plus cells[]/text for every remaining column (columns[] may omit only the synthetic label header)",
-			fieldPath, idx, len(cells), len(block.Columns))
+		if convention != rowConvention {
+			return fmt.Errorf("%s.items[%d]: structured table mixes row conventions (%s after %s); choose one table-wide row shape and keep it for every visible row: cells[] only, label plus columns[] including the label header, or label plus columns[] omitting the synthetic label header",
+				fieldPath, idx, convention, rowConvention)
+		}
 	}
 	if visibleRows == 0 {
 		return fmt.Errorf("%s: kind=table has no visible rows; emit a complete Markdown table in block.text or add at least one model-authored items[] row (label/text for a two-column table, or cells[] matching columns[]); if this table is optional, remove the empty block instead of emitting headers without values", fieldPath)

@@ -216,6 +216,48 @@ func TestNormalizeEmitAnswerBlock_AcceptsBothStructuredTableRowConventions(t *te
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RejectsMixedStructuredTableRowConventions(t *testing.T) {
+	raw := emitAnswerBlockV2{
+		ID:      "mixed-label-width",
+		Kind:    string(types.BlockTable),
+		Columns: []string{"Stage", "输入", "输出", "Agent", "调用位置"},
+		Items: []emitAnswerBlockItemV2{
+			{ID: "analyze", Label: "analyze", Cells: []string{"analyze", "request", "AnalysisIR", "Analyzer", "analyzer.go:1"}},
+			{ID: "finalize", Label: "finalize", Cells: []string{"AnswerSymbols", "AnswerDocument", "Finalizer", "finalizer.go:1"}},
+		},
+	}
+	_, err := NormalizeEmitAnswerBlock(raw, "blocks[3]")
+	if err == nil {
+		t.Fatal("mixed structured table row conventions must be rejected")
+	}
+	for _, want := range []string{"blocks[3].items[1]", "mixes row conventions", "one table-wide row shape"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("mixed convention error missing %q: %v", want, err)
+		}
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsMixedLabelAndCellOnlyRows(t *testing.T) {
+	raw := emitAnswerBlockV2{
+		ID:      "mixed-label-presence",
+		Kind:    string(types.BlockTable),
+		Columns: []string{"Stage", "输入"},
+		Items: []emitAnswerBlockItemV2{
+			{ID: "analyze", Label: "analyze", Cells: []string{"request"}},
+			{ID: "explore", Cells: []string{"explore", "AnalysisIR"}},
+		},
+	}
+	_, err := NormalizeEmitAnswerBlock(raw, "blocks[4]")
+	if err == nil {
+		t.Fatal("mixing label-first and cell-only rows must be rejected")
+	}
+	for _, want := range []string{"blocks[4].items[1]", "mixes row conventions", "one table-wide row shape"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("mixed label/cell error missing %q: %v", want, err)
+		}
+	}
+}
+
 // G2 regression lock — pre-G2 the patch path's
 // convertEmitBlocksToTyped silently dropped EdgeAnchors. Single-source
 // normalizer fixes this. Lock it here so it cannot regress.
