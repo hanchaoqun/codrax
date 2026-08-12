@@ -3318,7 +3318,7 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got, reason, _ := parseDiagramHint("show StageA and ArkRunner", tc.hint); got != nil || !strings.Contains(reason, tc.want) {
+			if got, reason, _ := parseDiagramHint("show StageA and ArkRunner", tc.hint, true); got != nil || !strings.Contains(reason, tc.want) {
 				t.Fatalf("parseDiagramHint()=(%+v,%q), want nil reason containing %q", got, reason, tc.want)
 			}
 		})
@@ -3337,7 +3337,7 @@ func TestEmitAnalysis_Execute_RejectsDiagramHintWithoutRequiredAuthority(t *test
 		"diagram_hint": {"kind": "flow"}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3346,6 +3346,41 @@ func TestEmitAnalysis_Execute_RejectsDiagramHintWithoutRequiredAuthority(t *test
 	}
 	if rm := mu.RequestModel(); rm != nil {
 		t.Fatalf("rejected analysis must not persist a request model: %+v", rm)
+	}
+}
+
+func TestEmitAnalysis_Execute_FreeFormPresentationDoesNotAuthorizeHardDiagram(t *testing.T) {
+	mu := types.NewMutableState("解释 run 到 match 的调用关系")
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["run","match","call"],
+		"entities":["run","match"],
+		"question_kind":"mechanism",
+		"predicate_axis":"call",
+		"diagram_hint":{"kind":"call_dag","required":true,"relation_scope_quote":"run 到 match 的调用关系","participants":[
+			{"identity":"run","role":"incident_required","source_quote":"run"},
+			{"identity":"match","role":"incident_required","source_quote":"match"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable:               mu,
+		PresentationDirective: "markdown table",
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("optional diagram guidance should survive: %+v", res)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || hint.Required {
+		t.Fatalf("free-form non-diagram directive minted hard visual authority: %+v", hint)
+	}
+	if !strings.Contains(res.Summary, "normalized diagram_hint.required from true to false") {
+		t.Fatalf("normalization must be disclosed: %q", res.Summary)
 	}
 }
 
@@ -3363,7 +3398,7 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 	t.Run("missing relation scope fails loud", func(t *testing.T) {
 		mu := types.NewMutableState("draw the current pipeline")
 		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"participants":[]}`)
-		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "flow diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -3378,7 +3413,7 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 	t.Run("missing participant slate fails loud", func(t *testing.T) {
 		mu := types.NewMutableState("draw the current pipeline")
 		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"relation_scope_quote":"draw the current pipeline"}`)
-		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "flow diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -3393,7 +3428,7 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 	t.Run("explicit empty participant slate is accepted", func(t *testing.T) {
 		mu := types.NewMutableState("draw a generic pipeline")
 		payload := fmt.Sprintf(base, `{"kind":"flow","required":true,"relation_scope_quote":"draw a generic pipeline","participants":[]}`)
-		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "flow diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -3421,7 +3456,7 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3469,7 +3504,7 @@ func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3513,7 +3548,7 @@ func TestEmitAnalysis_Execute_KeepsStateCarrierNamedInsideSequenceRelationSurfac
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3552,7 +3587,7 @@ func TestEmitAnalysis_Execute_PreservesExplicitFlowCarriersWithSiblingResponsibi
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil || !res.Success {
 		t.Fatalf("explicit flow-carrier slate should pass, err=%v result=%+v", err, res)
 	}
@@ -3591,7 +3626,7 @@ func TestEmitAnalysis_Execute_RejectsCompositeAndBareContextOnlyRequiredFlowPart
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3622,7 +3657,7 @@ func TestEmitAnalysis_Execute_RejectsParticipantRosterAsContextOnlyProvenance(t 
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3655,7 +3690,7 @@ func TestEmitAnalysis_Execute_RejectsOmittedEntityCoListedByParticipantSourceQuo
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3688,7 +3723,7 @@ func TestEmitAnalysis_Execute_AllowsExplicitContextBoundaryProvenanceAndSeparate
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil || !res.Success {
 		t.Fatalf("explicit context-only escape and separate incident rows should pass, err=%v result=%+v", err, res)
 	}
@@ -3741,7 +3776,7 @@ func TestEmitAnalysis_Execute_RejectsAllParticipantsOutsideRelationScope(t *test
 		]}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -3855,7 +3890,11 @@ func TestSetAnalysisLimits_RoundTrip(t *testing.T) {
 func runEmitAnalysisWithObjective(t *testing.T, objective, payload string) (types.ToolResult, *types.MutableState) {
 	t.Helper()
 	mu := types.NewMutableState(objective)
-	busCtx := &types.BusContext{Mutable: mu}
+	// Most legacy helper callers exercise emit_analysis semantics below the
+	// turn-policy preflight. Install a typed presentation carrier so their
+	// explicitly required diagram fixtures retain the production shape. Tests
+	// for missing presentation authority call Execute directly.
+	busCtx := &types.BusContext{Mutable: mu, PresentationDirective: "test fixture current-turn presentation authority", PresentationDiagramRequired: true}
 	tool := &EmitAnalysis{}
 	// Auto-inject the schema-v4 required fields (predicates +
 	// per-classification confidences) so the v3-style payloads in
@@ -3872,7 +3911,7 @@ func runEmitAnalysisPayload(t *testing.T, objective, payload string) (types.Tool
 	t.Helper()
 	mu := types.NewMutableState(objective)
 	tool := &EmitAnalysis{}
-	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	res, err := tool.Execute(&types.BusContext{Mutable: mu, PresentationDirective: "test fixture current-turn presentation authority", PresentationDiagramRequired: true}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -9790,7 +9829,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForBoundedArchitectureDiagramM
 	rawRequest := "Draw the 4 principal members as a flow diagram and explain each responsibility."
 	mu := types.NewMutableState(rawRequest)
 	res, err := (&EmitAnalysis{}).Execute(
-		&types.BusContext{Mutable: mu, RepoRoot: t.TempDir()},
+		&types.BusContext{Mutable: mu, RepoRoot: t.TempDir(), PresentationDiagramRequired: true},
 		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
 	)
 	if err != nil {
@@ -9853,7 +9892,7 @@ func TestEmitAnalysis_Execute_ConceptualArchitectureDiagramOutranksModelAddedCon
 	rawRequest := "Draw all principal members as a flow diagram and explain each responsibility."
 	mu := types.NewMutableState(rawRequest)
 	res, err := (&EmitAnalysis{}).Execute(
-		&types.BusContext{Mutable: mu, RepoRoot: t.TempDir()},
+		&types.BusContext{Mutable: mu, RepoRoot: t.TempDir(), PresentationDiagramRequired: true},
 		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
 	)
 	if err != nil {

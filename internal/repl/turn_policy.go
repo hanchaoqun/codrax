@@ -259,6 +259,7 @@ type TurnPolicy struct {
 	Confidence                float64 // 0..1; <0.4 demotes to repo
 	Reason                    string
 	PresentationDirective     string // free-form, e.g. "mermaid", "markdown table", "brief 3-bullet"
+	RequiresDiagram           bool   // precise current-turn hard visual authority; never inferred from directive text
 }
 
 // TurnPolicyClassifier is the optional extension interface the REPL
@@ -424,9 +425,13 @@ var turnPolicyTool = llm.ToolSchema{
     "presentation_directive": {
       "type": "string",
       "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Preserve the user's wording and language when deriving it from the current message; do not translate Chinese user phrasing into English. It must not be prepended to or rewrite the user request body. Omit when not applicable."
+    },
+    "requires_diagram": {
+      "type": "boolean",
+      "description": "Precise presentation authority. True only when the CURRENT turn explicitly requires a diagram, drawing, graph, sequence/timeline visual, or other visual relation view. False for tables, JSON, prose, ordinary call-chain/architecture questions, and diagrams that would merely be helpful. Downstream hard diagram gates read only this boolean and never scan presentation_directive or answer prose."
     }
   },
-  "required": ["route", "needs_repo_access", "current_source_evidence_mode", "operation", "write_intent", "source", "confidence", "reason"]
+  "required": ["route", "needs_repo_access", "current_source_evidence_mode", "operation", "write_intent", "source", "confidence", "reason", "requires_diagram"]
 }`),
 }
 
@@ -705,6 +710,12 @@ directive. Examples:
   "brief 3-bullet summary"
   "翻译成英文"
 Omit (empty string) when no directive applies.
+
+requires_diagram: true only when the CURRENT turn explicitly requires a
+diagram/drawing/graph/sequence/timeline visual. It is false for tables, JSON,
+prose, and ordinary relationship or call-chain questions where a visual would
+only be optional. This boolean is the sole hard visual-authority signal;
+presentation_directive text is never scanned to reconstruct it.
 
 priorTurn / last_answer_present signals (rendered ABOVE the current
 message when present):
@@ -1035,6 +1046,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		Confidence                flexiblePolicyFloat      `json:"confidence"`
 		Reason                    string                   `json:"reason"`
 		PresentationDirective     string                   `json:"presentation_directive"`
+		RequiresDiagram           flexiblePolicyBool       `json:"requires_diagram"`
 	}
 	if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
 		return zero, fmt.Errorf("turn-policy classifier: unmarshal tool params: %w", err)
@@ -1070,6 +1082,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		Confidence:            float64(parsed.Confidence),
 		Reason:                strings.TrimSpace(parsed.Reason),
 		PresentationDirective: strings.TrimSpace(parsed.PresentationDirective),
+		RequiresDiagram:       bool(parsed.RequiresDiagram),
 	}, nil
 }
 

@@ -2829,10 +2829,14 @@ func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
 
 func TestBuildPromptContext_PresentationDirectiveIsTypedMetadata(t *testing.T) {
 	bus := &types.BusContext{
-		Mutable:               types.NewMutableState("读取代码，对比 codrax 和 opencode"),
-		PresentationDirective: "输出各自的逻辑视图",
+		Mutable:                     types.NewMutableState("读取代码，对比 codrax 和 opencode"),
+		PresentationDirective:       "输出各自的逻辑视图",
+		PresentationDiagramRequired: true,
 	}
 	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if !ac.PresentationDiagramRequired {
+		t.Fatal("precise diagram authority was not copied into AgentContext")
+	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "analysis-skill"})
 
 	userReq := findSectionTitle(pc, SectionUserRequest)

@@ -69,7 +69,8 @@ type Orchestrator struct {
 	// from the REPL turn policy. It is intentionally not concatenated
 	// into the objective string, because the objective feeds status
 	// lines, repo_map task-map queries, and memory.
-	presentationDirective string
+	presentationDirective       string
+	presentationDiagramRequired bool
 
 	// turnRouteHint is per-run typed routing metadata produced before
 	// read-mode analysis starts. Like presentationDirective, it is
@@ -1634,6 +1635,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.readRunActiveSeed = types.ReadRunActiveState{}
 	presentationDirective := strings.TrimSpace(o.presentationDirective)
 	o.presentationDirective = ""
+	presentationDiagramRequired := o.presentationDiagramRequired
+	o.presentationDiagramRequired = false
 	turnRouteHint := o.turnRouteHint
 	o.turnRouteHint = types.TurnRouteHint{}
 	// Explicit attachment admission must happen before the live-preview defer,
@@ -1692,11 +1695,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// preserves the original so the worktree-cleanup defer can
 		// run `git worktree prune` against the canonical repo.
 		// Read-mode Runs see MainRepoRoot == RepoRoot throughout.
-		MainRepoRoot:          repoRoot,
-		Branch:                branch,
-		TraceID:               fmt.Sprintf("trace-%d", time.Now().UnixNano()),
-		PresentationDirective: presentationDirective,
-		TurnRouteHint:         turnRouteHint,
+		MainRepoRoot:                repoRoot,
+		Branch:                      branch,
+		TraceID:                     fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		PresentationDirective:       presentationDirective,
+		PresentationDiagramRequired: presentationDiagramRequired,
+		TurnRouteHint:               turnRouteHint,
 		RuntimeArtifactPreflight: runtimeArtifactPreflightProfileForRun(
 			request,
 			repoRoot,

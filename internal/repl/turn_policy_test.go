@@ -319,21 +319,25 @@ func (s *stubLocalResponder) RespondLocal(ctx context.Context, userLine, prior, 
 // reaching the orchestrator-equivalent setter.
 type requestCapturingRunner struct {
 	logAwareRunner
-	requests          []string
-	directiveSetCalls []string
-	seenDirectives    []string
-	routeHintSetCalls []types.TurnRouteHint
-	seenRouteHints    []types.TurnRouteHint
-	curDirective      string
-	curRouteHint      types.TurnRouteHint
-	modeSetCalls      []types.PipelineMode
-	seenModes         []types.PipelineMode
-	curMode           types.PipelineMode
+	requests            []string
+	directiveSetCalls   []string
+	seenDirectives      []string
+	routeHintSetCalls   []types.TurnRouteHint
+	seenRouteHints      []types.TurnRouteHint
+	curDirective        string
+	diagramSetCalls     []bool
+	seenDiagramRequired []bool
+	curDiagramRequired  bool
+	curRouteHint        types.TurnRouteHint
+	modeSetCalls        []types.PipelineMode
+	seenModes           []types.PipelineMode
+	curMode             types.PipelineMode
 }
 
 func (r *requestCapturingRunner) Run(req, repo, branch string) (*types.BusContext, error) {
 	r.requests = append(r.requests, req)
 	r.seenDirectives = append(r.seenDirectives, r.curDirective)
+	r.seenDiagramRequired = append(r.seenDiagramRequired, r.curDiagramRequired)
 	r.seenRouteHints = append(r.seenRouteHints, r.curRouteHint)
 	r.seenModes = append(r.seenModes, r.curMode)
 	return r.logAwareRunner.Run(req, repo, branch)
@@ -342,6 +346,11 @@ func (r *requestCapturingRunner) Run(req, repo, branch string) (*types.BusContex
 func (r *requestCapturingRunner) SetPresentationDirective(directive string) {
 	r.directiveSetCalls = append(r.directiveSetCalls, directive)
 	r.curDirective = directive
+}
+
+func (r *requestCapturingRunner) SetPresentationDiagramRequired(required bool) {
+	r.diagramSetCalls = append(r.diagramSetCalls, required)
+	r.curDiagramRequired = required
 }
 
 func (r *requestCapturingRunner) SetTurnRouteHint(hint types.TurnRouteHint) {
@@ -1124,7 +1133,7 @@ func turnPolicyResp(payload string) llm.Response {
 func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"local","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.92,"reason":"transformation of previous answer","presentation_directive":"mermaid 流程图"}`),
+			turnPolicyResp(`{"route":"local","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.92,"reason":"transformation of previous answer","presentation_directive":"mermaid 流程图","requires_diagram":true}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1141,6 +1150,9 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	}
 	if policy.PresentationDirective != "mermaid 流程图" {
 		t.Errorf("PresentationDirective: got %q", policy.PresentationDirective)
+	}
+	if !policy.RequiresDiagram {
+		t.Error("RequiresDiagram: got false, want true")
 	}
 	if policy.Confidence < 0.9 {
 		t.Errorf("Confidence: got %v, want ≥0.9", policy.Confidence)
@@ -2948,6 +2960,7 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 			Source:                "repo",
 			Confidence:            0.9,
 			PresentationDirective: "logic flow diagram showing anti-hallucination mechanisms",
+			RequiresDiagram:       true,
 		},
 	}
 	responder := &stubLocalResponder{localReply: "should-not-appear"}
@@ -2969,6 +2982,10 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 		runner.seenDirectives[0] != "logic flow diagram showing anti-hallucination mechanisms" {
 		t.Fatalf("repo directive not delivered through typed setter: seen=%q setCalls=%q",
 			runner.seenDirectives, runner.directiveSetCalls)
+	}
+	if len(runner.seenDiagramRequired) != 1 || !runner.seenDiagramRequired[0] {
+		t.Fatalf("hard diagram authority not delivered through typed setter: seen=%v setCalls=%v",
+			runner.seenDiagramRequired, runner.diagramSetCalls)
 	}
 	if !strings.Contains(req, "输出各自的逻辑视图") {
 		t.Fatalf("repo request must preserve original user wording; got %q", req)

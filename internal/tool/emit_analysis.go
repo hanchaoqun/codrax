@@ -870,7 +870,7 @@ func buildEmitAnalysisSchema() {
 				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantPlanningContract,
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
-					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request; false for an optional structural aid."},
+					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request independently confirmed by the out-of-band typed requires_diagram signal; without that carrier, true is normalized to false and remains optional structural guidance."},
 					"relation_scope_quote": map[string]any{
 						"type":        "string",
 						"description": "When required=true, copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and its actor scope. Exclude names that belong only to a sibling table, list, prose section, or example. Every participant source_quote must be contained inside this relation-surface quote. Use an empty string when required=false and no current-request relation surface authorizes participants.",
@@ -1559,7 +1559,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	diagramHint, diagramHintErr, diagramHintWarnings := parseDiagramHint(raw, p.DiagramHint)
+	diagramHint, diagramHintErr, diagramHintWarnings := parseDiagramHint(
+		raw,
+		p.DiagramHint,
+		ctx != nil && ctx.PresentationDiagramRequired,
+	)
 	if diagramHintErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -5841,7 +5845,7 @@ func parsePredicateAxis(s string) (types.PredicateAxis, string) {
 // field into a typed DiagramHint. Empty / nil means "no hint". An
 // unrecognised non-empty value is rejected so a typo cannot silently
 // degrade to no hint.
-func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.DiagramHint, string, []string) {
+func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentationAuthorized bool) (*types.DiagramHint, string, []string) {
 	if p == nil {
 		return nil, "", nil
 	}
@@ -5858,8 +5862,14 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 	if p.Required == nil {
 		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false", nil
 	}
+	required := *p.Required
+	warnings := make([]string, 0)
+	if required && !hardPresentationAuthorized {
+		required = false
+		warnings = append(warnings, "normalized diagram_hint.required from true to false because the out-of-band current-turn requires_diagram signal did not authorize a hard visual requirement; the diagram family remains optional model guidance")
+	}
 	relationScopeQuote := strings.TrimSpace(p.RelationScopeQuote)
-	if *p.Required && relationScopeQuote == "" {
+	if required && relationScopeQuote == "" {
 		return nil, "diagram_hint.relation_scope_quote is empty — copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and actor scope", nil
 	}
 	if relationScopeQuote != "" && !sourceQuoteAnchoredInCurrentRequest(rawRequest, relationScopeQuote) {
@@ -5873,7 +5883,6 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view", nil
 	}
 	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
-	warnings := make([]string, 0)
 	seen := make(map[string]bool, len(rawParticipants))
 	relationScopeExcluded := 0
 	for i, raw := range rawParticipants {
@@ -5889,7 +5898,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 			if !sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
 				warnings = append(warnings, fmt.Sprintf(
 					"dropped diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
-					identity, kind, *p.Required,
+					identity, kind, required,
 				))
 				continue
 			}
@@ -5907,18 +5916,18 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 			// siblings that do have exact current-request authority.
 			warnings = append(warnings, fmt.Sprintf(
 				"dropped diagram participant %q because its source_quote is not anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
-				identity, kind, *p.Required,
+				identity, kind, required,
 			))
 			continue
 		}
 		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
-		if *p.Required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
+		if required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
 			relationScopeExcluded++
 			warnings = append(warnings, fmt.Sprintf(
 				"dropped diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
-				identity, kind, *p.Required,
+				identity, kind, required,
 			))
 			continue
 		}
@@ -5936,10 +5945,10 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam) (*types.Diagra
 		seen[key] = true
 		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
 	}
-	if *p.Required && len(rawParticipants) > 0 && len(participants) == 0 && relationScopeExcluded > 0 {
+	if required && len(rawParticipants) > 0 && len(participants) == 0 && relationScopeExcluded > 0 {
 		return nil, "diagram_hint.relation_scope_quote contains none of the current-request-authorized participant source_quote rows — expand it to the shortest diagram relation clause containing the intended participants, or emit participants=[] only when that relation surface names no participant identities", warnings
 	}
-	return &types.DiagramHint{Kind: kind, Required: *p.Required, RelationScopeQuote: relationScopeQuote, Participants: participants}, "", warnings
+	return &types.DiagramHint{Kind: kind, Required: required, RelationScopeQuote: relationScopeQuote, Participants: participants}, "", warnings
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

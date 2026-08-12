@@ -7237,6 +7237,11 @@ type BusContext struct {
 	// lines, repo_map queries, and memory never show system-generated
 	// markdown headers as if they were user text.
 	PresentationDirective string `json:"presentation_directive,omitempty"`
+	// PresentationDiagramRequired is the precise current-turn authority for a
+	// hard diagram requirement. PresentationDirective remains free-form display
+	// guidance (and may request a table, JSON, or prose), so consumers must not
+	// infer this boolean from directive text.
+	PresentationDiagramRequired bool `json:"presentation_diagram_required,omitempty"`
 
 	// TurnRouteHint is typed current-turn routing metadata produced
 	// before the read pipeline starts. It is not user prose and not
@@ -7634,7 +7639,8 @@ type AgentContext struct {
 	// for prompt construction. It may affect answer presentation
 	// affordances only; it is not repository evidence, not a code
 	// entity, and not a search query.
-	PresentationDirective string `json:"presentation_directive,omitempty"`
+	PresentationDirective       string `json:"presentation_directive,omitempty"`
+	PresentationDiagramRequired bool   `json:"presentation_diagram_required,omitempty"`
 
 	// TurnRouteHint mirrors BusContext.TurnRouteHint for prompt
 	// construction. It is typed current-turn routing metadata, not

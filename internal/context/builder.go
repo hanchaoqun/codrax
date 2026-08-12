@@ -43,6 +43,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ExploreLanePlan:             bus.ExploreLanePlan,
 		Objective:                   objective,
 		PresentationDirective:       presentationDirective,
+		PresentationDiagramRequired: bus.PresentationDiagramRequired,
 		TurnRouteHint:               bus.TurnRouteHint,
 		RuntimeArtifactPreflight:    bus.RuntimeArtifactPreflight,
 		MissingPiece:                bus.TaskState.Missing,

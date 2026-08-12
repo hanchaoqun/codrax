@@ -34404,3 +34404,45 @@ discover_path 拒绝。修复位于关系请求建模接线，不触碰 Finalize
 状态：`B632=implemented/targeted+package-pass/pending-production-replay`；`ordered-pair=exact-shape`；
 `endpoint-provenance=unchanged`；`no-path-conclusion=model-owned`；`request/entity-order-inference=none`；
 `raw-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.678 r379：双端点 exact 生产生效；展示硬权限与端点同一性出现两处独立 gap
+
+`main@b9c21539a` exact-two runner `2/2`、人工核心答案 `2/2`，详见
+`eval/parallel_selected_summary_evalcampaign_sequence_rustchain_r379_20260812_manual_audit.md`。
+
+时序案验证 B632 已在生产生效：系统保持 `buildAnalysisIR`、`gate.Run` 两个有序端点并进入 exact reachability，模型明确选择
+`principal_span_waiver=no_directed_path`，正确说明源码只有 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith` 两条入边，
+不存在题设方向的单向链。typed capsule 也发布 `parallel_convergence/shared_frontier=gate.RunWith`。但最终 Mermaid 同时建立
+`gate.RunWith` 和裸 `RunWith` 两个 participant，导致文字所称“共享汇合点”在图上仍是两个节点。立案
+`B634-DIAGRAMENDPOINTCANONICALIDENTITY1/P1-high`：只统一同一 accepted endpoint 的展示身份，不增删边、不猜方向。
+
+Rust 跨模块案正确输出 `main -> run`、`run -> walker::collect_files`、`collect_files -> walk`、`run -> index_file`、
+`index_file -> Matcher.is_match`，并准确说明 walker 的目录遍历职责。用户只问调用链，没有要求图；Analyzer 却仅凭关系语义把
+`diagram_hint.required=true`，下游据此强制 diagram block。`diagram_hint.required` 是模型自报字段，缺少独立当前轮展示权限时不能成为硬门。
+立案 `B633-DIAGRAMHARDPRESENTATIONAUTHORITY1/P0`。
+
+两案分别 198s、201s，流持续活跃并正常产出；没有按固定四分钟年龄降级。系统未改写模型结论，也未生成调用边。Trace 显式窗、因果投影、
+链上-only 主因、邻近背景降级与自动补齐均未进入本批改动面。
+
+状态：`B632=production-positive`；`B633=confirmed/implemented-package-pass`；`B634=confirmed/pending`；
+`runner=2/2`；`human-core=2/2`；`hard-diagram-without-independent-authority=forbidden`；
+`system-answer/diagram-edge-authorship=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.679 B633：自由展示文本与硬图权限拆分为独立 typed 通道
+
+B633 新增当前轮精确布尔 `requires_diagram`，由结构化 TurnPolicy 产生并通过独立 setter、Orchestrator consume-once 状态和
+`BusContext.PresentationDiagramRequired` 传入 Analyzer 工具。`PresentationDirective` 继续承载 Mermaid、表格、JSON、简短散文等自由展示偏好，
+但任何消费者都不得从其非空、词面或模型终稿反推硬图权限。这样 `markdown table` 不会给关系问题铸成 Mermaid 硬门。
+
+Analyzer 仍可为普通调用链、架构或机制问题给出 `diagram_hint` 作为软结构建议；若它在没有 typed hard-visual 位时自报 `required=true`，
+emit_analysis 会确定性归一为 `required=false` 并披露 warning，而不是触发 Analyzer 重试或 Finalizer 必画。显式要求图时
+`requires_diagram=true`，原有 relation-scope、participant provenance、图 family 与关系证据合同全部保持。
+
+该修复不读取用户原文或模型/终稿 prose 来做硬判断；hard gate 只读单一 schema boolean。系统不选择图、不创建节点或关系、不替换模型答案。
+回归覆盖自由表格指令不能授权硬图、显式图授权保留 required、typed setter 跨 REPL→Orchestrator→BusContext 传递与 AgentContext 镜像，
+以及既有 flow/sequence/architecture participant 合同。相关七包回归全绿。
+
+状态：`B633=implemented/package-pass/pending-production-replay`；`hard-visual-authority=typed-boolean-only`；
+`free-form-directive=soft-presentation-only`；`ordinary-relation-diagram=optional`；`system-diagram/answer-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=unchanged`。

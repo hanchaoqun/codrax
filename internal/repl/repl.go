@@ -123,6 +123,13 @@ type presentationDirectiveSetter interface {
 	SetPresentationDirective(string)
 }
 
+// presentationDiagramRequirementSetter carries the precise hard-visual bit
+// separately from the free-form presentation directive. Keeping the channel
+// separate prevents a table/JSON/prose directive from authorizing a diagram.
+type presentationDiagramRequirementSetter interface {
+	SetPresentationDiagramRequired(bool)
+}
+
 // turnRouteHintSetter is the typed current-turn routing metadata channel.
 // It stays out of the request string and is consumed by analyzer prompt
 // construction as advisory context only.
@@ -7351,6 +7358,9 @@ func (r *REPL) dispatch(line, display string) {
 	// previous turn's diagram/table preference into the next request.
 	if setter, ok := r.runner.(presentationDirectiveSetter); ok {
 		setter.SetPresentationDirective(presentationDirective)
+	}
+	if setter, ok := r.runner.(presentationDiagramRequirementSetter); ok {
+		setter.SetPresentationDiagramRequired(resolvedTurnPolicy.RequiresDiagram)
 	}
 	if setter, ok := r.runner.(turnRouteHintSetter); ok {
 		setter.SetTurnRouteHint(turnRouteHint)
