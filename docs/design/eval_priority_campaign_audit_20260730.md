@@ -35130,3 +35130,54 @@ Go、Java/Kotlin、C/C++、Rust、Python、JS/TS/ArkTS、Ruby、Swift、Lua、Ca
 `system-answer/relation-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.710 r396：Trace 全谱 / C write 异构回放与 B658 计数域关系补全
+
+在干净 `main@8746dc27b3d7` 上严格并发恰好两个案例：
+`real_trace_h7_self_seat_full_spectrum` 与 `patch_c_typo`。runner 2/2 PASS，
+人工 1/2 PASS；详见
+`eval/parallel_selected_summary_evalcampaign_trace_write_r396_20260812_manual_audit.md`。
+
+1. C write 为真实 PASS：只修改 `main.c` 一行 `retrun -> return`，隔离
+   worktree、项目 `make test`、3/3 proof obligations、changed-path impact 与最终
+   strong proof 一致；不存在空累计验证域签绿，主仓源码未被 apply。
+2. Trace 的显式 233.190ms 用户窗、四次 typed query、唤醒链、链上唯一主因
+   人口、根因排序、实际占用/规则可消双轴、65.912ms 算力供给、36.757ms
+   非 IO D-state、业务 span、JIT 线索、邻近/背景隔离、系统补齐与完整因果投影
+   均在。49.623ms 非链上 runnable 正确保留为背景，没有进入主因人口。
+3. 人工仍判 Trace FAIL：模型把 scheduler state 的 11 段/36.757ms、rank 行的
+   4 个 merged member 和 blocked_reason census 的 12 条/Σ39.157ms 混为一账，
+   编造“8 次确认、4 次内核显式、其余 4 次”的 8/4/4 解释；同页稍后又列 12 条，
+   内部算术与事件身份均矛盾。
+4. 根因是关系 transport 丢失，而非值缺失。`trace_query` 早期 compact preview
+   已发布 `blocked_reason_census_relation`，明确 record count/vendor delay sum
+   与 scheduler state 需要 typed interval join；Finalizer 压缩上下文却只留下
+   census 数值与 `seat_binding/rank_binding=not_provided`，没有把“两个观测域不可
+   逐条配对/差值解释”的关系送到模型决策尾部。既有 authenticated system caveat
+   只能在模型成文后兜底，不能支撑模型先给出正确结论。
+5. B658 在 Final Trace Decision Boundary 增加
+   `blocked_reason_state_relation`：只在 compiled target-state account 与 hard-
+   grounded deterministic census 的物理 capture、selected window、subject 三者
+   精确一致时发布。它分别声明 `sched_switch_interval_wall_clock` 与
+   `kernel_record_count_and_vendor_reported_delay_sum`，关系为
+   `unjoined_distinct_observation_domains`，并明确 occurrence mapping 未提供、
+   count/delay 差值解释和算术重组均无权限；只有独立 typed interval join 可升级。
+6. 跨工件、跨窗、跨主体、坏 count/ResultCount、无 caller roster 全部 fail-
+   closed。生产接线 pin 直接从完整 Finalizer 初始提示验证该关系位于提交清单后的
+   最终 typed 边界，避免 helper 局部绿而挂点漂失。
+7. Analyzer 本轮虽在 reasoning 中识别 `CompThread_0-2955`，却发出
+   `runtime_target_profile=no_named_target`。查询与投影仍由后续 typed target 正确
+   锚定。按“不扫描用户原文作硬门”红线，B658 直接消费已选 target-state account，
+   不新增请求关键词/线程名硬判；单次 analyzer 分类偏差留作模型波动观察。
+8. 模型把 lower-priority same-CPU candidate 写成已证抢占、把 policy ceiling 写成
+   明确热控轨，尽管现有 typed boundary 已限制这两项机理。它们是重复服从性残余，
+   不再堆答案关键词硬门或系统替写。活动流不按累计年龄降级：四分钟与字面 `4ms`
+   均无权限，只有 caller cancel/deadline、首字节/字节静默、transport/decode
+   精确失败可终止。
+
+状态：`runner=2/2 PASS`；`human=1/2 PASS`；
+`B658-BLOCKEDREASONSTATEJOINLOSS1=implemented/targeted-pass/pending-production-replay`；
+`write-cumulative-proof=production-positive`；`system-answer-rewrite=none`；
+`raw-user/model/final-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

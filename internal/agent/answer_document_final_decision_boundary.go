@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -143,6 +144,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
 	b.WriteString(renderTraceFinalTimeRoleAuthority(set))
+	b.WriteString(renderTraceFinalBlockedReasonStateRelation(set, answerDocObservationLedger(ctx)))
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
@@ -163,6 +165,70 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
+}
+
+// renderTraceFinalBlockedReasonStateRelation keeps two independent kernel
+// observation domains separate at the point where the model forms its final
+// diagnosis. A target state account is sched_switch interval wall clock;
+// blocked_reason is a record census whose delay field is vendor-reported.
+// Matching the already-selected projection subject/window/capture is precise
+// typed data plumbing. It does not infer a user target from request prose and
+// does not bind a census record to any particular state occurrence or cause
+// seat.
+func renderTraceFinalBlockedReasonStateRelation(set types.TraceCausalProjectionSet, ledger types.ObservationLedger) string {
+	var b strings.Builder
+	seen := map[string]bool{}
+	for _, projection := range set.Projections {
+		account := projection.TargetStateAccount
+		if account == nil || strings.TrimSpace(account.Subject) == "" ||
+			!types.TraceCausalProjectionWindowPresent(account.WindowStartTs, account.WindowEndTs) {
+			continue
+		}
+		for _, record := range ledger.Records {
+			if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+				!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+				record.GroundingPolicy != types.ClaimGroundingHard ||
+				strings.TrimSpace(record.Predicate) != "blocked_reason_census" ||
+				!strings.EqualFold(strings.TrimSpace(record.Subject), strings.TrimSpace(account.Subject)) {
+				continue
+			}
+			count, err := strconv.Atoi(strings.TrimSpace(record.Value))
+			if err != nil || count <= 0 || record.ResultCount == nil || *record.ResultCount != count {
+				continue
+			}
+			start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if !ok || math.Abs(start-account.WindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(end-account.WindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+				!traceFinalProjectionOwnsObservation(projection, record) {
+				continue
+			}
+			callers := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyBlockedReasonCensus))
+			if callers == "" {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(account.Subject)) + "\x00" +
+				fmt.Sprintf("%.6f\x00%.6f\x00%d\x00%s", start, end, count, callers)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			fmt.Fprintf(&b, "- blocked_reason_state_relation subject=`%s`; selected_window=`%.6f..%.6f`; scheduler_state_caliber=`sched_switch_interval_wall_clock`; d_state=%.3fms; io_wait=%.3fms; blocked_reason_records=%d; blocked_reason_census=`%s`; blocked_reason_caliber=`kernel_record_count_and_vendor_reported_delay_sum`; relation=`unjoined_distinct_observation_domains`; record_to_state_occurrence_mapping=`not_provided`; count_or_delay_difference_interpretation=`forbidden`; arithmetic_recomposition=`forbidden`. Report both observations under their own rulers. Do not pair records with state segments, substitute the census delay sum for state wall clock, or explain a count/duration difference as missing, extra, omitted, or mismatched events unless a separate typed interval join provides that mapping.\n",
+				traceDecisionPromptScalar(account.Subject), start, end, account.DStateMS, account.IOWaitMS,
+				count, traceDecisionPromptScalar(callers))
+		}
+	}
+	return b.String()
+}
+
+func traceFinalProjectionOwnsObservation(projection types.TraceCausalProjection, record types.ObservationRecord) bool {
+	projectionPath := strings.TrimSpace(projection.ArtifactPath)
+	recordPath := strings.TrimSpace(types.RuntimeArtifactCaptureIdentityPath(record.SourceRef))
+	if projectionPath != "" && recordPath != "" {
+		return len(types.TraceArtifactCaptureIdentityPaths([]string{projectionPath, recordPath})) == 1
+	}
+	projectionLabel := strings.TrimSpace(projection.ArtifactLabel)
+	artifactID := strings.TrimSpace(record.SourceRef.ArtifactID)
+	return projectionLabel != "" && artifactID != "" && strings.EqualFold(projectionLabel, artifactID)
 }
 
 // renderTraceFinalTimeRoleAuthority repeats the selected-window and target

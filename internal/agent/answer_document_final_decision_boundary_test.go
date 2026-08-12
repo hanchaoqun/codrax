@@ -240,6 +240,126 @@ func TestTraceFinalTimeRoleAuthorityKeepsSelectedWindowStateSeparateFromAttachme
 	}
 }
 
+func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateIntervals(t *testing.T) {
+	count := 12
+	record := types.ObservationRecord{
+		ID: "blocked-census", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/captures/donghu.ftrace",
+		},
+		Predicate: "blocked_reason_census", Subject: "CompThread_0-2955",
+		Value: "12", ResultCount: &count,
+		RichNotes: []string{
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+			types.TraceNoteKeyBlockedReasonCensus + "=dma_fence_default_w×12(Σ39.157ms)",
+		},
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactPath: "/captures/donghu.ftrace", ArtifactLabel: "donghu.ftrace",
+		WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "CompThread_0-2955", DStateMS: 36.757, IOWaitMS: 0,
+			TotalMS: 36.757, WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
+		},
+	}
+	got := renderTraceFinalBlockedReasonStateRelation(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		types.ObservationLedger{Records: []types.ObservationRecord{record}},
+	)
+	for _, want := range []string{
+		"subject=`CompThread_0-2955`",
+		"scheduler_state_caliber=`sched_switch_interval_wall_clock`",
+		"d_state=36.757ms",
+		"blocked_reason_records=12",
+		"blocked_reason_census=`dma_fence_default_w×12(Σ39.157ms)`",
+		"blocked_reason_caliber=`kernel_record_count_and_vendor_reported_delay_sum`",
+		"relation=`unjoined_distinct_observation_domains`",
+		"record_to_state_occurrence_mapping=`not_provided`",
+		"count_or_delay_difference_interpretation=`forbidden`",
+		"Do not pair records with state segments",
+		"unless a separate typed interval join provides that mapping",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("blocked-reason/state relation missing %q:\n%s", want, got)
+		}
+	}
+
+	wrongCapture := record
+	wrongCapture.SourceRef.Path = "/captures/other.ftrace"
+	wrongWindow := record
+	wrongWindow.RichNotes = []string{
+		types.TraceNoteKeySelectedWindow + "=13762.000000..13762.100000",
+		types.TraceNoteKeyBlockedReasonCensus + "=dma_fence_default_w×12(Σ39.157ms)",
+	}
+	wrongSubject := record
+	wrongSubject.Subject = "another-2956"
+	for name, candidate := range map[string]types.ObservationRecord{
+		"capture": wrongCapture, "window": wrongWindow, "subject": wrongSubject,
+	} {
+		if got := renderTraceFinalBlockedReasonStateRelation(
+			types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+			types.ObservationLedger{Records: []types.ObservationRecord{candidate}},
+		); got != "" {
+			t.Fatalf("cross-%s census must not bind to the selected state account: %s", name, got)
+		}
+	}
+}
+
+func TestFinalizerPromptCarriesBlockedReasonStateRelationAtProductionBoundary(t *testing.T) {
+	count := 12
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "customer.systrace", ArtifactKind: "trace",
+	}
+	root := types.ObservationRecord{
+		ID: "root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:CompThread_0-2955",
+		Subject: "CompThread_0-2955", Object: "d_state_or_io_wait", Value: "36.757", Unit: "ms",
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain", "effective_impact_ms=36.757",
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+		},
+	}
+	state := types.ObservationRecord{
+		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Predicate: "target_window_states", ClaimKey: "target_window_states:CompThread_0-2955",
+		Subject: "CompThread_0-2955", Object: "state_partition", Value: "233.190", Unit: "ms",
+		RichNotes: []string{
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+			types.TraceNoteKeyRunning + "=74.915", types.TraceNoteKeyRunnable + "=1.536",
+			types.TraceNoteKeySleep + "=118.586", types.TraceNoteKeyDState + "=36.757",
+			types.TraceNoteKeyIOWait + "=0.000", types.TraceNoteKeyTotal + "=231.794",
+		},
+	}
+	census := types.ObservationRecord{
+		ID: "census", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Predicate: "blocked_reason_census", ClaimKey: "blocked_reason_census:CompThread_0-2955",
+		Subject: "CompThread_0-2955", Object: "blocked_reason", Value: "12", ResultCount: &count,
+		RichNotes: []string{
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+			types.TraceNoteKeyBlockedReasonCensus + "=dma_fence_default_w×12(Σ39.157ms)",
+		},
+	}
+	ctx := answerDocCausalCeilingTestContext(false)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "root_cause_rank"},
+		Observations:           []types.ObservationRecord{root, state, census},
+	}}})
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "blocked_reason_state_relation subject=`CompThread_0-2955`") ||
+		!strings.Contains(prompt, "relation=`unjoined_distinct_observation_domains`") ||
+		!strings.Contains(prompt, "count_or_delay_difference_interpretation=`forbidden`") {
+		t.Fatalf("production Finalizer prompt lost the typed census/state relation:\n%s", prompt)
+	}
+	if strings.LastIndex(prompt, "blocked_reason_state_relation") < strings.LastIndex(prompt, "## Submission Checklist") {
+		t.Fatalf("census/state relation must stay in the final typed decision boundary:\n%s", prompt)
+	}
+}
+
 func TestTraceFinalSelectedWindowAuthorityKeepsPreviewOutsideTypedWindow(t *testing.T) {
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{
 		{ArtifactLabel: "customer.systrace", WindowStartTs: 10, WindowEndTs: 10.1},
