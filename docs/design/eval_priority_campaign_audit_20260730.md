@@ -33628,3 +33628,41 @@ same-turn emit summary 发射权限。`go test ./internal/types ./internal/tool 
 
 状态：`B607=implemented/package-pass/pending-production-replay`；`authority-source=ClaimForm`；`same-turn-visible=true`；
 `hard-gate=none`；`model-answer-ownership=preserved`；Trace causal projection/system supplement=`unchanged`。
+
+### 123.643 r363：B607 生产正证；span 生命周期机制与基线权限成为下一层断点
+
+`main@acb5bfe02` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_demand_readcombo_r363_20260812_manual_audit.md`。
+
+Trace D4 继续人工通过：模型维持需求侧主判断，不跨 root-rank 席求和，10.331ms compute-delivery deficit 仍以正值次席出现；显式窗口、typed 唤醒链、链上根因、
+实际占用/现规则可消双轴、VerifyClass 业务线索、背景降级、因果投影与系统补齐无回归。
+
+read-combo 给出 B607 的生产正证：`internal/skill/defaults.go:1203` 不再出现在探索证据或终稿实现引用；模型转而读取
+`internal/tracequery/parse.go` 与 `trace_mark_integrity.go` 的 production 函数。说明 same-turn、accepted handoff、Relation Role Handoff 三条 ClaimForm carrier
+已经改变模型选择，B607 收账为 production positive。
+
+人工仍失败，确认 `B609-CURRENTSOURCELIFECYCLECOVERAGE1/P1-high`。模型读到了 ftrace 行头、payload 校验和 async pairer，却没有继续定位同步 span 的生命周期消费者，
+因此把实现写成“payload PID + 时间顺序，B 与紧随其后的 E 配对”。真实实现位于 `findSpanWindowsCompacted`：
+
+- pairing key 是 `physical source identity + ev.PID`，其中 `ev.PID` 是 ftrace 行 emitter TID；payload `SpanPID` 只标识 subject，不是 sync pairing key；
+- 每个 key 是 LIFO stack，支持嵌套 B/E，E 不要求与 B 文本相邻；
+- scheduler lifecycle 与 malformed endpoint 会 reset 对应 sync/async pairing state；
+- source provenance 不唯一、duration order taint、unknown emitter 等情况 fail-closed；S/F 另走 name+cookie cohort pairer。
+
+这是 parser/decoder 类机制问题的泛化 coverage gap：字段解析、生命周期关联、最终消费/投影是不同权限阶段；只读到 decoder 不能证明 correlator，读到 async correlator
+也不能证明 sync correlator。最优方案是给模型一个短的 typed mechanism-coverage ladder，并要求每个实际声称的阶段都来自已读 current-source operation carrier；
+不是把 `findSpanWindowsCompacted` 写成 case 关键词，也不是由系统补写正确答案。若 current-source lane 未落地对应 stage，答案应保留未证边界而非把 runtime trace 的 B/E
+事实升级为实现细节。
+
+B608 在 r363 被进一步定位：污染最早由 perf-triager 在 `emit_perf_trace` 中写入 `threshold_check`、meta summary 和 60fps observation；随后首个 Explorer 又把
+16.667ms/5.17x 写成无 support-ref scalar aggregate，Analyzer subtopic 再把它当普通比较目标。所有这些字段都只有
+`pretriage_model_extraction` / demoted advisory authority，且 trace 没有 refresh/deadline carrier。Finalizer 虽收到 not-provided 边界，仍受重复 advisory 数值污染。
+根修必须沿 typed authority 处理：未有 validator-owned refresh/deadline 时，baseline/ratio 只能作为明确条件示例或直接省略，不能进入 runtime-observed scalar roster；
+禁止通过扫描 summary/reason/终稿中的 `60fps` 或数值正则硬删。
+
+r363 时长 159s/255s，255s 案超过四分钟仍正常返回模型答案，没有固定 age fallback。该生产事实仍只证明总管线 age 不触发降级；单流正负合同由
+adapter 测试固定：真实 model progress 可越过旧 total cap，纯 transport keep-alive 且无模型进展仍由 typed total-timeout 有界。
+
+状态：`B605=stable-production-positive`；`B607=production-positive/closed-watch`；
+`B608=P1/typed-authority-root-fix-next`；`B609=P1-high/confirmed`；`runner=2/2`；`human=1/2`；
+`system-answer-authorship=none`；Trace causal projection/system supplement=`preserved`；`active-stream-fixed-age-degrade=forbidden`。
