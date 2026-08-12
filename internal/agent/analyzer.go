@@ -1978,23 +1978,25 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logBundle.IntentHint)
 	}
 
-	// Perf-triage augmentation. Same shape as log-triage: the
-	// perf_triage pre-stage has already run and written a PerfBundle
-	// onto Mutable.PerfTrace (nil when no --htrace was attached or
-	// the stage degraded). Stall symbols + jank trigger spans
-	// become entity hints; an IntentHint of "performance" is mirrored
-	// onto the analyzer hints so the dual-gate normaliser elevates
-	// performance terms to TermSymbol.
+	// Perf-triage augmentation. The bundle is still attached below for typed
+	// runtime routing, but model-extracted stall/jank entities are navigation
+	// candidates rather than request-classification authority.
+	// perf_triage pre-stage has already run and written a PerfBundle onto
+	// Mutable.PerfTrace (nil when no --htrace was attached or the stage
+	// degraded). Only validator-owned observation subjects become entity
+	// hints; bundle presence still drives the independent runtime route.
 	var perfBundle *types.PerfBundle
 	if ctx.Mutable != nil {
 		perfBundle = ctx.Mutable.PerfTrace()
 	}
-	if perfBundle != nil && len(perfBundle.Entities) > 0 {
+	if perfBundle != nil {
+		perfEntities := analyzerPerfEntityHints(perfBundle)
 		before := len(rm.AnalyzerHints.Entities)
-		// Commit 52 P1: same oracle gate for perf-triage entities.
-		oracle := analyzerOracleFromCtx(ctx, graph)
-		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
-			rm.AnalyzerHints.Entities, perfBundle.Entities, oracle)
+		if len(perfEntities) > 0 {
+			oracle := analyzerOracleFromCtx(ctx, graph)
+			rm.AnalyzerHints.Entities = logtriage.MergeEntities(
+				rm.AnalyzerHints.Entities, perfEntities, oracle)
+		}
 		logging.Info("[analyzer] perf-triage: source=%s frames=%d janks=%d stalls=%d entities +%d intent=%q",
 			perfBundle.Meta.Source, len(perfBundle.Frames), len(perfBundle.Janks),
 			len(perfBundle.Stalls),
@@ -2750,6 +2752,22 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// structural trigger outside the analyzer-authored contract.
 
 	return ir, nil
+}
+
+func analyzerPerfEntityHints(bundle *types.PerfBundle) []string {
+	if bundle == nil {
+		return nil
+	}
+	var out []string
+	for _, observation := range bundle.Observations {
+		if observation.IsNavigationOnly() {
+			continue
+		}
+		if subject := strings.TrimSpace(observation.Subject); subject != "" {
+			out = append(out, subject)
+		}
+	}
+	return out
 }
 
 func applyRuntimeArtifactSourceOptionalIR(out *compiler.Output, traceRuntime bool) {

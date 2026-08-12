@@ -4340,6 +4340,74 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 	}
 }
 
+func TestPerfTriageBundleForPrompt_AnalyzerWithholdsPreTriageSemanticGuesses(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{
+			Source:     "hitrace",
+			DurationMs: 7,
+			AppPID:     100,
+			Signals:    []string{"render-miss"},
+			Summary:    "VerifyClass directly caused the frame drop",
+		},
+		Stalls: []types.PerfStall{{
+			StartTsMs: 5000, DurationMs: 5800, Kind: "sync-rpc", Symbol: "VerifyClass",
+		}},
+		Observations: []types.PerfObservation{
+			{
+				Authority:  types.PerfObservationAuthorityPreTriageModelExtraction,
+				Subject:    "guessed cause",
+				Summary:    "direct blocking",
+				LineStart:  4,
+				LineEnd:    7,
+				DurationMs: 5800,
+			},
+			{
+				Authority: types.PerfObservationAuthorityDeterministicValidator,
+				Subject:   "timestamp unit",
+				Summary:   "timestamps are seconds",
+				LineStart: 1,
+			},
+		},
+		Entities:   []string{"VerifyClass"},
+		IntentHint: "performance",
+		Coverage:   1,
+	}
+	projected := perfTriageBundleForPrompt(&types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		PerfTrace: bundle,
+	})
+	if projected == nil {
+		t.Fatal("analyzer projection = nil")
+	}
+	if len(projected.Stalls) != 0 || len(projected.Frames) != 0 || len(projected.Janks) != 0 || projected.Startup != nil {
+		t.Fatalf("pre-triage semantic carriers leaked into analyzer projection: %+v", projected)
+	}
+	if projected.Meta.DurationMs != 0 || projected.Meta.AppPID != 0 || len(projected.Meta.Signals) != 0 || projected.Meta.Summary != "" {
+		t.Fatalf("pre-triage meta semantics leaked into analyzer projection: %+v", projected.Meta)
+	}
+	if len(projected.Entities) != 0 || projected.IntentHint != "" || projected.Coverage != 0 {
+		t.Fatalf("model-derived layer-4 semantics leaked into analyzer projection: %+v", projected)
+	}
+	if len(projected.Observations) != 2 {
+		t.Fatalf("observations=%d, want locator plus validator row", len(projected.Observations))
+	}
+	navigation := projected.Observations[0]
+	if navigation.LineStart != 4 || navigation.LineEnd != 7 || navigation.Subject != "" || navigation.Summary != "" || navigation.DurationMs != 0 {
+		t.Fatalf("navigation row must preserve only trace-local lines: %+v", navigation)
+	}
+	validator := projected.Observations[1]
+	if validator.Subject != "timestamp unit" || validator.Summary != "timestamps are seconds" {
+		t.Fatalf("validator-owned semantics were not preserved: %+v", validator)
+	}
+	rendered := formatPerfTriageStructured(projected, nil)
+	for _, forbidden := range []string{"5800", "sync-rpc", "VerifyClass", "direct blocking", "guessed cause"} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("analyzer prompt leaked pre-triage semantic guess %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
 func TestFormatPerfTriageStructured_KeepsDeterministicObservationSemantics(t *testing.T) {
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},

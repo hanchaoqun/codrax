@@ -6246,6 +6246,112 @@ func TestEmitAnalysis_Execute_PersistsRuntimeArtifactValueProfileInMixedCurrentS
 	}
 }
 
+func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	objective := "只分析这份 trace，不分析代码。目标线程是 app-100，请分析它在 5.000s 到 5.007s 这一帧窗口内的丢帧根因。"
+	mu := types.NewMutableState(objective)
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			LineStart: 4,
+			LineEnd:   7,
+		}},
+	})
+	payload := `{
+		"intent":"root_cause",
+		"scenario":"performance_bottleneck",
+		"complexity":"moderate",
+		"keywords":["trace","app-100","丢帧","根因"],
+		"entities":["app-100"],
+		"question_kind":"mechanism",
+		"predicate_axis":"condition",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.9,
+		"kind_confidence":0.9,
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":false,
+			"is_history_lookup":false,
+			"is_diagnostic_question":true,
+			"has_per_member_table":false
+		},
+		"diagnostic_profile":{
+			"is_diagnostic":true,
+			"current_risk":false,
+			"historical_regression":false,
+			"current_version_check":false,
+			"observation_summary":"VerifyClass sync-rpc directly blocked app-100 for 5800ms",
+			"confidence":0.95
+		},
+		"artifact_value_profile":{
+			"is_artifact_value_lookup":true,
+			"target":"VerifyClass stall duration",
+			"value":"5800",
+			"unit":"ms",
+			"literal_kind":"number",
+			"observation_refs":["observation:1"],
+			"confidence":0.95
+		},
+		"external_observation_policy":{
+			"current_source_mode":"exclude",
+			"exclusion_kind":"explicit_user_exclusion",
+			"current_source_exclusion_quote":"只分析这份 trace，不分析代码",
+			"confidence":1.0
+		},
+		"runtime_artifact_scope_profile":{
+			"requested_scope":"explicit_time_window",
+			"time_start":5.0,
+			"time_end":5.007,
+			"source_quote":"5.000s 到 5.007s 这一帧窗口",
+			"confidence":1.0
+		},
+		"runtime_target_profile":{
+			"declaration":"named_target",
+			"source_quote":"目标线程是 app-100",
+			"confidence":1.0
+		},
+		"runtime_targets":[{"kind":"thread","thread":"app-100","source":"user_explicit","confidence":1.0}],
+		"runtime_question_profile":{
+			"scope":"causal_diagnosis",
+			"source_quote":"丢帧根因",
+			"confidence":0.95
+		},
+		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":1.0},
+		"completeness_obligation":{"required":false,"source_quote":""},
+		"answer_role_profile":{"is_role_binding_requested":false,"confidence":0.8},
+		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.8}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime diagnostic should normalize optional analyzer guesses: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.RuntimeArtifactValueProfile != nil {
+		t.Fatalf("non-scalar diagnostic retained analyzer artifact value: %+v", rm.RuntimeArtifactValueProfile)
+	}
+	if rm.DiagnosticProfile.ObservationSummary != "" {
+		t.Fatalf("attached-artifact analyzer summary retained as authority: %q", rm.DiagnosticProfile.ObservationSummary)
+	}
+	for _, want := range []string{"cleared diagnostic_profile.observation_summary", "dropped artifact_value_profile outside predicates.is_scalar_answer=true"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("normalization warning missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsTypedRuntimeTargets(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -668,7 +668,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"artifact_value_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed profile for exact values observed in attached logs, traces, perf artifacts, or trace_query/log-triage facts. Use this when the value is supported by runtime artifact observations rather than by a verbatim current-request field=value phrase. This is a soft artifact lane; later stages must verify against typed runtime observations before treating the value as factual.",
+				"description": "Optional typed profile for a scalar answer explicitly requested from an attached log, trace, perf artifact, or typed runtime observation. Emit it only with predicates.is_scalar_answer=true. It is a soft lookup lane that later stages must verify; never transcribe a pre-triage model summary, stall guess, or inferred root-cause value into this profile.",
 				"properties": map[string]any{
 					"is_artifact_value_lookup": map[string]any{"type": "boolean", "description": "True only when the scalar/key-value target is an exact value observed in a runtime artifact."},
 					"target":                   map[string]any{"type": "string", "description": "Runtime-artifact value target, such as GC span duration, frame jank duration, binder latency, thread state, or trace line number. It does not need to be an owner-qualified source member."},
@@ -1662,6 +1662,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	runtimeArtifactCarrier := emitAnalysisHasRuntimeArtifactCarrier(ctx)
+	if runtimeArtifactCarrier && strings.TrimSpace(diagnosticProfile.ObservationSummary) != "" {
+		diagnosticProfile.ObservationSummary = ""
+		warning := "cleared diagnostic_profile.observation_summary for an attached runtime artifact; analyzer summaries cannot become artifact fact authority, and the raw request plus typed runtime observations remain available"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	runtimeArtifactValueProfile, runtimeArtifactValueErr := parseRuntimeArtifactValueProfile(runtimeArtifactCarrier, p.RuntimeArtifactValueProfile)
 	if runtimeArtifactValueErr != "" {
 		if !runtimeArtifactCarrier && p.RuntimeArtifactValueProfile != nil && p.RuntimeArtifactValueProfile.IsArtifactValueLookup != nil && *p.RuntimeArtifactValueProfile.IsArtifactValueLookup {
@@ -1676,6 +1682,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				Timestamp: time.Now(),
 			}, nil
 		}
+	}
+	if runtimeArtifactValueProfile != nil && !predicates.IsScalarAnswer {
+		runtimeArtifactValueProfile = nil
+		warning := "dropped artifact_value_profile outside predicates.is_scalar_answer=true; diagnostic and explanatory requests obtain runtime values from later typed observations instead of analyzer-transcribed pre-triage values"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)

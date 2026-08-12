@@ -1347,10 +1347,42 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 	}
 	suppressResidue := shouldSuppressPerfTriageResidueInPrompt(ac)
 	suppressModelObservations := shouldSuppressModelPerfObservationsInPrompt(ac)
-	if !suppressResidue && !suppressModelObservations {
+	analyzerProjection := ac.AgentName == types.AgentAnalyzer || ac.Stage == types.StageAnalyze
+	if !suppressResidue && !suppressModelObservations && !analyzerProjection {
 		return ac.PerfTrace
 	}
 	projected := *ac.PerfTrace
+	if analyzerProjection {
+		// The analyzer is a request classifier, not a second trace parser. The
+		// pre-triage model may have guessed units, stall kinds, causes, or frame
+		// semantics incorrectly. Keep only validator-owned observations and
+		// trace-local line locators here; raw attachment identity and the later
+		// deterministic trace_query lane remain available independently.
+		projected.Meta.DurationMs = 0
+		projected.Meta.AppPID = 0
+		projected.Meta.Signals = nil
+		projected.Meta.Summary = ""
+		projected.Frames = nil
+		projected.Janks = nil
+		projected.Stalls = nil
+		projected.Startup = nil
+		projected.Residue = nil
+		projected.Entities = nil
+		projected.IntentHint = ""
+		projected.Coverage = 0
+		projected.Observations = make([]types.PerfObservation, 0, len(ac.PerfTrace.Observations))
+		for _, obs := range ac.PerfTrace.Observations {
+			if !obs.IsNavigationOnly() {
+				projected.Observations = append(projected.Observations, obs)
+				continue
+			}
+			projected.Observations = append(projected.Observations, types.PerfObservation{
+				Authority: obs.Authority,
+				LineStart: obs.LineStart,
+				LineEnd:   obs.LineEnd,
+			})
+		}
+	}
 	if suppressResidue {
 		projected.Residue = nil
 	}

@@ -5409,3 +5409,46 @@ relation enum，不读取 message label、请求、reasoning 或终稿 prose。�
 状态：`B586=implemented/pending-r348`；`sequence-call-operator=invocation-only`；
 `paired-response=preserved`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.198 r348：预分析语义越权与概念工作流 authority 断链
+
+r348 exact-two runner 1/2、人工 0/2。Trace runner 通过且 B585 在生产链路转正：源码排除仅进入
+`external_observation_policy`，答案成员排除保持 false；显式窗、目标状态账、链上排序、实际/可消双轴、frame absent 限定、因果投影和自动补齐
+均未退化。人工失败来自更早的 authority 混线：perf_triage 把 5.8ms 写成 `5800ms`，把 VerifyClass 猜为 `sync-rpc/direct cause`；
+analyzer 随后把同一猜测抄入 `artifact_value_profile` 与 `diagnostic_profile.observation_summary`。后续 trace_query 已发布
+`pre_wakeup_dependency`、`target_wait_for_work_authority=not_provided_by_this_seat`、
+`work_completion_dependency_authority=not_provided_by_this_seat`，但早期错误载体仍影响终稿，使模型声称 app-100 等待 VerifyClass 完成。
+
+立案 `B587-PRETRIAGEANALYZERAUTH1/P1-high`：pre-triage 模型输出只能定位原始 trace 区域；不得成为 analyzer 的 artifact scalar、诊断事实摘要、
+实体身份或 hard ArtifactObservationProfile。最优方案不是删掉 trace 信息，而是按现有 Authority enum 分层：analyzer prompt 仅看 validator 语义和
+pre-triage 行号 locator；非 scalar 请求丢弃 artifact_value_profile；附带 runtime artifact 时清空 analyzer 自填 observation_summary；
+硬 observation profile 只消费 deterministic-validator rows。原始附件、用户显式窗/目标和后续 trace_query 均保持可用。
+
+Read runner 因答案遗漏 Explorer/Extractor 而失败。B586 已在真实链路阻止 `-->>` 作为正向 call；但 analyzer 的非法
+`discover_path + source/sink` 只被正确降格，并没有把概念工作流任务导向 canonical topology。RequiredFiles 现有 stage authority seeder 仍要求
+某个 `Stage*` const 实体；当前 typed 请求已经有 `scenario=architecture_explain`、flow diagram 和 required
+`stage_or_workflow` 维度，却因用户使用概念词 analyze/finalizer 而未触发，Explorer 误选同名 `dataflow.Analyze`。
+
+立案 `B588-CONCEPTUALWORKFLOWAUTH1/P1-high`：对 required `stage_or_workflow` 维度，使用该 typed 角色加 architecture/flow/diagram 组合播种
+checkout 内 canonical topology/binding authority，不再依赖同名 `Stage*` symbol。播种只要求模型读取权威源，不直接生成成员、边或答案；
+最终关系仍由 checkout 验证后的 stageauthority 与模型成文共同完成。Trace family 继续绕开，跨语言普通源码图不受 Codrax 自身 authority 污染。
+
+274s read 活跃流正常完成，不存在 4 分钟累计时长降级。状态：`B585=production-positive/closed`；
+`B586=production-positive/closed`；`B587=implementing`；`B588=queued`；`runner=1/2`；`human=0/2`；
+`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`；
+`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.199 B587：pre-triage 只保留导航权，analyzer 事实载体收权
+
+本批把同一 Authority 分界贯通三个消费面。Analyzer 的 PerfBundle prompt projection 清除模型产出的 meta summary/signals、frame/jank/stall/
+startup 语义、layer-4 entities/intent，并把 model observation 缩到 artifact-local line locator；validator-owned observation 原样保留。
+`buildAnalysisIR` 不再把 PerfBundle 派生实体合并为 analyzer entity，只有 deterministic-validator observation subject 可进入提示。
+
+`emit_analysis` 同时执行两个 typed 归一化：附带 runtime artifact 时清空 analyzer 自填的 diagnostic observation_summary；
+`artifact_value_profile` 仅在 `predicates.is_scalar_answer=true` 时保留，root-cause/mechanism 等非标量请求从后续 typed runtime rows 取值。
+`BuildArtifactObservationProfile` 作为 hard routing 消费面只接受显式 deterministic authority；pre-triage summary/signal/stall/startup/entity 不再铸造成
+强证据。全部判定只读 stage、typed predicate 和 authority enum，不扫用户或模型 prose，也不改写终稿。
+
+状态：`B587=implemented/pending-r349`；`pretriage=navigation-only`；`analyzer-artifact-scalar=scalar-request-only`；
+`hard-observation-profile=deterministic-authority-only`；`system-answer-authorship=none`；
+Trace explicit-window/target/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

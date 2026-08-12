@@ -87,12 +87,8 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 			VerdictAuthority: PerfObservationAuthorityDeterministicValidator,
 			CausalAuthority:  PerfObservationAuthorityDeterministicValidator,
 		}},
-		Stalls: []PerfStall{{
-			DurationMs: 125.0,
-			Kind:       "io",
-			Symbol:     "LoadAvatar",
-		}},
 		Observations: []PerfObservation{{
+			Authority:  PerfObservationAuthorityDeterministicValidator,
 			Subject:    "GC span start",
 			Summary:    "GC:Collect begins on trace line 5 and lasts 8ms",
 			LineStart:  5,
@@ -109,13 +105,39 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.85", profile.DiagnosticConfidence)
 	}
 	if !ObservationKindsContain(profile.ObservationKinds, ObservationKindPerfJank) ||
-		!ObservationKindsContain(profile.ObservationKinds, ObservationKindPerfStall) {
+		!ObservationKindsContain(profile.ObservationKinds, ObservationKindPerfFrame) {
 		t.Fatalf("trace observations missing: %+v", profile.ObservationKinds)
 	}
 	if !containsProfileString(profile.SubjectCandidates, "RenderList") ||
-		!containsProfileString(profile.SubjectCandidates, "LoadAvatar") ||
 		!containsProfileString(profile.SubjectCandidates, "GC span start") {
 		t.Fatalf("trace subjects missing: %+v", profile.SubjectCandidates)
+	}
+}
+
+func TestBuildArtifactObservationProfile_PreTriagePerfSemanticsAreNavigationOnly(t *testing.T) {
+	profile := BuildArtifactObservationProfile(nil, &PerfBundle{
+		Meta: PerfMeta{
+			Source:  "hitrace",
+			Summary: "VerifyClass directly blocked the main thread",
+			Signals: []string{"main-thread-stall"},
+		},
+		Frames:  []PerfFrame{{FrameNo: 1, DurationMs: 5800}},
+		Stalls:  []PerfStall{{DurationMs: 5800, Kind: "sync-rpc", Symbol: "VerifyClass"}},
+		Startup: &PerfStartup{Mode: "cold", AppLaunchMs: 5800},
+		Observations: []PerfObservation{{
+			Authority: PerfObservationAuthorityPreTriageModelExtraction,
+			Subject:   "guessed cause",
+			Summary:   "direct blocking",
+		}},
+		Entities: []string{"VerifyClass"},
+	})
+	if profile == nil || profile.Source != "trace" {
+		t.Fatalf("artifact presence must remain typed: %+v", profile)
+	}
+	if profile.SymptomSummary != "" || len(profile.ObservationKinds) != 0 ||
+		len(profile.EvidenceSnippets) != 0 || len(profile.SubjectCandidates) != 0 ||
+		profile.DiagnosticConfidence != 0 {
+		t.Fatalf("pre-triage semantics leaked into hard observation profile: %+v", profile)
 	}
 }
 

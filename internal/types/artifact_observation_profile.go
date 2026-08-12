@@ -225,56 +225,39 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 	if out == nil || bundle == nil {
 		return
 	}
-	if summary := strings.TrimSpace(bundle.Meta.Summary); summary != "" && out.SymptomSummary == "" {
-		out.SymptomSummary = clampProfileSnippet(summary)
-	}
-	for _, sig := range bundle.Meta.Signals {
-		kind := MakePerfSignalObservationKind(sig)
-		if kind == "" {
+	kindsBefore := len(out.ObservationKinds)
+	// PerfBundle meta summaries, signal tags, plain frames, stalls, startup,
+	// and layer-4 entities originate in the pre-triage model. They remain
+	// navigation/audit material elsewhere, but this profile feeds hard routing
+	// and therefore admits only fields with explicit deterministic authority.
+	for _, f := range bundle.Frames {
+		if !f.Janky || f.JankIsPreTriageModelExtraction() {
 			continue
 		}
-		out.ObservationKinds = append(out.ObservationKinds, kind)
-		out.EvidenceSnippets = append(out.EvidenceSnippets, strings.TrimSpace(sig))
-	}
-	for _, f := range bundle.Frames {
-		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
-		snippet := fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs)
-		if f.Janky {
-			if f.JankIsPreTriageModelExtraction() {
-				snippet += fmt.Sprintf(" jank_candidate=true verdict_authority=%s", f.JankAuthority)
-			} else {
-				snippet += " janky=true"
-			}
-		}
-		out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(snippet))
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
+		out.EvidenceSnippets = append(out.EvidenceSnippets,
+			clampProfileSnippet(fmt.Sprintf("frame %d duration %.2fms janky=true", f.FrameNo, f.DurationMs)))
 	}
 	for _, j := range bundle.Janks {
 		if j.VerdictIsPreTriageModelExtraction() {
-			out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
-		} else {
-			out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
+			continue
 		}
-		if span := strings.TrimSpace(j.TriggerSpan); span != "" {
-			out.SubjectCandidates = append(out.SubjectCandidates, span)
-		}
-		if j.VerdictIsPreTriageModelExtraction() || j.CauseIsPreTriageModelExtraction() {
-			out.EvidenceSnippets = append(out.EvidenceSnippets,
-				clampProfileSnippet(fmt.Sprintf("slow-frame candidate %.2fms cause_candidate=%s verdict_authority=%s causal_authority=%s",
-					j.DurationMs, strings.TrimSpace(j.Reason), j.VerdictAuthority, j.CausalAuthority)))
-		} else {
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
+		if !j.CauseIsPreTriageModelExtraction() {
+			if span := strings.TrimSpace(j.TriggerSpan); span != "" {
+				out.SubjectCandidates = append(out.SubjectCandidates, span)
+			}
 			out.EvidenceSnippets = append(out.EvidenceSnippets,
 				clampProfileSnippet(fmt.Sprintf("jank %.2fms %s", j.DurationMs, strings.TrimSpace(j.Reason))))
+		} else {
+			out.EvidenceSnippets = append(out.EvidenceSnippets,
+				clampProfileSnippet(fmt.Sprintf("jank %.2fms", j.DurationMs)))
 		}
-	}
-	for _, s := range bundle.Stalls {
-		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStall)
-		if sym := strings.TrimSpace(s.Symbol); sym != "" {
-			out.SubjectCandidates = append(out.SubjectCandidates, sym)
-		}
-		out.EvidenceSnippets = append(out.EvidenceSnippets,
-			clampProfileSnippet(fmt.Sprintf("stall %.2fms %s", s.DurationMs, strings.TrimSpace(s.Kind))))
 	}
 	for _, obs := range bundle.Observations {
+		if obs.IsNavigationOnly() {
+			continue
+		}
 		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
 		if subj := strings.TrimSpace(obs.Subject); subj != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, subj)
@@ -282,17 +265,7 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 		out.EvidenceSnippets = append(out.EvidenceSnippets,
 			clampProfileSnippet(firstNonEmptySurfaceString(obs.Summary, obs.Evidence, obs.Subject)))
 	}
-	if bundle.Startup != nil {
-		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStartup)
-		out.EvidenceSnippets = append(out.EvidenceSnippets,
-			clampProfileSnippet(fmt.Sprintf("%s startup %.2fms", bundle.Startup.Mode, bundle.Startup.AppLaunchMs)))
-	}
-	for _, e := range bundle.Entities {
-		if e = strings.TrimSpace(e); e != "" {
-			out.SubjectCandidates = append(out.SubjectCandidates, e)
-		}
-	}
-	if bundle.HasStructuredObservations() && out.DiagnosticConfidence < diagnosticConfidenceStrongEvidence {
+	if len(out.ObservationKinds) > kindsBefore && out.DiagnosticConfidence < diagnosticConfidenceStrongEvidence {
 		out.DiagnosticConfidence = diagnosticConfidenceStrongEvidence
 	}
 }

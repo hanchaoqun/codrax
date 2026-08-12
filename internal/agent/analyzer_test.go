@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestAnalyzerPerfEntityHints_OnlyValidatorOwnedSubjects(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Entities: []string{"VerifyClass", "sync-rpc"},
+		Stalls:   []types.PerfStall{{Symbol: "VerifyClass", Kind: "sync-rpc", DurationMs: 5800}},
+		Observations: []types.PerfObservation{
+			{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Subject: "guessed cause"},
+			{Authority: types.PerfObservationAuthorityDeterministicValidator, Subject: "target runnable interval"},
+		},
+	}
+	got := analyzerPerfEntityHints(bundle)
+	if !reflect.DeepEqual(got, []string{"target runnable interval"}) {
+		t.Fatalf("analyzer perf hints=%v, want validator-owned subject only", got)
+	}
+}
 
 // TestAnalyzerRuntimeArtifactSourceNavigationOptional_ExplicitExclusion pins the
 // Gap 1 fix: a request that explicitly excludes current source ("不要分析代码" →
