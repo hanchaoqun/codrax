@@ -34776,3 +34776,39 @@ subtotal、target 五态互斥加法、same-source partition 等已有正向 typ
 `unknown-relation=preserved`；`cause-roster-closure=not-inferred`；`exact-positive-relation-carriers=unchanged`；
 `system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=absent/forbidden`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.695 r387：方向未知与原因未封闭转正；缺证据否定事实的通用形仍开放
+
+`main@2d8b623d7` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_unknown_closure_r387_20260812_manual_audit.md`。
+
+H11 的 B646 已生效：模型把跨方向物理关系保持为 unresolved，不再宣称独立或无重叠；跨方向总计仍未授权，锁方向内部 12.115ms 精确小计保留。残余 B648 是同类推理的
+一般形：摘要把 `target_direct_blocking_authority=not_provided` / `direct_blocking_decision=not_established` 写成“主要卡顿并非来自外部阻塞”。未建立 typed 直接阻塞关系不能证明物理上
+不存在外部阻塞；答案后文又承认同步阻塞与锁持有者未证，形成摘要/证据边界矛盾。
+
+H10 的 B647 同样转正：模型不再把目标等待封闭为 GPU fence + running 供给折算，也正确区分目标 CompThread 与 peer JIT 线程。模型自写列表本轮没有复述每成员数值/行号，
+但同一最终答案的确定性投影完整保留 1.781/0.607ms 与两段行号；Finalizer typed member capsule 和逐成员复制教学均在，零拒绝、零信息丢失。该项记模型展示波动，不以一次波动为由新增
+终稿扫描、硬门或系统代写。
+
+H11 用时 321s，活跃连接越过四分钟后仍由同一模型流正常完成；系统没有按年龄发布旧稿、空答或降级答案。这是用户“流式链接活跃时避免 4ms/4min 无答案降级”要求的生产正例。
+
+状态：`runner=2/2`；`human=1/2`；`B646/B647=production-positive`；
+`B648-TRACEEVIDENCEABSENCENEGATION1=confirmed/P0`；`semantic-member-visible-detail=model-variance/advisory`；
+`active-stream-over-4m=production-positive/no-age-degrade`；`system-answer-rewrite=none`；
+`raw-request/model/final-prose-hard-gate=none`；`Trace explicit-window/causal projection/auto-supplement=preserved`。
+
+### 123.696 B648：证据缺席的通用语义是 unknown，不是 false
+
+B648 将 B646 的特例 capsule 提升为通用 typed 推理边界：`evidence_absence_implication=unknown_not_false`，并显式发布
+`target_direct_blocking_not_established_does_not_prove_no_external_blocking=true`。它与既有 target blocking、方向关系、原因闭包 authority 同处 Finalizer 尾部，要求模型可以说“本次未建立
+typed 直接阻塞关系”，但不能反向说“没有外部阻塞”。同一原则也适用于未证 holder、thermal、frame cause 等机制；真正的 typed negative carrier 若将来存在，仍可发布其精确否定事实。
+
+这不是对“外部阻塞”等自然语言的词面扫描，也不是 validator：代码只从已激活的 typed Trace 投影渲染 prompt，既不读取模型答案，也不生成、删除或替换任何可见结论。B646 的关系未知、
+B647 的原因未封闭、方向 exact subtotal、状态 closed partition 等正向权限保持不变。
+
+定向 pin 在 Trace Decision Inputs 与 Final Trace Boundary 双面固定通用语义和 target-direct-blocking 具体例，防止将来重新退化成“没有证据即没有事实”。相关全包与下一批 exact-two 图关系生产回放待完成。
+
+状态：`B648=implemented/targeted-pass`；`evidence-absence=unknown-not-false`；
+`typed-negative-carrier=still-authoritative-when-present`；`system-answer/conclusion-rewrite=none`；
+`raw-prose-hard-gate=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`。
