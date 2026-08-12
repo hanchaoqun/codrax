@@ -7135,6 +7135,14 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		return nil, nil, 0, 0
 	}
 	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	// The strict diagram validator and finalizer authoring capsule must consume
+	// one exact relation source. Explorer EvidenceItems can legitimately contain
+	// definitions while the request-scoped typed provider separately carries an
+	// implements/extends/overrides edge. Append only coverage-gate-eligible
+	// provider rows here so the model receives the exact direction before it
+	// authors or repairs a diagram. This supplies evidence; it neither requires
+	// a diagram nor rewrites the model-owned answer.
+	evidence = answerDocAppendExactTypedRelationEvidence(ctx, evidence)
 	canonicalCallEdges := make(map[string]types.CallChainEvidenceEdge)
 	for _, edge := range types.CanonicalCallChainEvidenceEdges(evidence) {
 		if key := answerDocCanonicalCallEdgeKey(edge.EvidenceID, edge.Source, edge.LineStart); key != "" {
@@ -7224,6 +7232,34 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 	}
 	acceptedFacts += len(stagePrecedence)
 	return evidence, edges, acceptedFacts, callsiteFacts
+}
+
+func answerDocAppendExactTypedRelationEvidence(ctx *types.AgentContext, evidence []types.EvidenceItem) []types.EvidenceItem {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return evidence
+	}
+	exact := tool.ExactTypedRelationEvidenceForRequest(
+		types.ToolBusContext(ctx, types.AgentFinalizer),
+		ctx.AnalysisIR.RequestModel,
+	)
+	if len(exact) == 0 {
+		return evidence
+	}
+	out := append([]types.EvidenceItem(nil), evidence...)
+	seen := make(map[string]bool, len(out)+len(exact))
+	for _, item := range out {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			seen[id] = true
+		}
+	}
+	for _, item := range exact {
+		if item.ID == "" || seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func answerDocCanonicalCallEdgeKey(evidenceID, source string, line int) string {

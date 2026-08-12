@@ -195,6 +195,23 @@ func TestPreEmitEvidenceWithExactTypedDiagramRelations_CrossLanguageCarrierIsExt
 	}
 }
 
+func TestExactTypedRelationEvidenceForRequest_IsPromptValidatorSharedCarrier(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	rows := ExactTypedRelationEvidenceForRequest(ctx, ctx.AnalysisIR.RequestModel)
+	if len(rows) != 1 || !types.IsRepoMapTypeRelationEvidence(rows[0]) ||
+		rows[0].Subject != "analyzerEvaluator" || rows[0].Object != "LoopController" ||
+		rows[0].Predicate != "implements" || !rows[0].IsCitable() {
+		t.Fatalf("shared prompt/validator carrier lost exact typed direction: %+v", rows)
+	}
+
+	nameOnly := exactImplementerCandidate("internal/agent/analyzer.go")
+	nameOnly.Precision = types.TypedRelationPrecisionNameOnly
+	nameOnlyCtx := typedRelationBridgeTestContext(nameOnly)
+	if rows := ExactTypedRelationEvidenceForRequest(nameOnlyCtx, nameOnlyCtx.AnalysisIR.RequestModel); len(rows) != 0 {
+		t.Fatalf("shared carrier must fail closed on name-only relation rows: %+v", rows)
+	}
+}
+
 func TestPreEmitEvidenceWithExactTypedDiagramRelations_DoesNotMintUnrequestedEdge(t *testing.T) {
 	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

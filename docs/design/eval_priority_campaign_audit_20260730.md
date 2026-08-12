@@ -35181,3 +35181,54 @@ Go、Java/Kotlin、C/C++、Rust、Python、JS/TS/ArkTS、Ruby、Swift、Lua、Ca
 `raw-user/model/final-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### 123.711 r397：活跃流年龄不降级确认，以及类型关系校验/修补上下文分裂
+
+在干净 `main@a727f2295` 上严格并发恰好两个案例：
+`cond_resolve_stall_timeout` 与 `qf_type_relation_loop_controller`。runner 1/2，
+人工 1/2；详见
+`eval/parallel_selected_summary_evalcampaign_stream_typegraph_r397_20260812_manual_audit.md`。
+
+1. 流式案真实通过：中途无更多 SSE 字节由 `streamStallTimeout` 控制，默认
+   120s、配置键 `llm_stream_stall_timeout_seconds`；首个可用模型进度前由
+   `streamFirstByteTimeout` 控制，默认 180s、配置键
+   `stream_first_byte_timeout_seconds`。人工冷读及既有生产测试共同确认：隐藏
+   reasoning、tool-call args、可见内容和 keep-alive 均维持字节活性；活动流累计
+   四分钟以及字面 `4ms` 都不构成降级权限。只有 caller cancel/deadline、首字节
+   静默、中途字节静默和精确 transport/decode 失败可终止。
+2. 类型关系案不是模型波动。Explorer 找齐 12 个 production implementer；模型首稿
+   保留完整表格及 Mermaid，但把所有边画成
+   `LoopController -> implementer`。严格校验根据 exact typed provider 正确拒绝，
+   因为实现关系的规范方向是 `implementer -> LoopController`。
+3. 真正系统 gap 是校验与教学不同源：同一个 Finalizer prompt 的 Typed Relation
+   Source-Role Projection 和 Relation Role Handoff 已含 12 条精确方向，硬校验也能
+   消费；Current-Source Mechanism Relation Authority 却只看 EvidenceItem pool，
+   因此错误发布 `explicit_typed_directed_relations=0`。随后修补提示声称
+   “No copy-ready typed relation carrier is available”，模型依提示删除显式请求的图，
+   runner 与人工均判 FAIL。
+4. B659 抽出共享
+   `ExactTypedRelationEvidenceForRequest`：从同一 request-scoped typed candidate
+   provider 读取且仅投影 `CoverageGateEligible` 的 `implements/extends/overrides`
+   关系，形成 validator 已消费的 citable EvidenceItem 方向。pre-emit bridge 同样
+   复用此投影，Finalizer 关系胶囊则在 enrichment pool 后追加精确 rows，避免一侧
+   拒绝反向边、另一侧宣称没有载体。
+5. 该变更只给模型提供精确 authoring carrier；不要求必须画图、不生成或替换
+   Mermaid、不改写正文/结论，也不扫描用户、模型或最终答案 prose。未知关系、
+   name-only、heuristic、缺文件/行号候选继续 fail-closed；request source scope 仍
+   过滤测试辅助实现。修补提示拿到 bounded exact relation boundary 后，由模型自行
+   决定保留哪些业务关系及其可见措辞。
+6. 回归覆盖 Go、Java、Kotlin、ArkTS、Cangjie、C++、Rust 路径，并钉住精确关系
+   必须生成同向 recipe、name-only 不得升级、optional repair 不得再错误声称无载体。
+   核心包 `internal/agent`、`internal/types`、`internal/tool`、
+   `internal/orchestrator` 全绿。下一批需用 exact-two 生产回放验证图能被模型按精确
+   方向修复或一次成文；若仍丢图，再审计 typed presentation 的 `diagram.required`
+   信号，而不能从用户原文关键词造硬门。
+
+状态：`runner=1/2 PASS`；`human=1/2 PASS`；
+`B659-RELATIONPROVIDERFINALIZERVALIDATORSPLIT1=implemented/targeted+core-pass/pending-production-replay`；
+`relation-authority=shared-exact-request-scoped-provider`；
+`diagram/conclusion-authorship=model-owned`；`hard-gate=strict/unchanged`；
+`raw-user/model/final-prose-hard-gate=none`；`system-answer-rewrite=none`；
+`active-stream-fixed-age-degrade=absent/forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

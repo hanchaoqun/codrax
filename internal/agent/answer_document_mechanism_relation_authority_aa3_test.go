@@ -8,6 +8,95 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+type answerDocExactRelationCandidateSourceFixture []types.TypedRelationCandidate
+
+func (f answerDocExactRelationCandidateSourceFixture) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	var out []types.TypedRelationCandidate
+	for _, row := range f {
+		if q.AllowsKind(row.Relation) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func answerDocExactRelationProviderContext(precision types.TypedRelationPrecision, file string) *types.AgentContext {
+	return &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisImplement,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            string(types.ReqMechanism),
+				PrimaryEntities: []string{"LoopController"},
+			},
+		}},
+		Mutable: types.NewMutableState("type relation finalizer carrier"),
+		MultiGraph: answerDocExactRelationCandidateSourceFixture{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			SourceKind: "interface",
+			Member: types.TypedRelationMember{
+				Name: "analyzerEvaluator", File: file, Line: 49, Kind: "struct",
+				SourceRole: types.ClassifySourcePathRole(file), Distance: 1,
+			},
+			Carrier:   types.TypedRelationCarrierGraph,
+			Precision: precision,
+		}},
+	}
+}
+
+func TestMechanismRelationAuthorityUsesExactProviderBeforeDiagramRepair(t *testing.T) {
+	ctx := answerDocExactRelationProviderContext(types.TypedRelationPrecisionExactSymbolID, "internal/agent/analyzer.go")
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=1",
+		"edge_recipe[1]=`n1 -> n2`; relation_kind=`type_relation`",
+		"analyzerEvaluator",
+		"LoopController",
+		"edge_anchor_json=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("finalizer authority missing shared exact provider carrier %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "No citable typed directed relation is available") {
+		t.Fatalf("finalizer must not deny a carrier accepted by the strict validator:\n%s", got)
+	}
+
+	hint := answerDocOptionalDiagramCallEdgePatchHint(ctx, false)
+	if !strings.Contains(hint, "bounded exact relation boundary") ||
+		!strings.Contains(hint, "edge_recipe[1]=`n1 -> n2`; relation_kind=`type_relation`") ||
+		strings.Contains(hint, "No copy-ready typed relation carrier is available") {
+		t.Fatalf("optional repair must repeat the exact typed direction instead of steering diagram deletion:\n%s", hint)
+	}
+}
+
+func TestMechanismRelationAuthorityDoesNotPromoteNameOnlyProviderRow(t *testing.T) {
+	ctx := answerDocExactRelationProviderContext(types.TypedRelationPrecisionNameOnly, "internal/agent/analyzer.go")
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if strings.Contains(got, "edge_recipe[") || strings.Contains(got, "explicit_typed_directed_relations=1") {
+		t.Fatalf("name-only provider row must remain soft and cannot become a repair carrier:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthorityExactProviderIsCrossLanguage(t *testing.T) {
+	for _, file := range []string{
+		"controller.go",
+		"src/Controller.java",
+		"src/Controller.kt",
+		"src/controller.ets",
+		"src/controller.cj",
+		"include/controller.hpp",
+		"src/controller.rs",
+	} {
+		t.Run(file, func(t *testing.T) {
+			ctx := answerDocExactRelationProviderContext(types.TypedRelationPrecisionExactFile, file)
+			if got := renderAnswerDocMechanismRelationAuthority(ctx); !strings.Contains(got, "relation_kind=`type_relation`") {
+				t.Fatalf("cross-language exact provider row lost before finalizer authoring: %s", got)
+			}
+		})
+	}
+}
+
 func TestMechanismRelationAuthorityDoesNotTurnIndependentFactsIntoPathAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

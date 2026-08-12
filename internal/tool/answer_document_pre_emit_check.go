@@ -4130,18 +4130,53 @@ func preEmitEvidenceWithExactTypedDiagramRelations(
 		!answerDocumentHasTypedRelationAnchor(doc) {
 		return evidence
 	}
-	candidates := relationCandidatesForRequestAllSourceRoles(ctx, ctx.AnalysisIR.RequestModel)
-	if len(candidates) == 0 {
+	exact := exactTypedRelationEvidenceForRequestAllSourceRoles(ctx, ctx.AnalysisIR.RequestModel)
+	if len(exact) == 0 {
 		return evidence
 	}
 	out := append([]types.EvidenceItem(nil), evidence...)
-	seen := make(map[string]bool, len(out)+len(candidates))
+	seen := make(map[string]bool, len(out)+len(exact))
 	for _, item := range out {
 		if !types.IsRepoMapTypeRelationEvidence(item) {
 			continue
 		}
 		seen[typedDiagramRelationEvidenceKey(item.Subject, item.Predicate, item.Object, item.Source, item.LineStart)] = true
 	}
+	for _, item := range exact {
+		key := typedDiagramRelationEvidenceKey(item.Subject, item.Predicate, item.Object, item.Source, item.LineStart)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+// ExactTypedRelationEvidenceForRequest projects the request-scoped rows from
+// the shared exact typed-relation provider into the same citable EvidenceItem
+// shape consumed by the diagram validator. Finalizer prompt construction uses
+// this exported boundary so it cannot claim that no carrier exists while the
+// hard gate independently knows the exact direction. The provider's typed
+// request model and CoverageGateEligible precision remain the only selectors;
+// no request or answer prose participates.
+func ExactTypedRelationEvidenceForRequest(ctx *types.BusContext, rm types.RequestModel) []types.EvidenceItem {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	return exactTypedRelationEvidenceFromCandidates(relationCandidatesForRequest(ctx, rm))
+}
+
+func exactTypedRelationEvidenceForRequestAllSourceRoles(ctx *types.BusContext, rm types.RequestModel) []types.EvidenceItem {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	return exactTypedRelationEvidenceFromCandidates(relationCandidatesForRequestAllSourceRoles(ctx, rm))
+}
+
+func exactTypedRelationEvidenceFromCandidates(candidates []types.TypedRelationCandidate) []types.EvidenceItem {
+	out := make([]types.EvidenceItem, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
 	for _, candidate := range candidates {
 		predicate, producer, ok := typedDiagramRelationCandidateEvidenceShape(candidate.Relation)
 		if !ok || !candidate.CoverageGateEligible() {
