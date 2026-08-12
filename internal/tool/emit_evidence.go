@@ -750,6 +750,17 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// cascade; schema-level scopes (File / Crossfile / Negative)
 		// route to their own grounders.
 		r := ground.GroundItemScoped(&built[i], gc)
+		// One callback expression carries two independently useful source
+		// relations: the enclosing callable invokes the receiving API, and that
+		// API receives the callable value.  The callback normalizer above keeps
+		// the second relation.  For a typed call/flow investigation, preserve the
+		// first as an exact model re-emit obligation when the parser owns one
+		// unique caller -> receiver tuple.  This never mints the sibling edge.
+		if repair, ok := emitEvidenceRequiredCallbackReceiverCallRepair(
+			ctx, built[i], builtParamIndexes[i], gc,
+		); ok {
+			callEndpointRepairs = append(callEndpointRepairs, repair)
+		}
 		// AnchorCall is downstream hard authority for a direct invocation. A
 		// line-range mention, quoted tool name, selection branch, or other
 		// source-text occurrence may still ground lexically, but it must not be
@@ -907,6 +918,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
 	valueTransferClassificationRepair := buildEmitEvidenceValueTransferClassificationRepair(valueTransferClassificationRepairs)
 	assignmentEndpointRepair := buildEmitEvidenceAssignmentEndpointRepair(assignmentEndpointRepairs)
+	repairEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
+	repairEvidence = append(repairEvidence, built...)
+	callEndpointRepairs = filterSatisfiedCallbackReceiverCallRepairs(callEndpointRepairs, repairEvidence)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
 	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
@@ -4943,6 +4957,11 @@ type emitEvidenceCallEndpointRepair struct {
 	callee    string
 	source    string
 	line      int
+	// callbackReceiverPair distinguishes an additional direct-call row from
+	// the ordinary case where a malformed call row itself was downgraded.  In
+	// the paired case the callback handoff remains accepted and must not be
+	// rebuilt or replaced.
+	callbackReceiverPair bool
 }
 
 const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obligations_v1"
@@ -5319,6 +5338,93 @@ func emitEvidenceRequiredRelationCallEndpointRepair(
 	}, true
 }
 
+// emitEvidenceRequiredCallbackReceiverCallRepair exposes the direct-call half
+// of an exact callback expression as model-owned repair debt.  A line such as
+//
+//	await loop.run_in_executor(None, plugin.handle, payload)
+//
+// proves both run_pipeline -> loop.run_in_executor (call) and
+// loop.run_in_executor -> plugin.handle (callback handoff).  Callback
+// normalization intentionally publishes only the second row.  When the
+// question's typed schema requires a call/flow relation, this helper asks the
+// model to emit the first row too so a principal path cannot be split into two
+// disconnected components.
+//
+// The gate reads only the request schema, the normalized typed evidence row,
+// and a unique parser/read-line tuple.  It does not inspect user/model/final
+// prose, and Runtime Trace stays on its independent causal-evidence contract.
+func emitEvidenceRequiredCallbackReceiverCallRepair(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+) (emitEvidenceCallEndpointRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.AnchorKind != types.AnchorCallback ||
+		item.Scope != types.ScopeLine || item.LineStart <= 0 ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		!emitEvidenceExactCallRelationRepairRequestShape(rm) {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	receiver, callable, ok := ground.DetectCallbackHandoffAtLine(
+		gc, item.Source, item.LineStart, firstNonEmpty(item.AnchorSymbol, item.Object),
+	)
+	if !ok || !emitEndpointIdentityCompatible(item.Subject, receiver) ||
+		!emitEndpointIdentityCompatible(item.Object, callable) {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+
+	// Reuse the same exact caller/callee resolver as ordinary call evidence,
+	// but target the receiving invocation instead of the callback argument.
+	// Clearing Subject prevents the already-normalized receiver identity from
+	// being considered as a candidate caller.
+	direct := item
+	direct.AnchorKind = types.AnchorCall
+	direct.Subject = ""
+	direct.Predicate = "calls"
+	direct.Object = receiver
+	direct.AnchorSymbol = receiver
+	caller, callee, exactKnown := exactCallEvidenceDirection(&direct, gc)
+	if !exactKnown || strings.TrimSpace(caller) == "" || strings.TrimSpace(callee) == "" {
+		return emitEvidenceCallEndpointRepair{}, false
+	}
+	return emitEvidenceCallEndpointRepair{
+		itemIndex:            itemIndex,
+		caller:               caller,
+		callee:               callee,
+		source:               item.Source,
+		line:                 item.LineStart,
+		callbackReceiverPair: true,
+	}, true
+}
+
+// filterSatisfiedCallbackReceiverCallRepairs avoids asking for an additional
+// row when the model already emitted that exact direct call in the same or an
+// earlier batch.  Ordinary downgraded-call repairs retain their existing
+// behavior.  Satisfaction uses the same durable typed obligation matcher as
+// emit_investigation_complete, never prose similarity.
+func filterSatisfiedCallbackReceiverCallRepairs(
+	in []emitEvidenceCallEndpointRepair,
+	evidence []types.EvidenceItem,
+) []emitEvidenceCallEndpointRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]emitEvidenceCallEndpointRepair, 0, len(in))
+	for _, row := range in {
+		if row.callbackReceiverPair && emitEvidenceRelationRepairObligationsSatisfied(
+			callEndpointRepairObligations([]emitEvidenceCallEndpointRepair{row}), evidence,
+		) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 // emitEvidenceExactCallRelationRepairRequestShape selects source questions for
 // which a model-submitted call-shaped observation is itself part of the typed
 // relation surface.  A required diagram is not the only consumer: registration,
@@ -5351,7 +5457,22 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 	}
 	fields := make([]string, 0, len(in)*5)
 	rows := make([]string, 0, len(in))
+	callbackPairCount := 0
 	for _, row := range in {
+		loc := row.source
+		if row.line > 0 {
+			loc = fmt.Sprintf("%s:%d", row.source, row.line)
+		}
+		if row.callbackReceiverPair {
+			callbackPairCount++
+			fields = append(fields, "items")
+			rows = append(rows, fmt.Sprintf(
+				"the callback handoff from items[%d] @ %s was accepted; emit one additional item with evidence_kind=%q, anchor_kind=%q, subject=%q (exact enclosing caller), predicate=%q, object=%q (exact receiving API), and anchor_symbol=%q",
+				row.itemIndex, loc, string(types.EvidenceRelationship), string(types.AnchorCall),
+				row.caller, "calls", row.callee, row.callee,
+			))
+			continue
+		}
 		fields = append(fields,
 			fmt.Sprintf("items[%d].evidence_kind", row.itemIndex),
 			fmt.Sprintf("items[%d].subject", row.itemIndex),
@@ -5359,22 +5480,28 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 			fmt.Sprintf("items[%d].object", row.itemIndex),
 			fmt.Sprintf("items[%d].anchor_symbol", row.itemIndex),
 		)
-		loc := row.source
-		if row.line > 0 {
-			loc = fmt.Sprintf("%s:%d", row.source, row.line)
-		}
 		rows = append(rows, fmt.Sprintf(
 			"items[%d] @ %s requires evidence_kind=%q, subject=%q (exact caller), predicate=%q, object=%q (exact callee), and anchor_symbol=%q",
 			row.itemIndex, loc, string(types.EvidenceRelationship), row.caller, "calls", row.callee, row.callee,
 		))
 	}
+	hint := "The typed source relationship still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: "
+	scope := "call_endpoint_identity"
+	if callbackPairCount > 0 {
+		hint = "An exact callback source line carries two distinct typed relationships. Its receiving-API -> callable callback handoff is already accepted; the requested call path also needs the independently proven enclosing-caller -> receiving-API invocation. Emit only the additional direct-call item(s) described below and keep the accepted callback row unchanged. The system has not created this sibling edge: "
+		scope = "callback_receiver_call_pair"
+		if callbackPairCount != len(in) {
+			hint += "This batch also contains an ordinary downgraded call row that must be re-emitted with its exact parser tuple. "
+			scope = "call_endpoint_identity+callback_receiver_call_pair"
+		}
+	}
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "The typed source relationship still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
+		Hint:   hint + strings.Join(rows, "; "),
 		Fields: uniqueEmitEvidenceRepairFields(fields),
 		Metadata: map[string]string{
 			"repair_status":       types.ToolRepairStatusActionRequired,
-			"repair_scope":        "call_endpoint_identity",
+			"repair_scope":        scope,
 			"repair_stage":        "explorer",
 			"completion_blocking": "true",
 			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(

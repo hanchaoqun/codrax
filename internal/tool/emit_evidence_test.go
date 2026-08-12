@@ -4032,6 +4032,139 @@ func TestRequiredRelationCallEndpointRepairUsesTypedRelationAxisAndIsTraceIsolat
 	}
 }
 
+func TestEmitEvidence_CallbackExpressionRequiresSeparateReceiverCallForTypedChain(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+	fi := &repomap.FileInfo{
+		RelPath: "pipeline/runner.py", Language: repomap.LangPython, Package: "pipeline",
+		Symbols: []repomap.Symbol{{
+			Name: "run_pipeline", Kind: "function", File: "pipeline/runner.py", Line: 1, EndLine: 3,
+		}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "pipeline/runner.py", Line: 2,
+			FromEP: repomap.RelationEndpoint{Name: "run_pipeline", File: "pipeline/runner.py", Line: 2},
+			ToEP: repomap.RelationEndpoint{
+				Name: "run_in_executor", Receiver: "loop", File: "pipeline/runner.py", Line: 2,
+			},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "python_call",
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(fi))
+	seedReadFileHistory(ctx, "pipeline/runner.py", 1,
+		"async def run_pipeline(kind, payload):",
+		"    return await loop.run_in_executor(None, plugin.handle, payload)",
+		"",
+	)
+
+	callbackOnly := json.RawMessage(`{"items":[{
+		"scope":"line","evidence_kind":"relationship","subject":"run_pipeline",
+		"predicate":"calls","object":"plugin.handle","source":"pipeline/runner.py","line_start":2,
+		"summary":"the pipeline passes the plugin handler to the executor","anchor_kind":"call",
+		"anchor_symbol":"plugin.handle","snippet":"return await loop.run_in_executor(None, plugin.handle, payload)"
+	}]}`)
+	res, err := tool.Execute(ctx, callbackOnly)
+	if err != nil || !res.Success {
+		t.Fatalf("callback evidence should be accepted with a sibling repair, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "callback_receiver_call_pair" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("typed chain must request the exact caller -> receiver sibling: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		"callback handoff", `subject="run_pipeline"`, `predicate="calls"`,
+		`object="loop.run_in_executor"`, `anchor_symbol="loop.run_in_executor"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("callback pair hint missing %q: %s", want, res.Repair.Hint)
+		}
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorCallback ||
+		got[0].Subject != "loop.run_in_executor" || got[0].Object != "plugin.handle" {
+		t.Fatalf("callback half must remain accepted without a system-authored sibling: %+v", got)
+	}
+
+	directReceiverCall := json.RawMessage(`{"items":[{
+		"scope":"line","evidence_kind":"relationship","subject":"run_pipeline",
+		"predicate":"calls","object":"loop.run_in_executor","source":"pipeline/runner.py","line_start":2,
+		"summary":"run_pipeline invokes the executor API","anchor_kind":"call",
+		"anchor_symbol":"loop.run_in_executor","snippet":"return await loop.run_in_executor(None, plugin.handle, payload)"
+	}]}`)
+	res, err = tool.Execute(ctx, directReceiverCall)
+	if err != nil || !res.Success {
+		t.Fatalf("model re-emitted receiver call failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("exact receiver call must not create another action-required repair: %+v", res.Repair)
+	}
+	got = ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || got[1].AnchorKind != types.AnchorCall ||
+		got[1].Subject != "run_pipeline" || got[1].Object != "loop.run_in_executor" {
+		t.Fatalf("model-authored direct receiver call was not preserved: %+v", got)
+	}
+}
+
+func TestCallbackReceiverCallRepairIsSchemaBoundTraceIsolatedAndDuplicateAware(t *testing.T) {
+	fi := &repomap.FileInfo{
+		RelPath: "Runner.ets", Language: repomap.LangArkTS,
+		Symbols: []repomap.Symbol{{Name: "run", Kind: "method", Parent: "Runner", Line: 1, EndLine: 3}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "Runner.ets", Line: 2,
+			FromEP:     repomap.RelationEndpoint{Name: "run", Receiver: "Runner", Line: 2},
+			ToEP:       repomap.RelationEndpoint{Name: "submit", Receiver: "queue", Line: 2},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "arkts_call",
+		}},
+	}
+	gc := &ground.Context{
+		Graph: callTargetTestGraph(fi),
+		LineIndex: map[string]map[int]string{
+			"Runner.ets": {2: "queue.submit(worker.run, request);"},
+		},
+	}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "Runner.ets", LineStart: 2, LineEnd: 2,
+		AnchorKind: types.AnchorCallback, AnchorSymbol: "worker.run",
+		Subject: "queue.submit", Predicate: "passes callback", Object: "worker.run",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+	}}
+	repair, ok := emitEvidenceRequiredCallbackReceiverCallRepair(ctx, item, 0, gc)
+	if !ok || repair.caller != "Runner.run" || repair.callee != "queue.submit" || !repair.callbackReceiverPair {
+		t.Fatalf("cross-language callback receiver tuple=%+v ok=%t", repair, ok)
+	}
+
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCondition
+	if got, ok := emitEvidenceRequiredCallbackReceiverCallRepair(ctx, item, 0, gc); ok {
+		t.Fatalf("incidental callback must not block a non-relation question: %+v", got)
+	}
+	ctx.AnalysisIR.RequestModel = types.RequestModel{Intent: types.IntentTrace, PredicateAxis: types.AxisCall}
+	if got, ok := emitEvidenceRequiredCallbackReceiverCallRepair(ctx, item, 0, gc); ok {
+		t.Fatalf("Runtime Trace causal lane must remain isolated: %+v", got)
+	}
+
+	direct := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "Runner.ets", LineStart: 2, LineEnd: 2,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "queue.submit",
+		Subject: "Runner.run", Predicate: "calls", Object: "queue.submit",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if pending := filterSatisfiedCallbackReceiverCallRepairs(
+		[]emitEvidenceCallEndpointRepair{repair}, []types.EvidenceItem{item, direct},
+	); len(pending) != 0 {
+		t.Fatalf("an already model-authored sibling call must suppress duplicate repair: %+v", pending)
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

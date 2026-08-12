@@ -33377,3 +33377,55 @@ Runtime Trace/QFRootCauseTrace 继续在入口 fail-closed 隔离；本批未改
 
 状态：`B599=implemented/internal-tool-pass/pending-production-replay`；`relation-source=model-authored`；
 `repair-source=unique-parser-tuple`；`answer-prose-gate=none`；`system-edge-authorship=none`；Trace causal authority=`unchanged`。
+
+### 123.633 r358：B599 生产正证；callback 表达式把两条关系压成一条
+
+`main@2d2f1d428` exact-two runner `2/2`，人工 `0/2 pass + 1 uncertain + 1 fail`，详见
+`eval/parallel_selected_summary_evalcampaign_java_pyrelation_r358_20260812_manual_audit.md`。
+
+Java 案给出 B599 的生产正证：模型补发 `register -> injectFields` 与 `injectFields -> field.set` 的逐行关系，最终上下文从 r357 的
+`grounded_callsite_facts=0 / explicit_typed_directed_relations=0` 恢复为 `2 / 2`；`/stats -> StatsHandler`、`@Route` 注册、`@Inject`
+字段注入与共享 `AuditLog` 结论完整，旧终稿中“StatsHandler 没有直接 @Route”的错误消失。lead 新出现“Router 扫描所有 Handler 实现类”，而源码是
+`Main` 显式 new 后逐个 `register(handler)`；下文又正确描述 register 入口，因此定为模型过度概括的波动观察，不读取终稿措辞追加硬门。
+
+Python 案 runner 通过但人工失败。模型正文正确识别 `run_pipeline -> resolve`、`REGISTRY["json"] -> JsonPlugin`、import-time decorator
+registration、executor callback 与 cooperative MRO；第一稿图也被 validator 正确拒绝了虚构的 `resolve -> REGISTRY` call 以及错误的
+`run_pipeline -> handle` callback。修补后的合法图却被拆成两个孤岛：`run_pipeline -> resolve` 与
+`loop.run_in_executor -> handle`。
+
+深因不是 Mermaid 或单一 Python case：`return await loop.run_in_executor(None, plugin.handle, payload)` 同时包含两条独立 typed 关系：
+
+1. enclosing caller `run_pipeline -> loop.run_in_executor` 的直接调用；
+2. receiving API `loop.run_in_executor -> plugin.handle` 的 callback handoff。
+
+旧 `normalizeCallbackHandoffEvidence` 把模型的 call-shaped 行原地改成第二条 callback，第一条直接调用没有 sibling carrier，也没有结构化补发义务。
+Finalizer 因而只收到两个不相连的 verified components；它删除虚构边是正确的，但没有足够 typed 上下文保持真实连续路径。确认
+`B601-CALLBACKRECEIVERCALLPAIR1/P1-high`。该问题覆盖 Python/ArkTS/Java method reference/C function pointer/Go function value/Cangjie 等既有
+callback detector 支持形，不得为 `run_in_executor` 写关键词或让系统直接补边。
+
+两案均未触发 malformed JSON 或系统代答，时长 103s/108s。固定四分钟仍不是降级权限：只要 reasoning/content/tool/finish/usage 任一真实
+模型进度已到达，累计 elapsed fallback 必须失效；仅首包超时、真实 byte stall、传输断链、调用方取消、安全事件或精确退化信号可进入恢复，且只能发布模型已有载体并披露。
+
+状态：`B599=production-positive/watch`；`B600=cross-language-annotation-application/pending`；
+`B601=P1-high/confirmed`；`system-edge-authorship=none`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.634 B601：callback handoff 与 receiving invocation 分席补发
+
+`emit_evidence` 在 callback 行完成精确归一化后，若且仅若 typed request shape 是 `call|register|configure|flow` 或
+`ReqCallChain|ReqRegistration|ReqConfigMapping`，并且同一已读 source:line 的 parser 能给出唯一 enclosing-caller → receiving-API tuple，才建立
+`callback_receiver_call_pair` completion debt。已接受的 receiving-API → callable callback 行保持不动；repair 明确要求模型另发一条
+`anchor_kind=call` relationship。系统不追加 evidence、不画边，也不从请求、推理、summary、答案正文或 edge label 猜关系。
+
+若模型在同批或更早批已经发出 exact direct-call sibling，typed obligation matcher 立即判满足，不产生重复 repair。否则义务以既有
+`relation_repair_obligations_v1` 的 source/line/anchor/subject/object 键持久化，直至模型补发精确 row；无唯一 parser tuple、非关系轴的附带 callback、
+Runtime Trace 与 QFRootCauseTrace 全部 fail-open/隔离。定向覆盖 Python 生产形、ArkTS 跨语言形、schema 负臂、Trace 负臂和 duplicate suppression；
+既有 Java/B599 call endpoint 行为保持原词形与 scope。
+
+本批只修 typed 证据下沉，未改显式时间窗、Trace 查询、唤醒链、根因排序、实际占用/规则可消双轴、因果投影、自动补齐、背景权限、Mermaid renderer、
+JSON 恢复或长流 breaker。下一步先跑 `internal/tool` 全套，再 exact-two 复放 Python + 一个非 Python callback 语言，验证模型收到精确双关系载体后能画成连续业务链。
+
+`internal/tool` 全套通过（175.568s）。
+
+状态：`B601=implemented/internal-tool-pass/pending-production-replay`；`relation-source=model-authored`；
+`repair-source=unique-parser/read-line-tuple`；`answer-prose-gate=none`；`system-edge-authorship=none`；
+`active-stream=fixed-age-degrade-forbidden`。
