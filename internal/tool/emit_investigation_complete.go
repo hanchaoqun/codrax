@@ -13558,7 +13558,7 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 		}
 	}
 	if len(gaps) == 0 {
-		return evidence
+		return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, evidence, authorityEvidence)
 	}
 	projected := make([]types.EvidenceItem, 0, len(gaps))
 	for _, gap := range gaps {
@@ -13585,7 +13585,196 @@ func callChainReadParserRelationHandoffEvidence(ctx *types.BusContext, closure *
 		projected = append(projected, item)
 	}
 	ctx.Mutable.AppendEvidence(projected)
-	return append(append([]types.EvidenceItem(nil), evidence...), projected...)
+	out := append(append([]types.EvidenceItem(nil), evidence...), projected...)
+	authorityEvidence = append(append([]types.EvidenceItem(nil), out...), mutableEvidence...)
+	return callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, out, authorityEvidence)
+}
+
+// callChainReadRequestedTargetDefinitionHandoffEvidence carries a bounded
+// supporting definition for parser-resolved call targets that the analyzer
+// already named as typed entities. It closes the misleading "implementation is
+// outside the current source" gap without treating an entire read file as
+// answer authority. Admission is a strict conjunction:
+//
+//   - an existing citable typed call edge selects the target;
+//   - a primary/secondary typed analyzer entity matches that target;
+//   - the repository parser resolves the target to exactly one Symbol; and
+//   - the complete parser-owned declaration span is inside the read closure.
+//
+// The emitted row is a definition fact only. It cannot create a call/path edge,
+// principal membership, execution claim, or answer text. Regex, source prose,
+// model rationale and final-answer text are never consulted.
+func callChainReadRequestedTargetDefinitionHandoffEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, graph *repotypes.Graph, evidence, authorityEvidence []types.EvidenceItem) []types.EvidenceItem {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || graph == nil {
+		return evidence
+	}
+	requested := callChainTypedRequestedEntitySet(ctx.AnalysisIR.RequestModel)
+	if len(requested) == 0 {
+		return evidence
+	}
+	seen := make(map[string]bool)
+	for _, item := range authorityEvidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge {
+			continue
+		}
+		target := strings.TrimSpace(item.Object)
+		if target == "" {
+			target = strings.TrimSpace(item.AnchorSymbol)
+		}
+		if target == "" || !callChainMatchesAnyRequestedEntity(target, requested) {
+			continue
+		}
+		file, fi, rel, symbol, ok := callChainResolvedTargetSymbolForEvidence(graph, item)
+		if !ok || symbol.Line <= 0 || symbol.EndLine < symbol.Line ||
+			!callChainMatchesAnyRequestedEntity(qualifiedEvidenceSymbolNameInFile(fi, symbol), requested) ||
+			!callChainDemandRangeFullyRead(closure, file, types.LineRange{Start: symbol.Line, End: symbol.EndLine}) {
+			continue
+		}
+		key := strings.ToLower(fmt.Sprintf("%s:%d:%s", file, symbol.Line, qualifiedEvidenceSymbolNameInFile(fi, symbol)))
+		if seen[key] || callChainEvidenceContainsExactDefinition(authorityEvidence, file, symbol.Line, symbol) {
+			continue
+		}
+		seen[key] = true
+		name := qualifiedEvidenceSymbolNameInFile(fi, symbol)
+		projected := types.EvidenceItem{
+			Kind:            types.EvidenceMechanism,
+			Subject:         name,
+			Summary:         fmt.Sprintf("exact parser-resolved implementation body for the typed call target `%s` is present in the current read closure", name),
+			Source:          file,
+			LineStart:       symbol.Line,
+			LineEnd:         symbol.EndLine,
+			Confidence:      rel.Confidence,
+			Producer:        types.EvidenceProducerRepoMapRequestedTargetDefinition,
+			Scope:           types.ScopeLineRange,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    strings.TrimSpace(symbol.Name),
+			OwnerSymbol:     name,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierSymbolTable,
+			GroundingNote:   "parser-resolved typed call target whose complete declaration span is inside the read closure",
+		}
+		projected.ID = types.StableEvidenceID(projected)
+		evidence = append(evidence, projected)
+		ctx.Mutable.AppendEvidence([]types.EvidenceItem{projected})
+	}
+	return evidence
+}
+
+func callChainTypedRequestedEntitySet(rm types.RequestModel) []string {
+	var out []string
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || types.HasCodeOrConfigPathSuffix(strings.ToLower(raw)) {
+			return
+		}
+		for _, existing := range out {
+			if types.CallChainEndpointCompatible(existing, raw) && types.CallChainEndpointCompatible(raw, existing) {
+				return
+			}
+		}
+		out = append(out, raw)
+	}
+	entities := rm.AnalyzerHints.PrimaryEntities
+	if len(entities) == 0 {
+		entities = rm.AnalyzerHints.Entities
+	}
+	for _, entity := range entities {
+		add(entity)
+	}
+	return out
+}
+
+func callChainMatchesAnyRequestedEntity(candidate string, requested []string) bool {
+	for _, entity := range requested {
+		if types.CallChainEndpointCompatible(candidate, entity) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainResolvedTargetSymbolForEvidence(graph *repotypes.Graph, item types.EvidenceItem) (string, *repotypes.FileInfo, *repotypes.Relation, *repotypes.Symbol, bool) {
+	wantSource := canonicalRelationSourcePath(item.Source)
+	for file, fi := range graph.FileIndex {
+		if fi == nil {
+			continue
+		}
+		fileSource := canonicalRelationSourcePath(fi.RelPath)
+		if fileSource == "" {
+			fileSource = canonicalRelationSourcePath(file)
+		}
+		if !callChainSourcePathEquivalent(fileSource, wantSource) {
+			continue
+		}
+		for i := range fi.Relations {
+			rel := &fi.Relations[i]
+			if rel.Kind != "call" || rel.Line != item.LineStart ||
+				(rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser) {
+				continue
+			}
+			caller := qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, rel.Line))
+			callee := callRelationTargetName(graph, fi, rel)
+			itemCaller := strings.TrimSpace(item.OwnerSymbol)
+			if itemCaller == "" {
+				itemCaller = strings.TrimSpace(item.Subject)
+			}
+			itemCallee := strings.TrimSpace(item.Object)
+			if itemCallee == "" {
+				itemCallee = strings.TrimSpace(item.AnchorSymbol)
+			}
+			if !callChainSourcePathEquivalent(item.Source, fileSource) ||
+				!types.CallChainEndpointCompatible(itemCaller, caller) ||
+				!types.CallChainEndpointCompatible(itemCallee, callee) {
+				continue
+			}
+			target := graph.ResolveCallTarget(fi, *rel)
+			if target == nil {
+				continue
+			}
+			targetFile := canonicalRelationSourcePath(target.File)
+			targetFI := graph.FileIndex[targetFile]
+			if targetFI == nil {
+				for candidateFile, candidateFI := range graph.FileIndex {
+					candidateSource := canonicalRelationSourcePath(candidateFile)
+					if candidateFI != nil && canonicalRelationSourcePath(candidateFI.RelPath) != "" {
+						candidateSource = canonicalRelationSourcePath(candidateFI.RelPath)
+					}
+					if candidateSource == targetFile {
+						targetFile, targetFI = candidateSource, candidateFI
+						break
+					}
+				}
+			}
+			if targetFI == nil {
+				return "", nil, nil, nil, false
+			}
+			return targetFile, targetFI, rel, target, true
+		}
+	}
+	return "", nil, nil, nil, false
+}
+
+func callChainSourcePathEquivalent(left, right string) bool {
+	left = strings.ToLower(canonicalRelationSourcePath(left))
+	right = strings.ToLower(canonicalRelationSourcePath(right))
+	if left == "" || right == "" {
+		return false
+	}
+	return left == right || strings.HasSuffix(left, "/"+right) || strings.HasSuffix(right, "/"+left)
+}
+
+func callChainEvidenceContainsExactDefinition(evidence []types.EvidenceItem, file string, line int, symbol *repotypes.Symbol) bool {
+	if symbol == nil || line <= 0 || symbol.EndLine < line {
+		return false
+	}
+	for _, item := range evidence {
+		if item.IsCitable() && types.ClaimFormOf(item) == types.ClaimDefinitionFact &&
+			callChainSourcePathEquivalent(item.Source, file) && item.LineStart <= line && item.LineEnd >= symbol.EndLine &&
+			types.CallChainEndpointCompatible(item.AnchorSymbol, symbol.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func callChainNoDirectedPathBoundaryEndpoints(ctx *types.BusContext, rm types.RequestModel) (string, string, bool) {

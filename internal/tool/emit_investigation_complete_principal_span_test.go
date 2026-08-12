@@ -1152,6 +1152,81 @@ func TestCallChainReadParserRelationHandoffEvidence_SameNameWrapperCoreUsesExact
 	}
 }
 
+func TestCallChainReadRequestedTargetDefinitionHandoffEvidence_IsBoundedByTypedTargetAndFullReadSpan(t *testing.T) {
+	fallback := &repotypes.Symbol{Name: "_tokenize_slow", Kind: "method", Parent: "FastTokenizer", File: "fastlex/tokenizer.py", Line: 24, EndLine: 36}
+	fi := &repotypes.FileInfo{
+		RelPath: "fastlex/tokenizer.py", Language: repotypes.LangPython,
+		Symbols: []repotypes.Symbol{
+			{Name: "tokenize", Kind: "method", Parent: "FastTokenizer", File: "fastlex/tokenizer.py", Line: 18, EndLine: 22},
+			*fallback,
+		},
+		Relations: []repotypes.Relation{{
+			Kind: "call", File: "fastlex/tokenizer.py", Line: 22,
+			ToEP:       repotypes.RelationEndpoint{Name: "_tokenize_slow", Receiver: "FastTokenizer", File: "fastlex/tokenizer.py", Line: 22},
+			Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_ast_attribute_call",
+		}},
+	}
+	graph := &repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{"fastlex/tokenizer.py": fi},
+		MethodIndex: map[repotypes.MethodKey]*repotypes.Symbol{
+			{Pkg: "fastlex", Receiver: "FastTokenizer", Name: "_tokenize_slow"}: fallback,
+		},
+	}
+	call := types.EvidenceItem{
+		ID: "fallback-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "FastTokenizer.tokenize", OwnerSymbol: "FastTokenizer.tokenize", Predicate: "calls",
+		Object: "FastTokenizer._tokenize_slow", AnchorSymbol: "_tokenize_slow",
+		Source: "bindings-py/fastlex/tokenizer.py", LineStart: 22, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	makeCtx := func(entities []string) *types.BusContext {
+		mut := types.NewMutableState("opaque typed call-chain request")
+		mut.AppendEvidence([]types.EvidenceItem{call})
+		mut.SetSearchGraph(graph)
+		return &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), PrimaryEntities: entities},
+		}}}
+	}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"fastlex/tokenizer.py": true})
+	closure.SetReadRanges(map[string][]types.LineRange{"fastlex/tokenizer.py": {{Start: 24, End: 36}}})
+	ctx := makeCtx([]string{"FastTokenizer.tokenize", "_tokenize_slow"})
+	got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call})
+	found := false
+	for _, item := range got {
+		if item.Producer == types.EvidenceProducerRepoMapRequestedTargetDefinition && item.LineStart == 24 && item.LineEnd == 36 {
+			found = true
+			if types.ClaimFormOf(item) != types.ClaimDefinitionFact {
+				t.Fatalf("requested target body must remain a definition fact, got %+v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("typed requested target with complete read span must receive supporting definition: %+v", got)
+	}
+
+	// A parser-resolved call target not named by the typed request is context,
+	// not automatically answer-bearing.
+	ctx = makeCtx([]string{"FastTokenizer.tokenize"})
+	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, closure, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
+		t.Fatalf("unrequested target must not be auto-projected: %+v", got)
+	}
+
+	// Seeing both boundary lines with an unread middle cannot authorize claims
+	// about the body; the complete closed span is the unit of authority.
+	partial := types.NewEvidenceClosure("")
+	partial.SetReadSet(map[string]bool{"fastlex/tokenizer.py": true})
+	partial.SetReadRanges(map[string][]types.LineRange{"fastlex/tokenizer.py": {
+		{Start: 24, End: 24},
+		{Start: 36, End: 36},
+	}})
+	ctx = makeCtx([]string{"FastTokenizer.tokenize", "_tokenize_slow"})
+	if got := callChainReadRequestedTargetDefinitionHandoffEvidence(ctx, partial, graph, []types.EvidenceItem{call}, []types.EvidenceItem{call}); len(got) != 1 {
+		t.Fatalf("partial target read must remain fail-closed: %+v", got)
+	}
+}
+
 func TestCallChainReadParserRelationHandoffEvidence_MissingMemberSupportCannotHideASTEdge(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		ID: "dispatch-def", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,

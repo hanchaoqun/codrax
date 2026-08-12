@@ -46,6 +46,12 @@ const (
 	// inside a model-authored principal member set. It supplies a precise source
 	// fact to later stages; it never selects a diagram edge or answer conclusion.
 	EvidenceProducerRepoMapPrincipalMemberCall = "repomap_principal_member_call"
+	// EvidenceProducerRepoMapRequestedTargetDefinition marks the exact
+	// parser-resolved definition span of a call target that is already named by
+	// the typed request and whose whole body is inside the current read closure.
+	// It supplies supporting current-code visibility only: it never creates a
+	// call edge, path membership, execution fact, or answer conclusion.
+	EvidenceProducerRepoMapRequestedTargetDefinition = "repomap_requested_target_definition"
 	// EvidenceProducerRepoMapTerminalBodyCall marks an AST/Cangjie-parser
 	// invocation inside a precisely read callable that the typed call-chain
 	// graph selected as its terminal. Unlike the broad concrete-value call

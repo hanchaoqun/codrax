@@ -35401,11 +35401,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
    member 的精确声明位置。缺位置、个数不等、同位置冲突、非 AST/Cangjie parser、未读
    callsite 都继续 fail-closed。它是跨语言通用身份闭包，可覆盖 Rust/PyO3、JNI、
    C/C++ facade、ArkTS/Cangjie 等同名 wrapper/core，不从语言关键字或 prose 猜边。
-5. 另立 B666：答案把 `_tokenize_slow` 的实现说成“超出当前代码范围”，但完整函数体
-   已在 Analyzer/Explorer 的 read window 中。当前 typed evidence 只有 caller→fallback
-   调用点，没有 requested fallback entity 的 definition/body authority。后续应以 typed
-   entity、exact parser Symbol 和 read closure 做有界 supporting definition handoff；
-   暂不把“已读整个文件”直接等价为所有符号都可发射，避免上下文爆炸与错权威。
+5. B666 已施工：答案把 `_tokenize_slow` 的实现说成“超出当前代码范围”，但完整函数体
+   已在 Analyzer/Explorer 的 read window 中。新 handoff 只在「既有 citable typed call
+   edge 选中目标 + analyzer primary typed entity 命中目标 + AST/Cangjie parser 唯一解析
+   Symbol + 完整 `Line..EndLine` 均在 read closure」四项合取时，补一条
+   `repomap_requested_target_definition` supporting definition fact。该事实只有定义/可见性
+   权威，不能生成调用边、路径成员、执行事实、主链席或答案结论；只读定义首行、未请求
+   target、无法唯一解析、regex/prose 来源均 fail-closed。定向测试覆盖正臂、未请求目标和
+   partial-body 负臂；`internal/tool/types/agent/orchestrator` 全套通过，待 r402 生产回放。
 6. B664 获生产接线 witness：流式 adapter 的 analyzer terminal emit-only 日志明确为
    `llm_request_budget skipped ... ownership=stream_first_byte_and_byte_stall_watchdogs`。
    本轮没有单次 stream 跨 180 秒，因此长活流行为由专项 4ms pin 和 capability matrix
@@ -35419,7 +35422,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `B663-EMBEDDEDLOCATIONCITEDETACH1=production-closed`；
 `B664-ACTIVESTREAMUPPERBUDGET1=implemented/core-closed/production-wiring-positive`；
 `B665-SAMENAMEWRAPPERCORELOCATION1=implemented/targeted-pass/pending-production-replay`；
-`B666-READDEFINITIONAUTHORITY1=filed/P1`；
+`B666-READDEFINITIONAUTHORITY1=implemented/targeted+core-pass/pending-production-replay`；
 `system-answer/conclusion-authorship=none`；`raw-user/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=retired-at-transport+evaluator-layers`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
