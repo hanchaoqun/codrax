@@ -6305,6 +6305,12 @@ func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *t
 			"current_source_exclusion_quote":"只分析这份 trace，不分析代码",
 			"confidence":1.0
 		},
+		"answer_exclusion_policy":{
+			"is_exclusion_requested":true,
+			"excluded_candidate_roles":["function","method","type","file"],
+			"source_quotes":["只分析这份 trace，不分析代码"],
+			"confidence":0.9
+		},
 		"runtime_artifact_scope_profile":{
 			"requested_scope":"explicit_time_window",
 			"time_start":5.0,
@@ -6345,10 +6351,32 @@ func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *t
 	if rm.DiagnosticProfile.ObservationSummary != "" {
 		t.Fatalf("attached-artifact analyzer summary retained as authority: %q", rm.DiagnosticProfile.ObservationSummary)
 	}
-	for _, want := range []string{"cleared diagnostic_profile.observation_summary", "dropped artifact_value_profile outside predicates.is_scalar_answer=true"} {
+	if rm.AnswerExclusionPolicy != nil {
+		t.Fatalf("current-source boundary must not become answer member-role exclusion: %+v", rm.AnswerExclusionPolicy)
+	}
+	for _, want := range []string{"cleared diagnostic_profile.observation_summary", "dropped artifact_value_profile outside predicates.is_scalar_answer=true", "evidence-source exclusion does not exclude answer member roles"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("normalization warning missing %q: %s", want, res.Summary)
 		}
+	}
+}
+
+func TestReconcileAnswerExclusionWithCurrentSourceBoundaryPreservesIndependentQuote(t *testing.T) {
+	answer := &types.AnswerExclusionPolicy{
+		IsExclusionRequested:   true,
+		ExcludedCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleTest},
+		SourceQuotes:           []string{"不包含测试"},
+		Confidence:             0.9,
+	}
+	external := &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"不分析代码"},
+		Confidence:        1,
+	}
+	got, warning := reconcileAnswerExclusionWithCurrentSourceBoundary(answer, external)
+	if got != answer || warning != "" {
+		t.Fatalf("independently quoted answer exclusion must survive unchanged: got=%+v warning=%q", got, warning)
 	}
 }
 

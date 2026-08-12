@@ -5472,3 +5472,49 @@ Trace intent/QFRootCauseTrace 显式拒绝该臂，因此时间窗、因果投�
 状态：`B588=implemented/pending-r349`；`canonical-topology=required-read-only`；`checkout-verification=fail-closed`；
 `homonymous-helper=no-membership-authority`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.201 r349：pre-triage 收权生产转正；typed 排除载体重叠与主关系脊柱遗漏立案
+
+r349 exact-two runner 2/2、人工 0/2。Trace 案 165s，B587 production positive：perf-triage 模型仍曾把 5ms 猜成 5000ms，
+但 analyzer 实际接收载体已没有 `artifact_value_profile`，`diagnostic_profile.observation_summary` 也被清空；后续显式
+5.000..5.007s 查询、目标状态账、链上 VerifyClass 4.600ms 与 runnable 0.800ms 排序、实际占时/规则可消双轴、frame absent
+限定和因果投影均完整保留。人工失败来自模型自由叙述仍把部分重叠的 runnable/VerifyClass 区间说成先后，并在 frame evidence absent 时
+把目标 running 直接定为未完成帧表现；typed context 足够，禁止系统扫描或替换终稿。
+
+B585 教学修复没有完全闭环。analyzer 第一次把当前源码排除同时铸成带多个 member role 的 `answer_exclusion_policy`，后两次又给出
+true+空 roles；最终虽通过，却仍把唯一一句 `只分析这份 trace，不分析代码` 同时用作 source exclusion 和 function/method/type/file
+answer exclusion。立案 `B589-SOURCEANSWERQUOTEOVERLAP1/P1-high`：若两个已验证 typed carrier 的唯一 provenance 是完全相同的
+current-source boundary quote，则答案成员排除没有独立依据，应在 JSON 边界软化；存在任何独立 answer-exclusion quote 时必须原样保留。
+判定只能比较 typed quote 的精确字节，不能扫描请求或答案词义。
+
+Read 案 332s，B588 production positive：canonical binding/topology 文件进入 RequiredFiles，最终正文与表格正确列出
+Analyzer/Explorer/Extractor/Finalizer 及各自输出。finalizer prompt 也明确携带三条 checkout-verified precedence relation，模型 repair
+阶段已识别“主图应画完整 spine”，但终稿仍只画 Orchestrator/helper supporting calls，整条 requested relation spine 在图中消失，runner
+仍签 PASS。立案 `B590-REQUESTEDPRINCIPALSPINE1/P1-high`：required diagram 已由 typed provider 选出 principal relation spine 时，至少一个
+模型成文图必须在同一 connected diagram 内完整覆盖全部 selected relations；支撑图可追加但不能替代主脊。系统只校验模型可见边与 typed
+relation owners，不生成图、不补边、不改答案。
+
+332s 活跃流正常完成；4 分钟累计时长没有触发恢复，今后也不得作为降级条件。只有首字节超时、真实 byte stall、transport 断链、调用方取消
+或独立安全边界可进入恢复；恢复只能发布模型已产生的载体并明确披露，不能用系统答案代替。
+
+状态：`B587=production-positive/closed`；`B588=production-positive/closed`；`B589=next`；`B590=queued`；
+`runner=2/2`；`human=0/2`；`raw-prose-hard-gate=none`；`system-answer/diagram-authorship=none`；
+Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream=332s/no-elapsed-degrade`。
+
+#### §11.10.202 B589：同一来源边界 quote 不再双重铸造答案成员排除
+
+本批没有继续堆叠中文/英文教学例句，而是在两个 typed carrier 都完成各自 provenance 校验后建立精确消歧。仅当
+`ExternalObservationPolicy.ExcludesCurrentSource()` 成立，且 `answer_exclusion_policy` 的全部 `source_quotes` 都与该
+current-source exclusion quote 精确相等时，后者被软化为空：同一句来源边界只能证明“当前 checkout 不参与证据”，不能同时证明
+function/method/type/file 等答案成员都应消失。
+
+只要 answer exclusion 携带任一不同的独立 quote（例如来源边界为“不分析代码”，答案边界另有“不包含测试”），整个成员排除合同原样保留；
+系统不猜每个 role 对应哪句，也不做部分删减。实现只比较 schema-validated typed quote 字符串和 policy enum，不读取 raw request，不扫描
+reasoning/终稿，不按语言关键词分类。模型仍负责分析和回答；系统只阻止一个 provenance 被错误复用为两个不同权限合同。
+
+生产接线 pin 直接复现 r349 的多 role 形，并与 B587 runtime-artifact normalization 同轮执行；独立 quote 负臂确保真实双重边界不被吞掉。
+定向 `internal/tool` 测试全绿。
+
+状态：`B589=implemented/pending-r350`；`source-boundary/member-exclusion=exact-provenance-split`；
+`independent-answer-exclusion=preserved`；`raw-prose-hard-gate=none`；`system-answer-authorship=none`；
+Trace explicit-window/target/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。

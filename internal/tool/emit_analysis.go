@@ -1596,6 +1596,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if reconciled, warning := reconcileAnswerExclusionWithCurrentSourceBoundary(answerExclusionPolicy, externalObservationPolicy); warning != "" {
+		answerExclusionPolicy = reconciled
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	answerVisibilityProfile, answerVisibilityErr, answerVisibilityWarnings := parseAnswerVisibilityProfile(raw, p.AnswerVisibilityProfile)
 	if answerVisibilityErr != "" {
 		return types.ToolResult{
@@ -4659,6 +4664,41 @@ func parseAnswerExclusionPolicy(raw string, p *emitAnswerExclusionPolicyParam) (
 		Confidence:             *p.Confidence,
 		Rationale:              strings.TrimSpace(p.Rationale),
 	}, ""
+}
+
+// reconcileAnswerExclusionWithCurrentSourceBoundary prevents one exact
+// current-request quote from owning two incompatible typed contracts.  A
+// current-source exclusion controls which evidence source may be explored;
+// an answer exclusion controls which typed member roles may appear.  When the
+// analyzer copied only the exact current-source boundary quote into both
+// carriers, there is no independent provenance for the member-role policy, so
+// the latter is discarded.
+//
+// This is deliberately an exact typed-carrier comparison. It does not inspect
+// the raw request, infer intent from words, or scan model/final-answer prose.
+// If even one independently anchored answer-exclusion quote exists, the answer
+// policy is preserved unchanged because the two policies may both be valid.
+func reconcileAnswerExclusionWithCurrentSourceBoundary(
+	answer *types.AnswerExclusionPolicy,
+	external *types.ExternalObservationPolicy,
+) (*types.AnswerExclusionPolicy, string) {
+	if answer == nil || !answer.Active() || external == nil || !external.ExcludesCurrentSource() || len(external.SourceQuotes) == 0 {
+		return answer, ""
+	}
+	// parseExternalObservationPolicy appends the required, separately
+	// provenance-checked current_source_exclusion_quote before artifact and
+	// compatibility quotes. ExcludesCurrentSource cannot be true unless that
+	// first quote survived validation.
+	boundary := strings.TrimSpace(external.SourceQuotes[0])
+	if boundary == "" || len(answer.SourceQuotes) == 0 {
+		return answer, ""
+	}
+	for _, quote := range answer.SourceQuotes {
+		if strings.TrimSpace(quote) != boundary {
+			return answer, ""
+		}
+	}
+	return nil, "answer_exclusion_policy auto-softened: its only provenance was identical to the typed current-source exclusion boundary; evidence-source exclusion does not exclude answer member roles"
 }
 
 func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.AnswerRoleProfile, string, []string) {
