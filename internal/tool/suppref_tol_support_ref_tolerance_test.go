@@ -361,20 +361,28 @@ func TestSupprefTol_WitnessReplay_FaithfulStateEmitFourLandsAfterCSP63(t *testin
 	if !strings.HasPrefix(res4.Summary, "Investigation marked complete") {
 		t.Fatalf("emit#4 must be accepted, got: %s", res4.Summary)
 	}
-	assertSupprefTolEmitFourHandoffLanded(t, mut)
+	assertSupprefTolEmitFourHandoffLanded(t, bus, mut)
 }
 
 // assertSupprefTolEmitFourHandoffLanded pins the emit#4 handoff surface both
 // terminal-state lanes share after CSP63-FIX: the keva-1 effective=3.429ms
-// seat fact, the supply-fold conversion-basis fact, and the principal
+// seat fact, the supply-fold conversion-basis fact, and the runtime-advisory
 // 链路节点 member_set landing LOSSLESSLY through the runtime origin bypass —
 // decorated member surfaces intact, no form_repair rewrite (the repair was
 // the polluted-state fallback landing; the bypass is the designed primary
 // lane, emit_investigation_complete.go normalizeDecoratedMemberSetFormDebt).
-func assertSupprefTolEmitFourHandoffLanded(t *testing.T, mut *types.MutableState) {
+// B642 deliberately keeps an unsupported model-authored runtime aggregate out
+// of principal authority; this pin validates the effective request-aware role
+// rather than the stale authored Role field retained losslessly in history.
+func assertSupprefTolEmitFourHandoffLanded(t *testing.T, bus *types.BusContext, mut *types.MutableState) {
 	t.Helper()
 	facts := mut.StableInvestigationAggregateFacts()
 	var sawSeatFact, sawBasisFact, sawIntactChainFact bool
+	rm := requestModelForAggregateSupport(bus)
+	expectedRole := types.AnswerAggregateRolePrincipalAnswer
+	if rm != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		expectedRole = types.AnswerAggregateRoleSupportingCoverage
+	}
 	for _, fact := range facts {
 		joinedMembers := strings.Join(fact.Members, "\n")
 		if fact.Kind == types.AnswerAggregateMemberSet &&
@@ -388,9 +396,9 @@ func assertSupprefTolEmitFourHandoffLanded(t *testing.T, mut *types.MutableState
 			sawBasisFact = true
 		}
 		if fact.Kind == types.AnswerAggregateMemberSet && strings.TrimSpace(fact.Label) == "链路节点" &&
-			fact.Role == types.AnswerAggregateRolePrincipalAnswer {
+			types.AnswerAggregateFactRoleForRequest(fact, rm) == expectedRole {
 			if len(fact.Members) != 5 || !strings.Contains(joinedMembers, "(depth=") {
-				t.Fatalf("principal 链路节点 fact must keep its five decorated member surfaces intact, got %+v", fact.Members)
+				t.Fatalf("runtime-advisory 链路节点 fact must keep its five decorated member surfaces intact, got %+v", fact.Members)
 			}
 			if strings.Contains(fact.Provenance, "form_repair:decorated_member_base") {
 				t.Fatalf("origin-bypass landing must not rewrite members via form repair, got provenance %q", fact.Provenance)
@@ -405,7 +413,7 @@ func assertSupprefTolEmitFourHandoffLanded(t *testing.T, mut *types.MutableState
 		t.Fatalf("supply-fold conversion-basis fact missing from handoff: %+v", facts)
 	}
 	if !sawIntactChainFact {
-		t.Fatalf("principal 链路节点 fact missing from handoff: %+v", facts)
+		t.Fatalf("runtime 链路节点 fact with effective role %q missing from handoff: %+v", expectedRole, facts)
 	}
 }
 
@@ -449,7 +457,7 @@ func TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff(t *testing.T) {
 	if !strings.HasPrefix(res4.Summary, "Investigation marked complete") {
 		t.Fatalf("emit#4 must be accepted, got: %s", res4.Summary)
 	}
-	assertSupprefTolEmitFourHandoffLanded(t, mut)
+	assertSupprefTolEmitFourHandoffLanded(t, bus, mut)
 }
 
 // —— Pin ③ (fail-open): a decorated member_set whose support ref is

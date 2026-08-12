@@ -34710,12 +34710,30 @@ chain TOP5、semantic fallback、board scope 与 section grouping，输出 typed
 同一两席改为区间重叠后的立即降级；真实 donghu 旗舰渲染 pin 继续验证可见 12.115ms。`go test ./internal/agent ./internal/types ./internal/llm ./internal/orchestrator`
 以及方向 authority/tool 真实与合成定向套件全绿。
 
-全 `internal/tool` 套件另暴露一个与 B644 无代码交集的既存红针：`TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff` 中 accepted-exclude 车道的 principal
-`链路节点` aggregate 落地后 Role 为空。该失败在本批 relation/direction 路径之外，登记为 `B645-SUPPREFTOLPRINCIPALROLE1=P1-high/pending-audit`，下一批先核代码语义再修，
-不为让测试转绿盲改期待值。
+全 `internal/tool` 套件另暴露一个与 B644 无代码交集的既存红针：`TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff` 中 accepted-exclude 车道的
+`链路节点` aggregate 落地后 authored Role 为空，旧针仍要求 principal。登记为 `B645-SUPPREFTOLPRINCIPALROLE1=P1-high/pending-audit`，下一批先核代码语义，
+不为让测试转绿盲改生产逻辑。
 
 状态：`B644=implemented/targeted-pass`；`direction-section-population=renderer-shared`；
 `direction-subtotal=exact-disjoint-only`；`overlap/missing-envelope/cross-board=fail-closed`；
 `cross-direction-joint-total=not-provided`；`system-answer/relation-authorship=none`；
 `raw-prose-hard-gate=none`；`active-stream-fixed-age-degrade=absent/forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=preserved`；`B645=pending-audit`。
+
+### 123.692 B645 审计闭环：B642 后的过期 principal pin，不是生产权限丢失
+
+B645 复核 `supprefTolWitnessEmit4Params` 与完整 preflight/role 路径后否证为新生产 gap。在 typed explicit-user-exclude 车道，该 `链路节点` member_set 虽由模型写入
+`evidence_origin=runtime_artifact`，却没有可消费的 typed `trace_query:*`/定位 support ref；它正属于 B642 已裁定的 unsupported model-authored runtime aggregate。
+`AnswerAggregateFactRoleForRequest` 与 `NormalizeAggregateFactRolesForRequest` 将其有效角色降为 `supporting_coverage` 是安全行为：否则模型自己声明的链表会与 deterministic
+Trace 投影争夺 principal 权威。允许 current source 的 faithful runtime 车道仍保留显式 principal，不受此降级。`StableInvestigationAggregateFacts` 则按设计保留模型原始
+authored Role（早轮未填即空），不能用存储字段是否等于 principal 判断最终权限。
+
+旧测试的真正目标是 SUPPREF-TOL：五个带 depth 装饰的成员能否完整落地、是否错误触发 form repair/wholesale downgrade。运行结果证明成员、装饰和原始 ref 均完整；只有
+`fact.Role == principal_answer` 这一无车道区分的旧断言在 B642 后过期。该批只重签 pin：用 request-aware `AnswerAggregateFactRoleForRequest` 精确断言
+faithful-allow=principal、explicit-exclude=supporting，同时继续要求五成员逐字、无 `form_repair:decorated_member_base`、keva 数值与 supply-fold fact 均在。生产代码零改动，
+不撤销 B642，不将 exclude 车道的 runtime advisory 升回主结论。
+
+状态：`B645=closed/stale-test-pin`；`unsupported-runtime-aggregate=effective-supporting`；
+`authored-role-history=lossless`；`decorated-member-landing=lossless`；`production-code-change=none`；
+`system-answer/relation-authorship=none`；`raw-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
