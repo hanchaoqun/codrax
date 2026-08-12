@@ -33275,3 +33275,41 @@ label-first 形才通过。多套兼容格式不是错误，但同时作为等�
 状态：`B596=implemented/soft-carrier`；`B597=implemented/preferred-shape/legacy-compatible`；
 `answer-prose-gate=none`；`system-answer-rewrite=none`；`duration-fallback=unchanged/active-stream-forbidden`；
 Trace causal authority=`unchanged`。
+
+### 123.628 r355：Trace 规划标签污染事实面；Rust 真实 call 图被模型误述为并行
+
+`main@7b43bb203` exact-two runner `2/2`、人工 `0/2`，详见
+`eval/parallel_selected_summary_evalcampaign_trace_rustrelation_r355_20260812_manual_audit.md`。
+
+Trace 案完整保留用户显式 5.000..5.007s 窗、app-100 五态账、worker-200→app-100 typed 唤醒链、跨核 CPU2→CPU1 拓扑、VerifyClass 类校验业务线索、
+实际占用/规则可消双轴、app 自身 0.800ms 调度供给席、因果投影、系统补采，以及邻近/背景不入主因的权限。模型也在 caveat 中写出 frame evidence absent、direct blocker 未证。
+但同页仍断言 app 的 5.000ms sleep “完全由上游 worker 执行时长决定”，并把 wake 5.005000s 说成 class verification 完成时刻，尽管 span end 是 5.005400s。
+
+深审确认污染起点早于 finalizer：analyzer 在 `sub_topics` 写入“app-100 为什么在 5.005s 才被唤醒，导致 5.8ms 的阻塞？”。系统虽清除了
+`diagnostic_profile.observation_summary`，却保留该 subtopic，并以 `Typed explore lane ownership plan` 口径下发给 explorer/finalizer。模型规划标签因此被误包装为事实上下文，
+与后来的精确 `final_answer_mechanism_scope` 正面冲突。确认 `B598-RUNTIMESUBTOPICAUTHORITY1/P0-redline`：subtopic 只能规划，不能成为 runtime fact authority。
+
+Rust 案六条可见 call edge 全部有 current-source typed anchor，walker 的角色也正确：递归收集并返回文件列表，随后 run 才逐文件调用 index_file/is_match。
+但模型把两个 run 出边称为“两条并行分支”，与同句“先收集、再交给”自相矛盾。现有 capsule 已明确：fan-out 只证明有多个出边，不证明 concurrent/parallel、temporal order、join
+或 runtime convergence。因此本项暂判模型波动，不再新增重复软合同，更不以“并行”等终稿关键词建立硬门。Mermaid compatibility repair 一次成功，图未丢失。
+
+状态：`B598=P0/in-progress`；`rust-fanout-wording=model-variance/watch`；`runner=2/2`；`human=0/2`；
+`trace-projection=preserved`；`off-chain=background-only`；`system-answer-authorship=none`。
+
+### 123.629 B598：单目标显式窗因果诊断不再发布模型 subtopic 事实
+
+`emit_analysis` 的持久化 chokepoint 新增纯 typed 归一化。仅当以下条件同时成立时清除 analyzer-authored `sub_topics`：
+
+- `runtime_question_profile.scope=causal_diagnosis`；
+- `runtime_artifact_scope_profile` 是通过当前请求锚定的有效 explicit time window；
+- `runtime_target_profile=named_target` 且恰有一个 active typed target；
+- 非 cross-component，且用户没有两个以上的 typed bucket 分区。
+
+该判定不读取用户关键词、subtopic summary、模型推理或终稿正文。它也不是硬拒绝，不烧 analyzer retry；只把未经证据验证的模型规划文字从事实传播链移除并留下 audit warning。
+full-artifact、relation-analysis、多目标、跨组件与用户显式分桶形全部保留原 subtopics。单目标显式窗仍作为一个完整 causal lane 进入 trace 查询，状态、唤醒、调度供给、算力供给、
+优先级反转、D/IO、确定性语义 span、业务线索、实际占用/规则可消双轴、因果投影、自动补采和背景权限都不依赖模型 subtopic 数量。
+
+定向测试覆盖删除正臂与五类保留负臂。该批不扫描/改写答案，不改变 `trace_causal_claim_caliber`、root rank、projection renderer、Mermaid validator 或长流恢复策略。
+
+状态：`B598=implemented/targeted-pass/pending-r356`；`model-planning-authority=internal-only`；
+`trace-evidence-expansion=unchanged`；`answer-prose-gate=none`；`system-answer-rewrite=none`。

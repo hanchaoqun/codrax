@@ -2162,6 +2162,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSingleTargetExplicitWindowCausalSubTopics(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if warning := normalizeSourceInventorySubTopicsFromProfile(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
@@ -2190,6 +2194,37 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// normalizeSingleTargetExplicitWindowCausalSubTopics prevents analyzer-authored
+// planning labels from becoming runtime-fact authority. A single named target
+// in one user-anchored time window is one causal investigation lane: the
+// deterministic trace query/report pipeline already expands scheduler state,
+// wakeup, supply, blocking, semantic work, and background dimensions inside
+// that lane. Model-authored sub-topic summaries may contain provisional
+// timings or mechanisms learned from the raw artifact; keeping them would
+// repeat those guesses as apparently typed downstream context before the
+// trace evidence has proved them.
+//
+// The decision consumes only validated typed carriers. It never scans the
+// request, a sub-topic summary, model reasoning, or final-answer prose. Wider
+// runtime scopes, relation analysis, multiple targets, cross-component asks,
+// and explicit user bucket partitions keep their sub-topics unchanged.
+func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) string {
+	if rm == nil || len(rm.SubTopics) == 0 ||
+		rm.RuntimeQuestionProfile == nil ||
+		rm.RuntimeQuestionProfile.Scope != types.RuntimeQuestionScopeCausalDiagnosis ||
+		rm.RuntimeArtifactScopeProfile == nil ||
+		rm.RuntimeTargetProfile == nil || !rm.RuntimeTargetProfile.NamedTarget() ||
+		len(rm.RuntimeTargets) != 1 || !rm.RuntimeTargets[0].Active() ||
+		rm.Predicates.IsCrossComponent || len(rm.Buckets) >= 2 {
+		return ""
+	}
+	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); !ok {
+		return ""
+	}
+	rm.SubTopics = nil
+	return "dropped analyzer-authored sub_topics for a single-target explicit-window causal diagnosis; provisional planning labels cannot become runtime-fact authority, while typed trace dimensions remain available in the one causal lane"
 }
 
 // validateRequiredFlowDiagramParticipantProvenance keeps the analyzer's
