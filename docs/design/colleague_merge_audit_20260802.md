@@ -5303,3 +5303,33 @@ label 加省略 label header 的 columns；它没有记录首个可见行选择�
 状态：`B583=implemented/pending-r347`；`table-row-convention=single-per-table`；
 `model-cell-authorship=preserved`；`raw-prose-hard-gate=none`；`system-answer/table-authorship=none`；
 Trace explicit-window/causal projection/auto-supplement=`unchanged`；`active-stream-fixed-time-degrade=forbidden`。
+
+#### §11.10.194 B584：请求可见参与者与唯一源码端点拆权，消除不可满足的取证循环
+
+r346 的 499s 不是单纯模型慢：analyzer 在 request-verbatim 约束下把 `codrax read mode`、`analyze`、`finalizer`、`stage` 全部铸成
+`incident_required`。其中 `analyze/finalizer` 可被 checkout-verified stage precedence 覆盖；`codrax read mode` 是范围/概念标签，无法映射为源码
+operation；`stage` 虽语法上像标识符，但 repomap 中存在多个同名定义，并不指向一个唯一 endpoint。旧合同却只看 role，要求后两者必须找到 citable
+operation，导致 explorer 反复读文件、completion repair 重入，最终仍只能发布 disconnected boundary。
+
+本批没有通过字符串黑名单识别 `stage` 或项目名，而是复用 analyzer 已有 typed `EntityProvenance` 并补齐“多定义”语义：repo resolver 返回一个
+symbol hit 时仍为 `symbol/resolved/use_for_shape`；返回多个 hit 时铸为 `ambiguous_symbol`，仅允许导航搜索、禁止作为 hard shape/source identity；
+零匹配概念、scope、prescan-only 也不能驱动源码操作硬门。qualified identity 仍由原严格 qualified oracle 解析，跨 Go、Java/Kotlin、ArkTS/TS、
+C/C++、Rust、Python、Cangjie 等共用 repomap identity 层，不依赖语言或 case 词表。
+
+新增 `DiagramParticipantHasPreciseSourceOperationIdentity` 作为单一判定源。production provenance 在场时，只有唯一已解析 symbol 才进入
+`source_operation_required`；无唯一源码身份的 incident label 进入 `request_visible_boundary_only`。Explorer 教学、completion gate 与 finalizer typed
+coverage 共用该拆分：前者只为唯一端点发起 operation search，后者对边界标签明确禁止搜索/连接同名 operation。参与者本身没有被系统删除或改写；
+未证身份仍可作为断开边界由模型披露，系统不造边、不补图、不替模型决定业务关系。
+
+Analyzer SSOT 同时压缩歧义：多展示面请求中，单独表格的 `each stage/every step/all rows` 是集合/列角色，不是一个图参与者；
+`system/mode flow from A to B` 中 A/B 是关系参与者，system/mode 只是范围，除非用户明确要求画出周边边界，否则应省略。该教学是软分类指引；
+硬门仍只消费 typed role/provenance/cardinality，不扫描用户原文、reasoning 或终稿。
+
+回归覆盖：两文件同名 `stage` 被标为 ambiguous/navigation-only；唯一 Analyzer 与 decorated alias 保留硬 operation obligation；概念/范围标签不再进入
+completion repair；legacy 无 provenance fixture 保持旧行为；Explorer 与 finalizer 同时发布 source/boundary 两个 typed 集合；Trace intent 继续完全绕开
+source-flow participant 车道。`go test ./internal/types ./internal/skill`、`go test ./internal/agent ./internal/tool` 全绿。
+
+状态：`B584=implemented/pending-r347`；`participant-display/source-operation-authority=split`；
+`ambiguous-symbol=soft-navigation-only`；`model-participant-authorship=preserved`；`raw-prose-hard-gate=none`；
+`system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`；
+`active-stream-fixed-time-degrade=forbidden`。

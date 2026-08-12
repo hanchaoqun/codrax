@@ -25,12 +25,14 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 		seenBlob = ctx.Mutable.PrescanSummaryBlob()
 	}
 	oracle := analyzerOracleFromCtx(ctx, entityGraphFromCtx(ctx))
+	resolver := analyzerSymbolResolver(ctx, *rm)
 	rm.AnalyzerHints.EntityProvenance = buildEntityProvenance(
 		ctx,
 		rm.AnalyzerHints.Entities,
 		types.EntityOriginAnalyzerEntity,
 		seenBlob,
 		oracle,
+		resolver,
 	)
 	for i := range rm.SubTopics {
 		rm.SubTopics[i].EntityProvenance = buildEntityProvenance(
@@ -39,6 +41,7 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 			types.EntityOriginSubTopicEntity,
 			seenBlob,
 			oracle,
+			resolver,
 		)
 	}
 	logEntityProvenanceSummary(rm.AnalyzerHints.EntityProvenance)
@@ -50,6 +53,7 @@ func buildEntityProvenance(
 	origin types.EntityOrigin,
 	seenBlob string,
 	oracle types.SymbolOracle,
+	resolver normalizer.SymbolResolver,
 ) []types.EntityProvenance {
 	if len(entities) == 0 {
 		return nil
@@ -69,7 +73,7 @@ func buildEntityProvenance(
 			continue
 		}
 		seen[key] = true
-		out = append(out, classifyEntityProvenance(ctx, surface, origin, seenBlob, oracle))
+		out = append(out, classifyEntityProvenance(ctx, surface, origin, seenBlob, oracle, resolver))
 	}
 	if len(out) == 0 {
 		return nil
@@ -83,6 +87,7 @@ func classifyEntityProvenance(
 	origin types.EntityOrigin,
 	seenBlob string,
 	oracle types.SymbolOracle,
+	resolver normalizer.SymbolResolver,
 ) types.EntityProvenance {
 	prov := types.EntityProvenance{
 		Surface:    surface,
@@ -90,6 +95,7 @@ func classifyEntityProvenance(
 		Resolution: types.EntityResolutionInferredConcept,
 		NoiseScore: 0.7,
 	}
+	symbolMatches := entitySymbolMatchCount(resolver, surface)
 	switch {
 	case entityMatchesActiveScope(ctx, surface):
 		prov.Resolution = types.EntityResolutionScope
@@ -103,7 +109,25 @@ func classifyEntityProvenance(
 		prov.NoiseScore = 0
 		prov.UseForSearch = true
 		prov.UseForShape = true
+	case symbolMatches == 1:
+		prov.Resolution = types.EntityResolutionSymbol
+		prov.Resolved = true
+		prov.NoiseScore = 0
+		prov.UseForSearch = true
+		prov.UseForShape = true
+	case symbolMatches > 1:
+		// A syntactically valid name with several repo definitions is useful
+		// for navigation, but it is not one precise source identity. In
+		// particular, generic request roles such as "stage" must not become
+		// hard operation-endpoint obligations merely because many local
+		// variables share that spelling.
+		prov.Resolution = types.EntityResolutionAmbiguousSymbol
+		prov.NoiseScore = 0.2
+		prov.UseForSearch = true
+		prov.UseForShape = false
 	case entitySymbolExists(oracle, surface):
+		// Qualified identities are resolved by the stricter qualified oracle
+		// even when the bare-name resolver cannot return a direct hit list.
 		prov.Resolution = types.EntityResolutionSymbol
 		prov.Resolved = true
 		prov.NoiseScore = 0
@@ -129,6 +153,13 @@ func classifyEntityProvenance(
 		prov.UseForShape = false
 	}
 	return prov
+}
+
+func entitySymbolMatchCount(resolver normalizer.SymbolResolver, surface string) int {
+	if resolver == nil || strings.TrimSpace(surface) == "" {
+		return 0
+	}
+	return len(resolver.LookupSymbol(surface))
 }
 
 func entityMatchesActiveScope(ctx *types.AgentContext, surface string) bool {
@@ -234,10 +265,11 @@ func logEntityProvenanceSummary(provenance []types.EntityProvenance) {
 		totalNoise += p.NoiseScore
 	}
 	logging.Info(
-		"[analyzer] entity provenance summary: total=%d scope=%d symbol=%d file=%d prescan_anchor=%d inferred_concept=%d use_for_search=%d use_for_shape=%d mean_noise=%.2f",
+		"[analyzer] entity provenance summary: total=%d scope=%d symbol=%d ambiguous_symbol=%d file=%d prescan_anchor=%d inferred_concept=%d use_for_search=%d use_for_shape=%d mean_noise=%.2f",
 		len(provenance),
 		counts[types.EntityResolutionScope],
 		counts[types.EntityResolutionSymbol],
+		counts[types.EntityResolutionAmbiguousSymbol],
 		counts[types.EntityResolutionFile],
 		counts[types.EntityResolutionPrescanAnchor],
 		counts[types.EntityResolutionInferredConcept],

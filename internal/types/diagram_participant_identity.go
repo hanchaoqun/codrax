@@ -54,3 +54,42 @@ func DiagramParticipantIdentitySurfaces(rm RequestModel, participant DiagramPart
 	}
 	return matched
 }
+
+// DiagramParticipantHasPreciseSourceOperationIdentity reports whether a
+// request-visible participant is precise enough to drive a hard source
+// operation search. Participant role and request provenance alone establish
+// display/coverage intent, not source identity. Once typed entity provenance
+// is available, only a uniquely resolved symbol may become a hard operation
+// endpoint obligation; scopes, concepts, prescan-only names, and ambiguous
+// same-name symbols stay visible planning boundaries without forcing an
+// impossible source hunt.
+//
+// Empty provenance is a compatibility lane for hand-built/legacy RequestModel
+// values. Production analyzer output always carries provenance; callers with
+// no lane retain the pre-provenance behavior.
+func DiagramParticipantHasPreciseSourceOperationIdentity(rm RequestModel, participant DiagramParticipantHint) bool {
+	surfaces := DiagramParticipantIdentitySurfaces(rm, participant)
+	if len(surfaces) == 0 {
+		return false
+	}
+	provenance := rm.AnalyzerHints.EntityProvenance
+	if len(provenance) == 0 {
+		return true
+	}
+	for _, surface := range surfaces {
+		for _, candidate := range provenance {
+			if candidate.Resolution != EntityResolutionSymbol || !candidate.Resolved || !candidate.UseForShape {
+				continue
+			}
+			resolvedSurface := strings.TrimSpace(candidate.ResolvedAs)
+			if resolvedSurface == "" {
+				resolvedSurface = strings.TrimSpace(candidate.Surface)
+			}
+			if AnswerCodeIdentitySurfacesEquivalent(surface, resolvedSurface) ||
+				AnswerCodeIdentitySurfacesCompatible(surface, resolvedSurface) {
+				return true
+			}
+		}
+	}
+	return false
+}

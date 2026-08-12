@@ -1940,7 +1940,8 @@ func renderExplorerFlowParticipantObligations(rm types.RequestModel) string {
 		rm.DiagramHint == nil || len(rm.DiagramHint.Participants) == 0 {
 		return ""
 	}
-	var incident []string
+	var sourceOperationRequired []string
+	var requestVisibleBoundary []string
 	var context []string
 	for _, participant := range rm.DiagramHint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
@@ -1949,17 +1950,21 @@ func renderExplorerFlowParticipantObligations(rm types.RequestModel) string {
 		}
 		switch participant.Role {
 		case types.DiagramParticipantIncidentRequired:
-			incident = append(incident, identity)
+			if types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, participant) {
+				sourceOperationRequired = append(sourceOperationRequired, identity)
+			} else {
+				requestVisibleBoundary = append(requestVisibleBoundary, identity)
+			}
 		case types.DiagramParticipantContextOnly:
 			context = append(context, identity)
 		}
 	}
-	if len(incident) == 0 && len(context) == 0 {
+	if len(sourceOperationRequired) == 0 && len(requestVisibleBoundary) == 0 && len(context) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(
-		"Typed participant obligations (planning only, never edge evidence): incident_required=%v; context_only=%v. Inspect a real operation incident to each incident_required participant or carry an explicit unproven boundary; never connect context_only participants merely for visual completeness.\n",
-		incident, context,
+		"Typed participant obligations (planning only, never edge evidence): source_operation_required=%v; request_visible_boundary_only=%v; context_only=%v. Inspect a real operation only for each uniquely resolved source_operation_required participant. A request_visible_boundary_only label has no unique typed source identity: keep it independent/unproven when useful, and do not search for or connect a homonymous operation merely for visual completeness. Never connect context_only participants merely for visual completeness.\n",
+		sourceOperationRequired, requestVisibleBoundary, context,
 	)
 }
 

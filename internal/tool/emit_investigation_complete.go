@@ -3486,6 +3486,13 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			continue
 		}
 		seen[key] = true
+		if !types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, participant) {
+			// The participant remains a request-visible coverage obligation,
+			// but a scope/concept/ambiguous symbol cannot drive a hard source
+			// endpoint repair. Final answer coverage still preserves an honest
+			// disconnected boundary; this gate simply avoids an impossible hunt.
+			continue
+		}
 		covered := stageauthority.ParticipantHasIncidentPrecedence(rm, participant, stagePrecedence)
 		for _, operation := range operations {
 			for _, surface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {

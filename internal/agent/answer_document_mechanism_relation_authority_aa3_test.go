@@ -326,7 +326,7 @@ func TestMechanismRelationAuthorityTypedParticipantRolesStaySoftAndLanguageNeutr
 	if !strings.Contains(got, "typed_named_participant_relation_coverage: incident=[Pipeline::Analyzer ArkRunner]; no_incident_typed_relation=[cj.mod.Consumer]; context_only=[SharedContext]") {
 		t.Fatalf("typed cross-language participant roles were not surfaced:\n%s", got)
 	}
-	for _, want := range []string{"planning/coverage guidance", "not relation evidence", "disclose that participant as an unproven boundary", "Keep `context_only` participants outside the path"} {
+	for _, want := range []string{"planning/coverage guidance", "not relation evidence", "source_operation_missing=[cj.mod.Consumer]", "request_visible_boundary_only=[]", "Keep `context_only` participants outside the path"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed participant authority boundary missing %q:\n%s", want, got)
 		}
@@ -335,6 +335,42 @@ func TestMechanismRelationAuthorityTypedParticipantRolesStaySoftAndLanguageNeutr
 	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
 	if got := renderAnswerDocMechanismRelationAuthority(ctx); strings.Contains(got, "typed_named_participant_relation_coverage") {
 		t.Fatalf("runtime trace must stay on its independent causal authority lane:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthoritySeparatesRequestBoundaryFromSourceOperationAA3(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"Analyzer", "stage", "product mode"},
+			EntityProvenance: []types.EntityProvenance{
+				{Surface: "Analyzer", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+				{Surface: "stage", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+				{Surface: "product mode", Resolution: types.EntityResolutionInferredConcept},
+			},
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "stage", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "product mode", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}}, EvidenceItems: []types.EvidenceItem{{
+		ID: "support", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "Dispatch", Predicate: "calls", Object: "BuildContext",
+		Source: "src/pipeline.go", LineStart: 20, AnchorKind: types.AnchorCall, AnchorSymbol: "BuildContext",
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"source_operation_missing=[Analyzer]",
+		"request_visible_boundary_only=[stage product mode]",
+		"do not search for or connect a homonymous operation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed source/display split missing %q:\n%s", want, got)
+		}
 	}
 }
 

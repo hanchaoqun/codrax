@@ -98,11 +98,35 @@ func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types
 	}
 	if typed {
 		fmt.Fprintf(b, "- typed_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v; context_only=%v.\n", coverage.incident, coverage.unproved, coverage.contextOnly)
-		b.WriteString("- These schema-validated participant roles are planning/coverage guidance, not relation evidence and not permission to add an edge. For each `incident_required` participant with no incident typed relation, inspect and emit its real operation site or disclose that participant as an unproven boundary. Keep `context_only` participants outside the path unless independent evidence proves a relation.\n")
+		sourceOperationMissing, requestVisibleBoundary := answerDocPartitionUnprovedParticipants(rm, coverage.unproved)
+		fmt.Fprintf(b, "- typed_participant_source_identity: source_operation_missing=%v; request_visible_boundary_only=%v.\n", sourceOperationMissing, requestVisibleBoundary)
+		b.WriteString("- These schema-validated participant roles are planning/coverage guidance, not relation evidence and not permission to add an edge. Inspect a real operation only for each uniquely resolved `source_operation_missing` participant. A `request_visible_boundary_only` label has no unique typed source identity: keep it independent/unproven when useful, and do not search for or connect a homonymous operation merely for visual completeness. Keep `context_only` participants outside the path unless independent evidence proves a relation.\n")
 		b.WriteString("- A typed call/member endpoint may be incident to its exact receiver/owner participant (for example `ctx.Mutable.Reset` is incident to `Mutable`). Keep the model-authored participant as the visible business/component label while preserving the exact operation endpoint in `edge_anchors.from_identity/to_identity`; this owner projection changes no relation kind, direction, or evidence authority.\n")
 		b.WriteString("- A parser-stamped static declaration may also align its declared type participant with the exact binding inside an operation endpoint (for example `state *RequestState` plus `handler.state.Items = value`). The declaration is identity-only; keep the operation's exact endpoint and do not turn the declaration into an edge. Untyped, ambiguous, or differently-owned bindings remain unproven.\n")
 		return
 	}
 	fmt.Fprintf(b, "- soft_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v.\n", coverage.incident, coverage.unproved)
 	b.WriteString("- This participant checklist is soft exploration context, not completeness authority and not permission to add an edge. An incident match proves only that one listed typed relation touches the participant; it does not prove a complete path. Keep every no-incident participant independent/unproven, or inspect and emit its real operation site before connecting it.\n")
+}
+
+func answerDocPartitionUnprovedParticipants(rm types.RequestModel, unproved []string) (sourceOperationMissing, requestVisibleBoundary []string) {
+	if rm.DiagramHint == nil || len(unproved) == 0 {
+		return nil, nil
+	}
+	byIdentity := make(map[string]types.DiagramParticipantHint, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		key := strings.ToLower(strings.TrimSpace(participant.Identity))
+		if key != "" {
+			byIdentity[key] = participant
+		}
+	}
+	for _, identity := range unproved {
+		participant, ok := byIdentity[strings.ToLower(strings.TrimSpace(identity))]
+		if ok && types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, participant) {
+			sourceOperationMissing = append(sourceOperationMissing, identity)
+		} else {
+			requestVisibleBoundary = append(requestVisibleBoundary, identity)
+		}
+	}
+	return sourceOperationMissing, requestVisibleBoundary
 }

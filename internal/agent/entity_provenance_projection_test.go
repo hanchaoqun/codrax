@@ -20,7 +20,7 @@ func TestProjectEntityProvenance_ClassifiesTypedSideLane(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetSearchGraph(graph)
 	mut.AppendPrescanSummary("grep found RetryBudget in internal/retry.go")
-	ctx := &types.AgentContext{Mutable: mut}
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
 	rm := types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{
 			Entities: []string{"Analyzer", "./internal/foo.go", "RetryBudget", "清单"},
@@ -79,6 +79,29 @@ func TestProjectEntityProvenance_QualifiedNameResolvesViaOracle(t *testing.T) {
 	// remain inferred concepts — never fuzzy-rescued.
 	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "nosuch.Run", types.EntityResolutionInferredConcept, false, false, false)
 	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "gate.Runner", types.EntityResolutionInferredConcept, false, false, false)
+}
+
+func TestProjectEntityProvenance_AmbiguousSymbolIsNavigationOnly(t *testing.T) {
+	graph := &rmtypes.Graph{
+		FileIndex: map[string]*rmtypes.FileInfo{
+			"internal/a.go": {RelPath: "internal/a.go"},
+			"internal/b.go": {RelPath: "internal/b.go"},
+		},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"stage": {
+				{Name: "stage", File: "internal/a.go"},
+				{Name: "stage", File: "internal/b.go"},
+			},
+		},
+	}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
+	rm := types.RequestModel{AnalyzerHints: types.AnalyzerHints{Entities: []string{"stage"}}}
+
+	projectEntityProvenance(ctx, &rm)
+
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "stage", types.EntityResolutionAmbiguousSymbol, false, true, false)
 }
 
 func TestProjectEntityProvenance_MultiRepoScopeIsResolved(t *testing.T) {

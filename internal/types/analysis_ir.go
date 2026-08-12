@@ -1046,6 +1046,7 @@ const (
 	EntityResolutionSymbol          EntityResolution = "symbol"
 	EntityResolutionFile            EntityResolution = "file"
 	EntityResolutionPrescanAnchor   EntityResolution = "prescan_anchor"
+	EntityResolutionAmbiguousSymbol EntityResolution = "ambiguous_symbol"
 	EntityResolutionInferredConcept EntityResolution = "inferred_concept"
 )
 

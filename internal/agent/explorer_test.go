@@ -12714,10 +12714,11 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		"smallest already-read `line_start..line_end` range containing the carrier and both endpoints",
 		"Const/enum/type declaration groups, arbitrary sibling statements",
 		"proves source order only, not invocation, runtime execution, containment, or causality",
-		"incident_required=[ArkRunner]",
+		"source_operation_required=[ArkRunner]",
+		"request_visible_boundary_only=[]",
 		"context_only=[cj::Pipeline]",
 		"planning only, never edge evidence",
-		"carry an explicit unproven boundary",
+		"keep it independent/unproven",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed flow guide missing %q:\n%s", want, got)

@@ -530,6 +530,47 @@ func TestFlowParticipantCoverageUsesTypedEntityAliasForDecoratedDisplayLabel(t *
 	}
 }
 
+func TestFlowParticipantCoverageDoesNotHardSearchAmbiguousOrConceptLabels(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"stage", "codrax read mode"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "stage", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+		{Surface: "codrax read mode", Resolution: types.EntityResolutionInferredConcept},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "stage", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "codrax read mode", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("non-unique display labels must not trigger impossible source operation repair: %v", got)
+	}
+}
+
+func TestFlowParticipantCoverageStillRequiresUniqueTypedSourceIdentity(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Analyzer"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{
+		Surface: "Analyzer", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true,
+	}}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if len(got) != 1 || got[0] != "Analyzer" {
+		t.Fatalf("unique typed source participant must retain hard operation coverage: %v", got)
+	}
+}
+
 func TestFlowParticipantCoverageTreatsExactReceiverOperationAsParticipantIncident(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "analyzerEvaluator.BuildInitialInstruction", "ctx.Mutable.ResetPrescanSummary", 89),

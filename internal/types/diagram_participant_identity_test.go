@@ -32,3 +32,27 @@ func TestDiagramParticipantIdentitySurfacesFailsClosedOnAmbiguousOrUntypedLabel(
 		}
 	}
 }
+
+func TestDiagramParticipantHasPreciseSourceOperationIdentityUsesTypedProvenance(t *testing.T) {
+	rm := RequestModel{AnalyzerHints: AnalyzerHints{
+		Entities: []string{"Analyzer", "stage", "codrax read mode"},
+		EntityProvenance: []EntityProvenance{
+			{Surface: "Analyzer", Resolution: EntityResolutionSymbol, Resolved: true, UseForShape: true},
+			{Surface: "stage", Resolution: EntityResolutionAmbiguousSymbol, Resolved: false, UseForSearch: true},
+			{Surface: "codrax read mode", Resolution: EntityResolutionInferredConcept},
+		},
+	}}
+	if !DiagramParticipantHasPreciseSourceOperationIdentity(rm, DiagramParticipantHint{Identity: "Analyzer agent"}) {
+		t.Fatal("unique typed Analyzer alias should require source operation evidence")
+	}
+	for _, identity := range []string{"stage", "codrax read mode"} {
+		if DiagramParticipantHasPreciseSourceOperationIdentity(rm, DiagramParticipantHint{Identity: identity}) {
+			t.Fatalf("%q must remain a request-visible boundary, not a hard source endpoint", identity)
+		}
+	}
+
+	legacy := RequestModel{AnalyzerHints: AnalyzerHints{Entities: []string{"Analyzer"}}}
+	if !DiagramParticipantHasPreciseSourceOperationIdentity(legacy, DiagramParticipantHint{Identity: "Analyzer"}) {
+		t.Fatal("missing legacy provenance should preserve the prior exact-identity behavior")
+	}
+}
