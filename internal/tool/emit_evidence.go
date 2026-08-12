@@ -5303,8 +5303,7 @@ func emitEvidenceRequiredRelationCallEndpointRepair(
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
-		rm.DiagramHint == nil || !rm.DiagramHint.Required || rm.DiagramHint.Kind == types.DiagramNone ||
-		(rm.PredicateAxis != types.AxisFlow && rm.PredicateAxis != types.AxisCall) {
+		!emitEvidenceExactCallRelationRepairRequestShape(rm) {
 		return emitEvidenceCallEndpointRepair{}, false
 	}
 	if item.Scope != types.ScopeLine || item.AnchorKind != types.AnchorCall || item.LineStart <= 0 ||
@@ -5318,6 +5317,32 @@ func emitEvidenceRequiredRelationCallEndpointRepair(
 		source:    item.Source,
 		line:      item.LineStart,
 	}, true
+}
+
+// emitEvidenceExactCallRelationRepairRequestShape selects source questions for
+// which a model-submitted call-shaped observation is itself part of the typed
+// relation surface.  A required diagram is not the only consumer: registration,
+// configuration, and non-diagram call/flow explanations also need the exact
+// parser-owned caller -> callee tuple or they can finish with text references
+// while losing the relationship the user asked about.
+//
+// This is deliberately schema-only.  It does not inspect the request, evidence
+// summary, or answer prose, and it does not create an edge.  The repair is
+// offered only after the model has already submitted a line-scoped AnchorCall
+// and exactCallEvidenceDirection has found one unique source tuple.  Condition,
+// implementation, definition, and return questions keep incidental calls
+// non-blocking.  Runtime Trace remains isolated by the caller above.
+func emitEvidenceExactCallRelationRepairRequestShape(rm types.RequestModel) bool {
+	switch rm.PredicateAxis {
+	case types.AxisCall, types.AxisRegister, types.AxisConfigure, types.AxisFlow:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqCallChain, types.ReqRegistration, types.ReqConfigMapping:
+		return true
+	default:
+		return false
+	}
 }
 
 func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *types.ToolRepair {
@@ -5345,7 +5370,7 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 	}
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "The required source-relation diagram still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
+		Hint:   "The typed source relationship still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
 		Fields: uniqueEmitEvidenceRepairFields(fields),
 		Metadata: map[string]string{
 			"repair_status":       types.ToolRepairStatusActionRequired,

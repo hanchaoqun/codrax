@@ -33337,3 +33337,43 @@ Cangjie 案的 typed inventory 与终稿逐字覆盖 2 个 extend、2 个 foreig
 
 状态：`B598=production-clean/targeted-positive/watch`；`cangjie-inventory=human-pass`；`runner=2/2`；`human=2/2`；
 `active-stream=fixed-age-degrade-forbidden`；`system-answer-authorship=none`；Trace causal authority=`preserved`。
+
+### 123.631 r357：非图形关系问题的调用端点修复被错误漏出完成门
+
+`main@eced3a7ce` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_java_cppwrite_r357_20260812_manual_audit.md`。C++ write 案只改
+`include/nlohmann/detail/output/serializer.hpp` 与 `single_include/nlohmann/json.hpp` 两处 `%.*lg -> %.*Lf`；项目声明的
+`make check` 以 `-Wall -Wextra -Wformat -Werror` 编译并执行测试程序，exit 0，累计终验域保持非空且最终签为 passed。
+
+Java 注解路由案 runner 虽通过，人工失败。源码在 `StatsHandler.java:13` 明确写有 `@Route(path="/stats")`，终稿步骤也说
+`Router.register` 读取该注解，lead 却反称类声明没有直接 `@Route`。更深层的系统证据是：模型已经提交 Main.register、getAnnotation、injectFields、
+putIfAbsent、field.set 等逐行 call-shaped 行，解析器逐条给出了精确 caller→callee；旧合同却只在“required flow/call diagram”时把这些修复做成 durable
+completion debt。当前问题是 typed `predicate_axis=register` 的非图形机制请求，所以全部错误调用行退成 text reference 后仍可完成。Finalizer 收到
+`grounded_callsite_facts=0`、`explicit_typed_directed_relations=0`、`ordered_path_authority=unproven`，只能在成文后附一条缺关系 caveat，无法补回模型没有重发的关系。
+确认 `B599-NONDIAGRAMCALLRELATIONREPAIR1/P1-high`；它是所有源语言共享的 evidence-contract GAP，不是 Java 或 Mermaid 单例，也不是纯模型波动。
+
+同案另立 `B600-CROSSLANGUAGEDECORATORAPPLICATION1/P1-follow-up`：紧邻声明的 `@Route/@Inject` 目前主要走软 `surface_terms` 提醒；Python 已有
+typed decorator application provider，但 Java 自定义注解以及 ArkTS/Cangjie/Kotlin/C#/Rust attribute 等语言形尚未统一到一个 closed application carrier。
+后续必须按语言能力矩阵做 provider 级审计，不能为 `@Route` 写终稿关键词规则或让系统直接补结论。
+
+两案均无 malformed JSON 恢复、无 Finalizer reject、无系统代答，且时长 113s/121s，未触发长流。固定 4 分钟仍不构成恢复权限：一旦收到真实
+reasoning/content/tool/finish/usage 进展，只保留首包、真实 byte stall、传输断链、调用方取消、安全事件或精确退化 breaker。
+
+状态：`B599=P1-high/implemented-tests-pending-replay`；`B600=P1/follow-up`；`runner=2/2`；`human=1/2`；
+`system-answer-authorship=none`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.632 B599：typed 关系轴共享精确调用重发债务
+
+调用端点修复的触发边界从“required flow/call diagram”收敛为“模型已提交逐行 `AnchorCall` + parser 唯一真实 tuple + typed source relation shape”。
+关系 shape 只读 schema 枚举：`predicate_axis=call|register|configure|flow`，或等价 `ReqCallChain|ReqRegistration|ReqConfigMapping`；
+`condition/implement/define/return` 上的附带调用仍不阻塞。该门不读取用户原文、evidence summary、模型推理或终稿，也不从自由文本 `entity_axes` 推导关系。
+
+系统仍不代替模型发边：错误端点行先降为可引用 `text_reference`，repair 只返回 parser-owned caller/callee 作为 copy-ready JSON 字段；只有模型明确重发 exact
+relationship 后才能获得 call authority。`relation_repair_obligations_v1` 按 source/line/anchor/subject/object 持久化，后续无关的成功 `emit_evidence` 不能冲掉；
+`emit_investigation_complete` 在 exact row 出现前保持打开。没有唯一 parser tuple 时不触发、不猜边。
+
+Runtime Trace/QFRootCauseTrace 继续在入口 fail-closed 隔离；本批未改 trace query、显式窗、唤醒链、根因排序、实际占用/规则可消双轴、因果投影、自动补齐或
+背景权限。`internal/tool` 全套通过（164.826s），并新增 register 无图正臂、四轴矩阵、condition 负臂、Trace 负臂、无唯一 tuple 负臂与 durable debt 既有闭环复验。
+
+状态：`B599=implemented/internal-tool-pass/pending-production-replay`；`relation-source=model-authored`；
+`repair-source=unique-parser-tuple`；`answer-prose-gate=none`；`system-edge-authorship=none`；Trace causal authority=`unchanged`。

@@ -3913,8 +3913,7 @@ func TestEmitEvidence_RequiredRelationPublishesExactCallEndpointRepair(t *testin
 	ctx := newEmitCtx()
 	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:        types.IntentExplain,
-		PredicateAxis: types.AxisFlow,
-		DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+		PredicateAxis: types.AxisRegister,
 	}}
 	fi := &repomap.FileInfo{
 		RelPath: "pipeline/runner.py", Language: repomap.LangPython, Package: "pipeline",
@@ -3978,7 +3977,7 @@ func TestEmitEvidence_RequiredRelationPublishesExactCallEndpointRepair(t *testin
 	}
 }
 
-func TestRequiredRelationCallEndpointRepairIsTraceAndOptionalIsolated(t *testing.T) {
+func TestRequiredRelationCallEndpointRepairUsesTypedRelationAxisAndIsTraceIsolated(t *testing.T) {
 	item := types.EvidenceItem{
 		Scope: types.ScopeLine, Kind: types.EvidenceMechanism,
 		AnchorKind: types.AnchorCall, Source: "src/example", LineStart: 3,
@@ -3998,15 +3997,38 @@ func TestRequiredRelationCallEndpointRepairIsTraceAndOptionalIsolated(t *testing
 	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
 		t.Fatalf("Trace causal lane must remain isolated: %+v", repair)
 	}
-	ctx.AnalysisIR.RequestModel = base
-	ctx.AnalysisIR.RequestModel.DiagramHint.Required = false
-	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
-		t.Fatalf("optional diagram must remain non-blocking: %+v", repair)
+
+	for _, axis := range []types.PredicateAxis{
+		types.AxisCall, types.AxisRegister, types.AxisConfigure, types.AxisFlow,
+	} {
+		ctx.AnalysisIR.RequestModel = types.RequestModel{
+			Intent:        types.IntentExplain,
+			PredicateAxis: axis,
+		}
+		if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); !ok {
+			t.Fatalf("typed %q relation must preserve the exact model-submitted call tuple: %+v", axis, repair)
+		}
 	}
+
 	ctx.AnalysisIR.RequestModel = base
 	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCondition
 	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); ok {
 		t.Fatalf("a supporting call must not block a different principal relation axis: %+v", repair)
+	}
+
+	ctx.AnalysisIR.RequestModel = types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqRegistration),
+		},
+	}
+	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "A.run", "B.handle", true); !ok {
+		t.Fatalf("typed registration requirement must preserve the exact model-submitted call tuple: %+v", repair)
+	}
+
+	ctx.AnalysisIR.RequestModel = types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisRegister}
+	if repair, ok := emitEvidenceRequiredRelationCallEndpointRepair(ctx, item, 0, "", "B.handle", false); ok {
+		t.Fatalf("no unique parser tuple must remain advisory and must not invent an edge: %+v", repair)
 	}
 }
 
