@@ -4222,7 +4222,11 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	if len(bundle.Errors) > 0 {
 		if len(bundle.Errors) > 1 {
 			fmt.Fprintf(&b, "### Errors (%d explicit occurrences)\n\n", len(bundle.Errors))
-			b.WriteString("Top-level entries are independent observed error occurrences. Their order, timestamps, tags, or similar messages do not establish a cross-error call/causal edge. Only an indented `caused by` child carrying an explicit artifact marker proves an error-wrapping relation.\n\n")
+			b.WriteString("**Cross-error relationship authority**\n\n")
+			b.WriteString("- `cross_error_relation=unproven`\n")
+			b.WriteString("- `observed_scope=peer_error_occurrences_only`\n")
+			b.WriteString("- Top-level entries are independent observed error occurrences. Their order, timestamps, tags, shared IDs, or similar messages do not establish a cross-error call/causal edge.\n")
+			b.WriteString("- Only an indented `caused by` child carrying an explicit artifact marker proves an error-wrapping relation. You may present an unproven bridge/propagation hypothesis as a follow-up, but do not call one peer the established cause of another.\n\n")
 		} else {
 			b.WriteString("### Error\n\n")
 		}

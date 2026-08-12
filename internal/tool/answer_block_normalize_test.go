@@ -125,7 +125,13 @@ func TestNormalizeEmitAnswerBlock_RejectsDeclaredMultiColumnRowWithoutValues(t *
 	if err == nil {
 		t.Fatal("a two-column row with only one visible value must be rejected")
 	}
-	for _, want := range []string{"blocks[2].items[0]", "2 column header", "label as the first visible value"} {
+	for _, want := range []string{
+		"blocks[2].items[0]",
+		"2 column header",
+		"Preferred repair: omit item.label and item.text",
+		"exactly one cells[] value per columns[] entry",
+		"label as the deliberate first visible column",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
 		}

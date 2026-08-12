@@ -419,9 +419,13 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 	}
 	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
+		"Cross-error relationship authority",
+		"cross_error_relation=unproven",
+		"observed_scope=peer_error_occurrences_only",
 		"independent observed error occurrences",
 		"similar messages do not establish a cross-error call/causal edge",
 		"explicit artifact marker proves an error-wrapping relation",
+		"do not call one peer the established cause of another",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("peer-error authority boundary missing %q:\n%s", want, got)

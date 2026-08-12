@@ -33238,3 +33238,40 @@ Java/Rust 常见 `Caused by:`、Python direct-cause separator、Python handling-
 状态：`B595=implemented/affected-suites-pass/production-replay-pending`；
 `log-cause-authority=explicit-artifact-marker-only`；`peer-errors=cross-relation-unproven`；
 `system-answer-rewrite=none`；Trace causal authority=`unchanged`。
+
+### 123.626 r354：日志 cause 凭证门生产生效，模型仍越权解释 peer；活跃长流未降级
+
+`main@696cff535` exact-two runner `2/2`、人工 `1/2`，详见
+`eval/parallel_selected_summary_evalcampaign_write_mixedlang_r354_20260812_manual_audit.md`。Python write 案正确将整数值 float 的 years/months 归一为 int、拒绝非整数与非整数类型；
+syntax preflight 与 `python3 -m unittest discover -v` 均真实执行，4 个行为测试通过，patch 与验证完整闭合。
+
+ArkTS/Cangjie 案给出 B595 的生产正证：log triager 首稿试图以普通 Cangjie panic 行充当 cause marker，并重复消费同一错误消息；精确门同时拒绝非结构 marker 与重复消息。
+第二次 emit 保留四个 literal frame，把两条错误发成 top-level peer occurrences，没有再铸造 cause 指针。但最终模型仍无视下游已有 peer boundary，依据相邻 1ms 时间戳写成
+“仓颉越界是 ArkTS 调用失败根因/异常向上穿透”。当前 typed 事实是准确的，残余属于模型将未证桥升级为确定因果；禁止通过扫描终稿措辞硬拒、系统改写正文或代替模型下结论。
+
+同案的 Finalizer 连续两次因 structured table 行形失败：首轮同时发 `label + text + 4 cells`，次轮删 label 但仍保留 `text + 4 cells`，第三轮换到兼容的
+label-first 形才通过。多套兼容格式不是错误，但同时作为等权教学显著增加模型心智与重试。立 `B597-STRUCTUREDTABLEPREFERREDSHAPE1/P1-efficiency`：保留所有历史解析兼容，
+只把 `columns + cells-only` 作为首选 JSON 形。
+
+该案总时长 328s（5m28s），期间有真实模型进展；系统没有按累计 4 分钟终止、发布旧稿或系统代答。开头两次重试均为 provider 明确返回 529，属于真实传输/服务失败，
+不是时长降级。这给 B560 增加第二个生产正证。
+
+状态：`B595=production-positive`；`B596=soft-context-next`；`B597=next`；`runner=2/2`；`human=1/2`；
+`active-stream=no-elapsed-time-degrade@328s`；`system-answer-authorship=none`；Trace causal authority=`unchanged/not-exercised`。
+
+### 123.627 B596/B597：peer-error 权威显著化与结构化表格单一首选教学
+
+多错误日志的 deterministic context 现增加紧凑 typed authority header：`cross_error_relation=unproven` 与
+`observed_scope=peer_error_occurrences_only`。紧邻说明 top-level errors 只是 peer observations；顺序、时间戳、tag、共享 ID 或相似消息均不能证明跨错误 call/causal edge。
+只有带显式 artifact separator 的嵌套 cause 才获得因果关系；模型可以把桥接/传播作为待验证假设或后续排查方向，不能把它写成已证原因。该补强只改变提供给模型的准确上下文，
+不读取用户/模型/终稿原文、不新增 answer-prose gate、不触发 retry、不修改或替换模型答案。
+
+结构化表格 schema、语义合同和精确 cardinality retry hint 统一推荐一个低心智形：存在 `columns[]` 时，省略 row 的 `label/text`，每行 `cells[]` 与列头一一对应。
+历史 label-first 与 legacy two-column 形继续兼容；只有模型明确让 label 占据第一可见列时才建议使用。因而该批减少“成文校验未通过”重试，但不破坏旧 answer_document，
+也没有放松可见列数一致性。
+
+`internal/context`、`internal/tool` 全套通过。Trace 显式窗、因果投影、系统补采、链上根因与背景权限均未改；模型正文和结论仍由模型负责。
+
+状态：`B596=implemented/soft-carrier`；`B597=implemented/preferred-shape/legacy-compatible`；
+`answer-prose-gate=none`；`system-answer-rewrite=none`；`duration-fallback=unchanged/active-stream-forbidden`；
+Trace causal authority=`unchanged`。

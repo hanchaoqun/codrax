@@ -249,7 +249,7 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		case labelPresent && len(cells) == len(block.Columns):
 			convention = "synthetic_label_header"
 		default:
-			return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s); use either cells[] with one value per column and no label, or label as the first visible value plus cells[]/text for every remaining column (columns[] may omit only the synthetic label header)",
+			return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s). Preferred repair: omit item.label and item.text, then emit exactly one cells[] value per columns[] entry. The legacy alternative is label as the deliberate first visible column plus cells[]/text for every remaining column (columns[] may omit only that synthetic label header)",
 				fieldPath, idx, len(cells), len(block.Columns))
 		}
 		if rowConvention == "" {
