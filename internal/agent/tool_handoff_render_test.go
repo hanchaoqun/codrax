@@ -111,6 +111,30 @@ func TestRenderTypedToolHandoffCarriersSeparatesGroundedAndRecoveredAuthority(t 
 	}
 }
 
+func TestRenderTypedToolHandoffCarriersKeepsDefinitionBodyAuthorityBounded(t *testing.T) {
+	out := renderTypedToolHandoffCarriers("### Typed handoff", []types.ToolHandoffCarrier{{
+		Version:    types.ToolHandoffCarrierVersion,
+		ToolName:   "emit_evidence",
+		ReasonCode: "accepted_evidence_handoff",
+		AcceptedEvidence: []types.AcceptedEvidenceRef{{
+			ID:              "definition",
+			Source:          "internal/tracequery/query.go",
+			LineStart:       10445,
+			AnchorSymbol:    "findSpanWindowsCompacted",
+			ClaimForm:       types.ClaimDefinitionFact,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}})
+	for _, want := range []string{
+		"claim_form=`definition_fact`",
+		"authority=`source_shape_authority=definition_site_only executable_body=unproven`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("definition locator lost body-authority boundary %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderTypedToolHandoffCarriersKeepsRefinementBeforePlainObservations(t *testing.T) {
 	carriers := make([]types.ToolHandoffCarrier, 0, 10)
 	for i := 0; i < 9; i++ {

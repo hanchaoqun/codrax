@@ -34071,3 +34071,20 @@ B623 在 required source-flow 的既有 typed participant provenance gate 上补
 状态：`B623=implemented/targeted-pass/pending-production-replay`；`typed-roster-is-not-boundary=true`；
 `explicit-surrounding-boundary=preserved`；`model-role/edge-ownership=preserved`；`raw-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### 123.661 B624：definition locator 与函数体 operation 权限分离
+
+B624 复用既有 deterministic `ClaimForm` 投影，不新增模型可写权限字段。`ClaimDefinitionFact` 现在同 text/literal source shape 一样携带明确的跨阶段边界：
+`source_shape_authority=definition_site_only executable_body=unproven`。它只证明 symbol/definition entry 在给定位置存在；即使 citation scope 是一个较大的 line range，也不能让模型提交的
+snippet、summary、aggregate fact 或 investigation completion reason 自动获得整个函数体的执行语义权威。
+
+该边界同时进入 Evidence prompt、Explorer report/关系面和 typed accepted-evidence handoff。Finalizer current-source 教学进一步明确：aggregate/completion/summary 是模型整理层，
+不能提升源码权限；correlation key、stack/queue、branch/guard、reset、malformed/order/fail policy 等函数体操作，必须来自实际可见 source gutter，或对应的 typed
+call/guard/assignment/return operation anchor。definition locator 仍可正常支持“函数/类型在哪里定义、入口叫什么”，不会因本批被降为不可引用。
+
+这是语言、文件名、trace event family 无关的权限分层；不检查摘要关键词，不把模型结论改写成系统结论，也不要求所有机制都变成硬 gate。定向回归覆盖 definition authority 的
+EvidenceItem 投影、跨阶段 AcceptedEvidenceRef 渲染和中英文 Finalizer 教学；call edge 保持原有精确合同，不被 definition ceiling 误伤。
+
+状态：`B624=implemented/targeted-pass/pending-production-replay`；`definition-locator=definition-only`；
+`body-operation=exact-gutter-or-typed-operation-anchor`；`model-summary-authority=no-escalation`；
+`raw-prose-hard-gate=none`；`system-answer-authorship=none`；`Trace causal projection/system supplement=unchanged`。

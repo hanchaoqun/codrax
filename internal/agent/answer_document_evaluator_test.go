@@ -6645,6 +6645,9 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileSoftAuthorityRen
 		"alternative/dispatch 分支",
 		"wrapper/public entry 只证明委托",
 		"只有引用 gutter 中实际可见的操作才能进入机制结论",
+		"source_shape_authority=definition_site_only",
+		"aggregate fact、completion reason 和 evidence summary 是模型整理层",
+		"不能提高源码权限",
 		"Current repository citations may still be used",
 	} {
 		if !strings.Contains(prompt, want) {

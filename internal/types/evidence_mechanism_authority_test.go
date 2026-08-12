@@ -9,6 +9,11 @@ func TestEvidenceMechanismAuthorityBoundaryUsesClaimFormNotPath(t *testing.T) {
 		want string
 	}{
 		{
+			name: "definition locator does not prove its body",
+			item: EvidenceItem{Source: "query.go", AnchorKind: AnchorDefinition},
+			want: "source_shape_authority=definition_site_only executable_body=unproven",
+		},
+		{
 			name: "prompt text in Go source",
 			item: EvidenceItem{Source: "internal/skill/defaults.go", AnchorKind: AnchorTextReference},
 			want: "source_shape_authority=visible_text_only executable_mechanism=unproven",
@@ -47,5 +52,12 @@ func TestMechanismAuthorityBoundaryForClaimFormMatchesEvidenceProjection(t *test
 	want := EvidenceMechanismAuthorityBoundary(item)
 	if got := MechanismAuthorityBoundaryForClaimForm(ClaimFormOf(item)); got != want {
 		t.Fatalf("claim-form boundary = %q, want %q", got, want)
+	}
+}
+
+func TestMechanismAuthorityBoundaryForDefinitionRefSurvivesHandoffProjection(t *testing.T) {
+	item := EvidenceItem{AnchorKind: AnchorDefinition}
+	if got := MechanismAuthorityBoundaryForClaimForm(ClaimFormOf(item)); got != "source_shape_authority=definition_site_only executable_body=unproven" {
+		t.Fatalf("definition boundary = %q", got)
 	}
 }

@@ -21,6 +21,8 @@ func EvidenceMechanismAuthorityBoundary(item EvidenceItem) string {
 // this helper without reconstructing or weakening the original EvidenceItem.
 func MechanismAuthorityBoundaryForClaimForm(form ClaimForm) string {
 	switch form {
+	case ClaimDefinitionFact:
+		return "source_shape_authority=definition_site_only executable_body=unproven"
 	case ClaimTextReferenceFact:
 		return "source_shape_authority=visible_text_only executable_mechanism=unproven"
 	case ClaimLiteralValueFact:

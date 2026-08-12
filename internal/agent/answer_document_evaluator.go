@@ -6509,6 +6509,7 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 		}
 		b.WriteString("- 如果已读的当前源码证据里有精确符号、函数、配置键、错误类型或字面量锚点，请把这些锚点自然写进正文解释；不要只把它们留在文末引用列表。若外部观察无法追到完整当前源码调用链，请明确边界，只解释已由源码证明的相邻机制。\n")
 		b.WriteString("- 多条源码事实不会自动组成一条顺序流水线。由不同 guard/profile 选择的解析路径应写成 alternative/dispatch 分支；wrapper/public entry 只证明委托，不能替代被调函数中真正执行 correlation key、栈/队列、reset、malformed/order 或 fail policy 的操作证据。只有引用 gutter 中实际可见的操作才能进入机制结论，未读分支保留为边界。\n")
+		b.WriteString("- typed handoff 中 `claim_form=definition_fact` / `source_shape_authority=definition_site_only` 只证明该定义入口存在，不证明模型摘要所述的函数体操作。aggregate fact、completion reason 和 evidence summary 是模型整理层，不能提高源码权限；函数体行为必须来自实际可见 gutter，或 call/guard/assignment/return 等对应的结构化 operation anchor。\n")
 		b.WriteString("- 这是证据 lane 指引，不是系统补表许可；保留模型已经写好的丰富说明，证据不足时用边界说明而不是编造。\n\n")
 	} else {
 		b.WriteString("## Current-Source Explanation Request\n\n")
@@ -6522,6 +6523,7 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 		}
 		b.WriteString("- When already-read current-source evidence provides exact symbols, functions, config keys, error types, or literal anchors, weave those anchors into the visible explanation instead of leaving them only in the bibliography. If the external observation cannot be traced to a complete current-source call chain, state that boundary while explaining only adjacent mechanisms proven by source evidence.\n")
 		b.WriteString("- Multiple grounded source facts do not automatically form one ordered pipeline. Present parser paths selected by different guards/profiles as alternative or dispatch branches. A wrapper/public entry proves delegation only; it cannot substitute for the callee operation that implements a correlation key, stack/queue, reset, malformed/order handling, or failure policy. Put an operation in the mechanism conclusion only when it is visible in the cited gutter, and keep unread branches as a boundary.\n")
+		b.WriteString("- In the typed handoff, `claim_form=definition_fact` / `source_shape_authority=definition_site_only` proves only that the definition entry exists; it does not prove function-body operations described by a model summary. Aggregate facts, completion reasons, and evidence summaries are model distillation and cannot raise source authority. Body behavior requires a visible source gutter or the matching structured call/guard/assignment/return operation anchor.\n")
 		b.WriteString("- This is evidence-lane guidance, not permission for system table replacement. Preserve model-authored explanation; disclose unsupported parts in a boundary note instead of inventing facts.\n\n")
 	}
 	if len(profile.Modes) > 0 {

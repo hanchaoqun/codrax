@@ -7,11 +7,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestEvidencePromptLineCarriesTextAndLiteralMechanismAuthority(t *testing.T) {
+func TestEvidencePromptLineCarriesSourceShapeMechanismAuthority(t *testing.T) {
 	for _, tc := range []struct {
 		kind types.AnchorKind
 		want string
 	}{
+		{types.AnchorDefinition, "source_shape_authority=definition_site_only executable_body=unproven"},
 		{types.AnchorTextReference, "source_shape_authority=visible_text_only executable_mechanism=unproven"},
 		{types.AnchorStringLiteral, "source_shape_authority=literal_value_only executable_mechanism=unproven"},
 	} {
