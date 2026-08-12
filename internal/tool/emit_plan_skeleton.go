@@ -195,6 +195,10 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		}, probes); plan != nil {
 			attachWriteBehaviorContracts(ctx, plan)
 			enrichVerificationProbeRefs(plan)
+			if rej := validateVerificationProbeTargetPathLanguageCompatibility(plan.TargetPaths, plan.VerificationProbes); rej != "" {
+				pack := planRepairPackFromReason(t.Name(), "verification_probe_target_language_mismatch", rej, []string{"$.verification_probes[].language"}, plan.TargetPaths)
+				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
+			}
 			if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), p.Summary, nil, plan.VerificationProbes); rej != "" {
 				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
 			}

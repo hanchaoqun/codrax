@@ -35648,3 +35648,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r406`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.721 r407：guard 引用生产闭环；补证批语言权威与持久化断层（2026-08-12）
+
+1. 在 `main@774de7a38` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`，
+   人工为 `1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_guard_binding_write_r407_20260812_manual_audit.md`。
+2. Polyglot 证明 B673 已生产闭环：typed guard 最终稳定引用
+   `if _HAVE_NATIVE:` 的 line 20，没有再错绑 line 22 fallback call。B674 的 `MB:`
+   草稿片段本轮未再发射，但继续保持软教学，不增加针对字符串的删除硬门。
+3. B672 仍不能收账。模型后来提交 principal member_set，但生产日志未形成
+   `repomap_principal_member_call`，第一版图仍凭节点名构造了未证调用边并被 validator
+   正确拒绝；修补版直接撤图，Rust helper 虽已读却仍未进入终稿。节点完备与关系完备必须
+   继续分离，系统只交付 parser-owned typed edge，不替模型画图或写结论。
+4. Zod 写案例的源码修向合理，但暴露 B675：普通变更计划会把 probe runtime 与
+   `changes[].path` 做语言兼容校验；`verification_proof_followup` 合法地使用
+   `changes=[]`，旧函数因此直接返回。planner 发出的四个 Go probe 面向 TypeScript
+   target，直到执行前置检查才被拒，消耗补证批且终态 `unverified`。根修将校验拆为
+   path-first owner；两个 emitter 在 controller-owned sentinel 铸出 exact TargetPaths 后、
+   安装计划前执行相同 typed enum × path-family 校验。未知/非源码路径继续 fail-open，
+   JavaScript→TypeScript 的既有 provider 关系保持，C/C++/Rust/ArkTS/Cangjie 等不支持的
+   inline runtime 继续要求项目原生 runner，不允许借脚本作命令包装器。
+5. 同轮确认 B676：上述合法 probe-only 计划落盘后，加载器仍以“无 changes”拒绝，破坏
+   补证批耐久性。新持久化例外严格要求 `status=no_change_required + changes=0 +
+   verification_probes>0 + target_paths>0`；其他空计划全部保持拒绝，且该计划从不作为空补丁
+   apply，只让 controller 回到已落地工作树执行 typed proof。
+6. 不降低验证杆：`make check` 在该 fixture 中只是 source-static 证据，不能替代四条显式
+   runtime contract，因此补行为探针本身是正确方向；修复的是语言权威接线，不是把静态绿
+   冒充行为绿。专项 target-path、emit integration、持久化正负形测试均已通过。
+7. 下一施工项 B677：verify-failure replan 把已经在工作树里的三个测试再追加一遍。
+   最优通用判据冻结为 typed verify-failure handoff + insertion-only hunk + 整段 exact bytes
+   已存在；不得按测试名、语言、任务文字或答案内容硬拟合。
+8. Read/Trace 路径零改动。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际
+   占用/业务语义与规则可消除量双轴均保持；邻近与背景不能晋升主因。活跃字节流也不因
+   4ms、4s 或固定累计年龄降级，结束/恢复权仍仅属于 caller cancel/deadline、无首字节、
+   byte-stall、transport/decode failure。
+
+状态：
+
+`B673-GUARDCONDITIONCITATION1=production-closed-r407`；
+`B674-DRAFTMARKERLEAK1=soft-teaching-positive-r407/no-prose-hard-gate`；
+`B675-PROBEONLYTARGETLANGUAGE1=implemented/targeted-pins-pass`；
+`B676-PROBEONLYDURABILITY1=implemented/strict-shape-pins-pass`；
+`B677-REPLANALREADYINSERTEDBLOCK1=confirmed/next-batch`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=pending-production-closure`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

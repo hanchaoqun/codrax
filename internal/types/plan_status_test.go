@@ -108,6 +108,37 @@ func TestUpdatePlanStatusOnDisk_EmptyPathRejected(t *testing.T) {
 	}
 }
 
+func TestLoadChangePlanFromFile_AllowsStrictProbeOnlyProofSentinel(t *testing.T) {
+	path := seedPlanFile(t, t.TempDir(), &ChangePlan{
+		ID: "proof-only", Request: "close proof", Summary: "probe applied bytes",
+		Status: PlanStatusNoChangeRequired, TargetPaths: []string{"src/widget.ts"},
+		VerificationProbes: []VerificationProbe{{ID: "widget-proof", Language: "javascript", Code: "if (!true) throw new Error('failed')"}},
+	})
+	plan, err := LoadChangePlanFromFile(path)
+	if err != nil {
+		t.Fatalf("strict proof-only sentinel should remain durable: %v", err)
+	}
+	if len(plan.Changes) != 0 || len(plan.VerificationProbes) != 1 || len(plan.TargetPaths) != 1 {
+		t.Fatalf("probe-only authority lost on reload: %+v", plan)
+	}
+}
+
+func TestLoadChangePlanFromFile_RejectsOtherEmptyPlanShapes(t *testing.T) {
+	tests := []*ChangePlan{
+		{ID: "empty-ordinary", Status: PlanStatusPending},
+		{ID: "empty-no-probe", Status: PlanStatusNoChangeRequired, TargetPaths: []string{"src/widget.ts"}},
+		{ID: "empty-no-target", Status: PlanStatusNoChangeRequired, VerificationProbes: []VerificationProbe{{ID: "proof", Language: "javascript", Code: "true"}}},
+		{ID: "empty-blank-target", Status: PlanStatusNoChangeRequired, TargetPaths: []string{" "}, VerificationProbes: []VerificationProbe{{ID: "proof", Language: "javascript", Code: "true"}}},
+		{ID: "empty-incomplete-probe", Status: PlanStatusNoChangeRequired, TargetPaths: []string{"src/widget.ts"}, VerificationProbes: []VerificationProbe{{ID: "proof", Language: "javascript"}}},
+	}
+	for _, candidate := range tests {
+		path := seedPlanFile(t, t.TempDir(), candidate)
+		if _, err := LoadChangePlanFromFile(path); err == nil || !strings.Contains(err.Error(), "has no changes[]") {
+			t.Fatalf("empty shape %q must remain rejected, err=%v", candidate.ID, err)
+		}
+	}
+}
+
 // TestUpdatePlanStatusOnDisk_WorktreePath verifies the new
 // worktreePath parameter: non-empty sets the field; empty leaves
 // whatever was there alone so later lifecycle updates don't wipe

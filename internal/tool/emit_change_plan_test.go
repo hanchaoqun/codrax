@@ -271,6 +271,48 @@ func TestEmitChangePlan_ProofFollowupProbeOnlyPlanAccepted(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_ProofFollowupProbeOnlyPlanRejectsTargetLanguageMismatch(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-proof-language", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-proof-language",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-proof-language", Status: types.WriteWorkflowBatchReadyToPlan,
+			Purpose: "verification_proof_followup", ExpectedPaths: []string{"src/widget.ts"},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-source", ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	params := json.RawMessage(`{
+		"request":"close TypeScript behavior proof",
+		"summary":"Run a proof probe against the already-applied TypeScript target.",
+		"changes":[],
+		"verification_probes":[{
+			"id":"wrong-runtime","language":"go","code":"package main\nimport \"os\"\nfunc main() { if false { os.Exit(1) } }",
+			"changed_symbol_refs":["src/widget.ts"]
+		}]
+	}`)
+
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("Go probe must not enter execution for a TypeScript-only proof batch: %+v", ctx.Mutable.ChangePlan())
+	}
+	for _, want := range []string{`language="go"`, "src/widget.ts", "verification_probe_target_language_mismatch"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("typed repair guidance missing %q: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected proof plan must not be installed: %+v", plan)
+	}
+}
+
 func TestEmitChangePlan_ProbeOnlyPlanRejectedOutsideProofFollowup(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

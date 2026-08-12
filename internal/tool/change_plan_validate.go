@@ -379,6 +379,19 @@ func validateVerificationProbeTargetLanguageCompatibility(changes []types.FileCh
 			paths = append(paths, path)
 		}
 	}
+	return validateVerificationProbeTargetPathLanguageCompatibility(paths, probes)
+}
+
+// validateVerificationProbeTargetPathLanguageCompatibility is the path-first
+// form used by controller-owned proof-follow-up plans. Those plans deliberately
+// have no source changes: their exact TargetPaths identify already-applied
+// worktree bytes that still require behavioural proof. Keeping this validation
+// independent from changes[] prevents an unrelated probe runtime from entering
+// execution merely because the proof batch is edit-free.
+func validateVerificationProbeTargetPathLanguageCompatibility(paths []string, probes []types.VerificationProbe) string {
+	if len(paths) == 0 || len(probes) == 0 {
+		return ""
+	}
 	targets, targetFamilies := recognizedChangedSourcePaths(paths)
 	if len(targets) == 0 {
 		return ""

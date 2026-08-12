@@ -53,6 +53,18 @@ func TestVerificationProbeTargetLanguageCompatibilityAcceptsDirectAndMixedTarget
 	}
 }
 
+func TestVerificationProbeTargetPathLanguageCompatibilityCoversEditFreeProofPlan(t *testing.T) {
+	probes := []types.VerificationProbe{{ID: "proof", Language: "go", Code: "package main"}}
+	got := validateVerificationProbeTargetPathLanguageCompatibility([]string{"src/widget.ts"}, probes)
+	if !strings.Contains(got, `language="go" cannot directly execute any changed source target src/widget.ts`) {
+		t.Fatalf("edit-free target path must retain language authority: %q", got)
+	}
+	probes[0].Language = "javascript"
+	if got := validateVerificationProbeTargetPathLanguageCompatibility([]string{"src/widget.ts"}, probes); got != "" {
+		t.Fatalf("javascript should remain the direct TypeScript probe provider: %s", got)
+	}
+}
+
 func TestEmitChangePlanRejectsPythonCompilerWrapperForCppOnlyChange(t *testing.T) {
 	ctx := newTestBusCtx()
 	params := json.RawMessage(`{

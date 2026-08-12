@@ -72,9 +72,10 @@ const (
 	// plan and decided not to approve it.
 	PlanStatusRejected = "rejected"
 	// PlanStatusNoChangeRequired is an internal controller sentinel emitted
-	// only during a replan round when the current applied worktree already
-	// satisfies a typed planner probe. It is never applied as an empty patch:
-	// the controller restores the prior applied plan and moves back to verify.
+	// only during a replan round when the current applied worktree either
+	// already satisfies a typed planner probe or needs a probe-only proof
+	// follow-up. It is never applied as an empty patch: the controller restores
+	// the prior applied plan and moves back to verify.
 	PlanStatusNoChangeRequired = "no_change_required"
 	// PlanStatusMerged is set by /merge — the applied plan's
 	// commit(s) have been folded back into the main repo. Together
@@ -2020,8 +2021,12 @@ func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
 	if strings.TrimSpace(plan.ID) == "" {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has empty plan ID", path)
 	}
-	if len(plan.Changes) == 0 {
+	probeOnlyProofPlan := durableProbeOnlyProofPlanShape(&plan)
+	if len(plan.Changes) == 0 && !probeOnlyProofPlan {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has no changes[] — refusing to install an empty plan", path)
+	}
+	if probeOnlyProofPlan {
+		return &plan, nil
 	}
 	// Recompute TargetPaths from Changes so hand-edited plans whose
 	// TargetPaths drifted from Changes (the emit tool keeps them in
@@ -2038,4 +2043,28 @@ func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
 	}
 	plan.TargetPaths = canonical
 	return &plan, nil
+}
+
+func durableProbeOnlyProofPlanShape(plan *ChangePlan) bool {
+	if plan == nil || plan.Status != PlanStatusNoChangeRequired || len(plan.Changes) != 0 ||
+		len(plan.VerificationProbes) == 0 || len(plan.TargetPaths) == 0 {
+		return false
+	}
+	seenPaths := make(map[string]struct{}, len(plan.TargetPaths))
+	for _, raw := range plan.TargetPaths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			return false
+		}
+		if _, duplicate := seenPaths[path]; duplicate {
+			return false
+		}
+		seenPaths[path] = struct{}{}
+	}
+	for _, probe := range plan.VerificationProbes {
+		if strings.TrimSpace(probe.ID) == "" || strings.TrimSpace(probe.Language) == "" || strings.TrimSpace(probe.Code) == "" {
+			return false
+		}
+	}
+	return true
 }
