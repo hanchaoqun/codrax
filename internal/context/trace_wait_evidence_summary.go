@@ -265,9 +265,9 @@ func traceGovernanceCapFactSuffix(khz int, mechanism string, witnessed bool) str
 	case tracequery.SupplyFoldGovernanceCapPolicyLimit:
 		return fmt.Sprintf(",策略频率上限 %.2fGHz(不单独证明热机制或实际绑定影响)", ghz)
 	case tracequery.SupplyFoldGovernanceCapThermalRail:
-		return fmt.Sprintf(",明确热控轨上限 %.2fGHz", ghz)
+		return fmt.Sprintf(",具名热控轨上限记录 %.2fGHz(不单独证明目标线程命中该上限或实际绑定影响)", ghz)
 	case tracequery.SupplyFoldGovernanceCapPolicyAndThermal:
-		return fmt.Sprintf(",策略/明确热控共同上限 %.2fGHz", ghz)
+		return fmt.Sprintf(",策略/具名热控共同上限记录 %.2fGHz(不单独证明目标线程命中该上限或实际绑定影响)", ghz)
 	default:
 		return fmt.Sprintf(",治理上限 %.2fGHz(机制未分类)", ghz)
 	}
@@ -1053,7 +1053,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			}
 			return supplyDeficits[i].subject < supplyDeficits[j].subject
 		})
-		b.WriteString("Supply-fold deficit facts (typed, per-seat): each line below is that seat's OWN published compute-supply deficit — a DISCOUNTED (折算) caliber value. Quote the value together with its caliber words exactly as printed; the discounted value never adds to any wall-clock (全额) value, never enters a four-state or cross-seat total, and its repair benefit never sums with other seats' wall-clock benefits. A seat without a line here published no deficit — never derive one. 下列各席的「供给折算缺口」为折算口径具名事实:连口径词与数值整体照抄;折算值不与任何墙钟(全额)值相加、不计入四态合计;未列出的席位即未发布缺口,勿代算。\n")
+		b.WriteString("Supply-fold deficit facts (typed, per-seat): each line below is that seat's OWN published compute-supply deficit — a DISCOUNTED (折算) caliber value. It measures frequency-relative compute headroom against the published ideal basis; by itself it does not identify why frequency was lower or prove that a policy/thermal ceiling bound the target's running slices. Quote the value together with its caliber words exactly as printed; the discounted value never adds to any wall-clock (全额) value, never enters a four-state or cross-seat total, and its repair benefit never sums with other seats' wall-clock benefits. A seat without a line here published no deficit — never derive one. 下列各席的「供给折算缺口」为折算口径具名事实:它衡量相对发布理想基准的算力提升空间,本身不判定低频原因,也不证明策略/热控上限实际绑定了目标线程的运行片段;连口径词与数值整体照抄;折算值不与任何墙钟(全额)值相加、不计入四态合计;未列出的席位即未发布缺口,勿代算。\n")
 		badges := tracefence.BadgeGlyphs()
 		for i, fact := range supplyDeficits {
 			if i >= traceWaitEvidenceSeatCompositionCap {

@@ -360,6 +360,9 @@ func TestTraceDecisionHandoffFallsBackToLeaderWithoutExactDirectionFold(t *testi
 		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2; leader_subject=`worker-a`; leader_value=7.405ms",
 		"fix_direction=`io_dependency`; member_count=2; leader_rank=#5; leader_subject=`target`; leader_value=3.670ms",
 		"same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`",
+		"compute_supply_value_role=`frequency_relative_headroom_against_published_ideal_basis`",
+		"compute_supply_value_proves_lower_frequency_cause=`false`",
+		"compute_supply_value_proves_governance_binding=`false`",
 		"policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`",
 		"lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`",
 	} {

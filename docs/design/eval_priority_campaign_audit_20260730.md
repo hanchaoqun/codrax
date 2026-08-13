@@ -35649,6 +35649,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.771 r452：因果范围生产闭环；频率来源/绑定/headroom typed 合同冲突（2026-08-13）
+
+1. 在 `main@39118b50d` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`；人工同为
+   `1 PASS / 1 FAIL`。工件见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r452_20260813.md` 与 manual audit。
+2. B735-4 获生产正证并关闭。Analyzer 首次 emit 保留 required `causal_attribution`，与
+   `bounded_fact_set` 冲突后只把 scope 收窄为 `causal_diagnosis`、移除 bounded-only families；三个答案维度
+   均未删除或改名。`trace_query_final_projection_blocks=1`，显式用户时间窗、完整 Trace 因果投影、系统自动
+   补齐、链上-only 主因、实际占用/业务 span 与规则可消除量双轴全部恢复。
+3. Trace 仍 FAIL，但已不是 scope/projection 问题。模型给出的四态账正确：running=157.248ms、
+   runnable=5.604ms、sleep=70.338ms、D/IO=0，并保留链上 priority/scheduling/compute/D/IO/semantic
+   候选。它随后把 CPU0/CPU4 policy ceiling 存在与 58.320ms supply-fold headroom 合并为“目标线程运行频率
+   受限/热控绑定”。Runner 要求的“limit row 不足以证明触顶/绑定性能影响”边界没有进入 principal 文本。
+4. 深审排除了两个假因：`emit_investigation_complete.reason` 中 132.041ms 差值、558MHz=上限等错误已在
+   deterministic trace rows 存在时从 finalizer authority 与 narrative lane 省略；错误的频率 aggregate member
+   set 也未进入 finalizer，只有被 typed rows 支持的四态 member set 保留。真正新 gap 是
+   `B737-FREQUENCYAUTHORITYCONTRACT1/P0`：同一 typed prompt 一处仍把 supply-fold 席的 governance source
+   渲染为“明确热控轨上限”，且未就地声明目标 slice 命中/绑定未证；后面的 frequency authority 才说明
+   policy ceiling 不单独证明 binding，形成强弱相反的系统教学。
+5. B737 泛化根修不扫描 request/model/final prose，不改模型答案：
+   - direct limit/thermal-named rail 只发布“治理来源记录”；
+   - `policy_limit_status=present` 与
+     `target_binding_status=unproven_without_slice_overlap_or_binding_carrier` 分开；
+   - supply-fold 明确为相对发布理想基准的 frequency-relative compute headroom，本身不识别低频原因，也不证明
+     governance binding；
+   - repair-direction authority 同步发布
+     `compute_supply_value_proves_lower_frequency_cause=false` 与
+     `compute_supply_value_proves_governance_binding=false`。
+   这些是 typed 证据权限与软推理上下文，不替模型选择 yes/no/mixed/unproven。
+6. Poly 人工 PASS。正文完整保留 native/fallback 两路、PyO3 wrapper→Rust core→`best_merge`；首稿 optional
+   Mermaid 把 guard、模块载体与显示节点误画成 call，typed gate 正确拒绝，模型随后删图。正文关系未丢，用户
+   未强制图，因此不以强制留图或系统生成边处理。
+7. 4ms 活跃流未触碰：持续收到字节/隐藏 reasoning/tool framing 时没有固定累计年龄降级；只有 caller
+   cancel/deadline、首字节/byte stall、transport/decode failure 有终止权。B737 也不改 JSON 修复、Mermaid、
+   Read/Write 或系统答案恢复路径。
+
+状态：
+
+`B735-CAUSALVERDICTDIMENSION1=production-closed-r452`；
+`B734-CAPLANEIDENTITY1=production-closed-r452`；
+`B737-FREQUENCYAUTHORITYCONTRACT1=implemented/targeted-pins-pass/pending-production-replay`；
+`B733/B672-textual-relation=production-positive-r452/optional-diagram-not-required`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r452`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.770 r451：`other` 绕过因果范围；B735-4 先判维度再定 scope（2026-08-13）
 
 1. 在 `main@728c890c9` 重建后严格并发恰好两个案例：

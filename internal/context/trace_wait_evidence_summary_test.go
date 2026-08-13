@@ -954,7 +954,7 @@ func TestTraceWaitEvidence_SeatCompositionFact(t *testing.T) {
 	ledger := traceWaitTestLedger()
 	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
-	want := "- 席位构成(➊ CompThread_0-2955 优先级反转候选·供给缺口主导): 反转等待(全额) 0.109ms + running 折算 6.972ms(供给缺口 7.296ms 下界为主,明确热控轨上限 1.53GHz)——两因并提,引用勿推导"
+	want := "- 席位构成(➊ CompThread_0-2955 优先级反转候选·供给缺口主导): 反转等待(全额) 0.109ms + running 折算 6.972ms(供给缺口 7.296ms 下界为主,具名热控轨上限记录 1.53GHz(不单独证明目标线程命中该上限或实际绑定影响))——两因并提,引用勿推导"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("seat composition fact missing/mutated:\n%s", summary)
 	}
@@ -1200,13 +1200,15 @@ func TestTraceWaitEvidence_SupplyDeficitFact(t *testing.T) {
 	ledger.Records = append(ledger.Records, traceWaitFreqDirSeatRecord())
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	t.Logf("FREQDIR-1 件2 witness named-fact render:\n%s", summary)
-	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,明确热控轨上限 1.53GHz)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
+	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,具名热控轨上限记录 1.53GHz(不单独证明目标线程命中该上限或实际绑定影响))——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("supply-fold deficit fact missing/mutated, want\n%q\nin:\n%s", want, summary)
 	}
 	// The section preamble carries the bilingual anti-summing imperative.
 	for _, clause := range []string{
 		"Supply-fold deficit facts (typed, per-seat)",
+		"by itself it does not identify why frequency was lower or prove that a policy/thermal ceiling bound the target's running slices",
+		"本身不判定低频原因,也不证明策略/热控上限实际绑定了目标线程的运行片段",
 		"never adds to any wall-clock (全额) value",
 		"折算值不与任何墙钟(全额)值相加、不计入四态合计",
 		"未列出的席位即未发布缺口,勿代算",

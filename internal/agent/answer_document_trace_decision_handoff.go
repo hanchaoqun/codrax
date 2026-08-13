@@ -315,7 +315,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 			case traceDecisionNodeIsPriorityInversionCandidate(leader):
 				b.WriteString("; mechanism_boundary=`lower_priority_dependency_supply_only`; lock_holder_or_priority_inheritance_need=`unproven_without_typed_relation`")
 			case strings.TrimSpace(leader.FixDirection) == "frequency_thermal":
-				b.WriteString("; mechanism_boundary=`compute_supply_opportunity`; policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`")
+				b.WriteString("; mechanism_boundary=`compute_supply_opportunity`; compute_supply_value_role=`frequency_relative_headroom_against_published_ideal_basis`; compute_supply_value_proves_lower_frequency_cause=`false`; compute_supply_value_proves_governance_binding=`false`; policy_ceiling_proves_thermal_throttling_or_actual_binding=`false`")
 			case strings.TrimSpace(leader.FixDirection) == "io_dependency":
 				b.WriteString("; mechanism_boundary=`typed_io_or_kernel_wait_seat`; kernel_callsite_proves_resource_or_holder=`false`")
 			}
