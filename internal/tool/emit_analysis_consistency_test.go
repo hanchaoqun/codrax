@@ -94,6 +94,104 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisExecutorRejectsProviderSchemaRequiredFieldOmission(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	complete := map[string]any{
+		"intent": "explain", "scenario": "architecture_explain", "complexity": "complex",
+		"keywords": []string{"pipeline", "data flow"}, "entities": []string{"Analyzer", "Explorer"},
+		"question_kind": "mechanism", "predicate_axis": "flow",
+		"intent_confidence": 0.9, "complexity_confidence": 0.9, "kind_confidence": 0.9,
+		"predicates": map[string]any{
+			"is_scalar_answer": false, "is_role_locate_lookup": false, "is_count_question": false,
+			"is_cross_component": true, "is_relational_lookup": true, "is_category_enumeration": false,
+			"is_history_lookup": false, "is_diagnostic_question": false, "has_per_member_table": false,
+		},
+		"diagnostic_profile": map[string]any{
+			"is_diagnostic": false, "current_risk": false, "historical_regression": false,
+			"current_version_check": false, "confidence": 0.9,
+		},
+		"answer_role_profile":         map[string]any{"is_role_binding_requested": false, "confidence": 0.9},
+		"error_granularity_profile":   map[string]any{"is_granularity_question": false, "confidence": 0.9},
+		"requested_answer_dimensions": map[string]any{"is_dimensioned_answer": false, "confidence": 0.9},
+		"runtime_artifact_scope_profile": map[string]any{
+			"requested_scope": "not_applicable", "confidence": 0.9,
+		},
+		"runtime_target_profile":   map[string]any{"declaration": "not_applicable", "confidence": 0.9},
+		"runtime_question_profile": map[string]any{"scope": "not_applicable", "confidence": 0.9},
+		"history_selection_profile": map[string]any{
+			"mode": "not_applicable", "item_kind": "not_applicable", "confidence": 0.9,
+		},
+		"completeness_obligation": map[string]any{"required": false, "source_quote": ""},
+		"diagram_hint": map[string]any{
+			"kind": "flow", "required": true,
+			"relation_scope_quote": "Analyzer 到 Explorer 的数据流",
+			"participants": []map[string]any{
+				{"identity": "Analyzer", "role": "incident_required", "source_quote": "Analyzer"},
+				{"identity": "Explorer", "role": "incident_required", "source_quote": "Explorer"},
+			},
+		},
+		"call_chain_endpoints": map[string]any{
+			"source": "", "sink": "", "sink_mode": "exact",
+			"runtime_selection_required": false, "runtime_selection_source_quote": "",
+		},
+	}
+	for _, missing := range []string{"question_kind", "predicate_axis"} {
+		t.Run(missing, func(t *testing.T) {
+			payload := make(map[string]any, len(complete)-1)
+			for key, value := range complete {
+				if key != missing {
+					payload[key] = value
+				}
+			}
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal payload: %v", err)
+			}
+			ctx := &types.BusContext{
+				Mutable:                     types.NewMutableState("Analyzer 到 Explorer 的数据流"),
+				PresentationDiagramRequired: true,
+			}
+			res, err := (&EmitAnalysis{}).Execute(ctx, raw)
+			if err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if res.Success || !strings.Contains(res.Summary, "missing required top-level field(s): "+missing) {
+				t.Fatalf("missing %s must fail before zero-value normalization: %+v", missing, res)
+			}
+			if ctx.Mutable.RequestModel() != nil {
+				t.Fatalf("missing %s must not persist a degraded RequestModel", missing)
+			}
+		})
+	}
+
+	t.Run("unauthorized_required_diagram_does_not_mint_axis_gate", func(t *testing.T) {
+		payload := make(map[string]any, len(complete)-1)
+		for key, value := range complete {
+			if key != "predicate_axis" {
+				payload[key] = value
+			}
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		ctx := &types.BusContext{Mutable: types.NewMutableState("Analyzer 到 Explorer 的数据流")}
+		res, err := (&EmitAnalysis{}).Execute(ctx, raw)
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if !res.Success {
+			t.Fatalf("unauthorized model required=true must soften before predicate-axis presence gate: %+v", res)
+		}
+		if rm := ctx.Mutable.RequestModel(); rm == nil || rm.DiagramHint == nil || rm.DiagramHint.Required {
+			t.Fatalf("unauthorized required diagram did not soften as expected: %+v", rm)
+		}
+	})
+}
+
 func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *testing.T) {
 	var parsed struct {
 		Properties map[string]json.RawMessage `json:"properties"`

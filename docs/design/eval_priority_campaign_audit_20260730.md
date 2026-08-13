@@ -35774,6 +35774,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.753 r435 与 B724：Analyzer 必填关系域静默丢失（2026-08-13）
+
+1. 在 `main@672f9c7d0` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS`，人工为
+   `1 partial / 1 pass`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_logic_trace_replay_r435_20260813_manual_audit.md`。
+2. H7 Trace 164s 强正证：显式窗 `13762.791708..13763.024898`、模型链上根因结论、Trace 因果
+   投影与自动补采完整。自身 running 74.915ms、算力供给折算可消 65.912ms、非 IO D-state
+   36.757ms、`dma_fence_default_w` 调用点、链上优先级反转/调度/IO 与业务线索均保留；未计价
+   占用 19 行、最大 15.960ms 另作真实占时/新修向，不被邻近或背景晋升为主因。零成文拒绝。
+3. B723 本轮未命中生产正形。Analyzer 把 `blocks[]` 外层写成 string，但兼容层还原后，summary
+   与 diagram 已经是两个独立 block，并非 prose+diagram 同载体。因此 B723 的 full/patch 生产入口
+   pin 已闭环，生产 fused 自然样本继续等待，不把本轮误记为 positive。
+4. 新确认 B724（P0）：Analyzer 的实际 tool call 同时遗漏 JSON Schema 明列 required 的
+   `question_kind` 与 `predicate_axis`。`decodeStrictNormalizedToolParams` 只校验 JSON 语法、未知字段和
+   类型，不执行 provider schema 的 required presence；Go 解码零值遂把 RequestModel 铸成
+   `kind=unknown + axis=empty`。Finalizer 前两稿的 relation anchors 被关系门正确拒绝，第三稿删掉
+   anchors 但保留可见 pipeline/containment 箭头；因为 relation axis 已静默丢失，该图降成
+   presentation-only 并通过。这是 typed 证据域权威断层，不是模型波动或 Mermaid 语法问题。
+5. 根修采用精确信号 presence gate，不读取用户原文、thinking、答案或关系词：Schema required
+   清单单源；Executor 在任何 normalization 前检查 `question_kind` 必须显式出现；只有
+   `diagram_hint.required=true` 经当前请求的 typed 展示授权归一化后仍为硬要求时，才要求
+   `predicate_axis` 显式出现，允许明确的 `""` 表示无动作轴。模型自报而未获授权的 required
+   仍先软化，不能反向制造硬重试。
+   缺失/null 只触发 analyzer 重发一个完整对象，绝不从题面推断或系统代写分类。
+6. 运行时 gate 故意不等同于全 Schema required 集。diagnostic/profile 等字段已有经裁定的安全
+   默认或旧 provider 兼容出口，若全量硬拒会与现存合同冲突并显著增加“成文/分析校验未通过”。
+   专项 negative pins 证明普通无图 payload 仍可沿既有默认车道；required diagram 的
+   question_kind/predicate_axis 缺失会 fail-loud，显式空 axis 保留合法。
+7. 验证：`go test ./internal/tool -count=1` 与 `make test` 全绿。下一步在新提交上严格并发两个同组
+   case 回放：Logic 应在 Analyzer 漏字段时就精确重试，而不能再靠删 relation metadata 逃逸；Trace
+   继续守住显式窗、链上-only、双轴和系统不代写结论。
+8. 活跃流规则再次正证：164s/210s 持续输出均未因 4ms 降级。4ms 对 active byte stream 无终止权；
+   只有 caller cancel/deadline、无首字节、真实 byte stall、transport/decode failure 或重试耗尽
+   才能恢复/降级，并须披露，不能用 evidence 合成模型答案。
+
+状态：
+
+`B724-ANALYZERREQUIREDRELATIONPRESENCE1=implemented/required-diagram+generic-negative-pins-pass/pending-r436`；
+`B723-FUSEDPROSEDIAGRAMCARRIERSPLIT1=implemented/pins-pass/production-positive-pending`；
+`B716-TRACECANONICALWINDOWCONTEXT1=production-stable-r435`；
+`active-stream-4ms-degrade=forbidden/164s+210s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r435`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.752 B723：正文与图的 typed 载体无损拆分（2026-08-13）
 
 1. B723 已按通用 carrier 方案施工。`isFusedDiagramBlock` 不再只承认 `items/columns`，而是按

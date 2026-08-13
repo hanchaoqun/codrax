@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -114,6 +115,26 @@ type emitAnalysisParams struct {
 	// Downstream agents respect this as a hard exclusion across
 	// pre-read pools, mid-loop hints, and primary-file selection.
 	IrrelevantFiles []string `json:"irrelevant_files,omitempty"`
+}
+
+// emitAnalysisSchemaRequiredTopLevelFields is the single source of truth for
+// provider-facing required top-level JSON keys.
+var emitAnalysisSchemaRequiredTopLevelFields = []string{
+	"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
+	"predicate_axis",
+	"intent_confidence", "complexity_confidence", "kind_confidence",
+	"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
+	"requested_answer_dimensions",
+	"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile",
+	"history_selection_profile", "completeness_obligation", "call_chain_endpoints",
+}
+
+// emitAnalysisRuntimePresenceRequiredFields is deliberately narrower than the
+// provider schema. Some typed mirror/profile fields have conservative executor
+// defaults for compatibility with older/local providers. question_kind does
+// not: its zero value selects evidence ownership lanes.
+var emitAnalysisRuntimePresenceRequiredFields = []string{
+	"question_kind",
 }
 
 // emitRequiredFileParam is the wire shape of one required_files entry.
@@ -942,14 +963,7 @@ func buildEmitAnalysisSchema() {
 				"maxItems":    10,
 			},
 		},
-		"required": []string{
-			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
-			"predicate_axis",
-			"intent_confidence", "complexity_confidence", "kind_confidence",
-			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"requested_answer_dimensions",
-			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "completeness_obligation", "call_chain_endpoints",
-		},
+		"required": append([]string(nil), emitAnalysisSchemaRequiredTopLevelFields...),
 	}
 
 	raw, err := json.Marshal(schema)
@@ -1289,6 +1303,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
 		return *decodeFailure, err
 	}
+	if missing := missingEmitAnalysisRequiredTopLevelFields(params, false); len(missing) > 0 {
+		return types.ToolResult{
+			ToolName: t.Name(), Success: false,
+			Summary: "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
+				". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them.",
+			Timestamp: time.Now(),
+		}, nil
+	}
 	// The completeness decision is deliberately presence-required. A nil
 	// profile is not equivalent to false: r193 showed that a model can
 	// understand a complete-path request while simply omitting the optional
@@ -1589,6 +1611,17 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + diagramHintErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	// Use the normalized, current-turn-authorized diagram contract rather than
+	// the model's raw required=true claim. An unauthorized claim is intentionally
+	// softened by parseDiagramHint and must not create a new retry gate.
+	if missing := missingEmitAnalysisRequiredTopLevelFields(params, diagramHint != nil && diagramHint.Required); len(missing) > 0 {
+		return types.ToolResult{
+			ToolName: t.Name(), Success: false,
+			Summary: "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
+				". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them.",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -2210,6 +2243,34 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredDiagram bool) []string {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(params, &object); err != nil {
+		// The strict decoder owns malformed JSON diagnostics. Reaching this
+		// helper with undecodable input is defensive only; do not replace its
+		// more precise error with a fabricated all-fields-missing list.
+		return nil
+	}
+	missing := make([]string, 0)
+	for _, field := range emitAnalysisRuntimePresenceRequiredFields {
+		raw, ok := object[field]
+		if !ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			missing = append(missing, field)
+		}
+	}
+	// A required diagram is an explicit typed presentation contract. Its edges
+	// need an equally explicit relation axis so downstream evidence ownership
+	// cannot silently fall back to the presentation-only lane. Empty is still a
+	// valid explicit value when the requested diagram has no action direction.
+	if requiredDiagram {
+		raw, ok := object["predicate_axis"]
+		if !ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			missing = append(missing, "predicate_axis")
+		}
+	}
+	return missing
 }
 
 // normalizeSingleTargetExplicitWindowCausalSubTopics prevents analyzer-authored

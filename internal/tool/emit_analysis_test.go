@@ -82,6 +82,20 @@ func withV4Required(partial string) string {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
 	defaults := v4DefaultsJSON
+	if !strings.Contains(trimmed, `"predicate_axis"`) {
+		defaults += `,
+	"predicate_axis": ""`
+	}
+	if !strings.Contains(trimmed, `"call_chain_endpoints"`) {
+		defaults += `,
+	"call_chain_endpoints": {
+		"source": "",
+		"sink": "",
+		"sink_mode": "exact",
+		"runtime_selection_required": false,
+		"runtime_selection_source_quote": ""
+	}`
+	}
 	if !strings.Contains(trimmed, `"requested_answer_dimensions"`) {
 		defaults += `,
 	"requested_answer_dimensions": {
@@ -145,6 +159,9 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	}
 	if _, ok := obj["completeness_obligation"]; !ok {
 		obj["completeness_obligation"] = json.RawMessage(`{"required":false,"source_quote":""}`)
+	}
+	if _, ok := obj["predicate_axis"]; !ok {
+		obj["predicate_axis"] = json.RawMessage(`""`)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
