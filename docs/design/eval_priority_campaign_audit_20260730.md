@@ -35774,6 +35774,74 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.754 r436：B724 路由稳定正证；participant/技术端点同 ID 振荡（2026-08-13）
+
+1. 在 `main@55cf22581` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS`，人工均为
+   partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_logic_trace_replay_r436_20260813_manual_audit.md`。
+2. B724 获 route-stable 生产正证：Analyzer 第一个正式 emit 已显式携带
+   `question_kind=mechanism + predicate_axis=flow`，最终三条 stage precedence 与一条本地 call 都由
+   typed anchor 所有；删 metadata 不再能把未证箭头降成 presentation-only 逃逸。第一次 Analyzer
+   拒绝来自 participant quote 非逐字，不是 presence 分支；所以“漏字段→精确重发”仍只由生产入口
+   pin 覆盖，未虚报 production-positive。
+3. 新确认 B725（P1，高重试 ROI）：模型已提交真实 local call
+   `appendStageOutputEvidenceToMutable -> MutableState.AppendEvidence`，却把技术端点 `to_node` 复用为
+   用户 participant node `Mutable`。requested flow 对 Mutable 自身未证，需 unproven boundary；同一
+   node 又有入边，participant gate 在 `missing_unproven_boundary` 与
+   `unproven_boundary_has_visible_incident_edge` 间振荡。模型连续增删 boundary 三轮，最终靠删除真实
+   local edge 收敛。合同没有放过假边，但表达 richness 和 455s 成本明显恶化。
+4. B725 最优方案冻结为 typed conflict map，而非系统代画：仅当 body 中一个可见 edge 与一个 exact
+   edge_anchor 唯一匹配，且冲突端 node 恰是 unproven participant 时，向 repair guidance 发布
+   participant、from/to node、canonical from/to identity、conflict endpoint side。指令固定为保留原
+   edge/anchor/direction/relation，把技术端点换到新的非 participant node ID，另保留 exact participant
+   断开节点及 boundary；系统不创建或选择边、不决定 label/layout。无唯一 pair 时保持现提示、不得猜。
+5. H7 Trace 275s 核心能力稳定：显式窗、链上-only、因果投影、自动补采、running 74.915ms/算力
+   可消 65.912ms、D-state 36.757ms、反转/调度/IO/业务线索与未计价新方向均在，邻近/背景未晋升。
+   模型正文新留两项 P1：把五态称“四态”；把 blocked_reason 记录与 scheduler interval 的数量/Σ
+   差异解释成“内核延迟上报”。Typed 证据只证明口径不同，不证明该具体机理；系统边界后文正确但
+   不改写模型正文。先异构观察，不加答案关键词硬门。
+6. 275s/455s 活跃字节流均未固定年龄降级。Read/Trace 结论仍属模型；系统只提供 typed evidence、
+   关系约束、因果投影与补采，不替模型成文。
+
+状态：
+
+`B724-ANALYZERREQUIREDRELATIONPRESENCE1=route-stable-r436/reject-branch-pinned/production-trigger-pending`；
+`B725-PARTICIPANTTECHNICALNODECOLLISION1=confirmed/P1/typed-conflict-map-next-batch`；
+`B723-FUSEDPROSEDIAGRAMCARRIERSPLIT1=implemented/pins-pass/production-positive-pending`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r436`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/275s+455s-no-age-degrade`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.755 B725：participant/技术端点冲突改为唯一 typed 坐标提示（2026-08-13）
+
+1. 根修落在既有 participant coverage precheck，不增加图关系、不放宽 boundary、不改模型答案。
+   只有 mismatch 为 `unproven_boundary_has_visible_incident_edge`，且同一 diagram block 内恰有一个
+   可见 body edge、恰有一个 exact `edge_anchor` 与其 from/to node 对齐、anchor 同时拥有非空 canonical
+   from/to identity 与合法 relation kind 时，系统才发布 typed endpoint-collision map。
+2. map 只给已存在冲突的精确坐标：participant、block ID、body from/to node、冲突在 from 还是 to、
+   需要同步修改的 body/anchor node 字段，以及必须保持字节语义不变的 canonical identity/relation。
+   它不选择 replacement node ID，不增加/删除 edge，不改变 direction/relation，也不决定 label/layout；
+   模型仍负责选择一个新的非 participant 技术节点，并保留 exact participant 断开节点和 unproven boundary。
+3. 任一歧义均 fail-open 回到已有通用修补提示：同 participant 有多条冲突 body edge、一个 body edge
+   有多条 anchor、缺 identity 或 relation 非法时都不发布精确 map，避免系统猜边或把兄弟 block 关系
+   冒充当前关系。该判据只读 typed RequestModel participant、解析后的 Mermaid node/edge 与 structured
+   edge anchors；不扫描用户请求、模型 reasoning 或最终答案 prose。
+4. 新增生产 precheck pin 覆盖 r436 的一般化形，逐字段钉住 collision tuple，并断言 precheck 前后
+   diagram body/anchor 完全不变；另有多边和多锚两条歧义负 pin。`internal/tool` 全量通过，等待 r437
+   严格 exact-2 生产回放确认是否减少 boundary 振荡并保留真实 local edge。
+5. 本批不触碰 Trace 查询、根因排序、唤醒链、窗内可消除量、因果投影、补采或答案 mutation。
+   链上-only 主因、实际占时/业务修向与规则计价双轴、邻近/背景 support-only 及 active-stream 4ms
+   禁止固定年龄降级保持不变。
+
+状态：
+
+`B725-PARTICIPANTTECHNICALNODECOLLISION1=implemented/unique-tuple+ambiguity-fail-open-pins-pass/pending-r437`；
+`system-diagram-edge-authorship=none`；`system-answer/conclusion-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=untouched`；
+`active-stream-4ms-degrade=forbidden`。
+
 ### §123.753 r435 与 B724：Analyzer 必填关系域静默丢失（2026-08-13）
 
 1. 在 `main@672f9c7d0` 严格并发恰好两个案例：

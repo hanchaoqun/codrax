@@ -64,7 +64,15 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
+	endpointConflicts := diagramParticipantEndpointConflictGuidance(
+		doc,
+		pctx.ctx.AnalysisIR.RequestModel,
+		mismatches,
+	)
 	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
+	if endpointConflicts != "" {
+		expected = "Resolve these exact endpoint-ID collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field, while keeping the exact participant as a separate disconnected visible node with its unproven boundary. The system is identifying an already model-authored unique edge/anchor pair, not creating or selecting a relation: " + endpointConflicts + ". " + expected
+	}
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
@@ -78,6 +86,112 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		ExpectedShape:       expected,
 		Reason:              "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
 	}}
+}
+
+// diagramParticipantEndpointConflictGuidance publishes the exact already
+// model-authored edge/anchor tuple behind a boundary-connected mismatch. It
+// never chooses a replacement node ID or creates a relation. Guidance is
+// emitted only when one body edge and one exact typed anchor uniquely own the
+// conflicting participant endpoint; ambiguous pairs retain the generic
+// fail-open repair text.
+func diagramParticipantEndpointConflictGuidance(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	mismatches []DiagramParticipantCoverageMismatch,
+) string {
+	if doc == nil || rm.DiagramHint == nil || len(mismatches) == 0 {
+		return ""
+	}
+	participantSurfaces := make(map[string][]string)
+	for _, participant := range rm.DiagramHint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		if identity == "" || participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		surfaces := []string{identity}
+		for _, resolved := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
+			if !diagramParticipantSurfaceListContainsExact(surfaces, resolved) {
+				surfaces = append(surfaces, resolved)
+			}
+		}
+		participantSurfaces[strings.ToLower(identity)] = surfaces
+	}
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	rows := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, mismatch := range mismatches {
+		if mismatch.Issue != DiagramParticipantCoverageBoundaryConnected {
+			continue
+		}
+		participant := strings.TrimSpace(mismatch.Participant)
+		surfaces := participantSurfaces[strings.ToLower(participant)]
+		if participant == "" || len(surfaces) == 0 {
+			continue
+		}
+		type endpointConflictCandidate struct {
+			blockID  string
+			fromNode string
+			toNode   string
+			side     string
+			anchor   types.DiagramEdgeAnchor
+		}
+		var candidates []endpointConflictCandidate
+		for blockIndex := range doc.Blocks {
+			block := &doc.Blocks[blockIndex]
+			if block.Kind != types.BlockDiagram || block.Diagram == nil ||
+				(mismatch.BlockID != "" && block.ID != mismatch.BlockID) {
+				continue
+			}
+			anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
+			for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+				fromConflict := diagramParticipantSurfaceListContainsExact(surfaces, edge.From)
+				toConflict := diagramParticipantSurfaceListContainsExact(surfaces, edge.To)
+				if fromConflict == toConflict { // neither side, or both sides: not unique
+					continue
+				}
+				var exact []types.DiagramEdgeAnchor
+				for _, anchor := range anchors {
+					if diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) != diagramEvidenceEdgeKey(edge.From, edge.To) ||
+						strings.TrimSpace(anchor.FromIdentity) == "" || strings.TrimSpace(anchor.ToIdentity) == "" ||
+						!anchor.RelationKind.IsValid() {
+						continue
+					}
+					exact = append(exact, anchor)
+				}
+				if len(exact) != 1 {
+					continue
+				}
+				side := "to"
+				if fromConflict {
+					side = "from"
+				}
+				candidates = append(candidates, endpointConflictCandidate{
+					blockID: block.ID, fromNode: edge.From, toNode: edge.To, side: side, anchor: exact[0],
+				})
+			}
+		}
+		if len(candidates) != 1 {
+			continue
+		}
+		selected := candidates[0]
+		key := strings.ToLower(participant + "\x00" + selected.blockID + "\x00" + selected.fromNode + "\x00" + selected.toNode)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		nodeFields := "body.to_node+edge_anchor.to_node"
+		if selected.side == "from" {
+			nodeFields = "body.from_node+edge_anchor.from_node"
+		}
+		rows = append(rows, fmt.Sprintf(
+			"typed_endpoint_collision[%s]={block_id:%s,body_edge:{from_node:%s,to_node:%s},conflict_endpoint_side:%s,node_fields_to_change:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			strconv.Quote(participant), strconv.Quote(selected.blockID),
+			strconv.Quote(selected.fromNode), strconv.Quote(selected.toNode), strconv.Quote(selected.side),
+			strconv.Quote(nodeFields), strconv.Quote(selected.anchor.FromIdentity),
+			strconv.Quote(selected.anchor.ToIdentity), strconv.Quote(string(selected.anchor.RelationKind)),
+		))
+	}
+	return strings.Join(rows, "; ")
 }
 
 // diagramParticipantCoverageRepairActions translates each precise typed

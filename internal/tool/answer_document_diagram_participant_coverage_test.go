@@ -95,6 +95,82 @@ func TestDiagramParticipantCoverageUnprovenBoundaryMustBeActuallyDisconnected(t 
 	}
 }
 
+func TestPreCheckDiagramParticipantCoveragePublishesUniqueEndpointCollisionTuple(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W[\"appendStageOutputEvidenceToMutable\"] --> Mutable[\"Mutable\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "W", ToNode: "Mutable", FromIdentity: "appendStageOutputEvidenceToMutable",
+		ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+	}}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := diagramEvidenceTestCall("appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence")
+	mut := types.NewMutableState("unique endpoint collision")
+	mut.AppendEvidence([]types.EvidenceItem{evidence})
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut,
+	}}
+	bodyBefore := doc.Blocks[0].Diagram.Body
+	anchorBefore := doc.Blocks[0].EdgeAnchors[0]
+	hints := preCheckDiagramParticipantCoverage(doc, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one endpoint-collision hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		`typed_endpoint_collision["Mutable"]`,
+		`block_id:"flow"`,
+		`body_edge:{from_node:"W",to_node:"Mutable"}`,
+		`conflict_endpoint_side:"to"`,
+		`node_fields_to_change:"body.to_node+edge_anchor.to_node"`,
+		`from_identity:"appendStageOutputEvidenceToMutable"`,
+		`to_identity:"MutableState.AppendEvidence"`,
+		`relation_kind:"call"`,
+		"Choose one fresh non-participant Mermaid node ID",
+		"not creating or selecting a relation",
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("unique endpoint-collision hint missing %q:\n%s", want, hints[0].ExpectedShape)
+		}
+	}
+	for _, forbidden := range []string{"replacement_node_id:", "suggested_node_id:", "auto_created_edge:"} {
+		if strings.Contains(hints[0].ExpectedShape, forbidden) {
+			t.Fatalf("system must not choose the model's replacement node or edge; found %q in %s", forbidden, hints[0].ExpectedShape)
+		}
+	}
+	if doc.Blocks[0].Diagram.Body != bodyBefore || doc.Blocks[0].EdgeAnchors[0] != anchorBefore {
+		t.Fatalf("precheck guidance must not rewrite the model diagram: body=%q anchor=%+v", doc.Blocks[0].Diagram.Body, doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
+func TestDiagramParticipantEndpointCollisionGuidanceFailsOpenWhenAmbiguous(t *testing.T) {
+	rm, _, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W1 --> Mutable\n W2 --> Mutable"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "W1", ToNode: "Mutable", FromIdentity: "firstWriter", ToIdentity: "MutableState.First", RelationKind: types.DiagramRelCall},
+		{FromNode: "W2", ToNode: "Mutable", FromIdentity: "secondWriter", ToIdentity: "MutableState.Second", RelationKind: types.DiagramRelCall},
+	}
+	mismatches := []DiagramParticipantCoverageMismatch{{
+		BlockID: "flow", Participant: "Mutable", Issue: DiagramParticipantCoverageBoundaryConnected,
+	}}
+	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches); got != "" {
+		t.Fatalf("ambiguous body edges must retain generic fail-open guidance, got %s", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W1 --> Mutable"
+	doc.Blocks[0].EdgeAnchors[1].FromNode = "W1"
+	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches); got != "" {
+		t.Fatalf("ambiguous anchors for one body edge must retain generic fail-open guidance, got %s", got)
+	}
+}
+
 func TestDiagramParticipantCoverageAllowsNoArrowOwnershipGroupBesideLocalFacts(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
