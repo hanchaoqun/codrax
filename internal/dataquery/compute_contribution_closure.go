@@ -75,22 +75,7 @@ func validateComputeContributionActionParams(action DataAction) error {
 		}
 	}
 
-	// count never consumes value_field: each selected row contributes the
-	// literal value 1. Accepting both declarations lets a structurally valid
-	// plan say "collect these member values" while the executor silently
-	// counts rows instead. Reject that typed self-contradiction at the common
-	// admission boundary; no goal/rule/answer prose participates.
-	operation, _ := normalizeContributionOperation(action.Params["operation"])
-	if operation == "count" && strings.TrimSpace(action.Params["value_field"]) != "" {
-		return DataActionParamError{
-			ActionKind:    DataActionComputeContribs,
-			Param:         "value_field",
-			ExpectedShape: "empty when operation=count, or operation=include|set|rank when value_field members must be preserved",
-			ActualSnippet: strings.TrimSpace(action.Params["value_field"]),
-			Message:       "compute_contributions operation=count ignores value_field and only emits row-count value 1; remove value_field for a count, or use operation=include, set, or rank to preserve the declared member values",
-		}
-	}
-	return nil
+	return validateActionParamExclusions(action)
 }
 
 // validateComputeContributionExpectedClosure is the deterministic completion

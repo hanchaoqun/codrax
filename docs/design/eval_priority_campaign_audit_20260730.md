@@ -35774,6 +35774,78 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.739 B709/B710：data action 执行前合同同源施工（2026-08-12）
+
+1. B709 根修：base/initial data planner 现在只把完整 schema-owned 的 `actions` subtree 加入
+   native exact validation。typed action 的 kind、input cardinality、参数白名单、script 归属及
+   kind-conditioned 合同会在工作流接纳前验证；top-level legacy/default 字段仍不被整体升级为新硬门。
+   action 内既有 camelCase 与标量字符串数组继续先走通用 schema compatibility normalization，修复后
+   再按同一 schema 校验，避免“提升校验杆”等于破坏兼容。
+2. 精确信号边界保持：reducer-owned runtime 或已有 completed records 可以权威收窄 continuation rank，
+   因而继续执行当前 rank 的 action schema；仅有 `CurrentPlan` 的旧恢复 wrapper 只能提供软排序，明确
+   删除继承的 hard-validation opt-in。这样不会让陈旧候选计划冻结后续合法修复。
+3. B710 根修：新增 executor-owned `ActionParamExclusionContract` registry；首个合同固定
+   `compute_contributions + operation=count` 禁止非空 `value_field`。runtime admission 与 planner
+   JSON schema 共读同一 registry：模型不会再被教导一个执行器必拒的组合，绕过 schema 的调用仍由
+   runtime fail-closed。`include/set/rank + value_field` 等成员保留形不受影响。
+4. 专项 pin 覆盖初始规划先产生 typed-action `script`、随后经同 schema 有界修复；count/value_field
+   规划期拒绝与 include 正例；exclusion registry defensive copy；非权威恢复 rank 不铸硬门；原 action
+   camelCase/字符串数组兼容仍通过。`go test ./internal/dataquery ./internal/repl ./internal/dataworkflow`
+   全绿。
+5. 本批不读取用户问题或模型答案原文来决定拒绝，不引入数据类型/case 特判，也不生成或替换模型结论。
+   Read/Trace/Write 路径均未改变；显式窗 Trace 因果投影、自动补齐、链上-only 根因，以及实际占用/
+   业务线索与规则可消除量双轴保持。
+6. 活跃流边界再次冻结：4ms 内没有形成完整 answer 并不是降级信号。只要 Reader/adapter 仍报告真实
+   byte/reasoning/tool/finish 进展，就继续等待；只有 caller cancel/deadline、no-first-byte、真实
+   byte-stall、transport/decode terminal failure 或重试耗尽才能进入有界恢复。恢复只可保留并披露模型
+   已有草稿/有用内容或 fail-loud，不得由系统拼装事实替代模型答案。既有 4ms evaluator vs 40ms
+   active-stream 行为 pin 保持通过。
+
+状态：
+
+`B709-DATAINITIALACTIONSCHEMAEXEC1=implemented/initial-exact+legacy-repair-soft-rank-pins-pass`；
+`B710-DATACONDITIONALPARAMSCHEMA1=implemented/shared-registry+planner/runtime-pins-pass`；
+`active-stream-4ms-degrade=forbidden/40ms-behavior-pin-retained`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.738 r423：B708 生产闭环；data 初始 schema 执行与条件语义两项残余（2026-08-12）
+
+1. 在 `main@ef98f7b1d` 严格并发恰好两个案例：
+   `data_json_strict_ids + data_jsonl_filter_count`。Runner `2 PASS / 0 FAIL`，人工 `2 pass`；过程见
+   `eval/parallel_selected_summary_evalcampaign_data_output_r423_20260812_manual_audit.md`。
+2. B708 生产闭环：strict IDs 最终字节为 `{"ids":["u1","u3"]}`；两条 contribution 保留各自源位置，
+   reconcile business group 的内部身份不因输出重命名而改写，唯一 typed rule output field 被投影为外部
+   `ids`，assemble receipt 标明 `output_field=ids` 与 `output_field_source=rule_coverage`，expected/actual
+   同源。较 r422 的 `437s / 4 repair / 错误 complete` 降为 `198s / 2 repair / 正确 complete`。
+3. JSONL 非回归通过：e1/e4 两条 `api+error` 源行分别进入 contribution，最终 `2`，reconcile
+   expected=actual=2；新 `assemble_answer` 参数合同没有影响非 JSON-object 投影。
+4. 新确认 B709（P1，高 ROI）：continuation rank 已把 `actions` 加入 native exact validation，但 base/initial
+   data planner 没有。两案都出现“typed action 携 script”这类 schema 可确定拒绝，却先解码为 plan、再由
+   workflow guard 拒绝并消耗一轮修补；说明 schema 教给模型但本地没有在初始车道执行。最优方案是 base
+   tool 也仅对 `actions` subtree opt-in native exact validation，保留 top-level legacy/default 兼容，不把整个
+   plan 突然升级成新硬合同。
+5. 新确认 B710（P1）：`compute_contributions operation=count + value_field` 是执行器确定性冲突，当前
+   runtime key allowlist/schema 只约束键是否存在，不投影这个跨字段条件，因此 JSONL 首次执行必失败后再修。
+   最优方案是把 executor-owned 参数条件扩成 typed registry，并由 planner schema与 runtime admission 共用；
+   不能用任务文本/答案关键词或某一个 JSONL case 特判。
+6. 两案早期还有模型先选 custom_transform、把 script 塞给 extract_records 等波动，但硬合同边界明确：
+   B709/B710 可在 schema admission 前移；跨 DAG rank 被 deterministic deferred 拆批是正确，不降验证杆。
+7. 本批没有 4ms active-stream 降级；连接活跃期间正常等待。Trace 未改，显式窗、因果投影、自动补齐、
+   链上-only 根因和邻近/背景分层保持，系统没有改写模型结论。
+
+状态：
+
+`B708-DATAOUTPUTFIELDGROUPIDENTITY1=production-closed-r423`；
+`B709-DATAINITIALACTIONSCHEMAEXEC1=confirmed/P1-next-batch`；
+`B710-DATACONDITIONALPARAMSCHEMA1=confirmed/P1-next-batch`；
+`required-diagram-boundary-display=partial/pending-generic-audit`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.737 B708：外部 JSON 字段与内部账本身份分离施工（2026-08-12）
 
 1. 冷读纠正 §123.736 的一处表述：执行器原先已经有隐式 `output_field` 读取点和唯一

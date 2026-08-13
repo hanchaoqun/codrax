@@ -175,6 +175,19 @@ func TestAssembleReferenceOrderDependencyRegistryMatchesRuntimeAuthority(t *test
 	}
 }
 
+func TestActionParamExclusionRegistryReturnsDefensiveCopies(t *testing.T) {
+	contracts := DataActionParamExclusionContracts()
+	if len(contracts) != 1 || contracts[0].Kind != DataActionComputeContribs ||
+		contracts[0].TriggerParam != "operation" || contracts[0].TriggerValue != "count" ||
+		len(contracts[0].ForbiddenParams) != 1 || contracts[0].ForbiddenParams[0] != "value_field" {
+		t.Fatalf("contracts=%+v, want count/value_field runtime exclusion", contracts)
+	}
+	contracts[0].ForbiddenParams[0] = "corrupt"
+	if got := DataActionParamExclusionContracts()[0].ForbiddenParams[0]; got != "value_field" {
+		t.Fatalf("registry leaked caller mutation: %q", got)
+	}
+}
+
 // Typed action inputs are the first reference scope. An unrelated historical
 // artifact with more keys must not win merely because the old fallback ranked
 // larger key sets higher.

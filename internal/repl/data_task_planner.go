@@ -328,7 +328,7 @@ var dataTaskPlanTool = llm.ToolSchema{
           "id": {"type":"string"},
           "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","derive_rules","derive_fields","extract_fields","group_records","expand_records","filter_records","value_distribution","qualify_records","mapping_candidate","normalize_entities","apply_entity_resolutions","enrich_records","join_records","compute_contributions","reconcile_artifacts","assemble_answer","custom_transform"]},
           "purpose": {"type":"string"},
-          "input_paths": {"type":"array", "items":{"type":"string"}},
+          "input_paths": {"type":"array", "items":{"type":"string"}, "x-codrax-split-string-array":true},
           "output_artifact": {"type":"string"},
           "script": {"type":"string", "description":"Required and non-empty only when kind=custom_transform; forbidden for every typed action kind. The script belongs on this action, never in the plan-level script field. Runner helpers are prebound Python globals: call them directly and never import/from-import or redefine them. Use exactly one final result channel: prefer emit_result(value); alternatively assign result=value, or call emit(full_result_envelope) only when emitting canonical answer/ledger fields together. print(...) is debug-only and never the final result channel."},
           "params": {
@@ -336,7 +336,7 @@ var dataTaskPlanTool = llm.ToolSchema{
             "additionalProperties": true,
             "description":"Domain-neutral action parameters. Use only keys admitted for the selected action kind. Scalars may be strings/numbers/booleans; pass arrays/objects as real JSON rather than adding an extra JSON-string layer unless an existing *_json field is intentionally used."
           },
-          "success_criteria": {"type":"array", "items":{"type":"string"}}
+          "success_criteria": {"type":"array", "items":{"type":"string"}, "x-codrax-split-string-array":true}
         },
         "required": ["kind"],
         "allOf": [
@@ -503,6 +503,47 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 			"then": thenBranch,
 		})
 	}
+	for _, exclusion := range dataquery.DataActionParamExclusionContracts() {
+		if strings.TrimSpace(string(exclusion.Kind)) == "" ||
+			strings.TrimSpace(exclusion.TriggerParam) == "" ||
+			strings.TrimSpace(exclusion.TriggerValue) == "" ||
+			len(exclusion.ForbiddenParams) == 0 {
+			continue
+		}
+		forbiddenProperties := make(map[string]any, len(exclusion.ForbiddenParams))
+		for _, param := range exclusion.ForbiddenParams {
+			param = strings.TrimSpace(param)
+			if param == "" {
+				continue
+			}
+			// Empty/omitted remains valid for compatibility; a non-empty value is
+			// impossible for the triggered operation and fails schema validation.
+			forbiddenProperties[param] = map[string]any{"maxLength": float64(0)}
+		}
+		if len(forbiddenProperties) == 0 {
+			continue
+		}
+		allOf = append(allOf, map[string]any{
+			"if": map[string]any{
+				"required": []any{"kind", "params"},
+				"properties": map[string]any{
+					"kind": map[string]any{"const": string(exclusion.Kind)},
+					"params": map[string]any{
+						"required":   []any{exclusion.TriggerParam},
+						"properties": map[string]any{exclusion.TriggerParam: map[string]any{"const": exclusion.TriggerValue}},
+					},
+				},
+			},
+			"then": map[string]any{
+				"properties": map[string]any{
+					"params": map[string]any{
+						"properties":  forbiddenProperties,
+						"description": strings.TrimSpace(exclusion.Reason),
+					},
+				},
+			},
+		})
+	}
 	items["allOf"] = allOf
 	rootAllOf, _ := schema["allOf"].([]any)
 	for _, dependency := range dataquery.DataActionParamDependencyContracts() {
@@ -514,6 +555,13 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 	if len(rootAllOf) > 0 {
 		schema["allOf"] = rootAllOf
 	}
+	// The action subtree is fully schema-owned: kind-conditioned runtime
+	// parameter contracts, typed-action script exclusion, input cardinality,
+	// and cross-field dependencies are all projected above. Enforce that same
+	// subtree on the initial planner call too. Top-level legacy/defaulted fields
+	// remain outside native exact validation, so this does not turn the whole
+	// historical plan object into a new hard contract.
+	schema[replNativeValidationPropertiesSchemaKey] = []any{"actions"}
 	raw, err := json.Marshal(schema)
 	if err != nil {
 		return llm.ToolSchema{}, fmt.Errorf("encode data task plan schema with action parameter contracts: %w", err)
@@ -735,6 +783,12 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 	// object to a new required-field contract here would be unrelated hardening.
 	if rank.NativeSchemaAuthoritative {
 		schema[replNativeValidationPropertiesSchemaKey] = []any{"actions"}
+	} else {
+		// The base tool opts actions into exact validation for the initial plan,
+		// where its full vocabulary is authoritative. A CurrentPlan-only repair
+		// view can narrow that vocabulary only as soft guidance, so it must not
+		// inherit the base hard-validation opt-in after narrowing the enum.
+		delete(schema, replNativeValidationPropertiesSchemaKey)
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {

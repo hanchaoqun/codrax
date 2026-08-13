@@ -250,8 +250,12 @@ func TestDataTaskCurrentPlanOnlyRankRemainsNonAuthoritative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(tool.Parameters), replNativeValidationPropertiesSchemaKey) {
-		t.Fatalf("non-authoritative rank unexpectedly enabled native hard validation: %s", tool.Parameters)
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := schema[replNativeValidationPropertiesSchemaKey]; ok {
+		t.Fatalf("non-authoritative rank must not inherit hard action validation: %s", tool.Parameters)
 	}
 }
 
@@ -332,6 +336,15 @@ func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
 			wantErr: "include",
 		},
 		{
+			name:    "compute count rejects member field before execution",
+			action:  `{"kind":"compute_contributions","input_paths":["records.json"],"params":{"operation":"count","value_field":"id"}}`,
+			wantErr: "value_field",
+		},
+		{
+			name:   "compute include keeps member field",
+			action: `{"kind":"compute_contributions","input_paths":["records.json"],"params":{"operation":"include","value_field":"id"}}`,
+		},
+		{
 			name:   "uncontracted action remains fail open",
 			action: `{"kind":"derive_fields","input_paths":["records.json"],"params":{"future_runtime_owned_key":{"nested":true}}}`,
 		},
@@ -350,6 +363,21 @@ func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
 				t.Fatalf("schema err=%v, want rejected key %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestDataTaskInitialPlannerExecutesNativeActionSchema(t *testing.T) {
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"extract_records","input_paths":["records.json"],"script":"emit_result(1)"}]}`),
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"extract_records","input_paths":["records.json"]}]}`),
+	}}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "inspect data", t.TempDir(), TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "records.json", Kind: "json"}})
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if len(adapter.calls) != 2 || len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionExtractRecords || plan.Actions[0].Script != "" {
+		t.Fatalf("calls=%d plan=%+v, want one compact schema repair before workflow admission", len(adapter.calls), plan)
 	}
 }
 
