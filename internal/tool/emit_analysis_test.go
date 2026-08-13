@@ -1989,6 +1989,27 @@ func TestRequiredDiagramRequestedDimension_DoesNotAuthorizeOtherOrOptionalRoles(
 	}
 }
 
+func TestParseDiagramHint_PreservesMoreThanTwelveExplicitlyNamedParticipants(t *testing.T) {
+	const raw = "show P01 P02 P03 P04 P05 P06 P07 P08 P09 P10 P11 P12 P13 in one diagram"
+	required := true
+	participants := make([]emitDiagramParticipantParam, 0, 13)
+	for i := 1; i <= 13; i++ {
+		identity := fmt.Sprintf("P%02d", i)
+		participants = append(participants, emitDiagramParticipantParam{
+			Identity: identity, Role: string(types.DiagramParticipantIncidentRequired), SourceQuote: identity,
+		})
+	}
+	got, reason, warnings := parseDiagramHint(raw, &emitDiagramHintParam{
+		Kind: "architecture", Required: &required, RelationScopeQuote: raw, Participants: &participants,
+	}, true)
+	if reason != "" || len(warnings) != 0 {
+		t.Fatalf("explicit roster should survive without arbitrary cap: reason=%q warnings=%v", reason, warnings)
+	}
+	if got == nil || len(got.Participants) != 13 {
+		t.Fatalf("participants=%+v, want all 13 exact current-request actors", got)
+	}
+}
+
 // §29.166 OBLSWEEP-1: the dropped-dimension obligation-signal mint is
 // precise-anchor gated at the producer. Arm 1 pins the demotion (prose
 // paraphrase quotes mint nothing and no longer force the source lane on a

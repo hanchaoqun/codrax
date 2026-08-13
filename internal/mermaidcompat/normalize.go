@@ -115,8 +115,11 @@ func sequenceParticipantDisplayLabelIsSimple(label string) bool {
 
 // NormalizeFlowchartClassRelationEdges repairs classDiagram generalization
 // operators emitted under a flowchart/graph declaration. Mermaid does not
-// accept <|-- / --|> in flowcharts; a labelled parent-to-child edge preserves
-// the topology and relation meaning without switching the whole diagram kind.
+// accept <|-- / --|> in flowcharts; a labelled subtype-to-supertype edge
+// preserves the UML semantic direction and relation meaning without switching
+// the whole diagram kind. This direction is intentionally identical to
+// ParseEdges' classDiagram convention, so visible topology and sibling typed
+// relation anchors cannot diverge merely because the model mixed carriers.
 func NormalizeFlowchartClassRelationEdges(body string) string {
 	if !isFlowchartOrGraph(body) ||
 		(!strings.Contains(body, "<|--") && !strings.Contains(body, "--|>")) {
@@ -143,8 +146,8 @@ func normalizeFlowchartClassRelationEdgeLine(line string) (string, bool) {
 		token   string
 		reverse bool
 	}{
-		{token: "<|--"},
-		{token: "--|>", reverse: true},
+		{token: "<|--", reverse: true},
+		{token: "--|>"},
 	} {
 		pos := unquotedMermaidTokenIndex(line, relation.token)
 		if pos < 0 {

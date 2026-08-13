@@ -327,8 +327,8 @@ func TestNormalizeSourceForMarkdown_RewritesClassGeneralizationInsideFlowchart(t
 	}, "\n")
 	got := NormalizeSourceForMarkdown(in)
 	for _, want := range []string{
-		`LoopController -->|generalization| analyzerEvaluator`,
-		`BaseWorker -->|"generalization: extends"| Worker`,
+		`analyzerEvaluator -->|generalization| LoopController`,
+		`Worker -->|"generalization: extends"| BaseWorker`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("mixed class/flowchart edge was not normalized; missing %q:\n%s", want, got)
@@ -337,6 +337,28 @@ func TestNormalizeSourceForMarkdown_RewritesClassGeneralizationInsideFlowchart(t
 	if strings.Contains(got, "<|--") || strings.Contains(got, "--|>") ||
 		strings.Contains(got, "codraxNode") {
 		t.Fatalf("class-only operator leaked into normalized flowchart:\n%s", got)
+	}
+}
+
+func TestNormalizeFlowchartClassRelationEdges_MatchesClassDiagramSemanticDirection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "head on left", in: "flowchart TD\n  Interface <|-- Impl", want: "Impl -->|generalization| Interface"},
+		{name: "head on right", in: "flowchart TD\n  Impl --|> Interface", want: "Impl -->|generalization| Interface"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NormalizeFlowchartClassRelationEdges(tc.in)
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("semantic UML direction was not preserved; want %q:\n%s", tc.want, got)
+			}
+			edges := ParseEdges(got)
+			if len(edges) != 1 || edges[0].From != "Impl" || edges[0].To != "Interface" {
+				t.Fatalf("normalized visible edge direction = %+v", edges)
+			}
+		})
 	}
 }
 

@@ -877,7 +877,6 @@ func buildEmitAnalysisSchema() {
 					},
 					"participants": map[string]any{
 						"type":        "array",
-						"maxItems":    12,
 						"description": skill.AnalysisDiagramParticipantPlanningContract,
 						"items": map[string]any{
 							"type": "object",
@@ -5913,9 +5912,6 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities", nil
 	}
 	rawParticipants := *p.Participants
-	if len(rawParticipants) > 12 {
-		return nil, "diagram_hint.participants has more than 12 entries — keep only participants explicitly named in the requested relationship view", nil
-	}
 	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
 	seen := make(map[string]bool, len(rawParticipants))
 	relationScopeExcluded := 0

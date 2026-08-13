@@ -35732,6 +35732,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.732 r418：Trace 正对照；混合 Mermaid 载体方向与参与者任意上限根修（2026-08-12）
+
+1. 在 `main@60f89da79` 严格并发恰好两个案例：
+   `real_trace_h8_semantic_edge_anchor_sentinel + qf_type_relation_loop_controller`。Runner
+   `2 PASS / 0 FAIL`，人工 `2 PASS / 0 FAIL`，但从类图的 1 次 finalizer reject 新立两个
+   确定性 GAP；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r418_20260812_manual_audit.md`。
+2. Trace 148s 完成且保持完整：显式 10ms 窗、五态守恒、两条 typed 入链、优先级反转、
+   VerifyClass、调度/算力供给、业务 span，以及实际占用/新修向与规则计价可消除量双轴齐全。
+   邻近/背景只作支撑；frame absent/missing wakeup 诚实披露；无 4ms 活跃流降级。
+3. 类图最终正确，但首稿在 `flowchart TD` 下使用 class-only `LoopController <|-- Impl`。
+   既有 B609 自愈虽消除了非法 token，却按字面左右顺序输出 LoopController→Impl，与 typed
+   implementer→LoopController anchor 相反，产生 12 missing + 12 stale mismatch。B701 现让
+   `<|--` 与 `--|>` 两种拼法统一保持 UML subtype→supertype 语义方向，与 classDiagram
+   ParseEdges 单源一致；仅改语法，不新增节点/边/事实或结论，引号内 token、classDiagram 本体
+   和复合不唯一形保持 fail-open。
+4. Analyzer 另连续返工两次：它从 prescan 猜出 13+ participant，而 schema 固定
+   `maxItems=12` 先拒绝；这些非当前请求显式 participant 之后本会被 provenance 门逐行丢弃。
+   B702 删除与证据权限无关的任意数量 cap，保留 exact current-request provenance、relation
+   scope、identity 长度、role、去重与 incident coverage 全部门；participant 仍只作 planning，
+   不能铸造图边。
+5. 精确 pin 覆盖混合载体两种 UML 箭头同向化、ParseEdges 可见方向、structured block 中
+   typed anchor 不漂移、13 个当前请求显式 participant 全保留。没有 raw request/final prose
+   关键词门，没有系统补边或替换模型答案。
+
+状态：
+
+`B698-CLASSUMLANCHORDIRECTION1=production-positive-r418`；
+`B699-DIAGRAMAUTHORITYDUALCARRIER1=production-positive-r418`；
+`B700-IMPLEMENTVISUALFAMILY1=production-positive-r418`；
+`B701-MIXEDCLASSFLOWDIRECTION1=implemented/syntax-only-semantic-direction+pinned/pending-production-replay`；
+`B702-DIAGRAMPARTICIPANTCAP1=implemented/arbitrary-cap-removed+semantic-gates-retained/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/exact-pins-retained`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r418`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.729 r415：ArkTS 正证；typed inventory 行重复与请求字段丢失根修（2026-08-12）
 
 1. 在 `main@a45e8b53c` 严格并发恰好两个 Harmony 多语言清单案例：

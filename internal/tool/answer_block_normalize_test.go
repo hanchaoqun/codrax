@@ -682,6 +682,35 @@ func TestNormalizeClassDiagramTypeRelationAnchorDirections_FailsOpenOutsideExact
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RepairsClassRelationOperatorInsideFlowchartBeforeEvidenceGate(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "mixed-carrier",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramArchitecture),
+			Body: strings.Join([]string{
+				"flowchart TD",
+				`  LoopController["LoopController"]`,
+				`  analyzerEvaluator["analyzerEvaluator"]`,
+				"  LoopController <|-- analyzerEvaluator",
+			}, "\n"),
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "analyzerEvaluator", ToNode: "LoopController",
+			RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, "analyzerEvaluator -->|generalization| LoopController") {
+		t.Fatalf("mixed carrier was not repaired in UML semantic direction: %+v", got.Diagram)
+	}
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "analyzerEvaluator" || got.EdgeAnchors[0].ToNode != "LoopController" {
+		t.Fatalf("already-semantic typed anchor changed: %+v", got.EdgeAnchors)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_NormalizesSequenceParticipantMessagePrefix(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "b1",
