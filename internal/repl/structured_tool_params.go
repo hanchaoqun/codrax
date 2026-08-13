@@ -13,7 +13,15 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const replNativeValidationPropertiesSchemaKey = "x-codrax-native-validation-properties"
+const (
+	replNativeValidationPropertiesSchemaKey = "x-codrax-native-validation-properties"
+	// replNativeValidationRequiredSchemaKey opts a schema into exact presence
+	// checks for a deliberately small set of load-bearing top-level fields.
+	// This is narrower than promoting every legacy `required` entry into a new
+	// runtime hard gate: callers name only fields whose absent Go zero value
+	// would silently change downstream authority.
+	replNativeValidationRequiredSchemaKey = "x-codrax-native-validation-required"
+)
 
 type replStructuredToolParamError struct {
 	ToolName string
@@ -91,14 +99,30 @@ func unmarshalReplStructuredToolParams(tool llm.ToolSchema, raw []byte, dst any,
 }
 
 // validateReplNativeSchemaProperties enforces only schema-owned subtrees that
-// explicitly opt in. This closes the gap where syntactically valid native JSON
-// bypassed a narrowed enum because ValidateRepairs correctly runs only after a
-// compatibility rewrite. It does not upgrade unrelated legacy/defaulted
-// top-level fields into new hard requirements.
+// explicitly opt in. This closes two gaps: syntactically valid native JSON
+// bypassing a narrowed enum, and a load-bearing omitted field silently becoming
+// its Go zero value. It does not upgrade unrelated legacy/defaulted top-level
+// fields into new hard requirements.
 func validateReplNativeSchemaProperties(raw, schema json.RawMessage) error {
 	var schemaRoot map[string]json.RawMessage
 	if err := json.Unmarshal(schema, &schemaRoot); err != nil {
 		return nil
+	}
+	var valueRoot map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &valueRoot); err != nil {
+		return nil
+	}
+	var requiredNames []string
+	if err := json.Unmarshal(schemaRoot[replNativeValidationRequiredSchemaKey], &requiredNames); err == nil {
+		for _, name := range requiredNames {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, exists := valueRoot[name]; !exists {
+				return &toolparam.SchemaViolation{Path: "$." + name, Reason: "required field is missing"}
+			}
+		}
 	}
 	var propertyNames []string
 	if err := json.Unmarshal(schemaRoot[replNativeValidationPropertiesSchemaKey], &propertyNames); err != nil || len(propertyNames) == 0 {
@@ -106,10 +130,6 @@ func validateReplNativeSchemaProperties(raw, schema json.RawMessage) error {
 	}
 	var schemaProperties map[string]json.RawMessage
 	if err := json.Unmarshal(schemaRoot["properties"], &schemaProperties); err != nil {
-		return nil
-	}
-	var valueRoot map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &valueRoot); err != nil {
 		return nil
 	}
 	for _, name := range propertyNames {

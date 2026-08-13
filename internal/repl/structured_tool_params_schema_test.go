@@ -100,3 +100,30 @@ func TestUnmarshalReplStructuredToolParamsDoesNotHardenUnmarkedNativeProperty(t 
 		t.Fatalf("unmarked legacy schema must keep owning-decoder behavior: %v", err)
 	}
 }
+
+func TestUnmarshalReplStructuredToolParamsRequiresOnlyOptedInLoadBearingField(t *testing.T) {
+	tool := llm.ToolSchema{
+		Name: "emit_policy",
+		Parameters: json.RawMessage(`{
+		  "type":"object",
+		  "x-codrax-native-validation-required":["requires_diagram"],
+		  "properties":{
+		    "requires_diagram":{"type":"boolean"},
+		    "legacy_default":{"type":"string"}
+		  },
+		  "required":["requires_diagram","legacy_default"]
+		}`),
+	}
+	var parsed struct {
+		RequiresDiagram bool `json:"requires_diagram"`
+	}
+	err := unmarshalReplStructuredToolParams(tool, []byte(`{}`), &parsed, "policy")
+	if err == nil || !strings.Contains(err.Error(), "$.requires_diagram") ||
+		!strings.Contains(err.Error(), "required field is missing") {
+		t.Fatalf("opted-in missing authority must fail exactly: %v", err)
+	}
+	if err := unmarshalReplStructuredToolParams(tool,
+		[]byte(`{"requires_diagram":false}`), &parsed, "policy"); err != nil {
+		t.Fatalf("explicit false must remain valid without hardening unrelated legacy fields: %v", err)
+	}
+}

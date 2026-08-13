@@ -35692,6 +35692,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.735 r421：显式图权威被 typed 零值吞没；补证批动作投影仍可跳过 plan（2026-08-12）
+
+1. 在 `main@4b433f8f1` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + read_combo_pipeline_sequence_table`。Runner `0 PASS / 2 FAIL`，
+   人工 `1 partial / 1 fail`；完整过程见
+   `eval/parallel_selected_summary_evalcampaign_write_sequence_r421_20260812_manual_audit.md`。
+2. Sequence 案确认 B706（P0）。当前请求明确要求 `Mermaid sequenceDiagram + 表格`；Router 的 reasoning、
+   typed presentation directive 和 Analyzer 都识别了该要求，Analyzer 也尝试铸出
+   `diagram_hint.required=true`。但 single-shot `TurnPolicy.RequiresDiagram` 最终为 false，故 Analyzer
+   按红线正确降为 optional；第一稿未证 20 条边、第二稿重复使用唯一 call-site 都被精确门正确拒绝，
+   optional 修补随后允许删图，答案只剩表格和文字。根因不在关系门，而在 load-bearing structured
+   boolean 缺失/错误后静默落成 Go 零值，导致同一模型意图在接线处丢权威。
+3. 根修不扫描 request、thinking、presentation directive 或答案原文。共享 structured-param seam 新增
+   opt-in `x-codrax-native-validation-required`，目前只为 `requires_diagram` 启用：字段缺失即精确 schema
+   error，Classifier 仅追加一次紧凑的同 schema 重发；重发仍非法则 fail-loud。显式 false 仍保持 false，
+   即便文字含 `MUST/Mermaid`，系统也不替模型推断硬门。其它 legacy/default 字段不被一并硬化。
+4. 路由日志新增 `diagram_required` 与 presentation 遥测。专项测试覆盖 missing→typed true、explicit
+   false 不二次调用/不从原文重推断、opt-in required 只约束点名字段；`internal/repl` 与 `cmd` 全绿。
+   这修的是 JSON/typed authority 的静默零值类问题，也减少模型因 schema 遗漏造成的后续心智与重试，
+   不降低调用边证据合同，不让系统代画或改写答案。
+5. Zod 改动本身正确：存在性判断和 false/0/empty string/existing-default 回归均落地；本机 Node 不可用，
+   两条 changed path 只有 `source_static`，最终 `accept_unverified` 诚实。新确认 B707（P1）：系统已经创建
+   `ready_to_plan` 的 direct-runtime proof-followup 批，但 action projection 仍暴露 `verify_batch`；模型
+   因而跳过 plan 直接复跑同一静态验证，批被标 complete，直到后置 normalizer 才阻止 all_verified。
+   最优修向是在 typed state×purpose 动作投影处移除该不可能动作，不靠 task/模型文字识别，也不降低终验杆。
+6. 用户询问的 4ms 已复核：本案 4ms 是响应结束后的解析/校验耗时，不是 stream timeout。OpenAI SSE
+   liveness 由首字节与逐 byte stall owner 管理，没有 4ms 总年龄门；既有行为 pin 已证明 partial frame
+   bytes 跨 4ms 与模型延迟跨 4ms 都不降级。禁止新增“流式连接活跃但 4ms 未形成答案即降级”；失败恢复
+   只能基于 cancel/deadline、no-first-byte、真实 byte stall、transport/decode failure，并保留/披露模型草稿。
+7. 本批没有改 Trace。显式时间窗、因果投影、自动补齐、typed 链上-only 主因、优先级反转/调度供给/
+   算力供给/D/IO/确定性语义工作与业务线索均保持；实际占用新修向和规则计价可消量双轴不丢，邻近/
+   背景只作支撑。系统答案/结论所有权仍为 none。
+
+状态：
+
+`B705-TRACEQUERYPAGEPUBLICSCOPE1=production-pending-r421`；
+`B706-REQUIREDDIAGRAMBOOLZERO1=implemented/exact-presence+one-repair+negative-pins-pass`；
+`B707-PROOFFOLLOWUPACTIONPROJECTION1=confirmed/P1-next-batch`；
+`active-stream-4ms-degrade=forbidden/existing-behavior-pins-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.734 r420：逐成员位置与语义计价生产闭环；私有分页路径退出公开枚举范围（2026-08-12）
 
 1. 在 `main@013fb2809` 严格并发恰好两个案例：

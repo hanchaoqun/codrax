@@ -1183,6 +1183,53 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	}
 }
 
+func TestClassifyPolicy_RepairsMissingDiagramAuthorityOnce(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"Mermaid sequenceDiagram"}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"Mermaid sequenceDiagram","requires_diagram":true}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "show the required visual", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if !policy.RequiresDiagram {
+		t.Fatal("the repaired typed true authority was lost")
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("missing load-bearing authority must receive exactly one repair: calls=%d", len(adapter.calls))
+	}
+	repairUser := adapter.calls[1].messages[len(adapter.calls[1].messages)-1].Content
+	for _, want := range []string{"exact tool schema", "requires_diagram", "explicit JSON boolean", "no prose"} {
+		if !strings.Contains(repairUser, want) {
+			t.Fatalf("compact structural repair omitted %q: %s", want, repairUser)
+		}
+	}
+}
+
+func TestClassifyPolicy_DoesNotReinferExplicitFalseFromRequestText(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"Mermaid sequenceDiagram","requires_diagram":false}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "MUST give a Mermaid sequenceDiagram", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.RequiresDiagram {
+		t.Fatal("Codrax must not reconstruct hard authority by scanning request or directive prose")
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("schema-valid explicit false must not trigger a second model call: calls=%d", len(adapter.calls))
+	}
+}
+
 // TestClassifyPolicy_NoPriorAnswerCarriesFalseSignal pins the
 // hasPriorAnswer=false code path: the user content reflects the
 // missing-prior signal so the LLM can demote to clarify on its own,
@@ -1190,7 +1237,7 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 func TestClassifyPolicy_NoPriorAnswerCarriesFalseSignal(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"clarify","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.85,"reason":"no previous answer to transform"}`),
+			turnPolicyResp(`{"route":"clarify","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.85,"reason":"no previous answer to transform","requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1221,7 +1268,7 @@ func TestClassifyPolicy_NoPriorAnswerCarriesFalseSignal(t *testing.T) {
 func TestClassifyPolicy_RejectsUnknownRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"random","needs_repo_access":false,"operation":"chat","source":"current_message","confidence":0.5,"reason":"x"}`),
+			turnPolicyResp(`{"route":"random","needs_repo_access":false,"operation":"chat","source":"current_message","confidence":0.5,"reason":"x","requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1266,7 +1313,7 @@ func TestSetTurnPolicyClassifierTimeout(t *testing.T) {
 // singleShotDataPolicyJSON is the canned classifier output used by the
 // single-shot lane tests: a data-route answer matching the customer shape
 // (aggregate local structured data, strict output).
-const singleShotDataPolicyJSON = `{"route":"data","needs_data_access":true,"operation":"transform","data_task_kind":"data_aggregation","source":"current_message","confidence":0.93,"reason":"aggregate attached structured data"}`
+const singleShotDataPolicyJSON = `{"route":"data","needs_data_access":true,"operation":"transform","data_task_kind":"data_aggregation","source":"current_message","confidence":0.93,"reason":"aggregate attached structured data","requires_diagram":false}`
 
 // TestClassifyPolicy_SingleShotLaneSurvivesBetweenDeadlinesSleep is the
 // structural pin for the 2026-07 data-route fix: the REPL and single-shot
@@ -1498,7 +1545,7 @@ func TestClassify_HardTimesOutNonResponsiveLegacyClassifier(t *testing.T) {
 func TestClassifyPolicy_OperationCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"operation","needs_repo_access":"true","needs_operation_access":"true","operation":"presentation_generation","source":"mixed","confidence":"0.91","reason":"user asked for a PPT","operation_kind":"presentation_generation","risk_level":"low","side_effects":"local_file_write, browser_ui","target_surface":"slides","requires_confirmation":"false",}` + "\ntrailing"),
+			turnPolicyResp(`{"route":"operation","needs_repo_access":"true","needs_operation_access":"true","operation":"presentation_generation","source":"mixed","confidence":"0.91","reason":"user asked for a PPT","operation_kind":"presentation_generation","risk_level":"low","side_effects":"local_file_write, browser_ui","target_surface":"slides","requires_confirmation":"false","requires_diagram":false,}` + "\ntrailing"),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1527,7 +1574,7 @@ func TestClassifyPolicy_OperationCompatJSON(t *testing.T) {
 func TestClassifyPolicy_CompatJSONSchemaKeyAliases(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"operation","needsRepoAccess":"false","needsOperationAccess":"true","operation":"computer_operation","operationKind":"computer_operation","source":"current_message","confidence":"0.88","reason":"current machine query","riskLevel":"low","sideEffects":"network_read","targetSurface":"desktop","requiresConfirmation":"false"}`),
+			turnPolicyResp(`{"route":"operation","needsRepoAccess":"false","needsOperationAccess":"true","operation":"computer_operation","operationKind":"computer_operation","source":"current_message","confidence":"0.88","reason":"current machine query","riskLevel":"low","sideEffects":"network_read","targetSurface":"desktop","requiresConfirmation":"false","requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1553,7 +1600,7 @@ func TestClassifyPolicy_CompatJSONSchemaKeyAliases(t *testing.T) {
 func TestClassifyPolicy_TeachesUnsafeOperationRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.91,"reason":"dangerous operation should be blocked by operation policy","risk_level":"high","side_effects":["destructive"],"target_surface":"desktop","requires_confirmation":true}`),
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.91,"reason":"dangerous operation should be blocked by operation policy","risk_level":"high","side_effects":["destructive"],"target_surface":"desktop","requires_confirmation":true,"requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1583,7 +1630,7 @@ func TestClassifyPolicy_TeachesUnsafeOperationRoute(t *testing.T) {
 func TestClassifyPolicy_TeachesBroadComputerOperations(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.9,"reason":"non-code computer operation","risk_level":"medium","side_effects":["package_install","remote_exec"],"target_surface":"external_system","requires_confirmation":true}`),
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.9,"reason":"non-code computer operation","risk_level":"medium","side_effects":["package_install","remote_exec"],"target_surface":"external_system","requires_confirmation":true,"requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1615,7 +1662,7 @@ func TestClassifyPolicy_TeachesBroadComputerOperations(t *testing.T) {
 func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"data","needs_repo_access":false,"needs_operation_access":false,"needs_data_access":"true","operation":"data_aggregation","data_task_kind":"data_aggregation","source":"data","confidence":"0.88","reason":"read-only local data aggregation","risk_level":"low","side_effects":[],"requires_confirmation":false}`),
+			turnPolicyResp(`{"route":"data","needs_repo_access":false,"needs_operation_access":false,"needs_data_access":"true","operation":"data_aggregation","data_task_kind":"data_aggregation","source":"data","confidence":"0.88","reason":"read-only local data aggregation","risk_level":"low","side_effects":[],"requires_confirmation":false,"requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1653,7 +1700,7 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 func TestClassifyPolicy_TeachesWriteRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"write","needs_repo_access":true,"needs_operation_access":false,"needs_data_access":false,"operation":"code_change","write_intent":"explicit_change","source":"repo","confidence":0.87,"reason":"user asked for a repository change","risk_level":"none","side_effects":[],"requires_confirmation":false}`),
+			turnPolicyResp(`{"route":"write","needs_repo_access":true,"needs_operation_access":false,"needs_data_access":false,"operation":"code_change","write_intent":"explicit_change","source":"repo","confidence":0.87,"reason":"user asked for a repository change","risk_level":"none","side_effects":[],"requires_confirmation":false,"requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1704,7 +1751,7 @@ func TestApplyTurnPolicyGuards_StrictFormatAloneDoesNotBecomeData(t *testing.T) 
 func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","needs_operation_access":false,"operation":"investigate","source":"artifact","confidence":0.9,"reason":"trace/log analysis without current source"}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","needs_operation_access":false,"operation":"investigate","source":"artifact","confidence":0.9,"reason":"trace/log analysis without current source","requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1760,7 +1807,7 @@ func TestLocalResponderPromptForbidsVisibleReasoning(t *testing.T) {
 func TestClassifyPolicy_TeachesExplicitFileExtractionOperation(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.88,"reason":"explicit computer-operation file extraction","risk_level":"low","side_effects":[],"target_surface":"desktop","requires_confirmation":false}`),
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.88,"reason":"explicit computer-operation file extraction","risk_level":"low","side_effects":[],"target_surface":"desktop","requires_confirmation":false,"requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}

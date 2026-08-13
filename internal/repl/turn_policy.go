@@ -347,6 +347,7 @@ var turnPolicyTool = llm.ToolSchema{
 	Description: "Classify the user's turn into a structured TurnPolicy that drives REPL routing. Exactly one call per turn.",
 	Parameters: json.RawMessage(`{
   "type": "object",
+  "x-codrax-native-validation-required": ["requires_diagram"],
   "properties": {
     "route": {
       "type": "string",
@@ -934,7 +935,8 @@ unclear side effects, pick clarify.`
 // the parsed TurnPolicy verbatim — guards are applied by the caller
 // (dispatch) so callers also see the raw model output for telemetry.
 //
-// Error returns: any path that cannot produce a valid TurnPolicy
+// Error returns: any path that cannot produce a valid TurnPolicy after one
+// bounded same-schema structural repair
 // surfaces as an error so the dispatcher's gate falls through to
 // pipeline (matching the legacy Classify contract). This includes:
 // nil adapter, empty userLine, chat error, no tool call, wrong tool
@@ -1030,28 +1032,31 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 	if call.Name != turnPolicyTool.Name {
 		return zero, fmt.Errorf("turn-policy classifier: unexpected tool %q", call.Name)
 	}
-	var parsed struct {
-		Route                     string                   `json:"route"`
-		NeedsRepoAccess           flexiblePolicyBool       `json:"needs_repo_access"`
-		NeedsOperationAccess      flexiblePolicyBool       `json:"needs_operation_access"`
-		NeedsDataAccess           flexiblePolicyBool       `json:"needs_data_access"`
-		Operation                 string                   `json:"operation"`
-		OperationKind             string                   `json:"operation_kind"`
-		DataTaskKind              string                   `json:"data_task_kind"`
-		WriteIntent               string                   `json:"write_intent"`
-		Source                    string                   `json:"source"`
-		CurrentSourceEvidenceMode string                   `json:"current_source_evidence_mode"`
-		RiskLevel                 string                   `json:"risk_level"`
-		SideEffects               flexiblePolicyStringList `json:"side_effects"`
-		TargetSurface             string                   `json:"target_surface"`
-		RequiresConfirmation      flexiblePolicyBool       `json:"requires_confirmation"`
-		Confidence                flexiblePolicyFloat      `json:"confidence"`
-		Reason                    string                   `json:"reason"`
-		PresentationDirective     string                   `json:"presentation_directive"`
-		RequiresDiagram           flexiblePolicyBool       `json:"requires_diagram"`
-	}
+	var parsed turnPolicyParams
 	if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
-		return zero, fmt.Errorf("turn-policy classifier: unmarshal tool params: %w", err)
+		// A load-bearing structured field must never disappear into its Go zero
+		// value. Give the classifier exactly one same-schema repair round. The
+		// repair sees the already supplied current message, but Codrax does not
+		// scan that prose or infer the boolean itself; an explicit false remains
+		// false and only the repaired typed value drives downstream gates.
+		repairMessages := append([]llm.Message(nil), messages...)
+		repairMessages = append(repairMessages, llm.Message{Role: "user", Content: turnPolicyStructuralRepairPrompt(err)})
+		repairedResp, repairErr := chatWithClassifierHardTimeout(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, chatGuard)
+		c.lastTrace = traceFromLLMResponse("turn_policy_classifier", repairedResp)
+		if repairErr != nil {
+			return zero, fmt.Errorf("turn-policy classifier structural repair llm call: %w", repairErr)
+		}
+		if len(repairedResp.ToolCalls) == 0 {
+			return zero, fmt.Errorf("turn-policy classifier structural repair: LLM returned no tool_call")
+		}
+		call = repairedResp.ToolCalls[0]
+		if call.Name != turnPolicyTool.Name {
+			return zero, fmt.Errorf("turn-policy classifier structural repair: unexpected tool %q", call.Name)
+		}
+		if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
+			return zero, fmt.Errorf("turn-policy classifier: repaired tool params remain invalid: %w", err)
+		}
+		logging.Info("[repl/turn_policy] recovered one malformed structured classification with the exact emit_turn_policy schema")
 	}
 	route := TurnRoute(parsed.Route)
 	switch route {
@@ -1086,6 +1091,42 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		PresentationDirective: strings.TrimSpace(parsed.PresentationDirective),
 		RequiresDiagram:       bool(parsed.RequiresDiagram),
 	}, nil
+}
+
+type turnPolicyParams struct {
+	Route                     string                   `json:"route"`
+	NeedsRepoAccess           flexiblePolicyBool       `json:"needs_repo_access"`
+	NeedsOperationAccess      flexiblePolicyBool       `json:"needs_operation_access"`
+	NeedsDataAccess           flexiblePolicyBool       `json:"needs_data_access"`
+	Operation                 string                   `json:"operation"`
+	OperationKind             string                   `json:"operation_kind"`
+	DataTaskKind              string                   `json:"data_task_kind"`
+	WriteIntent               string                   `json:"write_intent"`
+	Source                    string                   `json:"source"`
+	CurrentSourceEvidenceMode string                   `json:"current_source_evidence_mode"`
+	RiskLevel                 string                   `json:"risk_level"`
+	SideEffects               flexiblePolicyStringList `json:"side_effects"`
+	TargetSurface             string                   `json:"target_surface"`
+	RequiresConfirmation      flexiblePolicyBool       `json:"requires_confirmation"`
+	Confidence                flexiblePolicyFloat      `json:"confidence"`
+	Reason                    string                   `json:"reason"`
+	PresentationDirective     string                   `json:"presentation_directive"`
+	RequiresDiagram           flexiblePolicyBool       `json:"requires_diagram"`
+}
+
+func turnPolicyStructuralRepairPrompt(cause error) string {
+	return "The previous emit_turn_policy call was rejected only because its structured JSON did not satisfy the exact tool schema. " +
+		"Preserve the classification intent after re-reading the current turn already supplied above, and emit exactly one corrected emit_turn_policy call with no prose. " +
+		"Include every schema-required field. In particular, requires_diagram must be an explicit JSON boolean: true only for an explicitly required visual and false otherwise. " +
+		"Do not infer or copy a value from presentation_directive; classify it from the current turn. Schema error: " + oneLinePolicyRepairError(cause)
+}
+
+func oneLinePolicyRepairError(err error) string {
+	text := strings.Join(strings.Fields(fmt.Sprint(err)), " ")
+	if len(text) > 512 {
+		text = text[:512] + "..."
+	}
+	return text
 }
 
 // flexiblePolicyBool/flexiblePolicyFloat/flexiblePolicyStringList are local to
