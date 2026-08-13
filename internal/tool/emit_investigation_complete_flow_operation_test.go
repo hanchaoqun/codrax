@@ -144,6 +144,52 @@ func TestEmitInvestigationComplete_VerifiedStagePrecedenceClosesWithoutOperation
 	}
 }
 
+func TestEmitInvestigationComplete_VerifiedStagesStillRequestExplicitCarrierOperations(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineOrchestratorFile, LineStart: 1685,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "runReadSchedulerLoop",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx.RepoRoot = repoRoot
+	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{
+		"analyzer", "explorer", "extractor", "finalizer", "Mutable", "BusContext",
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != "flow_participant_operation_evidence" {
+		t.Fatalf("verified stage precedence must not erase explicit carrier operation obligations: %+v", res)
+	}
+	for _, surface := range []string{res.Summary, res.Repair.Hint} {
+		for _, want := range []string{"Mutable", "BusContext", "typed navigation stems=[Mutable BusContext]"} {
+			if !strings.Contains(surface, want) {
+				t.Fatalf("carrier-focused repair surface missing %q:\n%s", want, surface)
+			}
+		}
+	}
+	if ctx.Mutable.IsInvestigationComplete() {
+		t.Fatal("explicit unproven carrier relations must receive one focused source-operation pass")
+	}
+}
+
 func TestRequestedWorkflowAuthorityConsumersAcceptPartialAnalyzerSlate(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

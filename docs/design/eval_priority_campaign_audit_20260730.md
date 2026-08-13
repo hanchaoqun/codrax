@@ -35774,6 +35774,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.742 r426：显式关系载体的 context-only 逃逸与 Trace 双轴正证（2026-08-13）
+
+1. 在 `main@74cf669b4` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，
+   人工为 `1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_r426_20260812_manual_audit.md`。
+2. Trace 正对照完整保留用户显式 `13762.791708..13763.024898`（233.190ms）窗口、目标五态、
+   11 次 `dma_fence_default_w` D-state、链上排序和实际占用/规则计价可消除量双轴。#1 是目标
+   running 供给候选 65.912ms，#2 是 D-state 36.757ms；优先级、调度、供给、D/IO、确定性工作和
+   业务线索均仍可达，邻近/背景没有被加冕。正文把若干 >1ms 席位放进“<1ms”小节是模型
+   分类波动；不扫描答案原文补硬门，也不由系统改写结论。
+3. 新确认 B712（P1/high）：关系题的 Analyzer 首轮会拒绝把裸参与者 roster
+   `Mutable/BusContext` 标成 `context_only`，但同一个 roster 后接说明形成
+   `Mutable/BusContext 之间的数据流` 后，旧 delimiter parser 把后缀并入第二个 token，角色门被
+   绕过。探索因此把两个用户点名的数据载体当背景，只验证四 stage precedence；Finalizer 第一稿
+   自画 stage↔载体边时被关系证据门正确拒绝，patch 只能删边，Runner 却仍按“有图+有三边”签 PASS。
+   这是 typed role/source-operation 上游断层，不是 Mermaid validator 过严或模型单次波动。
+4. 根修只扩展既有 precise roster 结构：对 `source_quote` 的首个空白分段做 typed composite roster
+   解析，识别 `A/B ...`、`A、B ...` 等“roster-leading suffix”形，要求其为
+   `incident_required`。它不扫描关系关键词、用户意图语义或最终答案；更宽的明确外围形
+   `把 A/B 仅作为外围背景` 仍保留 `context_only` typed 逃逸，避免把所有共现名字一刀切。
+5. 角色修正后复用既有通用补采机制，不新增 case 专用路径：已证 read-stage precedence 只能覆盖
+   analyzer/explorer/extractor/finalizer；显式 incident-required 的 Mutable/BusContext 若没有赋值、
+   调用、返回或绑定 operation，`emit_investigation_complete` 必须触发一次
+   `flow_participant_operation_evidence` focused pass，导航 stems 精确为缺失载体，定义行不能冒充关系。
+   系统不合成边、不代画图，也不替模型写责任或结论。
+6. 新观察 B713（P1/display，待独立根修）：逻辑图最终已存在并通过 required diagram validator，
+   页面仍显示 `diagram_spine` hard→soft 降级。其发生在证据 facet compile 阶段，不是 4ms 或答案恢复；
+   下一批应让“用户显式视觉合同”和“evidence-form richness facet”分权，禁止已交付的 required visual
+   被旧的 noisy evidence 匹配结果继续记作用户可见降级，也不能简单隐藏真实未交付。
+7. JSON 教学本轮有一次 summary-only `trace_causal_claim_caliber` 被模型放入非 summary，schema 精确
+   拒绝后一次修正；当前未构成合同自冲突，不为单一模型字段误放增加 prose 硬门。active stream
+   4ms 红线再次获得生产正证：两案分别运行 302s/221s，链接持续活跃期间均未降级。4ms 仅属于
+   无精确 stream owner 的 terminal emit evaluator budget；有 stream owner 时，任意到达字节刷新
+   liveness，只有 cancel/deadline、无首字节、真实 byte stall、transport/decode failure 或重试耗尽
+   才能进入恢复/失败披露，禁止按“4ms 尚无完整 answer”降级。
+
+状态：
+
+`B712-EXPLICITFLOWCARRIERCONTEXTESCAPE1=implemented/role+focused-operation-pins-pass`；
+`B713-REQUIREDDIAGRAMFACETSOFTENSTALE1=confirmed/P1/next-batch`；
+`active-stream-4ms-degrade=forbidden/221s+302s-production-positive`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.741 r425：B711 无回归生产复放；红臂仍待命中（2026-08-12）
 
 1. 在 `main@47976205f` 严格并发恰好两个案例：

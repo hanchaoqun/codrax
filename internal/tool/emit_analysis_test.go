@@ -3748,6 +3748,68 @@ func TestEmitAnalysis_Execute_RejectsParticipantRosterAsContextOnlyProvenance(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsRelationClauseAsContextOnlyProvenance(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"explorer","role":"incident_required","source_quote":"explorer"},
+			{"identity":"extractor","role":"incident_required","source_quote":"extractor"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"},
+			{"identity":"Mutable","role":"context_only","source_quote":"Mutable/BusContext 之间的数据流"},
+			{"identity":"BusContext","role":"context_only","source_quote":"Mutable/BusContext 之间的数据流"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "typed participant roster [Mutable BusContext]") ||
+		!strings.Contains(res.Summary, "use role=incident_required") {
+		t.Fatalf("a co-listed relation clause must not demote explicit relation members to context-only: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected participant-role provenance must not publish a RequestModel")
+	}
+}
+
+func TestEmitAnalysis_Execute_AllowsWiderExplicitContextForCoListedParticipants(t *testing.T) {
+	raw := "用 Mermaid 架构图画 analyzer 到 finalizer 的数据流，并把 Mutable/BusContext 仅作为外围背景"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","finalizer","Mutable","BusContext"],
+		"entities":["analyzer","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"analyzer 到 finalizer 的数据流，并把 Mutable/BusContext 仅作为外围背景","participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer 到 finalizer 的数据流"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"analyzer 到 finalizer 的数据流"},
+			{"identity":"Mutable","role":"context_only","source_quote":"把 Mutable/BusContext 仅作为外围背景"},
+			{"identity":"BusContext","role":"context_only","source_quote":"把 Mutable/BusContext 仅作为外围背景"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("a wider explicit surrounding-context quote must remain a valid escape: %+v", res)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsOmittedEntityCoListedByParticipantSourceQuote(t *testing.T) {
 	raw := "用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流"
 	mu := types.NewMutableState(raw)

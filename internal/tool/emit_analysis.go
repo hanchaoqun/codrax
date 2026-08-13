@@ -2288,7 +2288,18 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		}
 		if participant.Role == types.DiagramParticipantContextOnly {
 			bareIdentity := diagramParticipantProvenanceKey(participant.SourceQuote) == diagramParticipantProvenanceKey(identity)
-			rosterMembers := compositeDiagramParticipantTypedEntities(participant.SourceQuote, rm.AnalyzerHints.Entities)
+			// A delimiter parser over the whole quote misses the ordinary
+			// roster-leading form "Mutable/BusContext between ...": the prose
+			// after the first blank becomes part of the second token.  Parse only
+			// the leading token as a possible typed roster.  This is a precise
+			// structural extension of the existing delimiter rule; it does not
+			// inspect relation keywords or final-answer prose, and it preserves
+			// the documented escape where a wider quote explicitly places named
+			// components in surrounding context.
+			rosterMembers := leadingCompositeDiagramParticipantTypedEntities(
+				participant.SourceQuote,
+				rm.AnalyzerHints.Entities,
+			)
 			if bareIdentity || len(rosterMembers) >= 2 {
 				provenanceShape := "only the bare identity"
 				if len(rosterMembers) >= 2 {
@@ -2320,6 +2331,14 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		}
 	}
 	return strings.Join(conflicts, "; ")
+}
+
+func leadingCompositeDiagramParticipantTypedEntities(sourceQuote string, entities []string) []string {
+	fields := strings.Fields(strings.TrimSpace(sourceQuote))
+	if len(fields) == 0 {
+		return nil
+	}
+	return compositeDiagramParticipantTypedEntities(fields[0], entities)
 }
 
 func compositeDiagramParticipantTypedEntities(identity string, entities []string) []string {
