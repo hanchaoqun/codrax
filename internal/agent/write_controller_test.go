@@ -110,6 +110,28 @@ func TestWriteControllerActionContractUsesModeProjectedSchemaAuthority(t *testin
 	}
 }
 
+func TestWriteControllerActionContractUsesReadyToPlanStateProjection(t *testing.T) {
+	mut := types.NewMutableState("plan a proof")
+	mut.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID: "wf-ready", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-proof", Purpose: "verification_proof_followup",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	})
+	section := renderWriteControllerActionContract(&types.AgentContext{Mode: types.ModeApply, Mutable: mut})
+	for _, want := range []string{"mode: apply", "explore_code", "plan_batch"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("ready_to_plan action contract missing %q:\n%s", want, section)
+		}
+	}
+	for _, masked := range []string{"apply_plan", "verify_batch"} {
+		if strings.Contains(section, masked) {
+			t.Fatalf("ready_to_plan action contract exposed impossible %q:\n%s", masked, section)
+		}
+	}
+}
+
 func TestWriteControllerTaskSectionUsesActiveReplanContractGeneration(t *testing.T) {
 	mut := types.NewMutableState("repair remaining expression")
 	mut.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{

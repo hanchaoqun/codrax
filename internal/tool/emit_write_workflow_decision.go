@@ -29,8 +29,8 @@ func (t *EmitWriteWorkflowDecision) Parameters() json.RawMessage {
 	return writeflow.WriteWorkflowDecisionSchema()
 }
 
-func writeWorkflowDecisionSchemaForMode(mode types.PipelineMode) json.RawMessage {
-	return writeflow.WriteWorkflowDecisionSchemaForActions(writeflow.WorkflowActionsForMode(mode))
+func writeWorkflowDecisionSchemaForRun(mode types.PipelineMode, run *types.WriteWorkflowRun) json.RawMessage {
+	return writeflow.WriteWorkflowDecisionSchemaForActions(writeflow.WorkflowActionsForRun(mode, run))
 }
 
 // ParametersFor projects the decision schema per dispatch: the action enum
@@ -42,7 +42,11 @@ func (t *EmitWriteWorkflowDecision) ParametersFor(ctx *types.AgentContext) json.
 	if ctx == nil {
 		return t.Parameters()
 	}
-	return writeWorkflowDecisionSchemaForMode(ctx.Mode)
+	var run *types.WriteWorkflowRun
+	if ctx.Mutable != nil {
+		run = ctx.Mutable.WriteWorkflowRun()
+	}
+	return writeWorkflowDecisionSchemaForRun(ctx.Mode, run)
 }
 
 func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -56,14 +60,15 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, writeWorkflowDecisionSchemaForMode(ctx.Mode))
+	run := ctx.Mutable.WriteWorkflowRun()
+	params = applyStructuredPayloadCompat(t.Name(), params, writeWorkflowDecisionSchemaForRun(ctx.Mode, run))
 	var decision writeflow.WriteWorkflowDecision
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&decision); err != nil {
 		return failStrictDecodeWithError(t.Name(), now, err, nil, params)
 	}
-	if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
+	if run != nil {
 		decision = writeflow.HydrateWriteWorkflowDecisionFromRun(decision, *run)
 	} else {
 		decision = writeflow.NormalizeWriteWorkflowDecision(decision)
@@ -74,8 +79,8 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 	// Runtime mode mask (defense in depth behind the per-dispatch schema
 	// projection): a masked action is rejected with a typed repair that
 	// lists the mode's allowed set, never routed onward.
-	if !writeflow.WorkflowActionAllowedInMode(decision.Action, ctx.Mode) {
-		allowed := writeflow.WorkflowActionsForMode(ctx.Mode)
+	if !writeflow.WorkflowActionAllowedInRun(decision.Action, ctx.Mode, run) {
+		allowed := writeflow.WorkflowActionsForRun(ctx.Mode, run)
 		names := make([]string, 0, len(allowed))
 		for _, a := range allowed {
 			names = append(names, string(a))
@@ -83,7 +88,7 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("emit_write_workflow_decision rejected: action=%s is not available in the current mode", decision.Action),
+			Summary:   fmt.Sprintf("emit_write_workflow_decision rejected: action=%s is not available in the current typed workflow state", decision.Action),
 			Timestamp: now,
 			Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 				Code: "workflow_action_not_in_mode",

@@ -35735,6 +35735,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.736 r422：显式图权威生产复正；JSON 外部字段与内部分组身份合同冲突（2026-08-12）
+
+1. 在 `main@36910cc6c` 严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + data_json_strict_ids`。Runner `1 PASS / 1 FAIL`，人工
+   `0 pass / 1 partial / 1 fail`；过程见
+   `eval/parallel_selected_summary_evalcampaign_sequence_json_r422_20260812_manual_audit.md`。
+2. B706 获生产正证：route 日志明确发布 `diagram_required=true`，Analyzer 不再把 required 图静默降为
+   optional，Finalizer 三次局部修补后保留 Mermaid 和阶段表，未再走删图出口。关系门对第一稿的未证
+   return/precedence/call、缺 `kind` 的 patch 和第二稿未证调用都拒绝正确。人工仍仅 partial：最后图把
+   analyze→explore→extract→finalize 的 typed precedence 与两个真实函数调用片段并列成断开的 sequence，
+   页面又披露“必答面硬转软 ×1”；这不是 B706 复发，而是 required relation boundary 在证据不足时的
+   展示/降级口径待审，不可用系统补边或降低证据门硬拟合。
+3. 新确认 B708（P0）：strict JSON 的规则账本已精确铸出 `rule_2.output_field=ids`，内部 contribution/
+   reconcile group identity 为 `active_user_ids`，值 `u1,u3` 正确且源序正确。`assemble_answer`
+   `projection=json_object` 只能把 group_key 原样当外部 JSON key，首次产出
+   `{"active_user_ids":["u1","u3"]}`。Evaluator 正确要求 `ids`，但 typed action 无 rename/mapping
+   表达，custom_transform 在 complete 阶段又被正确禁用；四轮修补后仍以错误键 complete。这是同一
+   规则同时要求修复、执行器又结构上做不到的红线合同冲突，不是模型波动。
+4. B708 最优根修：把“内部 group identity”和“外部 output field”拆为两个 typed 字段；
+   `assemble_answer` 接受显式 `output_field`/key mapping，并在 plan guard、执行器、final projection、
+   reconcile expected/actual 四面共用。映射必须来自已消费的 typed rule coverage/输出合同，不解析模型
+   prose；无唯一映射时 fail-loud，不猜键名。值、顺序、贡献与 reconcile 账本不变，禁止放开脚本逃逸。
+5. B707 已按通用 state×action 修复：active `ready_to_plan` 在 apply mode 下，提示、JSON schema、
+   runtime decoder 与 transition kernel 四面共同隐藏/拒绝 `apply_plan`、`verify_batch`，保留
+   plan/explore 等合法动作；不读 batch purpose、Zod、语言或模型理由。相关四包全绿。
+6. 4ms 路径本轮无退化；active stream 仍只由首字节/逐 byte stall/caller deadline 管理。Trace 路径
+   未改，显式窗、因果投影、自动补齐、typed 链上-only 主因、实际占用/业务修向与规则计价双轴保持。
+
+状态：
+
+`B706-REQUIREDDIAGRAMBOOLZERO1=production-positive-r422`；
+`B707-PROOFFOLLOWUPACTIONPROJECTION1=implemented/four-surface-pins-pass`；
+`B708-DATAOUTPUTFIELDGROUPIDENTITY1=confirmed/P0-next-batch`；
+`required-diagram-boundary-display=partial/pending-generic-audit`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.734 r420：逐成员位置与语义计价生产闭环；私有分页路径退出公开枚举范围（2026-08-12）
 
 1. 在 `main@013fb2809` 严格并发恰好两个案例：

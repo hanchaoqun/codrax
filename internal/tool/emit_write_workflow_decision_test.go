@@ -145,7 +145,7 @@ func TestEmitWriteWorkflowDecision_ModePlanMasksApplyVerify(t *testing.T) {
 func TestEmitWriteWorkflowDecision_RepairSchemaIsModeProjected(t *testing.T) {
 	tl := &EmitWriteWorkflowDecision{}
 
-	projected := string(writeWorkflowDecisionSchemaForMode(types.ModeVerify))
+	projected := string(writeWorkflowDecisionSchemaForRun(types.ModeVerify, nil))
 	if got := string(tl.ParametersFor(&types.AgentContext{Mode: types.ModeVerify})); got != projected {
 		t.Fatalf("runtime repair schema must match dispatch schema for ModeVerify\nrepair=%s\ndispatch=%s", projected, got)
 	}
@@ -208,5 +208,38 @@ func TestEmitWriteWorkflowDecision_RepairSchemaIsModeProjected(t *testing.T) {
 	}
 	if len(mu.WriteWorkflowDecisionJSON()) != 0 {
 		t.Fatal("masked action must not be stored as a decision")
+	}
+}
+
+func TestEmitWriteWorkflowDecision_ReadyToPlanMasksApplyVerifyAcrossSchemaAndRuntime(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-ready", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-proof", Purpose: "verification_proof_followup",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	mu := types.NewMutableState("ready to plan proof")
+	mu.SetWriteWorkflowRun(run)
+	tool := &EmitWriteWorkflowDecision{}
+	schema := string(tool.ParametersFor(&types.AgentContext{Mode: types.ModeApply, Mutable: mu}))
+	for _, masked := range []string{`"apply_plan"`, `"verify_batch"`} {
+		if strings.Contains(schema, masked) {
+			t.Fatalf("ready_to_plan schema exposed impossible action %s: %s", masked, schema)
+		}
+	}
+	for _, allowed := range []string{`"explore_code"`, `"plan_batch"`} {
+		if !strings.Contains(schema, allowed) {
+			t.Fatalf("ready_to_plan schema omitted legal action %s: %s", allowed, schema)
+		}
+	}
+
+	bus := &types.BusContext{Mutable: mu, Mode: types.ModeApply}
+	res, err := tool.Execute(bus, json.RawMessage(`{"action":"verify_batch"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != "workflow_action_not_in_mode" {
+		t.Fatalf("ready_to_plan runtime must reject impossible verify: %+v", res)
 	}
 }

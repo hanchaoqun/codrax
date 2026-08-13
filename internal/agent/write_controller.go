@@ -55,7 +55,11 @@ func renderWriteControllerActionContract(ctx *types.AgentContext) string {
 	if ctx != nil {
 		mode = ctx.Mode.Normalize()
 	}
-	actions := writeflow.WorkflowActionsForMode(mode)
+	var run *types.WriteWorkflowRun
+	if ctx != nil && ctx.Mutable != nil {
+		run = ctx.Mutable.WriteWorkflowRun()
+	}
+	actions := writeflow.WorkflowActionsForRun(mode, run)
 	names := make([]string, 0, len(actions))
 	for _, action := range actions {
 		names = append(names, string(action))

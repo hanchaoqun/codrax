@@ -34,6 +34,8 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 		return localization
 	}
 	switch view.State {
+	case WorkflowExecutionReadyToPlan:
+		return validateReadyToPlanTransition(decision.Action)
 	case WorkflowExecutionApplyReady:
 		return validateApplyReadyTransition(decision.Action)
 	case WorkflowExecutionPendingApproval:
@@ -48,6 +50,16 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 		return validateCompleteTransition(view, decision.Action)
 	case WorkflowExecutionBlocked:
 		return validateBlockedTransition(decision.Action)
+	default:
+		return WorkflowTransitionValidation{Allowed: true}
+	}
+}
+
+func validateReadyToPlanTransition(action WorkflowAction) WorkflowTransitionValidation {
+	switch action {
+	case ActionApplyPlan, ActionVerifyBatch:
+		return workflowTransitionDenied("ready_to_plan_requires_plan",
+			"active batch has no executable or observable plan yet", ActionPlanBatch)
 	default:
 		return WorkflowTransitionValidation{Allowed: true}
 	}

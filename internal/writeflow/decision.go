@@ -328,11 +328,58 @@ func WorkflowActionsForMode(mode types.PipelineMode) []WorkflowAction {
 	}
 }
 
+// WorkflowActionsForRun narrows the mode-level action surface with the active
+// batch's exact lifecycle state. A ready_to_plan batch has no executable or
+// observable plan yet, so apply_plan and verify_batch are structurally
+// impossible regardless of its purpose. Keeping this in writeflow lets the
+// prompt, projected JSON schema, runtime decoder, and transition kernel share
+// one typed rule instead of teaching the model from a rejection.
+func WorkflowActionsForRun(mode types.PipelineMode, run *types.WriteWorkflowRun) []WorkflowAction {
+	actions := WorkflowActionsForMode(mode)
+	if mode.Normalize() != types.ModeApply || run == nil {
+		return actions
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return actions
+	}
+	status := types.WriteWorkflowBatchStatus("")
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			status = batch.Status
+			break
+		}
+	}
+	if status != types.WriteWorkflowBatchReadyToPlan {
+		return actions
+	}
+	out := make([]WorkflowAction, 0, len(actions)-2)
+	for _, action := range actions {
+		if action == ActionApplyPlan || action == ActionVerifyBatch {
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
+}
+
 // WorkflowActionAllowedInMode reports whether the typed action is in the
 // mode's schema set. Shared by the emit tool's runtime validation and the
 // scheduler guard so all three layers read one source of truth.
 func WorkflowActionAllowedInMode(action WorkflowAction, mode types.PipelineMode) bool {
 	for _, allowed := range WorkflowActionsForMode(mode) {
+		if action == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// WorkflowActionAllowedInRun is the defense-in-depth counterpart to the
+// per-dispatch schema projection. It prevents callers that bypass the model
+// schema from executing an action impossible in the current typed state.
+func WorkflowActionAllowedInRun(action WorkflowAction, mode types.PipelineMode, run *types.WriteWorkflowRun) bool {
+	for _, allowed := range WorkflowActionsForRun(mode, run) {
 		if action == allowed {
 			return true
 		}

@@ -28,6 +28,23 @@ func TestValidateWorkflowTransitionApplyReadyRequiresApply(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowTransitionReadyToPlanRejectsApplyAndVerify(t *testing.T) {
+	view := WorkflowExecutionView{Mode: types.ModeApply, State: WorkflowExecutionReadyToPlan}
+	for _, action := range []WorkflowAction{ActionApplyPlan, ActionVerifyBatch} {
+		got := ValidateWorkflowTransition(view, WriteWorkflowDecision{Action: action})
+		if got.Allowed || got.ReasonCode != "ready_to_plan_requires_plan" || got.RecommendedAction != ActionPlanBatch {
+			t.Fatalf("ready_to_plan must reject %s before an executable plan exists: %+v", action, got)
+		}
+	}
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-proof", Goal: "author one typed runtime probe"},
+	})
+	if !got.Allowed {
+		t.Fatalf("ready_to_plan must keep plan_batch available: %+v", got)
+	}
+}
+
 func TestValidateWorkflowTransitionPendingApprovalBlocksApply(t *testing.T) {
 	view := WorkflowExecutionView{Mode: types.ModeApply, State: WorkflowExecutionPendingApproval}
 

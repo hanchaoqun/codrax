@@ -320,6 +320,31 @@ func TestWorkflowActionsForMode_PlanMasksApplyVerify(t *testing.T) {
 	}
 }
 
+func TestWorkflowActionsForRun_ReadyToPlanMasksApplyVerifyInApplyMode(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-proof", Purpose: "verification_proof_followup",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	actions := WorkflowActionsForRun(types.ModeApply, run)
+	for _, action := range actions {
+		if action == ActionApplyPlan || action == ActionVerifyBatch {
+			t.Fatalf("ready_to_plan must hide impossible %s: %v", action, actions)
+		}
+	}
+	if !WorkflowActionAllowedInRun(ActionPlanBatch, types.ModeApply, run) ||
+		WorkflowActionAllowedInRun(ActionVerifyBatch, types.ModeApply, run) {
+		t.Fatalf("run-aware action predicate diverged from projected actions: %v", actions)
+	}
+
+	run.Batches[0].Status = types.WriteWorkflowBatchVerifying
+	if !WorkflowActionAllowedInRun(ActionVerifyBatch, types.ModeApply, run) {
+		t.Fatal("state projection must not hide verify_batch after the batch reaches verifying")
+	}
+}
+
 func TestWriteWorkflowDecisionSchemaForActions_RestrictsEnum(t *testing.T) {
 	schema := string(WriteWorkflowDecisionSchemaForActions(WorkflowActionsForMode(types.ModePlan)))
 	if strings.Contains(schema, `"apply_plan"`) || strings.Contains(schema, `"verify_batch"`) {
