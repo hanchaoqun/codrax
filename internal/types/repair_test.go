@@ -103,6 +103,37 @@ func TestRepairDirectiveRenderExpandSearchCarriesTypedTargetsWithoutBlankStem(t 
 	}
 }
 
+func TestRepairDirectiveRenderExpandSearchPrefersTypedRepoMapBeforeBroadGrep(t *testing.T) {
+	withTypedNavigation := RepairDirective{
+		Kind:     RepairExpandSearch,
+		Files:    []string{"internal/orchestrator/orchestrator.go"},
+		Keywords: []string{"appendStageOutputEvidenceToMutable", "MutableState"},
+		Tools:    []string{"repo_map", "grep", "read_file", "emit_evidence"},
+	}.Render()
+	for _, want := range []string{
+		"Use repo_map first to locate exact definitions or structural relations",
+		"then read the selected operation bodies",
+		"use a narrowed grep only when no exact symbol or relation resolves",
+		"appendStageOutputEvidenceToMutable, MutableState",
+	} {
+		if !strings.Contains(withTypedNavigation, want) {
+			t.Fatalf("typed structural repair rendering missing %q:\n%s", want, withTypedNavigation)
+		}
+	}
+	if strings.Contains(withTypedNavigation, "Run grep over these typed navigation stems") {
+		t.Fatalf("typed structural repair must not demote an exact symbol target to grep-first:\n%s", withTypedNavigation)
+	}
+
+	grepOnly := RepairDirective{
+		Kind:     RepairExpandSearch,
+		Keywords: []string{"opaque-text-token"},
+	}.Render()
+	if !strings.Contains(grepOnly, "Run grep over these typed navigation stems: opaque-text-token") ||
+		strings.Contains(grepOnly, "Use repo_map first") {
+		t.Fatalf("grep-only repair must preserve its legacy navigation contract:\n%s", grepOnly)
+	}
+}
+
 func TestClassifyPendingReadRepair(t *testing.T) {
 	tests := []struct {
 		name string

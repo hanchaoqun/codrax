@@ -578,7 +578,11 @@ func (r RepairDirective) Render() string {
 	case RepairExpandSearch:
 		b.WriteString("## Search Coverage Gap\n")
 		if len(r.Keywords) > 0 {
-			b.WriteString("Run grep over these typed navigation stems: ")
+			if repairDirectiveHasTool(r, "repo_map") {
+				b.WriteString("Use repo_map first to locate exact definitions or structural relations for these typed navigation stems, then read the selected operation bodies; use a narrowed grep only when no exact symbol or relation resolves: ")
+			} else {
+				b.WriteString("Run grep over these typed navigation stems: ")
+			}
 			b.WriteString(strings.Join(r.Keywords, ", "))
 			b.WriteString("\n")
 		}
@@ -630,6 +634,19 @@ func (r RepairDirective) Render() string {
 		// should be the warning, not a render-time panic).
 	}
 	return b.String()
+}
+
+func repairDirectiveHasTool(r RepairDirective, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	for _, tool := range RepairDirectiveRequiredTools(r) {
+		if strings.TrimSpace(tool) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func renderSourceInventoryCompletionRepair(authority SourceInventoryCompletionAuthority) string {

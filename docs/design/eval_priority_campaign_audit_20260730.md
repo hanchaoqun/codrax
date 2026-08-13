@@ -35774,6 +35774,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.743 r427：载体角色生产复正；typed operation 导航被宽 grep 降级（2026-08-13）
+
+1. 在 `main@ffde89b1f` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，人工
+   `1 partial / 1 fail`；完整审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r427_20260813_manual_audit.md`。
+2. B712 获生产正证：Analyzer 最终将 analyzer/explorer/extractor/finalizer/Mutable/BusContext 六个
+   用户点名关系参与者全部保为 `incident_required`；已证 stage precedence 不再吞掉载体操作义务。
+   BusContext 从 `out.AnalysisIR -> o.busCtx.AnalysisIR` 获得一条 typed data-flow，证明角色与
+   participant operation completion 接线真实生效。
+3. 新确认 B714（P1/high）：Mutable 的 focused pass 已携 typed stems
+   `Mutable, BusContext, MutableState, appendStageOutputEvidenceToMutable, Orchestrator.applyStageOutput`
+   和 `repo_map/grep/read_file/emit_evidence` 工具集合，但通用 `RepairDirective.Render` 对所有
+   `RepairExpandSearch` 无条件发射 `Run grep`。模型因此执行 894 行宽搜；retrieval governor 压缩
+   结果时正好漏掉 `internal/orchestrator/stage_output_evidence_ingest.go` 的 callee body，第二 explorer
+   窗才重新定位。最终虽读到 body，repair convergence 已将 Mutable 关系降为 unproven，图只保留
+   BusContext 数据流与断开的 Mutable，474s 后 Runner 仍按任意图边假绿。
+4. 根修在共用 typed repair renderer，不按 case/语言/题面打补丁：当 directive 的工具集合明确包含
+   `repo_map` 时，发射顺序改为“repo_map 精确定位 definition/relation → read selected operation body →
+   无 exact resolve 才 narrowed grep”；纯 grep repair 保留原合同。判断只读 schema-valid Tools enum，
+   Keywords 仍只是软导航 stem，不成为证据、硬关系或答案词面门。系统不自动选择 relation，不代画图。
+5. JSON/成文合同专审：5 次 finalizer reject 均来自模型绘制未证 Orchestrator/BusContext 边、遗漏
+   participant boundary 或未复用已给 typed candidate，修补提示前后一致；未确认 schema 同时必带/必拒。
+   但拒绝次数高，B713 的 `diagram_spine` stale hard→soft footer 仍在，下一批先修该权威分层，再回放
+   判断关系成文是否收敛。
+6. Trace 正对照继续保留显式窗、目标五态、链上-only 排名、优先级/调度/供给/D/IO、确定性 JIT、
+   业务线索和实际占用/规则可消双轴，邻近调度压力明确为非主因。模型仍把 blocked_reason caller
+   扩写成资源 holder，并把 12 条 caller 与 11 段状态差异解释为“截断溢出”；typed handoff 已明示
+   两者不同口径且 caller 不是 holder，故先按模型未遵守边界记录，不加答案原文扫描硬门。
+7. active-stream 4ms 再获 259s/474s 生产正证。链接有字节活性时不安装 evaluator total-age deadline，
+   4ms 内没有完整 JSON/answer 不得降级；终止/恢复仍只由 cancel/deadline、无首字节、真实 byte stall、
+   transport/decode failure 或重试耗尽授权。
+
+状态：
+
+`B712-EXPLICITFLOWCARRIERCONTEXTESCAPE1=production-positive-r427`；
+`B714-TYPEDOPERATIONREPAIRGREPDEMOTION1=implemented/shared-renderer-pins-pass`；
+`B713-REQUIREDDIAGRAMFACETSOFTENSTALE1=open/P1/next-batch`；
+`active-stream-4ms-degrade=forbidden/259s+474s-production-positive`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.742 r426：显式关系载体的 context-only 逃逸与 Trace 双轴正证（2026-08-13）
 
 1. 在 `main@74cf669b4` 严格并发恰好两个案例：
