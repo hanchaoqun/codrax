@@ -3785,6 +3785,8 @@ func TestRenderAnswerDocSourceInventoryRowGuidance_LocationIsVisibleRowField(t *
 		"`location` is a user-visible row field",
 		"same item's text/cells",
 		"does not replace the requested visible file path",
+		"does not by itself prove inheritance, implementation, execution, ownership",
+		"When `summary` was not requested",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("location row guidance missing %q:\n%s", want, got)

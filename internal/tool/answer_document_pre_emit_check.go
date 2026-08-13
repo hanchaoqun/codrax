@@ -506,6 +506,8 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "source_inventory_row_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "source_inventory_exact_row_binding", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
+		{Subgate: "source_inventory_exact_row_multiplicity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
+		{Subgate: "source_inventory_requested_row_location", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "diagram_participant_coverage", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
@@ -780,6 +782,12 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 	if h := preCheckSourceInventoryExactRowBinding(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
+	if h := preCheckSourceInventoryExactRowMultiplicity(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
+	if h := preCheckSourceInventoryRequestedRowLocation(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
@@ -2240,6 +2248,101 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 	return hints
 }
 
+// preCheckSourceInventoryExactRowMultiplicity keeps the typed principal roster
+// a set instead of a bag. A source_inventory_row_id already selects one exact
+// member/family/location tuple, so a second principal enumeration carrier with
+// the same id is a deterministic duplicate rather than a new category member.
+// Only structured row ids participate; block titles, item prose, request text,
+// language keywords, and citations are deliberately absent from the decision.
+func preCheckSourceInventoryExactRowMultiplicity(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
+		return nil
+	}
+	rowsByID := preEmitSourceInventoryRowsByIDFromSets(preEmitSourceInventoryTypedPrincipalSets(ctxOpt[0]))
+	if len(rowsByID) == 0 {
+		return nil
+	}
+	seenAt := map[string]string{}
+	var hints []emitFixHint
+	for bi, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			!principalEnumerationBlockHasEnumerationFacet(block) ||
+			preEmitSystemEnumerationRowSupplementBlock(block) {
+			continue
+		}
+		for ii, item := range block.Items {
+			rowID := strings.TrimSpace(item.SourceInventoryRowID)
+			if rowID == "" {
+				continue
+			}
+			row, ok := rowsByID[rowID]
+			if !ok {
+				// The row-identity subgate owns unknown ids.
+				continue
+			}
+			where := fmt.Sprintf("blocks[%d].items[%d]", bi, ii)
+			if first, duplicate := seenAt[rowID]; duplicate {
+				hints = append(hints, sourceInventoryRowIDHardHint(
+					bi,
+					ii,
+					fmt.Sprintf("render exact typed row_id=%q once in the principal inventory; keep the first carrier at %s and remove this duplicate (or replace it with an omitted typed roster row)", rowID, first),
+					fmt.Sprintf("row_id=%q already identifies member %q at %s; repeating that exact identity in another principal enumeration item duplicates one typed row and can displace a different requested declaration.", rowID, principalEnumerationPreferredRowDisplay(row), row.Location),
+				))
+				continue
+			}
+			seenAt[rowID] = where
+		}
+	}
+	return hints
+}
+
+// preCheckSourceInventoryRequestedRowLocation enforces an explicit typed
+// request for the file location on the same visible row that carries the exact
+// source-inventory identity. The citation remains proof metadata, not a
+// substitute for a user-requested table/list field. The comparison is an exact
+// typed source path/location match over structured item fields; it never scans
+// raw user input, model thoughts, final prose, titles, or language keywords.
+func preCheckSourceInventoryRequestedRowLocation(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) ||
+		ctxOpt[0].AnalysisIR.RequestModel.SourceInventoryProfile == nil ||
+		!ctxOpt[0].AnalysisIR.RequestModel.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldLocation) {
+		return nil
+	}
+	rowsByID := preEmitSourceInventoryRowsByIDFromSets(preEmitSourceInventoryTypedPrincipalSets(ctxOpt[0]))
+	if len(rowsByID) == 0 {
+		return nil
+	}
+	var hints []emitFixHint
+	for bi, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			!principalEnumerationBlockHasEnumerationFacet(block) ||
+			preEmitSystemEnumerationRowSupplementBlock(block) {
+			continue
+		}
+		for ii, item := range block.Items {
+			rowID := strings.TrimSpace(item.SourceInventoryRowID)
+			row, ok := rowsByID[rowID]
+			if rowID == "" || !ok || strings.TrimSpace(row.Source) == "" {
+				// Missing/unknown row ids are repaired by the identity subgate.
+				continue
+			}
+			if principalEnumerationItemSurfaceHasRowLocation(types.AnswerBlockItemVisibleSurface(item), row) {
+				continue
+			}
+			hints = append(hints, sourceInventoryTypedRowHardHint(
+				fmt.Sprintf("blocks[%d].items[%d].text/cells", bi, ii),
+				fmt.Sprintf("keep source_inventory_row_id=%q and copy its exact requested file path %q into this same item's text/cells (a citation_ref alone is not the requested visible field)", rowID, row.Source),
+				"the typed source-inventory request explicitly includes location, but this exact row's visible structured fields omit its typed file path.",
+			))
+		}
+	}
+	return hints
+}
+
 // principalEnumerationItemExactRowIDDisplayMatchesRow validates only the
 // visible display identity attached to an already exact row-id selection. The
 // typed row may expose a language-kind qualifier such as "Index (struct)"
@@ -2273,8 +2376,16 @@ func principalEnumerationPreferredRowDisplay(row types.EnumerationDisplayRow) st
 }
 
 func sourceInventoryRowIDHardHint(blockIndex, itemIndex int, expectedShape, reason string) emitFixHint {
+	return sourceInventoryTypedRowHardHint(
+		fmt.Sprintf("blocks[%d].items[%d].source_inventory_row_id", blockIndex, itemIndex),
+		expectedShape,
+		reason,
+	)
+}
+
+func sourceInventoryTypedRowHardHint(field, expectedShape, reason string) emitFixHint {
 	return emitFixHint{
-		Field:         fmt.Sprintf("blocks[%d].items[%d].source_inventory_row_id", blockIndex, itemIndex),
+		Field:         field,
 		ExpectedShape: expectedShape,
 		Reason:        reason,
 		ForceHard:     true,

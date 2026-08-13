@@ -4520,6 +4520,71 @@ func TestNormalizeItemCitationRefsBySourceInventoryRowID_BindsDuplicateLabelExac
 	}
 }
 
+func TestPreCheckSourceInventoryExactRowMultiplicity_RejectsRepeatedTypedRowAcrossPrincipalBuckets(t *testing.T) {
+	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "extend", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-cart", Label: "Cart", Text: "cart/Cart.cj:30", SourceInventoryRowID: extendID,
+			}},
+		},
+		{
+			ID: "classes", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "class-cart", Label: "Cart", Text: "cart/Cart.cj:14", SourceInventoryRowID: classID},
+				{ID: "class-cart-again", Label: "Cart", Text: "cart/Cart.cj:14", SourceInventoryRowID: classID},
+			},
+		},
+	}}
+
+	hints := preCheckSourceInventoryExactRowMultiplicity(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID ||
+		!strings.Contains(hints[0].Field, "blocks[1].items[1]") {
+		t.Fatalf("repeated exact typed row must produce one hard duplicate hint, got %+v", hints)
+	}
+
+	doc.Blocks[1].Items = doc.Blocks[1].Items[:1]
+	if hints := preCheckSourceInventoryExactRowMultiplicity(doc, ctx); len(hints) != 0 {
+		t.Fatalf("two distinct same-name typed declarations must remain valid, got %+v", hints)
+	}
+}
+
+func TestPreCheckSourceInventoryRequestedRowLocation_CitationDoesNotReplaceVisibleField(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID: "classes", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Columns:  []string{"name", "package"},
+			Items: []types.AnswerBlockItem{{
+				ID: "class-cart", Cells: []string{"Cart", "demo.cart"},
+				SourceInventoryRowID: classID, CitationRef: 0,
+			}},
+		}},
+	}
+
+	hints := preCheckSourceInventoryRequestedRowLocation(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID ||
+		!strings.Contains(hints[0].ExpectedShape, "cart/Cart.cj") {
+		t.Fatalf("citation-only row must not satisfy requested visible location, got %+v", hints)
+	}
+
+	doc.Blocks[0].Items[0].Cells = []string{"Cart", "cart/Cart.cj", "demo.cart"}
+	if hints := preCheckSourceInventoryRequestedRowLocation(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact typed file path in the same visible row must pass, got %+v", hints)
+	}
+
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.RequestedFields = []types.SourceInventoryRequestedField{types.SourceInventoryFieldName}
+	doc.Blocks[0].Items[0].Cells = []string{"Cart"}
+	if hints := preCheckSourceInventoryRequestedRowLocation(doc, ctx); len(hints) != 0 {
+		t.Fatalf("location must not be invented as a required field when the typed request omitted it, got %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_CellsOnlyTableMatchesPrimaryColumn(t *testing.T) {
 	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

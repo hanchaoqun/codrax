@@ -8889,6 +8889,7 @@ func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
 	if profile.RequestsField(types.SourceInventoryFieldLocation) {
 		b.WriteString("- `location` is a user-visible row field: copy each row's exact `location` into that same item's text/cells (prefer a Location/文件路径 column for tables). A bound `citation_ref` proves the row but does not replace the requested visible file path.\n")
 	}
+	b.WriteString("- A typed source-inventory row proves that exact declaration/construct kind, location, and listed typed attributes only. It does not by itself prove inheritance, implementation, execution, ownership, or another behavioral relation. When `summary` was not requested, keep the row to the requested fields and do not invent such a relation.\n")
 	if profile.RequiresConstSet {
 		b.WriteString("- `requires_const_set=true` is a membership qualifier for enum-like types; it does not by itself mean the final answer should list every const/member value.\n")
 	}

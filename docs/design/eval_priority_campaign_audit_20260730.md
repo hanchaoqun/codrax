@@ -35649,6 +35649,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.729 r415：ArkTS 正证；typed inventory 行重复与请求字段丢失根修（2026-08-12）
+
+1. 在 `main@a45e8b53c` 严格并发恰好两个 Harmony 多语言清单案例：
+   `arkts_repomap + cangjie_repomap_fixture`。Runner 为 `2 PASS / 0 FAIL`，人工为
+   `1 pass / 1 fail`；逐轮证据与审计见
+   `eval/parallel_selected_summary_evalcampaign_harmony_inventory_r415_20260812_manual_audit.md`。
+2. ArkTS 是跨语言正对照：4 个 `@Entry`、2 个 `@Builder` 的符号、精确路径、引用、第三方
+   语料范围与计数均完整。说明 typed source-inventory 的提取和交接可正确工作，不需要对
+   ArkTS 做答案级补丁。
+3. Cangjie typed roster 同样正确：`extend=1 / foreign func=1 / public class=3`。失败发生在成文
+   消费层：模型把 exact public-class `Cart` 行复制到 extend bucket，最终五行 roster 显示为六行；
+   原门只证明每个 row 至少一次，没有证明 exact-once。B691 新门只统计 structured principal
+   item 的 `source_inventory_row_id`，第二次消费同一精确 ID 才硬拒；不读标题、用户问题、答案
+   prose、语言关键字或 citation 排序，也不由系统替模型改表。
+4. 用户 typed 请求已明确 `requested_fields=[name,location,package]`，prompt 也说明 citation 不代替
+   location，但原 validator 仍允许所有表行省略文件路径。B692 只在 typed profile 明确请求
+   location 且 item 已携带合法 exact row ID 时，核对同一 structured item 的 text/cells 是否包含
+   该 row 的 exact source path/location；citation 继续只作证据 metadata。未请求 location、未知
+   row、无 typed 路径均不硬猜。
+5. Cangjie `extend` 被模型叙述成继承不是 parser 漏数，而是 authority caliber 缺教学。B693 向
+   finalizer 发布通用软边界：declaration/construct row 只证明 exact kind、location 与列出的 typed
+   attributes，不自行证明 inheritance/implementation/execution/ownership/behavior。`summary` 未请求
+   时只展示请求字段。该规则不扫描、删除或改写模型正文，仍由模型负责语义结论。
+6. 三项修复均按结构信号泛化到全部支持语言（含 ArkTS/Cangjie），没有 case/type 字符串门。
+   Read/Trace/Write 路径零改动；显式时间窗 Trace 因果投影、自动补齐、链上-only 主因、实际占用/
+   业务语义与规则可消除量双轴保持。邻近/背景只作排查支持，不能晋升主因。
+7. 活跃字节流不存在 4ms、4s 或固定累计年龄降级：4ms 内未形成完整 answer_document 但 Reader
+   仍持续收到字节时继续等待和解码。只有 caller cancel/deadline、无首字节、真实 byte-stall、
+   transport/decode failure 可终止或进入恢复；不得因“尚未成文”回退旧草稿。
+
+状态：
+
+`B691-SOURCEINVENTORYROWMULTIPLICITY1=implemented/exact-row-identity-pins-pass`；
+`B692-SOURCEINVENTORYREQUESTEDLOCATION1=implemented/typed-request+visible-row-pins-pass`；
+`B693-DECLARATIONKINDSEMANTICBOUNDARY1=implemented/soft-typed-guidance/no-answer-rewrite`；
+`ArkTS source-inventory=production-positive-r415`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.728 r414：跨语言关系拓扑正证；概念终点与多叶候选分型（2026-08-12）
 
 1. 在 `main@c32726a6d` 严格并发恰好两个案例：
