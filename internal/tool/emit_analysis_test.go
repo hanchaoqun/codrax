@@ -494,6 +494,7 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 	profile := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
+		nil,
 		types.IntentTrace,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
@@ -503,6 +504,7 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		nil,
 		types.IntentTrace,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
@@ -512,12 +514,73 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
+		nil,
 		types.IntentTrace,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
 	); issue != "" {
 		t.Fatalf("typed performance diagnosis must retain causal breadth: %q", issue)
+	}
+}
+
+func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *testing.T) {
+	causalDimension := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "ranked causes", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+		}},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		causalDimension,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); !strings.Contains(issue, "bounded_fact_set conflicts") || !strings.Contains(issue, "role=causal_attribution") {
+		t.Fatalf("bounded causal attribution must fail loud for a complete analyzer retry: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+		causalDimension,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("the same required causal dimension must authorize the corrected causal scope without a second contradictory retry: %q", issue)
+	}
+
+	optional := *causalDimension
+	optional.Dimensions = append([]types.RequestedAnswerDimension(nil), causalDimension.Dimensions...)
+	optional.Dimensions[0].Required = false
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		&optional,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("an optional causal display hint must not widen a bounded fact request: %q", issue)
+	}
+
+	boundedValues := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "duration", Role: types.RequestedAnswerDimensionCount, Required: true,
+		}},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		boundedValues,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("finite observed values must remain bounded: %q", issue)
 	}
 }
 
@@ -562,6 +625,23 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	}
 	if !res.Success {
 		t.Fatalf("finite bounded relation facts must remain admissible: %q", res.Summary)
+	}
+
+	causalObjective := "请按重要程度给出根因排序，并说明目标进程、transaction 编号和直接唤醒者"
+	boundedWithCausalDimension := strings.Replace(
+		bounded,
+		`"completeness_obligation":`,
+		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"根因排序","role":"causal_attribution","source_quote":"根因排序","required":true}]},"completeness_obligation":`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(boundedWithCausalDimension))
+	if err != nil {
+		t.Fatalf("bounded causal-dimension Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "bounded_fact_set conflicts") || !strings.Contains(res.Summary, "causal_attribution") {
+		t.Fatalf("production entry must reject a bounded scope that cannot satisfy required causal attribution: success=%t summary=%q", res.Success, res.Summary)
 	}
 
 	causalWithRedundantFamilies := strings.Replace(payload, `"scenario":"generic"`, `"scenario":"performance_bottleneck"`, 1)

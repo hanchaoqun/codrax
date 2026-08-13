@@ -830,7 +830,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory."},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. causal_attribution is required when the user asks for root-cause/bottleneck attribution or ranked causes/contributors; it is incompatible with runtime_question_profile.scope=bounded_fact_set because finite observed values cannot satisfy a causal report."},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -1801,7 +1801,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
-		runtimeQuestionProfile, intent, scenario, predicates, diagnosticProfile,
+		runtimeQuestionProfile, requestedAnswerDimensions, intent, scenario, predicates, diagnosticProfile,
 	); issue != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -4492,12 +4492,23 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 // silently replacing the model's classification.
 func validateRuntimeQuestionProfileConsistency(
 	profile *types.RuntimeQuestionProfile,
+	dimensions *types.RequestedAnswerDimensionProfile,
 	intent types.Intent,
 	scenario types.Scenario,
 	predicates types.SemanticPredicates,
 	diagnostic types.DiagnosticIntentProfile,
 ) string {
-	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
+	if profile == nil {
+		return ""
+	}
+	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
+		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
+		return "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution; use causal_diagnosis for root-cause, bottleneck, or ranked contributor attribution, relation_analysis for a requested dependency/call/wakeup path, or system_overview for a broad trace report. Keep bounded_fact_set only for finite observed values. Re-emit the complete analysis object; the accepted typed scope is never widened implicitly"
+	}
+	if profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
+		return ""
+	}
+	if requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
 		return ""
 	}
 	if intent == types.IntentRootCause ||
@@ -4510,6 +4521,18 @@ func validateRuntimeQuestionProfileConsistency(
 		return ""
 	}
 	return "runtime_question_profile.scope=causal_diagnosis requires a typed diagnosis/attribution carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause/performance_bottleneck); for a finite set of observed fields use bounded_fact_set even when one field is a direct peer/transaction/waker relation, and for a requested caller/wakeup/IPC/dependency path or topology use relation_analysis"
+}
+
+func requestedAnswerDimensionsRequireCausalAttribution(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionCausalAttribution {
+			return true
+		}
+	}
+	return false
 }
 
 func parseHistorySelectionProfile(raw string, isHistoryLookup bool, p *emitHistorySelectionProfileParam) (*types.HistorySelectionProfile, string, []string) {

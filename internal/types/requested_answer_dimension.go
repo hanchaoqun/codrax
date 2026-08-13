@@ -33,7 +33,15 @@ const (
 	RequestedAnswerDimensionBoundary       RequestedAnswerDimensionRole = "boundary"
 	RequestedAnswerDimensionDiagram        RequestedAnswerDimensionRole = "diagram"
 	RequestedAnswerDimensionStageWorkflow  RequestedAnswerDimensionRole = "stage_or_workflow"
-	RequestedAnswerDimensionOther          RequestedAnswerDimensionRole = "other"
+	// RequestedAnswerDimensionCausalAttribution identifies a current-request
+	// demand for causal attribution, ranked causes/contributors, or a
+	// root-cause/bottleneck conclusion. It is deliberately distinct from the
+	// generic function_or_purpose role and from bounded observed-value roles:
+	// downstream runtime breadth validation may reject a bounded_fact_set that
+	// cannot structurally satisfy this dimension without scanning request or
+	// answer prose.
+	RequestedAnswerDimensionCausalAttribution RequestedAnswerDimensionRole = "causal_attribution"
+	RequestedAnswerDimensionOther             RequestedAnswerDimensionRole = "other"
 )
 
 func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
@@ -50,6 +58,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionBoundary,
 		RequestedAnswerDimensionDiagram,
 		RequestedAnswerDimensionStageWorkflow,
+		RequestedAnswerDimensionCausalAttribution,
 		RequestedAnswerDimensionOther,
 	}
 }

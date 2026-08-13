@@ -35842,6 +35842,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=untouched`；
 `active-stream-4ms-degrade=forbidden`。
 
+### §123.756 r437 与 B726：因果必答维度被 bounded scope 截断（2026-08-13）
+
+1. 在 `main@04641eb22` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h7_self_seat_full_spectrum`。Runner `1 PASS / 1 FAIL`，人工为
+   `1 partial / 1 fail`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_logic_trace_replay_r437_20260813_manual_audit.md`。
+2. Logic 最终图合法，三段 stage precedence 和三条真实 local call 均有 typed anchor；BusContext/Mutable
+   诚实留为断开未证 participant。本轮没有自然构造 B725 的“participant node 同时作技术端点”形，
+   因而不得虚报 production positive。四次拒绝来自第一稿大量未证边，以及 boundary JSON 层级、
+   可见节点、boundary 保留三类修补错误；B725 unique tuple 继续由生产 precheck pin 覆盖。
+3. Trace 的 FAIL 是新的 B726（P0），不是模型最终措辞波动。Analyzer 将“按重要程度给出根因排序”
+   和“小贡献来源”列入 required dimensions，却同时铸出
+   `runtime_question_profile.scope=bounded_fact_set`；artifact scope 还错发为 full_artifact 而非 exact
+   window。补齐器据该 typed 窄合同合法地以 `families_present` 跳过，最终
+   `trace_query_final_projection_blocks=0`。答案因此丢掉同源二分、完整链上榜、未计价真实占用、供给
+   折算基准与枚举边界，并把 off-chain 邻近线程混入“小贡献来源”。局部状态数值仍真，但用户要求的
+   因果报告与实际占时/规则可消双轴没有形成。
+4. 既有 consistency 只检查一个方向：`causal_diagnosis` 必须有 diagnosis carrier；反方向
+   `bounded_fact_set` 是否与必答因果维度矛盾完全未校验。根修新增 language-neutral typed role
+   `causal_attribution`，专用于根因/瓶颈归因及 causes/contributors 排名；required 该 role 与
+   bounded_fact_set 同现时，`emit_analysis` 生产入口精确拒绝并要求完整重发为 causal_diagnosis、
+   relation_analysis 或 system_overview。系统不静默拓宽模型 scope。
+5. 普通有限事实不受影响：状态存在/分区、次数、时长、记录理由、直接 peer/waker 仍可 bounded；
+   optional causal display hint 也不扩域。判据只读 schema-validated enum + required boolean，不扫描 raw
+   request、source_quote、trace_query 参数、模型 reasoning 或答案 prose。Analyzer schema description 和
+   单源 skill 教学同步，减少模型心智；同一 required causal_attribution 也直接作为修正后
+   causal_diagnosis 的精确 diagnosis carrier，避免 scope 改对后又被旧 intent/scenario 标签二次拒绝。
+   生产入口、corrected-scope、optional 与 finite-value 负臂均已钉住。
+6. 本批只修分析合同路由，不改 projection 计算、不改 Trace 根因或答案正文。显式窗一旦正确 typed
+   仍拥有最高报告权限；链上-only、两维根因、邻近/background support-only 与模型结论所有权保持。
+   两个 active stream 均跨越 4ms 正常完成，固定年龄降级未发生且仍被禁止。
+
+状态：
+
+`B725-PARTICIPANTTECHNICALNODECOLLISION1=implemented/pinned/no-natural-hit-r437`；
+`B726-RUNTIMEBOUNDEDCAUSALDIMENSIONCONFLICT1=implemented/typed-role+production-entry-pins/pending-r438`；
+`Trace explicit-window/causal projection/auto-supplement=regressed-by-analyzer-scope-r437/root-fixed-pending-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/162s+247s-no-age-degrade`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.753 r435 与 B724：Analyzer 必填关系域静默丢失（2026-08-13）
 
 1. 在 `main@672f9c7d0` 严格并发恰好两个案例：
