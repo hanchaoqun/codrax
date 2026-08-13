@@ -540,6 +540,17 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 		types.DiagnosticIntentProfile{},
 	); !strings.Contains(issue, "bounded_fact_set conflicts") || !strings.Contains(issue, "role=causal_attribution") {
 		t.Fatalf("bounded causal attribution must fail loud for a complete analyzer retry: %q", issue)
+	} else {
+		for _, want := range []string{
+			"Preserve that required user-facing dimension",
+			"not a pre-decided causal conclusion",
+			"yes, no, mixed, or unproven",
+			"do not delete or relabel",
+		} {
+			if !strings.Contains(issue, want) {
+				t.Fatalf("bounded causal retry guidance missing %q: %q", want, issue)
+			}
+		}
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},

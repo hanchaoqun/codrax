@@ -1179,6 +1179,16 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 			t.Fatalf("stale narrower causal-attribution teaching survived: %q", stale)
 		}
 	}
+	for _, want := range []string{
+		"declares investigation and answer breadth only",
+		"does NOT assert in advance",
+		"yes, no, mixed, or unproven",
+		"keep every requested dimension",
+	} {
+		if !strings.Contains(AnalysisRuntimeCausalAttributionTeaching, want) {
+			t.Fatalf("runtime causal teaching missing non-prejudgment guidance %q", want)
+		}
+	}
 }
 
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {

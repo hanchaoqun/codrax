@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.769 r450：因果枚举被误读为预设结论；B735-3 收窄重试心智（2026-08-13）
+
+1. 在 `main@b139b6886` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。runner 与人工均为
+   `1 PASS / 1 FAIL`；工件见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r450_20260813.md` 与 manual audit。
+2. B735-2 的 SSOT 接线生效：Trace Analyzer 首次正确发出 required
+   `causal_attribution`，证明“是否受到频率限制”已被识别成需要保留的因果判定维度；但它同时发出
+   `bounded_fact_set`，typed consistency gate 因此正确拒绝。
+3. 新确认 `B735-3/P0`：旧重试提示与枚举名让模型把 `causal_diagnosis` 理解成“预先断定存在完整根因”，
+   模型没有只改 scope，反而主动删除 required causal dimension、改成 `evidence_source` 后以 bounded
+   通过。结果 `trace_query_final_projection_blocks=0`，显式时间窗仍在，但完整 Trace 因果投影和自动补齐
+   被 accepted typed scope 合法关闭。这不是单次模型波动，而是系统没有说明“调查宽度 ≠ 预设结论”。
+4. 答案的权限错误进一步证明该出口必须保留：模型一面写“policy limit 存在不等于线程受限”，一面虚构
+   CPU12 有 direct limit witness，并把 CPU4 的最低频点当成命中上限。正确的 causal scope 必须允许最终
+   判为 yes / no / mixed / unproven，而不能用系统确权替模型得出任何一项。
+5. B735-3 泛化根修仍只作用于 typed 教学和 typed 冲突重试：SSOT 明确
+   `causal_diagnosis` 只声明 investigation/answer breadth，不预设原因、约束或实质影响成立；混合“有限观测值
+   + 因果判定”时保留全部用户维度、改 causal scope、移除 bounded-only `fact_families`；重试提示明确禁止
+   为通过校验而删除/改名 required causal dimension。实现不扫描 raw request、thinking、final prose，
+   不替模型改答案，也不把普通频率/状态/count 查询扩大为 causal。
+6. Poly 本轮继续获得生产正证：首稿误把 PyO3 注册/包装画成 invocation edge 后被 typed gate 拒绝，第二轮
+   消费 copy-ready skeleton，三条真实调用边与两个业务注释保留，Mermaid 合法，fallback 正文完整。系统只
+   提供 typed 关系载体，不生成业务结论。
+7. 4ms 活跃流复审为关闭态：OpenAI SSE 路径没有固定 4ms/4s/4min 总年龄降级门；活跃可见 delta、隐藏
+   reasoning 和 byte-bearing SSE 都续租进展，`TestDoStreamRequest_ActiveVisibleProgressMayOutlastTotalCap`
+   钉住活跃流可越过旧累计上限。只有 caller cancel/deadline、首字节超时、byte stall、transport/decode
+   failure 能停止；因此流持续活跃时即使数分钟未形成最终 answer，也不能发布降级回答。
+8. 验证：`go test ./internal/skill ./internal/tool -count=1` 全绿（tool 160.254s）；专项 typed scope、
+   schema SSOT、重试提示 pin 均绿。显式时间窗、链上-only 主因、邻近/背景 support-only、实际占用与规则
+   可消除量双轴、业务线索以及系统不接管模型结论均未改动。
+
+状态：
+
+`B735-CAUSALVERDICTDIMENSION1=partial-r450/B735-3-implemented-pending-replay`；
+`B734-CAPLANEIDENTITY1=implemented/replay-blocked-by-r450-bounded-scope`；
+`B736-RUNTIMEFLOWAUTHORITY1=production-closed-r449+r450`；
+`B733/B672-diagram-recovery=production-positive-r450`；
+`active-stream-4ms-degrade=forbidden/code+test-reconfirmed-r450`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B735-3-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.768 r449：B736 生产闭环；B735 被同 prompt 第二份旧教学抵消（2026-08-13）
 
 1. 在 `main@1c88165d5` 重建后严格并发恰好两个案例：
