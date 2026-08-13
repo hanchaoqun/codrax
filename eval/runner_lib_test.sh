@@ -105,6 +105,23 @@ JSON
 proof_source="$(eval_materialize_write_apply_source "$tmp/proof-only-plan.json" "$proof_out" "$proof_scratch" 1)" || fail "proof-only plan did not materialize prior durable checkpoint"
 assert_eq "$(cat "$proof_source/value.txt")" "durable fix" "proof-only final plan must inherit durable implementation bytes"
 
+# A nil Go []Change serializes as null, while an explicitly allocated empty
+# slice serializes as []. Both are the same exact no-mutation proof-plan shape
+# and must inherit the prior durable checkpoint. This is not a permissive
+# fallback for malformed scalars or objects.
+cat >"$tmp/proof-only-null-changes-plan.json" <<'JSON'
+{
+  "id": "plan-proof-only-null-changes",
+  "status": "applied",
+  "worktree_path": "",
+  "changes": null,
+  "verification_probes": [{"id": "probe", "language": "go", "code": "package main"}]
+}
+JSON
+assert_eq "$(eval_json_top_array_count "$tmp/proof-only-null-changes-plan.json" changes)" "0" "null typed slice must have zero cardinality"
+proof_null_source="$(eval_materialize_write_apply_source "$tmp/proof-only-null-changes-plan.json" "$proof_out" "$proof_scratch" 2)" || fail "proof-only null-changes plan did not materialize prior durable checkpoint"
+assert_eq "$(cat "$proof_null_source/value.txt")" "durable fix" "proof-only null-changes final plan must inherit durable implementation bytes"
+
 cat >"$tmp/convergence-lossless-repair.metrics" <<'METRICS'
 tool_read_file=9
 tool_repo_map=0

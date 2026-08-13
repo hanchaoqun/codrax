@@ -35649,6 +35649,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.762 r443 与 B731：proof-only nil slice 误判；跨语言关系正文完整、伪调用图正确拒绝（2026-08-13）
+
+1. 在 `main@89549556b` 严格并发恰好两个异构案例：读模式
+   `mr_poly_binding_chain` 与写模式 `github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`；
+   人工为 `1 pass / 1 honest-unverified`，逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_relation_write_r443_20260813_manual_audit.md`。
+2. Python/Rust 案例正文完整保留 `_HAVE_NATIVE` 分支、Python→`_fastlex.tokenize_bytes`、
+   PyO3 `add_function` 注册、Rust wrapper/core→`best_merge` 与纯 Python fallback。模型没有复制 prompt
+   已发布的三条 exact typed skeleton，而是自行扩画 `Native→Rust` 伪调用、把 guard/self edge
+   标成 call，并绘制没有正向调用的 reply。Validator 按精确关系证据拒绝正确；模型撤掉的是可选图，
+   不是关系事实或正文结论。本轮不以“必须保图”为由放宽 call authority，也不由系统代画，归为
+   低优先模型作图波动；后续跨语言图回放继续观察，但不围绕 fastlex 名称拟合。
+3. Zod 写入的生产 patch 与 false/0/空串、existing-default 回归均正确。主机没有 Node，JavaScript
+   probe 以 `verification_probe_runner_missing` typed-unavailable；`make check` 仅有 source_static
+   能力，proof ledger 保持 `verification_proof_incomplete`。这是诚实 fail-closed，不能为了 eval
+   PASS 把源码形状检查升级成 TypeScript 行为证明。
+4. 新确认 B731（P1 eval 权威）：末批是 controller-owned proof-only plan，Go 的 nil
+   `[]Change` 合法序列化为 `changes:null`；runner 只把 `changes:[]` 识别为零改动，因而漏用前序
+   唯一 `refs/codrax/applied/*` checkpoint，额外虚报 `durable_apply_ref_missing`。根修在 JSON
+   typed collection cardinality seam：`null` 与 `[]` 都计零；非数组 scalar/object 仍 fail-closed，
+   普通 mutation plan 缺 durable ref 仍为红。新增真实 `changes:null + probes>0` pin，runner 全套绿。
+5. 本批没有扫描用户原文或模型答案作硬门，没有系统补图、改写答案或接管结论。Read/Trace
+   产品路径零改动；显式时间窗 Trace 因果投影、自动补齐、链上-only 主因、实际占用/业务线索与
+   规则可消除量双轴保持。活跃流 4ms 未成文不降级，只允许 caller cancel/deadline、无首字节、
+   真实 byte-stall、transport/decode failure 触发恢复或披露。
+
+状态：
+
+`B731-PROBEONLYNULLSLICE1=implemented/typed-zero-cardinality+pinned/pending-production-replay`；
+`Zod behavior verification=honest-unverified/node-runtime-unavailable`；
+`cross-language relation prose=production-positive-r443`；
+`cross-language optional diagram=model-variance/typed-false-edges-rejected/no-system-redraw`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.761 r442：B729/B730 生产闭环；显式窗 causal 主车道与 bounded-fact 车道正交（2026-08-13）
 
 1. 在 `main@52ca49073` 严格并发恰好两个真实 Trace 案例：

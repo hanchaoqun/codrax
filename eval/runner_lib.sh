@@ -925,7 +925,10 @@ import json
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    value = json.load(handle).get(sys.argv[2])
+    obj = json.load(handle)
+if not isinstance(obj, dict) or sys.argv[2] not in obj:
+    raise SystemExit(1)
+value = obj[sys.argv[2]]
 if not isinstance(value, str):
     raise SystemExit(1)
 sys.stdout.write(value)
@@ -946,6 +949,14 @@ import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     value = json.load(handle).get(sys.argv[2])
+if value is None:
+    # Go encodes an unset slice as null and an allocated empty slice as [].
+    # Both are the same zero-cardinality typed collection for runner shape
+    # checks (for example a controller-owned proof-only ChangePlan). Keep
+    # scalars/objects fail-closed below instead of treating arbitrary missing
+    # or malformed values as empty.
+    sys.stdout.write("0")
+    raise SystemExit(0)
 if not isinstance(value, list):
     raise SystemExit(1)
 sys.stdout.write(str(len(value)))
