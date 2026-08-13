@@ -751,6 +751,65 @@ func TestDiagramCallEdgeEvidenceMismatches_NodeDisplayMetadataDoesNotChangeIdent
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_CompactDisplayQualifierDoesNotChangeIdentityAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		language string
+		caller   string
+		callee   string
+	}{
+		{"go", "service.Handle", "repo.Insert"},
+		{"python", "service.handle", "repo.insert"},
+		{"javascript", "Service.handle", "Repository.insert"},
+		{"typescript", "Service.handle", "Repository.insert"},
+		{"java", "VisitService.schedule", "VisitRepository.insert"},
+		{"kotlin", "VisitService.schedule", "VisitRepository.insert"},
+		{"rust", "py.tokenize_bytes", "tokenize_bytes"},
+		{"c", "service_handle", "repo_insert"},
+		{"cpp", "Service::handle", "Repository::insert"},
+		{"ruby", "Service::handle", "Repository::insert"},
+		{"swift", "Service.handle", "Repository.insert"},
+		{"lua", "service.handle", "repo.insert"},
+		{"arkts", "VisitService.schedule", "VisitRepository.insert"},
+		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::insert"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			doc := diagramEvidenceTestDoc("A", "B")
+			doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+				"  participant A as " + tc.caller + " (caller)\n" +
+				"  participant B as " + tc.callee + " (" + tc.language + ")\n" +
+				"  A->>B: invoke\n"
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)}); len(got) != 0 {
+				t.Fatalf("%s display qualifier must not change typed endpoint identity: %+v", tc.language, got)
+			}
+		})
+	}
+}
+
+func TestDiagramEvidenceIdentityBeforeDisplayQualifierFailsClosedOnCallAndIdentityShapes(t *testing.T) {
+	for _, label := range []string{
+		"resolve(json)",
+		"resolve (Other.Run)",
+		"resolve (Rust core)",
+		"business service (Rust)",
+		"resolve (Rust",
+	} {
+		if identity, ok := diagramEvidenceIdentityBeforeDisplayQualifier(label); ok {
+			t.Fatalf("non-qualifier shape %q unexpectedly projected to %q", label, identity)
+		}
+	}
+	for label, want := range map[string]string{
+		"resolve (Rust)":                "resolve",
+		"Service::handle (C++)":         "Service::handle",
+		"VisitService.schedule (ArkTS)": "VisitService.schedule",
+	} {
+		if identity, ok := diagramEvidenceIdentityBeforeDisplayQualifier(label); !ok || identity != want {
+			t.Fatalf("display qualifier %q = (%q,%t), want %q", label, identity, ok, want)
+		}
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_InlineCodeParticipantLabelsAcrossExecutableLanguages(t *testing.T) {
 	tests := []struct {
 		language string

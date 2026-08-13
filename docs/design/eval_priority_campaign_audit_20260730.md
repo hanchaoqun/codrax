@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.765 r446：B732-2 生产闭环；节点显示注释污染 typed endpoint identity（2026-08-13）
+
+1. 在 `main@d476810fd` 严格并发恰好两个案例：`mr_poly_binding_chain +
+   github_issue_zod_prefault`。Runner `1 PASS / 1 FAIL`；人工为 `1 partial /
+   1 honest-unverified`，详见
+   `eval/parallel_selected_summary_evalcampaign_runtime_bridge_replay_r446_20260813_manual_audit.md`。
+2. B732-2 获生产正证：Zod 无 Node 宿主上不再生成 `proof-probe-plan`、JavaScript probe 或第三个
+   controller batch；首次项目验证结束后，终局直接归一为
+   `production_verification_source_static_only + accept_unverified`。自动 FAIL 只表示该 write eval
+   要求行为级验证，不代表代码修复失败；不得将 source-static 套件升级为行为证明。一次 checker
+   驱动的测试断言格式 replan 保留，但与已消失的 runtime 补采循环正交。
+3. 新确认 B733（P1 泛化关系层）：Poly 首稿的三条图边均有 citable typed call row；其中
+   `py.tokenize_bytes -> tokenize_bytes` 明确来自 `core-rs/src/lib.rs:42`。模型为可读性把 callee
+   participant 写成 `tokenize_bytes (Rust)`，旧 endpoint resolver 却把完整显示标签当 typed identity，
+   于是把真边判成 `call_edge_unproven`。模型看见证据仍误以为 validator 在否定边语义，最终撤掉
+   optional 图。问题是展示层注释污染身份层，不是模型波动或证据缺失。
+4. B733 根修在共享 endpoint candidate seam 分离两层：只接受
+   `exact-code-identity + 空格 + (单一紧凑显示词)` 的前缀候选，例如 `tokenize_bytes (Rust)`、
+   `Service.handle (ArkTS)`；候选仍须在 citable typed evidence 中唯一精确出现才成为 endpoint。
+   `resolve(json)`、`resolve (Other.Run)`、多词 prose、嵌套/未闭合括号继续 fail-closed，因此没有放松
+   call authority，也没有从 edge label 或 answer prose 铸证据。
+5. 回归矩阵覆盖 Go/Python/JS/TS/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/ArkTS/Cangjie，以及
+   调用形、第二身份、多词说明等负例。`go test ./internal/tool ./internal/types
+   ./internal/mermaidcompat -count=1` 全绿（tool 166.425s）。
+6. 本批不生成图、不强制模型保图、不替模型回答；只让已有 typed 真边不被显示注释破坏。Trace
+   显式窗、因果投影、自动补齐、链上-only 根因及实际占用/业务线索与规则可消除量双轴不变；
+   邻近/背景仍不能晋升主因。活跃流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B732-2-CUMULATIVEPROBERUNTIMEOPPORTUNITY1=production-closed-r446`；
+`B733-DISPLAYQUALIFIERENDPOINTIDENTITY1=implemented/cross-language+negative-matrix/pending-production-replay`；
+`Zod no-Node verification=honest-unverified/no-static-laundering/no-impossible-probe-plan`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.764 r445 与 B732-2：累计补证第二入口漏检运行时；跨语言图自愈再次正证（2026-08-13）
 
 1. 在 `main@7129a457c` 严格并发恰好两个案例：`mr_poly_binding_chain +

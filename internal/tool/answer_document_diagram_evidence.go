@@ -1274,6 +1274,11 @@ func diagramEvidenceLabelIdentityCandidates(label string) []string {
 	lines := strings.Split(normalized, "\n")
 	parts = append(parts, lines...)
 	parts = append(parts, diagramEvidenceJoinedLabelIdentityCandidates(lines)...)
+	for _, line := range lines {
+		if identity, ok := diagramEvidenceIdentityBeforeDisplayQualifier(line); ok {
+			parts = append(parts, identity)
+		}
+	}
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
 		candidate := strings.TrimSpace(part)
@@ -1297,6 +1302,38 @@ func diagramEvidenceLabelIdentityCandidates(label string) []string {
 		}
 	}
 	return out
+}
+
+// diagramEvidenceIdentityBeforeDisplayQualifier separates one exact code
+// endpoint from a compact human-facing qualifier such as
+// `tokenize_bytes (Rust)` or `Service.handle (ArkTS)`. The qualifier is
+// presentation metadata, just like a file/line suffix; it must not change the
+// typed endpoint identity.
+//
+// This is intentionally a closed syntactic projection, not fuzzy matching:
+// the parenthesis must be terminal and whitespace-delimited, its content must
+// be one simple token, and the prefix must already be an exact cross-language
+// code-identity surface. Thus call-shaped labels such as `resolve(json)`,
+// prose, and a second endpoint hidden in `(Other.Run)` remain fail-closed. The
+// returned candidate is still inert until diagramEvidenceEndpointSymbol finds
+// it uniquely in citable typed evidence.
+func diagramEvidenceIdentityBeforeDisplayQualifier(label string) (string, bool) {
+	label = strings.TrimSpace(label)
+	if !strings.HasSuffix(label, ")") {
+		return "", false
+	}
+	open := strings.LastIndex(label, " (")
+	if open <= 0 {
+		return "", false
+	}
+	identity := diagramEvidenceExactInlineCodeIdentity(strings.TrimSpace(label[:open]))
+	qualifier := strings.TrimSpace(label[open+2 : len(label)-1])
+	if identity == "" || qualifier == "" || strings.IndexFunc(qualifier, func(r rune) bool {
+		return r <= ' ' || strings.ContainsRune("()[]{}<>/\\.:;,'\"`", r)
+	}) >= 0 || !types.AnswerCodeIdentitySurfacesEquivalent(identity, identity) {
+		return "", false
+	}
+	return identity, true
 }
 
 // diagramEvidenceJoinedLabelIdentityCandidates restores a code identity that
