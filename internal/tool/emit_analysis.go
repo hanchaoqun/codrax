@@ -734,7 +734,7 @@ func buildEmitAnalysisSchema() {
 					map[string]any{
 						"if": map[string]any{
 							"properties": map[string]any{
-								"scope": map[string]any{"enum": []string{string(types.RuntimeQuestionScopeBoundedFactSet)}},
+								"scope": map[string]any{"enum": []string{string(types.RuntimeQuestionScopeBoundedFactSet), string(types.RuntimeQuestionScopeBoundedEffectVerdict)}},
 							},
 							"required": []string{"scope"},
 						},
@@ -745,8 +745,8 @@ func buildEmitAnalysisSchema() {
 					},
 				},
 				"properties": map[string]any{
-					"scope":         map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
-					"fact_families": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by a bounded_fact_set. Use target_scheduler_state only for the target's scheduler-state presence/partition; target_wait_occurrences for a requested count/list/total of scheduler wait intervals (including a question that asks whether a target entered D/io-wait, how many times or when, and its recorded reason), never merely because a direct waker, wakeup event, or wakeup latency is requested; recorded_reason for a kernel/tool reason; occurrence_time; count_or_duration; relation_peer; transaction_id; direct_waker; resource_pressure; frequency_residency; or other_observed_value. Required and non-empty for bounded_fact_set; the schema forbids this field for every broader scope. These enums control only which exact fact cards may accompany the model answer; they never authorize a causal conclusion. If you emit target_scheduler_state + count_or_duration + recorded_reason/occurrence_time for one target wait question, also emit target_wait_occurrences; consumers preserve that semantic closure even if it is accidentally omitted."},
+					"scope":         map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
+					"fact_families": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by bounded_fact_set or bounded_effect_verdict. Use target_scheduler_state only for the target's scheduler-state presence/partition; target_wait_occurrences for a requested count/list/total of scheduler wait intervals (including a question that asks whether a target entered D/io-wait, how many times or when, and its recorded reason), never merely because a direct waker, wakeup event, or wakeup latency is requested; recorded_reason for a kernel/tool reason; occurrence_time; count_or_duration; relation_peer; transaction_id; direct_waker; resource_pressure; frequency_residency; or other_observed_value. Required and non-empty for both finite scopes; forbidden for broader scopes. These enums select exact fact cards and never decide an effect verdict. If you emit target_scheduler_state + count_or_duration + recorded_reason/occurrence_time for one target wait question, also emit target_wait_occurrences; consumers preserve that semantic closure even if it is accidentally omitted."},
 					"source_quote":  map[string]any{"type": "string", "description": "Optional audit anchor for a concrete runtime scope. Prefer the shortest contiguous exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview (for example, copy `卡顿原因`, not a paraphrase assembled from separated words). An empty or unanchored quote is dropped with a warning; scope/fact_families remain the typed contract."},
 					"confidence":    map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
 					"rationale":     map[string]any{"type": "string", "description": "Short audit rationale."},
@@ -4405,7 +4405,7 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, _ bool) (*types.RuntimeQuestionProfile, string, []string) {
 	if p == nil {
 		if runtimeArtifactCarrier {
-			return nil, "runtime_question_profile object missing — declare bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
+			return nil, "runtime_question_profile object missing — declare bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
 		}
 		return &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeNotApplicable}, "", nil
 	}
@@ -4447,9 +4447,9 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		Confidence: *p.Confidence,
 		Rationale:  strings.TrimSpace(p.Rationale),
 	}
-	if scope == types.RuntimeQuestionScopeBoundedFactSet {
+	if scope == types.RuntimeQuestionScopeBoundedFactSet || scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
 		if len(p.FactFamilies) == 0 {
-			return nil, "runtime_question_profile bounded_fact_set requires one or more fact_families; declare the requested observed value families instead of leaving principal-value publication ambiguous", nil
+			return nil, fmt.Sprintf("runtime_question_profile %s requires one or more fact_families; declare the requested observed value families instead of leaving principal-value publication ambiguous", scope), nil
 		}
 		seen := make(map[types.RuntimeQuestionFactFamily]bool, len(p.FactFamilies))
 		for _, rawFamily := range p.FactFamilies {
@@ -4463,7 +4463,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			}
 		}
 	} else if len(p.FactFamilies) > 0 {
-		return nil, "runtime_question_profile.fact_families is only valid with scope=bounded_fact_set", nil
+		return nil, "runtime_question_profile.fact_families is only valid with scope=bounded_fact_set or bounded_effect_verdict", nil
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil
@@ -4503,7 +4503,16 @@ func validateRuntimeQuestionProfileConsistency(
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
-		return "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension and switch only runtime_question_profile.scope to causal_diagnosis; omit bounded-only fact_families. This includes a requested verdict about whether an observed condition constrained/caused/affected runtime performance. The equivalent passive or binding form asks whether the target/performance was constrained, bound, or affected by that condition and is causal too. causal_diagnosis declares investigation/answer breadth, not a pre-decided causal conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Use relation_analysis instead only for a requested dependency/call/wakeup path, or system_overview for a broad trace report. Keep bounded_fact_set only when every requested dimension is a finite observed value and no causal verdict is requested. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
+		return "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one named condition-to-target verdict plus finite evidence; use causal_diagnosis and omit fact_families for root-cause/ranking, competing contributors, or a full causal investigation. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Use relation_analysis instead only for a requested dependency/call/wakeup path, or system_overview for a broad trace report. Keep bounded_fact_set only when every requested dimension is a finite observed value and no causal verdict is requested. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
+	}
+	if profile.Scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
+		if !requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
+			return "runtime_question_profile.scope=bounded_effect_verdict requires a required requested_answer_dimensions role=causal_attribution; use bounded_fact_set for finite observations without a target-effect verdict, or preserve the verdict dimension"
+		}
+		if intent == types.IntentRootCause || predicates.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause() || scenario == types.ScenarioRootCause {
+			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with a typed full root-cause/diagnostic request; use causal_diagnosis and omit fact_families so the chain/ranking investigation remains available"
+		}
+		return ""
 	}
 	if profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
 		return ""
@@ -4520,7 +4529,7 @@ func validateRuntimeQuestionProfileConsistency(
 	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
 		return ""
 	}
-	return "runtime_question_profile.scope=causal_diagnosis requires a typed diagnosis/attribution carrier (required requested_answer_dimensions role=causal_attribution, intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause/performance_bottleneck). An explain/yes-no request asking whether an observed runtime condition constrained/caused/bound/affected an outcome, including whether a target was constrained/bound/affected by that condition, must carry required role=causal_attribution; for a finite set of observed fields without that verdict use bounded_fact_set even when one field is a direct peer/transaction/waker relation, and for a requested caller/wakeup/IPC/dependency path or topology use relation_analysis"
+	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause/performance_bottleneck). A required causal_attribution dimension by itself may instead use bounded_effect_verdict with fact_families when it asks only one named condition-to-target verdict; use bounded_fact_set for finite observations without a verdict, and relation_analysis for a requested caller/wakeup/IPC/dependency path or topology"
 }
 
 func requestedAnswerDimensionsRequireCausalAttribution(profile *types.RequestedAnswerDimensionProfile) bool {
@@ -5051,14 +5060,22 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 		return nil, nil, "", nil
 	}
 	dimensions := make([]types.RequestedAnswerDimension, 0, len(p.Dimensions))
-	for _, dim := range p.Dimensions {
+	var roleWarnings []string
+	for i, dim := range p.Dimensions {
 		required := true
 		if dim.Required != nil {
 			required = *dim.Required
 		}
+		role, warning, errText := parseRequestedAnswerDimensionRole(dim.Role)
+		if errText != "" {
+			return nil, nil, fmt.Sprintf("requested_answer_dimensions.dimensions[%d].role %s", i, errText), nil
+		}
+		if warning != "" {
+			roleWarnings = append(roleWarnings, warning)
+		}
 		dimensions = append(dimensions, types.RequestedAnswerDimension{
 			Label:       dim.Label,
-			Role:        types.NormalizeRequestedAnswerDimensionRole(dim.Role),
+			Role:        role,
 			SourceQuote: dim.SourceQuote,
 			Required:    required,
 			Index:       dim.Index,
@@ -5070,8 +5087,32 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 		Confidence:          *p.Confidence,
 		Rationale:           p.Rationale,
 	})
+	warnings = append(roleWarnings, warnings...)
 	signals := types.CurrentSourceObligationSignalsFromRequestedDimensions(dimensions, profile)
 	return profile, signals, "", warnings
+}
+
+// parseRequestedAnswerDimensionRole absorbs one exact, schema-adjacent drift:
+// models sometimes copy a RuntimeQuestionFactFamily into the presentation-role
+// field. Those values are already closed typed enums, so mapping them to the
+// generic observed_value display role loses no runtime meaning (the specific
+// family remains in RuntimeQuestionProfile) and avoids a needless JSON retry.
+// Every other unknown non-empty role fails loud instead of silently becoming
+// other and erasing a required answer dimension's semantics.
+func parseRequestedAnswerDimensionRole(raw string) (types.RequestedAnswerDimensionRole, string, string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return types.RequestedAnswerDimensionOther, "", ""
+	}
+	role := types.RequestedAnswerDimensionRole(trimmed)
+	if role.IsValid() && role != types.RequestedAnswerDimensionUnknown {
+		return role, "", ""
+	}
+	if family := types.RuntimeQuestionFactFamily(trimmed); family.IsValid() {
+		return types.RequestedAnswerDimensionObservedValue,
+			fmt.Sprintf("requested_answer_dimensions normalized runtime fact-family role %q to observed_value; specific runtime semantics remain in runtime_question_profile.fact_families", trimmed), ""
+	}
+	return types.RequestedAnswerDimensionUnknown, "", fmt.Sprintf("%q is invalid; use one of %s", raw, strings.Join(requestedAnswerDimensionRoleValues(), ", "))
 }
 
 func requiredDiagramRequestedDimension(profile *types.RequestedAnswerDimensionProfile) bool {
@@ -7140,8 +7181,8 @@ const (
 
 // repairEmitAnalysisNonBoundedFactFamilies removes one provably redundant
 // cross-field carrier before strict decode. fact_families has consumers only
-// under bounded_fact_set; once the same typed object explicitly declares any
-// other valid scope, retaining the field cannot change the RequestModel and
+// under the two finite scopes; once the same typed object explicitly declares
+// any other valid scope, retaining the field cannot change the RequestModel and
 // only causes an avoidable retry. Invalid/missing scopes and bounded profiles
 // remain untouched so their existing fail-loud validation still owns them.
 func repairEmitAnalysisNonBoundedFactFamilies(raw json.RawMessage) (json.RawMessage, []string, bool) {
@@ -7165,7 +7206,7 @@ func repairEmitAnalysisNonBoundedFactFamilies(raw json.RawMessage) (json.RawMess
 		return raw, nil, false
 	}
 	scope := types.RuntimeQuestionScope(strings.TrimSpace(scopeRaw))
-	if !scope.IsValid() || scope == types.RuntimeQuestionScopeBoundedFactSet {
+	if !scope.IsValid() || scope == types.RuntimeQuestionScopeBoundedFactSet || scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
 		return raw, nil, false
 	}
 	delete(profile, "fact_families")

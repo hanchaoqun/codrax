@@ -121,6 +121,20 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedStateAndCount, TraceCausalProjectionSet{}) {
 		t.Fatal("count/duration without recorded_reason must not publish a blocked-reason census")
 	}
+	boundedEffect := boundedState
+	boundedEffect.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope: RuntimeQuestionScopeBoundedEffectVerdict,
+		FactFamilies: []RuntimeQuestionFactFamily{
+			RuntimeQuestionFactTargetSchedulerState,
+			RuntimeQuestionFactFrequencyResidency,
+		},
+	}
+	if RuntimeTraceReportMaterializationAllowed(&boundedEffect, withRoot) {
+		t.Fatal("one finite effect verdict must not publish a full root-cause projection even when exploration collected causal rows")
+	}
+	if !RuntimeTraceTargetStateMaterializationAllowed(&boundedEffect, withRoot) {
+		t.Fatal("bounded effect verdict must retain its explicitly requested observed fact card")
+	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("an explicit typed window must not widen a bounded relation fact set")

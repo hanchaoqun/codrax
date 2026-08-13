@@ -33,6 +33,12 @@ const (
 	RequestedAnswerDimensionBoundary       RequestedAnswerDimensionRole = "boundary"
 	RequestedAnswerDimensionDiagram        RequestedAnswerDimensionRole = "diagram"
 	RequestedAnswerDimensionStageWorkflow  RequestedAnswerDimensionRole = "stage_or_workflow"
+	// RequestedAnswerDimensionObservedValue is the generic visible lane for a
+	// finite runtime observation (state, time, count, frequency, pressure, or
+	// another measured value). The more specific runtime fact family remains in
+	// RuntimeQuestionProfile.FactFamilies; duplicating those enums here caused
+	// models to emit schema-invalid dimension roles that silently became other.
+	RequestedAnswerDimensionObservedValue RequestedAnswerDimensionRole = "observed_value"
 	// RequestedAnswerDimensionCausalAttribution identifies a current-request
 	// demand for causal attribution, including a verdict about whether an
 	// observed condition constrained, caused, or materially affected a runtime
@@ -60,6 +66,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionBoundary,
 		RequestedAnswerDimensionDiagram,
 		RequestedAnswerDimensionStageWorkflow,
+		RequestedAnswerDimensionObservedValue,
 		RequestedAnswerDimensionCausalAttribution,
 		RequestedAnswerDimensionOther,
 	}

@@ -408,7 +408,7 @@ func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
 			}
 		}
 		if profile != nil {
-			if !profile.BoundedFactSet() {
+			if !profile.CarriesBoundedFactFamilies() {
 				return false
 			}
 			for _, family := range profile.FactFamilies {

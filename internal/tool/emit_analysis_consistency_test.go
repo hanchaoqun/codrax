@@ -879,7 +879,7 @@ func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
 	if err := json.Unmarshal(propRaw, &prop); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"not_applicable", "bounded_fact_set", "causal_diagnosis", "relation_analysis", "system_overview", "unspecified"}
+	want := []string{"not_applicable", "bounded_fact_set", "bounded_effect_verdict", "causal_diagnosis", "relation_analysis", "system_overview", "unspecified"}
 	if !reflect.DeepEqual(prop.Properties["scope"].Enum, want) {
 		t.Fatalf("runtime_question_profile scope enum=%v want=%v", prop.Properties["scope"].Enum, want)
 	}

@@ -8,18 +8,20 @@ package types
 type RuntimeQuestionScope string
 
 const (
-	RuntimeQuestionScopeNotApplicable    RuntimeQuestionScope = "not_applicable"
-	RuntimeQuestionScopeBoundedFactSet   RuntimeQuestionScope = "bounded_fact_set"
-	RuntimeQuestionScopeCausalDiagnosis  RuntimeQuestionScope = "causal_diagnosis"
-	RuntimeQuestionScopeRelationAnalysis RuntimeQuestionScope = "relation_analysis"
-	RuntimeQuestionScopeSystemOverview   RuntimeQuestionScope = "system_overview"
-	RuntimeQuestionScopeUnspecified      RuntimeQuestionScope = "unspecified"
+	RuntimeQuestionScopeNotApplicable        RuntimeQuestionScope = "not_applicable"
+	RuntimeQuestionScopeBoundedFactSet       RuntimeQuestionScope = "bounded_fact_set"
+	RuntimeQuestionScopeBoundedEffectVerdict RuntimeQuestionScope = "bounded_effect_verdict"
+	RuntimeQuestionScopeCausalDiagnosis      RuntimeQuestionScope = "causal_diagnosis"
+	RuntimeQuestionScopeRelationAnalysis     RuntimeQuestionScope = "relation_analysis"
+	RuntimeQuestionScopeSystemOverview       RuntimeQuestionScope = "system_overview"
+	RuntimeQuestionScopeUnspecified          RuntimeQuestionScope = "unspecified"
 )
 
 func AllRuntimeQuestionScopes() []RuntimeQuestionScope {
 	return []RuntimeQuestionScope{
 		RuntimeQuestionScopeNotApplicable,
 		RuntimeQuestionScopeBoundedFactSet,
+		RuntimeQuestionScopeBoundedEffectVerdict,
 		RuntimeQuestionScopeCausalDiagnosis,
 		RuntimeQuestionScopeRelationAnalysis,
 		RuntimeQuestionScopeSystemOverview,
@@ -102,6 +104,20 @@ func (p *RuntimeQuestionProfile) BoundedFactSet() bool {
 	return p != nil && p.Scope == RuntimeQuestionScopeBoundedFactSet
 }
 
+// BoundedEffectVerdict reports a finite condition-to-target verdict. Unlike a
+// causal diagnosis, this shape does not request a root-cause roster, wakeup
+// chain, or system-wide causal projection. It keeps the requested observed
+// fact families beside the model-owned yes/no/mixed/unproven verdict.
+func (p *RuntimeQuestionProfile) BoundedEffectVerdict() bool {
+	return p != nil && p.Scope == RuntimeQuestionScopeBoundedEffectVerdict
+}
+
+// CarriesBoundedFactFamilies identifies the two finite runtime answer shapes
+// whose exact principal-value cards are selected by FactFamilies.
+func (p *RuntimeQuestionProfile) CarriesBoundedFactFamilies() bool {
+	return p != nil && (p.BoundedFactSet() || p.BoundedEffectVerdict())
+}
+
 // RequestsTargetWaitOccurrences resolves the typed semantic closure for a
 // bounded target-wait question. The analyzer should emit the dedicated
 // target_wait_occurrences family directly, but model emissions can describe
@@ -111,7 +127,7 @@ func (p *RuntimeQuestionProfile) BoundedFactSet() bool {
 // does not inspect request/answer prose and does not widen state-only,
 // count-only, or relation-only questions.
 func (p *RuntimeQuestionProfile) RequestsTargetWaitOccurrences() bool {
-	if p == nil || !p.BoundedFactSet() {
+	if p == nil || !p.CarriesBoundedFactFamilies() {
 		return false
 	}
 	has := make(map[RuntimeQuestionFactFamily]bool, len(p.FactFamilies))
@@ -131,7 +147,7 @@ func (p *RuntimeQuestionProfile) RequestsTargetWaitOccurrences() bool {
 // both axes prevents a reason-only question from inheriting extra numeric
 // cards and a count-only question from inheriting kernel-callsite detail.
 func (p *RuntimeQuestionProfile) RequestsBlockedReasonCensus() bool {
-	if p == nil || !p.BoundedFactSet() {
+	if p == nil || !p.CarriesBoundedFactFamilies() {
 		return false
 	}
 	hasReason, hasCountOrDuration := false, false

@@ -332,7 +332,7 @@ func traceWaitEvidenceIncludeUnboundWindowInventory(stage types.PipelineStage, i
 	switch profile.Scope {
 	case types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeRelationAnalysis:
 		return false
-	case types.RuntimeQuestionScopeBoundedFactSet:
+	case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
 		for _, family := range profile.FactFamilies {
 			switch family {
 			case types.RuntimeQuestionFactRecordedReason,

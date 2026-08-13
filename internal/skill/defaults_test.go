@@ -1154,7 +1154,7 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		"Runtime question scope (REQUIRED)",
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",
-		"do not relabel it as causal diagnosis merely because it asks for the recorded `reason`",
+		"Do not relabel a recorded `reason` or direct relation as causal by itself",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)
@@ -1198,10 +1198,11 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		}
 	}
 	for _, want := range []string{
-		"any required `causal_attribution` dimension",
+		"Every required `causal_attribution` dimension",
+		"`bounded_effect_verdict`",
 		"`causal_diagnosis`",
-		"forbids bounded-only `fact_families`",
-		"not a finding",
+		"does not request a root-cause roster, wakeup chain, or full Trace causal projection",
+		"Scope never pre-decides the finding",
 		"yes, no, mixed, or unproven",
 	} {
 		if !strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, want) {

@@ -37957,11 +37957,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    的绑定证据”，不能把后者缺失说成整类事件缺失。
 8. 本轮没有工具拒绝、JSON 降级、旧稿恢复或 active-stream 4ms 总年龄降级。显式时间窗、Trace
    自动补齐、链上-only 主因、邻近/背景 support-only、系统不代写模型结论均保持。
+9. B749 已施工，根因不是单次模型波动，而是两项相互强化的 typed 合同断层。其一，教学列出的
+   `frequency_residency/target_scheduler_state/count_or_duration` 属于 runtime fact-family enum，
+   `requested_answer_dimensions.role` 却不接受这些值；生产 parser 又把任意非法 role 静默降为
+   `other`，导致“有限观测值”和“条件对目标的影响判定”失去结构区分。其二，runtime scope 只有
+   `bounded_fact_set` 与全量 `causal_diagnosis` 两档，迫使有限 target-effect 问题在“丢掉判定”和
+   “错误扩大成根因榜/唤醒链/完整因果投影”之间二选一。
+10. 根修引入三档单调 breadth：`bounded_fact_set` 只承载有限观测；新增
+    `bounded_effect_verdict` 承载一个明确条件→一个指定目标的 yes/no/mixed/unproven 判定及非空
+    `fact_families`；`causal_diagnosis` 保持完整根因/排序/竞争贡献者/链分析。新档位明确不进入
+    `RequiresFullReport`，因此不会仅因 4ms、频率上限、某状态是否影响目标等有限问题生成全量
+    Trace 因果投影；但其请求的状态/等待/原因等 exact fact cards 继续由同一 typed family 权威
+    发布。显式时间窗与 causal_diagnosis 的既有根因编译/自动补齐路径未改。
+11. 可见维度新增通用 `observed_value`，具体运行时意义只留在 `fact_families`，避免两套 enum
+    互相冒充。JSON 兼容臂只对“已知 fact-family 被放进 role”这一精确闭集漂移自愈为
+    `observed_value` 并记录 warning；其他未知非空 role 改为 fail-loud，不再静默吞成 `other`。
+    `bounded_effect_verdict` 必须同时拥有 required `causal_attribution`，而 typed root-cause/
+    diagnostic 请求不得借新档缩窄，仍必须走 `causal_diagnosis`；全过程不扫描用户或模型正文。
+12. 产品/测试合同同步：schema 对两个有限档均要求非空 `fact_families`，非有限档禁止；新增真实
+    `emit_analysis` 正向 pin，证明有限频率影响判定能抵达 RequestModel 且不授权 full report；
+    新增 fact-family role 精确自愈/未知 role 拒绝 pin，以及有限 effect 在已有 causal rows 时仍不
+    物化根因投影、但保留 requested principal fact card 的 authority pin。旧 case 的固定标题
+    `EXPECT_CONTAINS=Trace 因果投影` 仍需在生产回放后改为校验“policy ceiling present；目标绑定
+    已证/未证”的 principal verdict，不能以标题替代内容。
 
 状态：
 
 `B748-CARRIEROPERATIONDISCOVERY1=unit-covered/production-partial`；
-`B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=confirmed/P1/pending`；
+`B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=implemented/three-tier-scope+schema+production-pins-pass`；
 `B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=implemented/parser-identity-pins-pass`；
 `B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=confirmed/P1/pending`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

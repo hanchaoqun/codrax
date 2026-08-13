@@ -16,7 +16,7 @@ func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed b
 		return true, true
 	}
 	if rm.RuntimeQuestionProfile != nil {
-		if rm.RuntimeQuestionProfile.BoundedFactSet() {
+		if rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() {
 			return true, false
 		}
 		if rm.RuntimeQuestionProfile.RequiresFullReport() {
@@ -80,7 +80,7 @@ func RuntimeTraceReportMaterializationAllowed(rm *RequestModel, set TraceCausalP
 // runtimeTraceBoundedFactFamilyMaterializationAllowed is the shared primitive
 // for independently authorized bounded principal-value families. A full
 // causal report may include them all. A narrow report may include only the
-// explicitly requested typed family; bounded breadth by itself is
+// explicitly requested typed family; finite breadth by itself is
 // insufficient because finite IPC peers, transaction IDs, direct wakers,
 // timestamps, and other facts do not ask for a scheduler-state card.
 //
@@ -94,7 +94,7 @@ func runtimeTraceBoundedFactFamilyMaterializationAllowed(
 	if RuntimeTraceReportMaterializationAllowed(rm, set) {
 		return true
 	}
-	if rm != nil && rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.BoundedFactSet() && len(rm.RuntimeQuestionProfile.FactFamilies) > 0 {
+	if rm != nil && rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() && len(rm.RuntimeQuestionProfile.FactFamilies) > 0 {
 		for _, requested := range rm.RuntimeQuestionProfile.FactFamilies {
 			for _, allowed := range families {
 				if requested == allowed {
@@ -106,7 +106,7 @@ func runtimeTraceBoundedFactFamilyMaterializationAllowed(
 	}
 	// Compatibility for old serialized RequestModels and focused synthetic
 	// fixtures created before fact_families existed. New analyzer emissions
-	// must declare at least one family for bounded_fact_set, so production
+	// must declare at least one family for either finite scope, so production
 	// requests do not enter this coarse legacy arm.
 	return rm != nil && IsFocusedRuntimeFactQuestion(*rm)
 }

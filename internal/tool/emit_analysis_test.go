@@ -543,9 +543,10 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 	} else {
 		for _, want := range []string{
 			"Preserve that required user-facing dimension",
-			"not a pre-decided causal conclusion",
+			"not a pre-decided conclusion",
 			"yes, no, mixed, or unproven",
 			"do not delete or relabel",
+			"bounded_effect_verdict",
 		} {
 			if !strings.Contains(issue, want) {
 				t.Fatalf("bounded causal retry guidance missing %q: %q", want, issue)
@@ -622,8 +623,25 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); !strings.Contains(issue, "constrained/caused/affected runtime performance") {
+	); !strings.Contains(issue, "condition-to-target verdict") {
 		t.Fatalf("bounded retry must teach the causal-verdict shape, got %q", issue)
+	}
+	boundedEffect := &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedEffectVerdict,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		boundedEffect,
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("finite condition-to-target verdict must not widen into full causal diagnosis: %q", issue)
+	}
+	if boundedEffect.RequiresFullReport() {
+		t.Fatal("bounded effect verdict must not authorize full root-cause projection")
 	}
 
 	measuredFrequency := &types.RequestedAnswerDimensionProfile{
@@ -685,6 +703,33 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	}
 	if !res.Success {
 		t.Fatalf("finite bounded relation facts must remain admissible: %q", res.Summary)
+	}
+
+	effectObjective := "CPU4 的 policy 上限是否限制了目标线程，证据是什么"
+	boundedEffect := strings.Replace(
+		bounded,
+		`"scope":"bounded_fact_set","fact_families":["relation_peer","transaction_id","direct_waker"]`,
+		`"scope":"bounded_effect_verdict","fact_families":["frequency_residency"]`,
+		1,
+	)
+	boundedEffect = strings.Replace(
+		boundedEffect,
+		`"completeness_obligation":`,
+		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"是否限制了目标线程","role":"causal_attribution","source_quote":"是否限制了目标线程","required":true},{"index":2,"label":"证据是什么","role":"evidence_source","source_quote":"证据是什么","required":true}]},"completeness_obligation":`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(effectObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"cpu_frequency_limits"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(boundedEffect))
+	if err != nil {
+		t.Fatalf("bounded-effect Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("finite condition-to-target verdict must be production-reachable without full diagnosis: %q", res.Summary)
+	}
+	effectProfile := ctx.Mutable.RequestModel().RuntimeQuestionProfile
+	if effectProfile == nil || !effectProfile.BoundedEffectVerdict() || effectProfile.RequiresFullReport() || len(effectProfile.FactFamilies) != 1 || effectProfile.FactFamilies[0] != types.RuntimeQuestionFactFrequencyResidency {
+		t.Fatalf("bounded effect profile not persisted at finite breadth: %+v", effectProfile)
 	}
 
 	causalObjective := "请按重要程度给出根因排序，并说明目标进程、transaction 编号和直接唤醒者"
@@ -823,17 +868,31 @@ func TestEmitAnalysisRuntimeQuestionSchemaPinsFactFamilyConditional(t *testing.T
 	conditional := allOf[0].(map[string]any)
 	ifBranch := conditional["if"].(map[string]any)
 	scope := ifBranch["properties"].(map[string]any)["scope"].(map[string]any)
-	if !reflect.DeepEqual(scope["enum"], []any{string(types.RuntimeQuestionScopeBoundedFactSet)}) {
+	if !reflect.DeepEqual(scope["enum"], []any{string(types.RuntimeQuestionScopeBoundedFactSet), string(types.RuntimeQuestionScopeBoundedEffectVerdict)}) {
 		t.Fatalf("conditional scope enum=%#v", scope["enum"])
 	}
 	thenRequired := conditional["then"].(map[string]any)["required"].([]any)
 	if !reflect.DeepEqual(thenRequired, []any{"fact_families"}) {
-		t.Fatalf("bounded_fact_set must require fact_families: %#v", thenRequired)
+		t.Fatalf("finite runtime scopes must require fact_families: %#v", thenRequired)
 	}
 	elseNot := conditional["else"].(map[string]any)["not"].(map[string]any)
 	elseRequired := elseNot["required"].([]any)
 	if !reflect.DeepEqual(elseRequired, []any{"fact_families"}) {
-		t.Fatalf("non-bounded scopes must forbid fact_families: %#v", elseRequired)
+		t.Fatalf("non-finite scopes must forbid fact_families: %#v", elseRequired)
+	}
+}
+
+func TestParseRequestedAnswerDimensionRoleSeparatesDisplayRoleFromRuntimeFactFamily(t *testing.T) {
+	role, warning, errText := parseRequestedAnswerDimensionRole("frequency_residency")
+	if errText != "" || role != types.RequestedAnswerDimensionObservedValue || !strings.Contains(warning, "specific runtime semantics remain") {
+		t.Fatalf("known runtime fact-family drift must normalize losslessly: role=%q warning=%q err=%q", role, warning, errText)
+	}
+	role, warning, errText = parseRequestedAnswerDimensionRole("causal_attribution")
+	if errText != "" || warning != "" || role != types.RequestedAnswerDimensionCausalAttribution {
+		t.Fatalf("valid display role changed: role=%q warning=%q err=%q", role, warning, errText)
+	}
+	if _, _, errText = parseRequestedAnswerDimensionRole("made_up_runtime_role"); !strings.Contains(errText, "is invalid") {
+		t.Fatalf("unknown role must fail loud instead of silently becoming other: %q", errText)
 	}
 }
 
