@@ -35649,6 +35649,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.761 r442：B729/B730 生产闭环；显式窗 causal 主车道与 bounded-fact 车道正交（2026-08-13）
+
+1. 在 `main@52ca49073` 严格并发恰好两个真实 Trace 案例：
+   `real_trace_h7_self_seat_full_spectrum + real_trace_h2_dstate_dma_fence_triform`。
+   Runner `2 PASS / 0 FAIL`，人工 `2 pass`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_scope_r442_20260813_manual_audit.md`。
+2. H2 的 typed structural oracle 明确签出 final projection blocks=0，同时完整发布 11 段
+   D-state/36.757ms 与独立 blocked_reason 12 条/Σ39.157ms；两种口径不能逐条配对或互换的
+   boundary 仍在。最终答案不再出现 `trace-query-result-*.json ↔ donghu.ftrace` 或任何跨工件
+   关系块，B730 的 producer-owned carrier→capture identity 传递获得生产正证。
+3. H7 同轮保持完整 Trace 因果投影：目标自身 running 原始占用 74.915ms 与供给折算可消
+   65.912ms 双轴并列；D-state 36.757ms、链上调度/优先级候选、业务 span 新修向与邻近
+   support-only 背景分层均未丢失。没有 bounded-fact 修复向 causal 主车道串扰。
+4. 两案均无 finalizer reject、patch、unavailable tool 或 prune；耗时由 r441 的 231s/281s
+   降至 134s/172s，H7 本轮零 read_file 直接消费 typed query，H2 虽仍有 3 次 payload read，
+   但没有把载荷误铸为第二工件。两条连接持续远超 4ms 并正常完成，未发生固定年龄降级。
+5. 人工仍观察到模型把 kernel callsite `dma_fence_default_w` 扩写为“等待 DMA fence 信号”，
+   尽管同页 typed boundary 已明确 resource object/holder 未证。这是连续软教学服从性问题，
+   不改变系统证据权限；继续用 prompt/typed context 引导，不扫描答案原文、不代写或删除模型结论。
+   H7 的 `frequency_thermal/io_dependency` 等内部方向 token 也作为低优先业务化展示债保留。
+
+状态：
+
+`B728-TARGETSCOPEDSUPPLEMENTFAMILIES1=production-positive-r440+r441+r442`；
+`B729-TARGETWAITPROMPTENGINECOMPLETENESS1=production-closed-r442`；
+`B730-DERIVEDRUNTIMEPAYLOADARTIFACTIDENTITY1=production-closed-r442`；
+`H2 trace-projection oracle=typed-structural-count/production-positive`；
+`active-stream-4ms-degrade=forbidden/134s+172s-positive`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r442`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.760 r441 与 B730：派生查询载荷被误认成独立工件；eval 裸词负门误咬正常 trace 进度（2026-08-13）
 
 1. 在 `main@eb4209365` 严格并发恰好两个真实 Trace 案例：
