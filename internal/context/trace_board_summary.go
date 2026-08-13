@@ -20,6 +20,7 @@ package context
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +72,19 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return ""
 	}
+	// B716 (2026-08-13): an explicit user window and explorer-selected
+	// drill-down windows are different authority domains.  Prefer the former
+	// only when the typed ledger proves that at least one seated rank record
+	// was actually measured on those exact endpoints.  This is deliberately a
+	// two-pass election: a missing requested-window measurement must preserve
+	// the old bounded board instead of erasing all runtime evidence.
+	requestedStart, requestedEnd, requestedWindow := 0.0, 0.0, false
+	if ledger.RuntimeArtifactScopeProfile != nil {
+		requestedStart, requestedEnd, requestedWindow = ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindow()
+	}
+	preferRequestedWindow := requestedWindow && traceBoardHasSeatedRequestedWindow(
+		ledger.Records, requestedStart, requestedEnd)
+	omittedSupportingWindows := false
 	var chain, adjacent []traceBoardRow
 	seenRows := map[string]bool{}
 	for _, record := range ledger.Records {
@@ -83,6 +97,16 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			// No board seat (context / symptom / data-gap / background rows)
 			// — the board summary carries seats only.
 			continue
+		}
+		if preferRequestedWindow {
+			windowStart, windowEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if !ok || !traceBoardSameWindow(windowStart, windowEnd, requestedStart, requestedEnd) {
+				// Keep the measurement in the observation ledger for audit and
+				// later evidence use, but do not present a narrower/other query
+				// board as a second principal ordering for the requested window.
+				omittedSupportingWindows = true
+				continue
+			}
 		}
 		row := traceBoardRow{
 			rank:       rank,
@@ -148,7 +172,15 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	// converted) is NOT a wall-clock measurement; the wording defers to each
 	// row's own published caliber word instead (soft teaching lane, never a
 	// gate).
-	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word published as the 中文 face with its English face in parentheses — one closed registry vocabulary behind both faces, copied verbatim as a pair (this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
+	if preferRequestedWindow {
+		b.WriteString(fmt.Sprintf("The measured root-cause board below is the single authoritative ordering for the explicitly requested window %.6f..%.6f. ", requestedStart, requestedEnd))
+	} else {
+		b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. ")
+	}
+	b.WriteString("State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word published as the 中文 face with its English face in parentheses — one closed registry vocabulary behind both faces, copied verbatim as a pair (this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
+	if omittedSupportingWindows {
+		b.WriteString("Measurements from exploratory or narrower query windows remain available in the evidence ledger but are omitted from this principal requested-window board; never add or compare their raw durations across windows.\n")
+	}
 	writeRow := func(row traceBoardRow, channelWord string) {
 		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f · cross_seat_aggregation_authority=forbidden", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		if row.tgid != "" {
@@ -199,6 +231,29 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func traceBoardHasSeatedRequestedWindow(records []types.ObservationRecord, requestedStart, requestedEnd float64) bool {
+	for _, record := range records {
+		if record.Producer != "trace_query" || !strings.Contains(record.ID, "#root_cause_rank:") {
+			continue
+		}
+		notes := traceBoardNoteMap(record.RichNotes)
+		rank, _ := strconv.Atoi(notes[types.TraceNoteKeyRank])
+		if rank <= 0 {
+			continue
+		}
+		start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if ok && traceBoardSameWindow(start, end, requestedStart, requestedEnd) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceBoardSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
+	return math.Abs(aStart-bStart) <= types.TraceCausalProjectionSameWindowToleranceS &&
+		math.Abs(aEnd-bEnd) <= types.TraceCausalProjectionSameWindowToleranceS
 }
 
 func traceBoardRowIdentity(row traceBoardRow) string {

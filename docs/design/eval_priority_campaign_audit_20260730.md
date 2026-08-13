@@ -35774,6 +35774,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.746 r429 与 B716：必需图权威复正；显式用户窗成为唯一主排序上下文（2026-08-13）
+
+1. 在 `main@be1662328` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，人工
+   `0 pass / 1 partial / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r429_20260813_manual_audit.md`。
+   两条请求分别持续 259s/298s，期间持续有字节/工具进展；4ms 内没有完整答案不触发降级，均交付
+   模型答案。
+2. B715 获生产正证：逻辑案例从 route 到 Analyzer 都保持 `diagram_required=true`，四次关系修补后
+   required Mermaid 仍在，repair 不再把图降为 optional，也没有删除图。由此关闭“工具投影丢失
+   presentation authority”链路；required 只保证载体存在，关系仍须逐边 typed 证据，红线未放宽。
+3. 人工图仍 FAIL：最终只有四阶段 precedence 与两条局部 helper 调用，未形成用户点名的四阶段和
+   BusContext/Mutable 数据流；正文却宣称完整共享状态传递。现有门只要求每个 incident-required
+   participant 各自碰到某条边，多个互不相连子图也可共同签绿。新立 B718（P1/high）：按 typed
+   `predicate_axis=flow + relation_scope + incident-required roster` 审计请求关系的拓扑完备性或诚实
+   unproven 边界；不得按答案/请求关键词、节点相似度补边，不由系统画图或改写结论。
+4. Trace r429 的四次查询都保持显式用户窗，所以未再复现 r428 的嵌套窗加总；但早期
+   `Runtime Trace Root-Cause Board` 的实现缺陷仍由 r428 生产日志和代码确定性证实：
+   `ObservationLedger.RuntimeArtifactScopeProfile` 已携精确用户窗，formatter 却忽略它并把所有
+   query 的 `#1/#2` 统称“本轮唯一权威排序”。B716 根修在该唯一 formatter 做两阶段选举：只有当
+   至少一个 seated rank record 的 typed `selected_window` 与 validated explicit window 在共同
+   ±1ms 容差内一致时，principal board 才只发布该窗；其它探查窗仍留在 ledger，增加一条跨窗
+   不可相加的支持证据说明。若尚无精确用户窗实测则保留原有有界 board，禁止过滤成空或冒充已测。
+5. B716 只消费 schema-valid `RuntimeArtifactScopeProfile`、typed rank 和 typed `selected_window`，
+   不读取 raw request、thinking 或 final prose。formatter 单元 pin 和完整
+   AnalysisIR→ObservationLedger→AgentContext 生产接线 pin 均通过；context/types/orchestrator/agent
+   套件全绿。最终 Trace 因果投影、自动补齐、链上-only 选举、邻近/背景以及占用/规则可消双轴均未改。
+6. Trace 人工仍仅 partial：模型把同窗不同席位的 65.912ms+36.757ms 写成 102.669ms，又把多条反转
+   候选求和成约 7.67ms，尽管输入板已逐席发布 `cross_seat_aggregation_authority=forbidden`。这是
+   独立 B717（P1/context）观察；先审计其它 typed 教学是否同时要求“量化结论/total”，不得按这些
+   数字或答案词面新增硬门，也不得由系统删改模型结论。
+
+状态：
+
+`B715-PRESENTATIONAUTHORITYTOOLPROJECTION1=production-closed-r429`；
+`B716-TRACECANONICALWINDOWCONTEXT1=implemented/typed-requested-window+fail-open-pins-pass/pending-production-replay`；
+`B717-TRACECROSSSEATPROSESUM1=confirmed/P1/context-audit-next`；
+`B718-REQUESTEDFLOWTOPOLOGYCOMPLETENESS1=confirmed/P1/generic-design-required`；
+`active-stream-4ms-degrade=forbidden/259s+298s-production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.745 r428：必需图权威在工具投影中丢失；Trace 多窗账被模型误加（2026-08-13）
 
 1. 在 `main@f46ec8952` 严格并发恰好两个案例：

@@ -214,3 +214,107 @@ func TestTraceRootCauseBoardSummarySilentWithoutTraceObservations(t *testing.T) 
 		t.Fatalf("non-trace runs must not render a board summary: %q", got)
 	}
 }
+
+// B716: a user-requested window is the principal answer universe. Explorer
+// drill-down queries remain useful evidence, but their independent #1/#2
+// boards must not be co-presented as one authoritative ordering. The filter
+// reads only the validated scope profile and typed selected_window notes.
+func TestTraceRootCauseBoardSummaryPrefersExplicitRequestedWindow(t *testing.T) {
+	start, end := 13762.791708, 13763.024898
+	ledger := traceBoardTestLedger()
+	ledger.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "13762.791708s 到 13763.024898s",
+	}
+	ledger.Records[0].RichNotes = append(ledger.Records[0].RichNotes,
+		"selected_window=13762.791708..13763.024898")
+	ledger.Records[1].RichNotes = append(ledger.Records[1].RichNotes,
+		"selected_window=13762.930000..13763.024898")
+	ledger.Records[4].RichNotes = append(ledger.Records[4].RichNotes,
+		"selected_window=13762.791708..13763.024898")
+
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	for _, want := range []string{
+		"single authoritative ordering for the explicitly requested window 13762.791708..13763.024898",
+		"CompThread_0-2955",
+		"adj-5",
+		"exploratory or narrower query windows remain available in the evidence ledger",
+		"never add or compare their raw durations across windows",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("requested-window board missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "keva-1-17437") {
+		t.Fatalf("narrower-window seat must stay out of the principal requested-window board:\n%s", summary)
+	}
+}
+
+func TestTraceRootCauseBoardSummaryPreservesEvidenceWhenRequestedWindowWasNotMeasured(t *testing.T) {
+	start, end := 10.0, 11.0
+	ledger := traceBoardTestLedger()
+	ledger.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "10.0s 到 11.0s",
+	}
+	for i := range ledger.Records {
+		ledger.Records[i].RichNotes = append(ledger.Records[i].RichNotes,
+			"selected_window=10.200000..10.800000")
+	}
+
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	if !strings.Contains(summary, "CompThread_0-2955") || !strings.Contains(summary, "keva-1-17437") {
+		t.Fatalf("absence of an exact requested-window board must preserve bounded runtime evidence:\n%s", summary)
+	}
+	if strings.Contains(summary, "single authoritative ordering for the explicitly requested window") {
+		t.Fatalf("an unmeasured requested window must not be claimed as measured authority:\n%s", summary)
+	}
+}
+
+// This production-shaped pin holds the complete builder wiring: accepted
+// AnalysisIR scope -> ObservationLedger -> AgentContext root-cause board.
+// Deleting the scope carrier from either ledger adapter or board formatter
+// must fail here even if the formatter-only tests still compile.
+func TestBuildAgentContextTraceBoardUsesRequestedWindowAuthority(t *testing.T) {
+	start, end := 20.0, 21.0
+	record := func(id, subject, value, window string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Subject: subject,
+			Predicate: "root_cause_primary", Object: "running", Confidence: 0.8,
+			RichNotes: []string{
+				"rank=1", "tier=primary", "chain_relevance=on_chain",
+				"effective_impact_ms=" + value, "selected_window=" + window,
+			},
+		}
+	}
+	bus := &types.BusContext{
+		RepoRoot: "/tmp/repo",
+		Mutable:  types.NewMutableState("explicit-window trace question"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start,
+				TimeEnd:        &end,
+				SourceQuote:    "20.0s 到 21.0s",
+			},
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true,
+			Observations: []types.ObservationRecord{
+				record("trace_query:full#root_cause_rank:1", "requested-window-seat", "8.000", "20.000000..21.000000"),
+				record("trace_query:narrow#root_cause_rank:1", "drilldown-window-seat", "5.000", "20.500000..21.000000"),
+			},
+		}},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if !strings.Contains(ac.TraceRootCauseBoard, "requested-window-seat") ||
+		strings.Contains(ac.TraceRootCauseBoard, "drilldown-window-seat") {
+		t.Fatalf("builder must publish only the measured requested-window board:\n%s", ac.TraceRootCauseBoard)
+	}
+}
