@@ -13,6 +13,40 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestTraceQueryTopRunningObservationDeclaresBucketNotSubjectTotal(t *testing.T) {
+	stats := tracequery.WindowStats{
+		Window: tracequery.TimeWindow{StartTs: 10, EndTs: 11},
+		TopRunning: []tracequery.ThreadDuration{{
+			Thread:     tracequery.ThreadRef{Comm: "app", PID: 42},
+			DurationMs: 40, CPU: 4, Frequency: 1000000,
+			StartTs: 10.1, EndTs: 10.8, LineStart: 10, LineEnd: 20,
+		}},
+	}
+	rows := traceQueryTypedWindowStatsObservations(stats, types.ObservationSourceRef{}, "scope", "now")
+	var row *types.ObservationRecord
+	for i := range rows {
+		if rows[i].Predicate == "running_time" {
+			row = &rows[i]
+			break
+		}
+	}
+	if row == nil {
+		t.Fatal("missing top_running typed observation")
+	}
+	joined := strings.Join(row.RichNotes, " ")
+	for _, want := range []string{
+		"duration_aggregation_authority=ranked_bucket_not_complete_subject_total",
+		"subject_total_authority=target_window_states_or_full_uncapped_subject_aggregation_only",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("top-running authority missing %q: %+v", want, row.RichNotes)
+		}
+	}
+	if !strings.Contains(row.Summary, "not a complete subject total") {
+		t.Fatalf("top-running summary still implies a complete total: %q", row.Summary)
+	}
+}
+
 // TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps pins the
 // A1 contract: the typed result product is published as ObservationRecord
 // rows attached to the ToolResult, including evidence-pack facts beyond the

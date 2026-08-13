@@ -1198,6 +1198,15 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 			t.Fatalf("runtime causal teaching missing non-prejudgment guidance %q", want)
 		}
 	}
+	for _, want := range []string{
+		"ENTIRE principal answer is one scalar",
+		"mixed/dimensioned answer merely includes one duration, count, percentage, or total",
+		"BEFORE deciding bounded versus causal breadth",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis teaching missing mixed-answer precedence %q", want)
+		}
+	}
 }
 
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {

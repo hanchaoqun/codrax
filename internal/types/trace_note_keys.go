@@ -1758,6 +1758,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyActualSleep, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyActualDState, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyActualIOWait, "state", TraceNoteCarrierSoftConsumer},
+	// B742 (2026-08-13): top-state observations are ranked buckets, never a
+	// complete subject account. These display-only authority disclosures keep
+	// the model from adding capped/per-CPU buckets as though they were the
+	// target total; no deterministic gate or causal rank consumes them.
+	{"duration_aggregation_authority", "state", TraceNoteCarrierDisplayOnly},
+	{"subject_total_authority", "state", TraceNoteCarrierDisplayOnly},
 	{"state", "state", TraceNoteCarrierDisplayOnly},
 
 	// 周期族 (VS-1).

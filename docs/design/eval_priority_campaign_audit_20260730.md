@@ -35649,6 +35649,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
+
+1. 在 `main@4c93c33a6` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + data_json_strict_ids`。Runner 与人工均为 `1 PASS / 1 FAIL`；
+   工件见 `eval/parallel_selected_summary_evalcampaign_trace_json_replay_r455_20260813.md` 与 manual audit。
+2. B739 的被动 binding 语义已经进入 Analyzer prompt，但生产回放确认了更上游的顺序 gap：教学先要求
+   “若边界窄且能直接查字段则 bounded”，模型随即冻结 `bounded_fact_set`；“实际绑定/影响目标属于
+   causal verdict”位于后文，无法再推翻先前承诺。登记 `B739B-CAUSALTEACHINGPRECEDENCE1/P0`：共享教学必须在
+   bounded/causal 二选一之前出现；这是合同优先级修复，不解析用户原文，也不由系统替模型改 classification。
+3. 新确认 `B741-MIXEDDIMENSIONSCALARITY1/P0`。题目同时要求实际耗时、状态分布和频率限制证据，但 Analyzer
+   仅因其中一个子维度是时长，就把整题铸成 `is_scalar_answer=true,is_count_question=true`。通用合同改为：仅当
+   **整个 principal answer** 是一个标量时才为 scalar/count；包含时长、数量或百分比的多维答案不得整体降成
+   scalar。Prompt、tool schema 与一致性 pin 同源更新，不根据题型关键词硬判。
+4. 新确认 `B742-TOPSTATEBUCKETAUTHORITY1/P0`。本轮权威复合统计给出
+   `target_window_states.running=157.248ms`；`top_running` 的 96.081ms 与 35.960ms 是按 CPU/频率排序的桶，
+   旧 observation 却笼统称为 selected-window running time，模型将两桶与尾段相加成 132.300ms，造成四状态不守恒。
+   所有 Running/Runnable/Sleep/D/IO top family 统一声明
+   `duration_aggregation_authority=ranked_bucket_not_complete_subject_total`，完整目标总量只来自
+   `target_window_states` 或未截断的 subject aggregation。系统只提供 typed 权威，不重写模型算术或结论。
+5. JSON 同案本轮 44s、一轮、零修复严格通过。r454 的 335s/8 轮并非确定性系统失败，
+   `B740-DATAACTIONSCHEMAMENTALLOAD1` 降为 P2 观察；不得为单个 JSON case 添加硬捷径，后续仅在异构数据案
+   重复出现同一 typed action/schema 失败时再施工通用 action capsule。
+6. 当前批不改 Read/Write/diagram 关系模型，不改投影编译、自动补采、主因选举或流式终止。Trace 主因仍只来自
+   typed 链；邻近/背景只作排查支撑。活跃流在 4ms 没有答案不得降级，恢复/结束权仍仅来自明确
+   cancel/deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B739-PASSIVEBINDINGCAUSALROLE1=semantic-content-positive-r455/ordering-gap-split-to-B739B`；
+`B739B-CAUSALTEACHINGPRECEDENCE1=implemented/prompt-order-pins-pass/pending-production-replay`；
+`B741-MIXEDDIMENSIONSCALARITY1=implemented/prompt+schema-pins-pass/pending-production-replay`；
+`B742-TOPSTATEBUCKETAUTHORITY1=implemented/all-state-family-pins-pass/pending-production-replay`；
+`B740-DATAACTIONSCHEMAMENTALLOAD1=observation/P2/non-deterministic-r455`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B739B-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.773 r454：空白 provenance 闭环；被动 binding 语义仍被窄化（2026-08-13）
 
 1. 在 `main@65de67b64` 严格并发恰好两个案例：

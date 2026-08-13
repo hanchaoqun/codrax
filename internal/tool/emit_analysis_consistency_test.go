@@ -111,6 +111,17 @@ func TestEmitAnalysisSchemaUsesRuntimeCausalAttributionTeachingSSOT(t *testing.T
 	if strings.Count(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
 		t.Fatalf("dimension-role schema must embed causal SSOT exactly once: %q", roleDescription)
 	}
+	predicates := parsed.Properties["predicates"].(map[string]any)
+	predicateProperties := predicates["properties"].(map[string]any)
+	for field, want := range map[string]string{
+		"is_scalar_answer":  "ENTIRE principal answer",
+		"is_count_question": "mixed/dimensioned answer merely includes one duration, count, percentage, or total",
+	} {
+		description := predicateProperties[field].(map[string]any)["description"].(string)
+		if !strings.Contains(description, want) {
+			t.Fatalf("%s schema description lost mixed-answer boundary %q: %q", field, want, description)
+		}
+	}
 }
 
 func TestEmitAnalysisExecutorRejectsProviderSchemaRequiredFieldOmission(t *testing.T) {

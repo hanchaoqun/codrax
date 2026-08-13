@@ -215,6 +215,7 @@ var traceNoteKeyGoldenRows = []string{
 	// §29.50.5 (v5 P1 批 件②, 2026-07-13): proof-partition honest remainder.
 	"dstate_cause_unproven_remainder|state|hard_consumer",
 	"duration|impact|display_only",
+	"duration_aggregation_authority|state|display_only",
 	"edge_count|causal_rank|display_only",
 	"edges|chain_path|display_only",
 	"effective_impact|impact|hard_consumer",
@@ -583,6 +584,7 @@ var traceNoteKeyGoldenRows = []string{
 	"subject_state_running|blocking|display_only",
 	"subject_state_sleep|blocking|display_only",
 	"subject_state_total|blocking|display_only",
+	"subject_total_authority|state|display_only",
 	"supply_fold_deficit_ms|supply_fold|hard_consumer",
 	"supply_fold_ideal_ms|supply_fold|hard_consumer",
 	"supply_ratio|compute_supply|soft_consumer",

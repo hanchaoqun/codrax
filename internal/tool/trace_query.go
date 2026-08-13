@@ -12432,11 +12432,11 @@ func traceQueryTypedVsyncGeneratorCensusObservations(census *tracequery.VsyncGen
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, stats.Window, ref, scope, at, "top_running", "running_time", "running", "selected-window running time", 0.70)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, stats.Window, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "selected-window runnable wait", 0.75)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window non-IO D-state wait", 0.80)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, stats.Window, ref, scope, at, "top_running", "running_time", "running", "ranked selected-window running bucket (not a complete subject total)", 0.70)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, stats.Window, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "ranked selected-window runnable bucket (not a complete subject total)", 0.75)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "ranked selected-window sleep bucket (not a complete subject total)", 0.76)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "ranked selected-window non-IO D-state bucket (not a complete subject total)", 0.80)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "ranked selected-window IO-wait bucket (not a complete subject total)", 0.82)...)
 	// 件1 census 根修 (2026-07-13): the pid-keyed blocked_reason census —
 	// per-caller 符号×count×Σms off the FULL accumulator — reaches the
 	// ledger so the model evidence feed never re-derives it from truncated
@@ -13924,6 +13924,8 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			// these predicates stay outside the CMP-2 anchor whitelist —
 			// display/cross-reference carrier only, never an anchor.
 			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
+			{"duration_aggregation_authority", "ranked_bucket_not_complete_subject_total"},
+			{"subject_total_authority", "target_window_states_or_full_uncapped_subject_aggregation_only"},
 		})
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
