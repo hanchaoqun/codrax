@@ -4,14 +4,15 @@ package types
 // inherently request a full system-authored trace report. A nil request model
 // preserves legacy/synthetic render paths.
 //
-// Explicit typed windows have the highest authority so causal projection,
-// root ranking, wakeup chains, removable work, and automatic supplementation
-// remain available regardless of a noisy analyzer scenario label.
+// Question breadth and artifact range are orthogonal. A validated
+// RuntimeQuestionProfile is the higher-fidelity answer-shape authority: a
+// bounded fact set stays bounded even when the user also supplies exact time
+// endpoints, while causal/relation/overview requests retain the full report.
+// The explicit-window fallback remains for legacy serialized RequestModels
+// that predate that profile so noisy historical intent/scenario labels do not
+// suppress causal projection.
 func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed bool) {
 	if rm == nil {
-		return true, true
-	}
-	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
 		return true, true
 	}
 	if rm.RuntimeQuestionProfile != nil {
@@ -21,6 +22,9 @@ func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed b
 		if rm.RuntimeQuestionProfile.RequiresFullReport() {
 			return true, true
 		}
+	}
+	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+		return true, true
 	}
 	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain ||
 		rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {

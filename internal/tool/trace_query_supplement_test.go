@@ -137,14 +137,15 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	ctx.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
 	ctx.AnalysisIR.RequestModel.DiagnosticProfile.IsDiagnostic = true
 	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
-		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState},
 	}
 	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
 		t.Fatalf("declared bounded fact set must outrank root-cause/diagnostic labels, got %v", got)
 	}
 }
 
-func TestTraceSupplementExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T) {
+func TestTraceSupplementLegacyExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T) {
 	start, end := 13762.791708, 13763.024898
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("windowed runtime state fact"),
@@ -169,6 +170,64 @@ func TestTraceSupplementExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T
 	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
 	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
 		t.Fatalf("exact user window must retain causal supplement families, got %v", got)
+	}
+}
+
+func TestTraceSupplementTypedBoundedExplicitWindowDStateUsesNarrowFamilies(t *testing.T) {
+	start, end := 13762.791708, 13763.024898
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("windowed bounded runtime state fact"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			PredicateAxis: types.AxisCondition,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindThread, PID: 2955, Thread: "CompThread_0",
+			}},
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start,
+				TimeEnd:        &end,
+				SourceQuote:    "typed-window-witness",
+			},
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope: types.RuntimeQuestionScopeBoundedFactSet,
+				FactFamilies: []types.RuntimeQuestionFactFamily{
+					types.RuntimeQuestionFactTargetSchedulerState,
+					types.RuntimeQuestionFactTargetWaitOccurrences,
+					types.RuntimeQuestionFactRecordedReason,
+					types.RuntimeQuestionFactCountOrDuration,
+				},
+			},
+		}},
+	}
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("typed bounded exact-window D-state facts must request only window_stats, got %v", got)
+	}
+	present := traceSupplementFamilyPresence{WindowStates: true, BlockedReasonCensus: true}
+	if got := traceSupplementViewsForRequest(ctx, present, false, false); len(got) != 0 {
+		t.Fatalf("complete typed bounded D-state facts must not trigger a causal supplement, got %v", got)
+	}
+}
+
+func TestTraceSupplementTypedBoundedDStateFallbackDoesNotNeedKeywords(t *testing.T) {
+	ctx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope: types.RuntimeQuestionScopeBoundedFactSet,
+				FactFamilies: []types.RuntimeQuestionFactFamily{
+					types.RuntimeQuestionFactTargetWaitOccurrences,
+					types.RuntimeQuestionFactRecordedReason,
+				},
+			},
+		}},
+	}
+	if !traceSupplementDStateFallbackWanted(ctx, traceSupplementFamilyPresence{}) {
+		t.Fatal("typed wait/reason families must request their narrow census without analyzer keyword authority")
+	}
+	complete := traceSupplementFamilyPresence{WindowStates: true, BlockedReasonCensus: true}
+	if traceSupplementDStateFallbackWanted(ctx, complete) {
+		t.Fatal("complete typed wait/reason families must not request another fallback")
 	}
 }
 
@@ -359,8 +418,8 @@ func TestTraceSupplementBoundedRelationDoesNotInheritCausalFamilies(t *testing.T
 		SourceQuote:    "3.0..3.2",
 	}
 	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
-	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
-		t.Fatalf("explicit window must outrank bounded breadth and retain causal supplement: %v", got)
+	if len(got) != 0 {
+		t.Fatalf("explicit window must not widen a bounded relation into causal supplement views: %v", got)
 	}
 }
 

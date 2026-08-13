@@ -370,10 +370,10 @@ func TestBoundedRuntimeFactSuppressesOnlyCausalCoverageDebt(t *testing.T) {
 		TimeEnd:        &end,
 		SourceQuote:    "10.0..10.1",
 	}
-	if got := degradedTerminationSystemCaveat(o); !strings.Contains(got, "未执行") {
-		t.Fatalf("explicit-window causal-capable shape must retain follow-up disclosure: %q", got)
+	if got := degradedTerminationSystemCaveat(o); got != "" {
+		t.Fatalf("explicit-window bounded facts must not inherit causal follow-up disclosure: %q", got)
 	}
-	if got := strings.Join(completionCaveatLaneSystemCaveats(o), "\n"); !strings.Contains(got, "唤醒者") {
-		t.Fatalf("explicit-window shape must retain wakeup-drill disclosure: %q", got)
+	if got := strings.Join(completionCaveatLaneSystemCaveats(o), "\n"); strings.Contains(got, "唤醒者") {
+		t.Fatalf("explicit-window bounded facts must suppress wakeup-drill disclosure: %q", got)
 	}
 }

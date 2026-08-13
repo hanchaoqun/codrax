@@ -647,7 +647,8 @@ func IsNarrowRuntimeArtifactFactShape(rm RequestModel) bool {
 	// return_value, trace/mechanism, and root_cause/conditional. Once the
 	// analyzer has explicitly declared bounded_fact_set, those noisy labels
 	// cannot widen report authority. Explicit user windows remain a stronger
-	// positive authority in RuntimeTraceReportShapeAuthority.
+	// legacy positive authority in RuntimeTraceReportShapeAuthority when the
+	// dedicated question-breadth profile is absent.
 	if rm.RuntimeQuestionProfile != nil {
 		if rm.RuntimeQuestionProfile.BoundedFactSet() {
 			return true

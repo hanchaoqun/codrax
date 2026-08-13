@@ -396,8 +396,8 @@ func TestTraceObservationDrillRetryLensActive_ConditionAxes(t *testing.T) {
 		TimeEnd:        &end,
 		SourceQuote:    "10.0..10.1",
 	}
-	if !lens(boundedRelation) {
-		t.Fatal("explicit user window must retain the heavy causal drill")
+	if lens(boundedRelation) {
+		t.Fatal("explicit user window must not widen bounded facts into the heavy causal drill")
 	}
 
 	// Axis (P1-1): typed current-source requirement on the request → lens

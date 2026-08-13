@@ -1232,10 +1232,12 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 // decide report publication without consulting the observation ledger.
 //
 // Precedence matters:
-//   - an exact user-authored time window always retains the full report and
-//     causal projection, regardless of analyzer label variation;
-//   - a focused target fact stays narrow even when incidental trace queries
-//     happened to collect causal-looking rows;
+//   - a validated bounded-fact declaration stays narrow even with an exact
+//     user-authored time window; range does not imply causal answer breadth;
+//   - causal/relation/overview profiles retain the full report, including for
+//     exact windows, regardless of legacy analyzer label variation;
+//   - without a question-breadth profile, an exact window remains the legacy
+//     positive fallback;
 //   - typed diagnostic/root-cause/call-chain shapes retain the full report;
 //   - generic artifact coverage/comparison shapes remain undecided here and
 //     must prove publication-grade causal rows in the compiled ledger.

@@ -109,8 +109,21 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 		SourceQuote:    "34579.45..34579.50",
 	}
 	if !runtimeTraceFullReportMaterializationAllowed(bus) {
-		t.Fatal("exact explicit-window explain/mechanism must retain full trace report authority regardless of diagnostic-label variation")
+		t.Fatal("legacy exact-window explain/mechanism must retain full trace report authority when no breadth profile exists")
 	}
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactTargetSchedulerState,
+		},
+	}
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("typed bounded facts must remain narrow inside an exact window")
+	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("typed exact-window state facts must retain their requested principal values")
+	}
+	rm.RuntimeQuestionProfile = nil
 
 	rm.RuntimeArtifactScopeProfile.SourceQuote = ""
 	if runtimeTraceFullReportMaterializationAllowed(bus) {

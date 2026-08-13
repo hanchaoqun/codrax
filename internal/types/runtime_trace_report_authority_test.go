@@ -93,11 +93,11 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 		t.Fatal("a target-wait roster must retain only its own principal-value lane")
 	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
-	if !RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
-		t.Fatal("an explicit typed window must still outrank a bounded relation fact set")
+	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
+		t.Fatal("an explicit typed window must not widen a bounded relation fact set")
 	}
-	if !RuntimeTracePrincipalValueMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
-		t.Fatal("an explicit typed window must retain target-state principal values inside the full report")
+	if RuntimeTracePrincipalValueMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
+		t.Fatal("an explicit typed window must not invent unrequested target-state principal values")
 	}
 
 	focusedConditional := *generic
@@ -125,8 +125,8 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 
 	// The dedicated v17 breadth declaration outranks unstable legacy labels:
 	// the same bounded fact request has appeared as root_cause+diagnostic in
-	// real replays. Explicit windows remain stronger positive authority;
-	// relation shape is orthogonal and only widens when breadth is not bounded.
+	// real replays. Artifact range is orthogonal; relation shape only widens
+	// when breadth is not bounded.
 	declaredFactSet := rootCause
 	declaredFactSet.Scenario = ScenarioRootCause
 	declaredFactSet.Predicates.IsDiagnosticQuestion = true
@@ -139,8 +139,8 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 		t.Fatal("declared bounded fact set must outrank root-cause/diagnostic label variance")
 	}
 	declaredFactSet.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
-	if !RuntimeTraceReportMaterializationAllowed(&declaredFactSet, TraceCausalProjectionSet{}) {
-		t.Fatal("explicit typed window must still outrank a bounded fact-set declaration")
+	if RuntimeTraceReportMaterializationAllowed(&declaredFactSet, TraceCausalProjectionSet{}) {
+		t.Fatal("explicit typed window must not outrank a bounded fact-set declaration")
 	}
 
 	missingTargetScalar := *generic
@@ -155,6 +155,10 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	declaredCausal.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeCausalDiagnosis}
 	if !RuntimeTraceReportMaterializationAllowed(&declaredCausal, TraceCausalProjectionSet{}) {
 		t.Fatal("declared causal diagnosis must retain a full-report authority boundary despite scalar label noise")
+	}
+	declaredCausal.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
+	if !RuntimeTraceReportMaterializationAllowed(&declaredCausal, TraceCausalProjectionSet{}) {
+		t.Fatal("declared causal diagnosis with an explicit window must retain the full report")
 	}
 	missingTargetScalar.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if !RuntimeTraceReportMaterializationAllowed(&missingTargetScalar, TraceCausalProjectionSet{}) {

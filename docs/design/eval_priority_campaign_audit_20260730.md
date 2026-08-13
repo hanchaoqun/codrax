@@ -35649,6 +35649,59 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.757 r438 与 B727：artifact range 越权决定 answer breadth（2026-08-13）
+
+1. 在 `main@d834885f2` 严格并发恰好两个 Trace 案例：
+   `real_trace_h7_self_seat_full_spectrum + real_trace_h2_dstate_dma_fence_triform`。
+   Runner `1 PASS / 1 FAIL`，人工 `1 pass / 1 fail`；完整对账见
+   `eval/parallel_selected_summary_evalcampaign_trace_scope_r438_20260813_manual_audit.md`。
+2. B726 获生产正证。H7 Analyzer 一次成功发出 `explicit_time_window + causal_diagnosis +
+   required causal_attribution`，4 次带窗 query 后 `trace_query_final_projection_blocks=1`；最终完整
+   保留 65.912ms 自身 running 算力供给主席、36.757ms D-state、调度/优先级反转、业务 span、
+   小贡献、链上榜与邻近 support-only，并同时回答实际占用/新修向和规则计价可消除量两轴。B726
+   没有伤及显式窗因果投影或自动补齐。
+3. H2 表面 runner 只缺旧固定词形 `等待对象 dma_fence_default_w`；typed caller、11 段、
+   36.757ms 和 12 条 census 都在。该旧 oracle 本身已与当前 caliber 冲突：
+   `sched_blocked_reason.caller` 只证明内核等待调用点，不能自证等待资源/对象。模型正文也错误把
+   caller 扩写成 “DMA fence 写等待”，并把 12 census vs 11 scheduler intervals 解释为正常测量误差；
+   两者是不同口径，不能以误差配平。上下文已有精确软教学，本轮记为模型服从性/旧 oracle 债，
+   不用答案关键词门或系统改写处理。
+4. 更深的新 GAP B727（P0）来自系统权威优先级。H2 Analyzer 最终正确铸出
+   `explicit_time_window + bounded_fact_set` 和 state/wait/reason/count 四个 fact families，模型也只
+   调一次 `window_stats`；但 `RuntimeTraceReportShapeAuthority` 先判断显式窗并返回 full，补齐器又
+   明文规定 D-state 有窗时升级 `root_cause_rank + critical_blocking_calls`。因此系统给四字段事实问答
+   注入 1000+ 行完整因果投影、业务 span、根因榜、metrics 与 next steps。时间范围错误地决定了
+   答案广度；这与 dedicated question profile 的职责直接矛盾。
+5. 根修把两个 typed 轴正交：`runtime_question_profile` 存在时先决定 answer breadth；
+   `bounded_fact_set` 在 explicit/full/bounded artifact scope 下均保持有限，只按 fact families 补
+   `window_stats` 并发布目标状态/逐段等待/记录调用点/次数总量；artifact scope 只决定这次窄视图
+   跑哪个范围。`causal_diagnosis/relation_analysis/system_overview` 继续授权完整投影；没有 question
+   profile 的旧序列化记录仍保留 explicit-window legacy positive fallback，避免历史请求因旧标签波动
+   丢能力。full-artifact bounded facts 仍会以同一个窄 view 做 whole-artifact 重查，局部结果不能冒充
+   全量 census。
+6. 新生产路径的 D-state 选择优先消费 schema-validated fact-family enums；原 AnalyzerHints keyword
+   detector 只保留给旧 RequestModel/测试兼容，不再参与新记录的 hard routing。没有扫描 raw request、
+   source_quote、trace_query summary、模型 reasoning 或答案 prose；没有改 projection 算法、根因排序、
+   模型正文或结论。
+7. 定向正负 pin 覆盖：bounded+explicit D-state 仅 `window_stats`、facts complete 零补采、bounded
+   relation+explicit 零 causal views、bounded full-artifact 保持 windowless narrow census、causal+explicit
+   完整 full report、legacy explicit 保留旧行为，以及 orchestrator drill/disclosure/finalizer decision
+   handoff 同权威。定向三包与 `make test` 全仓回归全部通过；全仓测试还主动撞红并修正了一条旧 pin：
+   过去它要求 bounded+explicit 也注入 Trace Decision Inputs，现已拆为 bounded 不注入、causal 必注入的
+   同证据正负矩阵。
+8. 两个 active stream 分别运行 179s/257s 并正常产出模型答案；没有 4ms 固定年龄降级、空答案回退、
+   JSON string recovery 或系统代写。4ms 仍只可服务无首字节/停滞测试，连接持续有字节时不得触发降级。
+
+状态：
+
+`B726-RUNTIMEBOUNDEDCAUSALDIMENSIONCONFLICT1=production-positive-r438`；
+`B727-RUNTIMEARTIFACTRANGEANSWERBREADTHINVERSION1=implemented/typed-orthogonal-authority+pinned/pending-r439`；
+`H2-fixed-wait-object-oracle=stale/caller-caliber-conflict/pending-eval-refresh`；
+`Trace causal explicit-window=production-positive-r438`；`Trace bounded explicit-window=pending-r439`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/179s+257s-no-age-degrade`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.733 r419：逐成员源码位置合同与语义可消除量跨面一致性（2026-08-12）
 
 1. 在 `main@b4818fe33` 严格并发恰好两个案例：

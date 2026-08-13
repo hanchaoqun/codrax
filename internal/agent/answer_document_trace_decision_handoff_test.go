@@ -844,8 +844,15 @@ func TestFinalizerInitialInstructionWiresTraceDecisionHandoff(t *testing.T) {
 		SourceQuote:    "10.000000..10.020000",
 	}
 	windowPrompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(windowPrompt, "## Trace Decision Inputs (Model Owns The Conclusion)") {
-		t.Fatalf("explicit typed window did not retain decision-input authority:\n%s", windowPrompt)
+	if strings.Contains(windowPrompt, "## Trace Decision Inputs (Model Owns The Conclusion)") {
+		t.Fatalf("explicit typed window widened a bounded fact request into decision synthesis:\n%s", windowPrompt)
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeCausalDiagnosis,
+	}
+	causalWindowPrompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(causalWindowPrompt, "## Trace Decision Inputs (Model Owns The Conclusion)") {
+		t.Fatalf("explicit-window causal diagnosis lost decision-input authority:\n%s", causalWindowPrompt)
 	}
 }
 

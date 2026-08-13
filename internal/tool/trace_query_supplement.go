@@ -265,25 +265,32 @@ func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvi
 // traceSupplementViewsForRequest narrows deterministic supplementation to the
 // answer family the typed request actually asks for. The shared report-shape
 // authority runs before family/view inference: a bounded fact set must not be
-// widened merely because a relation or frame label is also present. A
-// D-state/blocked-reason runtime fact keeps its deliberately narrow five-state
-// account and blocked-reason census; other bounded facts need no deterministic
-// supplement. Explicit user windows outrank bounded breadth in the shared
-// authority and therefore retain the full causal supplement.
+// widened merely because a relation/frame label or an exact time range is also
+// present. A D-state/blocked-reason runtime fact keeps its deliberately narrow
+// five-state account and blocked-reason census; other bounded facts need no
+// deterministic supplement. Exact windows constrain where a view runs; they
+// never choose which answer family runs.
 func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
-	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided && !allowed && !traceSupplementNarrowDStateQuestion(ctx) {
+	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided && !allowed {
+		if traceSupplementNarrowDStateQuestion(ctx) {
+			// A local model window cannot satisfy a full-artifact bounded census;
+			// re-run the same narrow view without promoting to causal families.
+			if scope := traceSupplementRequestedArtifactScope(ctx); scope.FullArtifact() {
+				return []string{"window_stats"}
+			}
+			if !f.WindowStates || !f.BlockedReasonCensus {
+				return []string{"window_stats"}
+			}
+		}
 		return nil
 	}
 	if frameFamily && !frameEvidencePresent {
 		return []string{"frame_root_cause_bundle"}
 	}
 	if traceSupplementNarrowDStateQuestion(ctx) {
-		// An exact user-authored time window is a stronger answer-shape
-		// authority than the focused-fact optimization. Windowed trace
-		// questions retain the complete causal/rank/blocking supplement so
-		// their projection, root seats, wakeup evidence and deterministic
-		// self-state faces cannot depend on model-selected views. Unwindowed
-		// focused facts remain on the cheaper state-only lane below.
+		// This is the compatibility lane for pre-profile RequestModels. Exact
+		// windows retain their historical causal supplement only when no typed
+		// bounded-fact declaration made the narrow decision above.
 		if scope := traceSupplementRequestedArtifactScope(ctx); scope != nil {
 			if _, _, ok := scope.ExplicitTimeWindow(); ok {
 				return traceSupplementViews(f, false, frameEvidencePresent)
@@ -320,6 +327,33 @@ func traceSupplementRequestedArtifactScope(ctx *types.BusContext) *types.Runtime
 }
 
 func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
+	// New analysis records carry exact, schema-validated fact families. They
+	// outrank the historical AnalyzerHints vocabulary scan below: the latter is
+	// retained only for old serialized requests and synthetic fixtures.
+	if ctx != nil {
+		var profile *types.RuntimeQuestionProfile
+		if ctx.AnalysisIR != nil {
+			profile = ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
+		} else if ctx.Mutable != nil {
+			if rm := ctx.Mutable.RequestModel(); rm != nil {
+				profile = rm.RuntimeQuestionProfile
+			}
+		}
+		if profile != nil {
+			if !profile.BoundedFactSet() {
+				return false
+			}
+			for _, family := range profile.FactFamilies {
+				switch family {
+				case types.RuntimeQuestionFactTargetSchedulerState,
+					types.RuntimeQuestionFactTargetWaitOccurrences,
+					types.RuntimeQuestionFactRecordedReason:
+					return true
+				}
+			}
+			return false
+		}
+	}
 	if !traceSupplementDStateFamilyHit(ctx) {
 		return false
 	}
@@ -1022,11 +1056,14 @@ func traceSupplementWordByte(b byte) bool {
 // pid-keyed census inventory and the self D/IO seat Σ). Called only after
 // target derivation succeeded and window derivation failed.
 func traceSupplementDStateFallbackWanted(ctx *types.BusContext, families traceSupplementFamilyPresence) bool {
-	if !traceSupplementDStateFamilyHit(ctx) {
-		return false
-	}
 	if traceSupplementNarrowDStateQuestion(ctx) {
 		return !families.WindowStates || !families.BlockedReasonCensus
+	}
+	// Only legacy RequestModels without the typed question profile reach the
+	// vocabulary compatibility detector. New records are decided entirely by
+	// schema-validated fact-family enums above.
+	if !traceSupplementDStateFamilyHit(ctx) {
+		return false
 	}
 	return !families.BlockedReasonCensus || !families.Rank
 }
