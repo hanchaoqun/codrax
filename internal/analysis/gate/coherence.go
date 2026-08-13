@@ -788,6 +788,21 @@ func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool
 }
 
 func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
+	// An anchored runtime-artifact scope is itself a precise declaration that
+	// the sub-topic universe may contain event names, scheduler states, frame
+	// axes, or resource dimensions rather than repository declarations. This
+	// remains true when the source policy is temporarily normalized to
+	// `allow`/required: requiring a sibling source explanation does not turn
+	// the runtime lane's cpufreq/vsync/state identities into repo symbols.
+	//
+	// Active() consumes only the validated scope enum, exact anchored quote,
+	// and (for an explicit window) finite ordered bounds. No raw request,
+	// rationale, or answer prose participates. Keep resolver asymmetry as
+	// telemetry and let the runtime/source evidence gates prove each lane.
+	if rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.Active() {
+		return true
+	}
+
 	// A mixed runtime-artifact/current-source question can legitimately split
 	// its sub-topics by evidence lane: runtime quantities, event labels and
 	// frame-budget concepts are not repository declarations, while the source

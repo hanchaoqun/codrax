@@ -35766,11 +35766,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
 `B748-ARGUMENTFLOWDISCOVERY1=confirmed/P1/queued`；
 `B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=confirmed/P1/queued`；
-`B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=confirmed/P1/next`；
+`B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=implemented/typed-runtime-scope-advisory+source-hard-negative-pins-pass`；
 `Trace projection absence r457=typed-upstream-scope-drift/not-projection-deletion`；
 `Trace explicit-window/auto-supplement=preserved`；Trace root=`typed-on-chain-only`；
 adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`；
 `active-stream-4ms-degrade=forbidden/reconfirmed-by-tests-r457`。
+
+#### B746：运行时工件子题不再被仓库符号解析器硬拒（2026-08-13）
+
+1. 旧 R1.5 已经绕过纯 runtime-only 与显式 source-exclude，但 `current_source_mode=allow` 或 source lane
+   被临时要求时，`HasRuntimeArtifactWithoutRequiredCurrentSource()` 会变 false。于是同一个锚定 trace 窗里的
+   cpufreq/vsync/scheduler state 轴又被送入 repo symbol resolver；某个源码符号偶然命中、runtime 轴不命中，
+   就产生混合 hit/miss 并硬拒 Analyzer。这不是 runtime 实体幻觉，而是 repo-only ruler 错量运行时证据面。
+2. 根修在已有 R1.5 advisory 判据中增加 `RuntimeArtifactScopeProfile.Active()` 精确信号。它只消费经
+   emit_analysis 校验的 scope enum、非空当前请求锚和显式窗有限有序边界；不读 quote 内容、raw request、
+   rationale、thinking 或 answer。锚定 runtime scope 下仍保留完整 R1.5 telemetry，但只作 advisory，让下游
+   runtime/source 各自的证据门证明对应 lane。
+3. 正臂钉住 explicit window + source allow + 一项源码符号命中/一项 runtime 事件不命中的生产形，要求
+   gate 通过且 detail 仍带 `R1.5 ... (advisory)`；负臂钉住没有 runtime scope 的普通源码真假符号混合仍为
+   hard fail。该修复不绕过 R1.3/R1.4，也不改变真正源码问题的符号可解析合同。
+4. 验证：`go test ./internal/analysis/gate ./internal/types -count=1` 全绿；`git diff --check` 通过。该批不改
+   Trace report shape、显式时间窗、因果投影/补采、链上主因或模型答案，只避免 Analyzer 在进入这些能力前
+   被错误的 repo ruler 消耗重试。
+
+状态：`B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=implemented/full-gate+types-tests-pass/pending-production-replay`；
+`ordinary-source-R1.5=hard-preserved`；`raw-request/model-output-prose-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
 
 ### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
 

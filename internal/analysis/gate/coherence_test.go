@@ -1097,6 +1097,73 @@ func TestSubtopicCoherence_R1_5_SourceOptionalRuntimeArtifactEntities_BypassRepo
 	}
 }
 
+func TestSubtopicCoherence_R1_5_AnchoredRuntimeScopeWithSourceAllow_IsAdvisory(t *testing.T) {
+	// A source-allow policy may be selected when the answer also needs current
+	// checkout explanation. The anchored runtime window still proves that
+	// event/state axes are not repo symbols, so asymmetric symbol resolution
+	// must remain advisory rather than forcing an analyzer retry.
+	start, end := 13762.791708, 13763.024898
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"FrequencyPolicy": {{Canonical: "FrequencyPolicy", Domain: "fixture"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
+		},
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "13762.791708s 到 13763.024898s 窗口",
+			Confidence:     0.95,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"FrequencyPolicy", "cpu_frequency", "cpufreq"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "source policy mechanism", Entities: []string{"FrequencyPolicy"}},
+			{Summary: "runtime frequency evidence", Entities: []string{"cpu_frequency", "cpufreq"}},
+		},
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("source-allow fixture must retain its current-source lane")
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
+	if !check.Passed {
+		t.Fatalf("anchored runtime axes must not hard-fail repo-symbol R1.5, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("runtime resolver asymmetry should remain visible as advisory telemetry, got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_SourceOnlyAsymmetry_RemainsHard(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"KnownService": {{Canonical: "KnownService", Domain: "fixture"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioGeneric,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"KnownService", "InventedService"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "known source component", Entities: []string{"KnownService"}},
+			{Summary: "unknown source component", Entities: []string{"InventedService"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
+	if check.Passed || !strings.Contains(check.Detail, "R1.5 entity_unresolvable") {
+		t.Fatalf("ordinary source-only resolver asymmetry must remain a hard R1.5 failure, got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_FileSurfaceEntitiesResolve(t *testing.T) {
 	// Architecture / trace planning often uses files as principal
 	// surfaces: `Index.ets`, `foo.cj`, `orchestrator.go`, or
