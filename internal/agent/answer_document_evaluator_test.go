@@ -9125,6 +9125,15 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedRequiredStagePartic
 		!strings.Contains(got, "language model authors only the request classification") {
 		t.Fatalf("typed full stage participant slate must activate current-run authority:\n%s", got)
 	}
+	for _, want := range []string{
+		"ownership_group_recipe[1]: owner=`BusContext`; member=`Mutable`; type=`*MutableState`",
+		"representation=`mermaid_subgraph_or_group_no_arrow`",
+		"not a system-authored diagram and not a directed-flow claim",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed carrier ownership recipe missing %q:\n%s", want, got)
+		}
+	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "## Current Run Stage-Lane Authority") {
 		t.Fatalf("stage participant authority must reach the real finalizer prompt:\n%s", prompt)
@@ -9246,6 +9255,55 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 		if strings.Contains(principalBlock, forbidden) {
 			t.Fatalf("supporting relation %q must stay outside compact request-spine recipe:\n%s", forbidden, principalBlock)
 		}
+	}
+}
+
+func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqMechanism),
+				Entities: []string{"Analyzer", "Explorer", "Extractor", "Finalizer", "BusContext", "Mutable"},
+			},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"requested_relation_spine_status=`unproven`",
+		"request_scoped_typed_relation_subset_count=3",
+		"does not cover every typed incident participant",
+		"do not call it the complete requested flow",
+		"this authority adds no edge",
+		"An `incident` row proves only that one local typed relation touches that participant",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("strict-subset authority boundary missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"answer_role=`requested_relation_spine`",
+		"principal_diagram_recipe_source=`request_scoped_typed_authority`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("stage-only subset must not be promoted via %q:\n%s", forbidden, got)
+		}
+	}
+	if gotCount := strings.Count(got, "answer_role=`supporting_grounded_segment`"); gotCount != 1 {
+		t.Fatalf("the truthful stage subset should remain one supporting component, got %d:\n%s", gotCount, got)
 	}
 }
 

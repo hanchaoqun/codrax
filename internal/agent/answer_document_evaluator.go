@@ -7027,6 +7027,12 @@ type answerDocMechanismRelationEdge struct {
 	// components, or change validation authority. The first producer is the
 	// checkout-verified read-mode stage sequence.
 	requestSpine bool
+	// requestScoped marks a relation selected by the request-scoped provider
+	// even when that provider covers only a strict subset of the requested
+	// incident participants. Keeping this separate from requestSpine prevents
+	// a true stage-order segment from being advertised as a complete carrier or
+	// data-flow answer. It remains presentation metadata only.
+	requestScoped bool
 	// sourceItem is the existing citable model-selected operation behind this
 	// recipe. It is retained only for participant/type identity projection; it
 	// never changes the edge relation or endpoints.
@@ -7165,6 +7171,7 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 	acceptedFacts := 0
 	callsiteFacts := 0
 	stagePrecedence := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx)
+	requestSpineComplete := answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope(ctx)
 	edges := make([]answerDocMechanismRelationEdge, 0, len(stagePrecedence)+8)
 	seenEdges := map[string]bool{}
 	for _, relation := range stagePrecedence {
@@ -7175,7 +7182,8 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		seenEdges[key] = true
 		edges = append(edges, answerDocMechanismRelationEdge{
 			from: from, to: to, relation: types.DiagramRelPrecedence, loc: loc,
-			requestSpine: true,
+			requestScoped: true,
+			requestSpine:  requestSpineComplete,
 		})
 	}
 	for _, item := range evidence {
@@ -7656,6 +7664,12 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 		bridgeStatus = "unproven_between_components"
 	}
 	requestSpineComponents := 0
+	requestScopedRelations := 0
+	for _, recipe := range recipes {
+		if recipe.edge.requestScoped {
+			requestScopedRelations++
+		}
+	}
 	for _, component := range components {
 		if answerDocMechanismComponentCarriesRequestSpine(component, recipes) {
 			requestSpineComponents++
@@ -7679,6 +7693,9 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	if requestSpineComponents > 0 {
 		fmt.Fprintf(b, "- requested_relation_spine_component_count=%d; this role comes only from a request-scoped typed authority provider and does not promote sibling facts or invent a bridge.\n", requestSpineComponents)
 		renderAnswerDocMechanismPrincipalDiagramRecipe(b, aliases, recipes)
+	} else if requestScopedRelations > 0 {
+		fmt.Fprintf(b, "- requested_relation_spine_status=`unproven`; request_scoped_typed_relation_subset_count=%d. The verified subset does not cover every typed incident participant, so it remains supporting evidence and is not a complete answer to the requested relation.\n", requestScopedRelations)
+		b.WriteString("- Required-diagram boundary: preserve any useful verified subset, but do not call it the complete requested flow or let disconnected local operations stand in for missing carrier/participant relations. Investigate a typed bridge when available; otherwise keep the missing requested relation explicit with the existing participant boundary. You still author the diagram and conclusion; this authority adds no edge.\n")
 	}
 	if len(components) > 1 {
 		b.WriteString("- cross_component_execution_order_status=`unproven`; cross_component_value_handoff_status=`unproven`; component indices are stable identifiers, not execution/phase order.\n")
@@ -18937,6 +18954,28 @@ func answerDocVerifiedReadModeStagePrecedenceForRequest(ctx *types.AgentContext)
 	).Precedence
 }
 
+// answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope distinguishes a
+// truthful stage-order subset from a complete answer to the typed requested
+// relation. The provider may legitimately return stage precedence when the
+// request also names carriers or context participants; those extra
+// participants must not disappear merely because all main stages matched.
+func answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
+		return false
+	}
+	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
+	if !ok {
+		return false
+	}
+	selection := stageauthority.SelectRequiredReadModeWorkflow(
+		ctx.AnalysisIR.RequestModel,
+		answerDocumentAuthorityEvidencePool(ctx),
+		authority,
+	)
+	return len(selection.Precedence) > 0 &&
+		stageauthority.CoversAllRequiredIncidentParticipants(ctx.AnalysisIR.RequestModel, selection.Main)
+}
+
 func answerDocRequestedParticipantIdentityForStageRow(rm types.RequestModel, row stageauthority.StageRow) string {
 	if rm.DiagramHint != nil {
 		for _, participant := range rm.DiagramHint.Participants {
@@ -19039,6 +19078,15 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 			fmt.Fprintf(&b, "- state_carrier[%d]: owner=`%s`; field=`%s`; type=`%s`; source=`%s:%d`.\n",
 				i+1, carrier.Owner, carrier.Field, carrier.Type, carrier.File, carrier.Line)
 		}
+		groupingIndex := 0
+		for _, carrier := range carriers {
+			if ctx.AnalysisIR == nil || !answerDocStateCarrierLinksRequestedParticipants(ctx.AnalysisIR.RequestModel, carrier) {
+				continue
+			}
+			groupingIndex++
+			fmt.Fprintf(&b, "- ownership_group_recipe[%d]: owner=`%s`; member=`%s`; type=`%s`; representation=`mermaid_subgraph_or_group_no_arrow`; source=`%s:%d`. This is a compact typed containment aid for the model, not a system-authored diagram and not a directed-flow claim.\n",
+				groupingIndex, carrier.Owner, carrier.Field, carrier.Type, carrier.File, carrier.Line)
+		}
 	}
 	b.WriteString("\n### User-facing workflow display guidance\n\n")
 	b.WriteString("- Use stable Mermaid-safe node/participant IDs and preserve the chosen exact stage or agent identity pair in `edge_anchors.from_identity/to_identity`; make the visible title/action understandable in the user's domain. The verified `responsibility` above is the wording basis; summarize or localize it instead of exposing agent names, Go function names, `relation_kind`, `claim_form`, or recipe vocabulary as the main visual copy.\n")
@@ -19057,6 +19105,28 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocStateCarrierLinksRequestedParticipants(rm types.RequestModel, carrier stageauthority.StateCarrierField) bool {
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required || rm.PredicateAxis != types.AxisFlow {
+		return false
+	}
+	ownerMatched, memberMatched := false, false
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		for _, surface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
+			if types.AnswerCodeIdentitySurfacesCompatible(surface, carrier.Owner) {
+				ownerMatched = true
+			}
+			if types.AnswerCodeIdentitySurfacesCompatible(surface, carrier.Field) ||
+				types.AnswerCodeIdentitySurfacesCompatible(surface, carrier.Type) {
+				memberMatched = true
+			}
+		}
+	}
+	return ownerMatched && memberMatched
 }
 
 func answerDocumentHasGroundedReadModeMembershipAuthority(ctx *types.AgentContext) bool {

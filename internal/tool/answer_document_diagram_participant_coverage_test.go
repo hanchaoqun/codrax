@@ -94,6 +94,33 @@ func TestDiagramParticipantCoverageUnprovenBoundaryMustBeActuallyDisconnected(t 
 	}
 }
 
+func TestDiagramParticipantCoverageAllowsNoArrowOwnershipGroupBesideLocalFacts(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n subgraph BusContext[\"BusContext\"]\n M[\"Mutable\"]\n end\n W[\"append evidence\"] --> OP[\"MutableState.AppendEvidence\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "W", ToNode: "OP", FromIdentity: "appendStageOutputEvidenceToMutable",
+		ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+	}}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence",
+	)}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("a no-arrow owner group and an independently proved local operation may coexist with an unproved requested relation: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body += "\n BusContext --> OP"
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 1 || got[0].Issue != DiagramParticipantCoverageBoundaryConnected {
+		t.Fatalf("the owner boundary must still reject a fabricated directed bridge: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"

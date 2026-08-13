@@ -945,9 +945,9 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, lang answer
 		}
 		if len(participants) > 0 {
 			if lang == answerDocLangZH {
-				fmt.Fprintf(b, "**未证关系边界：** %s（图中保留该参与者，但当前证据未证明其与其余节点的关系）。\n\n", strings.Join(participants, "、"))
+				fmt.Fprintf(b, "**未证关系边界：** %s（图中保留已证局部事实或包含关系，但当前证据未证明用户所请求的有向关系；不得据此补画连接）。\n\n", strings.Join(participants, "、"))
 			} else {
-				fmt.Fprintf(b, "**Unproven relation boundaries:** %s (the diagram retains these participants, but current evidence does not prove their relation to the other nodes).\n\n", strings.Join(participants, ", "))
+				fmt.Fprintf(b, "**Unproven relation boundaries:** %s (the diagram may retain proved local facts or containment, but current evidence does not prove the requested directed relation; no connecting edge may be inferred).\n\n", strings.Join(participants, ", "))
 			}
 		}
 	}

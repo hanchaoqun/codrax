@@ -35774,6 +35774,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.747 r430 与 B718：显式 Trace 窗生产闭环；请求关系主链与真实局部子图分权（2026-08-13）
+
+1. 在 `main@a9c600fae` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，人工
+   `1 pass / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r430_20260813_manual_audit.md`。
+   两案运行 217s/493s，持续有字节与工具进展；4ms 内没有完整答案不触发降级。
+2. B716 获生产闭环。五次 Trace 查询全部严格使用显式窗
+   `13762.791708..13763.024898`；最终 Trace 因果投影、自动补齐、链上-only 排名、优先级反转/
+   调度供给/算力供给/D/IO、业务 span 与实际占用—规则计价双轴均在。邻近席位继续单列为支持，
+   没有晋升主因。模型本轮把自身 running 供给折算 65.912ms 与 D-state 36.757ms 分席排序，没有
+   求和成 102.669ms，因此 B717 未获确定性系统冲突证据，按模型波动继续观察，不新增特定数字或
+   答案词面硬门。
+3. 逻辑案例 Runner 假绿、人工 FAIL。模型正文宣称四阶段通过 BusContext/Mutable 完成数据传递，
+   最终图却只有四阶段 precedence 与各阶段到 Mutable 的局部调用，BusContext 孤立并标 unproven；
+   四次成文拒绝均围绕载体身份与局部 operation incidence 反复修补。根因是系统将 checkout-verified
+   四阶段顺序标成 `requested_relation_spine`，但请求的 incident roster 还包含 BusContext/Mutable；
+   兄弟 coverage 又把“任一局部 typed relation 碰到参与者”误读成完整请求关系。这是 B718 的精确
+   系统合同 GAP，不是模型波动。
+4. B718 根修不解析 request/answer prose：stage authority 新增 `requestScoped` 与 `requestSpine`
+   分权。只有每个 incident-required participant 都恰好映射到一个不同的 selected stage row 时，
+   才能把该组件称为完整请求主链；存在载体/上下文参与者时，真实阶段顺序仍保留为
+   `supporting_grounded_segment`，同时显式发布 `requested_relation_spine_status=unproven`。context-only
+   参与者不改变有向关系范围。
+5. checkout-verified `BusContext.Mutable *MutableState` 等所有权新增 typed
+   `ownership_group_recipe`，只教模型用 Mermaid subgraph/group 做无箭头包含表达。unproven boundary
+   语义同步收窄为“用户请求的有向关系未证”：独立已证局部调用和无箭头包含可共存，但 bounded
+   participant 仍不得成为可见有向边端点。typed/legacy coverage 教学均明确：一个 incident 行只证明
+   一条局部关系触及参与者，不证明参与者集合连通、值经载体传递或请求关系完整。
+6. 施工保持模型所有权：系统只发布 checkout-verified 子集、包含事实与缺失边界，不创建/选择边，
+   不写 Mermaid，不改答案正文或结论。新增 exact stage slate、额外 carrier、context-only、no-arrow
+   group+local fact、伪造 directed bridge、zh/en 渲染语义与 finalizer capsule pins；
+   `stageauthority/agent/tool/render/types` 定向套件全绿。
+7. 本批 B718 在 Trace 路径上继续 fail-closed；没有改 Trace 计算、投影或成文。显式时间窗、自动补齐、
+   链上-only 主因、实际占用/业务新修向与规则可消量双轴保持；邻近/背景只作支持。活跃 stream 仍不因
+   4ms、4s 或固定累计年龄降级，只能由 cancel/deadline、no-first-byte、真实 byte stall、terminal
+   transport/decode failure 或重试耗尽进入有界恢复，且不得用系统证据合成替代模型答案。
+
+状态：
+
+`B716-TRACECANONICALWINDOWCONTEXT1=production-closed-r430`；
+`B717-TRACECROSSSEATPROSESUM1=not-reproduced-r430/model-variance-observe`；
+`B718-REQUESTEDFLOWTOPOLOGYCOMPLETENESS1=implemented/request-scope+ownership-group+boundary-pins-pass/pending-r431`；
+`active-stream-4ms-degrade=forbidden/217s+493s-production-positive`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.746 r429 与 B716：必需图权威复正；显式用户窗成为唯一主排序上下文（2026-08-13）
 
 1. 在 `main@be1662328` 严格并发恰好两个案例：

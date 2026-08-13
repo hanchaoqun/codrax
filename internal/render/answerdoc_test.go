@@ -831,12 +831,18 @@ func TestRenderV2_BlockDiagramPublishesModelAuthoredParticipantBoundary(t *testi
 	if !strings.Contains(got, "未证关系边界") || !strings.Contains(got, "`MutableState`") {
 		t.Fatalf("model-authored typed participant boundary was not rendered:\n%s", got)
 	}
+	if !strings.Contains(got, "已证局部事实或包含关系") || !strings.Contains(got, "不得据此补画连接") {
+		t.Fatalf("Chinese boundary must distinguish local facts from the unproved requested relation:\n%s", got)
+	}
 	if strings.Count(got, "MutableState") != 2 {
 		t.Fatalf("renderer should preserve one model node and one typed disclosure without inventing content:\n%s", got)
 	}
 	english := RenderAnswerDocument(doc, "en")
 	if !strings.Contains(english, "Unproven relation boundaries") || !strings.Contains(english, "`MutableState`") {
 		t.Fatalf("English lane lost the same model-authored typed boundary:\n%s", english)
+	}
+	if !strings.Contains(english, "proved local facts or containment") || !strings.Contains(english, "no connecting edge may be inferred") {
+		t.Fatalf("English boundary must preserve the same relation-specific semantics:\n%s", english)
 	}
 }
 

@@ -3,9 +3,10 @@ package types
 import "strings"
 
 // DiagramParticipantBoundaryStatus is a model-authored decision about a
-// schema-required diagram participant for which no evidence-backed incident
-// relation is available in the final diagram. It is deliberately not a
-// relation kind and cannot mint an edge.
+// schema-required diagram participant for which the requested directed
+// relation is not proved in the final diagram. Independently proved local
+// facts or no-arrow containment may still be shown; the boundary cannot mint
+// an edge or promote them into the requested relation.
 type DiagramParticipantBoundaryStatus string
 
 const (
@@ -18,9 +19,9 @@ func (s DiagramParticipantBoundaryStatus) IsValid() bool {
 }
 
 // DiagramParticipantBoundary keeps an uncovered incident_required participant
-// visible and explicitly bounded without forcing the model to invent a
-// relationship. Participant must resolve to one typed analyzer participant;
-// validators never infer it from prose.
+// visible and explicitly bounds the requested directed relation without
+// forcing the model to invent a bridge. Participant must resolve to one typed
+// analyzer participant; validators never infer it from prose.
 type DiagramParticipantBoundary struct {
 	Participant string                           `json:"participant"`
 	Status      DiagramParticipantBoundaryStatus `json:"status"`

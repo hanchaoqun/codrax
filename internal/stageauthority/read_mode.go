@@ -130,6 +130,49 @@ func MatchesRequiredMainStageParticipantSlate(rm types.RequestModel, main []Stag
 	return true
 }
 
+// CoversAllRequiredIncidentParticipants reports whether the selected stage
+// rows cover the complete typed participant scope of the requested relation.
+// It is intentionally stricter than MatchesRequiredMainStageParticipantSlate:
+// the latter may admit extra carriers so the stage-order authority remains
+// available as a truthful subset, while this helper is used only when a
+// consumer wants to call that subset the complete requested relation spine.
+//
+// Every incident_required participant must resolve to exactly one distinct
+// selected stage row, and every selected row must be represented. A named
+// carrier, context object, or other non-stage participant therefore keeps the
+// verified stage order as supporting evidence instead of being silently
+// treated as covered by it. No request prose or display label is inspected.
+func CoversAllRequiredIncidentParticipants(rm types.RequestModel, main []StageRow) bool {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		len(main) < 2 {
+		return false
+	}
+	participants := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		if strings.TrimSpace(participant.Identity) != "" && participant.Role == types.DiagramParticipantIncidentRequired {
+			participants = append(participants, participant)
+		}
+	}
+	if len(participants) != len(main) {
+		return false
+	}
+	usedRows := make(map[int]bool, len(main))
+	for _, participant := range participants {
+		matches := make([]int, 0, 1)
+		for i, row := range main {
+			if ParticipantMatchesStageRow(rm, participant, row) {
+				matches = append(matches, i)
+			}
+		}
+		if len(matches) != 1 || usedRows[matches[0]] {
+			return false
+		}
+		usedRows[matches[0]] = true
+	}
+	return len(usedRows) == len(main)
+}
+
 // RelevantToRequiredReadModeWorkflow is the shared authority-admission rule
 // for completion, prompt, pre-emit, and post-emit consumers. A complete typed
 // stage participant slate remains sufficient. The second arm covers a required

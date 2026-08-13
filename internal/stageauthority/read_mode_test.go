@@ -143,6 +143,43 @@ func TestMatchesRequiredMainStageParticipantSlate(t *testing.T) {
 	}
 }
 
+func TestCoversAllRequiredIncidentParticipantsDistinguishesStageSpineFromSubset(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	stageParticipants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: append([]types.DiagramParticipantHint(nil), stageParticipants...)},
+	}
+	if !CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("the exact four-stage incident slate should cover the selected stage spine")
+	}
+
+	rm.DiagramHint.Participants = append(rm.DiagramHint.Participants,
+		types.DiagramParticipantHint{Identity: "BusContext", Role: types.DiagramParticipantContextOnly})
+	if !CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("context-only display participants must not change the directed-relation scope")
+	}
+
+	rm.DiagramHint.Participants[len(rm.DiagramHint.Participants)-1].Role = types.DiagramParticipantIncidentRequired
+	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("a required carrier outside the selected stage rows must keep stage order as a strict subset")
+	}
+	rm.DiagramHint.Participants = append(rm.DiagramHint.Participants,
+		types.DiagramParticipantHint{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired})
+	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("multiple non-stage carriers must not be silently covered by stage precedence")
+	}
+}
+
 func TestRelevantToRequiredReadModeWorkflowUsesTypedDimensionAndGroundedAuthoritySource(t *testing.T) {
 	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
 	if !ok {

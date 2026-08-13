@@ -312,10 +312,11 @@ type AnswerBlock struct {
 	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
 
 	// ParticipantBoundaries are model-authored typed disclosures for
-	// incident_required diagram participants that remain disconnected because
-	// no grounded incident relation is available. They never authorize an edge;
-	// validators require every listed participant to stay visible in the diagram
-	// and require exact agreement with the analyzer's participant obligations.
+	// incident_required diagram participants whose requested directed relation
+	// remains unproved. Independently proved containment or local technical
+	// facts may coexist, but the participant cannot be used as a visible directed
+	// edge endpoint under this boundary. Boundaries never authorize an edge;
+	// validators require exact agreement with analyzer participant obligations.
 	ParticipantBoundaries []DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
 
 	// RelationClaims are model-authored declarations that bind value
