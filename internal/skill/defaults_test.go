@@ -1162,14 +1162,17 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 	}
 }
 
-func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSections(t *testing.T) {
+func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOneScopeRule(t *testing.T) {
 	cfg := BuildAnalysisSkill()
 	if cfg == nil {
 		t.Fatal("BuildAnalysisSkill returned nil")
 	}
 	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
-	if got := strings.Count(out, AnalysisRuntimeCausalAttributionTeaching); got != 2 {
-		t.Fatalf("runtime causal teaching occurrences=%d, want exactly two SSOT insertions", got)
+	if got := strings.Count(out, AnalysisRuntimeCausalAttributionTeaching); got != 1 {
+		t.Fatalf("runtime causal decision-table occurrences=%d, want one classification site", got)
+	}
+	if got := strings.Count(out, AnalysisRuntimeScopeFromDimensionTeaching); got != 1 {
+		t.Fatalf("runtime scope consequence occurrences=%d, want one one-way scope site", got)
 	}
 	for _, stale := range []string{
 		"Use `causal_attribution` for every required dimension that asks for root-cause/bottleneck attribution or a ranking of causes/contributors.",
@@ -1180,28 +1183,35 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 		}
 	}
 	for _, want := range []string{
-		"Classify each required answer dimension BEFORE choosing runtime_question_profile.scope",
-		"declares investigation and answer breadth only",
-		"does NOT assert in advance",
-		"yes, no, mixed, or unproven",
-		"keep every requested dimension",
-		"never relabel that verdict as `other`",
-		"do not collapse the whole phrase into one `evidence_source` dimension",
-		"keep a required `causal_attribution` verdict dimension",
-		"equivalent passive binding verdict",
-		"whether the condition actually bound or affected the target/outcome",
-		"whether Y was constrained/bound/affected by X",
-		"not a fallback for a difficult causal classification",
-		"dominates the breadth of a mixed request",
+		"Runtime answer-dimension decision table",
+		"OBSERVED FACT",
+		"TARGET-EFFECT VERDICT",
+		"PROOF ORIGIN",
+		"passive equivalent",
+		"`evidence_source` never substitutes",
+		"emit two required dimensions",
+		"never pre-decides yes/no/mixed/unproven",
+		"`other` is not a fallback",
 	} {
 		if !strings.Contains(AnalysisRuntimeCausalAttributionTeaching, want) {
 			t.Fatalf("runtime causal teaching missing non-prejudgment guidance %q", want)
 		}
 	}
 	for _, want := range []string{
+		"any required `causal_attribution` dimension",
+		"`causal_diagnosis`",
+		"forbids bounded-only `fact_families`",
+		"not a finding",
+		"yes, no, mixed, or unproven",
+	} {
+		if !strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, want) {
+			t.Fatalf("runtime scope teaching missing one-way consequence %q", want)
+		}
+	}
+	for _, want := range []string{
 		"ENTIRE principal answer is one scalar",
 		"mixed/dimensioned answer merely includes one duration, count, percentage, or total",
-		"BEFORE deciding bounded versus causal breadth",
+		"BEFORE choosing it, apply this table",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("analysis teaching missing mixed-answer precedence %q", want)

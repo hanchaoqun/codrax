@@ -35765,7 +35765,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B743-FREQUENCYCOMPOUNDVERDICT1=production-positive-r457`；
 `B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
 `B748-ARGUMENTFLOWDISCOVERY1=confirmed/P1/queued`；
-`B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=confirmed/P1/queued`；
+`B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=implemented/single-decision-table+one-way-scope-rule/full-tests-pass`；
 `B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=implemented/typed-runtime-scope-advisory+source-hard-negative-pins-pass`；
 `Trace projection absence r457=typed-upstream-scope-drift/not-projection-deletion`；
 `Trace explicit-window/auto-supplement=preserved`；Trace root=`typed-on-chain-only`；
@@ -35793,6 +35793,31 @@ adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`�
 `ordinary-source-R1.5=hard-preserved`；`raw-request/model-output-prose-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
+
+#### B747：runtime 因果维度 JSON 决策去重与单向 scope 编译（2026-08-13）
+
+1. r457 不是缺少教学，而是同一条 2300+ 字符因果分类说明同时嵌入 runtime scope 与 dimension role 两处；
+   Analyzer 需要两次解释同一请求片段，且“证据来源”靠近 role 字段时容易吞掉“是否绑定/影响目标”的 verdict。
+   继续追加频率、限频或单 case 例句只会增加心智与拟合。
+2. 根修将 role 分类收敛为一个语言无关三格 decision table：OBSERVED FACT（记录/值/状态/数量）、
+   TARGET-EFFECT VERDICT（根因/排序/是否约束绑定影响目标，含主动和被动语序）、PROOF ORIGIN（证据从哪来）。
+   明确 `evidence_source` 永不替代 TARGET-EFFECT VERDICT；同一句同时问 verdict 与证据时拆成两个 required
+   dimension。该表只在拥有 role 决策的位置出现一次。
+3. runtime scope 不再重复分类，只执行单向编译：required `causal_attribution` -> `causal_diagnosis`，并禁止
+   bounded-only `fact_families`；全部是有限事实且没有 causal verdict 才能用 `bounded_fact_set`。已有
+   schema-valid enum 冲突校验保持不变：它只在模型已提交 causal dimension + bounded scope 的精确矛盾时
+   fail-loud 重试，不读取 request/quote/rationale/thinking/final answer，也不由系统把 bounded 自动改成 causal。
+4. 这仍是分类教学而非答案确权。`causal_diagnosis` 只声明调查/展示宽度，最终允许 yes/no/mixed/unproven；
+   系统不把策略上限、邻近压力或 background 自动升级成链上主因，不替模型写 Trace 结论。
+5. 验证：`go test ./internal/skill ./internal/tool -count=1` 全绿（tool 163.833s）；专门 pin 保证 schema 的
+   dimension role 只持有一份 decision table、runtime profile 只持有一份 one-way scope consequence，且 passive
+   binding + proof 的拆分、非预判结论与 bounded/causal typed 冲突仍在。`git diff --check` 通过。
+
+状态：`B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=implemented/full-skill+tool-tests-pass/pending-production-replay`；
+`raw-request/model-output keyword hard gate=none`；`typed inconsistency retry=preserved`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；
+adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden`。
 
 ### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
 

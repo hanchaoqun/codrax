@@ -94,7 +94,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysisSchemaUsesRuntimeCausalAttributionTeachingSSOT(t *testing.T) {
+func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence(t *testing.T) {
 	var parsed struct {
 		Properties map[string]any `json:"properties"`
 	}
@@ -102,14 +102,17 @@ func TestEmitAnalysisSchemaUsesRuntimeCausalAttributionTeachingSSOT(t *testing.T
 		t.Fatalf("decode schema: %v", err)
 	}
 	runtimeProfile := parsed.Properties["runtime_question_profile"].(map[string]any)
-	if got := runtimeProfile["description"].(string); strings.Count(got, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
-		t.Fatalf("runtime profile schema must embed causal SSOT exactly once: %q", got)
+	if got := runtimeProfile["description"].(string); strings.Count(got, skill.AnalysisRuntimeCausalAttributionTeaching) != 0 || strings.Count(got, skill.AnalysisRuntimeScopeFromDimensionTeaching) != 1 {
+		t.Fatalf("runtime profile schema must carry only the one-way scope consequence: %q", got)
 	}
 	dimensions := parsed.Properties["requested_answer_dimensions"].(map[string]any)
 	dimensionItems := dimensions["properties"].(map[string]any)["dimensions"].(map[string]any)["items"].(map[string]any)
 	roleDescription := dimensionItems["properties"].(map[string]any)["role"].(map[string]any)["description"].(string)
 	if strings.Count(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
-		t.Fatalf("dimension-role schema must embed causal SSOT exactly once: %q", roleDescription)
+		t.Fatalf("dimension-role schema must own the causal decision table exactly once: %q", roleDescription)
+	}
+	if strings.Contains(roleDescription, skill.AnalysisRuntimeScopeFromDimensionTeaching) {
+		t.Fatalf("dimension-role schema must not repeat the runtime scope consequence: %q", roleDescription)
 	}
 	predicates := parsed.Properties["predicates"].(map[string]any)
 	predicateProperties := predicates["properties"].(map[string]any)

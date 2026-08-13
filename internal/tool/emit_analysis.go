@@ -729,7 +729,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_question_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range, target identity, and relation shape. Use bounded_fact_set for a finite set of observed state/value/count/time/recorded-reason facts or directly named relation fields such as one peer, transaction id, or waker, without a requested causal report; causal_diagnosis for why/root-cause/jank diagnosis; relation_analysis for broader caller/wakeup/IPC/dependency path or topology analysis; system_overview for a broad hotspot/health/summary report; unspecified only when genuinely unclear; not_applicable outside runtime artifacts. A kernel-recorded reason or direct relation field remains a bounded observed fact unless the request asks to expand or diagnose it. " + skill.AnalysisRuntimeCausalAttributionTeaching + " Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
+				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range, target identity, and relation shape. A kernel-recorded reason or direct relation field remains a bounded observed fact unless the request asks to expand or diagnose it. " + skill.AnalysisRuntimeScopeFromDimensionTeaching + " Use unspecified only when genuinely unclear and not_applicable outside runtime artifacts. Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
 				"allOf": []any{
 					map[string]any{
 						"if": map[string]any{
