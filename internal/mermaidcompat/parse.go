@@ -274,7 +274,7 @@ func appendParsedEdge(edges []Edge, from, to, label, operator string) []Edge {
 // protected by findFlowchartEdgeOperator, and an unprotected semicolon ends
 // the statement instead of accidentally bridging two independent statements.
 func splitFlowchartEdgeChainLine(line string) []flowchartEdgeTokens {
-	operators := []string{"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->"}
+	operators := []string{"-->>", "-.->", "-->", "==>", "->>", "-.-", "---", "==", "->"}
 	idx, operator := findFlowchartEdgeOperator(line, operators)
 	if idx < 0 {
 		return nil
@@ -448,7 +448,7 @@ func splitSequenceEdgeTargetMessage(raw string) (target, message string, ok bool
 // pipe-delimited label, as in A -->|label| B.
 func SplitEdgeLine(line string) (string, string, string, string, bool) {
 	operators := []string{
-		"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->",
+		"-->>", "-.->", "-->", "==>", "->>", "-.-", "---", "==", "->",
 	}
 	idx, op := findFlowchartEdgeOperator(line, operators)
 	if idx >= 0 {

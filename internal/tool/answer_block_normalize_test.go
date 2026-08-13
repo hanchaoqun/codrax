@@ -582,6 +582,27 @@ func TestNormalizeEmitAnswerBlock_NormalizesDiagramKindFromMermaidSyntax(t *test
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RepairsRepeatedDotOperatorBeforeEndpointAliasing(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "d1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind:     string(types.DiagramArchitecture),
+			Language: "mermaid",
+			Body:     "flowchart TD\n  PreStages -..-|conditional| MainPipeline",
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, "PreStages -.-|conditional| MainPipeline") {
+		t.Fatalf("repeated-dot edge was not repaired on the production block path: %+v", got.Diagram)
+	}
+	if strings.Contains(got.Diagram.Body, "codraxNode") || strings.Contains(got.Diagram.Body, "-..-") {
+		t.Fatalf("malformed operator was reinterpreted as a synthetic endpoint: %q", got.Diagram.Body)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSemanticKind(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "types",

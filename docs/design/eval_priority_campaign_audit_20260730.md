@@ -35774,6 +35774,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.750 r433 与 B722：patch schema 正证；重复点号边被系统二次破坏（2026-08-13）
+
+1. 在 `main@9985244ab` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，人工为
+   `1 pass / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r433_20260813_manual_audit.md`。
+2. B721 获生产正证：5 个 patch 均按 full emit 同一 projected block schema 携带 `diagram`、
+   `edge_anchors`、`from_identity/to_identity` 与 `participant_boundaries`；最终仍保留 7 条局部 typed
+   relation，不再像 r432 因函数 schema 裸 object 而逐轮丢字段、删边。该项可关闭；5 次 participant
+   boundary 修形仍是效率债，不能以 runner PASS 遮蔽，也不按答案文字造硬门。
+3. 用户随后点名 `20260813-045420.099-32923.md` 仍不能渲染，人工复核确认新 B722（P0）：模型原始
+   Mermaid 写 `PreStages -..-|条件触发| MainPipeline`；合法 dotted line 应为 `-.-`。旧共享兼容层把
+   `-..-` 当成 unsafe endpoint，错误改为 `PreStages codraxNode1["-..-"]|条件触发| MainPipeline`。
+   证据/参与者合同全部通过并不等于 normalized Mermaid 语法合法，所以最终 PASS 仍出厂坏图。
+4. B722 根修在所有答案共用的 `mermaidcompat` 源码层完成，不匹配题面、节点名或模型输出 prose：在
+   unsafe endpoint alias 之前，用 quote/shape-aware operator scanner 把 `-..-/-..->` 分别收敛为
+   Mermaid 标准 `-.-/-.->`；normalize、ParseEdges、unsafe alias 三面统一识别 dotted line。节点标签
+   内同字节不改，端点、label、方向与 line/arrow 语义保持。
+5. degraded last-mile 同步修正：对 safely normalized source 重新 dry-run；能解析就发布修复后的
+   `mermaid` 源码，仍失败才按 L7 转带警告的 `text` fence。兼容层、出厂降级层、真实 answer block
+   生产入口三层 pin 与全仓测试均绿；下一轮仍需用同一逻辑案例作生产回放。
+6. Trace 219s PASS：四次 typed 查询保持用户显式窗；链上-only 主因、running 65.912ms、D-state
+   36.757ms、优先级反转/调度/算力/IO、业务线索与实际占用/规则计价可消双轴齐全；邻近/背景仅支持。
+   Mermaid 批次对 Trace fail-closed。219s/448s 活跃流没有 4ms 总年龄降级。
+
+状态：
+
+`B721-PATCHBLOCKSCHEMAPARITY1=production-positive-r433/closed`；
+`B722-MERMAIDREPEATEDDOTOPERATOR1=implemented/normalize+parse+alias+degraded+production-pins-pass/pending-r434`；
+`B716-TRACECANONICALWINDOWCONTEXT1=production-stable-r433`；
+`active-stream-4ms-degrade=forbidden/219s+448s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.749 r432、B720 与 B721：非法 Mermaid 出厂闭环；patch 块结构与 full emit 漂移（2026-08-13）
 
 1. 在 `main@d38fea864` 严格并发恰好两个案例：

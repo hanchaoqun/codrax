@@ -29,6 +29,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartMismatchedShapeClosers(body)
 	body = NormalizeFlowchartSplitPipeLabels(body)
 	body = NormalizeFlowchartHiddenMarkerLines(body)
+	body = NormalizeFlowchartRepeatedDotEdges(body)
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
@@ -37,6 +38,48 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartRepeatedDotEdges repairs a narrow Mermaid operator typo
+// that otherwise gets misclassified as an unsafe node identifier by the next
+// normalization pass. Mermaid's dotted line/arrow operators contain exactly
+// one dot (`-.-` / `-.->`); models occasionally repeat that dot (`-..-` /
+// `-..->`). Removing only the repeated operator dot preserves endpoints,
+// label, arrow direction, and line-vs-arrow semantics.
+//
+// Detection uses the same quote/shape-aware operator scanner as ParseEdges,
+// so source-language punctuation inside node labels is never rewritten.
+func NormalizeFlowchartRepeatedDotEdges(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "-..") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten := line
+		for {
+			at, op := findFlowchartEdgeOperator(rewritten, []string{"-..->", "-..-"})
+			if at < 0 {
+				break
+			}
+			left := strings.TrimSpace(rewritten[:at])
+			right := strings.TrimSpace(rewritten[at+len(op):])
+			if left == "" || right == "" {
+				break
+			}
+			replacement := "-.-"
+			if op == "-..->" {
+				replacement = "-.->"
+			}
+			rewritten = rewritten[:at] + replacement + rewritten[at+len(op):]
+			changed = true
+		}
+		lines[i] = rewritten
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
 }
 
 // NormalizeSequenceParticipantDisplayLabels quotes parser-sensitive display
@@ -339,7 +382,7 @@ func NormalizeFlowchartQuotedEdgeFragments(body string) string {
 }
 
 func flowchartBodyMayContainEdge(body string) bool {
-	for _, op := range []string{"-.->", "-->>", "-->", "==>", "->>", "---", "==", "->"} {
+	for _, op := range []string{"-.->", "-->>", "-->", "==>", "->>", "-.-", "---", "==", "->"} {
 		if strings.Contains(body, op) {
 			return true
 		}
@@ -1258,7 +1301,7 @@ func flowchartArrowAt(s string, i int) string {
 	if i < 0 || i >= len(s) {
 		return ""
 	}
-	for _, op := range []string{"-.->", "-->>", "-->", "==>", "->>", "---", "==", "->"} {
+	for _, op := range []string{"-.->", "-->>", "-->", "==>", "->>", "-.-", "---", "==", "->"} {
 		if strings.HasPrefix(s[i:], op) {
 			return op
 		}

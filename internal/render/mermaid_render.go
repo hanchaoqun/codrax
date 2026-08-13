@@ -266,10 +266,11 @@ func RenderMermaidBlocks(text string) string {
 // pass the normal structural contract and must not ship a syntactically broken
 // body under a misleading ```mermaid fence. Supported diagram families are
 // dry-run through the same compatibility/parser path as terminal rendering:
-// valid source remains byte-identical, while an obvious or parser-confirmed
-// failure becomes a ```text fence with an explicit warning and the original
-// source preserved. Unsupported Mermaid families remain source because a
-// terminal-library subset gap is not proof that their syntax is invalid.
+// valid source remains byte-identical, safely repairable source is returned as
+// repaired Mermaid, while an obvious or parser-confirmed failure becomes a
+// ```text fence with an explicit warning and the original source preserved.
+// Unsupported Mermaid families remain source because a terminal-library
+// subset gap is not proof that their syntax is invalid.
 func SanitizeDegradedMermaidBlocks(text, language string) string {
 	if text == "" || !strings.Contains(text, "```mermaid") {
 		return text
@@ -292,11 +293,15 @@ func SanitizeDegradedMermaidBlocks(text, language string) string {
 			return match
 		}
 		invalid := degradedMermaidSourceObviouslyMalformed(body)
+		normalizedBody := mermaidcompat.NormalizeSourceForMarkdown(body)
 		if !invalid {
-			_, ok := renderMermaidFenceBody("```mermaid\n" + body + "\n```")
+			_, ok := renderMermaidFenceBody("```mermaid\n" + normalizedBody + "\n```")
 			invalid = !ok
 		}
 		if !invalid {
+			if normalizedBody != body {
+				return match[:nl+1] + normalizedBody + match[bodyEnd:]
+			}
 			return match
 		}
 		reason := "恢复稿中的 Mermaid 未通过语法校验；已降级为文本并保留原始源码"

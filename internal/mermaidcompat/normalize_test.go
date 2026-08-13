@@ -129,6 +129,35 @@ func TestParseEdges_FlowchartChainKeepsPerHopLabelsAndProtectedArrowBytes(t *tes
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RepairsRepeatedDotEdgesBeforeUnsafeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"  PreStages -..-|conditional| MainPipeline",
+		"  MainPipeline -..->|optional| Finalizer",
+		`  Literal["keep -..- inside label"] --> Done`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		"PreStages -.-|conditional| MainPipeline",
+		"MainPipeline -.->|optional| Finalizer",
+		`Literal["keep -..- inside label"] --> Done`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repeated-dot Mermaid edge was not safely normalized; missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("malformed operator must not be aliased as a synthetic node:\n%s", got)
+	}
+	edges := ParseEdges(got)
+	if len(edges) != 3 || edges[0].Operator != "-.-" || edges[1].Operator != "-.->" {
+		t.Fatalf("normalized dotted edges were not parsed consistently: %+v", edges)
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("normalization is not idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
 func TestParseEdges_FlowchartSemicolonDoesNotBridgeIndependentStatements(t *testing.T) {
 	edges := ParseEdges("flowchart TD\n  A --> B; C --> D")
 	if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" {

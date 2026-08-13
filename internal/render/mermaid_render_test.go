@@ -104,6 +104,17 @@ func TestSanitizeDegradedMermaidBlocksPreservesValidAndUnsupportedSource(t *test
 	}
 }
 
+func TestSanitizeDegradedMermaidBlocksPublishesSafeSourceRepair(t *testing.T) {
+	in := "```mermaid\nflowchart TD\n PreStages -..-|conditional| MainPipeline\n```"
+	got := SanitizeDegradedMermaidBlocks(in, "en")
+	if !strings.Contains(got, "```mermaid\nflowchart TD\n PreStages -.-|conditional| MainPipeline\n```") {
+		t.Fatalf("repairable degraded Mermaid should publish normalized Mermaid source:\n%s", got)
+	}
+	if strings.Contains(got, "codraxNode") || strings.Contains(got, "-..-") {
+		t.Fatalf("invalid operator or synthetic alias leaked after repair:\n%s", got)
+	}
+}
+
 // TestRenderMermaidBlocks_MultipleBlocks confirms each ```mermaid```
 // block is rewritten independently — they don't share state and
 // don't interfere.
