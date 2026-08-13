@@ -37916,6 +37916,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.749 r458：载体生产接线未闭环；Trace 因果维度仍被观测 role 吞并（2026-08-13）
+
+1. 在 `main@ebf0a5884` 重建二进制后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner 为
+   `1 PASS / 1 FAIL`，人工两项均 partial；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_carrier_trace_replay_r458_20260813_manual_audit.md`。
+2. 代码流的 B748 未获生产闭环。二进制明确包含新实现，但生产 typed slate 仍发布
+   `source_operation_required=[Extractor Mutable]` 与
+   `request_visible_boundary_only=[Analyzer Explorer Finalizer BusContext]`。因此 parser-owned
+   `BusContext -> busCtx` 导航没有触发；Explorer 自行找到的只是 Analyzer 对
+   `ctx.Mutable.*` 的局部调用，最终图把 `BusContext`、`Mutable` 画成断开节点，没有回答请求的
+   核心跨阶段载体关系。自动 PASS 只证明图合法和边数，不证明用户要求的关系完整。
+3. 新立 B750：单测里的生产+test 同名 `BusContext` 会按 source scope 唯一化，真实 graph 却没有
+   产生相同 provenance。当前 summary 只报 symbol/ambiguous/prescan 数量，无法直接看到逐实体
+   裁定。施工先补 typed 逐实体诊断并用真实 repomap graph 复现，再修同源唯一 predicate；禁止
+   按 `BusContext`、Go 或本 case 白名单特判。
+4. 图首稿把阶段、载体和答案字段之间的 9 条概念性连线全标为 data-flow，validator 正确拒绝；
+   第二稿已经改用真实调用，却因 Mermaid 显示短名与 evidence exact endpoint identity 分离再次
+   被拒。第三稿使用 `n#` node id + exact endpoint label 后通过。新立 B751：copy-ready recipe 应
+   同时提供 stable node id、业务显示 label 和 exact evidence identity，统一 architecture/flow/
+   sequence/call-dag，而不是让模型从长拒绝文猜重命名；证据门不放宽，系统不代画关系。
+5. Trace 的三项观测事实总体正确：233.190ms 窗内 running=157.248ms、runnable=5.604ms、
+   sleep=70.338ms、D/IO=0，cpu=4 直接 policy 上限 2.10GHz/28 条 witness 进入正文，模型也正确
+   限定“上限记录不等于性能受限”。但是 analyzer 实际载荷仍把“CPU 频率有没有受到限制”铸成
+   `frequency_residency + bounded_fact_set`，没有 `causal_attribution + causal_diagnosis`；B747 的
+   紧凑教学已到生产却未改变 typed 结果。
+6. 新立 B749：`frequency_residency` 是观测量，`causal_attribution` 是 target-effect verdict，二者
+   正交；当前单席 role 让模型可用前者吞掉整句并绕开已存在的 consistency gate。最优修向是在
+   typed schema/normalization 层允许同一用户维度分别携带观测事实席和 effect-verdict 席，因果
+   breadth 只读后者；不得靠“限制/影响/根因”等题面或答案关键词做确定性硬门。该 case 的旧
+   `EXPECT_CONTAINS=Trace 因果投影` 也需随产品合同重审：应校验 typed verdict 与 principal
+   判定内容，不应把固定标题冒充事实合同。
+7. Trace 正文仍有一处边界措辞债：同页已有 558/640MHz typed 频点与 28 条 limit witness，却又
+   泛称 `cpu_frequency` 覆盖不足。正确披露应区分“频点/上限记录已观测”与“没有升频请求→拒绝
+   的绑定证据”，不能把后者缺失说成整类事件缺失。
+8. 本轮没有工具拒绝、JSON 降级、旧稿恢复或 active-stream 4ms 总年龄降级。显式时间窗、Trace
+   自动补齐、链上-only 主因、邻近/背景 support-only、系统不代写模型结论均保持。
+
+状态：
+
+`B748-CARRIEROPERATIONDISCOVERY1=unit-covered/production-partial`；
+`B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=confirmed/P1/pending`；
+`B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=confirmed/P1/pending`；
+`B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=confirmed/P1/pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；
+adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`。
+
 ### §123.723 r409：累计补证车道漂移根修；图保留正证与活跃流 4ms 专审（2026-08-12）
 
 1. 在 `main@d015d6116` 严格并发恰好两个案例：
