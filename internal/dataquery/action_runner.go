@@ -678,7 +678,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		if strings.TrimSpace(action.ID) == "" {
 			action.ID = fmt.Sprintf("action_%d", i+1)
 		}
-		action, err = applyDataActionParamContract(action)
+		action, err = applyDataActionParamContract(action, plan.OutputContract)
 		if err != nil {
 			return failAction(action, err)
 		}

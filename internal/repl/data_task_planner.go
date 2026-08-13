@@ -447,6 +447,15 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 		paramProperties := make(map[string]any, len(keys))
 		for _, key := range keys {
 			property := map[string]any{}
+			if kind == dataquery.DataActionAssembleAnswer && key == "projection" {
+				projectionContracts := dataquery.DataActionOutputProjectionContracts()
+				enum := make([]any, 0, len(projectionContracts))
+				for _, contract := range projectionContracts {
+					enum = append(enum, contract.Value)
+				}
+				property["enum"] = enum
+				property["description"] = "Executor-owned answer projection. It must be compatible with output_contract.format; omit it to use that contract's deterministic default."
+			}
 			if description := dataquery.DataActionParamDescription(kind, key); description != "" {
 				property["description"] = description
 			}
@@ -552,6 +561,14 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 			rootAllOf = append(rootAllOf, branch)
 		}
 	}
+	for _, format := range dataquery.DataActionOutputProjectionFormats() {
+		projections := dataquery.DataActionOutputProjectionsForFormat(format)
+		enum := make([]any, 0, len(projections))
+		for _, projection := range projections {
+			enum = append(enum, projection)
+		}
+		rootAllOf = append(rootAllOf, dataTaskProjectionFormatSchema(format, enum))
+	}
 	if len(rootAllOf) > 0 {
 		schema["allOf"] = rootAllOf
 	}
@@ -568,6 +585,41 @@ func dataTaskPlanToolWithRuntimeActionContracts(tool llm.ToolSchema) (llm.ToolSc
 	}
 	tool.Parameters = raw
 	return tool, nil
+}
+
+func dataTaskProjectionFormatSchema(format dataquery.OutputFormat, enum []any) map[string]any {
+	actionCondition := map[string]any{
+		"if": map[string]any{
+			"required":   []any{"kind"},
+			"properties": map[string]any{"kind": map[string]any{"const": string(dataquery.DataActionAssembleAnswer)}},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"params": map[string]any{
+					"properties": map[string]any{"projection": map[string]any{"enum": enum}},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"x-codrax-action-kind": string(dataquery.DataActionAssembleAnswer),
+		"if": map[string]any{
+			"required": []any{"output_contract"},
+			"properties": map[string]any{
+				"output_contract": map[string]any{
+					"required":   []any{"format"},
+					"properties": map[string]any{"format": map[string]any{"const": string(format)}},
+				},
+			},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"actions": map[string]any{
+					"items": map[string]any{"allOf": []any{actionCondition}},
+				},
+			},
+		},
+	}
 }
 
 // dataTaskPlanCrossScopeActionDependencySchema projects executor-owned
@@ -958,7 +1010,7 @@ Hard rules:
 - Use compute_contributions for generic sums, counts, filters, grouped totals, item/member lists, or contribution ledgers over eligible structured/text inputs. Params are domain-neutral: value_field, group_key_field or group_key, metric, operation, item_id_field, filters, rule_refs, max_records, max_contributions. Use include/set/rank when value_field is the final item label/id/member list; count is row count only and does not output value_field members. Use add/subtract for numeric totals, with numeric value_field. If the value is embedded in text, first derive a numeric field with parse_number. If rule/evidence qualification is still needed, first run qualify_records or filter_records. Set replace_contributions=true only on a typed repair of the contribution ledger itself (for example reference_ledger_domain_mismatch after inspecting the declared reference field and source artifacts); it starts a new contribution generation instead of mixing corrected rows with stale groups.
 - Contribution population and final reference projection are separate DAG stages. Compute contributions over every source record included by the task's typed qualification/filter rules, grouped in the native contribution-key domain. Do not join a complete-reference table and then drop empty reference IDs merely to impose output order or zero-fill before compute_contributions. If absence from the reference is itself a real business exclusion rule, publish that decision through qualify_records before contribution calculation. Otherwise preserve all qualified contributions through reconcile_artifacts and let assemble_answer apply the complete reference only to the final output projection. When a reference contains both an order/display ID and the domain key used by contributions, reference_key_field must name the contribution-domain field; reference row order remains the output order.
 - Use reconcile_artifacts after compute_contributions when reconcile_required=true or when the final scalar/list must be backed by a deterministic contribution sum.
-- Use assemble_answer after reconcile_artifacts when strict final output should be projected from reconcile groups. Params are generic: projection=values|key_values|json_groups|json_object|markdown_table, order_by=group_key|metric|value|input|reference, delimiter, value_field=actual|expected|group_key|metric, include_keys=true|false. For projection=json_object, output_field is the external JSON key and does not change the internal contribution/reconcile group_key. Never put a requested JSON field name in assemble_answer.group_key. order_by=reference is valid only with a resolved complete-reference projection and preserves that reference's row order (equivalent to input after projection); reference_key_field selects the internal reference-member domain and does not rename the external JSON key. Use json_object when each reconcile group_key is an output field and text aggregate members should be arrays. For complete reference outputs, set output_contract.complete_reference=true plus reference_path/reference_key_field and mirror them on assemble_answer when needed; do not set it for ordinary present-group summaries.
+- Use assemble_answer after reconcile_artifacts when strict final output should be projected from reconcile groups. Params are generic: projection=values|key_values|json_groups|json_object|markdown_table, order_by=group_key|metric|value|input|reference, delimiter, value_field=actual|expected|group_key|metric, include_keys=true|false. Choose a projection admitted by the tool schema for the declared output_contract.format, or omit projection to use the executor's deterministic format default; never use a JSON/Markdown-owned projection for a plain or CSV contract. For projection=json_object, output_field is the external JSON key and does not change the internal contribution/reconcile group_key. Never put a requested JSON field name in assemble_answer.group_key. order_by=reference is valid only with a resolved complete-reference projection and preserves that reference's row order (equivalent to input after projection); reference_key_field selects the internal reference-member domain and does not rename the external JSON key. Use json_object when each reconcile group_key is an output field and text aggregate members should be arrays. For complete reference outputs, set output_contract.complete_reference=true plus reference_path/reference_key_field and mirror them on assemble_answer when needed; do not set it for ordinary present-group summaries.
 - Use custom_transform only for bounded deterministic transforms over known input_paths that cannot be represented by the typed actions above.
 - A broad custom_transform over many input_paths, required materials, or ledger outputs is not a discovery node. It is allowed only after earlier typed actions or previous rounds have already inspected/derived/normalized/enriched/joined/computed the relevant inputs. If any required input is still unprofiled or a needed field is missing, add inspect_material, derive_rules, derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, or extract_records first and set continue_after=true.
 - An actions[] batch may contain at most one scripted custom_transform. If the work needs several transforms, emit one batch, let it produce an artifact, then continue with the next batch.
@@ -1323,7 +1375,21 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 				Hint:     replStructuredToolRetryHint(tool),
 			}
 		}
-		return parsed.toPlan(), nil
+		plan := parsed.toPlan()
+		for i, action := range plan.Actions {
+			normalized, err := dataquery.NormalizeDataActionForOutputContract(action, plan.OutputContract)
+			if err != nil {
+				return dataquery.TaskPlan{}, &replStructuredToolParamError{
+					ToolName: tool.Name,
+					Scope:    "data task planner",
+					RawLen:   len(raw),
+					Err:      fmt.Errorf("$.actions[%d]: %w", i, err),
+					Hint:     replStructuredToolRetryHint(tool),
+				}
+			}
+			plan.Actions[i] = normalized
+		}
+		return plan, nil
 	}
 	plan, err := parsePlan(call.Params)
 	if err != nil {

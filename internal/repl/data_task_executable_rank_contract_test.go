@@ -293,7 +293,7 @@ func TestDataTaskInitialPlannerKeepsFullDiscoveryVocabulary(t *testing.T) {
 }
 
 func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
-	base := `{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[%s]}`
+	base := `{"status":"ready","output_contract":{"format":"json_only","explanation_allowed":false,"complete_reference":false},"actions":[%s]}`
 	tests := []struct {
 		name    string
 		action  string
@@ -378,6 +378,24 @@ func TestDataTaskInitialPlannerExecutesNativeActionSchema(t *testing.T) {
 	}
 	if len(adapter.calls) != 2 || len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionExtractRecords || plan.Actions[0].Script != "" {
 		t.Fatalf("calls=%d plan=%+v, want one compact schema repair before workflow admission", len(adapter.calls), plan)
+	}
+}
+
+func TestDataTaskInitialPlannerRepairsProjectionOutputFormatConflict(t *testing.T) {
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"assemble_answer","params":{"projection":"json_object","output_field":"count"}}]}`),
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"assemble_answer","params":{"projection":"values"}}]}`),
+	}}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "produce one plain value", t.TempDir(), TurnPolicy{Route: RouteData}, nil)
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if len(adapter.calls) != 2 || len(plan.Actions) != 1 || plan.Actions[0].Params["projection"] != "values" {
+		t.Fatalf("calls=%d plan=%+v, want one compact same-tool repair to a compatible projection", len(adapter.calls), plan)
+	}
+	if !strings.Contains(adapter.calls[1].messages[1].Content, "output_contract.format=plain_single_line") {
+		t.Fatalf("compact repair lost typed conflict: %+v", adapter.calls[1].messages)
 	}
 }
 

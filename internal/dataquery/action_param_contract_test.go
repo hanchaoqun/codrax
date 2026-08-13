@@ -108,6 +108,44 @@ func TestAssembleAnswerRejectsOutputFieldOnNonObjectProjection(t *testing.T) {
 	}
 }
 
+func TestAssembleAnswerRejectsProjectionEncodingThatContradictsOutputFormat(t *testing.T) {
+	seed := Result{Reconcile: &ReconcileReport{
+		Status: LooseText("pass"),
+		Groups: []ReconcileGroup{{
+			GroupKey: LooseText("all"), Metric: LooseText("count"), Actual: LooseText("2"), Expected: LooseText("2"),
+		}},
+	}}
+	_, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{Kind: DataActionAssembleAnswer, Params: map[string]string{
+			"projection": "json_object", "output_field": "count",
+		}}},
+	})
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "projection/output_contract.format" ||
+		!strings.Contains(paramErr.Error(), "format=plain_single_line") {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed output-format/projection conflict", err, err, paramErr)
+	}
+}
+
+func TestAssembleAnswerProjectionCompatibilityRegistryAndAlias(t *testing.T) {
+	contracts := DataActionOutputProjectionContracts()
+	if len(contracts) == 0 || !slices.Contains(DataActionOutputProjectionsForFormat(OutputJSONOnly), "object") ||
+		slices.Contains(DataActionOutputProjectionsForFormat(OutputPlainSingleLine), "json_object") {
+		t.Fatalf("projection contracts=%+v", contracts)
+	}
+	contracts[0].Formats[0] = OutputJSONOnly
+	if DataActionOutputProjectionContracts()[0].Formats[0] == OutputJSONOnly {
+		t.Fatal("projection registry leaked caller mutation")
+	}
+	action, err := NormalizeDataActionForOutputContract(DataAction{
+		Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "object", "output_field": "count"},
+	}, OutputContract{Format: OutputJSONOnly})
+	if err != nil || action.Params["projection"] != "json_object" {
+		t.Fatalf("normalized=%+v err=%v, want object alias canonicalized", action, err)
+	}
+}
+
 func TestDataActionAcceptedParamKeysReturnsCopy(t *testing.T) {
 	first, ok := DataActionAcceptedParamKeys(DataActionJoinRecords)
 	if !ok || len(first) == 0 {

@@ -35774,6 +35774,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.740 r424 与 B711：输出格式—投影合同分裂根修（2026-08-12）
+
+1. 在 `main@8ed84f1b9` 严格并发恰好两个案例：
+   `data_json_strict_ids + data_jsonl_filter_count`。Runner `1 PASS / 1 FAIL`，人工同为 `1 pass / 1 fail`；
+   逐轮审计见 `eval/parallel_selected_summary_evalcampaign_data_contract_r424_20260812_manual_audit.md`。
+2. strict IDs 一次闭环：46s、1 data round、0 repair、0 action failure，最终字节精确为
+   `{"ids":["u1","u3"]}`。相对 r423 的 198s/2 repair/2 action failure 显著收敛，初始 action schema
+   提杆没有破坏 direct script、严格 JSON 或 planner-distilled 材料兼容。
+3. B710 获生产正证：JSONL 初始 DAG 的 `operation=count` 不再携 `value_field`，两条命中行各自产生
+   contribution，reconcile 精确为 2；前轮 runtime-only 参数冲突消失。
+4. 新确认 B711（P0/P1，确定性）：同一 typed plan 的 `output_contract.format=plain_single_line`，却携
+   `assemble_answer projection=json_object + output_field=count`。执行器发布 `{"count":"2"}`，而
+   `ValidateAnswer` 对 plain-single-line 只查换行，故把 JSON 对象误签为结构完成。模型随后正确识别
+   用户要纯数字，但 `next_stage=complete` 又不允许修复，形成 3 repairs/7 rounds 后仍发布错形。
+   这是 output format、projection executor 与 completion 三面合同分裂，不是模型波动。
+5. 根修建立 executor-owned `ActionOutputProjectionContract`：所有显式 projection、兼容别名、canonical
+   值与其可用 strict output formats 单源登记。ActionRunner 在动作执行前读取 `TaskPlan.OutputContract`
+   校验并 canonicalize；planner schema 从同一 registry 投影 format×projection 条件 enum，planner decode
+   后再调用同一个 runtime normalizer，使 schema 未执行/兼容归一化旁路也 fail-closed。未知 projection
+   不再静默落入 key_values 默认分支。
+6. 兼容矩阵是结构型而非业务型：JSON/Markdown-owned 编码不能进入 plain/CSV；text values/key_values
+   保持原受支持格式；省略 projection 仍由执行器按 output contract 选择默认。该方案不扫描用户请求、
+   模型思考或最终答案字面，也不让系统替模型选择业务值或结论。
+7. 专项测试覆盖 runtime plain×json reject、JSON alias canonicalization、registry defensive copy、planner
+   同工具有界 repair、initial/rank schema 非回归。`go test ./internal/dataquery ./internal/repl
+   ./internal/dataworkflow` 全绿。
+8. Read/Trace/Write 路径未改；显式时间窗、Trace 因果投影、自动补齐、链上-only 根因以及实际占用/
+   业务线索与规则可消除量双轴保持。active stream 仍不得因 4ms 无完整 answer 降级。
+
+状态：
+
+`B709-DATAINITIALACTIONSCHEMAEXEC1=production-positive-r424`；
+`B710-DATACONDITIONALPARAMSCHEMA1=production-positive-r424`；
+`B711-DATAOUTPUTFORMATPROJECTIONCOMPAT1=implemented/shared-registry+planner/runtime-pins-pass/pending-replay`；
+`active-stream-4ms-degrade=forbidden/40ms-behavior-pin-retained`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.739 B709/B710：data action 执行前合同同源施工（2026-08-12）
 
 1. B709 根修：base/initial data planner 现在只把完整 schema-owned 的 `actions` subtree 加入

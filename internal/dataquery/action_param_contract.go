@@ -255,7 +255,7 @@ func DataActionKindsWithParamContracts() []DataActionKind {
 // for action families that have published a parameter contract. It uses only
 // the typed action kind and parameter keys; question, rule, and answer prose do
 // not participate in normalization or rejection.
-func applyDataActionParamContract(action DataAction) (DataAction, error) {
+func applyDataActionParamContract(action DataAction, outputContract OutputContract) (DataAction, error) {
 	contract, ok := dataActionParamContracts[normalizeDataActionKind(action.Kind)]
 	if !ok {
 		return action, nil
@@ -317,9 +317,15 @@ func applyDataActionParamContract(action DataAction) (DataAction, error) {
 		}
 	}
 	if normalizeDataActionKind(action.Kind) == DataActionAssembleAnswer {
-		projection := strings.ToLower(strings.TrimSpace(params["projection"]))
+		projection, err := normalizeActionOutputProjection(params["projection"], outputContract.Format)
+		if err != nil {
+			return action, err
+		}
+		if strings.TrimSpace(params["projection"]) != "" {
+			params["projection"] = projection
+		}
 		if outputField := strings.TrimSpace(params["output_field"]); outputField != "" &&
-			projection != "" && projection != "json_object" && projection != "json_object_values" && projection != "object" {
+			projection != "" && projection != "json_object" {
 			return action, DataActionParamError{
 				ActionKind:    action.Kind,
 				Param:         "output_field/projection",
@@ -356,6 +362,14 @@ func applyDataActionParamContract(action DataAction) (DataAction, error) {
 	}
 	action.Params = params
 	return action, nil
+}
+
+// NormalizeDataActionForOutputContract is the shared plan/admission boundary
+// for one typed action. Planner-side pre-dispatch repair and ActionRunner must
+// call this same implementation rather than maintaining separate semantic
+// matrices.
+func NormalizeDataActionForOutputContract(action DataAction, outputContract OutputContract) (DataAction, error) {
+	return applyDataActionParamContract(action, outputContract)
 }
 
 func equivalentActionParamValues(left, right string) bool {
