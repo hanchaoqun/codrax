@@ -37980,13 +37980,26 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     物化根因投影、但保留 requested principal fact card 的 authority pin。旧 case 的固定标题
     `EXPECT_CONTAINS=Trace 因果投影` 仍需在生产回放后改为校验“policy ceiling present；目标绑定
     已证/未证”的 principal verdict，不能以标题替代内容。
+13. B751 已施工。完整 flow 未获 typed path 授权时仍不生成一张“看似完整”的系统图；authoring
+    capsule 现把已证 directed relation graph 按弱连通分量切成若干 copy-ready component fragment。
+    每个 fragment 同时携带稳定 `n#` node id、可由模型替换为业务语言的可见 label/message，以及
+    独立且完整的 `component_edge_anchors_json` exact identity。模型可选择、重命名或并列这些局部
+    组件，但组件之间明确 unordered/disconnected，禁止补桥、补顺序或据此宣称 complete flow。
+    这统一覆盖 sequence/flow/architecture/call-DAG 四种语义载体，不按 Java、Go、ArkTS、仓颉等
+    语言或单一 case 分支；证据门、关系类型门和模型结论所有权均未放宽。
+14. 生成器级回归新增两类 pin：两组断开 call relation 必须输出两个片段且不得出现任一跨组件
+    箭头；sequence 与 flow/architecture/call-DAG 共用载体均须通过共享 Mermaid parser 与
+    normalizer，且解析出的 `n1 -> n2` 与 sibling anchor 数量/端点完全一致。因此本批同时防止
+    “关系为了过门被删”和“copy-ready 片段本身语法非法”。`20260813-035440.459-11882.md`、
+    `20260813-045420.099-32923.md` 的 quote/shape-aware operator 语法修复仍分别由既有 B720/B722
+    承担，B751 不另造 case-specific normalizer。
 
 状态：
 
 `B748-CARRIEROPERATIONDISCOVERY1=unit-covered/production-partial`；
 `B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=implemented/three-tier-scope+schema+production-pins-pass`；
 `B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=implemented/parser-identity-pins-pass`；
-`B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=confirmed/P1/pending`；
+`B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=implemented/component-fragments+exact-anchor+parser-pins-pass`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；
 adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`。

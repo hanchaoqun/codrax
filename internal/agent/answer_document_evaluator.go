@@ -7132,6 +7132,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			semanticHandoffs,
 			answerDocMechanismCopyReadyRelationLimit(ctx),
 			answerDocMechanismCopyReadyDiagramKind(ctx),
+			answerDocMechanismRequestedDiagramKind(ctx),
 		)
 	}
 	for i, path := range typedPaths {
@@ -7370,6 +7371,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	semanticHandoffs []answerDocRegisteredExportHandoff,
 	limit int,
 	copyReadyKind types.DiagramKind,
+	requestedKind types.DiagramKind,
 ) {
 	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
 		return
@@ -7452,6 +7454,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
+		renderAnswerDocMechanismCopyReadyComponentFragments(b, aliases, recipes, requestedKind)
 		for i, row := range unaryRows {
 			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
 				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
@@ -7481,6 +7484,97 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	}
 	if len(visualEdges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional unique typed relation(s) omitted only from this compact authoring view)\n", len(visualEdges)-len(bounded))
+	}
+}
+
+// renderAnswerDocMechanismCopyReadyComponentFragments gives a required flow
+// question a directly reusable representation of each independently verified
+// relation component when the typed evidence does not authorize one complete
+// story graph. It reuses the already-bounded recipes and exact n# aliases; it
+// never adds an edge, orders components, or connects them. The model remains
+// responsible for selecting useful components, adding requested disconnected
+// participants/boundaries, and authoring all visible business wording.
+func renderAnswerDocMechanismCopyReadyComponentFragments(
+	b *strings.Builder,
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+	kind types.DiagramKind,
+) {
+	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
+		return
+	}
+	if kind != types.DiagramSequence && kind != types.DiagramFlow && kind != types.DiagramArchitecture && kind != types.DiagramCallDAG {
+		return
+	}
+	components := answerDocMechanismRelationComponents(aliases, recipes)
+	if len(components) == 0 {
+		return
+	}
+	type fragment struct {
+		aliases []answerDocMechanismAliasRow
+		recipes []answerDocMechanismRecipeRow
+		anchors []types.DiagramEdgeAnchor
+	}
+	fragments := make([]fragment, 0, len(components))
+	for _, component := range components {
+		members := make(map[string]bool, len(component))
+		for _, row := range component {
+			members[row.alias] = true
+		}
+		componentRecipes := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+		for _, recipe := range recipes {
+			if members[recipe.from] && members[recipe.to] {
+				componentRecipes = append(componentRecipes, recipe)
+			}
+		}
+		diagramRecipes, _, _ := answerDocMechanismCopyReadyRecipes(componentRecipes, kind)
+		if len(diagramRecipes) == 0 {
+			continue
+		}
+		used := make(map[string]bool, len(diagramRecipes)*2)
+		anchors := make([]types.DiagramEdgeAnchor, 0, len(diagramRecipes))
+		for _, recipe := range diagramRecipes {
+			used[recipe.from] = true
+			used[recipe.to] = true
+			anchors = append(anchors, recipe.typed)
+		}
+		componentAliases := make([]answerDocMechanismAliasRow, 0, len(used))
+		for _, row := range component {
+			if used[row.alias] {
+				componentAliases = append(componentAliases, row)
+			}
+		}
+		fragments = append(fragments, fragment{aliases: componentAliases, recipes: diagramRecipes, anchors: anchors})
+	}
+	if len(fragments) == 0 {
+		return
+	}
+	b.WriteString("- Copy-ready verified component fragments follow. Each fence and its sibling anchor array are one self-consistent local carrier: copy node IDs, arrows, and anchors together, then replace only visible labels/messages with business wording. Fragments are mutually unordered and disconnected; selecting several never authorizes an inter-fragment edge or a complete-flow conclusion.\n")
+	for i, part := range fragments {
+		fmt.Fprintf(b, "\n#### Verified component fragment %d (not a complete flow)\n\n", i+1)
+		b.WriteString("```mermaid\n")
+		if kind == types.DiagramSequence {
+			b.WriteString("sequenceDiagram\n")
+			for _, row := range part.aliases {
+				fmt.Fprintf(b, "  participant %s as %s\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
+			}
+			for _, recipe := range part.recipes {
+				fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+			}
+		} else {
+			b.WriteString("flowchart TD\n")
+			for _, row := range part.aliases {
+				fmt.Fprintf(b, "  %s[\"%s\"]\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
+			}
+			for _, recipe := range part.recipes {
+				fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
+			}
+		}
+		b.WriteString("```\n")
+		anchorJSON, err := json.Marshal(part.anchors)
+		if err == nil {
+			fmt.Fprintf(b, "- component_edge_anchors_json[%d]=`%s`\n", i+1, anchorJSON)
+		}
 	}
 }
 
@@ -8209,6 +8303,14 @@ func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.Diagr
 	if view != nil && view.RelationAxis == types.AxisFlow {
 		return types.DiagramNone
 	}
+	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
+		return view.DiagramPlan.Kind
+	}
+	return types.DiagramNone
+}
+
+func answerDocMechanismRequestedDiagramKind(ctx *types.AgentContext) types.DiagramKind {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
 		return view.DiagramPlan.Kind
 	}

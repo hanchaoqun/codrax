@@ -569,6 +569,11 @@ func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonW
 		"edge_recipe[1]=`n1 -> n2`",
 		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}` + "`",
 		"keep separate components disconnected",
+		"Copy-ready verified component fragments follow",
+		"Verified component fragment 1 (not a complete flow)",
+		"participant n1 as Orchestrator.runAnalyzePhase",
+		"n1->>n2: call",
+		`component_edge_anchors_json[1]=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"remove it with `remove_block_ids` only when you judge",
 	} {
 		if !strings.Contains(got, want) {
@@ -580,6 +585,40 @@ func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonW
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("optional flow boundary repair made unsupported promise %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestRequiredFlowBoundaryCarriesCopyReadyDisconnectedComponentsWithoutBridges(t *testing.T) {
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
+		ID: "second-call", Kind: types.EvidenceRelationship,
+		Source: "internal/agent/analyzer.go", LineStart: 397,
+		AnchorKind: types.AnchorCall, Subject: "agent.prependEmitRetryDirective", Object: "Mutable.AnalyzerRetryHint",
+		GroundingStatus: types.GroundingGrounded,
+	})
+
+	hint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true)
+	if !ok {
+		t.Fatal("required flow boundary should be available")
+	}
+	for _, want := range []string{
+		"Verified component fragment 1 (not a complete flow)",
+		"Verified component fragment 2 (not a complete flow)",
+		"Fragments are mutually unordered and disconnected",
+		"participant n1 as Orchestrator.runAnalyzePhase",
+		"participant n3 as agent.prependEmitRetryDirective",
+		"n1->>n2: call",
+		"n3->>n4: call",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("component-fragment boundary missing %q:\n%s", want, hint)
+		}
+	}
+	for _, forbidden := range []string{"n2->>n3", "n3->>n2", "n1->>n4"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("component fragments invented inter-component bridge %q:\n%s", forbidden, hint)
 		}
 	}
 }

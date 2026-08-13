@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -842,7 +843,7 @@ func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
 	renderAnswerDocMechanismRelationAuthoringCapsule(&rendered, []answerDocMechanismRelationEdge{
 		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
-	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence)
+	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence, types.DiagramSequence)
 	for _, want := range []string{
 		"Note over n2,n3: Export binding is verified; describe the runtime boundary in business language, not as a call",
 		`edge_anchors_json=`,
@@ -857,6 +858,38 @@ func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
 	aliases = append(aliases, answerDocMechanismAliasRow{alias: "n5", identity: "py::tokenize_bytes"})
 	if got := answerDocMechanismSemanticHandoffRows(aliases, []answerDocRegisteredExportHandoff{handoff}); len(got) != 0 {
 		t.Fatalf("ambiguous callable aliases must fail closed: %+v", got)
+	}
+}
+
+func TestWithheldWholeFlowComponentFragmentsStayMermaidParseableAA3(t *testing.T) {
+	for _, kind := range []types.DiagramKind{
+		types.DiagramSequence,
+		types.DiagramFlow,
+		types.DiagramArchitecture,
+		types.DiagramCallDAG,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			var rendered strings.Builder
+			renderAnswerDocMechanismRelationAuthoringCapsule(&rendered, []answerDocMechanismRelationEdge{{
+				from: "Checkout.submit", to: "Payment.authorize", relation: types.DiagramRelCall,
+			}}, nil, nil, 8, types.DiagramNone, kind)
+			parts := strings.SplitN(rendered.String(), "```mermaid\n", 2)
+			if len(parts) != 2 {
+				t.Fatalf("withheld whole-flow capsule did not emit a component fragment:\n%s", rendered.String())
+			}
+			body := strings.SplitN(parts[1], "```", 2)[0]
+			edges := mermaidcompat.ParseEdges(body)
+			if len(edges) != 1 || edges[0].From != "n1" || edges[0].To != "n2" {
+				t.Fatalf("component fragment is not parser/anchor compatible: edges=%+v\n%s", edges, body)
+			}
+			normalized := mermaidcompat.NormalizeSourceForMarkdown(body)
+			if normalizedEdges := mermaidcompat.ParseEdges(normalized); len(normalizedEdges) != 1 || normalizedEdges[0].From != "n1" || normalizedEdges[0].To != "n2" {
+				t.Fatalf("component fragment lost topology through shared Mermaid normalization: edges=%+v\n%s", normalizedEdges, normalized)
+			}
+			if !strings.Contains(rendered.String(), `component_edge_anchors_json[1]=`+"`"+`[{"from_node":"n1","to_node":"n2","from_identity":"Checkout.submit","to_identity":"Payment.authorize","relation_kind":"call"}]`+"`") {
+				t.Fatalf("component fragment lost its exact sibling anchor array:\n%s", rendered.String())
+			}
+		})
 	}
 }
 
