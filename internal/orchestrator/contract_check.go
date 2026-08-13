@@ -1531,7 +1531,8 @@ func looksLikeIdentifierShape(s string) bool {
 
 // runStructuralEnumerationDivergenceOracle (P3 #6 precise variant,
 // 2026-05-03) catches the specific transparency failure where the
-// answer's emitted set ⊊ Graph.ImplementersOf(IfaceName) AND the
+// answer's emitted principal set ⊊ the requested source-scope slice of
+// Graph.ImplementersOf(IfaceName) AND the
 // missing names are silent — neither emitted as caveat rows nor
 // named verbatim in summary. The oracle's purpose is NOT to force
 // the LLM to include every structural implementer (the LLM may
@@ -1608,6 +1609,10 @@ func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, r
 		if len(typedImpl) == 0 {
 			return nil
 		}
+		typedImpl = structuralDivergencePrincipalImplementers(typedImpl, rm)
+		if len(typedImpl) == 0 {
+			return nil
+		}
 		return enumerateStructuralDivergence(typedImpl, ifaceName, v2EmittedNameSet(docV2), v2SummaryHaystack(docV2))
 	}
 
@@ -1635,7 +1640,37 @@ func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, r
 	if len(typedImpl) == 0 {
 		return nil
 	}
+	typedImpl = structuralDivergencePrincipalImplementers(typedImpl, rm)
+	if len(typedImpl) == 0 {
+		return nil
+	}
 	return enumerateStructuralDivergence(typedImpl, ifaceName, v2EmittedNameSet(docV2), v2SummaryHaystack(docV2))
+}
+
+// structuralDivergencePrincipalImplementers aligns the final divergence
+// oracle with the same analyzer-authored source-scope authority consumed by
+// typed relation handoff. Auxiliary/test/docs/generated implementers remain
+// available as supporting coverage, but they must not silently widen a
+// production principal answer back to the repository-wide graph. This reads
+// only typed request fields plus deterministic path roles; no request or
+// answer prose participates.
+func structuralDivergencePrincipalImplementers(typedImpl []*repotypes.Symbol, rm *types.RequestModel) []*repotypes.Symbol {
+	var profile *types.SourceScopeProfile
+	if rm != nil {
+		profile = rm.SourceScopeProfile
+	}
+	scope := types.PrincipalSourceScope(profile)
+	out := make([]*repotypes.Symbol, 0, len(typedImpl))
+	for _, sym := range typedImpl {
+		if sym == nil {
+			continue
+		}
+		role := types.ClassifySourcePathRole(sym.File)
+		if types.SourceScopeAllowsPathRole(scope, role) {
+			out = append(out, sym)
+		}
+	}
+	return out
 }
 
 // mapV1Names converts a V1 AnswerSymbol slice into a name set the
@@ -3826,9 +3861,9 @@ func runtimeGroundingWitnessFloorViolations(plan *types.AnswerSurfacePlan, attac
 		return nil
 	}
 	return []types.Violation{{
-		Kind:   types.ViolAuthorityOverreach,
-		Detail: "the answer is framed as grounded in runtime observations (trace/log analysis), but this run holds no runtime evidence at all — no attached runtime artifact, no runtime artifact observation, and no deterministic trace-query observation. Presenting runtime analysis here would be fabrication.",
-		Repair: "Re-emit emit_answer_document WITHOUT runtime-analysis framing: state plainly that the runtime artifact was not read in this run, answer only what the available repository evidence supports, and tell the user to attach the artifact (for example via /htrace or /log) for a grounded runtime analysis.",
+		Kind:       types.ViolAuthorityOverreach,
+		Detail:     "the answer is framed as grounded in runtime observations (trace/log analysis), but this run holds no runtime evidence at all — no attached runtime artifact, no runtime artifact observation, and no deterministic trace-query observation. Presenting runtime analysis here would be fabrication.",
+		Repair:     "Re-emit emit_answer_document WITHOUT runtime-analysis framing: state plainly that the runtime artifact was not read in this run, answer only what the available repository evidence supports, and tell the user to attach the artifact (for example via /htrace or /log) for a grounded runtime analysis.",
 		ClusterKey: "root:runtime_grounding_witness_floor",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "external_observation_policy",

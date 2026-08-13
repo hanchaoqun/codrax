@@ -65,3 +65,24 @@ func TestSourceScopeProfileAllowsAuxiliaryPrincipal(t *testing.T) {
 		}
 	}
 }
+
+func TestPrincipalSourceScopeSingleProjection(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile *SourceScopeProfile
+		want    SourceScope
+	}{
+		{name: "absent defaults production", want: SourceScopeProduction},
+		{name: "unknown defaults production", profile: &SourceScopeProfile{RequestedScope: SourceScopeUnknown}, want: SourceScopeProduction},
+		{name: "test", profile: &SourceScopeProfile{RequestedScope: SourceScopeTest}, want: SourceScopeTest},
+		{name: "all", profile: &SourceScopeProfile{RequestedScope: SourceScopeAll}, want: SourceScopeAll},
+		{name: "auxiliary flag overrides narrow scope", profile: &SourceScopeProfile{RequestedScope: SourceScopeProduction, IncludeAuxiliaryAsPrincipal: true}, want: SourceScopeAll},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := PrincipalSourceScope(tt.profile); got != tt.want {
+				t.Fatalf("PrincipalSourceScope(%+v) = %q, want %q", tt.profile, got, tt.want)
+			}
+		})
+	}
+}

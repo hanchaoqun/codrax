@@ -582,6 +582,33 @@ func TestNormalizeEmitAnswerBlock_NormalizesDiagramKindFromMermaidSyntax(t *test
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSemanticKind(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "types",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramArchitecture),
+			Body: strings.Join([]string{
+				"classDiagram",
+				"  class LoopController",
+				"  class analyzerEvaluator",
+				"  analyzerEvaluator ..|> LoopController",
+			}, "\n"),
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil || got.Diagram.Kind != types.DiagramArchitecture {
+		t.Fatalf("semantic architecture kind changed: %+v", got.Diagram)
+	}
+	for _, want := range []string{"flowchart TD", `analyzerEvaluator -->|"implements"| LoopController`} {
+		if !strings.Contains(got.Diagram.Body, want) {
+			t.Fatalf("converted body missing %q:\n%s", want, got.Diagram.Body)
+		}
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_NormalizesSequenceParticipantMessagePrefix(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "b1",

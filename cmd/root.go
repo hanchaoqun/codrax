@@ -1691,9 +1691,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 		}
 		return nil
 	}
-	if routePolicyOK && app.orch != nil {
-		app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(routePolicy))
-	}
+	applySingleShotRoutePolicy(app.orch, routePolicy, routePolicyOK)
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
@@ -1753,6 +1751,27 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	printAnswerSeparator()
 	fmt.Println("(no result)")
 	return nil
+}
+
+type singleShotRoutePolicySink interface {
+	SetTurnRouteHint(types.TurnRouteHint)
+	SetPresentationDirective(string)
+	SetPresentationDiagramRequired(bool)
+}
+
+// applySingleShotRoutePolicy gives non-interactive runs the same typed
+// current-turn presentation carrier as REPL dispatch. The route classifier's
+// requires_diagram boolean is the precise signal; request/model prose is never
+// scanned here. Without this bridge an explicit CLI diagram request was
+// silently normalized from required to optional even though the classifier had
+// already emitted the authority.
+func applySingleShotRoutePolicy(sink singleShotRoutePolicySink, policy repl.TurnPolicy, classified bool) {
+	if sink == nil || !classified {
+		return
+	}
+	sink.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(policy))
+	sink.SetPresentationDirective(policy.PresentationDirective)
+	sink.SetPresentationDiagramRequired(policy.RequiresDiagram)
 }
 
 // printAnswerSeparator marks the answer-region boundary on stderr. EVERY

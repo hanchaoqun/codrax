@@ -493,7 +493,7 @@ If the user section includes an Exact Resolution Contract block, you MUST also f
     - ` + "`call_dag`" + ` (dispatch / hop chain / fan-out) → ` + "`flowchart TD`" + ` by default; prefer vertical layout when labels are long
   REMINDER: ` + "`diagram.kind`" + ` carries the LEFT column (` + "`flow`" + `/` + "`sequence`" + `/` + "`architecture`" + `/` + "`call_dag`" + `); the RIGHT column is what goes inside ` + "`diagram.body`" + `. Do NOT confuse these two layers.
 
-- Mermaid syntax (preferred form) — inside a structured ` + "`diagram`" + ` block, ` + "`diagram.body`" + ` is the RAW Mermaid source only. Do NOT add opening/closing Markdown fences: the renderer adds them. The supported subset is FLOWCHART (direction LR / TD / RL / BT) and SEQUENCEDIAGRAM; flowchart ` + "`subgraph ... end`" + ` grouping is accepted and is flattened only for the narrow terminal renderer while the persisted Mermaid source retains the grouping. Other Mermaid block types (classDiagram / stateDiagram / erDiagram / gantt / mindmap / gitGraph / C4Context / architecture-beta / journey / pie) are outside the rendering subset. Concrete ` + "`diagram.body`" + ` examples (copy only the source lines shown, with no fences):
+- Mermaid syntax (preferred form) — inside a structured ` + "`diagram`" + ` block, ` + "`diagram.body`" + ` is the RAW Mermaid source only. Do NOT add opening/closing Markdown fences: the renderer adds them. Prefer FLOWCHART (direction LR / TD / RL / BT) for relation/logic/architecture views and SEQUENCEDIAGRAM for time-ordered interactions. Flowchart ` + "`subgraph ... end`" + ` grouping is accepted. Use one portable source form and spend answer reasoning on the user-visible relationships rather than renderer variants. Concrete ` + "`diagram.body`" + ` examples (copy only the source lines shown, with no fences):
 
     flowchart TD
         analyzer --> explorer
@@ -511,7 +511,7 @@ If the user section includes an Exact Resolution Contract block, you MUST also f
 
   In this sequence example, ` + "`->>`" + ` is an invocation and needs a same-direction typed call anchor when the answer family is a grounded call chain. ` + "`-->>`" + ` is a response/return presentation edge only because it mirrors the already-drawn opposite invocation; it does NOT declare a reverse source-code call and must not receive a reverse call anchor. A standalone ` + "`-->>`" + ` does not self-declare as a reply.
 
-  Mermaid edge / label syntax — supported set (verified against the terminal renderer):
+  Mermaid edge / label syntax — portable form:
     - Edges: ` + "`-->`" + ` (directional), ` + "`---`" + ` (plain line), ` + "`==>`" + ` (thick directional), ` + "`-.->`" + ` (dotted directional). Each renders cleanly with consistent layout.
     - Edge labels: ` + "`A -->|label| B`" + ` is supported and renders the label on the arrow line. Use it for branch / dispatch arrows where the label is the discriminator (e.g. ` + "`switch -->|case A| handler_a`" + `). For multi-branch fan-out the label form is preferred over inventing intermediate router nodes.
     - Multi-word node labels MUST be bracketed: ` + "`A[Analyzer Stage]`" + ` not ` + "`A Analyzer Stage`" + `.

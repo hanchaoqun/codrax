@@ -319,6 +319,15 @@ func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {
 		return
 	}
 	diag.Body = stripOuterDiagramFence(diag.Body)
+	// classDiagram is valid Mermaid and its directed class-relation subset has
+	// the same typed endpoint/edge semantics the source-relation validator
+	// already understands. Convert that carrier mechanically before the shared
+	// Markdown repairs so terminal and browser outputs agree. This is a syntax
+	// shim only: evidence authority remains entirely in edge_anchors + typed
+	// EvidenceItems.
+	if converted, ok := mermaidcompat.NormalizeClassDiagramToFlowchart(diag.Body); ok {
+		diag.Body = converted
+	}
 	diag.Body = mermaidcompat.NormalizeSourceForMarkdown(diag.Body)
 	family := types.MermaidBodySyntaxFamily(diag.Body)
 	if family == types.MermaidSyntaxUnknown || family == types.MermaidSyntaxUnsupported {

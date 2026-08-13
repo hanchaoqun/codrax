@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/repl"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestSingleShotRouteDegradeLogLineFormatPinned pins the route-degrade event
@@ -68,6 +69,30 @@ type replOnlyPolicyClassifier struct {
 	called bool
 }
 
+type singleShotRouteSinkRecorder struct {
+	hint            types.TurnRouteHint
+	directive       string
+	diagramRequired bool
+	hintCalls       int
+	directiveCalls  int
+	diagramReqCalls int
+}
+
+func (r *singleShotRouteSinkRecorder) SetTurnRouteHint(hint types.TurnRouteHint) {
+	r.hint = hint
+	r.hintCalls++
+}
+
+func (r *singleShotRouteSinkRecorder) SetPresentationDirective(directive string) {
+	r.directive = directive
+	r.directiveCalls++
+}
+
+func (r *singleShotRouteSinkRecorder) SetPresentationDiagramRequired(required bool) {
+	r.diagramRequired = required
+	r.diagramReqCalls++
+}
+
 func (c *replOnlyPolicyClassifier) ClassifyPolicy(context.Context, string, string, bool) (repl.TurnPolicy, error) {
 	c.called = true
 	return repl.TurnPolicy{}, nil
@@ -93,6 +118,29 @@ func TestClassifySingleShotPolicyCall_PrefersSingleShotLane(t *testing.T) {
 	}
 	if !narrow.called {
 		t.Fatal("narrow stub classifier must fall back to ClassifyPolicy")
+	}
+}
+
+func TestApplySingleShotRoutePolicyCarriesTypedPresentationAuthority(t *testing.T) {
+	sink := &singleShotRouteSinkRecorder{}
+	policy := repl.TurnPolicy{
+		Route:                 repl.RouteRepo,
+		NeedsRepoAccess:       true,
+		PresentationDirective: "Mermaid type relation view",
+		RequiresDiagram:       true,
+	}
+	applySingleShotRoutePolicy(sink, policy, true)
+	if sink.hintCalls != 1 || sink.directiveCalls != 1 || sink.diagramReqCalls != 1 {
+		t.Fatalf("typed policy carrier calls = hint:%d directive:%d diagram:%d", sink.hintCalls, sink.directiveCalls, sink.diagramReqCalls)
+	}
+	if sink.directive != policy.PresentationDirective || !sink.diagramRequired {
+		t.Fatalf("presentation authority lost: %+v", sink)
+	}
+
+	untouched := &singleShotRouteSinkRecorder{}
+	applySingleShotRoutePolicy(untouched, policy, false)
+	if untouched.hintCalls+untouched.directiveCalls+untouched.diagramReqCalls != 0 {
+		t.Fatalf("unclassified policy must not mint presentation authority: %+v", untouched)
 	}
 }
 

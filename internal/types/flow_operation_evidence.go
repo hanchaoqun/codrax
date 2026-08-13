@@ -47,15 +47,7 @@ func HasFlowOperationEvidence(evidence []EvidenceItem) bool {
 // production question, but cannot satisfy its operation-carrier safeguard.
 func FlowOperationEvidenceForRequest(evidence []EvidenceItem, rm RequestModel) []EvidenceItem {
 	items := FlowOperationEvidence(evidence)
-	scope := SourceScopeProduction
-	if rm.SourceScopeProfile != nil {
-		if rm.SourceScopeProfile.RequestedScope != "" {
-			scope = rm.SourceScopeProfile.RequestedScope
-		}
-		if rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal {
-			scope = SourceScopeAll
-		}
-	}
+	scope := PrincipalSourceScope(rm.SourceScopeProfile)
 	out := items[:0]
 	for _, item := range items {
 		if SourceScopeAllowsPathRole(scope, ClassifySourcePathRole(item.Source)) {

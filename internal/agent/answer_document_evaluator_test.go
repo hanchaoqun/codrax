@@ -9413,6 +9413,35 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuot
 	}
 }
 
+func TestMissingRequestedAnswerDimensions_DiagramRoleUsesTypedBlockShape(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "类型关系如下。"},
+			{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramArchitecture, Language: "mermaid", Body: "flowchart TD\n  Impl --> Contract",
+			}},
+		},
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Index: 1, Label: "关系图", SourceQuote: "关系图", Required: true,
+				Role: types.RequestedAnswerDimensionDiagram,
+			}},
+		},
+	}}}
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 0 {
+		t.Fatalf("typed diagram block must cover diagram dimension without prose-label matching: %+v", missing)
+	}
+	doc.Blocks = doc.Blocks[:1]
+	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
+	if len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionDiagram {
+		t.Fatalf("absent diagram block must leave diagram dimension missing: %+v", missing)
+	}
+}
+
 func TestRenderReadOwnerAnchorSupplement_RendersOwnerRows(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

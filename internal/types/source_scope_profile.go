@@ -80,6 +80,26 @@ func (p *SourceScopeProfile) Fingerprint() string {
 	return strings.Join(parts, ":")
 }
 
+// PrincipalSourceScope is the single typed projection from an analyzer-authored
+// source-scope profile to the path scope allowed to answer as principal.
+// Ordinary relation/source questions default to production. The explicit
+// auxiliary-as-principal flag widens to all roles even when an older producer
+// left RequestedScope narrower. Unknown/invalid values do not widen authority.
+func PrincipalSourceScope(profile *SourceScopeProfile) SourceScope {
+	if profile == nil {
+		return SourceScopeProduction
+	}
+	if profile.IncludeAuxiliaryAsPrincipal {
+		return SourceScopeAll
+	}
+	switch profile.RequestedScope {
+	case SourceScopeProduction, SourceScopeTest, SourceScopeDocumentation, SourceScopeAuxiliary, SourceScopeAll:
+		return profile.RequestedScope
+	default:
+		return SourceScopeProduction
+	}
+}
+
 // SourceScopeAllowsPathRole reports whether a classified path role can be a
 // principal candidate under the requested scope.
 func SourceScopeAllowsPathRole(scope SourceScope, role SourcePathRole) bool {

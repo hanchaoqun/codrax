@@ -25,6 +25,7 @@ const (
 	RequestedAnswerDimensionMemberSet         RequestedAnswerDimensionRole = "member_set"
 	RequestedAnswerDimensionEvidenceSource    RequestedAnswerDimensionRole = "evidence_source"
 	RequestedAnswerDimensionBoundary          RequestedAnswerDimensionRole = "boundary"
+	RequestedAnswerDimensionDiagram           RequestedAnswerDimensionRole = "diagram"
 	RequestedAnswerDimensionStageWorkflow     RequestedAnswerDimensionRole = "stage_or_workflow"
 	RequestedAnswerDimensionOther             RequestedAnswerDimensionRole = "other"
 )
@@ -40,6 +41,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionMemberSet,
 		RequestedAnswerDimensionEvidenceSource,
 		RequestedAnswerDimensionBoundary,
+		RequestedAnswerDimensionDiagram,
 		RequestedAnswerDimensionStageWorkflow,
 		RequestedAnswerDimensionOther,
 	}

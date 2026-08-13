@@ -523,10 +523,15 @@ func TestEmitInvestigationCompleteHardRejectsExactAuxiliaryRelationPromotion(t *
 		"testStub",
 		"source_role=test",
 		"internal/agent/agent_test.go",
+		"role=\"supporting_coverage\"",
+		"do not create an excluded-only empty member_set",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("hard reject missing %q: %s", want, res.Summary)
 		}
+	}
+	if strings.Contains(res.Summary, "Move these rows to excluded[]") {
+		t.Fatalf("repair teaching must not recommend an aggregate shape rejected by the next contract: %s", res.Summary)
 	}
 	if bus.Mutable.InvestigationCompleteReason() != "" {
 		t.Fatalf("rejected completion must not mutate investigation completion")

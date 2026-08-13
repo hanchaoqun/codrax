@@ -90,3 +90,51 @@ func TestStructuralEnumerationDivergence_FiresForPrimaryRelationScope(t *testing
 		t.Fatalf("detail should name missing implementer and relation scope, got %q", got[0].Detail)
 	}
 }
+
+func TestStructuralEnumerationDivergence_DefaultProductionDoesNotPromoteTestImplementer(t *testing.T) {
+	mut := types.NewMutableState("")
+	graph := buildDivergenceScopeGraph(t)
+	iface := graph.SymbolDefs["Looper"][0]
+	testFile := &repotypes.FileInfo{RelPath: "loop_test.go", Language: "go"}
+	testImpl := repotypes.Symbol{Name: "loopTestDouble", Kind: "struct", File: "loop_test.go", Line: 9, Implements: []repotypes.SymbolID{iface.ID}}
+	testImpl.ID = repotypes.DeriveSymbolID(testFile, &testImpl)
+	testFile.Symbols = []repotypes.Symbol{testImpl}
+	graph.Files = append(graph.Files, testFile)
+	graph.FileIndex[testFile.RelPath] = testFile
+	graph.SymbolByID[testImpl.ID] = &testFile.Symbols[0]
+	mut.SetSearchGraph(graph)
+
+	rm := &types.RequestModel{
+		Predicates:         types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints:      types.AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction},
+	}
+	got := runStructuralEnumerationDivergenceOracleV2(divergenceScopeAnswer("alpha", "beta"), rm, mut, nil)
+	if len(got) != 0 {
+		t.Fatalf("test implementer must remain supporting coverage under production scope, got %+v", got)
+	}
+}
+
+func TestStructuralEnumerationDivergence_AllScopePromotesTestImplementer(t *testing.T) {
+	mut := types.NewMutableState("")
+	graph := buildDivergenceScopeGraph(t)
+	iface := graph.SymbolDefs["Looper"][0]
+	testFile := &repotypes.FileInfo{RelPath: "loop_test.go", Language: "go"}
+	testImpl := repotypes.Symbol{Name: "loopTestDouble", Kind: "struct", File: "loop_test.go", Line: 9, Implements: []repotypes.SymbolID{iface.ID}}
+	testImpl.ID = repotypes.DeriveSymbolID(testFile, &testImpl)
+	testFile.Symbols = []repotypes.Symbol{testImpl}
+	graph.Files = append(graph.Files, testFile)
+	graph.FileIndex[testFile.RelPath] = testFile
+	graph.SymbolByID[testImpl.ID] = &testFile.Symbols[0]
+	mut.SetSearchGraph(graph)
+
+	rm := &types.RequestModel{
+		Predicates:         types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints:      types.AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true},
+	}
+	got := runStructuralEnumerationDivergenceOracleV2(divergenceScopeAnswer("alpha", "beta"), rm, mut, nil)
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "loopTestDouble") {
+		t.Fatalf("all-source scope must keep omitted test implementer in principal divergence, got %+v", got)
+	}
+}

@@ -995,6 +995,42 @@ func TestMermaidKeywordRegistryCoversPreviewAndTerminalForms(t *testing.T) {
 	}
 }
 
+func TestNormalizeClassDiagramToFlowchart_PreservesDirectedTypeRelations(t *testing.T) {
+	in := strings.Join([]string{
+		"classDiagram",
+		"    class LoopController {",
+		"        <<interface>>",
+		"        +Observe(ctx, obs) LoopSignal",
+		"    }",
+		"    class analyzerEvaluator",
+		"    analyzerEvaluator ..|> LoopController",
+	}, "\n")
+	got, ok := NormalizeClassDiagramToFlowchart(in)
+	if !ok {
+		t.Fatal("portable classDiagram should convert")
+	}
+	for _, want := range []string{
+		"flowchart TD",
+		`LoopController["LoopController<br/>&lt;&lt;interface&gt;&gt;<br/>+Observe(ctx, obs) LoopSignal"]`,
+		`analyzerEvaluator["analyzerEvaluator"]`,
+		`analyzerEvaluator -->|"implements"| LoopController`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("converted class diagram missing %q:\n%s", want, got)
+		}
+	}
+	if again, ok := NormalizeClassDiagramToFlowchart(got); ok || again != got {
+		t.Fatalf("converter must be idempotent outside classDiagram: ok=%t\n%s", ok, again)
+	}
+}
+
+func TestNormalizeClassDiagramToFlowchart_FailsOpenWhenCardinalityWouldBeLost(t *testing.T) {
+	in := "classDiagram\n  Customer \"1\" --> \"many\" Order : places"
+	if got, ok := NormalizeClassDiagramToFlowchart(in); ok || got != in {
+		t.Fatalf("cardinality-bearing diagram must stay byte-identical: ok=%t got=%q", ok, got)
+	}
+}
+
 // MMD-1 (2026-07-13, witness .codrax/output/20260713-181931.791-19240.html):
 // Mermaid lexes bare subgraph titles with the restricted statement-level
 // token stream (NODE_STRING + UNICODE_TEXT letters), so a single-token CJK

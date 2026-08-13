@@ -2288,7 +2288,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			ToolName: t.Name(),
 			Summary: "emit_investigation_complete rejected: the principal relation member_set promotes exact typed relation rows outside the requested source scope: " +
 				relationScopeViolationSummary(violations) +
-				". Move these rows to excluded[] or an explicitly auxiliary aggregate; retain them in the complete audit roster, but do not count them as principal unless SourceScopeProfile selects that role.",
+				". Keep the principal member_set limited to the requested source scope. If the auxiliary rows need audit visibility, put them in a separate non-empty member_set with role=\"supporting_coverage\", its exact members[], value equal to that member count, and their support_refs; do not create an excluded-only empty member_set or count auxiliary rows as principal unless SourceScopeProfile selects that role.",
 			Success:   false,
 			Timestamp: time.Now(),
 		}, nil
@@ -5908,7 +5908,7 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		fmt.Fprintf(&b, "The current `member_set` omits grounded typed relation evidence that was already emitted and is inside the requested source scope: %s. Include these members in the principal `member_set`, or place them in `excluded[]` with an explicit reason if the user-facing answer intentionally excludes them.\n\n", relationMemberSetGapSummary(relationGaps))
 	}
 	if len(scopeViolations) > 0 {
-		fmt.Fprintf(&b, "The current principal `member_set` promotes exact typed relation rows outside the analyzer-emitted source scope: %s. Keep those rows in the complete audit roster, but move them to `excluded[]` or an explicitly auxiliary aggregate; do not count them in the principal relation set unless `SourceScopeProfile` selects that role.\n\n", relationScopeViolationSummary(scopeViolations))
+		fmt.Fprintf(&b, "The current principal `member_set` promotes exact typed relation rows outside the analyzer-emitted source scope: %s. Keep the principal set scoped. If those rows need audit visibility, emit a separate non-empty `member_set` with `role=\"supporting_coverage\"`, the exact auxiliary `members[]`, matching `value`, and their `support_refs`; an excluded-only empty aggregate is invalid. Do not count auxiliary rows in the principal relation set unless `SourceScopeProfile` selects that role.\n\n", relationScopeViolationSummary(scopeViolations))
 	}
 	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
 	return b.String()
@@ -6635,10 +6635,7 @@ func relationCandidateGroundingFiles(candidate types.TypedRelationCandidate) []s
 }
 
 func relationSourceInRequestedScope(source string, rm types.RequestModel) bool {
-	scope := types.SourceScopeProduction
-	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != "" {
-		scope = rm.SourceScopeProfile.RequestedScope
-	}
+	scope := types.PrincipalSourceScope(rm.SourceScopeProfile)
 	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(source))
 }
 

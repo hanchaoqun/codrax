@@ -113,15 +113,7 @@ func ProjectTypedRelationMemberScopeLane(member TypedRelationMember, rm RequestM
 		member.ScopeLane = TypedRelationMemberLaneAuxiliary
 		return member
 	}
-	scope := SourceScopeProduction
-	if rm.SourceScopeProfile != nil {
-		switch {
-		case rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal:
-			scope = SourceScopeAll
-		case rm.SourceScopeProfile.RequestedScope != "":
-			scope = rm.SourceScopeProfile.RequestedScope
-		}
-	}
+	scope := PrincipalSourceScope(rm.SourceScopeProfile)
 	if SourceScopeAllowsPathRole(scope, member.SourceRole) {
 		member.ScopeLane = TypedRelationMemberLanePrincipal
 	} else {

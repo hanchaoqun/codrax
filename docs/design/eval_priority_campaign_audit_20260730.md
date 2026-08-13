@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.730 r416：Trace 链上双轴正证；类图载体/范围/展示合同统一（2026-08-12）
+
+1. 在 `main@45d677d46` 严格并发恰好两个案例：
+   `real_trace_h8_semantic_edge_anchor_sentinel + qf_type_relation_loop_controller`。Runner
+   `2 PASS / 0 FAIL`，人工 `1 PASS / 1 FAIL`；完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r416_20260812_manual_audit.md`。
+2. Trace 是显式 34579.490..34579.500 的正对照：目标 running 1.156ms、runnable 0.183ms、
+   sleep 8.661ms、D/IO=0；NetworkService→CookieMonsterCl→目标与 T7→目标均有 typed 入链边。
+   优先级反转、调度供给、算力供给、VerifyClass 确定性语义工作及业务线程线索均未丢；邻近/
+   背景单列不晋升主因。实际占用/新修向与现有规则可消除量双轴完整，缺 wakeup 边界诚实披露。
+3. 类图模型正文实际正确：12 个 production implementer、文件位置和 12 条 realization 边均有
+   `repomap_implementer_relation`。失败来自 B694：合法 `classDiagram` 的终端载体不兼容被后置
+   层误写成“边未类型化”。structured diagram seam 现只对可无损 directed class relation 做
+   syntax-only flowchart 转换，保持模型原有端点、方向、关系语义和文本；不增边、不分类业务、
+   不代写答案。cardinality/复杂形 fail-open，继续走现有 fail-loud 降级。
+4. B695 根修 single-shot typed presentation 接线：CLI/eval 现在与 REPL 一样携带 router 已铸的
+   directive 与 `requires_diagram` boolean，不再把明确图请求归一成 optional。新增 typed
+   `requested_answer_dimension.role=diagram`，结构化 diagram block 可直接覆盖，避免把图错当
+   stage/workflow 并追加内部化“系统核对”块。该门不扫描 raw request 或模型输出。
+5. B696 将来源主范围收敛到 `types.PrincipalSourceScope`。关系证据、flow evidence 与终局
+   divergence 共用 production/test/documentation/auxiliary/all 投影；production 问题不再把 3 个
+   test implementer 重新升为主集合而发假 caveat，显式 all/test 仍保持完整性门。
+6. B697 消除修补合同自冲突：辅助关系需要可见时只教学一个 canonical 合法形——独立非空
+   `supporting_coverage` member_set，精确 members/value/support_refs；明确 excluded-only 空集合
+   无效。模型不再被上一提示引向下一门必拒的结构。
+7. 相关包全绿：`internal/mermaidcompat/tool/types/agent/orchestrator/cmd`，并单独复验两个 4ms
+   行为 pin。活跃 SSE 每 4ms 到达 partial bytes 或 evaluator budget=4ms、模型 40ms 后完成时均
+   不降级；只有 cancel/deadline、no-first-byte、真实 byte-stall、transport/decode failure 有
+   终止/有界恢复权。系统不得以 evidence 合成替代模型答案。
+8. Read/Trace/Write 核心路径未被展示修复改写；显式窗 Trace 因果投影、自动补齐、链上-only
+   主因、实际占用/业务线索与规则可消除量双轴保持。没有答案关键词硬门，没有系统补边或改结论。
+
+状态：
+
+`B694-CLASSDIAGRAMCARRIERAUTHORITY1=implemented/syntax-only-shim+pinned/pending-production-replay`；
+`B695-SINGLESHOTDIAGRAMAUTHORITY1=implemented/typed-route+dimension-pins/pending-production-replay`；
+`B696-RELATIONPRINCIPALSCOPEPARITY1=implemented/single-source+prod/all-pins/pending-production-replay`；
+`B697-AUXMEMBERSETREPAIRCONTRACT1=implemented/canonical-shape+negative-pin/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/exact-pins-pass`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r416`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.729 r415：ArkTS 正证；typed inventory 行重复与请求字段丢失根修（2026-08-12）
 
 1. 在 `main@a45e8b53c` 严格并发恰好两个 Harmony 多语言清单案例：

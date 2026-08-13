@@ -12733,9 +12733,24 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 		return answerDocumentHasBoundaryPayload(doc)
 	case types.RequestedAnswerDimensionEvidenceSource:
 		return answerDocumentHasEvidenceSourcePayload(doc)
+	case types.RequestedAnswerDimensionDiagram:
+		return answerDocumentHasDiagramPayload(doc)
 	default:
 		return false
 	}
+}
+
+func answerDocumentHasDiagramPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockDiagram && block.Diagram != nil &&
+			strings.TrimSpace(block.Diagram.Body) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func requestedAnswerDimensionsRequiringPatchRetry(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {
