@@ -4161,7 +4161,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
 			typeRelationParts = append(typeRelationParts, part)
 			typeRelationMismatches = append(typeRelationMismatches, mismatch)
-		} else if mismatch.Issue == diagramAssignmentEdgeIssueNoEvidence || mismatch.Issue == diagramDataFlowEdgeIssueNoEvidence || mismatch.Issue == diagramReturnEdgeIssueNoEvidence {
+		} else if mismatch.Issue == diagramAssignmentEdgeIssueNoEvidence || mismatch.Issue == diagramDataFlowEdgeIssueNoEvidence || mismatch.Issue == diagramReturnEdgeIssueNoEvidence || mismatch.Issue == diagramArgumentFlowEdgeIssueNoEvidence {
 			valueFlowParts = append(valueFlowParts, part)
 			valueFlowMismatches = append(valueFlowMismatches, mismatch)
 		} else if mismatch.Issue == diagramSemanticRelationIssueNoEvidence {

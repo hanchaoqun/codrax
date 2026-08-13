@@ -65,6 +65,68 @@ func TestGroundItemCallbackHandoffDoesNotAcceptDirectInvocation(t *testing.T) {
 	}
 }
 
+func TestGroundItemArgumentFlowAcrossSupportedLanguageShapes(t *testing.T) {
+	tests := []struct {
+		name, source, line, argument, receiver string
+	}{
+		{"go", "runner.go", "ctx := BuildAgentContext(o.busCtx, stage)", "o.busCtx", "BuildAgentContext"},
+		{"python", "runner.py", "ctx = build_agent_context(self.bus_ctx, stage)", "self.bus_ctx", "build_agent_context"},
+		{"java", "Runner.java", "ctx = factory.build(this.busContext, stage);", "this.busContext", "factory.build"},
+		{"arkts", "Runner.ets", "const ctx = factory.build(this.busContext, stage);", "this.busContext", "factory.build"},
+		{"cangjie", "runner.cj", "let ctx = factory.build(busContext, stage)", "busContext", "factory.build"},
+		{"c", "runner.c", "ctx = build_context(&bus_context, stage);", "&bus_context", "build_context"},
+		{"cpp_nested", "runner.cc", "ctx = factory.build(std::move(bus_context), stage);", "std::move(bus_context)", "factory.build"},
+		{"rust", "runner.rs", "let ctx = factory.build(&bus_context, stage);", "&bus_context", "factory.build"},
+		{"swift", "Runner.swift", "let ctx = factory.build(busContext, stage: stage)", "busContext", "factory.build"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gc := &Context{LineIndex: map[string]map[int]string{tt.source: {7: tt.line}}}
+			item := types.EvidenceItem{
+				ID: "arg", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+				Source: tt.source, LineStart: 7, AnchorKind: types.AnchorArgument,
+				AnchorSymbol: tt.argument, Subject: tt.argument, Object: tt.receiver,
+			}
+			report := GroundItem(&item, gc)
+			if report.Status != types.GroundingGrounded || item.GroundingTier != types.TierLineText {
+				t.Fatalf("argument flow not grounded: report=%+v item=%+v", report, item)
+			}
+			if got := types.ClaimFormOf(item); got != types.ClaimArgumentFlow {
+				t.Fatalf("claim form=%q want %q", got, types.ClaimArgumentFlow)
+			}
+		})
+	}
+}
+
+func TestGroundItemArgumentFlowRequiresCompleteExactArgumentAndDirection(t *testing.T) {
+	gc := &Context{LineIndex: map[string]map[int]string{"runner.go": {9: "ctx := BuildAgentContext(o.busCtx, stage)"}}}
+	base := types.EvidenceItem{
+		ID: "arg", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "runner.go", LineStart: 9, AnchorKind: types.AnchorArgument,
+		AnchorSymbol: "o.busCtx", Subject: "o.busCtx", Object: "BuildAgentContext",
+	}
+	for name, mutate := range map[string]func(*types.EvidenceItem){
+		"partial_argument": func(item *types.EvidenceItem) { item.Subject = "busCtx"; item.AnchorSymbol = "busCtx" },
+		"reversed":         func(item *types.EvidenceItem) { item.Subject, item.Object = item.Object, item.Subject },
+		"wrong_receiver":   func(item *types.EvidenceItem) { item.Object = "OtherBuilder" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			item := base
+			mutate(&item)
+			if report := GroundItem(&item, gc); report.Status != types.GroundingUngrounded {
+				t.Fatalf("%s must fail closed: report=%+v item=%+v", name, report, item)
+			}
+		})
+	}
+}
+
+func TestDetectArgumentFlowAtLineRejectsAmbiguousDuplicateTuple(t *testing.T) {
+	gc := &Context{LineIndex: map[string]map[int]string{"runner.go": {11: "pair(Build(ctx), Build(ctx))"}}}
+	if argument, receiver, ok := DetectArgumentFlowAtLine(gc, "runner.go", 11, "ctx", "Build"); ok {
+		t.Fatalf("duplicate tuple must be ambiguous, got argument=%q receiver=%q", argument, receiver)
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

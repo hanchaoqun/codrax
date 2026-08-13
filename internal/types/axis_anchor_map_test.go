@@ -27,6 +27,7 @@ func TestPredicateAxisToAnchorKinds_KnownPairs(t *testing.T) {
 		{AxisCondition, AnchorCondition},
 		{AxisImplement, AnchorDefinition},
 		{AxisFlow, AnchorCallback},
+		{AxisFlow, AnchorArgument},
 		{AxisFlow, AnchorPrecedence},
 	}
 	for _, tc := range cases {
@@ -50,7 +51,7 @@ func TestPredicateAxisToAnchorKinds_FlowRejectsDefinitionOnly(t *testing.T) {
 	hasTransfer := false
 	for _, kind := range got {
 		hasDefinition = hasDefinition || kind == AnchorDefinition
-		hasTransfer = hasTransfer || kind == AnchorCall || kind == AnchorCallback ||
+		hasTransfer = hasTransfer || kind == AnchorCall || kind == AnchorCallback || kind == AnchorArgument ||
 			kind == AnchorAssignment || kind == AnchorInitializer || kind == AnchorReturn || kind == AnchorPrecedence
 	}
 	if hasDefinition || !hasTransfer {

@@ -447,7 +447,7 @@ func primaryEvidenceCallSourceLine(ev types.EvidenceItem) string {
 	if ev.GroundingStatus != types.GroundingGrounded {
 		return ""
 	}
-	if ev.AnchorKind != types.AnchorCall && ev.AnchorKind != types.AnchorCallback {
+	if ev.AnchorKind != types.AnchorCall && ev.AnchorKind != types.AnchorCallback && ev.AnchorKind != types.AnchorArgument {
 		return ""
 	}
 	line := strings.TrimSpace(ev.Snippet)
@@ -477,6 +477,8 @@ func anchorKindDisplayTag(k types.AnchorKind) string {
 		return "(call site)"
 	case types.AnchorCallback:
 		return "(callback handoff)"
+	case types.AnchorArgument:
+		return "(argument handoff)"
 	case types.AnchorDefinition:
 		return "(definition)"
 	case types.AnchorCondition:

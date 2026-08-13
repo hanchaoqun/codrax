@@ -4226,6 +4226,33 @@ func TestCallbackReceiverCallRepairIsSchemaBoundTraceIsolatedAndDuplicateAware(t
 	}
 }
 
+func TestEmitEvidence_AcceptsExactArgumentFlowWithoutMintingCalleeUse(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 8026,
+		"agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)")
+	params := json.RawMessage(`{"items":[{
+		"scope":"line","evidence_kind":"relationship","subject":"o.busCtx",
+		"predicate":"passes argument","object":"ctxbuilder.BuildAgentContext",
+		"source":"internal/orchestrator/orchestrator.go","line_start":8026,
+		"summary":"the current bus context is passed into agent context construction",
+		"anchor_kind":"argument","anchor_symbol":"o.busCtx"
+	}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("argument evidence failed, err=%v result=%+v", err, res)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorArgument ||
+		got[0].Subject != "o.busCtx" || got[0].Object != "ctxbuilder.BuildAgentContext" ||
+		types.ClaimFormOf(got[0]) != types.ClaimArgumentFlow {
+		t.Fatalf("exact argument tuple was not preserved: %+v", got)
+	}
+	if strings.Contains(strings.ToLower(got[0].Predicate), "stores") || strings.Contains(strings.ToLower(got[0].Predicate), "mutates") {
+		t.Fatalf("tool minted unsupported callee-side semantics: %+v", got[0])
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

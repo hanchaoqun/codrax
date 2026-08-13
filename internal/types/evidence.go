@@ -233,6 +233,14 @@ const (
 // language forms.  It proves a handoff to a receiving API, not that the
 // callback subsequently executed; direct execution remains AnchorCall.
 //
+// AnchorArgument covers an exact non-callable value expression passed as one
+// complete argument to a receiving invocation. Subject is the byte-exact
+// argument expression and Object is the receiving API expression. It proves
+// only that value handoff at this call site; it does not prove how the callee
+// stores, mutates, returns, or otherwise uses the value. Callable values keep
+// using AnchorCallback because callback handoff has a stronger, distinct
+// semantic contract.
+//
 // AnchorPrecedence covers an explicit ordered VALUE carrier whose bounded
 // cited span places Subject before Object: returned/bound arrays, slices,
 // tuples, middleware lists, rule chains, and equivalent constructs in every
@@ -245,6 +253,7 @@ const (
 	AnchorDefinition    AnchorKind = "definition"
 	AnchorCall          AnchorKind = "call"
 	AnchorCallback      AnchorKind = "callback"
+	AnchorArgument      AnchorKind = "argument"
 	AnchorCondition     AnchorKind = "condition"
 	AnchorReturn        AnchorKind = "return"
 	AnchorAssignment    AnchorKind = "assignment"
@@ -256,7 +265,7 @@ const (
 )
 
 var allAnchorKinds = []AnchorKind{
-	AnchorDefinition, AnchorCall, AnchorCallback, AnchorCondition,
+	AnchorDefinition, AnchorCall, AnchorCallback, AnchorArgument, AnchorCondition,
 	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport, AnchorPrecedence,
 	AnchorStringLiteral, AnchorTextReference,
 }

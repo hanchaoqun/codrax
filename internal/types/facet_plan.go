@@ -1148,10 +1148,10 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetBranchGuard, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimGuardCondition}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimRegistrationEdge}},
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimArgumentFlow, ClaimRegistrationEdge}},
 		}
 		facets = append(facets, diagramFacetRequirements(rm,
-			ClaimCallEdge, ClaimCallbackHandoff, ClaimGuardCondition, ClaimRegistrationEdge)...)
+			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimRegistrationEdge)...)
 		return append(facets, common...)
 	case QFEnumeration:
 		forms := []ClaimForm{
@@ -1181,11 +1181,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetComponentRelation, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
+				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}
 		facets = append(facets, diagramFacetRequirements(rm,
-			ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole)...)
+			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole)...)
 		return append(facets, common...)
 	case QFComparison:
 		// R4.4 (post_shape_residual_audit.md, 2026-05-04): the
@@ -1210,11 +1210,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimCallbackHandoff, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
+					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
 					ClaimImportEdge, ClaimRegistrationEdge}},
 			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimCallbackHandoff, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
+					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
 			{Kind: FacetPrincipalPathEdge, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			uncertaintyBoundaryFacet(FacetOptional),

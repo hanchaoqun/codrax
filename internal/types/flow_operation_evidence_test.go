@@ -14,7 +14,9 @@ func TestFlowOperationEvidenceGuideRequiresSyntaxEndpoints(t *testing.T) {
 		"declaration-only field/member line is a definition, never an initializer",
 		"initializer requires an exact value-bearing member binding",
 		"exact subject/object contains the carrier binding",
-		"unmodeled argument",
+		"complete non-callable call argument",
+		"anchor_kind=argument",
+		"proves only argument-to-receiver value handoff",
 		"Do not rename an endpoint to a semantic role or result label",
 		"participant names guide navigation only",
 		"no-arrow containment grouping",
@@ -45,7 +47,7 @@ func TestFlowOperationEvidenceRejectsDefinitionsAndRuntimeRows(t *testing.T) {
 }
 
 func TestFlowOperationEvidenceAcceptsCrossLanguageAxisForms(t *testing.T) {
-	forms := []AnchorKind{AnchorCall, AnchorCallback, AnchorAssignment, AnchorInitializer, AnchorReturn, AnchorPrecedence}
+	forms := []AnchorKind{AnchorCall, AnchorCallback, AnchorArgument, AnchorAssignment, AnchorInitializer, AnchorReturn, AnchorPrecedence}
 	items := make([]EvidenceItem, 0, len(forms))
 	for i, anchor := range forms {
 		item := EvidenceItem{

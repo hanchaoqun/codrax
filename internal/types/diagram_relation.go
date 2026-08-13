@@ -81,6 +81,13 @@ const (
 	// callable executed. Maps to ClaimCallbackHandoff and is typed-only.
 	DiagramRelCallback DiagramRelationKind = "callback"
 
+	// DiagramRelArgumentFlow denotes one exact source-level value handoff in
+	// execution direction: complete call argument -> receiving API. It is
+	// typed-only and can be minted only from AnchorArgument evidence. It does
+	// not imply callback execution, callee-side storage, or a direct call by the
+	// argument expression.
+	DiagramRelArgumentFlow DiagramRelationKind = "argument_flow"
+
 	// DiagramRelGuard denotes a conditional branch edge in a flow
 	// diagram (e.g., `A -->|if x>0| B`). Maps to
 	// ClaimGuardCondition.
@@ -155,6 +162,7 @@ const (
 var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelCall,
 	DiagramRelCallback,
+	DiagramRelArgumentFlow,
 	DiagramRelGuard,
 	DiagramRelImport,
 	DiagramRelPrecedence,
@@ -197,6 +205,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimCallEdge
 	case DiagramRelCallback:
 		return ClaimCallbackHandoff
+	case DiagramRelArgumentFlow:
+		return ClaimArgumentFlow
 	case DiagramRelGuard:
 		return ClaimGuardCondition
 	case DiagramRelImport:
@@ -232,6 +242,8 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 		return DiagramRelCall
 	case ClaimCallbackHandoff:
 		return DiagramRelCallback
+	case ClaimArgumentFlow:
+		return DiagramRelArgumentFlow
 	case ClaimGuardCondition:
 		return DiagramRelGuard
 	case ClaimImportEdge:

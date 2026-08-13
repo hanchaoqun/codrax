@@ -67,6 +67,7 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 				ClaimDefinitionFact,
 				ClaimCallEdge,
 				ClaimCallbackHandoff,
+				ClaimArgumentFlow,
 				ClaimRegistrationEdge,
 				ClaimGuardCondition,
 				ClaimAssignmentFact,

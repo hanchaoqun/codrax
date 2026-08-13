@@ -76,14 +76,20 @@ const (
 
 	// ClaimCallEdge: evidence cites a call/dispatch/invocation site.
 	// Supports "X calls Y" / "Y is invoked from X" claims and is the
-	// only ClaimForm that validly supports a directed edge in a
-	// call-flow diagram.
+	// direct-invocation ClaimForm for a call-flow diagram. Callback and
+	// ordinary argument handoffs have their own narrower directed forms.
 	ClaimCallEdge ClaimForm = "call_edge"
 
 	// ClaimCallbackHandoff: evidence cites a callable value passed to a
 	// receiving API. It supports "dispatcher D receives callback C" without
 	// upgrading that handoff into a proven direct invocation or execution.
 	ClaimCallbackHandoff ClaimForm = "callback_handoff"
+
+	// ClaimArgumentFlow: evidence cites one exact complete value argument
+	// passed to a receiving API. It supports only argument -> receiver data
+	// flow at that source line; it does not assert invocation by the argument,
+	// callee-side storage, mutation, or later execution.
+	ClaimArgumentFlow ClaimForm = "argument_flow"
 
 	// ClaimGuardCondition: evidence cites an `if` / `switch` /
 	// `select case` / equivalent branching guard. Supports "Y runs
@@ -158,6 +164,7 @@ var allClaimForms = []ClaimForm{
 	ClaimDefinitionFact,
 	ClaimCallEdge,
 	ClaimCallbackHandoff,
+	ClaimArgumentFlow,
 	ClaimGuardCondition,
 	ClaimAssignmentFact,
 	ClaimReturnFact,
@@ -221,7 +228,7 @@ func (k ClaimLabelSurfaceKind) IsValid() bool {
 // falls through to ClaimLabelSurfaceUnknown.
 func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	switch c {
-	case ClaimDefinitionFact, ClaimCallEdge, ClaimCallbackHandoff, ClaimRegistrationEdge, ClaimGuardCondition,
+	case ClaimDefinitionFact, ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimRegistrationEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
 	case ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole,
@@ -269,6 +276,7 @@ func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
 //  4. AnchorKind switch — repo-side current-mechanism classification:
 //     AnchorCall       → ClaimCallEdge
 //     AnchorCallback   → ClaimCallbackHandoff
+//     AnchorArgument   → ClaimArgumentFlow
 //     AnchorCondition  → ClaimGuardCondition
 //     AnchorReturn     → ClaimReturnFact
 //     AnchorAssignment → ClaimAssignmentFact
@@ -321,6 +329,8 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 		return ClaimCallEdge
 	case AnchorCallback:
 		return ClaimCallbackHandoff
+	case AnchorArgument:
+		return ClaimArgumentFlow
 	case AnchorCondition:
 		return ClaimGuardCondition
 	case AnchorReturn:

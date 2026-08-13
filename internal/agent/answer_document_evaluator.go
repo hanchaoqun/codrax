@@ -2940,7 +2940,7 @@ func renderAnswerDocLocalFactOrderCapsuleWithScope(ctx *types.AgentContext, supp
 	for _, item := range pool {
 		claim := types.ClaimFormOf(item)
 		switch claim {
-		case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimGuardCondition,
+		case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimArgumentFlow, types.ClaimGuardCondition,
 			types.ClaimAssignmentFact, types.ClaimReturnFact:
 		default:
 			continue
@@ -3084,7 +3084,7 @@ func answerDocLocalFactOwnerQualified(raw string) bool {
 
 func answerDocLocalFactOrderDescription(item types.EvidenceItem) string {
 	switch types.ClaimFormOf(item) {
-	case types.ClaimCallEdge, types.ClaimCallbackHandoff:
+	case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimArgumentFlow:
 		return firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject) + " -> " + strings.TrimSpace(item.Object)
 	case types.ClaimGuardCondition:
 		return firstNonEmptyAnswerDocString(item.Condition, item.Object, item.AnchorSymbol, item.Subject)
@@ -4103,7 +4103,7 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
 		fmt.Fprintf(&b, "- The required kind is authoritative: set `diagram.kind=%s` and use the matching Mermaid body syntax for that semantic family.\n", requiredKind)
 	}
-	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, `data_flow/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. Assignment is LHS -> RHS binding view, while data_flow is the same exact tuple in RHS -> LHS execution direction. These value/factory relations are not calls, and a flowchart arrow is not automatically a call.\n")
+	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `callback/callback_handoff`, `argument_flow/argument_flow`, `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, `data_flow/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. argument_flow is an exact complete non-callable argument -> receiving API and proves no callee-side use. Assignment is LHS -> RHS binding view, while data_flow is the same exact tuple in RHS -> LHS execution direction. These value/factory relations are not calls, and a flowchart arrow is not automatically a call.\n")
 	b.WriteString("- USER-FACING DISPLAY LAYER: `relation_kind`, `claim_form`, recipe indexes, validator names, and words such as `precedence_role` are structured evidence metadata, not visible diagram copy. Keep Mermaid node IDs stable and preserve producer-supplied exact source/stage endpoint selectors in `edge_anchors`; use concise domain/business actions for visible node labels and edge messages, with the exact technical identity as a secondary label only when useful. A display alias never proves an endpoint or relation, and changing display wording must not change edge direction or typed authority. This guidance supplies no labels, nodes, or edges; you remain their author.\n")
 	b.WriteString("- " + types.GroundedSourceDiagramRelationEvidenceContract + "\n")
 	b.WriteString("- For architecture component nodes, use the canonical identity grounded by topology/stage binding, constructor/registration, interface implementation, or execution dispatch. A repair/validation/helper function that only contains the stage name is not itself the component boundary.\n")
@@ -7796,6 +7796,8 @@ func answerDocMechanismComponentRelationClass(
 			class = "invocation"
 		case types.DiagramRelCallback:
 			class = "callback_handoff"
+		case types.DiagramRelArgumentFlow:
+			class = "value_flow"
 		case types.DiagramRelRegister:
 			class = "binding"
 		case types.DiagramRelAssignment, types.DiagramRelDataFlow, types.DiagramRelReturn:
@@ -8110,6 +8112,8 @@ func answerDocMechanismSequenceNotePlaceholder(relation types.DiagramRelationKin
 		return "Invocation is verified; describe it without adding an ambiguous arrow"
 	case types.DiagramRelCallback:
 		return "Callback handoff is verified; describe it without adding an ambiguous arrow"
+	case types.DiagramRelArgumentFlow:
+		return "Argument handoff is verified; describe the business value handoff"
 	case types.DiagramRelGuard:
 		return "Selection condition is verified; describe the business condition"
 	case types.DiagramRelRegister:
@@ -8164,6 +8168,7 @@ func answerDocMechanismRelationSafeForCopyReadyDiagram(kind types.DiagramKind, r
 		switch relation {
 		case types.DiagramRelCall,
 			types.DiagramRelCallback,
+			types.DiagramRelArgumentFlow,
 			types.DiagramRelGuard,
 			types.DiagramRelImport,
 			types.DiagramRelPrecedence,
@@ -8256,7 +8261,7 @@ func answerDocGroundedCurrentSourceMechanismFact(item types.EvidenceItem) bool {
 		return false
 	}
 	switch item.AnchorKind {
-	case types.AnchorDefinition, types.AnchorCall, types.AnchorCallback, types.AnchorCondition,
+	case types.AnchorDefinition, types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorCondition,
 		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer,
 		types.AnchorImport, types.AnchorPrecedence, types.AnchorStringLiteral:
 		return true
@@ -8569,6 +8574,8 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 			return "call_or_invocation"
 		case types.AnchorCallback:
 			return "callback_handoff"
+		case types.AnchorArgument:
+			return "argument_handoff"
 		case types.AnchorImport:
 			return "import_or_dependency"
 		case types.AnchorCondition:
@@ -8582,6 +8589,8 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 		return "call_or_invocation"
 	case types.AnchorCallback:
 		return "callback_handoff"
+	case types.AnchorArgument:
+		return "argument_handoff"
 	case types.AnchorImport:
 		return "import_or_dependency"
 	case types.AnchorCondition:
@@ -8606,7 +8615,7 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 		score += 8
 	}
 	switch item.AnchorKind {
-	case types.AnchorCall, types.AnchorCallback, types.AnchorImport, types.AnchorCondition:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorImport, types.AnchorCondition:
 		score += 8
 	}
 	if item.GroundingStatus == types.GroundingGrounded {
@@ -9284,7 +9293,7 @@ func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
 	switch item.AnchorKind {
 	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
 		return "value_fact"
-	case types.AnchorCall, types.AnchorCallback, types.AnchorCondition, types.AnchorImport:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorCondition, types.AnchorImport:
 		return "chain_or_intermediate_fact"
 	}
 	if item.LoadBearingSummary || len(item.SurfaceTerms) > 0 {
@@ -15447,7 +15456,7 @@ func evidenceItemFromSupportEntry(entry types.AnswerSupportEntry) types.Evidence
 	}
 	kind := types.EvidenceDirect
 	switch entry.AnchorKind {
-	case types.AnchorCall, types.AnchorCallback, types.AnchorImport:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorImport:
 		kind = types.EvidenceRelationship
 	case types.AnchorCondition:
 		kind = types.EvidenceConditional
@@ -15469,7 +15478,7 @@ func evidenceItemFromSupportEntry(entry types.AnswerSupportEntry) types.Evidence
 }
 
 func diagramSupportEntryLabels(entry types.AnswerSupportEntry) []string {
-	if entry.AnchorKind == types.AnchorCall || entry.AnchorKind == types.AnchorCallback {
+	if entry.AnchorKind == types.AnchorCall || entry.AnchorKind == types.AnchorCallback || entry.AnchorKind == types.AnchorArgument {
 		subject := strings.TrimSpace(entry.Subject)
 		object := strings.TrimSpace(entry.Object)
 		if subject != "" && object != "" && subject != object {

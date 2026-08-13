@@ -22,6 +22,8 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		want ClaimForm
 	}{
 		{DiagramRelCall, ClaimCallEdge},
+		{DiagramRelCallback, ClaimCallbackHandoff},
+		{DiagramRelArgumentFlow, ClaimArgumentFlow},
 		{DiagramRelGuard, ClaimGuardCondition},
 		{DiagramRelImport, ClaimImportEdge},
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
@@ -48,6 +50,8 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 		want DiagramRelationKind
 	}{
 		{ClaimCallEdge, DiagramRelCall},
+		{ClaimCallbackHandoff, DiagramRelCallback},
+		{ClaimArgumentFlow, DiagramRelArgumentFlow},
 		{ClaimGuardCondition, DiagramRelGuard},
 		{ClaimImportEdge, DiagramRelImport},
 		{ClaimPrecedenceRole, DiagramRelPrecedence},

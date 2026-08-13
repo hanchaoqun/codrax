@@ -164,6 +164,7 @@ func lineRangeRequiresSemanticAnchor(kind types.AnchorKind) bool {
 	switch kind {
 	case types.AnchorCall,
 		types.AnchorCallback,
+		types.AnchorArgument,
 		types.AnchorCondition,
 		types.AnchorReturn,
 		types.AnchorAssignment,

@@ -35688,11 +35688,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B741-MIXEDDIMENSIONSCALARITY1=production-closed-r456`；
 `B742-TOPSTATEBUCKETAUTHORITY1=production-closed-r456`；
 `B743-FREQUENCYCOMPOUNDVERDICT1=implemented/typed-soft-guidance-pins-pass/pending-production-replay`；
-`B744-CALLARGUMENTCARRIERRELATION1=confirmed/P0/next-batch`；
+`B744-CALLARGUMENTCARRIERRELATION1=implemented/cross-language-source+typed-relation+diagram-pins-pass/pending-production-replay`；
 `B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=confirmed/P1/queued-after-B744`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r456`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
+#### B744：完整调用参数进入 typed 载体关系（2026-08-13）
+
+1. 根因不是模型漏画一条边，而是证据词汇缺了一类合法源码事实：既有 `call` 只能证明
+   enclosing callable -> callee；`callback` 只覆盖被作为值传递的 callable；assignment/initializer/return
+   都不能诚实表示 `BuildAgentContext(o.busCtx, stage)` 中 `o.busCtx` 这类普通完整实参。旧教学甚至明确把
+   该形称为 unmodeled argument，模型若画真实载体边会被硬拒，删边后又无法覆盖用户指定参与者。
+2. 新增闭集 `AnchorArgument -> ClaimArgumentFlow -> DiagramRelArgumentFlow`。唯一方向为
+   `byte-exact complete argument expression -> receiving API`；权限只覆盖这一行发生的值交接，不证明 callee
+   内部存储、修改、执行、返回或跨语句流。callable 参数继续使用反方向语义不同的 `callback`，直接调用继续
+   使用 `call`，三者不得互换。
+3. grounder 从已读源码的配对括号和顶层参数边界识别完整实参，嵌套 `()`/`[]`/`{}` 与显式 generic
+   统一处理；quoted/comment surface 不参与。只有 exact argument、exact receiving API、唯一同向 tuple
+   才能 grounded；部分 token、反向、错误 receiver、同一行重复歧义均 fail-closed。Go、Python、Java、
+   ArkTS、Cangjie、C、C++、Rust、Swift 形均有正臂，未建立语言/仓库/case 关键词表。
+4. emit schema、探索 flow-operation 教学、claim form、facet、support plan、跨阶段 exact-line 展示、diagram
+   relation 文档和 validator 同源接通。flow/architecture 图可选择 `argument_flow`；sequence/call_dag 的
+   copy-ready 矩阵继续排除普通 argument，防止值传递被视觉重铸成调用消息。图反向关系有硬负臂，关系词仍
+   不能从 edge label、raw request、thinking 或 final prose 铸造。
+5. 该批只扩充模型可消费且可引用的源码事实；系统不补写图、不改模型正文或结论。Trace family 在 diagram
+   validator 的既有隔离仍保持，显式窗、链上主因、因果投影、自动补采、优先级反转/调度/算力/D/IO/语义
+   与业务线索未改。活跃流 4ms 无答案不得降级的禁令也未进入本 relation 代码路径。
+6. 验证：`go test ./internal/types ./internal/tool/ground ./internal/tool ./internal/skill ./internal/agent
+   -count=1` 全绿（types 22.303s、ground 0.523s、tool 165.926s、skill 1.262s、agent 10.810s）；
+   `git diff --check` 通过。下一步以同一逻辑图 case 加一项异构语言 carrier case 严格并行 2 个生产回放；
+   回放只验证通用能力，不以单题输出文案作为硬合同。
+
+状态：`B744-CALLARGUMENTCARRIERRELATION1=implemented/full-tests-pass/pending-production-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
 
 ### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
 

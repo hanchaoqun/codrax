@@ -232,6 +232,29 @@ func TestDiagramCallEdgeEvidenceMismatches_CallbackHandoffNeedsExactTypedDirecti
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ArgumentFlowNeedsExactTypedDirection(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorArgument,
+		Subject: "o.busCtx", Object: "ctxbuilder.BuildAgentContext", AnchorSymbol: "o.busCtx",
+		Source: "internal/orchestrator/orchestrator.go", LineStart: 8026,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "d", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  Bus[o.busCtx] --> Builder[ctxbuilder.BuildAgentContext]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "Bus", ToNode: "Builder", RelationKind: types.DiagramRelArgumentFlow}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("typed argument handoff rejected: %+v", got)
+	}
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n  Builder[ctxbuilder.BuildAgentContext] --> Bus[o.busCtx]"
+	doc.Blocks[0].EdgeAnchors[0].FromNode, doc.Blocks[0].EdgeAnchors[0].ToNode = "Builder", "Bus"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramArgumentFlowEdgeIssueNoEvidence {
+		t.Fatalf("reverse argument handoff must fail closed: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceCallbackUsesCallbackAuthority(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,

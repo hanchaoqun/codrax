@@ -20,6 +20,20 @@ func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string 
 	snippet := strings.TrimSpace(item.Snippet)
 	locationName := strings.TrimSpace(firstNonEmptySurfaceString(item.OwnerSymbol, item.AnchorSymbol, item.Subject))
 	switch item.AnchorKind {
+	case AnchorArgument:
+		if snippet != "" {
+			return prependEvidenceKind(includeKind, item, snippet)
+		}
+		argument := strings.TrimSpace(item.Subject)
+		receiver := strings.TrimSpace(item.Object)
+		switch {
+		case argument != "" && receiver != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s passed as argument to %s", argument, receiver))
+		case argument != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("argument %s", argument))
+		case receiver != "":
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("argument passed to %s", receiver))
+		}
 	case AnchorAssignment, AnchorInitializer:
 		label := "assignment anchor"
 		if item.AnchorKind == AnchorInitializer {

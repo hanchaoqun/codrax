@@ -878,7 +878,7 @@ func callChainPathItemEligible(item EvidenceItem) bool {
 		return false
 	}
 	switch item.AnchorKind {
-	case AnchorCall, AnchorCallback, AnchorDefinition, AnchorCondition, AnchorAssignment, AnchorInitializer, AnchorReturn:
+	case AnchorCall, AnchorCallback, AnchorArgument, AnchorDefinition, AnchorCondition, AnchorAssignment, AnchorInitializer, AnchorReturn:
 		return item.GroundingStatus != GroundingUngrounded
 	default:
 		return false

@@ -602,6 +602,10 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 			if matched, matchedOK := findCallbackHandoffLine(fileLines, it.LineStart, 2, it, gc); matchedOK {
 				lineNo = matched
 			}
+		case types.AnchorArgument:
+			if matched, matchedOK := findArgumentFlowLine(fileLines, it.LineStart, 2, it, gc); matchedOK {
+				lineNo = matched
+			}
 		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
 			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
@@ -995,7 +999,7 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 		return "", 0, false
 	}
 	switch it.AnchorKind {
-	case types.AnchorCall, types.AnchorCallback, types.AnchorPrecedence:
+	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorPrecedence:
 		return "", 0, false
 	case types.AnchorImport:
 		name := preferredSymbolName(it)
@@ -1290,6 +1294,8 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 		return recoveredCallAnchorConsistent(it, gc)
 	case types.AnchorCallback:
 		return recoveredCallbackAnchorConsistent(it, gc)
+	case types.AnchorArgument:
+		return argumentFlowEndpointsMatch(it, gc)
 	case types.AnchorStringLiteral:
 		return recoveredStringLiteralAnchorConsistent(it, gc)
 	default:
@@ -1473,6 +1479,17 @@ func callbackHandoffEndpointsMatch(it *types.EvidenceItem, gc *Context) bool {
 	return endpointIdentityCompatible(it.Subject, receiver) && endpointIdentityCompatible(it.Object, callable)
 }
 
+func argumentFlowEndpointsMatch(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil || gc == nil || strings.TrimSpace(it.Subject) == "" || strings.TrimSpace(it.Object) == "" {
+		return false
+	}
+	argument, receiver, ok := DetectArgumentFlowAtLine(gc, it.Source, it.LineStart, it.Subject, it.Object)
+	if !ok {
+		return false
+	}
+	return strings.TrimSpace(it.Subject) == argument && endpointIdentityCompatible(it.Object, receiver)
+}
+
 func endpointIdentityCompatible(left, right string) bool {
 	left = strings.TrimSpace(left)
 	right = strings.TrimSpace(right)
@@ -1526,6 +1543,149 @@ func DetectCallbackHandoffAtLine(gc *Context, source string, line int, target st
 		}
 	}
 	return "", "", false
+}
+
+// DetectArgumentFlowAtLine proves one exact, complete call argument and its
+// receiving API on an already-read source line. It is deliberately a narrow
+// syntax carrier: argument -> receiver is all it proves. It does not infer
+// callee-side storage, mutation, execution, or a later return.
+//
+// The parser is punctuation based rather than language keyed. Nested calls,
+// arrays, object/struct literals, and ordinary generic argument expressions
+// therefore share one implementation across Go, Java/Kotlin, Python,
+// JS/TS/ArkTS, Cangjie, C/C++, Rust, Swift and the remaining supported source
+// families. Quoted content is masked only while locating delimiters; the
+// returned argument is the byte-exact source slice.
+func DetectArgumentFlowAtLine(gc *Context, source string, line int, wantArgument, wantReceiver string) (string, string, bool) {
+	if gc == nil || line <= 0 || strings.TrimSpace(wantArgument) == "" || strings.TrimSpace(wantReceiver) == "" {
+		return "", "", false
+	}
+	source = canonicalContextPath(gc, source)
+	fileLines, ok := gc.LineIndex[source]
+	if !ok || isLineComment(fileLines, line, source) {
+		return "", "", false
+	}
+	raw, ok := fileLines[line]
+	if !ok || strings.TrimSpace(raw) == "" || looksLikeCallableDefinitionLine(raw) {
+		return "", "", false
+	}
+	masked := maskQuotedSourceLine(raw)
+	wantArgument = strings.TrimSpace(wantArgument)
+	wantReceiver = strings.TrimSpace(wantReceiver)
+	type match struct{ argument, receiver string }
+	matches := make([]match, 0, 1)
+	for open := 0; open < len(masked); open++ {
+		if masked[open] != '(' {
+			continue
+		}
+		receiver := sourceCallIdentityBeforeParen(masked, open)
+		if receiver == "" || !endpointIdentityCompatible(wantReceiver, receiver) {
+			continue
+		}
+		close, ok := matchingSourceCallParen(masked, open)
+		if !ok {
+			continue
+		}
+		for _, span := range sourceCallArgumentSpans(masked, open+1, close) {
+			argument := strings.TrimSpace(raw[span[0]:span[1]])
+			if argument != wantArgument {
+				continue
+			}
+			matches = append(matches, match{argument: argument, receiver: receiver})
+		}
+	}
+	// Multiple syntactic occurrences make the cited tuple ambiguous. Do not
+	// choose one by proximity or prose; the producer can cite a narrower line.
+	if len(matches) != 1 {
+		return "", "", false
+	}
+	return matches[0].argument, matches[0].receiver, true
+}
+
+func matchingSourceCallParen(masked string, open int) (int, bool) {
+	depth := 0
+	for i := open; i < len(masked); i++ {
+		switch masked[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// sourceCallArgumentSpans returns complete top-level argument slices inside
+// one call. Parentheses, brackets and braces cover nested invocations and
+// aggregate expressions. Angle brackets are tracked only for the explicit
+// generic/turbofish shape, avoiding comparison operators becoming delimiters.
+func sourceCallArgumentSpans(masked string, start, end int) [][2]int {
+	if start < 0 || end < start || end > len(masked) {
+		return nil
+	}
+	spans := make([][2]int, 0, 4)
+	argStart := start
+	paren, bracket, brace, angle := 0, 0, 0, 0
+	for i := start; i < end; i++ {
+		switch masked[i] {
+		case '(':
+			paren++
+		case ')':
+			if paren > 0 {
+				paren--
+			}
+		case '[':
+			bracket++
+		case ']':
+			if bracket > 0 {
+				bracket--
+			}
+		case '{':
+			brace++
+		case '}':
+			if brace > 0 {
+				brace--
+			}
+		case '<':
+			if sourceAngleLooksGeneric(masked, i) {
+				angle++
+			}
+		case '>':
+			if angle > 0 {
+				angle--
+			}
+		case ',':
+			if paren == 0 && bracket == 0 && brace == 0 && angle == 0 {
+				spans = append(spans, [2]int{argStart, i})
+				argStart = i + 1
+			}
+		}
+	}
+	if argStart < end {
+		spans = append(spans, [2]int{argStart, end})
+	}
+	return spans
+}
+
+func sourceAngleLooksGeneric(line string, at int) bool {
+	if at <= 0 || at+1 >= len(line) {
+		return false
+	}
+	left := at - 1
+	for left >= 0 && (line[left] == ' ' || line[left] == '\t') {
+		left--
+	}
+	if left < 0 || !(isSourceIdentityByte(line[left]) || line[left] == ':' || line[left] == '>') {
+		return false
+	}
+	right := at + 1
+	for right < len(line) && (line[right] == ' ' || line[right] == '\t') {
+		right++
+	}
+	return right < len(line) && (isSourceIdentityByte(line[right]) || line[right] == '&' || line[right] == '*')
 }
 
 // LineHasDirectCallToTarget distinguishes an invocation of target from a
@@ -1766,6 +1926,13 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 	}
 	if it.AnchorKind == types.AnchorCallback {
 		matchedLine, ok := findCallbackHandoffLine(fileLines, it.LineStart, 2, it, gc)
+		if !ok || isLineComment(fileLines, matchedLine, it.Source) {
+			return 0, false
+		}
+		return matchedLine, true
+	}
+	if it.AnchorKind == types.AnchorArgument {
+		matchedLine, ok := findArgumentFlowLine(fileLines, it.LineStart, 2, it, gc)
 		if !ok || isLineComment(fileLines, matchedLine, it.Source) {
 			return 0, false
 		}
@@ -3177,6 +3344,39 @@ func findCallbackHandoffLine(fileLines map[int]string, center, radius int, it *t
 	return bestLine, bestLine > 0
 }
 
+// findArgumentFlowLine keeps recovery bounded to the cited ±radius window and
+// accepts only the same exact argument -> receiving API tuple.
+func findArgumentFlowLine(fileLines map[int]string, center, radius int, it *types.EvidenceItem, gc *Context) (int, bool) {
+	if it == nil || gc == nil {
+		return 0, false
+	}
+	check := func(line int) bool {
+		if _, ok := fileLines[line]; !ok {
+			return false
+		}
+		probe := *it
+		probe.LineStart = line
+		return argumentFlowEndpointsMatch(&probe, gc)
+	}
+	if check(center) {
+		return center, true
+	}
+	bestLine, bestDistance := 0, radius+1
+	for line := center - radius; line <= center+radius; line++ {
+		if line <= 0 || line == center || !check(line) {
+			continue
+		}
+		distance := line - center
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < bestDistance {
+			bestLine, bestDistance = line, distance
+		}
+	}
+	return bestLine, bestLine > 0
+}
+
 // ── Tier 2 ────────────────────────────────────────────────────────────
 
 // tier2SymbolTable dispatches on AnchorKind to the repomap-backed
@@ -3218,6 +3418,8 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 	switch it.AnchorKind {
 	case types.AnchorCallback:
 		return callbackHandoffEndpointsMatch(it, gc)
+	case types.AnchorArgument:
+		return argumentFlowEndpointsMatch(it, gc)
 	case types.AnchorTextReference, types.AnchorStringLiteral:
 		return false
 	case types.AnchorImport:
@@ -3896,6 +4098,9 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 	case types.AnchorCallback:
 		return fmt.Sprintf("anchor_kind %q requires one already-read source line where subject names the receiving call/API and object/anchor_symbol names a non-invoked callable argument; cite that handoff line, or use anchor_kind=%q only for an actual direct invocation",
 			it.AnchorKind, types.AnchorCall)
+	case types.AnchorArgument:
+		return fmt.Sprintf("anchor_kind %q requires one already-read source line where subject is one byte-exact complete call argument and object names its receiving API; cite that exact argument -> receiver tuple, without claiming callee-side storage or later execution",
+			it.AnchorKind)
 	}
 	return ""
 }

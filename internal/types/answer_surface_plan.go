@@ -1373,6 +1373,8 @@ func evidenceDiagramRelationLabel(form ClaimForm, item EvidenceItem) string {
 		rel = "calls"
 	case ClaimCallbackHandoff:
 		rel = "hands off"
+	case ClaimArgumentFlow:
+		rel = "passes value"
 	case ClaimImportEdge:
 		rel = "imports"
 	case ClaimRegistrationEdge:

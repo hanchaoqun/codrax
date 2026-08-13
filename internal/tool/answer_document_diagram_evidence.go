@@ -50,6 +50,7 @@ const (
 	diagramDataFlowEdgeIssueNoEvidence        = "data_flow_edge_unproven"
 	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
+	diagramArgumentFlowEdgeIssueNoEvidence    = "argument_flow_unproven"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 )
@@ -328,6 +329,17 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 						BlockID: block.ID, Issue: diagramCallbackEdgeIssueNoEvidence,
 						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
 						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+				}
+				continue
+			}
+			if relation == types.DiagramRelArgumentFlow {
+				if !diagramArgumentFlowEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramArgumentFlowEdgeIssueNoEvidence,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+						Relation: relation,
 					})
 				}
 				continue
@@ -658,6 +670,15 @@ func diagramCallbackEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymb
 	return diagramRelationEdgeHasExactOrUniqueShortProjection(
 		evidence, fromSymbol, toSymbol,
 		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimCallbackHandoff },
+		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
+		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
+	)
+}
+
+func diagramArgumentFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	return diagramRelationEdgeHasExactOrUniqueShortProjection(
+		evidence, fromSymbol, toSymbol,
+		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimArgumentFlow },
 		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
 		func(ev types.EvidenceItem) []string { return []string{ev.Object} },
 	)

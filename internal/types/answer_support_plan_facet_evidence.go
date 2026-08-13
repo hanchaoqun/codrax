@@ -1928,7 +1928,7 @@ func ChangeImpactPrincipalTargetSurfaceGaps(profile *ChangeImpactProfile, items 
 func changeImpactPrincipalEvidenceClaimEligible(profile *ChangeImpactProfile, item EvidenceItem) bool {
 	switch ClaimFormOf(item) {
 	case ClaimDefinitionFact, ClaimAssignmentFact, ClaimGuardCondition,
-		ClaimCallEdge, ClaimCallbackHandoff, ClaimReturnFact, ClaimImportEdge:
+		ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimReturnFact, ClaimImportEdge:
 		return true
 	case ClaimTextReferenceFact:
 		return profile != nil && profile.AllowsTextReferencePrincipal()
