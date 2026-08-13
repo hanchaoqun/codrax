@@ -584,6 +584,55 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 	}
 }
 
+func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticRelabel(t *testing.T) {
+	causalVerdict := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label:       "是否受算力限制",
+			Role:        types.RequestedAnswerDimensionCausalAttribution,
+			SourceQuote: "是否受算力限制",
+			Required:    true,
+		}},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("typed causal verdict must authorize causal breadth without falsifying diagnostic intent: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); !strings.Contains(issue, "constrained/caused/affected runtime performance") {
+		t.Fatalf("bounded retry must teach the causal-verdict shape, got %q", issue)
+	}
+
+	measuredFrequency := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "CPU 频率值", Role: types.RequestedAnswerDimensionEvidenceSource, Required: true,
+		}},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		measuredFrequency,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("ordinary measured frequency/evidence lookup must remain bounded: %q", issue)
+	}
+}
+
 func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing.T) {
 	raw := "请说明目标进程、transaction 编号和直接唤醒者"
 	payload := `{

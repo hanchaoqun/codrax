@@ -34,8 +34,10 @@ const (
 	RequestedAnswerDimensionDiagram        RequestedAnswerDimensionRole = "diagram"
 	RequestedAnswerDimensionStageWorkflow  RequestedAnswerDimensionRole = "stage_or_workflow"
 	// RequestedAnswerDimensionCausalAttribution identifies a current-request
-	// demand for causal attribution, ranked causes/contributors, or a
-	// root-cause/bottleneck conclusion. It is deliberately distinct from the
+	// demand for causal attribution, including a verdict about whether an
+	// observed condition constrained, caused, or materially affected a runtime
+	// outcome, ranked causes/contributors, or a root-cause/bottleneck
+	// conclusion. It is deliberately distinct from the
 	// generic function_or_purpose role and from bounded observed-value roles:
 	// downstream runtime breadth validation may reject a bounded_fact_set that
 	// cannot structurally satisfy this dimension without scanning request or

@@ -35649,6 +35649,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.767 r448：因果 yes/no 被逼退成 bounded；trace-only flow 误套源码传递门（2026-08-13）
+
+1. 在 `main@8244c20e0` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。runner `1 PASS / 1 FAIL`；
+   人工为 `1 partial / 1 fail`，详见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r448_20260813_manual_audit.md`。
+2. B733 获生产正证：Rust endpoint 的 `(Rust)` 显示注释不再污染 typed identity，真边通过。
+   模型另画了一条只有 registration/binding、没有执行 call 的桥，validator 正确拒绝；模型随后撤掉
+   optional 图但正文诚实披露边界。系统不生成关系或替模型保图，继续按软 authoring 波动观察。
+3. 新确认 `B735-CAUSALVERDICTDIMENSION1/P0`。Trace Analyzer 首次选择
+   `causal_diagnosis`，但把“CPU 频率有没有受到限制，证据是什么”只标成
+   `evidence_source`。旧 `causal_attribution` 教学仅列 root-cause/ranking，随后 emit 合同以缺少
+   diagnostic/root-cause carrier 拒绝；模型按系统提示退成 `bounded_fact_set`。下游据这个 typed
+   范围合法关闭完整因果补齐，只运行 `window_stats`，因此 Trace 因果投影和 B734 簇身份 carrier
+   同时消失。实际问题不是“显式时间窗未触发”，而是 causal yes/no 的 typed 语义覆盖不足。
+4. B735 泛化根修将 `causal_attribution` 扩为三类同一语义：根因/排名、原因归属、以及“某观测条件
+   是否约束/导致/实质影响运行结果”的判定。最后一类即使 `intent=explain` 或 yes/no，也以 required
+   dimension 授权 `causal_diagnosis`；独立的证据展示仍用 `evidence_source`。普通状态、频率数值、
+   count/reason lookup 没有 causal dimension 时继续 bounded，不因显式窗或 resource family 被扩大。
+   实现仅消费 schema enum/required boolean，不扫描用户、模型或答案原文，也不由系统替模型写结论。
+5. 同轮确认 `B736-RUNTIMEFLOWAUTHORITY1/P0`：Analyzer 的 source exclusion quote 字段写错后按安全策略
+   fail-open 为 `allow`，但 route 已精确声明 `source=artifact/current_source=optional` 且 trace_query 已发布
+   524 条 hard runtime observation。旧 flow completion gate 只读 request-local policy，仍要求源码
+   producer→transfer→consumer；模型被迫违反另一条教学，把 trace_query 行再送 `emit_evidence`，随后又被
+   external-observation gate 全部跳过。这是确定性的合同自冲突，不是证据不足。
+6. B736 让 flow operation gate 优先复用统一 runtime/source authority：只有 typed runtime carrier 在场、
+   authority 判 current source 非 required 时才退出源码 operation 门；显式 mixed runtime+current-source
+   profile/route required 仍保留原门。没有根据 `predicate_axis=flow` 或答案措辞猜测来源，也没有降低
+   当前源码关系题的 operation proof 杆。
+7. 回归钉住：explain+required causal verdict 可直接采用 causal scope；同一 dimension 配 bounded 必须
+   fail loud；普通频率证据仍 bounded；route-optional + deterministic trace observation + invalid-exclude
+   fail-open 不再收到 source-flow repair；显式 mixed runtime/current-source 仍必须补源码 operation。
+   `go test ./internal/tool ./internal/types ./internal/skill -count=1` 首轮除新测试误把后续独立 principal
+   handoff gate 当作“必须立即 complete”外全部通过；测试收窄到本门职责后专项全绿，随后
+   `go test ./internal/tool ./internal/types ./internal/skill -count=1` 全包通过
+   （tool 164.662s、types 21.610s、skill 2.111s）。
+
+状态：
+
+`B733-DISPLAYQUALIFIERENDPOINTIDENTITY1=production-positive-r448`；
+`B734-CAPLANEIDENTITY1=implemented/replay-blocked-by-B735`；
+`B735-CAUSALVERDICTDIMENSION1=implemented/typed-contract+bounded-negative-pins-pass`；
+`B736-RUNTIMEFLOWAUTHORITY1=implemented/route-authority+mixed-negative-pins-pass`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/causal projection/auto-supplement=preserved-by-causal-typed-scope`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.765 r446：B732-2 生产闭环；节点显示注释污染 typed endpoint identity（2026-08-13）
 
 1. 在 `main@d476810fd` 严格并发恰好两个案例：`mr_poly_binding_chain +

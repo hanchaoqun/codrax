@@ -325,6 +325,45 @@ func TestFlowOperationCompletionGateExcludesAttachedRuntimeFlowWithoutCurrentSou
 	}
 }
 
+func TestFlowOperationCompletionGateUsesRouteAuthorityAfterInvalidExcludeFailOpen(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.TurnRouteHint = types.TurnRouteHint{
+		Route:                     "repo",
+		Source:                    "artifact",
+		NeedsRepoAccess:           true,
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+	}
+	ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		// emit_analysis deliberately fails an invalid model-authored exclusion
+		// open to allow. Route optionality must still prevent a source proof gate.
+		CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
+		Confidence:        0.9,
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{{
+			ID: "trace_query:window#window_stats:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+			Subject:   "app-17267", Predicate: "running_ms", Object: "157.248",
+		}},
+	})
+	if flowOperationEvidenceRequired(ctx) {
+		t.Fatal("typed route-optional trace evidence must not be reclassified as current-source flow after invalid exclusion repair")
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Repair != nil && res.Repair.Code == "flow_operation_carrier_evidence" {
+		t.Fatalf("route-optional trace must not receive a source-operation repair: %+v", res)
+	}
+	if strings.Contains(res.Summary, "operation-level transfer") ||
+		strings.Contains(res.Summary, "producer, transfer/merge boundary") {
+		t.Fatalf("route-optional trace must not be taught a contradictory source-operation contract: %+v", res)
+	}
+}
+
 func TestFlowOperationCompletionGatePreservesMixedRuntimeCurrentSourceRequest(t *testing.T) {
 	ctx := flowOperationCompletionContext(nil)
 	ctx.AttachedHitrace = "CPU:0 [001] 7.000000: tracing_mark_write: B|20|frame=77"

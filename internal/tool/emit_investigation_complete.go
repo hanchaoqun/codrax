@@ -3427,6 +3427,19 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	// Prefer the unified runtime/source authority once deterministic runtime
+	// observations exist. The compatibility helper below cannot see the
+	// route's current_source=optional decision; in particular, an invalid
+	// model-authored source exclusion is safely normalized to `allow`, which
+	// must not turn an external-only trace turn into a source-flow proof
+	// obligation. Authority combines typed route/request carriers and
+	// trace_query observations without inspecting request or answer prose.
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if runtimeSourceAuthorityAppliesToCompletionLanding(authority) &&
+		runtimeSourceAuthorityHasRuntimeCarrier(authority) &&
+		!authority.CurrentSourceRequired {
+		return false
+	}
 	// A flow-shaped question over an attached runtime artifact is not a
 	// current-source operation-flow investigation merely because the analyzer
 	// selected AxisFlow/IntentExplain. Keep the source-operation carrier gate

@@ -1155,6 +1155,9 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",
 		"do not relabel it as causal diagnosis merely because it asks for the recorded `reason`",
+		"whether an observed condition constrained, caused, or materially affected runtime performance",
+		"role=`causal_attribution`",
+		"Ordinary state/frequency/value lookups without this verdict stay bounded",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)
