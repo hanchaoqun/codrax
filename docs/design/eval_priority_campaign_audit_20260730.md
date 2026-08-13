@@ -35649,6 +35649,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.773 r454：空白 provenance 闭环；被动 binding 语义仍被窄化（2026-08-13）
+
+1. 在 `main@65de67b64` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + data_json_strict_ids`。Runner `1 PASS / 1 FAIL`；
+   人工 `1 pass / 1 fail`，详见
+   `eval/parallel_selected_summary_evalcampaign_trace_json_replay_r454_20260813_manual_audit.md`。
+2. B738 获生产正证。Analyzer 最终发出的三个 required dimension 全部通过 provenance normalization，
+   `CPU 频率有没有受到限制，证据是什么` 没有再因中英混排空白差异被删除。允许的仍仅是 Unicode
+   空白差异；字符、标点和顺序不一致的 paraphrase/reorder 均继续不能获得 typed authority。
+3. 新确认 `B739-PASSIVEBINDINGCAUSALROLE1/P0`。同一轮 Analyzer 仍把第三维标成
+   `evidence_source`，并把整题收窄为 `bounded_fact_set`。现有 SSOT 说明 active 形
+   “condition constrained/affected outcome”，但没有显式说明等价 passive 形“target was constrained/
+   bound/affected by condition”；模型遂把“目标是否受到频率限制”读成“限制记录/频率值是否存在”。
+   结果只运行 timeline/resource/event-search，root/wakeup 为 0，完整因果投影与系统补采都没有启动。
+4. B739 根修继续遵守精确信号红线：只扩共享的 analyzer 软教学和 schema/retry 说明，明确
+   “条件/上限记录是否存在或值是多少”仍是 bounded；“该条件是否实际绑定/影响目标或性能”是
+   causal verdict。Validator 仍只消费模型发出的 typed role/scope，不扫描 raw user/model/final 文本，
+   不自动改写 classification，更不改写最终结论。
+5. 受影响包全量测试同时抓到前批 B737 的措辞车道遗漏：等待证据摘要中的 supply-fold 中文解释
+   使用了 compute-lane 专属词“算力”，违反 semantic wording lint。最小修正为同义且权限一致的
+   “计算供给提升空间”，不改 deficit 数值、caliber、排序或 binding 边界；旧 active causal retry
+   词形也保持字节不动，passive/binding 仅作为追加说明，避免破坏既有合同消费者。
+6. B737 的三轴 typed context 在 r454 完整进入 Finalizer：`policy_limit_status=present`、
+   `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`、supply-fold 仅为相对理想
+   基准的算力 headroom。模型仍把 cpu=4 floor presence 写成“线程被限制在最低档”，属于模型未服从
+   清晰权限边界；系统没有删除或替换模型答案。本轮不能用答案关键词硬门或系统加冕结论去拟合。
+7. JSON 案最终严格输出 `{"ids":["u1","u3"]}`，没有畸形 JSON、结构恢复或降级答案，人工内容
+   通过；但用时 335s、8 轮、3 次修复。新登记 `B740-DATAACTIONSCHEMAMENTALLOAD1/P1`：初轮遗漏
+   instructions.md 消费；材料覆盖后又重走 `extract_records`；随后发出不在 enum 中的
+   `derive_fields.operation=preserve`，且 deferred edge 陈腐重复。下一批应从 typed action schema、
+   current next-stage allowed-action capsule 和错误后的陈腐 deferred 清理统一优化，而不是为 users.json
+   写专门捷径。
+8. Read/Write/diagram 路径零改动。显式窗、链上-only 根因、实际占用/业务语义与规则可消除量双轴
+   的实现均未修改；本轮投影缺失来自 typed scope 窄化，不是投影编译被删除。活跃流不按 4ms 或
+   任意固定累计年龄降级，答案结束/恢复权仍仅来自 cancel/deadline、无首字节、byte-stall、
+   transport/decode failure。
+
+状态：
+
+`B738-DIMENSIONQUOTEPROVENANCE1=production-closed-r454`；
+`B739-PASSIVEBINDINGCAUSALROLE1=implemented/SSOT+schema-pins-pass/pending-production-replay`；
+`B737-FREQUENCYAUTHORITYCONTRACT1=production-context-positive/model-compliance-open`；
+`B740-DATAACTIONSCHEMAMENTALLOAD1=filed/P1/pending-batch`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B739-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.772 r453：频率权限教学生效；required dimension 被空白差异删除（2026-08-13）
 
 1. 在 `main@486a500dd` 重建后严格并发恰好两个案例：

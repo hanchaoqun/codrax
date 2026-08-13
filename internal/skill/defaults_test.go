@@ -1188,6 +1188,9 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 		"never relabel that verdict as `other`",
 		"do not collapse the whole phrase into one `evidence_source` dimension",
 		"keep a required `causal_attribution` verdict dimension",
+		"equivalent passive binding verdict",
+		"whether the condition actually bound or affected the target/outcome",
+		"whether Y was constrained/bound/affected by X",
 		"not a fallback for a difficult causal classification",
 		"dominates the breadth of a mixed request",
 	} {
