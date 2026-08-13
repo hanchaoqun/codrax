@@ -171,7 +171,7 @@ func entitySymbolMatchCount(resolver normalizer.SymbolResolver, surface string, 
 	}
 	hits := resolver.LookupSymbol(surface)
 	sourced := 0
-	allowed := 0
+	allowedHits := make([]normalizer.SymbolHit, 0, len(hits))
 	for _, hit := range hits {
 		source := strings.TrimSpace(hit.Source)
 		if source == "" {
@@ -179,13 +179,48 @@ func entitySymbolMatchCount(resolver normalizer.SymbolResolver, surface string, 
 		}
 		sourced++
 		if types.SourceScopeAllowsPathRole(principalScope, types.ClassifySourcePathRole(source)) {
-			allowed++
+			allowedHits = append(allowedHits, hit)
 		}
 	}
 	if sourced > 0 {
-		return allowed, true
+		return entityDistinctSymbolIdentityCount(allowedHits), true
 	}
 	return len(hits), false
+}
+
+// entityDistinctSymbolIdentityCount prevents an owner member/accessor from
+// making an exact top-level type declaration look ambiguous. Repomap indexes
+// both `type BusContext` and `(*Orchestrator).BusContext` under the same legacy
+// SymbolDefs name. For a request-visible participant, one in-scope top-level
+// type-like declaration is the precise carrier identity; its same-spelled
+// methods remain searchable operations but are not competing declarations.
+//
+// This is parser-kind based and language-neutral. If no type-like declaration
+// exists, functions/methods/fields retain the old cardinality. Two type-like
+// declarations remain honestly ambiguous.
+func entityDistinctSymbolIdentityCount(hits []normalizer.SymbolHit) int {
+	typeLike := 0
+	for _, hit := range hits {
+		if entitySymbolHitIsTopLevelType(hit) {
+			typeLike++
+		}
+	}
+	if typeLike > 0 {
+		return typeLike
+	}
+	return len(hits)
+}
+
+func entitySymbolHitIsTopLevelType(hit normalizer.SymbolHit) bool {
+	if strings.TrimSpace(hit.Receiver) != "" || strings.TrimSpace(hit.Parent) != "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(hit.Kind)) {
+	case "type", "class", "struct", "interface", "trait", "enum", "union", "protocol":
+		return true
+	default:
+		return false
+	}
 }
 
 func entityMatchesActiveScope(ctx *types.AgentContext, surface string) bool {

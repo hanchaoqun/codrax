@@ -37928,10 +37928,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `BusContext -> busCtx` 导航没有触发；Explorer 自行找到的只是 Analyzer 对
    `ctx.Mutable.*` 的局部调用，最终图把 `BusContext`、`Mutable` 画成断开节点，没有回答请求的
    核心跨阶段载体关系。自动 PASS 只证明图合法和边数，不证明用户要求的关系完整。
-3. 新立 B750：单测里的生产+test 同名 `BusContext` 会按 source scope 唯一化，真实 graph 却没有
-   产生相同 provenance。当前 summary 只报 symbol/ambiguous/prescan 数量，无法直接看到逐实体
-   裁定。施工先补 typed 逐实体诊断并用真实 repomap graph 复现，再修同源唯一 predicate；禁止
-   按 `BusContext`、Go 或本 case 白名单特判。
+3. B750 已施工。真实 repomap 复现证明并非 test 同名：`SymbolDefs[BusContext]` 同时含
+   `type BusContext struct` 与 `(*Orchestrator).BusContext()`；旧 resolver 又只以 name+file 去重、
+   不向 provenance 携带 kind/receiver/parent，于是把顶层载体声明与同名 owner method 当成两个
+   竞争身份。现 `SymbolHit` 保留 parser-owned kind/receiver/parent，单/多仓 adapter 同步接线，
+   去重键加入 kind/receiver/parent/line；实体唯一化在有顶层 type/class/struct/interface/trait/
+   enum/union/protocol 声明时只对这些声明计数，同名成员方法仍留作搜索操作而不制造声明歧义。
+   两个不同 receiver 的同名方法、两个顶层同名 type 仍 fail-closed ambiguous；没有按
+   `BusContext`、Go 或本 case 白名单特判。
 4. 图首稿把阶段、载体和答案字段之间的 9 条概念性连线全标为 data-flow，validator 正确拒绝；
    第二稿已经改用真实调用，却因 Mermaid 显示短名与 evidence exact endpoint identity 分离再次
    被拒。第三稿使用 `n#` node id + exact endpoint label 后通过。新立 B751：copy-ready recipe 应
@@ -37958,7 +37962,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B748-CARRIEROPERATIONDISCOVERY1=unit-covered/production-partial`；
 `B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=confirmed/P1/pending`；
-`B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=confirmed/P1/pending`；
+`B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=implemented/parser-identity-pins-pass`；
 `B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=confirmed/P1/pending`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；

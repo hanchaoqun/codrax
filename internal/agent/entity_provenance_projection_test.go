@@ -127,6 +127,42 @@ func TestProjectEntityProvenance_UniquenessUsesTypedPrincipalSourceScope(t *test
 	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "BusContext", types.EntityResolutionSymbol, true, true, true)
 }
 
+func TestProjectEntityProvenance_TopLevelTypeNotAmbiguousWithSameNamedOwnerMethod(t *testing.T) {
+	graph := &rmtypes.Graph{
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"BusContext": {
+				{Name: "BusContext", Kind: "method", Receiver: "Orchestrator", File: "internal/orchestrator/orchestrator.go"},
+				{Name: "BusContext", Kind: "struct", File: "internal/types/context.go"},
+			},
+		},
+	}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
+	rm := types.RequestModel{AnalyzerHints: types.AnalyzerHints{Entities: []string{"BusContext"}}}
+
+	projectEntityProvenance(ctx, &rm)
+
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "BusContext", types.EntityResolutionSymbol, true, true, true)
+}
+
+func TestProjectEntityProvenance_SameNamedOwnerMethodsRemainAmbiguousWithoutType(t *testing.T) {
+	graph := &rmtypes.Graph{SymbolDefs: map[string][]*rmtypes.Symbol{
+		"Execute": {
+			{Name: "Execute", Kind: "method", Receiver: "Alpha", File: "internal/a.go"},
+			{Name: "Execute", Kind: "method", Receiver: "Beta", File: "internal/b.go"},
+		},
+	}}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
+	rm := types.RequestModel{AnalyzerHints: types.AnalyzerHints{Entities: []string{"Execute"}}}
+
+	projectEntityProvenance(ctx, &rm)
+
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "Execute", types.EntityResolutionAmbiguousSymbol, false, true, false)
+}
+
 func TestProjectEntityProvenance_DoesNotPromoteAuxiliaryOnlyHomonymIntoProductionShape(t *testing.T) {
 	graph := &rmtypes.Graph{
 		FileIndex: map[string]*rmtypes.FileInfo{

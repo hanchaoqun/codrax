@@ -96,6 +96,22 @@ func TestSymbolResolver_MultipleHitsReturnedSeparately(t *testing.T) {
 	}
 }
 
+func TestSymbolResolver_PreservesSameNamedTypeAndMethodInOneFile(t *testing.T) {
+	g := makeGraph(map[string][]*repomap.Symbol{
+		"Context": {
+			{Name: "Context", Kind: "struct", File: "context.go", Line: 10},
+			{Name: "Context", Kind: "method", Receiver: "Owner", File: "context.go", Line: 40},
+		},
+	}, nil)
+	hits := newRepomapSymbolResolver(g).LookupSymbol("Context")
+	if len(hits) != 2 {
+		t.Fatalf("same-file type and method are distinct parser identities, got %+v", hits)
+	}
+	if hits[0].Kind == hits[1].Kind || hits[1].Receiver != "Owner" {
+		t.Fatalf("resolver lost parser-owned identity coordinates: %+v", hits)
+	}
+}
+
 func TestSymbolResolver_HitCapAt20(t *testing.T) {
 	defs := make([]*repomap.Symbol, 0, 50)
 	for i := 0; i < 50; i++ {

@@ -52,6 +52,14 @@ type SymbolHit struct {
 	// source-scope filter before deciding whether a symbol is unique. Empty
 	// preserves compatibility with resolvers that expose names only.
 	Source string
+	// Kind/Receiver/Parent are parser-owned declaration coordinates. They let
+	// consumers distinguish a top-level type identity from a same-spelled
+	// receiver/owner member (for example `type BusContext` versus
+	// `(*Orchestrator).BusContext`). Empty preserves compatibility with
+	// name-only resolvers.
+	Kind     string
+	Receiver string
+	Parent   string
 }
 
 // Options controls optional normalizer behaviors. Zero value is valid

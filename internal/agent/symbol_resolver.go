@@ -35,6 +35,7 @@ package agent
 
 import (
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -104,7 +105,7 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 		if sym == nil || sym.Name == "" {
 			continue
 		}
-		key := sym.Name + "|" + sym.File
+		key := symbolResolverIdentityKey(sym.Name, sym.File, sym.Kind, sym.Receiver, sym.Parent, sym.Line)
 		if seen[key] {
 			continue
 		}
@@ -113,12 +114,19 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 			Canonical: sym.Name,
 			Domain:    symbolDomain(r.graph, sym),
 			Source:    sym.File,
+			Kind:      sym.Kind,
+			Receiver:  sym.Receiver,
+			Parent:    sym.Parent,
 		})
 		if len(hits) >= maxSymbolResolverHits {
 			break
 		}
 	}
 	return hits
+}
+
+func symbolResolverIdentityKey(name, file, kind, receiver, parent string, line int) string {
+	return strings.Join([]string{name, file, kind, receiver, parent, strconv.Itoa(line)}, "|")
 }
 
 // LookupSymbolMorphAlias confirms bounded ASCII morphology candidates against
@@ -1129,7 +1137,9 @@ func (r *multiRepoSymbolResolver) adaptHits(hits []multigraph.SymbolHit) []norma
 				domain = h.Sub.RootRel
 			}
 		}
-		key := h.Symbol.Name + "|" + h.Symbol.File + "|" + domain
+		key := symbolResolverIdentityKey(
+			h.Symbol.Name, h.Symbol.File, h.Symbol.Kind, h.Symbol.Receiver, h.Symbol.Parent, h.Symbol.Line,
+		) + "|" + domain
 		if seen[key] {
 			continue
 		}
@@ -1143,6 +1153,9 @@ func (r *multiRepoSymbolResolver) adaptHits(hits []multigraph.SymbolHit) []norma
 				}
 				return h.Symbol.File
 			}(),
+			Kind:     h.Symbol.Kind,
+			Receiver: h.Symbol.Receiver,
+			Parent:   h.Symbol.Parent,
 		})
 		if len(out) >= maxSymbolResolverHits {
 			break
