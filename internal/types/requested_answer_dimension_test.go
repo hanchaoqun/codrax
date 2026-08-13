@@ -29,6 +29,54 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesAnchoredDimensions(t 
 	}
 }
 
+func TestNormalizeRequestedAnswerDimensionProfile_PreservesExactMixedScriptQuoteAcrossWhitespace(t *testing.T) {
+	raw := "它运行的 CPU 频率有没有受到限制，证据是什么？"
+	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Confidence:          0.9,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:       "CPU频率限制判定",
+			Role:        RequestedAnswerDimensionCausalAttribution,
+			SourceQuote: "它运行的CPU频率有没有受到限制，证据是什么",
+			Required:    true,
+			Index:       1,
+		}},
+	})
+	if profile == nil || !profile.Active() || len(profile.Dimensions) != 1 {
+		t.Fatalf("whitespace-only surface variance must preserve the dimension: profile=%+v warnings=%v", profile, warnings)
+	}
+	if profile.Dimensions[0].Role != RequestedAnswerDimensionCausalAttribution {
+		t.Fatalf("typed role changed: %+v", profile.Dimensions[0])
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("whitespace-only surface variance emitted warning: %v", warnings)
+	}
+}
+
+func TestNormalizeRequestedAnswerDimensionProfile_DoesNotAnchorParaphraseOrPunctuationChange(t *testing.T) {
+	raw := "它运行的 CPU 频率有没有受到限制，证据是什么？"
+	for _, quote := range []string{
+		"CPU 是否被节流",
+		"证据是什么，它运行的 CPU 频率有没有受到限制",
+		"它运行的 CPU 频率有没有受到限制、证据是什么",
+	} {
+		profile, _ := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Confidence:          0.9,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "invented dimension",
+				Role:        RequestedAnswerDimensionCausalAttribution,
+				SourceQuote: quote,
+				Required:    true,
+				Index:       1,
+			}},
+		})
+		if profile != nil {
+			t.Fatalf("non-verbatim quote %q must not gain typed dimension authority: %+v", quote, profile)
+		}
+	}
+}
+
 func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSourceRoles(t *testing.T) {
 	// §29.166 OBLSWEEP-1: the dropped obligation dims must carry a precise
 	// current-source anchor (path suffix / file:line) to keep minting; the

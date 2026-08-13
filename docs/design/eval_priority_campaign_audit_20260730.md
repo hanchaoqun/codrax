@@ -35649,6 +35649,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.772 r453：频率权限教学生效；required dimension 被空白差异删除（2026-08-13）
+
+1. 在 `main@486a500dd` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。Runner 与人工均为 `1 PASS / 1 FAIL`；
+   工件见 `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r453_20260813.md` 与 manual audit。
+2. B737 获生产上下文正证：Finalizer 明确收到 `policy_limit_status=present`、
+   `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`，以及 supply-fold
+   “只衡量相对理想基准 headroom、不识别低频原因、不证明治理绑定”。模型正文也正确复述供给缺口与 policy
+   ceiling 的两条边界；旧 typed 强弱自冲突已消失。
+3. Trace 仍无完整投影，但新的直接原因是 `B738-DIMENSIONQUOTEPROVENANCE1/P0`。Analyzer 实际发出三个
+   required dimensions，第三维把用户原文 `它运行的 CPU 频率...` 写成 `它运行的CPU频率...`。旧 provenance
+   normalizer 只折叠连续 whitespace，不容忍 mixed-script token 周边的单个空格，于是把 schema-valid 第三维
+   整体删除并报警 `ignored unanchored dimension`。删除后只剩两维，`bounded_fact_set` 不再与 causal role
+   冲突，完整投影合法关闭。这不是 B735 分类逻辑回归，而是 exact quote 容错断层。
+4. B738 根修保持精确信号：`requestedEnumerationQuotePresent` 在现有逐字/大小写/连续空白比较之后，增加
+   “去除 Unicode whitespace 后其余 rune 与标点仍严格同序”的精确包含臂。它允许 `CPU 频率`↔`CPU频率`，
+   但仍拒绝同义改写、顺序交换、逗号变顿号等形；所以模型自造维度不能获得 causal typed scope 权限。
+5. 同批收窄模型心智：共享 SSOT 明确复合“是否 X constrained/caused/affected + 证据是什么”不能整体标成
+   `evidence_source`；必须保留 `causal_attribution` verdict，额外的 proof 展示需要时再独立设
+   `evidence_source`。这是 analyzer 软教学，不扫描最终答案，也不自动铸造/修改 role。
+6. Trace 模型正文尚有 CPU12=1.53GHz、把 already-included tail_open 解释成额外 runnable 等事实误读；但当前
+   scope gap 会先剥掉完整 projection 权威，必须先修 B738 再异构回放判断是否仍属系统上下文 gap，不能为
+   单 case 增加正文关键词门或系统答案改写。
+7. Poly 人工 PASS。首稿图含未证模块/自环/回复边被 typed 关系门拒绝；第一次 patch 漏 `kind` 被 schema
+   精确拒绝；第二次 patch 自愈，最终 sequence diagram 合法保留 Python native/fallback、PyO3 wrapper→Rust
+   core，正文关系完整。两次 retry 是模型构造波动，有现成自愈出口，不放松关系证据杆。
+8. 4ms 活跃流、JSON/Mermaid lossless recovery、Read/Write、链上-only 主因、邻近/背景 support-only、
+   actual occupancy 与 existing-rule eliminable 双轴均未改动；系统仍不替模型写结论。
+
+状态：
+
+`B737-FREQUENCYAUTHORITYCONTRACT1=production-context-positive-r453`；
+`B738-DIMENSIONQUOTEPROVENANCE1=implemented/exact-whitespace-only-pins-pass/pending-production-replay`；
+`B735/B734=production-positive-r452/r453-blocked-after-normalization`；
+`B733/B672-diagram=production-positive-r453`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B738-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.771 r452：因果范围生产闭环；频率来源/绑定/headroom typed 合同冲突（2026-08-13）
 
 1. 在 `main@39118b50d` 重建后严格并发恰好两个案例：

@@ -3,6 +3,7 @@ package types
 import (
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // enumeration_boundary.go — typed-only surface for the user-declared
@@ -94,7 +95,24 @@ func requestedEnumerationQuotePresent(raw, quote string) bool {
 	if foldRaw == "" || foldQuote == "" {
 		return false
 	}
-	return strings.Contains(foldRaw, foldQuote)
+	if strings.Contains(foldRaw, foldQuote) {
+		return true
+	}
+	// A current-request quote remains exact when the only variance is
+	// optional whitespace around mixed-script tokens (for example "CPU 频率"
+	// versus "CPU频率"). Keep every non-space rune and all punctuation in
+	// exact order: this is provenance tolerance, not semantic matching, and
+	// cannot authorize a paraphrase or reordered model-authored phrase.
+	return strings.Contains(removeEnumerationBoundaryWhitespace(foldRaw), removeEnumerationBoundaryWhitespace(foldQuote))
+}
+
+func removeEnumerationBoundaryWhitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func foldEnumerationBoundarySurface(s string) string {

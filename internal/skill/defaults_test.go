@@ -1186,6 +1186,8 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 		"yes, no, mixed, or unproven",
 		"keep every requested dimension",
 		"never relabel that verdict as `other`",
+		"do not collapse the whole phrase into one `evidence_source` dimension",
+		"keep a required `causal_attribution` verdict dimension",
 		"not a fallback for a difficult causal classification",
 		"dominates the breadth of a mixed request",
 	} {
