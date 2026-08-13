@@ -30,6 +30,13 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 	if run.Budget.MaxBatches == 0 && decision.Workflow.MaxBatches > 0 {
 		run.Budget.MaxBatches = decision.Workflow.MaxBatches
 	}
+	// A controller-minted follow-up already carries the durable routing
+	// contract that authorized the batch. A later model decision may choose
+	// the next typed action, but must not turn that same batch ID into a
+	// different purpose (for example, a proof-only probe batch into a normal
+	// change batch). Resolve this before batchIDAndGoalFromBatch and
+	// updateWorkflowBatch consume the echoed metadata.
+	decision.Batch = preserveControllerOwnedBatchPlan(run, decision.Batch)
 
 	switch decision.Action {
 	case ActionExploreCode:
@@ -242,7 +249,7 @@ func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batc
 		// that justified this non-mutating follow-up. On the minting append
 		// the durable batch is still empty, so copy the whole typed envelope
 		// before the mode becomes locked.
-		locked := run.Batches[i].ExecutionMode != ""
+		locked := run.Batches[i].ExecutionMode != "" || controllerOwnsFollowupBatch(*run, run.Batches[i])
 		if !locked {
 			if normalized.Goal != "" {
 				run.Batches[i].Goal = normalized.Goal
@@ -264,6 +271,50 @@ func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batc
 		run.Batches[i].UpdatedAt = time.Now()
 		return
 	}
+}
+
+func preserveControllerOwnedBatchPlan(run types.WriteWorkflowRun, batch *WriteBatchPlan) *WriteBatchPlan {
+	if batch == nil {
+		return nil
+	}
+	id := strings.TrimSpace(batch.ID)
+	if id == "" {
+		id = activeOrNextBatchID(run)
+	}
+	for i := range run.Batches {
+		existing := run.Batches[i]
+		if strings.TrimSpace(existing.ID) != id || !controllerOwnsFollowupBatch(run, existing) {
+			continue
+		}
+		preserved := *batch
+		preserved.ID = existing.ID
+		preserved.Goal = existing.Goal
+		preserved.Purpose = existing.Purpose
+		preserved.ExecutionMode = existing.ExecutionMode
+		preserved.ExpectedPaths = append([]string(nil), existing.ExpectedPaths...)
+		preserved.SuccessCriteria = append([]string(nil), existing.SuccessCriteria...)
+		preserved.DependsOn = append([]string(nil), existing.DependsOn...)
+		return &preserved
+	}
+	return batch
+}
+
+func controllerOwnsFollowupBatch(run types.WriteWorkflowRun, batch types.WriteWorkflowBatch) bool {
+	requiredReason := ""
+	switch strings.TrimSpace(batch.Purpose) {
+	case "verification_proof_followup", "impact_and_verification_proof_followup":
+		requiredReason = "verification_proof_followup_requested"
+	case "impact_obligation_followup":
+		requiredReason = "impact_obligation_followup_requested"
+	default:
+		return false
+	}
+	for _, item := range run.ProgressLedger {
+		if strings.TrimSpace(item.ReasonCode) == requiredReason {
+			return true
+		}
+	}
+	return false
 }
 
 func markWorkflowBatchCompletionFromLatestVerify(run *types.WriteWorkflowRun, batchID string, decision WriteWorkflowDecision) {

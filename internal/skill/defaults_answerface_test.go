@@ -25,6 +25,12 @@ func TestAnswerfaceBlockedReasonCensusConsumption(t *testing.T) {
 	for _, want := range []string{
 		"`blocked_reason_census` note",
 		"authoritative record inventory",
+		"caller symbol identifies the kernel call site",
+		"NOT by itself the waited resource/object",
+		"separate typed field or dependency edge",
+		"different typed measures",
+		"do not call their difference rounding or an allowed precision error",
+		"typed interval join",
 		"never drop a record because it no longer fits the narrative",
 		"the census wins and the raw rows deserve a re-read",
 		// G4-ENGINE 返工 P3-② (2026-07-20): the census speaks its own window
@@ -114,6 +120,11 @@ func TestAnswerfaceExploreCensusSentence(t *testing.T) {
 	for _, want := range []string{
 		"`blocked_reason_census` line",
 		"authoritative blocked_reason inventory",
+		"only the recorded kernel call site",
+		"not by itself a waited object",
+		"different measures",
+		"never explain a count/Σ mismatch as rounding or precision tolerance",
+		"typed interval join",
 		"re-read the rows instead of silently dropping one",
 	} {
 		if !strings.Contains(body, want) {

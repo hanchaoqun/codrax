@@ -120,6 +120,131 @@ func TestApplyWorkflowDecisionToRunAppendsVerifyOnlyBatchWithoutPlanningState(t 
 	}
 }
 
+func TestApplyWorkflowDecisionToRunPreservesControllerOwnedDirectProofBatchRouting(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-direct-proof",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-cumulative-review",
+			Goal:            "author one bounded direct-runtime verification probe",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/fix.ts"},
+			SuccessCriteria: []string{"contract_ref=retains-falsy-default"},
+			DependsOn:       []string{"batch-1"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch: &WriteBatchPlan{
+			ID:              "batch-1-cumulative-review",
+			Goal:            "edit more tests",
+			Purpose:         "execute runtime checks and patch whatever is missing",
+			ExecutionMode:   types.WriteWorkflowBatchExecutionVerifyOnly,
+			ExpectedPaths:   []string{"pkg/fix.test.ts"},
+			SuccessCriteria: []string{"new test file passes"},
+			DependsOn:       []string{"some-other-batch"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("plan direct-proof batch failed: %v", err)
+	}
+	batch := got.Batches[0]
+	if batch.Goal != "author one bounded direct-runtime verification probe" ||
+		batch.Purpose != "verification_proof_followup" ||
+		batch.ExecutionMode != "" ||
+		len(batch.ExpectedPaths) != 1 || batch.ExpectedPaths[0] != "pkg/fix.ts" ||
+		len(batch.SuccessCriteria) != 1 || batch.SuccessCriteria[0] != "contract_ref=retains-falsy-default" ||
+		len(batch.DependsOn) != 1 || batch.DependsOn[0] != "batch-1" {
+		t.Fatalf("model batch echo overwrote controller-owned direct-proof routing: %+v", batch)
+	}
+
+	// The lower metadata merge seam must enforce the same ownership rule for
+	// callers that already resolved the workflow action.
+	applyWorkflowBatchPlanMetadata(&got, batch.ID, &WriteBatchPlan{
+		ID:              batch.ID,
+		Goal:            "rewrite production",
+		Purpose:         "ordinary implementation",
+		ExpectedPaths:   []string{"pkg/other.ts"},
+		SuccessCriteria: []string{"replacement succeeds"},
+	})
+	batch = got.Batches[0]
+	if batch.Goal != "author one bounded direct-runtime verification probe" ||
+		batch.Purpose != "verification_proof_followup" ||
+		batch.ExpectedPaths[0] != "pkg/fix.ts" ||
+		batch.SuccessCriteria[0] != "contract_ref=retains-falsy-default" {
+		t.Fatalf("direct metadata merge overwrote controller-owned routing: %+v", batch)
+	}
+}
+
+func TestApplyWorkflowDecisionToRunAllowsOrdinaryBatchMetadataRefinement(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-ordinary",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1",
+			Goal:    "inspect issue",
+			Purpose: "model-authored initial purpose",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	got, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch: &WriteBatchPlan{
+			ID:              "batch-1",
+			Goal:            "implement bounded fix",
+			Purpose:         "model-authored refined purpose",
+			ExpectedPaths:   []string{"pkg/fix.go"},
+			SuccessCriteria: []string{"targeted test passes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("refine ordinary batch failed: %v", err)
+	}
+	if got.Batches[0].Goal != "implement bounded fix" ||
+		got.Batches[0].Purpose != "model-authored refined purpose" ||
+		len(got.Batches[0].ExpectedPaths) != 1 || got.Batches[0].ExpectedPaths[0] != "pkg/fix.go" {
+		t.Fatalf("ordinary model-owned batch was incorrectly locked: %+v", got.Batches[0])
+	}
+}
+
+func TestApplyWorkflowDecisionToRunDoesNotTrustPurposeWithoutTypedAuthorization(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-unowned-purpose",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1",
+			Goal:    "model chose a reserved-looking label",
+			Purpose: "verification_proof_followup",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	got, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch: &WriteBatchPlan{
+			ID:              "batch-1",
+			Goal:            "refine ordinary batch",
+			Purpose:         "ordinary implementation",
+			ExpectedPaths:   []string{"pkg/fix.go"},
+			SuccessCriteria: []string{"targeted test passes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("refine unowned purpose failed: %v", err)
+	}
+	if got.Batches[0].Purpose != "ordinary implementation" || got.Batches[0].Goal != "refine ordinary batch" {
+		t.Fatalf("reserved-looking prose without typed progress was treated as controller authority: %+v", got.Batches[0])
+	}
+}
+
 func TestApplyWorkflowDecisionToRunFinishAndBlock(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-1",

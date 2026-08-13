@@ -35649,6 +35649,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.725 r411：控制器 typed 批次权威防覆盖；blocked_reason 调用点口径根修（2026-08-12）
+
+1. 在 `main@88f56091e` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + real_trace_h7_self_seat_full_spectrum`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_proof_trace_r411_20260812_manual_audit.md`。
+2. H7 Trace 主合同生产正证：显式窗 `13762.791708..13763.024898`、链上根因排序、Trace
+   因果投影、实际占用/业务 span 与规则可消除量双轴均完整；算力供给、D-state、调度供给、
+   优先级反转、IO 等链上项未丢，邻近/背景只作支撑，没有进入主因。
+3. 新确认 B683（P0）：系统生成的 direct-proof follow-up 原本持有 exact
+   `verification_proof_followup`，但模型随后对同一 batch ID 发 `plan_batch` 时可用自然语言
+   purpose 覆盖它。由于该车道的 `ExecutionMode` 按设计为空，旧锁只保护 `verify_only`，于是
+   proof-only 工具面、B681 无改动门和 scheduler 后备门全部失活，模型再次修改测试而没有生成
+   probe。这是 durable typed authority 被 model echo 覆盖的状态合并红线，不是 Zod case 拟合。
+4. 根修在 `writeflow.ApplyWorkflowDecisionToRun` 的唯一 durable state merge seam：既有 batch
+   只有同时满足 exact controller-owned purpose 与 exact progress-ledger authorization reason 时，
+   其 goal/purpose/execution mode/expected paths/success criteria/depends_on 才保持不可变；模型仍
+   选择 typed action，但不能改写系统已授权的路由合同。普通 batch、仅碰巧写出保留 purpose
+   而没有 typed progress 的 batch 均可继续由模型细化，避免把字符串本身误当权威。
+5. H7 同时暴露 B684（P1 上下文精度）：模型将 `blocked_reason caller=dma_fence_default_w`
+   扩写为等待对象和 GPU 完成机制，并把 12 条 caller census 与 11 个 D-state 区间的差异称为
+   “允许精度”。typed 证据只证明内核调用点；census 记录与 scheduler interval 也不是同一
+   口径。explore 与 finalizer 软教学已统一明确：对象/owner/device/机制必须来自独立 typed
+   identity/dependency；没有 typed interval join 不得配对，也不得把差异解释成 rounding。
+6. B683 只消费 durable batch purpose 与 progress reason；B684 只是 prompt guidance。两者都不
+   扫描 raw request、thinking、patch 或 final prose，不修改模型答案，不生成 Trace 结论。显式
+   窗、Trace 因果投影、自动补齐、链上-only 主因与双轴均保持不变。
+7. active-stream 4ms 红线再次冻结：只要连接持续产出字节，就不得因 4ms 或任何固定 wall-clock
+   age 降级/丢弃答案。4ms 只可作为测试中的无首字节/字节停滞阈值；合法终止仍只有 caller
+   cancel/deadline、no-first-byte、byte-stall、transport/decode failure，且恢复不得代写结论。
+
+状态：
+
+`B683-CONTROLLERBATCHAUTHORITYOVERWRITE1=implemented/exact-purpose+progress-owner-pins-pass`；
+`B684-BLOCKEDREASONCALLSITEOBJECTCONFLATION1=implemented/soft-teaching-both-faces-pins-pass/pending-replay`；
+`B682-PROBEDIRECTTARGETAUTHORITY1=open/P1/design-required/no-prose-code-keyword-gate`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r411`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.724 r410：纯补证批自证污染闭环；关系 carrier 已到但模型主动撤图（2026-08-12）
 
 1. 在 `main@103704cd7` 严格并发恰好两个案例：
