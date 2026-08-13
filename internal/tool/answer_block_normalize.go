@@ -451,7 +451,8 @@ func stripOuterDiagramFence(body string) string {
 }
 
 // splitFusedDiagramBlocks expands every FUSED block — a valid
-// non-diagram kind that carries BOTH visible rows (items / columns)
+// non-diagram kind that carries BOTH a kind-appropriate visible payload
+// (text / items / columns)
 // AND a renderable diagram payload — into two sibling blocks before
 // NormalizeEmitAnswerBlock's discriminator repair runs. Without the
 // split, the repair overwrites the declared kind to diagram and the
@@ -468,7 +469,7 @@ func stripOuterDiagramFence(body string) string {
 // Trigger is a precise typed signal (no prose inspection):
 // diagram payload present AND body non-empty even after the full
 // diagram normalization pipeline (fence strip + mermaidcompat
-// passes) AND declared kind is a valid non-diagram kind AND rows
+// passes) AND declared kind is a valid non-diagram kind AND a visible payload is
 // present. Anything else passes through untouched — in particular a
 // body that normalizes to EMPTY (blank, fence-only, hidden-markers-
 // only) keeps the existing single-block hard-reject path so the
@@ -698,7 +699,7 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 		split++
 	}
 	if split > 0 {
-		logging.Warning("[%s] split %d fused diagram block(s): declared kind and visible rows preserved alongside the diagram payload", logLabel, split)
+		logging.Warning("[%s] split %d fused diagram block(s): declared kind and visible payload preserved alongside the diagram payload", logLabel, split)
 	}
 	if skipped := fused - split - dupsOfSplit; skipped > 0 {
 		logging.Warning("[%s] %d fused diagram block(s) passed through unsplit near the %d-block cap: discriminator repair keeps the diagram and drops the rows (lossy accept) instead of splitting past the cap", logLabel, skipped, maxBlocksPerDoc)
@@ -757,8 +758,9 @@ func matchesSeenFused(s fusedSeen, b emitAnswerBlockV2, canonical types.AnswerBl
 	return reflect.DeepEqual(s.raw, b)
 }
 
-// isFusedDiagramBlock reports whether raw fuses a visible-row block
-// with a diagram payload. All conjuncts are typed-field checks.
+// isFusedDiagramBlock reports whether raw fuses a kind-appropriate visible
+// payload with a diagram payload. All conjuncts are typed-field checks; the
+// model's prose is never interpreted.
 func isFusedDiagramBlock(raw emitAnswerBlockV2) bool {
 	if raw.Diagram == nil || strings.TrimSpace(raw.Diagram.Body) == "" {
 		return false
@@ -785,7 +787,32 @@ func isFusedDiagramBlock(raw emitAnswerBlockV2) bool {
 	if kind == types.BlockDiagram || !types.IsValidAnswerBlockKind(kind) {
 		return false
 	}
-	return len(raw.Items) > 0 || len(raw.Columns) > 0
+	return fusedDiagramVisiblePayloadPresent(kind, raw)
+}
+
+// fusedDiagramVisiblePayloadPresent follows the block-kind carrier contract.
+// It deliberately checks only payload presence, not prose meaning: splitting
+// is a shape repair that preserves two already-authored sibling payloads, not
+// an attempt to infer or rewrite the model's answer. Kind-specific routing
+// also avoids manufacturing an invalid visible list half from a stray text
+// field on ordered_list/bullet_list.
+func fusedDiagramVisiblePayloadPresent(kind types.AnswerBlockKind, raw emitAnswerBlockV2) bool {
+	switch kind {
+	case types.BlockSummary, types.BlockScalar, types.BlockDecision, types.BlockCaveat:
+		return strings.TrimSpace(raw.Text) != ""
+	case types.BlockSection:
+		return strings.TrimSpace(raw.Text) != "" || len(raw.Items) > 0
+	case types.BlockOrderedList, types.BlockBulletList:
+		return len(raw.Items) > 0
+	case types.BlockTable:
+		// Table intentionally supports either a complete Markdown table in
+		// text or structured rows. Preserve columns-only as a fused signal for
+		// backward compatibility; the table validator still attributes a
+		// header-only payload error to the model's original block index.
+		return strings.TrimSpace(raw.Text) != "" || len(raw.Items) > 0 || len(raw.Columns) > 0
+	default:
+		return false
+	}
 }
 
 // deriveSplitDiagramBlockID returns a block id unique within the
@@ -1014,6 +1041,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		visible := b
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
+		visible.ParticipantBoundaries = nil
 		outReplace = append(outReplace, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)
@@ -1032,6 +1060,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		visible := b
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
+		visible.ParticipantBoundaries = nil
 		outAdd = append(outAdd, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)
@@ -1039,7 +1068,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 	}
 	outAdd = append(outAdd, systemHalves...)
 	if split+refreshes > 0 {
-		logging.Warning("[%s] split %d fused diagram block(s) across patch ops (%d refreshing a persisted diagram half): declared kind and visible rows preserved alongside the diagram payload", logLabel, split+refreshes, refreshes)
+		logging.Warning("[%s] split %d fused diagram block(s) across patch ops (%d refreshing a persisted diagram half): declared kind and visible payload preserved alongside the diagram payload", logLabel, split+refreshes, refreshes)
 	}
 	if skipped := fused - split - refreshes - dupsOfSplit; skipped > 0 {
 		logging.Warning("[%s] %d fused diagram block(s) in patch ops passed through unsplit (no headroom under the %d-block cap, or derived-id suffix space exhausted): discriminator repair keeps the diagram and drops the rows (lossy accept) instead of fabricating a reject", logLabel, skipped, maxBlocksPerDoc)

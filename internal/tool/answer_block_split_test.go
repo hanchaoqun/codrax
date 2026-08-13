@@ -117,7 +117,7 @@ func TestSplitFusedDiagramBlocksFieldPartition(t *testing.T) {
 			if !onVisible || !onDiagram {
 				t.Errorf("%s must exist on both halves", name)
 			}
-		case "Diagram", "EdgeAnchors":
+		case "Diagram", "EdgeAnchors", "ParticipantBoundaries":
 			if onVisible || !onDiagram {
 				t.Errorf("%s must live on the diagram half only (visible=%t diagram=%t)", name, onVisible, onDiagram)
 			}
@@ -138,7 +138,8 @@ func TestSplitFusedDiagramBlocksNoOps(t *testing.T) {
 	}{
 		{"kind=diagram", emitAnswerBlockV2{ID: "d1", Kind: string(types.BlockDiagram), Items: []emitAnswerBlockItemV2{{Label: "x"}}, Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "flowchart LR\n A-->B"}}},
 		{"empty diagram body", emitAnswerBlockV2{ID: "t1", Kind: string(types.BlockTable), Items: []emitAnswerBlockItemV2{{Label: "x"}}, Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "  "}}},
-		{"no rows", emitAnswerBlockV2{ID: "s1", Kind: string(types.BlockSummary), Text: "prose", Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "flowchart LR\n A-->B"}}},
+		{"no visible payload", emitAnswerBlockV2{ID: "s1", Kind: string(types.BlockSummary), Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "flowchart LR\n A-->B"}}},
+		{"list stray text is not its payload", emitAnswerBlockV2{ID: "l1", Kind: string(types.BlockOrderedList), Text: "stray", Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "flowchart LR\n A-->B"}}},
 		{"invalid kind", emitAnswerBlockV2{ID: "x1", Kind: "bogus", Items: []emitAnswerBlockItemV2{{Label: "x"}}, Diagram: &emitAnswerDiagramV2{Kind: "flow", Body: "flowchart LR\n A-->B"}}},
 		{"no diagram", emitAnswerBlockV2{ID: "t1", Kind: string(types.BlockTable), Items: []emitAnswerBlockItemV2{{Label: "x"}}}},
 	}
@@ -151,6 +152,80 @@ func TestSplitFusedDiagramBlocksNoOps(t *testing.T) {
 		if !reflect.DeepEqual(out[0].raw, tc.b) {
 			t.Errorf("%s: block mutated on pass-through", tc.name)
 		}
+	}
+}
+
+// Prose-bearing blocks use text as their visible carrier. A model-authored
+// summary+diagram fusion therefore receives the same lossless structural split
+// as the older table+diagram shape: prose ownership and relation metadata stay
+// on separate, valid sibling blocks without interpreting or rewriting either.
+func TestSplitFusedDiagramBlocksProsePayload(t *testing.T) {
+	in := emitAnswerBlockV2{
+		ID:          "summary",
+		Kind:        string(types.BlockSummary),
+		Title:       "结论",
+		Text:        "模型给出的业务结论。",
+		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: "summary_fact"}},
+		FacetIDs:    []string{"summary_fact"},
+		SurfaceRole: string(types.SurfacePrincipal),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow), Language: "mermaid", Body: "flowchart LR\n  A --> B",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "C", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}
+	out := splitFusedDiagramBlocks("test", []emitAnswerBlockV2{in})
+	if len(out) != 2 {
+		t.Fatalf("expected prose and diagram halves, got %d", len(out))
+	}
+	visible, diagram := out[0].raw, out[1].raw
+	if visible.Kind != string(types.BlockSummary) || visible.Text != in.Text ||
+		!reflect.DeepEqual(visible.ClaimUses, in.ClaimUses) || !reflect.DeepEqual(visible.FacetIDs, in.FacetIDs) ||
+		visible.SurfaceRole != in.SurfaceRole {
+		t.Fatalf("visible prose ownership changed: %+v", visible)
+	}
+	if visible.Diagram != nil || len(visible.EdgeAnchors) != 0 || len(visible.ParticipantBoundaries) != 0 {
+		t.Fatalf("visible prose half retained diagram-only fields: %+v", visible)
+	}
+	if diagram.Kind != string(types.BlockDiagram) || diagram.Diagram == nil ||
+		!reflect.DeepEqual(diagram.EdgeAnchors, in.EdgeAnchors) ||
+		!reflect.DeepEqual(diagram.ParticipantBoundaries, in.ParticipantBoundaries) {
+		t.Fatalf("diagram half lost typed relation metadata: %+v", diagram)
+	}
+	if _, err := NormalizeEmitAnswerBlock(visible, "blocks[0]"); err != nil {
+		t.Fatalf("visible prose half failed normalize: %v", err)
+	}
+	if _, err := NormalizeEmitAnswerBlock(diagram, "blocks[0]"); err != nil {
+		t.Fatalf("diagram half failed normalize: %v", err)
+	}
+}
+
+func TestSplitFusedDiagramPatchBlocksProsePayload(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "old",
+	}}}
+	fused := emitAnswerBlockV2{
+		ID:   "summary",
+		Kind: string(types.BlockSummary),
+		Text: "new model conclusion",
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow), Language: "mermaid", Body: "flowchart LR\n  A --> B",
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "C", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}
+	replace, add := splitFusedDiagramPatchBlocks("test", maxBlocksPerDoc-1, prev, nil, nil,
+		[]emitAnswerBlockV2{fused}, nil)
+	if len(replace) != 1 || replace[0].Text != fused.Text || replace[0].Diagram != nil || len(replace[0].ParticipantBoundaries) != 0 {
+		t.Fatalf("patch visible half malformed: %+v", replace)
+	}
+	if len(add) != 1 || add[0].Kind != string(types.BlockDiagram) || add[0].Diagram == nil || len(add[0].ParticipantBoundaries) != 1 {
+		t.Fatalf("patch diagram half malformed: %+v", add)
 	}
 }
 

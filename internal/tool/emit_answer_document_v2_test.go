@@ -87,6 +87,39 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
+	bus := newV2TestBusContext()
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "model-authored business conclusion",
+			"diagram": {
+				"kind": "flow",
+				"language": "mermaid",
+				"body": "flowchart LR\n  A --> B"
+			}
+		}]
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed fused-payload recovery must succeed: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("expected adjacent prose and diagram blocks, got %+v", doc)
+	}
+	if doc.Blocks[0].Kind != types.BlockSummary || doc.Blocks[0].Text != "model-authored business conclusion" || doc.Blocks[0].Diagram != nil {
+		t.Fatalf("model prose changed or retained diagram payload: %+v", doc.Blocks[0])
+	}
+	if doc.Blocks[1].Kind != types.BlockDiagram || doc.Blocks[1].Diagram == nil || doc.Blocks[1].Diagram.Body != "flowchart LR\n  A --> B" {
+		t.Fatalf("diagram payload was not preserved: %+v", doc.Blocks[1])
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsTopLevelRelationClaimsWithExactCarrierPath(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

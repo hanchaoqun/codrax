@@ -35774,6 +35774,75 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.752 B723：正文与图的 typed 载体无损拆分（2026-08-13）
+
+1. B723 已按通用 carrier 方案施工。`isFusedDiagramBlock` 不再只承认 `items/columns`，而是按
+   `AnswerBlockKind` 的既有载体合同判断可见 payload：summary/scalar/decision/caveat 读 `text`，
+   section 读 `text/items`，list 只读 `items`，table 读 `text/items/columns`。判据只检查 typed 字段
+   是否在场，不解释用户题面或模型正文。
+2. 有效非 diagram block 同时携带非空 normalized diagram 与对应可见 payload 时，完整 emit 和
+   patch 两条入口复用同一 split seam：正文半保留模型的 id/kind/title/text/items/columns/claims/
+   facets/surface/verdict；图半只承接 diagram/edge anchors/participant boundaries。系统不生成边、
+   不提升关系 caliber、不删改模型结论，后续关系证据门与 Mermaid 校验继续原样执行。
+3. 同批修复一个由新正向测试暴露的既有 patch 分区遗漏：patch 的 visible half 过去只清除
+   diagram/edge anchors，未清除 `participant_boundaries`；一旦 boundary 在场会把合法拆分制造成
+   “boundary 只能用于 kind=diagram”的系统侧拒绝。现在 full emit 与 patch 的三项图专属字段完全
+   同源分区。
+4. 防过修负形：ordered/bullet list 只有 stray `text` 而没有 items 时不拆，避免系统制造非法 list
+   半块；空图、normalize 后空图、非法 kind、纯 diagram 以及容量不足回退仍保持原语义。完整 emit、
+   patch 生产入口均有正 pin，正文与图字节、edge/boundary 所有权分别核对。
+5. 验证：`go test ./internal/tool -run 'TestEmitAnswerDocument(V2|Patch)_SplitsFusedProseAndDiagramWithoutDroppingEither|TestSplitFusedDiagram' -count=1`、
+   `go test ./internal/tool -count=1` 与 `make test` 全绿。下一步严格并发两个生产案例复放，验证首次
+   fused emit 能直接保留正文+图，并继续用 Trace 案例守住显式窗、链上-only 与双轴能力。
+6. 活跃流规则不变：有 first-byte/byte-stall owner 且持续收到字节时，4ms 不拥有降级权；只有
+   caller cancel/deadline、无首字节、真实 byte stall、transport/decode failure 或重试耗尽才能
+   进入有披露的恢复/降级。系统不得依据已有 evidence 自铸答案。
+
+状态：
+
+`B723-FUSEDPROSEDIAGRAMCARRIERSPLIT1=implemented/full+patch+partition-pins-pass/pending-r435`；
+`B722-MERMAIDREPEATEDDOTOPERATOR1=production-positive-r434/closed`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.751 r434：B722 生产闭环；prose+diagram 融合块未进入通用拆载体（2026-08-13）
+
+1. 在 `main@509f9a213` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS`，人工为
+   `1 partial / 1 pass`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_logic_trace_replay_r434_20260813_manual_audit.md`。
+2. B722 获生产正证并关闭。逻辑案例指标记录一次共享 Mermaid source repair；最终
+   `20260813-051742.857-38787.md` 是合法 `flowchart TD`，无 `-..-`、无把操作符别名成
+   `codraxNode["-..-"]`，保留正常 `mermaid` fence 和多条已证关系边，未进入 text fallback。
+3. 新确认 B723（P1）：首稿把完整 summary `text` 与 `diagram` 放在同一个 block。现有 fused splitter
+   只在 `items/columns` 在场时拆载体，prose+diagram 不拆；随后 discriminator repair 把 summary 改成
+   diagram，模型被迫手工拆载体。七次拒绝中三次直接来自该心智负担的级联：漏 `kind`、把 boundary 放在
+   summary、把 `add_blocks` 编成畸形 JSON 字符串。它是所有 prose block×diagram 的通用结构 GAP，不是
+   本题或某个模型的关键词问题。
+4. B723 最优方案是扩展已有 typed fused split seam：有效非 diagram block 同时携带非空 normalized
+   diagram 与该 kind 的可见 payload（text 或 rows）时，一律无损拆成原 block 和派生 diagram block。
+   原 id/kind/text/rows/claims/facets/surface 保持；派生块只带 diagram/edge anchors/boundaries。不从 prose
+   推导语义、不选择或生成边、不改结论，关系/evidence validator 继续完整执行。
+5. 其余 relation reject 方向正确：模型首稿画了无 typed anchor 的内部容器边，系统拒绝；终稿保留已证
+   local call/precedence，`BusContext/Mutable` 以 requested-flow unproven boundary 披露。关系表达仍为
+   partial，但禁止系统代画、放宽证据门或用答案关键词硬化。
+6. Trace 335s PASS：显式窗、因果投影、自动补齐、链上-only 主因、running 65.912ms、D-state
+   36.757ms、优先级反转/调度/算力/IO、业务线索与双轴均保留；邻近/背景只支持。335s/437s 活跃流
+   均未因 4ms 固定年龄降级。
+
+状态：
+
+`B722-MERMAIDREPEATEDDOTOPERATOR1=production-positive-r434/closed`；
+`B723-FUSEDPROSEDIAGRAMCARRIERSPLIT1=confirmed/P1/next-batch`；
+`B721-PATCHBLOCKSCHEMAPARITY1=closed`；
+`B716-TRACECANONICALWINDOWCONTEXT1=production-stable-r434`；
+`active-stream-4ms-degrade=forbidden/335s+437s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.750 r433 与 B722：patch schema 正证；重复点号边被系统二次破坏（2026-08-13）
 
 1. 在 `main@9985244ab` 严格并发恰好两个案例：

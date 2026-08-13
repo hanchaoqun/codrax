@@ -108,6 +108,40 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
+	bus := newPatchTestBusContext()
+	raw := json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "updated model conclusion",
+			"diagram": {
+				"kind": "flow",
+				"language": "mermaid",
+				"body": "flowchart TD\n  Request --> Result"
+			}
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed fused patch recovery must succeed: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("expected replaced prose, unchanged list, and diagram half: %+v", doc)
+	}
+	if doc.Blocks[0].ID != "s1" || doc.Blocks[0].Kind != types.BlockSummary || doc.Blocks[0].Text != "updated model conclusion" || doc.Blocks[0].Diagram != nil {
+		t.Fatalf("replaced model prose changed or retained diagram: %+v", doc.Blocks[0])
+	}
+	if doc.Blocks[2].Kind != types.BlockDiagram || doc.Blocks[2].Diagram == nil || doc.Blocks[2].Diagram.Body != "flowchart TD\n  Request --> Result" {
+		t.Fatalf("split diagram half missing from merged patch: %+v", doc.Blocks)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_DropsUniqueNestedItemIDsFromUnchangedBlockList(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}
