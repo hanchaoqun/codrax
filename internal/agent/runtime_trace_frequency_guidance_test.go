@@ -33,8 +33,12 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"`cpu=0 min=418000kHz max=1530000kHz limit_rows=16 witness_line=8048 witness_ts=13762.861720 window=13762.791708..13763.024898 authority=direct_in_window_policy_limit`",
 		"`policy_limit_status=present`",
 		"`target_binding_status=unproven_without_slice_overlap_or_binding_carrier`",
+		"the direct yes/no conclusion is governed by `target_binding_status`, not by policy-ceiling presence",
+		"`policy ceiling present; target binding unproven`",
+		"do not turn that pair into an affirmative `the target was frequency-restricted`",
 		"actual/average/residency frequency below that ceiling does not negate the policy limit",
 		"whether that ceiling bound this target's running slices remains unproven",
+		"neither that lower observed frequency nor the limit row proves that the workload hit the ceiling",
 		"does not by itself identify the lower-frequency cause or prove governance binding",
 		"Normalize every frequency comparison to one unit",
 	} {

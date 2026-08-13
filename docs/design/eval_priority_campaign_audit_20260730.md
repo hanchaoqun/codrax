@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
+
+1. 在 `main@f78d74369` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner 为 `1 PASS / 1 FAIL`，
+   人工为 `0 pass / 1 partial / 1 fail`；工件见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_r456_20260813.md` 与 manual audit。
+2. Trace 侧确认 B739B/B741/B742 均已进入生产：Analyzer 最终铸出 `root_cause/performance_bottleneck`、
+   `causal_attribution` 与 `is_scalar_answer=false,is_count_question=false`；Explorer 运行 7 次 trace_query（含
+   root_cause_rank），系统补采与完整 `Trace 因果投影` 均在。显式用户窗未被探索窗替换；权威状态账为
+   running 157.248ms + runnable 5.604ms + sleep 70.338ms + D 0ms = 233.190ms，top running 桶未再被相加成总量。
+3. 新确认 `B743-FREQUENCYCOMPOUNDVERDICT1/P0`。typed context 已同时给出
+   `policy_limit_status=present` 与
+   `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`，模型正文也先正确解释“策略上限存在
+   不等于目标命中”，却在结论把二者重新合成“目标 CPU 频率确实受到策略上限约束”。这是复合权限结论组合
+   失败，不是证据缺失。根修只强化 typed 软教学：策略存在与目标 binding 是两个独立 verdict；当主语是目标/
+   workload 是否受限时，直接 yes/no 由 `target_binding_status` 决定，发布形为
+   `policy ceiling present; target binding unproven`，不得把 pair 合并成肯定目标已受限。系统不扫描 request/模型
+   原文/答案，不拒绝或改写结论。
+4. 逻辑图 runner 虽 PASS，但人工判 fail。源码与正文已证明 `dispatchStage` 把 `o.busCtx` 作为实参传给
+   `BuildAgentContext`，并由 `applyStageOutput` 合回 Mutable；最终图却只剩四阶段 precedence，BusContext/Mutable
+   被迫断开。新确认 `B744-CALLARGUMENTCARRIERRELATION1/P0`：现有 typed relation 只能把该行表示成
+   `dispatchStage -> BuildAgentContext` 的 call，无法把 call argument/parameter carrier 表示为 data flow；模型若画
+   真实载体边会被硬拒，若服从 validator 就丢失用户明确要求的关系。该案累计 60 explorer iteration、31 次读取、
+   20 次 midloop、2 次 finalizer reject，属于证据词汇缺项引发的系统性重试风暴。下一批须增加语言无关、源码可验
+   的 typed argument/carrier relation，并让探索、完成门、图候选和 validator 同源消费；不得系统造边或用答案词硬门。
+5. 同轮另登记 `B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1/P1`：纯 trace 第一份 Analyzer 输出因 cpufreq/
+   cpu_frequency 等工件事件名“不解析为 repo symbol”，被 repository subtopic coherence 拒绝并重跑。运行时工件
+   实体不应以仓库符号可解析性作硬门；需用 typed artifact-only scope 绕开该 repo-only 对称性合同，保留真正源代码
+   子题的既有防幻觉门。
+6. 当前批不改投影编译、补采、排序、主因选举、图内容或模型答案。Trace 主因仍限 typed 链上席；邻近/背景只作
+   支撑与额外排查方向；优先级反转、调度/算力供给、D/IO、确定性语义工作与业务线索继续保留。活跃流在 4ms
+   没有答案不得降级，恢复/结束权仍仅来自明确 cancel/deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B739B-CAUSALTEACHINGPRECEDENCE1=production-closed-r456`；
+`B741-MIXEDDIMENSIONSCALARITY1=production-closed-r456`；
+`B742-TOPSTATEBUCKETAUTHORITY1=production-closed-r456`；
+`B743-FREQUENCYCOMPOUNDVERDICT1=implemented/typed-soft-guidance-pins-pass/pending-production-replay`；
+`B744-CALLARGUMENTCARRIERRELATION1=confirmed/P0/next-batch`；
+`B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=confirmed/P1/queued-after-B744`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r456`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
 
 1. 在 `main@4c93c33a6` 严格并发恰好两个案例：
