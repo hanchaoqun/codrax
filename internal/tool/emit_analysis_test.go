@@ -1932,6 +1932,63 @@ func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_RequiredDiagramDimensionProvidesPreciseVisualAuthority(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	const objective = "请枚举 LoopController 的生产实现并给出 Mermaid 类图。"
+	mu := types.NewMutableState(objective)
+	payload := withV4Required(`{
+		"intent":"enumerate",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["LoopController","implementations","class diagram"],
+		"entities":["LoopController"],
+		"question_kind":"type_relation",
+		"predicate_axis":"implement",
+		"diagram_hint":{"kind":"call_dag","required":true,"relation_scope_quote":"LoopController 的生产实现并给出 Mermaid 类图","participants":[
+			{"identity":"LoopController","source_quote":"LoopController","role":"incident_required"}
+		]},
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.97,
+			"dimensions":[
+				{"label":"Mermaid 类图","role":"diagram","source_quote":"Mermaid 类图","required":true,"index":1}
+			]
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed required diagram dimension should authorize the visual: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		t.Fatalf("required diagram authority was lost: %+v", rm)
+	}
+	if rm.DiagramHint.Kind != types.DiagramArchitecture {
+		t.Fatalf("implement axis must use architecture semantics, got %+v", rm.DiagramHint)
+	}
+	if !strings.Contains(res.Summary, "normalized diagram_hint.kind from call_dag to architecture") {
+		t.Fatalf("kind reconciliation should remain auditable: %s", res.Summary)
+	}
+}
+
+func TestRequiredDiagramRequestedDimension_DoesNotAuthorizeOtherOrOptionalRoles(t *testing.T) {
+	for _, profile := range []*types.RequestedAnswerDimensionProfile{
+		nil,
+		{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{{Role: types.RequestedAnswerDimensionDiagram, Required: false}}},
+		{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{{Role: types.RequestedAnswerDimensionOther, Required: true}}},
+	} {
+		if requiredDiagramRequestedDimension(profile) {
+			t.Fatalf("profile must not authorize a hard visual: %+v", profile)
+		}
+	}
+}
+
 // §29.166 OBLSWEEP-1: the dropped-dimension obligation-signal mint is
 // precise-anchor gated at the producer. Arm 1 pins the demotion (prose
 // paraphrase quotes mint nothing and no longer force the source lane on a

@@ -770,7 +770,8 @@ Examples (illustrative, NOT exhaustive — judge by structure):
 
   Current: "换成 mermaid 图例" + last_answer_present=true
     → route=local, operation=transform, source=last_answer,
-      presentation_directive="mermaid 图例", confidence≈0.9
+	  presentation_directive="mermaid 图例", requires_diagram=true,
+	  confidence≈0.9
 
   Current: "把上面的结论换成表格" + last_answer_present=true
     → route=local, operation=transform, source=last_answer,
@@ -847,7 +848,8 @@ Examples (illustrative, NOT exhaustive — judge by structure):
   Current: "把上面的流程换成 mermaid，同时重新读仓库确认有没
             有 IO 分析" + last_answer_present=true
     → route=hybrid, operation=investigate, source=mixed,
-      presentation_directive="mermaid 流程图", needs_repo_access=true,
+	  presentation_directive="mermaid 流程图", requires_diagram=true,
+	  needs_repo_access=true,
       confidence≈0.85
 
   Current: "你好" (any state)

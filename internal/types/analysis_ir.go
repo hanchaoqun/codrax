@@ -236,9 +236,11 @@ type RequestModel struct {
 	// RequestedAnswerDimensions is the analyzer LLM's soft typed lane for
 	// visible answer dimensions explicitly requested by the current user
 	// question, for example "diff 线索", "当前关键代码", "作用", and "影响".
-	// It guides final-answer presentation only. It is never a hard evidence
-	// origin and never authorizes deterministic replacement of model-authored
-	// content.
+	// It guides final-answer presentation only. A provenance-validated,
+	// required role=diagram dimension may independently confirm that a visual
+	// is required, but it never becomes a hard evidence origin and never
+	// authorizes relations, facts, conclusions, or deterministic replacement of
+	// model-authored content.
 	RequestedAnswerDimensions *RequestedAnswerDimensionProfile `json:"requested_answer_dimensions,omitempty"`
 
 	// CurrentSourceObligationSignals records source-lane obligations that were

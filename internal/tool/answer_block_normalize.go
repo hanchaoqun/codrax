@@ -66,6 +66,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			raw.Text = raw.Caveat
 		}
 	}
+	// A directed classDiagram relation already carries one unambiguous UML
+	// endpoint direction. Some models serialize the sibling type_relation
+	// anchor in visual token order (Base <|.. Impl => Base, Impl) instead of
+	// semantic direction (Impl -> Base). Align only that sibling metadata with
+	// the exact model-authored UML edge before the syntax shim converts the
+	// body. This neither invents an edge nor consults prose/evidence: ambiguous
+	// pairs, non-type relations, and one-sided identity selectors fail open.
+	if raw.Diagram != nil {
+		raw.EdgeAnchors = normalizeClassDiagramTypeRelationAnchorDirections(raw.Diagram.Body, raw.EdgeAnchors)
+	}
 	blk := types.AnswerBlock{
 		ID:    raw.ID,
 		Kind:  kind,
@@ -195,6 +205,66 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+func normalizeClassDiagramTypeRelationAnchorDirections(body string, anchors []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {
+	classBody := stripOuterDiagramFence(body)
+	firstKeyword := ""
+	for _, line := range strings.Split(classBody, "\n") {
+		if strings.TrimSpace(line) != "" {
+			firstKeyword = mermaidcompat.FirstKeywordIn(line)
+			break
+		}
+	}
+	if !strings.EqualFold(firstKeyword, "classDiagram") || len(anchors) == 0 {
+		return anchors
+	}
+	type directedPair struct{ from, to string }
+	edgesByPair := make(map[string][]directedPair)
+	for _, edge := range mermaidcompat.ParseEdges(classBody) {
+		from := strings.TrimSpace(edge.From)
+		to := strings.TrimSpace(edge.To)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		edgesByPair[unorderedExactEndpointPairKey(from, to)] = append(
+			edgesByPair[unorderedExactEndpointPairKey(from, to)],
+			directedPair{from: from, to: to},
+		)
+	}
+	out := append([]types.DiagramEdgeAnchor(nil), anchors...)
+	for i := range out {
+		anchor := &out[i]
+		if anchor.RelationKind != types.DiagramRelTypeRelation {
+			continue
+		}
+		from := strings.TrimSpace(anchor.FromNode)
+		to := strings.TrimSpace(anchor.ToNode)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		fromIdentity := strings.TrimSpace(anchor.FromIdentity)
+		toIdentity := strings.TrimSpace(anchor.ToIdentity)
+		if (fromIdentity == "") != (toIdentity == "") {
+			continue
+		}
+		matches := edgesByPair[unorderedExactEndpointPairKey(from, to)]
+		if len(matches) != 1 || from != matches[0].to || to != matches[0].from {
+			continue
+		}
+		anchor.FromNode, anchor.ToNode = anchor.ToNode, anchor.FromNode
+		if fromIdentity != "" {
+			anchor.FromIdentity, anchor.ToIdentity = anchor.ToIdentity, anchor.FromIdentity
+		}
+	}
+	return out
+}
+
+func unorderedExactEndpointPairKey(a, b string) string {
+	if a > b {
+		a, b = b, a
+	}
+	return a + "\x00" + b
 }
 
 // validateEmitAnswerStructuredTableRows keeps the JSON teaching and the

@@ -1559,10 +1559,31 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	requestedAnswerDimensions, currentSourceObligationSignals, requestedAnswerDimensionsErr, requestedAnswerDimensionsWarnings := parseRequestedAnswerDimensions(raw, p.RequestedAnswerDimensions)
+	if requestedAnswerDimensionsErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + requestedAnswerDimensionsErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range requestedAnswerDimensionsWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	hardDiagramAuthorized := ctx != nil && ctx.PresentationDiagramRequired
+	if requiredDiagramRequestedDimension(requestedAnswerDimensions) {
+		// This is a second precise, current-turn presentation carrier: the
+		// schema-valid diagram role survived verbatim request provenance and is
+		// explicitly required. It can authorize only the presence of a visual;
+		// it cannot mint facts, endpoints, relations, or answer conclusions.
+		hardDiagramAuthorized = true
+	}
 	diagramHint, diagramHintErr, diagramHintWarnings := parseDiagramHint(
 		raw,
 		p.DiagramHint,
-		ctx != nil && ctx.PresentationDiagramRequired,
+		hardDiagramAuthorized,
 	)
 	if diagramHintErr != "" {
 		return types.ToolResult{
@@ -1574,6 +1595,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	if len(diagramHintWarnings) > 0 {
 		val.Warnings = append(val.Warnings, diagramHintWarnings...)
+	}
+	if reconciled, warning := reconcileDiagramHintKindWithPredicateAxis(diagramHint, axis); warning != "" {
+		diagramHint = reconciled
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -1655,19 +1681,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	for _, warning := range errorGranularityWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
-	requestedAnswerDimensions, currentSourceObligationSignals, requestedAnswerDimensionsErr, requestedAnswerDimensionsWarnings := parseRequestedAnswerDimensions(raw, p.RequestedAnswerDimensions)
-	if requestedAnswerDimensionsErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + requestedAnswerDimensionsErr,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	for _, warning := range requestedAnswerDimensionsWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -4957,6 +4970,27 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 	})
 	signals := types.CurrentSourceObligationSignalsFromRequestedDimensions(dimensions, profile)
 	return profile, signals, "", warnings
+}
+
+func requiredDiagramRequestedDimension(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionDiagram {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileDiagramHintKindWithPredicateAxis(hint *types.DiagramHint, axis types.PredicateAxis) (*types.DiagramHint, string) {
+	if hint == nil || axis != types.AxisImplement || hint.Kind != types.DiagramCallDAG {
+		return hint, ""
+	}
+	copyHint := *hint
+	copyHint.Kind = types.DiagramArchitecture
+	return &copyHint, "normalized diagram_hint.kind from call_dag to architecture because typed predicate_axis=implement describes a static type relationship, not a runtime call edge"
 }
 
 func parseCurrentSourceExplanationProfile(raw string, p *emitCurrentSourceExplanationParam) (*types.CurrentSourceExplanationProfile, string, []string) {

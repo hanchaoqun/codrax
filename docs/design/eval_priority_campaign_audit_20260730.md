@@ -35692,6 +35692,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.731 r417：UML 关系方向与“必须有图”双 typed 载体闭环（2026-08-12）
+
+1. 在 `main@f22740fee` 严格并发恰好两个案例：
+   `real_trace_h8_semantic_edge_anchor_sentinel + qf_type_relation_loop_controller`。Runner
+   `1 PASS / 1 FAIL`，人工 `1 PASS / 1 FAIL`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r417_20260812_manual_audit.md`。
+2. Trace 再次是生产正对照：显式 34579.490..34579.500 窗、链上 priority inversion、
+   VerifyClass、调度/算力供给、业务线程线索及实际占用/规则计价可消除量双轴均在；邻近/背景
+   未晋升主因，missing wakeup 与 frame absent 边界诚实，无 4ms 活跃流降级。
+3. 类图首稿不是“模型不会画关系”：模型已正确列出 12 个 production implementer、文件和
+   `classDiagram` realization 边。B698 根因是 UML `Base <|.. Impl` 的语义方向为
+   `Impl→Base`，sibling `edge_anchors` 却按字面左右顺序写成 `Base→Impl`；syntax shim 后正文
+   与 metadata 反向，validator 先拒绝再教学删除 optional 图。structured seam 现只在
+   `classDiagram + type_relation + 唯一精确无序端点对` 对齐已存在的 anchor；不增边、不读
+   prose/evidence、不碰 call/flow/sequence，重复边、单边 identity 和大小写猜测均 fail-open。
+4. B699 把通过当前请求来源锚定后仍存活的
+   `requested_answer_dimensions(role=diagram,required=true)` 作为第二个 typed 视觉授权载体。
+   它只证明“答案必须包含图”，不能铸造事实、参与者、关系或结论；router boolean 仍是首席
+   信号。这样 single-shot classifier 的一次 false 不再覆盖 analyzer 的独立精确声明，也没有
+   raw-request/final-prose 关键词硬门。
+5. B700 消除 typed 展示自冲突：仅当 `predicate_axis=implement` 且 analyzer 错给 `call_dag`
+   时归一为 `architecture`；显式 sequence/flow 不改。Turn-policy 两个 Mermaid 示例补齐
+   `requires_diagram=true`，使 JSON schema、说明和样例一致，降低模型心智。
+6. 精确单测覆盖：反向/正向 type relation、call 不动、重复 pair fail-open、单边 identity
+   fail-open、大小写不猜；typed diagram role 的 required/optional/other 三臂；implement visual
+   family reconciliation。`internal/tool/repl/mermaidcompat/types/cmd` 相关套件全绿。
+7. 4ms 语义维持红线：不是“4ms 未形成完整答案就降级”。活跃 byte-producing stream 可跨越
+   任意多个 4ms；只有 cancel/deadline、no-first-byte、真实 byte-stall、transport/decode terminal
+   有终止/有界恢复权。系统不使用证据合成替换模型答案。
+
+状态：
+
+`B698-CLASSUMLANCHORDIRECTION1=implemented/exact-unique-typed-self-heal+pinned/pending-production-replay`；
+`B699-DIAGRAMAUTHORITYDUALCARRIER1=implemented/provenance-typed-visual-only+pinned/pending-production-replay`；
+`B700-IMPLEMENTVISUALFAMILY1=implemented/typed-axis-reconcile+teaching-aligned/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/exact-pins-retained`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r417`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.729 r415：ArkTS 正证；typed inventory 行重复与请求字段丢失根修（2026-08-12）
 
 1. 在 `main@a45e8b53c` 严格并发恰好两个 Harmony 多语言清单案例：

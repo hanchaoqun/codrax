@@ -609,6 +609,79 @@ func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSem
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_AlignsReverseTypeRelationAnchorWithClassDiagramSemantics(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "types",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramArchitecture),
+			Body: "classDiagram\n  LoopController <|.. analyzerEvaluator",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "LoopController", FromIdentity: "pkg.LoopController",
+			ToNode: "analyzerEvaluator", ToIdentity: "pkg.analyzerEvaluator",
+			RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(got.EdgeAnchors) != 1 {
+		t.Fatalf("edge anchors = %+v", got.EdgeAnchors)
+	}
+	anchor := got.EdgeAnchors[0]
+	if anchor.FromNode != "analyzerEvaluator" || anchor.ToNode != "LoopController" ||
+		anchor.FromIdentity != "pkg.analyzerEvaluator" || anchor.ToIdentity != "pkg.LoopController" {
+		t.Fatalf("anchor direction not aligned with UML semantics: %+v", anchor)
+	}
+	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, `analyzerEvaluator -->|"implements"| LoopController`) {
+		t.Fatalf("converted body and anchor must share direction: %+v", got.Diagram)
+	}
+}
+
+func TestNormalizeClassDiagramTypeRelationAnchorDirections_FailsOpenOutsideExactUniquePair(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		anchor   types.DiagramEdgeAnchor
+		wantFrom string
+	}{
+		{
+			name: "already semantic", body: "classDiagram\n  Base <|.. Impl",
+			anchor:   types.DiagramEdgeAnchor{FromNode: "Impl", ToNode: "Base", RelationKind: types.DiagramRelTypeRelation},
+			wantFrom: "Impl",
+		},
+		{
+			name: "call relation", body: "classDiagram\n  Base <|.. Impl",
+			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", RelationKind: types.DiagramRelCall},
+			wantFrom: "Base",
+		},
+		{
+			name: "ambiguous duplicate", body: "classDiagram\n  Base <|.. Impl\n  Impl ..|> Base",
+			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", RelationKind: types.DiagramRelTypeRelation},
+			wantFrom: "Base",
+		},
+		{
+			name: "one sided identity", body: "classDiagram\n  Base <|.. Impl",
+			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", FromIdentity: "pkg.Base", RelationKind: types.DiagramRelTypeRelation},
+			wantFrom: "Base",
+		},
+		{
+			name: "case is not guessed", body: "classDiagram\n  Base <|.. Impl",
+			anchor:   types.DiagramEdgeAnchor{FromNode: "base", ToNode: "Impl", RelationKind: types.DiagramRelTypeRelation},
+			wantFrom: "base",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeClassDiagramTypeRelationAnchorDirections(tc.body, []types.DiagramEdgeAnchor{tc.anchor})
+			if len(got) != 1 || got[0].FromNode != tc.wantFrom {
+				t.Fatalf("got %+v, want from=%q", got, tc.wantFrom)
+			}
+		})
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_NormalizesSequenceParticipantMessagePrefix(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "b1",
