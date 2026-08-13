@@ -75,6 +75,8 @@ var projectionTypedSignalFields = []string{
 	"SourceInventoryFollowupDebt",
 	"RuntimeArtifactPreflight",
 	"TurnRouteHint",
+	"PresentationDirective",
+	"PresentationDiagramRequired",
 }
 
 // ProjectionTypedSignalFields returns a copy of the typed-signal
@@ -154,6 +156,8 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		SourceInventoryFollowupDebt:   ctx.SourceInventoryFollowupDebt,
 		RuntimeArtifactPreflight:      ctx.RuntimeArtifactPreflight,
 		TurnRouteHint:                 ctx.TurnRouteHint,
+		PresentationDirective:         ctx.PresentationDirective,
+		PresentationDiagramRequired:   ctx.PresentationDiagramRequired,
 	}
 	return bc
 }
@@ -231,6 +235,8 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		SourceInventoryFollowupDebt:   bus.SourceInventoryFollowupDebt,
 		RuntimeArtifactPreflight:      bus.RuntimeArtifactPreflight,
 		TurnRouteHint:                 bus.TurnRouteHint,
+		PresentationDirective:         bus.PresentationDirective,
+		PresentationDiagramRequired:   bus.PresentationDiagramRequired,
 	}
 	return ac
 }

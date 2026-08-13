@@ -35774,6 +35774,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.745 r428：必需图权威在工具投影中丢失；Trace 多窗账被模型误加（2026-08-13）
+
+1. 在 `main@f46ec8952` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 FAIL`，人工
+   `2 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r428_20260813_manual_audit.md`。
+   两案均完成真实成文，耗时 248s/229s；链接持续活跃且 4ms 内没有完整答案时没有降级。
+2. 新确认 B715（P0）：逻辑案例的 route classifier 已铸出
+   `PresentationDiagramRequired=true`，`BuildAgentContext` 也把它带入 Analyzer；但
+   `ToolBusContext` 的 AgentContext→BusContext 白名单没有复制
+   `PresentationDirective/PresentationDiagramRequired`，canonical typed-field 清册也漏了这两项。
+   `emit_analysis` 因而把模型正确提交的 required diagram 归一为 optional。第一稿未证关系边被
+   validator 正确拒绝后，repair prompt 又错误地教“图为 OPTIONAL、可以删除”，模型删图，系统接受
+   无图答案。该链是确定性投影断层，不是模型波动，也不能通过放宽关系证据门解决。
+3. B715 根修仅补 typed authority 投影：两字段加入唯一投影清册，并在 ToolBusContext 与
+   SubAgentContext 两个方向复制；全字段反射 pin 和生产 `BaseAgent.executeTool` 形 pin 同时验证。
+   不读取用户/模型原文，不把图要求当作关系已证，不补画、不代写。B713 的图 facet 分层实现仍有效，
+   但 r428 因 B715 在更上游丢权而没有获得生产正证，需在修复提交后原对回放。
+4. 新确认 B716（P0/context）：Trace 的系统投影本身正确保留显式 233.190ms 用户窗，选出链上
+   #1=`39.734ms` 供给折算席，并保留 D/IO、优先级反转、确定性 JIT、业务 span 与实际占用/规则
+   可消除双轴；邻近/背景也在系统板中明确不参与根因排序。模型正文却把三个嵌套且重叠的探索窗
+   `39.734+24.159+65.912` 相加成 `129.805ms`，又把两个 `adjacent` runnable 行相加成
+   `69.113ms` 并列入根因，还把 blocked_reason caller 扩写成已证等待对象。这里暴露的是最终成文
+   上下文没有把“唯一请求窗主账、跨窗不可相加、邻近不可加冕、caller 非资源身份”放在模型决策前的
+   高显著 typed 边界；成文后系统投影虽正确，也不能修复已经写错的模型结论。
+5. h7 runner 的固定 `65.912/49.623` oracle 同时已经落后于当前显式窗投影（现主席
+   `39.734ms`、邻近二分 `38.345ms`）。这解释 Runner FAIL 的字面部分，但只改 regex 会掩盖 B716，
+   不能作为产品修复。最优方案应在 Finalizer 输入中选定一个 canonical requested-window authority，
+   其他探索窗保留为带 `cross_window_additivity=forbidden` 的支持证据；链上/邻近/背景与 caller
+   caliber 使用现有 typed 字段前置并置。不得扫描成文关键词、不得系统改写模型结论、不得删除探索
+   证据；先设计并加上下文快照 pin，再做异构 Trace 回放。
+6. 本批 B715 不触及 Read/Trace 计算。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因，
+   以及实际占用/业务新修向和规则计价可消除量双轴保持。B716 是下一批独立上下文工程，不能与
+   diagram authority 混为一次大改。
+
+状态：
+
+`B715-PRESENTATIONAUTHORITYTOOLPROJECTION1=implemented/pins-pass/pending-r429`；
+`B713-REQUIREDDIAGRAMFACETSOFTENSTALE1=implemented/upstream-production-proof-blocked-by-B715`；
+`B716-TRACECANONICALWINDOWCONTEXT1=confirmed/P0/design-next-batch`；
+`h7-fixed-value-oracle=stale/do-not-blindly-retune`；
+`active-stream-4ms-degrade=forbidden/229s+248s-production-positive`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.744 B713：必需图载体权威与事实证据丰富度解耦（2026-08-13）
 
 1. r427 的逻辑图最终已经存在且经过 required-diagram/关系边界 validator，但页面仍显示

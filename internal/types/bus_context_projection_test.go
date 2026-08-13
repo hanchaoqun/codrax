@@ -219,6 +219,10 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
 	case "TurnRouteHint":
 		ac.TurnRouteHint = turnRouteHintProjectionSentinel()
+	case "PresentationDirective":
+		ac.PresentationDirective = "typed current-turn diagram request"
+	case "PresentationDiagramRequired":
+		ac.PresentationDiagramRequired = true
 	default:
 		return false
 	}
@@ -275,6 +279,10 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
 	case "TurnRouteHint":
 		bc.TurnRouteHint = turnRouteHintProjectionSentinel()
+	case "PresentationDirective":
+		bc.PresentationDirective = "typed current-turn diagram request"
+	case "PresentationDiagramRequired":
+		bc.PresentationDiagramRequired = true
 	default:
 		return false
 	}

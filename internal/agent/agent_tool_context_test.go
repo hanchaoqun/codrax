@@ -99,15 +99,17 @@ func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 
 	base := NewBaseAgent(types.AgentLogTriager, &Dependencies{Tools: reg}, nil)
 	ctx := &types.AgentContext{
-		AgentName:       types.AgentLogTriager,
-		Stage:           types.StageLogTriage,
-		RepoRoot:        t.TempDir(),
-		WorkDir:         t.TempDir(),
-		Branch:          "main",
-		Commit:          "deadbeef",
-		AttachedLog:     "panic: boom",
-		AttachedHitrace: "trace: frame",
-		Mutable:         types.NewMutableState("test"),
+		AgentName:                   types.AgentLogTriager,
+		Stage:                       types.StageLogTriage,
+		RepoRoot:                    t.TempDir(),
+		WorkDir:                     t.TempDir(),
+		Branch:                      "main",
+		Commit:                      "deadbeef",
+		AttachedLog:                 "panic: boom",
+		AttachedHitrace:             "trace: frame",
+		PresentationDirective:       "Mermaid flow diagram",
+		PresentationDiagramRequired: true,
+		Mutable:                     types.NewMutableState("test"),
 	}
 
 	res, _ := base.executeTool(ctx, llm.ToolCall{Name: capture.Name(), Params: json.RawMessage(`{}`)})
@@ -128,6 +130,9 @@ func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	}
 	if capture.got.AttachedHitrace != ctx.AttachedHitrace {
 		t.Fatalf("AttachedHitrace = %q, want %q", capture.got.AttachedHitrace, ctx.AttachedHitrace)
+	}
+	if capture.got.PresentationDirective != ctx.PresentationDirective || !capture.got.PresentationDiagramRequired {
+		t.Fatalf("typed presentation authority lost at tool dispatch: got directive=%q required=%t", capture.got.PresentationDirective, capture.got.PresentationDiagramRequired)
 	}
 }
 
