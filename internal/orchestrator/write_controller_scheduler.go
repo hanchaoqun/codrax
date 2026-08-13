@@ -8594,6 +8594,17 @@ func repairFollowupProgressMessage(purpose string) string {
 // StagePlan can author verification_probes[], but its pure proof purpose keeps
 // the existing no-production-edit-without-failure-handoff guard in force.
 func verificationProofProbePlanningFollowupDecision(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) (*writeflow.WriteBatchPlan, bool) {
+	return verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(run, plan, report, func(language string) bool {
+		return tool.VerificationProbeRuntimeAvailable(language, plan.WorktreePath)
+	})
+}
+
+func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+	run *types.WriteWorkflowRun,
+	plan *types.ChangePlan,
+	report *types.ChangeReport,
+	runtimeAvailable func(string) bool,
+) (*writeflow.WriteBatchPlan, bool) {
 	if run == nil || plan == nil || report == nil ||
 		workflowProgressReasonCount(run, "", "verification_proof_probe_plan_requested") > 0 ||
 		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
@@ -8615,6 +8626,18 @@ func verificationProofProbePlanningFollowupDecision(run *types.WriteWorkflowRun,
 		}
 	}
 	if latestReason != "verification_proof_incomplete" {
+		return nil, false
+	}
+	// A controller-owned proof requirement is authority to seek stronger
+	// evidence, not proof that this host can execute it. The earlier
+	// source-static queue checks runtime presence before entering the direct
+	// authoring lane; cumulative behavior-contract review reaches this bridge
+	// through a verify-only batch, so it needs the same exact path-family /
+	// runtime-presence check here. Otherwise a TypeScript target on a host
+	// without Node is deterministically routed into an impossible mandatory
+	// probe plan. ExpectedPaths is typed controller state; no task, source,
+	// command, rationale, or answer text participates in this gate.
+	if !proofPlanningTargetsHaveAvailableRuntime(active.ExpectedPaths, runtimeAvailable) {
 		return nil, false
 	}
 
@@ -8657,6 +8680,22 @@ func verificationProofProbePlanningFollowupDecision(run *types.WriteWorkflowRun,
 		SuccessCriteria:      criteria,
 		DependsOn:            []string{active.ID},
 	}, true
+}
+
+func proofPlanningTargetsHaveAvailableRuntime(paths []string, runtimeAvailable func(string) bool) bool {
+	seen := false
+	for _, raw := range paths {
+		path := normalizeControllerPath(raw)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		language := controllerDirectInlineProbeLanguage(path)
+		if language == "" || runtimeAvailable == nil || !runtimeAvailable(language) {
+			return false
+		}
+		seen = true
+	}
+	return seen
 }
 
 func repairFollowupActionReasonCode(purpose string, explore bool) string {

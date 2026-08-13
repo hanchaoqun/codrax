@@ -35649,6 +35649,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.764 r445 与 B732-2：累计补证第二入口漏检运行时；跨语言图自愈再次正证（2026-08-13）
+
+1. 在 `main@7129a457c` 严格并发恰好两个案例：`mr_poly_binding_chain +
+   github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`；人工为
+   `1 pass / 1 honest-unverified`，逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_runtime_gate_replay_r445_20260813_manual_audit.md`。
+2. 跨语言读模式再次生产正证。模型首稿把分支 self-edge、Python native 边和 binding carrier 误画为
+   call，validator 精确拒绝；第二稿采用 typed skeleton，终稿保留 `FastTokenizer.tokenize →
+   _fastlex.tokenize_bytes`、`FastTokenizer.tokenize → _tokenize_slow`、Rust wrapper→core 三条有证据的
+   关系边，Mermaid 合法可渲染。正文同时保留 PyO3 注册边界与回退业务语义。系统没有强制保图、代画
+   或重写模型结论。
+3. r445 否证了 B732 的“已完整修复”范围。第一入口的 source-static queue 已正确检查 Node，但累计
+   行为合同缺证会先进入合法 `verify_only`；其完成后，独立
+   `verificationProofProbePlanningFollowupDecision` bridge 仅检查 controller-stamped
+   `verification_probe_required=true`，未检查目标路径对应运行时。宿主无 Node，系统仍铸出 4 个
+   JavaScript probe 的 `changes=[]` 计划，再跑一次同样的 source-static 套件；235s 后仍只能诚实
+   `verification_proof_incomplete`。这不是模型波动，也不能靠降低验证杆解决。
+4. B732-2 根修把同一 exact runtime authority 接到第二 bridge：从 controller-owned
+   `ExpectedPaths` 排除 test/fixture/doc 等辅助路径，逐一映射受支持语言族，并要求当前宿主存在对应
+   runtime；任何生产目标无法映射、runtime 缺失或目标集只有辅助路径，都不创建 mandatory probe
+   plan，直接保留 `accept_unverified`。全部生产目标可执行时，原有 bounded probe opportunity 保持。
+5. 新 pin 覆盖 Node present→仍创建 probe plan、Node absent→不记
+   `verification_proof_probe_plan_requested` 且诚实结束、辅助路径不阻塞、混入 Rust 等 unsupported
+   production target→fail-closed。`go test ./internal/orchestrator ./internal/tool
+   ./internal/writeflow ./eval/...` 全绿（tool 164.956s）。
+6. 判据只消费 typed path、源码角色、语言族、计划 worktree 与宿主可执行文件；不扫描 request、源码、
+   命令、thinking 或 final prose，不生成答案和图。Read/Trace 零改动：显式时间窗、Trace 因果投影、
+   自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持；邻近/背景仍只能作支撑。
+   活跃字节流也不得因 4ms 或其他固定累计年龄降级。
+
+状态：
+
+`B732-PROBERUNTIMEOPPORTUNITY1=superseded-by-B732-2/first-entry-only`；
+`B732-2-CUMULATIVEPROBERUNTIMEOPPORTUNITY1=implemented/both-bridges+typed-path-runtime-pins/pending-production-replay`；
+`cross-language typed diagram skeleton=production-positive-r445`；
+`Zod production patch=correct/honest-unverified/no-static-laundering`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.763 r444 与 B732：图骨架生产正证；不存在的探针运行时造成不可满足补证合同（2026-08-13）
 
 1. 在 `main@6ed0a75af` 严格并发恰好两个复放案例：`mr_poly_binding_chain +

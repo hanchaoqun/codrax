@@ -7399,11 +7399,17 @@ func TestPromoteActiveProofProbeOnlyBatchToVerifyOnly(t *testing.T) {
 }
 
 func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsProbePlanningBatch(t *testing.T) {
+	binDir := t.TempDir()
+	nodePath := filepath.Join(binDir, "node")
+	if err := os.WriteFile(nodePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
 	mu := types.NewMutableState("required proof remains uncovered after cumulative verify")
 	plan := &types.ChangePlan{
-		ID:          "plan-rust-proof-gap",
+		ID:          "plan-ts-proof-gap",
 		Status:      types.PlanStatusUnverified,
-		TargetPaths: []string{"src/duration.rs"},
+		TargetPaths: []string{"src/duration.ts"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "negative-boundary-remains-valid",
 			Kind:     types.WriteBehaviorObservable,
@@ -7418,7 +7424,7 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 			Severity:       types.PatchReviewSeverityWarning,
 			Category:       types.PatchReviewCategorySemanticCoverage,
 			ImpactKind:     types.PatchReviewImpactKindBehaviorContract,
-			Path:           "src/duration.rs",
+			Path:           "src/duration.ts",
 			CoverageStatus: types.PatchReviewCoverageUnverified,
 			EvidenceRef:    "negative-boundary-remains-valid",
 		}}},
@@ -7434,7 +7440,7 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 			Passed:      true,
 		}},
 		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
-			Path:       "src/duration.rs",
+			Path:       "src/duration.ts",
 			Status:     types.ChangedPathVerificationCovered,
 			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
 			Capability: types.VerificationCapabilitySourceStatic,
@@ -7452,9 +7458,9 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 			Purpose:       "verification_proof_followup",
 			ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
 			Status:        types.WriteWorkflowBatchComplete,
-			ExpectedPaths: []string{"src/duration.rs"},
+			ExpectedPaths: []string{"src/duration.ts"},
 			SuccessCriteria: []string{
-				"impact_obligation=required-negative-boundary kind=behavior_contract code=behavior_contract_without_verify_coverage path=src/duration.rs contract_ref=negative-boundary-remains-valid verification_probe_required=true source=verification_proof_ledger",
+				"impact_obligation=required-negative-boundary kind=behavior_contract code=behavior_contract_without_verify_coverage path=src/duration.ts contract_ref=negative-boundary-remains-valid verification_probe_required=true source=verification_proof_ledger",
 				"impact_obligation=unrelated-dependent kind=dependent code=dependent_surface_without_verify_coverage path=src/other.rs",
 			},
 			Attempts: []types.WriteWorkflowAttempt{{
@@ -7505,6 +7511,80 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 	}
 	if next.ActiveBatchID != got.Batch.ID || next.Batches[len(next.Batches)-1].Status != types.WriteWorkflowBatchReadyToPlan {
 		t.Fatalf("probe-planning batch did not become active/ready: %+v", next)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofMissingRuntimeFinishesUnverified(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	mu := types.NewMutableState("required TypeScript proof has no Node runtime")
+	plan := &types.ChangePlan{
+		ID: "plan-ts-proof-no-runtime", Status: types.PlanStatusUnverified,
+		TargetPaths: []string{"src/duration.ts"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "negative-boundary-remains-valid", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "a supported negative boundary remains accepted", Required: true, Source: "write_analyzer",
+		}},
+		PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
+			Code: "behavior_contract_without_verify_coverage", Severity: types.PatchReviewSeverityWarning,
+			Category: types.PatchReviewCategorySemanticCoverage, ImpactKind: types.PatchReviewImpactKindBehaviorContract,
+			Path: "src/duration.ts", CoverageStatus: types.PatchReviewCoverageUnverified,
+			EvidenceRef: "negative-boundary-remains-valid",
+		}}},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "source-static-check", Passed: true}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/duration.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-ts-proof-no-runtime", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1-cumulative-review", Purpose: "verification_proof_followup",
+			ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+			Status:        types.WriteWorkflowBatchComplete, ExpectedPaths: []string{"src/duration.ts"},
+			SuccessCriteria: []string{
+				"impact_obligation=required-negative-boundary kind=behavior_contract code=behavior_contract_without_verify_coverage path=src/duration.ts contract_ref=negative-boundary-remains-valid verification_probe_required=true source=verification_proof_ledger",
+			},
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "verify", Status: "unverified", ReasonCode: "verification_proof_incomplete", PlanID: plan.ID,
+			}},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch, ReasonCode: "model_requested_repair",
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("missing exact runtime must finish honestly instead of authoring an impossible probe: %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_probe_plan_requested") {
+		t.Fatalf("missing runtime unexpectedly authorized probe planning: %+v", run.ProgressLedger)
+	}
+}
+
+func TestProofPlanningTargetsHaveAvailableRuntimeRequiresEveryProductionTarget(t *testing.T) {
+	available := func(language string) bool { return language == "javascript" }
+	if !proofPlanningTargetsHaveAvailableRuntime([]string{"src/a.ts", "tests/a.test.ts"}, available) {
+		t.Fatal("one executable production target plus an auxiliary test should be eligible")
+	}
+	if proofPlanningTargetsHaveAvailableRuntime([]string{"src/a.ts", "src/a.rs"}, available) {
+		t.Fatal("an unsupported production target must keep the proof plan fail-closed")
+	}
+	if proofPlanningTargetsHaveAvailableRuntime([]string{"tests/a.test.ts"}, available) {
+		t.Fatal("an auxiliary-only target set must not authorize a production proof plan")
 	}
 }
 
