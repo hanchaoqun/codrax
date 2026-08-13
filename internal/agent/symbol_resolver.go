@@ -112,6 +112,7 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 		hits = append(hits, normalizer.SymbolHit{
 			Canonical: sym.Name,
 			Domain:    symbolDomain(r.graph, sym),
+			Source:    sym.File,
 		})
 		if len(hits) >= maxSymbolResolverHits {
 			break
@@ -1136,6 +1137,12 @@ func (r *multiRepoSymbolResolver) adaptHits(hits []multigraph.SymbolHit) []norma
 		out = append(out, normalizer.SymbolHit{
 			Canonical: h.Symbol.Name,
 			Domain:    domain,
+			Source: func() string {
+				if h.Sub != nil {
+					return multigraph.SubRepoRelPath(h.Sub, h.Symbol.File)
+				}
+				return h.Symbol.File
+			}(),
 		})
 		if len(out) >= maxSymbolResolverHits {
 			break

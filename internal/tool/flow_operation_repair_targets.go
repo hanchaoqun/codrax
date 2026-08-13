@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -45,6 +46,8 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	}
 
 	keywords := append([]string(nil), surfaces...)
+	declaredFiles, declaredAliases := flowRepairDeclaredBindingTargets(ctx, rm, surfaces)
+	keywords = appendUniqueBounded(keywords, declaredAliases, maxFlowOperationRepairKeywords)
 	// A request identity may name a field or conceptual carrier (`Mutable`)
 	// while grounded current-source evidence exposes its declared type or
 	// operation identity (`MutableState`, `applyStageOutput`). Carry those exact
@@ -81,10 +84,71 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	}
 	sort.Strings(related)
 	sort.Strings(other)
-	files := appendUniqueBounded(nil, related, maxFlowOperationRepairFiles)
+	files := appendUniqueBounded(nil, declaredFiles, maxFlowOperationRepairFiles)
+	files = appendUniqueBounded(files, related, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, other, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, completionMaterializationReadFiles(ctx.Mutable.EvidenceClosure()), maxFlowOperationRepairFiles)
 	return files, keywords
+}
+
+// flowRepairDeclaredBindingTargets projects exact parser-owned declaration
+// bindings into the SOFT navigation lane. A user-visible carrier is commonly a
+// type (`BusContext`) while operation sites use a field/local binding
+// (`busCtx`). Searching only the type name repeatedly lands on declarations and
+// misses calls such as BuildAgentContext(o.busCtx, ...).
+//
+// These aliases are navigation coordinates only. They never create an
+// EvidenceItem, satisfy participant coverage, or authorize a diagram edge;
+// Explorer must still read an operation line and emit it through the ordinary
+// exact grounder. Source-scope filtering prevents a test/example homonym from
+// steering a production repair.
+func flowRepairDeclaredBindingTargets(ctx *types.BusContext, rm types.RequestModel, surfaces []string) ([]string, []string) {
+	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 {
+		return nil, nil
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return nil, nil
+	}
+	files := make([]string, 0, maxFlowOperationRepairFiles)
+	aliases := make([]string, 0, maxFlowOperationRepairKeywords)
+	paths := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		if !relationSourceInRequestedScope(path, rm) {
+			continue
+		}
+		fi := graph.FileIndex[path]
+		if fi == nil {
+			continue
+		}
+		for _, symbol := range fi.Symbols {
+			if !flowRepairSymbolMatchesAnySurface(symbol, surfaces) {
+				continue
+			}
+			files = appendUniqueBounded(files, []string{path}, maxFlowOperationRepairFiles)
+			aliases = appendUniqueBounded(aliases, []string{symbol.Name}, maxFlowOperationRepairKeywords)
+		}
+	}
+	return files, aliases
+}
+
+func flowRepairSymbolMatchesAnySurface(symbol repotypes.Symbol, surfaces []string) bool {
+	name := strings.TrimSpace(symbol.Name)
+	declaredType := strings.TrimSpace(symbol.DeclaredType)
+	if name == "" {
+		return false
+	}
+	for _, surface := range surfaces {
+		if types.AnswerCodeIdentitySurfacesCompatible(surface, name) ||
+			(declaredType != "" && types.AnswerCodeIdentitySurfacesCompatible(surface, declaredType)) {
+			return true
+		}
+	}
+	return false
 }
 
 func flowRepairItemMatchesAnySurface(item types.EvidenceItem, surfaces []string) bool {

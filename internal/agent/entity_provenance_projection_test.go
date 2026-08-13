@@ -104,6 +104,48 @@ func TestProjectEntityProvenance_AmbiguousSymbolIsNavigationOnly(t *testing.T) {
 	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "stage", types.EntityResolutionAmbiguousSymbol, false, true, false)
 }
 
+func TestProjectEntityProvenance_UniquenessUsesTypedPrincipalSourceScope(t *testing.T) {
+	graph := &rmtypes.Graph{
+		FileIndex: map[string]*rmtypes.FileInfo{
+			"internal/types/context.go":                 {RelPath: "internal/types/context.go"},
+			"internal/stageauthority/read_mode_test.go": {RelPath: "internal/stageauthority/read_mode_test.go"},
+		},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"BusContext": {
+				{Name: "BusContext", File: "internal/types/context.go"},
+				{Name: "BusContext", File: "internal/stageauthority/read_mode_test.go"},
+			},
+		},
+	}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
+	rm := types.RequestModel{AnalyzerHints: types.AnalyzerHints{Entities: []string{"BusContext"}}}
+
+	projectEntityProvenance(ctx, &rm)
+
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "BusContext", types.EntityResolutionSymbol, true, true, true)
+}
+
+func TestProjectEntityProvenance_DoesNotPromoteAuxiliaryOnlyHomonymIntoProductionShape(t *testing.T) {
+	graph := &rmtypes.Graph{
+		FileIndex: map[string]*rmtypes.FileInfo{
+			"internal/stageauthority/read_mode_test.go": {RelPath: "internal/stageauthority/read_mode_test.go"},
+		},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"FixtureBus": {{Name: "FixtureBus", File: "internal/stageauthority/read_mode_test.go"}},
+		},
+	}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.AgentContext{Mutable: mut, RepoRoot: "/repo"}
+	rm := types.RequestModel{AnalyzerHints: types.AnalyzerHints{Entities: []string{"FixtureBus"}}}
+
+	projectEntityProvenance(ctx, &rm)
+
+	assertEntityProvenance(t, rm.AnalyzerHints.EntityProvenance, "FixtureBus", types.EntityResolutionInferredConcept, false, false, false)
+}
+
 func TestProjectEntityProvenance_MultiRepoScopeIsResolved(t *testing.T) {
 	mg := scopeFixtureMG(t, []topology.SubRepo{
 		{Slug: "codrax-1234", RootAbs: "/parent/codrax", RootRel: "codrax", FileCount: 1},

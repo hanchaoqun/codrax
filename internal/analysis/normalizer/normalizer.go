@@ -47,6 +47,11 @@ type SymbolMorphAliasResolver interface {
 type SymbolHit struct {
 	Canonical string
 	Domain    string
+	// Source is the repo-relative definition path when the resolver owns an
+	// exact path coordinate. Consumers may use it to apply a typed principal
+	// source-scope filter before deciding whether a symbol is unique. Empty
+	// preserves compatibility with resolvers that expose names only.
+	Source string
 }
 
 // Options controls optional normalizer behaviors. Zero value is valid

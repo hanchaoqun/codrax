@@ -3600,7 +3600,7 @@ func flowOperationNavigationHint(files, keywords []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". First use repo_map/grep with the typed stems to locate operation occurrences; candidate files are starting points, not an exhaustive scope. If a starting file only contains a declaration, continue the typed-stem search instead of re-emitting that declaration. Then read the bounded operation line before emitting any directed row."
+	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". First use repo_map/grep with the typed stems to locate operation occurrences; candidate files are starting points, not an exhaustive scope. The stems may include a parser-owned field/parameter/property binding whose declared static type is the requested carrier; search that exact binding at calls, complete arguments, assignments, returns, setters and getters instead of stopping at the type declaration. If a starting file only contains a declaration, continue the typed-stem search instead of re-emitting that declaration. Then read the bounded operation line before emitting any directed row."
 }
 
 func preCompleteDowngradeSummary(summary string) string {

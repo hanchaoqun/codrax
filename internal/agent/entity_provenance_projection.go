@@ -30,6 +30,7 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 		ctx,
 		rm.AnalyzerHints.Entities,
 		types.EntityOriginAnalyzerEntity,
+		types.PrincipalSourceScope(rm.SourceScopeProfile),
 		seenBlob,
 		oracle,
 		resolver,
@@ -39,6 +40,7 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 			ctx,
 			rm.SubTopics[i].Entities,
 			types.EntityOriginSubTopicEntity,
+			types.PrincipalSourceScope(rm.SourceScopeProfile),
 			seenBlob,
 			oracle,
 			resolver,
@@ -51,6 +53,7 @@ func buildEntityProvenance(
 	ctx *types.AgentContext,
 	entities []string,
 	origin types.EntityOrigin,
+	principalScope types.SourceScope,
 	seenBlob string,
 	oracle types.SymbolOracle,
 	resolver normalizer.SymbolResolver,
@@ -73,7 +76,7 @@ func buildEntityProvenance(
 			continue
 		}
 		seen[key] = true
-		out = append(out, classifyEntityProvenance(ctx, surface, origin, seenBlob, oracle, resolver))
+		out = append(out, classifyEntityProvenance(ctx, surface, origin, principalScope, seenBlob, oracle, resolver))
 	}
 	if len(out) == 0 {
 		return nil
@@ -85,6 +88,7 @@ func classifyEntityProvenance(
 	ctx *types.AgentContext,
 	surface string,
 	origin types.EntityOrigin,
+	principalScope types.SourceScope,
 	seenBlob string,
 	oracle types.SymbolOracle,
 	resolver normalizer.SymbolResolver,
@@ -95,7 +99,7 @@ func classifyEntityProvenance(
 		Resolution: types.EntityResolutionInferredConcept,
 		NoiseScore: 0.7,
 	}
-	symbolMatches := entitySymbolMatchCount(resolver, surface)
+	symbolMatches, symbolScopeKnown := entitySymbolMatchCount(resolver, surface, principalScope)
 	switch {
 	case entityMatchesActiveScope(ctx, surface):
 		prov.Resolution = types.EntityResolutionScope
@@ -124,6 +128,12 @@ func classifyEntityProvenance(
 		prov.Resolution = types.EntityResolutionAmbiguousSymbol
 		prov.NoiseScore = 0.2
 		prov.UseForSearch = true
+		prov.UseForShape = false
+	case symbolScopeKnown:
+		// The resolver found only definitions outside the typed principal
+		// source scope. Do not let the scope-agnostic oracle below promote a
+		// test/example homonym into a production operation obligation.
+		prov.UseForSearch = false
 		prov.UseForShape = false
 	case entitySymbolExists(oracle, surface):
 		// Qualified identities are resolved by the stricter qualified oracle
@@ -155,11 +165,27 @@ func classifyEntityProvenance(
 	return prov
 }
 
-func entitySymbolMatchCount(resolver normalizer.SymbolResolver, surface string) int {
+func entitySymbolMatchCount(resolver normalizer.SymbolResolver, surface string, principalScope types.SourceScope) (int, bool) {
 	if resolver == nil || strings.TrimSpace(surface) == "" {
-		return 0
+		return 0, false
 	}
-	return len(resolver.LookupSymbol(surface))
+	hits := resolver.LookupSymbol(surface)
+	sourced := 0
+	allowed := 0
+	for _, hit := range hits {
+		source := strings.TrimSpace(hit.Source)
+		if source == "" {
+			continue
+		}
+		sourced++
+		if types.SourceScopeAllowsPathRole(principalScope, types.ClassifySourcePathRole(source)) {
+			allowed++
+		}
+	}
+	if sourced > 0 {
+		return allowed, true
+	}
+	return len(hits), false
 }
 
 func entityMatchesActiveScope(ctx *types.AgentContext, surface string) bool {

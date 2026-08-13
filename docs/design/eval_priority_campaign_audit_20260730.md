@@ -35724,6 +35724,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
 
+#### B748：类型同名夹具不再制造假歧义，载体绑定进入软导航（2026-08-13）
+
+1. r457 的关系缺失不是 `argument_flow` 表达或校验缺失，而是发现链的两级偏航。生产类型
+   `BusContext` 在 repo-wide resolver 中与三个 `_test.go` 同名夹具一起计数，被标为
+   `ambiguous_symbol/use_for_shape=false`；Explorer 因此只把它列作“展示边界”。完成门随后只追
+   `Mutable`，软导航只给类型词干，模型反复找到 setter 调用，却没有选择已经存在的
+   `BuildAgentContext(o.busCtx, ...)` 参数交接。
+2. 根修一：`normalizer.SymbolHit` 增加 resolver-owned repo-relative `Source` 坐标；entity provenance
+   的唯一性计数先应用 Analyzer 已有的 typed principal source scope。普通生产问题中，测试/fixture/
+   example/doc 同名定义不再把唯一生产符号制造成歧义；反向负臂同时保证“仅存在于辅助范围的同名项”
+   不会被 scope-agnostic oracle 再升级成生产 shape。该修复依据 typed source profile 和路径分类，
+   不读取用户原文、模型 thinking 或最终答案。
+3. 根修二：flow-operation repair 从跨语言 repomap 的 parser-owned `DeclaredType` 反查真实
+   field/parameter/property binding，例如 `*types.BusContext -> busCtx`，将精确绑定名及其生产文件加入
+   bounded soft navigation。提示要求在 call/complete argument/assignment/return/setter/getter 中继续搜索，
+   不得停在类型声明。它不创建 EvidenceItem、不满足 participant coverage、不铸造边；Explorer 仍必须
+   read 精确操作行、调用 `emit_evidence`，并经过原有 grounder 与 answer validator。
+4. 该方案复用所有语言 extractor 已统一发布的 `DeclaredType`，覆盖 Go、Java/Kotlin、JS/TS/ArkTS、
+   C/C++、Rust、Python、Swift、Cangjie 等载体声明，不为本次 `busCtx` 名字建立 case 特判。测试钉住
+   production+test 同名收敛、auxiliary-only 不越权、parser binding 导航和测试绑定不泄漏。
+5. 验证：`go test ./internal/analysis/normalizer ./internal/agent ./internal/types ./internal/tool -count=1`
+   全绿（tool 160.266s）；`git diff --check` 通过。本批未修改 L1 scheduler、Trace report shape、显式窗、
+   因果投影/补采、链上主因选举、Mermaid 渲染或答案所有权。
+
+状态：`B748-ARGUMENTFLOWDISCOVERY1=implemented/source-scope-identity+declared-binding-soft-navigation/full-tests-pass/pending-production-replay`；
+`relation authority=explorer-authored+grounded-only`；`system edge synthesis=none`；
+`raw-request/model-output keyword hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
+
 ### §123.776 r457：实参关系已可表达但未被发现；Trace 因果问题被 typed 窄分类抑制（2026-08-13）
 
 1. 在 `main@43b20a462` 严格并发恰好两个案例：
@@ -35764,7 +35794,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B743-FREQUENCYCOMPOUNDVERDICT1=production-positive-r457`；
 `B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
-`B748-ARGUMENTFLOWDISCOVERY1=confirmed/P1/queued`；
+`B748-ARGUMENTFLOWDISCOVERY1=implemented/source-scope-identity+declared-binding-soft-navigation/full-tests-pass/pending-production-replay`；
 `B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=implemented/single-decision-table+one-way-scope-rule/full-tests-pass`；
 `B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=implemented/typed-runtime-scope-advisory+source-hard-negative-pins-pass`；
 `Trace projection absence r457=typed-upstream-scope-drift/not-projection-deletion`；

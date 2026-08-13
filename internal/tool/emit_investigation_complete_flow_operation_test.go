@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -482,6 +483,44 @@ func TestFlowOperationRepairTargetsCarryRelatedGroundedSourceAliases(t *testing.
 		if !flowTestSliceContains(files, want) {
 			t.Fatalf("related source file %q missing from repair targets: %v", want, files)
 		}
+	}
+}
+
+func TestFlowOperationRepairTargetsCarryParserOwnedCarrierBindingAliases(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"BusContext"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"internal/orchestrator/orchestrator.go": {
+			RelPath: "internal/orchestrator/orchestrator.go",
+			Symbols: []repotypes.Symbol{{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext"}},
+		},
+		"internal/orchestrator/orchestrator_test.go": {
+			RelPath: "internal/orchestrator/orchestrator_test.go",
+			Symbols: []repotypes.Symbol{{Name: "fixtureBus", Kind: "field", DeclaredType: "*types.BusContext"}},
+		},
+	}})
+
+	files, keywords := flowOperationRepairTargets(ctx, []string{"BusContext"}, nil)
+	if !flowTestSliceContains(keywords, "BusContext") || !flowTestSliceContains(keywords, "busCtx") {
+		t.Fatalf("typed carrier and exact parser binding should both drive soft navigation: %v", keywords)
+	}
+	if flowTestSliceContains(keywords, "fixtureBus") {
+		t.Fatalf("auxiliary-only binding must not steer a production repair: %v", keywords)
+	}
+	if !flowTestSliceContains(files, "internal/orchestrator/orchestrator.go") ||
+		flowTestSliceContains(files, "internal/orchestrator/orchestrator_test.go") {
+		t.Fatalf("declared-binding files must honor principal source scope: %v", files)
+	}
+	hint := flowOperationNavigationHint(files, keywords)
+	if !strings.Contains(hint, "parser-owned field/parameter/property binding") ||
+		!strings.Contains(hint, "complete arguments") {
+		t.Fatalf("navigation must explain how the typed carrier reaches exact operation syntax: %q", hint)
 	}
 }
 
