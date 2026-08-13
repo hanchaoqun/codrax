@@ -256,6 +256,8 @@ func exploreLaneOriginsForDimension(role RequestedAnswerDimensionRole) []AnswerE
 		return []AnswerEvidenceOrigin{AnswerEvidenceOriginVCSDiff, AnswerEvidenceOriginVCSMetadata}
 	case RequestedAnswerDimensionCurrentKeyCode:
 		return []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
+	case RequestedAnswerDimensionSourceLocation:
+		return []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
 	case RequestedAnswerDimensionEvidenceSource:
 		return []AnswerEvidenceOrigin{
 			AnswerEvidenceOriginVCSMetadata,

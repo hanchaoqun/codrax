@@ -183,8 +183,15 @@ func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
 	for _, bucket := range buckets {
 		for i := range *bucket {
 			node := &(*bucket)[i]
+			// A ranked semantic root-cause row is a second typed publication of
+			// the same closed semantic-class fact. Its Role/Predicate belong to
+			// the rank lane, so filtering only on semantic-span carrier names
+			// made the effective attribution disappear from the dedicated
+			// semantic display copy. SemanticClass is engine-minted from the
+			// closed registry and is therefore the precise cross-lane authority.
 			if node.Role != TraceCausalRoleSemanticSpan &&
-				strings.TrimSpace(node.Predicate) != "trace_semantic_span" {
+				strings.TrimSpace(node.Predicate) != "trace_semantic_span" &&
+				strings.TrimSpace(node.SemanticClass) == "" {
 				continue
 			}
 			if node.Rank <= 0 && node.BackgroundRank <= 0 && node.EffectiveImpactMS <= 0 {

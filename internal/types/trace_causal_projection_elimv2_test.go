@@ -157,3 +157,38 @@ func TestElimV2FixDirectionRidesSemanticSpanDonor(t *testing.T) {
 		t.Fatalf("件2b: the engine direction must travel with the adopted seat, got %q", sem.FixDirection)
 	}
 }
+
+// The rank producer and the independent semantic-span producer legitimately
+// use different predicate/role families. The closed SemanticClass carrier is
+// what proves that the ranked row may donate its effective attribution to the
+// display copy; otherwise the dedicated optimization table renders a false
+// unavailable value while the root-cause board publishes the same 0.285ms.
+func TestSemanticRootCauseRankDonatesEffectiveImpactAcrossCarrierFamilies(t *testing.T) {
+	ranked := TraceCausalProjectionNode{
+		Role: TraceCausalRoleRootCauseContext, EvidenceID: "rank-row",
+		Subject: "worker-7", Predicate: "root_cause_secondary", Object: "class_verification",
+		SemanticClass: "class_verification", SpanName: "VerifyClass Demo",
+		Rank: 2, Tier: "secondary", ImpactMS: 0.285, CumulativeImpactMS: 0.285,
+		EffectiveImpactMS: 0.285, EffectiveImpactPublished: true,
+		ChainRelevance: "on_chain", LineStart: 100, LineEnd: 120,
+	}
+	display := TraceCausalProjectionNode{
+		Role: TraceCausalRoleSemanticSpan, EvidenceID: "semantic-row",
+		Subject: "worker-7", Predicate: "trace_semantic_span", Object: "class_verification",
+		SemanticClass: "class_verification", SpanName: "VerifyClass Demo",
+		ImpactMS: 0.285, CumulativeImpactMS: 0.285,
+		ChainRelevance: "on_chain", LineStart: 100, LineEnd: 120,
+	}
+	out := &TraceCausalProjection{
+		OnChainCauses: []TraceCausalProjectionNode{ranked},
+		SemanticSpans: []TraceCausalProjectionNode{display},
+	}
+	traceCausalProjectionAggregateForPresentation(out)
+	if len(out.SemanticSpans) != 1 {
+		t.Fatalf("semantic display copy lost: %+v", out.SemanticSpans)
+	}
+	got := out.SemanticSpans[0]
+	if got.Rank != 2 || !got.EffectiveImpactPublished || got.EffectiveImpactMS != 0.285 {
+		t.Fatalf("ranked semantic authority did not reach display copy: %+v", got)
+	}
+}

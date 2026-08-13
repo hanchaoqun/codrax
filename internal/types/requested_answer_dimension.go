@@ -23,11 +23,17 @@ const (
 	RequestedAnswerDimensionComparisonAxis    RequestedAnswerDimensionRole = "comparison_axis"
 	RequestedAnswerDimensionCount             RequestedAnswerDimensionRole = "count"
 	RequestedAnswerDimensionMemberSet         RequestedAnswerDimensionRole = "member_set"
-	RequestedAnswerDimensionEvidenceSource    RequestedAnswerDimensionRole = "evidence_source"
-	RequestedAnswerDimensionBoundary          RequestedAnswerDimensionRole = "boundary"
-	RequestedAnswerDimensionDiagram           RequestedAnswerDimensionRole = "diagram"
-	RequestedAnswerDimensionStageWorkflow     RequestedAnswerDimensionRole = "stage_or_workflow"
-	RequestedAnswerDimensionOther             RequestedAnswerDimensionRole = "other"
+	// RequestedAnswerDimensionSourceLocation identifies a user-visible,
+	// per-subject source/file location column. It is deliberately distinct
+	// from EvidenceSource: a citation can prove a row without making the file
+	// path visible in that row, while this role requires the model-authored
+	// answer surface to show the location itself.
+	RequestedAnswerDimensionSourceLocation RequestedAnswerDimensionRole = "source_location"
+	RequestedAnswerDimensionEvidenceSource RequestedAnswerDimensionRole = "evidence_source"
+	RequestedAnswerDimensionBoundary       RequestedAnswerDimensionRole = "boundary"
+	RequestedAnswerDimensionDiagram        RequestedAnswerDimensionRole = "diagram"
+	RequestedAnswerDimensionStageWorkflow  RequestedAnswerDimensionRole = "stage_or_workflow"
+	RequestedAnswerDimensionOther          RequestedAnswerDimensionRole = "other"
 )
 
 func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
@@ -39,6 +45,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionComparisonAxis,
 		RequestedAnswerDimensionCount,
 		RequestedAnswerDimensionMemberSet,
+		RequestedAnswerDimensionSourceLocation,
 		RequestedAnswerDimensionEvidenceSource,
 		RequestedAnswerDimensionBoundary,
 		RequestedAnswerDimensionDiagram,
@@ -124,7 +131,8 @@ func (s CurrentSourceObligationSignal) Active() bool {
 func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAnswerDimensionRole) bool {
 	switch role {
 	case RequestedAnswerDimensionCurrentKeyCode,
-		RequestedAnswerDimensionFunctionOrPurpose:
+		RequestedAnswerDimensionFunctionOrPurpose,
+		RequestedAnswerDimensionSourceLocation:
 		return true
 	default:
 		return false

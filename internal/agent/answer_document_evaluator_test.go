@@ -174,6 +174,54 @@ func TestAnswerDocumentEvaluator_ObserveHintsMissingRequestedDimensions(t *testi
 	}
 }
 
+func TestRequestedSourceLocationDimensionRequiresLocationOnEveryTypedRelationMemberRow(t *testing.T) {
+	mut := types.NewMutableState("show each implementation source location")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "implementers",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"Alpha", "Beta"},
+		SupportRefs: []string{
+			"Alpha @ internal/alpha.go:10",
+			"Beta @ internal/beta.go:20",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "source locations", Role: types.RequestedAnswerDimensionSourceLocation,
+					Required: true, Index: 1,
+				}},
+			},
+		}},
+	}
+	missing := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable,
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Text: "first implementation"},
+			{Label: "Beta", Text: "second implementation"},
+		},
+	}}}
+	if answerDocumentCoversTypedPerMemberSourceLocations(ctx, missing) {
+		t.Fatal("citations/typed support refs must not substitute for visible per-member locations")
+	}
+	complete := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable,
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Cells: []string{"internal/alpha.go", "first implementation"}},
+			{Label: "Beta", Cells: []string{"internal/beta.go", "second implementation"}},
+		},
+	}}}
+	if !answerDocumentCoversTypedPerMemberSourceLocations(ctx, complete) {
+		t.Fatal("every typed member row carries its own visible source path")
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveStopsWhenPresentationOnlyDimensionMissing(t *testing.T) {
 	mut := types.NewMutableState("说明影响")
 	ctx := &types.AgentContext{

@@ -2095,6 +2095,22 @@ func (rm RequestModel) HasRequiredCurrentKeyCodeDimensionWithPreciseAnchor() boo
 	return false
 }
 
+// HasRequiredSourceLocationDimension reports the closed typed request role
+// whose value can only be supplied by current-source paths/locations. The
+// dimension has already passed current-request provenance normalization; this
+// helper never re-reads its free-form label or source quote.
+func (rm RequestModel) HasRequiredSourceLocationDimension() bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if dim.Required && dim.Role == RequestedAnswerDimensionSourceLocation {
+			return true
+		}
+	}
+	return false
+}
+
 func (rm RequestModel) hasRequiredRuntimeCurrentSourceMechanismDimension() bool {
 	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
 		return false

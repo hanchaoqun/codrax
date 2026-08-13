@@ -10008,7 +10008,7 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 	itemProperties, _ := items["properties"].(map[string]any)
 	role, _ := itemProperties["role"].(map[string]any)
 	roleDescription, _ := role["description"].(string)
-	for _, want := range []string{"stage_or_workflow", "does not imply a source declaration inventory"} {
+	for _, want := range []string{"source_location", "citation alone does not display it", "stage_or_workflow", "does not imply a source declaration inventory"} {
 		if !strings.Contains(roleDescription, want) {
 			t.Fatalf("requested_answer_dimensions role teaching missing %q: %q", want, roleDescription)
 		}

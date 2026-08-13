@@ -6485,6 +6485,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
 		}
 		b.WriteString("\n")
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionSourceLocation {
+			if lang == "zh" {
+				b.WriteString("  - 对逐成员源码答案，把每个成员已验证的源码路径或 file:line 放在该成员自己的可见行/单元格中；引用只负责证明，不能代替用户要求看到的文件位置。\n")
+			} else {
+				b.WriteString("  - For per-member source answers, put each member's verified source path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
+			}
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -8720,6 +8727,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
 			b.WriteString("- For multi-member relation sets, render the qualifying members as list/table rows before any broader mechanism narrative.\n")
 		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.HasRequiredSourceLocationDimension() {
+		b.WriteString("- Per-member source-location contract: for every principal member with an aligned `support_refs` source location, render that exact path or file:line in the same visible member row/cell. A citation proves the row but does not display the user-requested location.\n")
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.RequiresSourceOperationSiteMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("- Source operation-site contract: the principal `member_set` rows are the requested write/call/registration/entry points. Render them as visible list/table rows, preserve per-member details from `member_notes`, and cite the member's function/call/file:line support ref. Do not borrow a nearby constant/path citation as the main citation for a function or call-site member.\n")
@@ -12729,6 +12739,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	case types.RequestedAnswerDimensionMemberSet:
 		return (rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration) &&
 			answerDocumentHasMemberSetPayload(doc)
+	case types.RequestedAnswerDimensionSourceLocation:
+		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
 	case types.RequestedAnswerDimensionBoundary:
 		return answerDocumentHasBoundaryPayload(doc)
 	case types.RequestedAnswerDimensionEvidenceSource:
@@ -12770,12 +12782,75 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 	switch role {
 	case types.RequestedAnswerDimensionCount,
 		types.RequestedAnswerDimensionMemberSet,
+		types.RequestedAnswerDimensionSourceLocation,
 		types.RequestedAnswerDimensionBoundary,
 		types.RequestedAnswerDimensionEvidenceSource:
 		return true
 	default:
 		return false
 	}
+}
+
+// answerDocumentCoversTypedPerMemberSourceLocations checks a narrow typed
+// contract: completion already certified an exact relation member set and an
+// index-aligned source location for every member, and the final answer must
+// keep each location visible on that same member row. It never scans the raw
+// request or free-form model conclusions. Citations are intentionally absent
+// from AnswerBlockItemVisibleSurface, so a correct citation pool cannot
+// masquerade as the user-visible file-location dimension.
+func answerDocumentCoversTypedPerMemberSourceLocations(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	var found bool
+	for _, fact := range answerDocStableAggregateFacts(ctx) {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
+			!types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+			len(fact.SupportRefs) != len(fact.Members) {
+			continue
+		}
+		found = true
+		for i, member := range fact.Members {
+			_, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i])
+			if !ok || strings.TrimSpace(location.File) == "" || location.LineStart <= 0 ||
+				!answerDocumentHasVisibleMemberLocationRow(doc, member, location.File) {
+				return false
+			}
+		}
+	}
+	return found
+}
+
+func answerDocumentHasVisibleMemberLocationRow(doc *types.AnswerDocumentV2, member, file string) bool {
+	if doc == nil || strings.TrimSpace(member) == "" || strings.TrimSpace(file) == "" {
+		return false
+	}
+	obligation := types.AnswerSupportMemberObligation{Label: member, SurfaceTerms: []string{member}}
+	file = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(file), `\`, "/"))
+	visibleRow := func(surface string) bool {
+		surface = strings.TrimSpace(surface)
+		return surface != "" && types.AnswerTextMentionsSupportMember(surface, obligation) &&
+			strings.Contains(strings.ToLower(strings.ReplaceAll(surface, `\`, "/")), file)
+	}
+	for _, block := range doc.Blocks {
+		if types.AnswerBlockRendersStructuredItems(block) {
+			for _, item := range block.Items {
+				if visibleRow(types.AnswerBlockItemVisibleSurface(item)) {
+					return true
+				}
+			}
+			continue
+		}
+		// Canonical Markdown tables render from block.Text rather than Items.
+		// Requiring member and location on one physical line preserves the
+		// per-row contract without parsing localized column headings.
+		for _, line := range strings.Split(block.Text, "\n") {
+			if visibleRow(line) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func answerDocumentHasScalarPayload(doc *types.AnswerDocumentV2) bool {

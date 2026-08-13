@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.733 r419：逐成员源码位置合同与语义可消除量跨面一致性（2026-08-12）
+
+1. 在 `main@b4818fe33` 严格并发恰好两个案例：
+   `real_trace_h8_semantic_edge_anchor_sentinel + qf_type_relation_loop_controller`。Runner
+   `2 PASS / 0 FAIL`，人工 `0 pass / 1 partial / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r419_20260812_manual_audit.md`。
+2. B701/B702 获生产正证：类型关系图保留 12 条 implementation→interface 边，混合 flowchart
+   语法合法、方向正确，Analyzer 不再因 12 个任意 participant 上限失败。成文的 `blocks`
+   偶发为 JSON-encoded string，既有 flat-mode 容错完整恢复四块和 12 条引用；当前 JSON 教学已明确
+   禁止对象/数组字符串包裹，因此本轮按“模型波动被安全恢复”记录，不再加输出关键词门。
+3. 新确认 B703：用户要求“每个实现类型所在文件”，Analyzer 却把该维度铸成 `other`；完成阶段
+   已有 12 个严格对齐的 `members/support_refs`，Finalizer 也给每行绑定了正确引用，但可见表格
+   只显示类型与职责。引用证明一行，不等于让用户看到该行的文件位置。根修新增闭集 typed
+   `requested_answer_dimension.role=source_location`，明确区别于 `evidence_source`；Analyzer schema
+   教学、current-source lane、Finalizer prompt 与一次精确 patch retry 统一消费该角色。只有
+   “当前请求来源校验存活的 required source_location + completion 已认证 typed-relation member_set
+   + members/support_refs 严格逐槽对齐”时，才检查每个成员自己的可见行是否含对应源码路径。
+   不扫描 request/final prose 关键词，不从 citation 猜路径，不由系统替模型补表。
+4. Trace 主体仍正确，但新确认 B704：VerifyClass 的 0.285ms 在根因榜、修向榜、因果树和证据索引
+   都是已发布有效归因，专门“确定性语义优化”表却显示不可用。原因是跨 lane donor 只接受
+   `role=semantic_span/predicate=trace_semantic_span`，而同一事实的 rank publication 合法使用
+   `root_cause_secondary`；两个 carrier 的 line/subject/object/span/class 完全一致，却无法交接。
+   修复复用 engine 铸造的闭集 `SemanticClass` 作为 rank-lane donor 资格，不靠 span 名/摘要关键字；
+   仍用既有严格 same-fact identity 选择唯一 donor。它只同步 typed rank/effective/fix-direction 到
+   semantic display copy，不改席位、排序、入链判定或模型结论。
+5. 精确测试覆盖：source_location schema 教学、逐成员路径缺失/完整两臂、rank 与 semantic 两种
+   carrier 的 0.285ms 交接；`internal/types/tool/agent` 全绿。活跃流红线专项再次通过：部分 frame
+   bytes 跨 4ms 仍完整返回，BaseAgent 不把 evaluator budget 变成 active-stream age gate。
+6. 本批没有改 Trace 查询、显式窗选择、因果投影、补采或根因资格。主因仍只来自 typed 链上席；
+   优先级反转、调度供给、算力供给、D/IO、确定性语义工作和业务线索保持；邻近/背景仅作支撑。
+
+状态：
+
+`B701-MIXEDCLASSFLOWDIRECTION1=production-positive-r419`；
+`B702-DIAGRAMPARTICIPANTCAP1=production-positive-r419`；
+`B703-RELATIONMEMBERLOCATIONVISIBILITY1=implemented/typed-role+per-row-pins/pending-production-replay`；
+`B704-SEMANTICEFFECTIVECROSSFACE1=implemented/closed-class+same-fact-donor-pin/pending-production-replay`；
+`JSON-string-answer-document-recovery=production-positive-r419/no-degrade`；
+`active-stream-4ms-degrade=forbidden/exact-pins-pass`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r419`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.730 r416：Trace 链上双轴正证；类图载体/范围/展示合同统一（2026-08-12）
 
 1. 在 `main@45d677d46` 严格并发恰好两个案例：

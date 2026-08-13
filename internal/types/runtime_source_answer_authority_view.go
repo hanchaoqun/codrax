@@ -512,6 +512,10 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 					return true
 				}
+			case RequestedAnswerDimensionSourceLocation:
+				// The closed role itself means a current-checkout source path;
+				// provenance validation already tied the dimension to this turn.
+				return true
 			}
 		}
 	}
