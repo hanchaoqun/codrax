@@ -109,12 +109,13 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		// CAP-2 (§28.4/§28.5): exercises fold_cluster_topology + the
 		// fold_rail_basis audit note; B37-CAPAUTH exercises the neutral cap
 		// value, source mechanism and selected-value witness keys.
-		ClusterTopologySource:  tracequery.CoreCapabilityTopologyKeyedRail,
-		RailFamily:             "m3_c#_freq",
-		RailGoverned:           []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
-		GovernanceCapKHz:       1850000,
-		GovernanceCapMechanism: tracequery.SupplyFoldGovernanceCapThermalRail,
-		GovernanceCapWitnessed: true,
+		ClusterTopologySource:     tracequery.CoreCapabilityTopologyKeyedRail,
+		RailFamily:                "m3_c#_freq",
+		RailGoverned:              []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
+		GovernanceCapKHz:          1850000,
+		GovernanceCapClusterClass: "big",
+		GovernanceCapMechanism:    tracequery.SupplyFoldGovernanceCapThermalRail,
+		GovernanceCapWitnessed:    true,
 	}
 	// CLUSTER-FIX-2 件1 (S1): the freq_only twin basis exercises the
 	// fold_capability_freq_only_reason contract key (the engine mints the

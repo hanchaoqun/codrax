@@ -880,9 +880,10 @@ const (
 	// Governance-cap family (B37-CAPAUTH): the neutral ceiling value plus
 	// exact source mechanism and selected-value in-window witness. New
 	// producers use these keys; thermal_cap_* remains decode-only compatibility.
-	TraceNoteKeyGovernanceCapKHz       = "governance_cap_khz"
-	TraceNoteKeyGovernanceCapMechanism = "governance_cap_mechanism"
-	TraceNoteKeyGovernanceCapWitnessed = "governance_cap_witnessed"
+	TraceNoteKeyGovernanceCapKHz          = "governance_cap_khz"
+	TraceNoteKeyGovernanceCapClusterClass = "governance_cap_cluster_class"
+	TraceNoteKeyGovernanceCapMechanism    = "governance_cap_mechanism"
+	TraceNoteKeyGovernanceCapWitnessed    = "governance_cap_witnessed"
 	// TraceNoteKeyDeterministicRunning (§29.27② COV-4, 2026-07-11): the
 	// target_window_states record's 确定性工作 lane — the wall-clock union of
 	// the focused thread's own semantic-span intervals ∩ its running
@@ -1805,6 +1806,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// Legacy witness, consumed only beside the legacy value above.
 	{TraceNoteKeyThermalCapWitnessed, "supply_fold", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGovernanceCapKHz, "supply_fold", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGovernanceCapClusterClass, "supply_fold", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGovernanceCapMechanism, "supply_fold", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGovernanceCapWitnessed, "supply_fold", TraceNoteCarrierHardConsumer},
 

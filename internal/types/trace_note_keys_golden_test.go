@@ -288,6 +288,7 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_share_overlap|state|hard_consumer",
 	// B37-CAPAUTH: neutral governing ceiling + exact source mechanism +
 	// selected-value in-window witness.
+	"governance_cap_cluster_class|supply_fold|hard_consumer",
 	"governance_cap_khz|supply_fold|hard_consumer",
 	"governance_cap_mechanism|supply_fold|hard_consumer",
 	"governance_cap_witnessed|supply_fold|hard_consumer",

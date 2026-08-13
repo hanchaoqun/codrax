@@ -35681,6 +35681,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B732-2-CUMULATIVEPROBERUNTIMEOPPORTUNITY1=production-closed-r446`；
 `B733-DISPLAYQUALIFIERENDPOINTIDENTITY1=implemented/cross-language+negative-matrix/pending-production-replay`；
+
+### §123.766 r447：治理上限簇身份断链；Java effect-scope 遵循波动（2026-08-13）
+
+1. 在 `main@2d050a8b2` 严格并行 2 席：
+   `real_trace_h4_supply_thermal_witness` 与 `sr_java_call_chain`。runner 均 FAIL；工件为
+   `eval/parallel_selected_summary_evalcampaign_trace_java_r447_20260813.md` 及同名
+   `_manual_audit.md`。
+2. Trace 席的正向不变量全部在场：用户显式窗 233.190ms 未扩写，目标状态账
+   running/runnable/sleep/D/io=157.248/5.604/70.338/0/0ms，Trace 因果投影与系统补齐
+   均发布，根因只从 typed 链席选举，同时保留实际占用与规则折算可消量双轴。
+3. 新确认 `B734-CAPLANEIDENTITY1/P1`：正文把供给席的 thermal rail 2.34GHz 称为
+   “策略上限”，并与独立 CPU4 direct policy limit 2.10GHz 混叙。引擎
+   `SupplyFoldBasis.GovernanceCapClusterClass` 已精确记录治理上限所属的主要运行簇，
+   但 tracequery rich note、`TraceCausalProjectionNode` 与 supply-fold twin join 三段均未
+   携带它；展示只剩“该簇”，相邻不同机制数值因此失去 typed 身份边界。
+4. 泛化根修：新增 `governance_cap_cluster_class` hard-consumer carrier，贯通 producer →
+   projection decode → twin join → zh/en 显示；数值现在与“小/中/大/超大核簇”及
+   `policy_limit|thermal_rail|policy_and_thermal` 同行。policy 行声明它不是 thermal-rail
+   证据，thermal 行声明它不是 cpufreq policy ceiling；所有分支同时披露“单独不证明
+   actual binding impact”。这是 typed 事实精化，不读取用户/模型原文，不接管模型结论，
+   不改折算值、排名、显式窗、链上根因或自动补齐。
+5. Java 席首稿成文、Mermaid 和 5 条关系均正确，finalizer 上下文已有
+   `System.out.println` 的 `effect_scope=exact_call_only` 与禁止升级为持久化的精确指导；
+   模型仍用“审计落库”概括且未复述 stdout 非数据库边界。暂无系统缺证或合同矛盾，
+   按模型遵循波动留档；不为 oracle 加正文关键词硬门，不由系统代写结论。
+6. Pin：note registry/golden/emission/info-contract 全链；2.34GHz 超大核 thermal 与
+   2.10GHz 中核 policy 同窗并置不得互相借机制；四类 cluster zh/en；legacy 无簇身份
+   仍用兼容措辞。状态：`B734-CAPLANEIDENTITY1=implemented/pending-production-replay`，
+   `B733-DISPLAYQUALIFIERENDPOINTIDENTITY1=pending-production-replay`。
 `Zod no-Node verification=honest-unverified/no-static-laundering/no-impossible-probe-plan`；
 `active-stream-4ms-degrade=forbidden`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

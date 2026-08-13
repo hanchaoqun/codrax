@@ -409,6 +409,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"GatedTopologySource":          {Status: "displayed", Ref: "gated 簇拓扑词面 fork"},
 	"ThermalCapKHz":                {Status: "displayed", Ref: "热限压披露句"},
 	"GovernanceCapKHz":             {Status: "displayed", Ref: "B37-CAPAUTH 中性治理上限披露句"},
+	"GovernanceCapClusterClass":    {Status: "displayed", Ref: "B734-CAPLANE 治理上限所属核簇身份"},
 	"GovernanceCapMechanism":       {Status: "displayed", Ref: "B37-CAPAUTH policy/thermal_rail 精确词面分流"},
 	"RunnableMS":                   {Status: "displayed", Ref: "行2 机制句量级(RN-1 显著性门)"},
 	"DStateSplitMS":                {Status: "displayed", Ref: "WO-A1 加法恒等式判定输入(不可相加指针词面)"},

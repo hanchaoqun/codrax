@@ -10786,6 +10786,9 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	// only compatibility lane and are intentionally not emitted by new runs.
 	if basis.GovernanceCapKHz > 0 {
 		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyGovernanceCapKHz, basis.GovernanceCapKHz))
+		if basis.GovernanceCapClusterClass != "" {
+			notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyGovernanceCapClusterClass, basis.GovernanceCapClusterClass))
+		}
 		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyGovernanceCapMechanism, basis.GovernanceCapMechanism))
 		notes = append(notes, fmt.Sprintf("%s=%t", types.TraceNoteKeyGovernanceCapWitnessed, basis.GovernanceCapWitnessed))
 	} else if basis.ThermalCapKHz > 0 {

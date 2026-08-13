@@ -761,33 +761,68 @@ func runtimeTraceProjGovernanceCapClause(node types.TraceCausalProjectionNode, z
 		return ""
 	}
 	ghz := float64(khz) / 1e6
+	cluster := runtimeTraceProjGovernanceCapClusterLabel(node.GovernanceCapClusterClass, zh)
 	if !witnessed {
 		if zh {
-			return fmt.Sprintf(";该簇治理上限记录为 %.2fGHz(所选上限的窗内原因事件未见证)", ghz)
+			return fmt.Sprintf(";%s治理上限记录为 %.2fGHz(所选上限的窗内原因事件未见证)", cluster, ghz)
 		}
-		return fmt.Sprintf("; this cluster has a %.2fGHz governance ceiling (no in-window source event witnessed for the selected ceiling)", ghz)
+		return fmt.Sprintf("; %s has a %.2fGHz governance ceiling (no in-window source event witnessed for the selected ceiling)", cluster, ghz)
 	}
 	switch mechanism {
 	case tracequery.SupplyFoldGovernanceCapPolicyLimit:
 		if zh {
-			return fmt.Sprintf(";窗内该簇策略频率上限为 %.2fGHz(不单独证明热机制或实际绑定影响)", ghz)
+			return fmt.Sprintf(";窗内%s策略频率上限为 %.2fGHz(不是热控轨证据,不单独证明热机制或实际绑定影响)", cluster, ghz)
 		}
-		return fmt.Sprintf("; this cluster had a %.2fGHz policy frequency ceiling in-window (not proof by itself of a thermal mechanism or binding impact)", ghz)
+		return fmt.Sprintf("; %s had a %.2fGHz policy frequency ceiling in-window (not thermal-rail evidence and not proof by itself of a thermal mechanism or binding impact)", cluster, ghz)
 	case tracequery.SupplyFoldGovernanceCapThermalRail:
 		if zh {
-			return fmt.Sprintf(";窗内该簇明确热控轨上限为 %.2fGHz", ghz)
+			return fmt.Sprintf(";窗内%s明确热控轨上限为 %.2fGHz(不是 cpufreq 策略上限,不单独证明实际绑定影响)", cluster, ghz)
 		}
-		return fmt.Sprintf("; this cluster had a %.2fGHz explicitly thermal-named rail ceiling in-window", ghz)
+		return fmt.Sprintf("; %s had a %.2fGHz explicitly thermal-named rail ceiling in-window (not a cpufreq policy ceiling and not proof by itself of binding impact)", cluster, ghz)
 	case tracequery.SupplyFoldGovernanceCapPolicyAndThermal:
 		if zh {
-			return fmt.Sprintf(";窗内该簇策略上限与明确热控轨共同给出 %.2fGHz 上限", ghz)
+			return fmt.Sprintf(";窗内%s策略上限与明确热控轨共同给出 %.2fGHz 上限(同值双来源,不单独证明实际绑定影响)", cluster, ghz)
 		}
-		return fmt.Sprintf("; this cluster had the same %.2fGHz ceiling from both a policy limit and an explicitly thermal-named rail in-window", ghz)
+		return fmt.Sprintf("; %s had the same %.2fGHz ceiling from both a policy limit and an explicitly thermal-named rail in-window (two same-value sources, not proof by itself of binding impact)", cluster, ghz)
 	default:
 		if zh {
-			return fmt.Sprintf(";窗内该簇治理上限记录为 %.2fGHz(机制未分类)", ghz)
+			return fmt.Sprintf(";窗内%s治理上限记录为 %.2fGHz(机制未分类,不单独证明实际绑定影响)", cluster, ghz)
 		}
-		return fmt.Sprintf("; this cluster had a %.2fGHz governance ceiling in-window (mechanism unclassified)", ghz)
+		return fmt.Sprintf("; %s had a %.2fGHz governance ceiling in-window (mechanism unclassified and not proof by itself of binding impact)", cluster, ghz)
+	}
+}
+
+// runtimeTraceProjGovernanceCapClusterLabel keeps the ceiling on the exact
+// core-class lane selected by the engine. Without this typed identity, a
+// nearby per-CPU policy-limit row can make a thermal rail look like that
+// CPU's policy ceiling even though the values and mechanisms are unrelated.
+func runtimeTraceProjGovernanceCapClusterLabel(class string, zh bool) string {
+	switch strings.TrimSpace(class) {
+	case "small":
+		if zh {
+			return "小核簇"
+		}
+		return "this small-core cluster"
+	case "middle":
+		if zh {
+			return "中核簇"
+		}
+		return "this middle-core cluster"
+	case "big":
+		if zh {
+			return "大核簇"
+		}
+		return "this big-core cluster"
+	case "prime":
+		if zh {
+			return "超大核簇"
+		}
+		return "this prime-core cluster"
+	default:
+		if zh {
+			return "该簇"
+		}
+		return "this cluster"
 	}
 }
 

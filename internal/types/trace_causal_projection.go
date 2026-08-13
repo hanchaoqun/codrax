@@ -1554,9 +1554,10 @@ type TraceCausalProjectionNode struct {
 	// GovernanceCap* carries the neutral governing ceiling, exact mechanism,
 	// and witness for the selected value. Only mechanism=thermal_rail proves a
 	// thermal source; policy_limit is not promoted to thermal causality.
-	GovernanceCapKHz       int    `json:"governance_cap_khz,omitempty"`
-	GovernanceCapMechanism string `json:"governance_cap_mechanism,omitempty"`
-	GovernanceCapWitnessed bool   `json:"governance_cap_witnessed,omitempty"`
+	GovernanceCapKHz          int    `json:"governance_cap_khz,omitempty"`
+	GovernanceCapClusterClass string `json:"governance_cap_cluster_class,omitempty"`
+	GovernanceCapMechanism    string `json:"governance_cap_mechanism,omitempty"`
+	GovernanceCapWitnessed    bool   `json:"governance_cap_witnessed,omitempty"`
 	// ThermalCap* stays for backward decoding of pre-B37 observation ledgers.
 	ThermalCapKHz       int  `json:"thermal_cap_khz,omitempty"`
 	ThermalCapWitnessed bool `json:"thermal_cap_witnessed,omitempty"`
@@ -2783,17 +2784,18 @@ type traceCausalProjectionSupplyFoldDonor struct {
 	capabilitySource string
 	// capabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1) travels with its
 	// caliber token: the twin's wording fork must match its donor's.
-	capabilityFreqOnlyReason string
-	referenceClass           string
-	topologySource           string
-	governanceCapKHz         int
-	governanceCapMechanism   string
-	governanceCapWitnessed   bool
-	thermalCapKHz            int
-	thermalCapWitnessed      bool
-	windowStart, windowEnd   float64
-	windowDeclared           bool
-	conflict                 bool
+	capabilityFreqOnlyReason  string
+	referenceClass            string
+	topologySource            string
+	governanceCapKHz          int
+	governanceCapClusterClass string
+	governanceCapMechanism    string
+	governanceCapWitnessed    bool
+	thermalCapKHz             int
+	thermalCapWitnessed       bool
+	windowStart, windowEnd    float64
+	windowDeclared            bool
+	conflict                  bool
 }
 
 // traceCausalProjectionSupplyFoldTwinKey is the SFD (§15.A display half, user
@@ -2871,18 +2873,19 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			donor := traceCausalProjectionSupplyFoldDonor{
 				deficitMS: node.SupplyFoldDeficitMS, idealMS: node.SupplyFoldIdealMS,
 				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
-				capabilitySource:         node.SupplyFoldCapabilitySource,
-				capabilityFreqOnlyReason: node.SupplyFoldCapabilityFreqOnlyReason,
-				referenceClass:           node.SupplyFoldReferenceClass,
-				topologySource:           node.SupplyFoldTopologySource,
-				governanceCapKHz:         node.GovernanceCapKHz,
-				governanceCapMechanism:   node.GovernanceCapMechanism,
-				governanceCapWitnessed:   node.GovernanceCapWitnessed,
-				thermalCapKHz:            node.ThermalCapKHz,
-				thermalCapWitnessed:      node.ThermalCapWitnessed,
-				windowStart:              node.QueryWindowStartTs,
-				windowEnd:                node.QueryWindowEndTs,
-				windowDeclared:           TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs),
+				capabilitySource:          node.SupplyFoldCapabilitySource,
+				capabilityFreqOnlyReason:  node.SupplyFoldCapabilityFreqOnlyReason,
+				referenceClass:            node.SupplyFoldReferenceClass,
+				topologySource:            node.SupplyFoldTopologySource,
+				governanceCapKHz:          node.GovernanceCapKHz,
+				governanceCapClusterClass: node.GovernanceCapClusterClass,
+				governanceCapMechanism:    node.GovernanceCapMechanism,
+				governanceCapWitnessed:    node.GovernanceCapWitnessed,
+				thermalCapKHz:             node.ThermalCapKHz,
+				thermalCapWitnessed:       node.ThermalCapWitnessed,
+				windowStart:               node.QueryWindowStartTs,
+				windowEnd:                 node.QueryWindowEndTs,
+				windowDeclared:            TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs),
 			}
 			if existing, seen := donors[key]; seen {
 				// The same record's cross-bucket copy carries identical values
@@ -2941,6 +2944,7 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldReferenceClass = donor.referenceClass
 			node.SupplyFoldTopologySource = donor.topologySource
 			node.GovernanceCapKHz = donor.governanceCapKHz
+			node.GovernanceCapClusterClass = donor.governanceCapClusterClass
 			node.GovernanceCapMechanism = donor.governanceCapMechanism
 			node.GovernanceCapWitnessed = donor.governanceCapWitnessed
 			node.ThermalCapKHz = donor.thermalCapKHz
@@ -4094,6 +4098,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.SupplyFoldTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldClusterTopology))
 		node.GovernanceCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyGovernanceCapKHz)
 		if node.GovernanceCapKHz > 0 {
+			node.GovernanceCapClusterClass = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGovernanceCapClusterClass))
 			node.GovernanceCapMechanism = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGovernanceCapMechanism))
 			node.GovernanceCapWitnessed = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGovernanceCapWitnessed)) == "true"
 		} else {
