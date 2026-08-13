@@ -498,6 +498,58 @@ func TestAssembleAnswerRuleDeclaredOutputFieldDeterministicMapping(t *testing.T)
 	}
 }
 
+func TestAssembleAnswerExplicitOutputFieldKeepsInternalGroupIdentity(t *testing.T) {
+	seed := Result{Contributions: []ContributionRecord{
+		{
+			ItemID: LooseText("u1"), Source: LooseText("users.json"), SourceLocator: LooseText("line:1"),
+			GroupKey: LooseText("active_user_ids"), Metric: LooseText("id"), Value: LooseText("u1"),
+			Operation: LooseText("include"), Role: LooseText("target"),
+		},
+		{
+			ItemID: LooseText("u3"), Source: LooseText("users.json"), SourceLocator: LooseText("line:3"),
+			GroupKey: LooseText("active_user_ids"), Metric: LooseText("id"), Value: LooseText("u3"),
+			Operation: LooseText("include"), Role: LooseText("target"),
+		},
+	}}
+	res, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{
+			{Kind: DataActionReconcile},
+			{Kind: DataActionAssembleAnswer, Params: map[string]string{
+				"projection":   "json_object",
+				"value_field":  "actual",
+				"output_field": "ids",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want external output_field mapping", res.Answer)
+	}
+	if res.Reconcile == nil || len(res.Reconcile.Groups) == 0 || res.Reconcile.Groups[0].GroupKey.String() != "active_user_ids" {
+		t.Fatalf("Reconcile=%+v, internal group identity must remain active_user_ids", res.Reconcile)
+	}
+	artifact := res.Artifacts[len(res.Artifacts)-1]
+	if artifact.Fields["output_field"] != "ids" {
+		t.Fatalf("assemble fields=%+v, want typed output_field receipt", artifact.Fields)
+	}
+}
+
+func TestAssembleAnswerExplicitOutputFieldCannotOverrideRuleAuthority(t *testing.T) {
+	seed := pollutedLineageSeed()
+	seed.RuleCoverage = []RuleCoverageRecord{{
+		RuleID: LooseText("rule_2"), OutputField: LooseText("ids"),
+	}}
+	plan := pollutedLineageAssemblePlan()
+	plan.Actions[1].Params["output_field"] = "identifiers"
+	_, err := (ActionRunner{RepoRoot: t.TempDir(), Seed: seed}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "conflicts with the unique typed rule-coverage output field") {
+		t.Fatalf("err=%v, want typed declaration conflict to fail loud", err)
+	}
+}
+
 // Wire-token pin: the payload envelope identifiers are load-bearing
 // wire tokens — internal-summary detection
 // (artifactSummaryObjectLooksInternal), repair-source admission, and

@@ -318,6 +318,15 @@ func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
 			action: `{"kind":"filter_records","input_paths":["records.json"],"params":{"filters":[{"field":"active","op":"eq","value":true}]}}`,
 		},
 		{
+			name:   "assemble external output field remains admitted",
+			action: `{"kind":"assemble_answer","params":{"projection":"json_object","output_field":"ids"}}`,
+		},
+		{
+			name:    "assemble rejects output rename in internal group carrier",
+			action:  `{"kind":"assemble_answer","params":{"projection":"json_object","group_key":"ids"}}`,
+			wantErr: "group_key",
+		},
+		{
 			name:    "compute rejects phantom include key",
 			action:  `{"kind":"compute_contributions","input_paths":["records.json"],"params":{"include":"id"}}`,
 			wantErr: "include",
@@ -342,6 +351,33 @@ func TestDataTaskToolProjectsRuntimeActionParamContracts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDataTaskToolTeachesAssembleOutputFieldFromRuntimeContract(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal(dataTaskPlanTool.Parameters, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	actions := properties["actions"].(map[string]any)
+	items := actions["items"].(map[string]any)
+	for _, raw := range items["allOf"].([]any) {
+		if kind, ok := dataTaskActionConditionalKind(raw); !ok || kind != string(dataquery.DataActionAssembleAnswer) {
+			continue
+		}
+		branch := raw.(map[string]any)
+		then := branch["then"].(map[string]any)
+		thenProperties := then["properties"].(map[string]any)
+		params := thenProperties["params"].(map[string]any)
+		paramProperties := params["properties"].(map[string]any)
+		outputField := paramProperties["output_field"].(map[string]any)
+		description, _ := outputField["description"].(string)
+		if !strings.Contains(description, "External JSON object field") || !strings.Contains(description, "group_key") {
+			t.Fatalf("output_field schema=%+v, want executor-owned external/internal distinction", outputField)
+		}
+		return
+	}
+	t.Fatal("assemble_answer runtime parameter schema branch missing")
 }
 
 func TestDataTaskToolProjectsRuntimeActionInputContracts(t *testing.T) {

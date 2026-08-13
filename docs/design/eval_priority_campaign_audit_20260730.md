@@ -35774,6 +35774,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.737 B708：外部 JSON 字段与内部账本身份分离施工（2026-08-12）
+
+1. 冷读纠正 §123.736 的一处表述：执行器原先已经有隐式 `output_field` 读取点和唯一
+   `rule_coverage.output_field` 映射，但该字段不在 `assemble_answer` 的运行时参数单源合同中，planner
+   JSON schema 仍开放，教学又只列 projection/order/value/include_keys。生产模型因此把 `ids` 放入
+   `group_key`；该字段在普通投影中被静默忽略，才反复产出内部键 `active_user_ids`。根因是能力、schema、
+   教学和 admission 四面断裂，不是单纯“执行器没有 rename”。
+2. `assemble_answer` 现加入 executor-owned fail-closed 参数合同，公开 `output_field` 作为外部 JSON object
+   key，并明确 `reference_key_field` 只选择 complete-reference 成员域；内部 contribution/reconcile
+   `group_key` 不被改写。Planner schema 从同一运行时注册表投影键和说明，不再维护第二份手写 allowlist。
+3. 退役 `assemble_answer.group_key` 重载：无论普通投影还是 reference 投影都 fail-loud，并给 typed
+   `output_field`/`reference_key_field` 修向；这样不能再把一个字段同时理解为“外部键名”和“内部 reference
+   domain”。`output_field` 搭配显式非 object projection 也 fail-loud，禁止声明后静默忽略。
+4. 权威冲突 fail-closed：动作显式 `output_field` 与唯一 typed `rule_coverage.output_field` 不同时直接拒绝，
+   不用优先级猜测；一致或只有一席时正常装配。成功工件写入 `output_field` 与来源 receipt，reconcile 的
+   business group 仍保持原内部身份，expected/actual 绑定同一最终 JSON。
+5. 单元与接线 pins 覆盖：外部 `ids` + 内部 `active_user_ids` 正确分离；动作/规则冲突拒绝；group_key
+   误载拒绝；非 object 未消费字段拒绝；planner schema 确实教出 external/internal 区别；reference 依赖
+   注册表不再接受 overloaded group_key。三包全绿，4ms active-stream 两个行为 pin 同时复绿。
+6. 本批没有扫描用户原文或模型答案，没有系统生成业务值/结论，只执行模型提交的 typed 映射或已消费
+   rule ledger 的唯一声明。Trace 路径未改：显式窗、因果投影、自动补齐、链上-only 根因与背景分层均保持。
+
+状态：
+
+`B708-DATAOUTPUTFIELDGROUPIDENTITY1=implemented/unit+schema-pins-pass`；
+`B708-production-replay=pending-r423`；
+`required-diagram-boundary-display=partial/pending-generic-audit`；
+`active-stream-4ms-degrade=forbidden/behavior-pins-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.734 r420：逐成员位置与语义计价生产闭环；私有分页路径退出公开枚举范围（2026-08-12）
 
 1. 在 `main@013fb2809` 严格并发恰好两个案例：

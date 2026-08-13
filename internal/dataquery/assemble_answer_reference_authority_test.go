@@ -157,6 +157,7 @@ func TestAssembleReferenceOrderDependencyRegistryMatchesRuntimeAuthority(t *test
 	}{
 		{name: "canonical pair", params: map[string]string{"reference_path": "targets.csv", "reference_key_field": "id"}, want: true},
 		{name: "accepted aliases", params: map[string]string{"reference_paths": `["targets.csv"]`, "group_key_field": "id"}, want: true},
+		{name: "overloaded group key is not a reference credential", params: map[string]string{"reference_paths": `["targets.csv"]`, "group_key": "id"}},
 		{name: "path only", params: map[string]string{"reference_path": "targets.csv"}},
 		{name: "key only", params: map[string]string{"reference_key_field": "id"}},
 		{name: "empty values", params: map[string]string{"reference_path": " ", "reference_key_field": ""}},

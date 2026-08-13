@@ -160,6 +160,16 @@ func (r ActionRunner) runAssembleAnswer(action DataAction, reconcile *ReconcileR
 	}
 	contract = r.effectiveAssembleOutputContract(contract)
 	declaredField := ruleDeclaredOutputField(ruleCoverage)
+	explicitField := reconcileJSONObjectExplicitKey(action)
+	if declaredField != "" && explicitField != "" && declaredField != explicitField {
+		return DataArtifact{}, "", nil, nil, DataActionParamError{
+			ActionKind:    DataActionAssembleAnswer,
+			Param:         "output_field",
+			ExpectedShape: "the unique typed rule_coverage.output_field declaration " + declaredField,
+			ActualSnippet: explicitField,
+			Message:       "assemble_answer output_field conflicts with the unique typed rule-coverage output field; repair the typed declaration instead of selecting an authority by precedence",
+		}
+	}
 	if !r.AnswerRepair.Active {
 		artifact, answer, next, err := r.runAssembleAnswerFromReconcileGroups(action, reconcile, contract, artifacts, contributions, declaredField)
 		return artifact, answer, next, nil, err

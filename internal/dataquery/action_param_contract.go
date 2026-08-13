@@ -19,8 +19,9 @@ type dataActionParamAliasGroup struct {
 }
 
 type dataActionParamContract struct {
-	Allowed     map[string]bool
-	AliasGroups []dataActionParamAliasGroup
+	Allowed      map[string]bool
+	AliasGroups  []dataActionParamAliasGroup
+	Descriptions map[string]string
 }
 
 var dataActionParamContracts = map[DataActionKind]dataActionParamContract{
@@ -137,6 +138,21 @@ var dataActionParamContracts = map[DataActionKind]dataActionParamContract{
 	DataActionComputeContribs: {
 		Allowed: computeContributionAllowedParams,
 	},
+	DataActionAssembleAnswer: {
+		Allowed: actionParamSet(
+			"projection", "order_by", "delimiter", "value_field", "include_keys",
+			"output_field",
+			"complete_reference", "reference_path", "reference_paths", "reference_key_field", "metric",
+		),
+		AliasGroups: []dataActionParamAliasGroup{
+			{Canonical: "output_field", Aliases: []string{"output_key", "json_field", "target_field", "field"}},
+			{Canonical: "reference_key_field", Aliases: []string{"key_field", "group_key_field"}},
+		},
+		Descriptions: map[string]string{
+			"output_field":        "External JSON object field name for projection=json_object. This renames only the published object key; it never changes contribution or reconcile group_key identity.",
+			"reference_key_field": "Field in a declared complete-reference source whose values share the internal contribution group_key domain. It selects reference members; it does not rename a JSON output field.",
+		},
+	},
 }
 
 func actionParamSet(keys ...string) map[string]bool {
@@ -196,6 +212,32 @@ func DataActionAcceptedParamKeys(kind DataActionKind) (keys []string, ok bool) {
 	return keys, true
 }
 
+// DataActionParamDescription returns executor-owned teaching for one accepted
+// parameter. Planner schemas consume this registry so semantic distinctions
+// such as assemble_answer's external output_field versus internal/reference
+// group identity cannot drift into a second prompt-only contract.
+func DataActionParamDescription(kind DataActionKind, key string) string {
+	contract, ok := dataActionParamContracts[normalizeDataActionKind(kind)]
+	if !ok {
+		return ""
+	}
+	key = strings.TrimSpace(key)
+	if description := strings.TrimSpace(contract.Descriptions[key]); description != "" {
+		return description
+	}
+	for _, group := range contract.AliasGroups {
+		if key == group.Canonical {
+			return strings.TrimSpace(contract.Descriptions[group.Canonical])
+		}
+		for _, alias := range group.Aliases {
+			if key == alias {
+				return strings.TrimSpace(firstNonEmptyString(contract.Descriptions[alias], contract.Descriptions[group.Canonical]))
+			}
+		}
+	}
+	return ""
+}
+
 // DataActionKindsWithParamContracts enumerates only action families whose
 // executor rejects unknown parameter keys. It is deliberately derived from
 // the owning runtime registry so planner schemas cannot drift into a second
@@ -223,6 +265,17 @@ func applyDataActionParamContract(action DataAction) (DataAction, error) {
 	// schema projection. This remains the only admission call site.
 	if normalizeDataActionKind(action.Kind) == DataActionComputeContribs {
 		return action, validateComputeContributionActionParams(action)
+	}
+	if normalizeDataActionKind(action.Kind) == DataActionAssembleAnswer {
+		if groupKey, present := action.Params["group_key"]; present {
+			return action, DataActionParamError{
+				ActionKind:    action.Kind,
+				Param:         "group_key",
+				ExpectedShape: "output_field for the external JSON object key, or reference_key_field for a declared complete-reference source",
+				ActualSnippet: strings.TrimSpace(groupKey),
+				Message:       "assemble_answer does not accept the overloaded group_key carrier: use output_field for the external JSON object key or reference_key_field for the reference-member domain",
+			}
+		}
 	}
 	params := make(map[string]string, len(action.Params))
 	for key, value := range action.Params {
@@ -261,6 +314,19 @@ func applyDataActionParamContract(action DataAction) (DataAction, error) {
 		}
 		if selectedKey != "" {
 			params[canonical] = selectedValue
+		}
+	}
+	if normalizeDataActionKind(action.Kind) == DataActionAssembleAnswer {
+		projection := strings.ToLower(strings.TrimSpace(params["projection"]))
+		if outputField := strings.TrimSpace(params["output_field"]); outputField != "" &&
+			projection != "" && projection != "json_object" && projection != "json_object_values" && projection != "object" {
+			return action, DataActionParamError{
+				ActionKind:    action.Kind,
+				Param:         "output_field/projection",
+				ExpectedShape: "output_field only with projection=json_object (or an omitted projection resolved by a JSON output contract)",
+				ActualSnippet: "projection=" + projection,
+				Message:       "assemble_answer output_field names an external JSON object key and would be ignored by the selected non-object projection",
+			}
 		}
 	}
 

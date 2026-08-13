@@ -8809,6 +8809,13 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 		"delimiter":   delimiter,
 		"answer_len":  fmt.Sprintf("%d", len(answer)),
 	}
+	if explicitField := reconcileJSONObjectExplicitKey(action); explicitField != "" && jsonObjectHasSingleKey(answer, explicitField) {
+		fields["output_field"] = explicitField
+		fields["output_field_source"] = "action"
+	} else if declaredField != "" && jsonObjectHasSingleKey(answer, declaredField) {
+		fields["output_field"] = declaredField
+		fields["output_field_source"] = "rule_coverage"
+	}
 	if referenceProjected {
 		fields["reference_projected"] = "true"
 		fields["reference_key_count"] = fmt.Sprintf("%d", projectionInfo.KeyCount)
@@ -8859,7 +8866,6 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		strings.TrimSpace(contract.ReferenceKeyField),
 		strings.TrimSpace(action.Params["key_field"]),
 		strings.TrimSpace(action.Params["group_key_field"]),
-		strings.TrimSpace(action.Params["group_key"]),
 	)
 	if strings.TrimSpace(keyField) == "" {
 		return groups, assembleReferenceProjection{}

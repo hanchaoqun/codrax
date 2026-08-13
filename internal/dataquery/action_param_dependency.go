@@ -23,7 +23,7 @@ var assembleReferenceOrderDependency = ActionParamDependencyContract{
 	TriggerValue: "reference",
 	RequiredActionParamGroups: [][]string{
 		{"reference_paths", "reference_path"},
-		{"reference_key_field", "key_field", "group_key_field", "group_key"},
+		{"reference_key_field", "key_field", "group_key_field"},
 	},
 	// A complete-reference output contract already carries the canonical
 	// reference_path/reference_key_field pair. An action may instead declare
