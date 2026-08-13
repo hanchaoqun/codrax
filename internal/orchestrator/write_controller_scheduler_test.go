@@ -7247,6 +7247,44 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 		t.Fatalf("ordinary implementation batch changed outcome: got=%+v want=%+v", got, passed)
 	}
 
+	// An independently passing project suite can leave the aggregate profile
+	// strong even though the only verification_probe command was unavailable.
+	// The proof-only lane must inspect capability authority as well as ordinary
+	// obligations; source-static success cannot launder this shape.
+	maskedProbeReport := &types.ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "static-project-check",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Source:     "pre_suite_verification_probe",
+			Outcome:    "probe_config_error",
+			ReasonCode: "verification_probe_language_target_mismatch",
+		}, {
+			Runner:   "make",
+			Command:  "make check",
+			ExitCode: 0,
+			Source:   "declared_coverage_test_surface",
+			Outcome:  "executed",
+		}},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, plan, maskedProbeReport, passed); got.Kind != writeflow.VerifyOutcomeVerificationIncomplete {
+		t.Fatalf("unavailable proof capability was laundered by project pass: %+v", got)
+	}
+	probePlan := &types.ChangePlan{ID: "plan-proof", Status: types.PlanStatusApplied, VerificationProbes: []types.VerificationProbe{{ID: "required-probe"}}}
+	projectOnly := &types.ChangeReport{
+		PlanID: probePlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-test", Passed: true}},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, probePlan, projectOnly, passed); got.Kind != writeflow.VerifyOutcomeVerificationIncomplete {
+		t.Fatalf("project suite passed without executing the planned probe: %+v", got)
+	}
+
 	strongReport := &types.ChangeReport{
 		PlanID:             "plan-proof",
 		Passed:             true,
@@ -7261,6 +7299,27 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 	}
 	if got := reconcileProofFollowupVerifyOutcome(proofRun, plan, strongReport, passed); got != passed {
 		t.Fatalf("closed proof-only follow-up changed outcome: got=%+v want=%+v", got, passed)
+	}
+}
+
+func TestPromoteActiveProofProbeOnlyBatchToVerifyOnly(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-proof",
+			Purpose: "verification_proof_followup",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}, {
+			ID:      "batch-ordinary",
+			Purpose: "implementation",
+		}},
+	}
+	promoteActiveProofProbeOnlyBatchToVerifyOnly(run)
+	if run.Batches[0].ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly {
+		t.Fatalf("proof-only plan did not close into verify-only authority: %+v", run.Batches[0])
+	}
+	if run.Batches[1].ExecutionMode != "" {
+		t.Fatalf("inactive ordinary batch was modified: %+v", run.Batches[1])
 	}
 }
 

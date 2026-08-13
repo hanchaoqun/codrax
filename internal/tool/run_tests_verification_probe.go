@@ -343,7 +343,7 @@ func verificationProbeLanguageTargetMismatchResult(
 		return verificationProbeRunResult{}, false
 	}
 	probeFamilies := sourceVerificationLanguageFamilies(
-		types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+		types.VerificationProbeDirectSourceFamilies(probe.Language),
 	)
 	if len(probeFamilies) == 0 {
 		return verificationProbeRunResult{}, false

@@ -476,11 +476,7 @@ func validateVerificationProbeTargetPathLanguageCompatibility(paths []string, pr
 }
 
 func verificationProbeDirectSourceFamilies(language string) []types.VerificationLanguageFamily {
-	families := types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(language))
-	if language == "javascript" {
-		families = append(families, types.VerificationLanguageTypeScript)
-	}
-	return types.NormalizeVerificationLanguageFamilies(families)
+	return types.VerificationProbeDirectSourceFamilies(language)
 }
 
 func verificationLanguageFamilyList(families []types.VerificationLanguageFamily) string {
@@ -674,7 +670,7 @@ func validateVerifyFailureProofFollowupProbeRefs(ctx *types.BusContext, probes [
 		var targetLanguageProbes []types.VerificationProbe
 		for _, probe := range exactRefProbes {
 			probeFamilies := sourceVerificationLanguageFamilies(
-				types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+				types.VerificationProbeDirectSourceFamilies(probe.Language),
 			)
 			if verificationLanguageFamiliesIntersect(targetFamilies, probeFamilies) {
 				targetLanguageProbes = append(targetLanguageProbes, probe)
@@ -708,7 +704,7 @@ func validateVerifyFailureProofFollowupProbeRefs(ctx *types.BusContext, probes [
 func verificationProbeRuntimeSupportsTargetFamilies(targetFamilies []types.VerificationLanguageFamily) bool {
 	for _, spec := range verificationProbeRuntimeSpecs {
 		probeFamilies := sourceVerificationLanguageFamilies(
-			types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + spec.Language),
+			types.VerificationProbeDirectSourceFamilies(spec.Language),
 		)
 		if verificationLanguageFamiliesIntersect(targetFamilies, probeFamilies) {
 			return true

@@ -406,6 +406,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
 			if o.busCtx.Mode == types.ModeApply && changePlanIsProofProbeOnly(plan) {
+				promoteActiveProofProbeOnlyBatchToVerifyOnly(&run)
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
 				appendControllerProgress(&run, run.ActiveBatchID, "proof_probe_only_plan_ready",
 					"controller-owned proof follow-up produced no source edits and will verify typed probes against the current worktree")
@@ -1489,6 +1490,29 @@ func changePlanIsNoChangeRequired(plan *types.ChangePlan) bool {
 
 func changePlanIsProofProbeOnly(plan *types.ChangePlan) bool {
 	return changePlanIsNoChangeRequired(plan) && len(plan.VerificationProbes) > 0
+}
+
+// promoteActiveProofProbeOnlyBatchToVerifyOnly closes the controller-owned
+// proof lane after its one permitted authoring turn. Source-static discovery
+// batches intentionally start without verify_only so the planner can author
+// verification_probes[]. Once that plan contains no edits and at least one
+// typed probe, every later transition must use the stricter proof-only verify
+// and proof-ledger authority; leaving the mode empty lets an unavailable probe
+// be masked by an unrelated source-static project check.
+func promoteActiveProofProbeOnlyBatchToVerifyOnly(run *types.WriteWorkflowRun) {
+	if run == nil {
+		return
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	for i := range run.Batches {
+		if strings.TrimSpace(run.Batches[i].ID) != activeID ||
+			!proofFollowupPurpose(run.Batches[i].Purpose) {
+			continue
+		}
+		run.Batches[i].ExecutionMode = types.WriteWorkflowBatchExecutionVerifyOnly
+		run.Batches[i].UpdatedAt = time.Now()
+		return
+	}
 }
 
 func activeBatchProofFollowupPurpose(run *types.WriteWorkflowRun) bool {
@@ -7300,10 +7324,13 @@ func reconcileProofFollowupVerifyOutcome(run *types.WriteWorkflowRun, plan *type
 		return outcome
 	}
 	ledger := types.BuildVerificationProofLedger(plan, report, nil)
-	if ledger.State == types.VerificationProofLedgerVerified &&
+	if proofFollowupPlannedProbesPassed(plan, report) &&
+		ledger.State == types.VerificationProofLedgerVerified &&
 		ledger.UncoveredCount == 0 &&
 		ledger.UnavailableCount == 0 &&
-		ledger.FailedCount == 0 {
+		ledger.FailedCount == 0 &&
+		ledger.CapabilityUnavailableCount == 0 &&
+		ledger.CapabilityFailedCount == 0 {
 		return outcome
 	}
 	return writeflow.VerifyAttemptOutcome{
@@ -7312,6 +7339,31 @@ func reconcileProofFollowupVerifyOutcome(run *types.WriteWorkflowRun, plan *type
 		RecommendedAction: writeflow.ActionFinish,
 		ReasonCode:        "verification_proof_incomplete",
 	}
+}
+
+// proofFollowupPlannedProbesPassed prevents an independent project check from
+// satisfying a probe-only plan whose declared probes never produced passing
+// typed results. IDs come exclusively from ChangePlan.VerificationProbes and
+// ChangeReport.TestResults; command output and model prose are not inspected.
+func proofFollowupPlannedProbesPassed(plan *types.ChangePlan, report *types.ChangeReport) bool {
+	if plan == nil || report == nil || len(plan.VerificationProbes) == 0 {
+		return true
+	}
+	passed := map[string]bool{}
+	for _, result := range report.TestResults {
+		if result.Passed && strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
+			if id := strings.TrimSpace(result.AssertionID); id != "" {
+				passed[id] = true
+			}
+		}
+	}
+	for _, probe := range plan.VerificationProbes {
+		id := strings.TrimSpace(probe.ID)
+		if id == "" || !passed[id] {
+			return false
+		}
+	}
+	return true
 }
 
 func activeWorkflowBatchVerifyOnly(run *types.WriteWorkflowRun) bool {

@@ -27,6 +27,8 @@ func TestAnswerfaceBlockedReasonCensusConsumption(t *testing.T) {
 		"authoritative record inventory",
 		"caller symbol identifies the kernel call site",
 		"NOT by itself the waited resource/object",
+		"function-name morphology is only a code-location/search clue",
+		"subsystem, or corresponding fix only when that separate typed evidence exists",
 		"separate typed field or dependency edge",
 		"different typed measures",
 		"do not call their difference rounding or an allowed precision error",
@@ -129,6 +131,37 @@ func TestAnswerfaceExploreCensusSentence(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("explore census sentence missing %q", want)
+		}
+	}
+}
+
+func TestExploreBlockedReasonCallsiteBoundaryIsSoftTraceGuidance(t *testing.T) {
+	registry := NewRegistry()
+	RegisterDefaults(registry)
+	config, err := registry.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("explore-skill must be registered: %v", err)
+	}
+	var item TierBItem
+	for _, candidate := range config.WorkflowTierB {
+		if strings.HasPrefix(candidate.Body, "BLOCKED-REASON CALLSITE BOUNDARY:") {
+			item = candidate
+			break
+		}
+	}
+	if item.Body == "" {
+		t.Fatal("explore blocked-reason callsite boundary missing")
+	}
+	if !item.AppliesTo.RequiresTrace || len(item.OnViolation) != 0 {
+		t.Fatalf("callsite boundary must remain trace-gated soft guidance: %+v", item)
+	}
+	for _, want := range []string{
+		"subsystem mechanism, or direct fix direction",
+		"function-name morphology is only a code-location/search clue",
+		"separate typed identity or dependency field",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("callsite boundary missing %q: %s", want, item.Body)
 		}
 	}
 }

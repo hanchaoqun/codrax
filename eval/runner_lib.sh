@@ -932,6 +932,26 @@ PY
   LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)",?$/\1/p' "$file" | head -1
 }
 
+eval_json_top_array_count() {
+  local file="$1"
+  local field="$2"
+  [[ -f "$file" ]] || return 1
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$field" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    value = json.load(handle).get(sys.argv[2])
+if not isinstance(value, list):
+    raise SystemExit(1)
+sys.stdout.write(str(len(value)))
+PY
+    return
+  fi
+  return 1
+}
+
 eval_data_terminal_action_failed_count() {
   local file="$1"
   [[ -f "$file" ]] || { echo 0; return; }
@@ -1051,10 +1071,16 @@ eval_materialize_write_apply_source() {
   local scratch="$3"
   local run_id="$4"
   local worktree="" plan_id="" applied_sha="" commit="" dest=""
+  local changes_count="" probes_count="" probe_only_plan=0
   if [[ -f "$plan_path" ]]; then
     worktree="$(eval_json_top_string_field "$plan_path" worktree_path || true)"
     plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
     applied_sha="$(eval_json_top_string_field "$plan_path" applied_commit_sha || true)"
+    changes_count="$(eval_json_top_array_count "$plan_path" changes || true)"
+    probes_count="$(eval_json_top_array_count "$plan_path" verification_probes || true)"
+    if [[ "$changes_count" == "0" ]] && eval_is_uint "$probes_count" && [[ "$probes_count" -gt 0 ]]; then
+      probe_only_plan=1
+    fi
   fi
   if [[ -n "$scratch" && -d "$scratch/.git" && -n "$plan_id" ]]; then
     # Multi-plan sessions pin ONE ref per applied plan. A cold-discard
@@ -1120,7 +1146,13 @@ eval_materialize_write_apply_source() {
       fi
       rm -rf "$dest"
     fi
-    if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
+    if [[ "$probe_only_plan" == 1 && "${#union_refs[@]}" -eq 1 ]]; then
+      # A terminal proof-only plan deliberately has no apply commit of its
+      # own. Its delivery bytes are the already-pinned mutation checkpoint.
+      # Materialize that exact durable ref; do not fall back to the live
+      # worktree, and do not relax the missing-ref failure for mutation plans.
+      commit="${union_refs[0]}"
+    elif [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
       commit="$applied_sha"
     elif git -C "$scratch" cat-file -e "refs/codrax/applied/${plan_id}^{commit}" >/dev/null 2>&1; then
       commit="refs/codrax/applied/${plan_id}"

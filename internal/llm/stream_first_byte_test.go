@@ -339,6 +339,57 @@ func TestDoStreamRequest_KeepAlivesResetFirstByteWatchdog(t *testing.T) {
 	}
 }
 
+// A live stream can produce partial frame bytes before the first newline. The
+// byte watchdog owns transport silence only: 4ms-spaced raw bytes must not
+// authorize a degraded answer merely because no complete SSE line is ready.
+// This pins the Reader boundary, not just complete SSE heartbeat lines.
+func TestDoStreamRequest_PartialFrameBytesOutliveFourMillisecondThreshold(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		// Establish usable stream content first, then hold the next answer
+		// inside a partial frame. This isolates the mid-stream byte-liveness
+		// contract from HTTP response-header scheduling.
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
+		if f != nil {
+			f.Flush()
+		}
+		prefix := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"")
+		for _, b := range prefix {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(4 * time.Millisecond):
+			}
+			_, _ = w.Write([]byte{b})
+			if f != nil {
+				f.Flush()
+			}
+		}
+		_, _ = w.Write([]byte("ok\"}}]}\n\ndata: [DONE]\n\n"))
+		if f != nil {
+			f.Flush()
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         2 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 100 * time.Millisecond,
+		StreamStallTimeout:     25 * time.Millisecond,
+	})
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("byte-producing partial SSE frame must not degrade at 4ms: %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("partial SSE answer = %q, want ok", resp.Content)
+	}
+}
+
 // TestDoStreamRequest_StallAfterFirstByteUsesStallTimeout pins the
 // two-threshold gate: once the first chunk arrives, the watchdog
 // switches from firstByteTimeout to stallTimeout. Test sends one

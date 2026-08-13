@@ -110,6 +110,31 @@ func TestSupportedVerificationLanguageFamilies_ReturnsDefensiveCopy(t *testing.T
 	}
 }
 
+func TestVerificationProbeDirectSourceFamilies_UsesOneProviderRelation(t *testing.T) {
+	js := VerificationProbeDirectSourceFamilies("javascript")
+	for _, want := range []VerificationLanguageFamily{VerificationLanguageJavaScript, VerificationLanguageTypeScript} {
+		if !verificationLanguageFamilyContains(js, want) {
+			t.Fatalf("javascript direct families = %v, missing %q", js, want)
+		}
+	}
+	for _, tc := range []struct {
+		language string
+		want     VerificationLanguageFamily
+	}{
+		{"go", VerificationLanguageGo},
+		{"python", VerificationLanguagePython},
+		{"java", VerificationLanguageJava},
+		{"ruby", VerificationLanguageRuby},
+		{"arkts", VerificationLanguageArkTS},
+		{"cangjie", VerificationLanguageCangjie},
+	} {
+		got := VerificationProbeDirectSourceFamilies(tc.language)
+		if len(got) != 1 || got[0] != tc.want {
+			t.Fatalf("%s direct families = %v, want [%s]", tc.language, got, tc.want)
+		}
+	}
+}
+
 func verificationLanguageFamilyContains(got []VerificationLanguageFamily, want VerificationLanguageFamily) bool {
 	for _, item := range got {
 		if item == want {

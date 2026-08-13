@@ -241,6 +241,26 @@ func VerificationLanguageFamiliesFromVerificationProbeSuite(suite string) []Veri
 	})
 }
 
+// VerificationProbeDirectSourceFamilies is the single compatibility relation
+// between an inline probe runtime and the changed source families that runtime
+// may directly exercise. Keep this distinct from the probe suite's own
+// language identity above: a JavaScript probe may attempt TypeScript behavior
+// through a package entrypoint, configured loader, or compiled module. This is
+// permission to attempt execution, not proof that the provider exists; an
+// absent loader/module remains typed unavailable at execution time.
+//
+// Plan validation, execution-time mismatch checks, changed-path coverage and
+// proof-follow-up scheduling must all consume this function. Maintaining local
+// copies lets one stage accept a plan that the next stage deterministically
+// rejects.
+func VerificationProbeDirectSourceFamilies(language string) []VerificationLanguageFamily {
+	families := VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(language))
+	if normalizeVerificationLanguageFamily(VerificationLanguageFamily(language)) == VerificationLanguageJavaScript {
+		families = append(families, VerificationLanguageTypeScript)
+	}
+	return NormalizeVerificationLanguageFamilies(families)
+}
+
 func VerificationLanguageFamiliesFromReport(report *ChangeReport) []VerificationLanguageFamily {
 	if report == nil {
 		return nil

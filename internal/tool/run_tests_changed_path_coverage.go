@@ -372,7 +372,7 @@ func verificationProbeChangedTargetPaths(
 	targetFamilies map[string][]types.VerificationLanguageFamily,
 ) []string {
 	probeFamilies := sourceVerificationLanguageFamilies(
-		types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+		types.VerificationProbeDirectSourceFamilies(probe.Language),
 	)
 	if len(probeFamilies) == 0 || len(probe.ChangedSymbolRefs) == 0 {
 		return nil

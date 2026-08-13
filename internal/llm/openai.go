@@ -1079,6 +1079,15 @@ func parseSSEStream(r io.Reader, onDelta func(string), onReasoningDelta func(str
 }
 
 func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
+	// Track transport liveness at the Reader boundary, not only after Scanner
+	// has assembled a newline-terminated SSE record. A provider may flush a
+	// large or slowly-produced frame in partial reads; those bytes prove the
+	// link is active even though Scanner cannot yield the line yet. Fixed-age
+	// degradation while this reader is producing bytes would discard a live
+	// model answer.
+	if progress != nil {
+		r = &streamByteProgressReader{Reader: r, progress: progress}
+	}
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -1323,6 +1332,19 @@ scan:
 		})
 	}
 	return resp, nil
+}
+
+type streamByteProgressReader struct {
+	io.Reader
+	progress *atomic.Int64
+}
+
+func (r *streamByteProgressReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 && r.progress != nil {
+		r.progress.Store(time.Now().UnixNano())
+	}
+	return n, err
 }
 
 // --- request types ---

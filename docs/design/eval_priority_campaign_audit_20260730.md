@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.726 r412：补证探针三面合同统一；静态套件不得掩盖探针不可用；活跃分片不降级（2026-08-12）
+
+1. 在 `main@06d25d7fc` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + real_trace_h7_self_seat_full_spectrum`。Runner `1 PASS / 1 FAIL`，
+   人工 `1 partial / 1 fail`；详见
+   `eval/parallel_selected_summary_evalcampaign_authority_trace_r412_20260812_manual_audit.md`。
+2. B683 获生产正证：Zod 的 controller-owned proof batch 从 plan 到 verify 保留 exact
+   goal/purpose/paths/criteria，planner 只生成 `changes=[] + verification_probes=4`，不再重复修改。
+3. 新确认 B685：计划校验假定 JavaScript→TypeScript provider，runtime mismatch、coverage
+   投影却只认精确 family，前者接收、后两者确定性拒绝同一 probe。根修将 direct-source family
+   关系放入 types 单源：JS→TS 仅授权通过 package entrypoint/loader/compiled module 尝试，
+   不证明 provider 存在；执行失败保持 typed unavailable 且不能被静态套件掩盖。ArkTS/Cangjie
+   等仍等待自身 project-native runner，不借跨语言 wrapper 硬签。
+4. 新确认 B686：source-static follow-up 在 authoring 阶段暂不设 verify-only 是合理的，但
+   probe-only plan 生成后旧代码未把 batch 切回严格权威。四 probe 全 `probe_config_error` 后，
+   `make check` 的 source_static pass 仍把批次签成 verified。现于唯一 proof-probe-only seam
+   typed promote 为 verify-only；ledger reconcile 除义务外还拒绝 capability unavailable/failed。
+   普通实现批原有“非权威探针失败后继续独立项目测试”语义保持。
+5. B687 修复 eval 误报：末批 probe-only plan 无 apply ref 是合法形，最终交付字节来自前序生产
+   批 checkpoint。runner 仅在 exact `changes=[] + probes>0` 时采用已有唯一 durable ref；普通
+   mutation plan 缺 ref 仍报 `durable_apply_ref_missing`，不回退 live worktree。
+6. H7 正向：显式窗、链上根因排名、Trace 因果投影、两维根因、业务 span 与背景隔离完整；
+   B684 已消除“12 vs 11 是 precision”错误。剩余 caller 名形→DMA/GPU 修向越界由通用软教学
+   收窄：函数名只作代码位置/搜索线索，不自动生成 subsystem/mechanism/object/fix direction。
+7. 活跃流发现并关闭更深的 Reader gap：原来 heartbeat/完整 SSE line 会刷新 liveness，但慢速
+   partial frame 在换行前 Scanner 无法上报，仍可能被 byte-stall 误杀。现在所有成功 Read 字节
+   即刷新；4ms 间隔 partial-frame pin 在超过阈值后仍完整返回模型答案。没有 fixed-age 降级，
+   降级/重试只来自 caller cancel/deadline、no-first-byte、真实 byte silence、transport/decode。
+8. 本批没有系统代写答案，没有扫描用户/模型/答案原文作硬门；Read/Trace 投影代码未改。
+   显式时间窗、系统自动补齐、链上-only 主因与邻近/背景 support-only 保持。
+
+状态：
+
+`B683-CONTROLLEROWNEDBATCHAUTHORITY1=production-positive-r412`；
+`B685-PROBEDIRECTSOURCECONTRACT1=implemented/single-typed-relation+pinned`；
+`B686-PROBEUNAVAILABLELAUNDER1=implemented/promote+capability-ledger-pins`；
+`B687-PROBEONLYDURABLEREF1=implemented/exact-shape-runner-pin`；
+`B684-BLOCKEDREASONCALLERIDENTITY1=soft-teaching-tightened`；
+`active-stream-partial-byte-degrade=forbidden/Reader-boundary-pin-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.725 r411：控制器 typed 批次权威防覆盖；blocked_reason 调用点口径根修（2026-08-12）
 
 1. 在 `main@88f56091e` 严格并发恰好两个案例：

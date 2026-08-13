@@ -36,7 +36,7 @@ func TestVerificationProbeTargetLanguageCompatibilityAcceptsDirectAndMixedTarget
 	}{
 		{name: "python", changes: []types.FileChange{{Path: "pkg/widget.py"}}, language: "python"},
 		{name: "javascript", changes: []types.FileChange{{Path: "src/widget.js"}}, language: "javascript"},
-		{name: "typescript-via-existing-js-provider", changes: []types.FileChange{{Path: "src/widget.ts"}}, language: "javascript"},
+		{name: "typescript-via-package-or-loader", changes: []types.FileChange{{Path: "src/widget.ts"}}, language: "javascript"},
 		{name: "ruby", changes: []types.FileChange{{Path: "lib/widget.rb"}}, language: "ruby"},
 		{name: "java", changes: []types.FileChange{{Path: "src/Widget.java"}}, language: "java"},
 		{name: "go", changes: []types.FileChange{{Path: "pkg/widget.go"}}, language: "go"},
@@ -61,7 +61,24 @@ func TestVerificationProbeTargetPathLanguageCompatibilityCoversEditFreeProofPlan
 	}
 	probes[0].Language = "javascript"
 	if got := validateVerificationProbeTargetPathLanguageCompatibility([]string{"src/widget.ts"}, probes); got != "" {
-		t.Fatalf("javascript should remain the direct TypeScript probe provider: %s", got)
+		t.Fatalf("javascript should be allowed to attempt TypeScript through a package/loader: %s", got)
+	}
+}
+
+func TestVerificationProbeRuntimeMismatchUsesSameJavaScriptTypeScriptProvider(t *testing.T) {
+	mu := types.NewMutableState("typescript proof provider parity")
+	plan := &types.ChangePlan{
+		ID:          "plan-ts-provider-parity",
+		TargetPaths: []string{"src/widget.ts"},
+	}
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModeApply}
+	probe := types.VerificationProbe{
+		ID:                "typescript-via-javascript",
+		Language:          "javascript",
+		ChangedSymbolRefs: []string{"path:src/widget.ts"},
+	}
+	if got, mismatch := verificationProbeLanguageTargetMismatchResult(ctx, plan, probe, "pre_suite_verification_probe"); mismatch {
+		t.Fatalf("runtime rejected a provider relation accepted by plan validation: %+v", got)
 	}
 }
 

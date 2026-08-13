@@ -77,6 +77,34 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 assert_eq "$(eval_data_terminal_action_failed_count "$tmp/data-terminal.json")" "2" "data terminal failed action count accepts serialized field casing"
 
+# A terminal proof-only plan has no new apply ref by construction. EXPECT must
+# still judge the prior durable mutation checkpoint, never the live worktree.
+proof_scratch="$tmp/proof-only-scratch"
+proof_out="$tmp/proof-only-out"
+mkdir -p "$proof_scratch" "$proof_out"
+git -C "$proof_scratch" init -q
+git -C "$proof_scratch" config user.email eval@codrax
+git -C "$proof_scratch" config user.name eval
+printf 'base\n' >"$proof_scratch/value.txt"
+git -C "$proof_scratch" add value.txt
+git -C "$proof_scratch" commit -q -m base
+printf 'durable fix\n' >"$proof_scratch/value.txt"
+git -C "$proof_scratch" add value.txt
+git -C "$proof_scratch" commit -q -m applied
+git -C "$proof_scratch" update-ref refs/codrax/applied/plan-implementation "$(git -C "$proof_scratch" rev-parse HEAD)"
+git -C "$proof_scratch" reset --hard -q HEAD~1
+cat >"$tmp/proof-only-plan.json" <<'JSON'
+{
+  "id": "plan-proof-only",
+  "status": "no_change_required",
+  "worktree_path": "",
+  "changes": [],
+  "verification_probes": [{"id": "probe", "language": "go", "code": "package main"}]
+}
+JSON
+proof_source="$(eval_materialize_write_apply_source "$tmp/proof-only-plan.json" "$proof_out" "$proof_scratch" 1)" || fail "proof-only plan did not materialize prior durable checkpoint"
+assert_eq "$(cat "$proof_source/value.txt")" "durable fix" "proof-only final plan must inherit durable implementation bytes"
+
 cat >"$tmp/convergence-lossless-repair.metrics" <<'METRICS'
 tool_read_file=9
 tool_repo_map=0

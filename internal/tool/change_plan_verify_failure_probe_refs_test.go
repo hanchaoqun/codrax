@@ -99,7 +99,6 @@ func TestValidateVerifyFailureProofFollowupProbeRefsDoesNotRequireUnavailableInl
 		"src/lib.rs",
 		"src/native.cpp",
 		"src/Main.kt",
-		"src/app.ts",
 		"entry/src/main/ets/pages/Index.ets",
 		"src/main.cj",
 	}
@@ -123,7 +122,7 @@ func TestVerificationProbeRuntimeSupportsTargetFamiliesMatchesExecutableMatrix(t
 		{"main.js", true},
 		{"Main.java", true},
 		{"main.rb", true},
-		{"main.ts", false},
+		{"main.ts", true},
 		{"Main.kt", false},
 		{"main.rs", false},
 		{"main.c", false},
