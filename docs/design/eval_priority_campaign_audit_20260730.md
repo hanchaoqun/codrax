@@ -35649,6 +35649,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.768 r449：B736 生产闭环；B735 被同 prompt 第二份旧教学抵消（2026-08-13）
+
+1. 在 `main@1c88165d5` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。runner `1 PASS / 1 FAIL`；
+   人工同判，工件见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r449_20260813.md` 与 manual audit。
+2. `B736-RUNTIMEFLOWAUTHORITY1` 获生产闭环：Trace exploration 只调用一次
+   `emit_investigation_complete` 即通过，日志不再出现 operation-level transfer repair，也没有再把
+   trace_query 行错误重发给 `emit_evidence`。route optional + deterministic runtime authority 的完成边界生效，
+   同时专项负例继续钉住显式 mixed runtime/current-source 仍保留源码 operation 门。
+3. B735 第一层未闭环。新 runtime-scope 教学明确把“条件是否限制/影响结果”分类为 causal verdict，
+   但同一 analyzer prompt 后面的 `requested_answer_dimensions` 段仍使用旧句，只把
+   `causal_attribution` 定义为 root-cause/bottleneck/ranking。Analyzer 最终遵循旧段，只发
+   `stage_or_workflow + evidence_source`，把问题称为“都是 bounded runtime facts”；这不是模型波动，
+   而是系统给模型的两个合同对同一语义相互矛盾。
+4. 由于 accepted scope 仍为 bounded，系统只允许窄事实卡；explorer 虽主动查到
+   `root_cause_rank running 58.320ms`，finalizer 没有得到完整 Trace 因果投影。答案继续把
+   CPU4 actual=policy floor 解释为 governor 压制，并把 CPU12 below max 当成 supply 限制的机制证明；
+   direct policy row 与 supply head-room 的独立权限仍被模型混用。B734 carrier 本批不是失效，而是被
+   B735 的范围路由挡住。
+5. `B735-2/P0` 根修将 causal-attribution 分类句抽成
+   `AnalysisRuntimeCausalAttributionTeaching` 单一常量，逐字插入 runtime-scope 与 requested-dimensions
+   两段，同时让 emit_analysis 的 runtime profile/role schema description 复用同一常量。新 pin 要求
+   prompt 恰有两处 SSOT 插入、旧窄句为零、schema 两面各恰有一次；禁止以后只改一面再次漂移。
+   这仍是软分类教学 + typed consistency gate，不读取原始/输出关键词作硬判，不自动把 bounded 改 causal，
+   不系统代写答案。
+6. Poly 本轮图自愈成功：首稿自绘无锚边被正确拒，模型第二轮消费 copy-ready typed skeleton，四条真实
+   call edge 与两个业务注释均保留，Mermaid 合法。B733/B672 获进一步生产正证；不增加 case 特例。
+
+状态：
+
+`B733-DISPLAYQUALIFIERENDPOINTIDENTITY1=production-positive-r448+r449`；
+`B734-CAPLANEIDENTITY1=implemented/replay-still-blocked-by-B735`；
+`B735-CAUSALVERDICTDIMENSION1=partial-r449/B735-2-implemented-pending-replay`；
+`B736-RUNTIMEFLOWAUTHORITY1=production-closed-r449`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B735-2-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.767 r448：因果 yes/no 被逼退成 bounded；trace-only flow 误套源码传递门（2026-08-13）
 
 1. 在 `main@8244c20e0` 严格并发恰好两个案例：

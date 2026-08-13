@@ -1155,12 +1155,28 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",
 		"do not relabel it as causal diagnosis merely because it asks for the recorded `reason`",
-		"whether an observed condition constrained, caused, or materially affected runtime performance",
-		"role=`causal_attribution`",
-		"Ordinary state/frequency/value lookups without this verdict stay bounded",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)
+		}
+	}
+}
+
+func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSections(t *testing.T) {
+	cfg := BuildAnalysisSkill()
+	if cfg == nil {
+		t.Fatal("BuildAnalysisSkill returned nil")
+	}
+	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
+	if got := strings.Count(out, AnalysisRuntimeCausalAttributionTeaching); got != 2 {
+		t.Fatalf("runtime causal teaching occurrences=%d, want exactly two SSOT insertions", got)
+	}
+	for _, stale := range []string{
+		"Use `causal_attribution` for every required dimension that asks for root-cause/bottleneck attribution or a ranking of causes/contributors.",
+		"Use `causal_attribution` for root-cause/bottleneck attribution or ranked causes/contributors",
+	} {
+		if strings.Contains(out, stale) {
+			t.Fatalf("stale narrower causal-attribution teaching survived: %q", stale)
 		}
 	}
 }

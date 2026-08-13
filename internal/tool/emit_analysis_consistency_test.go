@@ -94,6 +94,25 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisSchemaUsesRuntimeCausalAttributionTeachingSSOT(t *testing.T) {
+	var parsed struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &parsed); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	runtimeProfile := parsed.Properties["runtime_question_profile"].(map[string]any)
+	if got := runtimeProfile["description"].(string); strings.Count(got, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
+		t.Fatalf("runtime profile schema must embed causal SSOT exactly once: %q", got)
+	}
+	dimensions := parsed.Properties["requested_answer_dimensions"].(map[string]any)
+	dimensionItems := dimensions["properties"].(map[string]any)["dimensions"].(map[string]any)["items"].(map[string]any)
+	roleDescription := dimensionItems["properties"].(map[string]any)["role"].(map[string]any)["description"].(string)
+	if strings.Count(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
+		t.Fatalf("dimension-role schema must embed causal SSOT exactly once: %q", roleDescription)
+	}
+}
+
 func TestEmitAnalysisExecutorRejectsProviderSchemaRequiredFieldOmission(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
