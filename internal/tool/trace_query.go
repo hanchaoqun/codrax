@@ -15418,13 +15418,40 @@ func traceQuerySingleRuntimeTargetFromRequestModel(rm *types.RequestModel) (trac
 			Thread: strings.TrimSpace(runtimeTarget.Thread),
 			Source: strings.TrimSpace(runtimeTarget.Source),
 		}
+		canonicalPID := target.PID
+		canonicalThread := target.Thread
+		// TARGETCANON-1: RuntimeTargets are a typed identity lane, but older
+		// analyzer records can still carry one of the trace_query selector
+		// spellings (for example "worker-200") in Thread with PID unset.  The
+		// engine and the exploration-cursor recorder already canonicalize that
+		// spelling to {pid:200, thread:"worker"}.  Normalize the request-model
+		// side with the SAME parser before cardinality/dedupe, otherwise the two
+		// equivalent records become two targets and an omitted-selector
+		// follow-up silently loses inheritance.
+		if parsedPID, parsedName, ok := tracequery.ParseThreadSelectorIdentity(target.Thread); ok {
+			switch {
+			case target.PID <= 0:
+				target.PID = parsedPID
+				target.Thread = parsedName
+				canonicalPID = parsedPID
+				canonicalThread = parsedName
+			case target.PID == parsedPID:
+				// The explicit PID already owns identity. Preserve the paired
+				// display selector verbatim ("Thread-10 [56284]" must not be
+				// truncated to "Thread-10"), but use its canonical name in the
+				// dedupe key so an equivalent cursor does not create a second
+				// target.
+				canonicalPID = parsedPID
+				canonicalThread = parsedName
+			}
+		}
 		if target.Source == "" {
 			target.Source = "request_model_runtime_targets"
 		}
 		if !traceQueryTypedRuntimeTargetSafe(target) {
 			continue
 		}
-		key := fmt.Sprintf("%d\x00%s", target.PID, strings.ToLower(target.Thread))
+		key := fmt.Sprintf("%d\x00%s", canonicalPID, strings.ToLower(strings.TrimSpace(canonicalThread)))
 		targets[key] = target
 	}
 	if len(targets) != 1 {

@@ -174,9 +174,10 @@ func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFami
 
 // traceSupplementFamiliesForRequestedScope answers a stricter question than
 // traceSupplementFamilies when the analyzer has validated an explicit user
-// window: which core families are present for THAT window? A complete family
-// set from a wider/narrower model probe remains useful exploration evidence,
-// but cannot suppress the deterministic requested-window supplement.
+// window and/or the supplement has derived one typed target: which core
+// families are present for THAT window AND THAT target? A complete family set
+// from a wider/narrower or target-free model probe remains useful exploration
+// evidence, but cannot suppress the deterministic requested-scope supplement.
 //
 // selected_window is carried on several records from one trace_query result,
 // not necessarily every family row. We therefore elect matching results by a
@@ -186,41 +187,108 @@ func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFami
 func traceSupplementFamiliesForRequestedScope(
 	ledger types.ObservationLedger,
 	scope *types.RuntimeArtifactScopeProfile,
+	target traceQueryRequestTarget,
+	targetKnown bool,
 ) traceSupplementFamilyPresence {
-	if scope == nil {
+	if scope == nil && !targetKnown {
 		return traceSupplementFamilies(ledger)
 	}
 	start, end, explicit := scope.ExplicitTimeWindow()
-	if !explicit {
+	if !explicit && !targetKnown {
 		return traceSupplementFamilies(ledger)
 	}
-	exactResults := map[string]bool{}
-	exactRecords := map[int]bool{}
+	scopedResults := map[string]bool{}
+	scopedRecords := map[int]bool{}
+	targetResults := map[string]bool{}
+	targetRecords := map[int]bool{}
 	for i, record := range ledger.Records {
 		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
-		recordStart, recordEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
-		if !ok ||
-			math.Abs(recordStart-start) > types.TraceCausalProjectionSameWindowToleranceS ||
-			math.Abs(recordEnd-end) > types.TraceCausalProjectionSameWindowToleranceS {
-			continue
+		if explicit {
+			recordStart, recordEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if !ok ||
+				math.Abs(recordStart-start) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(recordEnd-end) > types.TraceCausalProjectionSameWindowToleranceS {
+				continue
+			}
 		}
 		if key := traceSupplementResultIdentity(record); key != "" {
-			exactResults[key] = true
+			scopedResults[key] = true
+			if targetKnown && traceSupplementRecordCarriesTargetAuthority(record, target) {
+				targetResults[key] = true
+			}
 		} else {
-			exactRecords[i] = true
+			scopedRecords[i] = true
+			if targetKnown && traceSupplementRecordCarriesTargetAuthority(record, target) {
+				targetRecords[i] = true
+			}
 		}
 	}
 	filtered := types.ObservationLedger{AnchorUserEntities: ledger.AnchorUserEntities}
 	for i, record := range ledger.Records {
 		key := traceSupplementResultIdentity(record)
-		if exactRecords[i] || (key != "" && exactResults[key]) {
+		scopeMatch := scopedRecords[i] || (key != "" && scopedResults[key])
+		targetMatch := !targetKnown || targetRecords[i] || (key != "" && targetResults[key])
+		if scopeMatch && targetMatch {
 			filtered.Records = append(filtered.Records, record)
 		}
 	}
 	return traceSupplementFamilies(filtered)
+}
+
+// traceSupplementRecordCarriesTargetAuthority recognizes result-owned target
+// carriers only.  A ranked row's Subject is the candidate, not the board
+// target, so candidate-label coincidence is deliberately insufficient.  The
+// accepted carriers are emitted from typed engine fields: the target state
+// account subject, the rank board target, and frame target resolution.
+func traceSupplementRecordCarriesTargetAuthority(record types.ObservationRecord, target traceQueryRequestTarget) bool {
+	var label string
+	switch {
+	case strings.TrimSpace(record.Predicate) == "target_window_states":
+		label = record.Subject
+	case strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_cause_"):
+		label = traceSupplementRichNoteValue(record.RichNotes, types.TraceNoteKeyRankBoardTarget)
+	case strings.TrimSpace(record.Predicate) == "frame_target_resolution":
+		label = record.Subject
+	default:
+		return false
+	}
+	return traceSupplementTargetLabelMatches(label, target)
+}
+
+func traceSupplementTargetLabelMatches(label string, target traceQueryRequestTarget) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	pid, name, parsed := tracequery.ParseThreadSelectorIdentity(label)
+	if target.PID > 0 {
+		return parsed && pid == target.PID
+	}
+	want := strings.TrimSpace(target.Thread)
+	if want == "" {
+		return false
+	}
+	if parsed && strings.TrimSpace(name) != "" {
+		return strings.EqualFold(strings.TrimSpace(name), want)
+	}
+	return strings.EqualFold(label, want)
+}
+
+func traceSupplementRichNoteValue(notes []string, key string) string {
+	prefix := strings.TrimSpace(key) + "="
+	if prefix == "=" {
+		return ""
+	}
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if strings.HasPrefix(note, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		}
+	}
+	return ""
 }
 
 func traceSupplementResultIdentity(record types.ObservationRecord) string {
@@ -1257,7 +1325,8 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	preLedger := types.CompileObservationLedger(input)
 	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
-	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope)
+	target, targetSource, targetOK := traceSupplementDeriveTarget(ctx)
+	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope, target, targetOK)
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
 	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
@@ -1278,8 +1347,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		}
 		return skip(types.TraceSupplementReasonFamiliesPresent)
 	}
-	target, targetSource, ok := traceSupplementDeriveTarget(ctx)
-	if !ok {
+	if !targetOK {
 		// The windowless census arm covers the derivation-failure family (no
 		// target / no window / inconsistent windows) — a full re-run is
 		// impossible, but a single-pass generator census needs neither

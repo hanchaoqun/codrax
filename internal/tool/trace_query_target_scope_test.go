@@ -79,6 +79,17 @@ func TestTraceQueryCursorCanonicalizesEquivalentSelectorSpellings(t *testing.T) 
 	}
 }
 
+func TestTraceQueryInheritanceCanonicalizesAnalyzerAndCursorSelectorSpellings(t *testing.T) {
+	rm := &types.RequestModel{RuntimeTargets: []types.RuntimeTarget{
+		{Kind: types.RuntimeTargetKindThread, Thread: "CompThread_0-2955", Source: "user_explicit"},
+		{Kind: types.RuntimeTargetKindThread, PID: 2955, Thread: "CompThread_0", Source: types.RuntimeTargetSourceExplicitToolCall},
+	}}
+	target, ok := traceQuerySingleRuntimeTargetFromRequestModel(rm)
+	if !ok || target.PID != 2955 || target.Thread != "CompThread_0" {
+		t.Fatalf("equivalent analyzer/cursor selector spellings must remain one inheritable target: target=%+v ok=%t", target, ok)
+	}
+}
+
 func TestTraceQueryTargetScopeSchemaAndQueryPropagation(t *testing.T) {
 	schema := string((&TraceQuery{}).Parameters())
 	if !strings.Contains(schema, `"target_scope"`) ||

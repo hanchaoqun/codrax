@@ -260,7 +260,9 @@ func TestTraceSupplementExplicitUserWindowKeepsExactFamilyNoOp(t *testing.T) {
 	}
 	suppCoreModelCall(t, ctx, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.2}`)
 	suppCoreModelCall(t, ctx, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.2}`)
-	beforeFamilies := traceSupplementFamiliesForRequestedScope(suppCoreLedger(ctx), ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile)
+	target, _, targetOK := traceSupplementDeriveTarget(ctx)
+	beforeFamilies := traceSupplementFamiliesForRequestedScope(
+		suppCoreLedger(ctx), ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile, target, targetOK)
 	out := RunTraceQuerySystemSupplement(ctx)
 	if len(out.Executed) != 0 || out.SkipReason != types.TraceSupplementReasonFamiliesPresent {
 		t.Fatalf("exact-window complete families must remain a zero-execution no-op: out=%+v families=%+v", out, beforeFamilies)

@@ -681,6 +681,47 @@ func TestTraceSupplementNoOpWhenFamiliesPresent(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementTargetFreeFamiliesDoNotSatisfyNamedTargetScope(t *testing.T) {
+	start, end := 3.0, 3.2
+	scope := &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+	}
+	windowNote := types.TraceNoteKeySelectedWindow + "=3.000000..3.200000"
+	globalRef := types.ObservationSourceRef{PayloadRef: "global-rank.json"}
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{
+		{
+			ID: "trace_query:global#rank:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", SourceRef: globalRef, ClaimKey: "root_cause_rank:global",
+			Subject: "worker-200", Predicate: "root_cause_primary", RichNotes: []string{windowNote},
+		},
+		{
+			ID: "trace_query:global#chain", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", SourceRef: globalRef, ClaimKey: "wakeup_chain:global",
+			Subject: "worker-200", Predicate: "wakeup_chain", RichNotes: []string{windowNote},
+		},
+	}}
+	target := traceQueryRequestTarget{PID: 200, Thread: "worker"}
+	got := traceSupplementFamiliesForRequestedScope(ledger, scope, target, true)
+	if got.Rank || got.Chain {
+		t.Fatalf("target-free result must not satisfy a named target merely because one candidate subject matches: %+v", got)
+	}
+
+	targetedRef := types.ObservationSourceRef{PayloadRef: "targeted-rank.json"}
+	ledger.Records = append(ledger.Records, types.ObservationRecord{
+		ID: "trace_query:targeted#rank:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", SourceRef: targetedRef, ClaimKey: "root_cause_rank:targeted",
+		Subject: "peer-300", Predicate: "root_cause_primary", RichNotes: []string{
+			windowNote, types.TraceNoteKeyRankBoardTarget + "=worker-200",
+		},
+	})
+	got = traceSupplementFamiliesForRequestedScope(ledger, scope, target, true)
+	if !got.Rank || got.Chain {
+		t.Fatalf("typed board target must satisfy only the families carried by its own result: %+v", got)
+	}
+}
+
 // --- pin ③ fail-open 禁猜 -----------------------------------------------------
 
 func suppCoreAssertFailOpen(t *testing.T, ctx *types.BusContext, out TraceQuerySupplementOutcome, wantReason string) {

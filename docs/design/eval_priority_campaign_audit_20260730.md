@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.758 r439 与 B728：补齐族的目标作用域缺失（2026-08-13）
+
+1. 在 `main@91a2aa974` 严格并发恰好两个 Trace 案例：
+   `real_trace_h7_self_seat_full_spectrum + real_trace_h2_dstate_dma_fence_triform`。
+   Runner `0 PASS / 2 FAIL`，人工 `0 pass / 1 partial / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_scope_r439_20260813_manual_audit.md`。
+2. B727 获生产正证。H2 Analyzer 发出 `explicit_time_window + bounded_fact_set` 后，最终只有
+   目标状态/11 段 D-state/36.757ms/记录调用点的有限回答，没有 Trace 因果投影、根因榜或背景压力
+   越权注入；artifact range 与 answer breadth 已正交。runner 旧 oracle 仍要求“等待对象”，但 typed
+   `sched_blocked_reason.caller` 只证明内核调用点，必须刷新 eval 而不能降低产品 caliber。模型正文仍将
+   caller 扩写成 devhost 持有的 DMA fence，随后又承认 holder 未知，记为软教学服从性/模型矛盾观察项，
+   禁止扫描答案关键词代写或删除结论。
+3. H7 的 Trace 因果投影块仍存在，但系统主席行变为“未定位到链上主根因”，65.912ms 自身 running
+   算力供给折算席、49.623/0.033ms 同源分账与未计价占用均丢失。它不是 B727 抑制 causal 报告，也不是
+   单纯模型波动：模型先发出时间窗正确但没有 pid/thread 的全局 `root_cause_rank`，得到全局 background
+   board；稍后 `wakeup_chain/critical/thread_timeline` 才用 PID 2955 正确解析目标。
+4. 新确认 B728（P0）有两个同根断层。其一，Analyzer 的 typed target 仍可保留合法 selector 原形
+   `CompThread_0-2955`，探索游标已规范化为 `{pid:2955,thread:CompThread_0}`；查询继承按原字段去重，
+   将同一身份误判为两个目标，省略 selector 的 follow-up 因此保持全局。其二，补齐覆盖只验证
+   `selected_window`，只要同窗存在 `root_cause_*` 便判 `families_present`，没有要求该 producer result
+   携带最终目标，导致全局 rank 抑制目标 rank 补跑。
+5. 根修不改模型结论、不匹配 case 数值，也不扫描 request/answer prose。查询入口使用 trace engine 唯一
+   selector parser，仅在 PID 缺失或尾 PID 与显式 PID 一致时构造 canonical dedupe key；显式 PID 与显示名
+   仍原样成对保留，`Thread-10 [56284]` 负例不被截断。补齐器将覆盖升级为
+   `family + requested window + typed target`：目标 authority 只来自同一 result 的
+   `target_window_states`、`rank_board_target` 或 `frame_target_resolution` 引擎载体；rank candidate 的
+   `Subject` 即使碰巧等于目标也不能冒充 board target。无 named target 的系统级问题继续允许全局 family。
+6. 新增正负 pin 覆盖 analyzer/cursor 等价 selector、显式 PID+复杂名称保真、target-free rank 不抑制
+   named-target supplement、typed board target 只授权自身 result families，以及既有 exact-window no-op。
+   `go test ./internal/tool` 通过；全仓第一次运行主动撞红复杂名称负例后已收窄实现并定向复绿，正在重跑
+   `make test` 与 r440 生产回放。
+7. H2/H7 两条 active stream 分别运行 206s/212s，均由模型正常产出答案；未发生 4ms 固定年龄降级、
+   空答案替代、JSON recovery 或系统代写。4ms 仍不得作为活跃连接总时长门；只允许精确无首字节/字节
+   停滞 owner 使用。Trace 链上-only 根因、实际占用/业务线索与规则计价可消双轴不变量保持。
+
+状态：
+
+`B727-RUNTIMEARTIFACTRANGEANSWERBREADTHINVERSION1=production-positive-r439`；
+`B728-TRACESUPPLEMENTTARGETSCOPEHOLE1=implemented/canonical-selector+window-target-family-pins-pass/pending-r440`；
+`H2-fixed-wait-object-oracle=stale/caller-caliber-conflict/pending-eval-refresh`；
+`Trace causal explicit-window=report-present-r439/target-seat-gap-fixed-pending-r440`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/206s+212s-no-age-degrade`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.757 r438 与 B727：artifact range 越权决定 answer breadth（2026-08-13）
 
 1. 在 `main@d834885f2` 严格并发恰好两个 Trace 案例：
