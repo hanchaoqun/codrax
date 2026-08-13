@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.760 r441 与 B730：派生查询载荷被误认成独立工件；eval 裸词负门误咬正常 trace 进度（2026-08-13）
+
+1. 在 `main@eb4209365` 严格并发恰好两个真实 Trace 案例：
+   `real_trace_h7_self_seat_full_spectrum + real_trace_h2_dstate_dma_fence_triform`。
+   Runner 为 `1 PASS / 1 FAIL`，人工为 `1 pass / 1 partial`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_scope_r441_20260813_manual_audit.md`。
+2. H7 再次证明显式窗 causal 主车道未受 bounded-fact 修复影响：模型与系统均保留完整
+   Trace 因果投影；目标自身 running 实占 74.915ms、规则折算算力缺口 65.912ms、D-state
+   36.757ms、链上调度/优先级候选、业务 JIT span 与邻近 support-only 分层均在。一次
+   finalizer reject 来自模型把 `add_blocks` 发成畸形 JSON 字符串；下一轮完整成功，不是空答案，
+   也没有 4ms/4s/累计年龄降级。
+3. H2 为 B729 生产正证：最终 typed block 使用 uncapped leaves 完整列出 11 段 D-state 及
+   36.757ms 墙钟；独立 blocked_reason census 披露 12 条/Σ39.157ms，并明确两者不能逐条配对
+   或相互替换。没有 Trace 因果投影。模型正文仍把 kernel callsite 扩写成 DMA fence/GPU
+   等待对象，随后又承认 holder 未知；记为软教学服从性，禁止扫描答案关键词代写/删除模型结论。
+4. 新确认 B730（P1 上下文/展示污染）：模型为读取首个 trace_query 的完整 payload，又对
+   `trace-query-result-169f0139.json` 调用一次 `trace_query`。第二次查询的 typed `SourceRef.Path`
+   正是第一次查询的 `PayloadRef`，但跨工件 authority 只按 Path 分组，误把 producer-owned
+   派生载荷与 `donghu.ftrace` 当作两份物理采集，向 prompt 和最终答案注入“跨工件关系边界”。
+   这不是模型波动；系统不应把同一采集的内部载荷制造成用户概念。
+5. 根修只消费 accepted deterministic runtime records 的 typed `Path ↔ PayloadRef/RawRef/
+   RowSetRef/PageRef` 精确生产者关系。派生 carrier 经多级查询可传递追溯到唯一物理采集根，
+   关系 authority 继承根 capture identity；有多个不同根、出现环或缺少 identity 时 fail-open，
+   绝不按文件名、扩展名、目录、artifact ID 或模型原文猜合并。底层一跳/多跳/歧义/真实第二
+   capture 正负矩阵与 answer materializer 接线 pin 均已补齐。
+6. r441 H2 的 runner FAIL 也是 eval 红线：`EXPECT_NOT_CONTAINS="Trace"` 对完整终端输出做裸
+   substring 扫描，连“正在读取 trace 附件”都会误咬。替换为 typed structural oracle
+   `EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=0`，只统计最终渲染出的精确
+   `## Trace 因果投影|Trace Causal Projection` 标题块；正常进度/题目/证据中的 trace 字样不再
+   影响判定。新增 pass/fail runner 接线 pin，验收杆保持不降。
+7. 两条活跃流分别运行 231s/281s 并正常生成答案。系统没有基于活跃连接总年龄的 4ms 门，
+   仍只允许 cancel/deadline、无首字节、byte-stall、transport/decode failure 驱动终止/恢复。
+
+状态：
+
+`B728-TARGETSCOPEDSUPPLEMENTFAMILIES1=production-positive-r440+r441`；
+`B729-TARGETWAITPROMPTENGINECOMPLETENESS1=production-positive-r441`；
+`B730-DERIVEDRUNTIMEPAYLOADARTIFACTIDENTITY1=implemented/transitive-typed-owner+pinned`；
+`H2 trace-projection oracle=typed-structural-count`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r441`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.759 r440 与 B729：prompt 前缀完整性覆盖 engine 完整性；typed fact-family 语义闭包断裂（2026-08-13）
 
 1. 在 `main@8cfee81b0` 严格并发恰好两个真实 Trace 案例：

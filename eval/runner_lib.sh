@@ -455,6 +455,9 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_LOG_MATCHES_REGEX=' "$file"; then
     eval_case_oracle_surface_add "log_regex"
   fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=' "$file"; then
+    eval_case_oracle_surface_add "typed_trace_projection_count"
+  fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_OPERATION_TERMINAL_STATUS=' "$file"; then
     eval_case_oracle_surface_add "typed_operation_terminal"
   fi

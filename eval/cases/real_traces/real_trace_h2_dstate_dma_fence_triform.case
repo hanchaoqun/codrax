@@ -86,5 +86,6 @@ FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="dma_fence_default_w 36.757 11 12 39.157"
 EXPECT_MATCHES_REGEX="等待明细完整，共 11 段
 (typed )?内核调用点[ =]dma_fence_default_w"
-EXPECT_NOT_CONTAINS="Trace 因果投影 IO等待候选 D状态/IO候选 自身·D-state/iowait still_present not_enough_evidence"
+EXPECT_NOT_CONTAINS="IO等待候选 D状态/IO候选 自身·D-state/iowait still_present not_enough_evidence"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=0
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

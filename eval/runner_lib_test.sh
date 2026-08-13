@@ -248,6 +248,13 @@ EXPECT_PRIMARY_MATCHES_REGEX="foo"
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/oracle-primary.case")" "primary_answer" "primary answer oracle surface classification"
 
+cat >"$tmp/oracle-trace-projection-count.case" <<'CASE'
+ID="oracle_trace_projection_count"
+QUESTION="trace projection count smoke"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=0
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-trace-projection-count.case")" "typed_trace_projection_count" "typed trace projection count oracle surface classification"
+
 cat >"$tmp/oracle-write-post-apply-regex.case" <<'CASE'
 ID="oracle_write_post_apply_regex"
 MODE="apply"
@@ -293,6 +300,32 @@ CODRAX_BIN="$tmp/fake-codrax-principal-scope" EVAL_RESULTS_ROOT="$tmp/principal-
 principal_pass_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_scope_pass 00000000-000000 || true)"
 [[ -n "$principal_pass_dir" ]] || fail "principal scope pass result dir missing"
 assert_eq "$(cat "$principal_pass_dir/run-1.verdict")" "PASS" "principal scope should exclude deterministic footer"
+
+cat >"$tmp/trace-projection-count-pass.case" <<'CASE'
+ID="trace_projection_count_pass"
+NAME="typed trace projection count pass"
+QUESTION="trace projection count test"
+MIN_OUTPUT_CHARS=1
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=1
+CASE
+CODRAX_BIN="$tmp/fake-codrax-principal-scope" EVAL_RESULTS_ROOT="$tmp/projection-count-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/trace-projection-count-pass.case" 1 >/dev/null || fail "typed trace projection count pass eval failed to run"
+projection_count_pass_dir="$(eval_latest_result_dir "$tmp/projection-count-results" trace_projection_count_pass 00000000-000000 || true)"
+[[ -n "$projection_count_pass_dir" ]] || fail "typed trace projection count pass result dir missing"
+assert_eq "$(cat "$projection_count_pass_dir/run-1.verdict")" "PASS" "typed projection oracle should count the rendered projection heading"
+
+cat >"$tmp/trace-projection-count-fail.case" <<'CASE'
+ID="trace_projection_count_fail"
+NAME="typed trace projection count fail"
+QUESTION="trace projection count test"
+MIN_OUTPUT_CHARS=1
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=0
+CASE
+CODRAX_BIN="$tmp/fake-codrax-principal-scope" EVAL_RESULTS_ROOT="$tmp/projection-count-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/trace-projection-count-fail.case" 1 >/dev/null || fail "typed trace projection count fail eval failed to run"
+projection_count_fail_dir="$(eval_latest_result_dir "$tmp/projection-count-results" trace_projection_count_fail 00000000-000000 || true)"
+[[ -n "$projection_count_fail_dir" ]] || fail "typed trace projection count fail result dir missing"
+assert_eq "$(cat "$projection_count_fail_dir/run-1.verdict")" "FAIL trace_final_projection_blocks:1_want_0" "typed projection oracle should reject only a rendered projection block"
 
 cat >"$tmp/principal-scope-fail.case" <<'CASE'
 ID="principal_scope_fail"

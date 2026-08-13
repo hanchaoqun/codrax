@@ -66,6 +66,18 @@ func TestRuntimeArtifactPairRelationMaterialization_SamePathIDAliasesInactive(t 
 	}
 }
 
+func TestRuntimeArtifactPairRelationMaterialization_ProducerPayloadIsNotASecondArtifact(t *testing.T) {
+	payload := "/repo/.codrax/blob/session/trace-query-result.json"
+	ctx := runtimeArtifactPairRelationTestBus("/captures/donghu.ftrace", payload)
+	ctx.ToolResults[0].Observations[0].SourceRef.PayloadRef = payload
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "one capture and its deterministic query payload",
+	}}}
+	if materializeRuntimeArtifactPairRelationAuthorityBlock(doc, ctx) {
+		t.Fatalf("producer-owned payload must not publish a cross-artifact block: %+v", doc.Blocks)
+	}
+}
+
 func TestRuntimeArtifactPairRelationMaterialization_EnglishAndIdempotent(t *testing.T) {
 	ctx := runtimeArtifactPairRelationTestBus("one.systrace", "two.systrace")
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

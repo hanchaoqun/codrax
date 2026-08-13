@@ -44,13 +44,25 @@ type RuntimeArtifactPairRelationAuthority struct {
 // relation boundaries. Endpoint-local time-domain/alignment fields never prove
 // a relation between two independently identified runtime artifacts.
 func BuildRuntimeArtifactPairRelationAuthority(ledger ObservationLedger) RuntimeArtifactPairRelationAuthority {
+	carrierOwners := buildRuntimeArtifactDerivedCarrierOwners(ledger)
 	byID := map[string]*runtimeArtifactRelationEndpointAccumulator{}
 	for _, record := range ledger.Records {
 		if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 			!RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
-		key, id := runtimeArtifactRelationIdentity(record.SourceRef)
+		ref := record.SourceRef
+		key, id := runtimeArtifactRelationIdentity(ref)
+		if owner, ok := carrierOwners.uniqueOwnerForPath(ref.Path); ok {
+			key, id = owner.key, owner.id
+			// Path remains the exact carrier address for citation/read purposes.
+			// Pair authority, however, must group a producer-owned payload with
+			// the physical capture that produced it. Feeding the inherited
+			// capture identity through the existing accumulator chokepoint also
+			// preserves metadata carried by the derived query without exposing
+			// the private payload as an independent endpoint.
+			ref.CaptureIdentityPath = owner.capturePath
+		}
 		if key == "" || id == "" {
 			continue
 		}
@@ -59,7 +71,7 @@ func BuildRuntimeArtifactPairRelationAuthority(ledger ObservationLedger) Runtime
 			acc = &runtimeArtifactRelationEndpointAccumulator{id: id}
 			byID[key] = acc
 		}
-		acc.add(record.SourceRef)
+		acc.add(ref)
 	}
 	if len(byID) < 2 {
 		return RuntimeArtifactPairRelationAuthority{}
@@ -101,6 +113,111 @@ func BuildRuntimeArtifactPairRelationAuthority(ledger ObservationLedger) Runtime
 		}
 	}
 	return RuntimeArtifactPairRelationAuthority{Active: true, Artifacts: artifacts, Pairs: pairs}
+}
+
+type runtimeArtifactDerivedCarrierOwner struct {
+	key         string
+	id          string
+	capturePath string
+}
+
+type runtimeArtifactDerivedCarrierOwnerSet map[string]runtimeArtifactDerivedCarrierOwner
+
+type runtimeArtifactDerivedCarrierOwners map[string]runtimeArtifactDerivedCarrierOwnerSet
+
+// runtimeArtifactDerivedCarrierOwners records only exact, typed producer to
+// carrier relations. It deliberately does not infer ownership from a filename,
+// extension, directory, artifact ID, or model prose. A carrier referenced by
+// multiple physical captures remains ambiguous and therefore cannot collapse
+// either endpoint.
+func buildRuntimeArtifactDerivedCarrierOwners(ledger ObservationLedger) runtimeArtifactDerivedCarrierOwners {
+	parents := map[string][]ObservationSourceRef{}
+	for _, record := range ledger.Records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+			!RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		for _, carrier := range runtimeArtifactDerivedCarrierRefs(record.SourceRef) {
+			carrierKey := runtimeArtifactIdentityPathKey(carrier)
+			if carrierKey == "" || carrierKey == runtimeArtifactIdentityPathKey(RuntimeArtifactCaptureIdentityPath(record.SourceRef)) {
+				continue
+			}
+			parents[carrierKey] = append(parents[carrierKey], record.SourceRef)
+		}
+	}
+	owners := runtimeArtifactDerivedCarrierOwners{}
+	for _, record := range ledger.Records {
+		if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+			!RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		owner, ok := runtimeArtifactDerivedCarrierRoot(record.SourceRef, parents, map[string]bool{})
+		if !ok {
+			continue
+		}
+		for _, carrier := range runtimeArtifactDerivedCarrierRefs(record.SourceRef) {
+			carrierKey := runtimeArtifactIdentityPathKey(carrier)
+			if carrierKey == "" || carrierKey == runtimeArtifactIdentityPathKey(owner.capturePath) {
+				continue
+			}
+			if owners[carrierKey] == nil {
+				owners[carrierKey] = runtimeArtifactDerivedCarrierOwnerSet{}
+			}
+			owners[carrierKey][owner.key] = owner
+		}
+	}
+	return owners
+}
+
+func runtimeArtifactDerivedCarrierRefs(ref ObservationSourceRef) []string {
+	return []string{ref.PayloadRef, ref.RawRef, ref.RowSetRef, ref.PageRef}
+}
+
+func runtimeArtifactDerivedCarrierRoot(
+	ref ObservationSourceRef,
+	parents map[string][]ObservationSourceRef,
+	visiting map[string]bool,
+) (runtimeArtifactDerivedCarrierOwner, bool) {
+	pathKey := runtimeArtifactIdentityPathKey(ref.Path)
+	if pathKey != "" && len(parents[pathKey]) > 0 {
+		if visiting[pathKey] {
+			return runtimeArtifactDerivedCarrierOwner{}, false
+		}
+		visiting[pathKey] = true
+		roots := runtimeArtifactDerivedCarrierOwnerSet{}
+		for _, parent := range parents[pathKey] {
+			root, ok := runtimeArtifactDerivedCarrierRoot(parent, parents, visiting)
+			if !ok {
+				delete(visiting, pathKey)
+				return runtimeArtifactDerivedCarrierOwner{}, false
+			}
+			roots[root.key] = root
+		}
+		delete(visiting, pathKey)
+		if len(roots) != 1 {
+			return runtimeArtifactDerivedCarrierOwner{}, false
+		}
+		for _, root := range roots {
+			return root, true
+		}
+	}
+	key, id := runtimeArtifactRelationIdentity(ref)
+	capturePath := RuntimeArtifactCaptureIdentityPath(ref)
+	if key == "" || id == "" || strings.TrimSpace(capturePath) == "" {
+		return runtimeArtifactDerivedCarrierOwner{}, false
+	}
+	return runtimeArtifactDerivedCarrierOwner{key: key, id: id, capturePath: capturePath}, true
+}
+
+func (owners runtimeArtifactDerivedCarrierOwners) uniqueOwnerForPath(path string) (runtimeArtifactDerivedCarrierOwner, bool) {
+	set := owners[runtimeArtifactIdentityPathKey(path)]
+	if len(set) != 1 {
+		return runtimeArtifactDerivedCarrierOwner{}, false
+	}
+	for _, owner := range set {
+		return owner, true
+	}
+	return runtimeArtifactDerivedCarrierOwner{}, false
 }
 
 func runtimeArtifactRelationIdentity(ref ObservationSourceRef) (key, displayID string) {

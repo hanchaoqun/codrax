@@ -117,6 +117,7 @@ EXPECT_OPERATION_TERMINAL_STATUS="${EXPECT_OPERATION_TERMINAL_STATUS:-}"
 EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="${EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS:-}"
 EXPECT_OPERATION_COVERAGE_REF_REGEX="${EXPECT_OPERATION_COVERAGE_REF_REGEX:-}"
 EXPECT_OPERATION_COVERAGE_SOURCE_REGEX="${EXPECT_OPERATION_COVERAGE_SOURCE_REGEX:-}"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS="${EXPECT_TRACE_FINAL_PROJECTION_BLOCKS:-}"
 # Runtime-artifact eval cases may attach either inline text or a file path:
 # LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
@@ -1577,6 +1578,15 @@ run_one() {
   fi
 
   local metrics_file="$OUTDIR/run-$i.metrics.txt"
+  if [[ -n "$EXPECT_TRACE_FINAL_PROJECTION_BLOCKS" ]]; then
+    local actual_projection_blocks
+    actual_projection_blocks="$(eval_metric_int_field "$metrics_file" trace_query_final_projection_blocks)"
+    if ! [[ "$EXPECT_TRACE_FINAL_PROJECTION_BLOCKS" =~ ^[0-9]+$ ]]; then
+      extra_reasons+=("invalid_expected_trace_final_projection_blocks:$EXPECT_TRACE_FINAL_PROJECTION_BLOCKS")
+    elif [[ "$actual_projection_blocks" -ne "$EXPECT_TRACE_FINAL_PROJECTION_BLOCKS" ]]; then
+      extra_reasons+=("trace_final_projection_blocks:${actual_projection_blocks}_want_${EXPECT_TRACE_FINAL_PROJECTION_BLOCKS}")
+    fi
+  fi
   local budget_reason
   while IFS= read -r budget_reason; do
     [[ -z "$budget_reason" ]] && continue
