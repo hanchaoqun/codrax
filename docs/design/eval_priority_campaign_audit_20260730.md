@@ -37993,6 +37993,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     “关系为了过门被删”和“copy-ready 片段本身语法非法”。`20260813-035440.459-11882.md`、
     `20260813-045420.099-32923.md` 的 quote/shape-aware operator 语法修复仍分别由既有 B720/B722
     承担，B751 不另造 case-specific normalizer。
+15. B749 产品合同落回 eval：移除 `real_trace_h4_supply_thermal_witness` 把固定标题
+    `Trace 因果投影` 当硬 oracle 的旧拟合；四态精确值、CPU4 2.10GHz direct policy-limit witness、
+    “limit row 不能单独证明触顶/性能影响”的 principal 正反校验全部保留。该变更仅收窄有限
+    condition→target verdict case，不改变任何显式 root-cause/causal-diagnosis case 的完整投影要求。
 
 状态：
 

@@ -35,7 +35,6 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # greps/reads cannot echo oracle witness strings (these .case files,
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
-EXPECT_CONTAINS="Trace 因果投影"
 EXPECT_PRINCIPAL_CONTAINS="157.248 5.604 70.338"
 EXPECT_PRINCIPAL_MATCHES_REGEX="([Rr]unning.{0,120}157\\.248|157\\.248.{0,120}[Rr]unning)
 ([Rr]unnable.{0,120}5\\.604|5\\.604.{0,120}[Rr]unnable)
