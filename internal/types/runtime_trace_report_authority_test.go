@@ -92,6 +92,35 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTraceTargetWaitMaterializationAllowed(&boundedWait, withRoot) {
 		t.Fatal("a target-wait roster must retain only its own principal-value lane")
 	}
+	boundedWaitClosure := boundedState
+	boundedWaitClosure.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope: RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{
+			RuntimeQuestionFactTargetSchedulerState,
+			RuntimeQuestionFactRecordedReason,
+			RuntimeQuestionFactCountOrDuration,
+		},
+	}
+	if !RuntimeTraceTargetWaitMaterializationAllowed(&boundedWaitClosure, withRoot) {
+		t.Fatal("typed state + reason + count/duration closure must retain the exact target-wait roster")
+	}
+	boundedStateAndCount := boundedState
+	boundedStateAndCount.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope: RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{
+			RuntimeQuestionFactTargetSchedulerState,
+			RuntimeQuestionFactCountOrDuration,
+		},
+	}
+	if RuntimeTraceTargetWaitMaterializationAllowed(&boundedStateAndCount, withRoot) {
+		t.Fatal("state + count/duration without a typed reason/time axis must not invent a wait-roster request")
+	}
+	if !RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedWaitClosure, withRoot) {
+		t.Fatal("recorded reason + count/duration must retain the exact blocked-reason census")
+	}
+	if RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedStateAndCount, TraceCausalProjectionSet{}) {
+		t.Fatal("count/duration without recorded_reason must not publish a blocked-reason census")
+	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("an explicit typed window must not widen a bounded relation fact set")

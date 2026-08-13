@@ -512,13 +512,15 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
-		return false
-	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
-	rows := runtimeTraceBlockedReasonCensusCalibers(ledger, runtimeTraceAuthorityRequestModel(ctx))
+	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
+	authorityRM := runtimeTraceAuthorityRequestModel(ctx)
+	if !types.RuntimeTraceBlockedReasonCensusMaterializationAllowed(authorityRM, projectionSet) {
+		return false
+	}
+	rows := runtimeTraceBlockedReasonCensusCalibers(ledger, authorityRM)
 	if len(rows) == 0 {
 		return false
 	}
@@ -528,7 +530,7 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 		var caveat string
 		if zh {
 			caveat = fmt.Sprintf(
-				"工件=%s，窗口=%s，线程=%s：记录到 %d 条 blocked_reason，caller=%s。这些记录及其 Σdelay 只描述已建立 caller 关联的事件，不是完整的线程调度状态分区；不能据此认定每一段 sleep 都具有这些 caller，也不能把整个 sleep 墙钟都归因于它们",
+				"工件=%s，窗口=%s，线程=%s：内核记录了 %d 条 blocked_reason；内核调用点/符号=%s（不据此推断实际等待对象、资源持有者或子系统机理）。这些记录及其 Σdelay 只描述已建立调用点关联的事件，不是完整的线程调度状态分区；不能与目标等待段逐条配对，也不能用 Σdelay 替换 D/IO 状态墙钟",
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {
@@ -536,7 +538,7 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 			}
 		} else {
 			caveat = fmt.Sprintf(
-				"Artifact=%s, window=%s, thread=%s: %d blocked_reason records were observed, with callers=%s. These records and their Σdelay describe only events with a caller association; they are not a complete scheduler-state partition. They do not show that every sleep interval has one of these callers or that these reasons explain the entire sleep wall clock",
+				"Artifact=%s, window=%s, thread=%s: the kernel recorded %d blocked_reason records; kernel call-site/symbols=%s (this alone does not identify the waited object, resource holder, or subsystem mechanism). These records and their Σdelay describe only events with a call-site association; they are not a complete scheduler-state partition. Do not pair them one-for-one with target wait intervals or substitute Σdelay for D/IO-state wall clock",
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {

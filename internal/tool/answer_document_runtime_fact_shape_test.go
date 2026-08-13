@@ -223,7 +223,6 @@ func TestRuntimeConditionalFactReportMaterializersShareShapeGate(t *testing.T) {
 	})
 	assertFunctionsUseRuntimeFactShapeGate(t, "answer_document_mutation_runtime_wait_coverage.go", []string{
 		"materializeRuntimeTraceBlockingCoverageAuthorityCaveat",
-		"materializeRuntimeTraceBlockedReasonCensusCaliberCaveat",
 	})
 	assertFunctionsUseNamedShapeGate(
 		t,
@@ -236,6 +235,12 @@ func TestRuntimeConditionalFactReportMaterializersShareShapeGate(t *testing.T) {
 		"answer_document_mutation_runtime_wait_coverage.go",
 		"materializeRuntimeTraceTargetStateAuthorityBlock",
 		"types.RuntimeTraceTargetWaitMaterializationAllowed(authorityRM, projectionSet)",
+	)
+	assertFunctionsUseNamedShapeGate(
+		t,
+		"answer_document_mutation_runtime_wait_coverage.go",
+		"materializeRuntimeTraceBlockedReasonCensusCaliberCaveat",
+		"types.RuntimeTraceBlockedReasonCensusMaterializationAllowed(authorityRM, projectionSet)",
 	)
 }
 

@@ -102,6 +102,50 @@ func (p *RuntimeQuestionProfile) BoundedFactSet() bool {
 	return p != nil && p.Scope == RuntimeQuestionScopeBoundedFactSet
 }
 
+// RequestsTargetWaitOccurrences resolves the typed semantic closure for a
+// bounded target-wait question. The analyzer should emit the dedicated
+// target_wait_occurrences family directly, but model emissions can describe
+// the same finite request as the conjunction of target state, count/duration,
+// and a recorded reason or occurrence timestamps. That conjunction is precise
+// enough to authorize an exact engine-paired wait roster when one exists. It
+// does not inspect request/answer prose and does not widen state-only,
+// count-only, or relation-only questions.
+func (p *RuntimeQuestionProfile) RequestsTargetWaitOccurrences() bool {
+	if p == nil || !p.BoundedFactSet() {
+		return false
+	}
+	has := make(map[RuntimeQuestionFactFamily]bool, len(p.FactFamilies))
+	for _, family := range p.FactFamilies {
+		has[family] = true
+	}
+	if has[RuntimeQuestionFactTargetWaitOccurrences] {
+		return true
+	}
+	return has[RuntimeQuestionFactTargetSchedulerState] &&
+		has[RuntimeQuestionFactCountOrDuration] &&
+		(has[RuntimeQuestionFactRecordedReason] || has[RuntimeQuestionFactOccurrenceTime])
+}
+
+// RequestsBlockedReasonCensus is the narrow typed authorization for a
+// bounded answer to expose the kernel blocked-reason inventory. Requiring
+// both axes prevents a reason-only question from inheriting extra numeric
+// cards and a count-only question from inheriting kernel-callsite detail.
+func (p *RuntimeQuestionProfile) RequestsBlockedReasonCensus() bool {
+	if p == nil || !p.BoundedFactSet() {
+		return false
+	}
+	hasReason, hasCountOrDuration := false, false
+	for _, family := range p.FactFamilies {
+		switch family {
+		case RuntimeQuestionFactRecordedReason:
+			hasReason = true
+		case RuntimeQuestionFactCountOrDuration:
+			hasCountOrDuration = true
+		}
+	}
+	return hasReason && hasCountOrDuration
+}
+
 func (p *RuntimeQuestionProfile) RequiresFullReport() bool {
 	if p == nil {
 		return false

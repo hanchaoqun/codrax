@@ -188,9 +188,10 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 		"非 IO D-state 0.000ms",
 		"已归账 233.190ms / 窗口 233.190ms",
 		"覆盖=完整",
-		"记录到 50 条 blocked_reason",
+		"内核记录了 50 条 blocked_reason",
+		"内核调用点/符号=fscache_page_get_an×39(Σ14.756ms)/fscache_page_wait_o×11(Σ1.602ms)",
 		"不是完整的线程调度状态分区",
-		"不能据此认定每一段 sleep",
+		"不能与目标等待段逐条配对",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed wait coverage caveat missing %q:\n%s", want, got)
@@ -429,7 +430,7 @@ func TestPersistMergedAnswerDocumentWiresTypedWaitCoverageCaveats(t *testing.T) 
 	}
 	got := strings.Join(surfaces, "\n")
 	if !strings.Contains(got, "当前至少观测到 1 段、合计 1.409ms") ||
-		!strings.Contains(got, "记录到 50 条 blocked_reason") {
+		!strings.Contains(got, "内核记录了 50 条 blocked_reason") {
 		t.Fatalf("production persist path lost typed wait coverage caveats:\n%s", got)
 	}
 	if len(persisted.Blocks) < 4 || persisted.Blocks[0].ID != "summary" {

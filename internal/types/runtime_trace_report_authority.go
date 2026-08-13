@@ -125,11 +125,22 @@ func RuntimeTraceTargetStateMaterializationAllowed(rm *RequestModel, set TraceCa
 // RuntimeTraceTargetWaitMaterializationAllowed authorizes only the exact
 // target-wait occurrence roster. It is independent of the state partition.
 func RuntimeTraceTargetWaitMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	if rm != nil && rm.RuntimeQuestionProfile.RequestsTargetWaitOccurrences() {
+		return true
+	}
 	return runtimeTraceBoundedFactFamilyMaterializationAllowed(
 		rm,
 		set,
 		RuntimeQuestionFactTargetWaitOccurrences,
 	)
+}
+
+// RuntimeTraceBlockedReasonCensusMaterializationAllowed authorizes the exact
+// record inventory either as part of a full trace report or as the two
+// explicitly requested bounded axes (recorded reason + count/duration).
+func RuntimeTraceBlockedReasonCensusMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return RuntimeTraceReportMaterializationAllowed(rm, set) ||
+		(rm != nil && rm.RuntimeQuestionProfile.RequestsBlockedReasonCensus())
 }
 
 // RuntimeTracePrincipalValueMaterializationAllowed is the compatibility union

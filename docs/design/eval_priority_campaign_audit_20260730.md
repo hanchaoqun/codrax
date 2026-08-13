@@ -35649,6 +35649,63 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.759 r440 与 B729：prompt 前缀完整性覆盖 engine 完整性；typed fact-family 语义闭包断裂（2026-08-13）
+
+1. 在 `main@8cfee81b0` 严格并发恰好两个真实 Trace 案例：
+   `real_trace_h7_self_seat_full_spectrum + real_trace_h2_dstate_dma_fence_triform`。
+   Runner 为 `1 PASS / 1 FAIL`，人工为 `1 pass / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_scope_r440_20260813_manual_audit.md`。
+2. H7 为 B728 生产正证：六次 model query 均携带同一
+   `thread=CompThread_0-2955 + explicit window`；补采判定在该 target 作用域内确认
+   families present。榜首目标 running 为 effective 65.912ms / actual 74.915ms，模型正文与
+   系统投影均保留实际占用、新优化方向、规则可消除量、业务 span 以及链上/邻近边界。
+3. H2 的旧 FAIL oracle 已漂移。该请求是 typed `bounded_fact_set`，不应再要求 full causal
+   tree 的 `自身·D-state/4次 per-CPU fold` 词形；新 oracle 检查精确有限事实：状态墙钟
+   36.757ms、complete 11 段清单、blocked_reason 12 条/Σ39.157ms、内核调用点
+   `dma_fence_default_w`，并禁止误发 `Trace 因果投影`。这不是降低证据杆，而是让 oracle
+   服从用户答题宽度。
+4. 同轮确认 B729（P0 上下文精度）：engine JSON 明确
+   `wait_occurrence_status=complete, emitted=11,total=11`，11 条 typed occurrence leaves
+   全在；普通 observation 的 prompt-safe carrier 按既裁 cap 只携带前 8 条，诚实标为
+   `status=incomplete, emitted=8,total=11, prefix_sum=26.953ms`。这两个 status 分属不同
+   载荷，本不矛盾。实际断层是 Analyzer 漏发 `target_wait_occurrences`，只发
+   `target_scheduler_state + recorded_reason + count_or_duration`，导致由 uncapped leaves
+   构造的 final principal recap 与答案 typed block 被 family gate 拦掉；模型只见 capped
+   preview，错误宣称 engine roster 不完整。
+5. 级联后模型又把三套本来明确分离的测量拼在一起：4 条 per-CPU critical 候选、11 段
+   scheduler D-state wall-clock、12 条 blocked_reason caller record/Σdelay，并把 caller
+   符号升格为 GPU/显示“等待对象”。既有 final decision boundary 已明确
+   `unjoined_distinct_observation_domains`，但因 wait roster authority 未接通，缺少同时可见的
+   全量正值来压住 capped preview。这是系统上下文不精准，不归咎为纯模型波动。
+6. 根修建立 schema-typed 语义闭包：bounded profile 显式含
+   `target_wait_occurrences`，或精确合取
+   `target_scheduler_state + count_or_duration + (recorded_reason|occurrence_time)` 时，允许发布
+   complete typed-leaf roster；state-only、count-only、relation/direct-waker 问题保持负例。
+   Analyzer JSON 教学同步要求这种同一 target-wait 问题显式带专用 family。全过程不读取用户
+   原文、模型 reasoning 或答案正文，不扩大 causal report，也不由系统替模型形成结论。
+7. 同一 typed profile 中 `recorded_reason + count_or_duration` 只额外授权 blocked_reason
+   census 的独立有限事实块，不借机发布完整因果报告。该块把 caller 明确标成“内核调用点/
+   符号”，同步披露它不能证明实际等待对象、资源持有者或子系统机理，且 census record/Σdelay
+   不能与 scheduler wait interval 逐条配对或替换状态墙钟。模型主结论保持首块、字节不改。
+8. Final typed recap 增加明确的两层完整性说明：早期
+   `target_wait_occurrence_prompt=incomplete` 只描述 compact preview；一旦后段发布
+   `permission=exact_complete_rowset`，必须使用 uncapped leaves 的完整 count/sum/rows，禁止
+   把 prefix sum 与 caller census 或其他口径对账。生产 answer materializer 继续只追加精准
+   事实边界块，保留模型-owned summary 为首块。
+9. 两个活跃流都持续 3 分钟以上并最终生成模型答案；没有因 4ms、4s 或固定累计年龄降级，
+   没有 malformed JSON recovery，也没有 finalizer reject。终止/恢复权仍仅属于 cancel/
+   deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B728-TARGETSCOPEDSUPPLEMENTFAMILIES1=production-positive-r440`；
+`B729-TARGETWAITPROMPTENGINECOMPLETENESS1=implemented/typed-semantic-closure+pinned`；
+`H2 bounded-fact oracle=refreshed`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.758 r439 与 B728：补齐族的目标作用域缺失（2026-08-13）
 
 1. 在 `main@91a2aa974` 严格并发恰好两个 Trace 案例：

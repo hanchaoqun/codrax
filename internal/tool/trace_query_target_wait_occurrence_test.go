@@ -120,3 +120,56 @@ func TestTraceQueryTypedObservationsPublishMeasuredZeroWaitRoster(t *testing.T) 
 	}
 	t.Fatal("measured-zero target wait occurrence set missing")
 }
+
+func TestTraceQueryTypedObservationsKeepCompleteEngineRosterSeparateFromCappedPromptPreview(t *testing.T) {
+	account := &tracequery.TargetWindowStateAccount{
+		Thread:                tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955},
+		Window:                tracequery.TimeWindow{StartTs: 10, EndTs: 10.1},
+		WindowMs:              100,
+		DStateMs:              11,
+		TotalMs:               100,
+		WaitOccurrenceStatus:  "complete",
+		WaitOccurrenceTotal:   11,
+		WaitOccurrenceEmitted: 11,
+	}
+	for ordinal := 1; ordinal <= 11; ordinal++ {
+		start := 10 + float64(ordinal)*0.002
+		account.WaitOccurrences = append(account.WaitOccurrences, tracequery.TargetWindowStateOccurrence{
+			Ordinal: ordinal, State: tracequery.StateDSleep,
+			StartTs: start, EndTs: start + 0.001, DurationMs: 1,
+			StartLine: ordinal * 10, EndLine: ordinal*10 + 1,
+			IOWaitKnown: true, Caller: "dma_fence_default_w", ReasonLine: ordinal*10 + 2,
+		})
+	}
+	records := traceQueryTypedObservations(
+		tracequery.Result{TargetWindowStates: account},
+		"attached_trace.txt", "", "attached_trace.txt", "", time.Unix(1, 0),
+	)
+	var set *types.ObservationRecord
+	leafCount := 0
+	for i := range records {
+		switch records[i].Predicate {
+		case "target_window_wait_occurrences":
+			set = &records[i]
+		case "target_window_wait_occurrence":
+			leafCount++
+		}
+	}
+	if set == nil || set.Object != "complete" || set.Value != "11" ||
+		set.ResultCount == nil || *set.ResultCount != 11 || leafCount != 11 {
+		t.Fatalf("complete engine roster must retain all 11 typed leaves: set=%+v leaves=%d", set, leafCount)
+	}
+	notes := strings.Join(set.RichNotes, "\n")
+	for _, want := range []string{
+		"target_wait_occurrence_prompt=status=incomplete,emitted=8,total=11",
+		"target_wait_occurrence_prompt_sum_ms=8.000",
+		"target_wait_occurrence=#8 ",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("bounded prompt-preview contract missing %q:\n%s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "target_wait_occurrence=#9 ") {
+		t.Fatalf("prompt preview must remain bounded without truncating the typed leaf roster:\n%s", notes)
+	}
+}

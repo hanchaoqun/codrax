@@ -84,6 +84,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		"never add it again, call it outside the selected window, or combine it with `unaccounted`",
 		"Only `unaccounted` is the separate uncovered remainder",
 		"use this final typed accounting while keeping the conclusion model-authored",
+		"compiled from the uncapped typed per-occurrence leaves",
+		"describes only that compact prompt preview, not an incomplete engine roster",
+		"never call the underlying roster incomplete",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("principal-value recap missing %q:\n%s", want, got)
