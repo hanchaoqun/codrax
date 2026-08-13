@@ -35724,6 +35724,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion-authorship=none`；`active-stream-4ms-degrade=forbidden`。
 
+### §123.776 r457：实参关系已可表达但未被发现；Trace 因果问题被 typed 窄分类抑制（2026-08-13）
+
+1. 在 `main@43b20a462` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner 为 `1 PASS / 1 FAIL`，
+   人工为 `0 pass / 1 partial / 1 fail`；工件见
+   `eval/parallel_selected_summary_evalcampaign_argument_trace_r457_20260813.md` 与 manual audit。
+2. B744 的跨语言 parser、typed relation、Explorer 教学和 validator 已全部进入生产 prompt；逻辑图也通过
+   自动 oracle。但 Explorer 没有为已经存在且可读的 `BuildAgentContext(o.busCtx, ...)` 之类操作点发出
+   `anchor_kind=argument`，最终图只证明四阶段 precedence 和少量 Orchestrator 调用，Mutable/BusContext
+   仍是独立说明。三次成文拒绝删除了无证据 carrier 边，却不能补回模型从未提交的 operation evidence。
+   因而 B744 从“待生产回放”更新为“表达/验证闭环、发现/选择未闭环”；新登记
+   `B748-ARGUMENTFLOWDISCOVERY1/P1`。最优方案应从 typed participant/carrier 与已读源码 operation site
+   生成软导航候选或 supporting source fact，再由模型选择关系；不得根据最终图/答案字符串硬补边，也不得
+   系统替模型画出业务结论。
+3. Trace 本轮 Analyzer 首轮成功输出把三个 required dimension 铸为两个 `count` 加一个
+   `evidence_source`，同时将 runtime scope 冻结为 `bounded_fact_set`；“CPU 频率有没有受到限制”没有独立
+   `causal_attribution` 席，且 scenario 仍为 generic。报告形状权威因此按 typed 合同不发布完整 Trace
+   因果投影，尽管 4 次 trace_query、显式窗和 root_cause_rank typed rows 都存在。新登记
+   `B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1/P1`：这是上游 JSON 分类漂移，不是投影编译删除。
+   修向先收敛 schema 心智：直接区分“值/记录存在”“是否绑定或影响目标”“证据出处”三项；后两项同时
+   出现时必须拆成 `causal_attribution + evidence_source`，因果项支配 report shape。只用 prompt/schema 和
+   schema-valid typed 一致性，不扫描 raw request、thinking 或 final prose 做硬门；若异构回放显示模型波动，
+   诚实保留 P1 而不为这个频率题造关键词规则。
+4. Trace 正文保持了 `policy ceiling present; target binding unproven` 的复合权限边界，说明 B743 教学已
+   生效；但把 58.320ms 相对 157.248ms 描述成约 59%，并称目标“主要在 cpu=4 上运行”，均没有相应 typed
+   聚合关系支持。它们继续作为模型数值/表述偏差记录，不由系统改写答案；已有关系复算与 top-bucket 权威
+   只提供精确信息和提示。
+5. 活跃流 4ms 专审再次执行
+   `go test ./internal/llm -run 'TestDoStreamRequest_(PartialFrameBytesOutliveFourMillisecondThreshold|ActiveHiddenReasoningMayOutlastRequestTimeoutAndFinish|KeepAlivesResetFirstByteWatchdog|KeepAlivesResetStallWatchdog|KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel)$' -count=1`
+   并全绿。只要连接仍有 byte/keepalive/隐藏推理增量，4ms 没有可见 answer 不会触发降级或恢复旧稿；终止
+   仍仅来自 caller cancel/deadline、首字节超时、byte-stall、transport/decode failure。该不变量不以“可见
+   答案是否出现”作为闸门。
+6. 本轮不改显式时间窗、投影编译、自动补采、链上主因选举或答案所有权。Trace 主因仍只来自 typed 链；
+   优先级反转、调度/算力供给、D/IO、确定性语义工作与链上业务线索继续保留；邻近/背景只作支撑和额外
+   排查方向。关系图也只消费可验证源码事实，系统不接管模型结论。
+
+状态：
+
+`B743-FREQUENCYCOMPOUNDVERDICT1=production-positive-r457`；
+`B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
+`B748-ARGUMENTFLOWDISCOVERY1=confirmed/P1/queued`；
+`B747-RUNTIMECAUSALDIMENSIONCLASSIFICATION1=confirmed/P1/queued`；
+`B746-RUNTIMEARTIFACTSUBTOPICCOHERENCE1=confirmed/P1/next`；
+`Trace projection absence r457=typed-upstream-scope-drift/not-projection-deletion`；
+`Trace explicit-window/auto-supplement=preserved`；Trace root=`typed-on-chain-only`；
+adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/reconfirmed-by-tests-r457`。
+
 ### §123.774 r455：因果教学优先级、混合标量判定与状态桶权威（2026-08-13）
 
 1. 在 `main@4c93c33a6` 严格并发恰好两个案例：
