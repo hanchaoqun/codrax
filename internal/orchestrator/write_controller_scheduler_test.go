@@ -5320,6 +5320,12 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithoutProbeFinish
 }
 
 func TestNormalizeControllerTypedStateDecisionSourceStaticInlineLanguageAppendsProofFollowup(t *testing.T) {
+	binDir := t.TempDir()
+	nodePath := filepath.Join(binDir, "node")
+	if err := os.WriteFile(nodePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
 	mu := types.NewMutableState("source-static TypeScript needs bounded behavior proof")
 	plan := &types.ChangePlan{
 		ID: "plan-static-ts", Status: types.PlanStatusApplied,
@@ -5371,6 +5377,47 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticInlineLanguageAppendsP
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSourceStaticMissingRuntimeFinishesUnverified(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	mu := types.NewMutableState("source-static TypeScript without Node")
+	plan := &types.ChangePlan{
+		ID: "plan-static-ts-no-runtime", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.ts"},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "source-check", Passed: true}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-static-ts-no-runtime", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", PlanID: plan.ID, Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAllVerified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified ||
+		got.ReasonCode != "production_verification_source_static_only" {
+		t.Fatalf("missing exact probe runtime must finish honestly without an impossible planning batch: %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("missing runtime unexpectedly scheduled proof authoring: %+v", run.ProgressLedger)
+	}
+}
+
 func TestSourceStaticInlineProofRepairQueueLanguageMatrix(t *testing.T) {
 	for _, tc := range []struct {
 		path string
@@ -5391,11 +5438,39 @@ func TestSourceStaticInlineProofRepairQueueLanguageMatrix(t *testing.T) {
 					Capability: types.VerificationCapabilitySourceStatic,
 				}},
 			}
-			got := sourceStaticInlineProofRepairQueueItems(plan, report)
+			got := sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(plan, report, func(string) bool { return true })
 			if (len(got) > 0) != tc.want {
 				t.Fatalf("path=%s inline proof queue=%+v want=%t", tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSourceStaticInlineProofRepairQueueRequiresPresentRuntime(t *testing.T) {
+	plan := &types.ChangePlan{ID: "p", TargetPaths: []string{"src/widget.ts"}}
+	report := &types.ChangeReport{
+		PlanID: "p", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+
+	got := sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(plan, report, func(language string) bool {
+		if language != "javascript" {
+			t.Fatalf("unexpected runtime query %q", language)
+		}
+		return false
+	})
+	if len(got) != 0 {
+		t.Fatalf("absent runtime must not create an impossible mandatory proof batch: %+v", got)
+	}
+
+	got = sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(plan, report, func(language string) bool {
+		return language == "javascript"
+	})
+	if len(got) != 1 || got[0].ProbeLanguage != "javascript" || got[0].Path != "src/widget.ts" {
+		t.Fatalf("present runtime should retain the bounded proof opportunity: %+v", got)
 	}
 }
 

@@ -12,6 +12,25 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestVerificationProbeRuntimeAvailableUsesExactRuntimeAndPythonVenv(t *testing.T) {
+	emptyPath := t.TempDir()
+	t.Setenv("PATH", emptyPath)
+	if VerificationProbeRuntimeAvailable("javascript") {
+		t.Fatal("javascript runtime must be unavailable when node is absent")
+	}
+	root := t.TempDir()
+	python := filepath.Join(root, ".venv", "bin", "python")
+	if err := os.MkdirAll(filepath.Dir(python), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(python, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !VerificationProbeRuntimeAvailable("python", root) {
+		t.Fatal("repo-local Python virtualenv should be a direct probe runtime")
+	}
+}
+
 func TestNormalizeVerificationProbesAcceptsMultiLanguageRuntimes(t *testing.T) {
 	probes, rej := normalizeVerificationProbes([]types.VerificationProbe{
 		{ID: "py", Language: "python", Code: "assert True\n"},

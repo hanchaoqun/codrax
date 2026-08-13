@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	truthledger "github.com/hanchaoqun/codrax/internal/truth"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -8196,6 +8197,16 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 // and must close through their project runner rather than a cross-language
 // command wrapper.
 func sourceStaticInlineProofRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
+	return sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(plan, report, func(language string) bool {
+		return tool.VerificationProbeRuntimeAvailable(language, plan.WorktreePath)
+	})
+}
+
+func sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(
+	plan *types.ChangePlan,
+	report *types.ChangeReport,
+	runtimeAvailable func(string) bool,
+) []impactRepairQueueItem {
 	if plan == nil || report == nil || !report.Passed ||
 		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		return nil
@@ -8223,7 +8234,9 @@ func sourceStaticInlineProofRepairQueueItems(plan *types.ChangePlan, report *typ
 	}
 	paths := make([]string, 0, len(byPath))
 	for path, authority := range byPath {
-		if authority.seenStatic && !authority.strong && controllerDirectInlineProbeLanguage(path) != "" {
+		language := controllerDirectInlineProbeLanguage(path)
+		if authority.seenStatic && !authority.strong && language != "" &&
+			(runtimeAvailable == nil || runtimeAvailable(language)) {
 			paths = append(paths, path)
 		}
 	}

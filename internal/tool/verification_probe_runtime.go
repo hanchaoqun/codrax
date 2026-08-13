@@ -5,6 +5,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -58,6 +60,53 @@ func supportedVerificationProbeRuntimeDescription() string {
 		parts = append(parts, spec.Description)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// VerificationProbeRuntimeAvailable reports whether the exact interpreter(s)
+// used by an inline probe language are discoverable before a controller asks
+// the planner to author a mandatory proof. Source-language compatibility and
+// runtime presence are separate authorities: JavaScript may exercise a
+// TypeScript package, but that opportunity does not exist when node is absent.
+// Repo roots are consulted only for the Python virtualenv layouts supported by
+// the executor. Module/loader/import failures remain execution-time typed
+// unavailable observations.
+func VerificationProbeRuntimeAvailable(language string, roots ...string) bool {
+	language, ok := normalizeVerificationProbeLanguage(language)
+	if !ok {
+		return false
+	}
+	switch language {
+	case "python":
+		for _, root := range roots {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			for _, dir := range []string{".venv", "venv", "env", ".virtualenv"} {
+				for _, sub := range []string{filepath.Join("bin", "python"), filepath.Join("bin", "python3"), filepath.Join("Scripts", "python.exe")} {
+					if _, err := exec.LookPath(filepath.Join(root, dir, sub)); err == nil {
+						return true
+					}
+				}
+			}
+		}
+		return verificationProbeExecutableOnPath("python3") || verificationProbeExecutableOnPath("python")
+	case "javascript":
+		return verificationProbeExecutableOnPath("node")
+	case "ruby":
+		return verificationProbeExecutableOnPath("ruby")
+	case "java":
+		return verificationProbeExecutableOnPath("javac") && verificationProbeExecutableOnPath("java")
+	case "go":
+		return verificationProbeExecutableOnPath("go")
+	default:
+		return false
+	}
+}
+
+func verificationProbeExecutableOnPath(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 func verificationProbeLanguageEnumJSON() string {

@@ -35649,6 +35649,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.763 r444 与 B732：图骨架生产正证；不存在的探针运行时造成不可满足补证合同（2026-08-13）
+
+1. 在 `main@6ed0a75af` 严格并发恰好两个复放案例：`mr_poly_binding_chain +
+   github_issue_zod_prefault`。Runner 仍为 `1 PASS / 1 FAIL`；人工为
+   `1 pass / 1 honest-unverified`，详见
+   `eval/parallel_selected_summary_evalcampaign_relation_write_replay_r444_20260813_manual_audit.md`。
+2. B731 获生产正证：Zod runner 只剩精确 `write_final_verdict:unverified:
+   verification_proof_incomplete`，不再虚报 `durable_apply_ref_missing`；前序生产 checkpoint
+   被正确用于交付字节判定，普通 mutation 缺 ref 的红线未放宽。
+3. 跨语言关系图获正证：模型首稿仍扩画 guard/self 与绑定载体伪 call，validator 正确拒绝；第二稿
+   直接采用系统发布的 typed skeleton，合法保留 Python→native、fallback、Rust wrapper→core、
+   module→registration 四条关系图。正文和图均完整，系统没有代画或替换模型结论；说明现有
+   relation carrier 能支撑正确作答，首稿波动无需放松证据门。
+4. 新确认 B732（P1 高 ROI）：`controllerDirectInlineProbeLanguage(.ts)=javascript` 只证明语言兼容，
+   不证明 Node 当前存在。主机 PATH 无 Node，但旧调度仍创建 `changes=[] +
+   verification_probe_required=true` 的 controller-owned proof batch；planner schema 同时要求“运行时
+   不能直接执行时省略 probe”，而 proof-only 校验又禁止省略，形成不可满足合同。模型因此在
+   JS command-wrapper、Python source scan、修改测试、空 probe 之间反复，耗时由 223s 升到 448s；
+   最终仍只能得到已知的 `runner_missing`。
+5. B732 根修把“source family 与 probe language 兼容”和“当前执行环境有 exact runtime”分权：
+   proof queue 只在 `node` / `ruby` / `go` / `javac+java` / Python PATH 或支持的 repo venv 实际可用
+   时创建。运行时缺失则不启动必然失败的 authoring batch，直接沿既有
+   `production_verification_source_static_only` 诚实未验证出口结束；运行时存在时原有补证机会保持，
+   后续 module/loader/import 失败仍由 run_tests typed unavailable，绝不被静态套件洗绿。
+6. 正反 pin 覆盖 Node present→仍 append proof batch、Node absent→finish accept_unverified 且不记
+   proof-followup、语言矩阵与 Python repo venv。`make test` 全仓通过。没有 request/answer 关键词门，
+   没有系统代写答案；Read/Trace 代码零改动，活跃流 4ms 不降级，显式窗 Trace 因果投影、补齐、
+   链上-only 主因与实际占用/规则可消双轴保持。
+
+状态：
+
+`B731-PROBEONLYNULLSLICE1=production-positive-r444`；
+`B732-PROBERUNTIMEOPPORTUNITY1=implemented/exact-runtime-presence+pinned/pending-production-replay`；
+`cross-language typed diagram skeleton=production-positive-r444`；
+`Zod no-Node verification=honest-unverified/no-static-laundering`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.762 r443 与 B731：proof-only nil slice 误判；跨语言关系正文完整、伪调用图正确拒绝（2026-08-13）
 
 1. 在 `main@89549556b` 严格并发恰好两个异构案例：读模式
