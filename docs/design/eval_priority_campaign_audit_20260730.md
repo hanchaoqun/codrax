@@ -35774,6 +35774,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.741 r425：B711 无回归生产复放；红臂仍待命中（2026-08-12）
+
+1. 在 `main@47976205f` 严格并发恰好两个案例：
+   `data_jsonl_filter_count + data_json_strict_ids`。Runner 与人工均 `2 pass`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_data_projection_replay_r425_20260812_manual_audit.md`。
+2. JSONL 从 r424 的 166s/7 rounds/3 repairs/错形答案收敛为 35s/1 round/0 repair，模型自主选择
+   custom_transform，真实读取源文件并输出纯数字 `2`。Strict IDs 为 39s/1 round/0 repair，最终严格
+   `{"ids":["u1","u3"]}`。两案均无系统答案改写、畸形恢复或降级发布。
+3. 诚实边界：本轮两个 planner 都选择 direct custom_transform，没有生产触发
+   `assemble_answer projection=json_object × plain_single_line` 红臂。因此 B711 证明“无回归并恢复
+   收敛”，但不宣称 production red-arm closed；红臂仍由 planner/runtime 同源专项 pin 保证并等待
+   后续真实 typed-DAG 回放自然命中，禁止为了收账强迫模型走 assemble。
+4. active stream 4ms 边界不变：两个模型流均正常等待至完成，无 elapsed-age fallback。下一批转向
+   高优先级 Trace 显式窗与 source-relation 读模式各一案，继续审计系统交给模型的 typed 上下文。
+
+状态：
+
+`B711-DATAOUTPUTFORMATPROJECTIONCOMPAT1=implemented/pins-pass/production-no-regression-r425/red-arm-pending`；
+`B709/B710=production-positive-r424+r425-no-regression`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.740 r424 与 B711：输出格式—投影合同分裂根修（2026-08-12）
 
 1. 在 `main@8ed84f1b9` 严格并发恰好两个案例：
