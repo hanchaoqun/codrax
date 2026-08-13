@@ -135,7 +135,8 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 		Properties map[string]struct {
 			Type  string `json:"type"`
 			Items struct {
-				Type string `json:"type"`
+				Type       string                     `json:"type"`
+				Properties map[string]json.RawMessage `json:"properties"`
 			} `json:"items"`
 		} `json:"properties"`
 	}
@@ -150,6 +151,14 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 		property, ok := paramsSchema.Properties[field]
 		if !ok || property.Type != "array" || property.Items.Type == "" {
 			t.Fatalf("patch field %q must carry its array/item shape structurally: %+v", field, property)
+		}
+	}
+	for _, field := range []string{"replace_blocks", "add_blocks"} {
+		itemProps := paramsSchema.Properties[field].Items.Properties
+		for _, required := range []string{"id", "kind", "diagram", "edge_anchors", "participant_boundaries"} {
+			if _, ok := itemProps[required]; !ok {
+				t.Fatalf("patch %s must expose projected block field %q: %v", field, required, itemProps)
+			}
 		}
 	}
 }

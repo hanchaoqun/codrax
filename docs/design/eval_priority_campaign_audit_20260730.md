@@ -35774,6 +35774,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.749 r432、B720 与 B721：非法 Mermaid 出厂闭环；patch 块结构与 full emit 漂移（2026-08-13）
+
+1. 在 `main@d38fea864` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `2 PASS`，人工为
+   `1 pass / 1 partial`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r432_20260813_manual_audit.md`。
+2. Trace 205s PASS：五次 typed 查询保持用户显式窗；Trace 因果投影、系统补齐、链上-only 主因、
+   running 65.912ms 算力供给、D-state 36.757ms、优先级反转/调度/IO、业务 span 与“实际占用 / 规则
+   可消除”双轴齐全。邻近/背景只作支持，不跨席求和。B719/B720 改动对 Trace fail-closed。
+3. 用户点名的 `20260813-035440.459-11882.md` Mermaid 语法错误已按两层闭环。正常 r432 最终图为合法
+   `flowchart TD`，不再发出 `] -->|`；若重试确实耗尽，B720 degraded last-mile 会保留模型正文与原始图
+   源码，但把 parser-confirmed 非法 Mermaid 改成带 `# ⚠ <reason>` 的 `text` fence。合法 Mermaid 与
+   renderer 未支持家族不误伤；正常已验证答案不进入此门。专项和全仓测试均绿。
+4. B719 scope 分权获得生产正证：局部 evaluator→Mutable 调用不再被 participant gate 强迫冒充完整
+   请求数据流；`BusContext`、`Mutable` 可以作为可见、断开的参与者并携带 requested-relation unproven
+   boundary。系统不代画关系、不写模型结论。
+5. 但逻辑用例仍发生 6 次 finalizer reject，最终通过删掉局部调用边只保留四阶段 precedence。新确认
+   B721（P0）：full emit 的 projected block item 完整暴露 `diagram`、`edge_anchors`、
+   `from_identity/to_identity`、`participant_boundaries`；切到 patch 后，`replace_blocks/add_blocks.items`
+   却只是裸 `object`。模型虽然在提示正文看到 exact `edge_anchor_json`，函数结构合同却不再教这些字段，
+   先漏 endpoint identity，再把技术方法端点改成 broad 组件名，最后删除关系才能通过。Runner PASS 掩盖
+   了关系表达缩水与重试成本。
+6. B721 根修保留 patch 专属 delta envelope，但把 replace/add 的 block item 直接取自同一 dispatch 的
+   `BuildAnswerDocumentParametersFor(view).blocks.items`。因此 block kind、diagram family、claim enum、
+   Trace caliber、source-inventory 与未来字段都跟 full emit 单源投影；不复制第二份 schema、不从用户或
+   模型 prose 判断、不改变 evidence validator，也不由系统选择/生成边。tool 与 finalizer schema parity pin
+   已补齐，待 r433 生产回放。
+7. 4ms 路径本轮无退化。205s/301s 活跃流均只由 first-byte/byte-stall/caller deadline 等 typed liveness
+   管理；6 次拒绝是结构合同漂移，不是总年龄超时。
+
+状态：
+
+`B719-LOCALINCIDENCEREQUESTSCOPECONFLATION1=production-positive-r432`；
+`B720-DEGRADEDINVALIDMERMAIDSHIP1=implemented/unit+full-suite-positive/normal-production-positive-r432`；
+`B721-PATCHBLOCKSCHEMAPARITY1=implemented/single-projected-block-schema+pinned/pending-r433`；
+`B716-TRACECANONICALWINDOWCONTEXT1=production-stable-r432`；
+`active-stream-4ms-degrade=forbidden/205s+301s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.748 r431 与 B719：请求主链教学已生效；局部 incidence 仍误消除未证边界（2026-08-13）
 
 1. 在 `main@e0ec11809` 严格并发恰好两个案例：

@@ -116,6 +116,52 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
 	return json.RawMessage(schema)
 }
 
+// ParametersFor gives replace_blocks/add_blocks the same dispatch-projected
+// block schema as a full emit. The patch envelope remains delta-specific, but
+// a model repairing one block must not lose the structural teaching it had on
+// the first emit (notably edge_anchors.from_identity/to_identity and
+// participant_boundaries). Keeping the nested block item byte-derived from the
+// full schema also prevents the two tool surfaces from drifting as new block
+// fields or per-dispatch projections are added.
+func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.RawMessage {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	return BuildAnswerDocumentPatchParametersFor(view)
+}
+
+// BuildAnswerDocumentPatchParametersFor projects the canonical full-document
+// block item into both patch block arrays. It deliberately does not project or
+// copy the full document envelope: citations and document-level delta fields
+// retain their patch-specific replacement/append semantics.
+func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView) json.RawMessage {
+	var patchRoot map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).Parameters(), &patchRoot); err != nil {
+		return (&EmitAnswerDocumentPatch{}).Parameters()
+	}
+	var fullRoot map[string]any
+	if err := json.Unmarshal(BuildAnswerDocumentParametersFor(view), &fullRoot); err != nil {
+		return (&EmitAnswerDocumentPatch{}).Parameters()
+	}
+	patchProperties, _ := patchRoot["properties"].(map[string]any)
+	fullProperties, _ := fullRoot["properties"].(map[string]any)
+	fullBlocks, _ := fullProperties["blocks"].(map[string]any)
+	blockItem, _ := fullBlocks["items"].(map[string]any)
+	if patchProperties == nil || blockItem == nil {
+		return (&EmitAnswerDocumentPatch{}).Parameters()
+	}
+	for _, field := range []string{"replace_blocks", "add_blocks"} {
+		arraySchema, _ := patchProperties[field].(map[string]any)
+		if arraySchema == nil {
+			return (&EmitAnswerDocumentPatch{}).Parameters()
+		}
+		arraySchema["items"] = blockItem
+	}
+	out, err := json.Marshal(patchRoot)
+	if err != nil || !json.Valid(out) {
+		return (&EmitAnswerDocumentPatch{}).Parameters()
+	}
+	return out
+}
+
 // emitAnswerDocumentPatchParams mirrors AnswerDocumentV2Patch
 // one-to-one for JSON unmarshalling. CitationRef and AnswerBlockItem
 // fields use the same FlexInt typed approach as the V2 emit so

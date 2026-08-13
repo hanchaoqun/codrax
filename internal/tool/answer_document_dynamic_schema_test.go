@@ -31,6 +31,47 @@ func TestBuildAnswerDocumentParametersFor_NilViewReturnsCanonical(t *testing.T) 
 	}
 }
 
+func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RelationAxis: types.AxisFlow,
+		DiagramPlan:  &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	fullItem, fullProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+
+	var patchRoot map[string]any
+	if err := json.Unmarshal(BuildAnswerDocumentPatchParametersFor(view), &patchRoot); err != nil {
+		t.Fatalf("patch projected schema must parse: %v", err)
+	}
+	patchProps := patchRoot["properties"].(map[string]any)
+	fullBytes, _ := json.Marshal(fullItem)
+	for _, field := range []string{"replace_blocks", "add_blocks"} {
+		array := patchProps[field].(map[string]any)
+		item := array["items"].(map[string]any)
+		itemBytes, _ := json.Marshal(item)
+		if string(itemBytes) != string(fullBytes) {
+			t.Fatalf("patch %s block item drifted from projected full item", field)
+		}
+		props := item["properties"].(map[string]any)
+		edge := props["edge_anchors"].(map[string]any)
+		edgeProps := edge["items"].(map[string]any)["properties"].(map[string]any)
+		for _, identity := range []string{"from_identity", "to_identity"} {
+			if _, ok := edgeProps[identity]; !ok {
+				t.Fatalf("patch %s lost edge identity selector %q: %v", field, identity, edgeProps)
+			}
+		}
+		if _, ok := props["participant_boundaries"]; !ok {
+			t.Fatalf("patch %s lost projected participant boundary field", field)
+		}
+	}
+	if _, ok := fullProps["participant_boundaries"]; !ok {
+		t.Fatal("test setup: full projected schema lacks participant boundary field")
+	}
+}
+
 func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
 	raw := (&EmitAnswerDocument{}).Parameters()
 	var root map[string]any

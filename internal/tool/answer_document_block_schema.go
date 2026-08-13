@@ -26,12 +26,11 @@ import (
 // than learning them from a retry hint. See
 // docs/design/iteration_inflation_remediation.md §3 source #1.
 //
-// JSON Schema sharing is a separate concern — the patch tool keeps
-// replace_blocks / add_blocks as opaque object arrays today; the
-// full tool inlines a detailed schema. A follow-up PR can extract
-// shared schema fragments into a helper here once the patch tool
-// surfaces detailed block-field validation. This file's contract
-// for now is the prose surface only.
+// JSON Schema sharing is handled by
+// BuildAnswerDocumentPatchParametersFor: the patch envelope stays
+// delta-specific while replace_blocks / add_blocks reuse the exact
+// dispatch-projected full-emit block item. This file owns the shared prose
+// surface; the projection helper owns structural parity.
 
 // BuildAnswerDocumentSemanticContractDescription returns the canonical
 // answer-document block-semantic contract description. Both Description()
