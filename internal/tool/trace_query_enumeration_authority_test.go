@@ -83,6 +83,26 @@ func TestRuntimeArtifactReadEnumerationAuthorityIsNotACompleteCensus(t *testing.
 	}
 }
 
+func TestTraceQueryBlobPageCoverageUsesTypedPublicScope(t *testing.T) {
+	privatePath := "/work/.codrax/blob/session/trace_query-deadbeef.txt"
+	block := runtimeTraceCausalProjectionCoverageBlock(types.ObservationLedgerInput{
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			RuntimeArtifactRead: &types.ToolRuntimeArtifactRead{
+				RequestedPath: privatePath, Kind: "blob", TraceQueryBlob: true,
+			},
+			EnumerationAuthority: readFileEnumerationAuthority(privatePath, 1, 66, 332, true),
+		}},
+	}, "zh")
+	if block == nil || !strings.Contains(block.Text, "trace_query_result_page/lines:emitted=66,total=332") {
+		t.Fatalf("trace query page lost its exact public boundary: %+v", block)
+	}
+	if strings.Contains(block.Text, privatePath) || strings.Contains(block.Text, ".codrax/blob") {
+		t.Fatalf("trace coverage leaked private blob identity: %s", block.Text)
+	}
+}
+
 func TestSourceReadEnumerationDoesNotPolluteTraceCoverageBoundary(t *testing.T) {
 	block := runtimeTraceCausalProjectionCoverageBlock(types.ObservationLedgerInput{
 		ToolResults: []types.ToolResult{{

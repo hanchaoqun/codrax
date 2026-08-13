@@ -36,3 +36,35 @@ func TestBuildRuntimeArtifactEnumerationAuthorityCompleteOrUnrelatedIsInactive(t
 		t.Fatalf("complete/unrelated results activated runtime enumeration authority: %+v", got)
 	}
 }
+
+func TestBuildRuntimeArtifactEnumerationAuthorityDoesNotPublishTraceQueryBlobPathAsScope(t *testing.T) {
+	privatePath := "/work/.codrax/blob/session/trace_query-deadbeef.txt"
+	got := BuildRuntimeArtifactEnumerationAuthority([]ToolResult{{
+		ToolName: "read_file",
+		RuntimeArtifactRead: &ToolRuntimeArtifactRead{
+			RequestedPath:  privatePath,
+			Kind:           "blob",
+			TraceQueryBlob: true,
+		},
+		EnumerationAuthority: &ToolEnumerationAuthority{
+			Status: "incomplete",
+			Boundaries: []ToolEnumerationBoundary{{
+				Scope: privatePath, Dimension: "lines", Emitted: 66,
+				Total: 332, TotalKnown: true, Reason: "inline_budget_clamped",
+			}},
+		},
+	}})
+
+	if !got.Incomplete || len(got.Boundaries) != 1 {
+		t.Fatalf("trace query page boundary was lost: %+v", got)
+	}
+	if len(got.Scopes) != 1 || got.Scopes[0] != runtimeTraceQueryResultPageScope {
+		t.Fatalf("public scopes=%v, want stable typed scope %q", got.Scopes, runtimeTraceQueryResultPageScope)
+	}
+	if got.Boundaries[0].Scope != runtimeTraceQueryResultPageScope {
+		t.Fatalf("public boundary leaked private scope: %+v", got.Boundaries[0])
+	}
+	if got.Boundaries[0].Emitted != 66 || got.Boundaries[0].Total != 332 || !got.Boundaries[0].TotalKnown {
+		t.Fatalf("typed enumeration measurements changed during scope normalization: %+v", got.Boundaries[0])
+	}
+}

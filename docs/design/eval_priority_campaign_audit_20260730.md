@@ -35692,6 +35692,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.734 r420：逐成员位置与语义计价生产闭环；私有分页路径退出公开枚举范围（2026-08-12）
+
+1. 在 `main@013fb2809` 严格并发恰好两个案例：
+   `real_trace_h8_semantic_edge_anchor_sentinel + qf_type_relation_loop_controller`。Runner
+   `2 PASS / 0 FAIL`，人工 `1 pass / 1 partial`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r420_20260812_manual_audit.md`。
+2. B703 获生产闭环：Analyzer 铸出 required `source_location`，current-source lane 接管该维度；
+   最终 12 个实现类型的每一行都显示自己的 `internal/agent/*.go:line`，并保留 12 条合法
+   implementation→interface 边。首次 completion 的方法行 evidence 与类型定义 support-ref
+   不同槽，精确 grounding 要求模型重交后通过；没有矛盾合同或 finalizer 重试。
+3. B704 获生产闭环：VerifyClass 在独立“确定性语义优化”表发布原始墙钟 `0.285ms`、现有规则
+   可消 `0.285ms` 和窗口占比 `2.8%`，与根因 #2、修向榜、因果树、证据索引一致。显式 10ms
+   窗、typed 唤醒链、链上-only 排序、实际占用/业务修向与规则计价双轴均保留；frame evidence
+   absent 诚实披露，邻近/背景没有进入主因。
+4. 新确认 B705（P1）：模型对 trace_query 私有 spill 作分页读取时，`read_file` 正确铸出
+   `RuntimeArtifactRead.TraceQueryBlob=true`，但共享 runtime enumeration 编译器仍把 producer 的
+   绝对 `boundary.Scope` 原样并入 `affected_scopes/compacted_views`。于是 `.codrax/blob/.../
+   trace_query-*.txt` 内部存储身份同时污染模型上下文与最终覆盖块，且被误称为 query view。
+   这不是渲染字符串问题，而是 typed census 的公开身份没有归一。
+5. 根修位于模型 handoff 与最终覆盖块共用的 `BuildRuntimeArtifactEnumerationAuthority`：仅当
+   exact producer=`read_file` 且 typed `TraceQueryBlob=true` 时，将公开 scope 归一为稳定
+   `trace_query_result_page`。`emitted/total/total_known/reason/incomplete` 全部原样保留；普通客户
+   trace/log 的可见 artifact scope、真实 trace_query view、普通源码分页均不变。判据不读取路径、
+   request、thinking 或答案文字，不隐藏覆盖缺口，也不生成/修改模型结论。
+6. 三层 pin 覆盖共享编译器、Finalizer 上下文和最终 Trace 覆盖块：私有路径不得出现，稳定 typed
+   scope 与 `66/332` 精确边界必须同时存在。`go test ./internal/types ./internal/agent ./internal/tool`
+   全绿。活跃字节流继续不受 4ms 完整答案年龄门控；本轮没有降级回答。
+
+状态：
+
+`B703-RELATIONMEMBERLOCATIONVISIBILITY1=production-closed-r420`；
+`B704-SEMANTICEFFECTIVECROSSFACE1=production-closed-r420`；
+`B705-TRACEQUERYPAGEPUBLICSCOPE1=implemented/typed-producer+three-surface-pins-pass`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r420`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.730 r416：Trace 链上双轴正证；类图载体/范围/展示合同统一（2026-08-12）
 
 1. 在 `main@45d677d46` 严格并发恰好两个案例：

@@ -34,6 +34,7 @@ func BuildRuntimeArtifactEnumerationAuthority(results []ToolResult) RuntimeArtif
 		}
 		out.Incomplete = true
 		for _, boundary := range result.EnumerationAuthority.Boundaries {
+			boundary = runtimeArtifactPublicEnumerationBoundary(result, boundary)
 			if !seenBoundaries[boundary] {
 				seenBoundaries[boundary] = true
 				out.Boundaries = append(out.Boundaries, boundary)
@@ -67,4 +68,20 @@ func BuildRuntimeArtifactEnumerationAuthority(results []ToolResult) RuntimeArtif
 		return a.Reason < b.Reason
 	})
 	return out
+}
+
+const runtimeTraceQueryResultPageScope = "trace_query_result_page"
+
+// runtimeArtifactPublicEnumerationBoundary keeps private storage identity out
+// of the shared model/answer coverage surface. A paged read of a trace_query
+// spill is still an exact incomplete-enumeration boundary, but its filesystem
+// path is an implementation detail rather than a query view or customer
+// artifact identity. The producer-published TraceQueryBlob bit is the only
+// discriminator here; no path or model-prose classification participates.
+func runtimeArtifactPublicEnumerationBoundary(result ToolResult, boundary ToolEnumerationBoundary) ToolEnumerationBoundary {
+	if strings.EqualFold(strings.TrimSpace(result.ToolName), "read_file") &&
+		result.RuntimeArtifactRead != nil && result.RuntimeArtifactRead.TraceQueryBlob {
+		boundary.Scope = runtimeTraceQueryResultPageScope
+	}
+	return boundary
 }

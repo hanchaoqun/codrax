@@ -905,3 +905,30 @@ func TestFinalizerInitialInstructionOmitsCompleteRuntimeEnumerationAuthority(t *
 		t.Fatalf("complete runtime enumeration should not add an incomplete-boundary section:\n%s", prompt)
 	}
 }
+
+func TestFinalizerRuntimeEnumerationAuthorityDoesNotTeachPrivateTraceQueryBlobPath(t *testing.T) {
+	privatePath := "/work/.codrax/blob/session/trace_query-deadbeef.txt"
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "read_file", Success: true,
+		RuntimeArtifactRead: &types.ToolRuntimeArtifactRead{
+			RequestedPath: privatePath, Kind: "blob", TraceQueryBlob: true,
+		},
+		EnumerationAuthority: &types.ToolEnumerationAuthority{
+			Status: "incomplete",
+			Boundaries: []types.ToolEnumerationBoundary{{
+				Scope: privatePath, Dimension: "lines", Emitted: 66,
+				Total: 332, TotalKnown: true, Reason: "inline_budget_clamped",
+			}},
+		},
+	}}})
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "affected_scopes=`trace_query_result_page`") ||
+		!strings.Contains(prompt, "scope=`trace_query_result_page`; dimension=`lines`; emitted=66; total=332") {
+		t.Fatalf("finalizer missed the typed public trace-query page boundary:\n%s", prompt)
+	}
+	if strings.Contains(prompt, privatePath) || strings.Contains(prompt, ".codrax/blob") {
+		t.Fatalf("finalizer was taught a private trace-query blob identity:\n%s", prompt)
+	}
+}
