@@ -353,6 +353,15 @@ func TestBuildRuntimeTargetTerminalBodyCalls_ConceptualTerminalUsesGroundedStati
 	if eval.callChainDiscoverySelectionPending() || eval.analysisIR.RequestModel.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
 		t.Fatal("static conceptual-terminal discovery must not request registration/binding/initializer evidence")
 	}
+	for _, want := range []string{
+		"Typed Terminal-Candidate Body Calls",
+		"Each leaf is only a candidate for the requested conceptual destination",
+		"parser-authored terminal-candidate body call",
+	} {
+		if !strings.Contains(got.markdown+got.evidence[0].Summary, want) {
+			t.Fatalf("conceptual-terminal candidate handoff missing %q: evidence=%+v markdown=%s", want, got.evidence, got.markdown)
+		}
+	}
 }
 
 func TestBuildRuntimeTargetTerminalBodyCalls_RejectsUnselectedLeafAndUnreadLine(t *testing.T) {

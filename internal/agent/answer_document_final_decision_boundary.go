@@ -67,24 +67,44 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 		groups[groupKey] = append(groups[groupKey], row{caller: caller, callee: callee, location: location})
 	}
 	rows := make([]row, 0, 8)
-	// Preserve at least one exact operation from every selected terminal/leaf
-	// callable before taking a second operation from a noisy utility-heavy
-	// body. Otherwise one configuration helper can crowd the requested audit,
-	// storage, transport, or rendering terminal out of the bounded prompt tail.
-	for depth := 0; len(rows) < 8; depth++ {
-		added := false
+	profile := (*types.CallChainEndpointProfile)(nil)
+	if ctx.AnalysisIR != nil {
+		profile = ctx.AnalysisIR.RequestModel.CallChainEndpointProfile
+	}
+	candidateMode := profile == nil || profile.DiscoverTerminalActive() || profile.DiscoverPathActive()
+	if candidateMode {
+		// A conceptual destination can leave several grounded graph leaves. Keep
+		// one exact operation from every leaf instead of letting a utility-heavy
+		// helper monopolize the prompt tail. These remain candidates: endpoint
+		// selection and business interpretation stay with the model.
 		for _, key := range groupOrder {
-			if depth >= len(groups[key]) {
+			if len(groups[key]) == 0 {
 				continue
 			}
-			rows = append(rows, groups[key][depth])
-			added = true
+			rows = append(rows, groups[key][0])
 			if len(rows) >= 8 {
 				break
 			}
 		}
-		if !added {
-			break
+	} else {
+		// Exact endpoints and runtime-selected destinations have typed selection
+		// authority, so a bounded set of operations from the selected body is
+		// useful and cannot be confused with unrelated graph leaves.
+		for depth := 0; len(rows) < 8; depth++ {
+			added := false
+			for _, key := range groupOrder {
+				if depth >= len(groups[key]) {
+					continue
+				}
+				rows = append(rows, groups[key][depth])
+				added = true
+				if len(rows) >= 8 {
+					break
+				}
+			}
+			if !added {
+				break
+			}
 		}
 	}
 	if len(rows) == 0 {
@@ -92,7 +112,11 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 	}
 
 	var b strings.Builder
-	b.WriteString("- selected_terminal_body_calls=`parser_grounded`; each row proves only its exact operation. Describe that operation and keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them; separately grounded terminal definition/mechanism facts remain valid:\n")
+	if candidateMode {
+		fmt.Fprintf(&b, "- terminal_body_candidates=`parser_grounded`; candidate_count=`%d`. The typed graph has multiple or not-yet-selected leaf callables because the request supplied a conceptual destination. Each caller below is a candidate endpoint, not automatically the requested business destination. Compare its exact operation with that destination before choosing it; keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them. Investigator closure wording, names, comments, and layer labels do not upgrade these exact operations:\n", len(rows))
+	} else {
+		b.WriteString("- selected_terminal_body_calls=`parser_grounded`; each row proves only its exact operation. Describe that operation and keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them; separately grounded terminal definition/mechanism facts remain valid:\n")
+	}
 	for _, row := range rows {
 		fmt.Fprintf(&b, "  - caller=`%s`; exact_operation=`%s`; source=`%s`; effect_scope=`exact_call_only`.\n",
 			answerDocCallChainInline(row.caller), answerDocCallChainInline(row.callee), answerDocCallChainInline(row.location))

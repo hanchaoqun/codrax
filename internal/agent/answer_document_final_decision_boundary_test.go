@@ -41,6 +41,9 @@ func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutU
 		Mutable: types.NewMutableState("opaque"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentTrace, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "VisitController.create", Sink: "AuditLog.record", SinkMode: types.CallChainSinkResolutionExact,
+			},
 		}},
 		EvidenceItems: []types.EvidenceItem{{
 			ID: "body", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
@@ -62,8 +65,10 @@ func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutU
 	}
 }
 
-func TestSelectedTerminalImplementationBoundaryRoundRobinsLeafOwnersBeforeFillingBudget(t *testing.T) {
-	ctx := &types.AgentContext{}
+func TestSelectedTerminalImplementationBoundaryConceptualDestinationKeepsOneOperationPerCandidateLeaf(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}}
 	for line := 1; line <= 8; line++ {
 		ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
 			ID: "config", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
@@ -80,11 +85,39 @@ func TestSelectedTerminalImplementationBoundaryRoundRobinsLeafOwnersBeforeFillin
 	})
 
 	got := renderAnswerDocSelectedTerminalImplementationBoundary(ctx)
-	if !strings.Contains(got, "caller=`AuditLog.record`; exact_operation=`System.out.println`") {
-		t.Fatalf("a noisy first leaf must not crowd a second selected terminal out of the bounded tail:\n%s", got)
+	for _, want := range []string{
+		"terminal_body_candidates=`parser_grounded`; candidate_count=`2`",
+		"Each caller below is a candidate endpoint, not automatically the requested business destination",
+		"caller=`AuditLog.record`; exact_operation=`System.out.println`",
+		"Investigator closure wording, names, comments, and layer labels do not upgrade these exact operations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("conceptual destination boundary missing %q:\n%s", want, got)
+		}
 	}
-	if strings.Count(got, "caller=`Config.resolve`") != 7 {
-		t.Fatalf("bounded round-robin view should use remaining seven rows for first leaf, got:\n%s", got)
+	if strings.Count(got, "caller=`Config.resolve`") != 1 {
+		t.Fatalf("conceptual destination candidates should keep one operation per leaf, got:\n%s", got)
+	}
+}
+
+func TestSelectedTerminalImplementationBoundaryExactSinkRetainsBoundedBodyDetail(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "Source.run", Sink: "Config.resolve", SinkMode: types.CallChainSinkResolutionExact,
+		},
+	}}}
+	for line := 1; line <= 9; line++ {
+		ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
+			ID: fmt.Sprintf("config-%d", line), Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Config.resolve", Object: fmt.Sprintf("helper.call%d", line), OwnerSymbol: "Config.resolve",
+			Source: "src/Config.java", LineStart: line, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapTerminalBodyCall,
+		})
+	}
+	got := renderAnswerDocSelectedTerminalImplementationBoundary(ctx)
+	if !strings.Contains(got, "selected_terminal_body_calls=`parser_grounded`") ||
+		strings.Contains(got, "terminal_body_candidates=") || strings.Count(got, "caller=`Config.resolve`") != 8 {
+		t.Fatalf("exact typed sink should retain the bounded selected-body detail:\n%s", got)
 	}
 }
 

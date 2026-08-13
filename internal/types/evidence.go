@@ -54,10 +54,12 @@ const (
 	EvidenceProducerRepoMapRequestedTargetDefinition = "repomap_requested_target_definition"
 	// EvidenceProducerRepoMapTerminalBodyCall marks an AST/Cangjie-parser
 	// invocation inside a precisely read callable that the typed call-chain
-	// graph selected as its terminal. Unlike the broad concrete-value call
+	// graph selected as its terminal, or retained as a grounded leaf candidate
+	// while a conceptual destination is still being resolved. Unlike the broad concrete-value call
 	// scanner, this lane intentionally retains utility/IO/log calls because
 	// they are often the terminal implementation fact the user is asking the
-	// model to interpret. Selection and admission consume typed endpoints,
+	// model to interpret. Candidate rows never assert that their leaf implements
+	// the conceptual destination. Selection and admission consume typed endpoints,
 	// parser provenance and read coverage only; request/answer prose never
 	// participates.
 	EvidenceProducerRepoMapTerminalBodyCall     = "repomap_terminal_body_call"

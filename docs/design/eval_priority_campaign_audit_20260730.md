@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.728 r414：跨语言关系拓扑正证；概念终点与多叶候选分型（2026-08-12）
+
+1. 在 `main@c32726a6d` 严格并发恰好两个案例：
+   `sr_ts_workspace_chain + sr_java_call_chain`。Runner `1 PASS / 1 FAIL`，人工同为 `1 PASS / 1 FAIL`；
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_crosslang_relation_r414_20260812_manual_audit.md`。
+2. TS 是 B688 生产正证：最终答案/图正确区分 `run→fetchUser→send`、
+   `send→dispatchOnce→fetch`、`sleep→setTimeout` 的连续关系，与 `HttpTransport.send` 同 caller 的
+   maxAttempts/nextDelay/sleep sibling calls；路径别名与引用正确，首次成文零拒绝。这证明 r413 的
+   typed relation topology carrier 跨 TS 生效，并非围绕 Go sequence case 拟合。
+3. Java 的五条调用边、容量检查和修补后时序图都正确，但答案称 stdout 输出“完成审计落地”。
+   精确源事实只有 `AuditLog.record→System.out.println`，并不证明数据库/耐久化。Finalizer 已有
+   “概念目标与当前实现分离”软提示，因此不能归为证据缺失或纯模型波动。
+4. 新确认 B690（P1）：`discover_path` 关系图同时有配置读取、容量查询、审计记录三个叶子。旧生产者
+   把全部叶子命名为 Selected-Terminal，Finalizer 又 round-robin 发布 8 条 body calls；载体一边说
+   概念终点未证，一边以“已选终点”命名全部叶子，且真正关键 stdout 行被配置细节稀释。这是 typed
+   上下文合同矛盾，不能用“stdout 不等于落库”关键词硬门修补。
+5. B690 根修为语言/业务无关 typed 候选分型：`discover_path/discover_terminal` 只发布
+   Terminal-Candidate，每个 grounded leaf 最多一条精确 body operation，并明确候选不自动等于用户
+   概念目标；exact sink 或 runtime-selected destination 才发布 Selected-Terminal 且可保留有界 body
+   细节。模型比较候选精确操作、选择业务终点并形成结论；系统不分类存储/网络/日志效果，不扫描
+   request/thinking/final prose，不改写答案或代画图。
+6. Java 首稿 diagram 的 class-only actor 无法唯一覆盖 method-qualified call edge，validator 正确拒绝；
+   精确 endpoint skeleton 一次修复成功。这是保护关系身份的合理拒绝，暂作低优先教学观察，不降低
+   typed relation gate。
+7. Trace 路径零改动：显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则
+   可消双轴、邻近/背景 support-only 全部保持。流式 Reader 每个成功字节都刷新活性；连接活跃时
+   4ms 未形成完整答案绝不降级，只有 caller cancel/deadline、no-first-byte、真实 byte-stall、
+   transport/decode failure 可进入重试或披露降级。
+
+状态：
+
+`B688-CALLEDGERELATIONTOPOLOGY1=production-positive-r414/TS`；
+`B690-CONCEPTUALTERMINALLEAFCANDIDATE1=implemented/typed-soft-candidate-carrier+pinned`；
+`active-stream-4ms-degrade=forbidden/Reader-liveness-pinned`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.727 r413：证明权威生产复验；direct edge、连续链与 sibling stages 分型（2026-08-12）
 
 1. 在 `main@d585f5438` 严格并发恰好两个案例：

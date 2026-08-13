@@ -1930,10 +1930,10 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 		guide += "- The typed runtime-selection contract needs a separate selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
 	}
 	if rm.CallChainEndpointProfile.DiscoverPathActive() {
-		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
+		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. A branched graph can have several leaf callables: they are terminal candidates, not proof that every leaf implements the requested conceptual destination. Compare each candidate's exact body operations before selecting the destination, and keep the other leaves as sibling/background branches. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
 	}
 	if rm.CallChainEndpointProfile.DiscoverTerminalActive() {
-		guide += "- Conceptual-terminal discovery preserves the exact requested source but does not preselect a code sink or assert runtime selection. Follow grounded static call edges from that source, preserve the load-bearing path, then inspect the grounded leaf callable's body. Keep exact observed operations distinct from the conceptual destination and do not infer a business effect from an identifier.\n"
+		guide += "- Conceptual-terminal discovery preserves the exact requested source but does not preselect a code sink or assert runtime selection. Follow grounded static call edges from that source, preserve the load-bearing path, then inspect the grounded leaf callable's body (or each grounded leaf callable's body when the graph branches). A branched graph can have several leaf callables: they are terminal candidates, not proof that every leaf implements the requested conceptual destination. Compare each candidate's exact body operations before selecting the destination, and keep the other leaves as sibling/background branches. Keep exact observed operations distinct from the conceptual destination and do not infer a business effect from an identifier.\n"
 	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
 }
@@ -14424,13 +14424,23 @@ func (e *explorerEvaluator) buildRuntimeTargetTerminalBodyCalls(
 	if len(rows) > runtimeTargetTerminalBodyCallLimit {
 		rows = rows[:runtimeTargetTerminalBodyCallLimit]
 	}
+	candidateMode := e.analysisIR.RequestModel.CallChainEndpointProfile.DiscoverTerminalActive() ||
+		e.analysisIR.RequestModel.CallChainEndpointProfile.DiscoverPathActive()
 	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
 	var b strings.Builder
-	b.WriteString("## Typed Selected-Terminal Body Calls (parser grounded)\n\n")
-	b.WriteString("These exact calls come from the selected terminal callable's already-read body. They prove only the listed body operations; the model decides what those operations mean for the requested conceptual destination.\n\n")
-	b.WriteString("| Evidence | File:Line | Terminal callable | Exact callee | Extractor |\n")
+	if candidateMode {
+		b.WriteString("## Typed Terminal-Candidate Body Calls (parser grounded)\n\n")
+		b.WriteString("These exact calls come from the already-read bodies of grounded graph leaves. Each leaf is only a candidate for the requested conceptual destination; compare the exact operations before selecting it and keep sibling leaves as background.\n\n")
+	} else {
+		b.WriteString("## Typed Selected-Terminal Body Calls (parser grounded)\n\n")
+		b.WriteString("These exact calls come from the selected terminal callable's already-read body. They prove only the listed body operations; the model decides what those operations mean for the requested conceptual destination.\n\n")
+	}
+	b.WriteString("| Evidence | File:Line | Terminal callable/candidate | Exact callee | Extractor |\n")
 	b.WriteString("|----------|-----------|-------------------|--------------|-----------|\n")
 	for _, entry := range rows {
+		if candidateMode {
+			entry.item.Summary = fmt.Sprintf("parser-authored terminal-candidate body call: `%s` calls `%s` (extractor=%s)", entry.item.Subject, entry.item.Object, entry.resolvedBy)
+		}
 		result.evidence = append(result.evidence, entry.item)
 		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` |\n",
 			entry.item.ID, entry.item.Source, entry.item.LineStart, entry.item.Subject, entry.item.Object, entry.resolvedBy)
