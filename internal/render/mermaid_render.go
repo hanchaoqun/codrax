@@ -260,6 +260,75 @@ func RenderMermaidBlocks(text string) string {
 	return fencedBlockRe.ReplaceAllStringFunc(text, maybeReplaceMermaidFence)
 }
 
+// SanitizeDegradedMermaidBlocks is the final delivery guard for a rejected or
+// text-recovered answer document. Normal single-shot output deliberately keeps
+// valid Mermaid source for downstream viewers, but a degraded draft did not
+// pass the normal structural contract and must not ship a syntactically broken
+// body under a misleading ```mermaid fence. Supported diagram families are
+// dry-run through the same compatibility/parser path as terminal rendering:
+// valid source remains byte-identical, while an obvious or parser-confirmed
+// failure becomes a ```text fence with an explicit warning and the original
+// source preserved. Unsupported Mermaid families remain source because a
+// terminal-library subset gap is not proof that their syntax is invalid.
+func SanitizeDegradedMermaidBlocks(text, language string) string {
+	if text == "" || !strings.Contains(text, "```mermaid") {
+		return text
+	}
+	english := strings.HasPrefix(strings.ToLower(strings.TrimSpace(language)), "en")
+	return fencedBlockRe.ReplaceAllStringFunc(text, func(match string) string {
+		nl := strings.Index(match, "\n")
+		bodyEnd := strings.LastIndex(match, "\n```")
+		if nl < 0 || bodyEnd <= nl {
+			return match
+		}
+		infoLine := strings.TrimSpace(match[3:nl])
+		if !strings.HasPrefix(infoLine, "mermaid") {
+			return match
+		}
+		body := match[nl+1 : bodyEnd]
+		first := firstNonEmptyTrimmed(body)
+		keyword := firstMermaidKeywordIn(first)
+		if keyword != "" && !isMermaidSupportedKind(keyword) {
+			return match
+		}
+		invalid := degradedMermaidSourceObviouslyMalformed(body)
+		if !invalid {
+			_, ok := renderMermaidFenceBody("```mermaid\n" + body + "\n```")
+			invalid = !ok
+		}
+		if !invalid {
+			return match
+		}
+		reason := "恢复稿中的 Mermaid 未通过语法校验；已降级为文本并保留原始源码"
+		if english {
+			reason = "Mermaid in the recovered draft failed syntax validation; preserved as text"
+		}
+		return degradedMermaidFallbackFence(body, reason)
+	})
+}
+
+func degradedMermaidFallbackFence(body, reason string) string {
+	body = strings.TrimRight(body, "\n")
+	return "```text\n# ⚠ " + strings.TrimSpace(reason) + "\n" + body + "\n```"
+}
+
+func degradedMermaidSourceObviouslyMalformed(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "%%") {
+			continue
+		}
+		if strings.Contains(trimmed, "-->") || strings.Contains(trimmed, "---") ||
+			strings.Contains(trimmed, "-.->") || strings.Contains(trimmed, "==>") {
+			first := trimmed[0]
+			if first == ']' || first == ')' || first == '}' || first == '|' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // mayContainMermaid is the cheap prefilter for RenderMermaidBlocks.
 // True iff the text either carries a `mermaid` tag or a known
 // diagram-type keyword anywhere — both quick substring checks. A

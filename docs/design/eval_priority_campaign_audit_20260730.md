@@ -35774,6 +35774,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.748 r431 与 B719：请求主链教学已生效；局部 incidence 仍误消除未证边界（2026-08-13）
+
+1. 在 `main@e0ec11809` 严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，人工同为
+   `1 pass / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_replay_r431_20260813_manual_audit.md`。
+2. Trace 198s PASS：五次查询保持显式用户窗，因果投影/自动补齐、完整 wakeup-chain、typed 链上-only
+   排名、反转/调度/供给/D/IO、业务线索、实际占用与规则可消双轴全部保留；邻近仍只作支持，正文不再
+   跨席求和。B718 代码对 Trace fail-closed 获生产正证，active stream 也未因 4ms 降级。
+3. B718 第一层在逻辑生产 prompt 中生效：四阶段 precedence 被标为真实但不完整的
+   `request_scoped_typed_relation_subset`，没有再获 requested-spine 加冕；checkout-verified
+   `BusContext.Mutable *MutableState` 以 no-arrow ownership recipe 抵达模型，模型实际尝试了 BusContext
+   subgraph。说明 authority/教学方向正确。
+4. 逻辑用例仍在 617s 后 FAIL，6 次 finalizer reject 耗尽并降级到损坏 Mermaid 恢复稿。新确认 B719：
+   participant validator 的 `typedEdgeAvailable` 仍把任何碰到 BusContext/Mutable 的局部 call 当成“请求
+   关系可用”，从而禁止 requested-relation unproven boundary；这与同一 prompt 的“独立局部事实可以
+   与请求关系未证共存”直接冲突。模型被迫把 evaluator→Mutable 方法调用冒充完整的阶段/载体数据流，
+   随后又被 call-edge 精确端点门拒绝。不是模型波动。
+5. B719 根修使用 typed scope，不扫描 request/answer prose：当 checkout-verified stage provider 已覆盖
+   至少两个 incident participants 但未覆盖全部 roster 时，未覆盖载体上的 local call 只作为独立事实，
+   不消除其 requested-relation boundary。若结构化 Mermaid 边与有效 typed anchors 确实形成覆盖全部
+   incident participants 的跨参与者连通图，则 boundary 可以正常消失；没有制造“额外载体永远未证”的
+   新死门。单参与者/无 request-scoped stage subset 的普通 operation 用例继续要求画已有 typed edge。
+6. boundary repair action、动态 JSON schema 与 finalizer 提示同源更新；新增“阶段子图 + 独立载体 call +
+   boundary”绿臂、“删除 boundary”红臂、“真实 typed 全 roster 图闭环”绿臂，以及既有单参与者 call
+   必画红臂。系统不生成图、不选择边、不改结论。
+7. 用户复核的 `20260813-035440.459-11882.md` 即本轮降级稿，Mermaid 中出现 `] -->|` 等非法行。
+   日志显示 6 次合同拒绝后又执行 7 次 Mermaid source repair，但 retry-state 恢复车道绕过普通最终校验，
+   仍以 `mermaid` fence 出厂。新立并施工 B720（P0/L7）：所有 rejected/text-recovered 降级车道在统一
+   last-mile 对 Mermaid 做最终 dry-run；明显畸形或 parser-confirmed reject 时保留有效正文和原始图源码，
+   但确定性改为 `text` fence 并注入 `# ⚠ <reason>`。合法 Mermaid source 不变，终端库不支持的合法
+   家族也不误判；正常已验证答案不进入此门。
+8. r431 的降级是 6 次确定性合同冲突耗尽，不是活跃流 4ms 超时。仍禁止用固定总年龄降级活跃 stream；
+   cancel/deadline、no-first-byte、真实 byte stall、terminal transport/decode failure 或重试耗尽才可进入
+   有界恢复。恢复仍应尽量保留模型有效正文并披露失败，不能用系统证据合成替代答案。
+
+状态：
+
+`B718-REQUESTEDFLOWTOPOLOGYCOMPLETENESS1=production-partial-r431/authority-positive`；
+`B719-LOCALINCIDENCEREQUESTSCOPECONFLATION1=implemented/typed-scope+graph-connectivity-pins-pass/pending-r432`；
+`B720-DEGRADEDINVALIDMERMAIDSHIP1=implemented/degraded-last-mile+L7-text-fallback-pins-pass/pending-r432`；
+`B716-TRACECANONICALWINDOWCONTEXT1=production-stable-r431`；
+`B717-TRACECROSSSEATPROSESUM1=not-reproduced-r430-r431/model-variance-observe`；
+`active-stream-4ms-degrade=forbidden/198s+617s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.747 r430 与 B718：显式 Trace 窗生产闭环；请求关系主链与真实局部子图分权（2026-08-13）
 
 1. 在 `main@a9c600fae` 严格并发恰好两个案例：

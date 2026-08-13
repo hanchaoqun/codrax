@@ -64,7 +64,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
-	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace available evidence with an unproven boundary. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
+	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
@@ -117,11 +117,11 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 			identityAction = "retain_existing_visible_participant_identity"
 			boundaryAction = "remove_stale_boundary"
 		case DiagramParticipantCoverageMissingBoundary:
-			edgeAction = "none_no_typed_candidate_exists"
+			edgeAction = "none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any"
 			identityAction = "add_exact_visible_disconnected_participant"
 			boundaryAction = "add_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageNodeMissing:
-			edgeAction = "none_no_typed_candidate_exists"
+			edgeAction = "none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any"
 			identityAction = "add_exact_visible_disconnected_participant"
 			boundaryAction = "retain_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageDuplicate:
@@ -166,14 +166,18 @@ func DiagramParticipantCoverageMismatches(
 	}
 
 	type state struct {
-		obligation         types.DiagramParticipantHint
-		surfaces           []string
-		visibleCovered     bool
-		identityVisible    bool
-		typedEdgeAvailable bool
-		bounded            bool
+		obligation                   types.DiagramParticipantHint
+		surfaces                     []string
+		visibleCovered               bool
+		identityVisible              bool
+		typedEdgeAvailable           bool
+		requestScopedEdgeAvailable   bool
+		localEvidenceBoundaryAllowed bool
+		bounded                      bool
 	}
+	requestScopedSubset := diagramParticipantHasIncompleteRequestScopedPrecedence(rm, obligations, stagePrecedence)
 	states := make([]state, 0, len(obligations))
+	allSurfaces := make([][]string, 0, len(obligations))
 	for _, obligation := range obligations {
 		// The analyzer's typed display identity is always its own exact
 		// presentation surface, including schema-valid labels with spaces such
@@ -185,13 +189,22 @@ func DiagramParticipantCoverageMismatches(
 				surfaces = append(surfaces, resolved)
 			}
 		}
+		allSurfaces = append(allSurfaces, surfaces)
+		requestScopedEdgeAvailable := stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence)
 		states = append(states, state{
-			obligation:         obligation,
-			surfaces:           surfaces,
-			visibleCovered:     diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
-			identityVisible:    diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
-			typedEdgeAvailable: diagramParticipantHasAvailableTypedIncident(rm, obligation, surfaces, evidence, stagePrecedence),
+			obligation:                   obligation,
+			surfaces:                     surfaces,
+			visibleCovered:               diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
+			identityVisible:              diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
+			typedEdgeAvailable:           diagramParticipantHasAvailableTypedIncident(rm, obligation, surfaces, evidence, stagePrecedence),
+			requestScopedEdgeAvailable:   requestScopedEdgeAvailable,
+			localEvidenceBoundaryAllowed: requestScopedSubset && !requestScopedEdgeAvailable,
 		})
+	}
+	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence)
+	for i := range states {
+		states[i].localEvidenceBoundaryAllowed = requestScopedSubset &&
+			!requestedParticipantGraphComplete && !states[i].requestScopedEdgeAvailable
 	}
 
 	var out []DiagramParticipantCoverageMismatch
@@ -244,14 +257,14 @@ func DiagramParticipantCoverageMismatches(
 				})
 				continue
 			}
-			if states[idx].visibleCovered && states[idx].identityVisible {
+			if states[idx].visibleCovered && states[idx].identityVisible && !states[idx].localEvidenceBoundaryAllowed {
 				out = append(out, DiagramParticipantCoverageMismatch{
 					BlockID: block.ID, Participant: states[idx].obligation.Identity,
 					Issue: DiagramParticipantCoverageStaleBoundary,
 				})
 				continue
 			}
-			if states[idx].typedEdgeAvailable {
+			if states[idx].typedEdgeAvailable && !states[idx].localEvidenceBoundaryAllowed {
 				issue := DiagramParticipantCoverageTypedEdgeMissing
 				if !states[idx].identityVisible {
 					issue = DiagramParticipantCoverageIdentityMissing
@@ -281,11 +294,11 @@ func DiagramParticipantCoverageMismatches(
 		}
 	}
 	for _, current := range states {
-		if (current.visibleCovered && current.identityVisible) || current.bounded {
+		if current.bounded || (current.visibleCovered && current.identityVisible && !current.localEvidenceBoundaryAllowed) {
 			continue
 		}
 		issue := DiagramParticipantCoverageMissingBoundary
-		if current.typedEdgeAvailable {
+		if current.typedEdgeAvailable && !current.localEvidenceBoundaryAllowed {
 			issue = DiagramParticipantCoverageTypedEdgeMissing
 			if !current.identityVisible {
 				issue = DiagramParticipantCoverageIdentityMissing
@@ -306,6 +319,110 @@ func DiagramParticipantCoverageMismatches(
 		return out[i].Issue < out[j].Issue
 	})
 	return out
+}
+
+// diagramParticipantHasIncompleteRequestScopedPrecedence distinguishes one
+// checkout-verified requested stage relation from unrelated local operation
+// incidence on extra carriers. The signal is precise and typed: at least two
+// incident participants are covered by the selected precedence provider, while
+// at least one other incident participant is not. In that shape a local call
+// on an uncovered carrier remains useful evidence, but it cannot force the
+// model to pretend the complete requested flow is proved.
+func diagramParticipantHasIncompleteRequestScopedPrecedence(
+	rm types.RequestModel,
+	obligations []types.DiagramParticipantHint,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) bool {
+	if len(stagePrecedence) == 0 || len(obligations) < 3 {
+		return false
+	}
+	covered := 0
+	for _, obligation := range obligations {
+		if stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence) {
+			covered++
+		}
+	}
+	return covered >= 2 && covered < len(obligations)
+}
+
+// diagramParticipantRequestedGraphConnected checks only model-authored visible
+// edges that already carry a valid typed anchor. Each endpoint must map to one
+// unique requested participant through the same exact node/visible-group rules
+// used by participant coverage. Local operations confined to one participant
+// therefore cannot masquerade as a complete requested flow, while a real
+// typed cross-participant graph may close the boundary without a special case.
+// Direction and relation kind remain owned by the existing edge validators;
+// this helper only establishes weak connectivity across the requested roster.
+func diagramParticipantRequestedGraphConnected(
+	doc *types.AnswerDocumentV2,
+	participantSurfaces [][]string,
+	evidence []types.EvidenceItem,
+) bool {
+	if doc == nil || len(participantSurfaces) < 2 {
+		return false
+	}
+	parent := make([]int, len(participantSurfaces))
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(v int) int {
+		if parent[v] != v {
+			parent[v] = find(parent[v])
+		}
+		return parent[v]
+	}
+	union := func(a, b int) {
+		a, b = find(a), find(b)
+		if a != b {
+			parent[b] = a
+		}
+	}
+
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	for blockIndex, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
+		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
+				continue
+			}
+			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
+			fromParticipants := diagramParticipantEndpointRosterMatches(block, edge.From, from, labels, participantSurfaces, evidence)
+			toParticipants := diagramParticipantEndpointRosterMatches(block, edge.To, to, labels, participantSurfaces, evidence)
+			if len(fromParticipants) == 1 && len(toParticipants) == 1 && fromParticipants[0] != toParticipants[0] {
+				union(fromParticipants[0], toParticipants[0])
+			}
+		}
+	}
+	root := find(0)
+	for i := 1; i < len(parent); i++ {
+		if find(i) != root {
+			return false
+		}
+	}
+	return true
+}
+
+func diagramParticipantEndpointRosterMatches(
+	block types.AnswerBlock,
+	node, typedEndpoint string,
+	labels map[string]string,
+	participantSurfaces [][]string,
+	evidence []types.EvidenceItem,
+) []int {
+	matches := make([]int, 0, 1)
+	for i, surfaces := range participantSurfaces {
+		if diagramParticipantIncidentEndpointMatches(surfaces, typedEndpoint, evidence) &&
+			diagramParticipantVisibleEndpointCarriesIdentity(block, surfaces, node, typedEndpoint, labels) {
+			matches = append(matches, i)
+		}
+	}
+	return matches
 }
 
 // diagramParticipantIdentityVisible is deliberately independent from typed

@@ -15724,6 +15724,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 		}
 		prose := strings.TrimSpace(e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments))
+		prose = render.SanitizeDegradedMermaidBlocks(prose, e.language)
 		if prose != "" {
 			// The last assistant turn in this lane is a failed repair attempt,
 			// not a second answer carrier. Appending it previously exposed
@@ -15772,6 +15773,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			combined = combined + "\n\n" + strings.TrimSpace(recovered)
 		}
 	}
+	combined = render.SanitizeDegradedMermaidBlocks(combined, e.language)
 	logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 		len(lastContent))
 	markAnswerDocumentDegradedFallback(out, combined, "answer_document_missing")
@@ -16177,6 +16179,7 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 	}
 	prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments)
+	prose = render.SanitizeDegradedMermaidBlocks(prose, e.language)
 	if strings.TrimSpace(prose) == "" {
 		return out, false
 	}

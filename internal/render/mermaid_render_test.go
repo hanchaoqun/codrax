@@ -68,6 +68,42 @@ func TestRenderMermaidBlocks_InvalidMermaid_BlockUnchanged(t *testing.T) {
 	}
 }
 
+func TestSanitizeDegradedMermaidBlocksFailsClosedWithoutDroppingSource(t *testing.T) {
+	malformed := strings.Join([]string{
+		"恢复正文",
+		"```mermaid",
+		"flowchart TD",
+		"    ] -->|",
+		`    codraxNode1["runReadSchedulerLoop&quot;"]| codraxNode2["&quot;o.busCtx.Mutable.SetResult&quot;"]`,
+		"```",
+	}, "\n")
+	got := SanitizeDegradedMermaidBlocks(malformed, "zh-CN")
+	for _, want := range []string{
+		"恢复正文",
+		"```text\n# ⚠ 恢复稿中的 Mermaid 未通过语法校验；已降级为文本并保留原始源码",
+		"flowchart TD",
+		"] -->|",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("degraded Mermaid fallback missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "```mermaid") {
+		t.Fatalf("invalid degraded source must not retain a renderable Mermaid fence:\n%s", got)
+	}
+}
+
+func TestSanitizeDegradedMermaidBlocksPreservesValidAndUnsupportedSource(t *testing.T) {
+	valid := "```mermaid\nflowchart LR\n A --> B\n```"
+	if got := SanitizeDegradedMermaidBlocks(valid, "en"); got != valid {
+		t.Fatalf("valid degraded Mermaid source must remain source for downstream viewers:\n%s", got)
+	}
+	unsupported := "```mermaid\nstateDiagram-v2\n [*] --> Ready\n```"
+	if got := SanitizeDegradedMermaidBlocks(unsupported, "en"); got != unsupported {
+		t.Fatalf("terminal-library subset gaps must not be mislabeled as invalid Mermaid:\n%s", got)
+	}
+}
+
 // TestRenderMermaidBlocks_MultipleBlocks confirms each ```mermaid```
 // block is rewritten independently — they don't share state and
 // don't interfere.

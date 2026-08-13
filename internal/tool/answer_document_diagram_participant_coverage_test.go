@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -118,6 +119,50 @@ func TestDiagramParticipantCoverageAllowsNoArrowOwnershipGroupBesideLocalFacts(t
 	doc.Blocks[0].Diagram.Body += "\n BusContext --> OP"
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 1 || got[0].Issue != DiagramParticipantCoverageBoundaryConnected {
 		t.Fatalf("the owner boundary must still reject a fabricated directed bridge: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageDoesNotPromoteLocalCarrierCallIntoRequestedStageFlow(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm.AnalyzerHints.Entities = []string{"Analyzer", "Explorer", "Mutable"}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n Analyzer --> Explorer\n W[\"appendStageOutputEvidenceToMutable\"] --> OP[\"MutableState.AppendEvidence\"]\n Mutable"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "W", ToNode: "OP", FromIdentity: "appendStageOutputEvidenceToMutable", ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall},
+	}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence",
+	)}
+	stagePrecedence := []stageauthority.PrecedenceRelation{{
+		From: stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		To:   stageauthority.StageRow{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, stagePrecedence...); len(got) != 0 {
+		t.Fatalf("a local carrier call must coexist with an unproved complete requested-flow boundary: %+v", got)
+	}
+
+	doc.Blocks[0].ParticipantBoundaries = nil
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, stagePrecedence...)
+	if len(got) != 1 || got[0].Participant != "Mutable" || got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("local carrier incidence must not eliminate the missing requested-flow boundary: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body += "\n Explorer --> Mutable"
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+		FromNode: "Explorer", ToNode: "Mutable", FromIdentity: "Explorer", ToIdentity: "Mutable", RelationKind: types.DiagramRelCall,
+	})
+	evidence = append(evidence, diagramEvidenceTestCall("Explorer", "Mutable"))
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, stagePrecedence...); len(got) != 0 {
+		t.Fatalf("a real typed graph connecting the full requested participant roster may close the boundary: %+v", got)
 	}
 }
 
@@ -386,7 +431,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		`repair_action["BusContext"]={issue:"available_typed_incident_edge_not_rendered",edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"omit_unproven_boundary"}`,
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
-		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_no_typed_candidate_exists",identity_action:"add_exact_visible_disconnected_participant",boundary_action:"add_exactly_one_unproven_boundary"}`,
+		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any",identity_action:"add_exact_visible_disconnected_participant",boundary_action:"add_exactly_one_unproven_boundary"}`,
 		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_disconnected",identity_action:"retain_exact_visible_disconnected_participant_separately",boundary_action:"retain_exactly_one_unproven_boundary"}`,
 	} {
 		if !strings.Contains(got, want) {

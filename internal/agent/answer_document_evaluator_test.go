@@ -11370,6 +11370,52 @@ func TestAnswerDocumentEvaluator_ParseOutput_RetryStateDiagramDropsOlderRejected
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_RetryStateInvalidDiagramFallsBackToText(t *testing.T) {
+	prevDoc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "恢复正文"},
+			{
+				ID: "broken-diagram", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramFlow, Language: "mermaid",
+					Body: "flowchart TD\n ] -->|\n codraxNode1[broken] | codraxNode2[target]",
+				},
+			},
+		},
+	}
+	prevJSON, err := json.Marshal(prevDoc)
+	if err != nil {
+		t.Fatalf("marshal prev doc: %v", err)
+	}
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	ctx.Mutable.SetRetryState(&types.RetryState{Attempt: 6, PrevEmitJSON: prevJSON})
+
+	// Single-shot markdown output keeps valid Mermaid source for downstream
+	// viewers, so pin the degraded-only guard under that real production mode.
+	render.SetMermaidRenderingEnabled(false)
+	t.Cleanup(func() { render.SetMermaidRenderingEnabled(true) })
+	out, err := (&answerDocumentEvaluator{language: "zh"}).ParseOutput(
+		ctx, []llm.Message{{Role: "assistant", Content: "最终 patch 未通过"}}, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"恢复正文",
+		"```text\n# ⚠ 恢复稿中的 Mermaid 未通过语法校验",
+		"] -->|",
+		"最终重试未能产出有效的 answer_document",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("degraded output missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "```mermaid") {
+		t.Fatalf("invalid recovered diagram must not ship as Mermaid:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersLastRejectedDraft(t *testing.T) {
 	rejected := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
