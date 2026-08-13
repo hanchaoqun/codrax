@@ -35649,6 +35649,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.770 r451：`other` 绕过因果范围；B735-4 先判维度再定 scope（2026-08-13）
+
+1. 在 `main@728c890c9` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + mr_poly_binding_chain`。runner 与人工均为
+   `1 PASS / 1 FAIL`；工件见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_replay_r451_20260813.md` 与 manual audit。
+2. B735-3 的“重试时保留 causal dimension”本轮没有执行机会：Analyzer 首轮先尝试不可用 grep，第二轮
+   首个实际 emit 直接把“是否受到限制”发成 required `role=other`，并选择 `bounded_fact_set`。由于 typed
+   consistency 只能比较已经发出的 enum/boolean，硬门没有 raw request 权限，也不应新增关键词扫描来猜回
+   causal intent；因此完整投影仍为 0。
+3. 这不是可忽略的模型波动。模型的 reasoning 明确称“三个独立 bounded facts”，终稿又把 CPU4
+   actual=policy floor 解释为“受限频率而非自愿节流”，同时忽略 typed 教学中
+   `limit row proves ceiling presence; binding impact requires separate overlap/supply evidence` 的权限分离。
+   Runner 缺因果投影与 policy/binding 边界是实质失败。
+4. 新确认并施工 `B735-4/P0`：不新增任何答案/请求硬扫描，仅进一步压缩 analyzer 的软分类算法。SSOT 现在
+   要求先逐个分类 required answer dimension，再选择 runtime scope；任何“条件是否 constrained/caused/
+   materially affected outcome”的 required verdict 必须是 `causal_attribution`，即使旁边同时有状态、时长、
+   频率等有限测量；`other` 只允许真的不匹配任何具名 role，禁止作为困难因果分类的兜底。任一 required
+   causal dimension 主导混合请求宽度，观测值留作证据，scope 取 causal_diagnosis。
+5. 该方案保持红线：emit-time consistency 仍只读 schema-valid role/required/scope；没有从 raw user/model/final
+   prose 猜意图，没有系统自动改 role/scope，没有代写 CPU 是否受限的结论。普通频率、状态、count/reason
+   lookup 仍 bounded；显式时间窗和目标身份不变。
+6. Poly 人工 PASS：正文完整给出 Python guard → `_fastlex` → PyO3 wrapper → Rust 核心及 fallback 的
+   有序关系，引用准确。本轮没有图，但请求未强制可视化，属于允许的模型选择；系统不得为了看护用例硬塞
+   optional Mermaid。无成文拒绝、无语法错误、无关系丢失。
+7. 验证：`go test ./internal/skill ./internal/tool -count=1` 全绿（tool 161.592s）。4ms 活跃流、Trace
+   链上-only 主因、邻近/背景 support-only、实际占用与规则可消除量双轴、确定性语义优化与业务线索、
+   系统不接管模型结论均未改动。
+
+状态：
+
+`B735-CAUSALVERDICTDIMENSION1=partial-r451/B735-4-implemented-pending-replay`；
+`B734-CAPLANEIDENTITY1=implemented/replay-blocked-by-r451-other+bounded`；
+`B736-RUNTIMEFLOWAUTHORITY1=production-closed`；
+`B733/B672-textual-relation=production-positive-r451/optional-diagram-not-required`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window=preserved`；`causal projection/auto-supplement=pending-B735-4-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.769 r450：因果枚举被误读为预设结论；B735-3 收窄重试心智（2026-08-13）
 
 1. 在 `main@b139b6886` 重建后严格并发恰好两个案例：

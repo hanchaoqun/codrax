@@ -1180,10 +1180,14 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingHasOneSSOTAcrossBothSecti
 		}
 	}
 	for _, want := range []string{
+		"Classify each required answer dimension BEFORE choosing runtime_question_profile.scope",
 		"declares investigation and answer breadth only",
 		"does NOT assert in advance",
 		"yes, no, mixed, or unproven",
 		"keep every requested dimension",
+		"never relabel that verdict as `other`",
+		"not a fallback for a difficult causal classification",
+		"dominates the breadth of a mixed request",
 	} {
 		if !strings.Contains(AnalysisRuntimeCausalAttributionTeaching, want) {
 			t.Fatalf("runtime causal teaching missing non-prejudgment guidance %q", want)
