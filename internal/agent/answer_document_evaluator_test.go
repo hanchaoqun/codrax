@@ -12250,6 +12250,51 @@ func TestRenderAnswerDocFacetCoverage_SoftenedAnnotation(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocFacetCoverage_ExplicitDiagramCarrierDoesNotPublishStaleSoftening(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:         "definition-only",
+		Source:     "pipeline.go",
+		LineStart:  1,
+		AnchorKind: types.AnchorDefinition,
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				Scenario:      types.ScenarioArchitectureExplain,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+				DiagramHint: &types.DiagramHint{
+					Kind:     types.DiagramSequence,
+					Required: true,
+				},
+			},
+		},
+	}
+
+	got := renderAnswerDocFacetCoverage(ctx)
+	diagramLine := ""
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, `facet_id: "diagram_spine"`) {
+			diagramLine = line
+			break
+		}
+	}
+	if diagramLine == "" || !strings.Contains(diagramLine, "**HARD**") {
+		t.Fatalf("explicit diagram carrier must remain visible as HARD:\n%s", got)
+	}
+	if strings.Contains(diagramLine, "downgraded from HARD") {
+		t.Fatalf("explicit diagram carrier must not publish stale softening:\n%s", got)
+	}
+	for _, sig := range mu.RichnessTelemetry() {
+		if sig.Kind == "facet_softened" && sig.FacetKind == string(types.FacetDiagramSpine) {
+			t.Fatalf("explicit diagram carrier must not enter degradation telemetry: %+v", sig)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_EmptyBlocksRejectBreaker pins the F7
 // same-cause breaker: three identical answer_doc_blocks_required rejects
 // are hinted normally, the fourth force-stops the loop so the recovery

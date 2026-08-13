@@ -35774,6 +35774,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.744 B713：必需图载体权威与事实证据丰富度解耦（2026-08-13）
+
+1. r427 的逻辑图最终已经存在且经过 required-diagram/关系边界 validator，但页面仍显示
+   `diagram_spine` 从 HARD 降为 SOFT。根因在 `CompileFacetCoverage`：非空探索 surface 中若没有
+   当前 `AcceptableForms` 候选，所有 HARD facet 一律软化并写入 session telemetry。该规则对事实结论
+   是保守降级，对用户明确要求的答案载体却会把探索中间态永久粘到最终页面。
+2. 本批只对 schema-valid `DiagramHint.Required=true + FacetDiagramSpine` 增加窄分层：图载体保持 HARD，
+   不发 `facet_softened`；同一图里的 principal path/call/import/guard 等事实 facet 仍按 typed 证据候选
+   独立软化，关系与 participant validators 仍逐边校验。可选/建议图继续 OPTIONAL。
+3. 该修复不扫描用户或模型原文，不把“必须有图”提升成“图中关系已证”，不放宽关系锚，不由系统补画、
+   改写或替代模型答案。它只修复 presentation authority 与 evidence richness 被混为同一状态机的问题。
+4. pins 覆盖：中间只有 definition evidence 时 required diagram 保持 HARD 且 principal path 正常软化；
+   advisory diagram 保持 OPTIONAL；公开成文提示显示 HARD 且不带 stale downgrade；普通事实 facet 原有
+   downgrade annotation 不变。定向 `internal/types`、`internal/agent` 测试已绿，完整相关包测试与生产
+   r428 回放随后执行。
+5. active stream 规则不变：链接有字节活性但 4ms 内尚无完整 answer 时继续等待，不触发降级；仅
+   cancel/deadline、无首字节、真实 byte stall、terminal transport/decode failure 或重试耗尽可进入恢复。
+
+状态：
+
+`B713-REQUIREDDIAGRAMFACETSOFTENSTALE1=implemented/typed-presentation-authority/pins-pass`；
+`diagram factual relations=evidence-gated/unchanged`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.743 r427：载体角色生产复正；typed operation 导航被宽 grep 降级（2026-08-13）
 
 1. 在 `main@ffde89b1f` 严格并发恰好两个案例：

@@ -936,7 +936,8 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		//
 		// R3.1: emptySurface short-circuits the downgrade — no
 		// evidence yet ≠ HARD facet uncoverable. Skip telemetry too.
-		if !emptySurface && bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 {
+		if !emptySurface && bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 &&
+			!facetCarriesExplicitPresentationAuthority(rm, bound.Kind) {
 			bound.Required = FacetSoftRequired
 			for _, sink := range sinks {
 				if sink == nil {
@@ -971,6 +972,25 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		}
 	}
 	return plan
+}
+
+// facetCarriesExplicitPresentationAuthority separates a user-required answer
+// carrier from the evidence richness available while exploration is still in
+// progress. DiagramHint.Required is schema-validated typed authority: it says
+// the final answer must contain the requested visual shape. A temporary lack
+// of a matching call/import/guard row may constrain which relations the graph
+// can assert, but it must not erase the graph requirement itself or publish a
+// stale HARD-to-SOFT downgrade after the graph is delivered. Relation and
+// participant validators remain responsible for the graph's factual content.
+//
+// Keep this exception deliberately narrow. Every factual facet, and every
+// advisory/optional diagram, retains the normal evidence-candidate fallback.
+func facetCarriesExplicitPresentationAuthority(rm RequestModel, kind AnswerFacetKind) bool {
+	return kind == FacetDiagramSpine &&
+		rm.DiagramHint != nil &&
+		rm.DiagramHint.Required &&
+		rm.DiagramHint.Kind != DiagramNone &&
+		rm.DiagramHint.Kind.IsValid()
 }
 
 func bindConfigPrecedenceRoleCandidates(req FacetRequirement, rm RequestModel, surface []EvidenceItem) FacetRequirement {

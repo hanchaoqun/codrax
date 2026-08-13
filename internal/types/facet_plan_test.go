@@ -635,6 +635,81 @@ func TestCompileFacetCoverage_HardDegradesToSoftWhenNoCandidate(t *testing.T) {
 	}
 }
 
+func TestCompileFacetCoverage_ExplicitDiagramCarrierDoesNotSoftenWithIntermediateEvidence(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+		DiagramHint: &DiagramHint{
+			Kind:     DiagramSequence,
+			Required: true,
+		},
+	}
+	// A definition proves that exploration has begun but matches neither the
+	// principal-path nor diagram relationship forms. The factual path facet may
+	// soften; the explicitly requested answer carrier must remain HARD.
+	surface := []EvidenceItem{{ID: "definition-only", Source: "pipeline.go", AnchorKind: AnchorDefinition}}
+	sink := &fakeRichnessSink{}
+	plan := CompileFacetCoverage(rm, surface, sink)
+	if plan == nil || plan.Family != QFCallChain {
+		t.Fatalf("plan=%+v, want call-chain coverage", plan)
+	}
+
+	diagramHard := false
+	pathSoftened := false
+	for _, req := range plan.Required {
+		switch req.Kind {
+		case FacetDiagramSpine:
+			diagramHard = req.Required == FacetHardRequired && len(req.SourceCandidate) == 0
+		case FacetPrincipalPathEdge:
+			pathSoftened = req.Required == FacetSoftRequired
+		}
+	}
+	if !diagramHard {
+		t.Fatalf("explicit diagram carrier must remain HARD without an intermediate relation candidate: %+v", plan.Required)
+	}
+	if !pathSoftened {
+		t.Fatalf("diagram presentation authority must not bypass factual facet softening: %+v", plan.Required)
+	}
+	for _, sig := range sink.signals {
+		if sig.Kind == "facet_softened" && sig.FacetKind == string(FacetDiagramSpine) {
+			t.Fatalf("explicit diagram carrier must not emit stale softening telemetry: %+v", sig)
+		}
+	}
+}
+
+func TestCompileFacetCoverage_AdvisoryDiagramKeepsOptionalSemantics(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+		DiagramHint: &DiagramHint{
+			Kind:     DiagramSequence,
+			Required: false,
+		},
+	}
+	plan := CompileFacetCoverage(rm, []EvidenceItem{{ID: "definition-only", AnchorKind: AnchorDefinition}})
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetDiagramSpine {
+			t.Fatalf("advisory diagram must not become a required carrier: %+v", req)
+		}
+	}
+	foundOptional := false
+	for _, req := range plan.Optional {
+		if req.Kind == FacetDiagramSpine && req.Required == FacetOptional {
+			foundOptional = true
+		}
+	}
+	if !foundOptional {
+		t.Fatalf("advisory diagram must retain optional semantics: %+v", plan.Optional)
+	}
+}
+
 func TestCompileFacetCoverage_UncertaintyBoundaryIgnoresOrdinaryDefinitionEvidence(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,
