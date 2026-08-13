@@ -324,12 +324,19 @@ func applyDataActionParamContract(action DataAction, outputContract OutputContra
 		if strings.TrimSpace(params["projection"]) != "" {
 			params["projection"] = projection
 		}
-		if outputField := strings.TrimSpace(params["output_field"]); outputField != "" &&
-			projection != "" && projection != "json_object" {
+		outputField := strings.TrimSpace(params["output_field"])
+		if outputField != "" && projection == "" && outputContract.Normalize().Format == OutputJSONOnly {
+			// An explicit external object key is already a typed shape choice.
+			// Make it executable instead of allowing a shape-dependent default
+			// to ignore output_field for some reconcile groups.
+			projection = "json_object"
+			params["projection"] = projection
+		}
+		if outputField != "" && projection != "json_object" {
 			return action, DataActionParamError{
 				ActionKind:    action.Kind,
 				Param:         "output_field/projection",
-				ExpectedShape: "output_field only with projection=json_object (or an omitted projection resolved by a JSON output contract)",
+				ExpectedShape: "output_field with projection=json_object, or an omitted projection under output_contract.format=json_only",
 				ActualSnippet: "projection=" + projection,
 				Message:       "assemble_answer output_field names an external JSON object key and would be ignored by the selected non-object projection",
 			}

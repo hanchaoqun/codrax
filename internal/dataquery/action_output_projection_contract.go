@@ -14,9 +14,9 @@ type ActionOutputProjectionContract struct {
 }
 
 var actionOutputProjectionContracts = []ActionOutputProjectionContract{
-	{Value: "values", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputMarkdown, OutputFilePath, OutputFreeform}},
-	{Value: "value_list", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputMarkdown, OutputFilePath, OutputFreeform}},
-	{Value: "csv_values", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputMarkdown, OutputFilePath, OutputFreeform}},
+	{Value: "values", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputJSONOnly, OutputMarkdown, OutputFilePath, OutputFreeform}},
+	{Value: "value_list", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputJSONOnly, OutputMarkdown, OutputFilePath, OutputFreeform}},
+	{Value: "csv_values", Canonical: "values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputJSONOnly, OutputMarkdown, OutputFilePath, OutputFreeform}},
 	{Value: "key_values", Canonical: "key_values", Formats: []OutputFormat{OutputPlainSingleLine, OutputCSVLine, OutputMarkdown, OutputFreeform}},
 	{Value: "json_groups", Canonical: "json_groups", Formats: []OutputFormat{OutputJSONOnly, OutputFreeform}},
 	{Value: "json", Canonical: "json_groups", Formats: []OutputFormat{OutputJSONOnly, OutputFreeform}},

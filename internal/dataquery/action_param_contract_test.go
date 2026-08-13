@@ -144,6 +144,25 @@ func TestAssembleAnswerProjectionCompatibilityRegistryAndAlias(t *testing.T) {
 	if err != nil || action.Params["projection"] != "json_object" {
 		t.Fatalf("normalized=%+v err=%v, want object alias canonicalized", action, err)
 	}
+	jsonScalar, err := NormalizeDataActionForOutputContract(DataAction{
+		Kind: DataActionAssembleAnswer, Params: map[string]string{"projection": "values"},
+	}, OutputContract{Format: OutputJSONOnly})
+	if err != nil || jsonScalar.Params["projection"] != "values" {
+		t.Fatalf("normalized=%+v err=%v, JSON scalar-capable values projection must remain admitted", jsonScalar, err)
+	}
+	implicitObject, err := NormalizeDataActionForOutputContract(DataAction{
+		Kind: DataActionAssembleAnswer, Params: map[string]string{"output_field": "count"},
+	}, OutputContract{Format: OutputJSONOnly})
+	if err != nil || implicitObject.Params["projection"] != "json_object" {
+		t.Fatalf("normalized=%+v err=%v, JSON output_field must make object projection executable", implicitObject, err)
+	}
+	_, err = NormalizeDataActionForOutputContract(DataAction{
+		Kind: DataActionAssembleAnswer, Params: map[string]string{"output_field": "count"},
+	}, OutputContract{Format: OutputPlainSingleLine})
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "output_field/projection" {
+		t.Fatalf("err=%T %v, plain output_field omission must not be silently ignored", err, err)
+	}
 }
 
 func TestDataActionAcceptedParamKeysReturnsCopy(t *testing.T) {

@@ -35794,9 +35794,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    校验并 canonicalize；planner schema 从同一 registry 投影 format×projection 条件 enum，planner decode
    后再调用同一个 runtime normalizer，使 schema 未执行/兼容归一化旁路也 fail-closed。未知 projection
    不再静默落入 key_values 默认分支。
-6. 兼容矩阵是结构型而非业务型：JSON/Markdown-owned 编码不能进入 plain/CSV；text values/key_values
-   保持原受支持格式；省略 projection 仍由执行器按 output contract 选择默认。该方案不扫描用户请求、
-   模型思考或最终答案字面，也不让系统替模型选择业务值或结论。
+6. 兼容矩阵是结构型而非业务型：JSON/Markdown-owned 编码不能进入 plain/CSV；`values` 仍允许进入
+   json_only，因为单个 `2` 等实际值可以是合法 JSON scalar，最终是否有效继续由 `ValidateAnswer` 判断，
+   不把不确定形升级成硬门。JSON 合同下显式 `output_field` 且省略 projection 时按该 typed 选择规范化为
+   json_object；plain/freeform 等会忽略该字段的省略形 fail-closed。该方案不扫描用户请求、模型思考或
+   最终答案字面，也不让系统替模型选择业务值或结论。
 7. 专项测试覆盖 runtime plain×json reject、JSON alias canonicalization、registry defensive copy、planner
    同工具有界 repair、initial/rank schema 非回归。`go test ./internal/dataquery ./internal/repl
    ./internal/dataworkflow` 全绿。
