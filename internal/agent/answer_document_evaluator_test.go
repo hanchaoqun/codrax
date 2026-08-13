@@ -3211,6 +3211,10 @@ func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLangua
 	}
 	for _, want := range []string{
 		"exact callee operation",
+		"One grounded invocation proves one direct caller-to-callee edge",
+		"Calls with the same caller are sibling call sites",
+		"source-ordered stages/call sites",
+		"do not rename the fan-out as several independent paths converging on the last callee",
 		"`Note`, `alt`/`else`, or `opt`",
 		"registration_binding_fact",
 		"going through the registered binding, never as bypassing it",
@@ -3219,6 +3223,7 @@ func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLangua
 		"dynamic dispatch is unresolved",
 		"not executable calls unless a separately grounded invocation proves that edge",
 		"not conclusion authority",
+		"prefer repository and business vocabulary",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("cross-language diagram guide missing semantic boundary %q:\n%s", want, guide)
@@ -3228,6 +3233,80 @@ func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLangua
 		if strings.Contains(strings.ToLower(guide), forbidden) {
 			t.Fatalf("soft diagram guide must not introduce raw-prose hard gates %q:\n%s", forbidden, guide)
 		}
+	}
+}
+
+func TestRenderAnswerDocCallChainRelationTopology_ClassifiesSiblingCallsWithoutInventingAPath(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath,
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "e1", ClaimForm: types.ClaimCallEdge, Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 2321, Location: "internal/agent/analyzer.go:2321"},
+			{EvidenceID: "e2", ClaimForm: types.ClaimCallEdge, Subject: "buildAnalysisIR", Object: "compiler.Compile", Source: "internal/agent/analyzer.go", LineStart: 2528, Location: "internal/agent/analyzer.go:2528"},
+			{EvidenceID: "e3", ClaimForm: types.ClaimCallEdge, Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Location: "internal/agent/analyzer.go:2722"},
+		},
+	}}}
+
+	got := renderAnswerDocCallChainRelationTopology(plan)
+	for _, want := range []string{
+		"grounded_direct_edge_count=`3`",
+		"connected_edge_transition_count=`0`",
+		"connected_path_status=`no callee_to_next_caller transition",
+		"sibling_callsite_group: caller=`buildAnalysisIR`",
+		"normalizer.Normalize @ internal/agent/analyzer.go:2321 | compiler.Compile @ internal/agent/analyzer.go:2528 | gate.RunWith @ internal/agent/analyzer.go:2722",
+		"same caller fan-out; source order is not callee chaining",
+		"model owns the explanation and visible diagram",
+	} {
+		if !strings.Contains(strings.ToLower(got), strings.ToLower(want)) {
+			t.Fatalf("typed relation topology missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocCallChainRelationTopology_RecognizesExactConnectedTransition(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath,
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "e1", ClaimForm: types.ClaimCallEdge, Subject: "cli.run", Object: "service.fetch", Location: "cli.ts:10"},
+			{EvidenceID: "e2", ClaimForm: types.ClaimCallEdge, Subject: "service.fetch", Object: "transport.send", Location: "service.ts:20"},
+		},
+	}}}
+
+	got := renderAnswerDocCallChainRelationTopology(plan)
+	if !strings.Contains(got, "connected_edge_transition_count=`1`") {
+		t.Fatalf("callee-to-next-caller transition should be recognized:\n%s", got)
+	}
+	if strings.Contains(got, "connected_path_status=`no callee_to_next_caller") || strings.Contains(got, "sibling_callsite_group") {
+		t.Fatalf("connected chain must not be labeled disconnected sibling fan-out:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCallChainRelationTopology_DoesNotMergeSameNamedCallersAcrossFiles(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath,
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "e1", ClaimForm: types.ClaimCallEdge, Subject: "Handler.run", Object: "a.send", Source: "src/a.java", LineStart: 10, Location: "src/a.java:10"},
+			{EvidenceID: "e2", ClaimForm: types.ClaimCallEdge, Subject: "Handler.run", Object: "b.send", Source: "src/b.java", LineStart: 20, Location: "src/b.java:20"},
+		},
+	}}}
+
+	got := renderAnswerDocCallChainRelationTopology(plan)
+	if strings.Contains(got, "sibling_callsite_group") {
+		t.Fatalf("same-named callers in different source owners must fail open instead of gaining one source order:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCallChainRelationTopology_DoesNotConnectQualifiedAndShortSameTail(t *testing.T) {
+	plan := &types.AnswerSupportPlan{Family: types.QFCallChain, Lanes: []types.AnswerSupportLane{{
+		Kind: types.SupportLaneCurrentCodePath,
+		Entries: []types.AnswerSupportEntry{
+			{EvidenceID: "e1", ClaimForm: types.ClaimCallEdge, Subject: "cli.run", Object: "a.Handler.send", Source: "cli.ts", LineStart: 10, Location: "cli.ts:10"},
+			{EvidenceID: "e2", ClaimForm: types.ClaimCallEdge, Subject: "send", Object: "transport.write", Source: "other.ts", LineStart: 20, Location: "other.ts:20"},
+		},
+	}}}
+
+	got := renderAnswerDocCallChainRelationTopology(plan)
+	if !strings.Contains(got, "connected_edge_transition_count=`0`") {
+		t.Fatalf("short tail must not stand for a qualified owner in topology joins:\n%s", got)
 	}
 }
 

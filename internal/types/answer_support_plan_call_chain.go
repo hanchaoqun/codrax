@@ -37,8 +37,10 @@ func compileCallChainCurrentPathSupportLane(rm RequestModel, plan *AnswerSurface
 		Kind:          SupportLaneCurrentCodePath,
 		Title:         "Current grounded call chain",
 		AllowedBlocks: []string{"summary", "ordered_list", "diagram"},
-		Guidance: "Use this lane for the principal ordered path and any sequence diagram. " +
-			"Preserve the hop order already established by these entries. Do not add nearby helpers, " +
+		Guidance: "Use this lane for the principal directed relations and any sequence diagram. " +
+			"Preserve every proved edge direction. Treat two entries as consecutive hops only when the first edge's callee is the second edge's caller; " +
+			"multiple calls owned by the same caller are sibling call sites, not a callee-to-callee path. Source-line order may organize those call sites for reading, " +
+			"but does not by itself prove that every branch executed or that values flowed between the callees. Do not add nearby helpers, " +
 			"search-hint subjects, prior-turn subjects, or runtime frames as additional principal hops " +
 			"unless they also appear in this lane or are separately cited as part of the same requested chain.",
 	}

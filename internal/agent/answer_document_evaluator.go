@@ -10188,11 +10188,12 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
 	case types.QFCallChain:
 		b.WriteString("- Keep observed runtime facts, current grounded chain hops, and boundary disclosures in their own lanes.\n")
-		b.WriteString("- Every current-chain entry below has an `entry_role` derived from typed ClaimForm/anchor fields. Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops; `callback_handoff` establishes a handoff but not execution, while guard/assignment/return/literal/registration/definition/support facts explain a hop or live in a sibling support section.\n")
+		b.WriteString("- Every current-chain entry below has an `entry_role` derived from typed ClaimForm/anchor fields. A `directed_hop` establishes exactly its own caller-to-callee edge; it becomes consecutive with another edge only when its callee is that edge's caller. `typed_step_backbone` preserves an already-compiled ordered step, while `callback_handoff` establishes a handoff but not execution; guard/assignment/return/literal/registration/definition/support facts explain a hop or live in a sibling support section.\n")
 		b.WriteString("- Observation entries can explain where the trace came from, but they do not add caller/callee hops unless a `directed_hop` entry also establishes that hop. Do not turn adjacent non-hop facts into implicit bridges.\n")
 		b.WriteString("- You may use an entry's `Evidence note` to enrich that SAME hop's explanation. Do not turn nouns from the note into additional hops, targets, diagram nodes, or countable list members unless they also appear as their own lane entry.\n")
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
 		b.WriteString(renderAnswerDocCallChainDiagramSemanticsGuide())
+		b.WriteString(renderAnswerDocCallChainRelationTopology(plan))
 		b.WriteString(renderAnswerDocCallChainSemanticHandoffs(plan))
 		b.WriteString(renderAnswerDocCallChainCitationAuthority(plan))
 	default:
@@ -10300,12 +10301,109 @@ func answerDocCallChainSupportEntryRole(entry types.AnswerSupportEntry) string {
 func renderAnswerDocCallChainDiagramSemanticsGuide() string {
 	return "### Cross-language call-diagram semantics\n\n" +
 		"- For an invocation edge, prefer function/method-qualified participants. The message after `:` should name the exact callee operation carried by the current grounded call-edge entry; if you show arguments, literals, selectors, or operators, copy only what the cited call site establishes. Do not substitute the caller operation or an illustrative payload.\n" +
+		"- One grounded invocation proves one direct caller-to-callee edge, not a complete path. Join two invocation edges into consecutive hops only when the first callee is the second caller under the typed identity rules. Calls with the same caller are sibling call sites; their source-line ordering is useful presentation order but does not by itself prove runtime co-execution, branch selection, value transfer, or a path through the callees.\n" +
+		"- For a sequence view of several sibling calls inside one orchestration function, keep that function as the sender for each grounded message and place messages in cited source order. Describe this as source-ordered stages/call sites, with branch uncertainty where applicable; do not rename the fan-out as several independent paths converging on the last callee.\n" +
 		"- A condition, capacity check, match arm, null guard, loop predicate, or other control decision that does not invoke a second symbol is not a call edge. In a sequence diagram render it as `Note`, `alt`/`else`, or `opt`; in a flow diagram render it as a branch. Do not manufacture a self-call to make the condition visible.\n" +
 		"- A language/runtime binding boundary (FFI, JNI, PyO3, native-module registration, generated RPC binding) is not a source-level invocation unless a grounded call row proves that exact edge. A matching `registration_binding_fact` proves that a public/exported surface is bound to a callable; therefore describe a caller targeting that exact export as going through the registered binding, never as bypassing it. It still does not prove execution of the registered callable or its downstream core call unless those calls have their own `directed_hop` rows. In a sequence diagram show an unproved binding transition as a `Note over` the two grounded endpoints, not an arrow; use the same note shape for an unproved execution transition after a proved binding. In a call-DAG/architecture diagram, use only the matching typed non-call relation carried by evidence. Keep independently grounded calls on both sides visible and qualified.\n" +
 		"- A compound condition can still contain a real invocation. Preserve the grounded caller-to-callee edge for that operation, then annotate the comparison/branch separately; never replace the callee with an abstract guard node, and never make the guard node the caller of the post-guard operation.\n" +
 		"- Preserve the source language's resolved identity: package/type/receiver qualification when known; exact receiver/member surface with an uncertainty disclosure when dynamic dispatch is unresolved. Never guess an owner merely to make the graph look uniform.\n" +
 		"- This guidance applies uniformly to Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and every other supported executable language. Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations use their typed relation class; they are not executable calls unless a separately grounded invocation proves that edge.\n" +
+		"- In the visible answer and diagram, prefer repository and business vocabulary. Authoring terms such as typed lane, entry_role, evidence capsule, shared frontier, and validator are internal context unless the user explicitly asks about Codrax internals.\n" +
 		"These are presentation instructions, not conclusion authority: keep the model's explanation and judgment, and omit the diagram when it would add no useful structure.\n\n"
+}
+
+// renderAnswerDocCallChainRelationTopology gives the finalizer a bounded,
+// typed description of how the accepted call rows relate to one another.
+// Each EvidenceItem already proves one direct edge. This helper only compares
+// their structured Subject/Object identities and source locations: it never
+// parses request prose, model prose, or Mermaid text, never rejects an answer,
+// and never writes the conclusion or diagram for the model.
+func renderAnswerDocCallChainRelationTopology(plan *types.AnswerSupportPlan) string {
+	entries := answerDocCurrentCodePathEntries(plan)
+	var calls []types.AnswerSupportEntry
+	for _, entry := range entries {
+		if entry.ClaimForm == types.ClaimCallEdge && strings.TrimSpace(entry.Subject) != "" && strings.TrimSpace(entry.Object) != "" {
+			calls = append(calls, entry)
+		}
+	}
+	if len(calls) == 0 {
+		return ""
+	}
+
+	type siblingGroup struct {
+		caller string
+		calls  []types.AnswerSupportEntry
+	}
+	var groups []siblingGroup
+	for _, call := range calls {
+		callSource := strings.TrimSpace(strings.ReplaceAll(call.Source, `\`, "/"))
+		if callSource == "" {
+			continue
+		}
+		idx := -1
+		for i := range groups {
+			groupSource := strings.TrimSpace(strings.ReplaceAll(groups[i].calls[0].Source, `\`, "/"))
+			if strings.EqualFold(groupSource, callSource) && answerDocCallChainTopologyIdentityEquivalent(groups[i].caller, call.Subject) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			groups = append(groups, siblingGroup{caller: call.Subject})
+			idx = len(groups) - 1
+		}
+		groups[idx].calls = append(groups[idx].calls, call)
+	}
+
+	connected := 0
+	for i := range calls {
+		for j := range calls {
+			if i == j {
+				continue
+			}
+			if answerDocCallChainTopologyIdentityEquivalent(calls[i].Object, calls[j].Subject) {
+				connected++
+			}
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("### Typed relation topology (advisory)\n\n")
+	b.WriteString("- relation_authority=`each row proves exactly one direct caller_to_callee edge`\n")
+	fmt.Fprintf(&b, "- grounded_direct_edge_count=`%d`; connected_edge_transition_count=`%d`\n", len(calls), connected)
+	if connected == 0 && len(calls) > 1 {
+		b.WriteString("- connected_path_status=`no callee_to_next_caller transition is present in this bounded lane`; keep separate edges or sibling stages rather than declaring one end-to-end path.\n")
+	}
+	for _, group := range groups {
+		if len(group.calls) < 2 {
+			continue
+		}
+		sort.SliceStable(group.calls, func(i, j int) bool {
+			if group.calls[i].Source == group.calls[j].Source {
+				return group.calls[i].LineStart < group.calls[j].LineStart
+			}
+			return group.calls[i].Source < group.calls[j].Source
+		})
+		parts := make([]string, 0, len(group.calls))
+		for _, call := range group.calls {
+			location := strings.TrimSpace(call.Location)
+			if location == "" {
+				location = "location unavailable"
+			}
+			parts = append(parts, fmt.Sprintf("%s @ %s", strings.TrimSpace(call.Object), location))
+		}
+		fmt.Fprintf(&b, "- sibling_callsite_group: caller=`%s`; source_order=`%s`; semantics=`same caller fan-out; source order is not callee chaining or proof that all branches executed`\n",
+			answerDocCallChainInline(group.caller), answerDocCallChainInline(strings.Join(parts, " | ")))
+	}
+	b.WriteString("- The model owns the explanation and visible diagram; this section supplies relation boundaries only.\n\n")
+	return b.String()
+}
+
+func answerDocCallChainTopologyIdentityEquivalent(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	return left != "" && right != "" &&
+		(strings.EqualFold(left, right) || types.AnswerCodeIdentitySurfacesEquivalent(left, right))
 }
 
 type answerDocPrincipalEnumerationRowCoverage struct {

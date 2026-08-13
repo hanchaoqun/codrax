@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.727 r413：证明权威生产复验；direct edge、连续链与 sibling stages 分型（2026-08-12）
+
+1. 在 `main@d585f5438` 严格并发恰好两个案例：
+   `github_issue_zod_prefault + qf_sequence_analyzer_gate`。Runner `1 PASS / 1 FAIL`，人工为
+   `1 honest-unverified / 1 FAIL`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_write_sequence_r413_20260812_manual_audit.md`。
+2. Zod 复验 B685/B686/B687 已生效：生产 patch、false/0/空串回归、existing-default 负例和
+   durable applied tree 均正确；探针/行为能力不可用时，Python `make check` 的 source-shape pass
+   没有再把批次洗成 verified，runner 也找到前序 durable ref。fixture 明示该检查不是 TypeScript
+   行为执行，主机没有 Node/npm，因此最终 `production_verification_source_static_only` 是诚实边界，
+   不为 eval 自动 PASS 降低验证杆。
+3. 新确认 B688（P1）：sequence case 语法和引用均正确，但答案把 `buildAnalysisIR` 内按源码行
+   排列的 8 个 direct calls 称为“8 条独立路径汇聚”。现有 support lane 把每条 CallEdge 都叫
+   `directed_hop`，却没告诉模型：一条 direct edge 只有在其 callee 精确衔接下一条 caller 时才是
+   连续链；同 caller 的多个边只是 sibling callsites。endpoint capsule 的
+   `buildAnalysisIR -> RunWith <- gate.Run` 方向没有错，缺的是外围 sibling rows 的关系类型。
+4. B688 根修为语言中立软 carrier：仅从 typed Subject/Object/Source/Line 计算 direct-edge count、
+   callee→next-caller transition count、同 caller+同文件 sibling callsite group。sibling 组可按引用
+   行作 source-order 展示，但行序不证明所有分支执行、值传递或 callee 间路径；跨文件同名 owner
+   fail-open。该逻辑覆盖 Go/Java/Kotlin/JS/TS/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie，
+   不按具体语言或函数名特判。
+5. Finalizer 软教学同步区分 direct edge、connected path、source-ordered stages 和 disconnected
+   boundary，并要求可见图/答案优先使用仓库与业务语言，避免把 typed lane、entry_role、capsule
+   等内部编排术语带给用户。模型仍负责解释、选图和结论；系统不扫描用户/模型/答案 prose，
+   不新增 hard reject，不重画图、不改写答案。
+6. B689（P1，留档）：exact no-directed_path closure 本轮耗 15 explorer rounds 才补齐 endpoint
+   existence/body 与 aggregate count。后续应让 read closure + parser-owned definition/call carriers
+   一次抵达 completion，不能放宽 no-path gate，也不能靠措辞或 case 触发。
+7. Trace 路径零改动：显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因、实际占用/
+   业务线索与规则可消双轴均保持，邻近/背景仍 support-only。活跃流任意成功 Read 字节续租，
+   所以连接活跃但 4ms 尚无完整答案绝不降级；仅 caller cancel/deadline、no-first-byte、真实
+   byte-stall、transport/decode failure 可进入重试或披露降级。
+
+状态：
+
+`B685/B686/B687=production-positive-r413`；
+`B688-CALLEDGERELATIONTOPOLOGY1=implemented/soft-typed-carrier+pinned`；
+`B689-NODIRECTEDPATHCLOSURECHURN1=filed/P1`；
+`active-stream-4ms-degrade=forbidden/Reader-liveness-pinned`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.726 r412：补证探针三面合同统一；静态套件不得掩盖探针不可用；活跃分片不降级（2026-08-12）
 
 1. 在 `main@06d25d7fc` 严格并发恰好两个案例：

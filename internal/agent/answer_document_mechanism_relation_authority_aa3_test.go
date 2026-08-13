@@ -696,7 +696,9 @@ func TestCallChainSupportLanePublishesTypedEntryRolesWithoutInventingOrderAA3(t 
 
 	got := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"Only `directed_hop` and `typed_step_backbone` entries establish ordered principal hops",
+		"A `directed_hop` establishes exactly its own caller-to-callee edge",
+		"it becomes consecutive with another edge only when its callee is that edge's caller",
+		"`typed_step_backbone` preserves an already-compiled ordered step",
 		"Do not turn adjacent non-hop facts into implicit bridges",
 		"[entry_role=`assignment_state_or_binding_fact`]",
 		"[entry_role=`guard_condition_fact`]",
