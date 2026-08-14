@@ -96,3 +96,46 @@ func TestRenderAnswerDocObservationLedgerSeparatesTargetStateFromCPUWideScopeAA1
 		}
 	}
 }
+
+func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWithoutCausalBoard(t *testing.T) {
+	start, end := 10.0, 10.1
+	mut := types.NewMutableState("查询目标线程四态")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{{
+			ID: "state-requested", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace",
+			},
+			ClaimKey: "target_window_states:main-100", Predicate: "target_window_states",
+			Subject: "main-100", Object: "state_partition", Value: "100.000", Unit: "ms",
+			RichNotes: []string{
+				"selected_window=10.000000..10.100000", "running=20.000", "runnable=10.000",
+				"sleep=70.000", "d_state=0.000", "io_wait=0.000", "sleep_io_wait=3.000", "total=100.000",
+			},
+		}},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeTargets: []types.RuntimeTarget{{Thread: "ui-100", Source: "user_explicit"}},
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start, TimeEnd: &end, SourceQuote: "10.0 到 10.1",
+			},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"### Trace Target-State Scope Authority",
+		"target=`main-100`",
+		"running=20.000ms; runnable=10.000ms; sleep=70.000ms; d_state=0.000ms",
+		"io_wait=0.000ms; sleep_io_wait=3.000ms",
+		"state_partition_coverage=`complete`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("finite state authority missing %q:\n%s", want, got)
+		}
+	}
+}

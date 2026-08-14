@@ -101,6 +101,91 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 	return out
 }
 
+// BuildTraceTargetStateScopeAuthoritiesFromLedger preserves the finite
+// explicit-window lane when no causal projection anchor is expected. The
+// ordinary projection-derived authorities remain authoritative and return
+// first. The fallback admits only a hard trace_query target_window_states row
+// whose producer-owned selected window matches the analyzer-validated user
+// window and whose subject matches a typed user target. It therefore exposes
+// an already-observed state partition without manufacturing a causal
+// projection, guessing a target, or borrowing an exploration window.
+func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) []TraceTargetStateScopeAuthority {
+	set := CompileTraceCausalProjectionSet(ledger)
+	if authorities := BuildTraceTargetStateScopeAuthorities(set); len(authorities) > 0 {
+		return authorities
+	}
+	requestedStart, requestedEnd, ok := ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindow()
+	if !ok {
+		return nil
+	}
+	typedTargets := make([]traceCausalProjectionAnchorEntity, 0, len(ledger.AnchorUserEntities))
+	for _, entity := range traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities) {
+		if entity.typedLane {
+			typedTargets = append(typedTargets, entity)
+		}
+	}
+	if len(typedTargets) == 0 {
+		return nil
+	}
+
+	type selectedAccount struct {
+		account TraceCausalProjectionTargetStateAccount
+		path    string
+		label   string
+	}
+	selected := map[string]selectedAccount{}
+	order := make([]string, 0)
+	for _, record := range ledger.Records {
+		if !traceCausalProjectionTraceQueryRecord(record) ||
+			strings.TrimSpace(record.Predicate) != "target_window_states" {
+			continue
+		}
+		candidate, ok := traceCausalProjectionTargetStateCandidateFromRecord(record)
+		if !ok || !traceCausalProjectionSameWindow(
+			candidate.WindowStart, candidate.WindowEnd, requestedStart, requestedEnd,
+		) {
+			continue
+		}
+		matchedTarget := false
+		for _, target := range typedTargets {
+			if traceCausalProjectionAnchorLabelMatchesEntity(candidate.Account.Subject, target) {
+				matchedTarget = true
+				break
+			}
+		}
+		if !matchedTarget {
+			continue
+		}
+		artifactKey, label, path := traceCausalProjectionArtifactIdentity(record)
+		if artifactKey == "" {
+			continue
+		}
+		key := artifactKey + "\x00" + traceCausalProjectionCanonicalNode(candidate.Account.Subject)
+		previous, exists := selected[key]
+		if exists && previous.account.TotalMS >= candidate.Account.TotalMS {
+			continue
+		}
+		if !exists {
+			order = append(order, key)
+		}
+		selected[key] = selectedAccount{account: candidate.Account, path: path, label: label}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	projections := make([]TraceCausalProjection, 0, len(selected))
+	for _, key := range order {
+		item := selected[key]
+		account := item.account
+		projections = append(projections, TraceCausalProjection{
+			ArtifactPath:       item.path,
+			ArtifactLabel:      item.label,
+			TargetStateAccount: &account,
+		})
+	}
+	return BuildTraceTargetStateScopeAuthorities(TraceCausalProjectionSet{Projections: projections})
+}
+
 // TraceTargetWaitSummaryAuthority is the complete occurrence-level companion
 // to TraceTargetStateScopeAuthority. It is compiled only when one deterministic
 // trace_query result carries a complete aggregate record plus exactly the

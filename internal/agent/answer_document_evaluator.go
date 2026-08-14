@@ -5444,8 +5444,7 @@ func writeAnswerDocTraceShardAmount(b *strings.Builder, status string, totalMS, 
 }
 
 func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedger) string {
-	set := types.CompileTraceCausalProjectionSet(ledger)
-	authorities := types.BuildTraceTargetStateScopeAuthorities(set)
+	authorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
 	if len(authorities) == 0 {
 		return ""
 	}

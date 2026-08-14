@@ -35757,6 +35757,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/unchanged`。
 
+### §123.789 r471：实参关系生产正证；有限状态权威物化断层与参与者双层合同（2026-08-14）
+
+1. 在 `main@1ecf1a73f` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，人工均
+   partial；逐轮记录见 `eval/parallel_selected_summary_evalcampaign_trace_logic_r471_20260814.md` 与
+   manual audit。两案 143s/488s 后均产出完整 answer_document，无 JSON string recovery、旧稿降级或
+   active-stream 4ms 超龄降级。
+2. B769 获生产正证。Explorer 在已验证 `dispatchStage -> ctxbuilder.BuildAgentContext` call 后，补发
+   `anchor_kind=argument, subject=o.busCtx, object=ctxbuilder.BuildAgentContext`；Finalizer 最终 Mermaid
+   保留同向 `argument_flow`。这证明完整实参 roster、静态 binding 与 sibling obligation 的通用链路
+   生效，系统没有代发 EvidenceItem、代画边或修改正文。
+3. QF Runner PASS 仍只可人工判 partial。最终图保留四 stage precedence、上述 argument edge、直接
+   call 和 AnalysisIR local data-flow，但 `BusContext/Mutable` 仍是断开 unproven 节点；正文同时宣称
+   二者完成跨 stage 共享，图文未闭合。精确技术 operation incidence 不等于六个请求参与者已形成一张
+   连通业务图，不能为跑绿造桥。
+4. Finalizer 发生 6 次拒绝。首稿大量无 typed anchor 箭头被正确拒绝；后续 `Mutable` 在
+   `missing_unproven_boundary` 与 `unproven_boundary_has_visible_incident_edge` 间来回：模型把 broad
+   participant 名当 local assignment 技术端点，又同时声明其 requested relation unproven。登记
+   `B771-PARTICIPANTRELATIONAUTHORITYPARITY1/P1`：Explorer completion、candidate map 和 Finalizer
+   coverage 应共享“技术 operation incidence / requested cross-participant graph”二层权威，并一次给出
+   exact endpoint/group 映射修法，避免交替合同；不得按参与者词名硬门或由系统选择/生成连接。
+5. H4 精确事实全部在 trace_query：Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、D=0、
+   IO-wait=0、Total=233.190ms。B768 soft hint 已进入 Finalizer，证明不是教学缺失；但
+   `Trace Target-State Scope Authority` 没出现。旧实现只从 causal projection 的 TargetStateAccount
+   读取；有限事实问题正确地没有 root-cause board/causal anchor，于是 Finalizer 只见 record ref 和
+   running/runnable compact row，模型再次相减并合写 `Sleep/D-state=70.338ms`。
+6. B770 根修新增 ledger→finite authority 路径。优先保留现有 causal-projection authority；只有它为空
+   时，才合取 hard `trace_query target_window_states`、analyzer-validated explicit user window、同窗
+   selected_window 与 typed user-target identity。错窗探索记录、无 typed target、无显式窗、无 artifact
+   identity 全部 fail-closed；同 artifact/subject 重查只选 total 最大的完整 account。它仅渲染已经观测的
+   四态/IO/coverage 值，不生成 projection、根因、链、排序或结论。
+7. CPU 限频结论本轮正确：CPU0/CPU4 policy ceiling present，target-running-slice binding unproven；
+   runner 的第二 regex 未接受这句语义等价形，是次级 oracle gap，先不为单 case 扩词掩盖四态主 gap。
+8. QF Mermaid 经过一次机械 syntax repair 后合法；修复没有增加语义边。系统附注仍有内部词面展示债，
+   但没有替代模型答案。Trace causal-diagnosis 的显式窗投影/自动补齐、链上-only 根因、实际耗时与规则
+   可消除量双轴、优先级反转/调度延迟/算力/D/IO/确定性语义/业务线索 population 均未改。
+9. 验证：`go test ./internal/types ./internal/agent ./internal/tool -count=1`、`go build ./...`、
+   `git diff --check` 全绿。下一次 H4 回放应在 Finalizer 直接看到完整精确状态 authority，再判断余下
+   文案是否仅为模型波动；B771 进入后续关系图高 ROI 批，不与 B770 混写。
+
+状态：`B769-RELATIONOPERATIONDERIVATION1=production-positive-r471/technical-edge-closed/business-graph-partial`；
+`B770-FINITETARGETSTATEAUTHORITY1=implemented/typed-explicit-window+target-fail-closed/pending-production-replay`；
+`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=confirmed/P1/open`；
+`B768-TARGETSTATEEXACTCALIBER1=soft-hint-production-positive/authority-gap-superseded-by-B770`；
+`active-stream-4ms-degrade=forbidden/not-observed-r471`；
+`system answer/diagram/edge/conclusion synthesis=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 
 1. 在 `main@08738bb1f` 重建后严格并发恰好两个案例：

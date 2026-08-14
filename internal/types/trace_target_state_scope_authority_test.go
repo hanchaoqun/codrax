@@ -64,6 +64,57 @@ func TestBuildTraceTargetStateScopeAuthoritiesDisclosesPartialCoverageAndRejects
 	}
 }
 
+func TestBuildTraceTargetStateScopeAuthoritiesFromLedgerUsesTypedExplicitWindowWithoutCausalProjection(t *testing.T) {
+	ledger := ObservationLedger{
+		Records: []ObservationRecord{
+			requestedWindowAuthorityRecord(
+				"state-exploration", "target_window_states", "ui-100", "state_partition", "50.000",
+				"selected_window=10.020000..10.070000", "running=10.000", "runnable=5.000",
+				"sleep=35.000", "d_state=0.000", "io_wait=0.000", "total=50.000",
+			),
+			requestedWindowAuthorityRecord(
+				"state-requested", "target_window_states", "main-100", "state_partition", "100.000",
+				"selected_window=10.000000..10.100000", "running=20.000", "runnable=10.000",
+				"sleep=70.000", "d_state=0.000", "io_wait=0.000", "sleep_io_wait=3.000", "total=100.000",
+			),
+		},
+		AnchorUserEntities:          []AnchorUserEntity{{Value: "ui-100", TypedLane: true}},
+		RuntimeArtifactScopeProfile: requestedWindowAuthorityProfile(),
+	}
+	got := BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
+	if len(got) != 1 {
+		t.Fatalf("finite explicit-window authority count=%d, want 1: %+v", len(got), got)
+	}
+	if got[0].Subject != "main-100" || got[0].RunningMS != 20 || got[0].SleepMS != 70 ||
+		got[0].SleepIOWaitMS != 3 || got[0].TotalMS != 100 || got[0].CoverageStatus != "complete" {
+		t.Fatalf("finite explicit-window state account drifted: %+v", got[0])
+	}
+}
+
+func TestBuildTraceTargetStateScopeAuthoritiesFromLedgerFailsClosedWithoutTypedTargetOrRequestedWindow(t *testing.T) {
+	record := requestedWindowAuthorityRecord(
+		"state-requested", "target_window_states", "ui-100", "state_partition", "100.000",
+		"selected_window=10.000000..10.100000", "running=20.000", "runnable=10.000",
+		"sleep=70.000", "d_state=0.000", "io_wait=0.000", "total=100.000",
+	)
+	for _, ledger := range []ObservationLedger{
+		{Records: []ObservationRecord{record}, RuntimeArtifactScopeProfile: requestedWindowAuthorityProfile()},
+		{
+			Records:            []ObservationRecord{record},
+			AnchorUserEntities: []AnchorUserEntity{{Value: "ui-100", TypedLane: true}},
+		},
+		{
+			Records:                     []ObservationRecord{record},
+			AnchorUserEntities:          []AnchorUserEntity{{Value: "worker-200", TypedLane: true}},
+			RuntimeArtifactScopeProfile: requestedWindowAuthorityProfile(),
+		},
+	} {
+		if got := BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger); len(got) != 0 {
+			t.Fatalf("finite authority must fail closed without both exact scope and target: %+v", got)
+		}
+	}
+}
+
 func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *testing.T) {
 	target := "CompThread_0-2955"
 	ref := ObservationSourceRef{
