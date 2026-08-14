@@ -36222,6 +36222,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.826 r501：B813 生产闭环；typed 根因清单被有限效果修补器错误收窄（2026-08-14）
+
+1. 在 `main@d764e85ef` 重建后严格并发恰好两个案例：`patch_c_typo` 88s PASS、
+   `real_trace_h7_self_seat_full_spectrum` 173s FAIL；人工分别 pass / fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_write_r501_20260814_manual_audit.md`。
+2. B813 获生产正证：C 写案例仅交付 `main.c` 的 `retrun -> return`，项目 runner 编译和行为测试通过；
+   typed worktree audit 捕获并披露验证新建的未跟踪二进制 `main`，明确它未进入交付提交、不会被自动删除，
+   delivery ref 完整性与 retained worktree 洁净度相互独立。模型最终正确选择 `all_verified`，未把副作用伪装成
+   “其他文件未改变”。
+3. Trace FAIL 不是 oracle 漂移、查询缺证或模型随机漏答。`root_cause_rank` 已返回完整 32 行 typed 排名，包含
+   self running 65.912ms、D-state 36.757ms、`logd.writer` 的 49.656ms 及 0.033+49.623ms 分解、微小贡献者和
+   enumeration/compaction authority；证据足以形成链上根因清单与完整 Trace 因果投影。
+4. 新登记 `B817-CAUSALROSTERBREADTHREPAIR1/P1`。Analyzer 首稿已经把“根因排序”发为 required
+   `causal_attribution`，把“贡献很小的来源也一并交代”发为 required `member_set`，但错误选择
+   `bounded_fact_set`。一致性校验只识别 causal role，返回的 canonical repair 强制
+   `bounded_effect_verdict`；它没有读取同一 typed profile 中的 `member_set`。模型按系统修补目标重发后，
+   finalizer 被明确告知有限单一 verdict 不请求根因 roster、唤醒链或完整因果投影，最终仅展示两个大项并漏掉
+   其余 typed 排名。
+5. 最优根修是扩充同一结构合同，不扫描用户请求、dimension label/source quote、模型推理或答案正文：
+   required `causal_attribution + member_set` 表示多成员因果席/排名，不能进入只允许一个有限 verdict 的
+   `bounded_effect_verdict`；`bounded_fact_set` 冲突时应 fail-loud 指向完整
+   `causal_diagnosis` tuple，`bounded_effect_verdict` 若直接携该双 role 也必须拒绝。真正只有一个
+   `causal_attribution` 加有限 observed facts 的目标效果判断继续留在窄车道，不获得根因 roster 或因果投影。
+6. 施工 pin 必须覆盖四形：首稿 bounded fact + causal/member roster 收敛到 causal diagnosis；直接 bounded
+   effect + causal/member roster 被拒；纯单 verdict + observed facts 保持 bounded；causal diagnosis + roster
+   接受且 Trace ranking/projection prompt 不被抑制。修补器只返回 typed partial target 供模型完整重发，不自动
+   改写分析，更不能系统代写根因或投影。
+7. Trace 终稿另有模型层次级偏差：把 `dma_fence_default_w` 调用点扩写成确定 GPU/fence 机理、把普通 sleep
+   断言为正常 VSync、把 41 个 running 分段写成 11 个。系统附注已对 blocked caller 权限作限制；这些偏差不构成
+   丢投影的原因，本批不以答案关键词门、数值特例或系统改写正文处理。
+8. 本轮无畸形 JSON salvage、旧稿回退、空答案或固定 4ms/4m 活跃流降级。B817 修复不得影响显式时间窗、
+   Trace 因果投影和自动补齐；完整诊断仍只允许 typed 链上席成为主因，保留实际占用/规则可消双轴、优先级反转、
+   调度供给、算力供给、D/IO、确定性语义工作及链上业务线索，邻近/背景只能作为额外排查支撑。
+
+状态：
+
+`B813-WRITEVERIFYSIDEEFFECT1=production-closed-r501`；
+`B817-CAUSALROSTERBREADTHREPAIR1=filed-P1/typed-dimension-cardinality-rooted`；
+`Trace-causal-projection/auto-supplement=evidence-complete-but-suppressed-by-B817`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
