@@ -492,6 +492,12 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 
 func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.T) {
 	profile := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
+	causalDimension := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "root cause", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+		}},
+	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
 		nil,
@@ -514,13 +520,23 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
-		nil,
+		causalDimension,
 		types.IntentTrace,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
+	); !strings.Contains(issue, "scenario=performance_bottleneck alone") {
+		t.Fatalf("a performance scenario label alone must not widen one causal dimension into a full report: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		causalDimension,
+		types.IntentTrace,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
 	); issue != "" {
-		t.Fatalf("typed performance diagnosis must retain causal breadth: %q", issue)
+		t.Fatalf("typed diagnostic carrier plus causal dimension must retain causal breadth: %q", issue)
 	}
 }
 
@@ -559,9 +575,9 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 		types.IntentExplain,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
-		types.DiagnosticIntentProfile{},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
 	); issue != "" {
-		t.Fatalf("the same required causal dimension must authorize the corrected causal scope without a second contradictory retry: %q", issue)
+		t.Fatalf("the same required causal dimension plus a full diagnostic carrier must authorize causal scope: %q", issue)
 	}
 
 	optional := *causalDimension
@@ -613,8 +629,8 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); issue != "" {
-		t.Fatalf("typed causal verdict must authorize causal breadth without falsifying diagnostic intent: %q", issue)
+	); !strings.Contains(issue, "typed full-diagnosis carrier") {
+		t.Fatalf("one finite causal verdict must not widen into causal diagnosis without a broad diagnostic carrier: %q", issue)
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
@@ -762,12 +778,8 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if err != nil {
 		t.Fatalf("causal compat Execute: %v", err)
 	}
-	if !res.Success || !strings.Contains(res.Summary, "fact_families ignored because typed scope=causal_diagnosis") {
-		t.Fatalf("non-bounded redundant fact families should be repaired with an audit warning: success=%t summary=%q", res.Success, res.Summary)
-	}
-	profile := ctx.Mutable.RequestModel().RuntimeQuestionProfile
-	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis || len(profile.FactFamilies) != 0 {
-		t.Fatalf("compat repair must preserve scope and persist no fact-family authority: %+v", profile)
+	if res.Success || !strings.Contains(res.Summary, "fact_families conflicts") || !strings.Contains(res.Summary, "will not be silently discarded") {
+		t.Fatalf("contradictory non-bounded fact families must fail loud for a coherent model retry: success=%t summary=%q", res.Success, res.Summary)
 	}
 }
 
@@ -814,38 +826,6 @@ func TestParseRuntimeQuestionProfileExactQuoteRemainsForAudit(t *testing.T) {
 	}
 	if profile == nil || profile.SourceQuote != "卡顿原因" {
 		t.Fatalf("exact audit quote not retained: %+v", profile)
-	}
-}
-
-func TestRepairEmitAnalysisNonBoundedFactFamiliesIsTypedAndLossless(t *testing.T) {
-	raw := json.RawMessage(`{"intent":"root_cause","runtime_question_profile":{"scope":"relation_analysis","fact_families":{"malformed":"but irrelevant"},"source_quote":"caller path","confidence":0.9}}`)
-	patched, warnings, ok := repairEmitAnalysisNonBoundedFactFamilies(raw)
-	if !ok || len(warnings) != 1 {
-		t.Fatalf("valid non-bounded scope must repair the consumerless field: ok=%t warnings=%v raw=%s", ok, warnings, patched)
-	}
-	var got map[string]json.RawMessage
-	if err := json.Unmarshal(patched, &got); err != nil {
-		t.Fatalf("patched payload is invalid JSON: %v", err)
-	}
-	var profile map[string]json.RawMessage
-	if err := json.Unmarshal(got["runtime_question_profile"], &profile); err != nil {
-		t.Fatalf("patched profile is invalid JSON: %v", err)
-	}
-	if _, exists := profile["fact_families"]; exists {
-		t.Fatalf("consumerless field survived repair: %s", patched)
-	}
-	if string(profile["source_quote"]) != `"caller path"` || string(profile["confidence"]) != "0.9" {
-		t.Fatalf("sibling fields changed during repair: %s", patched)
-	}
-
-	for _, unchanged := range []json.RawMessage{
-		json.RawMessage(`{"runtime_question_profile":{"scope":"bounded_fact_set","fact_families":["recorded_reason"]}}`),
-		json.RawMessage(`{"runtime_question_profile":{"scope":"future_scope","fact_families":["recorded_reason"]}}`),
-		json.RawMessage(`{"runtime_question_profile":{"fact_families":["recorded_reason"]}}`),
-	} {
-		if repaired, _, changed := repairEmitAnalysisNonBoundedFactFamilies(unchanged); changed || string(repaired) != string(unchanged) {
-			t.Fatalf("bounded/invalid/missing scope must retain fail-loud payload: changed=%t got=%s want=%s", changed, repaired, unchanged)
-		}
 	}
 }
 
@@ -6878,6 +6858,11 @@ func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *t
 			"source_quote":"丢帧根因",
 			"confidence":0.95
 		},
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[{"index":1,"label":"丢帧根因","role":"causal_attribution","source_quote":"丢帧根因","required":true}]
+		},
 		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":1.0},
 		"completeness_obligation":{"required":false,"source_quote":""},
 		"answer_role_profile":{"is_role_binding_requested":false,"confidence":0.8},
@@ -7844,6 +7829,11 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 				"scope": "causal_diagnosis",
 				"source_quote": "卡顿原因",
 				"confidence": 0.95
+			},
+			"requested_answer_dimensions": {
+				"is_dimensioned_answer": true,
+				"confidence": 0.95,
+				"dimensions": [{"index":1,"label":"卡顿原因","role":"causal_attribution","source_quote":"卡顿原因","required":true}]
 			},
 			"external_observation_policy": {
 				"current_source_mode": "exclude",

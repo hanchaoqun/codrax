@@ -38126,11 +38126,60 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=implemented/schema+skill+consistency-pins`；
+`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=unit-covered/production-failed-r461/superseded-by-B757`；
 `B755-RUNTIMETYPEDBREADTHCONTEXT1=implemented/four-scope-soft-routing+pinned`；
 `B756-RUNTIMEENUMCUSTOMERLANGUAGE1=implemented/soft-localization/no-answer-rewrite`；
 `H4-DSTATE-ORACLE=false-negative-fixed/numeric-requirement-preserved`；
 `active-stream-4ms-degrade=forbidden/active-byte-tests-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.752 r461：有限 scope 再次被模型/系统共同扩域；静默丢字段容错退役（2026-08-13）
+
+1. 在 `main@196aeefe3` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   代码图 partial、Trace fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_finite_trace_scope_r461_20260813_manual_audit.md`。
+2. B754 获生产正证。代码图用业务 node id 时，typed-recipe topology receipt 在第一稿补回 5 对、
+   两次 patch 各补回 3 对 exact identity；最终保留 1 条 data_flow、3 条 precedence、4 条独立 call，
+   没再丢 data-flow 真边。第三轮漏 `replace_blocks.kind` 时 exact previous block id 继承也生效。
+   两次成文拒绝分别来自未证合成桥/重复 call occurrence，以及 unproven participant 未以可见断开节点
+   出现；均是 validator 正确拒绝，终稿关系面完整但 BusContext/Mutable 高层 incidence 仍诚实未证。
+3. Trace 暴露 B753 未生产闭环。Analyzer 同时发 `scope=causal_diagnosis`、三个有限
+   `fact_families`，却把“目标运行频率是否受约束”继续标为 `observed_value`；intent=explain、所有
+   diagnostic boolean=false，只有 `scenario=performance_bottleneck`。这是一个 schema-valid 字段之间
+   的精确 breadth 冲突，不是最终文案波动。
+4. 真正放大器是旧 `repairEmitAnalysisNonBoundedFactFamilies`：它在严格解析前删除 causal scope 下
+   的 `fact_families` 并只写 warning，等于系统替模型选择保留“全因果”一侧。随后确定性补采执行
+   `root_cause_rank + critical_blocking_calls`，新增 326+38 条观测并 materialize 完整 Trace 因果投影；
+   一个三问有限答案扩成 1164 行，Finalizer 上下文约 72k。该容错违反“冲突合同必须 fail-loud、
+   系统不替模型裁 breadth”的架构边界。
+5. 上下文污染已产生可见事实错误：typed direct witness 是 CPU0=1.53GHz/16 rows、
+   CPU4=2.10GHz/28 rows；模型主段写成 CPU12=1.53GHz/28、CPU4=2.10GHz/16。四态和运行量仍正确，
+   target binding 未证结论也保留，但错误 CPU 身份/计数使人工不能签 pass。Runner 的 limit-row 正则
+   还不接受“策略频率上限记录…没有独立…证明”，这是次级 oracle gap，不能用扩词拟合掩盖主因。
+6. B757 退役该静默 repair，恢复 parse-time fail-loud：非 bounded scope 只要携 `fact_families` 就
+   要求模型重发一个 coherent object。`causal_diagnosis` 还必须同时具备 required
+   `causal_attribution` 与真实 typed full-diagnosis carrier；`scenario=performance_bottleneck` 单独不再
+   授权完整报告。一个有限 target-effect verdict 使用 `bounded_effect_verdict + fact_families`；真正
+   根因/排序/竞争贡献者请求可把 diagnostic/root-cause carrier 与 causal dimension 一并发出，完整
+   投影不受损。
+7. 这些都是 schema enum/boolean 的跨字段一致性门，不读用户/模型/最终答案原文，不把 label、关键词、
+   rank score 或相似度拿来做硬判，也不由系统把 scope 改成期望值。重试提示同时给出两条合法出口，
+   yes/no/mixed/unproven 继续由调查证据与模型判断。
+8. r461 两案均无畸形 JSON 降级、旧稿恢复、空答案或 active-stream 4ms 降级。代码图 remaining
+   partial 属于高层 participant incidence 证据缺口，不能由系统造边。Trace 显式时间窗、完整
+   causal-diagnosis 自动补齐、链上-only 主因、背景 support-only 与模型结论权均保持。
+
+状态：
+
+`B754-DIAGRAMTYPEDRECEIPTTOPOLOGY1=production-positive-r461`；
+`B754-PATCHKINDINHERIT1=production-positive-r461`；
+`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=production-failed-r461/superseded`；
+`B757-RUNTIMEBREADTHCROSSFIELDFAILLOUD1=implemented/compat-repair-retired+typed-pins-pass`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-fit-before-breadth-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。

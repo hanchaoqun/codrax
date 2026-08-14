@@ -1205,6 +1205,9 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"`causal_diagnosis`",
 		"does not request a root-cause roster, wakeup chain, or full Trace causal projection",
 		"mechanism may be explicitly named or may remain an unresolved condition class",
+		"`causal_diagnosis` without that required dimension is structurally inconsistent",
+		"`performance_bottleneck` scenario label alone does not authorize full causal breadth",
+		"rejected rather than silently normalized",
 		"Scope never pre-decides the finding",
 		"yes, no, mixed, or unproven",
 	} {

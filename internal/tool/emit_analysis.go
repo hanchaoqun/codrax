@@ -1294,11 +1294,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		params = repaired
 		compatWarnings = append(compatWarnings, warnings...)
 	}
-	if repaired, warnings, ok := repairEmitAnalysisNonBoundedFactFamilies(params); ok {
-		params = repaired
-		compatWarnings = append(compatWarnings, warnings...)
-	}
-
 	var p emitAnalysisParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
 		return *decodeFailure, err
@@ -4463,7 +4458,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			}
 		}
 	} else if len(p.FactFamilies) > 0 {
-		return nil, "runtime_question_profile.fact_families is only valid with scope=bounded_fact_set or bounded_effect_verdict", nil
+		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required causal_attribution dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution dimension plus a typed full-diagnosis carrier. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil
@@ -4517,19 +4512,16 @@ func validateRuntimeQuestionProfileConsistency(
 	if profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
 		return ""
 	}
-	if requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
-		return ""
+	if !requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
+		return "runtime_question_profile.scope=causal_diagnosis requires a required requested_answer_dimensions role=causal_attribution. Do not label a target-effect verdict as observed_value, and do not rely on intent/scenario labels to substitute for the user-visible causal dimension. Keep causal_diagnosis only for root-cause/ranking, competing contributors, or a broad mechanism diagnosis; otherwise use bounded_effect_verdict with fact_families for one finite target-effect verdict, or bounded_fact_set for observations without a verdict"
 	}
 	if intent == types.IntentRootCause ||
 		predicates.IsDiagnosticQuestion ||
-		diagnostic.RequiresDiagnosticRootCause() {
+		diagnostic.RequiresDiagnosticRootCause() ||
+		scenario == types.ScenarioRootCause {
 		return ""
 	}
-	switch scenario {
-	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
-		return ""
-	}
-	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause/performance_bottleneck). A required causal_attribution dimension by itself may instead use bounded_effect_verdict with fact_families when it asks only one finite target-effect verdict; the constraining condition may still be unresolved. Use bounded_fact_set for finite observations without a verdict, and relation_analysis for a requested caller/wakeup/IPC/dependency path or topology"
+	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause) in addition to a required causal_attribution dimension. scenario=performance_bottleneck alone does not prove full answer breadth: use bounded_effect_verdict with fact_families for one finite target-effect verdict, or mark the actual broad diagnostic carrier when the current request asks for root-cause/ranking, competing contributors, or a full mechanism investigation. Use bounded_fact_set for finite observations without a verdict, and relation_analysis for a requested caller/wakeup/IPC/dependency path or topology"
 }
 
 func requestedAnswerDimensionsRequireCausalAttribution(profile *types.RequestedAnswerDimensionProfile) bool {
@@ -7178,53 +7170,6 @@ const (
 	// declaration silently hides answer-bearing files.
 	irrelevantFilesMax = 10
 )
-
-// repairEmitAnalysisNonBoundedFactFamilies removes one provably redundant
-// cross-field carrier before strict decode. fact_families has consumers only
-// under the two finite scopes; once the same typed object explicitly declares
-// any other valid scope, retaining the field cannot change the RequestModel and
-// only causes an avoidable retry. Invalid/missing scopes and bounded profiles
-// remain untouched so their existing fail-loud validation still owns them.
-func repairEmitAnalysisNonBoundedFactFamilies(raw json.RawMessage) (json.RawMessage, []string, bool) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
-		return raw, nil, false
-	}
-	profileRaw, ok := obj["runtime_question_profile"]
-	if !ok {
-		return raw, nil, false
-	}
-	var profile map[string]json.RawMessage
-	if err := json.Unmarshal(profileRaw, &profile); err != nil || len(profile) == 0 {
-		return raw, nil, false
-	}
-	if _, ok := profile["fact_families"]; !ok {
-		return raw, nil, false
-	}
-	var scopeRaw string
-	if err := json.Unmarshal(profile["scope"], &scopeRaw); err != nil {
-		return raw, nil, false
-	}
-	scope := types.RuntimeQuestionScope(strings.TrimSpace(scopeRaw))
-	if !scope.IsValid() || scope == types.RuntimeQuestionScopeBoundedFactSet || scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
-		return raw, nil, false
-	}
-	delete(profile, "fact_families")
-	patchedProfile, err := json.Marshal(profile)
-	if err != nil {
-		return raw, nil, false
-	}
-	obj["runtime_question_profile"] = patchedProfile
-	patched, err := json.Marshal(obj)
-	if err != nil || !json.Valid(patched) {
-		return raw, nil, false
-	}
-	warning := fmt.Sprintf(
-		"runtime_question_profile.fact_families ignored because typed scope=%s has no fact-family consumer",
-		scope,
-	)
-	return json.RawMessage(patched), []string{warning}, true
-}
 
 // repairEmitAnalysisIrrelevantFilePathObjects absorbs a common schema-adjacent
 // drift where a model mirrors required_files' object shape inside
