@@ -36494,6 +36494,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace-causal-projection/auto-supplement=unchanged`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.832 r505：关系方向生产闭环；有界 probe 基线合同自冲突根修（2026-08-14）
+
+1. 在 `main@d0002499b` 构建不可变二进制后严格并发恰好两个案例：
+   `qf_type_relation_loop_controller + github_issue_dateutil_relativedelta_float_symptom`。Runner
+   `1 PASS / 1 FAIL`；人工为 `1 pass / 1 partial`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_python_r505_20260814_manual_audit.md`。
+2. B821 获生产正证。关系例首稿一次生成 12 条 production `implementer -> LoopController` 真边，
+   文件清单完整，测试实现未混入主体，成文 `reject=0/patch=0`。这证明统一 typed lookup→display
+   配方能降低模型心智且不需要系统代画；strict anchor validator 仍独立存在，15 语言共用同一机制。
+3. B822-B825 同样生效。写例从 `ready_to_plan` 正常穿过 plan/apply/verify/finish，209 秒结束；不再
+   发生 r504 的 773 秒 controller 自辩、length no-tool 截断。生产 patch 行为正确，人工在 applied
+   tree 执行 fixture 原有 unittest 为 4/4 PASS；最终报告没有把弱证明冒充已验证。
+4. 新确认 `B826-BOUNDEDPROBEBASELINEDIFFERENTIAL1/P0`：计划 probe 声明
+   `expects_baseline_failure=true`，但默认关闭昂贵全量 baseline capture 时，旧系统只运行改后 probe，
+   因覆盖完整而跳过项目 suite，随后 proof ledger 又以 `verification_probe_baseline_not_run` 将同一
+   pass 降为 weak。这是 typed obligation 有消费者要求、却无生产者的确定性矛盾合同。
+5. 根修在 verify 时对每个显式要求改前失败的 probe，额外在不可变 `MainRepoRoot` 上运行同一有界
+   probe。只有 main snapshot 得到结构化行为失败、active worktree 得到通过，才发行
+   `probe_baseline=satisfied`；main 也通过则发行 `expected_failure_not_observed`，runner/路径不可用则
+   typed unavailable，均不伪造差分权威。无需默认双跑全量 suite，也不降低既有 proof 门。
+6. 判定只消费 `ExpectsBaselineFailure`、明确 main/active root、runner failure kind 与 before/after
+   verdict；不扫描 request、模型推理、patch prose 或最终答案。模型继续拥有计划、代码和结论作者权，
+   系统只执行并记录它声明的 bounded proof obligation。
+7. r505 patch 中先赋原始 years、再赋归一化 years 的冗余行不影响 4/4 行为，属于模型 structured-edit
+   质量波动；不为 Python、具体变量或相邻行增加语义硬门，后续异构写例继续观察。
+8. `go test ./internal/tool -count=1` 全套通过（166.403s）。本批未修改 Read/Trace。显式时间窗、
+   因果投影、自动补齐、链上-only 主因、实际耗时/业务线索与规则计价可消除量双轴均保持；邻近/
+   背景仍只能作支持排查。活跃 stream 仍仅由 caller deadline/cancel、无首字节、byte stall 或
+   transport/decode failure 终止，不按 4ms/4m 固定年龄降级。
+
+状态：
+
+`B821-TYPEDRELATIONLOOKUPTODISPLAYDIRECTION1=production-closed-r505`；
+`B822-B825=production-positive-r505`；
+`B826-BOUNDEDPROBEBASELINEDIFFERENTIAL1=implemented/focused-positive+negative-pins/internal-tool-pass`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

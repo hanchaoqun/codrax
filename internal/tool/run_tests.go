@@ -71,6 +71,10 @@ const (
 	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
 	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
+	verificationProbeBaselineSource                        = "verification_probe_main_snapshot_baseline"
+	verificationProbeBaselineObserved                      = "expected_failure_observed"
+	verificationProbeBaselineUnexpectedPass                = "expected_failure_not_observed"
+	verificationProbeBaselineUnavailable                   = "baseline_unavailable"
 )
 
 type pytestTextFallbackResult struct {
@@ -1617,6 +1621,93 @@ func validateRunTestsSuiteSelectorAgainstSurface(suite string, surface types.Tes
 
 func shouldRunPreSuiteVerificationProbes(ctx *types.BusContext, dryRunProbe bool) bool {
 	return ctx != nil && ctx.PipelineStage == types.StageVerify && !dryRunProbe
+}
+
+// runExpectedFailureVerificationProbeBaselines executes only probes that ask
+// for a pre-change failure against the immutable main-repository snapshot.
+// This is deliberately narrower than full baseline-suite capture: the same
+// bounded probe is compared before and after the change, so the model cannot
+// obtain regression authority merely by asserting expects_baseline_failure.
+// The returned commands are evidence records only; an unavailable or
+// unexpectedly passing baseline weakens proof but cannot turn a passing
+// post-change behavior check into a fabricated code failure.
+func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source string) []types.ExecutedCommand {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return nil
+	}
+	mainRoot := strings.TrimSpace(ctx.MainRepoRoot)
+	activeRoot := strings.TrimSpace(ctx.RepoRoot)
+	mainAbs := verificationProbeCanonicalAbs(mainRoot)
+	activeAbs := verificationProbeCanonicalAbs(activeRoot)
+	baselineAvailable := mainRoot != "" && activeRoot != "" && filepath.Clean(mainAbs) != filepath.Clean(activeAbs)
+	if baselineAvailable {
+		if info, err := os.Stat(mainAbs); err != nil || !info.IsDir() {
+			baselineAvailable = false
+		}
+	}
+
+	var commands []types.ExecutedCommand
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
+		if !probe.ExpectsBaselineFailure {
+			continue
+		}
+		id := strings.TrimSpace(probe.ID)
+		if id == "" {
+			id = "probe"
+		}
+		if !baselineAvailable {
+			commands = append(commands, types.ExecutedCommand{
+				Runner:     "verification_probe",
+				Framework:  strings.TrimSpace(probe.Language),
+				WorkingDir: strings.TrimSpace(probe.WorkingDir),
+				Command:    "verification_probe_baseline:" + id,
+				Source:     verificationProbeBaselineSource,
+				Outcome:    verificationProbeBaselineUnavailable,
+				ReasonCode: "verification_probe_baseline_snapshot_unavailable",
+			})
+			continue
+		}
+
+		baselineCtx := *ctx
+		baselineCtx.RepoRoot = mainAbs
+		baselineCtx.MainRepoRoot = mainAbs
+		result := runSingleVerificationProbe(&baselineCtx, probe, verificationProbeBaselineSource)
+		command := types.ExecutedCommand{
+			Runner:     "verification_probe",
+			Framework:  strings.TrimSpace(probe.Language),
+			WorkingDir: strings.TrimSpace(probe.WorkingDir),
+			Command:    "verification_probe_baseline:" + id,
+			Source:     verificationProbeBaselineSource,
+			Outcome:    verificationProbeBaselineUnavailable,
+			ReasonCode: "verification_probe_baseline_unavailable",
+		}
+		if len(result.Commands) > 0 {
+			command = result.Commands[0]
+			command.Source = verificationProbeBaselineSource
+			command.Command = "verification_probe_baseline:" + id
+		}
+		switch {
+		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusFailed && result.Report.FailureKind == types.FailureKindTestsFailed:
+			command.Outcome = verificationProbeBaselineObserved
+			command.ReasonCode = "verification_probe_baseline_expected_failure_observed"
+		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusPassed:
+			command.Outcome = verificationProbeBaselineUnexpectedPass
+			command.ReasonCode = "verification_probe_baseline_expected_failure_not_observed"
+		default:
+			command.Outcome = verificationProbeBaselineUnavailable
+			if command.ReasonCode == "" {
+				command.ReasonCode = "verification_probe_baseline_unavailable"
+			}
+		}
+		logging.Info("[run_tests] verification_probe baseline id=%s root=%s outcome=%s reason=%s",
+			id, mainAbs, command.Outcome, command.ReasonCode)
+		commands = append(commands, command)
+	}
+	return commands
 }
 
 func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, probeReport *types.ChangeReport, surface types.TestSurface, plans []runnerPlan, planSources map[string]string) string {
@@ -3308,17 +3399,73 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 			}
 		}
 		if baselineExpected {
-			out = append(out, types.VerificationConfidenceRecord{
-				Source:     "verification_probe",
-				Category:   "probe_baseline",
-				Status:     "missing",
-				Severity:   "warning",
-				ReasonCode: "verification_probe_baseline_not_run",
-				Detail:     "probe expected a baseline failure but no baseline probe result is attached",
-			})
+			expected, observed, unexpectedPass, unavailable := verificationProbeBaselineCommandCounts(plan, report)
+			switch {
+			case expected > 0 && observed == expected:
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_baseline",
+					Status:     "satisfied",
+					Severity:   "info",
+					ReasonCode: "verification_probe_baseline_expected_failure_observed",
+					Detail:     fmt.Sprintf("the same bounded probe failed on the immutable main snapshot and passed after the change (%d/%d)", observed, expected),
+				})
+			case unexpectedPass > 0:
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_baseline",
+					Status:     "missing",
+					Severity:   "warning",
+					ReasonCode: "verification_probe_baseline_expected_failure_not_observed",
+					Detail:     "a probe declared expects_baseline_failure but also passed on the immutable main snapshot; regression authority was not minted",
+				})
+			case unavailable > 0:
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_baseline",
+					Status:     "unavailable",
+					Severity:   "warning",
+					ReasonCode: "verification_probe_baseline_unavailable",
+					Detail:     "the immutable main snapshot could not produce a typed baseline verdict for every probe that required one",
+				})
+			default:
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_baseline",
+					Status:     "missing",
+					Severity:   "warning",
+					ReasonCode: "verification_probe_baseline_not_run",
+					Detail:     "probe expected a baseline failure but no baseline probe result is attached",
+				})
+			}
 		}
 	}
 	return mergeVerificationConfidenceRecords(nil, out)
+}
+
+func verificationProbeBaselineCommandCounts(plan *types.ChangePlan, report *types.ChangeReport) (expected, observed, unexpectedPass, unavailable int) {
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
+		if probe.ExpectsBaselineFailure {
+			expected++
+		}
+	}
+	if report == nil {
+		return expected, 0, 0, 0
+	}
+	for _, cmd := range report.ExecutedCommands {
+		if strings.TrimSpace(cmd.Source) != verificationProbeBaselineSource {
+			continue
+		}
+		switch strings.TrimSpace(cmd.Outcome) {
+		case verificationProbeBaselineObserved:
+			observed++
+		case verificationProbeBaselineUnexpectedPass:
+			unexpectedPass++
+		case verificationProbeBaselineUnavailable:
+			unavailable++
+		}
+	}
+	return expected, observed, unexpectedPass, unavailable
 }
 
 func softRequiredWriteBehaviorContractIDs(contracts []types.WriteBehaviorContract) map[string]struct{} {

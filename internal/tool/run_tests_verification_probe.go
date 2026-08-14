@@ -275,6 +275,7 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 	if !passed && failureKind == types.FailureKindTestsFailed {
 		diags = append(diags, modelProbeComparatorDiagnostics(results, source)...)
 	}
+	commands = append(commands, runExpectedFailureVerificationProbeBaselines(ctx, source)...)
 	summary := ""
 	if !passed {
 		summary = strings.TrimSpace(strings.Join(outputs, "\n\n"))

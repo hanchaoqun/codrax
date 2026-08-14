@@ -1110,6 +1110,125 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 	}
 }
 
+func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapshot(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	mainRoot := t.TempDir()
+	activeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mainRoot, "widget.py"), []byte("VALUE = 1\n"), 0o644); err != nil {
+		t.Fatalf("write main source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(activeRoot, "widget.py"), []byte("VALUE = 2\n"), 0o644); err != nil {
+		t.Fatalf("write active source: %v", err)
+	}
+	// A detected suite is deliberately red. A complete differential probe may
+	// remain the bounded primary proof; this assertion also prevents the new
+	// baseline check from accidentally turning into a full-suite double run.
+	testBody := "import unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_would_fail(self):\n        self.assertTrue(False)\n"
+	if err := os.WriteFile(filepath.Join(activeRoot, "test_widget.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write active test: %v", err)
+	}
+	mu := types.NewMutableState("probe differential baseline")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-differential-baseline",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "widget-value",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "2",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                     "value_contract",
+			Language:               "python",
+			Code:                   "import widget\nassert widget.VALUE == 2\n",
+			ContractRefs:           []string{"widget-value"},
+			ChangedSymbolRefs:      []string{"path:widget.py", "widget.VALUE"},
+			ExpectsBaselineFailure: true,
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      activeRoot,
+		MainRepoRoot:  mainRoot,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "unittest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("before-fail/after-pass differential probe should pass, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if !changeReportHasVerificationConfidence(report, "probe_baseline", "satisfied", "verification_probe_baseline_expected_failure_observed") {
+		t.Fatalf("differential baseline authority missing: %+v", report.VerificationConfidence)
+	}
+	if changeReportHasVerificationConfidence(report, "probe_baseline", "missing", "verification_probe_baseline_not_run") {
+		t.Fatalf("baseline must not remain simultaneously satisfied and missing: %+v", report.VerificationConfidence)
+	}
+	foundBaseline := false
+	foundSuiteExecution := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Source == verificationProbeBaselineSource && cmd.Outcome == verificationProbeBaselineObserved {
+			foundBaseline = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
+			foundSuiteExecution = true
+		}
+	}
+	if !foundBaseline {
+		t.Fatalf("typed main-snapshot baseline command missing: %+v", report.ExecutedCommands)
+	}
+	if foundSuiteExecution {
+		t.Fatalf("complete bounded differential must not force an unrelated full suite: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestVerificationProbeExpectedBaselineFailureDoesNotMintAuthorityWhenMainAlsoPasses(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                     "value_contract",
+			Language:               "python",
+			ChangedSymbolRefs:      []string{"path:widget.py"},
+			ExpectsBaselineFailure: true,
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			AssertionID: "value_contract",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{
+			{Runner: "verification_probe", Source: "pre_suite_verification_probe", Outcome: "executed"},
+			{Runner: "verification_probe", Source: verificationProbeBaselineSource, Outcome: verificationProbeBaselineUnexpectedPass},
+		},
+	}
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if !verificationConfidenceContains(records, "probe_baseline", "missing", "verification_probe_baseline_expected_failure_not_observed") {
+		t.Fatalf("unexpectedly passing main snapshot must keep regression proof open: %+v", records)
+	}
+	if verificationConfidenceContains(records, "probe_baseline", "satisfied", "verification_probe_baseline_expected_failure_observed") {
+		t.Fatalf("main-pass/post-pass must not mint differential authority: %+v", records)
+	}
+}
+
 func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMissing(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
