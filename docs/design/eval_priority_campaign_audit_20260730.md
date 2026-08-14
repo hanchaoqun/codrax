@@ -36423,6 +36423,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.831 r504：类型关系方向翻译断层；写探索 owner 漂移与必调工具截断无恢复（2026-08-14）
+
+1. 在 `main@21aa63d5c` 严格并发恰好两个案例：`qf_type_relation_loop_controller` 机器 PASS、人工 FAIL；
+   `github_issue_dateutil_relativedelta_float_symptom` 机器/人工均 FAIL。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_relation_python_r504_20260814_manual_audit.md`。
+2. QF 证明 B819 已生效：第一稿的 `-->|implements|` 保持原端点，没有再生成 synthetic node。真正的新缺口
+   B821 位于 typed relation handoff：系统持有 12 条完整 `implements` roster，validator 也正确要求 canonical
+   `implementer -> interface`，但 finalizer 只拿到查询投影 `source=LoopController/member=implementer`，没有可复制的
+   显示方向配方。模型思考里一度写对方向，JSON 却把 body 和 anchor 全发为 `LoopController -> implementer`；三次
+   正确拒绝后删掉全部箭头，孤立节点图被宽 oracle 签绿。
+3. 该问题不能靠放宽类型关系证据、允许无 anchor 箭头或系统代画闭环。最优根修是从 typed relation kind 统一生成
+   advisory copy-ready 配方：implements/extends/overrides 的 lookup source 是 contract，canonical body/anchor 必须
+   member → source；硬 validator 继续对 parser-owned exact provider 独立复核。方案跨 Go/Java/C/C++/Rust/
+   Python/ArkTS/Cangjie 等语言，不按接口名或 Mermaid 文本关键词特判。
+4. Python 写案已完成源码定位，WriteExplorationHandoff 也含 `relativedelta.py`、`test_relativedelta.py` 等 typed
+   context；失败不是代码难度。write exploration 子流没有把 `PipelineStage/TaskState.Stage` 切到 Explore，导致
+   explorer 的 RetryHint 用旧 WriteController owner 落盘并污染下一次 controller。该 hint 本身还写成“read 1/1、
+   100% coverage、0 relevant，继续读”，暴露 readiness 全满足但没有显式 closure 时错误落入 file-coverage 默认臂。
+5. Controller 同时只看到 context pack 前 16 项和 `+67 more`，没有紧凑的 handoff presence/target/evidence receipt，
+   因此在 `ready_to_plan` 已明确的情况下仍反复争论 `plan_batch`/`explore_code`。上游持续产出语义字节，系统正确地
+   没有在 4 分钟固定年龄降级；11m25s 后 provider 以 `finish_reason=length` 截断，累计约 67 万 transport bytes、
+   252100 content bytes，零 tool call。WriteController 是 required-tool stage，却未进入 protocol correction，普通
+   soft-stop 直接结束，最终没有 plan/apply。
+6. 冻结五项施工：B822 先修 write exploration stage/RetryHint owner；B823 用 typed readiness 发
+   `structured_completion_missing`，禁止 100% coverage 仍要求扩读；B825 在 controller artifacts 显式给有界 handoff
+   receipt；B824 对 required WriteController 的 length/no-tool 响应隔离旧草稿并给一次 schema-only 工具纠错；B821
+   给 typed type relation roster 增加通用 member→source copy-ready recipe。所有分支只读 enum/boolean/count/typed
+   artifact，不扫描用户请求、模型思考或最终答案原文。
+7. 活跃流边界不变：只要字节仍到达，就不能因 4ms、4s、4m 或累计年龄降级；本批修的是 provider 已结束且 typed
+   `StopReason=length + required tool_calls=0` 后的结构恢复。恢复轮不得从 25 万字节草稿猜 plan，更不得系统代执行
+   决策；模型仍须发唯一 typed workflow tool call。
+8. 本批不改 Trace 查询、显式窗、因果投影、自动补齐、根因排名或答案正文。Trace 主因仍只能来自 typed on-chain
+   证据；优先级反转、调度/算力供给、D/IO、确定性语义工作和链上业务线索不丢失；邻近/背景仍只支撑额外排查；
+   实际占用与规则可消除量双轴保持，系统不接管模型结论。
+
+状态：
+
+`r504-QF=machine-pass/human-fail/all-relations-deleted`；
+`r504-write=fail/no-plan/no-apply/provider-length-no-tool`；
+`B821-TYPEDRELATIONLOOKUPTODISPLAYDIRECTION1=confirmed/pending`；
+`B822-WRITEEXPLORESTAGEOWNERSHIP1=confirmed/pending`；
+`B823-EXPLORERREADINESSFALLBACK1=confirmed/pending`；
+`B824-REQUIREDToolLENGTHNOTOOLRECOVERY1=confirmed/pending`；
+`B825-WRITECONTROLLERHANDOFFRECEIPT1=confirmed/pending`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
