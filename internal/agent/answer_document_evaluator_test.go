@@ -9247,6 +9247,9 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 			t.Fatalf("request-spine presentation boundary missing %q:\n%s", want, got)
 		}
 	}
+	if strings.Contains(got, "Principal-diagram display guidance (soft)") {
+		t.Fatalf("an already proved requested spine must not receive the unproven-spine display guidance:\n%s", got)
+	}
 	principalBlockStart := strings.Index(got, "principal_diagram_recipe_source=")
 	if principalBlockStart < 0 {
 		t.Fatalf("compact principal recipe block missing:\n%s", got)
@@ -9294,6 +9297,12 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 		"does not cover every typed incident participant",
 		"do not call it the complete requested flow",
 		"this authority adds no edge",
+		"Principal-diagram display guidance (soft)",
+		"prioritize the requested participant identities as visible nodes",
+		"Keep disconnected local implementation operations in prose or a separate bounded support visual",
+		"Use concise repository/domain/business wording for visible labels",
+		"Preserve uncovered requested participants as visible disconnected nodes",
+		"the model still authors every visible label, node, edge, diagram, and conclusion",
 		"An `incident` row proves only that one local typed relation touches that participant",
 	} {
 		if !strings.Contains(got, want) {

@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
+
+1. 在 `main@44402e94d` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + qf_diagram_pipeline`。Runner `2 PASS / 0 FAIL`；人工简单 QF
+   pass、复杂 QF partial。完整逐轮记录见 r473 summary 与 manual audit。两案 128s/309s，均产出
+   完整模型答案；无 JSON salvage、旧稿回退、空答案或 active-stream 4ms 固定年龄降级。
+2. 简单 QF 首次成文即通过：模型自行画出 analyze → explore → extract → finalize 三条 precedence，
+   Mermaid 合法，责任解释完整。系统未生成或替换任何答案、节点、标签、边、图或结论。
+3. 复杂 QF 的 Analyzer 本轮正确发出 analyzer/explorer/extractor/finalizer/BusContext/Mutable 六个
+   incident-required participant；B772 因而正确旁路，证明不会拒绝合法 participant slate，但尚未取得
+   “空 slate 被生产拒绝”的正触发。r472 的 Mutable/BusContext 静默丢失本轮没有重现。
+4. Explorer 先因 BusContext 无 citable incident operation 被 completion gate 退回；补查拿到
+   `applyStageOutput/append/ToolResults/RepoFacts` 局部实现操作后即关闭。Finalizer 得到的关系权威却仍
+   诚实标注：两组件、跨组件桥未证、requested relation spine 未证。首两版模型图因伪造 assignment/
+   call 边或端点方向/身份不一致被拒；第三版保留 stage precedence、独立 append 技术片段及断开的
+   BusContext/Mutable unproven boundary 后通过。系统没有造桥或删改模型答案。
+5. 登记 `B773-UNPROVENSPINEDISPLAY1/P1`。根因不是 Mermaid 语法，也不是单一模型波动，而是两层
+   typed authority 粒度不同：Explorer completion 把“一条局部 operation 碰到 participant”当作覆盖，
+   Finalizer 正确区分 local incidence 与用户要求的 cross-participant relation graph。结果是主图被
+   `append/ToolResults/RepoFacts` 和源码行号等内部碎片挤占，经历两次成文拒绝，正文又比图声称更完整
+   的 stage→carrier flow。
+6. 本批最优低风险修向是 soft display guidance，不扩大或削弱关系证据门：仅在 typed authority 已铸
+   `requested_relation_spine_status=unproven` 且存在 request-scoped subset 时，提醒模型让主图优先显示
+   请求 participant 与已证 request-scoped subset；不闭合请求关系的局部实现 operation 放正文或独立
+   有界辅助图；未覆盖 participant 继续作为断开节点并由模型标 unproven boundary；可见词优先仓库/
+   业务语言，精确符号留在 citation/typed anchor。
+7. B773 明确只做选择与语言引导：不创建或重写 node/label/edge/diagram/prose/conclusion，不扫描用户
+   原文、模型输出或最终答案关键词，不把建议提升为 hard validator；requested spine 已证时不注入该
+   分支。因而统一适用于所有语言和已支持图族，不做 QF/Go/单 case 拟合。
+8. 更深的 completion 层桥接补证留作独立 P1 设计项：只有共享 request-spine typed provider 能精确
+   判断“局部 incidence 已有但业务桥仍缺”时，才可有界追加一次 bridge evidence pass；当前不能用反复
+   搜索或嘈声实体提及强行闭环，避免 non-convergence 与模型心智增加。
+9. 正负分支 pin、`internal/agent`、`internal/types`、`internal/tool` 全绿（tool 176.404s），`go build ./...`
+   通过。已证 requested spine 不接收该提示，未证严格子集才接收；未改变任何 validator 判定。
+10. Trace 路径零改动。显式时间窗、因果投影、自动补齐、链上-only 主因、实际耗时与规则可消除量双轴、
+   优先级反转/调度延迟/算力供给/D/IO/确定性语义工作/业务线索保持；邻近和背景仍只能 support-only。
+
+状态：`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=implemented/not-triggered-r473`；
+`B772-EMPTYDIAGRAMPARTICIPANTCROSSFIELD1=implemented/correct-slate-bypass-r473/pending-trigger-positive`；
+`B773-UNPROVENSPINEDISPLAY1=implemented/soft-guidance/package-suites+build-pass/pending-replay`；
+`system answer/diagram/node/label/edge/relation/conclusion synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed-r473`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
