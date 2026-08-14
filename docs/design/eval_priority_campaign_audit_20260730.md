@@ -35730,6 +35730,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/unchanged`。
 
+#### B768：有限状态查询保留精确账与“状态≠机制”口径（2026-08-13）
+
+1. 深审确认不是 trace 数据缺失。`target_window_states` 的 complete account 已精确携带 Running、
+   Runnable、Sleep、D-state、IO-wait、总量和 selected window；偏差来自上下文分流：完整因果报告车道
+   有“精确值优先、状态不自证原因、blocked reason 只能解释 join 子集”的强口径，有限
+   `bounded_fact_set/bounded_effect_verdict` 为避免误启完整因果投影而没有同等精度的轻量口径。
+2. `Trace Target-State Scope Authority` 现完整发布 `io_wait`、`sleep_io_wait`、状态分区覆盖与未覆盖量，
+   并明确 requested state account 的原始三位小数优先于模型近似、窗口相减或相邻窗。complete 只表示
+   目标线程状态分区覆盖完整，不表示每段 sleep/D/IO 的业务或内核机制已证。
+3. 新增有限车道专用 soft hint。触发只读 schema-valid `RuntimeQuestionProfile` 的有限 scope 与
+   `target_scheduler_state` fact family；不读 request、模型草稿或终稿。它要求模型复制 typed account
+   的 published values，blocked-reason caller/count 只有另有 typed interval join 时才能命名其覆盖子集，
+   不能把 16.358ms 的 caller 子集扩成 70.338ms 全部 Sleep。
+4. CPU-frequency 所有权同步校准：频率记录属于 CPU；缺少 target-running-slice↔CPU/frequency overlap
+   时，应表达“目标绑定未证”，不能把 `scaling_cur_freq` 写成线程自身缺失的属性。该提示不替模型决定
+   yes/no/mixed/unproven，也不修改答案数值、措辞或结论。
+5. 完整 causal-diagnosis 负 pin 证明不会继承有限提示；非 scheduler-state 的有限事实同样不会收到它。
+   显式窗、Trace 因果投影、自动补齐、链上主因选举及优先级反转/调度延迟/算力供给/D/IO/确定性语义/
+   业务线索 population 均未改，邻近/背景仍只能 support。
+6. 验证：`go test ./internal/types ./internal/agent ./internal/tool -count=1`、`go build ./...` 与
+   `git diff --check` 全绿。下一步用 H4 + QF 严格并发两案回放，同时验收 B768/B769。
+
+状态：`B768-TARGETSTATEEXACTCALIBER1=implemented/typed-finite-soft-guidance+pinned/pending-r471`；
+`system answer/value/cause rewrite=none`；`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/unchanged`。
+
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 
 1. 在 `main@08738bb1f` 重建后严格并发恰好两个案例：

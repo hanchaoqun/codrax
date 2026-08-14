@@ -178,6 +178,12 @@ func TestTypedFiniteTraceScopeDoesNotPromoteExploratoryRootCausePopulation(t *te
 				"answer's language",
 				"without copying the English enum token",
 				"display guidance only",
+				"Runtime finite target-state caliber hint",
+				"selected `target_window_states` account is the principal authority",
+				"Copy its published running/runnable/sleep/D-state/IO-wait/total values",
+				"a blocked-reason caller/census names only a separately typed, interval-joined subset",
+				"target-running-slice-to-CPU/frequency overlap",
+				"bounded conclusion remains model-owned",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("finite typed trace guidance missing %q:\n%s", want, got)
@@ -227,6 +233,21 @@ func TestTypedCausalTraceScopeRetainsCompleteOnChainPopulation(t *testing.T) {
 	}
 	if strings.Contains(got, "Runtime finite-scope presentation hint") {
 		t.Fatalf("causal diagnosis was narrowed to finite-scope guidance:\n%s", got)
+	}
+	if strings.Contains(got, "Runtime finite target-state caliber hint") {
+		t.Fatalf("causal diagnosis inherited the finite target-state hint:\n%s", got)
+	}
+}
+
+func TestTypedFiniteTraceScopeOmitsTargetStateCaliberForOtherFactFamilies(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency},
+	}
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	if strings.Contains(got, "Runtime finite target-state caliber hint") {
+		t.Fatalf("non-state finite question inherited target-state caliber guidance:\n%s", got)
 	}
 }
 

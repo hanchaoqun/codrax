@@ -5453,6 +5453,8 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 	b.WriteString("### Trace Target-State Scope Authority\n\n")
 	b.WriteString("- `target_window_states` is a wall-clock partition of ONE target thread. Its running/runnable/sleep/D-state values describe only that thread. A low runnable share can bound that target's scheduler queueing; it cannot prove CPU-wide utilization, idle capacity, or saturation.\n")
 	b.WriteString("- Any CPU-wide saturation or head-room conclusion requires a separate typed per-CPU, core-class, process-domain, or system occupancy/idle/pressure account. Never rename target-thread running share as CPU utilization.\n")
+	b.WriteString("- When the question requests this state partition, copy the selected account's published millisecond values at their displayed precision; do not reconstruct them from rounded narrative values or a neighboring window. Coverage describes only whether the scheduler-state partition accounts for the selected target window.\n")
+	b.WriteString("- Scheduler states are not mechanism labels. `sleep`, D-state, and `io_wait` report where the target spent wall clock; a blocked-reason caller/count inventory may explain only its own typed, interval-joined subset. Without that join, never rename all sleep/D/IO time after one caller, subsystem, or event family.\n")
 	for i, authority := range authorities {
 		if i >= 4 {
 			fmt.Fprintf(&b, "- (%d additional target-state account(s) omitted from this compact wording view)\n", len(authorities)-i)
@@ -5463,7 +5465,7 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 			label = fmt.Sprintf("partition-%d", i+1)
 		}
 		fmt.Fprintf(&b,
-			"- artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope=`target_thread_only`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; total=%.3fms; cpu_wide_saturation_authority=`not_provided_by_target_window_states`\n",
+			"- artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope=`target_thread_only`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; sleep_io_wait=%.3fms; total=%.3fms; state_partition_coverage=`%s`; unaccounted=%.3fms; cpu_wide_saturation_authority=`not_provided_by_target_window_states`\n",
 			label,
 			authority.Subject,
 			authority.WindowStartTs,
@@ -5472,7 +5474,11 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 			authority.RunnableMS,
 			authority.SleepMS,
 			authority.DStateMS,
+			authority.IOWaitMS,
+			authority.SleepIOWaitMS,
 			authority.TotalMS,
+			authority.CoverageStatus,
+			authority.UnaccountedMS,
 		)
 	}
 	b.WriteString("\n")
@@ -11588,6 +11594,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 				b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep every typed on-chain candidate eligible for the principal root-cause population regardless of family, including measured priority inversion (a lower-priority on-chain dependency with typed runnable effective impact and/or a typed running compute-supply deficit, or stronger holder/waiter authority), runnable/scheduler-supply delay, compute-supply limits, D-state/IO waits, and deterministic semantic work; keep adjacent/background rows as support or additional investigation directions only.\n")
 			case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
 				b.WriteString("- Runtime finite-scope presentation hint: this request asks for finite observed facts and/or one bounded target-effect verdict, not a root-cause roster. Present the model-owned bounded conclusion first, then only the requested fact families and the minimum typed evidence needed for that verdict. A `root_cause_rank`, wakeup-chain candidate, or causal seat obtained during exploration is not thereby part of the requested principal root-cause population: use such a row only when its typed fields directly prove one requested observed value or the bounded condition-to-target relation, and describe that evidence without root-cause/rank/seat language. This scope rule does not suppress any requested scheduler-state, wait, count, duration, frequency, pressure, or evidence-source dimension and does not decide yes/no/mixed/unproven for the model.\n")
+				b.WriteString(renderAnswerDocRuntimeFiniteTargetStateCaliberHint(ctx))
 			case types.RuntimeQuestionScopeRelationAnalysis:
 				b.WriteString("- Runtime relation-scope presentation hint: answer the requested caller, wakeup, IPC, dependency, or topology relation from exact typed endpoints, direction, relation kind, and evidence ceiling. Exploration-time root-cause ranks and unrelated causal seats do not become a principal root-cause population in this scope. Preserve every requested relation and its uncertainty, but do not promote an endpoint, neighbor, or background row to a root cause merely because it appears on the relation path.\n")
 			case types.RuntimeQuestionScopeSystemOverview:
@@ -11638,6 +11645,24 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	b.WriteString(renderAnswerDocRuntimeTemporalDiagramCapsules(ctx))
 	b.WriteString("\n")
 	return b.String()
+}
+
+// renderAnswerDocRuntimeFiniteTargetStateCaliberHint preserves the exact
+// state-account ruler in finite runtime questions without widening them into
+// the full causal-report lane. The trigger is the analyzer's schema-valid
+// RuntimeQuestionProfile only; request text and model/final prose never
+// participate. The result is soft composition guidance: it neither edits the
+// answer nor elects a cause.
+func renderAnswerDocRuntimeFiniteTargetStateCaliberHint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
+	if profile == nil ||
+		!profile.RequestsFactFamily(types.RuntimeQuestionFactTargetSchedulerState) {
+		return ""
+	}
+	return "- Runtime finite target-state caliber hint: the selected `target_window_states` account is the principal authority for the requested target-thread state partition. Copy its published running/runnable/sleep/D-state/IO-wait/total values at their displayed precision instead of reconstructing them from rounded prose, subtraction, another window, or a blocked-reason count. These values prove scheduler states, not the mechanism inside every interval: a blocked-reason caller/census names only a separately typed, interval-joined subset and cannot label the whole sleep/D/IO duration. CPU-frequency records are CPU-owned; without a typed target-running-slice-to-CPU/frequency overlap, say that target binding is unproven rather than describing a frequency field as an absent property of the thread. This is evidence-caliber guidance only; the bounded conclusion remains model-owned.\n"
 }
 
 // answerDocRuntimeTracePresentationScope keeps trace composition aligned with

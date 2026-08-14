@@ -85,6 +85,11 @@ func TestRenderAnswerDocObservationLedgerSeparatesTargetStateFromCPUWideScopeAA1
 		"cpu_wide_saturation_authority=`not_provided_by_target_window_states`",
 		"low runnable share can bound that target's scheduler queueing",
 		"Never rename target-thread running share as CPU utilization",
+		"copy the selected account's published millisecond values",
+		"Scheduler states are not mechanism labels",
+		"state_partition_coverage=`complete`",
+		"unaccounted=0.000ms",
+		"blocked-reason caller/count inventory",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed target-state scope authority missing %q:\n%s", want, got)
