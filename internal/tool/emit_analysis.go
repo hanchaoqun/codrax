@@ -1956,6 +1956,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		axis,
 		p.CallChainEndpoints,
 		diagramHint,
+		entities,
 	); warning != "" {
 		p.CallChainEndpoints = normalized
 		val.Warnings = append(val.Warnings, warning)

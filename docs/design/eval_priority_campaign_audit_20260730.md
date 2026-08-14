@@ -36366,6 +36366,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.807 r487：空 participant 仍丢题设终点；有限 Trace 事实与完整因果投影边界复核（2026-08-14）
+
+1. 在 `main@ea5d5a104` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + real_trace_h4_supply_thermal_witness`。Runner `0 PASS / 2`，人工为
+   `0 pass / 1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_boundary_trace_r487_20260814_manual_audit.md`。
+2. qf 暴露 `B797-REQUIREDRELATIONSCOPEENDPOINTPARITY1/P0`。Analyzer 保留了 required sequence 的
+   schema-valid `relation_scope_quote="buildAnalysisIR 到 gate.Run 的调用顺序"`，typed entities 也只有该
+   双端点和一个 path-like `analyzer.go`，但 participant roster 发成显式空数组，同时 call profile 保留
+   `source=buildAnalysisIR,sink="",discover`。B793 只消费非空的双 participant 集，导致同一份题设关系范围
+   仍可丢弃终点；后续只收集 `buildAnalysisIR` 的 16 条 sibling calls，完全没有检查
+   `gate.Run -> RunWith@gate.go:135`。终稿列表与图均漏题设终点，Runner/人工 FAIL 属实。
+3. 泛化根修扩展 B793 的同一 seam：优先继续消费非空 incident participant；只有 roster 恰为空时，才从
+   typed entities 中过滤 path，并要求完整代码身份以 token boundary 精确出现于已通过 current-request
+   verbatim 校验的 relation-scope quote。恰好两席且其中一席与 profile source 唯一兼容时，唯一另一席补为
+   exact sink；三席、同名/短名歧义、quote 外 context、optional/non-call 图、非代码身份全部 fail-open。
+4. 方向仍只来自 `CallChainEndpointProfile.source`，entity 顺序绝不提供方向；relation scope 只提供成员集合，
+   不铸造任何调用边。归一后仍走既有 current-request endpoint provenance、grounded reachability 与 typed
+   no-directed-path 门。新增空 roster 正 pin、三席歧义负 pin和完整 emit_analysis 接线 pin；未读取模型推理、
+   最终答案、Mermaid body/label，也没有按某个 eval 函数名写专用分支。
+5. H4 的 requested 主值全部正确：Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、D/IO=0，且模型
+   最终保持“策略频率上限存在，但目标运行片段与上限绑定未证”，没有把 CPU-owned limit row 直接升级为目标
+   性能受限。机器 FAIL 中一条是 oracle 未接受自然的“D 态”词形，另一条要求把 policy limit 与“触顶/性能影响”
+   在固定字符距离内并置；不能据此增加终稿关键词硬门或让系统代写判断。
+6. 人工仍判 partial：模型把 CPU1 的 7.155ms 误写为 CPU0，把完整 70.338ms Sleep 过度联系到只有局部覆盖的
+   IO Burst，并暴露 `target_binding_status` 等内部字段词。B768/B796 继续开放观察；现有 typed 上下文已经明确
+   blocked-reason 只解释 interval-joined 子集、用户可见语言不应照抄 enum，单轮未遵循不足以授权系统改正文。
+7. 该 Trace 问题是有限四态/运行时长事实加一个“是否受限”的单一 effect verdict，不是丢帧根因、竞争贡献者
+   或链排序请求；正确 breadth 是 `bounded_effect_verdict`，仍不要求完整 Trace 因果投影。Analyzer 本轮把该
+   verdict 误标 observed_value 后选 `bounded_fact_set`，虽未妨碍最终得出 unproven 边界，登记
+   `B798-RUNTIMEBOUNDEDEFFECTROLEVARIANCE1/P1` 异构回放。现有教学与跨字段门已明确区分 observed fact/effect
+   verdict，但一个语义自洽的错误 tuple 无法在不扫描 source quote/label 的前提下确定性纠正；禁止为此扩大
+   全量投影或扫描原问题/答案关键词做硬门。
+8. 本批不改变 Trace projection 触发：显式窗的 causal-diagnosis、根因/排序/竞争贡献者仍保留完整投影与自动
+   补齐；有限 fact/effect 请求只给所需事实和边界。链上-only 主因、优先级反转、调度/算力供给、D/IO、
+   确定性优化、实际占时/规则可消双轴和业务线索不丢；邻近/背景只能 support-only。没有空答案、旧稿恢复或
+   active-stream 的 4ms/4m/固定总年龄降级。
+
+状态：
+
+`B793-REQUIREDDIAGRAMENDPOINTMODEPARITY1=implemented/pinned/expanded-empty-roster-r487`；
+`B797-REQUIREDRELATIONSCOPEENDPOINTPARITY1=implemented/typed-scope-set+pinned/production-replay-pending`；
+`B798-RUNTIMEBOUNDEDEFFECTROLEVARIANCE1=P1-observe/no-source-or-answer-prose-hard-gate`；
+`B768-TARGETSTATEEXACTCALIBER1=typed-context-present/model-adherence-partial`；
+`B796-VISIBLEINTERNALTERMANDPROSEMISMATCH1=P2-observe/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

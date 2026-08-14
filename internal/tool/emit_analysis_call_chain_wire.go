@@ -34,8 +34,14 @@ func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile
 // selecting discover/discover_terminal mode. parseDiagramHint has already
 // verified that every retained participant and the shared relation scope are
 // verbatim current-request carriers. The profile supplies direction; the
-// participant set supplies only the unique other endpoint. Neither participant
-// order nor entities/buckets are used as direction authority.
+// incident participant set supplies only the unique other endpoint.
+//
+// Some analyzer responses correctly preserve the required relation-scope quote
+// but emit an empty participant roster. In that shape, and only that shape, the
+// same repair may recover the two identities from typed entities whose complete
+// code-identity surfaces occur inside the already validated relation-scope
+// quote. Entity order still supplies no direction, and path/context entities
+// outside the quote cannot enter the pair.
 //
 // This is intentionally narrow: optional diagrams, context-only participants,
 // non-call visual families, more than two incident participants, ambiguous
@@ -46,6 +52,7 @@ func normalizeCallChainEndpointFromRequiredDiagramParticipants(
 	axis types.PredicateAxis,
 	profile *types.CallChainEndpointProfile,
 	hint *types.DiagramHint,
+	entities []string,
 ) (*types.CallChainEndpointProfile, string) {
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall ||
 		profile == nil || hint == nil || !hint.Required ||
@@ -57,15 +64,29 @@ func normalizeCallChainEndpointFromRequiredDiagramParticipants(
 	}
 
 	incident := make([]string, 0, 2)
-	for _, participant := range hint.Participants {
-		if participant.Role != types.DiagramParticipantIncidentRequired {
-			return profile, ""
+	if len(hint.Participants) > 0 {
+		for _, participant := range hint.Participants {
+			if participant.Role != types.DiagramParticipantIncidentRequired {
+				return profile, ""
+			}
+			identity := strings.TrimSpace(participant.Identity)
+			if identity == "" || !types.IsCodeIdentitySurface(identity) {
+				return profile, ""
+			}
+			incident = append(incident, identity)
 		}
-		identity := strings.TrimSpace(participant.Identity)
-		if identity == "" || !types.IsCodeIdentitySurface(identity) {
-			return profile, ""
+	} else {
+		endpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{MentionedEntities: entities},
+		})
+		for _, endpoint := range endpoints {
+			endpoint = strings.TrimSpace(endpoint)
+			if !types.IsCodeIdentitySurface(endpoint) ||
+				!types.RawRequestExplicitlyMentionsEntity(hint.RelationScopeQuote, endpoint) {
+				continue
+			}
+			incident = append(incident, endpoint)
 		}
-		incident = append(incident, identity)
 	}
 	if len(incident) != 2 {
 		return profile, ""
@@ -95,8 +116,12 @@ func normalizeCallChainEndpointFromRequiredDiagramParticipants(
 	previousMode := normalized.SinkMode
 	normalized.Sink = destination
 	normalized.SinkMode = types.CallChainSinkResolutionExact
+	repairSource := "the required typed call diagram names one unique other incident participant"
+	if len(hint.Participants) == 0 {
+		repairSource = "the required typed call diagram relation scope contains one unique other typed code identity"
+	}
 	return &normalized, "normalized call_chain_endpoints sink_mode from " + string(previousMode) +
-		" to exact because the required typed call diagram names one unique other incident participant; current-request provenance and grounded reachability checks still apply"
+		" to exact because " + repairSource + "; current-request provenance and grounded reachability checks still apply"
 }
 
 // validateCallChainEndpointWireShape rejects a schema-level contradiction
