@@ -35649,6 +35649,58 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
+
+1. 在 `main@d93d03c12` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner 为 `1 PASS / 1 FAIL`，
+   人工为 `0 pass / 1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_r470_20260813.md` 与 manual audit。
+2. B766 获生产正证。目标线程逐 CPU Running typed 名册发布 8 个核、90 个片段：CPU1=7.155ms、
+   CPU2=0.138ms、CPU3=2.221ms、CPU4=35.960ms、CPU7=11.030ms、CPU8=4.479ms、
+   CPU12=96.081ms、CPU13=0.184ms，精确求和 157.248ms；`assignment_status=complete`、
+   roster `complete`，不存在把未知 CPU 填成 CPU0 或把 top-2 冒充全量。该名册只作目标线程状态支持，
+   不参与链上根因加冕。
+3. H4 人工仍为 partial。相同 `target_window_states` 已给出 exact complete 的
+   Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、D=0ms，模型却把 Sleep 写成
+   “约70.3ms/30.2%”，并以窗口相减描述其来源。更严重的是，`blocked_reason_census` 只有
+   fscache caller 50 条、Σ16.358ms；它不是完整状态分区，不能把全部 70.338ms S-sleep 命名为
+   “fscache 等待”。登记 `B768-TARGETSTATEEXACTCALIBER1/P1`：对 typed requested scheduler-state
+   fact，complete exact 状态账优先于派生近似；blocked_reason caller 只能解释直接覆盖子集。修复只进入
+   typed context/soft teaching，不扫描草稿或终稿，不替模型改数值或机制结论。
+4. 频率复合权限保持正确：窗口内 CPU0/CPU4 策略上限存在，但目标线程与上限的时段绑定未证，模型未
+   将 policy present 合成为 target restricted。CPU-frequency 是 CPU-owned 记录；后续提示应避免
+   “该线程的 scaling_cur_freq 记录”这种所有权歧义，同时保持“目标运行片段与频点未精确绑定”的真实证据缺口。
+5. B767 只获间接收敛正证：Analyzer emission 从 r469 的 7 次降到 2 次、总时长 376s→159s；但本轮
+   第一包没有保留 causal dimension，因而没有命中 `canonical_field_target` 的同构冲突修复臂。
+   该臂继续等待生产正证，不把分类波动变成 raw-request 关键词硬门。
+6. QF Runner PASS 是假绿，人工判 fail。首稿已尝试 BusContext 包含 Mutable、阶段写载体与
+   BuildAgentContext 交接；关系门拒绝 assignment/data_flow/return 后，patch 只保留四阶段 precedence
+   和 `dispatchStage -> BuildAgentContext` local call，BusContext/Mutable 被画成断开的 `(unproven)`。
+   正文却继续声称两者完成阶段传递，并误称 BuildAgentContext 构建 BusContext，形成图文矛盾。
+7. B744 的 `argument_flow` schema、grounder 与 validator 均已在场，但 Explorer 读到
+   `BuildAgentContext(o.busCtx, ...)` 后仍只发 direct call row，没有发完整实参 operation。新登记
+   `B769-RELATIONOPERATIONDERIVATION1/P0`：在一条已读、已验证的 operation source/call row 上，由
+   跨语言 parser 发布可引用的 complete-argument/assignment/return typed 候选，再由模型选择、发射和画图；
+   不按 participant 名或 case 特判，不从用户/模型/终稿 prose 造边，系统不替模型补图或结论。
+8. 两案分别持续 159s/369s 后产出完整结构化答案，没有 active-stream 4ms 降级。只要连接仍交付
+   byte/keepalive/隐藏推理增量，4ms、4s 或任意固定累计年龄都不能授权旧稿恢复或降级；终止/恢复权仍仅
+   属于 caller cancel/deadline、无首字节、byte-stall、transport/decode failure。
+9. 本批未改显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则可消除量
+   双轴。有限事实问题不强制完整根因榜；真正 causal-diagnosis 仍保留优先级反转、调度延迟/供给、算力
+   供给、D/IO、确定性语义和业务修向，邻近/背景只能支撑额外排查。
+
+状态：
+
+`B766-TARGETCPURUNNINGROSTER1=production-closed-r470`；
+`B767-ANALYZERJSONCONVERGENCE1=production-performance-positive/canonical-arm-pending`；
+`B768-TARGETSTATEEXACTCALIBER1=confirmed/P1/typed-soft-context-only`；
+`B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
+`B769-RELATIONOPERATIONDERIVATION1=confirmed/P0/high-ROI/queued-next`；
+`active-stream-4ms-degrade=forbidden/not-observed-r470`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 
 1. 在 `main@08738bb1f` 重建后严格并发恰好两个案例：
