@@ -2258,6 +2258,44 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 	}
 }
 
+func TestExplorerBoundedPeerErrorsKeepCompletionHandoffFactOnly(t *testing.T) {
+	logBundle := &types.LogBundle{Errors: []types.LogError{
+		{Type: "Error", Message: "native call failed", Frames: []types.LogFrame{{Func: "Bridge.invoke"}}},
+		{Type: "panic", Message: "index out of bounds", Frames: []types.LogFrame{{Func: "native.sum"}}},
+	}}
+	mut := types.NewMutableState("locate each peer error frame")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.AgentContext{
+		Objective: "locate each peer error frame",
+		Mutable:   mut,
+		LogTriage: logBundle,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+				FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactOtherObservedValue},
+			},
+		}},
+	}
+
+	prompt := (&explorerEvaluator{}).buildRuntimeObservationOnlyStartInstruction(ctx)
+	for _, want := range []string{
+		"### Typed Peer-Error Fact Scope",
+		"runtime_question_scope=`bounded_fact_set`",
+		"complete the requested finite facts independently",
+		"Do not widen `emit_investigation_complete.reason` into a cross-error root-cause",
+		"Literal error-message wording remains an observation",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("bounded peer-error explorer scope missing %q:\n%s", want, prompt)
+		}
+	}
+
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
+	if got := renderExplorerPeerErrorFactScope(ctx); got != "" {
+		t.Fatalf("causal diagnosis must retain the ordinary relation-analysis path, got:\n%s", got)
+	}
+}
+
 func TestExplorerTraceQueryRuntimeLedgerStaysOnTracePrompt(t *testing.T) {
 	mut := types.NewMutableState("trace runtime ledger")
 	mut.AppendDispatchToolResult(types.ToolResult{

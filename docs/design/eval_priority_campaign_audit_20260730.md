@@ -35888,6 +35888,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace-causal-projection/auto-supplement=unchanged`；
 `active-stream-fixed-age-degrade=not-observed`。
 
+### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
+
+1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
+   `trace_query_perf_quality_raw_fallback` 124s，`harmony/hilog_mixed_arkts_cangjie` 109s。
+2. B808 已生产生效：finalizer 的 structured Log Triage 中没有 triager 的“捕获并传播”summary；literal
+   evidence、两个 Errors tree 和 `cross_error_relation=unproven` 均保留。Trace B805 也再次人工 PASS。
+3. 混合日志仍人工 FAIL，但污染来源已精确缩到 explorer：analyzer 明确铸出
+   `runtime_question_scope=bounded_fact_set`、fact family=`other_observed_value`，两个 required dimension 都是
+   `observed_value`，没有 `causal_attribution`；日志 explorer 却未消费这条 scope，closure 自行写入跨错误
+   root-cause/propagation，finalizer 随后复述。现有 runtime scope workflow 只挂在 trace 专用 start path，日志
+   observation-only path 缺接线。
+4. B809 泛化修复：新增共享 typed 谓词 `bounded_fact_set + 多顶层 LogError`。日志 explorer 在 runtime-only
+   与 external-observation-first 两条车道都收到软交接边界：逐 occurrence 回答有限事实，closure 不扩写未证
+   跨错误根因/传播；finalizer 同一谓词下明确不新增因果结论。因果诊断 scope、单错误形状均保持原路径。
+5. 全程不扫描用户/模型/final prose，不新增 emit hard reject，不系统修改答案；模型仍决定措辞和结论。
+
+状态：
+
+`B808-PEEROBSSUMMARYAUTH1=implemented+production-pass`；
+`B809-PEERBOUNDEDSCOPE1=implementation-in-progress`；
+`B805-PERFSAMPLECALIBER1=production-pass-2x`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+`active-stream-fixed-age-degrade=not-observed`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

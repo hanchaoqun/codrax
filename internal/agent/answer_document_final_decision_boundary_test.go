@@ -231,6 +231,10 @@ func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsMod
 		Mutable: mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause,
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+				FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactOtherObservedValue},
+			},
 		}},
 	}
 
@@ -243,6 +247,8 @@ func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsMod
 		"identify each occurrence's own first observed frame",
 		"Do not label either peer occurrence as the other's true/underlying trigger",
 		"A message may be quoted as that occurrence's literal text without upgrading it into an edge",
+		"the requested answer is the finite per-occurrence facts and carries no causal-attribution dimension",
+		"Do not add a cross-error root-cause/propagation conclusion",
 		"The final wording and conclusion remain model-authored",
 	} {
 		if !strings.Contains(prompt, want) {

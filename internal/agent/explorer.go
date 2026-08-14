@@ -3771,6 +3771,7 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	var b strings.Builder
 	b.WriteString("## Runtime Artifact Only Start\n\n")
 	b.WriteString("The attached runtime artifact has no current-repo intersection, and this request does not ask for current-version verification. Treat the Log / Trace Triage section and the attached artifact bytes as the evidence pool.\n\n")
+	b.WriteString(renderExplorerPeerErrorFactScope(ctx))
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
 	b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
@@ -3789,6 +3790,7 @@ func (e *explorerEvaluator) buildExternalObservationFirstStartInstruction(ctx *t
 	var b strings.Builder
 	b.WriteString("## External Observation First Start\n\n")
 	b.WriteString("This turn is typed as external-observation-first and current-source evidence is optional. Start from MCP/provider/runtime/log/trace observations and keep them in their own evidence lane.\n\n")
+	b.WriteString(renderExplorerPeerErrorFactScope(ctx))
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Use external observation tools/resources first. Typed rows with line, row, selector, JSON pointer, page, or time-window addresses are valid external observations; do not convert them into current-source citations.\n")
 	b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in `reason` and, for counts/lists/scalars, `aggregate_facts`.\n")
