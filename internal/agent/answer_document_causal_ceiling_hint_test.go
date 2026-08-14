@@ -128,6 +128,8 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 		"concurrent support or an additional investigation direction",
 		"Thread and span semantic authority",
 		"span/marker label proves its label, measured interval",
+		"Numeric substrings/suffixes in a span or marker name are opaque identifiers, never durations",
+		"without a pairable E/F endpoint proves no duration or target-span causal window",
 		"does not by itself prove the internal work",
 		"not the owning thread",
 	} {

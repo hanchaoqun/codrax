@@ -10573,6 +10573,26 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		}
 	}
 	asyncPairer.finishEOF()
+	var unmatchedSyncStarts []Event
+	if strings.TrimSpace(q.SpanName) != "" {
+		for _, stack := range stacks {
+			for _, start := range stack {
+				// Only publish begin markers that satisfy the explicit span and
+				// target selectors and were themselves inside the requested time
+				// window. Padding-only markers remain internal context. A begin
+				// marker proves neither duration nor causal impact.
+				if traceSpanStartMatchesQuery(start, target, q) && timeInWindow(start.Ts, q) {
+					unmatchedSyncStarts = append(unmatchedSyncStarts, start)
+				}
+			}
+		}
+		sort.SliceStable(unmatchedSyncStarts, func(i, j int) bool {
+			if unmatchedSyncStarts[i].Ts != unmatchedSyncStarts[j].Ts {
+				return unmatchedSyncStarts[i].Ts < unmatchedSyncStarts[j].Ts
+			}
+			return unmatchedSyncStarts[i].Line < unmatchedSyncStarts[j].Line
+		})
+	}
 	sort.SliceStable(spans, func(i, j int) bool {
 		if spans[i].StartTs != spans[j].StartTs {
 			return spans[i].StartTs < spans[j].StartTs
@@ -10593,6 +10613,18 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	if unresolvedPairingRows > 0 {
 		spans = nil
 		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; span_window durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
+	} else if len(unmatchedSyncStarts) > 0 {
+		const maxUnmatchedBeginWitnesses = 4
+		for i, start := range unmatchedSyncStarts {
+			if i >= maxUnmatchedBeginWitnesses {
+				break
+			}
+			caveats = append(caveats, fmt.Sprintf("trace_span_begin_unpaired=true; span_name=%q row_tid=%d trace_mark_span_pid=%d start_ts=%.6f line=%d; the selected window contains a matching B marker but no pairable E endpoint was retained, so span duration and target-span causal scope remain unproven",
+				start.SpanName, start.PID, start.SpanPID, start.Ts, start.Line))
+		}
+		if len(unmatchedSyncStarts) > maxUnmatchedBeginWitnesses {
+			caveats = append(caveats, fmt.Sprintf("trace_span_begin_unpaired_compacted=true; total=%d emitted=%d", len(unmatchedSyncStarts), maxUnmatchedBeginWitnesses))
+		}
 	}
 	var compaction *ViewCompaction
 	if len(spans) > max {

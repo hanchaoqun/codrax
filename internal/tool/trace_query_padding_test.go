@@ -133,8 +133,39 @@ func TestTraceQueryReducedPaddingRetryTrigger(t *testing.T) {
 	}
 	// Caveat note pin: the reduced margin is stated with the proportional
 	// value so the model knows how much context survived.
-	if got := traceQueryReducedPaddingCaveat(retry.TimePaddingBefore); got != "index rebuilt with reduced padding ±0.0505s (window-proportional) after budget exhaustion" {
+	if got := traceQueryReducedPaddingCaveat(retry.TimePaddingBefore, retry.TimePaddingAfter); got != "index rebuilt with reduced padding ±0.0505s (window-proportional) after budget exhaustion" {
 		t.Fatalf("reduced-padding caveat drifted: %q", got)
+	}
+}
+
+func TestTraceQueryReducedPaddingRetryPreservesSpanPairingTail(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		p    traceQueryParams
+	}{
+		{name: "span window", p: traceQueryParams{View: "span_window"}},
+		{name: "span locate recipe", p: traceQueryParams{View: "recipe", RecipeName: "span_locate"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.p
+			p.TimeStart = traceSecondFromAutoWindow(2.000)
+			p.TimeEnd = traceSecondFromAutoWindow(2.100)
+			opts := traceQueryWindowedIndexOptions(p, 2.000, 2.100)
+			retry, ok := traceQueryReducedPaddingRetryOptions(p, opts, &tracequery.IndexEventLimitError{LastTs: 2.050}, 2.000, 2.100)
+			if !ok {
+				t.Fatalf("span-pairing view must qualify for reduced-prefix retry")
+			}
+			if math.Abs(retry.TimePaddingBefore-0.050) > 1e-9 {
+				t.Fatalf("before padding=%f want 0.050", retry.TimePaddingBefore)
+			}
+			if retry.TimePaddingAfter != opts.TimePaddingAfter || retry.TimePaddingAfter != 0.500 {
+				t.Fatalf("after padding=%f want preserved 0.500", retry.TimePaddingAfter)
+			}
+			want := "index rebuilt with reduced padding before=0.0500s after=0.5000s after budget exhaustion; the span-pairing tail was preserved to search for a closing endpoint"
+			if got := traceQueryReducedPaddingCaveat(retry.TimePaddingBefore, retry.TimePaddingAfter); got != want {
+				t.Fatalf("span-pairing caveat=%q want %q", got, want)
+			}
+		})
 	}
 }
 

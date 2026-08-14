@@ -11633,7 +11633,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			}
 			b.WriteString("- Runtime user-facing language hint: structured keys/enums such as `coverage_status=complete`, `chain_relevance=on_chain`, `tier=primary`, `fix_direction`, and `target_binding_status=unproven` are evidence metadata, not primary customer-facing prose. Express their exact meaning naturally in the answer's language: describe that all relevant events in the selected window were covered or that target binding remains unproven, without copying the English enum token into an otherwise non-English sentence. Retain raw key=value tokens only in a compact audit parenthesis when they materially help verification. Keep domain terms such as runnable, D-state, CPU frequency, JIT, and GC when they are the clearest engineering vocabulary, but do not expose tool/view names, validator vocabulary, or seat/recipe labels as the conclusion. This is display guidance only: do not translate away numeric caliber, evidence boundaries, relation direction, on-chain/background status, or the model's conclusion.\n")
 			b.WriteString("- Scheduler residency and cross-subject causality hint: S, D, `io_wait`, runnable, and running are row-local measured states. A wait may explain that same subject's delay, but temporal overlap, adjacency, a shared CPU, a shared IRQ/waker label, the same IO/pressure family, or a shared subject name does not transfer state, caller, blocker, or causality between rows. Never call an adjacent/background row a direct or indirect contributor to an on-chain wait unless an exact typed relation/fold carrier links those subjects over compatible intervals; otherwise keep it as concurrent support or an additional investigation direction.\n")
-			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. Current span/name-derived frame rows do not provide that carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
+			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. Current span/name-derived frame rows do not provide that carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. Numeric substrings/suffixes in a span or marker name are opaque identifiers, never durations; only typed start/end/duration fields authorize time. A matching B/S marker without a pairable E/F endpoint proves no duration or target-span causal window. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
 			for _, measurement := range view.FrameMeasurements {
 				fmt.Fprintf(&b, "- Runtime frame measurement caliber: `items=%d first_start=%.6f last_end=%.6f end_to_end_extent=%.3fms interval_union_coverage=%.3fms per_span_duration_sum=%.3fms uncovered_gap=%.3fms`. Use first-start→last-end extent for the end-to-end envelope, interval-union coverage for covered wall clock, and per-span sum only for accumulated item duration (which may double-count overlaps). `uncovered_gap` is only the interval complement inside that envelope; it is not scheduler latency, blocking time, efficiency, or proof that no blocking occurred. Never substitute one ruler for another, infer work semantics from these interval measurements, or call a gap normal/efficient without separate typed scheduler or causal evidence.\n",
 					measurement.ItemCount,
@@ -14126,6 +14126,7 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 			b.WriteString(directive)
 			b.WriteString("\n\n")
 		}
+		b.WriteString(answerDocumentFallbackTraceBoundary(ctx, true))
 		b.WriteString("## 已验证事实\n\n")
 		if len(rows) == 0 {
 			b.WriteString("- 当前没有可列出的已验证事实；请明确说明无法形成可靠结论。\n")
@@ -14149,6 +14150,7 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 		b.WriteString(directive)
 		b.WriteString("\n\n")
 	}
+	b.WriteString(answerDocumentFallbackTraceBoundary(ctx, false))
 	b.WriteString("## Verified Evidence\n\n")
 	if len(rows) == 0 {
 		b.WriteString("- No verified facts are available; say that a reliable conclusion cannot be formed.\n")
@@ -14159,6 +14161,24 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 	}
 	b.WriteString("\nReturn only the final user-facing answer. Do not explain this fallback channel and do not output tool-call JSON.")
 	return b.String()
+}
+
+func answerDocumentFallbackTraceBoundary(ctx *types.AgentContext, zh bool) string {
+	if !answerDocRuntimeTraceGuidanceView(ctx).RuntimeTrace {
+		return ""
+	}
+	if zh {
+		return "## Trace 解释边界\n\n" +
+			"- 你仍负责诊断和最终建议；系统只提供下面的 typed 事实，不替你形成结论。\n" +
+			"- span/marker 名称中的数字片段是不可拆解的选择器标识，不是时长；只有 typed start/end/duration 字段才授权时间。只有 B/S 起点而没有可配对 E/F 终点时，不得生成 span 时长或目标 span 因果窗。\n" +
+			"- 只有与已证目标窗及唤醒依赖链绑定的 on-chain 行可进入主因判断；不同的宽窗、邻近行和 background 行只能支持补充排查。\n" +
+			"- `pre_wakeup_dependency` 本身不证明下游等待它完成；`priority_inversion_candidate` 本身也不证明持锁/资源所有权。后者只计价 typed 的低优先级链上依赖 runnable 影响或 running 算力缺口，锁/等待关系仍需独立 typed 证明。\n\n"
+	}
+	return "## Trace Interpretation Boundaries\n\n" +
+		"- You still own the diagnosis and recommendation; the system supplies only the typed facts below and does not author the conclusion.\n" +
+		"- Numeric substrings in span/marker names are opaque selector identifiers, not durations; only typed start/end/duration fields authorize time. A B/S start without a pairable E/F endpoint authorizes neither a span duration nor a target-span causal window.\n" +
+		"- Only on-chain rows bound to the proven target window and wakeup dependency path may enter the principal-cause judgment; a different broad window, adjacent rows, and background rows are supporting investigation context only.\n" +
+		"- `pre_wakeup_dependency` alone does not prove the downstream waited for completion, and `priority_inversion_candidate` alone does not prove lock/resource ownership. The latter prices only typed lower-priority on-chain runnable impact or running compute deficit; lock/waiter claims need separate typed proof.\n\n"
 }
 
 // emptyBlocksRejectBreakerMaxStreakDefault mirrors the completion-side

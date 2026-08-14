@@ -35847,7 +35847,12 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
    宽窗睡眠、IRQ、跨核与 `pre_wakeup_wait` 当作指定 doFrame 的因果。需要冷读当前 HEAD 的
    span row-TID / TGID / SpanPID / 东湖 namespace-PID 映射与 exact-window authority：精确窗未证时，
    宽窗只能 background/support，不能加冕目标 span 根因；若 `21690↔25827` 有 typed namespace/process
-   关系则由 trace 身份层证明，不允许模型凭数字猜。
+   关系则由 trace 身份层证明，不允许模型凭数字猜。R3 冷读确认：`21690` 是 B payload 的
+   `SpanPID`（进程/namespace 身份），`25827` 是 ftrace 行头 emitter TID；同步栈必须继续按
+   `physical source + row TID` 配 B/E，显式 `target_scope=process` 才用 TGID/SpanPID 证明成员，二者不能
+   粗暴等同。客户失败的直接机制是密集索引的第一次 `±500ms` padding 在抵达请求尾前耗尽事件预算，
+   旧重试把前后都缩到约 `50ms`：虽覆盖 `32136.4..32136.5` 查询窗，却可能在
+   `32136.55` 截掉长 span 的 E 端。
 4. `RL-04/P1 候选语义越权`：模型把 `lower_priority_waker` 或
    `priority_inversion_candidate` 直接解释为“低优先级线程持锁/资源”，并把 `pre_wakeup_wait` 解释成
    waker 对目标造成的睡眠延迟。当前 HEAD 已有 runnable-dominant/gated-running 的计价实现与较新的
@@ -35855,8 +35860,10 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
    正确边界保持用户裁定：链上低优先线程存在 gated runnable，或 running 且有可折算算力供给缺口，
    才进入反转可消除席；持锁/资源所有权另需 lock/monitor typed 证明。
 5. `RL-05/P2 selector token 被误当时长`：`8002384` 是 span 名称中的标识，final raw prose却解释成
-   “800 万微秒/约 8 秒”。最优解是在 typed runtime target/span contract 中显式交付
-   `selector_token_not_duration`/measured-window availability，不通过扫描用户原文或终稿做数字硬门。
+   “800 万微秒/约 8 秒”。R3 已在 explorer、普通 typed finalizer 和 isolated prose fallback 三个模型
+   输入面统一给出软语义：span/marker 名称内的数字片段均为 opaque selector，只有 typed
+   start/end/duration 才授权时间；B/S 单端不授权时长。该规则不扫描 request/model/final 原文，不拒绝
+   或重写答案。
 6. `RL-06/P2 纯 runtime 请求仍构建 repo index`：客户明确“不分析代码”，旧运行仍扫描 2 个本地文件
    (`repl_log.txt:19-21`)。当前 HEAD 已存在 explicit/attached runtime-artifact analyzer shortcut 与
    source-navigation-optional 路由，先补生产回归而不是重复改实现；若 HEAD 正证仍扫描，再修 analyzer→
@@ -35872,7 +35879,7 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
 - `R2`：`B779-RUNTIMEFALLBACKEVIDENCE1`——ObservationLedger 进入 isolated prose 与 evidence-only
   降级，禁止系统代写结论；
 - `R3`：`B780-EXACTSPANWINDOWAUTHORITY1` + `B781-PICANDIDATESEMANTICS1`——东湖 namespace/span
-  身份、精确窗/邻近窗分权与 PI 候选语义；
+  身份、精确窗/邻近窗分权与 PI 候选语义（本批已实现）；
 - `R4`：runtime-only source-optional 生产 pin、trace 窗索引复用与 convergence 性能批。
 
 `R1` 验证：`go test ./internal/llm ./internal/agent ./internal/render`、`go build ./...` 全绿；新增 parser
@@ -35890,10 +35897,35 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
 中英文、trace-only 无 EvidenceItem、空响应、非空模型散文、current-source 隔离均有 pin。
 验证：`go test ./internal/agent ./internal/types ./internal/render`、`go build ./...` 全绿。
 
+`R3` 已完成 span endpoint 保真与解释边界小批：
+
+- `span_window` 与 `recipe=span_locate` 在 typed `IndexEventLimitError` 且尚未覆盖请求尾时，仍只缩短
+  before-padding 以取得请求窗；after-padding 保留原视图的 `500ms`，为同一行头线程栈寻找 E/F 端点。
+  其他 frame/root-cause/scheduler 视图继续原有双侧比例收缩，行为不变。若保留尾仍超预算，只消费
+  BuildIndex 已有的 verified padding-tail prefix，绝不猜造端点或时长。
+- 显式 `span_name` 在请求时间窗内出现匹配 B、但当前索引没有 pairable E 时，`span_window` 现在有界
+  披露 `trace_span_begin_unpaired=true`，同时给出 `row_tid/trace_mark_span_pid/start_ts/line`；最多 4 个
+  witness，额外数量 typed compact。该行明确“duration 与 target-span causal scope 均未证”，而不是返回
+  无解释的 `evidence=0`。padding-only B 不外发，B 单端永不铸 `TraceSpanSummary`/duration。
+- 当前 HEAD 的 PI 生产语义复核为正确：`priority_inversion_candidate_authority` 已限定为 typed 低优先级
+  on-chain 依赖的 gated runnable + running compute-deficit，并明确
+  `candidate_alone_proves_lock=false`；`pre_wakeup_dependency` 也已明确不证明下游等待其完成。R3 把相同
+  边界补到 isolated fallback，避免正常 finalizer 失败后退回旧“低优先唤醒=持锁反转”解释。系统仍只
+  提供事实/软解释边界，模型拥有诊断与建议，未增加答案文本硬门或 system-authored 结论。
+- numeric selector 语义同步进入 explorer、普通 typed finalizer 与 isolated fallback；没有针对
+  `8002384`、`Choreographer` 或某一客户进程写条件，适用于所有 span/marker/frame id/cookie。
+
+专项验证：`go test ./internal/agent -run 'Test(IsolatedFinalizerProseFallbackPromptCarriesRuntimeLedgerFacts|TypedTraceAuthoritySelectsCompactExactGuidance|.*RuntimeTrace.*)'`、
+`go test ./internal/tool -run TestTraceQueryReducedPadding`、
+`go test ./internal/tracequery -run 'TestSpanWindow(Discloses|DoesNotDisclose)'` 全绿。剩余边界诚实保留：
+结束端晚于原视图 `500ms` after-padding 时仍需未来的定向 endpoint continuation；本批不以无界扫描换取
+偶然闭合，也不把另一个宽窗的 rank 借给未闭合目标 span。
+
 状态：`B778-STREAMACTIVITYCALIBER1=implemented/passive-display-only/tests-pass`；
 `B779-RUNTIMEFALLBACKEVIDENCE1=implemented/shared-ledger-projection+degraded-fact-appendix/tests-pass`；
-`B780-EXACTSPANWINDOWAUTHORITY1=P1/audit-next`；
-`B781-PICANDIDATESEMANTICS1=P1/audit-next`；`active-stream-fixed-age-degrade=forbidden`；
+`B780-EXACTSPANWINDOWAUTHORITY1=implemented/asymmetric-retry+unpaired-begin-disclosure/pending-production-replay`；
+`B781-PICANDIDATESEMANTICS1=covered/current-typed-authority+fallback-boundary-pinned`；
+`RL-05-selector-token-duration=implemented/soft-guidance-only`；`active-stream-fixed-age-degrade=forbidden`；
 `system answer/conclusion authorship=none`。
 
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）

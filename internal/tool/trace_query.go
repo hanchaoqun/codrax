@@ -2564,10 +2564,10 @@ func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, 
 	// pre-existing denial surfaces on the original error, as if no retry ran.
 	if buildErr != nil {
 		if retryOpts, ok := traceQueryReducedPaddingRetryOptions(p, opts, buildErr, timeStart, timeEnd); ok {
-			logging.Warning("[trace_query] windowed index build exhausted its event budget before covering the request window (view=%s path=%s); retrying once with window-proportional padding ±%.6fs (was ±%.6fs)",
-				firstNonEmptyTraceString(p.View, "window_stats"), path, retryOpts.TimePaddingBefore, opts.TimePaddingBefore)
+			logging.Warning("[trace_query] windowed index build exhausted its event budget before covering the request window (view=%s path=%s); retrying once with window-proportional padding before=%.6fs after=%.6fs (was before=%.6fs after=%.6fs)",
+				firstNonEmptyTraceString(p.View, "window_stats"), path, retryOpts.TimePaddingBefore, retryOpts.TimePaddingAfter, opts.TimePaddingBefore, opts.TimePaddingAfter)
 			if retryIdx, retryErr := tracequery.BuildIndexWithOptions(ctx, path, retryOpts); retryErr == nil {
-				retryIdx.Caveats = append(retryIdx.Caveats, traceQueryReducedPaddingCaveat(retryOpts.TimePaddingBefore))
+				retryIdx.Caveats = append(retryIdx.Caveats, traceQueryReducedPaddingCaveat(retryOpts.TimePaddingBefore, retryOpts.TimePaddingAfter))
 				return retryIdx, nil
 			}
 		}
@@ -2746,16 +2746,35 @@ func traceQueryReducedPaddingRetryOptions(p traceQueryParams, opts tracequery.Bu
 	}
 	retry := opts
 	retry.TimePaddingBefore = padding
-	retry.TimePaddingAfter = padding
+	// A complete trace span needs the closing endpoint that follows its B/S
+	// marker. For span-pairing views, shrinking the tail together with the
+	// prefix can make the retry cover the literal request window while cutting
+	// off the very E/F endpoint the view exists to resolve. Keep the original
+	// after-padding for those typed views. If that tail itself exhausts the
+	// budget after TimeEnd, BuildIndex's existing padding-tail truncation still
+	// returns the longest verified prefix; no endpoint or duration is guessed.
+	if !traceQueryNeedsSpanPairingTail(p) {
+		retry.TimePaddingAfter = padding
+	}
 	return retry, true
+}
+
+func traceQueryNeedsSpanPairingTail(p traceQueryParams) bool {
+	if strings.EqualFold(strings.TrimSpace(p.View), "span_window") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(p.View), "recipe") && strings.EqualFold(strings.TrimSpace(p.RecipeName), "span_locate")
 }
 
 // traceQueryReducedPaddingCaveat is the Result-caveat note attached (via
 // Index.Caveats) to an index that was rebuilt on the reduced-padding retry,
 // so the model knows the context margin around the request window is thinner
 // than the per-view default.
-func traceQueryReducedPaddingCaveat(padding float64) string {
-	return fmt.Sprintf("index rebuilt with reduced padding ±%.4fs (window-proportional) after budget exhaustion", padding)
+func traceQueryReducedPaddingCaveat(before, after float64) string {
+	if before == after {
+		return fmt.Sprintf("index rebuilt with reduced padding ±%.4fs (window-proportional) after budget exhaustion", before)
+	}
+	return fmt.Sprintf("index rebuilt with reduced padding before=%.4fs after=%.4fs after budget exhaustion; the span-pairing tail was preserved to search for a closing endpoint", before, after)
 }
 
 func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {

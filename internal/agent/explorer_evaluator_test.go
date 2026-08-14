@@ -297,6 +297,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"80-150ms coverage windows",
 		"sub-50ms windows as local micro-probes only",
 		"Trace timestamps are seconds",
+		"Numeric substrings or suffixes inside a span/marker name are opaque selector identifiers",
+		"without its pairable E/F endpoint",
 		"whole attachment's first-to-last timestamp extent",
 		"not the selected trace_query window",
 		"typed `target_window_states` partition",

@@ -14,6 +14,9 @@ func runtimeFallbackEvidenceContext() *types.AgentContext {
 		ToolName: "trace_query",
 		Success:  true,
 		RawRef:   "[trace_query params: view=event_search source=path path=/tmp/donghu.systrace origin=runtime_artifact artifact_kind=trace]",
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "event_search",
+		},
 		Observations: []types.ObservationRecord{{
 			ID:              "trace_query:event_search:doFrame",
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -60,6 +63,11 @@ func TestIsolatedFinalizerProseFallbackPromptCarriesRuntimeLedgerFacts(t *testin
 		"donghu.systrace",
 		"32136.468701",
 		"Choreographer#doFrame 8002384",
+		"## Trace 解释边界",
+		"数字片段是不可拆解的选择器标识，不是时长",
+		"只有 B/S 起点而没有可配对 E/F 终点",
+		"不同的宽窗、邻近行和 background 行只能支持补充排查",
+		"priority_inversion_candidate` 本身也不证明持锁/资源所有权",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("runtime fallback prompt lost %q:\n%s", want, prompt)
