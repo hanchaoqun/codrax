@@ -11747,6 +11747,104 @@ func TestRunAppliedPendingCompletionVerifySourceStaticProductionFinishesUnverifi
 	}
 }
 
+func TestRunAppliedPendingCompletionVerifyRetainsCumulativeWeakProofAuthority(t *testing.T) {
+	reportDir := t.TempDir()
+	oldPlan := &types.ChangePlan{
+		ID: "plan-old-weak", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"relativedelta.py"},
+		LocalizationReview: &types.SourceLocalizationReview{
+			Status: types.SourceLocalizationSupported, SourcePaths: []string{"relativedelta.py"},
+			SupportedPaths: []string{"relativedelta.py"},
+		},
+	}
+	oldReport := &types.ChangeReport{
+		PlanID: oldPlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "pre_suite_verification_probe",
+			Category:   "probe_contract",
+			Status:     "missing",
+			Severity:   "error",
+			ReasonCode: "verification_probe_expected_stdout_missing",
+		}},
+	}
+	if err := types.WritePlanToFile(oldPlan, filepath.Join(reportDir, oldPlan.ID+".json")); err != nil {
+		t.Fatalf("persist old plan: %v", err)
+	}
+	if err := types.WriteChangeReportToFile(oldReport, filepath.Join(reportDir, oldPlan.ID+".report.json")); err != nil {
+		t.Fatalf("persist old report: %v", err)
+	}
+
+	currentPlan := &types.ChangePlan{
+		ID: "plan-current-clean", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"relativedelta.py"},
+		LocalizationReview: &types.SourceLocalizationReview{
+			Status: types.SourceLocalizationSupported, SourcePaths: []string{"relativedelta.py"},
+			SupportedPaths: []string{"relativedelta.py"},
+		},
+	}
+	currentPlanPath := filepath.Join(reportDir, currentPlan.ID+".json")
+	if err := types.WritePlanToFile(currentPlan, currentPlanPath); err != nil {
+		t.Fatalf("persist current plan: %v", err)
+	}
+	mu := types.NewMutableState("terminal completion must preserve cumulative proof authority")
+	mu.SetChangePlan(currentPlan)
+	store := &fakeWorkflowRunStore{}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mutable: mu, Mode: types.ModeApply, WorkDir: t.TempDir(), PlanPath: currentPlanPath, AnalysisIR: &types.AnalysisIR{},
+		},
+		reportDir:             reportDir,
+		writeWorkflowRunStore: store,
+	}
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StageVerify {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		mu.SetChangeReport(&types.ChangeReport{
+			PlanID: currentPlan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+			Passed: true, VerificationStatus: types.VerificationStatusPassed,
+			TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "unittest", Passed: true}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-terminal-cumulative-weak", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-review",
+		Batches: []types.WriteWorkflowBatch{
+			{
+				ID: "batch-source", PlanID: oldPlan.ID, Status: types.WriteWorkflowBatchComplete,
+				Completion: &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed"},
+				Attempts: []types.WriteWorkflowAttempt{
+					{Kind: "apply", Status: "applied", PlanID: oldPlan.ID},
+					{Kind: "verify", Status: "passed", PlanID: oldPlan.ID, ReportID: oldPlan.ID + ".report.json"},
+				},
+			},
+			{
+				ID: "batch-review", PlanID: currentPlan.ID, Status: types.WriteWorkflowBatchApplying,
+				Attempts: []types.WriteWorkflowAttempt{{Kind: "apply", Status: "applied", PlanID: currentPlan.ID}},
+			},
+		},
+	}
+	steps := 0
+	if !o.runAppliedPendingCompletionVerify(run, &steps, "", "completion_verify", "verify", "verify") {
+		t.Fatal("terminal lane should complete with an honest cumulative unverified verdict")
+	}
+	active := run.Batches[1]
+	if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		run.Completion.ReasonCode != "verification_probe_expected_stdout_missing" ||
+		active.Completion == nil || active.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		active.Completion.Source != "cumulative_proof_ledger" ||
+		active.Attempts[len(active.Attempts)-1].Status != "unverified" {
+		ledger := types.BuildVerificationProofLedger(mu.ChangePlan(), mu.ChangeReport(),
+			o.writeFinalReportProofArtifacts(run, mu.ChangePlan(), mu.ChangeReport()))
+		t.Fatalf("terminal lane falsely signed cumulative weak proof: run=%+v active=%+v ledger=%+v", run.Completion, active, ledger)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "terminal_cumulative_proof_unverified") {
+		t.Fatalf("typed cumulative downgrade progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 // The --plan-file artifact must follow the live plan across replan rounds.
 func TestRunWriteControllerWorkflow_MirrorsActivePlanToImportFile(t *testing.T) {
 	store := &fakeWorkflowRunStore{}

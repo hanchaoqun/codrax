@@ -1672,10 +1672,10 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 			continue
 		}
 
-		baselineCtx := *ctx
+		baselineCtx := ctx.ShallowClone()
 		baselineCtx.RepoRoot = mainAbs
 		baselineCtx.MainRepoRoot = mainAbs
-		result := runSingleVerificationProbe(&baselineCtx, probe, verificationProbeBaselineSource)
+		result := runSingleVerificationProbe(baselineCtx, probe, verificationProbeBaselineSource)
 		command := types.ExecutedCommand{
 			Runner:     "verification_probe",
 			Framework:  strings.TrimSpace(probe.Language),

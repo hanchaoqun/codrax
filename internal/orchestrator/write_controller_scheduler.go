@@ -637,6 +637,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionFinish:
+			o.enforceTerminalCumulativeProofAuthority(&run)
 			run.Status = types.WriteWorkflowRunComplete
 			writeflow.MarkWorkflowRunCompletionFromBatches(&run)
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
@@ -6507,6 +6508,10 @@ func (o *Orchestrator) controllerTruthLedgerDecision(decision writeflow.WriteWor
 }
 
 func markActiveBatchWeakProofUnverified(run *types.WriteWorkflowRun, reasonCode string) {
+	markActiveBatchProofUnverified(run, reasonCode, "truth_ledger")
+}
+
+func markActiveBatchProofUnverified(run *types.WriteWorkflowRun, reasonCode, source string) {
 	if run == nil {
 		return
 	}
@@ -6515,6 +6520,7 @@ func markActiveBatchWeakProofUnverified(run *types.WriteWorkflowRun, reasonCode 
 		return
 	}
 	reasonCode = firstNonEmptyController(reasonCode, "truth_ledger_weak")
+	source = firstNonEmptyController(source, "truth_ledger")
 	for i := range run.Batches {
 		batch := &run.Batches[i]
 		if strings.TrimSpace(batch.ID) != activeID {
@@ -6534,12 +6540,80 @@ func markActiveBatchWeakProofUnverified(run *types.WriteWorkflowRun, reasonCode 
 		batch.Completion = &types.WriteWorkflowCompletion{
 			Verdict:    types.WriteWorkflowCompletionUnverified,
 			ReasonCode: reasonCode,
-			Source:     "truth_ledger",
+			Source:     source,
 			At:         time.Now(),
 		}
 		batch.UpdatedAt = time.Now()
 		return
 	}
+}
+
+// enforceTerminalCumulativeProofAuthority prevents a terminal shortcut from
+// signing an all-verified workflow when the same typed proof artifacts that
+// feed WriteFinalReport still project failed, unavailable, low-confidence, or
+// unknown cumulative authority. It never reads user/model prose. A terminal
+// caller cannot execute another proof or repair batch, so the honest durable
+// outcome is unverified rather than a false all_batches_verified verdict.
+func (o *Orchestrator) enforceTerminalCumulativeProofAuthority(run *types.WriteWorkflowRun) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || len(run.Batches) == 0 {
+		return
+	}
+	for _, batch := range run.Batches {
+		if batch.Status != types.WriteWorkflowBatchComplete || batch.Completion == nil ||
+			batch.Completion.Verdict != types.WriteWorkflowCompletionVerified {
+			return
+		}
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	report := o.busCtx.Mutable.ChangeReport()
+	ledger := types.BuildVerificationProofLedger(plan, report, o.writeFinalReportProofArtifacts(run, plan, report))
+	ledger = types.NormalizeVerificationProofLedger(ledger)
+	// The ordinary finish/truth gates own a single current report. This seam
+	// only closes the cross-report overwrite gap where a later clean report
+	// masks an unresolved earlier proof obligation in the delivered chain.
+	if !ledger.Cumulative {
+		return
+	}
+	var fallback string
+	switch ledger.State {
+	case types.VerificationProofLedgerFailed:
+		fallback = "verification_proof_failed"
+	case types.VerificationProofLedgerUnavailable:
+		fallback = "verification_proof_unavailable"
+	case types.VerificationProofLedgerLowConfidence:
+		fallback = "verification_proof_low_confidence"
+	case types.VerificationProofLedgerUnknown:
+		fallback = "verification_proof_unknown"
+	default:
+		return
+	}
+	reasonCode := fallback
+	for _, item := range ledger.Obligations {
+		switch item.Status {
+		case types.VerificationProofLedgerItemFailed,
+			types.VerificationProofLedgerItemUnavailable,
+			types.VerificationProofLedgerItemMissing,
+			types.VerificationProofLedgerItemUnverified,
+			types.VerificationProofLedgerItemUnknown:
+			if code := strings.TrimSpace(item.ReasonCode); code != "" {
+				reasonCode = code
+			}
+		}
+		if reasonCode != fallback {
+			break
+		}
+	}
+	if reasonCode == fallback {
+		for _, code := range ledger.ReasonCodes {
+			if code = strings.TrimSpace(code); code != "" {
+				reasonCode = code
+				break
+			}
+		}
+	}
+	markActiveBatchProofUnverified(run, reasonCode, "cumulative_proof_ledger")
+	appendControllerProgress(run, run.ActiveBatchID, "terminal_cumulative_proof_unverified",
+		"terminal completion retained typed cumulative proof authority as unverified (reason="+reasonCode+")")
 }
 
 func controllerTruthLedgerDecisionFromView(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
@@ -9922,6 +9996,7 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			}
 		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
+		o.enforceTerminalCumulativeProofAuthority(run)
 		run.Status = types.WriteWorkflowRunComplete
 		writeflow.MarkWorkflowRunCompletionFromBatches(run)
 		o.persistWriteWorkflowRun(run)
@@ -9959,6 +10034,7 @@ func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types
 	if finish.Action != writeflow.ActionFinish || writeflow.FinishBlockedReason(*run, finish) != "" {
 		return false
 	}
+	o.enforceTerminalCumulativeProofAuthority(run)
 	run.Status = types.WriteWorkflowRunComplete
 	writeflow.MarkWorkflowRunCompletionFromBatches(run)
 	appendControllerProgress(run, run.ActiveBatchID, reasonCode, "all workflow batches already have typed completion verdicts")

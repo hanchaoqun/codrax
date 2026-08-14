@@ -36534,6 +36534,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.833 r506：终态累计证明假绿；链上 semantic overlap 被误铸机制根因（2026-08-14）
+
+1. 在 `main@c0a36a150` 构建不可变二进制后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。Runner
+   `2 PASS / 0 FAIL`，人工均判 fail-system；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_probe_trace_r506_20260814_manual_audit.md`。
+2. Python 最终 patch 行为正确，系统内 8 条测试通过，applied tree 上 fixture 原生 unittest 独立复核 4/4 PASS。
+   但 run 终态同时出现 `completion=verified/all_batches_verified` 与
+   `proof=weak / proof_ledger=low_confidence / verification_probe_expected_stdout_missing`。普通 finish 两次已被
+   `truth_ledger_failed_requires_repair` 正确拦截，预算耗尽后的 completion-verify 却只看最后一次 report pass，绕过
+   同一 typed authority 后直接聚合全绿，确认 `B827-TERMINALCUMULATIVEPROOFAUTH1/P0`。
+3. B827 根修让普通 finish、completion-verify 和 all-batches-complete 终态捷径在聚合前统一消费与
+   WriteFinalReport 相同的 cumulative proof artifacts/ledger。只有 verified ledger 可保留全绿；failed、unavailable、
+   low-confidence、unknown 在终态无预算执行后续动作时均持久化为 `unverified`，优先披露 exact missing/failed
+   obligation reason。它只读 schema enum、PlanID、report/artifact 与 batch completion，不扫描请求、模型草稿、patch
+   或最终答案。
+4. 正向回归冻结真实 r506 形：历史 report 留有
+   `verification_probe_expected_stdout_missing`，最后 completion-review report 通过；修复前生成
+   `all_batches_verified`，修复后 active verify attempt、batch 和 run 三层均为 unverified，source 明确为
+   `cumulative_proof_ledger`，progress 留 `terminal_cumulative_proof_unverified`。source-static 既有终态和普通强证明
+   正臂保持。
+5. B826 本轮没有取得 production closure：r506 后续模型 probes 未声明 `expects_baseline_failure`，因此新
+   main-snapshot bounded differential 未被生产执行。B826 仍是 implemented/full-internal-tool-tests-pass，等待下次精确
+   typed probe replay，不能借机器 PASS 过账。
+6. Python 同轮另确认 `B828-REPLANCURRENTSTATEHANDOFF1/P1`：正确修复已应用后，replan 混用 original source 与
+   current worktree，先重复插入 `_normalize`，再用第三计划删除重复。结构 validator 对 stale/no-op/create-existing
+   的拒绝均正确；最优根修是把 planner handoff 绑定 current PlanID/apply generation/path fingerprint 和 exact
+   already-applied edit receipt，不按 Python、变量或某个 fixture 特判。
+7. Trace 案保留显式窗、四态与 “Trace 因果投影”，但系统上下文内部自相矛盾：typed boundary 明确说 selected
+   semantic leader 只是 wakeup 前链上重叠工作，没有 target-blocking relation 证明目标等待该工作或等待其完成；系统
+   投影仍把 `class_verification effective=4.600ms` 加冕为主根因，模型继而声称 VerifyClass 完成触发唤醒。真实时序是
+   wakeup=5.005000s、span end=5.005400s，completion 晚 0.4ms，故该机制陈述不可能成立。
+8. 登记 `B829-TRACESEMANTICBINDINGAUTH1/P0`：on-chain membership、temporal intersection、semantic/business
+   label 与 target wait dependency 必须分席。仅 membership+intersection 的 span 保留为链上业务线索和实际占用/新修向
+   候选，不得铸造“等待 span 完成”或规则可消除机制席；exact typed dependency/binding 才可授权 mechanism cause。
+   不得因此删除类校验/JIT/着色器编译/运行时编译/纹理上传/GC 等确定性业务语义，也不得把邻近/背景升主因。
+9. r506 两案都没有固定 4ms/4s/4m active-stream 降级。只要 transport bytes 持续到达，未形成完整 JSON/answer
+   不授权恢复旧稿或降级；终止/恢复仍只属于 caller cancel/deadline、无首字节、byte stall、transport/decode failure。
+   本批不修改 Read/Trace 答案正文、图或结论，系统仍只提供精确 typed 信息与软引导。
+
+状态：
+
+`B826-BOUNDEDPROBEBASELINEDIFFERENTIAL1=implemented/full-tests-pass/production-replay-required`；
+`B827-TERMINALCUMULATIVEPROOFAUTH1=implemented/terminal+cumulative-regression-pass`；
+`B828-REPLANCURRENTSTATEHANDOFF1=confirmed/P1/next-write-batch`；
+`B829-TRACESEMANTICBINDINGAUTH1=confirmed/P0/next-trace-batch`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
