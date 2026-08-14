@@ -131,7 +131,7 @@ func TestTraceWaitEvidence_FinalizerScopesUnboundInventoryByTypedQuestion(t *tes
 
 	boundedReason := &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
 		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
-		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactRecordedReason},
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactRecordedReason, types.RuntimeQuestionFactCountOrDuration},
 	}}}
 	if !traceWaitEvidenceIncludeUnboundWindowInventory(types.StageFinalize, boundedReason) {
 		t.Fatal("explicit bounded recorded-reason lookup must retain the census")
@@ -156,6 +156,43 @@ func TestTraceWaitEvidence_FinalizerScopesUnboundInventoryByTypedQuestion(t *tes
 		if !strings.Contains(scoped, keep) {
 			t.Fatalf("scoping unbound inventory dropped ranked/wakeup evidence %q:\n%s", keep, scoped)
 		}
+	}
+}
+
+func TestTraceWaitEvidence_FinalizerProjectsBoundedNamedTargetRelations(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records,
+		traceWaitTestRecord("trace_query:t#wakeup_chain_edge:target", "target-waker-8", "target-thread-7", "wakeup_chain_edge", "0.200", "edge=target-waker-8 -> target-thread-7", "ts=1.250000"),
+		traceWaitTestRecord("trace_query:t#blocked_reason_census:target", "target-thread-7", "blocked_reason", "blocked_reason_census", "2", "blocked_reason_census=target_wait×2(Σ1.000ms)"),
+	)
+	ir := &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 7, Thread: "target-thread-7", Source: "user_explicit"}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactDirectWaker},
+		},
+	}}
+
+	projected := traceWaitEvidenceLedgerForStage(types.StageFinalize, ir, ledger)
+	got := formatTraceWaitWakeEvidenceFromLedgerWithOptions(projected, nil, traceWaitEvidenceSummaryOptions{})
+	if !strings.Contains(got, "target-waker-8") || !strings.Contains(got, "target-thread-7") {
+		t.Fatalf("bounded target relation was lost:\n%s", got)
+	}
+	for _, forbidden := range []string{"CompThread_0-2955", "ThreadPoolForeg-60555", "gpu-token-id4-2931"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("bounded target wait summary leaked unrelated subject %q:\n%s", forbidden, got)
+		}
+	}
+	if strings.Contains(got, "thread_window_blocked_reason_census") {
+		t.Fatalf("direct-waker lookup inherited an unrequested blocked-reason census:\n%s", got)
+	}
+
+	if causal := traceWaitEvidenceLedgerForStage(types.StageExplore, ir, ledger); len(causal.Records) != len(ledger.Records) {
+		t.Fatalf("exploration lost the lossless multi-subject ledger: got=%d want=%d", len(causal.Records), len(ledger.Records))
+	}
+	ir.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
+	if causal := traceWaitEvidenceLedgerForStage(types.StageFinalize, ir, ledger); len(causal.Records) != len(ledger.Records) {
+		t.Fatalf("causal finalizer lost multi-subject context: got=%d want=%d", len(causal.Records), len(ledger.Records))
 	}
 }
 

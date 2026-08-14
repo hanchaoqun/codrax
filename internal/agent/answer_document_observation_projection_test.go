@@ -89,6 +89,7 @@ func TestAnswerDocBoundedNamedTargetPromptProjectsUnrelatedRuntimeRows(t *testin
 		record("other-state", "tui thread-13629", "state_churn"),
 		record("other-semantic", "Jit thread pool-17284", "trace_semantic_span"),
 		record("frequency", "cpu=4", "cpu_frequency_limit"),
+		record("other-cpuset", "logd.writer-9163", "cpu_constraint"),
 		record("pressure", "cpu=4", "background_pressure"),
 		record("gap", "", "trace_gap"),
 		{ID: "repo", Origin: types.AnswerEvidenceOriginCurrentSource, Producer: "emit_evidence"},
@@ -110,7 +111,7 @@ func TestAnswerDocBoundedNamedTargetPromptProjectsUnrelatedRuntimeRows(t *testin
 	if gotIDs := answerDocObservationRecordIDs(got); strings.Join(gotIDs, ",") != "target-state,frequency,gap,repo" {
 		t.Fatalf("bounded prompt retained unrelated or unauthorized rows: %v", gotIDs)
 	}
-	if len(records) != 8 {
+	if len(records) != 9 {
 		t.Fatalf("prompt projection mutated the lossless source ledger: %+v", records)
 	}
 

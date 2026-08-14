@@ -6428,7 +6428,7 @@ func answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate string, profile
 	}
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactFrequencyResidency) {
 		switch predicate {
-		case "cpu_constraint", "cpu_frequency_limit", "frequency_tier_census":
+		case "cpu_frequency_limit", "frequency_tier_census":
 			return true
 		}
 	}

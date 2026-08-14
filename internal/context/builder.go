@@ -235,7 +235,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 				}
 			}
 			if runtimeQuestionProfile == nil || runtimeQuestionProfile.RequestsTraceWaitEvidencePrompt() {
-				ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedgerWithOptions(ledger, censusResults, traceWaitEvidenceSummaryOptions{
+				waitLedger := traceWaitEvidenceLedgerForStage(stage, ac.AnalysisIR, ledger)
+				ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedgerWithOptions(waitLedger, censusResults, traceWaitEvidenceSummaryOptions{
 					includeUnboundWindowInventory: traceWaitEvidenceIncludeUnboundWindowInventory(stage, ac.AnalysisIR),
 				})
 			}

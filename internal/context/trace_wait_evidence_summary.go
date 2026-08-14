@@ -333,18 +333,56 @@ func traceWaitEvidenceIncludeUnboundWindowInventory(stage types.PipelineStage, i
 	case types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeRelationAnalysis:
 		return false
 	case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
-		for _, family := range profile.FactFamilies {
-			switch family {
-			case types.RuntimeQuestionFactRecordedReason,
-				types.RuntimeQuestionFactTargetWaitOccurrences,
-				types.RuntimeQuestionFactCountOrDuration:
-				return true
-			}
-		}
-		return false
+		return profile.RequestsBlockedReasonCensus()
 	default:
 		return true
 	}
+}
+
+// traceWaitEvidenceLedgerForStage narrows the model-facing wait/wakeup summary
+// for a bounded named-target final answer. Exploration and causal diagnosis
+// retain the lossless multi-subject ledger. A relation row may name the target
+// on either endpoint, so both typed subject and object identities participate;
+// raw request/model prose never does.
+func traceWaitEvidenceLedgerForStage(stage types.PipelineStage, ir *types.AnalysisIR, ledger types.ObservationLedger) types.ObservationLedger {
+	if stage != types.StageFinalize || ir == nil || ir.RequestModel.RuntimeQuestionProfile == nil ||
+		!ir.RequestModel.RuntimeQuestionProfile.CarriesBoundedFactFamilies() ||
+		!traceWaitEvidenceHasUserRuntimeTarget(&ir.RequestModel) {
+		return ledger
+	}
+	rm := &ir.RequestModel
+	out := ledger
+	out.Records = make([]types.ObservationRecord, 0, len(ledger.Records))
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			types.TraceObservationIsEvidenceBoundary(record) ||
+			types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+			out.Records = append(out.Records, record)
+			continue
+		}
+		asRelationTarget := record
+		asRelationTarget.Subject = record.Object
+		if types.ObservationRecordMatchesUserRuntimeTarget(asRelationTarget, rm) {
+			out.Records = append(out.Records, record)
+		}
+	}
+	return out
+}
+
+func traceWaitEvidenceHasUserRuntimeTarget(rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
+			continue
+		}
+		if (target.PID > 0 && target.PID <= types.RuntimeTargetMaxPID) || strings.TrimSpace(target.Thread) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // formatTraceWaitWakeEvidenceFromLedger renders the typed kernel

@@ -35795,6 +35795,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.780 r465 / B760b：有限目标主提示生效，但 wait 证据旁路与 cpuset 口径混入（2026-08-13）
+
+1. 在 `main@bdce25fca` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   QF partial、Trace pass。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_bounded_target_projection_r465_20260813_manual_audit.md`。
+2. B760 获可见答案生产正证：H4 不再借用其他线程的 36 段/33ms，不再把 fscache census 升格为
+   70.338ms sleep 原因，CPU0/CPU4 witness 计数不再交换；四态精确账与“策略上限存在、目标 binding
+   未证”均保留。无 root roster、系统代写结论或完整因果投影。
+3. 自动 FAIL 已退化为 oracle gap：正文把 96.081ms/35.960ms 明确标成两个可见 ranked bucket，完整
+   running 总量仍是 157.248ms，并未将 subtotal 伪装成总量；case 却无条件禁 `132.041`。第二条正则也
+   仅因词序/距离漏掉等价的未证 binding 结论。继续人工标 pass，不用答案关键词门或系统改写去拟合。
+4. 深审确认 `B760b-BOUNDEDWAITPROMPTBYPASS1/P0`：Finalizer 的
+   `Runtime Trace Kernel Wait Call-Site & Wakeup Evidence` 在 Observation Ledger projection 之前从完整
+   ledger 独立编译。其 unbound inventory 权限把 `target_wait_occurrences` 或 `count_or_duration` 任一项
+   当成允许 blocked-reason census，违反已有 `recorded_reason ∧ count_or_duration` 两轴合同；并可携入
+   大量其他线程的 wait seat。本轮模型没消费只是偶然，不能以答案正确收账。
+5. 同时确认 predicate caliber 错位：B760 将 `cpu_constraint` 放入全局 frequency allow-list；它实际是
+   next_info/cpuset 的 subject-bound 事实，导致 coverage top 五均为无关线程的 cpuset。修复将它移出
+   全局频率族，只有 record subject 匹配用户 target 时保留。
+6. B760b 对 bounded Finalizer 的 wait/wakeup summary 做 typed incident projection：保留 subject 或
+   object 端点匹配用户 RuntimeTarget 的行和 evidence boundary；direct-waker 的 `waker -> target`
+   不会因 target 在 object 侧而丢失。Explorer、causal diagnosis、无用户 target、其他 producer 全部
+   fail-open，原 ledger/tool result 不变。unbound blocked-reason inventory 统一调用
+   `RequestsBlockedReasonCensus()`，消除第二份权限判定漂移。
+7. 新登记 `B761-REQUIREDANALYSISDIMENSIONADMISSION1/P1`：r465 Analyzer 再次漏发 function schema 已
+   标 required 的 `requested_answer_dimensions`，并把“目标频率是否受限”发成 bounded fact 而非 finite
+   effect verdict；executor 为兼容接受 nil。独立 typed target-binding 权威挽救了终稿，但 schema 与
+   execution admission 不一致仍是系统 gap。不得扫描请求文本补 role，也不得由系统把 scope 改成期望值；
+   后续需审计 required-field presence carrier 与旧序列化兼容边界后统一修。
+8. QF 自动 PASS、人工 partial：第一稿虚构多条 call/assignment，唯一一次成文拒绝正确；patch 只保留
+   三条 precedence 与一条 exact call，BusContext/Mutable 可见断开并披露未证。正文仍声称共享载体已
+   完成逐级数据流，超出图关系证据；后续应补 parser-owned incident operation，而非降低门或系统造边。
+9. 本批不触碰 trace engine 值、根因排序、唤醒链计算、窗内可消除量、因果投影或自动补齐。显式窗
+   causal diagnosis 继续保留链上-only 主因、实际占用/业务线索和规则可消除量双轴；邻近/背景只能
+   作为支撑。活跃字节流超过 4ms 仍不得降级。
+
+状态：
+
+`B760-BOUNDEDTARGETPROMPTFACTFAMILY1=production-positive-r465`；
+`B760b-BOUNDEDWAITPROMPTBYPASS1=implemented/typed-subject+object-projection+pinned/pending-r466`；
+`B761-REQUIREDANALYSISDIMENSIONADMISSION1=open/P1/cross-case-audit-required`；
+`H4-BLOCKEDREASON-CALIBER=production-positive-r465/bypass-hardened`；
+`H4-FREQUENCY-WITNESS-COPYBINDING=production-positive-r465`；
+`H4-ORACLE=automatic-fail/human-pass/prose-shape-overfit-open`；
+`QF-READ-NAVIGATION-CHURN=one-valid-repair/relationship-evidence-partial`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：
