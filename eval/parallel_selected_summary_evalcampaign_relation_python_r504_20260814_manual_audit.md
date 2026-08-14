@@ -46,4 +46,6 @@ This scaffold is for human review. The runner records typed metrics and declared
 - B822/B823/B824/B825 已在同一写控制面批次落地并通过 `internal/agent`、`internal/orchestrator` 包测试。
 - B823 冷读纠正：r504 不只是“缺 completion”；普通源码 `QFRootCauseTrace` 被误套 bounded Trace endpoint 合同也是
   隐藏 blocker。现由 typed runtime profiles 区分源码根因与真正运行时 Trace，并将剩余 readiness 缺口分席提示。
+- B821 已另批落地：`implements/extends/overrides` 的 typed lookup source/member 被翻译成可复制的
+  `member -> source` Mermaid body + 同向 anchor；覆盖 15 个 read-mode 语言表面，并保留 validator 独立精确复核。
 - 活跃 stream 的时间边界、Trace 显式窗/因果投影/自动补齐、模型对 plan/答案/图的作者权均未改变。

@@ -7161,6 +7161,7 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 	b.WriteString("- This projection reads only typed relation members, deterministic path roles, and analyzer-emitted `SourceScopeProfile`; it does not scan the raw request or answer prose.\n")
 	b.WriteString("- For the principal relation table/diagram/member_set, use lane=`principal`. Preserve lane=`auxiliary` as an explicitly labelled support/audit roster unless the typed scope opts that source role into principal. Disclose lane=`unknown` and verify it; never silently promote or delete it.\n")
 	b.WriteString("- The complete structural roster and the principal answer set are intentionally different surfaces. Auxiliary membership proves the structural edge exists, but does not by itself authorize a row as a principal production answer.\n")
+	b.WriteString("- Lookup direction and display direction are distinct for declared type relations. For `implements`, `extends`, and `overrides`, `source` is the queried contract/supertype and `member` is the implementing/subtype/overriding declaration; a visible `type_relation` edge and its anchor therefore run `member -> source`. The recipes below are advisory authoring aids; the exact provider and hard validator independently verify every model-authored edge.\n")
 	for i, row := range rows {
 		if i >= answerDocMaxTypedRelationRoleRows {
 			fmt.Fprintf(&b, "- (%d additional typed relation role row(s) omitted only from this compact prompt view; the complete roster remains upstream)\n", len(rows)-i)
@@ -7184,8 +7185,95 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 		}
 		b.WriteString("\n")
 	}
+
+	// Emit a composable alias/body/anchor recipe for the principal declared-type
+	// rows. The lookup carrier is keyed by the contract, but Mermaid and the
+	// strict validator use subtype/implementer -> supertype/contract direction.
+	// This is language-neutral and reads only the closed relation enum plus the
+	// typed member/source identities above. It neither requires a diagram nor
+	// installs one in the answer.
+	type aliasRow struct {
+		key      string
+		alias    string
+		identity string
+	}
+	type recipeRow struct {
+		index      int
+		relation   types.TypedRelationKind
+		fromAlias  string
+		toAlias    string
+		fromLabel  string
+		toLabel    string
+		anchorJSON string
+	}
+	aliases := make([]aliasRow, 0, len(rows)+1)
+	aliasFor := func(key, identity string) string {
+		for _, candidate := range aliases {
+			if candidate.key == key {
+				return candidate.alias
+			}
+		}
+		alias := fmt.Sprintf("tr%d", len(aliases)+1)
+		aliases = append(aliases, aliasRow{key: key, alias: alias, identity: identity})
+		return alias
+	}
+	recipes := make([]recipeRow, 0, len(rows))
+	for _, row := range rows {
+		if row.member.ScopeLane != types.TypedRelationMemberLanePrincipal ||
+			!answerDocTypedRelationUsesMemberToSourceDisplay(row.relation) ||
+			row.member.Name == "" || row.source == "" {
+			continue
+		}
+		fromAlias := aliasFor("member\x00"+row.member.Name+"\x00"+row.member.File, row.member.Name)
+		toAlias := aliasFor("source\x00"+row.source, row.source)
+		anchor := types.DiagramEdgeAnchor{
+			FromNode:     fromAlias,
+			ToNode:       toAlias,
+			FromIdentity: row.member.Name,
+			ToIdentity:   row.source,
+			RelationKind: types.DiagramRelTypeRelation,
+		}
+		payload, err := json.Marshal(anchor)
+		if err != nil {
+			continue
+		}
+		recipes = append(recipes, recipeRow{
+			index: len(recipes) + 1, relation: row.relation,
+			fromAlias: fromAlias, toAlias: toAlias,
+			fromLabel: row.member.Name, toLabel: row.source,
+			anchorJSON: string(payload),
+		})
+		if len(recipes) >= answerDocMaxTypedRelationRoleRows {
+			break
+		}
+	}
+	if len(recipes) > 0 {
+		b.WriteString("- declared_type_relation_authoring=`available`; copy the selected recipe's body edge and matching anchor together; keep aliases local to the same diagram block.\n")
+		for _, recipe := range recipes {
+			fromLabel, _ := json.Marshal(recipe.fromLabel)
+			toLabel, _ := json.Marshal(recipe.toLabel)
+			body := fmt.Sprintf("%s[%s] -->|%s| %s[%s]", recipe.fromAlias, fromLabel, recipe.relation, recipe.toAlias, toLabel)
+			bodyJSON, _ := json.Marshal(body)
+			// encoding/json HTML-escapes `>` by default. That is valid JSON but
+			// turns the most important copy-ready Mermaid token into `--\u003e`.
+			// Restore the three JSON-safe characters so the model sees the native
+			// edge spelling while the surrounding string stays valid JSON.
+			bodyJSON = []byte(strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&").Replace(string(bodyJSON)))
+			fmt.Fprintf(&b, "- type_relation_recipe[%d]: direction=`member_to_source`; relation=`%s`; body_json=%s; edge_anchor_json=`%s`\n",
+				recipe.index, recipe.relation, bodyJSON, recipe.anchorJSON)
+		}
+	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocTypedRelationUsesMemberToSourceDisplay(relation types.TypedRelationKind) bool {
+	switch relation {
+	case types.TypedRelationImplements, types.TypedRelationExtends, types.TypedRelationOverrides:
+		return true
+	default:
+		return false
+	}
 }
 
 func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -291,10 +292,20 @@ func TestRenderAnswerDocTypedRelationSourceRoleHandoffPartitionsCompleteRoster(t
 		"lane=`auxiliary` source_role=`test`",
 		"lane=`unknown` source_role=`unknown`",
 		"does not scan the raw request or answer prose",
+		"direction=`member_to_source`",
+		`body_json="tr1[\"prodEvaluator\"] -->|implements| tr2[\"LoopController\"]"`,
+		`"from_identity":"prodEvaluator"`,
+		`"to_identity":"LoopController"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed source-role handoff missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, `body_json="tr2[\"LoopController\"] -->|implements| tr1[\"prodEvaluator\"]"`) {
+		t.Fatalf("typed relation authoring recipe reversed lookup direction into display direction:\n%s", got)
+	}
+	if strings.Contains(got, `"from_identity":"stubEvaluator"`) || strings.Contains(got, `"from_identity":"pathlessEvaluator"`) {
+		t.Fatalf("auxiliary/unknown rows must not be promoted into principal diagram recipes:\n%s", got)
 	}
 }
 
@@ -316,5 +327,77 @@ func TestRenderAnswerDocTypedRelationSourceRoleHandoffHonorsTypedTestScope(t *te
 	if !strings.Contains(got, "lane=`principal` source_role=`test`") ||
 		!strings.Contains(got, "lane=`auxiliary` source_role=`production`") {
 		t.Fatalf("typed test scope not honored:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTypedRelationDirectionRecipesAreLanguageNeutral(t *testing.T) {
+	files := []string{
+		"src/GoImpl.go",
+		"src/JavaScriptImpl.js",
+		"src/TypeScriptImpl.ts",
+		"src/JavaImpl.java",
+		"src/KotlinImpl.kt",
+		"src/CImpl.c",
+		"src/CppImpl.cpp",
+		"src/RustImpl.rs",
+		"src/PythonImpl.py",
+		"src/RubyImpl.rb",
+		"src/SwiftImpl.swift",
+		"src/LuaImpl.lua",
+		"src/ProtoImpl.proto",
+		"src/ArkImpl.ets",
+		"src/CangjieImpl.cj",
+	}
+	members := make([]types.TypedRelationMember, 0, len(files))
+	for i, file := range files {
+		members = append(members, types.TypedRelationMember{
+			Name: fmt.Sprintf("Impl%d", i+1), File: file, Line: i + 1,
+		})
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}},
+		TypedRelationHints: []types.TypedRelationHint{
+			{Relation: types.TypedRelationImplements, SourceName: "Contract", Members: members},
+			{Relation: types.TypedRelationExtends, SourceName: "Base", Members: []types.TypedRelationMember{{Name: "Child", File: "src/child.ts"}}},
+			{Relation: types.TypedRelationOverrides, SourceName: "Base.render", Members: []types.TypedRelationMember{{Name: "Child.render", File: "src/child.kt"}}},
+		},
+	}
+	got := renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	for i := range files {
+		member := fmt.Sprintf("Impl%d", i+1)
+		if !strings.Contains(got, `"from_identity":"`+member+`"`) ||
+			!strings.Contains(got, `"to_identity":"Contract"`) {
+			t.Fatalf("cross-language member %s lost member->contract recipe:\n%s", member, got)
+		}
+	}
+	for _, want := range []string{
+		"relation=`extends`", `"from_identity":"Child"`, `"to_identity":"Base"`,
+		"relation=`overrides`", `"from_identity":"Child.render"`, `"to_identity":"Base.render"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("declared type recipe missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"from_identity":"Contract"`) ||
+		strings.Contains(got, `"from_identity":"Base"`) ||
+		strings.Contains(got, `"from_identity":"Base.render"`) {
+		t.Fatalf("contract/supertype must never become the recipe source endpoint:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTypedRelationDirectionRecipesDoNotRelabelOtherRelations(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}},
+		TypedRelationHints: []types.TypedRelationHint{{
+			Relation: types.TypedRelationCalledBy, SourceName: "target",
+			Members: []types.TypedRelationMember{{Name: "caller", File: "src/caller.go", Line: 10}},
+		}},
+	}
+	got := renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	if !strings.Contains(got, "relation=`called-by`") {
+		t.Fatalf("non-type relation roster row should remain visible:\n%s", got)
+	}
+	if strings.Contains(got, "type_relation_recipe") || strings.Contains(got, "declared_type_relation_authoring=`available`") {
+		t.Fatalf("called-by must not be relabeled as a declared type relation recipe:\n%s", got)
 	}
 }

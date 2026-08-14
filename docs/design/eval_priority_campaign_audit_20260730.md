@@ -36473,12 +36473,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 13. `B825` 已落地：Typed write artifacts 新增有界 exploration handoff receipt（presence、batch、targets/symbols/
     evidence/unknowns 计数、confidence、前四个 target）。receipt 只证明 handoff 存在，并明确 compaction 不等于 absent；
     controller 仍由模型从 typed enum 自行选择下一动作。
+14. `B821` 已落地：Typed Relation Source-Role Projection 现在把查询方向与展示方向显式分离。对 closed enum
+    `implements/extends/overrides`，每个 principal typed row 都生成稳定 Mermaid alias、`member -> source` body edge 和
+    同向 `relation_kind=type_relation` anchor JSON；辅助/unknown lane 不被提升为 principal recipe，called-by 等其它关系也
+    不会被错标为 type relation。它是模型可选择复制的 advisory authoring recipe，不写 AnswerDocument、不替模型作图。
+15. B821 的语言矩阵 pin 覆盖当前 15 个 read-mode 语言表面：Go、Python、JavaScript、TypeScript、Java、Kotlin、
+    Rust、C、C++、Ruby、Swift、Lua、Proto、ArkTS、Cangjie。规则只读 relation enum、scope lane 与 typed identity，
+    不按扩展名、接口名或最终 Mermaid 文本特判；hard validator 仍从独立 exact provider 复核每条模型边，反向边继续拒绝。
 
 状态：
 
 `r504-QF=machine-pass/human-fail/all-relations-deleted`；
 `r504-write=fail/no-plan/no-apply/provider-length-no-tool`；
-`B821-TYPEDRELATIONLOOKUPTODISPLAYDIRECTION1=confirmed/pending`；
+`B821-TYPEDRELATIONLOOKUPTODISPLAYDIRECTION1=implemented/15-language-matrix/package-tests-pass`；
 `B822-WRITEEXPLORESTAGEOWNERSHIP1=implemented/package-tests-pass`；
 `B823-EXPLORERREADINESSFALLBACK1=implemented/root-family-domain-corrected/package-tests-pass`；
 `B824-REQUIREDToolLENGTHNOTOOLRECOVERY1=implemented/typed-completed-response-only/package-tests-pass`；
