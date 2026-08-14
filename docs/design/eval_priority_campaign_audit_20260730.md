@@ -35949,6 +35949,42 @@ R4 专项验证：`go test ./internal/agent -run TestAnalyzerGraphForNormalize`�
 `json-teaching=no-new-contract`；`raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`；Trace 显式窗、自动补采、因果投影与链上-only 根因权限不变。
 
+### §123.797 r477：Trace 权限生产正证；Data compact repair 丢失前一版结构（2026-08-14）
+
+在 `main@9dadb4201` 严格并行恰好两个异构案例：Donghu 显式窗多因 Trace + 多文件 Data
+complete-reference 投影。Runner 为 `1 PASS / 1 FAIL`，人工同为一 pass、一 fail：
+
+1. Trace 人工 pass。模型正文保留目标四态、CookieMonsterCl/NetworkService 链上优先级/供给候选、
+   ThreadPoolForeg D/IO、目标 running 算力缺口、业务线程线索与代表窗；明确
+   `frame_evidence_status=absent`，没有把窗口候选宣称为已证丢帧因果。链外条目只在邻近/背景区，
+   “主要时间占用 / 关键路径候选”与“窗内可消除量”双轴分离，Trace 因果投影和自动补采均在；
+2. Trace Analyzer 用 4 次 emit 才收敛：先把 source exclusion 错投为 answer candidate exclusion，后在
+   `causal_diagnosis+fact_families` 与 `bounded_effect_verdict+root_cause` 间往返。当前 schema/skill 已逐字
+   给出互斥 tuple，工具错误也精确指向字段，最终正确收敛；暂记
+   `B783-ANALYZERRUNTIMEJSONCHURN1=P2/model-adherence-observe`，不扫描请求/推理/终稿、不新增 case 硬门；
+3. Data 计划在业务上已算出 `17,0,0`，但执行前失败。第一版 JSON 的
+   `output_contract.complete_reference=true + reference_path + reference_key_field` 是完整有效 tuple，唯一
+   错误是 CSV/非对象 projection 仍携 `assemble_answer.output_field`；
+4. compact repair 只收到 schema、typed error 和原任务 prompt，没有收到上一版 params。模型在 repair
+   reasoning 中明确说看不到完整原计划；它修掉 `output_field`，却重建出
+   `complete_reference=true` 且缺 `reference_path` 的新对象。第二个独立结构错误随后耗尽唯一 repair；
+5. 新确认并实现 `B782-DATAREPAIRPREVIOUSPARAMS1/P1`：data plan/evaluation/result-patch 三条同工具
+   compact repair 共用受限长度 `previous_tool_params`，提示只修报告的 typed locus并保留无关有效字段。
+   这是模型自身上一版结构上下文，不是系统 merge/patch；模型仍必须重新发出完整合法对象，所有 schema、
+   dependency 与业务校验照常执行；
+6. 生产形 pin 同时放入 valid complete-reference tuple 与 invalid non-object `output_field`，要求 repair prompt
+   看见前一版 path/key/invalid locus，且修复后完整 reference 权限仍在。实现不计算 `17,0,0`、不选择
+   complete-reference、不中途改答案，不读取用户/模型/终稿关键词；
+7. 流式连接本批没有 fixed-age 降级。既有 B778 仍只分型 transport/protocol/semantic activity；4ms、4m
+   或任意固定累计年龄都不直接授权降级答案。Trace 显式窗、自动补采、链上-only 根因、PI/调度/算力/
+   D/IO/确定性工作与业务线索均不受 Data repair 改动。
+
+状态：`r477 runner=1/2,human=1/2`；
+`B782-DATAREPAIRPREVIOUSPARAMS1=implemented/tests-pass/pending-production-replay`；
+`B783-ANALYZERRUNTIMEJSONCHURN1=P2-observe/no-hard-gate`；
+`Trace=production-pass/on-chain-only/projection-present`；
+`system-answer-or-business-semantics-rewrite=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

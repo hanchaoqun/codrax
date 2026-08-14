@@ -383,8 +383,8 @@ func TestDataTaskInitialPlannerExecutesNativeActionSchema(t *testing.T) {
 
 func TestDataTaskInitialPlannerRepairsProjectionOutputFormatConflict(t *testing.T) {
 	adapter := &scriptedChatAdapter{responses: []llm.Response{
-		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"assemble_answer","params":{"projection":"json_object","output_field":"count"}}]}`),
-		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"assemble_answer","params":{"projection":"values"}}]}`),
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":true,"reference_path":"targets.csv","reference_key_field":"canonical_label"},"actions":[{"kind":"assemble_answer","params":{"projection":"json_object","output_field":"count","reference_path":"targets.csv","reference_key_field":"canonical_label"}}]}`),
+		dataTaskPlanResp(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":true,"reference_path":"targets.csv","reference_key_field":"canonical_label"},"actions":[{"kind":"assemble_answer","params":{"projection":"values","reference_path":"targets.csv","reference_key_field":"canonical_label"}}]}`),
 	}}
 	planner := NewDataTaskPlanner(adapter)
 	plan, err := planner.PlanDataTask(context.Background(), "produce one plain value", t.TempDir(), TurnPolicy{Route: RouteData}, nil)
@@ -396,6 +396,21 @@ func TestDataTaskInitialPlannerRepairsProjectionOutputFormatConflict(t *testing.
 	}
 	if !strings.Contains(adapter.calls[1].messages[1].Content, "output_contract.format=plain_single_line") {
 		t.Fatalf("compact repair lost typed conflict: %+v", adapter.calls[1].messages)
+	}
+	repairPrompt := adapter.calls[1].messages[1].Content
+	for _, want := range []string{
+		"## previous_tool_params",
+		`"complete_reference":true`,
+		`"reference_path":"targets.csv"`,
+		`"output_field":"count"`,
+		"preserve every unrelated valid field",
+	} {
+		if !strings.Contains(repairPrompt, want) {
+			t.Fatalf("compact repair prompt omitted prior structural context %q:\n%s", want, repairPrompt)
+		}
+	}
+	if !plan.OutputContract.CompleteReference || plan.OutputContract.ReferencePath != "targets.csv" || plan.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("compact projection repair lost unrelated complete-reference authority: %+v", plan.OutputContract)
 	}
 }
 

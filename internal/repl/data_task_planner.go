@@ -1199,8 +1199,9 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 	if err := unmarshalReplStructuredToolParams(dataTaskEvaluationTool, call.Params, &parsed, "data task evaluator"); err != nil {
 		parseErr := err
 		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskEvaluationTool, err, dataTaskStructuredToolRepairRequest{
-			Scope:   "data task evaluator",
-			Context: basePrompt,
+			Scope:          "data task evaluator",
+			Context:        basePrompt,
+			PreviousParams: call.Params,
 		})
 		if repairErr != nil {
 			return dataquery.Evaluation{}, repairErr
@@ -1298,8 +1299,9 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 	if err := unmarshalReplStructuredToolParams(dataTaskResultPatchTool, call.Params, &parsed, "data result patch planner"); err != nil {
 		parseErr := err
 		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskResultPatchTool, err, dataTaskStructuredToolRepairRequest{
-			Scope:   "data result patch planner",
-			Context: prompt,
+			Scope:          "data result patch planner",
+			Context:        prompt,
+			PreviousParams: call.Params,
 		})
 		if repairErr != nil {
 			return dataquery.DataResultPatchPlan{}, repairErr
@@ -1395,8 +1397,9 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 	if err != nil {
 		parseErr := err
 		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, tool, err, dataTaskStructuredToolRepairRequest{
-			Scope:   scope,
-			Context: prompt,
+			Scope:          scope,
+			Context:        prompt,
+			PreviousParams: call.Params,
 		})
 		if repairErr != nil {
 			return dataquery.TaskPlan{}, repairErr
@@ -1410,8 +1413,9 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 }
 
 type dataTaskStructuredToolRepairRequest struct {
-	Scope   string
-	Context string
+	Scope          string
+	Context        string
+	PreviousParams json.RawMessage
 }
 
 func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Context, tool llm.ToolSchema, parseErr error, req dataTaskStructuredToolRepairRequest) (json.RawMessage, error) {
@@ -1482,6 +1486,11 @@ func dataTaskStructuredToolRepairPrompt(tool llm.ToolSchema, paramErr *replStruc
 	b.WriteString(oneLineClamp(tool.Description, 600))
 	b.WriteString("\n")
 	b.WriteString(clampMultilineForRepair(string(tool.Parameters), 6000))
+	if previous := strings.TrimSpace(string(req.PreviousParams)); previous != "" {
+		b.WriteString("\n\n## previous_tool_params\n")
+		b.WriteString("This is the prior model-authored parameter object. Repair only the reported typed locus and preserve every unrelated valid field; do not reinterpret the data task.\n")
+		b.WriteString(clampMultilineForRepair(previous, 8000))
+	}
 	b.WriteString("\n\n## compact_data_context\n")
 	b.WriteString(clampMultilineForRepair(req.Context, 5000))
 	return strings.TrimSpace(b.String())
