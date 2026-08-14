@@ -5353,6 +5353,7 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	if account := bundle.TargetWindowStates; account != nil && account.TotalMs > 0 {
 		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
 			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
+		writeTraceTargetCPURunningRoster(b, account)
 	}
 	if bundle.WakeupChain != nil {
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch true paths; flattened
@@ -8194,6 +8195,28 @@ func traceQueryRelationRulerSeats(ranks []int, values []float64) string {
 	return strings.Join(parts, ",")
 }
 
+// writeTraceTargetCPURunningRoster publishes the focused thread's exact CPU
+// buckets next to its full-window state account.  This face never consumes
+// the global top_running list, so a small target bucket cannot disappear due
+// to unrelated higher-ranked threads.  Unknown and overflow time remain
+// explicit; no nearby CPU/frequency row is used to fill them.
+func writeTraceTargetCPURunningRoster(b *strings.Builder, account *tracequery.TargetWindowStateAccount) {
+	if b == nil || account == nil || account.RunningMs <= 0 ||
+		strings.TrimSpace(account.RunningCPURosterStatus) == "" {
+		return
+	}
+	fmt.Fprintf(b,
+		"- target_cpu_running_roster %s status=%s assignment=%s emitted=%d total=%d known=%.3fms unknown=%.3fms overflow=%.3fms\n",
+		traceThreadLabel(account.Thread), sanitizeForBanner(account.RunningCPURosterStatus),
+		sanitizeForBanner(account.RunningCPUAssignmentStatus), account.RunningCPURosterEmitted,
+		account.RunningCPURosterTotal, account.RunningCPUKnownMs, account.RunningCPUUnknownMs,
+		account.RunningCPUOverflowMs)
+	for _, row := range account.RunningByCPU {
+		fmt.Fprintf(b, "  target_cpu_running cpu=%d running=%.3fms segments=%d window=%.6f..%.6f lines=%d-%d\n",
+			row.CPU, row.RunningMs, row.SegmentCount, row.StartTs, row.EndTs, row.LineStart, row.LineEnd)
+	}
+}
+
 // writeTraceTargetWaitOccurrencePreview renders the target account's exact
 // small D/io-wait roster before the long per-view body. The account and its
 // occurrence rows are built from one ThreadTimeline decomposition, so count,
@@ -8556,6 +8579,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyTailOpenState, account.TailOpenState},
 				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
+				{types.TraceNoteKeyTargetCPURunningRosterTotal, strconv.Itoa(account.RunningCPURosterTotal)},
+				{types.TraceNoteKeyTargetCPURunningRosterEmitted, strconv.Itoa(account.RunningCPURosterEmitted)},
+				{types.TraceNoteKeyTargetCPURunningRosterStatus, account.RunningCPURosterStatus},
+				{types.TraceNoteKeyTargetCPURunningAssignmentStatus, account.RunningCPUAssignmentStatus},
+				{types.TraceNoteKeyTargetCPURunningUnknownMS, fmt.Sprintf("%.3f", account.RunningCPUUnknownMs)},
+				{types.TraceNoteKeyTargetCPURunningOverflowMS, fmt.Sprintf("%.3f", account.RunningCPUOverflowMs)},
 			})
 			// WINFLAG-1 (b): the state-account Span copies the q-window ts
 			// pair only when its start is determined — the line-anchored
@@ -8588,6 +8617,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				ObservedAt:  at,
 				Confidence:  0.8,
 			})
+			out = append(out, traceQueryTargetCPURunningObservations(account, subject, ref, scope, at)...)
 			out = append(out, traceQueryTargetWindowWaitOccurrenceObservations(account, subject, ref, scope, at)...)
 		}
 	}
@@ -9701,6 +9731,70 @@ func traceQueryTypedIPCRequestCensusObservations(
 				Confidence:  edge.Confidence,
 			})
 		}
+	}
+	return out
+}
+
+func traceQueryTargetCPURunningObservations(
+	account *tracequery.TargetWindowStateAccount,
+	subject string,
+	ref types.ObservationSourceRef,
+	scope string,
+	at string,
+) []types.ObservationRecord {
+	if account == nil || strings.TrimSpace(subject) == "" ||
+		strings.TrimSpace(account.RunningCPURosterStatus) == "" {
+		return nil
+	}
+	total := account.RunningCPURosterTotal
+	commonNotes := [][2]string{
+		{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
+		{types.TraceNoteKeyTargetCPURunningRosterTotal, strconv.Itoa(account.RunningCPURosterTotal)},
+		{types.TraceNoteKeyTargetCPURunningRosterEmitted, strconv.Itoa(account.RunningCPURosterEmitted)},
+		{types.TraceNoteKeyTargetCPURunningRosterStatus, account.RunningCPURosterStatus},
+		{types.TraceNoteKeyTargetCPURunningAssignmentStatus, account.RunningCPUAssignmentStatus},
+		{types.TraceNoteKeyTargetCPURunningUnknownMS, fmt.Sprintf("%.3f", account.RunningCPUUnknownMs)},
+		{types.TraceNoteKeyTargetCPURunningOverflowMS, fmt.Sprintf("%.3f", account.RunningCPUOverflowMs)},
+	}
+	out := make([]types.ObservationRecord, 0, len(account.RunningByCPU))
+	for i, row := range account.RunningByCPU {
+		notes := append([][2]string{}, commonNotes...)
+		notes = append(notes,
+			[2]string{types.TraceNoteKeyTargetCPURunningCPU, strconv.Itoa(row.CPU)},
+			[2]string{types.TraceNoteKeyTargetCPURunningSegments, strconv.Itoa(row.SegmentCount)},
+		)
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#target_cpu_running:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: row.LineStart,
+				LineEnd:   row.LineEnd,
+				StartTs:   row.StartTs,
+				EndTs:     row.EndTs,
+			},
+			ClaimKey:    fmt.Sprintf("target_cpu_running:%s:cpu%d", subject, row.CPU),
+			Subject:     subject,
+			Predicate:   "target_cpu_running",
+			Object:      fmt.Sprintf("cpu=%d", row.CPU),
+			Value:       traceQueryObservationMSValue(row.RunningMs),
+			Unit:        "ms",
+			ResultCount: &total,
+			Summary: fmt.Sprintf(
+				"target_cpu_running %s cpu=%d running=%.3fms segments=%d roster_status=%s assignment_status=%s emitted=%d total=%d unknown=%.3fms overflow=%.3fms",
+				subject, row.CPU, row.RunningMs, row.SegmentCount, account.RunningCPURosterStatus,
+				account.RunningCPUAssignmentStatus, account.RunningCPURosterEmitted,
+				account.RunningCPURosterTotal, account.RunningCPUUnknownMs, account.RunningCPUOverflowMs,
+			),
+			RichNotes:   traceQueryTypedKVNotes(notes),
+			SupportRefs: traceQueryObservationSupportRefs(ref, row.LineStart, row.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.95,
+		})
 	}
 	return out
 }

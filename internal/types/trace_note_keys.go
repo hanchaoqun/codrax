@@ -124,6 +124,18 @@ const (
 	TraceNoteKeyThreadCPULoadRunnableScope = "runnable_scope"
 	TraceNoteKeyThreadCPULoadValueScope    = "value_scope"
 	TraceNoteKeyThreadCPULoadCPUScope      = "cpu_scope"
+	// TraceNoteKeyTargetCPURunning* (B766, 2026-08-13) carries the focused
+	// thread's complete per-CPU running roster from target_window_states.
+	// The roster is supporting supply evidence only: it cannot elect a root
+	// cause or alter a causal projection seat.
+	TraceNoteKeyTargetCPURunningCPU              = "target_cpu_running_cpu"
+	TraceNoteKeyTargetCPURunningSegments         = "target_cpu_running_segments"
+	TraceNoteKeyTargetCPURunningRosterTotal      = "target_cpu_running_roster_total"
+	TraceNoteKeyTargetCPURunningRosterEmitted    = "target_cpu_running_roster_emitted"
+	TraceNoteKeyTargetCPURunningRosterStatus     = "target_cpu_running_roster_status"
+	TraceNoteKeyTargetCPURunningAssignmentStatus = "target_cpu_running_assignment_status"
+	TraceNoteKeyTargetCPURunningUnknownMS        = "target_cpu_running_unknown_ms"
+	TraceNoteKeyTargetCPURunningOverflowMS       = "target_cpu_running_overflow_ms"
 )
 
 // 因果排名族 (causal-rank family).
@@ -2121,6 +2133,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyThreadCPULoadRunnableScope, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyThreadCPULoadValueScope, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyThreadCPULoadCPUScope, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningCPU, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningSegments, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRosterTotal, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRosterEmitted, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRosterStatus, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningAssignmentStatus, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningUnknownMS, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningOverflowMS, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCPUOccupancyCPUs, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"core_class", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyCPUOccupancyCoreClasses, "cpu_load", TraceNoteCarrierHardConsumer},

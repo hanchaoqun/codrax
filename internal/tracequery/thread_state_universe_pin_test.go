@@ -587,6 +587,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// refinement (S sleeps pairing iowait>0 blocked_reason markers; the
 	// interval stays S — single attribution, no lane reclassifies).
 	"target_window_state_account.go:buildTargetWindowStateAccount": "running,s_sleep#2",
+	// B766 (2026-08-13): the target-owned per-CPU roster selects only RUNNING
+	// intervals from the already-built target timeline.  Runnable/off-CPU and
+	// every sleep family remain outside CPU occupancy by construction.
+	"target_window_state_account.go:stampTargetWindowCPURunningRoster": "running#1",
 	// EVAL-B1-R10 (2026-07-30): the typed target-window occurrence roster
 	// publishes only the two blocking lanes plus Harmony's S+iowait overlay.
 	// This is an evidence carrier, not a second state-account calculation.

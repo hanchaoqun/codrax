@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,71 @@ func TestTraceQueryTopRunningObservationDeclaresBucketNotSubjectTotal(t *testing
 	}
 	if !strings.Contains(row.Summary, "not a complete subject total") {
 		t.Fatalf("top-running summary still implies a complete total: %q", row.Summary)
+	}
+}
+
+func TestTraceQueryPublishesTargetOwnedCompletePerCPURunningRows(t *testing.T) {
+	result := tracequery.Result{
+		View:       "window_stats",
+		SourcePath: "/traces/customer.systrace",
+		TimeStart:  10,
+		TimeEnd:    10.2,
+		TargetWindowStates: &tracequery.TargetWindowStateAccount{
+			Thread:                     tracequery.ThreadRef{Comm: "app", PID: 42},
+			Window:                     tracequery.TimeWindow{StartTs: 10, EndTs: 10.2},
+			WindowMs:                   200,
+			RunningMs:                  60,
+			TotalMs:                    200,
+			RunningCPUKnownMs:          60,
+			RunningCPURosterTotal:      3,
+			RunningCPURosterEmitted:    3,
+			RunningCPURosterStatus:     "complete",
+			RunningCPUAssignmentStatus: "complete",
+			RunningByCPU: []tracequery.TargetWindowCPURunning{
+				{CPU: 2, RunningMs: 10, SegmentCount: 1, StartTs: 10.01, EndTs: 10.02, LineStart: 10, LineEnd: 20},
+				{CPU: 4, RunningMs: 20, SegmentCount: 2, StartTs: 10.03, EndTs: 10.08, LineStart: 30, LineEnd: 80},
+				{CPU: 12, RunningMs: 30, SegmentCount: 3, StartTs: 10.09, EndTs: 10.18, LineStart: 90, LineEnd: 180},
+			},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(0, 0).UTC())
+	var cpuRows []types.ObservationRecord
+	var accountRow *types.ObservationRecord
+	for i := range rows {
+		switch rows[i].Predicate {
+		case "target_cpu_running":
+			cpuRows = append(cpuRows, rows[i])
+		case "target_window_states":
+			accountRow = &rows[i]
+		}
+	}
+	if len(cpuRows) != 3 || accountRow == nil {
+		t.Fatalf("target account must publish all exact CPU rows: account=%+v cpu_rows=%+v", accountRow, cpuRows)
+	}
+	var sum float64
+	for _, row := range cpuRows {
+		var value float64
+		if _, err := fmt.Sscanf(row.Value, "%f", &value); err != nil {
+			t.Fatalf("invalid target CPU running value %q: %v", row.Value, err)
+		}
+		sum += value
+		joined := strings.Join(row.RichNotes, " ")
+		for _, want := range []string{
+			"target_cpu_running_roster_status=complete",
+			"target_cpu_running_assignment_status=complete",
+			"target_cpu_running_roster_total=3",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("target CPU row missing %q: %+v", want, row.RichNotes)
+			}
+		}
+	}
+	if math.Abs(sum-60) > 1e-6 {
+		t.Fatalf("target CPU rows must conserve target running time: got %.3f", sum)
+	}
+	accountNotes := strings.Join(accountRow.RichNotes, " ")
+	if !strings.Contains(accountNotes, "target_cpu_running_roster_status=complete") {
+		t.Fatalf("parent target account must carry roster authority: %+v", accountRow.RichNotes)
 	}
 }
 

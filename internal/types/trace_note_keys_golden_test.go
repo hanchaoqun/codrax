@@ -603,6 +603,16 @@ var traceNoteKeyGoldenRows = []string{
 	"tail_open_ms|state|hard_consumer",
 	"tail_open_state|state|hard_consumer",
 	"target|chain_path|display_only",
+	// B766: target-owned complete per-CPU running roster metadata.  These are
+	// supporting supply facts only; no causal-seat consumer is registered.
+	"target_cpu_running_assignment_status|cpu_load|soft_consumer",
+	"target_cpu_running_cpu|cpu_load|soft_consumer",
+	"target_cpu_running_overflow_ms|cpu_load|soft_consumer",
+	"target_cpu_running_roster_emitted|cpu_load|soft_consumer",
+	"target_cpu_running_roster_status|cpu_load|soft_consumer",
+	"target_cpu_running_roster_total|cpu_load|soft_consumer",
+	"target_cpu_running_segments|cpu_load|soft_consumer",
+	"target_cpu_running_unknown_ms|cpu_load|soft_consumer",
 	"target_cpus|interrupt|display_only",
 	// EVOLUTION RECORD (COV 批, §24.9 D-1, 2026-07-08): target_impact family
 	// display_only → hard_consumer — typed TargetImpactMS promotion for the

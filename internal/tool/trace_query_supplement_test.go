@@ -616,9 +616,10 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// AUD-02 (§14.3, 2026-07-25) wording evolution: the per-view family census
 	// renders beside the total (根因/链/状态/其他) so the replay discrimination
 	// reads the root-cause family directly.
-	// EVAL-B1-R10: the target state family now includes one bounded wait-
-	// occurrence roster plus two occurrence rows for this fixture.
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测55条（根因12·链9·状态4·其他30）(窗 3.000000..3.200000, 目标 worker-200)"
+	// EVAL-B1-R10: the target state family includes one bounded wait-
+	// occurrence roster plus two occurrence rows for this fixture. B766 adds
+	// two exact target-owned per-CPU running rows to the same state family.
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测57条（根因12·链9·状态6·其他30）(窗 3.000000..3.200000, 目标 worker-200)"
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -629,7 +630,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EN wording form.
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 55] [families: root_cause 12, chain 9, states 4, other 30] (window 3.000000..3.200000, target worker-200)"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 57] [families: root_cause 12, chain 9, states 6, other 30] (window 3.000000..3.200000, target worker-200)"
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -970,12 +971,12 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 		t.Fatalf("partial run must disclose: %q", doc.Caveats)
 	}
 	// AUD-02 (§14.3, 2026-07-25): same family-census wording evolution.
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测55条（根因12·链9·状态4·其他30）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测57条（根因12·链9·状态6·其他30）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 55] [families: root_cause 12, chain 9, states 4, other 30] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 57] [families: root_cause 12, chain 9, states 6, other 30] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}

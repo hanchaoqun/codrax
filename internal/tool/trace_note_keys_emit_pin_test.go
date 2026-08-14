@@ -419,6 +419,13 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Window: window, WindowMs: 1000,
 				RunningMs: 700, RunnableMs: 100, SleepMs: 150, DStateMs: 30, IOWaitMs: 20,
 				SleepIOWaitMs: 40, TotalMs: 1000, DeterministicRunningMs: 120,
+				RunningByCPU: []tracequery.TargetWindowCPURunning{
+					{CPU: 4, RunningMs: 300, SegmentCount: 2, StartTs: 1.01, EndTs: 1.40, LineStart: 1, LineEnd: 4},
+					{CPU: 12, RunningMs: 400, SegmentCount: 3, StartTs: 1.41, EndTs: 1.90, LineStart: 5, LineEnd: 9},
+				},
+				RunningCPURosterTotal: 2, RunningCPURosterEmitted: 2,
+				RunningCPURosterStatus: "complete", RunningCPUAssignmentStatus: "complete",
+				RunningCPUKnownMs: 700,
 				// EVAL-B1-R12/R14: prompt-consumed exact bounded occurrence
 				// roster exercises all three registered note keys.
 				WaitOccurrences: []tracequery.TargetWindowStateOccurrence{{

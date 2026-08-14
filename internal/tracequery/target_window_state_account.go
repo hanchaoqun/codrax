@@ -68,6 +68,20 @@ type TargetWindowStateAccount struct {
 	// OWN semantic-span (deterministic-optimization class) intervals
 	// intersected with its running intervals, inside the window.
 	DeterministicRunningMs float64 `json:"deterministic_running_ms,omitempty"`
+	// RunningByCPU is the target-owned, pre-global-cap CPU roster built from
+	// the SAME running intervals that feed RunningMs.  It is deliberately
+	// separate from WindowStats.TopRunning, whose global top-N contract can
+	// omit smaller CPU buckets of the focused thread.  Only intervals with a
+	// typed CPUKnown witness enter this roster; unknown-CPU running time stays
+	// explicit in RunningCPUUnknownMs and is never guessed from nearby rows.
+	RunningByCPU               []TargetWindowCPURunning `json:"running_by_cpu,omitempty"`
+	RunningCPURosterTotal      int                      `json:"running_cpu_roster_total,omitempty"`
+	RunningCPURosterEmitted    int                      `json:"running_cpu_roster_emitted,omitempty"`
+	RunningCPURosterStatus     string                   `json:"running_cpu_roster_status,omitempty"`
+	RunningCPUAssignmentStatus string                   `json:"running_cpu_assignment_status,omitempty"`
+	RunningCPUKnownMs          float64                  `json:"running_cpu_known_ms,omitempty"`
+	RunningCPUUnknownMs        float64                  `json:"running_cpu_unknown_ms,omitempty"`
+	RunningCPUOverflowMs       float64                  `json:"running_cpu_overflow_ms,omitempty"`
 	// HeadCarryMs / HeadCarryState (§29.140 G6, ANSWERFACE-1 件2): the
 	// window-head prefix segment carried from the RECOVERED pre-window
 	// scheduler state (TimelineHeadState.Status=="recovered") — the span
@@ -101,6 +115,20 @@ type TargetWindowStateAccount struct {
 	WaitOccurrenceStatus  string                        `json:"wait_occurrence_status,omitempty"`
 }
 
+// TargetWindowCPURunning is one exact CPU bucket of the focused thread's
+// RunningMs account.  RunningMs is wall-clock running time on this one CPU;
+// summing every row equals RunningCPUKnownMs when the roster status is
+// complete.  It is supporting supply evidence, never a causal/root seat.
+type TargetWindowCPURunning struct {
+	CPU          int     `json:"cpu"`
+	RunningMs    float64 `json:"running_ms"`
+	SegmentCount int     `json:"segment_count,omitempty"`
+	StartTs      float64 `json:"start_ts,omitempty"`
+	EndTs        float64 `json:"end_ts,omitempty"`
+	LineStart    int     `json:"line_start,omitempty"`
+	LineEnd      int     `json:"line_end,omitempty"`
+}
+
 // TargetWindowStateOccurrence is one engine-paired target wait interval.
 // DurationMs is the clamped interval wall clock and Start/End are its exact
 // scheduler boundaries. State=s_sleep plus IOWait=true is the Harmony
@@ -121,6 +149,7 @@ type TargetWindowStateOccurrence struct {
 }
 
 const targetWindowWaitOccurrenceCap = 32
+const targetWindowCPURunningRosterCap = 256
 
 // windowStateAccountLane maps a timeline interval state to the account's
 // published lane token (the JSON field family running/runnable/sleep/
@@ -261,6 +290,7 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 			account.SleepIOWaitMs += it.DurationMs
 		}
 	}
+	stampTargetWindowCPURunningRoster(account, tl.Intervals)
 	account.WaitOccurrences = targetWindowWaitOccurrences(tl.Intervals)
 	account.WaitOccurrenceTotal = len(account.WaitOccurrences)
 	if account.WaitOccurrenceTotal > targetWindowWaitOccurrenceCap {
@@ -273,6 +303,70 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 	account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
 	stampWindowStateBoundaryFolds(account, tl)
 	return account
+}
+
+func stampTargetWindowCPURunningRoster(account *TargetWindowStateAccount, intervals []Interval) {
+	if account == nil || account.RunningMs <= 0 {
+		return
+	}
+	byCPU := map[int]*TargetWindowCPURunning{}
+	for _, it := range intervals {
+		if it.State != StateRunning || it.DurationMs <= 0 {
+			continue
+		}
+		if !it.CPUKnown || it.CPU < 0 {
+			account.RunningCPUUnknownMs += it.DurationMs
+			continue
+		}
+		row := byCPU[it.CPU]
+		if row == nil {
+			row = &TargetWindowCPURunning{CPU: it.CPU}
+			byCPU[it.CPU] = row
+		}
+		firstSegment := row.SegmentCount == 0
+		row.RunningMs += it.DurationMs
+		row.SegmentCount++
+		if firstSegment || it.StartTs < row.StartTs {
+			row.StartTs = it.StartTs
+		}
+		if firstSegment || it.EndTs > row.EndTs {
+			row.EndTs = it.EndTs
+		}
+		if startLine := firstPositive(it.StartLine, it.WakeupLine, it.EndLine); startLine > 0 && (row.LineStart == 0 || startLine < row.LineStart) {
+			row.LineStart = startLine
+		}
+		if endLine := firstPositive(it.EndLine, it.WakeupLine, it.StartLine); endLine > row.LineEnd {
+			row.LineEnd = endLine
+		}
+	}
+	rows := make([]TargetWindowCPURunning, 0, len(byCPU))
+	for _, row := range byCPU {
+		rows = append(rows, *row)
+		account.RunningCPUKnownMs += row.RunningMs
+	}
+	// CPU order, rather than duration rank, makes the roster deterministic
+	// and prevents a display ranking from being mistaken for completeness.
+	sort.Slice(rows, func(i, j int) bool { return rows[i].CPU < rows[j].CPU })
+	account.RunningCPURosterTotal = len(rows)
+	account.RunningCPURosterStatus = "complete"
+	if len(rows) > targetWindowCPURunningRosterCap {
+		for _, row := range rows[targetWindowCPURunningRosterCap:] {
+			account.RunningCPUOverflowMs += row.RunningMs
+		}
+		rows = rows[:targetWindowCPURunningRosterCap]
+		account.RunningCPURosterStatus = "incomplete"
+	}
+	account.RunningByCPU = rows
+	account.RunningCPURosterEmitted = len(rows)
+	const epsilonMs = 1e-6
+	switch {
+	case account.RunningCPUKnownMs <= epsilonMs && account.RunningCPUUnknownMs > epsilonMs:
+		account.RunningCPUAssignmentStatus = "unavailable"
+	case account.RunningCPUUnknownMs > epsilonMs:
+		account.RunningCPUAssignmentStatus = "partial"
+	default:
+		account.RunningCPUAssignmentStatus = "complete"
+	}
 }
 
 func targetWindowWaitOccurrences(intervals []Interval) []TargetWindowStateOccurrence {

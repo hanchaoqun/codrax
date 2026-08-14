@@ -70,6 +70,62 @@ func TestTargetWindowStateAccountPartitionLanes(t *testing.T) {
 	}
 }
 
+func TestTargetWindowStateAccountPublishesCompletePerCPURunningRoster(t *testing.T) {
+	window := TimeWindow{StartTs: 100.0, EndTs: 100.1}
+	intervals := []Interval{
+		cov4Interval(StateRunning, 100.000, 100.020),
+		cov4Interval(StateRunning, 100.020, 100.050),
+		cov4Interval(StateRunning, 100.050, 100.060),
+		cov4Interval(StateRunnable, 100.060, 100.100),
+	}
+	intervals[0].CPU, intervals[0].CPUKnown = 12, true
+	intervals[1].CPU, intervals[1].CPUKnown = 4, true
+	intervals[2].CPU, intervals[2].CPUKnown = 12, true
+	account := buildTargetWindowStateAccount(nil, cov4Timeline(intervals), true, ThreadRef{Comm: "ui", PID: 61}, window, nil)
+	if account == nil {
+		t.Fatal("a measurable timeline must build an account")
+	}
+	if account.RunningCPURosterStatus != "complete" ||
+		account.RunningCPUAssignmentStatus != "complete" ||
+		account.RunningCPURosterTotal != 2 || account.RunningCPURosterEmitted != 2 ||
+		len(account.RunningByCPU) != 2 {
+		t.Fatalf("target per-CPU roster completeness drifted: %+v", account)
+	}
+	if account.RunningByCPU[0].CPU != 4 || math.Abs(account.RunningByCPU[0].RunningMs-30) > 1e-6 ||
+		account.RunningByCPU[1].CPU != 12 || math.Abs(account.RunningByCPU[1].RunningMs-30) > 1e-6 ||
+		account.RunningByCPU[1].SegmentCount != 2 {
+		t.Fatalf("per-CPU aggregation must be exact and CPU ordered: %+v", account.RunningByCPU)
+	}
+	var rosterSum float64
+	for _, row := range account.RunningByCPU {
+		rosterSum += row.RunningMs
+	}
+	if math.Abs(rosterSum-account.RunningMs) > 1e-6 ||
+		math.Abs(account.RunningCPUKnownMs-account.RunningMs) > 1e-6 ||
+		account.RunningCPUUnknownMs != 0 || account.RunningCPUOverflowMs != 0 {
+		t.Fatalf("complete roster must conserve the target running account: %+v", account)
+	}
+}
+
+func TestTargetWindowStateAccountKeepsUnknownCPUTimeExplicit(t *testing.T) {
+	window := TimeWindow{StartTs: 100.0, EndTs: 100.1}
+	known := cov4Interval(StateRunning, 100.000, 100.030)
+	known.CPU, known.CPUKnown = 3, true
+	unknown := cov4Interval(StateRunning, 100.030, 100.050)
+	// A malformed/legacy negative CPU cannot become a real roster member even
+	// if a producer accidentally marked the field known.
+	unknown.CPU, unknown.CPUKnown = -1, true
+	account := buildTargetWindowStateAccount(nil, cov4Timeline([]Interval{known, unknown}), true, ThreadRef{Comm: "ui", PID: 61}, window, nil)
+	if account == nil || account.RunningCPUAssignmentStatus != "partial" ||
+		account.RunningCPURosterStatus != "complete" || len(account.RunningByCPU) != 1 ||
+		math.Abs(account.RunningCPUKnownMs-30) > 1e-6 || math.Abs(account.RunningCPUUnknownMs-20) > 1e-6 {
+		t.Fatalf("unknown CPU running time must stay typed and must not become CPU 0: %+v", account)
+	}
+	if account.RunningByCPU[0].CPU != 3 {
+		t.Fatalf("unknown CPU interval fabricated a roster row: %+v", account.RunningByCPU)
+	}
+}
+
 func TestTargetWindowWaitOccurrencesAreChronologicalAndBounded(t *testing.T) {
 	var intervals []Interval
 	for i := targetWindowWaitOccurrenceCap; i >= 0; i-- {

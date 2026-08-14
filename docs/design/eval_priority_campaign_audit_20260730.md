@@ -36077,6 +36077,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.786 B766：目标线程逐 CPU Running 全量名册（2026-08-13）
+
+1. 根因确认：完整 trace 与目标 timeline 并未缺 CPU。`Interval.CPU/CPUKnown` 已在每个目标 Running
+   区间上携带 sched_switch-in CPU；缺口位于消费面：旧 `top_running` 是全局 top-8 `(thread,cpu)`
+   展示桶，H4 目标仅幸存 CPU12=96.081ms、CPU4=35.960ms，132.041ms 因而不能复算目标完整
+   running=157.248ms。
+2. `TargetWindowStateAccount` 现从其既有、共享的 target timeline 一次聚合 `RunningByCPU`，发布
+   `total/emitted/roster_status`、`assignment_status`、known/unknown/overflow ms。CPU 名册与 CPU 归属
+   是两个正交状态：名册可 complete 而部分区间 CPU 仍 unknown；负 CPU 或 `CPUKnown=false` 一律进入
+   unknown，不猜 CPU0、不读邻近事件、不读线程名后缀。
+3. 三层同源发布：JSON account；头部 `target_cpu_running_roster` + 每 CPU 行；每 CPU 一条
+   `predicate=target_cpu_running` typed ObservationRecord。行是 SupportingCoverage，Value 为该 CPU 上的
+   Running wall-clock ms；它不注册为 causal seat、不参与根因排序，也不改变模型答案。父
+   `target_window_states` 同时携带完整性元数据，补采 family census 将逐 CPU 行归入状态族而非其他族。
+4. 两级完整性：常态 CPU roster cap=256；超出时 `roster_status=incomplete` 并保留 overflow_ms。
+   CPU 未知时 `assignment_status=partial/unavailable` 并保留 unknown_ms。只有 roster=complete 且
+   assignment=complete 时，公开逐 CPU 行之和才等于 `RunningMs`；其余形态不允许宣称全量逐核复算。
+5. 测试：hermetic 多 CPU/未知 CPU 守恒；H4 真实客户样例钉住逐 CPU 之和=157.248ms、CPU4/CPU12
+   旧值不漂且名册成员>2；typed rows/父账户 authority；note-key registry/golden；线程状态比较面；补采
+   中英文计数。完整 `internal/types`、`internal/tracequery`、`internal/tool`、`internal/agent`、
+   `internal/orchestrator`、`internal/tracediag` 套件及 `go build ./...` 全绿。
+6. 本批不扩大有限 effect verdict 为完整 causal diagnosis，不修改显式时间窗、Trace 因果投影、自动
+   补齐、链上根因席、规则可消除量或实际耗时双轴；邻近/背景仍只能支撑额外排查方向，系统不改写结论。
+
+状态：
+
+`B766-TARGETCPURUNNINGROSTER1=implemented/json+head-preview+typed-rows+h4-pinned/pending-r470`；
+`B767-ANALYZERJSONCONVERGENCE1=confirmed/next-batch`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

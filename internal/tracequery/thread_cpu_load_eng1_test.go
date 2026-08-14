@@ -55,4 +55,30 @@ func TestENG1ThreadCPULoadFullWindowRunningTotalDonghu(t *testing.T) {
 		load.CPUScope != ThreadCPULoadCPUScope {
 		t.Fatalf("thread CPU-load JSON product must carry its value/CPU calibers: %+v", load)
 	}
+	// B766 production witness: the focused target account must publish every
+	// exact CPU bucket from its own timeline, independent of the global
+	// top-running cap that exposed only CPU12+CPU4 (=132.041ms).
+	res := Run(idx, Query{View: "window_stats", PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898})
+	account := res.TargetWindowStates
+	if account == nil || account.RunningCPURosterStatus != "complete" ||
+		account.RunningCPUAssignmentStatus != "complete" || account.RunningCPURosterTotal <= 2 {
+		t.Fatalf("target-owned per-CPU running roster must expose the CPUs hidden by global top-8: %+v", account)
+	}
+	var rosterSum float64
+	var cpu4, cpu12 float64
+	for _, row := range account.RunningByCPU {
+		rosterSum += row.RunningMs
+		switch row.CPU {
+		case 4:
+			cpu4 = row.RunningMs
+		case 12:
+			cpu12 = row.RunningMs
+		}
+	}
+	if math.Abs(rosterSum-account.RunningMs) > 0.001 || math.Abs(account.RunningMs-157.248) > 0.05 {
+		t.Fatalf("complete target CPU roster must conserve 157.248ms: roster=%.3f account=%+v", rosterSum, account)
+	}
+	if math.Abs(cpu4-35.960) > 0.05 || math.Abs(cpu12-96.081) > 0.05 {
+		t.Fatalf("known customer buckets drifted while completing the roster: cpu4=%.3f cpu12=%.3f roster=%+v", cpu4, cpu12, account.RunningByCPU)
+	}
 }
