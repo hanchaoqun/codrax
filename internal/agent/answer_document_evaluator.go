@@ -4217,8 +4217,22 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 }
 
 func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
-	fence := renderRetryDiagramSeedFenceForRepair(ctx, nil)
-	if fence == "" {
+	// Prefer the validator-aligned typed carrier when one exists. The legacy
+	// seed renderer publishes only Mermaid display labels; for a canonicalized
+	// call graph those labels can intentionally be more qualified than the
+	// underlying call-site endpoint (for example agent.buildAnalysisIR vs
+	// buildAnalysisIR). Asking the model to copy that body without the sibling
+	// from_identity/to_identity selectors teaches a draft that the strict
+	// relation gate must later reject. The copy-ready carrier is compiled from
+	// the same typed relation projection as validation and keeps its Mermaid
+	// node IDs, arrows, and edge_anchors together. This changes prompt evidence
+	// only: the model still authors visible wording and the answer conclusion.
+	reference := answerDocMechanismCopyReadyRepairPayload(ctx)
+	validatorAligned := strings.TrimSpace(reference) != ""
+	if !validatorAligned {
+		reference = renderRetryDiagramSeedFenceForRepair(ctx, nil)
+	}
+	if strings.TrimSpace(reference) == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -4244,8 +4258,11 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
 	b.WriteString("- Preserve an edge from the reference only when it is actually present there. A node-only reference deliberately asserts no relationship: never connect nodes merely because they are listed next to each other or appear in collection order.\n")
+	if validatorAligned {
+		b.WriteString("- This reference includes its validator-aligned `edge_anchors_json`. If you retain an edge, keep that edge's node IDs, direction, and matching anchor object together; visible labels and messages remain yours to express in concise domain language. Do not substitute the display label for `from_identity` / `to_identity`.\n")
+	}
 	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
-	b.WriteString(fence)
+	b.WriteString(reference)
 	b.WriteString("\n\n")
 	return b.String()
 }

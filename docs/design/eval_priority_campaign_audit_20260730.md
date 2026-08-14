@@ -36205,6 +36205,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.803 r483：principal facet 生产闭环；First-Pass 与关系校验身份合同自冲突根修（2026-08-14）
+
+1. 在 `main@de27a320f` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + s8a`。Runner `2 PASS / 2`；人工 `1 pass / 1 partial`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_boundary_r483_20260814_manual_audit.md`。
+2. B789 获生产正证。两案最终都把 `principal_path_edge` 收窄到两条 exact endpoint edge：
+   `buildAnalysisIR -> gate.RunWith @ analyzer.go:2722` 与
+   `gate.Run -> gate.RunWith @ gate.go:135`。`s8a` 的 12 条、qf 的 15 条真实本地调用没有被删除，均在
+   不声明该 facet 的独立支持块保留；关系主载体与丰富背景第一次同时成立。
+3. `s8a` 三次拒绝不是矛盾合同：首拒正确抓住混装；第二次模型推理声称移除 `hops1` facet，实际 patch
+   却只替换 `sink`，原违规块未动；第三次精确指出 `gate.Run` 定义行 134 不能证明 call edge，模型改引
+   调用行 135 后通过。这里不新增 patch 原文扫描或系统代改。终稿仍写“并行收敛”，而 explorer、endpoint
+   boundary 与 mechanism topology 三处 typed guidance 均明确 shared callee 不证明并行、收敛或 join；记
+   `B791-SHAREDCALLEEMODELADHERENCE1/P2-observe`，不得用终稿关键词硬门拟合。
+4. qf 的唯一拒绝确认 `B790-FIRSTPASSRELATIONIDENTITYPARITY1/P1`：系统 First-Pass 参考给出
+   `participant p0 as agent.buildAnalysisIR` 两条真边，却没有同位发布 typed endpoint selectors；模型按该
+   参考成图并只给 node-direction anchor 后，validator 把显示身份当端点并报
+   `call_edge_unproven agent.buildAnalysisIR -> gate.RunWith`。重试系统随后又给另一份 copy-ready carrier，
+   同一显示节点配 `from_identity=buildAnalysisIR` 即通过。即“系统第一次教 A、校验失败后再教 B”，属于
+   精确信号的系统合同自冲突，不是消息文本、文件行后缀或模型波动。
+5. 根修让 First-Pass 优先复用 validator/retry 已共用的 copy-ready typed relation carrier：Mermaid node ID、
+   方向与完整 `edge_anchors_json` 同位发布；保留边时三者必须一起消费，显示别名不得替换
+   `from_identity/to_identity`。无 typed carrier 的 config/no-edge 等场景继续走原有 grounded node-set
+   fallback。初稿与修补不再有第二套独立关系教学，也没有放宽同名函数、类 participant 或跨语言关系门。
+6. 实现只读当前 typed EvidenceItem、canonical call edge、schema relation enum 与精确 anchor JSON；不扫描
+   用户问题、模型推理、终稿、Mermaid 可见文案或关键词，不生成答案句、不替模型画最终图或下结论。
+   新增 qualified display/short call-site 的初稿—修补载体字节同源 pin；专项与完整 `go test ./...` 全绿。
+7. Read/Write/Trace 数据路径未改。显式时间窗、Trace 因果投影、自动补齐、链上-only 根因、优先级反转、
+   调度/算力供给、D/IO、确定性优化、实际占时/规则可消双轴和业务线索保持；邻近/背景仍 support-only。
+   两案均未发生 malformed JSON、空答案、旧稿恢复或 active-stream 的 4ms/4m/固定年龄降级。
+
+状态：
+
+`B789-PRINCIPALFACETCANDIDATEOWNERSHIP1=production-positive-r483`；
+`B790-FIRSTPASSRELATIONIDENTITYPARITY1=implemented/single-typed-carrier+pinned`；
+`B791-SHAREDCALLEEMODELADHERENCE1=P2-observe/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

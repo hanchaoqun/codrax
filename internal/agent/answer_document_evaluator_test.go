@@ -1589,6 +1589,55 @@ func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(
 	}
 }
 
+func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarrier(t *testing.T) {
+	mut := types.NewMutableState("qualified display endpoint with short call-site identity")
+	mut.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+		Reason:    types.PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "typed shared-callee boundary",
+	})
+	evidence := []types.EvidenceItem{
+		{ID: "E-source", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", OwnerSymbol: "agent.buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "E-sink", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Run", OwnerSymbol: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: evidence})
+	ctx := &types.AgentContext{
+		Mutable:       mut,
+		EvidenceItems: evidence,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+				CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
+				AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+			},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramSequence,
+				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			}},
+		},
+	}
+
+	got := renderAnswerDocFirstPassDiagramSkeleton(ctx)
+	for _, want := range []string{
+		"validator-aligned `edge_anchors_json`",
+		"participant n1 as agent.buildAnalysisIR",
+		`"from_identity":"buildAnalysisIR"`,
+		`"to_identity":"gate.RunWith"`,
+		`"from_identity":"Run"`,
+		`"to_identity":"RunWith"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("first-pass reference lost validator-aligned carrier %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `participant p0 as "agent.buildAnalysisIR"`) {
+		t.Fatalf("first-pass reference must not publish the legacy body-only carrier beside the typed carrier:\n%s", got)
+	}
+	repairCarrier := answerDocMechanismCopyReadyRepairPayload(ctx)
+	if repairCarrier == "" || !strings.Contains(got, repairCarrier) {
+		t.Fatalf("initial and repair teaching must reuse one typed carrier:\ninitial=%s\nrepair=%s", got, repairCarrier)
+	}
+}
+
 func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesStateConflict(t *testing.T) {
 	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
 		Disposition:    types.CallChainEndpointNoDirectedPath,
