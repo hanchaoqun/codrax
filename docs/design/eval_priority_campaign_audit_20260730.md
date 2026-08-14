@@ -35694,6 +35694,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/not-observed-r473`。
 
+### §123.793 r474：B773 生产正证；Rust 写案的诚实未验证与精确边界漏测（2026-08-14）
+
+1. 在 `main@b562fde6d` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_pyo3_iter_nth_overflow_symptom`。Runner `1 PASS / 1 FAIL`；
+   人工 QF partial、write fail-safe。完整逐轮记录见 r474 summary 与 manual audit。QF 291s，write 506s；
+   两案均有完整交付，无空答案、旧稿恢复或 active-stream 固定年龄降级。
+2. B773 获显示层生产正证。最终模型主图不再携带 r473 的独立
+   `append/ToolResults/RepoFacts` 技术碎片；Orchestrator、四阶段、BusContext、Mutable 全部可见，只有
+   已证 `BuildAgentContext` call 与 stage precedence 相连，两个 carrier 保持断开并披露 unproven。
+   首稿仍漏 boundary，被精确拒绝一次后由模型 patch；系统未画图、加边、选标签或改答案。
+3. QF 仍不能全收账：正文继续声称较完整的 stage output→BusContext.Mutable 数据流，而 typed 图和
+   authority 只证明局部 relation subset。Finalizer 已明确收到“不得称为完整 requested flow”，因此当前
+   残余首先归为重复模型遵循/显著性观察；禁止扫描正文关键词、系统改写结论或为本案硬化 prose gate。
+   Explorer 以 local incident operation 关闭 participant coverage、Finalizer 以 requested spine 判定完整性
+   的 authority 粒度分裂继续留作独立 P1 设计项，需共享 typed provider 后才可做一次有界桥接补证。
+4. 写案的首个计划因 `nth` 使用 `checked_add(n)?` 未执行 exhaustion side effect，被真实仓库 `make check`
+   打红；controller 正确传递 verify failure、replan、apply 并再次验证。Planner 曾无视已投影 enum 发
+   `verification_probes[].language=rust`，被 schema 精确拒绝并恢复，记模型遵循/成本噪声，不构成合同矛盾。
+5. 第二计划的 `make check` 通过，但该 target 只执行 Python 源码/测试文本 checker；
+   `declared_execution_language_families=[python]`，三个 Rust path 的能力是
+   `declared_project_check/source_static`。控制器把模型追加 verify 请求收敛为
+   `accept_unverified/production_verification_source_static_only` 是正确 fail-closed，Runner FAIL 不能通过
+   提升静态口径或删终验来变绿。
+6. 人工代码审计证明这个保护必要：当剩余长度为 3、`nth_back(3)` 时，
+   `current_length.checked_sub(n)` 得 `Some(0)`，随后 `idx.checked_sub(1)?` 在执行
+   `self.length=self.index` 前直接返回；下一次 `next()` 仍可出元素。当前 checker 覆盖 n=10 与
+   `usize::MAX`，但漏 exact remaining-length boundary，因此静态 PASS 不是行为 PASS。
+7. 登记 `B774-WRITEEVALNATIVEPROOF1/P1-eval`：以实现正确性为目标的 write 跑批优先选择存在真实目标
+   语言 runtime/project runner 的 fixture；source-static fixture 继续用于验收 fail-closed，但人工不得判
+   实现正确，也不得授权 product 将 caliber 提升。泛化修向是语言原生可执行 fixture/runner 或诚实
+   unavailable，不为某个迭代器表达式追加源码 regex 硬门。
+8. 下一 write 案选择 Go/Python/JavaScript 等当前环境可执行的行为 fixture，与另一语言/图族读案并发，
+   继续审计 JSON 教学、plan/apply/verify/replan 与最终答案。Trace 显式窗、因果投影、自动补齐、链上
+   only 主因、实际耗时与规则可消除量双轴均未改；邻近/背景仍 support-only。
+
+状态：`B773-UNPROVENSPINEDISPLAY1=production-positive-r474/display-closed`；
+`request-spine prose adherence=model-negative/accurate-context/no-hard-gate`；
+`completion-vs-finalizer request-spine authority=P1-design-open`；
+`B774-WRITEEVALNATIVEPROOF1=P1-eval/selection+fixture-capability`；
+`write final=honest-unverified/source-static-only/incorrect-boundary-protected`；
+`system answer/diagram/node/label/edge/relation/conclusion synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed-r474`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
