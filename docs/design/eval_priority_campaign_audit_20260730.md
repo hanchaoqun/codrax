@@ -35739,6 +35739,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/not-observed-r474`。
 
+### §123.794 r475：原生 Python 写验证转正；图语义与 Mermaid 字形说明解耦（2026-08-14）
+
+1. 在 `main@661c82813` 严格并发恰好两个案例：
+   `qf_type_relation_loop_controller + github_issue_dateutil_relativedelta_float_symptom`。Runner `2/2 PASS`；
+   人工为 write pass、QF partial。逐轮记录见 r475 summary 与 manual audit；两案均有完整交付，无空答案、
+   JSON/旧稿恢复、unavailable 或 active-stream 固定年龄降级。
+2. Python 写案补齐 B774 要求的原生执行正证。Planner 只修改 `relativedelta.py`：whole-valued float
+   years/months 先规范化为 int，fractional float 抛 `ValueError`；没有改测试。真实
+   `python3 -m unittest discover -v` 执行整数输入、fractional 拒绝、whole-float months、whole-float years
+   四项并 `4/4 PASS`；changed path 为 `covered/project_runner/target_behavior`，controller 以
+   `all_verified` 正常收口。该结论来自 native runtime，不沿用 r474 的 source-static 口径。
+3. QF 类型关系主图结构正确：模型首稿一次通过，列出 12 个生产实现、12 个文件定位和 12 条
+   `implementation -> LoopController` typed edge anchor；兼容渲染将 classDiagram 等价规范成
+   flowchart `implements` 边，零关系丢失、零系统补边。owner-anchor supplement 仅提供源码支持，未替代
+   模型正文或结论。
+4. 人工仍判 partial，原因有二。其一，explorer 在 advisory closure reason 自写“9 个文件”，finalizer
+   虽已收到“reason 仅 advisory、typed member_set 才是 authority”仍照抄；12 个 support path 实际来自
+   12 个不同文件。当前归为模型算术/遵循波动，不扫描用户输入或终稿数字、不由系统改答案，若异构
+   回放重复再审计 typed producer。其二，模型正文解释原 classDiagram 的 literal `<|..`，但最终可见图
+   已被兼容层改写为带 `implements` 标签的 flowchart，造成语义正确而字形说明失真。
+5. 登记并完成 `B775-DIAGRAMSEMANTICPROSE1`：统一 Diagram Contract 对全部图种软提示，读者正文只用
+   implements/calls/hands off/precedes 等领域关系语义，不解释 Mermaid operator token/arrow glyph；明确
+   compat renderer 可等价规范 syntax family。该修复不解析模型草稿/终稿、不增加 hard gate、不修改
+   diagram body/节点/边/标签/结论，模型仍是唯一作者；cross-kind prompt pin 与 `internal/agent` suite 已绿。
+6. 下一批继续严格并发两个：优先异构语言关系图 + 原生 runtime write/read。人工继续区分 runner PASS、
+   关系保真、正文总结质量与验证 caliber；模型单次数学波动不升级为 case-specific gate。
+
+状态：`B774-WRITEEVALNATIVEPROOF1=production-positive-python-native-r475`；
+`B775-DIAGRAMSEMANTICPROSE1=implemented/soft-guidance/all-diagram-kinds/agent-tests-pass`；
+`qf type relation=structurally-complete/human-partial-prose`；
+`system answer/diagram/node/label/edge/relation/conclusion synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed-r475`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
