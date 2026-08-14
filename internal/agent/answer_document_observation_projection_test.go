@@ -75,6 +75,59 @@ func TestAnswerDocFiniteRuntimeScopeProjectsRankingRowsOutOfFinalizerPromptOnly(
 	}
 }
 
+func TestAnswerDocFiniteRuntimeScopeUsesTypedTraceRowsInsteadOfModelAggregateRestatements(t *testing.T) {
+	modelFacts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "model frequency verdict",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"CPU 4 min was presented as the maximum"},
+		MemberNotes: []string{"model-only interpretation"},
+	}}
+	mut := types.NewMutableState("bounded typed authority")
+	mut.SetInvestigationAggregateFacts(modelFacts)
+	mut.SetInvestigationComplete("model-only conclusion retained for audit")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:result#target_window_states",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Role:      types.AnswerAggregateRolePrincipalAnswer,
+			Predicate: "target_window_states",
+			Subject:   "target-7",
+			Value:     "12.000",
+			Unit:      "ms",
+		}},
+	}}})
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope:        types.RuntimeQuestionScopeBoundedEffectVerdict,
+				FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState},
+			},
+		}},
+	}
+
+	if got := answerDocStableAggregateFacts(ctx); len(got) != 0 {
+		t.Fatalf("finite finalizer prompt retained model trace restatements: %+v", got)
+	}
+	if got := renderAnswerDocAggregateFacts(ctx); strings.Contains(got, "model frequency verdict") || strings.Contains(got, "presented as the maximum") {
+		t.Fatalf("finite aggregate prompt leaked model-only runtime interpretation:\n%s", got)
+	}
+	if got := renderAnswerDocObservationLedger(ctx); !strings.Contains(got, "target_window_states") || strings.Contains(got, "model frequency verdict") {
+		t.Fatalf("finite observation prompt must retain typed rows and omit model restatements:\n%s", got)
+	}
+	if raw := mut.StableInvestigationAggregateFacts(); len(raw) != 1 || raw[0].Label != modelFacts[0].Label {
+		t.Fatalf("prompt projection mutated the lossless exploration handoff: %+v", raw)
+	}
+}
+
 func TestExplorerRuntimeQuestionScopeWorkflowKeepsFiniteAndCausalLanesSeparate(t *testing.T) {
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{

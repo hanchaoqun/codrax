@@ -26,7 +26,7 @@ func TestProjectTypedTraceAnswerAuthorityWithholdsUnboundModelRestatements(t *te
 	}
 }
 
-func TestProjectTypedTraceAnswerAuthorityKeepsNarrowFactSetAggregates(t *testing.T) {
+func TestProjectTypedTraceAnswerAuthorityWithholdsNarrowFactSetModelRestatements(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentTrace,
 		RuntimeQuestionProfile: &RuntimeQuestionProfile{
@@ -41,8 +41,29 @@ func TestProjectTypedTraceAnswerAuthorityKeepsNarrowFactSetAggregates(t *testing
 
 	projectTypedTraceAnswerAuthority(plan, &rm, typedTraceProjectionLedgerForAggregateAuthorityTest())
 
+	if len(plan.StableAggregateFacts) != 0 {
+		t.Fatalf("bounded fact-set prompt must use deterministic trace rows instead of model restatements, got %+v", plan.StableAggregateFacts)
+	}
+}
+
+func TestProjectTypedTraceAnswerAuthorityDoesNotWithholdNonCausalAggregateWithoutBoundedProfile(t *testing.T) {
+	rm := RequestModel{Intent: IntentExplain, Scenario: ScenarioGeneric}
+	plan := &AnswerSurfacePlan{StableAggregateFacts: []AnswerAggregateFact{{
+		Kind: AnswerAggregateScalar, Label: "requested scalar", Value: "3.636",
+		Dimensions: []AnswerAggregateDimension{{Name: "origin", Value: "runtime_artifact"}},
+	}}}
+	ledger := ObservationLedger{Records: []ObservationRecord{{
+		ID:        "trace_query:result#target_window_states",
+		Origin:    AnswerEvidenceOriginRuntimeArtifact,
+		Producer:  "trace_query",
+		Predicate: "target_window_states",
+		Subject:   "worker-200",
+	}}}
+
+	projectTypedTraceAnswerAuthority(plan, &rm, ledger)
+
 	if len(plan.StableAggregateFacts) != 1 {
-		t.Fatalf("bounded fact-set handoff must retain its model aggregate, got %+v", plan.StableAggregateFacts)
+		t.Fatalf("legacy non-causal shape without a bounded profile must retain its compatibility handoff: %+v", plan.StableAggregateFacts)
 	}
 }
 

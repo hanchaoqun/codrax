@@ -35698,6 +35698,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.778 r463 / B759：有限 Trace 的旧模型聚合压过 typed 权威；单一答案权威投影（2026-08-13）
+
+1. 在 `main@0bd136c6a` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   QF partial、Trace fail。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_runtime_scope_projection_r463_20260813_manual_audit.md`。
+2. B758 获生产正证。H4 只执行 3 次 trace_query，不再补取 root-cause roster；Finalizer prompt 与
+   可见答案均无 Root-Cause Board、rank arithmetic、`#1` 席位、58.320ms/fix_direction 或完整系统
+   Trace 因果投影。显式 causal diagnosis 的完整投影权限未改，有限 effect 问题按请求三维成文。
+3. 新确认 `B759-BOUNDEDRUNTIMEADVISORYAUTHORITYCOLLISION1/P0`。确定性频率权威已准确发布
+   CPU4 `min=558000,max=2100000`，并拆成
+   `policy_limit_status=present + target_binding_status=unproven_without...`；但 Explorer 先前误把
+   558000（策略下界/观察频率）理解为“上限”，在 `aggregate_facts` 中写成“受限至理论上限的
+   26.6%”。这些 fact 已被结构化标为 `system_inference/advisory/not_authorized`，Finalizer prompt 却仍
+   完整显示其 label、members、member_notes，并另设高显著的 Advisory Member Sets 复读。模型最终
+   沿用旧错结论，证明“低权威加标签”不足以抵消上下文中的显著性污染。
+4. 同一答案还有两个口径错误：blocked-reason census 仅有 50 条/Σ16.358ms，不能解释 70.338ms
+   S-sleep，更不能仅凭内核 caller 名证明网络/文件系统原因；总结把 70.338ms 的正确 30.2% 写成
+   70.3%。Runner 的 D-state regex 没匹配到表内 `0.000ms` 是次级 oracle gap，不能通过扩词掩盖
+   产品错答。
+5. B759 根修沿用已有 `projectTypedTraceAnswerAuthority` 单一权威 chokepoint：当 validated
+   `RuntimeQuestionProfile` 是 bounded fact/effect 且 ledger 已有 deterministic trace_query row 时，
+   final answer-surface plan 不再携带纯 runtime/system-inference 模型聚合。原始 completion payload、
+   Mutable/TurnA 与 lossless 审计数据保持不变；缺少的请求字段宁可由模型据 typed row 判 unproven，
+   不能由旧模型记忆补值。非 bounded legacy 形保持兼容；完整 causal 形继续按 publication-grade
+   projection 的既有条件收窄 restatement。
+6. 该投影只读 typed scope、producer/origin/support-ref 和 deterministic ledger presence，不扫描用户
+   请求、Explorer reason、aggregate label/member 或最终答案原文，不拒绝/改写模型结论。频率教学同时
+   明确字段身份：`min_frequency_khz` 是策略下界、`max_frequency_khz` 是上界；观察值等于 min 不得写成
+   等于 max，也不能据此证明 upper ceiling 被降到 min 或目标 workload 已受 binding。
+7. QF 自动 PASS、人工 partial：终稿保留 analyzer→explorer→extractor→finalizer 三条 precedence 与
+   三条 exact data-flow recipe；BusContext/Mutable 因缺 request-scoped incident operation 而保持断开并
+   披露 unproven，系统没有造边。590s/34 reads、Analyzer 四次 schema 尝试与重复重读属于后续高 ROI
+   的导航/上下文效率债，不在本批用 case 关键词硬压。
+8. 本批不改 trace engine 数值、根因排序、唤醒链、可消除量、因果投影编译、自动补齐或最终答案正文。
+   causal diagnosis 继续保留链上-only 主因、实际占用/业务语义与规则可消除量双轴；邻近/背景仍只能
+   支撑额外排查。活跃字节流持续时 4ms 未完成 answer_document 仍禁止降级，40ms 行为 pin 持续通过。
+
+状态：
+
+`B758-RUNTIMESCOPEAWAREPROMPTPROJECTION1=production-positive-r463`；
+`B759-BOUNDEDRUNTIMEADVISORYAUTHORITYCOLLISION1=implemented/single-authority-projection+pinned/pending-r464`；
+`H4-BLOCKEDREASON-CALIBER=production-open/model-context-followup`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-fit-before-human-correctness`；
+`QF-READ-NAVIGATION-CHURN=observed-r463/pending-generalized-audit`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

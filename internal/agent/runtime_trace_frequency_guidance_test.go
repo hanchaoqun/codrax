@@ -37,6 +37,8 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"`policy ceiling present; target binding unproven`",
 		"do not turn that pair into an affirmative `the target was frequency-restricted`",
 		"actual/average/residency frequency below that ceiling does not negate the policy limit",
+		"`min_frequency_khz` is the lower policy bound and `max_frequency_khz` is the upper policy ceiling",
+		"must not be described as equal to the maximum",
 		"whether that ceiling bound this target's running slices remains unproven",
 		"neither that lower observed frequency nor the limit row proves that the workload hit the ceiling",
 		"does not by itself identify the lower-frequency cause or prove governance binding",

@@ -2091,15 +2091,20 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	}
 }
 
-// projectTypedTraceAnswerAuthority keeps a deterministic trace report from
+// projectTypedTraceAnswerAuthority keeps deterministic trace rows from
 // replaying the explorer's model-authored aggregate restatement as a second
-// factual authority beside trace_query. The raw completion payload remains in
-// MutableState / TurnAArtifacts for audit; only the final answer-surface plan is
-// narrowed. This is the same authority-boundary pattern used by the typed
-// no-directed-path projection above.
+// factual authority beside trace_query. Full causal shapes wait for a
+// publication-grade projection. A validated bounded fact/effect shape already
+// has a narrower contract: once deterministic trace rows exist, unsupported
+// model restatements are withheld and any uncovered requested family remains
+// honestly unproven instead of being filled from model memory. The raw
+// completion payload remains in MutableState / TurnAArtifacts for audit; only
+// the final answer-surface plan is narrowed. This is the same authority-boundary
+// pattern used by the typed no-directed-path projection above.
 //
-// The decision is entirely structural: a publication-grade typed trace
-// projection plus typed evidence origins. It never inspects the user request,
+// The decision is entirely structural: either a validated bounded runtime
+// profile with deterministic trace rows, or a publication-grade full trace
+// projection, plus typed evidence origins. It never inspects the user request,
 // completion reason, aggregate labels/members, or final answer prose. Mixed
 // trace+source investigations retain facts that carry a non-runtime origin, so
 // exact current-source or external-document findings are not lost.
@@ -2107,9 +2112,13 @@ func projectTypedTraceAnswerAuthority(plan *AnswerSurfacePlan, rm *RequestModel,
 	if plan == nil || rm == nil || !ledger.HasDeterministicRuntimeQueryObservation() {
 		return
 	}
-	set := CompileTraceCausalProjectionSet(ledger)
-	if len(set.Projections) == 0 || !RuntimeTraceReportMaterializationAllowed(rm, set) {
-		return
+	boundedTypedFacts := rm.RuntimeQuestionProfile != nil &&
+		rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies()
+	if !boundedTypedFacts {
+		set := CompileTraceCausalProjectionSet(ledger)
+		if len(set.Projections) == 0 || !RuntimeTraceReportMaterializationAllowed(rm, set) {
+			return
+		}
 	}
 	kept := make([]AnswerAggregateFact, 0, len(plan.StableAggregateFacts))
 	for _, fact := range plan.StableAggregateFacts {
