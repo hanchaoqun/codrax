@@ -6644,6 +6644,21 @@ const (
 	// model cannot hide zero progress by relabelling the same unsupported pair.
 	// This is internal retry guidance, never edge evidence or answer content.
 	ToolRepairMetaDiagramRelationFailurePairs = "diagram_relation_failure_pairs"
+	// ToolRepairMetaDiagramRelationFailureIssues carries closed producer-owned
+	// diagram relation issue enums. Retry routing may use it to preserve a
+	// grounded model-authored graph when only edge-anchor metadata is missing;
+	// it is never relation evidence or answer content.
+	ToolRepairMetaDiagramRelationFailureIssues = "diagram_relation_failure_issues"
+	// ToolRepairMetaDiagramGroundedAnchorPatchJSON carries complete block-local
+	// edge-anchor arrays for an already-grounded model-authored diagram whose
+	// only defect is missing relation metadata. It contains no Mermaid body,
+	// visible labels, prose, ordering, or conclusion.
+	ToolRepairMetaDiagramGroundedAnchorPatchJSON = "diagram_grounded_anchor_patch_json"
+	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
+	// closed issue value for a visible call edge whose direction/endpoints are
+	// already supported by accepted typed evidence and whose only defect is a
+	// missing diagram edge-anchor carrier.
+	DiagramRelationFailureMissingGroundedCallAnchor = "missing_grounded_call_anchor"
 
 	ToolRepairCodeReadFilePathMissing     = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory = "read_file_path_is_directory"

@@ -38,6 +38,7 @@ func (m DiagramCallEdgeEvidenceMismatch) IsRequestedStagePrecedenceSpineIncomple
 const (
 	diagramCallEdgeIssueDuplicateParticipant  = "duplicate_participant_identity"
 	diagramCallEdgeIssueMissingAnchor         = "missing_call_anchor"
+	diagramCallEdgeIssueMissingGroundedAnchor = types.DiagramRelationFailureMissingGroundedCallAnchor
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
 	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
@@ -216,6 +217,9 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					issue := diagramCallEdgeIssueMissingRelationAnchor
 					if block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG {
 						issue = diagramCallEdgeIssueMissingAnchor
+						if hasTypedCallEvidence {
+							issue = diagramCallEdgeIssueMissingGroundedAnchor
+						}
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: issue,
@@ -259,9 +263,13 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					continue
 				}
 				if !callAnchorKeys[key] {
+					issue := diagramCallEdgeIssueMissingAnchor
+					if hasTypedCallEvidence {
+						issue = diagramCallEdgeIssueMissingGroundedAnchor
+					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID:    block.ID,
-						Issue:      diagramCallEdgeIssueMissingAnchor,
+						Issue:      issue,
 						FromNode:   strings.TrimSpace(edge.From),
 						ToNode:     strings.TrimSpace(edge.To),
 						FromSymbol: fromSymbol,

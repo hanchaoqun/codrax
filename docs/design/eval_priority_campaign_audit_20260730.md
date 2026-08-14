@@ -36100,6 +36100,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.823 r499：root-cause breadth 生产复绿；缺锚修补错误删掉已证图关系（2026-08-14）
+
+1. 在 `main@c6ddcd0b8` 重建后严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable` 177s、`qf_sequence_analyzer_gate` 210s。Runner `2 PASS / 0 FAIL`，
+   人工均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_sequence_r499_20260814_manual_audit.md`。
+2. B815 获生产正证。Trace Analyzer 首稿同时携 root-cause 与错误 breadth，parse-time fail-loud 后第二稿
+   形成 coherent `causal_diagnosis`、四个可见维度和因果归因载体；三次 `trace_query` 后，最终答案恢复完整
+   Trace 因果投影，worker-200 以 typed on-chain 优先级反转候选进入主席，8.300ms 有效归因、9.000ms
+   链上累计与实际占时/规则可消双轴均保留。显式窗、系统自动补采与链上-only 根因没有被有限查询分流误伤。
+3. Trace 人工仍为 partial：模型把 worker 的 8.300ms `runnable` 写成“持续占用 CPU”，并把目标 10ms
+   sleep 过度宣称为完全由该 runnable 贡献。Finalizer 上下文已明确 `runnable` 是 off-CPU 排队等待，跨 CPU
+   不证明资源竞争，锁/holder 也仍未证；这是模型忽略准确上下文的单轮措辞/因果越界，不通过扫描成文
+   关键词硬拒、不让系统重写结论，继续异构回放观察。
+4. sequence 案确认新 `B816-DIAGRAMGROUNDEDANCHORREPAIR1/P1`。源码真实关系是
+   `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith` 两条端点边，不存在端点间直接路径；同时
+   `buildAnalysisIR` 内部还有 normalizer/amplifier/expander/compiler/risk/hdp/binder 七条直接调用。Explorer
+   已发出全部九条 typed call evidence，模型第一版图也画出九条真边，但只为两条端点边填写 anchors。
+5. Validator 对七条可见边报缺锚本身正确；系统 retry override 却把“缺元数据”与“无调用证据”合并，强制
+   换成两边 copy-ready 端点骨架。模型照提示删掉七条有证据的中间边，终稿文字仍全、图却缩水。这不是
+   模型波动、Mermaid 语法或证据缺失，而是系统修补越权导致的关系丢失。
+6. B816 根修将失败拆为 closed typed issue：只有当每条失败可见 call edge 均已被 accepted typed evidence
+   同向支持、唯一缺陷是 `edge_anchors` 时，producer 才发完整 block-local anchor array。Finalizer 首次和
+   patch-reject 两车道只要求保留模型 Mermaid body、node、label/message、方向、operator、顺序、正文与
+   结论字节不动，复制完整 anchor array；不再提供缩减骨架。payload 不含图 body、措辞、顺序或结论，
+   因而不会变成系统代画。
+7. 无证边、混合关系失败、stale anchor 或其他 violation 不能取得该 payload，继续走原有 typed evidence
+   boundary/fail-closed 车道。正向 pin 覆盖“保留已有 anchor + 只补缺失 anchor”以及 full/patch 双路由；
+   反向 pin 覆盖无证/混合失败不得进入 metadata-only lane。判断只读 producer-owned enum、结构化证据与
+   JSON，不扫描 request、模型 reasoning、Mermaid 文本语义或最终答案原文。
+8. 本批没有修改 Trace 查询、因果投影、自动补齐、成文正文或结论。Trace 主因仍只能来自 typed
+   on-chain 证据；邻近/背景只能支持额外排查；优先级反转、调度供给、算力供给、D/IO、确定性语义工作、
+   业务线索以及实际占用/规则可消双轴保持。活跃字节流也不因 4ms、4m 或累计年龄降级。
+
+状态：
+
+`B815-RUNTIMEBOUNDEDROOTCAUSECONFLICT1=production-positive-r499`；
+`B816-DIAGRAMGROUNDEDANCHORREPAIR1=implemented/typed-metadata-only+positive-negative-pins`；
+`r499-trace=projection-restored/model-runnable-wording-partial`；
+`r499-sequence=typed-relations-complete/pre-fix-system-lossy-repair`；
+`Trace-causal-projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

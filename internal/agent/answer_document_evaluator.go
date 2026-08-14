@@ -14598,6 +14598,25 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	// A graph that is already grounded must not be replaced by a smaller
+	// evidence skeleton merely because the model omitted edge_anchors. The
+	// producer supplies a complete block-local anchor array for this exact
+	// metadata-only defect; preserve every model-authored visible relation and
+	// repair only the structured carrier. This lane is independent of whether
+	// the diagram is required or optional.
+	if hint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, true); ok {
+		e.rejectHintsUsed++
+		e.preferPatchNext = true
+		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        "answer_doc.patch_grounded_diagram_anchors",
+			Hint:           hint,
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	// Required diagrams cannot take the optional block-removal escape, but
 	// leaving them on the generic correction lane made the model repeatedly
 	// reconstruct aliases and edge_anchors that the system had already
@@ -14712,6 +14731,72 @@ func answerDocumentPatchRejectIsDiagramCallEdge(result *types.ToolResult) bool {
 	}
 	offendingKinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
+}
+
+// answerDocumentRejectOnlyGroundedMissingCallAnchors recognizes a
+// producer-owned metadata-only diagram defect. It deliberately consumes only
+// typed repair metadata: neither user input nor model/final prose participates
+// in routing. A mixed relation failure stays on the existing evidence-boundary
+// lane because adding anchors cannot make an unsupported edge true.
+func answerDocumentRejectOnlyGroundedMissingCallAnchors(result *types.ToolResult) bool {
+	if !answerDocumentPatchRejectIsDiagramCallEdge(result) || result.Repair == nil || result.Repair.Metadata == nil {
+		return false
+	}
+	issues := answerDocNonEmptyCSV(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues])
+	if len(issues) != 1 || issues[0] != types.DiagramRelationFailureMissingGroundedCallAnchor {
+		return false
+	}
+	return strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramGroundedAnchorPatchJSON]) != ""
+}
+
+type answerDocGroundedAnchorPatchRow struct {
+	BlockID     string                    `json:"block_id"`
+	EdgeAnchors []types.DiagramEdgeAnchor `json:"edge_anchors"`
+}
+
+// answerDocGroundedDiagramAnchorPatchHint asks the model to preserve its
+// rejected Mermaid body byte-for-byte and copy only the complete typed anchor
+// arrays produced by validation. The payload contains no graph body, visible
+// label, ordering, prose, or conclusion, so this recovery cannot become a
+// system-authored answer or a reduced replacement graph.
+func answerDocGroundedDiagramAnchorPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+	if !answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
+		return "", false
+	}
+	payload := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramGroundedAnchorPatchJSON])
+	var rows []answerDocGroundedAnchorPatchRow
+	if err := json.Unmarshal([]byte(payload), &rows); err != nil || len(rows) == 0 {
+		return "", false
+	}
+	seenBlocks := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		blockID := strings.TrimSpace(row.BlockID)
+		if blockID == "" || seenBlocks[blockID] || len(row.EdgeAnchors) == 0 {
+			return "", false
+		}
+		seenBlocks[blockID] = true
+		for _, anchor := range row.EdgeAnchors {
+			// Endpoint identity selectors are optional for accepted legacy/model
+			// anchors; the producer has already validated those rows. The newly
+			// reconstructed anchors are identity-qualified, but requiring every
+			// pre-existing row to be upgraded here would turn metadata repair into
+			// an unrelated schema rewrite.
+			if strings.TrimSpace(anchor.FromNode) == "" || strings.TrimSpace(anchor.ToNode) == "" {
+				return "", false
+			}
+		}
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	return prefix + " only because one or more visible diagram call edges were already supported by accepted typed call evidence but were missing their structured `edge_anchors` metadata. " +
+		action + "; replace only the listed diagram block(s), retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
+		"Preserve each rejected diagram's Mermaid body byte-for-byte, including every node ID, visible label/message, edge, direction, operator, and ordering. Preserve all model-authored prose and conclusions. Do not remove, add, reverse, reconnect, relabel, or replace any visible relation, and do not substitute a reduced evidence skeleton. " +
+		"Set each listed block's `edge_anchors` to the corresponding complete array below; it includes the existing anchors plus only the missing metadata for visible edges that validation already matched to typed call evidence. Use native JSON arrays/objects, not a JSON-encoded string:\n\n" + payload +
+		"\n\nThis is metadata repair only: the system supplies no Mermaid body, wording, ordering, relation, prose, or conclusion. Do not reopen files and do not write free-form prose outside the tool call.", true
 }
 
 // answerDocumentRejectIsRequiredDiagramTypedRelationRepair selects a required
@@ -15104,6 +15189,18 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint += " Do not write free-form prose outside the tool call."
 		}
 	}
+	// Prefer a metadata-only repair whenever every rejected diagram relation is
+	// already grounded and only its edge-anchor carrier is absent. This precise
+	// lane applies equally to required and optional diagrams and prevents the
+	// general call-edge recovery from deleting grounded model-authored edges.
+	if hasPatchBase {
+		if groundedHint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, false); ok {
+			hint = groundedHint
+			reasonKey = "grounded-diagram-anchors"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
+	}
 	// A rejected full document is already retained as a valid patch base. If
 	// the producer-owned metadata says the only failure is one OPTIONAL
 	// diagram's call-edge authority, surface the same bounded model-owned
@@ -15111,7 +15208,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// This reads no user/model prose and never removes or rewrites the block on
 	// the model's behalf; required diagrams and mixed/non-diagram violations
 	// stay on their existing correction lanes.
-	if hasPatchBase && answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
+	if !diagramCallEdgePatchRecovery && hasPatchBase && answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		hint = answerDocOptionalDiagramCallEdgePatchHint(ctx, false)
 		reasonKey = "optional-diagram-call-edge"
 		diagramCallEdgePatchRecovery = true
@@ -15122,7 +15219,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// authority, put the exact evidence-derived carrier in this repair turn
 	// instead of making the model hunt through the original long prompt and
 	// hand-recreate aliases/JSON.
-	if hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
+	if !diagramCallEdgePatchRecovery && hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
 		if answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
 			if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
 				hint = requiredHint

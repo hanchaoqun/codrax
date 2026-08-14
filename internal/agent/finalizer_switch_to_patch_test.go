@@ -556,6 +556,88 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	}
 }
 
+func TestGroundedDiagramMissingAnchorsPreserveModelGraphOnFullAndPatchReject(t *testing.T) {
+	anchorPayload := `[{"block_id":"sequence","edge_anchors":[{"from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Run","relation_kind":"call"},{"from_node":"B","to_node":"C","from_identity":"Beta.Run","to_identity":"Gamma.Run","relation_kind":"call"}]}]`
+	for _, tc := range []struct {
+		name     string
+		toolName string
+		patch    bool
+	}{
+		{name: "full", toolName: "emit_answer_document"},
+		{name: "patch", toolName: "emit_answer_document_patch", patch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &answerDocumentEvaluator{diagramRequired: true}
+			ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+			result := &types.ToolResult{
+				ToolName: tc.toolName,
+				Success:  false,
+				Repair: &types.ToolRepair{
+					Code: "answer_doc_pre_emit_contract",
+					Metadata: map[string]string{
+						"violation_kinds":                                  string(types.ViolDiagramCallEdgeUnproven),
+						types.ToolRepairMetaOffendingBlockKinds:            string(types.BlockDiagram),
+						types.ToolRepairMetaDiagramRelationFailureIssues:   types.DiagramRelationFailureMissingGroundedCallAnchor,
+						types.ToolRepairMetaDiagramGroundedAnchorPatchJSON: anchorPayload,
+					},
+				},
+			}
+			var got LoopSignal
+			if tc.patch {
+				got = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+			} else {
+				got = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+			}
+			if !got.HintRequested || !strings.Contains(got.HintKey, "grounded_diagram_anchors") && !strings.Contains(got.HintKey, "grounded-diagram-anchors") {
+				t.Fatalf("metadata-only grounded lane not selected: %+v", got)
+			}
+			for _, want := range []string{
+				"Mermaid body byte-for-byte",
+				"Preserve all model-authored prose and conclusions",
+				"Do not remove, add, reverse, reconnect, relabel, or replace any visible relation",
+				"do not substitute a reduced evidence skeleton",
+				anchorPayload,
+				"system supplies no Mermaid body, wording, ordering, relation, prose, or conclusion",
+			} {
+				if !strings.Contains(got.Hint, want) {
+					t.Errorf("grounded metadata-only repair missing %q:\n%s", want, got.Hint)
+				}
+			}
+			for _, forbidden := range []string{
+				"Preserve the following evidence skeleton's exact node IDs",
+				"copy-ready optional typed diagram skeleton",
+				"remove the optional diagram",
+			} {
+				if strings.Contains(got.Hint, forbidden) {
+					t.Errorf("metadata-only repair activated lossy replacement %q:\n%s", forbidden, got.Hint)
+				}
+			}
+		})
+	}
+}
+
+func TestGroundedDiagramAnchorRepairFailsClosedForMixedIssues(t *testing.T) {
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                                  string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds:            string(types.BlockDiagram),
+				types.ToolRepairMetaDiagramRelationFailureIssues:   types.DiagramRelationFailureMissingGroundedCallAnchor + ",unproven_call_edge",
+				types.ToolRepairMetaDiagramGroundedAnchorPatchJSON: `[{"block_id":"sequence","edge_anchors":[{"from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Run","relation_kind":"call"}]}]`,
+			},
+		},
+	}
+	if answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
+		t.Fatal("mixed grounded/unproved failures must not enter metadata-only repair")
+	}
+	if _, ok := answerDocGroundedDiagramAnchorPatchHint(result, false); ok {
+		t.Fatal("mixed relation failures must stay on fail-closed evidence repair")
+	}
+}
+
 func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonWithheld(t *testing.T) {
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow

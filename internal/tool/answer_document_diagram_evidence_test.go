@@ -1482,7 +1482,7 @@ func TestDiagramCallEdgeEvidenceMismatches_BodyEdgeCannotOmitTypedAnchor(t *test
 	doc.Blocks[0].EdgeAnchors = nil
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor || got[0].FromSymbol != "Alpha.Run" || got[0].ToSymbol != "Beta.Run" {
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingGroundedAnchor || got[0].FromSymbol != "Alpha.Run" || got[0].ToSymbol != "Beta.Run" {
 		t.Fatalf("a parsed sequence edge without typed metadata must hard-fail: %+v", got)
 	}
 }
@@ -1494,7 +1494,7 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGBodyEdgeCannotOmitTypedAnchor(
 	doc.Blocks[0].EdgeAnchors = nil
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingGroundedAnchor {
 		t.Fatalf("a parsed call_dag edge without typed metadata must hard-fail: %+v", got)
 	}
 }
@@ -1507,7 +1507,7 @@ func TestDiagramCallEdgeEvidenceMismatches_SemanticCallDAGIsStrictAcrossQuestion
 	for _, family := range []types.QuestionFamily{types.QFGeneric, types.QFArchitecture, types.QFRoleLookup} {
 		got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family},
 			[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
-		if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingGroundedAnchor {
 			t.Fatalf("semantic call_dag must retain exact body ownership in family %s: %+v", family, got)
 		}
 	}
@@ -1714,7 +1714,7 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGTypedCallCannotHideBehindGuard
 			}}}
 			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
-			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingGroundedAnchor {
 				t.Fatalf("%s exact invocation must retain a typed call anchor even inside a compound guard: %+v", tc.language, got)
 			}
 		})
@@ -3146,7 +3146,7 @@ func TestRunPreEmitChecks_DiagramBodyEdgeWithoutAnchorIsWired(t *testing.T) {
 	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil, ctx)
 	for _, hint := range hints {
 		if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
-			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssueMissingAnchor) {
+			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssueMissingGroundedAnchor) {
 			hard, _ := splitPreEmitHintsByGate(hints)
 			if len(hard) == 1 && hard[0].Kind == types.ViolDiagramCallEdgeUnproven {
 				return

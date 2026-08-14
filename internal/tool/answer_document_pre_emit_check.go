@@ -403,6 +403,16 @@ type emitFixHint struct {
 	// hash intentionally ignores relation kind, allowing the finalizer to
 	// recognise call -> precedence -> assignment churn without reading prose.
 	DiagramRelationFailurePairs []string
+	// DiagramRelationFailureIssues carries the producer-owned closed issue
+	// enum(s) for retry routing. It lets the finalizer distinguish a grounded
+	// visible edge that only lacks metadata from an unproved relation without
+	// scanning the human-readable rejection text.
+	DiagramRelationFailureIssues []string
+	// DiagramGroundedAnchorPatchJSON is a producer-owned complete replacement
+	// for edge_anchors on blocks whose visible call edges are all already
+	// grounded and only lack metadata. It never contains or changes Mermaid
+	// body text.
+	DiagramGroundedAnchorPatchJSON string
 }
 
 type preEmitBlockCardinalityRelation string
@@ -4115,6 +4125,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		return nil
 	}
 	failurePairs := diagramRelationFailurePairFingerprints(mismatches)
+	failureIssues := diagramRelationFailureIssueValues(mismatches)
+	groundedAnchorPatchJSON := diagramGroundedAnchorPatchJSON(doc, mismatches)
 	if mismatches[0].Issue == diagramRequestedStageSpineIncomplete {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {
@@ -4227,8 +4239,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, otherMismatches),
 			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge; restore the matching evidence-backed arrow or remove stale metadata instead of emitting a hidden metadata-only graph. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with its forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses an explicitly typed non-call relation such as callback, register, assignment, data_flow, return, declared type, guard, observation, containment, or ordering, keep that honest relation_kind and its matching evidence instead of inventing call authority; add missing anchors, restore matching evidence-backed body edges, or remove/correct unsupported visible edges/stale anchors." + occurrenceBoundary + " Mismatches: " +
 				strings.Join(otherParts, "; ") + sequenceOperatorBoundary + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
-			DiagramRelationFailurePairs: failurePairs,
+			Reason:                         "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationFailureIssues:   failureIssues,
+			DiagramGroundedAnchorPatchJSON: groundedAnchorPatchJSON,
 		})
 	}
 	return hints
@@ -4389,6 +4403,91 @@ func diagramRelationFailurePairFingerprints(mismatches []DiagramCallEdgeEvidence
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMismatch) []string {
+	seen := make(map[string]bool, len(mismatches))
+	issues := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		issue := strings.TrimSpace(mismatch.Issue)
+		if issue == "" || seen[issue] {
+			continue
+		}
+		seen[issue] = true
+		issues = append(issues, issue)
+	}
+	sort.Strings(issues)
+	return issues
+}
+
+type diagramGroundedAnchorPatchRow struct {
+	BlockID     string                    `json:"block_id"`
+	EdgeAnchors []types.DiagramEdgeAnchor `json:"edge_anchors"`
+}
+
+// diagramGroundedAnchorPatchJSON returns a complete block-local anchor array
+// only when every failed diagram relation is an already-grounded visible call
+// edge whose sole defect is missing metadata. The model-authored Mermaid body,
+// labels, messages, ordering, prose, and conclusions are deliberately absent.
+func diagramGroundedAnchorPatchJSON(doc *types.AnswerDocumentV2, mismatches []DiagramCallEdgeEvidenceMismatch) string {
+	if doc == nil || len(mismatches) == 0 {
+		return ""
+	}
+	missingByBlock := make(map[string][]types.DiagramEdgeAnchor)
+	for _, mismatch := range mismatches {
+		if mismatch.Issue != diagramCallEdgeIssueMissingGroundedAnchor {
+			return ""
+		}
+		blockID := strings.TrimSpace(mismatch.BlockID)
+		fromNode := strings.TrimSpace(mismatch.FromNode)
+		toNode := strings.TrimSpace(mismatch.ToNode)
+		fromIdentity := strings.TrimSpace(mismatch.FromSymbol)
+		toIdentity := strings.TrimSpace(mismatch.ToSymbol)
+		if blockID == "" || fromNode == "" || toNode == "" || fromIdentity == "" || toIdentity == "" {
+			return ""
+		}
+		missingByBlock[blockID] = append(missingByBlock[blockID], types.DiagramEdgeAnchor{
+			FromNode: fromNode, ToNode: toNode,
+			FromIdentity: fromIdentity, ToIdentity: toIdentity,
+			RelationKind: types.DiagramRelCall,
+		})
+	}
+	rows := make([]diagramGroundedAnchorPatchRow, 0, len(missingByBlock))
+	for _, block := range doc.Blocks {
+		missing := missingByBlock[block.ID]
+		if len(missing) == 0 {
+			continue
+		}
+		anchors := append([]types.DiagramEdgeAnchor(nil), block.EdgeAnchors...)
+		seen := make(map[string]bool, len(anchors)+len(missing))
+		for _, anchor := range anchors {
+			seen[diagramGroundedAnchorPatchKey(anchor)] = true
+		}
+		for _, anchor := range missing {
+			key := diagramGroundedAnchorPatchKey(anchor)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			anchors = append(anchors, anchor)
+		}
+		rows = append(rows, diagramGroundedAnchorPatchRow{BlockID: block.ID, EdgeAnchors: anchors})
+		delete(missingByBlock, block.ID)
+	}
+	if len(rows) == 0 || len(missingByBlock) != 0 {
+		return ""
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
+func diagramGroundedAnchorPatchKey(anchor types.DiagramEdgeAnchor) string {
+	return strings.TrimSpace(anchor.FromNode) + "\x00" + strings.TrimSpace(anchor.ToNode) + "\x00" +
+		strings.TrimSpace(anchor.FromIdentity) + "\x00" + strings.TrimSpace(anchor.ToIdentity) + "\x00" +
+		string(anchor.RelationKind)
 }
 
 // preEmitEvidenceWithGroundedDiagramPrecedence closes the evidence-authoring
@@ -13786,6 +13885,8 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	seenOffendingBlockKinds := map[string]struct{}{}
 	cardinalityRelations := map[preEmitBlockCardinalityRelation]struct{}{}
 	diagramRelationFailurePairs := map[string]struct{}{}
+	diagramRelationFailureIssues := map[string]struct{}{}
+	diagramGroundedAnchorPatchJSON := ""
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -13833,9 +13934,20 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 				diagramRelationFailurePairs[pair] = struct{}{}
 			}
 		}
+		for _, issue := range h.DiagramRelationFailureIssues {
+			if issue = strings.TrimSpace(issue); issue != "" {
+				diagramRelationFailureIssues[issue] = struct{}{}
+			}
+		}
+		if diagramGroundedAnchorPatchJSON == "" {
+			diagramGroundedAnchorPatchJSON = strings.TrimSpace(h.DiagramGroundedAnchorPatchJSON)
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
+	}
+	if diagramGroundedAnchorPatchJSON != "" {
+		meta[types.ToolRepairMetaDiagramGroundedAnchorPatchJSON] = diagramGroundedAnchorPatchJSON
 	}
 	for _, h := range hints {
 		if fp := strings.TrimSpace(h.SameCauseFingerprint); fp != "" {
@@ -13870,6 +13982,14 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		}
 		sort.Strings(pairs)
 		meta[types.ToolRepairMetaDiagramRelationFailurePairs] = strings.Join(pairs, ",")
+	}
+	if len(diagramRelationFailureIssues) > 0 {
+		issues := make([]string, 0, len(diagramRelationFailureIssues))
+		for issue := range diagramRelationFailureIssues {
+			issues = append(issues, issue)
+		}
+		sort.Strings(issues)
+		meta[types.ToolRepairMetaDiagramRelationFailureIssues] = strings.Join(issues, ",")
 	}
 	return &types.ToolRepair{
 		Code:     "answer_doc_pre_emit_contract",

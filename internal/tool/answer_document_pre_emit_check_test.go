@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -9597,6 +9598,81 @@ func TestDiagramRelationFailurePairFingerprintSurvivesCanonicalLabelDrift(t *tes
 	}
 	if shared != 1 {
 		t.Fatalf("stable parsed alias must preserve exactly one repeat identity across canonical label drift: first=%v second=%v", firstKeys, secondKeys)
+	}
+}
+
+func TestPreCheckDiagramGroundedMissingAnchorCarriesMetadataOnlyPatch(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "requested-sequence",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramSequence,
+			Language: "mermaid",
+			Body: "sequenceDiagram\n" +
+				"  participant A as Alpha.Run\n" +
+				"  participant B as Beta.Run\n" +
+				"  participant C as Gamma.Run\n" +
+				"  A->>B: first\n" +
+				"  B->>C: second\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+		diagramEvidenceTestCall("Beta.Run", "Gamma.Run"),
+	}
+	evidence[1].ID = "ev-beta-gamma"
+	evidence[1].LineStart = 11
+	mut := types.NewMutableState("show the sequence")
+	mut.AppendEvidence(evidence)
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut, EvidenceItems: evidence})
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc,
+		&types.AnswerSemanticView{Family: types.QFCallChain, RelationAxis: types.AxisFlow},
+		pctx,
+	)
+	if len(hints) != 1 {
+		t.Fatalf("grounded missing-anchor draft should produce one repair hint: %+v", hints)
+	}
+	if got := hints[0].DiagramRelationFailureIssues; !reflect.DeepEqual(got, []string{types.DiagramRelationFailureMissingGroundedCallAnchor}) {
+		t.Fatalf("closed issue metadata=%v", got)
+	}
+	var rows []diagramGroundedAnchorPatchRow
+	if err := json.Unmarshal([]byte(hints[0].DiagramGroundedAnchorPatchJSON), &rows); err != nil {
+		t.Fatalf("patch payload is not JSON: %v payload=%s", err, hints[0].DiagramGroundedAnchorPatchJSON)
+	}
+	if len(rows) != 1 || rows[0].BlockID != "requested-sequence" || len(rows[0].EdgeAnchors) != 2 {
+		t.Fatalf("complete block-local anchor replacement missing existing/new rows: %+v", rows)
+	}
+	if rows[0].EdgeAnchors[0] != doc.Blocks[0].EdgeAnchors[0] {
+		t.Fatalf("existing model-authored anchor changed: got=%+v want=%+v", rows[0].EdgeAnchors[0], doc.Blocks[0].EdgeAnchors[0])
+	}
+	added := rows[0].EdgeAnchors[1]
+	if added.FromNode != "B" || added.ToNode != "C" || added.FromIdentity != "Beta.Run" || added.ToIdentity != "Gamma.Run" || added.RelationKind != types.DiagramRelCall {
+		t.Fatalf("missing typed anchor not reconstructed exactly: %+v", added)
+	}
+	repair := emitFixHintsRepair(hints)
+	if repair == nil || repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues] != types.DiagramRelationFailureMissingGroundedCallAnchor ||
+		repair.Metadata[types.ToolRepairMetaDiagramGroundedAnchorPatchJSON] != hints[0].DiagramGroundedAnchorPatchJSON {
+		t.Fatalf("typed retry metadata lost: %+v", repair)
+	}
+}
+
+func TestDiagramGroundedAnchorPatchJSONRejectsMixedOrUngroundedFailures(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	for _, mismatches := range [][]DiagramCallEdgeEvidenceMismatch{
+		{{BlockID: "flow", Issue: diagramCallEdgeIssueNoEvidence, FromNode: "A", ToNode: "B", FromSymbol: "Alpha.Run", ToSymbol: "Beta.Run"}},
+		{
+			{BlockID: "flow", Issue: diagramCallEdgeIssueMissingGroundedAnchor, FromNode: "A", ToNode: "B", FromSymbol: "Alpha.Run", ToSymbol: "Beta.Run"},
+			{BlockID: "flow", Issue: diagramCallEdgeIssueNoEvidence, FromNode: "B", ToNode: "C", FromSymbol: "Beta.Run", ToSymbol: "Gamma.Run"},
+		},
+	} {
+		if got := diagramGroundedAnchorPatchJSON(doc, mismatches); got != "" {
+			t.Fatalf("unsupported/mixed relation failures must not mint metadata repair: %s", got)
+		}
 	}
 }
 
