@@ -21,6 +21,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartClassRelationEdges(body)
+	body = NormalizeFlowchartInlineEdgeLabels(body)
 	body = NormalizeFlowchartQuotedEdgeFragments(body)
 	body = NormalizeFlowchartSplitNodeLabels(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
@@ -38,6 +39,173 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartInlineEdgeLabels converts Mermaid's inline link-text
+// spellings to the one portable pipe-label carrier shared by the browser,
+// terminal renderer, and semantic edge parser:
+//
+//	A --implements--> B   => A -->|implements| B
+//	A -.implements.-> B   => A -.->|implements| B
+//	A ==implements==> B   => A ==>|implements| B
+//
+// Mermaid accepts spaced variants of these forms too, while several parser
+// versions disagree on the compact form. More importantly, leaving the label
+// bytes between the operator halves makes the unsafe-node repair interpret the
+// label as a second node and changes the parsed topology. This pass is purely
+// syntactic: it preserves both endpoints, direction, line style, and exact
+// label text. It never reads request/answer prose and never creates a relation.
+func NormalizeFlowchartInlineEdgeLabels(body string) string {
+	if !isFlowchartOrGraph(body) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		for {
+			rewritten, ok := normalizeFlowchartInlineEdgeLabelsInLine(line)
+			if !ok {
+				break
+			}
+			line = rewritten
+			changed = true
+		}
+		lines[i] = line
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeFlowchartInlineEdgeLabelsInLine(line string) (string, bool) {
+	type inlineOperator struct {
+		open, close, canonical string
+	}
+	operators := []inlineOperator{
+		{open: "-.", close: ".->", canonical: "-.->"},
+		{open: "--", close: "-->", canonical: "-->"},
+		{open: "==", close: "==>", canonical: "==>"},
+	}
+	protected := flowchartProtectedByteSet(line)
+	for start := 0; start < len(line); start++ {
+		if protected[start] {
+			continue
+		}
+		for _, operator := range operators {
+			if !unprotectedTokenAt(line, protected, start, operator.open) {
+				continue
+			}
+			labelStart := start + len(operator.open)
+			// Do not reinterpret the opening half of an already-complete
+			// canonical operator (--> / -.-> / ==> / -->> / ---) as the
+			// beginning of link text. A later labelled hop on the same compact
+			// chain must remain independently discoverable.
+			if labelStart < len(line) && strings.ContainsRune(">-x)", rune(line[labelStart])) {
+				continue
+			}
+			for closeAt := labelStart; closeAt < len(line); closeAt++ {
+				if protected[closeAt] || !unprotectedTokenAt(line, protected, closeAt, operator.close) {
+					continue
+				}
+				label := strings.TrimSpace(line[labelStart:closeAt])
+				if !portableInlineFlowchartEdgeLabel(label) {
+					break
+				}
+				return line[:start] + operator.canonical + "|" + label + "|" + line[closeAt+len(operator.close):], true
+			}
+		}
+	}
+	return line, false
+}
+
+func portableInlineFlowchartEdgeLabel(label string) bool {
+	if label == "" || strings.ContainsAny(label, "[](){}|;\r\n") {
+		return false
+	}
+	// A second edge operator means this is a chain, not one inline label.
+	for _, token := range []string{"-.->", "-->", "==>", "->>", "-->>"} {
+		if strings.Contains(label, token) {
+			return false
+		}
+	}
+	return true
+}
+
+func unprotectedTokenAt(line string, protected []bool, at int, token string) bool {
+	if at < 0 || at+len(token) > len(line) || !strings.HasPrefix(line[at:], token) {
+		return false
+	}
+	for i := at; i < at+len(token); i++ {
+		if protected[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// flowchartProtectedByteSet marks quoted text and node-shape content. Edge
+// operator-like source identities inside those surfaces are display bytes,
+// not Mermaid grammar.
+func flowchartProtectedByteSet(line string) []bool {
+	protected := make([]bool, len(line))
+	var quote byte
+	escaped := false
+	depthSquare, depthParen, depthBrace := 0, 0, 0
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		insideShape := depthSquare > 0 || depthParen > 0 || depthBrace > 0
+		if quote != 0 {
+			protected[i] = true
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' || ch == '`' {
+			protected[i] = true
+			quote = ch
+			continue
+		}
+		if insideShape {
+			protected[i] = true
+		}
+		switch ch {
+		case '[':
+			depthSquare++
+			protected[i] = true
+		case ']':
+			if depthSquare > 0 {
+				depthSquare--
+				protected[i] = true
+			}
+		case '(':
+			depthParen++
+			protected[i] = true
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+				protected[i] = true
+			}
+		case '{':
+			depthBrace++
+			protected[i] = true
+		case '}':
+			if depthBrace > 0 {
+				depthBrace--
+				protected[i] = true
+			}
+		}
+	}
+	return protected
 }
 
 // NormalizeFlowchartRepeatedDotEdges repairs a narrow Mermaid operator typo

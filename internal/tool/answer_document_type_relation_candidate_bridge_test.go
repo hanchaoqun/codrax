@@ -92,6 +92,34 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignment_FlowAliasKeepsExplicitLabelAcr
 	}
 }
 
+func TestPreCheckDiagramCallEdgeEvidenceAlignment_InlineImplementsLabelSurvivesProductionNormalization(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	wireDiagram := &emitAnswerDiagramV2{
+		Kind:     string(types.DiagramArchitecture),
+		Language: "mermaid",
+		Body:     "flowchart TD\n  AE[\"analyzerEvaluator\"] -.implements.-> LC[\"LoopController\"]",
+	}
+	normalizeEmitAnswerDiagram(wireDiagram)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-relations", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid", Body: wireDiagram.Body,
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "AE", ToNode: "LC", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisImplement}
+
+	if strings.Contains(wireDiagram.Body, "codraxNode") ||
+		!strings.Contains(wireDiagram.Body, `AE["analyzerEvaluator"] -.->|implements| LC["LoopController"]`) {
+		t.Fatalf("production normalization changed inline implements topology: %q", wireDiagram.Body)
+	}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("normalized inline implements relation and exact typed anchor must pass together: %+v", hints)
+	}
+}
+
 func TestDiagramEvidenceNodeLabels_TwoExplicitLabelsRemainAmbiguousDespiteBareReference(t *testing.T) {
 	body := strings.Join([]string{
 		"flowchart TD",

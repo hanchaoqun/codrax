@@ -573,6 +573,54 @@ func TestNormalizeSourceForMarkdown_DoesNotMergeChainedPipeLabels(t *testing.T) 
 	}
 }
 
+func TestNormalizeSourceForMarkdown_CanonicalizesInlineEdgeLabelsWithoutChangingTopology(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`  analyzerEval["analyzerEvaluator"] -.implements.-> LoopController["LoopController"]`,
+		`  plannerEval -- implements --> LoopController`,
+		`  hotPath == dominates ==> target`,
+		`  first --> second --continues--> third -.observes.-> fourth`,
+	}, "\n")
+	want := strings.Join([]string{
+		"flowchart TD",
+		`  analyzerEval["analyzerEvaluator"] -.->|implements| LoopController["LoopController"]`,
+		`  plannerEval -->|implements| LoopController`,
+		`  hotPath ==>|dominates| target`,
+		`  first --> second -->|continues| third -.->|observes| fourth`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if got != want {
+		t.Fatalf("inline edge-label repair mismatch:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("inline relation label must not be aliased as a node:\n%s", got)
+	}
+	edges := ParseEdges(got)
+	if len(edges) != 6 ||
+		edges[0].From != "analyzerEval" || edges[0].To != "LoopController" || edges[0].Label != "implements" ||
+		edges[1].From != "plannerEval" || edges[1].To != "LoopController" || edges[1].Label != "implements" ||
+		edges[2].From != "hotPath" || edges[2].To != "target" || edges[2].Label != "dominates" ||
+		edges[3].From != "first" || edges[3].To != "second" ||
+		edges[4].From != "second" || edges[4].To != "third" || edges[4].Label != "continues" ||
+		edges[5].From != "third" || edges[5].To != "fourth" || edges[5].Label != "observes" {
+		t.Fatalf("inline edge-label repair changed semantic topology: %+v", edges)
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("inline edge-label repair must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_DoesNotTreatInlineOperatorBytesInsideLabelsAsEdges(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`  A["literal --implements--> text"] --> B["literal -.calls.-> text"]`,
+		`  C -->|already portable| D`,
+	}, "\n")
+	if got := NormalizeSourceForMarkdown(in); got != in {
+		t.Fatalf("display-label operator bytes must remain untouched:\nwant:\n%s\ngot:\n%s", in, got)
+	}
+}
+
 func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

@@ -603,6 +603,39 @@ func TestNormalizeEmitAnswerBlock_RepairsRepeatedDotOperatorBeforeEndpointAliasi
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RepairsInlineRelationLabelsBeforeEndpointAliasing(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "d1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind:     string(types.DiagramArchitecture),
+			Language: "mermaid",
+			Body: strings.Join([]string{
+				"flowchart TD",
+				`  analyzerEval["analyzerEvaluator"] -.implements.-> LoopController["LoopController"]`,
+				`  plannerEval --implements--> LoopController`,
+			}, "\n"),
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil {
+		t.Fatal("diagram missing")
+	}
+	for _, want := range []string{
+		`analyzerEval["analyzerEvaluator"] -.->|implements| LoopController["LoopController"]`,
+		`plannerEval -->|implements| LoopController`,
+	} {
+		if !strings.Contains(got.Diagram.Body, want) {
+			t.Fatalf("inline relation repair missing %q:\n%s", want, got.Diagram.Body)
+		}
+	}
+	if strings.Contains(got.Diagram.Body, "codraxNode") {
+		t.Fatalf("relation label was reinterpreted as a synthetic endpoint: %q", got.Diagram.Body)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSemanticKind(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "types",

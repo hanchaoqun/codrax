@@ -36345,6 +36345,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.829 r503 / B819：Mermaid 内联关系标签污染端点身份；Rust 静态夹具再次证明不能签行为绿（2026-08-14）
+
+1. 在 `main@58a262036` 重建后严格并发恰好两个异构案例：
+   `qf_type_relation_loop_controller` 228s 机器 PASS / 人工 FAIL，
+   `github_issue_pyo3_iter_nth_overflow_symptom` 226s 机器 FAIL / 人工 fail-safe。
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_relation_rust_r503_20260814_manual_audit.md`。
+2. QF 调查层已完整找到 12 个生产 implementer；模型首稿也自行画出 12 条
+   `implementer -> LoopController`，并为每条边提供同向 `relation_kind=type_relation` anchor。
+   证据、方向、端点和图的业务意图都正确，失败不是关系发现不足或模型漏画。
+3. 新确认 `B819-MERMAIDINLINELABELTOPOLOGY1/P1`：共享 Mermaid 兼容层不识别紧凑内联 link-text
+   `-.implements.->`，把中间标签当成不安全节点并别名为 `codraxNode1`；模型第二轮改成
+   `--implements-->` 后仍同样被拆错。关系门随后同时报告 `missing_relation_anchor` 与
+   `typed_anchor_without_visible_edge`，形成自造的合同矛盾。第三轮模型为通过校验删除全部边，最终只剩节点清单，
+   因而机器词面 PASS 不能代表满足“类型关系图”。
+4. B819 采用语法层统一根修，而非对 `implements` 或本案例做关键词特判：在 endpoint alias、渲染和语义解析前，
+   将普通、虚线、粗线三类 Mermaid 内联 link-text 机械规范化到同一 pipe-label carrier：
+   `--label--> -> -->|label|`、`-.label.-> -> -.->|label|`、`==label==> -> ==>|label|`。
+   端点、方向、线型和标签字节保持；quoted/node-shape 内的源码箭头不参与识别，链式边和既有合法 pipe-label 不变。
+5. 该修复只自愈模型已写出的语法载体，不创建、选择、删除或反向任何 edge/anchor，不读取请求、模型 thought、
+   最终 prose 或业务标签语义。新增 production decode + exact typed provider pin 证明规范化后的
+   `type_relation` 仍由同一 repo-map 精确关系授权；系统不能凭显示标签铸造关系。
+6. Mermaid 兼容、render、preview、tool、agent 全包通过（0.5s/1.6s/0.7s/171.2s/9.2s），
+   `go build ./...` 通过。Trace 路径与 runtime causal authority 零改动，显式时间窗因果投影和自动补齐保持独立。
+7. Rust 写案再次复现已登记的 `B774-WRITEEVALNATIVEPROOF1`。产品执行 `make check` 成功，但命令只有 Python
+   source-shape checker，三条 Rust changed path 的 capability 都是 `source_static`；controller 将模型的
+   `all_verified` 正确收窄为 `accept_unverified/production_verification_source_static_only`，不能为跑批变绿而放宽。
+8. 人工审计进一步证明静态 oracle 不够：模型把四个新增 `#[test]` 插入前一个测试函数内部；checker 仍因看见
+   `usize::MAX`/checked arithmetic 而通过，实际没有任何 Rust 测试执行。下一独立 eval 批应给该 fixture 增加最小
+   可运行 Cargo crate，并让 `make check` 同时执行静态作用域自测和 `cargo test`；产品 verification caliber 不变。
+9. 本轮无畸形 JSON salvage、旧稿回退、空答案、finalizer rewrite、系统代写结论或固定 4ms/4m 活跃流降级。
+   图关系丢失属于确定性系统 gap；Rust 最终未验证属于正确 fail-closed 加 eval 基础设施 gap，不归为模型波动。
+
+状态：
+
+`B819-MERMAIDINLINELABELTOPOLOGY1=implemented/package-suites+build-pass/replay-next`；
+`B774-WRITEEVALNATIVEPROOF1=reconfirmed/eval-fixture-native-runtime-next`；
+`r503-QF=machine-pass/human-fail/relation-deleted-after-system-false-reject`；
+`r503-write=machine-fail/honest-unverified/static-oracle-blind-spot`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
