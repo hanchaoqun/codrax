@@ -3782,6 +3782,64 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 	})
 }
 
+func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRequiredDiagramDimensionCoListsTypedEntities(t *testing.T) {
+	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["pipeline","diagram"],
+		"entities":["BusContext","Mutable","AgentAnalyzer","AgentExplorer","AgentExtractor","AgentFinalizer","Orchestrator"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"codrax read-mode pipeline 的逻辑视图","participants":[]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"Mermaid 架构图","role":"diagram","source_quote":"用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","required":true},
+			{"index":2,"label":"组件责任","role":"stage_or_workflow","source_quote":"简要说明各组件责任","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "participants is explicitly empty") ||
+		!strings.Contains(res.Summary, "[BusContext Mutable]") ||
+		!strings.Contains(res.Summary, "Do not leave the slate empty") {
+		t.Fatalf("empty participant slate must fail with typed cross-field guidance: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected empty participant slate persisted a request model")
+	}
+}
+
+func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEnterTrace(t *testing.T) {
+	base := types.RequestModel{
+		Intent:        types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"pipeline"}},
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{}},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Role: types.RequestedAnswerDimensionDiagram, Required: true, SourceQuote: "draw the pipeline diagram",
+			}},
+		},
+	}
+	if got := validateRequiredDiagramEmptyParticipantSlate(base); got != "" {
+		t.Fatalf("one possible enclosing scope must not become a participant hard gate: %q", got)
+	}
+	trace := base
+	trace.Intent = types.IntentTrace
+	trace.AnalyzerHints.Entities = []string{"threadA", "threadB"}
+	trace.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "draw threadA and threadB"
+	if got := validateRequiredDiagramEmptyParticipantSlate(trace); got != "" {
+		t.Fatalf("Trace must stay on causal-projection contracts: %q", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLackCurrentRequestAuthority(t *testing.T) {
 	mu := types.NewMutableState("explain analyze to finalizer; require a Mermaid sequenceDiagram; show BusContext")
 	payload := `{

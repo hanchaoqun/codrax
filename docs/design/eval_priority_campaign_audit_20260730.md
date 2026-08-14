@@ -35836,6 +35836,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/unchanged`。
 
+### §123.791 r472 / B772：有限状态闭环；空图参与者清单的 typed 交叉矛盾（2026-08-14）
+
+1. 在 `main@3800955f6` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner `2 PASS / 0 FAIL`；人工 H4
+   pass、QF partial。完整记录见 r472 summary 与 manual audit。两案 136s/248s 均产出完整答案，无 JSON
+   string recovery、旧稿降级、空答案或 active-stream 4ms 超龄降级。
+2. B770 获生产正证。H4 Finalizer 首次看到 exact artifact/target/window 的
+   `Trace Target-State Scope Authority`：Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、D=0、
+   IO=0、Total=233.190ms、complete、unaccounted=0。首稿逐项保留五态和八核 roster，零成文拒绝；没有
+   通过相减重建 Sleep，也没有把 blocked-reason 计数改名为整段 D/IO 机制。
+3. H4 的 CPU 频率裁量保持边界：CPU0/CPU4 policy ceiling 是 CPU-owned observation，目标绑定仍
+   unproven，没有宣称 CPU12 受限。一句把 2075MHz 写成 thread-level observed frequency 后又立即限定
+   不能映射具体 CPU，属于次级显示精度，不足以授权系统改写模型结论或为该 case 加硬门。
+4. QF 从 r471 的 6 次拒绝/488s 降到 1 次/248s。首稿的 assignment/call/containment 伪边被正确拒绝；
+   patch 只保留三条已证 stage precedence 与一条已证 call，系统没有造桥。B771 label collision 路径本轮
+   未触发，因为更上游的 Analyzer 发出了 `diagram_hint.participants=[]`。
+5. 虽然 participants 为空，同一个已验证 AnalysisIR 的 required diagram dimension 却复制了明确共列
+   analyzer/explorer/extractor/finalizer 与 Mutable/BusContext 的 source_quote。后续没有 typed actor
+   obligation，因而 patch 删除 Mutable/BusContext 后仍通过；最终正文声称共享状态流，图却漏掉用户明确
+   要求的两个载体。登记 `B772-EMPTYDIAGRAMPARTICIPANTCROSSFIELD1/P1`，这不是模型随机波动，也不是
+   放宽证据门可以解决。
+6. B772 根修只检查 Analyzer 自己的 typed 交叉一致性：非 Trace required diagram、显式空 participant
+   slate、required diagram dimension 的已验证 verbatim source_quote、其中至少两个 analyzer-declared
+   entity 同时成立才 fail-loud。提示让 Analyzer 自己添加逐实体 participant row/选择 role，或在确为范围
+   而非 actor 时收窄 dimension quote。系统不自动加 participant、不定 role、不画节点/边、不选关系。
+7. 阈值为二是必要的 fail-open 边界：单个名称可能只是所画系统或外围范围，不能因一次字符串出现被硬
+   升格为 incident participant。判断只消费 schema-validated typed fields 与 verbatim source quote，
+   不扫描用户原文、模型正文或最终答案；Trace/QFRootCauseTrace 明确绕过，继续走独立因果投影合同。
+8. 新增生产 payload 形的先红回归、单 scope 不猜、Trace 不进入三臂。定向测试已绿；完整 tool 套件与
+   build 通过后单独提交。下一次 QF 回放应先在 Analyzer 阶段拒绝空清单，再验证所有请求参与者或诚实
+   unproven boundary 留在图中；B771 只在模型随后产生唯一 endpoint label collision 时提供精确修法。
+
+状态：`B770-FINITETARGETSTATEAUTHORITY1=production-positive-r472/closed`；
+`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=implemented/not-exercised-r472/pending-production-positive`；
+`B772-EMPTYDIAGRAMPARTICIPANTCROSSFIELD1=implemented/typed-self-consistency/pending-production-replay`；
+`system answer/diagram/participant/edge/relation synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed-r472`。
+
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 
 1. 在 `main@08738bb1f` 重建后严格并发恰好两个案例：

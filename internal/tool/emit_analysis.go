@@ -2118,6 +2118,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	if conflict := validateRequiredDiagramEmptyParticipantSlate(rm); conflict != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conflict,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -2266,6 +2274,55 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 		}
 	}
 	return missing
+}
+
+// validateRequiredDiagramEmptyParticipantSlate catches one precise typed
+// cross-field contradiction without deriving participants from prose.  An
+// explicitly empty participant slate is valid for a generic visual.  It is
+// not self-consistent, however, when a separately schema-validated required
+// diagram dimension copies a current-request quote that co-lists multiple
+// analyzer-declared entities. The source quote itself has already passed the
+// verbatim current-request provenance check.
+//
+// The threshold is deliberately two.  A single entity can be the enclosing
+// system or subject rather than an incident participant; rejecting that shape
+// would turn a semantic guess into a hard gate.  With two or more co-listed
+// typed entities and an empty slate, the analyzer must decide whether to add
+// participant rows (and choose their roles) or narrow the dimension quote.
+// The system does neither, and it never creates a relation or diagram node.
+// Runtime Trace stays on its independent causal-projection contracts.
+func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel) string {
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) != 0 ||
+		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return ""
+	}
+
+	var coListed []string
+	seen := make(map[string]bool)
+	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
+		if !dimension.Required || dimension.Role != types.RequestedAnswerDimensionDiagram ||
+			strings.TrimSpace(dimension.SourceQuote) == "" {
+			continue
+		}
+		for _, rawEntity := range rm.AnalyzerHints.Entities {
+			entity := strings.TrimSpace(rawEntity)
+			key := diagramParticipantProvenanceKey(entity)
+			if entity == "" || key == "" || seen[key] ||
+				!sourceQuoteAnchoredInCurrentRequest(dimension.SourceQuote, entity) {
+				continue
+			}
+			seen[key] = true
+			coListed = append(coListed, entity)
+		}
+	}
+	if len(coListed) < 2 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"diagram_hint.participants is explicitly empty, but a required diagram requested_answer_dimensions source_quote co-lists current-request typed entities %v; decide the relation surface yourself: emit one participant row per intended actor with a verbatim source_quote and role, or narrow the diagram dimension source_quote when those entities are only non-participant scope. Do not leave the slate empty and let later diagram repair erase the requested identities",
+		coListed,
+	)
 }
 
 // normalizeSingleTargetExplicitWindowCausalSubTopics prevents analyzer-authored
