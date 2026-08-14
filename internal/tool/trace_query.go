@@ -8433,6 +8433,33 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
+	if perf := traceQueryResultPrimaryPerfContext(result); perf != nil && perf.SampleCount > 0 {
+		lineStart, lineEnd := traceQueryPerfContextLineRange(perf)
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#perf_sample_statistical_caliber", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+			ClaimKey:        "perf_sample_statistical_caliber",
+			Subject:         "perf_sample_population",
+			Predicate:       "perf_sample_statistical_caliber",
+			Object:          traceQueryPerfObservedRankScope(perf),
+			Value:           strconv.Itoa(perf.SampleCount),
+			Unit:            "samples",
+			Summary:         fmt.Sprintf("observed perf sample population=%d; workload-hotspot inference and temporal coverage are not established by this population alone", perf.SampleCount),
+			RichNotes: traceQueryTypedKVNotes([][2]string{{
+				types.TraceNoteKeyPerfStatisticalCaliber,
+				traceQueryPerfStatisticalCaliber(perf),
+			}}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, lineStart, lineEnd),
+			ObservedAt:  at,
+			Confidence:  1,
+		})
+	}
 
 	if selection := result.ThreadSelection; selection != nil && selection.NameMismatch {
 		subject := traceThreadLabel(selection.Selected)
@@ -9595,6 +9622,75 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	return traceQueryApplyArtifactProvenance(result, out)
+}
+
+func traceQueryResultPrimaryPerfContext(result tracequery.Result) *tracequery.PerfContext {
+	if result.PerfStats != nil && result.PerfStats.SampleCount > 0 {
+		return result.PerfStats
+	}
+	if result.WindowStats != nil && result.WindowStats.PerfSamples != nil && result.WindowStats.PerfSamples.SampleCount > 0 {
+		return result.WindowStats.PerfSamples
+	}
+	if result.FrameRootCauseBundle != nil {
+		for _, perf := range []*tracequery.PerfContext{
+			result.FrameRootCauseBundle.TargetRunningPerf,
+			result.FrameRootCauseBundle.OnChainPerf,
+		} {
+			if perf != nil && perf.SampleCount > 0 {
+				return perf
+			}
+		}
+	}
+	return nil
+}
+
+func traceQueryPerfContextLineRange(perf *tracequery.PerfContext) (int, int) {
+	if perf == nil {
+		return 0, 0
+	}
+	for _, rows := range [][]tracequery.PerfHotspot{perf.TopSymbols, perf.TopDSO, perf.TopCallchains, perf.TopEvents} {
+		for _, row := range rows {
+			if row.LineStart <= 0 && row.LineEnd <= 0 {
+				continue
+			}
+			start, end := row.LineStart, row.LineEnd
+			if start <= 0 {
+				start = end
+			}
+			if end < start {
+				end = start
+			}
+			return start, end
+		}
+	}
+	return 0, 0
+}
+
+func traceQueryPerfObservedRankScope(perf *tracequery.PerfContext) string {
+	if perf == nil || perf.SampleCount <= 0 {
+		return "no_observed_population"
+	}
+	if perf.SampleCount == 1 {
+		return "single_observation_no_comparison"
+	}
+	if len(perf.Cohorts) > 1 || perf.CohortCount > 1 {
+		return "partitioned_same_event_cohorts_only"
+	}
+	return "observed_same_event_cohort_only"
+}
+
+func traceQueryPerfStatisticalCaliber(perf *tracequery.PerfContext) string {
+	if perf == nil {
+		return "none"
+	}
+	return strings.Join([]string{
+		"observed_sample_count=" + strconv.Itoa(perf.SampleCount),
+		"observed_rank_scope=" + traceQueryPerfObservedRankScope(perf),
+		"weight_share_scope=within_observed_same_event_unit_cohort_only_not_elapsed_time_or_cpu_utilization",
+		"workload_hotspot_inference=not_established_by_perf_context_alone",
+		"temporal_coverage_fraction=unavailable",
+		"sampling_design_receipt=not_carried_by_perf_context",
+	}, ",")
 }
 
 func traceQueryTypedIPCRequestCensusObservations(

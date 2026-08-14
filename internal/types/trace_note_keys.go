@@ -1328,7 +1328,11 @@ const (
 	// perf_sample_top_symbol rows; the evaluator's metric-check supplement
 	// (runtimeTracePerfQualityNote) parses BOTH keys back off the wire.
 	TraceNoteKeyPerfQualityCaveats = "perf_quality_caveats"
-	TraceNoteKeyDSO                = "dso"
+	// TraceNoteKeyPerfStatisticalCaliber separates the observed sample
+	// population from workload-hotspot and temporal-coverage inference. It is
+	// consumed only as finalizer guidance; it never gates or rewrites prose.
+	TraceNoteKeyPerfStatisticalCaliber = "perf_statistical_caliber"
+	TraceNoteKeyDSO                    = "dso"
 )
 
 // 路径族 (chain-path family — emit_investigation_complete parses the chain
@@ -2056,6 +2060,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 采样族 (perf).
 	{TraceNoteKeyPerfQuality, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyPerfQualityCaveats, "perf", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyPerfStatisticalCaliber, "perf", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyDSO, "perf", TraceNoteCarrierSoftConsumer},
 	{"perf_context", "perf", TraceNoteCarrierDisplayOnly},
 	{"perf_contexts", "perf", TraceNoteCarrierDisplayOnly},

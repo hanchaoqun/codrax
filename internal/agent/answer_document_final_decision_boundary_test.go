@@ -283,6 +283,44 @@ func TestFinalLogPeerDecisionBoundaryDoesNotApplyToOneError(t *testing.T) {
 	}
 }
 
+func TestFinalPerfSampleStatisticalBoundaryUsesTypedCaliberAndStaysLast(t *testing.T) {
+	mu := types.NewMutableState("inspect perf samples")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{{
+			ID: "perf-caliber", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace"},
+			ClaimKey:  "perf_sample_statistical_caliber", Subject: "perf_sample_population",
+			Predicate: "perf_sample_statistical_caliber", Object: "single_observation_no_comparison",
+			Value: "1", Unit: "samples",
+			RichNotes: []string{types.TraceNoteKeyPerfStatisticalCaliber + "=observed_sample_count=1,observed_rank_scope=single_observation_no_comparison,weight_share_scope=within_observed_same_event_unit_cohort_only_not_elapsed_time_or_cpu_utilization,workload_hotspot_inference=not_established_by_perf_context_alone,temporal_coverage_fraction=unavailable,sampling_design_receipt=not_carried_by_perf_context"},
+		}},
+	}}})
+	ctx := &types.AgentContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, Scenario: types.ScenarioPerformanceBottleneck,
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+	}}}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Final Perf-Sample Statistical Boundary (Typed Facts; Model-Owned Conclusion)",
+		"observed_sample_count=`1`",
+		"observed_rank_scope=`single_observation_no_comparison`",
+		"not CPU utilization",
+		"rather than a comparative workload hotspot",
+		"workload-hotspot confidence and temporal coverage remain unavailable",
+		"The final explanation remains model-authored",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("perf statistical boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.LastIndex(prompt, "## Final Perf-Sample Statistical Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {
+		t.Fatalf("perf statistical boundary must follow generic guidance:\n%s", prompt)
+	}
+}
+
 func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAttribution(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		ArtifactLabel: "customer.systrace",

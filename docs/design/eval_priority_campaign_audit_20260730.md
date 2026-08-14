@@ -35813,6 +35813,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.814 B805 施工：perf 观察分布与时间/利用率/热点推断分轴（2026-08-14）
+
+1. `trace_query` 现在从自身 typed `PerfContext` 发布
+   `perf_sample_statistical_caliber` observation，不读取用户/模型/答案 prose。载体包含精确
+   `observed_sample_count`、`observed_rank_scope`，并显式声明 weight share 只属于同 event/unit 的
+   observed cohort，不能替代 elapsed time、CPU utilization 或 temporal profiler coverage。
+2. 统计推断权限独立披露：`workload_hotspot_inference=not_established_by_perf_context_alone`、
+   `temporal_coverage_fraction=unavailable`、`sampling_design_receipt=not_carried_by_perf_context`。
+   单样本形进一步铸为 `single_observation_no_comparison`；模型可报告一次 IP/DSO 命中，但不能因唯一
+   行加冕比较意义上的 workload hotspot。
+3. finalizer 在通用展示教学之后重放该 typed caliber：样本数是观察数，top-row percent/sample weight
+   是 observed cohort 内份额/权重，不是 8ms Running 的占比。它是 soft guidance；不检查最终正文
+   关键词、不拒绝模型结论、不删除/替换答案。AnswerDocument JSON schema 未增加模型必填字段。
+4. typed producer pin、note-key registry/golden、finalizer 尾部接线与 model-ownership pin 均通过；
+   `internal/types`、`internal/agent`、`internal/tool` 完整包通过。生产是否消除“cycles≈CPU 占用比例”
+   留待下一次恰好双并发回放，不能以单测虚报。
+5. 本批不改变 perf 原始 weight/percent 计算，不把采样统计升级为 Trace 主因；显式时间窗、因果投影/
+   自动补齐、链上根因/背景角色及 active stream 策略保持不变。
+
+状态：
+
+`B805-PERFSAMPLECALIBER1=implemented/full-package-pass/replay-next`；
+`B806-RUNTIMERELATIONASSERT1=clean-context-model-contradiction/soft-guidance-next`；
+`active-stream-4ms-degrade=forbidden/not-observed-r492`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

@@ -211,6 +211,38 @@ func renderAnswerDocLogPeerFinalDecisionBoundary(ctx *types.AgentContext) string
 		"- Answer the requested per-error/frame dimensions from the typed occurrences. If relationship attribution matters, keep the cross-error relationship unproven or present it only as a follow-up hypothesis. The final wording and conclusion remain model-authored.\n\n"
 }
 
+// renderAnswerDocPerfSampleStatisticalBoundary gives the answer model the
+// producer-owned statistical caliber after generic presentation guidance. It
+// consumes only a typed trace_query observation and never inspects or changes
+// user/model/final prose.
+func renderAnswerDocPerfSampleStatisticalBoundary(ctx *types.AgentContext) string {
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, 1))
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			record.Predicate != "perf_sample_statistical_caliber" {
+			continue
+		}
+		caliber := ""
+		prefix := types.TraceNoteKeyPerfStatisticalCaliber + "="
+		for _, note := range record.RichNotes {
+			if strings.HasPrefix(strings.TrimSpace(note), prefix) {
+				caliber = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(note), prefix))
+				break
+			}
+		}
+		if caliber == "" {
+			continue
+		}
+		return "## Final Perf-Sample Statistical Boundary (Typed Facts; Model-Owned Conclusion)\n\n" +
+			"- observed_sample_count=`" + record.Value + "`; unit=`" + record.Unit + "`; observed_rank_scope=`" + record.Object + "`.\n" +
+			"- statistical_caliber=`" + caliber + "`.\n" +
+			"- A sample count is an observation count, not elapsed-time coverage. A top-row percentage or sample weight is scoped to the observed same-event/unit cohort; it is not CPU utilization, a fraction of scheduler running time, or temporal profiler coverage.\n" +
+			"- With one observation, report the observed IP/module as one hit rather than a comparative workload hotspot. Without a sampling-design/representativeness receipt, workload-hotspot confidence and temporal coverage remain unavailable. The final explanation remains model-authored.\n\n"
+	}
+	return ""
+}
+
 func answerDocLogPeerRelationUnproven(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false

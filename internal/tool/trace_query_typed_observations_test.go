@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -814,6 +815,39 @@ func TestTraceQueryTypedObservationsScopeSuffixKeepsMultiWindowIDsDistinct(t *te
 	}
 	if !strings.Contains(a[0].ID, ":w1#") || !strings.Contains(b[0].ID, ":w2#") {
 		t.Fatalf("window scope suffix missing: %q / %q", a[0].ID, b[0].ID)
+	}
+}
+
+func TestTraceQueryTypedObservationsPublishPerfStatisticalCaliber(t *testing.T) {
+	result := tracequery.Result{
+		View:       "window_stats",
+		SourcePath: "/traces/raw.perftrace",
+		WindowStats: &tracequery.WindowStats{PerfSamples: &tracequery.PerfContext{
+			SampleCount: 1,
+			CohortCount: 1,
+			TopSymbols: []tracequery.PerfHotspot{{
+				Symbol: "0x1234", DSO: "libraw.so", SampleCount: 1, Period: 9000,
+				LineStart: 4, LineEnd: 4,
+			}},
+		}},
+	}
+	rows := traceQueryTypedObservations(result, "path", "/blobs/perf.json", "", "", time.Now())
+	var got *types.ObservationRecord
+	for i := range rows {
+		if rows[i].Predicate == "perf_sample_statistical_caliber" {
+			got = &rows[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("typed perf statistical caliber missing: %+v", rows)
+	}
+	if got.Value != "1" || got.Unit != "samples" || got.Object != "single_observation_no_comparison" || got.Span.LineStart != 4 {
+		t.Fatalf("typed perf statistical caliber fields drifted: %+v", got)
+	}
+	want := types.TraceNoteKeyPerfStatisticalCaliber + "=observed_sample_count=1,observed_rank_scope=single_observation_no_comparison,weight_share_scope=within_observed_same_event_unit_cohort_only_not_elapsed_time_or_cpu_utilization,workload_hotspot_inference=not_established_by_perf_context_alone,temporal_coverage_fraction=unavailable,sampling_design_receipt=not_carried_by_perf_context"
+	if !slices.Contains(got.RichNotes, want) {
+		t.Fatalf("typed perf statistical caliber note drifted: %+v", got.RichNotes)
 	}
 }
 
