@@ -248,6 +248,65 @@ func renderAnswerDocPerfSampleStatisticalBoundary(ctx *types.AgentContext) strin
 	return ""
 }
 
+// renderAnswerDocTargetCPUIdentityBoundary publishes the deterministic
+// scheduler CPU roster at the final decision tail. It prevents ftrace's
+// task/PID field from competing with the actual [CPU] column without reading
+// or rewriting model prose. A migration conclusion still belongs to the model
+// and requires typed multi-CPU or migration evidence.
+func renderAnswerDocTargetCPUIdentityBoundary(ctx *types.AgentContext) string {
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, 1))
+	type cpuRow struct {
+		subject    string
+		object     string
+		value      string
+		unit       string
+		roster     string
+		assignment string
+	}
+	seen := map[string]bool{}
+	rows := make([]cpuRow, 0)
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			record.Predicate != "target_cpu_running" ||
+			strings.TrimSpace(record.Subject) == "" || strings.TrimSpace(record.Object) == "" {
+			continue
+		}
+		row := cpuRow{
+			subject:    strings.TrimSpace(record.Subject),
+			object:     strings.TrimSpace(record.Object),
+			value:      strings.TrimSpace(record.Value),
+			unit:       strings.TrimSpace(record.Unit),
+			roster:     strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus)),
+			assignment: strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningAssignmentStatus)),
+		}
+		key := strings.Join([]string{row.subject, row.object, row.value, row.unit, row.roster, row.assignment}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].subject != rows[j].subject {
+			return rows[i].subject < rows[j].subject
+		}
+		return rows[i].object < rows[j].object
+	})
+	var b strings.Builder
+	b.WriteString("## Final Target CPU Identity Boundary (Typed Facts; Model-Owned Conclusion)\n\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- target=`%s`; scheduler_cpu=`%s`; running=`%s%s`; roster_status=`%s`; assignment_status=`%s`.\n",
+			row.subject, row.object, row.value, row.unit, firstNonEmpty(row.roster, "unknown"), firstNonEmpty(row.assignment, "unknown"))
+	}
+	b.WriteString("- ftrace_header_identity: the task header's parenthesized numeric field is PID/TGID identity, not a CPU number. Scheduler CPU identity comes from the `[NNN]` CPU column and deterministic target CPU rows; perf-sample CPU identity comes from an explicit typed `cpu=` field when `cpu_known=true`.\n")
+	b.WriteString("- migration_evidence_boundary: do not infer CPU migration by comparing PID/TGID with a CPU field. A migration statement requires a typed migration event or compatible target-running rows on multiple CPUs. The final explanation remains model-authored.\n\n")
+	return b.String()
+}
+
 func answerDocLogPeerRelationUnproven(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false

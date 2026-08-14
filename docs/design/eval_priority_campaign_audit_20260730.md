@@ -35888,6 +35888,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace-causal-projection/auto-supplement=unchanged`；
 `active-stream-fixed-age-degrade=not-observed`。
 
+### §123.818 r495 / B810：ftrace task PID/TGID 与 CPU 列竞争导致伪迁移（2026-08-14）
+
+1. 在 `main@8d7b0c2b9` 严格并发恰好两个案例；机器均 PASS：
+   `trace_query_perf_quality_raw_fallback` 115s，`harmony/hilog_mixed_arkts_cangjie` 116s。
+2. B809 生产接线通过：日志 explorer 收到 `Typed Peer-Error Fact Scope`，closure 改为两条独立 error facts 并明确
+   `cross_error_relation=unproven`。finalizer 也收到 bounded-fact/no-causal-attribution 尾边界。模型最终仍补了
+   “观察性传播推断”；在 typed 上下文已一致且正文硬扫/系统改写禁止的前提下，该项降为模型行为观察，停止
+   同类型继续硬化，后续只接受跨案例证明的通用教学改进。
+3. Trace 人工 FAIL 暴露 B810：原始 ftrace `raw-21 (20) [005]` 中 `(20)` 是 PID/TGID，`[005]` 才是
+   scheduler CPU；perf sample 也显式 `cpu=5 cpu_known=true`，三份 deterministic
+   `target_cpu_running:raw-21:cpu5` 都给出 8.000ms、roster/assignment complete。finalizer 却把 `(20)` 当
+   CPU20，虚构 CPU20→CPU5 migration；随后软 fact appendix 又因正文出现 CPU20 而发射无关频率缺失行。
+4. B810 泛化根修：finalizer 新增 typed Target CPU Identity Boundary，直接枚举 deterministic
+   `target_cpu_running` roster，并阐明 ftrace header 的括号数字是 PID/TGID、`[NNN]`/显式 `cpu=` 才有 CPU
+   权限；迁移结论必须来自 typed migration event 或兼容的多 CPU target rows。该边界不读取/修改模型正文。
+5. r495 另见 JSON 心智负担：混合日志 analyzer 因 fact-family enum 被误放进 answer-dimension role、缺 scenario
+   共 3 次 emit；explorer 首次 aggregate_facts 的 `member_notes` JSON 形状错误后补发。已记录为跨语言 JSON
+   教学/投影 schema 后续观察，不在本样例继续加专用修补。
+
+状态：
+
+`B809-PEERBOUNDEDSCOPE1=implemented+production-connected/model-watch`；
+`B810-TARGETCPUIDAUTH1=implemented+targeted-and-package-green`；
+`B805-PERFSAMPLECALIBER1=production-pass-3x`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+`active-stream-fixed-age-degrade=not-observed`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

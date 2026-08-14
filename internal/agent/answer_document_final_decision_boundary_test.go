@@ -275,6 +275,43 @@ func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsMod
 	}
 }
 
+func TestFinalTargetCPUIdentityBoundaryKeepsPIDOutOfCPUAuthority(t *testing.T) {
+	mu := types.NewMutableState("inspect target CPU placement")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:test#target_cpu_running:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Subject:   "raw-21",
+			Predicate: "target_cpu_running",
+			Object:    "cpu=5",
+			Value:     "8.000",
+			Unit:      "ms",
+			RichNotes: []string{"target_cpu_running_roster_status=complete", "target_cpu_running_assignment_status=complete"},
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	got := renderAnswerDocTargetCPUIdentityBoundary(ctx)
+	for _, want := range []string{
+		"## Final Target CPU Identity Boundary (Typed Facts; Model-Owned Conclusion)",
+		"target=`raw-21`; scheduler_cpu=`cpu=5`; running=`8.000ms`",
+		"roster_status=`complete`; assignment_status=`complete`",
+		"parenthesized numeric field is PID/TGID identity, not a CPU number",
+		"do not infer CPU migration by comparing PID/TGID with a CPU field",
+		"The final explanation remains model-authored",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("target CPU identity boundary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "CPU20") || strings.Contains(got, "cpu=20") {
+		t.Fatalf("PID/TGID must not mint an unobserved CPU identity:\n%s", got)
+	}
+}
+
 func TestFinalLogPeerDecisionBoundaryDoesNotApplyToOneError(t *testing.T) {
 	mu := types.NewMutableState("inspect one runtime error")
 	mu.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "cangjie_panic"}}})

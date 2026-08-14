@@ -930,6 +930,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "runtime_target_cpu_identity_boundary", func() string {
+		return renderAnswerDocTargetCPUIdentityBoundary(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "runtime_trace_final_decision_boundary", func() string {
 		return renderAnswerDocTraceFinalDecisionBoundary(ctx)
 	}) {
