@@ -260,6 +260,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// schema for blocks); R4 sanitization always applies.
 		return failStrictDecode(t.Name(), now, err, answerDocumentV2MisplacedHints, params)
 	}
+	if changed, fields := inheritMissingPatchReplacementKinds(prev, p.ReplaceBlocks); changed {
+		logging.Warning("[emit_answer_document_patch] inherited omitted replacement block kind from exact previous block id: %s",
+			strings.Join(fields, ", "))
+	}
 
 	// Fused-block split runs on the raw lists BEFORE typed
 	// conversion (the normalize loop's discriminator repair destroys
@@ -383,6 +387,45 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// inheritMissingPatchReplacementKinds removes one recurrent retry-only JSON
+// burden without weakening block validation. A replacement already names the
+// exact previous block whose display/typed payload it supersedes; when its kind
+// is omitted, retaining that previous enum is the only non-invented shape. An
+// explicit valid/invalid kind remains model-owned, unknown ids still flow to
+// the add-block tolerance and fail without a kind, and add_blocks never inherit.
+func inheritMissingPatchReplacementKinds(prev *types.AnswerDocumentV2, blocks []emitAnswerBlockV2) (bool, []string) {
+	if prev == nil || len(blocks) == 0 {
+		return false, nil
+	}
+	previousKinds := make(map[string]types.AnswerBlockKind, len(prev.Blocks))
+	ambiguous := make(map[string]bool)
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := previousKinds[id]; exists {
+			ambiguous[id] = true
+			continue
+		}
+		previousKinds[id] = block.Kind
+	}
+	var fields []string
+	for i := range blocks {
+		id := strings.TrimSpace(blocks[i].ID)
+		if strings.TrimSpace(blocks[i].Kind) != "" || id == "" || ambiguous[id] {
+			continue
+		}
+		kind, ok := previousKinds[id]
+		if !ok || !types.IsValidAnswerBlockKind(kind) {
+			continue
+		}
+		blocks[i].Kind = string(kind)
+		fields = append(fields, fmt.Sprintf("replace_blocks[%d].kind=%s", i, kind))
+	}
+	return len(fields) > 0, fields
 }
 
 // unchanged_block_ids is deliberately a block-level preservation surface.

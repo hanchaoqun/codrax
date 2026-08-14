@@ -406,6 +406,38 @@ func TestEmitAnswerDocumentPatch_ReplaceBlock(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_InheritsMissingKindForExactReplacementID(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"replace_blocks":[{
+			"id":"s1",
+			"text":"replacement summary"
+		}]
+	}`)
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("exact replacement should inherit the previous block kind: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 || doc.Blocks[0].Kind != types.BlockSummary || doc.Blocks[0].Text != "replacement summary" {
+		t.Fatalf("replacement kind/content mismatch: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_MissingKindDoesNotAuthorizeUnknownReplacementOrAdd(t *testing.T) {
+	for _, params := range []json.RawMessage{
+		json.RawMessage(`{"replace_blocks":[{"id":"unknown","text":"new"}]}`),
+		json.RawMessage(`{"add_blocks":[{"id":"new","text":"new"}]}`),
+	} {
+		bus := newPatchTestBusContext()
+		res, _ := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+		if res.Success || !strings.Contains(res.Summary, `kind="" is not a valid block kind`) {
+			t.Fatalf("missing kind outside exact replacement must remain rejected: success=%t summary=%s", res.Success, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatch_PreservesTableTrailingProse(t *testing.T) {
 	bus := &types.BusContext{Mutable: &types.MutableState{}}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

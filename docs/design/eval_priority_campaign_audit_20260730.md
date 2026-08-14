@@ -38039,6 +38039,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；
 adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`。
 
+### §123.750 r460：typed receipt 只认 n# 的生产断层；有限影响分类持续漂移（2026-08-13）
+
+1. 在 `main@e076e149c` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工
+   均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_typed_receipt_replay_r460_20260813_manual_audit.md`。
+2. 代码图确认 B752 在生产仍是 partial。finalizer 收到三组 typed component fragments，但模型用
+   `Analyzer/Explorer/...`、`Orchestrator_Run/runAnalyzePhase` 等业务可读 node id 重画，没有照抄
+   recipe 的 `n#`。旧 receipt normalizer 只接受同 node-id key，因此一次 exact identity 都没补；
+   三条 precedence 与一条 call 最终靠可见技术标签通过，data-flow 的 dotted endpoint 又被 Mermaid
+   compatibility 层改成 `codraxNode1`，validator 仍拿不同表示对比并拒绝。模型最终删除该真边，
+   自动 PASS 的最小 edge-count oracle 未识别语义缩水。
+3. B754 根修不读取业务 label、用户输入或模型正文。它把模型已经提交且 body 中真实存在的
+   `edge_anchors` 按弱连通分量建成 relation-labelled directed graph，并与 dispatch-scoped typed
+   recipe receipt 的分量做完整图同构；仅当 node count、edge count、每节点入/出/self relation
+   signature、方向、relation_kind 和已有完整 identity 约束全部一致，且某边在所有合法映射下只
+   对应一个 exact identity pair 时才补齐。子图、反向边、额外边、半对 identity、两个同构 receipt
+   分量或多 identity pair 均不修并继续 fail-closed。系统仍不增删/改向边，不改 label、正文或结论。
+4. 同轮 4 次成文拒绝中另有一次 `replace_blocks[id=diagram-pipeline]` 漏 `kind`。B754 在 patch decode
+   后只对 exact previous block id 且 kind 为空的 replacement 继承旧 block-kind enum；显式合法/非法
+   kind 不改，unknown replacement、add block 和重复/歧义 id 不继承。该自愈只减少 JSON 心智，
+   不把 field merge 合法化，也不改变整块替换语义。
+5. Trace 正文完整保留 selected-window 四态、CPU4 2.10GHz direct policy limit、供给折算与
+   `target binding unproven`；没有生成完整 Trace 因果投影。Runner FAIL 是旧正则不接受
+   `d_state + io_wait（D 状态） | 0ms` 的表格形，属于 eval 假阴性。正文把 bounded 查询称作
+   “#1 根因席位”且频率结论层次偏拥挤，人工仍为 partial，不能因 oracle 假阴性直接签 pass。
+6. Analyzer 两次 emission 均选择 `bounded_fact_set`；第二次已正确发
+   `target_scheduler_state/count_or_duration/frequency_residency` 和三个 finite dimensions，却仍把
+   “目标的运行频率是否受约束”并入 observed_value。这是 B753 的第二个 production witness，
+   从 replay-required 升为 confirmed/persistent。下一批只改 schema/skill 的通用 role/scope 教学：
+   被动问“指定 target/outcome 是否受约束/绑定/影响”即使机制尚未知，也必须保留
+   causal_attribution；一个有限 target verdict 走 bounded_effect_verdict，根因榜/竞争贡献者才走
+   causal_diagnosis。不得从原文关键词做硬门，也不得由系统替模型决定结论。
+7. 活跃字节流红线复核不变：连接每次交付原始字节都刷新 liveness；4ms 内还没有完整 JSON/SSE/
+   answer 绝不授权降级。只有 caller cancel/deadline、无首字节、byte-stall、transport/decode failure
+   可终止或进入明确披露的恢复；本轮两案均未观察到 active-stream 降级。
+8. 本批不改 Read/Trace 的证据所有权。显式时间窗、完整 causal-diagnosis 的 Trace 因果投影与自动
+   补齐、链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索双轴均保持；
+   邻近/背景只能支撑额外排查，系统不代写模型结论。
+
+状态：
+
+`B752-DIAGRAMTYPEDRECIPEIDENTITYRECEIPT1=production-partial/exact-node-only`；
+`B754-DIAGRAMTYPEDRECEIPTTOPOLOGY1=implemented/unique-labelled-graph-isomorphism+negative-pins`；
+`B754-PATCHKINDINHERIT1=implemented/exact-prev-id-only+negative-pins`；
+`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=confirmed/P2/persistent/no-prose-keyword-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.723 r409：累计补证车道漂移根修；图保留正证与活跃流 4ms 专审（2026-08-12）
 
 1. 在 `main@d015d6116` 严格并发恰好两个案例：

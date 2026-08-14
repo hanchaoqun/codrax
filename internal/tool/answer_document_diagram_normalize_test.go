@@ -154,6 +154,77 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPreservesBusinessLa
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesMapsUniqueBusinessTopology(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "business-topology", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  prepare["理解请求"] -->|precedence| inspect["查找证据"]`,
+			`  inspect -->|precedence| distill["整理事实"]`,
+			`  distill -->|precedence| answer["形成回答"]`,
+			`  dispatch["安排阶段"] -->|call| worker["执行阶段"]`,
+			`  value["分析结果"] -->|data_flow| context["共享上下文"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "prepare", ToNode: "inspect", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "inspect", ToNode: "distill", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "distill", ToNode: "answer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "dispatch", ToNode: "worker", RelationKind: types.DiagramRelCall},
+			{FromNode: "value", ToNode: "context", RelationKind: types.DiagramRelDataFlow},
+		},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "n2", ToNode: "n3", FromIdentity: "Explorer", ToIdentity: "Extractor", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "n3", ToNode: "n4", FromIdentity: "Extractor", ToIdentity: "Finalizer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "n5", ToNode: "n6", FromIdentity: "Orchestrator.Run", ToIdentity: "Orchestrator.runAnalyzePhase", RelationKind: types.DiagramRelCall},
+		{FromNode: "n7", ToNode: "n8", FromIdentity: "out.AnalysisIR", ToIdentity: "o.busCtx.AnalysisIR", RelationKind: types.DiagramRelDataFlow},
+	}
+	originalBody := doc.Blocks[0].Diagram.Body
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 5 {
+		t.Fatalf("fixed=%d, want all five identities restored by unique typed topology", fixed)
+	}
+	for i, want := range recipes {
+		got := doc.Blocks[0].EdgeAnchors[i]
+		if got.FromIdentity != want.FromIdentity || got.ToIdentity != want.ToIdentity {
+			t.Fatalf("anchor[%d]=%+v, want identity pair %q -> %q", i, got, want.FromIdentity, want.ToIdentity)
+		}
+	}
+	if doc.Blocks[0].Diagram.Body != originalBody {
+		t.Fatalf("topology receipt must not rewrite model-authored business labels:\n%s", doc.Blocks[0].Diagram.Body)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesTopologyAmbiguityFailsClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "ambiguous-business-edge", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n  caller --> callee\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "A.run", ToIdentity: "B.run", RelationKind: types.DiagramRelCall},
+		{FromNode: "n3", ToNode: "n4", FromIdentity: "C.run", ToIdentity: "D.run", RelationKind: types.DiagramRelCall},
+	}
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 || doc.Blocks[0].EdgeAnchors[0].HasEndpointIdentityPair() {
+		t.Fatalf("two isomorphic typed components must remain fail-closed: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPartialTopologyFailsClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "partial-chain", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n  first --> second\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "first", ToNode: "second", RelationKind: types.DiagramRelPrecedence}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "n2", ToNode: "n3", FromIdentity: "Explorer", ToIdentity: "Extractor", RelationKind: types.DiagramRelPrecedence},
+	}
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 {
+		t.Fatalf("a strict subgraph must not borrow an edge identity from a larger typed component: fixed=%d", fixed)
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesFailsClosed(t *testing.T) {
 	newDoc := func() *types.AnswerDocumentV2 {
 		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
@@ -218,6 +289,40 @@ func TestNormalizeAnswerDocumentForPreEmitWiresTypedRecipeIdentityRepair(t *test
 	}
 	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 1 {
 		t.Fatalf("production repair accounting missing: %+v", pctx.repairCounts)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmitWiresUniqueTopologyAfterMermaidAliasRepair(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("render a business-facing architecture diagram")}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n5", ToNode: "n6", FromIdentity: "Orchestrator.Run", ToIdentity: "Orchestrator.runAnalyzePhase", RelationKind: types.DiagramRelCall},
+		{FromNode: "n7", ToNode: "n8", FromIdentity: "out.AnalysisIR", ToIdentity: "o.busCtx.AnalysisIR", RelationKind: types.DiagramRelDataFlow},
+	}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors(recipes)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "dispatch", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  dispatch["安排分析"] -->|call| worker["执行分析"]`,
+			`  result["分析结果"] -->|data_flow| codraxNode1["共享上下文"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "dispatch", ToNode: "worker", RelationKind: types.DiagramRelCall},
+			{FromNode: "result", ToNode: "codraxNode1", RelationKind: types.DiagramRelDataFlow},
+		},
+	}}}
+	pctx := newPreEmitCheckContext(bus)
+	normalizeAnswerDocumentForPreEmit("emit_answer_document_patch", doc,
+		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}, bus, pctx)
+	for i, want := range recipes {
+		got := doc.Blocks[0].EdgeAnchors[i]
+		if got.FromIdentity != want.FromIdentity || got.ToIdentity != want.ToIdentity {
+			t.Fatalf("production topology receipt anchor[%d]=%+v, want %q -> %q", i, got, want.FromIdentity, want.ToIdentity)
+		}
+	}
+	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 2 {
+		t.Fatalf("production topology repair accounting missing: %+v", pctx.repairCounts)
 	}
 }
 
