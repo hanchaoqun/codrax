@@ -6179,7 +6179,11 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		return nil, "diagram_hint.relation_scope_quote is empty — copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and actor scope", nil
 	}
 	if relationScopeQuote != "" && !sourceQuoteAnchoredInCurrentRequest(rawRequest, relationScopeQuote) {
-		return nil, "diagram_hint.relation_scope_quote must be copied verbatim from the CURRENT request", nil
+		if required {
+			return nil, "diagram_hint.relation_scope_quote must be copied verbatim from the CURRENT request", nil
+		}
+		warnings = append(warnings, "cleared optional diagram_hint.relation_scope_quote because it is not anchored in the CURRENT request; optional presentation guidance cannot create a retry or hard relation scope")
+		relationScopeQuote = ""
 	}
 	if p.Participants == nil {
 		return nil, "diagram_hint.participants is missing — emit an explicit empty array when the CURRENT request names no participant identities; otherwise copy only the explicitly named identities", nil
@@ -6205,10 +6209,24 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 				))
 				continue
 			}
+			if !required {
+				warnings = append(warnings, fmt.Sprintf(
+					"dropped optional diagram participant %q because source_quote is empty; optional presentation guidance cannot create a retry",
+					identity,
+				))
+				continue
+			}
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote is empty — copy the shortest verbatim CURRENT-request phrase containing %q", i, identity), warnings
 		}
 		if !sourceQuoteAnchoredInCurrentRequest(rawRequest, sourceQuote) {
 			if sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+				if !required {
+					warnings = append(warnings, fmt.Sprintf(
+						"dropped optional diagram participant %q because source_quote is not anchored in the CURRENT request; optional presentation guidance cannot create a retry",
+						identity,
+					))
+					continue
+				}
 				return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request and contain identity %q", i, identity), warnings
 			}
 			// Participant rows are planning guidance, not diagram-shape
@@ -6224,6 +6242,13 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 			continue
 		}
 		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
+			if !required {
+				warnings = append(warnings, fmt.Sprintf(
+					"dropped optional diagram participant %q because source_quote does not contain the identity; optional presentation guidance cannot create a retry",
+					identity,
+				))
+				continue
+			}
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
 		if required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {

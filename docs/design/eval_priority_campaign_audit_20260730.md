@@ -36416,6 +36416,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.808 r488：完整 Trace 投影生产正证；可选图来源瑕疵不再绑架整轮分析（2026-08-14）
+
+1. 在 `main@62958bb78` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + trace_query_state_churn_root_cause_rank`。Runner `2 PASS / 2`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_scoped_endpoint_trace_r488_20260814_manual_audit.md`。
+2. qf 最终正确给出真实双入拓扑 `buildAnalysisIR -> gate.RunWith <- gate.Run`，明确从
+   `buildAnalysisIR` 到 `gate.Run` 没有定向调用路径，并保留 Mermaid 与关键中间函数清单。但 Analyzer
+   本轮直接发出完整 source/sink，旧 exact-mode 归一化已足以工作；B797 的空 participant fallback 没有
+   被生产命中，仍只能记 `production-replay-pending`。4 次 completion、1 次成文拒绝及
+   `shared-callee` 等内部词继续归入 B796 效率/展示观察，不做答案原文硬门。
+3. Trace 获关键正证：Analyzer 最终选择 `root_cause + causal_diagnosis`，只调用一次
+   `trace_query root_cause_rank`，系统形成一份完整 Trace 因果投影。模型把 app-20 的 runnable 5ms 作为
+   链上首因和调度供给修向；rival-30 与 7.7 cpu·ms CPU pressure 明确留在背景，不越权加冕。Running
+   3ms、Runnable 5ms、Sleep/D/IO=0、20 fragments/19 switches、最大 0.5ms 片段均有 typed 支持。
+4. 人工仍判 partial：导语把 20 fragments 写成“20 次切换”而明细正确为 19 switches；prio=53 的 RT
+   语义却被描述为 CFS；S/D/IO 状态为零也不能广泛证明不存在所有锁/条件变量/IO 原因。它们是模型成文
+   对精确上下文的使用瑕疵，不能让系统替写结论，也不能以答案词面扫描加硬门；继续异构回放后再决定软教学。
+5. 新确认 `B799-OPTIONALDIAGRAMPROVENANCERETRY1/P1`。该 Trace 请求并未授权 hard diagram，精确
+   out-of-band authority 已把模型误发的 `diagram_hint.required=true` 降为 optional；但旧 parser 随后仍因
+   `app-20` 和 `CPU 001` participant 的 `source_quote` 不含完整 identity 连续拒绝两轮。可选展示指导因此
+   压倒 runtime 主合同，增加 JSON 心智和成文前延迟；第三次 `causal_diagnosis + fact_families` 的 typed
+   breadth 冲突则是正确拒绝，必须保留。
+6. 根修保持同一 provenance seam 的权威分层：required 图的 relation scope，以及题设已锚定 participant
+   的缺失/错误 source quote，继续逐字 fail-loud；题设外推断 participant 仍按既有行为只丢该行。optional
+   图若 relation scope 未锚定则清空，单个 participant 的空、未锚定或 identity 不在 quote 中则只丢该行，
+   并发布 auditable warning。该修复不新增 participant、关系、图、调查事实、答案或结论，不读取模型推理/
+   最终答案，也不把嘈声关键词用于硬判。
+7. 新增两条正 pin 覆盖 hard-required 被降为 optional 后的多行 drop、原生 optional 的未锚定 scope clear；
+   既有 required 来源歧义/缺失拒绝测试保持通过。Trace 查询、投影编译和自动补齐零改动：显式时间窗本身
+   不强制投影，但本案真实 causal-diagnosis 完整投影必须保留；链上-only 主因、邻近/背景 support-only、
+   优先级反转、调度/算力供给、D/IO、确定性优化、实际占时/规则可消双轴和业务线索均保持。
+8. 两案都没有空答案、旧稿恢复、畸形 JSON 尽力抽取或 active-stream 的 4ms/4m/固定总年龄降级。活跃字节
+   继续只受 caller cancel/deadline、无首字节、byte-stall、transport/decode failure 约束。
+
+状态：
+
+`B797-REQUIREDRELATIONSCOPEENDPOINTPARITY1=implemented/pinned/production-replay-pending`；
+`B799-OPTIONALDIAGRAMPROVENANCERETRY1=implemented/optional-drop+required-strict+pinned`；
+`B796-VISIBLEINTERNALTERMANDPROSEMISMATCH1=P2-observe/no-prose-hard-gate`；
+`Trace causal-diagnosis projection/auto-supplement=production-positive-r488`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

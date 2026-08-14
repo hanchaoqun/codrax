@@ -3763,6 +3763,56 @@ func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	}
 }
 
+func TestParseDiagramHintDropsInvalidOptionalProvenanceAfterHardRequirementDemotion(t *testing.T) {
+	required := true
+	participants := []emitDiagramParticipantParam{
+		{Identity: "app-20", Role: "incident_required", SourceQuote: "app-20 (20)"},
+		{Identity: "CPU 001", Role: "context_only", SourceQuote: "同 CPU 竞争"},
+	}
+	raw := "app-20 和 rival-30 频繁短片段切换；下一步应看同 CPU 竞争"
+
+	got, reason, warnings := parseDiagramHint(raw, &emitDiagramHintParam{
+		Kind:               "sequence",
+		Required:           &required,
+		RelationScopeQuote: "app-20 和 rival-30 频繁短片段切换",
+		Participants:       &participants,
+	}, false)
+	if reason != "" || got == nil {
+		t.Fatalf("invalid optional participant guidance should be dropped without retry: got=%+v reason=%q warnings=%v", got, reason, warnings)
+	}
+	if got.Required || len(got.Participants) != 0 {
+		t.Fatalf("demoted optional diagram retained hard/invalid participants: %+v", got)
+	}
+	joined := strings.Join(warnings, " | ")
+	for _, want := range []string{
+		"normalized diagram_hint.required from true to false",
+		`dropped optional diagram participant "app-20"`,
+		`dropped optional diagram participant "CPU 001"`,
+		"cannot create a retry",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("optional provenance repair warning missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestParseDiagramHintClearsUnanchoredOptionalRelationScopeWithoutRetry(t *testing.T) {
+	required := false
+	participants := []emitDiagramParticipantParam{}
+	got, reason, warnings := parseDiagramHint("explain the scheduler", &emitDiagramHintParam{
+		Kind:               "flow",
+		Required:           &required,
+		RelationScopeQuote: "invented pipeline scope",
+		Participants:       &participants,
+	}, false)
+	if reason != "" || got == nil || got.Required || got.RelationScopeQuote != "" {
+		t.Fatalf("unanchored optional scope should clear without retry: got=%+v reason=%q warnings=%v", got, reason, warnings)
+	}
+	if joined := strings.Join(warnings, " | "); !strings.Contains(joined, "cleared optional diagram_hint.relation_scope_quote") {
+		t.Fatalf("optional scope repair must remain auditable: %s", joined)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsDiagramHintWithoutRequiredAuthority(t *testing.T) {
 	mu := types.NewMutableState("draw the current pipeline")
 	payload := `{
