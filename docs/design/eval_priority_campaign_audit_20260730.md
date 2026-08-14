@@ -35841,6 +35841,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.815 B806 第二步：peer-only 关系权限改为逐错误独立作答教学（2026-08-14）
+
+1. r492 已证明上下文单源仍不足以阻止模型自行从相似 message/bridge 命名推导传播关系，但禁止为此
+   扫描最终正文关键词或由系统改写答案。本批只增强已有 typed tail guidance，不新增 AnswerDocument
+   hard field/gate。
+2. 当且仅当 `LogBundle.Errors` 是多个顶层 peer occurrence 时，finalizer 被明确要求逐错误独立回答：
+   每条只定位自身 first observed frame 与 within-stack callers。没有 explicit marker 时，不得把任一 peer
+   称为另一条的 true/underlying trigger、capture/received/propagation、caller/callee；error message 可按
+   原文引用，但不能升级成跨 peer edge。
+3. 这条教学由 typed bundle shape 触发，不扫描用户、triager reasoning、explorer completion 或 final
+   prose；模型仍拥有最终措辞/结论，也可把关系作为未证 follow-up hypothesis。单错误反向臂继续不触发。
+4. 接线/词面 pin 通过；生产有效性与 B805/B807 一起进入下一次恰好双并发回放。
+
+状态：
+
+`B806-RUNTIMERELATIONASSERT1=typed-soft-guidance-strengthened/replay-next`；
+`system-answer/conclusion-authorship=none`；
+`no-user-model-final-prose-hard-scan=preserved`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

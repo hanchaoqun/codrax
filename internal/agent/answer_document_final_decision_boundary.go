@@ -208,7 +208,8 @@ func renderAnswerDocLogPeerFinalDecisionBoundary(ctx *types.AgentContext) string
 	return "## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)\n\n" +
 		"- The attached artifact contains multiple top-level peer error occurrences. Each occurrence's own type, message, frames, and within-stack order are available observations.\n" +
 		"- cross_error_relation=`unproven`: no validated explicit artifact marker connects one top-level error as the direct cause, caller/callee continuation, or propagation of another. Similar wording, adjacent lines/timestamps, bridge-like names, and shared IDs do not establish that edge.\n" +
-		"- Answer the requested per-error/frame dimensions from the typed occurrences. If relationship attribution matters, keep the cross-error relationship unproven or present it only as a follow-up hypothesis. The final wording and conclusion remain model-authored.\n\n"
+		"- Answer the requested per-error/frame dimensions independently from the typed occurrences: identify each occurrence's own first observed frame and its within-stack callers. Do not label either peer occurrence as the other's true/underlying trigger, capture point, received failure, propagation, caller, or callee; those are cross-peer claims not established by this artifact shape. A message may be quoted as that occurrence's literal text without upgrading it into an edge.\n" +
+		"- If relationship attribution matters, keep the cross-error relationship unproven or present it only as a follow-up hypothesis. The final wording and conclusion remain model-authored.\n\n"
 }
 
 // renderAnswerDocPerfSampleStatisticalBoundary gives the answer model the

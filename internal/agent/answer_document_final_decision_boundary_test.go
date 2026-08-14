@@ -239,7 +239,10 @@ func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsMod
 		"## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)",
 		"cross_error_relation=`unproven`",
 		"no validated explicit artifact marker connects one top-level error",
-		"Answer the requested per-error/frame dimensions from the typed occurrences",
+		"Answer the requested per-error/frame dimensions independently from the typed occurrences",
+		"identify each occurrence's own first observed frame",
+		"Do not label either peer occurrence as the other's true/underlying trigger",
+		"A message may be quoted as that occurrence's literal text without upgrading it into an edge",
 		"The final wording and conclusion remain model-authored",
 	} {
 		if !strings.Contains(prompt, want) {
