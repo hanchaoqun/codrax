@@ -196,6 +196,29 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+// renderAnswerDocLogPeerFinalDecisionBoundary replays the precise LogBundle
+// relation ceiling after the large generic finalizer prompt. It neither reads
+// user/model/answer prose nor chooses the answer: the model may identify and
+// compare every observed error/frame, but a cross-error cause remains unproven
+// unless the bundle contains a validated recursive CauseRelation.
+func renderAnswerDocLogPeerFinalDecisionBoundary(ctx *types.AgentContext) string {
+	if !answerDocLogPeerRelationUnproven(ctx) {
+		return ""
+	}
+	return "## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)\n\n" +
+		"- The attached artifact contains multiple top-level peer error occurrences. Each occurrence's own type, message, frames, and within-stack order are available observations.\n" +
+		"- cross_error_relation=`unproven`: no validated explicit artifact marker connects one top-level error as the direct cause, caller/callee continuation, or propagation of another. Similar wording, adjacent lines/timestamps, bridge-like names, and shared IDs do not establish that edge.\n" +
+		"- Answer the requested per-error/frame dimensions from the typed occurrences. If relationship attribution matters, keep the cross-error relationship unproven or present it only as a follow-up hypothesis. The final wording and conclusion remain model-authored.\n\n"
+}
+
+func answerDocLogPeerRelationUnproven(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	bundle := ctx.Mutable.LogTriage()
+	return bundle != nil && len(bundle.Errors) > 1
+}
+
 // renderTraceFinalTargetWaitEnumerationAuthority keeps a complete target-wait
 // occurrence rowset authoritative at the final decision tail. Generic
 // root-cause/blocking candidate views may be compacted independently; their

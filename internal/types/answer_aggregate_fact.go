@@ -2027,6 +2027,15 @@ func ProjectLogPeerRelationAnswerAuthority(facts []AnswerAggregateFact, bundle *
 		if unsupportedSynthesisKind && !aggregateFactHasTypedSupportRef(fact) {
 			continue
 		}
+		if fact.Kind == AnswerAggregateMemberSet {
+			// Members/support refs preserve the exact peer inventory. MemberNotes
+			// are free model synthesis and can silently reconnect those peers
+			// ("received", "propagated", caller/callee) even though no
+			// CauseRelation exists. Keep them in MutableState for audit, but not
+			// in the answer-authority projection. Direct LogBundle frames and
+			// messages remain the per-member detail authority.
+			fact.MemberNotes = nil
+		}
 		out = append(out, fact)
 	}
 	return cloneAnswerAggregateFacts(out)

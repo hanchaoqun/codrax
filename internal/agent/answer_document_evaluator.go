@@ -930,6 +930,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "runtime_log_peer_final_decision_boundary", func() string {
+		return renderAnswerDocLogPeerFinalDecisionBoundary(ctx)
+	}) {
+		return b.String()
+	}
 
 	return b.String()
 }
@@ -6825,6 +6830,14 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		// those notes beside the exact endpoint disposition can reintroduce a
 		// fabricated path. The notes remain in TurnAArtifacts for audit; the
 		// finalizer receives grounded call triples and the typed boundary.
+		return ""
+	}
+	if answerDocLogPeerRelationUnproven(ctx) {
+		// A peer-only LogBundle already carries every answer-grade occurrence,
+		// frame and message plus the precise cross-relation boundary. Replaying
+		// model-authored investigation prose beside it creates a second, noisier
+		// relation authority. Keep those notes in TurnAArtifacts for audit and
+		// give the finalizer only the typed bundle/ledger and the tail boundary.
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()

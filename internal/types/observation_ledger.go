@@ -3639,7 +3639,10 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	for i, obs := range bundle.Observations {
 		role := logObservationRecordRole(bundle, obs)
 		supersededBy := logOperationalSemanticRefsForObservation(bundle, obs)
-		richNotes := logObservationInterpretationNotes(obs)
+		var richNotes []string
+		if !peerRelationUnproven {
+			richNotes = logObservationInterpretationNotes(obs)
+		}
 		for _, ref := range supersededBy {
 			richNotes = appendUniqueObservationString(richNotes, "triager_interpretation_superseded_by="+ref)
 		}

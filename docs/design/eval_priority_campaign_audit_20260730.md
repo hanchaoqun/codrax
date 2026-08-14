@@ -35740,6 +35740,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.812 B802/B806 冷读纠偏与施工：peer 关系上下文单一权威（2026-08-14）
+
+1. 对 r491 finalizer 全上下文逐字段冷读后，纠正 §123.811 第 6 点的首选施工形：立即给
+   `AnswerDocument` 增加一个必须由模型填写的运行时关系枚举，会增加 JSON/合同心智；而且在不扫描模型
+   正文的红线下，该枚举本身不能保证正文不再照抄其它嘈声关系叙述。因此本批不先扩 schema，不把
+   “想要的结论”硬编码成 validator 门。
+2. 根因是同一个 peer-only `LogBundle` 同时进入了四种不同权限的载体：精确 errors/frame 与
+   `cross_error_relation=unproven` 是 typed 权威；`member_set.member_notes`、
+   `LogObservation.summary` 派生的 `triager_interpretation_advisory`、Turn-A investigation notes/
+   completion reason 则是模型叙述。后三者仍可写“received/propagated/caller/callee”，在 finalizer
+   context 中与 precise carrier 正面冲突。
+3. 本批把 answer-consumption projection 收窄为单一权威，但保留原始审计历史：
+   多顶层 peer shape 下，member roster/support refs 与逐错误 message/frame 原样保留；仅从答案投影移除
+   `member_notes`，ledger 不再发布 observation 的 model-authored interpretation note，
+   investigation narrative handoff 不再重放。`MutableState` 中的原 aggregate、observation、completion
+   和 Turn-A notes 均不删除、不改写。
+4. finalizer 尾部新增 typed-only 关系边界：明确每个错误自身事实可用、跨错误 direct-cause/
+   caller-callee/propagation 没有 explicit marker 时仍为 `unproven`，模型可分别回答各帧，并自行决定
+   最终措辞与结论。该边界只读 `LogBundle.Errors` 结构，不读用户输入、模型 reasoning、完成 reason
+   或最终答案原文；系统不生成或替换答案。
+5. 正向 pin 覆盖 member-note/triager-advisory/Turn-A 三条泄漏通道与尾部接线；反向 pin 证明单错误
+   场景原有 narrative handoff 不被误抑制；原始 audit carriers 均保持可读。`internal/types`、
+   `internal/agent`、`internal/tool` 完整包通过。是否还需要结构化 answer relation declaration，留给
+   清洁上下文后的双例生产回放决定，不能在回放前虚报。
+6. 本批不触碰 Trace 查询、显式时间窗、因果投影/自动补齐、链上根因选举或活跃流超时策略。
+
+状态：
+
+`B802-LOGPEERCTX1=implemented/context-single-source/full-package-pass`；
+`B806-RUNTIMERELATIONASSERT1=cold-corrected/schema-deferred/replay-next`；
+`B805-PERFSAMPLECALIBER1=P1-confirmed/next-after-peer-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

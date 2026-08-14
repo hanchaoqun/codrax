@@ -217,6 +217,72 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	}
 }
 
+func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsModelOwnership(t *testing.T) {
+	mu := types.NewMutableState("compare the two runtime errors")
+	mu.SetLogTriage(&types.LogBundle{Errors: []types.LogError{
+		{Type: "cangjie_panic", Message: "native panic"},
+		{Type: "arkts_error", Message: "bridge invocation failed"},
+	}})
+	mu.SetInvestigationComplete("the Cangjie panic propagated through the bridge into ArkTS")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{InvestigationNotes: []string{
+		"Cangjie is the caller and ArkTS is the callee",
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)",
+		"cross_error_relation=`unproven`",
+		"no validated explicit artifact marker connects one top-level error",
+		"Answer the requested per-error/frame dimensions from the typed occurrences",
+		"The final wording and conclusion remain model-authored",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("peer-log final boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.LastIndex(prompt, "## Final Runtime Error Relation Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {
+		t.Fatalf("peer-log final boundary must follow generic guidance:\n%s", prompt)
+	}
+	for _, forbidden := range []string{
+		"## Investigation Narrative Handoff",
+		"Cangjie is the caller and ArkTS is the callee",
+		"the Cangjie panic propagated through the bridge into ArkTS",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("untyped peer relation synthesis leaked into finalizer context %q:\n%s", forbidden, prompt)
+		}
+	}
+	if got := mu.StableInvestigationCompleteReason(); got == "" {
+		t.Fatal("context projection must not delete the model-authored audit history")
+	}
+	if turnA := mu.TurnAArtifacts(); turnA == nil || len(turnA.InvestigationNotes) != 1 {
+		t.Fatalf("context projection must preserve raw investigation notes for audit: %+v", turnA)
+	}
+}
+
+func TestFinalLogPeerDecisionBoundaryDoesNotApplyToOneError(t *testing.T) {
+	mu := types.NewMutableState("inspect one runtime error")
+	mu.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "cangjie_panic"}}})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{InvestigationNotes: []string{"single-error context"}})
+	ctx := &types.AgentContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause,
+	}}}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "## Final Runtime Error Relation Boundary") {
+		t.Fatalf("single error was misclassified as a peer-relation boundary:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Investigation Narrative Handoff") || !strings.Contains(prompt, "single-error context") {
+		t.Fatalf("single-error advisory handoff was over-suppressed:\n%s", prompt)
+	}
+}
+
 func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAttribution(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		ArtifactLabel: "customer.systrace",
