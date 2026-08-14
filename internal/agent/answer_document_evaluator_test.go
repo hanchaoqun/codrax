@@ -1524,6 +1524,7 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf
 		"does not prove the endpoint is a leaf",
 		"Keep that local topology unproven",
 		"not as the last hop of the principal directed ordered_list",
+		"No principal endpoint-boundary call edge is available",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("definition-only topology boundary missing %q:\n%s", want, got)
@@ -1531,6 +1532,9 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf
 	}
 	if strings.Contains(got, "`gate.Run` ->") || strings.Contains(got, "-> `gate.Run`") {
 		t.Fatalf("definition-only proof must not fabricate an incident edge:\n%s", got)
+	}
+	if strings.Contains(got, "source_frontier:") {
+		t.Fatalf("unresolved endpoint must not publish arbitrary source siblings as principal boundary rows:\n%s", got)
 	}
 }
 
@@ -1570,6 +1574,18 @@ func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(
 	}
 	if strings.Contains(prompt, "requested_sink_existence_proof=`unproven`") {
 		t.Fatalf("finalizer prompt must not regress accepted endpoint existence to unproven:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "source_frontier: `buildAnalysisIR` -> `gate.RunWith`") {
+		t.Fatalf("definition-only endpoint must not promote the source frontier into the principal prompt:\n%s", prompt)
+	}
+	seed := buildRetryCallChainEndpointBoundarySeed(ctx, types.DiagramSequence)
+	for _, want := range []string{`participant p0 as "buildAnalysisIR"`, `participant p1 as "gate.Run"`} {
+		if !strings.Contains(seed.Fence, want) {
+			t.Fatalf("endpoint-only sequence seed missing %q:\n%s", want, seed.Fence)
+		}
+	}
+	if strings.Contains(seed.Fence, "->>") || strings.Contains(seed.Fence, "gate.RunWith") {
+		t.Fatalf("endpoint-only sequence seed invented or promoted an unrelated edge:\n%s", seed.Fence)
 	}
 }
 

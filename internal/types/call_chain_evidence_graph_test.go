@@ -1,7 +1,9 @@
 package types
 
 import (
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -226,6 +228,42 @@ func TestCompileCallChainEndpointBoundaryWithEvidence_DisclosesDefinitionOnlyTop
 	}
 	if got.EvidenceCapsule.SourceProof != CallChainEndpointExistenceCallEdge || got.EvidenceCapsule.RequestedSinkProof != CallChainEndpointExistenceDefinitionOnly {
 		t.Fatalf("capsule lost the exact definition-only debt: %+v", got.EvidenceCapsule)
+	}
+	if edges := CallChainEndpointBoundaryPrincipalEdges(got.EvidenceCapsule); len(edges) != 0 {
+		t.Fatalf("definition-only sink must not promote arbitrary source frontier as principal edges: %+v", edges)
+	}
+}
+
+func TestProjectCallChainEndpointBoundaryFacetAuthority_NarrowsCandidatesAndKeepsShape(t *testing.T) {
+	view := &AnswerSemanticView{
+		FacetCoverage: &FacetCoverageContract{Required: []FacetRequirement{
+			{Kind: FacetPrincipalPathEdge, Required: FacetHardRequired, SourceCandidate: []string{"source", "sink", "sibling"}},
+			{Kind: FacetDiagramSpine, Required: FacetHardRequired, SourceCandidate: []string{"source", "sink", "sibling"}},
+		}},
+		RequiredBlocks: []BlockRequirement{
+			{Kind: BlockOrderedList, Required: true},
+			{Kind: BlockDiagram, Required: true},
+		},
+	}
+	boundary := &CallChainEndpointBoundary{
+		Disposition:    CallChainEndpointNoDirectedPath,
+		SourceEndpoint: "Source.run",
+		RequestedSink:  "Sink.run",
+		EvidenceCapsule: &CallChainEndpointEvidenceCapsule{
+			Status:     CallChainEndpointEvidenceSharedCalleeBoundary,
+			SourcePath: []CallChainEvidenceEdge{{From: "Source.run", To: "Shared.work", EvidenceID: "source"}},
+			SinkPath:   []CallChainEvidenceEdge{{From: "Sink.run", To: "Shared.work", EvidenceID: "sink"}},
+		},
+	}
+	projectCallChainEndpointBoundaryFacetAuthority(view, boundary)
+	for _, req := range view.FacetCoverage.Required {
+		if !reflect.DeepEqual(req.SourceCandidate, []string{"source", "sink"}) {
+			t.Fatalf("facet %s candidates=%v, want exact boundary pair", req.Kind, req.SourceCandidate)
+		}
+	}
+	if !strings.Contains(view.RequiredBlocks[0].Rationale, "do not list other calls from the same caller") ||
+		!strings.Contains(view.RequiredBlocks[1].Rationale, "disconnected participants") {
+		t.Fatalf("no-path shape guidance was not projected: %+v", view.RequiredBlocks)
 	}
 }
 

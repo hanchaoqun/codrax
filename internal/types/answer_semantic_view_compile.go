@@ -538,5 +538,87 @@ func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, mu
 			evidence = append(evidence, mutable.EmittedEvidence()...)
 		}
 		view.CallChainEndpointBoundary = CompileCallChainEndpointBoundaryWithEvidence(ir.RequestModel, waiver, evidence)
+		projectCallChainEndpointBoundaryFacetAuthority(view, view.CallChainEndpointBoundary)
+	}
+}
+
+// CallChainEndpointBoundaryPrincipalEdges returns only direction-preserving
+// call edges that explain the exact requested endpoint boundary. It is the
+// single authority shared by support lanes, facet counts, relation recipes,
+// and first-pass diagram seeds.
+//
+// An unresolved or ambiguous endpoint deliberately returns no edge. Arbitrary
+// calls that merely leave the resolved source do not explain the relation to
+// the requested sink and therefore must not be promoted as principal
+// intermediate hops. The full evidence inventory remains available for audit
+// and independent supporting facts.
+func CallChainEndpointBoundaryPrincipalEdges(capsule *CallChainEndpointEvidenceCapsule) []CallChainEvidenceEdge {
+	if capsule == nil {
+		return nil
+	}
+	var groups [][]CallChainEvidenceEdge
+	switch capsule.Status {
+	case CallChainEndpointEvidenceDirectedPathPresent:
+		groups = [][]CallChainEvidenceEdge{capsule.SourcePath}
+	case CallChainEndpointEvidenceSharedCalleeBoundary:
+		groups = [][]CallChainEvidenceEdge{capsule.SourcePath, capsule.SinkPath}
+	case CallChainEndpointEvidenceReversePath:
+		groups = [][]CallChainEvidenceEdge{capsule.SinkPath}
+	case CallChainEndpointEvidenceDisjointFrontiers:
+		groups = [][]CallChainEvidenceEdge{capsule.SourceFrontier, capsule.RequestedBoundary}
+	default:
+		return nil
+	}
+	out := make([]CallChainEvidenceEdge, 0)
+	for _, group := range groups {
+		out = append(out, group...)
+	}
+	return out
+}
+
+// projectCallChainEndpointBoundaryFacetAuthority keeps hard presentation
+// obligations (for example an explicitly requested sequence diagram) while
+// narrowing their evidence count to the exact endpoint-boundary subgraph.
+// This changes neither the model's conclusion nor the raw evidence ledger.
+func projectCallChainEndpointBoundaryFacetAuthority(view *AnswerSemanticView, boundary *CallChainEndpointBoundary) {
+	if view == nil || boundary == nil || !boundary.Active() ||
+		boundary.Disposition != CallChainEndpointNoDirectedPath || boundary.EvidenceCapsule == nil {
+		return
+	}
+	allowed := make(map[string]bool)
+	for _, edge := range CallChainEndpointBoundaryPrincipalEdges(boundary.EvidenceCapsule) {
+		if id := strings.TrimSpace(edge.EvidenceID); id != "" {
+			allowed[id] = true
+		}
+	}
+	filter := func(reqs []FacetRequirement) {
+		for i := range reqs {
+			switch reqs[i].Kind {
+			case FacetPrincipalPathEdge, FacetDiagramSpine:
+			default:
+				continue
+			}
+			kept := make([]string, 0, len(reqs[i].SourceCandidate))
+			for _, id := range reqs[i].SourceCandidate {
+				id = strings.TrimSpace(id)
+				if id != "" && allowed[id] {
+					kept = append(kept, id)
+				}
+			}
+			reqs[i].SourceCandidate = kept
+		}
+	}
+	view.FacetCoverage = cloneFacetCoverageContract(view.FacetCoverage)
+	if view.FacetCoverage != nil {
+		filter(view.FacetCoverage.Required)
+		filter(view.FacetCoverage.Optional)
+	}
+	for i := range view.RequiredBlocks {
+		switch view.RequiredBlocks[i].Kind {
+		case BlockOrderedList:
+			view.RequiredBlocks[i].Rationale = "The typed investigation established a no-directed-path endpoint boundary. List only exact directed segments that explain that boundary. If no endpoint-boundary edge is available, state that no intermediate hop is proven; do not list other calls from the same caller as intermediates."
+		case BlockDiagram:
+			view.RequiredBlocks[i].Rationale = "Keep the explicitly requested diagram, but draw only the exact endpoint-boundary subgraph. When no endpoint-boundary edge is available, show the two grounded endpoints as disconnected participants and explain the unproven boundary without inventing an arrow."
+		}
 	}
 }

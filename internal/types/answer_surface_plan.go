@@ -1177,6 +1177,37 @@ func RenderSequenceDiagramFence(nodes []string, limit int) string {
 	return renderMermaidSequenceFence(out)
 }
 
+// RenderSequenceDiagramNodeSetFence emits grounded sequence participants
+// without inventing a message, order, call, or handoff between them. It is the
+// sequence-family counterpart of RenderDiagramNodeSetFence and is used for an
+// exact endpoint boundary whose incident relation evidence is unavailable.
+func RenderSequenceDiagramNodeSetFence(nodes []string, limit int) string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" || seen[node] {
+			continue
+		}
+		seen[node] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("sequenceDiagram\n")
+	for i, label := range out {
+		fmt.Fprintf(&b, "    participant p%d as %q\n", i, label)
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
 func renderMermaidSequenceFence(nodes []string) string {
 	if len(nodes) < 2 {
 		return ""

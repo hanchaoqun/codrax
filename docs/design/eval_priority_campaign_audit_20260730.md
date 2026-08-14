@@ -36118,6 +36118,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.801 r481：H7 Trace 主能力正证；endpoint-unresolved 兄弟边伪主路径根修（2026-08-14）
+
+1. 在 `main@e7ebab39b` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS / 2`；人工
+   `2 partial / 2`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_trace_r481_20260814_manual_audit.md`。
+2. H7 是本轮回归护栏正证：三次 `trace_query` 全部继承用户显式窗
+   `13762.791708..13763.024898s`（233.190ms），模型正文与独立 Trace 因果投影均存在；真实占时轴
+   保留 running 74.915ms、D-state 36.757ms 及业务 span 家族，规则可消轴保留算力供给折算
+   65.912ms、D-state 36.757ms、优先级反转/调度供给小项。链上席位才能进入主因，49.623ms 等邻近
+   压力明确为条件上界/背景，CPU·ms 资源面也没有冒充关键路径。
+3. H7 人工仍记 partial：模型把 `blocked_reason_census=12/Σ39.157ms` 与 11 段 D-state 直接解释为
+   同一批 `dma_fence_default_w` 等待，并把 gpu-token 唤醒进一步表述成 fence 完成。Finalizer 上下文已逐字
+   声明“caller 只是内核调用点、census 与调度区间不可一一配对”，系统事实并置也正确，因此这是模型未
+   遵守精确证据边界的生产观察 `B788/P2`，不是信息缺失；不以扫描答案原文的硬门修单例。
+4. Sequence 证明 B786 仍为 partial。本次探索只读到 `gate.Run` 定义行，未形成 sink incident call edge，
+   typed 状态诚实为 `endpoint_unresolved`。但 B786 默认分支仍把 `buildAnalysisIR` 的 source_frontier 前三边
+   升为主支持/首稿图，并让 `principal_path_edge`、`diagram_spine` 继续显示全量 30 条候选。模型最终把
+   22 个同 caller 调用列成“按调用顺序的关键中间函数”；首稿图另串出两条无证据兄弟边，严格门只修图，
+   无法纠正正文的伪中间清单。根因是系统 typed carrier 扩域，不是模型随机波动。
+5. 实现 `B787-ENDPOINTUNRESOLVEDBOUNDARYSEED1/P1`：新增唯一的 endpoint-boundary 主边投影。
+   `shared_callee` 取两端到共享 callee 的真实边，`reverse` 取真实反向路径，`disjoint_frontiers` 取两侧
+   bounded frontier；`endpoint_unresolved/ambiguous/no_edges` 主边集合严格为空。支持车道、机制 recipe、
+   facet evidence count、First-Pass/repair diagram seed 全部消费同一投影，消除同一状态在多载体上各自解释。
+6. 无主边时仍保留用户显式 sequence 图要求，但安全参考只声明 source/sink 两个断开 participant，零消息
+   箭头；required ordered-list 教学改为“没有 endpoint-boundary 边就明确无已证中间 hop”，不得把其他
+   same-caller calls 写成中间函数。原始调用证据与数量仍留在 ledger/audit/support，未删除事实。
+7. 实现只读 schema-validated waiver/disposition、endpoint evidence enum、EvidenceID 与精确 CallEdge
+   Subject/Object；不扫描用户问题、模型推理、终稿正文或 Mermaid 文案，不接管答案、结论或图。
+   新增 unresolved/shared-callee/facet/sequence-node-set pin；完整 `go test ./...` 全绿。
+8. Read/Write/Trace 数据路径均未改。Trace 显式时间窗、自动补采、因果投影、链上-only 主因、双耗时轴、
+   确定性优化与业务线索保持；邻近/背景仍 support-only。持续字节流不因 4ms、4m 或固定累计年龄降级；
+   本批未观察到 active-stream 降级。
+
+状态：
+
+`B786-ENDPOINTBOUNDARYPRINCIPALSCOPE1=production-partial-r481/superseded-by-B787`；
+`B787-ENDPOINTUNRESOLVEDBOUNDARYSEED1=implemented/typed-single-source+pinned/pending-production-replay`；
+`B788-BLOCKEDREASONMODELADHERENCE1=P2-observe/no-prose-hard-gate`；
+`H7 explicit-window/causal projection/dual-axis/business-clues=production-positive-r481`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

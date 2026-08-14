@@ -113,23 +113,7 @@ func projectCallChainEndpointBoundarySupportPlan(plan *AnswerSupportPlan, bounda
 }
 
 func callChainEndpointBoundaryEvidenceEdges(capsule *CallChainEndpointEvidenceCapsule) []CallChainEvidenceEdge {
-	if capsule == nil {
-		return nil
-	}
-	var groups [][]CallChainEvidenceEdge
-	switch capsule.Status {
-	case CallChainEndpointEvidenceSharedCalleeBoundary:
-		groups = [][]CallChainEvidenceEdge{capsule.SourcePath, capsule.SinkPath}
-	case CallChainEndpointEvidenceReversePath:
-		groups = [][]CallChainEvidenceEdge{capsule.SinkPath}
-	default:
-		groups = [][]CallChainEvidenceEdge{capsule.SourceFrontier, capsule.RequestedBoundary}
-	}
-	out := make([]CallChainEvidenceEdge, 0)
-	for _, group := range groups {
-		out = append(out, group...)
-	}
-	return out
+	return CallChainEndpointBoundaryPrincipalEdges(capsule)
 }
 
 func callChainSupportEntryMatchesBoundaryEdge(entry AnswerSupportEntry, allowed []CallChainEvidenceEdge) bool {

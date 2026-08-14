@@ -3753,18 +3753,27 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 			b.WriteString("- topology_semantics=`the source and requested sink each have a grounded same-direction call path ending at the same callee; neither path reaches the other endpoint`\n")
 		}
 		b.WriteString("\n### Grounded endpoint evidence capsule\n\n")
-		renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
+		principalEdges := types.CallChainEndpointBoundaryPrincipalEdges(capsule)
+		switch capsule.Status {
+		case types.CallChainEndpointEvidenceDirectedPathPresent:
+			renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
+		case types.CallChainEndpointEvidenceSharedCalleeBoundary:
+			renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
+			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
+		case types.CallChainEndpointEvidenceReversePath:
+			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
+		case types.CallChainEndpointEvidenceDisjointFrontiers:
+			renderAnswerDocCallChainEvidencePath(&b, "source_frontier", capsule.SourceFrontier)
+			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_boundary", capsule.RequestedBoundary)
+		}
 		if capsule.SourcePathOmitted > 0 {
 			fmt.Fprintf(&b, "- source_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SourcePathOmitted)
 		}
-		renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
 		if capsule.SinkPathOmitted > 0 {
 			fmt.Fprintf(&b, "- requested_sink_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SinkPathOmitted)
 		}
-		renderAnswerDocCallChainEvidencePath(&b, "source_frontier", capsule.SourceFrontier)
-		renderAnswerDocCallChainEvidencePath(&b, "requested_sink_boundary", capsule.RequestedBoundary)
-		if len(capsule.SourcePath)+len(capsule.SinkPath)+len(capsule.SourceFrontier)+len(capsule.RequestedBoundary) == 0 {
-			b.WriteString("- No bounded grounded call-edge row is available for this endpoint boundary.\n")
+		if len(principalEdges) == 0 {
+			b.WriteString("- No principal endpoint-boundary call edge is available. Other accepted call facts remain audit/support evidence only and are not intermediate hops for this exact endpoint question.\n")
 		}
 		b.WriteString("- `call_graph_status` describes only resolution inside the grounded call-edge graph; endpoint existence is reported separately by the two `*_existence_proof` fields and is not contradicted by a definition-only endpoint being absent from that graph.\n")
 	}
@@ -4041,10 +4050,24 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 
 func answerDocFacetPromptEvidenceCount(plan *types.AnswerSurfacePlan, req types.FacetRequirement) int {
 	raw := len(req.SourceCandidate)
+	if raw == 0 {
+		return 0
+	}
 	if plan == nil || plan.FacetCoverage == nil {
 		return raw
 	}
-	curated := len(types.PrincipalSupportEvidenceItemsForFacet(plan.FacetCoverage.Family, plan, req.Kind))
+	allowed := make(map[string]bool, len(req.SourceCandidate))
+	for _, id := range req.SourceCandidate {
+		if id = strings.TrimSpace(id); id != "" {
+			allowed[id] = true
+		}
+	}
+	curated := 0
+	for _, item := range types.PrincipalSupportEvidenceItemsForFacet(plan.FacetCoverage.Family, plan, req.Kind) {
+		if allowed[strings.TrimSpace(item.ID)] {
+			curated++
+		}
+	}
 	if curated <= 0 {
 		return raw
 	}
@@ -7332,20 +7355,7 @@ func answerDocMechanismEndpointBoundaryEdges(ctx *types.AgentContext, edges []an
 		view.CallChainEndpointBoundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceDirectedPathPresent {
 		return edges
 	}
-	capsule := view.CallChainEndpointBoundary.EvidenceCapsule
-	var groups [][]types.CallChainEvidenceEdge
-	switch capsule.Status {
-	case types.CallChainEndpointEvidenceSharedCalleeBoundary:
-		groups = [][]types.CallChainEvidenceEdge{capsule.SourcePath, capsule.SinkPath}
-	case types.CallChainEndpointEvidenceReversePath:
-		groups = [][]types.CallChainEvidenceEdge{capsule.SinkPath}
-	default:
-		groups = [][]types.CallChainEvidenceEdge{capsule.SourceFrontier, capsule.RequestedBoundary}
-	}
-	allowed := make([]types.CallChainEvidenceEdge, 0)
-	for _, group := range groups {
-		allowed = append(allowed, group...)
-	}
+	allowed := types.CallChainEndpointBoundaryPrincipalEdges(view.CallChainEndpointBoundary.EvidenceCapsule)
 	out := make([]answerDocMechanismRelationEdge, 0, len(allowed))
 	for _, edge := range edges {
 		if edge.relation != types.DiagramRelCall {
@@ -15562,6 +15572,9 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 			}
 		}
 		for _, kind := range retryDiagramKinds(ctx) {
+			if seed := buildRetryCallChainEndpointBoundarySeed(ctx, kind); strings.TrimSpace(seed.Fence) != "" {
+				return seed.Fence
+			}
 			if seed := buildRetrySupportLaneSeed(ctx, kind); strings.TrimSpace(seed.Fence) != "" {
 				return seed.Fence
 			}
@@ -15645,6 +15658,7 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 			seeds = appendRetryDiagramSeed(seeds, buildRetryConfigTraceDiagramSeed(ctx))
 			break
 		}
+		seeds = appendRetryDiagramSeed(seeds, buildRetryCallChainEndpointBoundarySeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramSequence:
@@ -15652,14 +15666,17 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 		// principal ordered surface. Prefer it over generic flow
 		// findings so stale background chains cannot shadow the
 		// currently validated call path.
+		seeds = appendRetryDiagramSeed(seeds, buildRetryCallChainEndpointBoundarySeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramCallDAG:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryCallChainEndpointBoundarySeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramArchitecture:
+		seeds = appendRetryDiagramSeed(seeds, buildRetryCallChainEndpointBoundarySeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	}
@@ -15821,6 +15838,58 @@ func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
 	// observed real-world chain without spilling into pathological
 	// "everything is connected" mega-graphs.
 	return dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
+}
+
+// buildRetryCallChainEndpointBoundarySeed projects the exact typed endpoint
+// boundary before any broad support-lane or flow seed. It never scans request
+// or answer prose. When endpoint incidence is unavailable, the honest seed is
+// a disconnected node set, not an arbitrary sample of the source's siblings.
+func buildRetryCallChainEndpointBoundarySeed(ctx *types.AgentContext, kind types.DiagramKind) retryDiagramSeed {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || view.CallChainEndpointBoundary == nil ||
+		!view.CallChainEndpointBoundary.Active() ||
+		view.CallChainEndpointBoundary.Disposition != types.CallChainEndpointNoDirectedPath ||
+		view.CallChainEndpointBoundary.EvidenceCapsule == nil {
+		return retryDiagramSeed{}
+	}
+	boundary := view.CallChainEndpointBoundary
+	edges := types.CallChainEndpointBoundaryPrincipalEdges(boundary.EvidenceCapsule)
+	items := make([]types.EvidenceItem, 0, len(edges))
+	keys := make([]string, 0, 4+len(edges)*2)
+	for _, endpoint := range []string{boundary.SourceEndpoint, boundary.RequestedSink} {
+		keys = append(keys, retryDiagramSeedMatchKeys(endpoint)...)
+	}
+	for _, edge := range edges {
+		items = append(items, types.EvidenceItem{
+			ID: edge.EvidenceID, Kind: types.EvidenceRelationship,
+			AnchorKind: types.AnchorCall, Subject: edge.From, Object: edge.To,
+			Source: edge.Source, LineStart: edge.LineStart, LineEnd: edge.LineEnd,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		})
+		keys = append(keys, retryDiagramSeedMatchKeys(edge.From)...)
+		keys = append(keys, retryDiagramSeedMatchKeys(edge.To)...)
+	}
+	var fence string
+	switch kind {
+	case types.DiagramSequence:
+		fence = types.RenderEvidenceSequenceDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderSequenceDiagramNodeSetFence([]string{boundary.SourceEndpoint, boundary.RequestedSink}, 2)
+		}
+	case types.DiagramCallDAG, types.DiagramArchitecture, types.DiagramFlow:
+		fence = types.RenderEvidenceCallDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderDiagramNodeSetFence([]string{boundary.SourceEndpoint, boundary.RequestedSink}, 2)
+		}
+	}
+	if strings.TrimSpace(fence) == "" {
+		return retryDiagramSeed{}
+	}
+	return retryDiagramSeed{
+		Fence:         strings.TrimSpace(fence),
+		MatchKeys:     dedupeRetryDiagramNodes(keys, 0),
+		PreserveFence: true,
+	}
 }
 
 // buildRetrySupportLaneSeed is the diagram retry authority for finalizer

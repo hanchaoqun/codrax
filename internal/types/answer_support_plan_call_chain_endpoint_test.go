@@ -49,6 +49,29 @@ func TestProjectCallChainEndpointBoundarySupportPlan_KeepsOnlyBoundaryEdges(t *t
 	}
 }
 
+func TestProjectCallChainEndpointBoundarySupportPlan_UnresolvedEndpointDoesNotPromoteSourceSiblings(t *testing.T) {
+	plan := &AnswerSupportPlan{Family: QFCallChain, Lanes: []AnswerSupportLane{
+		{Kind: SupportLaneCurrentCodePath, Entries: []AnswerSupportEntry{
+			{EvidenceID: "source-a", ClaimForm: ClaimCallEdge, Subject: "Source.run", Object: "Nearby.a"},
+			{EvidenceID: "source-b", ClaimForm: ClaimCallEdge, Subject: "Source.run", Object: "Nearby.b"},
+		}},
+		{Kind: SupportLaneUncertaintyBound, Entries: []AnswerSupportEntry{{Text: "requested sink has definition-only proof"}}},
+	}}
+	boundary := &CallChainEndpointBoundary{
+		Disposition:    CallChainEndpointNoDirectedPath,
+		SourceEndpoint: "Source.run",
+		RequestedSink:  "Sink.run",
+		EvidenceCapsule: &CallChainEndpointEvidenceCapsule{
+			Status:         CallChainEndpointEvidenceEndpointUnresolved,
+			SourceFrontier: []CallChainEvidenceEdge{{From: "Source.run", To: "Nearby.a"}},
+		},
+	}
+	got := projectCallChainEndpointBoundarySupportPlan(plan, boundary)
+	if got == nil || len(got.Lanes) != 1 || got.Lanes[0].Kind != SupportLaneUncertaintyBound {
+		t.Fatalf("unresolved endpoint promoted arbitrary source siblings: %+v", got)
+	}
+}
+
 func TestCallChainRequestedEndpointHints_PathOnlyExactTargetsFallBackToTypedEntities(t *testing.T) {
 	rm := RequestModel{AnalyzerHints: AnalyzerHints{
 		ExactTargets:      []string{"internal/agent/analyzer.go"},
