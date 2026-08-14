@@ -3141,6 +3141,7 @@ func TestToolChoiceForStage(t *testing.T) {
 		{types.StageFinalize, "required"},
 		{types.StageLogTriage, "required"},
 		{types.StagePerfTriage, "required"},
+		{types.StageWriteController, "required"},
 		{types.StageExplore, ""},
 	}
 	for _, c := range cases {
@@ -3171,6 +3172,7 @@ func TestResolveToolChoice_TerminalForcing(t *testing.T) {
 		{"extract_attempt0", types.StageExtract, 0, "required"},
 		{"log_triage_attempt0", types.StageLogTriage, 0, "required"},
 		{"perf_triage_attempt0", types.StagePerfTriage, 0, "required"},
+		{"write_controller_attempt0", types.StageWriteController, 0, "required"},
 		{"explore_attempt0", types.StageExplore, 0, ""},
 
 		// Terminal forcing: named-function form for single-emit stages.
@@ -3179,6 +3181,7 @@ func TestResolveToolChoice_TerminalForcing(t *testing.T) {
 		{"finalize_attempt1", types.StageFinalize, 1, `{"type":"function","function":{"name":"emit_answer_document"}}`},
 		{"log_triage_attempt1", types.StageLogTriage, 1, `{"type":"function","function":{"name":"emit_log_triage"}}`},
 		{"perf_triage_attempt1", types.StagePerfTriage, 1, `{"type":"function","function":{"name":"emit_perf_trace"}}`},
+		{"write_controller_attempt1", types.StageWriteController, 1, `{"type":"function","function":{"name":"emit_write_workflow_decision"}}`},
 
 		// Multi-emit stage stays bare "required" even on retry.
 		{"extract_attempt1_keeps_required", types.StageExtract, 1, "required"},
@@ -3193,5 +3196,24 @@ func TestResolveToolChoice_TerminalForcing(t *testing.T) {
 					c.stage, c.attempt, got, c.want)
 			}
 		})
+	}
+}
+
+func TestWriteControllerNoToolResponseRoutesThroughProtocolController(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageWriteController}
+	eval := &writeControllerEvaluator{}
+	for _, response := range []llm.Response{
+		{Content: "unfinished controller analysis", StopReason: "length"},
+		{Content: "", StopReason: "length"},
+	} {
+		if strings.TrimSpace(response.Content) == "" {
+			if !shouldRouteEmptyNoToolThroughStageProtocolController(ctx, response, eval) {
+				t.Fatalf("empty write-controller no-tool response must route through protocol controller: %+v", response)
+			}
+			continue
+		}
+		if !shouldRouteNoToolThroughStageProtocolController(ctx, response, eval) {
+			t.Fatalf("write-controller no-tool response must route through protocol controller: %+v", response)
+		}
 	}
 }

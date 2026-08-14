@@ -729,7 +729,7 @@ func shouldRouteNoToolThroughStageProtocolController(ctx *types.AgentContext, re
 	// it, so the existing structured completion contracts decide
 	// whether to inject a tool-call correction or stop.
 	switch ctx.Stage {
-	case types.StageExplore, types.StageExtract:
+	case types.StageExplore, types.StageExtract, types.StageWriteController:
 		return true
 	default:
 		return false
@@ -741,7 +741,8 @@ func shouldRouteEmptyNoToolThroughStageProtocolController(ctx *types.AgentContex
 		return false
 	}
 	switch ctx.Stage {
-	case types.StageAnalyze, types.StageExtract, types.StageFinalize, types.StageLogTriage, types.StagePerfTriage:
+	case types.StageAnalyze, types.StageExtract, types.StageFinalize, types.StageLogTriage, types.StagePerfTriage,
+		types.StageWriteController:
 		return toolChoiceForStage(ctx.Stage) == "required"
 	default:
 		return false
@@ -1334,7 +1335,7 @@ func (b *BaseAgent) escalateMidLoopCapSaturation(ctx *types.AgentContext, iterat
 func toolChoiceForStage(stage types.PipelineStage) string {
 	switch stage {
 	case types.StageAnalyze, types.StageExtract, types.StageFinalize,
-		types.StageLogTriage, types.StagePerfTriage:
+		types.StageLogTriage, types.StagePerfTriage, types.StageWriteController:
 		return "required"
 	}
 	return ""
@@ -1359,6 +1360,8 @@ func emitToolForStage(stage types.PipelineStage) string {
 	switch stage {
 	case types.StageAnalyze:
 		return "emit_analysis"
+	case types.StageWriteController:
+		return "emit_write_workflow_decision"
 	case types.StageFinalize:
 		return "emit_answer_document"
 	case types.StageLogTriage:

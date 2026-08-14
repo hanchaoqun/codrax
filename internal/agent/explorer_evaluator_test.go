@@ -1692,6 +1692,41 @@ func TestExplorerReadiness_SequenceTraceSuppressesEnumerationAndOverviewHints(t 
 	}
 }
 
+func TestBoundedStructuralTraceSeparatesSourceRootCauseFromRuntimeTrace(t *testing.T) {
+	sourceRootCause := &explorerEvaluator{analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"relativedelta", "months", "years"},
+		},
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeNotApplicable},
+		RuntimeQuestionProfile:      &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeNotApplicable},
+	}}}
+	if sourceRootCause.boundedStructuralTraceRequest() {
+		t.Fatal("ordinary source root-cause diagnosis must not inherit runtime Trace endpoint contracts")
+	}
+	if got := sourceRootCause.tracePathTerminalEndpointHints(); len(got) != 0 {
+		t.Fatalf("source root-cause diagnosis must not synthesize Trace terminal endpoints, got %v", got)
+	}
+
+	runtimeRootCause := &explorerEvaluator{analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"render-thread", "frame-42"},
+		},
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow},
+		RuntimeQuestionProfile:      &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+	}}}
+	if !runtimeRootCause.boundedStructuralTraceRequest() {
+		t.Fatal("typed runtime root-cause diagnosis must preserve the bounded Trace path")
+	}
+}
+
 func TestExplorerReadiness_SingleMechanismExplainSuppressesOverviewHints(t *testing.T) {
 	eval := &explorerEvaluator{
 		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

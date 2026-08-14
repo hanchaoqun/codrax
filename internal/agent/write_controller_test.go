@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -191,6 +192,67 @@ func TestWriteControllerParseOutputReadsStoredDecisionJSON(t *testing.T) {
 	}
 	if string(out.Data) != `{"action":"finish","reason_code":"done"}` {
 		t.Fatalf("Data should preserve stored normalized JSON, got %s", out.Data)
+	}
+}
+
+func TestWriteControllerSoftStopIsolatesRequiredToolCorrection(t *testing.T) {
+	eval := &writeControllerEvaluator{}
+	sig := eval.Observe(nil, LoopObservation{
+		Phase: PhaseSoftStop,
+		Response: llm.Response{
+			Content:    strings.Repeat("discarded draft ", 100),
+			StopReason: "length",
+		},
+	})
+	if !sig.HintRequested || sig.HintKey != "write-controller.required-tool.length-no-tool" {
+		t.Fatalf("length/no-tool response must request the typed correction, got %+v", sig)
+	}
+	if !sig.IsolateNextPrompt || !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("length/no-tool correction must isolate the oversized draft and bypass ordinary hint budgets, got %+v", sig)
+	}
+	for _, want := range []string{"current typed workflow state", "available action enum", "emit_write_workflow_decision exactly once"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("length/no-tool correction missing %q: %s", want, sig.Hint)
+		}
+	}
+	if strings.Contains(sig.Hint, "discarded draft discarded draft") {
+		t.Fatalf("isolated correction must not copy response prose: %s", sig.Hint)
+	}
+
+	ordinary := eval.Observe(nil, LoopObservation{Phase: PhaseSoftStop, Response: llm.Response{Content: "analysis", StopReason: "end_turn"}})
+	if ordinary.HintKey != "write-controller.required-tool.no-tool" || !ordinary.IsolateNextPrompt {
+		t.Fatalf("ordinary no-tool controller response needs the same schema-only recovery boundary, got %+v", ordinary)
+	}
+}
+
+func TestWriteControllerPromptHasBoundedExplorationHandoffReceipt(t *testing.T) {
+	mut := types.NewMutableState("plan from explored files")
+	mut.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:         "batch-7",
+		TargetFiles:     []string{"a.py", "b.py", "c.py", "d.py", "e.py"},
+		RelevantSymbols: []string{"build_delta", "normalize"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{
+			{ID: "E1", Source: "a.py", LineStart: 10},
+			{ID: "E2", Source: "b.py", LineStart: 20},
+		},
+		Unknowns:   []string{"runtime version"},
+		Confidence: "high",
+	})
+	got := renderWriteControllerArtifactSection(&types.AgentContext{Mutable: mut})
+	for _, want := range []string{
+		"exploration_handoff: status=present batch_id=batch-7 target_files=5 symbols=2 evidence_refs=2 unknowns=1 confidence=high",
+		"exploration_target_file: a.py",
+		"exploration_target_file: d.py",
+		"exploration_target_file: ... +1 more",
+		"context-pack compaction does not mean exploration is absent",
+		"controller must still choose the next typed action itself",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed handoff receipt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "exploration_target_file: e.py") {
+		t.Fatalf("handoff receipt must stay bounded to four concrete target rows:\n%s", got)
 	}
 }
 

@@ -36457,16 +36457,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. 本批不改 Trace 查询、显式窗、因果投影、自动补齐、根因排名或答案正文。Trace 主因仍只能来自 typed on-chain
    证据；优先级反转、调度/算力供给、D/IO、确定性语义工作和链上业务线索不丢失；邻近/背景仍只支撑额外排查；
    实际占用与规则可消除量双轴保持，系统不接管模型结论。
+9. `B822` 已落地：`runWriteExplorationSubflow` 在 dispatch 前同步 `PipelineStage` 与 `TaskState.Stage=Explore`；回归钉
+   同时验证 explorer 的 RetryHint owner 与 StageReport owner 均为 Explore，不能再污染 WriteController。
+10. `B823` 深审修正了初判：源码根因请求也会解析成 `QFRootCauseTrace`，旧 fallback 把该 family 无条件送入
+    bounded Trace endpoint 合同，这是 r504 隐藏 readiness 缺口的来源之一。现改为只有 `IntentTrace` 或非
+    `not_applicable` 的 typed runtime artifact/question profile 才让 root-cause family 消费 Trace endpoint 合同；普通
+    源码 root-cause 不再合成 terminal endpoint。真正的显式 Trace/时间窗/causal diagnosis 仍走原路径并有正反 pin。
+11. `B823` 的最终 retry router 不再用 file coverage 作万能默认：typed trace endpoint、runtime target selection、
+    structured completion、真实 file coverage 与其它 typed readiness 分席输出。只有 coverage 实际不完整才允许要求
+    继续读；`1/1=100%` 不能再发“Read more”。所有分支只消费 readiness boolean/count/enum，不读请求或模型正文。
+12. `B824` 已落地：WriteController 正式进入 required tool-choice 与 named-terminal forcing；非空/空 no-tool completed
+    response 均交由 stage protocol controller。`StopReason=length` 时隔离旧草稿，只给一次 typed state/action enum 的
+    `emit_write_workflow_decision` 纠错，不复用 25 万字节文本、不由系统猜 action。活跃 stream 期间的 liveness 逻辑未改，
+    没有新增固定 4ms/4s/4m 降级。
+13. `B825` 已落地：Typed write artifacts 新增有界 exploration handoff receipt（presence、batch、targets/symbols/
+    evidence/unknowns 计数、confidence、前四个 target）。receipt 只证明 handoff 存在，并明确 compaction 不等于 absent；
+    controller 仍由模型从 typed enum 自行选择下一动作。
 
 状态：
 
 `r504-QF=machine-pass/human-fail/all-relations-deleted`；
 `r504-write=fail/no-plan/no-apply/provider-length-no-tool`；
 `B821-TYPEDRELATIONLOOKUPTODISPLAYDIRECTION1=confirmed/pending`；
-`B822-WRITEEXPLORESTAGEOWNERSHIP1=confirmed/pending`；
-`B823-EXPLORERREADINESSFALLBACK1=confirmed/pending`；
-`B824-REQUIREDToolLENGTHNOTOOLRECOVERY1=confirmed/pending`；
-`B825-WRITECONTROLLERHANDOFFRECEIPT1=confirmed/pending`；
+`B822-WRITEEXPLORESTAGEOWNERSHIP1=implemented/package-tests-pass`；
+`B823-EXPLORERREADINESSFALLBACK1=implemented/root-family-domain-corrected/package-tests-pass`；
+`B824-REQUIREDToolLENGTHNOTOOLRECOVERY1=implemented/typed-completed-response-only/package-tests-pass`；
+`B825-WRITECONTROLLERHANDOFFRECEIPT1=implemented/bounded-receipt/package-tests-pass`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `Trace-causal-projection/auto-supplement=unchanged`；
 `system-answer/diagram/relation/conclusion-authorship=none`。

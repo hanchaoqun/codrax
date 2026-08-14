@@ -70,6 +70,23 @@ func renderWriteControllerActionContract(ctx *types.AgentContext) string {
 func (e *writeControllerEvaluator) ShouldStop(_ llm.Response, _ int) bool { return e.emitSeen }
 
 func (e *writeControllerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase == PhaseSoftStop && len(obs.Response.ToolCalls) == 0 {
+		key := "write-controller.required-tool.no-tool"
+		boundary := "The completed response did not use the required function-calling channel."
+		if obs.Response.StopReason == "length" {
+			key = "write-controller.required-tool.length-no-tool"
+			boundary = "The completed response reached the output-token limit before producing the required tool call."
+		}
+		return LoopSignal{
+			HintRequested:     true,
+			HintKey:           key,
+			Hint:              boundary + " Use only the current typed workflow state and the available action enum. Call emit_write_workflow_decision exactly once with one valid action; do not repeat analysis, reconstruct the discarded draft, or emit explanatory prose.",
+			Progress:          true,
+			BypassThrottle:    true,
+			BypassBudget:      true,
+			IsolateNextPrompt: true,
+		}
+	}
 	if obs.Phase != PhaseMidLoop || obs.LastToolResult == nil || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
@@ -260,6 +277,26 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Typed write artifacts\n\n")
 	wrote := false
+	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
+		normalized := types.NormalizeWriteExplorationHandoff(*handoff)
+		wrote = true
+		fmt.Fprintf(&b, "- exploration_handoff: status=present batch_id=%s target_files=%d symbols=%d evidence_refs=%d unknowns=%d confidence=%s\n",
+			normalized.BatchID,
+			len(normalized.TargetFiles),
+			len(normalized.RelevantSymbols),
+			len(normalized.EvidenceRefs),
+			len(normalized.Unknowns),
+			normalized.Confidence,
+		)
+		for i, path := range normalized.TargetFiles {
+			if i >= 4 {
+				fmt.Fprintf(&b, "- exploration_target_file: ... +%d more\n", len(normalized.TargetFiles)-i)
+				break
+			}
+			fmt.Fprintf(&b, "- exploration_target_file: %s\n", path)
+		}
+		b.WriteString("- exploration_handoff_boundary: status=present is authoritative for handoff availability; context-pack compaction does not mean exploration is absent, and the controller must still choose the next typed action itself\n")
+	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
 		wrote = true
 		fmt.Fprintf(&b, "- change_plan: id=%s status=%s targets=%d\n", plan.ID, plan.Status, len(plan.TargetPaths))

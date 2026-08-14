@@ -70,6 +70,13 @@ func (o *Orchestrator) runWriteExplorationSubflow() (int, error) {
 	if existing := o.busCtx.Mutable.WriteExplorationHandoff(); existing != nil {
 		return 0, nil
 	}
+	// The controller owns the outer action, but this dispatch is an Explore
+	// stage in every observable control-plane sense. Keep both stage carriers
+	// aligned before dispatch so applyStageOutput attributes RetryHint and
+	// StageReport to Explore rather than leaking them into the next controller
+	// decision as controller-owned instructions.
+	o.busCtx.PipelineStage = types.StageExplore
+	o.busCtx.TaskState.Stage = types.StageExplore
 	out, err := o.dispatchStage(types.StageExplore)
 	o.projectWriteExplorationHandoffFromTurnA()
 	if err != nil {

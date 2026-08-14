@@ -169,7 +169,10 @@ func TestRunWriteExplorationSubflowAppliesMaxRoundsOverride(t *testing.T) {
 			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 				ReadFiles: []string{"src/_pytest/_code/source.py"},
 			})
-			return &agent.StageOutput{}, nil
+			return &agent.StageOutput{
+				RetryHint:   "reuse the explored source and close",
+				StageReport: "bounded exploration report",
+			}, nil
 		},
 	})
 	o := New(types.PipelineSettings{}, ar, sr, sar)
@@ -185,6 +188,18 @@ func TestRunWriteExplorationSubflowAppliesMaxRoundsOverride(t *testing.T) {
 	}
 	if captured != 2 {
 		t.Fatalf("explorer dispatch should receive typed max_rounds override 2, got %d", captured)
+	}
+	if o.busCtx.PipelineStage != types.StageExplore {
+		t.Fatalf("write exploration must own PipelineStage=Explore, got %q", o.busCtx.PipelineStage)
+	}
+	if o.busCtx.TaskState.Stage != types.StageExplore {
+		t.Fatalf("write exploration must own TaskState.Stage=Explore, got %q", o.busCtx.TaskState.Stage)
+	}
+	if o.busCtx.TaskState.RetryHintStage != types.StageExplore {
+		t.Fatalf("explorer RetryHint must retain Explore ownership, got %q", o.busCtx.TaskState.RetryHintStage)
+	}
+	if len(o.busCtx.StageReports) != 1 || o.busCtx.StageReports[0].Stage != types.StageExplore {
+		t.Fatalf("explorer StageReport must retain Explore ownership, got %+v", o.busCtx.StageReports)
 	}
 }
 

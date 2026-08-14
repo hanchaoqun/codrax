@@ -40,3 +40,10 @@ This scaffold is for human review. The runner records typed metrics and declared
 5. `B825-WRITECONTROLLERHANDOFFRECEIPT1/P1`：WriteExplorationHandoff 虽已落盘，controller 只通过优先级 pack
    间接看到，重要 target/evidence 可能落在 `+N` 后。应在 Typed write artifacts 中显式给出有界 presence/count/
    target receipt；它只降低心智负担，不替模型选择 plan 内容。
+
+## 施工复核（2026-08-14）
+
+- B822/B823/B824/B825 已在同一写控制面批次落地并通过 `internal/agent`、`internal/orchestrator` 包测试。
+- B823 冷读纠正：r504 不只是“缺 completion”；普通源码 `QFRootCauseTrace` 被误套 bounded Trace endpoint 合同也是
+  隐藏 blocker。现由 typed runtime profiles 区分源码根因与真正运行时 Trace，并将剩余 readiness 缺口分席提示。
+- 活跃 stream 的时间边界、Trace 显式窗/因果投影/自动补齐、模型对 plan/答案/图的作者权均未改变。

@@ -12807,3 +12807,51 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		t.Fatalf("runtime trace participant must not enter source-flow guidance: %q", got)
 	}
 }
+
+func TestExplorerTerminalRetryHintNeverCallsCompleteCoverageMissing(t *testing.T) {
+	ready := explorerCompletionReadiness{
+		ToolDiversity:          true,
+		FileCoverage:           true,
+		EvidenceQuality:        true,
+		ExplanationAnchorReady: true,
+		ScopeReadCount:         1,
+		ScopeTotalCount:        1,
+		DiscoveredCount:        1,
+		Coverage:               1,
+	}
+	key, hint := explorerTerminalRetryHint(ready)
+	if key != "explorer.retry.structured-completion-missing" {
+		t.Fatalf("close-ready evidence must request structured completion, got key=%q hint=%q", key, hint)
+	}
+	if !strings.Contains(hint, "emit_investigation_complete") || strings.Contains(hint, "Read more") {
+		t.Fatalf("close-ready hint must reuse evidence and close without widening: %s", hint)
+	}
+
+	traceGap := ready
+	traceGap.TraceEndpointMissing = []string{"render-thread terminal span"}
+	key, hint = explorerTerminalRetryHint(traceGap)
+	if key != "explorer.retry.trace-endpoint" || !strings.Contains(hint, "render-thread terminal span") {
+		t.Fatalf("typed trace endpoint gap must not be mislabeled as completion-only: key=%q hint=%q", key, hint)
+	}
+
+	selectionGap := ready
+	selectionGap.DiscoverySelectionPending = true
+	key, hint = explorerTerminalRetryHint(selectionGap)
+	if key != "explorer.retry.runtime-target-selection" || !strings.Contains(hint, "typed runtime-target selection") {
+		t.Fatalf("typed runtime target gap must keep its own remedy: key=%q hint=%q", key, hint)
+	}
+
+	coverageGap := ready
+	coverageGap.FileCoverage = false
+	coverageGap.ScopeReadCount = 1
+	coverageGap.ScopeTotalCount = 3
+	coverageGap.DiscoveredCount = 3
+	coverageGap.Coverage = 1.0 / 3.0
+	key, hint = explorerTerminalRetryHint(coverageGap)
+	if key != "explorer.retry.file-coverage" || !strings.Contains(hint, "1 of 3") {
+		t.Fatalf("real file gap must retain the scoped coverage remedy: key=%q hint=%q", key, hint)
+	}
+	if strings.Contains(hint, "1 of 1") || strings.Contains(hint, "100%") {
+		t.Fatalf("coverage remedy must not fabricate a complete-coverage contradiction: %s", hint)
+	}
+}

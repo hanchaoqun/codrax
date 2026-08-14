@@ -8063,6 +8063,7 @@ type explorerCompletionReadiness struct {
 	TraceEndpointCovered      int
 	TraceEndpointTotal        int
 	TraceEndpointMissing      []string
+	DiscoverySelectionPending bool
 	ToolSources               int
 	ReadCount                 int
 	DirectCount               int
@@ -8141,6 +8142,15 @@ func (e *explorerEvaluator) boundedStructuralTraceRequest() bool {
 	if family != types.QFCallChain && family != types.QFRootCauseTrace {
 		return false
 	}
+	// QFRootCauseTrace is also the semantic family used for ordinary
+	// source-code bug diagnosis. Only the runtime-backed variant owns Trace
+	// endpoint/coverage contracts; a source root-cause request with both
+	// runtime profiles explicitly not_applicable must not be forced to ground a
+	// synthetic terminal path. Explicit source call chains remain covered by
+	// typedTracePathRequestModel/isTypedBoundedStructuralTraceRequestModel above.
+	if family == types.QFRootCauseTrace && !runtimeBackedRootCauseTraceRequest(rm) {
+		return false
+	}
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCountQuestion ||
@@ -8148,6 +8158,25 @@ func (e *explorerEvaluator) boundedStructuralTraceRequest() bool {
 		return false
 	}
 	return true
+}
+
+func runtimeBackedRootCauseTraceRequest(rm types.RequestModel) bool {
+	if rm.Intent == types.IntentTrace {
+		return true
+	}
+	if rm.RuntimeArtifactScopeProfile != nil {
+		scope := rm.RuntimeArtifactScopeProfile.RequestedScope
+		if scope != "" && scope != types.RuntimeArtifactScopeNotApplicable {
+			return true
+		}
+	}
+	if rm.RuntimeQuestionProfile != nil {
+		scope := rm.RuntimeQuestionProfile.Scope
+		if scope != "" && scope != types.RuntimeQuestionScopeNotApplicable {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) typedStructuralOverviewRequiresWideRead() bool {
@@ -8446,6 +8475,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		TraceEndpointCovered:      traceEndpointCovered,
 		TraceEndpointTotal:        traceEndpointTotal,
 		TraceEndpointMissing:      append([]string(nil), traceEndpointMissing...),
+		DiscoverySelectionPending: discoverySelectionPending,
 		ToolSources:               sourceCount,
 		ReadCount:                 len(readSet),
 		DirectCount:               directCount,
@@ -13744,14 +13774,49 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
 		} else {
-			hintKey = "explorer.retry.file-coverage"
-			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", readiness.ScopeReadCount, max(readiness.ScopeTotalCount, readiness.DiscoveredCount), readiness.Coverage*100, readiness.RelevantRead)
+			hintKey, out.RetryHint = explorerTerminalRetryHint(readiness)
 		}
 		logging.Debug("[explorer] retry hint built key=%q len=%d body=%q",
 			hintKey, len(out.RetryHint), logging.Truncate(out.RetryHint, logging.HintBodyMax))
 	}
 
 	return out, nil
+}
+
+// explorerTerminalRetryHint is the final typed readiness router. Callers have
+// already handled member-set, scoped-universe, tool-diversity, evidence, and
+// explanation-anchor gaps. Keeping the remaining cases explicit prevents the
+// old default from claiming "read 1/1 (100%)" and then asking for more files.
+// It consumes only typed booleans/counts produced by completionReadiness.
+func explorerTerminalRetryHint(readiness explorerCompletionReadiness) (string, string) {
+	if len(readiness.TraceEndpointMissing) > 0 {
+		return "explorer.retry.trace-endpoint", fmt.Sprintf(
+			"Previous attempt still lacks typed terminal endpoint evidence for: %s. Resolve those exact endpoints from the current evidence scope, then call emit_investigation_complete; do not widen unrelated files.",
+			strings.Join(readiness.TraceEndpointMissing, ", "),
+		)
+	}
+	if readiness.DiscoverySelectionPending {
+		return "explorer.retry.runtime-target-selection",
+			"Previous attempt still has a typed runtime-target selection pending. Select the target from the discovered typed candidates, then reuse the current evidence and call emit_investigation_complete; do not restart broad file discovery."
+	}
+	if readiness.FileCoverage && readiness.ToolDiversity && readiness.EvidenceQuality &&
+		(readiness.ExplanationAnchorReady || readiness.MixedRuntimeSourceCarrier) {
+		return "explorer.retry.structured-completion-missing",
+			"Previous attempt already satisfied the typed evidence, source, coverage, and explanation readiness faces but did not land the structured completion signal. Reuse the accepted evidence and call emit_investigation_complete(reason, confidence, result_kind) now; do not read additional files unless a concrete contradiction changes the answer."
+	}
+	if !readiness.FileCoverage {
+		return "explorer.retry.file-coverage", fmt.Sprintf(
+			"Previous attempt read %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read only the remaining in-scope files needed to close the typed coverage gap.",
+			readiness.ScopeReadCount,
+			max(readiness.ScopeTotalCount, readiness.DiscoveredCount),
+			readiness.Coverage*100,
+			readiness.RelevantRead,
+		)
+	}
+	return "explorer.retry.typed-readiness-incomplete", fmt.Sprintf(
+		"Previous attempt has unresolved typed readiness faces: %s. Repair only those faces using the current evidence scope, then call emit_investigation_complete; do not infer a file-coverage gap from already-complete coverage.",
+		strings.Join(readiness.MissingFaces, ", "),
+	)
 }
 
 func ingestExplorerReadCoverage(
