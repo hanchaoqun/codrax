@@ -354,6 +354,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return errResult(t.Name(), rej), nil
 	}
 
+	// Verification can mutate a repository even when every test passes (for
+	// example a Make target leaving a compiled binary in the retained
+	// worktree). Capture a structure-owned baseline before any probe, dependency
+	// link, or runner executes. Planner dry-run probes keep their existing lane;
+	// post-apply verification owns the durable audit.
+	var worktreeAuditBaseline verificationWorktreeSnapshot
+	if !dryRunProbe {
+		worktreeAuditBaseline = captureVerificationWorktreeSnapshot(context.Background(), ctx.RepoRoot)
+	}
+
 	// planSources tags each queued plan with its typed provenance for
 	// the ExecutedCommands audit rows; executedKeys feeds the
 	// escalation picker; surfaceEscalations bounds dead-end recovery
@@ -398,6 +408,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
 		applyChangedPathVerificationCoverageForPlan(ctx, authorityPlan, report, enforceCompleteCoverage)
+		if !dryRunProbe {
+			attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot)
+		}
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()
 		}
@@ -2560,6 +2573,8 @@ func isMoreSevereFailureKind(candidate, current types.FailureKind) bool {
 		case types.FailureKindTimeout:
 			return 4
 		case types.FailureKindCrash:
+			return 3
+		case types.FailureKindVerificationSideEffect:
 			return 3
 		case types.FailureKindBuildFailure:
 			return 2

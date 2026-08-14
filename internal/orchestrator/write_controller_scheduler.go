@@ -9244,7 +9244,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	}
 	switch report.FailureKind {
 	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindVerificationIncomplete, types.FailureKindTimeout, types.FailureKindOOM,
-		types.FailureKindCPULimit, types.FailureKindCrash, types.FailureKindPreexistingBuildFailure:
+		types.FailureKindCPULimit, types.FailureKindCrash, types.FailureKindPreexistingBuildFailure, types.FailureKindVerificationSideEffect:
 		return string(report.FailureKind)
 	}
 	if report.BuildFailed {

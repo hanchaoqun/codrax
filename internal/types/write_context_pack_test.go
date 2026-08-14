@@ -1229,6 +1229,27 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackFromChangeReportCarriesWorktreeSideEffects(t *testing.T) {
+	pack := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID: "plan-effects",
+		Passed: true,
+		WorktreeAudit: &VerificationWorktreeAudit{
+			Status: VerificationWorktreeAuditUntrackedSideEffects,
+			Effects: []VerificationWorktreeEffect{{
+				Path: "generated.bin", Kind: VerificationWorktreeEffectUntrackedCreated,
+				Ownership: "unproven_generated_artifact", Action: "retained_not_committed_not_auto_deleted",
+			}},
+		},
+	})
+	for _, item := range pack.Items {
+		if item.Kind == "verification_worktree_effect" && strings.Contains(item.Text, "generated.bin") &&
+			strings.Contains(item.Text, "retained_not_committed_not_auto_deleted") {
+			return
+		}
+	}
+	t.Fatalf("worktree side effect missing from write handoff: %+v", pack.Items)
+}
+
 func TestWriteContextPackFromChangeReportCarriesNoTestsToController(t *testing.T) {
 	report := &ChangeReport{PlanID: "plan-no-tests", Passed: true, NoTestsRunners: []string{"python"}}
 	pack := WriteContextPackFromChangeReport(report)

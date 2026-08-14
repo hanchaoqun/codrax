@@ -103,18 +103,22 @@ type WriteFinalPatchSummary struct {
 }
 
 type WriteFinalVerificationSummary struct {
-	ReportID              string                       `json:"report_id,omitempty"`
-	Status                VerificationStatus           `json:"status,omitempty"`
-	Passed                bool                         `json:"passed,omitempty"`
-	FailureKind           FailureKind                  `json:"failure_kind,omitempty"`
-	FailureReasonCode     string                       `json:"failure_reason_code,omitempty"`
-	TestCount             int                          `json:"test_count,omitempty"`
-	PassedCount           int                          `json:"passed_count,omitempty"`
-	FailedCount           int                          `json:"failed_count,omitempty"`
-	CommandCount          int                          `json:"command_count,omitempty"`
-	RunnerFamilies        []VerificationLanguageFamily `json:"runner_families,omitempty"`
-	ConfidenceReasonCodes []string                     `json:"confidence_reason_codes,omitempty"`
-	NoTestsRunners        []string                     `json:"no_tests_runners,omitempty"`
+	ReportID              string                          `json:"report_id,omitempty"`
+	Status                VerificationStatus              `json:"status,omitempty"`
+	Passed                bool                            `json:"passed,omitempty"`
+	FailureKind           FailureKind                     `json:"failure_kind,omitempty"`
+	FailureReasonCode     string                          `json:"failure_reason_code,omitempty"`
+	TestCount             int                             `json:"test_count,omitempty"`
+	PassedCount           int                             `json:"passed_count,omitempty"`
+	FailedCount           int                             `json:"failed_count,omitempty"`
+	CommandCount          int                             `json:"command_count,omitempty"`
+	RunnerFamilies        []VerificationLanguageFamily    `json:"runner_families,omitempty"`
+	ConfidenceReasonCodes []string                        `json:"confidence_reason_codes,omitempty"`
+	NoTestsRunners        []string                        `json:"no_tests_runners,omitempty"`
+	WorktreeAuditStatus   VerificationWorktreeAuditStatus `json:"worktree_audit_status,omitempty"`
+	TrackedEffectCount    int                             `json:"tracked_effect_count,omitempty"`
+	UntrackedEffectCount  int                             `json:"untracked_effect_count,omitempty"`
+	WorktreeEffects       []VerificationWorktreeEffect    `json:"worktree_effects,omitempty"`
 }
 
 type WriteFinalDeliverySummary struct {
@@ -520,6 +524,12 @@ func writeFinalVerificationSummary(report *ChangeReport) WriteFinalVerificationS
 		RunnerFamilies:    VerificationLanguageFamiliesFromReport(report),
 		NoTestsRunners:    append([]string(nil), report.NoTestsRunners...),
 	}
+	if report.WorktreeAudit != nil {
+		out.WorktreeAuditStatus = report.WorktreeAudit.Status
+		out.TrackedEffectCount = report.WorktreeAudit.TrackedEffectCount
+		out.UntrackedEffectCount = report.WorktreeAudit.UntrackedEffectCount
+		out.WorktreeEffects = append([]VerificationWorktreeEffect(nil), report.WorktreeAudit.Effects...)
+	}
 	for _, rec := range report.VerificationConfidence {
 		if code := strings.TrimSpace(rec.ReasonCode); code != "" {
 			out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, code)
@@ -812,6 +822,16 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 	} else if report.Verification.Status == VerificationStatusFailed {
 		add("verification_failed", "change_report", "error", string(report.Verification.FailureKind))
 	}
+	switch report.Verification.WorktreeAuditStatus {
+	case VerificationWorktreeAuditUntrackedSideEffects:
+		add("verification_worktree_untracked_side_effects", "worktree_audit", "warning",
+			strings.Join(writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectUntrackedCreated), ","))
+	case VerificationWorktreeAuditTrackedDrift:
+		add("verification_worktree_tracked_drift", "worktree_audit", "error",
+			strings.Join(writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectTrackedChanged), ","))
+	case VerificationWorktreeAuditUnavailable:
+		add("verification_worktree_audit_unavailable", "worktree_audit", "warning", "post-run worktree cleanliness not proven")
+	}
 	switch report.ProofLedger.State {
 	case VerificationProofLedgerFailed:
 		add("verification_proof_failed", "verification_proof_ledger", "error", strings.Join(report.ProofLedger.ReasonCodes, ","))
@@ -854,6 +874,16 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 		add("impact_"+status, "impact_analysis", "warning", fmt.Sprintf("%d target(s)", count))
 	}
 	return risks
+}
+
+func writeFinalWorktreeEffectPaths(effects []VerificationWorktreeEffect, kind VerificationWorktreeEffectKind) []string {
+	var paths []string
+	for _, effect := range effects {
+		if effect.Kind == kind && strings.TrimSpace(effect.Path) != "" {
+			paths = append(paths, strings.TrimSpace(effect.Path))
+		}
+	}
+	return dedupTrimWriteWorkflowRunStrings(paths)
 }
 
 func writeFinalNormalizeRisks(in []WriteFinalResidualRisk) []WriteFinalResidualRisk {

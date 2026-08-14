@@ -549,12 +549,36 @@ func syntaxCheckReportExitCode(report *types.ChangeReport) int {
 }
 
 func finishedReportSummary(report *types.ChangeReport, fallback string) string {
+	base := fallback
 	if report == nil ||
 		report.FailureKind != types.FailureKindVerificationIncomplete ||
 		strings.TrimSpace(report.FailureSummary) == "" {
-		return fallback
+		return base + renderRunTestsWorktreeAuditSummary(report)
 	}
-	return "[run_tests: verdict=UNAVAILABLE reason_code=" +
+	base = "[run_tests: verdict=UNAVAILABLE reason_code=" +
 		changedPathVerificationUncoveredReasonCode + "] " +
 		strings.TrimSpace(report.FailureSummary)
+	return base + renderRunTestsWorktreeAuditSummary(report)
+}
+
+func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string {
+	if report == nil || report.WorktreeAudit == nil {
+		return ""
+	}
+	audit := report.WorktreeAudit
+	switch audit.Status {
+	case types.VerificationWorktreeAuditUntrackedSideEffects:
+		paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectUntrackedCreated, 8)
+		if len(paths) == 0 {
+			return ""
+		}
+		return " [worktree_audit: untracked verification output retained, not committed, not auto-deleted: " + strings.Join(paths, ", ") + "]"
+	case types.VerificationWorktreeAuditTrackedDrift:
+		paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectTrackedChanged, 8)
+		return " [worktree_audit: tracked drift; verification failed: " + strings.Join(paths, ", ") + "]"
+	case types.VerificationWorktreeAuditUnavailable:
+		return " [worktree_audit: unavailable]"
+	default:
+		return ""
+	}
 }

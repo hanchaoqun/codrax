@@ -36182,6 +36182,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.825 B813：测试通过与保留 worktree 洁净状态解耦（2026-08-14）
+
+1. B813 已按结构化 Git 证据施工。`run_tests` 在任何 post-apply probe、依赖链接或 project runner 执行前采集
+   NUL-delimited porcelain 基线，结束时再采集一次；仅对真实 `.git` directory/worktree file 证明的 Git
+   worktree 启用，普通非 Git fixture 不改变既有 runner/parser/build 语义。
+2. 新增 `ChangeReport.WorktreeAudit` 单源，状态分为 `clean / untracked_side_effects / tracked_drift /
+   unavailable`。每条 effect 携 path、kind、before/after status、ownership 与 action；dirty tracked 路径额外
+   计算内容/符号链接 fingerprint，避免同一 XY 状态下内容再次变化却漏报。所有判断只读 Git 状态和文件指纹，
+   不扫描命令 stdout、模型推理或最终答案。
+3. 新增未跟踪文件与测试 verdict 解耦：测试仍可为 passed，但 typed roster 明示
+   `unproven_generated_artifact + retained_not_committed_not_auto_deleted`；既存未跟踪文件属于 baseline，即使
+   内容变化也不被本轮错误认领。Codrax 不猜 owner、不自动删除任意客户路径。
+4. 任何 tracked 状态或 fingerprint 漂移都产生 `verification_side_effect` 失败、独立
+   `verification_worktree_integrity` red assertion、diagnostic 与 replan reason；测试本身的通过行仍保留，不能
+   用 passed assertions 洗掉工作树完整性失败。真实 Git worktree 审计不可用则走
+   `verification_incomplete`，保留测试证据但不得宣称保留 worktree 洁净。
+5. typed audit 已贯通 run_tests summary、ChangeReport JSON、controller artifact view、write context pack、
+   中英文 verify result 与 durable final-report/residual-risk。新增未跟踪产物的用户面同时披露：测试通过、文件
+   未纳入交付提交、未被自动删除、delivery ref 完整性与 preserved-worktree 洁净度是两个独立事实；模型不再只
+   收到“fully verified”后自行推断“其他文件未改变”。
+6. 测试覆盖 clean、非 Git、既存 untracked 不误归因、新 untracked 保留披露、tracked fingerprint 漂移
+   fail-loud、中英文渲染、context handoff 和真实 `make test` 生成 `generated.bin` 的集成臂。五个相关包全套
+   通过：`internal/tool` 173.7s、`types` 25.2s、`agent` 11.0s、`writeflow`、`orchestrator` 14.2s；
+   `go build ./...` 通过。
+7. 全套测试还发现 B816 细化 issue 后一条旧 oracle 仍期待 `missing_call_anchor`；已只重钉为更精确的
+   `missing_grounded_call_anchor`，不放宽关系证据门、不改变 Mermaid body 或修补行为。热文件新增渲染逻辑已
+   拆到 concern-specific 文件，IR delivery 行数 ratchet 保持绿。
+8. 本批未改 Read/Trace 查询、因果投影、自动补齐、JSON 教学、流式 timeout 或答案正文/结论。完整 Trace
+   causal diagnosis 继续只从 typed on-chain 证据选主因，保留实际占用/规则可消双轴、优先级反转/调度供给/
+   算力供给/D/IO/确定性语义工作和业务线索；邻近/背景仍只作 support，活跃流不因 4ms/4m 固定年龄降级。
+
+状态：
+
+`B813-WRITEVERIFYSIDEEFFECT1=implemented/typed-before-after-git-audit+pinned`；
+`B816-DIAGRAMGROUNDEDANCHORREPAIR1=unit-closed/legacy-pin-resigned/production-positive-pending`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

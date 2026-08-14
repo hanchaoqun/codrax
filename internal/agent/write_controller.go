@@ -279,6 +279,18 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "- changed_path_verification: path=%s status=%s caliber=%s capability=%s\n",
 				row.Path, row.Status, row.Caliber, row.Capability)
 		}
+		if audit := report.WorktreeAudit; audit != nil {
+			fmt.Fprintf(&b, "- verification_worktree_audit: status=%s tracked_effects=%d untracked_effects=%d reason_code=%s\n",
+				audit.Status, audit.TrackedEffectCount, audit.UntrackedEffectCount, audit.ReasonCode)
+			for i, effect := range audit.Effects {
+				if i >= 8 {
+					fmt.Fprintf(&b, "- verification_worktree_effect: ... +%d more\n", len(audit.Effects)-i)
+					break
+				}
+				fmt.Fprintf(&b, "- verification_worktree_effect: path=%s kind=%s ownership=%s action=%s\n",
+					effect.Path, effect.Kind, effect.Ownership, effect.Action)
+			}
+		}
 		if writeControllerHasProductionSourceStaticOnlyCoverage(report.ChangedPathCoverage) {
 			b.WriteString("- changed_path_verification_boundary: source_static/syntax_only coverage proves source shape only; it is not target execution or target behavior, so do not select all_verified from report passed status alone\n")
 		}

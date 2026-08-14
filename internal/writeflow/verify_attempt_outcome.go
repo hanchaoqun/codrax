@@ -84,7 +84,7 @@ func verifyFailureReasonCode(report *types.ChangeReport) string {
 	case types.FailureKindBuildFailure:
 		return string(types.FailureKindBuildFailure)
 	case types.FailureKindTestsFailed, types.FailureKindTimeout, types.FailureKindOOM,
-		types.FailureKindCPULimit, types.FailureKindCrash:
+		types.FailureKindCPULimit, types.FailureKindCrash, types.FailureKindVerificationSideEffect:
 		return string(report.FailureKind)
 	}
 	if report.BuildFailed {

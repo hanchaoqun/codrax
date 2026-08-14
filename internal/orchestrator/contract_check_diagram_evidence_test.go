@@ -149,7 +149,7 @@ func TestRunV2BlockOracles_DiagramBodyEdgeCannotOmitTypedAnchor(t *testing.T) {
 	}}}
 	violations := runV2BlockOraclesWithMut(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, mut)
 	for _, violation := range violations {
-		if violation.Kind == types.ViolDiagramCallEdgeUnproven && strings.Contains(violation.Detail, "missing_call_anchor") {
+		if violation.Kind == types.ViolDiagramCallEdgeUnproven && strings.Contains(violation.Detail, "missing_grounded_call_anchor") {
 			return
 		}
 	}

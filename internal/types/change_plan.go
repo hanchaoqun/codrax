@@ -1000,6 +1000,15 @@ type ChangeReport struct {
 	// verify-failure replan handoff; never derived from prose.
 	ExecutedCommands []ExecutedCommand `json:"executed_commands,omitempty"`
 
+	// WorktreeAudit is the git-owned before/after integrity audit for the
+	// verification command surface. It is deliberately independent from the
+	// test verdict: a project runner may pass while creating an untracked build
+	// artifact. Tracked drift fails verification; newly-created untracked files
+	// remain visible as retained side effects but are never deleted implicitly.
+	// Existing untracked paths are part of the baseline and are not attributed
+	// to the current verification run.
+	WorktreeAudit *VerificationWorktreeAudit `json:"worktree_audit,omitempty"`
+
 	// ChangedPathCoverage is the per-source-path verification authority
 	// ledger. A report cannot be a verified pass while a recognized changed
 	// source path remains uncovered. Coverage is derived from typed runner
@@ -1116,7 +1125,56 @@ const (
 	// compatibility; consumers must rely on VerificationStatus and this
 	// typed reason rather than the legacy boolean alone.
 	FailureKindNoTests FailureKind = "no_tests"
+
+	// FailureKindVerificationSideEffect means the verification command changed
+	// tracked worktree state after the apply checkpoint. The test assertion may
+	// itself have passed, but the verifier cannot sign a clean post-apply tree.
+	// This is derived from git status/fingerprints, never runner prose.
+	FailureKindVerificationSideEffect FailureKind = "verification_side_effect"
 )
+
+// VerificationWorktreeAuditStatus classifies the post-run worktree surface.
+type VerificationWorktreeAuditStatus string
+
+const (
+	VerificationWorktreeAuditClean                VerificationWorktreeAuditStatus = "clean"
+	VerificationWorktreeAuditUntrackedSideEffects VerificationWorktreeAuditStatus = "untracked_side_effects"
+	VerificationWorktreeAuditTrackedDrift         VerificationWorktreeAuditStatus = "tracked_drift"
+	VerificationWorktreeAuditUnavailable          VerificationWorktreeAuditStatus = "unavailable"
+)
+
+// VerificationWorktreeEffectKind is a structure-owned filesystem delta.
+type VerificationWorktreeEffectKind string
+
+const (
+	VerificationWorktreeEffectUntrackedCreated VerificationWorktreeEffectKind = "untracked_created"
+	VerificationWorktreeEffectTrackedChanged   VerificationWorktreeEffectKind = "tracked_changed"
+)
+
+// VerificationWorktreeEffect records one path whose git-visible state changed
+// while verification ran. Ownership remains unproven for untracked artifacts;
+// Codrax therefore retains and discloses them rather than deleting them.
+type VerificationWorktreeEffect struct {
+	Path         string                         `json:"path"`
+	Kind         VerificationWorktreeEffectKind `json:"kind"`
+	BeforeStatus string                         `json:"before_status,omitempty"`
+	AfterStatus  string                         `json:"after_status,omitempty"`
+	Ownership    string                         `json:"ownership,omitempty"`
+	Action       string                         `json:"action,omitempty"`
+}
+
+// VerificationWorktreeAudit is the bounded, typed integrity result attached
+// to ChangeReport. Baseline counts make it explicit that pre-existing dirty
+// state was observed without treating it as a new verification side effect.
+type VerificationWorktreeAudit struct {
+	Status               VerificationWorktreeAuditStatus `json:"status"`
+	ReasonCode           string                          `json:"reason_code,omitempty"`
+	BaselineDirtyTracked int                             `json:"baseline_dirty_tracked,omitempty"`
+	BaselineUntracked    int                             `json:"baseline_untracked,omitempty"`
+	TrackedEffectCount   int                             `json:"tracked_effect_count,omitempty"`
+	UntrackedEffectCount int                             `json:"untracked_effect_count,omitempty"`
+	Effects              []VerificationWorktreeEffect    `json:"effects,omitempty"`
+}
 
 // VerificationDiagnostic is one typed verification diagnostic projected from
 // command/probe/test-surface execution evidence. It is intentionally compact:
@@ -1335,6 +1393,7 @@ func FailureReasonCodeIndicatesCodeFailure(raw string) bool {
 		switch code {
 		case string(FailureKindTestsFailed),
 			string(FailureKindBuildFailure),
+			string(FailureKindVerificationSideEffect),
 			string(FailureKindTimeout),
 			string(FailureKindOOM),
 			string(FailureKindCPULimit),
