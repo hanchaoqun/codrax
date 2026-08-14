@@ -35776,6 +35776,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.813 r492：peer 上下文修复获正证；样本口径与 scope 教学仍有断层（2026-08-14）
+
+1. 在 `main@61bd50000` 严格并发恰好两个案例：
+   `trace_query_perf_quality_raw_fallback + hilog_mixed_arkts_cangjie`。Runner `2 PASS / 0 FAIL`，
+   人工 `0 pass / 2 fail`；两案 128s/133s，均一次成文、答案完整，无 JSON salvage、旧稿恢复、
+   空答案、Mermaid 失败或 active-stream 固定年龄降级。
+2. B802 获生产正证：混合日志 finalizer context 已无 investigation narrative、peer member-note
+   关系叙述和 triager interpretation advisory；两个错误各自 message/frame、
+   `cross_error_relation=unproven` 与尾部 typed boundary 均在，原始 Mutable audit 历史仍保留。
+3. B806 仍不能关：清洁上下文下模型仍先称仓颉为“真正触发源”、ArkTS 为“捕获/传播侧”，末段又
+   自己声明跨错误关系未证。这不再是旧上下文污染，但一个额外的模型自填 enum 也不能保证自由正文
+   一致；禁止用正文关键词扫描造 hard gate。下一步先把 peer-only typed guidance 写得更直接并做异构
+   回放，若仍稳定复现，再设计不依赖 prose 扫描的结构化 claim surface。
+4. 新确认 `B807-RUNTIMESCOPECONTRACT1`（P0）：Analyzer 的共享教学把
+   `bounded_fact_set` 写成“必须 non-root-cause + diagnostic=false”，但 validator 实际且合理地接受
+   `root_cause/diagnostic + bounded_fact_set` 表示“崩溃问题中的有限观察事实（如分别哪一帧）”。
+   本案先被错误教学引向 causal_diagnosis，又在改成 bounded_fact_set 后因 scenario 未同步而再拒一次，
+   共三轮才成功。根修是让 scope 只表达答案广度：有限 observed facts 可保留诊断 intent/scenario；
+   是否需要因果投影仅由 required causal_attribution 与 causal_diagnosis 决定。
+5. B805 仍复现但形态收窄：旧 `1/8ms=12.5%` 消失，正文仍称单条 9000 cycles 提供“大致 CPU
+   占用比例”。事件权重、同 event cohort 内观察份额、elapsed time、temporal coverage 和 workload
+   hotspot confidence 必须分轴。施工采用 typed statistical caliber + finalizer 尾部软教学，不改写答案。
+6. 本轮 Trace 只问显式窗内有限 perf 事实，未强制全量因果投影；8ms 实测 Running 与 2ms EOF
+   uncovered 仍正确分离。Trace 链上根因/背景角色、PI/调度供给/算力/D/IO/确定性工作/业务线索及
+   实际占用与规则可消除双轴均未改动。
+
+状态：
+
+`B802-LOGPEERCTX1=production-closed-r492`；
+`B806-RUNTIMERELATIONASSERT1=clean-context-model-contradiction/soft-guidance-next`；
+`B807-RUNTIMESCOPECONTRACT1=P0-confirmed/next-code-batch`；
+`B805-PERFSAMPLECALIBER1=P1-confirmed/after-B807`；
+`active-stream-4ms-degrade=forbidden/not-observed-r492`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

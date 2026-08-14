@@ -540,6 +540,30 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 	}
 }
 
+func TestRuntimeQuestionBoundedFactsAllowDiagnosticFrameLocation(t *testing.T) {
+	profile := &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactOtherObservedValue},
+	}
+	dimensions := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{
+			{Label: "ArkTS frame", Role: types.RequestedAnswerDimensionObservedValue, Required: true},
+			{Label: "Cangjie frame", Role: types.RequestedAnswerDimensionObservedValue, Required: true},
+		},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		dimensions,
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	); issue != "" {
+		t.Fatalf("finite observed crash-frame dimensions were incorrectly widened or rejected: %q", issue)
+	}
+}
+
 func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *testing.T) {
 	causalDimension := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
