@@ -35915,6 +35915,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace-causal-projection/auto-supplement=unchanged`；
 `active-stream-fixed-age-degrade=not-observed`。
 
+### §123.819 r496 / B811-B812：有限 Trace 事实误套源码 flow 合同；CPU 身份纠正只到成文尾层（2026-08-14）
+
+1. 在 `main@ef99e4302` 严格并发恰好两个案例；机器均 PASS：
+   `trace_query_perf_quality_raw_fallback` 211s、`qf_sequence_analyzer_gate` 190s。人工均 PASS；完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_cpuid_sequence_r496_20260814_manual_audit.md`。
+2. B810 获成文生产正证：Trace 终稿只报告 CPU5、running 8.000ms 和一个
+   `libraw.so:0x1234` 未符号化/IP-only 样本；没有再虚构 CPU20 或迁移，也没有宣称函数、源码行、完整
+   call path 或热点占比。确定性尾边界纠正最终答案有效。
+3. 同一日志证明 B810 只是 final-layer partial。Perf triager 正确识别 `[005]`/`cpu=5`，但 analyzer 与
+   explorer 的多轮推理仍把 `raw-21 (20) [005]` 的 `(20)` 当 CPU20；这会增加错误调查方向，只是最终被尾边界
+   挡住。B812 将同一 CPU 身份语法作为 typed trace attachment 选路的软教学共享给 perf triage、analyze、
+   explore：`tid/(tgid)/namespace pid` 都是身份，`[NNN]` 才是事件 CPU，perf `cpu=` 还要求
+   `cpu_known=true`；迁移必须有 typed migration 或兼容的多 CPU target rows。它不扫描请求/模型/答案原文，
+   不铸造事实或结论。
+4. 新确认 B811：analyzer 已明确铸出 `runtime_question_scope=bounded_fact_set`，fact families 仅为有限
+   count/duration 与 frequency residency，且没有 causal-attribution；completion 却因通用
+   `PredicateAxis=flow` 加默认源码 allow，要求本仓 producer/transfer/consumer operation evidence。第一轮因此
+   被 `flow_operation_carrier_evidence` 拒绝，第二轮靠 `external_only_trace` waiver 才关闭，并遗留无关
+   “operation-level flow remains unproven” caveat。这正是“Trace 状态/事实查询误套调用链/全量 flow 合同”的
+   精确生产实例，不是模型波动。
+5. B811 根修让 typed 有限 runtime fact/effect scope 先决定 completion breadth。只有另一个独立 typed
+   current-source explanation/scope/obligation/verification carrier 明确存在时，源码 flow gate 才保留；generic
+   source allow 和 `AxisFlow` 不再自行扩域。显式 mixed trace+current-source 的反向 pin 继续要求源码 operation
+   evidence，有限外部事实则首次 completion 直接通过。判据不读任何 prose。
+6. Sequence 案例人工通过：代码不存在 `buildAnalysisIR -> gate.Run` 有向路径；真实拓扑是
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`。模型最终用合法 sequence diagram 表达两条真边并保留 19 个
+   grounded 中间调用，首次成文通过。早期探索曾试图强制请求方向，说明教学仍有心智成本，但 typed
+   shared-callee boundary 最终正确工作，不以 case 专门硬门修补。
+7. 两案均无畸形 answer JSON salvage、旧稿恢复、空答案、finalizer retry 或系统接管结论；没有 active stream
+   4ms 固定年龄降级。本批不改 Trace 查询、因果投影编译、自动补齐或答案正文。完整因果诊断仍保留链上
+   优先级反转/调度供给/算力供给/D/IO/确定性语义工作/业务线索与实际占用、规则可消除双轴；有限事实问题
+   不被强制扩成完整投影，邻近/背景仍只能支撑额外排查。
+
+状态：
+
+`B810-TARGETCPUIDAUTH1=final-production-positive-r496`；
+`B811-BOUNDEDRUNTIMEFLOWCONTRACT1=implemented/typed-scope+mixed-source-reverse-pins`；
+`B812-CROSSSTAGECPUIDSYNTAX1=implemented/soft-typed-context/perf+analyze+explore`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

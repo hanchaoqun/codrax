@@ -316,6 +316,7 @@ func safeAnalyzerHintValue(v string) string {
 // alert to whether THIS request might trip the same trap, but it
 // is free to classify differently if the data warrants.
 func prependAnswerPitfalls(ctx *types.AgentContext, base string) string {
+	base = prependRuntimeTraceCPUIdentityGuide(ctx, base)
 	if ctx == nil || len(ctx.ActiveAnswerPitfalls) == 0 {
 		return base
 	}

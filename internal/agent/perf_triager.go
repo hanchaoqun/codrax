@@ -99,12 +99,12 @@ type perfTriagerEvaluator struct {
 	llmCalls int
 }
 
-// BuildInitialInstruction: skill owns the full structural prompt;
-// no per-dispatch supplement beyond the attached trace (which the
-// builder renders in the user section).
-func (e *perfTriagerEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+// BuildInitialInstruction: skill owns the full structural prompt. The only
+// per-dispatch supplement is the shared, typed trace CPU-identity syntax
+// boundary; it is selected by attachment state and does not own conclusions.
+func (e *perfTriagerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	e.emitSeen = false
-	return ""
+	return renderRuntimeTraceCPUIdentityGuide(ctx)
 }
 
 // ShouldStop — primary gate is the emit observation; this hook is the

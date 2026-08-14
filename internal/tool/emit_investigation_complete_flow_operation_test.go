@@ -381,6 +381,55 @@ func TestFlowOperationCompletionGatePreservesMixedRuntimeCurrentSourceRequest(t 
 	}
 }
 
+func TestFlowOperationCompletionGateExcludesBoundedRuntimeFactsDespiteGenericSourceAllow(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AttachedHitrace = "raw-21 (20) [005] .... 3.003000: perf_sample: cpu=5 cpu_known=true"
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactCountOrDuration,
+			types.RuntimeQuestionFactFrequencyResidency,
+		},
+	}
+	ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		// Generic source allowance is not an explicit request to prove current
+		// checkout operation flow.
+		CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
+		Confidence:        0.95,
+	}
+	if flowOperationEvidenceRequired(ctx) {
+		t.Fatal("bounded runtime facts must not inherit a source operation-flow contract from AxisFlow")
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || res.Repair != nil ||
+		strings.Contains(res.Summary, "operation-level flow remains unproven") {
+		t.Fatalf("bounded runtime facts should complete on the first attempt: %+v", res)
+	}
+}
+
+func TestFlowOperationCompletionGatePreservesBoundedRuntimeFactsWithExplicitCurrentSource(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AttachedHitrace = "raw-21 (20) [005] .... 3.003000: perf_sample: cpu=5 cpu_known=true"
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactCountOrDuration},
+	}
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []types.CurrentSourceExplanationMode{
+			types.CurrentSourceExplanationTraceCurrentFlow,
+		},
+		SourceQuotes: []string{"trace the observed flow into current source"},
+		Confidence:   0.95,
+	}
+	if !flowOperationEvidenceRequired(ctx) {
+		t.Fatal("an independent typed current-source request must retain the source operation-flow contract")
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

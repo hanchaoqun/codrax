@@ -3431,6 +3431,20 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	// Finite runtime fact/effect scopes own their completion breadth. An
+	// analyzer may legitimately select AxisFlow for a requested runtime value
+	// (for example a target's residency over one bounded window), but that axis
+	// alone does not mint a current-checkout producer/transfer/consumer proof
+	// obligation. Preserve the source-flow gate only when a separate typed
+	// current-source carrier explicitly asks for current implementation proof.
+	// This predicate consumes structured scope/source fields and attachment
+	// state only; it never scans request, model, or answer prose.
+	if types.RuntimeArtifactContextActiveFromBus(ctx) &&
+		rm.RuntimeQuestionProfile != nil &&
+		rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
+		!boundedRuntimeQuestionRequiresCurrentSourceFlow(rm) {
+		return false
+	}
 	// Prefer the unified runtime/source authority once deterministic runtime
 	// observations exist. The compatibility helper below cannot see the
 	// route's current_source=optional decision; in particular, an invalid
@@ -3462,6 +3476,15 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 		rm.Intent != types.IntentTrace &&
 		types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&
 		(rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource())
+}
+
+func boundedRuntimeQuestionRequiresCurrentSourceFlow(rm types.RequestModel) bool {
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	return rm.HasTypedCurrentSourceScopeRequest() ||
+		rm.HasCurrentSourceObligationSignal() ||
+		rm.HasRuntimeArtifactCurrentVerificationAnchor()
 }
 
 func completionVerifiedReadModeStagePrecedence(ctx *types.BusContext) []stageauthority.PrecedenceRelation {

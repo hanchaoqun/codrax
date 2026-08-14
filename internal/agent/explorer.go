@@ -3652,6 +3652,7 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	var b strings.Builder
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
 	b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
+	b.WriteString(renderRuntimeTraceCPUIdentityGuide(ctx))
 	b.WriteString(renderExplorerRuntimeQuestionScopeWorkflow(ctx))
 	if phase := renderRuntimeSourceNavigationPhasePrompt(ctx); phase != "" {
 		b.WriteString(phase)
@@ -3771,6 +3772,7 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	var b strings.Builder
 	b.WriteString("## Runtime Artifact Only Start\n\n")
 	b.WriteString("The attached runtime artifact has no current-repo intersection, and this request does not ask for current-version verification. Treat the Log / Trace Triage section and the attached artifact bytes as the evidence pool.\n\n")
+	b.WriteString(renderRuntimeTraceCPUIdentityGuide(ctx))
 	b.WriteString(renderExplorerPeerErrorFactScope(ctx))
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
