@@ -1032,6 +1032,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
 	}
+	streamArtifactTailUncovered := q.TimeEndSet && reachedEOF && idx.Size > 0 && idx.LastTs > 0 && q.TimeEnd > idx.LastTs
+	if streamArtifactTailUncovered {
+		endTs = idx.LastTs
+	}
 	for pid := range open {
 		closeState(pid, endTs, 0)
 	}
@@ -1161,6 +1165,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		},
 	}
 	stats.Caveats = append(stats.Caveats, stateIntegrityCaveats...)
+	if streamArtifactTailUncovered {
+		stats.Caveats = append(stats.Caveats, schedulerArtifactTailCaveat(q, endTs))
+	}
 	stats.Caveats = append(stats.Caveats, filterCaveats...)
 	stats.Caveats = append(stats.Caveats, blockedIntegrityCaveats...)
 	if blockedReasonAmbiguousIntervals > 0 {

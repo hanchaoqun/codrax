@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
+
+1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
+   `trace_query_perf_quality_raw_fallback + harmony/hilog_mixed_arkts_cangjie`。
+   Runner `2/2 PASS`，人工 `0/2 PASS`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_mixedlang_r490_20260814_manual_audit.md`。
+2. Trace 的显式请求窗为 `3.000..3.010`，完整物理工件最后事件却是 `3.008`。旧
+   `threadTimelineForTarget` 与 `computeOffCPUStats` 各自把最后一个 open scheduler 状态刷新到
+   请求端点；后者把工件外 2ms 铸成 runnable，继续生成 `scheduler_latency`、`runnable_wait`
+   和根因席。最终系统投影在 `chain_shape=flat_untraceable/⊘链止` 的同页仍加冕这 2ms，属于
+   物理覆盖越界，不是模型波动。
+3. `B801-TRACETAIL1` 以显式 `time_end + physical source receipt + EOF/complete monotonic order +
+   Index.LastTs` 为精确信号统一收窄 indexed/streaming scheduler-duration 消费面。请求窗仍发布
+   10ms，真实状态账只到 3.008，尾部发布 typed
+   `trace_artifact_tail_uncovered`；per-CPU busy/idle 同时降为 partial，尾段不再进入 runnable/
+   调度延迟/根因选举。若工件本身继续覆盖所选窗末，既有 window-tail-open 语义字节不变。
+4. 混合 ArkTS/Cangjie 日志的 log-triage 最终正确保留两个顶层 peer error，并发布
+   `cross_error_relation=unproven`。但 explorer 又提交无 `support_refs` 的
+   `behavior_outcome`，声称 panic→bridge→ArkTS 传播；它虽被降为 supporting，仍同时进入
+   SurfacePlan、ObservationLedger 和 finalizer。模型面对两个系统交付的相反 carrier 采用了
+   假传播链，因此是 `B802-LOGPEERCTX1` 上下文编译矛盾，不可归为成文波动。
+5. `B802` 最优形冻结为 typed projection：仅当 `LogBundle.Errors` 有多个顶层 peer occurrence，
+   对没有合法 typed support ref 的 runtime relationship-synthesis aggregate 从答案权威与 ledger
+   删除；原 fact 保留在 MutableState 审计历史。不得扫描 label/value、用户输入或答案原文，
+   不得由系统替模型写错误关系；显式递归 `CauseRelation`、逐错误事实、带生产凭证事实不受影响。
+6. 同批留档两条 P1：`B803-TRACECPUROLE1`——最终稿把 ftrace `(20)` TGID 错当 CPU，并虚构
+   CPU20→CPU5 迁移，需用 typed CPU roster/紧凑 header-role 软教学补足；
+   `B804-RUNTIMEBREADTH1`——有限 hotspot/证据粒度题被 analyzer 放大成 causal diagnosis，需优化
+   typed breadth 教学，但不得削弱真正根因请求、显式窗 Trace 因果投影或系统自动补齐。
+7. 本轮没有畸形 JSON、旧稿恢复、空答案或 active stream 4ms 降级。`9000 cycles` 被模型无频率
+   标定换算成微秒，已有 typed caveat 已明确 weight 不是 elapsed duration；先作为上下文服从度
+   witness，不增加最终答案关键词硬门。
+
+状态：
+
+`B801-TRACETAIL1=implemented/targeted-pins-pass`；
+`B802-LOGPEERCTX1=confirmed/next-batch`；
+`B803-TRACECPUROLE1=P1-open`；`B804-RUNTIMEBREADTH1=P1-open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

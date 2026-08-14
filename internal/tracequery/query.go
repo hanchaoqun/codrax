@@ -2023,6 +2023,24 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	return res
 }
 
+func schedulerMeasuredTimeEnd(idx *Index, q Query) (float64, bool) {
+	// Size is populated by physical index builders after stat/open succeeds.
+	// Keep legacy/in-memory synthetic Index values out of this proof: a hand-
+	// assembled monotonic event slice often uses LastTs as a local fixture
+	// boundary while intentionally modelling an artifact that continues beyond
+	// it. TimestampOrder + a physical source receipt together establish EOF.
+	if idx == nil || !q.TimeEndSet || idx.Size <= 0 || idx.LastTs <= 0 || q.TimeEnd <= idx.LastTs || !idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+		return q.TimeEnd, false
+	}
+	return idx.LastTs, true
+}
+
+func schedulerArtifactTailCaveat(q Query, artifactEnd float64) string {
+	return fmt.Sprintf(
+		"trace_artifact_tail_uncovered=true; requested_end=%.9f artifact_last_event=%.9f uncovered_ms=%.3f; final open scheduler state was not extrapolated beyond artifact coverage",
+		q.TimeEnd, artifactEnd, (q.TimeEnd-artifactEnd)*1000)
+}
+
 func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
 	res := TimelineResult{
 		Thread: target,
@@ -2190,13 +2208,27 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 		}
 	}
 	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, q.runCancel, visit)
+	timelineEnd, artifactTailUncovered := schedulerMeasuredTimeEnd(idx, q)
+	if artifactTailUncovered {
+		// A complete monotonic scan proves that the physical artifact ends at
+		// LastTs.  An explicit query may legitimately ask for a wider window,
+		// but the final open scheduler state is not evidence for the uncovered
+		// suffix.  Keep the requested window on the result so downstream
+		// coverage accounting remains honest, while closing measured intervals
+		// at the last physical event rather than fabricating elapsed state up to
+		// the requested endpoint.
+		timelineEnd = idx.LastTs
+		res.Caveats = append(res.Caveats, schedulerArtifactTailCaveat(q, timelineEnd))
+	}
 	if runningOpen {
-		iv := makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, "")
-		iv.CPU, iv.CPUKnown = runningCPU, runningCPUKnown
-		res.Intervals = append(res.Intervals, iv)
+		if !artifactTailUncovered || timelineEnd > runningStart {
+			iv := makeInterval(target, StateRunning, runningStart, timelineEnd, runningLine, 0, "")
+			iv.CPU, iv.CPUKnown = runningCPU, runningCPUKnown
+			res.Intervals = append(res.Intervals, iv)
+		}
 	}
 	if offOpen {
-		res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, q.TimeEnd, offLine, 0, offState, offKnownState, wake)...)
+		res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, timelineEnd, offLine, 0, offState, offKnownState, wake)...)
 	}
 	blockedReasonAmbiguousIntervals := enrichBlockedReasonIntervalsWithSelection(idx, q, target, res.Intervals, blockedReasonIDs, useIndexedEvents)
 	if blockedReasonAmbiguousIntervals > 0 {
@@ -2610,6 +2642,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// lane depend only on scheduler input integrity.
 	schedulerCPUDurationsSafe := schedulerFailure == nil
 	schedulerDurationsSafe := schedulerCPUDurationsSafe && identityConflict == nil
+	schedulerEnd, schedulerArtifactTailUncovered := schedulerMeasuredTimeEnd(idx, q)
+	schedulerQ := q
+	if schedulerArtifactTailUncovered {
+		schedulerQ.TimeEnd = schedulerEnd
+		stats.Caveats = append(stats.Caveats, schedulerArtifactTailCaveat(q, schedulerEnd))
+	}
 	if schedulerFailure != nil {
 		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: schedulerFailure.code, SubjectCensusStatus: "not_evaluated"}
 		stats.Caveats = append(stats.Caveats, "scheduler_duration_fail_closed=true; "+schedulerFailure.reason()+"; scheduler busy/off-CPU/latency/churn durations are omitted because scheduler input completeness and same-lane ordering are not provable")
@@ -2858,6 +2896,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	cpuBusyIdleStatus := CPUBusyIdleStatusMeasured
 	cpuBusyIdleReason := ""
 	cpuBusyIdlePartialAll := false
+	if schedulerArtifactTailUncovered {
+		cpuBusyIdleStatus = CPUBusyIdleStatusPartial
+		cpuBusyIdleReason = "artifact_tail_uncovered"
+		cpuBusyIdlePartialAll = true
+	}
 	if schedulerCPUDurationsSafe && (q.LineStart > 0 || q.LineEnd > 0) {
 		cpuBusyIdleStatus = CPUBusyIdleStatusPartial
 		cpuBusyIdleReason = "line_window_scheduler_head_not_evaluated"
@@ -2964,7 +3007,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// compute-supply ledger, fed by the SAME busy segments judged below.
 	supplyByCPU := map[int]*cpuSupplyAcc{}
 	for cpu, events := range cpuByCPU {
-		busy, idle := computeCPUBusyIdle(events, q)
+		busy, idle := computeCPUBusyIdle(events, schedulerQ)
 		status := cpuBusyIdleStatus
 		reason := cpuBusyIdleReason
 		if !cpuBusyIdlePartialAll {
@@ -2979,7 +3022,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// CPU has no samples AND the resolved domains name a sampled sibling.
 		cpuFreqTimeline := freqTimelineFor(cpu)
 		for i, ev := range events {
-			end := q.TimeEnd
+			end := schedulerEnd
 			endLine := 0
 			if i+1 < len(events) {
 				end = events[i+1].Ts
@@ -2989,8 +3032,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			if q.TimeStart > 0 && start < q.TimeStart {
 				start = q.TimeStart
 			}
-			if q.TimeEnd > 0 && end > q.TimeEnd {
-				end = q.TimeEnd
+			if schedulerEnd > 0 && end > schedulerEnd {
+				end = schedulerEnd
 			}
 			if end <= start {
 				continue
@@ -3108,7 +3151,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// stats.CPUFrequencyLimits' strict in-window display caliber.
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
-	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure, pidIdentity)
+	offCPU := computeOffCPUStats(idx, schedulerQ, freqTimelineFor, pressure, pidIdentity)
 	if q.runCancel.sample() {
 		return stats
 	}
