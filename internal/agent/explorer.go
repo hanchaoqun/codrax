@@ -3652,6 +3652,7 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	var b strings.Builder
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
 	b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
+	b.WriteString(renderExplorerRuntimeQuestionScopeWorkflow(ctx))
 	if phase := renderRuntimeSourceNavigationPhasePrompt(ctx); phase != "" {
 		b.WriteString(phase)
 	}
@@ -3659,10 +3660,12 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 		b.WriteString(coverage)
 	}
 	b.WriteString("Workflow:\n")
-	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
-	b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
-	b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, treat it as a cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to identify the main contributor, keep `running/runnable/sleep/d_state/io_wait` totals as supporting detail, and follow the rendered `next_step` instead of looking only for one long continuous interval.\n")
-	b.WriteString("- When `root_cause_rank` reports on-chain runnable, running/compute-supply, low-frequency, affinity/cpuset, or D-state/IO rows in the same selected window, keep all `tier=primary` layers in the root-cause handoff and compare same-chain rows by `cumulative_impact_ms` before `score`. A primary row on the wakeup chain is a co-primary dependency cause, not generic background pressure.\n")
+	b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
+	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
+		b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
+		b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, treat it as a cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to identify the main contributor, keep `running/runnable/sleep/d_state/io_wait` totals as supporting detail, and follow the rendered `next_step` instead of looking only for one long continuous interval.\n")
+		b.WriteString("- When `root_cause_rank` reports on-chain runnable, running/compute-supply, low-frequency, affinity/cpuset, or D-state/IO rows in the same selected window, keep all `tier=primary` layers in the root-cause handoff and compare same-chain rows by `cumulative_impact_ms` before `score`. A primary row on the wakeup chain is a co-primary dependency cause, not generic background pressure.\n")
+	}
 	b.WriteString("- Composite-score rank rows (`io_pressure`, `block_io_by_inode`) publish their magnitude under `impact_score`/`cumulative_impact_score`/`effective_impact_score` and render values marked as composite scores: the number mixes latency, event counts, and bytes, so never read it as elapsed milliseconds, never sum or compare it with `*_ms` durations, and anchor wall-clock conclusions on real `*_ms` rows.\n")
 	b.WriteString("- When `wakeup_chain` reports `aggregated_impact`, treat it as a common fragmented dependency path: preserve `path`, `occurrences`, `occurrence_windows`, cumulative state totals, enumerate representative repeated windows when present, and compare the aggregate against single long intervals.\n")
 	b.WriteString("- When `critical_blocking_calls` reports binder/futex/lock/sync waits, consume `oneway`/`sync_like`/`blocking_candidate` instead of inferring semantics from raw flags, and preserve `peer`, `peer_state`, `chain_relevance`, overlap, and nearest-chain fields before deciding whether the wait is a final cause or an intermediate symptom.\n")
@@ -3670,12 +3673,20 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	b.WriteString("- For a specific frame id, jank id, trace marker, span label, or timestamp token, first use `trace_query(view=\"event_search\", pattern=\"<literal>\")`; `pattern` is a literal substring, not regex. If zero rows return, shorten the literal or add `event_types=[\"trace_mark\"]`; if multiple span windows return, pick the returned line/time window before root-cause analysis.\n")
 	b.WriteString("- For a specific inode, file name, or page-cache row, use `trace_query(view=\"event_search\", pattern=\"<inode or entry_name>\", event_types=[\"file_io\"]|[\"page_cache\"]|[\"f2fs\"]|[\"android_fs\"])`; these event_types aliases are accepted by the tool-call JSON repair/normalization path.\n")
 	b.WriteString("- If the user's target is a process id, thread id, or concrete thread label, carry that `pid`/`thread` into every follow-up `trace_query` heavy view and split-window call unless deliberately inspecting a named peer; background-only rows must not replace the requested target.\n")
-	b.WriteString("- Once a `trace_query` result gives a selected time/line window, carry that same `time_start`/`time_end` or `line_start`/`line_end` into every follow-up heavy view (`scheduler_latency_stats`, `root_cause_rank`, `window_stats`, `critical_blocking_calls`, `recipe`); thread/pid alone is not a bounded query on large traces.\n")
+	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
+		b.WriteString("- Once a `trace_query` result gives a selected time/line window, carry that same `time_start`/`time_end` or `line_start`/`line_end` into every follow-up heavy view (`scheduler_latency_stats`, `root_cause_rank`, `window_stats`, `critical_blocking_calls`, `recipe`); thread/pid alone is not a bounded query on large traces.\n")
+	} else {
+		b.WriteString("- Once a `trace_query` result gives a selected time/line window, carry that same `time_start`/`time_end` or `line_start`/`line_end` into each requested-family or requested-relation follow-up; thread/pid alone is not a bounded query on large traces. Do not add a broad rank/recipe view merely because a bounded window is available.\n")
+	}
 	b.WriteString("- If `trace_query` reports `mode=index_event_limit` or a selected window is too dense, do not fall back to shell scans and do not keep shrinking blindly. First consume any `stream_state_cluster` / `window_stats` parent rows in the tool result; if parent coverage is still missing, use streamed `trace_query(view=\"event_search\", time_start=..., time_end=..., pattern=<exact marker/timestamp/thread token>, event_types=[...])` or frame/span phase boundaries, then rerun heavy views on 80-150ms coverage windows. Treat sub-50ms windows as local micro-probes only.\n")
 	b.WriteString("- Trace timestamps are seconds end-to-end, so values such as 2942.124416 and 2942.260210 are seconds, not milliseconds; durations from the tool are reported in ms.\n")
 	b.WriteString("- A perf-triage `time_semantics` row describing the whole attachment's first-to-last timestamp extent proves only timestamp units and physical artifact coverage. It is not the selected trace_query window and never supplies a target thread's running/runnable/sleep/D-state duration. For a selected-window thread-state statement or aggregate fact, copy the full-window value from trace_query's typed `target_window_states` partition.\n")
 	b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
-	b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context, unless a focused current-source lane is still part of the typed request.\n")
+	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
+		b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context, unless a focused current-source lane is still part of the typed request.\n")
+	} else {
+		b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the declared fact families or requested relation/overview fields and their evidence ceiling are covered; do not widen closure to an unrequested root-cause roster.\n")
+	}
 	b.WriteString("- Preserve any additional model-authored synthesis through `emit_investigation_complete.reason` and, when useful, `aggregate_facts`. Use `emit_evidence` only for load-bearing trace line gutters you manually read outside trace_query, and never turn trace rows into current-source citations.\n")
 	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
 	if ctx != nil {
@@ -3684,6 +3695,52 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderExplorerRuntimeQuestionScopeWorkflow translates only the analyzer's
+// typed runtime breadth/fact-family profile into exploration guidance. It is a
+// soft planning surface: it neither rejects tool calls nor reads request/model
+// prose. Causal diagnosis keeps the existing broad drill path byte-for-byte;
+// finite and relation/overview lanes start from their direct evidence instead
+// of treating root_cause_rank as the default next step.
+func renderExplorerRuntimeQuestionScopeWorkflow(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
+	var b strings.Builder
+	switch profile.Scope {
+	case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
+		fmt.Fprintf(&b, "Typed runtime answer breadth: `%s`; requested fact families: `%s`.\n", profile.Scope, runtimeQuestionFactFamiliesForPrompt(profile.FactFamilies))
+		b.WriteString("- Start from the smallest direct views that publish those families (for example target state/duration and frequency residency from thread/window statistics, direct waker/peer/transaction from their dedicated relation views, and strict policy-limit rows from typed frequency authority).\n")
+		if profile.Scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
+			b.WriteString("- For the one bounded effect verdict, keep condition presence and condition-to-target binding as separate typed axes. An observed ceiling, below-maximum residency, compute head-room estimate, temporal overlap, rank, or repair bucket does not prove target binding unless a dedicated typed overlap/binding/relation carrier does.\n")
+		}
+		b.WriteString("- `root_cause_rank`, frame root-cause bundles, and adaptive root-cause recipes enumerate a broader causal population and are not the default for this scope. Use one only if a direct requested-family/target-effect carrier is unavailable and the broad query is necessary to recover that exact carrier; in the handoff preserve the requested value/relation and its evidence ceiling, not the query's rank/seat/fix-direction vocabulary.\n\n")
+	case types.RuntimeQuestionScopeRelationAnalysis:
+		b.WriteString("Typed runtime answer breadth: `relation_analysis`. Start with the dedicated relation view that publishes exact endpoints, direction, relation kind, time compatibility, and evidence ceiling. A root-cause rank is not a substitute for the requested topology and must not elect an endpoint as a cause.\n\n")
+	case types.RuntimeQuestionScopeSystemOverview:
+		b.WriteString("Typed runtime answer breadth: `system_overview`. Collect the requested coverage/range/fact-family observations without electing a root-cause roster. Use causal views only as bounded observations when they are explicitly needed for an overview field; do not hand off their rank order as the overview conclusion.\n\n")
+	}
+	return b.String()
+}
+
+func runtimeQuestionFactFamiliesForPrompt(families []types.RuntimeQuestionFactFamily) string {
+	if len(families) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(families))
+	for _, family := range families {
+		parts = append(parts, string(family))
+	}
+	return strings.Join(parts, "`, `")
+}
+
+func explorerRuntimeQuestionAllowsCausalRoster(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil {
+		return true
+	}
+	return !ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt()
 }
 
 func runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx *types.AgentContext) bool {

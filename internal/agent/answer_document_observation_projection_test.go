@@ -40,6 +40,76 @@ func TestAnswerDocObservationPromptRecords_MixedRuntimeSourceUsesCompactBudget(t
 	}
 }
 
+func TestAnswerDocFiniteRuntimeScopeProjectsRankingRowsOutOfFinalizerPromptOnly(t *testing.T) {
+	records := []types.ObservationRecord{
+		{ID: "trace_query:t#root_cause_rank:1", ClaimKey: "root_cause_primary", Subject: "target"},
+		{ID: "trace_query:t#root_evidence:1", ClaimKey: "root_cause_evidence", Subject: "target"},
+		{ID: "trace_query:t#target_window_states:1", ClaimKey: "target_window_states", Subject: "target"},
+		{ID: "trace_query:t#frequency_limit:1", ClaimKey: "frequency_limit", Subject: "cpu=4"},
+	}
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope: types.RuntimeQuestionScopeBoundedEffectVerdict,
+				FactFamilies: []types.RuntimeQuestionFactFamily{
+					types.RuntimeQuestionFactTargetSchedulerState,
+					types.RuntimeQuestionFactFrequencyResidency,
+				},
+			},
+		}},
+	}
+	projected, _ := answerDocFinalizerObservationRecords(ctx, records)
+	if len(projected) != 2 || projected[0].ID != records[2].ID || projected[1].ID != records[3].ID {
+		t.Fatalf("finite prompt projection should retain direct facts only: %+v", projected)
+	}
+	if len(records) != 4 {
+		t.Fatalf("prompt projection mutated the lossless source ledger: %+v", records)
+	}
+
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
+	causal, _ := answerDocFinalizerObservationRecords(ctx, records)
+	if len(causal) != len(records) {
+		t.Fatalf("causal diagnosis lost ranking rows: %+v", causal)
+	}
+}
+
+func TestExplorerRuntimeQuestionScopeWorkflowKeepsFiniteAndCausalLanesSeparate(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedEffectVerdict,
+			FactFamilies: []types.RuntimeQuestionFactFamily{
+				types.RuntimeQuestionFactTargetSchedulerState,
+				types.RuntimeQuestionFactFrequencyResidency,
+			},
+		},
+	}}}
+	finite := renderExplorerRuntimeQuestionScopeWorkflow(ctx)
+	for _, want := range []string{
+		"bounded_effect_verdict",
+		"target_scheduler_state",
+		"frequency_residency",
+		"condition presence and condition-to-target binding as separate typed axes",
+		"are not the default for this scope",
+	} {
+		if !strings.Contains(finite, want) {
+			t.Fatalf("finite explorer scope guidance missing %q:\n%s", want, finite)
+		}
+	}
+	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
+		t.Fatal("finite scope unexpectedly authorizes causal roster workflow")
+	}
+
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
+	if got := renderExplorerRuntimeQuestionScopeWorkflow(ctx); got != "" {
+		t.Fatalf("causal scope should keep the established workflow without duplicate preface:\n%s", got)
+	}
+	if !explorerRuntimeQuestionAllowsCausalRoster(ctx) {
+		t.Fatal("causal diagnosis lost broad drill workflow")
+	}
+}
+
 func TestAnswerDocObservationPromptRecords_RouteBackedTypedRuntimeUsesAuthorityCompactBudget(t *testing.T) {
 	ctx := &types.AgentContext{
 		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},

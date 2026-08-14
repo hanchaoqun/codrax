@@ -204,7 +204,17 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 				ledgerInput.SystemTraceSupplementResults = nil
 			}
 			ledger := types.CompileObservationLedger(ledgerInput)
-			ac.TraceRootCauseBoard = formatTraceRootCauseBoardFromLedger(ledger)
+			var runtimeQuestionProfile *types.RuntimeQuestionProfile
+			if ac.AnalysisIR != nil {
+				runtimeQuestionProfile = ac.AnalysisIR.RequestModel.RuntimeQuestionProfile
+			}
+			// A causal board is an input only for a causal/legacy-unspecified
+			// dispatch. Finite fact/effect, relation-only, and overview scopes
+			// keep the lossless ledger but must not inherit an exploration-time
+			// rank roster as model-facing authority.
+			if runtimeQuestionProfile == nil || !runtimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+				ac.TraceRootCauseBoard = formatTraceRootCauseBoardFromLedger(ledger)
+			}
 			// EVID-BR 件① (§29.55.4 F1/R2-F3, 2026-07-13): the typed kernel
 			// wait-object + wakeup-source evidence rides the same two
 			// dispatches from the same compiled ledger (donghu 四跑四答案 /
@@ -224,9 +234,11 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 					censusResults = append(censusResults, bus.Mutable.SystemTraceSupplementResults()...)
 				}
 			}
-			ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedgerWithOptions(ledger, censusResults, traceWaitEvidenceSummaryOptions{
-				includeUnboundWindowInventory: traceWaitEvidenceIncludeUnboundWindowInventory(stage, ac.AnalysisIR),
-			})
+			if runtimeQuestionProfile == nil || runtimeQuestionProfile.RequestsTraceWaitEvidencePrompt() {
+				ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedgerWithOptions(ledger, censusResults, traceWaitEvidenceSummaryOptions{
+					includeUnboundWindowInventory: traceWaitEvidenceIncludeUnboundWindowInventory(stage, ac.AnalysisIR),
+				})
+			}
 		}
 
 		// Collect tool summaries

@@ -35649,6 +35649,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
+
+1. 在 `main@08738bb1f` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   代码图 partial/uncertain、Trace fail。完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_runtime_breadth_fail_loud_r462_20260813_manual_audit.md`。
+2. B757 获生产正证：H4 Analyzer 第一稿发 causal scope + finite families、第二稿发
+   bounded_fact_set + causal dimension，均被跨字段合同 fail-loud；第三稿收敛为
+   `bounded_effect_verdict + target_scheduler_state/count_or_duration/frequency_residency +
+   causal_attribution`。系统没有执行最终全量 Trace 补采，也没有 materialize Trace 因果投影。
+3. 但有限 scope 仍被后续上下文越权。Explorer 的通用教学继续把 `root_cause_rank` 当默认重视图，
+   第三轮自行取回 61/73 席候选；Finalizer 虽收到“not a root-cause roster”的软提示，同一 prompt
+   更早又注入 `Runtime Trace Root-Cause Board (authoritative order)`、完整 rank arithmetic、rank
+   Observation Ledger/Handoff 与 fix_direction。强证据面和软 scope 面自相矛盾，约 58k finalizer
+   token 中根因榜成为最高显著上下文。
+4. 可见后果不是单纯模型波动。模型把 `#1 running / frequency_thermal / 58.320ms` 写成“根因排名
+   #1 席位”，并把 CPU4 558MHz 低于 2.10GHz 上限直接推成“存在显著频率限制”；同段末尾又正确
+   承认 policy ceiling 存在但目标绑定未证，答案内部矛盾。它还把 sleep/状态片段口径误写成 65 次
+   wakeup。四态 157.248/5.604/70.338/0ms 与 direct limit witnesses 仍正确。
+5. B758 根修不检查用户/模型/最终答案原文，不删改 AnswerDocument：唯一信号是 Analyzer 已验证的
+   `RuntimeQuestionProfile`。有限 fact/effect、relation-only、system-overview 车道在 model-facing
+   prompt projection 中去除 root-cause board、root rank/evidence ObservationRecord、rank arithmetic、
+   rank-only ToolHandoff 与 root-rank enumeration boundary；lossless ledger、tool result 和确定性内部
+   工件保持不变，因果诊断仍收到完整榜。
+6. 等待/唤醒面也按 typed fact family 选取：causal/relation/overview 保持；有限问题只有明确请求
+   target wait、recorded reason/time、peer、transaction 或 direct waker 时才注入 wait/wakeup appendix。
+   `count_or_duration` 单独不能触发，因为它也可能只是 running time 或 frequency residency。
+7. Explorer 同步使用 typed scope 做软规划：有限 effect 先分别证明 condition presence 与
+   condition-to-target binding；低于 ceiling、供给 headroom、时间相邻、rank 或 repair bucket 均不能
+   代替 dedicated typed binding carrier。非因果 scope 不再收到默认“state→root rank→全链闭环”教学，
+   但工具调用未被硬拒，确有必要时仍可取广视图恢复一个请求字段。
+8. QF 再次证明 B754 正向：系统从 patch 恢复 4 对 exact recipe identity，保留三条 stage precedence
+   和一条真实 call；BusContext/Mutable 没有 request-scoped incidence 证据，终稿用断开节点和
+   unproven boundary 披露。关系不足来自证据不足，不能由系统造边。
+9. 本批不改 Trace 查询值、根因排序、因果投影编译、自动补齐、最终答案正文或 validator。显式窗
+   causal diagnosis、链上-only 主因、实际占用/业务语义与规则可消除量双轴全部保持；邻近/背景仍仅
+   支撑额外排查。活跃字节流持续时 4ms 未形成完整 answer_document 仍禁止降级。
+
+状态：
+
+`B757-RUNTIMEBREADTHCROSSFIELDFAILLOUD1=production-positive-r462`；
+`B758-RUNTIMESCOPEAWAREPROMPTPROJECTION1=implemented/unit-pins-pass/pending-r463-production-replay`；
+`B754-DIAGRAMTYPEDRECEIPTTOPOLOGY1=production-positive-r461+r462`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-fit-before-human-correctness`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

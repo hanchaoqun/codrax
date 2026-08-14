@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -316,5 +317,35 @@ func TestBuildAgentContextTraceBoardUsesRequestedWindowAuthority(t *testing.T) {
 	if !strings.Contains(ac.TraceRootCauseBoard, "requested-window-seat") ||
 		strings.Contains(ac.TraceRootCauseBoard, "drilldown-window-seat") {
 		t.Fatalf("builder must publish only the measured requested-window board:\n%s", ac.TraceRootCauseBoard)
+	}
+}
+
+func TestBuildAgentContextFiniteRuntimeScopeDoesNotInjectRootCauseBoard(t *testing.T) {
+	bus := &types.BusContext{
+		RepoRoot: "/tmp/repo",
+		Mutable:  types.NewMutableState("finite runtime effect question"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope: types.RuntimeQuestionScopeBoundedEffectVerdict,
+				FactFamilies: []types.RuntimeQuestionFactFamily{
+					types.RuntimeQuestionFactTargetSchedulerState,
+					types.RuntimeQuestionFactCountOrDuration,
+					types.RuntimeQuestionFactFrequencyResidency,
+				},
+			},
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true,
+			Observations: traceBoardTestLedger().Records,
+		}},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if ac.TraceRootCauseBoard != "" {
+		t.Fatalf("finite typed scope inherited an exploration-time root-cause board:\n%s", ac.TraceRootCauseBoard)
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
+	if section := findSectionTitle(pc, SectionTraceRootCauseBoard); section != nil {
+		t.Fatalf("finite typed scope emitted root-cause section: %+v", section)
 	}
 }

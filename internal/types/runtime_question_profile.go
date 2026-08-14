@@ -119,6 +119,68 @@ func (p *RuntimeQuestionProfile) CarriesBoundedFactFamilies() bool {
 	return p != nil && (p.BoundedFactSet() || p.BoundedEffectVerdict())
 }
 
+// SuppressesRootCauseRankingPrompt reports that the current typed answer
+// breadth does not authorize a root-cause roster as model-facing context.
+// The underlying observation ledger remains lossless for audit and later
+// deterministic consumers; this method controls only prompt projection.
+//
+// Keeping this decision on the typed profile is important: consumers must not
+// infer it from request keywords, trace-query view names, investigation prose,
+// or a draft answer. An explicitly causal diagnosis keeps the full ranking
+// surface. Finite fact/effect, relation-only, and overview questions receive
+// their own requested evidence without an exploration-time ranking becoming a
+// de facto conclusion.
+func (p *RuntimeQuestionProfile) SuppressesRootCauseRankingPrompt() bool {
+	if p == nil {
+		return false
+	}
+	switch p.Scope {
+	case RuntimeQuestionScopeBoundedFactSet,
+		RuntimeQuestionScopeBoundedEffectVerdict,
+		RuntimeQuestionScopeRelationAnalysis,
+		RuntimeQuestionScopeSystemOverview:
+		return true
+	default:
+		return false
+	}
+}
+
+// RequestsTraceWaitEvidencePrompt reports whether a typed runtime question
+// needs the detailed kernel-wait / wakeup evidence feed. Causal, relation, and
+// overview scopes retain that feed. A finite scope receives it only when one
+// of its declared fact families actually asks for wait occurrences, recorded
+// reasons/times, peers, transactions, or direct wakers. Count/duration alone
+// is intentionally insufficient: it may refer to running time or frequency
+// residency and must not pull an unrelated wakeup/root-cause appendix into the
+// prompt.
+func (p *RuntimeQuestionProfile) RequestsTraceWaitEvidencePrompt() bool {
+	if p == nil {
+		return true
+	}
+	switch p.Scope {
+	case RuntimeQuestionScopeCausalDiagnosis,
+		RuntimeQuestionScopeRelationAnalysis,
+		RuntimeQuestionScopeSystemOverview,
+		RuntimeQuestionScopeUnspecified:
+		return true
+	case RuntimeQuestionScopeBoundedFactSet, RuntimeQuestionScopeBoundedEffectVerdict:
+		for _, family := range p.FactFamilies {
+			switch family {
+			case RuntimeQuestionFactTargetWaitOccurrences,
+				RuntimeQuestionFactRecordedReason,
+				RuntimeQuestionFactOccurrenceTime,
+				RuntimeQuestionFactRelationPeer,
+				RuntimeQuestionFactTransactionID,
+				RuntimeQuestionFactDirectWaker:
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // RequestsTargetWaitOccurrences resolves the typed semantic closure for a
 // bounded target-wait question. The analyzer should emit the dedicated
 // target_wait_occurrences family directly, but model emissions can describe

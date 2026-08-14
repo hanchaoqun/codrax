@@ -952,16 +952,40 @@ func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string 
 	if !authority.Incomplete {
 		return ""
 	}
+	boundaries := authority.Boundaries
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+		projected := make([]types.ToolEnumerationBoundary, 0, len(boundaries))
+		for _, boundary := range boundaries {
+			if strings.EqualFold(strings.TrimSpace(boundary.Scope), "root_cause_rank") {
+				continue
+			}
+			projected = append(projected, boundary)
+		}
+		boundaries = projected
+	}
+	if len(boundaries) == 0 {
+		return ""
+	}
+	scopes := make([]string, 0, len(boundaries))
+	seenScopes := make(map[string]bool, len(boundaries))
+	for _, boundary := range boundaries {
+		scope := firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown")
+		if !seenScopes[scope] {
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString("## Runtime Enumeration Authority\n\n")
 	fmt.Fprintf(&b, "- status=`incomplete`; affected_scopes=`%s`; exact_boundary_count=%d\n",
-		strings.Join(authority.Scopes, ","), len(authority.Boundaries))
-	limit := len(authority.Boundaries)
+		strings.Join(scopes, ","), len(boundaries))
+	limit := len(boundaries)
 	if limit > answerDocRuntimeEnumerationBoundaryLimit {
 		limit = answerDocRuntimeEnumerationBoundaryLimit
 	}
-	for _, boundary := range authority.Boundaries[:limit] {
+	for _, boundary := range boundaries[:limit] {
 		total := "unknown"
 		if boundary.TotalKnown {
 			total = strconv.Itoa(boundary.Total)
@@ -971,7 +995,7 @@ func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string 
 			firstNonEmptyString(strings.TrimSpace(boundary.Dimension), "rows"),
 			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason))
 	}
-	if omitted := len(authority.Boundaries) - limit; omitted > 0 {
+	if omitted := len(boundaries) - limit; omitted > 0 {
 		fmt.Fprintf(&b, "  - omitted_exact_boundaries=%d (the authority remains incomplete)\n", omitted)
 	}
 	b.WriteString("- These emitted rows are bounded samples or lower bounds, not an exhaustive census. Keep totals/counts/extrema/absence claims within the typed boundaries above and state the incomplete scope when it matters. You still own the diagnosis, prioritization, summary, and recommendations; this handoff supplies no conclusion and never replaces yours.\n\n")
@@ -5037,8 +5061,10 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if ledger.Empty() {
 		return ""
 	}
-	_, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
-	records := answerDocObservationPromptRecords(ctx, ledger.Records, answerDocObservationLedgerPromptLimit)
+	promptLedgerRecords, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
+	promptLedger := ledger
+	promptLedger.Records = promptLedgerRecords
+	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
 		return ""
 	}
@@ -5052,49 +5078,49 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if supersededPreTriageNarratives > 0 {
 		fmt.Fprintf(&b, "- Same-artifact deterministic runtime queries supersede %d pre-triage free-form navigation observation(s) in this answer-writing view. Their audit records remain in the full ledger; measured perf frame/jank/stall rows and deterministic observations remain available.\n\n", supersededPreTriageNarratives)
 	}
-	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
+	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
 	if authority := renderAnswerDocVCSSelectionAuthority(ctx); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocVCSChangedPathAuthority(ledger); authority != "" {
+	if authority := renderAnswerDocVCSChangedPathAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocHistoricalCurrentSourceAuthority(ledger); authority != "" {
+	if authority := renderAnswerDocHistoricalCurrentSourceAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if relation := renderAnswerDocRuntimeArtifactPairRelationAuthority(ledger); relation != "" {
+	if relation := renderAnswerDocRuntimeArtifactPairRelationAuthority(promptLedger); relation != "" {
 		b.WriteString(relation)
 	}
-	if coverage := renderAnswerDocTraceObservationCoverage(ledger); coverage != "" {
+	if coverage := renderAnswerDocTraceObservationCoverage(promptLedger); coverage != "" {
 		b.WriteString(coverage)
 	}
-	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, ledger); authority != "" {
+	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, ledger); authority != "" {
+	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceIPCRequestCensusAuthority(ctx, ledger); authority != "" {
+	if authority := renderAnswerDocTraceIPCRequestCensusAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceTargetStateScopeAuthority(ledger); authority != "" {
+	if authority := renderAnswerDocTraceTargetStateScopeAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceRankAuthority(ledger); authority != "" {
+	if authority := renderAnswerDocTraceRankAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceWakeupCensusAuthority(ledger); authority != "" {
+	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if len(ledger.Records) > len(records) {
+	if len(promptLedger.Records) > len(records) {
 		renderedIDs := make(map[string]bool, len(records))
 		for _, record := range records {
 			renderedIDs[strings.TrimSpace(record.ID)] = true
 		}
-		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total", len(records), len(ledger.Records))
-		if dropped := types.SummarizeDroppedObservationRecords(ledger.Records, renderedIDs); dropped != "" {
+		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total", len(records), len(promptLedger.Records))
+		if dropped := types.SummarizeDroppedObservationRecords(promptLedger.Records, renderedIDs); dropped != "" {
 			fmt.Fprintf(&b, "; dropped: %s", dropped)
 		}
 		b.WriteString(")*\n\n")
@@ -5885,6 +5911,32 @@ func answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx *types.AgentConte
 
 func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers []types.ToolHandoffCarrier) []types.ToolHandoffCarrier {
 	carriers = types.NormalizeToolHandoffCarriers(carriers)
+	if len(carriers) == 0 {
+		return carriers
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+		projected := make([]types.ToolHandoffCarrier, 0, len(carriers))
+		for _, carrier := range carriers {
+			originalRefCount := len(carrier.ObservationRefs)
+			refs := make([]types.ToolObservationRef, 0, len(carrier.ObservationRefs))
+			for _, ref := range carrier.ObservationRefs {
+				record := types.ObservationRecord{ID: ref.ID, ClaimKey: ref.ClaimKey}
+				if !answerDocObservationRecordIsCausalRankingPromptRow(record) {
+					refs = append(refs, ref)
+				}
+			}
+			carrier.ObservationRefs = refs
+			// A refinement-only carrier for a discarded broad causal view is
+			// not actionable in finalization and only re-advertises that view.
+			if originalRefCount > 0 && len(refs) == 0 && len(carrier.AcceptedEvidence) == 0 &&
+				carrier.Repair == nil && carrier.SupportedJSON == nil {
+				continue
+			}
+			projected = append(projected, carrier)
+		}
+		carriers = types.NormalizeToolHandoffCarriers(projected)
+	}
 	if len(carriers) == 0 || !answerDocSourceInventorySuppressesStaleDisplayDebt(ctx) {
 		return carriers
 	}
@@ -6253,6 +6305,7 @@ func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []typ
 	if ctx == nil || (ctx.AgentName != types.AgentFinalizer && ctx.Stage != types.StageFinalize) || len(records) == 0 {
 		return records, 0
 	}
+	records = answerDocScopeProjectedObservationRecords(ctx, records)
 	perf := answerDocObservationLedgerPerfBundle(ctx)
 	if perf == nil || len(perf.Observations) == 0 {
 		return records, 0
@@ -6289,6 +6342,37 @@ func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []typ
 		return records, 0
 	}
 	return out, omitted
+}
+
+// answerDocScopeProjectedObservationRecords removes only causal-ranking prompt
+// rows when the analyzer's typed answer breadth does not authorize a root-cause
+// roster. The full ObservationLedger remains unchanged for audit, deterministic
+// projection, and causal-diagnosis runs. This projection consumes no request or
+// model/final prose.
+func answerDocScopeProjectedObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) []types.ObservationRecord {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+		return records
+	}
+	out := make([]types.ObservationRecord, 0, len(records))
+	for _, record := range records {
+		if answerDocObservationRecordIsCausalRankingPromptRow(record) {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out
+}
+
+func answerDocObservationRecordIsCausalRankingPromptRow(record types.ObservationRecord) bool {
+	id := strings.ToLower(strings.TrimSpace(record.ID))
+	if strings.Contains(id, "#root_cause_rank:") ||
+		strings.Contains(id, "#trace_query:root_cause_rank:") ||
+		strings.Contains(id, "#root_evidence:") {
+		return true
+	}
+	claim := strings.ToLower(strings.TrimSpace(record.ClaimKey))
+	return strings.HasPrefix(claim, "root_cause_")
 }
 
 func answerDocObservationLedgerPerfBundle(ctx *types.AgentContext) *types.PerfBundle {
