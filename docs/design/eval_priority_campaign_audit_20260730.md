@@ -36145,6 +36145,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.824 r500：B816 未触发生产臂；B813 写验证副作用稳定复现（2026-08-14）
+
+1. 在 `main@b293d5510` 重建后严格并发恰好两个案例：
+   `patch_c_typo` 95s、`qf_sequence_analyzer_gate` 356s。Runner `2 PASS / 0 FAIL`，人工均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_sequence_write_r500_20260814_manual_audit.md`。
+2. 写模式交付内容正确：ChangePlan 与 applied commit 都只包含 `main.c` 的
+   `retrun -> return` 一行，`make test` 实际执行 `cc -Wall -O0` 并运行二进制两次，changed-path
+   verification 为 `project_runner/target_behavior`，durable recovery ref 干净。
+3. B813 获第二次独立生产复现：验证命令在 retained isolated worktree 新建未跟踪二进制 `main`，但终态仍只
+   披露 fully verified 和“其他文件未改变”。交付提交确实干净，保留工作树却不干净；当前 typed verify ledger
+   没有 run-tests 前后状态差异，无法向 controller/final 用户区分这两个事实，也无法阻止下一批探索误读残留。
+4. B813 从观察项升级为施工项。根修只使用 git 结构化状态：验证前后分别采集 tracked/untracked roster 并求差；
+   新增或变化的 tracked 非计划漂移 fail-loud，新增 untracked 生成物保留为 typed side-effect roster 并明确披露。
+   既存未跟踪文件不得被归因给本次验证；自动清理只允许未来在严格 owner/生成物证明下实现，本批不删除任意客户
+   文件，也不从命令输出或答案 prose 猜测生成物。
+5. Sequence 终稿事实正确：不存在 `buildAnalysisIR -> gate.Run` 有向路径；真实端点边为
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`，25 个 `buildAnalysisIR` 内部调用均保留源码引用。首稿图本身
+   只有两条端点边，唯一成文 reject 是 principal/support facet 归属，patch 保持图字节与关系不变；因此本轮既未
+   复现旧删边，也没有进入 B816 的 metadata-only 缺锚修补臂，B816 仍是单测闭环、待生产正证。
+6. B689 再次出现但没有新的合同矛盾：Explorer 用 22 轮、6 次 completion 才纠正若干错误 call row、补足
+   no-directed-path closure 与 member set。终稿把“25 个内部调用”后附的边界包装 `gate.Run` 编为第 26 项，属于
+   轻微模型计数/表述偏差。现有 typed evidence、图方向与答案主结论均正确；不扫描模型 thought/final 文本、不加
+   case-specific hard gate，继续通过异构 no-path 用例判断 B689 的通用提杆点。
+7. 本轮无畸形 JSON salvage、旧稿回退、空答案、系统代画/删图或结论接管；活跃流未因 4ms、4m 或累计年龄
+   降级。Trace 路径未改：完整因果诊断继续保留显式时间窗、因果投影、系统自动补齐、链上-only 主因、实际占用/
+   规则可消双轴、优先级反转/调度供给/算力供给/D/IO/确定性语义工作及业务线索；邻近/背景仍只能支撑额外排查。
+
+状态：
+
+`B816-DIAGRAMGROUNDEDANCHORREPAIR1=unit-closed/production-positive-pending`；
+`B813-WRITEVERIFYSIDEEFFECT1=production-reconfirmed-r500/implementation-next`；
+`B689-NODIRECTEDPATHCLOSURECHURN1=filed-P1/reobserved-r500`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
