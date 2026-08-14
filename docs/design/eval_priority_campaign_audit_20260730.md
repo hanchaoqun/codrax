@@ -36033,6 +36033,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.785 r469：B764/B765 生产闭环；目标逐 CPU 全量名册与 Analyzer 收敛新缺口（2026-08-13）
+
+在 `main@7e2edaf8f` 严格并发恰好两个案例：
+`real_trace_h4_supply_thermal_witness + github_issue_chrono_duration_min`。Runner `0 PASS / 2 FAIL`；
+人工 `0 pass / 1 partial / 1 fail`，但两个已修系统红线均获生产正证。工件见
+`eval/parallel_selected_summary_evalcampaign_trace_write_r469_20260813.md` 与 manual audit。
+
+1. B764 正证：Finalizer 收到四个 scope；终稿明确 running=157.248ms 是全窗全核目标运行，
+   runnable=5.604ms 是 off-CPU 就绪排队，不再发布“157.248+5.604=162.852ms CPU 占用”。
+   CPU12=96.081ms、CPU4=35.960ms 与频率 policy-ceiling/target-binding 未证两轴均在。
+2. H4 runner 因出现 132.041 仍 FAIL。本轮模型把它明确限定为 CPU12+CPU4 两个已展示逐核桶之和，并
+   说明不等于 157.248ms 全量，故不再是 B764 的跨口径冒充；但它仍不得不猜“还有其他 CPU 短段”。
+   新确认 `B766-TARGETCPURUNNINGROSTER1/P1`：engine 已有完整 target timeline / full running census，
+   `top_running` 却是全局 top-8 `(thread,cpu)` 桶，目标只幸存 CPU12/CPU4；没有 target-owned、逐 CPU、
+   有 emitted/total/complete 的全量名册。最优方案应从同一 target timeline 聚合 running interval，发布
+   target CPU roster 并令 Σ逐核=target_window_states.running；不得放宽全局 top cap、用邻近 CPU 猜归属，
+   或由系统改写模型答案。
+3. H4 请求是一个指定条件（frequency policy）对指定目标的有限 yes/no/mixed/unproven 判断及有限状态
+   证据，最终 `bounded_effect_verdict` 合理；它没有请求根因榜、竞争贡献者或完整因果调查，所以本轮无
+   `Trace 因果投影` 不单独判 gap。显式窗口的 `causal_diagnosis`、链上根因和自动补齐路径未修改。
+4. 新确认 `B767-ANALYZERJSONCONVERGENCE1/P1`：Analyzer 先后六次 reject，依次在
+   bounded_fact/causal dimension、bounded_effect/full-diagnostic、intent=explain/diagnostic flag、空
+   fact_families 与 causal_diagnosis carrier 之间往返，第七次才发出可满足形，单案耗时 376s。合同存在
+   唯一可满足组合，未发现“同字段必带又必拒”的形式矛盾；问题是 JSON 教学把互斥轴分散、repair hint
+   没有给出完整 canonical corrected object，模型心智与修复不收敛。应按 typed constraint graph 生成
+   一次性修复提示/示例，不扫描用户或模型原文、不为本 case 强制 scope。
+5. B765 正证：Chrono 第二计划仅由 Python `make check` 覆盖 Rust changed paths，报告准确标
+   `capability=source_static`。模型仍请求 `finish/all_verified`，系统 normalizer 将其降为
+   `accept_unverified/production_verification_source_static_only`；attempt、batch、final report 与用户
+   终稿全一致。任务仍人工 fail（Rust 未编译/执行），但系统不再假绿。
+6. 两案 352s/376s 活跃输出期间均未因“4ms 尚无完整答案”发布降级稿。合法结束权仍只属于 caller
+   cancel/deadline、无首字节、真实 byte-stall、transport/decode failure。
+
+状态：
+
+`B764-THREADCPUSTATECALIBER1=production-positive-r469`；
+`B765-WRITETERMINALAUTHORITYBYPASS1=production-positive-r469`；
+`B766-TARGETCPURUNNINGROSTER1=confirmed/next-trace-batch`；
+`B767-ANALYZERJSONCONVERGENCE1=confirmed/queued-after-B766`；
+`active-stream-4ms-degrade=forbidden/production-positive-r469`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：
