@@ -35799,11 +35799,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：`B769-RELATIONOPERATIONDERIVATION1=production-positive-r471/technical-edge-closed/business-graph-partial`；
 `B770-FINITETARGETSTATEAUTHORITY1=implemented/typed-explicit-window+target-fail-closed/pending-production-replay`；
-`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=confirmed/P1/open`；
+`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=confirmed/P1/implementation-in-progress`；
 `B768-TARGETSTATEEXACTCALIBER1=soft-hint-production-positive/authority-gap-superseded-by-B770`；
 `active-stream-4ms-degrade=forbidden/not-observed-r471`；
 `system answer/diagram/edge/conclusion synthesis=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
+### §123.790 B771：参与者边界校验与端点修复定位统一（2026-08-14）
+
+1. r471 的交替拒绝不是要求放宽证据门。精确技术 operation incidence 不能自动证明完整的请求级
+   cross-participant graph；一个局部技术端点与同名但仍未证的业务参与者边界可以同时存在。原 gate
+   已按 Mermaid 节点 ID 与解析后的主可见标签两条 typed lane 判定冲突，这一语义保持不变。
+2. 真 gap 在修复定位器：它过去只看节点 ID。模型常用 `n6["Mutable"]` 一类短 ID + 业务标签形；gate
+   会按可见标签正确判定 `unproven_boundary_has_visible_incident_edge`，定位器却找不到冲突边，因而只
+   返回通用提示。模型随后在“删边”和“补 boundary”之间摆动，形成多轮成文拒绝。
+3. B771 根修让定位器复用与 gate 相同的精确信号：稳定节点 ID + Mermaid parser 得到的主可见标签。
+   当且仅当正文中已有唯一 edge、唯一 exact edge_anchor、唯一冲突侧时，发布
+   `typed_endpoint_collision`，同时带 block、body edge、冲突侧、冲突可见面、是否 label collision、
+   要同步修改的 node field，以及不可改写的 canonical identities/relation kind。多候选或不唯一仍
+   fail-open，不把猜测变成硬指令。
+4. label collision 的提示明确区分两种身份：技术节点换用新的非参与者 node ID；若其可见标签也占用
+   业务参与者名，则模型用已发布的 exact endpoint identity 自行选择简洁技术文案；原业务参与者保留
+   为独立、断开的 unproven boundary。系统不选择新 ID/文案，不创建或选择关系，不补边，不改图，
+   不替换答案。
+5. 该实现读取解析后的 Mermaid 结构与 typed anchors，不扫描用户原文、模型正文或最终答案关键词；
+   因而统一适用于 flowchart/sequence/class 等已支持图族以及 Java/C/C++/Go/Rust/Python/ArkTS/Cangjie
+   等所有语言，不做单语言或单 case 拟合。Trace 显式窗、因果投影、自动补齐、链上-only 根因、实际
+   耗时与规则可消除量双轴、优先级反转/调度延迟/算力/D/IO/确定性语义/业务线索均未改。
+6. 新增短节点 ID + 业务标签回归，并扩展既有唯一冲突与歧义 fail-open pin。定向测试已绿；下一步跑
+   `internal/tool` 全包与 build，然后用 H4 + QF 恰好并发两案回放，分别验收 B770 authority 物化与
+   B771 精确修复提示是否减少合同摆动。active stream 有持续字节时仍禁止按 4ms 年龄降级。
+
+状态：`B771-PARTICIPANTRELATIONAUTHORITYPARITY1=implemented/parser-label+node-id-parity/pending-production-replay`；
+`participant coverage evidence gate=unchanged`；`system diagram/edge/label/relation synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/unchanged`。
 
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 

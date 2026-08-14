@@ -71,7 +71,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	)
 	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
 	if endpointConflicts != "" {
-		expected = "Resolve these exact endpoint-ID collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field, while keeping the exact participant as a separate disconnected visible node with its unproven boundary. The system is identifying an already model-authored unique edge/anchor pair, not creating or selecting a relation: " + endpointConflicts + ". " + expected
+		expected = "Resolve these exact endpoint-ID/label collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field. If that endpoint's visible label also equals the unproven participant, relabel the same technical node with concise technical wording derived from the already-published exact from_identity/to_identity; do not alter those anchor identities. Keep the exact participant as a separate disconnected visible node with its unproven boundary. The system is identifying an already model-authored unique edge/anchor pair and its parsed visible label, not creating or selecting a relation or choosing replacement wording: " + endpointConflicts + ". " + expected
 	}
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
@@ -129,11 +129,13 @@ func diagramParticipantEndpointConflictGuidance(
 			continue
 		}
 		type endpointConflictCandidate struct {
-			blockID  string
-			fromNode string
-			toNode   string
-			side     string
-			anchor   types.DiagramEdgeAnchor
+			blockID              string
+			fromNode             string
+			toNode               string
+			side                 string
+			conflictSurface      string
+			visibleLabelConflict bool
+			anchor               types.DiagramEdgeAnchor
 		}
 		var candidates []endpointConflictCandidate
 		for blockIndex := range doc.Blocks {
@@ -142,10 +144,11 @@ func diagramParticipantEndpointConflictGuidance(
 				(mismatch.BlockID != "" && block.ID != mismatch.BlockID) {
 				continue
 			}
+			labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 			anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
 			for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
-				fromConflict := diagramParticipantSurfaceListContainsExact(surfaces, edge.From)
-				toConflict := diagramParticipantSurfaceListContainsExact(surfaces, edge.To)
+				fromConflict, fromSurface, fromLabelConflict := diagramParticipantEndpointConflictSurface(surfaces, edge.From, labels)
+				toConflict, toSurface, toLabelConflict := diagramParticipantEndpointConflictSurface(surfaces, edge.To, labels)
 				if fromConflict == toConflict { // neither side, or both sides: not unique
 					continue
 				}
@@ -162,11 +165,16 @@ func diagramParticipantEndpointConflictGuidance(
 					continue
 				}
 				side := "to"
+				conflictSurface := toSurface
+				visibleLabelConflict := toLabelConflict
 				if fromConflict {
 					side = "from"
+					conflictSurface = fromSurface
+					visibleLabelConflict = fromLabelConflict
 				}
 				candidates = append(candidates, endpointConflictCandidate{
-					blockID: block.ID, fromNode: edge.From, toNode: edge.To, side: side, anchor: exact[0],
+					blockID: block.ID, fromNode: edge.From, toNode: edge.To, side: side,
+					conflictSurface: conflictSurface, visibleLabelConflict: visibleLabelConflict, anchor: exact[0],
 				})
 			}
 		}
@@ -184,14 +192,39 @@ func diagramParticipantEndpointConflictGuidance(
 			nodeFields = "body.from_node+edge_anchor.from_node"
 		}
 		rows = append(rows, fmt.Sprintf(
-			"typed_endpoint_collision[%s]={block_id:%s,body_edge:{from_node:%s,to_node:%s},conflict_endpoint_side:%s,node_fields_to_change:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			"typed_endpoint_collision[%s]={block_id:%s,body_edge:{from_node:%s,to_node:%s},conflict_endpoint_side:%s,conflict_visible_surface:%s,visible_label_collision:%t,node_fields_to_change:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
 			strconv.Quote(participant), strconv.Quote(selected.blockID),
 			strconv.Quote(selected.fromNode), strconv.Quote(selected.toNode), strconv.Quote(selected.side),
-			strconv.Quote(nodeFields), strconv.Quote(selected.anchor.FromIdentity),
+			strconv.Quote(selected.conflictSurface), selected.visibleLabelConflict, strconv.Quote(nodeFields), strconv.Quote(selected.anchor.FromIdentity),
 			strconv.Quote(selected.anchor.ToIdentity), strconv.Quote(string(selected.anchor.RelationKind)),
 		))
 	}
 	return strings.Join(rows, "; ")
+}
+
+// diagramParticipantEndpointConflictSurface uses the same two precise Mermaid
+// identity lanes as the boundary-connected gate: stable node ID and parsed
+// primary visible label. The former implementation inspected only node IDs,
+// so a common `n6["Mutable"]` shape was rejected by the label-aware gate but
+// could not receive its unique endpoint-collision repair tuple. This helper
+// changes guidance only; it creates no edge, alias, label, or relation.
+func diagramParticipantEndpointConflictSurface(
+	surfaces []string,
+	node string,
+	labels map[string]string,
+) (matched bool, conflictSurface string, visibleLabelConflict bool) {
+	node = strings.TrimSpace(node)
+	visible := diagramParticipantVisibleEndpoint(node, labels)
+	nodeMatch := diagramParticipantSurfaceListContainsExact(surfaces, node)
+	labelMatch := diagramParticipantSurfaceListContainsExact(surfaces, visible)
+	switch {
+	case labelMatch:
+		return true, visible, true
+	case nodeMatch:
+		return true, node, false
+	default:
+		return false, "", false
+	}
 }
 
 // diagramParticipantCoverageRepairActions translates each precise typed

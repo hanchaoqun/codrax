@@ -126,11 +126,15 @@ func TestPreCheckDiagramParticipantCoveragePublishesUniqueEndpointCollisionTuple
 		`block_id:"flow"`,
 		`body_edge:{from_node:"W",to_node:"Mutable"}`,
 		`conflict_endpoint_side:"to"`,
+		`conflict_visible_surface:"Mutable"`,
+		`visible_label_collision:true`,
 		`node_fields_to_change:"body.to_node+edge_anchor.to_node"`,
 		`from_identity:"appendStageOutputEvidenceToMutable"`,
 		`to_identity:"MutableState.AppendEvidence"`,
 		`relation_kind:"call"`,
 		"Choose one fresh non-participant Mermaid node ID",
+		"relabel the same technical node with concise technical wording",
+		"not creating or selecting a relation or choosing replacement wording",
 		"not creating or selecting a relation",
 	} {
 		if !strings.Contains(hints[0].ExpectedShape, want) {
@@ -144,6 +148,44 @@ func TestPreCheckDiagramParticipantCoveragePublishesUniqueEndpointCollisionTuple
 	}
 	if doc.Blocks[0].Diagram.Body != bodyBefore || doc.Blocks[0].EdgeAnchors[0] != anchorBefore {
 		t.Fatalf("precheck guidance must not rewrite the model diagram: body=%q anchor=%+v", doc.Blocks[0].Diagram.Body, doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
+func TestPreCheckDiagramParticipantCoveragePublishesCollisionForBusinessLabelOnShortNodeID(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n W[\"append evidence\"] --> n6[\"Mutable\"]\n Mutable_boundary[\"Mutable\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "W", ToNode: "n6", FromIdentity: "appendStageOutputEvidenceToMutable",
+		ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+	}}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := diagramEvidenceTestCall("appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence")
+	mut := types.NewMutableState("short node id endpoint collision")
+	mut.AppendEvidence([]types.EvidenceItem{evidence})
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut,
+	}}
+	hints := preCheckDiagramParticipantCoverage(doc, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one label-aware endpoint-collision hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		`typed_endpoint_collision["Mutable"]`,
+		`body_edge:{from_node:"W",to_node:"n6"}`,
+		`conflict_visible_surface:"Mutable"`,
+		`visible_label_collision:true`,
+		`node_fields_to_change:"body.to_node+edge_anchor.to_node"`,
+		`to_identity:"MutableState.AppendEvidence"`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("label-aware endpoint-collision hint missing %q:\n%s", want, hints[0].ExpectedShape)
+		}
 	}
 }
 
