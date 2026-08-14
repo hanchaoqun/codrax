@@ -11422,7 +11422,17 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			// This compact lane is selected only by a schema-valid typed authority;
 			// request/model/final prose never participates.
 			b.WriteString("- Typed trace context precedence: use the exact `trace_query` rows and, when rendered for this request scope, the Trace Decision Inputs and final typed boundary for scenario-specific facts and authority. Do not replay unrelated generic Binder, IO, perf, priority-inversion, or root-cause recipes merely because this is a trace; preserve any on-chain/adjacent/background population and value caliber exactly as typed, then form the diagnosis yourself.\n")
-			b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep every typed on-chain candidate eligible for the principal root-cause population regardless of family, including measured priority inversion (a lower-priority on-chain dependency with typed runnable effective impact and/or a typed running compute-supply deficit, or stronger holder/waiter authority), runnable/scheduler-supply delay, compute-supply limits, D-state/IO waits, and deterministic semantic work; keep adjacent/background rows as support or additional investigation directions only.\n")
+			switch answerDocRuntimeTracePresentationScope(ctx) {
+			case types.RuntimeQuestionScopeCausalDiagnosis:
+				b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep every typed on-chain candidate eligible for the principal root-cause population regardless of family, including measured priority inversion (a lower-priority on-chain dependency with typed runnable effective impact and/or a typed running compute-supply deficit, or stronger holder/waiter authority), runnable/scheduler-supply delay, compute-supply limits, D-state/IO waits, and deterministic semantic work; keep adjacent/background rows as support or additional investigation directions only.\n")
+			case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
+				b.WriteString("- Runtime finite-scope presentation hint: this request asks for finite observed facts and/or one bounded target-effect verdict, not a root-cause roster. Present the model-owned bounded conclusion first, then only the requested fact families and the minimum typed evidence needed for that verdict. A `root_cause_rank`, wakeup-chain candidate, or causal seat obtained during exploration is not thereby part of the requested principal root-cause population: use such a row only when its typed fields directly prove one requested observed value or the bounded condition-to-target relation, and describe that evidence without root-cause/rank/seat language. This scope rule does not suppress any requested scheduler-state, wait, count, duration, frequency, pressure, or evidence-source dimension and does not decide yes/no/mixed/unproven for the model.\n")
+			case types.RuntimeQuestionScopeRelationAnalysis:
+				b.WriteString("- Runtime relation-scope presentation hint: answer the requested caller, wakeup, IPC, dependency, or topology relation from exact typed endpoints, direction, relation kind, and evidence ceiling. Exploration-time root-cause ranks and unrelated causal seats do not become a principal root-cause population in this scope. Preserve every requested relation and its uncertainty, but do not promote an endpoint, neighbor, or background row to a root cause merely because it appears on the relation path.\n")
+			case types.RuntimeQuestionScopeSystemOverview:
+				b.WriteString("- Runtime overview presentation hint: organize the requested artifact-wide observations by their typed fact families, ranges, coverage, and evidence ceilings. A broad overview is not itself a root-cause election: keep causal rows as bounded findings or investigation directions unless the typed request scope separately authorizes causal diagnosis, and do not turn adjacency or prevalence into causation.\n")
+			}
+			b.WriteString("- Runtime user-facing language hint: structured keys/enums such as `coverage_status=complete`, `chain_relevance=on_chain`, `tier=primary`, `fix_direction`, and `target_binding_status=unproven` are evidence metadata, not primary customer-facing prose. Express their exact meaning naturally in the answer's language: describe that all relevant events in the selected window were covered or that target binding remains unproven, without copying the English enum token into an otherwise non-English sentence. Retain raw key=value tokens only in a compact audit parenthesis when they materially help verification. Keep domain terms such as runnable, D-state, CPU frequency, JIT, and GC when they are the clearest engineering vocabulary, but do not expose tool/view names, validator vocabulary, or seat/recipe labels as the conclusion. This is display guidance only: do not translate away numeric caliber, evidence boundaries, relation direction, on-chain/background status, or the model's conclusion.\n")
 			b.WriteString("- Scheduler residency and cross-subject causality hint: S, D, `io_wait`, runnable, and running are row-local measured states. A wait may explain that same subject's delay, but temporal overlap, adjacency, a shared CPU, a shared IRQ/waker label, the same IO/pressure family, or a shared subject name does not transfer state, caller, blocker, or causality between rows. Never call an adjacent/background row a direct or indirect contributor to an on-chain wait unless an exact typed relation/fold carrier links those subjects over compatible intervals; otherwise keep it as concurrent support or an additional investigation direction.\n")
 			b.WriteString("- Thread and span semantic authority: a comm/name match proves only a diagnostic thread identity; use main/UI/render/service/hardware role words only with an independent typed `thread_role` carrier. Current span/name-derived frame rows do not provide that carrier. A span/marker label proves its label, measured interval, and any explicitly typed marker/stage role only; it does not by itself prove the internal work, synchronization input, cross-thread handoff, hardware operation, completion effect, or display semantics suggested by that label. `frame_marker_role` and `pipeline_stage_role` describe the item stage, not the owning thread.\n")
 			for _, measurement := range view.FrameMeasurements {
@@ -11467,6 +11477,36 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	b.WriteString(renderAnswerDocRuntimeTemporalDiagramCapsules(ctx))
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocRuntimeTracePresentationScope keeps trace composition aligned with
+// the analyzer's typed breadth decision. It consumes no request or answer
+// prose. Older/unspecified profiles retain only precise diagnostic carriers so
+// a missing optional classification cannot silently suppress a user-requested
+// root-cause investigation; otherwise they use the neutral overview lane.
+func answerDocRuntimeTracePresentationScope(ctx *types.AgentContext) types.RuntimeQuestionScope {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.RuntimeQuestionScopeCausalDiagnosis
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if profile := rm.RuntimeQuestionProfile; profile != nil {
+		switch profile.Scope {
+		case types.RuntimeQuestionScopeBoundedFactSet,
+			types.RuntimeQuestionScopeBoundedEffectVerdict,
+			types.RuntimeQuestionScopeCausalDiagnosis,
+			types.RuntimeQuestionScopeRelationAnalysis,
+			types.RuntimeQuestionScopeSystemOverview:
+			return profile.Scope
+		}
+	}
+	if rm.Intent == types.IntentRootCause ||
+		rm.Scenario == types.ScenarioRootCause ||
+		rm.Scenario == types.ScenarioPerformanceBottleneck ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() {
+		return types.RuntimeQuestionScopeCausalDiagnosis
+	}
+	return types.RuntimeQuestionScopeSystemOverview
 }
 
 type runtimeTraceGuidanceView struct {

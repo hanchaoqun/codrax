@@ -38090,6 +38090,51 @@ adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`�
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.751 B755：有限 Trace 上下文按 typed breadth 分流；内部枚举退出主叙事（2026-08-13）
+
+1. r460 深审确认正文虽保留四态、CPU4 策略上限、目标绑定未证和供给折算，但 Finalizer 的
+   typed-trace 通用提示无条件要求“保留全部主根因候选”。同一轮 Explorer 又为有限问题调用了
+   `root_cause_rank`，于是模型把本来只回答窗口事实和单一频率影响判定的答案写成“#1 根因席位”。
+   这是上下文 breadth 与 Analyzer typed scope 不一致，不是客户问题需要完整因果投影。
+2. B755 只消费 `runtime_question_profile.scope` 等 schema-valid typed IR，不扫描用户原文、模型草稿
+   或最终答案。Finalizer 现分四条软引导车道：`bounded_fact_set/bounded_effect_verdict` 只保留
+   请求的有限事实与单一影响判定；`relation_analysis` 只回答 exact 端点、方向、关系类型与证据
+   上限；`system_overview` 组织全局观察但不自行选举主因；只有 `causal_diagnosis` 保留所有链上
+   主因候选及优先级反转、调度延迟、算力供给、D/IO、确定性语义与业务线索双轴。
+3. 旧/缺失 scope 不会静默削弱真正诊断：明确 `intent/scenario/predicate/diagnostic_profile` 仍可把
+   车道恢复为 `causal_diagnosis`；非诊断旧数据走中性 overview。关系分析、系统概览、有限查询
+   均有“不得继承完整主因群”负 pin，完整因果诊断有“全部链上候选不丢失”正 pin。
+4. B753 的 Analyzer 教学补齐被动影响问法：询问“指定目标是否受约束/绑定/影响”即使约束机制
+   尚未命名，也必须保留 required `causal_attribution`；一个有限 target-effect verdict 使用
+   `bounded_effect_verdict`，根因榜、竞争贡献者或广义机理诊断才使用 `causal_diagnosis`。这只决定
+   调查 breadth，不替模型决定 yes/no/mixed/unproven，也不从词面建立硬门。
+5. 同批关闭展示 gap：`coverage_status=complete`、`chain_relevance=on_chain`、`tier=primary`、
+   `fix_direction`、`target_binding_status=unproven` 等只作 evidence metadata。软提示要求用答案语言
+   自然表达其精确含义；非英语正文不得夹入英语枚举 token，只有确有核验价值时才能在紧凑审计
+   括注保留 raw key=value。数值 caliber、证据边界、方向、链上/背景身份和模型结论不得翻译丢失。
+6. `real_trace_h4_supply_thermal_witness` 的旧 oracle 只接受 `D-state/D state/不可中断`，错误拒绝
+   生产答案中的 `D 状态=0ms`。正则只新增大小写及中划线/下划线/空格中文等价形，仍同时要求
+   0ms 数值；running 157.248ms、runnable 5.604ms、sleep 70.338ms、CPU4 2.10GHz 和“策略上限
+   不足以证明目标受限”均未放松。对 r460 终稿逐条复算四态正则全部命中。
+7. 专项 `skill/agent/types/tool` 测试覆盖被动影响分类、四 scope 分流、完整链上 population、enum
+   展示提示与 consistency retry。活跃流专测继续通过：只要字节持续到达，4ms 内没有完整 JSON、
+   SSE 事件或 answer_document 不得触发降级；结束/恢复权仍仅属于 caller cancel/deadline、无首
+   字节、byte-stall、transport/decode failure。
+8. 本批没有修改 Trace 查询结果、投影编译、自动补齐或答案正文。显式窗本身不强制完整投影；
+   有限事实/单一影响问题保留有限结论；真正 root-cause/丢帧机理请求仍形成 Trace 因果投影，主因
+   只能来自 typed on-chain 证据，邻近/背景只能支撑额外排查，结论继续由模型形成。
+
+状态：
+
+`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=implemented/schema+skill+consistency-pins`；
+`B755-RUNTIMETYPEDBREADTHCONTEXT1=implemented/four-scope-soft-routing+pinned`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=implemented/soft-localization/no-answer-rewrite`；
+`H4-DSTATE-ORACLE=false-negative-fixed/numeric-requirement-preserved`；
+`active-stream-4ms-degrade=forbidden/active-byte-tests-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.723 r409：累计补证车道漂移根修；图保留正证与活跃流 4ms 专审（2026-08-12）
 
 1. 在 `main@d015d6116` 严格并发恰好两个案例：

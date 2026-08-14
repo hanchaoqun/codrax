@@ -151,6 +151,85 @@ func TestTypedTraceAuthoritySelectsCompactExactGuidance(t *testing.T) {
 	}
 }
 
+func TestTypedFiniteTraceScopeDoesNotPromoteExploratoryRootCausePopulation(t *testing.T) {
+	for _, scope := range []types.RuntimeQuestionScope{
+		types.RuntimeQuestionScopeBoundedFactSet,
+		types.RuntimeQuestionScopeBoundedEffectVerdict,
+	} {
+		t.Run(string(scope), func(t *testing.T) {
+			ctx := answerDocCausalCeilingTestContext(true)
+			ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+				Scope: scope,
+				FactFamilies: []types.RuntimeQuestionFactFamily{
+					types.RuntimeQuestionFactTargetSchedulerState,
+					types.RuntimeQuestionFactFrequencyResidency,
+				},
+			}
+			got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+			for _, want := range []string{
+				"Runtime finite-scope presentation hint",
+				"not a root-cause roster",
+				"not thereby part of the requested principal root-cause population",
+				"without root-cause/rank/seat language",
+				"does not suppress any requested scheduler-state",
+				"does not decide yes/no/mixed/unproven",
+				"Runtime user-facing language hint",
+				"evidence metadata, not primary customer-facing prose",
+				"answer's language",
+				"without copying the English enum token",
+				"display guidance only",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("finite typed trace guidance missing %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "Keep every typed on-chain candidate eligible for the principal root-cause population") {
+				t.Fatalf("finite typed scope retained full causal-population instruction:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestTypedRelationAndOverviewTraceScopesDoNotInheritRootCausePopulation(t *testing.T) {
+	tests := []struct {
+		scope types.RuntimeQuestionScope
+		want  string
+	}{
+		{scope: types.RuntimeQuestionScopeRelationAnalysis, want: "Runtime relation-scope presentation hint"},
+		{scope: types.RuntimeQuestionScopeSystemOverview, want: "Runtime overview presentation hint"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.scope), func(t *testing.T) {
+			ctx := answerDocCausalCeilingTestContext(true)
+			ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{Scope: tt.scope}
+			got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("typed trace guidance missing %q:\n%s", tt.want, got)
+			}
+			if strings.Contains(got, "Keep every typed on-chain candidate eligible for the principal root-cause population") {
+				t.Fatalf("%s scope inherited causal-diagnosis population:\n%s", tt.scope, got)
+			}
+			if strings.Contains(got, "Runtime finite-scope presentation hint") {
+				t.Fatalf("%s scope was collapsed into finite fact/effect guidance:\n%s", tt.scope, got)
+			}
+		})
+	}
+}
+
+func TestTypedCausalTraceScopeRetainsCompleteOnChainPopulation(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeCausalDiagnosis,
+	}
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	if !strings.Contains(got, "Keep every typed on-chain candidate eligible for the principal root-cause population") {
+		t.Fatalf("causal diagnosis lost complete typed on-chain population:\n%s", got)
+	}
+	if strings.Contains(got, "Runtime finite-scope presentation hint") {
+		t.Fatalf("causal diagnosis was narrowed to finite-scope guidance:\n%s", got)
+	}
+}
+
 func TestTypedFrameMeasurementKeepsExtentUnionAndSpanSumSeparate(t *testing.T) {
 	ctx := answerDocCausalCeilingTestContext(false)
 	rows := make([]types.ObservationRecord, 0, 4)

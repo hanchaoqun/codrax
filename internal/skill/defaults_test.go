@@ -1188,6 +1188,8 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"TARGET-EFFECT VERDICT",
 		"PROOF ORIGIN",
 		"passive equivalent",
+		"even when the constraining mechanism X is not yet named",
+		"asking whether that target was constrained or affected is a verdict",
 		"`evidence_source` never substitutes",
 		"emit two required dimensions",
 		"never pre-decides yes/no/mixed/unproven",
@@ -1202,6 +1204,7 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"`bounded_effect_verdict`",
 		"`causal_diagnosis`",
 		"does not request a root-cause roster, wakeup chain, or full Trace causal projection",
+		"mechanism may be explicitly named or may remain an unresolved condition class",
 		"Scope never pre-decides the finding",
 		"yes, no, mixed, or unproven",
 	} {

@@ -104,7 +104,8 @@ func (p *RuntimeQuestionProfile) BoundedFactSet() bool {
 	return p != nil && p.Scope == RuntimeQuestionScopeBoundedFactSet
 }
 
-// BoundedEffectVerdict reports a finite condition-to-target verdict. Unlike a
+// BoundedEffectVerdict reports a finite condition/constraint-to-target verdict.
+// The constraining mechanism may be named or may remain unresolved. Unlike a
 // causal diagnosis, this shape does not request a root-cause roster, wakeup
 // chain, or system-wide causal projection. It keeps the requested observed
 // fact families beside the model-owned yes/no/mixed/unproven verdict.

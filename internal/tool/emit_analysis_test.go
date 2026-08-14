@@ -623,7 +623,7 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); !strings.Contains(issue, "condition-to-target verdict") {
+	); !strings.Contains(issue, "finite target-effect verdict") || !strings.Contains(issue, "may remain an unresolved mechanism") {
 		t.Fatalf("bounded retry must teach the causal-verdict shape, got %q", issue)
 	}
 	boundedEffect := &types.RuntimeQuestionProfile{
