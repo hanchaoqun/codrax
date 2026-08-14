@@ -2005,6 +2005,33 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 	return out
 }
 
+// ProjectLogPeerRelationAnswerAuthority removes unsupported model-authored
+// relationship synthesis from final-answer authority when the typed log tree
+// contains multiple top-level error occurrences. Top-level LogBundle.Errors
+// are peers by contract; only recursive Cause + CauseRelation edges carry
+// direct-cause authority. A behavior/granularity aggregate without a typed
+// support ref is therefore a model inference that can contradict the bundle's
+// precise cross_error_relation=unproven record.
+//
+// The raw facts remain untouched in MutableState for audit. This projection is
+// deliberately structural: it reads only the LogBundle tree shape, aggregate
+// kind, and the shared typed support-ref grammar. It never scans labels,
+// values, user text, model reasoning, or final prose.
+func ProjectLogPeerRelationAnswerAuthority(facts []AnswerAggregateFact, bundle *LogBundle) []AnswerAggregateFact {
+	if len(facts) == 0 || bundle == nil || len(bundle.Errors) <= 1 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := make([]AnswerAggregateFact, 0, len(facts))
+	for _, fact := range facts {
+		unsupportedSynthesisKind := fact.Kind == AnswerAggregateBehaviorOutcome || fact.Kind == AnswerAggregateErrorGranularity
+		if unsupportedSynthesisKind && !aggregateFactHasTypedSupportRef(fact) {
+			continue
+		}
+		out = append(out, fact)
+	}
+	return cloneAnswerAggregateFacts(out)
+}
+
 func normalizeRepoWideSourceInventoryEmptySubsetFacts(facts []AnswerAggregateFact, rm *RequestModel) bool {
 	if len(facts) == 0 || rm == nil ||
 		rm.SourceInventoryProfile == nil ||

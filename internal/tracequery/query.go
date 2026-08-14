@@ -2219,6 +2219,14 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 		// the requested endpoint.
 		timelineEnd = idx.LastTs
 		res.Caveats = append(res.Caveats, schedulerArtifactTailCaveat(q, timelineEnd))
+		if timelineEnd <= q.TimeStart {
+			// The selected scheduler sub-window lies wholly outside physical
+			// artifact coverage.  This is unavailable input, not a positive
+			// no-scheduler-data observation: wakeup/root-cause consumers must
+			// fail closed instead of minting a trace_gap row for the absent tail.
+			res.IntegrityFailure = "trace_artifact_tail_uncovered"
+			return res
+		}
 	}
 	if runningOpen {
 		if !artifactTailUncovered || timelineEnd > runningStart {
@@ -25166,6 +25174,19 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		// Edge is added by the caller once it knows the wakeup row.
 	}
 	if interesting == nil {
+		// A timeline made only of measured Running (or another scheduler state
+		// already at/above the recursion floor) is not a scheduler-data gap. The
+		// recursion lane deliberately excludes Running because compute supply
+		// owns that evidence; turning the same exclusion into trace_gap would
+		// contradict the valued/context Running row. Keep the typed node/context,
+		// but do not mint a blind-spot RootEvidence row. This also covers a
+		// partially measured artifact-tail window: the uncovered suffix remains a
+		// caveat, never positive evidence that the measured prefix lacked data.
+		_, artifactTailUncovered := schedulerMeasuredTimeEnd(idx, tq)
+		if timelineHasNonGapSchedulerEvidence(tl.Intervals, q.MinDurationMs) ||
+			(artifactTailUncovered && len(tl.Intervals) > 0) {
+			return nodeID
+		}
 		// CHAIN-BUDGET 返工 P1-2①/P2-4 (源头去重, 2026-07-18): a zero-value
 		// trace_gap RootEvidence row folds per (pid, gapKind) — the wider
 		// chain (extra-lane sub-chains + MaxBranches 16) can visit the same
@@ -25761,6 +25782,20 @@ func traceGapKindForTimeline(intervals []Interval) string {
 		return TraceGapKindNoSchedData
 	}
 	return TraceGapKindNoEligibleWait
+}
+
+// timelineHasNonGapSchedulerEvidence separates "the wakeup recursion lane has
+// no eligible wait" from "scheduler evidence is absent/sub-threshold". The
+// former is a normal typed outcome (most commonly a Running-only window) and
+// must not be represented as trace_gap merely because interestingIntervals
+// intentionally routes Running to the compute-supply lane.
+func timelineHasNonGapSchedulerEvidence(intervals []Interval, minDurationMs float64) bool {
+	for i := range intervals {
+		if intervals[i].DurationMs >= minDurationMs {
+			return true
+		}
+	}
+	return false
 }
 
 // interestingIntervals returns up to max intervals worth recursing into

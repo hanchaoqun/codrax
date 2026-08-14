@@ -35674,6 +35674,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    对没有合法 typed support ref 的 runtime relationship-synthesis aggregate 从答案权威与 ledger
    删除；原 fact 保留在 MutableState 审计历史。不得扫描 label/value、用户输入或答案原文，
    不得由系统替模型写错误关系；显式递归 `CauseRelation`、逐错误事实、带生产凭证事实不受影响。
+   该投影已在 `BuildAnswerSurfacePlan` 与 `CompileObservationLedger` 两个编译喉口共用，并以
+   unsupported behavior/error-granularity、producer-bound support、peer inventory、单一显式 cause tree
+   四组正负 pin 固定。
 6. 同批留档两条 P1：`B803-TRACECPUROLE1`——最终稿把 ftrace `(20)` TGID 错当 CPU，并虚构
    CPU20→CPU5 迁移，需用 typed CPU roster/紧凑 header-role 软教学补足；
    `B804-RUNTIMEBREADTH1`——有限 hotspot/证据粒度题被 analyzer 放大成 causal diagnosis，需优化
@@ -35684,13 +35687,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B801-TRACETAIL1=implemented/targeted-pins-pass`；
-`B802-LOGPEERCTX1=confirmed/next-batch`；
+`B801-TRACETAIL1=implemented/full-suite-pass`；
+`B802-LOGPEERCTX1=implemented/surface+ledger+pinned`；
 `B803-TRACECPUROLE1=P1-open`；`B804-RUNTIMEBREADTH1=P1-open`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=preserved`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+全仓回归额外命中一个真实组合面：直接 `.perftrace` 的查询尾部超出 EOF 时，
+0.900ms 实测 Running 已正确保留，但 wakeup 子窗仍把“Running 不进入等待递归”误作
+`trace_gap`。修正后，Running/其它达到递归阈值的 typed scheduler interval 由各自专属车道消费，
+不再因等待递归为空而铸造数据盲区；部分覆盖仍保留尾部 unavailable caveat。定向 tool pin 与
+`go test ./... -count=1` 均通过。
 
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 

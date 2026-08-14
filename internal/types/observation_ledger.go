@@ -566,7 +566,8 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
-	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, add)
+	answerAggregateFacts := ProjectLogPeerRelationAnswerAuthority(input.AggregateFacts, input.LogBundle)
+	compileAggregateFactObservations(answerAggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, add)
 	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
 	// SUPP-CORE: supplement results compile through the SAME tool-result
 	// path (single value source — identical record shapes to model-

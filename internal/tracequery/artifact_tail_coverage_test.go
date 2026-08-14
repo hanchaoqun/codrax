@@ -71,8 +71,8 @@ func TestRootCauseRankDoesNotMintSchedulerSeatFromUncoveredArtifactTail(t *testi
 		t.Fatal("root cause result missing")
 	}
 	for _, item := range res.RootCauseRank.Items {
-		if item.Type == "scheduler_latency" || item.Type == "runnable_wait" || strings.Contains(item.Type, "runnable") {
-			t.Fatalf("uncovered suffix minted a scheduler/runnable root seat: %+v", item)
+		if item.Type == "scheduler_latency" || item.Type == "runnable_wait" || strings.Contains(item.Type, "runnable") || item.Type == "trace_gap" {
+			t.Fatalf("uncovered suffix minted a scheduler/runnable/gap root seat: %+v", item)
 		}
 	}
 }

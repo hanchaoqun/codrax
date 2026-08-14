@@ -1786,6 +1786,10 @@ func BuildAnswerSurfacePlan(
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}
+		plan.StableAggregateFacts = ProjectLogPeerRelationAnswerAuthority(
+			plan.StableAggregateFacts,
+			logBundle,
+		)
 		// Round-8: pull PerfBundle so trace-attached runs participate
 		// in the drift-anchor derive pipeline symmetrically with logs.
 		perfBundle = mutable.PerfTrace()
