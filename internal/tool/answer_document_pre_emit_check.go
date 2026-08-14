@@ -13569,21 +13569,43 @@ func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2
 		return nil
 	}
 	allowedIDs := make(map[string]bool, len(edges))
+	shapeByID := make(map[string]string, len(edges))
 	allowedShapes := make([]string, 0, len(edges))
 	for _, edge := range edges {
-		if id := strings.TrimSpace(edge.EvidenceID); id != "" {
-			allowedIDs[id] = true
-		}
 		shape := fmt.Sprintf("%s -> %s", strings.TrimSpace(edge.From), strings.TrimSpace(edge.To))
 		if source := strings.TrimSpace(edge.Source); source != "" && edge.LineStart > 0 {
 			shape += fmt.Sprintf(" at %s:%d", source, edge.LineStart)
+		}
+		if id := strings.TrimSpace(edge.EvidenceID); id != "" {
+			allowedIDs[id] = true
+			shapeByID[id] = shape
 		}
 		allowedShapes = append(allowedShapes, shape)
 	}
 	if len(allowedIDs) == 0 {
 		return nil
 	}
+	citationRefsByID := make(map[string][]int, len(allowedIDs))
+	for ref, citation := range doc.Citations {
+		evidence, found := pctx.citedEvidenceItems(citation)
+		if !found {
+			continue
+		}
+		seenAtRef := make(map[string]bool)
+		for _, ev := range evidence {
+			id := strings.TrimSpace(ev.ID)
+			if id == "" {
+				id = types.StableEvidenceID(ev)
+			}
+			if !allowedIDs[id] || seenAtRef[id] {
+				continue
+			}
+			seenAtRef[id] = true
+			citationRefsByID[id] = append(citationRefsByID[id], ref)
+		}
+	}
 
+	coveredIDs := make(map[string]bool, len(allowedIDs))
 	var mismatches []string
 	for _, block := range doc.Blocks {
 		if !containsBlockFacet(block, types.FacetPrincipalPathEdge) {
@@ -13595,7 +13617,7 @@ func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2
 			continue
 		}
 		for _, item := range block.Items {
-			owned := false
+			matchedIDs := make(map[string]bool)
 			citation := "missing"
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
 				cit := doc.Citations[item.CitationRef]
@@ -13607,13 +13629,22 @@ func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2
 							id = types.StableEvidenceID(ev)
 						}
 						if allowedIDs[id] {
-							owned = true
-							break
+							matchedIDs[id] = true
 						}
 					}
 				}
 			}
-			if owned {
+			if len(matchedIDs) > 0 {
+				// A citation that resolves to exactly one allowed edge proves one
+				// coverage seat. If one source line contains multiple allowed
+				// edges, ownership is still valid but the item is ambiguous for
+				// completeness; keep those seats missing until the model supplies
+				// individually citable carriers.
+				if len(matchedIDs) == 1 {
+					for id := range matchedIDs {
+						coveredIDs[id] = true
+					}
+				}
 				continue
 			}
 			itemID := strings.TrimSpace(item.ID)
@@ -13623,20 +13654,45 @@ func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2
 			mismatches = append(mismatches, fmt.Sprintf("block=%q item=%q citation=%s", strings.TrimSpace(block.ID), itemID, citation))
 		}
 	}
-	if len(mismatches) == 0 {
+	missingShapes := make([]string, 0, len(allowedIDs))
+	for _, edge := range edges {
+		id := strings.TrimSpace(edge.EvidenceID)
+		if id == "" || coveredIDs[id] {
+			continue
+		}
+		shape := shapeByID[id]
+		if shape == "" {
+			shape = fmt.Sprintf("%s -> %s", strings.TrimSpace(edge.From), strings.TrimSpace(edge.To))
+		}
+		if refs := citationRefsByID[id]; len(refs) > 0 {
+			if len(refs) == 1 {
+				shape += fmt.Sprintf(" (use citation_ref=%d)", refs[0])
+			} else {
+				shape += fmt.Sprintf(" (use one of citation_ref=%v)", refs)
+			}
+		}
+		missingShapes = append(missingShapes, shape)
+	}
+	if len(mismatches) == 0 && len(missingShapes) == 0 {
 		return nil
 	}
 	const maxShown = 8
 	if len(mismatches) > maxShown {
 		mismatches = append(mismatches[:maxShown], fmt.Sprintf("+%d more", len(mismatches)-maxShown))
 	}
+	detail := "Endpoint-boundary edges: " + strings.Join(allowedShapes, "; ") + "."
+	if len(mismatches) > 0 {
+		detail += " Off-facet items: " + strings.Join(mismatches, "; ") + "."
+	}
+	if len(missingShapes) > 0 {
+		detail += " Missing endpoint-boundary edges: " + strings.Join(missingShapes, "; ") + "."
+	}
 	return []emitFixHint{{
-		Field: "blocks[facet_id=principal_path_edge].items[].citation_ref / blocks[].facet_ids",
-		ExpectedShape: "keep only items cited by the exact endpoint-boundary edge set in the block that declares `principal_path_edge`; move other grounded local calls to a separate supporting block without that facet. Endpoint-boundary edges: " +
-			strings.Join(allowedShapes, "; ") + ". Off-facet items: " + strings.Join(mismatches, "; "),
-		Reason:     "a principal endpoint-path facet cannot authorize sibling calls that do not belong to the typed endpoint-boundary subgraph; those calls remain available as independent supporting facts.",
-		ForceHard:  true,
-		HardSignal: preEmitHardSignalTypedFacetCandidateOwnership,
+		Field:         "blocks[facet_id=principal_path_edge].items[].citation_ref / blocks[].facet_ids",
+		ExpectedShape: "cover every exact endpoint-boundary edge once or more, keep only items cited by that edge set in blocks declaring `principal_path_edge`, and move other grounded local calls to a separate supporting block without that facet. " + detail,
+		Reason:        "a principal endpoint-path facet must cover the complete typed endpoint-boundary subgraph and cannot authorize sibling calls outside it; independent calls remain available as supporting facts.",
+		ForceHard:     true,
+		HardSignal:    preEmitHardSignalTypedFacetCandidateOwnership,
 	}}
 }
 

@@ -160,6 +160,15 @@ func TestPreCheckCallChainEndpointBoundaryFacetOwnership_RejectsSiblingCallsOnly
 	if hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
 		t.Fatalf("exact endpoint-boundary pair must pass while support facts remain available: %+v", hints)
 	}
+
+	doc.Blocks[0].Items = doc.Blocks[0].Items[:1]
+	hints = preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, "Missing endpoint-boundary edges") ||
+		!strings.Contains(hints[0].ExpectedShape, "gate.Run -> gate.RunWith at internal/analysis/gate/gate.go:135") ||
+		!strings.Contains(hints[0].ExpectedShape, "use citation_ref=1") {
+		t.Fatalf("principal boundary carrier must cover every exact boundary edge, got %+v", hints)
+	}
 }
 
 func TestNormalizeAnswerDocumentRowsBeforePersist_NoDirectedPathDoesNotAuthorReachableRoster(t *testing.T) {

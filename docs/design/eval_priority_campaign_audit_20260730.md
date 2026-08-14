@@ -36327,6 +36327,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.806 r486：双端点回放转绿；principal facet 只验排他不验完备（2026-08-14）
+
+1. 在 `main@61087b54f` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + s8a`。Runner `2 PASS / 2`，人工 `0 pass / 2 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_required_endpoint_replay_r486_20260814_manual_audit.md`。
+2. 两案本轮均把两个 ordered endpoint fields 保留下来；模型虽误发 `discover_path`，既有 enum repair 由完整
+   source+sink 结构归一为 exact，Explorer 最终取得 `buildAnalysisIR -> gate.RunWith@2722` 与
+   `gate.Run -> gate.RunWith@135`。B793 新增的“required diagram 两 participant + 空 sink”臂本轮未触发，
+   继续保持 implemented、等待同形生产正证，不能用另一条 enum repair 的结果冒充其闭环。
+3. B794 获反向证据：s8a 本轮完整读取函数体并列出 normalizer/compiler/hdp/RecomputeBudget/binder 等 18 个核心
+   阶段，说明 r485 的漏选是探索/模型波动，不应硬化具体函数 regex。最终无路径结论与双入 Mermaid 方向正确。
+4. qf 暴露 `B795-ENDPOINTBOUNDARYFACETCOMPLETENESS1/P0`：五次 Finalizer reject 后，摘要和图虽完整，声明
+   `principal_path_edge` 的 ordered_list 只剩 source edge；sink edge 因模型反复使用越界 citation_ref 后被直接
+   删除。既有 B789 只验证 facet block 内项目属于 allowed edge set（排他性），没有验证 allowed edge set 的每条
+   typed 边至少被一个结构项覆盖（完备性），因此不完整 principal carrier 获得硬绿。
+5. 实现 B795：对 typed no_directed_path endpoint capsule，跨所有声明 `principal_path_edge` 的 list/table block
+   汇总 EvidenceID；任何 sibling edge 继续拒绝，且每条 `CallChainEndpointBoundaryPrincipalEdges` 必须至少覆盖
+   一次。重复同一边不能代替另一边；一条 citation 同时映射多个 allowed edge 时不猜席位，保持 missing。
+6. 为减少无效修补轮，missing 反馈从同一 typed citation ledger 给出 exact `citation_ref` 候选。它只帮助模型
+   正确引用已有证据，不新增 block/item，不改可见文字、图或结论。新增完整 pair 正 pin、缺 sink 负 pin、
+   exact ref 诊断 pin；专项测试通过。
+7. 两案仍有模型叙述瑕疵：s8a 无证据写“由 orchestrator 直接调用”，并提到图中不存在的“虚线以上”；qf
+   使用 `endpoint-boundary/shared-callee` 等内部词。登记 `B796-VISIBLEINTERNALTERMANDPROSEMISMATCH1/P2` 观察，
+   不通过扫描模型原文/最终答案做硬门，也不由系统改写正文。后续异构案例判断是否需要软教学降心智。
+8. 本批未改 Trace/Write 数据路径。显式窗、Trace 因果投影、自动补齐、链上-only 主因、优先级反转、调度/
+   算力供给、D/IO、确定性优化、实际占时/规则可消双轴与业务线索保持；邻近/背景仍 support-only。没有空答案、
+   恢复旧稿或 active-stream 的 4ms/4m/固定总年龄降级。
+
+状态：
+
+`B793-REQUIREDDIAGRAMENDPOINTMODEPARITY1=implemented/pinned/production-witness-pending`；
+`B794-DETERMINISTICPHASEROSTERVARIANCE1=model-variance-r486/no-name-hard-gate`；
+`B795-ENDPOINTBOUNDARYFACETCOMPLETENESS1=implemented/typed-set-coverage+exact-ref-hint+pinned`；
+`B796-VISIBLEINTERNALTERMANDPROSEMISMATCH1=P2-observe/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
