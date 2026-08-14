@@ -195,7 +195,14 @@ func callChainPrincipalControlSelectionEntries(plan *AnswerSurfacePlan, base []A
 			out = appendUniqueCallChainSupportEntries(out, entry)
 		}
 	}
-	return appendUniqueCallChainSupportEntries(nil, append(base, out...)...)[len(base):]
+	// base can carry repeated display entries even when they refer to the same
+	// typed evidence identity.  Slice against the deduplicated prefix, not the
+	// raw base cardinality: otherwise a duplicate in base makes the combined
+	// result shorter than len(base) and turns a harmless support-plan rebuild
+	// into a process panic.
+	uniqueBase := appendUniqueCallChainSupportEntries(nil, base...)
+	combined := appendUniqueCallChainSupportEntries(append([]AnswerSupportEntry(nil), uniqueBase...), out...)
+	return combined[len(uniqueBase):]
 }
 
 func callChainExactSemanticIdentity(raw string) string {

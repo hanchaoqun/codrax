@@ -36030,6 +36030,47 @@ ArkTS/Cangjie 混合运行时日志。Runner `2/2 PASS`；人工一 pass、一 p
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.799 r479：时序案无答案的确定性 support-plan 越界；Java 写交付诚实未验证（2026-08-14）
+
+在 `main@6e62620be` 严格并行恰好两个案例：Go Analyzer 时序关系图 + Java
+RandomStringUtils 写模式。Runner `0/2 PASS`；人工为一项系统 fail、一项正确改动但诚实 unverified：
+
+1. 时序案 225 秒后没有进入 Finalizer，不是 Mermaid 语法、关系门拒绝或模型忘画图。Explorer 第 19 轮
+   累计发布 56 条证据后，进程在 `callChainPrincipalControlSelectionEntries` 发生
+   `slice bounds out of range [41:40]`；runner 的 `banned:runTaskGraph/no Mermaid` 只是 panic 文本与空答案
+   的级联症状；
+2. 根因是共享 support-plan 去重后仍按原始 base 基数切片：旧式
+   `dedupe(append(base,out...))[len(base):]` 假设 base 无重复。一条 evidence identity 重复时，原始 base=41、
+   去重后 combined=40，于是只读答案流程直接崩溃。该失效与 Go、named endpoint、sequence diagram 或
+   case 文案无关；任何语言的 call-chain evidence base 出现重复 identity 都可触发；
+3. 新确认并实现 `B785-CALLCHAINSUPPORTDEDUPEBOUNDS1/P0`：先建立 `uniqueBase`，再以它作为 combined
+   的前缀和切片边界。证据选择、ClaimForm、端点方向、B688 的 direct-edge/path-segment/sibling-callsite
+   口径及所有去重键保持不变；只有 cardinality arithmetic 与其输入集合一致；
+4. 回归 pin 直接构造两个相同 EvidenceID 的 base entry 和一条 grounded call evidence。预期额外 control
+   entry 为 0 且绝不 panic；这覆盖生产 `[41:40]` 的同类结构，不依赖 `buildAnalysisIR/gate.Run` 字面量来
+   决定产品行为，也不扫描用户、推理、答案或 Mermaid body；
+5. Java applied tree 人工核实正确：production ASCII fast path 与 range shrinking 均受
+   `end <= 0x7f` 保护；测试覆盖 CJK/Greek/Cyrillic letters、full-width/Arabic digits、end=0x7f 与
+   end>0x7f。改动没有把非 ASCII 范围收缩回 ASCII；
+6. 主机 `/usr/bin/java`、`javac` 是无 JVM 的系统 stub，真实执行均报告 unable to locate Java runtime；
+   fixture 的 `make check` 只提供 `source_static` 能力。因此 controller 保持
+   `verification_proof_incomplete/unverified` 是正确 fail-closed，不是待“修绿”的产品门。不得把源码形状
+   检查冒充 Java 行为验证；
+7. Java 流程有 2 次 planner unavailable-tool 与 346 秒时长，属于效率/模型工具选择观察项；已交付代码、
+   durable tree 和验证能力边界均完整，本批不因无 JVM 发明脚本替代 Java runtime，也不把 unverified
+   自动洗绿；
+8. 本批不改 Trace 查询、显式时间窗、自动补采、因果投影、链上-only 主因或背景 support-only；也不改
+   active-stream 结束/恢复权。持续字节流仍不因 4ms、4m 或固定累计年龄降级答案。
+
+状态：`r479 runner=0/2,human=1-system-fail+1-honest-unverified`；
+`B785-CALLCHAINSUPPORTDEDUPEBOUNDS1=implemented/production-witness+pinned`；
+`B688-DIRECTEDGESEGMENTORDER1=blocked-before-answer/pending-post-B785-replay`；
+`Java-RandomStringUtils=implementation-correct/runtime-unverified-no-JVM`；
+`verification-bar=unchanged/source-static-not-behavior`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

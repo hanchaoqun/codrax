@@ -501,6 +501,36 @@ func TestBuildAnswerSupportPlan_CallChainPromotesOwnedGuardAndConnectedFactoryRe
 	}
 }
 
+func TestCallChainPrincipalControlSelection_DuplicateBaseIdentityCannotPanic(t *testing.T) {
+	call := EvidenceItem{
+		ID:              "call",
+		Kind:            EvidenceRelationship,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       2722,
+		Scope:           ScopeLine,
+		AnchorKind:      AnchorCall,
+		Subject:         "buildAnalysisIR",
+		Object:          "gate.RunWith",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{SurfaceEvidence: []EvidenceItem{call}}
+	entry := AnswerSupportEntry{
+		Text:       "buildAnalysisIR calls gate.RunWith",
+		Location:   "internal/agent/analyzer.go:2722",
+		EvidenceID: "call",
+		ClaimForm:  ClaimCallEdge,
+		Subject:    "buildAnalysisIR",
+		Object:     "gate.RunWith",
+	}
+
+	// A prior aggregation/repair pass may repeat the same support identity.
+	// The control-selection helper should simply report no additional entry;
+	// duplicate display cardinality must never become a slice bound.
+	if got := callChainPrincipalControlSelectionEntries(plan, []AnswerSupportEntry{entry, entry}); len(got) != 0 {
+		t.Fatalf("duplicate base call should yield no extra control entry: %+v", got)
+	}
+}
+
 func TestBuildAnswerSupportPlan_CallChainCarriesExactGuardStateWritesWithoutInferringBranchOwnership(t *testing.T) {
 	grounded := func(item EvidenceItem) EvidenceItem {
 		item.Scope = ScopeLine
