@@ -35928,6 +35928,27 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
 `RL-05-selector-token-duration=implemented/soft-guidance-only`；`active-stream-fixed-age-degrade=forbidden`；
 `system answer/conclusion authorship=none`。
 
+`R4` 收口复核：客户版在 `emit_analysis` 后构建 2 文件 repo index，但当前 HEAD 的跳过条件已经读取
+`RuntimeArtifactPreflight`，不依赖模型必须发出 `external_observation_policy=exclude`。新增生产形 pin 覆盖
+“显式路径已被 run-entry 解析为 trace preflight、policy 缺席、无 typed current-source obligation”：
+`analyzerGraphForNormalize` 必须返回 nil，且不得向 Mutable 发布 SearchGraph。这样既避免旧版静默索引，
+也不从用户的“不分析代码”原文做关键词硬路由、不新增 JSON 必填字段或 analyzer 重试；若模型明确发出
+current-source dimension/profile/allow，既有 typed 决策仍会重新打开源码 lane。
+
+`RL-07` 暂不以未校准的缓存改动冒险：当前已有 immutable admission cache、稀疏时间/行锚和 warm full-index
+派生，windowed index 刻意不常驻；客户日志来自 R3 之前，每个 span 请求还必先支付一次会失败的对称
+`±500ms` 构建。R3 已消除“尾端随前端一起缩短”的证据损失，但会保留最多 500ms 尾查。下一次同文件、
+同机器回放必须分别记录默认尝试、非对称 retry、anchor seek、parse/materialize/audit 时间后再决定 endpoint
+continuation 或 dense-region memo；在此之前不调大内存、不缓存任意窗、不跳过全文/端点校验。该项状态为
+`performance-calibration=pending-post-R3-production-replay`，不是以速度为由降级答案。
+
+R4 专项验证：`go test ./internal/agent -run TestAnalyzerGraphForNormalize`、`go build ./...`。
+
+最终状态：`RL-06=current-HEAD-covered+explicit-path-preflight-pin`；
+`RL-07=correctness-preserved/pending-post-R3-production-replay`；
+`json-teaching=no-new-contract`；`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`；Trace 显式窗、自动补采、因果投影与链上-only 根因权限不变。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

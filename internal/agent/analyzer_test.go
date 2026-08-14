@@ -203,6 +203,41 @@ func TestAnalyzerGraphForNormalize_SkipsEagerLoadForRuntimeArtifactOptionalSourc
 	}
 }
 
+func TestAnalyzerGraphForNormalize_SkipsEagerLoadForResolvedRuntimeArtifactPathWithoutPolicy(t *testing.T) {
+	repo := t.TempDir()
+	writeAnalyzerGraphFixture(t, repo)
+	ctx := &types.AgentContext{
+		Stage:    types.StageAnalyze,
+		RepoRoot: repo,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Active:                   true,
+			SourceNavigationOptional: true,
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind:    "trace",
+				Source:  "/customer/donghu.ftrace",
+				Carrier: "explicit_path",
+			}},
+		}),
+		Mutable: types.NewMutableState("analyze the resolved trace path"),
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Widget"},
+		},
+		// Deliberately omit ExternalObservationPolicy. A resolved, typed
+		// runtime-artifact preflight is sufficient to defer optional source
+		// navigation; omission must not silently trigger eager repo indexing.
+	}
+	if got := analyzerGraphForNormalize(ctx, rm); got != nil {
+		t.Fatalf("resolved runtime-artifact path without a source obligation should not eager-load analyzer source graph, got %+v", got.Metadata)
+	}
+	if ctx.Mutable.SearchGraph() != nil {
+		t.Fatal("resolved runtime-artifact path must not publish a search graph during analyze post-processing")
+	}
+}
+
 func TestAnalyzerGraphForNormalize_SourceTurnStillLoadsGraph(t *testing.T) {
 	repo := t.TempDir()
 	writeAnalyzerGraphFixture(t, repo)
