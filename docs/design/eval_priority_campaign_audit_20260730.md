@@ -36461,6 +36461,65 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.809 r489 + 客户 REPL 复核：写模式正确闭环；raw-prose 降级补回确定性 Trace 板块（2026-08-14）
+
+1. 在 `main@94f04a688` 重建后严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + github_issue_memoclaw_text_search_multirepo_py`。Runner `2 PASS / 2`；
+   人工 write pass、read partial。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_diagram_write_r489_20260814_manual_audit.md`。
+2. Python write 正确闭环：API reference 仅作只读权威；sync/async 两个 `text_search` 同时从
+   `GET /v1/memories/search?...` 改为 `POST /v1/search` + JSON body，删除 `urlencode`，没有修改
+   API reference 或弱化测试。项目检查与目标行为探针共 2 项通过，最终 typed 状态为
+   `complete/verified/all_batches_verified`。proof ledger 仍保留一条历史
+   `source_localization_missing_path` 摘要，但最终 localization=`supported`、support_ratio=1、changed path
+   covered；先记内部历史诊断噪声观察，不据此否定真实交付。
+3. Read 最终保留合法 sequenceDiagram、四阶段表、九条 typed recipe 与可核查引用。两次成文拒绝分别是
+   模型首稿自造 data-flow/precedence/reply 方向、第二稿把 `-->>` 用于 data_flow；第三稿按相同 typed
+   recipe 收敛，未发现 validator 同时要求/拒绝同一关系的合同互斥。人工仍为 partial：正文把实际会被
+   Orchestrator 写入字段的 `BusContext` 简化成“只读上下文容器”，也把 DAG 后续说成简单串行；这是模型
+   架构概括不精确，不授权系统改答案或按终稿词面加硬门。
+4. 同批完成 `/Users/han/opt/customlogs/repl_log.txt` 与 `repl_log2.txt` 复核。客户运行
+   `v0.1.20260813`，总计 54m8s、33 次工具、40 轮 LLM；探索/校验已经拿到指定 trace marker、typed
+   target waits、root-cause rank 与 wakeup-chain 事实，模型中间稿也复述过链上排名。Finalizer 前两轮却
+   没有工具调用，第三轮 isolated prose 错称“未提供 systrace”，把 selector `8002384` 当约 8 秒，最后
+   走纯 raw-prose 降级；这是 §123.796 的生产 witness，不是 trace 数据缺失。
+5. 该客户版生成在同日 `B779-RUNTIMEFALLBACKEVIDENCE1` 与 span endpoint/opaque selector 边界修复之前；
+   当前主线已让 isolated prose、空响应与 raw-prose 都看见 accepted ObservationLedger facts，并明确
+   B/S 单端不授权 duration、数字 selector 不授权时间、宽窗/背景不能借给未闭合目标 span。因此“没有
+   trace”和“8002384=8秒”两项需客户更新版本后再回放，不能把旧二进制输出判为当前主线仍失败。
+6. 冷读当前主线仍发现 `B800-RAWDETERMINISTIC1/P0`：retry-state 与 text-recovery 降级已调用
+   `MaterializeDeterministicAnswerSectionsForDegradedDoc`，但最后的纯 raw-prose 车道只追加最多 8 条 fact
+   rows。即使模型正文被保留，Trace 因果投影、主要时间占用/关键路径、窗内可消除量、确定性优化点、
+   指标快照、行动项与 Trace 关键事实仍会整体消失；这正是客户最终页只剩泛化散文的剩余系统 gap。
+7. 根修复用唯一 deterministic materializer：在隔离临时 `AnswerDocumentV2` 上构造系统板块，删除仅用于
+   承载的临时 anchor，再把渲染结果作为“系统确定性证据附录（不替代模型结论）”追加到模型正文之后。
+   模型散文保持一次且位于最前；系统不改写、删除或替换模型判断，也不从用户/模型/终稿原文决定板块。
+   无适用 runtime typed section 时继续走 B779 的跨域 compact facts；有板块时 compact fact rows 也保留，
+   防 materializer 的报告面遮掉单条 accepted producer fact。空模型车道同样得到板块但仍明确降级。
+8. 正向 pin 证明纯 raw 模型正文之后同时保留完整 `Trace 因果投影`、`Trace 关键事实` 和 accepted
+   `Choreographer#doFrame 8002384` row，模型正文只出现一次且位于系统附录之前；临时 anchor 零泄漏。
+   英文等价披露与无 runtime 负形也已覆盖。专项 `internal/agent`、`internal/tool` 均通过；完整仓测试在
+   本批提交前执行。
+9. 流式分型没有变化。日志里的长请求持续有 transport bytes，heartbeat 明确显示静态 3m/4m 上限由
+   字节活性顺延；这只说明 provider 长延迟/UX 成本，不能以 4ms、4m 或固定总年龄切断并降级。结束权仍只
+   属于 caller cancel/deadline、无首字节、byte-stall、transport/decode failure；一次 25m47s 的
+   Ctrl+C 是用户取消，不是系统自动降级证据。
+10. Trace 权限不变：显式窗本身不强制全报告，但 causal-diagnosis/根因请求的 typed 投影必须在；主因只能
+    来自 typed on-chain rows，邻近/背景只能 support-only。优先级反转、调度供给、算力供给、D/IO、
+    类校验/JIT/着色器/运行时编译/纹理上传/GC 等确定性工作、业务线索，以及“实际占用/新修向”和“规则
+    可消除量”双轴均由原 materializer 保留；系统仍不铸模型结论。
+
+状态：
+
+`r489 machine=2/2; human=write-pass/read-partial`；
+`B800-RAWDETERMINISTIC1=implemented/model-prose-first+deterministic-appendix+pinned`；
+`B779-RUNTIMEFALLBACKEVIDENCE1=production-witness-in-old-client/current-main-covered`；
+`B780-EXACTSPANWINDOWAUTHORITY1=pending-updated-client-replay`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

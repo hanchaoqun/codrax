@@ -16290,6 +16290,15 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if safeFallback == "" {
 		safeFallback = strings.TrimSpace(lastContent)
 	}
+	// B800-RAWDETERMINISTIC1: the retry-state and text-recovery lanes above
+	// already run the deterministic export chain, but the final raw-prose lane
+	// used to append only a short fact list. That made the Trace causal
+	// projection, observation board, metric snapshot, and other typed runtime
+	// sections disappear precisely when final answer_document emission failed.
+	// Build those sections in an isolated temporary document and append their
+	// rendering after the model prose. The model carrier stays first and is never
+	// rewritten; this is a labelled system evidence appendix, not a conclusion.
+	deterministicAppendix := e.answerDocumentRawFallbackDeterministicAppendix(ctx)
 	combined := warning
 	if ctx != nil && ctx.Mutable != nil {
 		caveat := render.SynthesiseAuthorityCaveatFor(answerDocumentAuthorityEvidencePool(ctx), e.language)
@@ -16301,12 +16310,13 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if safeFallback != "" {
 		combined = combined + "\n\n" + safeFallback
 	}
-	// B779-RUNTIMEFALLBACKEVIDENCE1: a non-empty model prose fallback is
-	// preserved byte-for-byte, but it must no longer make the already accepted
-	// runtime/VCS/document facts disappear. Append the same typed, scope-filtered
-	// ledger projection that feeds the ordinary finalizer prompt. This is an
-	// evidence appendix, not a system-authored conclusion, and it is omitted when
-	// answerDocumentEmptyModelEvidenceFallback already rendered the same rows.
+	// B779-RUNTIMEFALLBACKEVIDENCE1: retain the compact cross-domain fact
+	// appendix for runtime/VCS/document producers even when deterministic report
+	// sections apply; those sections do not promise to enumerate every accepted
+	// row. Both appendices remain separate from the model-authored conclusion.
+	if deterministicAppendix != "" {
+		combined = combined + "\n\n" + deterministicAppendix
+	}
 	if !evidenceOnlyFallback {
 		if facts := answerDocumentCollectedFactsAppendix(ctx, e.language, 8, 260); facts != "" {
 			combined = combined + "\n\n" + facts
@@ -16322,6 +16332,50 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		len(lastContent))
 	markAnswerDocumentDegradedFallback(out, combined, "answer_document_missing")
 	return out, nil
+}
+
+const answerDocumentRawFallbackAnchorBlockID = "raw_fallback_deterministic_anchor"
+
+// answerDocumentRawFallbackDeterministicAppendix renders only the deterministic
+// sections produced from accepted typed runtime records. The temporary anchor
+// gives materializers a valid document carrier and is removed before rendering,
+// so no system-authored summary or conclusion can replace the raw model prose.
+func (e *answerDocumentEvaluator) answerDocumentRawFallbackDeterministicAppendix(ctx *types.AgentContext) string {
+	bus := types.ToolBusContext(ctx, types.AgentFinalizer)
+	if bus == nil {
+		return ""
+	}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   answerDocumentRawFallbackAnchorBlockID,
+			Kind: types.BlockSummary,
+		}},
+	}
+	produced := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(bus, doc)
+	if len(produced) == 0 {
+		return ""
+	}
+	doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, produced))
+	blocks := doc.Blocks[:0]
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) == answerDocumentRawFallbackAnchorBlockID {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	doc.Blocks = blocks
+	render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
+	appendix := strings.TrimSpace(render.RenderAnswerDocumentWithAttachments(doc, nil, e.language))
+	if appendix == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(e.language)), "en") {
+		return "**Deterministic system evidence appendix (does not replace the model conclusion)**\n\n" +
+			"The sections below are derived only from accepted typed runtime records. They preserve system supplements that remain available even though structured answer rendering failed.\n\n" + appendix
+	}
+	return "**系统确定性证据附录（不替代模型结论）**\n\n" +
+		"以下板块只由已接受的结构化运行时记录构造；即使结构化成文失败，系统仍保留这些本可正常补齐的证据板块。\n\n" + appendix
 }
 
 func answerDocumentModelSurfaceDraftFallback(ctx *types.AgentContext, lang string) string {

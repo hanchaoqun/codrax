@@ -39,8 +39,46 @@ func runtimeFallbackEvidenceContext() *types.AgentContext {
 			ClaimKey:  "trace_mark_found:Choreographer#doFrame 8002384",
 			Value:     "32136.468701s",
 			Summary:   "exact trace marker found in the attached artifact",
+		}, {
+			ID:              "trace_query:root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         "/tmp/donghu.systrace",
+				ArtifactID:   "donghu-trace",
+				ArtifactKind: "trace",
+			},
+			Span:      types.ObservationSpan{LineStart: 40, LineEnd: 44},
+			Subject:   "RenderThread-1",
+			Predicate: "root_cause_primary",
+			Object:    "runnable",
+			ClaimKey:  "root_cause_primary",
+			Value:     "5.000",
+			Unit:      "ms",
+			RichNotes: []string{
+				"rank=1",
+				"tier=primary",
+				"impact_ms=5.000",
+				"cumulative_impact_ms=5.000",
+				"effective_impact_ms=5.000",
+				"chain_relevance=on_chain",
+				"causality=on_wakeup_chain",
+				"chain_depth=1",
+				"dominant_state=runnable",
+			},
+			Confidence: 0.9,
 		}},
 	}}})
+	mut.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Kind:    "time_semantics",
+			Summary: "trace clock is boottime",
+		}},
+	})
 	return &types.AgentContext{
 		AgentName: types.AgentFinalizer,
 		Stage:     types.StageFinalize,
@@ -105,9 +143,10 @@ func TestAnswerDocumentRawModelFallbackPreservesProseAndAppendsTypedRuntimeFacts
 	}
 	for _, want := range []string{
 		prose,
-		"与上方降级模型正文分列",
+		"系统确定性证据附录（不替代模型结论）",
+		"Trace 因果投影",
+		"Trace 关键事实",
 		"origin=runtime_artifact",
-		"不是系统代写的结论",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("raw runtime fallback lost %q:\n%s", want, out.FinalAnswer)
@@ -115,6 +154,12 @@ func TestAnswerDocumentRawModelFallbackPreservesProseAndAppendsTypedRuntimeFacts
 	}
 	if strings.Count(out.FinalAnswer, prose) != 1 {
 		t.Fatalf("model prose must be preserved exactly once:\n%s", out.FinalAnswer)
+	}
+	if strings.Index(out.FinalAnswer, prose) > strings.Index(out.FinalAnswer, "系统确定性证据附录") {
+		t.Fatalf("model prose must remain before the system appendix:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, answerDocumentRawFallbackAnchorBlockID) {
+		t.Fatalf("temporary materializer anchor leaked to the user surface:\n%s", out.FinalAnswer)
 	}
 }
 
@@ -127,12 +172,54 @@ func TestAnswerDocumentRuntimeFallbackEvidenceEnglishParity(t *testing.T) {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
 	for _, want := range []string{
-		"Collected verified facts",
+		"Deterministic system evidence appendix (does not replace the model conclusion)",
+		"trace clock is boottime",
 		"origin=runtime_artifact",
-		"not a system-authored conclusion",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("English runtime fallback lost %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+}
+
+func TestAnswerDocumentEmptyRuntimeFallbackPrefersDeterministicSectionsOverShortFactList(t *testing.T) {
+	out, err := (&answerDocumentEvaluator{language: "zh"}).ParseOutput(
+		runtimeFallbackEvidenceContext(), []llm.Message{{Role: "assistant"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统确定性证据附录（不替代模型结论）",
+		"Trace 因果投影",
+		"Trace 关键事实",
+		"Choreographer#doFrame 8002384",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("empty runtime fallback lost deterministic section %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Count(out.FinalAnswer, "Choreographer#doFrame 8002384") != 1 {
+		t.Fatalf("accepted fact must remain visible exactly once beside the deterministic appendix:\n%s", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentRawFallbackWithoutRuntimeFactsKeepsCompactFactLane(t *testing.T) {
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Language:  "zh",
+		Mutable:   types.NewMutableState("ordinary fallback"),
+	}
+	const prose = "模型原始正文。"
+	out, err := (&answerDocumentEvaluator{language: "zh"}).ParseOutput(
+		ctx, []llm.Message{{Role: "assistant", Content: prose}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, prose) {
+		t.Fatalf("ordinary fallback lost model prose:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "系统确定性证据附录") {
+		t.Fatalf("non-runtime fallback must not invent a deterministic runtime appendix:\n%s", out.FinalAnswer)
 	}
 }
