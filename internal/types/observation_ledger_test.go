@@ -431,9 +431,14 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	threadLoad := findObservationRecord(t, ledger, "tool:0#trace_query:thread_cpu_load:1")
 	if threadLoad.Predicate != "thread_cpu_load" ||
 		threadLoad.Subject != "rival-30" ||
+		threadLoad.Object != TraceThreadCPULoadValueObject ||
 		threadLoad.Value != "7.000" ||
+		!strings.Contains(threadLoad.Summary, "running_scope=full_window_all_cpu") ||
+		!strings.Contains(threadLoad.Summary, "runnable_scope=full_window_off_cpu_wait") ||
+		!strings.Contains(threadLoad.Summary, "value_scope=running_plus_runnable_state_time_not_cpu_occupancy") ||
 		!strings.Contains(threadLoad.Summary, "cpu_scope=dominant_state_slice_representative_not_exclusive") ||
-		!observationLedgerTestContainsString(threadLoad.RichNotes, "core_class=small") {
+		!observationLedgerTestContainsString(threadLoad.RichNotes, "core_class=small") ||
+		!observationLedgerTestContainsString(threadLoad.RichNotes, "runnable_scope=full_window_off_cpu_wait") {
 		t.Fatalf("trace_query thread_cpu_load should survive as runtime observation: %+v", threadLoad)
 	}
 	constraint := findObservationRecord(t, ledger, "tool:0#trace_query:cpu_constraint:1")

@@ -2431,13 +2431,30 @@ type CPUConstraintSummary struct {
 	Summary                  string               `json:"summary,omitempty"`
 }
 
+// Thread CPU-load scope tokens are stable machine-readable calibers. The
+// running/runnable values are full-window thread-state accounts, while CPU is
+// only the representative CPU of the largest single state slice. In
+// particular, runnable is off-CPU wait and the combined value is not CPU
+// occupancy.
+const (
+	ThreadCPULoadRunningScope  = types.TraceThreadCPULoadRunningScope
+	ThreadCPULoadRunnableScope = types.TraceThreadCPULoadRunnableScope
+	ThreadCPULoadCPUScope      = types.TraceThreadCPULoadCPUScope
+	ThreadCPULoadValueScope    = types.TraceThreadCPULoadValueScope
+	ThreadCPULoadValueObject   = types.TraceThreadCPULoadValueObject
+)
+
 type ThreadCPULoadSummary struct {
 	Thread                  ThreadRef `json:"thread"`
 	RunningMs               float64   `json:"running_ms,omitempty"`
+	RunningScope            string    `json:"running_scope,omitempty"`
 	RunnableWaitMs          float64   `json:"runnable_wait_ms,omitempty"`
+	RunnableScope           string    `json:"runnable_scope,omitempty"`
+	ValueScope              string    `json:"value_scope,omitempty"`
 	HighPriorityRunningMs   float64   `json:"high_priority_running_ms,omitempty"`
 	SystemOrKernelRunningMs float64   `json:"system_or_kernel_running_ms,omitempty"`
 	CPU                     int       `json:"cpu"`
+	CPUScope                string    `json:"cpu_scope,omitempty"`
 	CoreClass               string    `json:"core_class,omitempty"`
 	Frequency               int64     `json:"frequency,omitempty"`
 	Priority                int       `json:"priority,omitempty"`

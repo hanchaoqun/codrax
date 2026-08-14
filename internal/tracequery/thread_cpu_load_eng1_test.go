@@ -49,4 +49,10 @@ func TestENG1ThreadCPULoadFullWindowRunningTotalDonghu(t *testing.T) {
 	if math.Abs(load.RunnableWaitMs-5.604) > 0.05 {
 		t.Fatalf("runnable total must be the full-window sum 5.604ms, got %.3f (1.193 = the pre-ENG-1 top-slice partial)", load.RunnableWaitMs)
 	}
+	if load.RunningScope != ThreadCPULoadRunningScope ||
+		load.RunnableScope != ThreadCPULoadRunnableScope ||
+		load.ValueScope != ThreadCPULoadValueScope ||
+		load.CPUScope != ThreadCPULoadCPUScope {
+		t.Fatalf("thread CPU-load JSON product must carry its value/CPU calibers: %+v", load)
+	}
 }

@@ -116,6 +116,14 @@ const (
 	TraceNoteKeyCPUOccupancyTopThreadMS = "top_thread_ms"
 	TraceNoteKeyCPUOccupancyCPUs        = "cpus"
 	TraceNoteKeyCPUOccupancyCoreClasses = "core_classes"
+	// TraceNoteKeyThreadCPULoad* (B764, 2026-08-13) separates the full-window
+	// thread-state values from the representative-CPU display dimension.
+	// These are soft caliber disclosures only; they never elect a causal seat
+	// or rewrite an answer.
+	TraceNoteKeyThreadCPULoadRunningScope  = "running_scope"
+	TraceNoteKeyThreadCPULoadRunnableScope = "runnable_scope"
+	TraceNoteKeyThreadCPULoadValueScope    = "value_scope"
+	TraceNoteKeyThreadCPULoadCPUScope      = "cpu_scope"
 )
 
 // 因果排名族 (causal-rank family).
@@ -2109,6 +2117,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyCPUOccupancyThreadCount, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"process", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"cpu", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyThreadCPULoadRunningScope, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyThreadCPULoadRunnableScope, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyThreadCPULoadValueScope, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyThreadCPULoadCPUScope, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCPUOccupancyCPUs, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"core_class", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyCPUOccupancyCoreClasses, "cpu_load", TraceNoteCarrierHardConsumer},

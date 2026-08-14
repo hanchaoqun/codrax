@@ -4916,6 +4916,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				pressure.SystemOrKernelRunningMs, pressure.SystemOrKernelRunningOverlapMs, pressure.SystemOrKernelCompetitorCount,
 				pressure.RunnableEvents, traceOverlapCompetitorsDetail(pressure.OverlapCompetitors))
 		}
+		if len(result.WindowStats.ThreadCPULoad) > 0 {
+			writeTraceThreadCPULoadCaliber(&b)
+		}
 		for _, load := range result.WindowStats.ThreadCPULoad {
 			writeTraceThreadCPULoad(&b, load)
 		}
@@ -6384,13 +6387,14 @@ func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary)
 }
 
 func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSummary) {
-	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%s cpu_scope=dominant_state_slice_representative_not_exclusive core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%s cpu_scope=%s core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		item.RunningMs,
 		item.RunnableWaitMs,
 		item.HighPriorityRunningMs,
 		item.SystemOrKernelRunningMs,
 		traceCPUOrUnknown(item.CPU),
+		traceThreadCPULoadCPUScope(item),
 		sanitizeForBanner(item.CoreClass),
 		item.Frequency,
 		item.Priority,
@@ -6398,6 +6402,15 @@ func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSu
 		item.LineStart,
 		item.LineEnd,
 		sanitizeForBanner(item.Summary),
+	)
+}
+
+func writeTraceThreadCPULoadCaliber(b *strings.Builder) {
+	fmt.Fprintf(b, "- thread_cpu_load_caliber running_scope=%s runnable_scope=%s value_scope=%s cpu_scope=%s\n",
+		tracequery.ThreadCPULoadRunningScope,
+		tracequery.ThreadCPULoadRunnableScope,
+		tracequery.ThreadCPULoadValueScope,
+		tracequery.ThreadCPULoadCPUScope,
 	)
 }
 
@@ -12481,17 +12494,21 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			ClaimKey:        "thread_cpu_load:" + traceThreadLabel(load.Thread),
 			Subject:         traceThreadLabel(load.Thread),
 			Predicate:       "thread_cpu_load",
-			Object:          "cpu=" + cpuValue,
+			Object:          tracequery.ThreadCPULoadValueObject,
 			Value:           traceQueryObservationMSValue(total),
 			Unit:            "ms",
 			Summary:         traceQueryTypedThreadCPULoadSummary(load),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{"thread", traceThreadLabel(load.Thread)},
 				{types.TraceNoteKeyRunning, traceQueryObservationMSValue(load.RunningMs)},
+				{types.TraceNoteKeyThreadCPULoadRunningScope, traceThreadCPULoadRunningScope(load)},
 				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(load.RunnableWaitMs)},
+				{types.TraceNoteKeyThreadCPULoadRunnableScope, traceThreadCPULoadRunnableScope(load)},
 				{"high_prio_running", traceQueryObservationMSValue(load.HighPriorityRunningMs)},
 				{"system_or_kernel_running", traceQueryObservationMSValue(load.SystemOrKernelRunningMs)},
+				{types.TraceNoteKeyThreadCPULoadValueScope, traceThreadCPULoadValueScope(load)},
 				{"cpu", cpuValue},
+				{types.TraceNoteKeyThreadCPULoadCPUScope, traceThreadCPULoadCPUScope(load)},
 				{"core_class", load.CoreClass},
 				{"freq", traceQueryTypedInt64(load.Frequency)},
 				{"priority", traceQueryPriorityPair(load.Priority, load.PriorityClass)},
@@ -14188,11 +14205,14 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 	for _, kv := range [][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
+		{types.TraceNoteKeyThreadCPULoadRunningScope, traceThreadCPULoadRunningScope(item)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{types.TraceNoteKeyThreadCPULoadRunnableScope, traceThreadCPULoadRunnableScope(item)},
 		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
+		{types.TraceNoteKeyThreadCPULoadValueScope, traceThreadCPULoadValueScope(item)},
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
-		{"cpu_scope", "dominant_state_slice_representative_not_exclusive"},
+		{types.TraceNoteKeyThreadCPULoadCPUScope, traceThreadCPULoadCPUScope(item)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},
@@ -14202,6 +14222,22 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func traceThreadCPULoadRunningScope(item tracequery.ThreadCPULoadSummary) string {
+	return firstNonEmptyTraceString(item.RunningScope, tracequery.ThreadCPULoadRunningScope)
+}
+
+func traceThreadCPULoadRunnableScope(item tracequery.ThreadCPULoadSummary) string {
+	return firstNonEmptyTraceString(item.RunnableScope, tracequery.ThreadCPULoadRunnableScope)
+}
+
+func traceThreadCPULoadValueScope(item tracequery.ThreadCPULoadSummary) string {
+	return firstNonEmptyTraceString(item.ValueScope, tracequery.ThreadCPULoadValueScope)
+}
+
+func traceThreadCPULoadCPUScope(item tracequery.ThreadCPULoadSummary) string {
+	return firstNonEmptyTraceString(item.CPUScope, tracequery.ThreadCPULoadCPUScope)
 }
 
 func traceQueryTypedCPUConstraintSummary(item tracequery.CPUConstraintSummary) string {

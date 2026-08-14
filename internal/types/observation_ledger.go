@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// Trace thread CPU-load calibers live in the evidence layer so both the
+// typed trace_query path and the legacy text fallback use one vocabulary.
+const (
+	TraceThreadCPULoadRunningScope  = "full_window_all_cpu"
+	TraceThreadCPULoadRunnableScope = "full_window_off_cpu_wait"
+	TraceThreadCPULoadCPUScope      = "dominant_state_slice_representative_not_exclusive"
+	TraceThreadCPULoadValueScope    = "running_plus_runnable_state_time_not_cpu_occupancy"
+	TraceThreadCPULoadValueObject   = "running_plus_runnable_state_time"
+)
+
 // ObservationSourceKind names the physical namespace of an observation's source
 // reference. It is intentionally finer than AnswerEvidenceOrigin: an MCP
 // resource and a connector response may both be external-resource evidence, but
@@ -2881,6 +2891,19 @@ func observationRichNoteHasKey(notes []string, key string) bool {
 
 func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
 	fields, summary := traceQuerySummaryLineFields(line, "- thread_cpu_load ")
+	// Older trace_query banners predate the explicit caliber keys, but their
+	// underlying values already had these semantics. Backfill the typed
+	// fallback instead of reviving the old cpu=value misbinding.
+	for key, value := range map[string]string{
+		TraceNoteKeyThreadCPULoadRunningScope:  TraceThreadCPULoadRunningScope,
+		TraceNoteKeyThreadCPULoadRunnableScope: TraceThreadCPULoadRunnableScope,
+		TraceNoteKeyThreadCPULoadValueScope:    TraceThreadCPULoadValueScope,
+		TraceNoteKeyThreadCPULoadCPUScope:      TraceThreadCPULoadCPUScope,
+	} {
+		if strings.TrimSpace(fields[key]) == "" {
+			fields[key] = value
+		}
+	}
 	thread := strings.TrimSpace(fields["thread"])
 	running := traceQueryFieldMS(fields, "running")
 	runnable := traceQueryFieldMS(fields, "runnable")
@@ -2905,14 +2928,19 @@ func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref Observat
 		ClaimKey:        "thread_cpu_load:" + thread,
 		Subject:         thread,
 		Predicate:       "thread_cpu_load",
-		Object:          strings.TrimSpace(fields["cpu"]),
+		Object:          TraceThreadCPULoadValueObject,
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("thread_cpu_load", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "system_or_kernel_running", "cpu", "core_class", "freq", "prio"}),
-		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
-		ObservedAt:      observedAt,
-		Confidence:      0.72,
+		RichNotes: traceQuerySelectedRichNotes(fields, []string{
+			"thread", TraceNoteKeyRunning, TraceNoteKeyThreadCPULoadRunningScope,
+			TraceNoteKeyRunnable, TraceNoteKeyThreadCPULoadRunnableScope,
+			"high_prio_running", "system_or_kernel_running", TraceNoteKeyThreadCPULoadValueScope,
+			"cpu", TraceNoteKeyThreadCPULoadCPUScope, "core_class", "freq", "prio",
+		}),
+		SupportRefs: traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:  observedAt,
+		Confidence:  0.72,
 	}, true
 }
 
@@ -3027,7 +3055,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 
 func traceQueryLoadSummaryFromFields(label string, fields map[string]string, fallback string) string {
 	parts := []string{label}
-	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", "cpu", "cpu_scope", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
+	keys := []string{"thread", "process", "running", TraceNoteKeyThreadCPULoadRunningScope, "runnable", TraceNoteKeyThreadCPULoadRunnableScope, "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", TraceNoteKeyThreadCPULoadValueScope, "cpu", TraceNoteKeyThreadCPULoadCPUScope, "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
 	for _, key := range keys {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			parts = append(parts, key+"="+value)

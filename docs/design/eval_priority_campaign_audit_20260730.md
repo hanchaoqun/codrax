@@ -35994,6 +35994,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.784 B764：thread_cpu_load 全窗状态值被误绑到代表 CPU（2026-08-13）
+
+1. 对 r468 继续冷读确认：`computeThreadCPULoad` 的 `running` 来自全窗、跨全部 CPU 的目标线程
+   running census；`runnable` 来自同一全窗的 off-CPU runnable wait census；字段 `CPU` 只取该线程
+   running/runnable 中最大单段的 CPU。此前 typed ObservationRecord 却发布
+   `Object=cpu=12, Value=running+runnable`，把两个全窗状态值硬绑到代表核。模型写出“CPU12 有效占用
+   162.852ms”有直接系统诱因，不是单纯模型波动。
+2. 根修把三个维度拆为稳定 typed caliber：
+   `running_scope=full_window_all_cpu`、
+   `runnable_scope=full_window_off_cpu_wait`、
+   `value_scope=running_plus_runnable_state_time_not_cpu_occupancy`；代表核独立为
+   `cpu_scope=dominant_state_slice_representative_not_exclusive`。ObservationRecord 的 Object 改为
+   `running_plus_runnable_state_time`，不再是 `cpu=N`；Value 数值保持兼容，只表示运行态+就绪态状态时间，
+   不表示 CPU occupancy。
+3. 四个 scope 同时进入生产 `ThreadCPULoadSummary` JSON、typed summary、RichNotes 与共享文本 caliber
+   行。文本面采用“一条共享 caliber + 每行保留代表 CPU scope”，避免在每条线程行重复长 token 导致
+   后续 process-domain census 被摘要宽度截断。旧 trace_query 文本回读会补齐同一 scope，并把旧
+   `Object=cpu` 修正为状态时间对象，不能从 legacy lane 复活错误绑定。
+4. Finalizer 仅收到软教学：running 是跨核全窗目标运行时间；runnable 是离 CPU 排队等待，禁止把两者
+   相加命名为 CPU 占用；逐核归属必须读取目标自有 `top_running`/scheduler bucket。prose scalar 的旧
+   “单核线程时间”标签同步改为“全窗线程 running+runnable 状态时间”。未新增 request/model/final
+   prose 扫描、拒绝门、答案改写或系统结论。
+5. 回归覆盖 JSON 产品 scope、typed Object/Value、typed/text caliber、legacy 缺字段回填、rich-note
+   registry/golden、软教学与跨口径算术披露；同时钉住宽摘要下 process-domain census 不回退。完整
+   `internal/types`、`internal/tracequery`、`internal/tool`、`internal/agent`、
+   `internal/orchestrator` 套件及 `go build ./...` 全绿。
+6. 本批不改变数值计算、根因排序、链上席位、显式时间窗、Trace 因果投影、自动补齐、业务线索或
+   实际耗时/规则可消除量双轴；活跃字节流仍不得按 4ms 累计年龄降级。
+
+状态：
+
+`B764-THREADCPUSTATECALIBER1=implemented/json+typed+legacy+soft-guidance+pinned/pending-r469`；
+`B765-WRITETERMINALAUTHORITYBYPASS1=implemented/typed-terminal-seams+pinned/pending-r469`；
+`thread_cpu_load Object=running_plus_runnable_state_time/not-cpu`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

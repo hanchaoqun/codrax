@@ -7195,7 +7195,13 @@ func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDu
 		key := threadKey(thread)
 		acc := accs[key]
 		if acc == nil {
-			acc = &threadLoadAcc{item: ThreadCPULoadSummary{Thread: thread}}
+			acc = &threadLoadAcc{item: ThreadCPULoadSummary{
+				Thread:        thread,
+				RunningScope:  ThreadCPULoadRunningScope,
+				RunnableScope: ThreadCPULoadRunnableScope,
+				ValueScope:    ThreadCPULoadValueScope,
+				CPUScope:      ThreadCPULoadCPUScope,
+			}}
 			accs[key] = acc
 		}
 		if acc.item.Thread.Comm == "" && thread.Comm != "" {

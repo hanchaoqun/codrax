@@ -5,7 +5,7 @@ package orchestrator
 //
 // Witness (SMR-1 冷读 F-0 排查, donghu 40422): prose "CPU 占用 132.041ms 来自
 // window_stats 聚合" — 132.041 = 96.081 (cpu·ms occupancy caliber) + 35.960
-// (per-CPU thread_cpu_load caliber), a model-side cross-caliber stitch no
+// (full-window thread-state caliber), a model-side cross-caliber stitch no
 // single engine caliber publishes. The self-sum arm already grounded and
 // disclosed it as 自行加和; 臂5 upgrades the disclosure to name the caliber
 // stitch when both verified sides are typed-determinate and different.
@@ -47,7 +47,7 @@ func TestCR4Arm5_CrossCaliberSumDisclosure(t *testing.T) {
 	if !strings.Contains(hit, "未在证据面单独发布") || !strings.Contains(hit, "两侧口径不同，不可直接相加") {
 		t.Fatalf("the disclosure must state the cross-caliber stitch as facts: %s", hit)
 	}
-	if !strings.Contains(hit, "96.081[cpu·ms 跨核占用]") || !strings.Contains(hit, "35.960[单核线程时间 ms]") {
+	if !strings.Contains(hit, "96.081[cpu·ms 跨核占用]") || !strings.Contains(hit, "35.960[全窗线程 running+runnable 状态时间 ms]") {
 		t.Fatalf("the disclosure must label both calibers: %s", hit)
 	}
 }

@@ -369,9 +369,9 @@ func proseScalarCaliberLabel(caliber string, zh bool) string {
 		return "cpu·ms occupancy"
 	case proseScalarCaliberThreadCPULoad:
 		if zh {
-			return "单核线程时间 ms"
+			return "全窗线程 running+runnable 状态时间 ms"
 		}
-		return "per-CPU thread time ms"
+		return "full-window thread running+runnable state time ms"
 	case proseScalarCaliberCountEquiv:
 		if zh {
 			return "计数当量"
@@ -1405,7 +1405,7 @@ func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvid
 			suffixZH = "（" + strings.Join(qualsZH, "/") + "）"
 		}
 		// CR-4 臂5 (2026-07-12; 132.041 witness = 96.081 cpu·ms occupancy +
-		// 35.960 per-CPU thread time): when the two verified sides carry
+		// 35.960 full-window thread-state time): when the two verified sides carry
 		// DIFFERENT determinate calibers, the disclosure states the
 		// cross-caliber stitch explicitly — different calibers never add
 		// directly. Both sides must be typed-determinate (unanimous carrier

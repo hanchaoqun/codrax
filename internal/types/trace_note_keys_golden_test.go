@@ -176,6 +176,7 @@ var traceNoteKeyGoldenRows = []string{
 	"cpu_constraint_policy|state|hard_consumer",
 	"cpu_count|compute_supply|display_only",
 	"cpu_relation|chain_path|soft_consumer",
+	"cpu_scope|cpu_load|soft_consumer",
 	"cpus|cpu_load|hard_consumer",
 	"cpuset|cpu_load|display_only",
 	// AXIOM-V2 件2/件3 (2026-07-18): the cross-direction overlap pair roster
@@ -515,7 +516,9 @@ var traceNoteKeyGoldenRows = []string{
 	// preemption disclosure on self runnable rank rows — new hard-consumer key.
 	"runnable_below_rt_preempted|state|hard_consumer",
 	"runnable_cpu|guidance|display_only",
+	"runnable_scope|cpu_load|soft_consumer",
 	"running|state|hard_consumer",
+	"running_scope|cpu_load|soft_consumer",
 	"runtime|sched_accounting|display_only",
 	"same_cpu_busy|cpu_load|display_only",
 	"same_cpu_idle|cpu_load|display_only",
@@ -658,6 +661,7 @@ var traceNoteKeyGoldenRows = []string{
 	"unpaired_done|io|display_only",
 	"unpaired_start|io|display_only",
 	"value|plugin|display_only",
+	"value_scope|cpu_load|soft_consumer",
 	"vector|interrupt|display_only",
 	"verdict|cpu_load|display_only",
 	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): per-generator vsync/frame-pacing
