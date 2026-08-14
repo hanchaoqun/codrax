@@ -2455,12 +2455,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				}
 			}
 		}
-		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry)
+		streamActivity := &llmStreamActivityTracker{}
+		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry, streamActivity)
 		resp, err := b.deps.LLM.Chat(requestCtx, requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:       toolChoice,
 			OnContentDelta:   streamBuf.onDelta,
 			OnReasoningDelta: streamBuf.onDelta,
 			OnToolCallDelta:  onToolCallDelta,
+			OnStreamActivity: streamActivity.observe,
 			OnRetry:          onRetry,
 			OnFallback:       onFallback,
 		})
@@ -4484,7 +4486,7 @@ func (b *BaseAgent) startPreflightWatchdog(ctx *types.AgentContext, phase string
 	}
 }
 
-func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, telemetry llm.RequestTelemetry) func() {
+func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, telemetry llm.RequestTelemetry, activities ...*llmStreamActivityTracker) func() {
 	agentName := b.name
 	stage := ""
 	if ctx != nil {
@@ -4512,7 +4514,14 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 					telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens,
 					telemetry.MessageCount, telemetry.ToolCount)
 				b.observeLLMRequestWaiting(ctx, iter, telemetry, elapsed)
-				b.emitLLMWaitHeartbeat(ctx, iter, tick, telemetry, elapsed)
+				var activity *llmStreamActivityTracker
+				if len(activities) > 0 {
+					activity = activities[0]
+				}
+				snapshot := activity.snapshot()
+				logging.Warning("[diag %s] iter=%d round=%d phase=llm_stream_activity transport_seen=%t protocol_seen=%t semantic_seen=%t transport_bytes=%d last_kind=%s",
+					agentName, iter, iter+1, snapshot.TransportSeen, snapshot.ProtocolSeen, snapshot.SemanticSeen, snapshot.TransportByte, snapshot.LastKind)
+				b.emitLLMWaitHeartbeat(ctx, iter, tick, telemetry, elapsed, snapshot)
 				timer.Reset(agentLLMRequestSlowEvery)
 			}
 		}
@@ -4545,7 +4554,7 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 // attribution, and two units waiting on the same model at the same
 // elapsed second produced byte-identical lines that the renderer's
 // consecutive-duplicate suppression swallowed (2026-07-03 review WF3).
-func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int, telemetry llm.RequestTelemetry, elapsed time.Duration) {
+func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int, telemetry llm.RequestTelemetry, elapsed time.Duration, activities ...llmStreamActivitySnapshot) {
 	if b == nil || b.deps == nil || b.deps.Emit == nil {
 		return
 	}
@@ -4557,19 +4566,27 @@ func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int
 		parallelUnitID = ctx.ExploreDispatchKey
 		dispatchKind = string(ctx.ExploreDispatchKind)
 	}
+	var activity llmStreamActivitySnapshot
+	if len(activities) > 0 {
+		activity = activities[0]
+	}
 	b.deps.Emit(render.Event{
-		Kind:            render.EventAgentLLMWaiting,
-		Timestamp:       time.Now(),
-		Agent:           b.name,
-		Stage:           stage,
-		Iteration:       iter,
-		ModelID:         telemetry.ModelID,
-		WaitTick:        tick,
-		WaitElapsed:     elapsed,
-		WaitDeadline:    telemetry.StreamFirstByteTimeout,
-		ParallelGroupID: parallelGroupID,
-		ParallelUnitID:  parallelUnitID,
-		DispatchKind:    dispatchKind,
+		Kind:              render.EventAgentLLMWaiting,
+		Timestamp:         time.Now(),
+		Agent:             b.name,
+		Stage:             stage,
+		Iteration:         iter,
+		ModelID:           telemetry.ModelID,
+		WaitTick:          tick,
+		WaitElapsed:       elapsed,
+		WaitDeadline:      telemetry.StreamFirstByteTimeout,
+		WaitTransportSeen: activity.TransportSeen,
+		WaitProtocolSeen:  activity.ProtocolSeen,
+		WaitSemanticSeen:  activity.SemanticSeen,
+		WaitActivityKind:  activity.LastKind,
+		ParallelGroupID:   parallelGroupID,
+		ParallelUnitID:    parallelUnitID,
+		DispatchKind:      dispatchKind,
 	})
 }
 

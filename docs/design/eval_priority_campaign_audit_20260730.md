@@ -35815,6 +35815,76 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/not-observed-r476`。
 
+### §123.796 客户 REPL 双日志审计：流式活性分型、成文证据失忆与 Trace 窗权威（2026-08-14）
+
+输入：`/Users/han/opt/customlogs/repl_log.txt`（182 行）与
+`/Users/han/opt/customlogs/repl_log2.txt`（130 行），客户版本 `v0.1.20260813`。请求明确只分析东湖
+systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`。本节先冻结事实与批次，
+再逐批施工；不把模型文字波动直接升级为 hard gate。
+
+1. `RL-01/P1 流式活性不可分型`：`repl_log2:97-130` 的一次 explorer 请求从 30s 持续到至少
+   13m30s；旧 heartbeat 只说“上游字节活性顺延（保活重置或首字节已到）”，无法区分真实
+   reasoning/content/tool delta、合法但空的 SSE 数据、纯 comment keepalive、malformed data 与未完成
+   SSE frame。当前 adapter 正确地没有按 4m 总年龄杀死活跃流：真实隐藏推理网关可能只发传输保活，
+   因而“累计年龄”不是精确信号，不能授权降级答案或切 provider。本批完成第一层根修
+   `B778-STREAMACTIVITYCALIBER1`：新增 passive typed activity callback，在 Reader 边界与 SSE parser
+   分别铸造 `transport_bytes/sse_framing/empty_data/malformed_data/protocol_progress/
+   reasoning_delta/content_delta/tool_call_delta`；请求本地 tracker 只供日志/heartbeat 展示。长等行现在
+   明确为“仅传输字节，尚无模型语义输出”“有效协议、尚无正文/工具增量”或“已收到模型语义输出”。
+   它不参加路由、超时、证据、校验或答案生成；byte-silence/caller cancel 规则保持。
+2. `RL-02/P0 成文证据失忆`：探索/校验已经产出大量 deterministic `trace_query`，且
+   `repl_log.txt:125-128` 的模型明确复述 on-chain 排名；finalizer 前两轮没有工具调用，第三轮 isolated
+   prose 却在 `:143/:153` 声称“未提供 systrace 实际日志”，随后 raw fallback 原样出厂。代码根因已
+   冷读确认：`isolatedFinalizerProseFallbackPrompt` 与 `answerDocumentEmptyModelEvidenceFallback` 只读取
+   `EvidenceItem` 且强制 `Source+LineStart`，完全不读取已经存在的 `ObservationLedger` runtime records；
+   trace-only dispatch 因此把 typed runtime 证据投影成空的“代码证据”列表。下一批以 ledger 为单源补
+   runtime fallback rows，展示 producer/source/window/claim/value/summary 等 typed 事实；系统不代写根因、
+   不修改模型散文。isolated prose prompt 必须看到这些事实；若模型仍无可用成文，证据-only lane 保留
+   typed 观测并明确“系统不补结论”。
+3. `RL-03/P1 精确 span 窗未证却扩为邻近宽窗`：精确 `B|21690|...` 起点已找到
+   (`repl_log2:10-16`)，但以用户 selector `pid=25827` 做 `span_locate/span_window` 均无完整 B/E 对，
+   `repl_log2:83` 明确 `evidence=0`。后续却在 `32136.2..32138.5`/300ms 宽窗生成根因排序，模型把
+   宽窗睡眠、IRQ、跨核与 `pre_wakeup_wait` 当作指定 doFrame 的因果。需要冷读当前 HEAD 的
+   span row-TID / TGID / SpanPID / 东湖 namespace-PID 映射与 exact-window authority：精确窗未证时，
+   宽窗只能 background/support，不能加冕目标 span 根因；若 `21690↔25827` 有 typed namespace/process
+   关系则由 trace 身份层证明，不允许模型凭数字猜。
+4. `RL-04/P1 候选语义越权`：模型把 `lower_priority_waker` 或
+   `priority_inversion_candidate` 直接解释为“低优先级线程持锁/资源”，并把 `pre_wakeup_wait` 解释成
+   waker 对目标造成的睡眠延迟。当前 HEAD 已有 runnable-dominant/gated-running 的计价实现与较新的
+   publication pins，需复核生产 prompt/最终投影是否仍泄漏旧“只要低优先唤醒高优先即反转”语义。
+   正确边界保持用户裁定：链上低优先线程存在 gated runnable，或 running 且有可折算算力供给缺口，
+   才进入反转可消除席；持锁/资源所有权另需 lock/monitor typed 证明。
+5. `RL-05/P2 selector token 被误当时长`：`8002384` 是 span 名称中的标识，final raw prose却解释成
+   “800 万微秒/约 8 秒”。最优解是在 typed runtime target/span contract 中显式交付
+   `selector_token_not_duration`/measured-window availability，不通过扫描用户原文或终稿做数字硬门。
+6. `RL-06/P2 纯 runtime 请求仍构建 repo index`：客户明确“不分析代码”，旧运行仍扫描 2 个本地文件
+   (`repl_log.txt:19-21`)。当前 HEAD 已存在 explicit/attached runtime-artifact analyzer shortcut 与
+   source-navigation-optional 路由，先补生产回归而不是重复改实现；若 HEAD 正证仍扫描，再修 analyzer→
+   scheduler typed source-optional 接线。
+7. `RL-07/P2 性能/预算`：427MB 文本每个 20-100ms 窗仍扫描约 193-194 万行、分别耗时约 27s，
+   heap_sys 约 1.44GB、GC 1821→2000；同一请求总 54m8s、33 个工具、40 轮 LLM。该项分拆为索引窗口
+   reuse/缓存与 investigation convergence，不与证据正确性小批混修；`index_event_limit` 触发后的收窄窗
+   必须携带 scope relation，不能静默把不同窗计量当同一目标窗。
+
+施工顺序冻结：
+
+- `R1`：`B778-STREAMACTIVITYCALIBER1`（本批已实现）——纯观测分型，无固定年龄降级；
+- `R2`：`B779-RUNTIMEFALLBACKEVIDENCE1`——ObservationLedger 进入 isolated prose 与 evidence-only
+  降级，禁止系统代写结论；
+- `R3`：`B780-EXACTSPANWINDOWAUTHORITY1` + `B781-PICANDIDATESEMANTICS1`——东湖 namespace/span
+  身份、精确窗/邻近窗分权与 PI 候选语义；
+- `R4`：runtime-only source-optional 生产 pin、trace 窗索引复用与 convergence 性能批。
+
+`R1` 验证：`go test ./internal/llm ./internal/agent ./internal/render`、`go build ./...` 全绿；新增 parser
+分类、callback panic 隔离、event carrier 与中英 heartbeat 四臂 pin。Read/Trace 数据计算路径未改；显式
+时间窗、Trace 因果投影、自动补齐、链上-only 根因、实际耗时与规则可消除量双轴均保持；系统仍不写
+答案/图/节点/边/关系或结论。
+
+状态：`B778-STREAMACTIVITYCALIBER1=implemented/passive-display-only/tests-pass`；
+`B779-RUNTIMEFALLBACKEVIDENCE1=P0/next`；`B780-EXACTSPANWINDOWAUTHORITY1=P1/audit-next`；
+`B781-PICANDIDATESEMANTICS1=P1/audit-next`；`active-stream-fixed-age-degrade=forbidden`；
+`system answer/conclusion authorship=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

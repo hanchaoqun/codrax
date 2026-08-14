@@ -465,7 +465,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			o.model, attempt+1, maxAttempts, o.stream, len(messages), len(tools), len(bodyBytes),
 			o.requestTimeout, o.streamFirstByteTimeout, o.streamStallTimeout)
 		if o.stream {
-			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnReasoningDelta, opts.OnToolCallDelta)
+			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnReasoningDelta, opts.OnToolCallDelta, opts.OnStreamActivity)
 		} else {
 			resp, err = o.doRequest(ctx, bodyBytes)
 		}
@@ -629,9 +629,9 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 // onToolCallDelta is nil — adding the callback is purely a passive
 // read-side tap so the renderer can show a streaming preview of the
 // summary field without disturbing the canonical Args parse.
-func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), onStreamActivity func(StreamActivity)) (Response, error) {
 	for authAttempt := 0; authAttempt < 2; authAttempt++ {
-		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onReasoningDelta, onToolCallDelta)
+		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onReasoningDelta, onToolCallDelta, onStreamActivity)
 		if err == nil {
 			if o.authenticator != nil {
 				o.authenticator.RecordSuccess()
@@ -648,7 +648,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	return Response{}, errors.New("llm stream auth retry exhausted")
 }
 
-func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), onStreamActivity func(StreamActivity)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending useful stream progress for too
@@ -828,7 +828,7 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 		}
 	}()
 
-	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived)
+	resp, err := parseSSEStreamTrackedWithActivity(httpResp.Body, onDelta, onReasoningDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, onStreamActivity)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -1079,14 +1079,27 @@ func parseSSEStream(r io.Reader, onDelta func(string), onReasoningDelta func(str
 }
 
 func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
+	return parseSSEStreamTrackedWithActivity(r, onDelta, onReasoningDelta, onToolCallDelta, progress, firstByte, nil)
+}
+
+func parseSSEStreamTrackedWithActivity(r io.Reader, onDelta func(string), onReasoningDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, onStreamActivity func(StreamActivity)) (Response, error) {
+	emitActivity := func(activity StreamActivity) {
+		if onStreamActivity == nil {
+			return
+		}
+		func() {
+			defer func() { _ = recover() }()
+			onStreamActivity(activity)
+		}()
+	}
 	// Track transport liveness at the Reader boundary, not only after Scanner
 	// has assembled a newline-terminated SSE record. A provider may flush a
 	// large or slowly-produced frame in partial reads; those bytes prove the
 	// link is active even though Scanner cannot yield the line yet. Fixed-age
 	// degradation while this reader is producing bytes would discard a live
 	// model answer.
-	if progress != nil {
-		r = &streamByteProgressReader{Reader: r, progress: progress}
+	if progress != nil || onStreamActivity != nil {
+		r = &streamByteProgressReader{Reader: r, progress: progress, onActivity: emitActivity}
 	}
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
@@ -1136,6 +1149,7 @@ scan:
 		// / blank separators. Only "data: <payload>" lines matter for
 		// chat-completion streams.
 		if !strings.HasPrefix(line, "data:") {
+			emitActivity(StreamActivity{Kind: StreamActivitySSEFraming})
 			// Non-SSE payload capture for the empty-stream verdict: a
 			// line that is neither blank nor SSE framing (comment /
 			// event / id / retry fields) is body content served where
@@ -1157,6 +1171,7 @@ scan:
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "" || payload == "[DONE]" {
+			emitActivity(StreamActivity{Kind: StreamActivityEmptyData})
 			continue
 		}
 
@@ -1173,6 +1188,7 @@ scan:
 			Usage *openaiUsage `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			emitActivity(StreamActivity{Kind: StreamActivityMalformedData})
 			// A malformed chunk is not fatal — some providers emit
 			// heartbeats / keep-alive frames outside the spec. Its
 			// bytes already reset the liveness clock at the top of the
@@ -1193,6 +1209,7 @@ scan:
 			}
 		}
 		if !chunkProgress {
+			emitActivity(StreamActivity{Kind: StreamActivityEmptyData})
 			// Some OpenAI-compatible servers send valid-but-empty data
 			// frames as keep-alives. They prove the TCP connection is
 			// alive — the top-of-loop liveness store already reset the
@@ -1210,6 +1227,7 @@ scan:
 			firstByte.Store(true)
 		}
 		gotAnyChunk = true
+		emitActivity(StreamActivity{Kind: StreamActivityProtocol})
 
 		if chunk.Usage != nil {
 			usage = *chunk.Usage
@@ -1217,12 +1235,14 @@ scan:
 
 		for _, ch := range chunk.Choices {
 			if ch.Delta.ReasoningContent != "" {
+				emitActivity(StreamActivity{Kind: StreamActivityReasoning, Bytes: len(ch.Delta.ReasoningContent)})
 				reasoningBuf.WriteString(ch.Delta.ReasoningContent)
 				if onReasoningDelta != nil {
 					onReasoningDelta(ch.Delta.ReasoningContent)
 				}
 			}
 			if ch.Delta.Content != "" {
+				emitActivity(StreamActivity{Kind: StreamActivityContent, Bytes: len(ch.Delta.Content)})
 				contentBuf.WriteString(ch.Delta.Content)
 				if onDelta != nil {
 					onDelta(ch.Delta.Content)
@@ -1247,6 +1267,9 @@ scan:
 				}
 			}
 			for i, tc := range ch.Delta.ToolCalls {
+				if tc.Function.Name != "" || tc.Function.Arguments != "" || tc.ID != "" {
+					emitActivity(StreamActivity{Kind: StreamActivityToolCall, Bytes: len(tc.Function.Arguments)})
+				}
 				// Per-chunk index is authoritative. Providers that
 				// ship a single tool_call put index 0 on every chunk
 				// of that call; multi-tool responses interleave
@@ -1336,13 +1359,17 @@ scan:
 
 type streamByteProgressReader struct {
 	io.Reader
-	progress *atomic.Int64
+	progress   *atomic.Int64
+	onActivity func(StreamActivity)
 }
 
 func (r *streamByteProgressReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	if n > 0 && r.progress != nil {
 		r.progress.Store(time.Now().UnixNano())
+	}
+	if n > 0 && r.onActivity != nil {
+		r.onActivity(StreamActivity{Kind: StreamActivityTransportBytes, Bytes: n})
 	}
 	return n, err
 }

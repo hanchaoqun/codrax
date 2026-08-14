@@ -130,6 +130,18 @@ type ChatOptions struct {
 	// best-effort partial-parse logic on their side.
 	OnToolCallDelta func(index int, name string, argsChunk string)
 
+	// OnStreamActivity is an optional passive telemetry hook for the
+	// streaming transport. It classifies what kind of progress actually
+	// arrived: raw transport bytes, SSE framing/keep-alive, a valid protocol
+	// chunk, or model-authored reasoning/content/tool arguments. The callback
+	// must never be used as answer authority or a routing gate; its purpose is
+	// to keep long-wait diagnostics from conflating "the socket is alive" with
+	// "the model has started producing semantic output".
+	//
+	// Adapters invoke it best-effort. A callback panic is isolated by the
+	// adapter, and omitting it leaves stream parsing byte-identical.
+	OnStreamActivity func(StreamActivity)
+
 	// OnRetry fires from the in-adapter retry loop just before the
 	// adapter sleeps on a transient error (HTTP 429 / 5xx / first-byte
 	// timeout). attempt is the 1-based index of the attempt that just
@@ -152,6 +164,31 @@ type ChatOptions struct {
 	// Renderer dock uses this to flip the row-1 status word to
 	// "切换 provider 中". Same panic-recovery contract as OnRetry.
 	OnFallback func(from, to, reason string)
+}
+
+// StreamActivityKind is a typed, display-only classification of streaming
+// progress. Transport activity deliberately remains distinct from semantic
+// model output: either can keep a live request healthy, but they answer
+// different operator questions during a long wait.
+type StreamActivityKind string
+
+const (
+	StreamActivityTransportBytes StreamActivityKind = "transport_bytes"
+	StreamActivitySSEFraming     StreamActivityKind = "sse_framing"
+	StreamActivityEmptyData      StreamActivityKind = "empty_data"
+	StreamActivityMalformedData  StreamActivityKind = "malformed_data"
+	StreamActivityProtocol       StreamActivityKind = "protocol_progress"
+	StreamActivityReasoning      StreamActivityKind = "reasoning_delta"
+	StreamActivityContent        StreamActivityKind = "content_delta"
+	StreamActivityToolCall       StreamActivityKind = "tool_call_delta"
+)
+
+// StreamActivity is passive telemetry for one newly observed stream event.
+// Bytes is populated for reader-boundary transport reads and optional for
+// higher-level events. It carries no model conclusion or evidence.
+type StreamActivity struct {
+	Kind  StreamActivityKind
+	Bytes int
 }
 
 // Adapter defines the interface for LLM backends.

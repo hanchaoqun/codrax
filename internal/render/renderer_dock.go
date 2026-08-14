@@ -152,7 +152,8 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		r.commitLineLocked(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
-			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline))
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline,
+			llmWaitActivityDisplay{transportSeen: ev.WaitTransportSeen, protocolSeen: ev.WaitProtocolSeen, semanticSeen: ev.WaitSemanticSeen, lastKind: ev.WaitActivityKind}))
 		return
 	case EventOrchestratorNotice:
 		// Distinct from EventAgentReasoning: no thinking glyph,
@@ -2686,7 +2687,8 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// handleEvent (single gate site) before this branch is
 		// reached.
 		r.emitNonTTYLine(stripAnsiEscapes(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
-			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline)))
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline,
+			llmWaitActivityDisplay{transportSeen: ev.WaitTransportSeen, protocolSeen: ev.WaitProtocolSeen, semanticSeen: ev.WaitSemanticSeen, lastKind: ev.WaitActivityKind})))
 	case EventAdapterRetry:
 		// Non-TTY mode (CI / piped stdout) — same user-facing
 		// language as the dock activity row + permanent commit so

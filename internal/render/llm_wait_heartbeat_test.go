@@ -91,6 +91,33 @@ func TestFormatLLMWaitHeartbeatLine_DeadlineSegment(t *testing.T) {
 	}
 }
 
+func TestFormatLLMWaitHeartbeatLine_StreamActivityClassification(t *testing.T) {
+	transportOnly := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 1, 4*time.Minute, "m", "zh", "", 3*time.Minute,
+		llmWaitActivityDisplay{transportSeen: true}))
+	if !strings.Contains(transportOnly, "仅收到传输字节") || !strings.Contains(transportOnly, "尚无模型语义输出") {
+		t.Fatalf("transport-only wait must be explicit: %q", transportOnly)
+	}
+	protocolOnly := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 1, 4*time.Minute, "m", "zh", "", 3*time.Minute,
+		llmWaitActivityDisplay{transportSeen: true, protocolSeen: true}))
+	if !strings.Contains(protocolOnly, "已收到有效协议数据") || !strings.Contains(protocolOnly, "尚无正文/工具语义增量") {
+		t.Fatalf("protocol-only wait must be explicit: %q", protocolOnly)
+	}
+	semantic := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 1, 4*time.Minute, "m", "zh", "", 3*time.Minute,
+		llmWaitActivityDisplay{transportSeen: true, protocolSeen: true, semanticSeen: true}))
+	if !strings.Contains(semantic, "已收到模型语义输出，持续生成中") {
+		t.Fatalf("semantic-progress wait must be explicit: %q", semantic)
+	}
+	english := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 1, 4*time.Minute, "m", "en", "", 3*time.Minute,
+		llmWaitActivityDisplay{transportSeen: true}))
+	if !strings.Contains(english, "transport bytes only") || !strings.Contains(english, "no semantic model output yet") {
+		t.Fatalf("English transport-only classification missing: %q", english)
+	}
+}
+
 // TestFormatLLMWaitHeartbeatLine_ExceededCeilingAnnotated pins the
 // §29.174 RUN2AUDIT-1 F5 broken-promise guard against the
 // runnable_2.txt witness: "已 1m0s / 首字节上限 40s" rendered 7 times

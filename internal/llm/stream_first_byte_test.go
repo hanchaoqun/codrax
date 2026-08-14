@@ -339,6 +339,72 @@ func TestDoStreamRequest_KeepAlivesResetFirstByteWatchdog(t *testing.T) {
 	}
 }
 
+func TestParseSSEStreamTracked_ClassifiesTransportAndSemanticActivity(t *testing.T) {
+	stream := strings.Join([]string{
+		": keep-alive",
+		"",
+		`data: {}`,
+		"",
+		`data: {not-json}`,
+		"",
+		`data: {"choices":[{"delta":{"reasoning_content":"thinking"}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"content":"answer"}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"emit","arguments":"{}"}}]}}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	var kinds []StreamActivityKind
+	resp, err := parseSSEStreamTrackedWithActivity(
+		strings.NewReader(stream), nil, nil, nil, nil, nil,
+		func(activity StreamActivity) { kinds = append(kinds, activity.Kind) },
+	)
+	if err != nil {
+		t.Fatalf("parse stream: %v", err)
+	}
+	if resp.Content != "answer" || resp.ReasoningContent != "thinking" || len(resp.ToolCalls) != 1 {
+		t.Fatalf("activity tap changed canonical response: %+v", resp)
+	}
+	want := []StreamActivityKind{
+		StreamActivityTransportBytes,
+		StreamActivitySSEFraming,
+		StreamActivityEmptyData,
+		StreamActivityMalformedData,
+		StreamActivityProtocol,
+		StreamActivityReasoning,
+		StreamActivityProtocol,
+		StreamActivityContent,
+		StreamActivityProtocol,
+		StreamActivityToolCall,
+		StreamActivityEmptyData,
+	}
+	for _, kind := range want {
+		found := false
+		for _, got := range kinds {
+			if got == kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("activity %q missing from %v", kind, kinds)
+		}
+	}
+}
+
+func TestParseSSEStreamTracked_StreamActivityPanicIsolated(t *testing.T) {
+	stream := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+	resp, err := parseSSEStreamTrackedWithActivity(
+		strings.NewReader(stream), nil, nil, nil, nil, nil,
+		func(StreamActivity) { panic("telemetry bug") },
+	)
+	if err != nil || resp.Content != "ok" {
+		t.Fatalf("passive activity callback must not affect parsing: resp=%+v err=%v", resp, err)
+	}
+}
+
 // A live stream can produce partial frame bytes before the first newline. The
 // byte watchdog owns transport silence only: 4ms-spaced raw bytes must not
 // authorize a degraded answer merely because no complete SSE line is ready.

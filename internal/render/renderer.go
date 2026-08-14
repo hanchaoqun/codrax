@@ -1629,7 +1629,14 @@ func llmWaitHeartbeatDurable(tick int) bool {
 // asserting only the keep-alive one would misstate every post-first-
 // byte long generation (merge review 2026-07-20) — instead of shipping
 // the naked contradiction.
-func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string, deadline time.Duration) string {
+type llmWaitActivityDisplay struct {
+	transportSeen bool
+	protocolSeen  bool
+	semanticSeen  bool
+	lastKind      string
+}
+
+func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string, deadline time.Duration, activities ...llmWaitActivityDisplay) string {
 	rounded := elapsed.Round(time.Second)
 	if rounded < 0 {
 		rounded = 0
@@ -1650,6 +1657,29 @@ func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iterati
 			body += fmt.Sprintf(" · static first-byte ceiling %s extended by upstream byte liveness (keep-alive resets or first byte already arrived, not timed out)", deadlineRounded)
 		} else if deadline > 0 {
 			body += fmt.Sprintf(" / first-byte ceiling %s", deadlineRounded)
+		}
+	}
+	var activity llmWaitActivityDisplay
+	if len(activities) > 0 {
+		activity = activities[0]
+	}
+	if activity.semanticSeen {
+		if isZh(lang) {
+			body += " · 已收到模型语义输出，持续生成中"
+		} else {
+			body += " · semantic model output received; generation continues"
+		}
+	} else if activity.protocolSeen {
+		if isZh(lang) {
+			body += " · 已收到有效协议数据，尚无正文/工具语义增量"
+		} else {
+			body += " · valid protocol data received; no content/tool semantic delta yet"
+		}
+	} else if activity.transportSeen {
+		if isZh(lang) {
+			body += " · 仅收到传输字节（保活或未完成帧），尚无模型语义输出"
+		} else {
+			body += " · transport bytes only (keep-alive or partial frame); no semantic model output yet"
 		}
 	}
 	if trimmed := strings.TrimSpace(modelID); trimmed != "" {

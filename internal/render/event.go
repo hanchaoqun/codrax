@@ -557,6 +557,13 @@ type Event struct {
 	WaitTick     int
 	WaitElapsed  time.Duration
 	WaitDeadline time.Duration
+	// Wait* activity fields classify request-local stream progress for
+	// display only. They let a heartbeat distinguish semantic model output
+	// from valid protocol frames and transport-only keepalive/partial bytes.
+	WaitTransportSeen bool
+	WaitProtocolSeen  bool
+	WaitSemanticSeen  bool
+	WaitActivityKind  string
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

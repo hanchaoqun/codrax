@@ -60,6 +60,27 @@ func TestEmitLLMWaitHeartbeat_CarriesTypedTickAndElapsed(t *testing.T) {
 	}
 }
 
+func TestEmitLLMWaitHeartbeat_CarriesTypedStreamActivity(t *testing.T) {
+	var got []render.Event
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{Emit: func(ev render.Event) { got = append(got, ev) }},
+	}
+	base.emitLLMWaitHeartbeat(nil, 1, 2, llm.RequestTelemetry{}, time.Minute, llmStreamActivitySnapshot{
+		TransportSeen: true,
+		ProtocolSeen:  true,
+		SemanticSeen:  false,
+		LastKind:      string(llm.StreamActivityProtocol),
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected one event, got %d", len(got))
+	}
+	ev := got[0]
+	if !ev.WaitTransportSeen || !ev.WaitProtocolSeen || ev.WaitSemanticSeen || ev.WaitActivityKind != string(llm.StreamActivityProtocol) {
+		t.Fatalf("stream activity classification lost: %+v", ev)
+	}
+}
+
 // TestEmitLLMWaitHeartbeat_NilSafe pins the guard rails: agents built
 // without an Emit dependency (unit-test fixtures, headless embedders)
 // and watchdogs started with a nil AgentContext must not panic — the
