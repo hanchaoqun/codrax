@@ -36246,6 +36246,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.804 r484：First-Pass 同源生产正证；端点存在性与调用图 Owner 身份自冲突根修（2026-08-14）
+
+1. 在 `main@48973a146` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + s8a`。Runner `2 PASS / 2`，人工 `0 pass / 2 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_firstpass_identity_r484_20260814_manual_audit.md`。
+2. B790 获生产正证。qf 的 First-Pass 首次同位给出两条 Mermaid 边及完整 `edge_anchors_json`，模型原样
+   消费；r483 的 `agent.buildAnalysisIR -> gate.RunWith call_edge_unproven` 不再出现。两案各一次拒绝均是
+   B789 正确拦截模型把定义/本地调用放进 principal facet，单次 patch 后收敛，不是初稿身份合同冲突。
+3. Runner 双绿仍是假闭环。两案的 typed endpoint block 同时发布：
+   `call_graph_status=shared_callee_boundary`、`requested_sink_path: gate.Run -> gate.RunWith @ 135`，以及相反的
+   `requested_sink_existence_proof=definition_only`、`requested_sink_incident_call_evidence=not_emitted`。qf 与
+   s8a 终稿都复制了错误的 definition-only 状态；这是系统上下文不精确直接污染结论，人工必须判 partial。
+4. 根因是两个 typed consumer 身份轴漂移：调用图按既有红线优先使用 parser-stamped
+   `OwnerSymbol=gate.Run`，端点存在性却只登记短 `Subject=Run`，所以同一行 135 在图中是 sink incident
+   call，在 existence map 中却无法匹配 qualified sink。source 侧也会因 short definition 与 qualified
+   owner 被计作两席而伪报 ambiguous。
+5. 实现 `B792-ENDPOINTEXISTENCEOWNERPARITY1/P0`：存在性证明复用调用图的 exact canonicalizer；call row
+   同样优先 OwnerSymbol、缺失才退 Subject，定义与 call 的短/qualified 形只在唯一 owner 时合并。两个
+   owner 拥同一 operation tail 时继续 `ambiguous`，不按文件名、请求或显示 label 猜 owner。端点证明现在
+   与 capsule 主边一致，可为 `call_edge` 或 `definition_and_call_edge`，不得再同时发 `not_emitted`。
+6. 新增 shared-callee owner-qualified 正 pin、同尾双 owner fail-closed 负 pin，以及 Finalizer 初始 prompt
+   三面一致性接线 pin；完整 `go test ./...` 全绿。实现不扫描用户问题、模型推理、终稿或 Mermaid 文案，
+   不改模型答案、图和结论，只修正提供给模型的 typed 事实。
+7. `s8a` 不要求图，因此其终稿无 Mermaid 不是降级；qf 的显式图完整保留。两案仍出现“并行”措辞，继续
+   归 B791 模型遵循波动观察，不以终稿关键词硬门或系统改写处理。没有畸形 JSON、空答案、旧稿恢复或
+   active-stream 4ms/4m/固定总年龄降级。
+8. Trace/Write 数据路径未改。显式窗、Trace 因果投影、自动补齐、链上-only 主因、优先级反转、调度/
+   算力供给、D/IO、确定性优化、实际占时/规则可消双轴与业务线索保持；邻近/背景仍 support-only。
+
+状态：
+
+`B790-FIRSTPASSRELATIONIDENTITYPARITY1=production-positive-r484`；
+`B792-ENDPOINTEXISTENCEOWNERPARITY1=implemented/shared-canonicalizer+pinned`；
+`B789-PRINCIPALFACETCANDIDATEOWNERSHIP1=production-positive/model-first-draft-adherence-open`；
+`B791-SHAREDCALLEEMODELADHERENCE1=P2-observe/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

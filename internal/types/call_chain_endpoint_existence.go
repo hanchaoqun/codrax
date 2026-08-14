@@ -153,8 +153,16 @@ const (
 
 func callChainEndpointEvidenceProofs(evidence []EvidenceItem) map[string]callChainEndpointExistenceProofBits {
 	out := map[string]callChainEndpointExistenceProofBits{}
+	// Endpoint existence and reachability must consume one caller identity.
+	// The call graph prefers parser-stamped OwnerSymbol over a short Subject;
+	// using the short Subject here made one capsule simultaneously publish a
+	// real gate.Run -> RunWith edge and requested_sink=definition_only. Reuse
+	// the call graph's fail-closed canonicalizer so a unique qualified owner
+	// coalesces its short definition/call spelling, while same-tail callables
+	// from multiple owners remain distinct and therefore ambiguous.
+	canonical := newSharedCallChainCanonicalizer(callChainEvidenceEdges(evidence))
 	add := func(raw string, proof callChainEndpointExistenceProofBits) {
-		identity := strings.ToLower(sharedCallChainIdentity(raw))
+		identity := canonical.key(raw)
 		if identity == "" {
 			return
 		}
@@ -167,7 +175,11 @@ func callChainEndpointEvidenceProofs(evidence []EvidenceItem) map[string]callCha
 		}
 		switch ClaimFormOf(item) {
 		case ClaimCallEdge:
-			add(item.Subject, callChainEndpointProofCallEdge)
+			caller := strings.TrimSpace(item.OwnerSymbol)
+			if caller == "" {
+				caller = item.Subject
+			}
+			add(caller, callChainEndpointProofCallEdge)
 			if strings.TrimSpace(item.Object) != "" {
 				add(item.Object, callChainEndpointProofCallEdge)
 			} else {

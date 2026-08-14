@@ -1636,6 +1636,20 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 	if repairCarrier == "" || !strings.Contains(got, repairCarrier) {
 		t.Fatalf("initial and repair teaching must reuse one typed carrier:\ninitial=%s\nrepair=%s", got, repairCarrier)
 	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"source_endpoint_existence_proof=`call_edge`",
+		"requested_sink_existence_proof=`call_edge`",
+		"requested_sink_path: `gate.Run` -> `gate.RunWith`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt lost owner-qualified endpoint existence %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "requested_sink_incident_call_evidence=`not_emitted`") ||
+		strings.Contains(prompt, "requested_sink_existence_proof=`definition_only`") {
+		t.Fatalf("one prompt must not deny the requested-sink call edge published by its own capsule:\n%s", prompt)
+	}
 }
 
 func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesStateConflict(t *testing.T) {

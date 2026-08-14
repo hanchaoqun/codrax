@@ -212,6 +212,50 @@ func TestCompileCallChainEndpointBoundaryWithEvidence_ClassifiesCapsule(t *testi
 	}
 }
 
+func TestCompileCallChainEndpointBoundaryWithEvidence_CoalescesParserOwnerExistenceProof(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentTrace, PredicateAxis: AxisCall,
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
+		AnalyzerHints:            AnalyzerHints{Kind: string(ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+	}
+	waiver := &PrincipalSpanWaiver{Reason: PrincipalSpanWaiverNoDirectedPath, Rationale: "typed shared-callee boundary"}
+	evidence := []EvidenceItem{
+		{ID: "E-source", Kind: EvidenceRelationship, AnchorKind: AnchorCall, Subject: "buildAnalysisIR", OwnerSymbol: "agent.buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+		{ID: "D-source", Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "buildAnalysisIR", AnchorSymbol: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 1876, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+		{ID: "E-sink", Kind: EvidenceRelationship, AnchorKind: AnchorCall, Subject: "Run", OwnerSymbol: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+		{ID: "D-sink", Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+	}
+
+	got := CompileCallChainEndpointBoundaryWithEvidence(rm, waiver, evidence)
+	if got == nil || got.EvidenceCapsule == nil || got.EvidenceCapsule.Status != CallChainEndpointEvidenceSharedCalleeBoundary {
+		t.Fatalf("typed owner-qualified calls did not retain shared-callee topology: %+v", got)
+	}
+	capsule := got.EvidenceCapsule
+	if capsule.SourceProof != CallChainEndpointExistenceDefinitionAndEdge ||
+		capsule.RequestedSinkProof != CallChainEndpointExistenceDefinitionAndEdge {
+		t.Fatalf("endpoint existence drifted from the owner-qualified incident edges: %+v", capsule)
+	}
+	if len(capsule.SourcePath) != 1 || len(capsule.SinkPath) != 1 ||
+		capsule.SourcePath[0].From != "agent.buildAnalysisIR" || capsule.SinkPath[0].From != "gate.Run" {
+		t.Fatalf("existence reconciliation must not alter the exact graph boundary: %+v", capsule)
+	}
+}
+
+func TestAnalyzeCallChainEndpointExistence_KeepsSameTailOwnersAmbiguous(t *testing.T) {
+	evidence := []EvidenceItem{
+		{ID: "E-a", Kind: EvidenceRelationship, AnchorKind: AnchorCall, Subject: "Run", OwnerSymbol: "alpha.Run", Object: "SinkA.write", Source: "alpha.go", LineStart: 10, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+		{ID: "E-b", Kind: EvidenceRelationship, AnchorKind: AnchorCall, Subject: "Run", OwnerSymbol: "beta.Run", Object: "SinkB.write", Source: "beta.go", LineStart: 20, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+	}
+
+	got := AnalyzeCallChainEndpointExistence(evidence, "Run", "SinkA.write")
+	if !got.StartAmbiguous || got.StartProof != CallChainEndpointExistenceAmbiguous {
+		t.Fatalf("same-tail owner ambiguity must remain fail-closed: %+v", got)
+	}
+	if got.EndAmbiguous || got.EndProof != CallChainEndpointExistenceCallEdge {
+		t.Fatalf("independent exact sink proof drifted while preserving caller ambiguity: %+v", got)
+	}
+}
+
 func TestCompileCallChainEndpointBoundaryWithEvidence_DisclosesDefinitionOnlyTopologyDebt(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentTrace, PredicateAxis: AxisCall,
