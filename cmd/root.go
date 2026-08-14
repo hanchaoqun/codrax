@@ -5276,11 +5276,42 @@ func replModelSummaryLine(lang string, adapter llm.Adapter, autoSelected bool) s
 		}
 	}
 	if isZhLang(lang) {
-		return fmt.Sprintf("模型: %s · 上下文=%s · %s · 超时=%s · 重试=%d%s",
-			model, ctx, localizeOutputCap(lang, out), adapter.RequestTimeout(), adapter.RetryMaxAttempts(), selection)
+		return fmt.Sprintf("模型: %s · 上下文=%s · %s · %s · 重试=%d%s",
+			model, ctx, localizeOutputCap(lang, out), replModelWaitSummary(lang, adapter), adapter.RetryMaxAttempts(), selection)
 	}
-	return fmt.Sprintf("Model: %s · ctx=%s · %s · timeout=%s · retry=%d%s",
-		model, ctx, out, adapter.RequestTimeout(), adapter.RetryMaxAttempts(), selection)
+	return fmt.Sprintf("Model: %s · ctx=%s · %s · %s · retry=%d%s",
+		model, ctx, out, replModelWaitSummary(lang, adapter), adapter.RetryMaxAttempts(), selection)
+}
+
+// replModelWaitSummary keeps the REPL startup contract aligned with the
+// adapter's actual request ownership. A streaming adapter has no absolute
+// request-age cap: precise first-byte and byte-stall watchdogs own silence,
+// while an active stream may legitimately outlive RequestTimeout. Rendering
+// that sizing value as a bare "timeout" made a healthy >4m stream look like a
+// broken promise. This is display-only; it does not change cancellation,
+// watchdog, retry, or answer recovery behavior.
+func replModelWaitSummary(lang string, adapter llm.Adapter) string {
+	if streaming, ok := adapter.(llm.StreamingLivenessReporter); ok &&
+		streaming.StreamingLivenessWatchdogEnabled() {
+		firstByte := time.Duration(0)
+		if reporter, ok := adapter.(llm.StreamFirstByteTimeoutReporter); ok {
+			firstByte = reporter.StreamFirstByteTimeout()
+		}
+		if isZhLang(lang) {
+			if firstByte > 0 {
+				return fmt.Sprintf("流式等待=首包静默上限%s，活跃流继续", firstByte)
+			}
+			return "流式等待=活跃流继续"
+		}
+		if firstByte > 0 {
+			return fmt.Sprintf("stream wait=first-byte silence limit %s; active streams continue", firstByte)
+		}
+		return "stream wait=active streams continue"
+	}
+	if isZhLang(lang) {
+		return fmt.Sprintf("超时=%s", adapter.RequestTimeout())
+	}
+	return fmt.Sprintf("timeout=%s", adapter.RequestTimeout())
 }
 
 func replModelListLine(lang string, notices []llm.ModelSelectionNotice) string {

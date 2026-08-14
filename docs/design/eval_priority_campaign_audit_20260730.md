@@ -35997,6 +35997,62 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.821 客户 `repl_log*.txt` 复核：旧版 Trace 证据黑洞已闭；流式等待启动契约校准（2026-08-14）
+
+1. 输入为 `/Users/han/opt/customlogs/repl_log.txt`（182 行，SHA256
+   `dba79f08e0f92409fb923e2a3ce6868423a8652c5f08dc55e69daca8b57b9b94`）与
+   `/Users/han/opt/customlogs/repl_log2.txt`（130 行，SHA256
+   `471dd2fa80a86db7a944f9bba7774040d612837931415c7a14dfae6752fe605f`）。客户二进制启动头为
+   `v0.1.20260813`，问题是只分析附加东湖 systrace 中 `com.tencent.mm [25827]` 的
+   `Choreographer#doFrame 8002384`，明确不分析代码。
+2. 日志确认旧版 P0：探索实际跑了 33 次工具、40 轮 LLM、总 54m08s，交叉验证阶段已经得到 typed
+   `root_cause_rank`（链上 HotPool runnable/priority-inversion 等席位）；但 finalizer 连续三轮没有调用
+   `emit_answer_document`，最后一轮反而声称“当前未提供 systrace 实际日志内容”。旧降级车道只展示这段
+   泛化模型散文，48 分钟已采集 Trace 证据与因果投影全部不可见。这不是模型波动可以解释掉的结果，而是
+   成文失败恢复面把模型末轮错误正文作为唯一载体的系统 gap。
+3. 当前 `main` 已由 `9dd4f69c6` 与 `7b0cd1f85` 闭环：无结构化 tool call 时先保留可用模型草稿；随后从
+   accepted typed runtime ledger 物化 Trace 关键事实/因果投影等确定性板，明确标注“系统确定性证据附录
+   （不替代模型结论）”；模型正文仍在前且字节保留，系统不补写结论。空正文形只显示已验证事实并声明
+   “不补写结论”。本次专项五测全绿，覆盖 raw prose、empty prose、Trace 投影、中文/英文和“不替代模型
+   结论”顺序 pin。
+4. 日志还确认旧版探索语义污染：只找到 `B|21690|Choreographer#doFrame 8002384` 起点时，模型曾把
+   `8002384` 数字标识和粗窗外沿解释成约 2.2s/8s 时长；又把宽窗 IRQ、跨核、IO 计数和“低优先级唤醒高
+   优先级”直接升成主因。当前 `4c2447a39` 已使匹配 B/S 但无可配对 E/F 的形状 typed fail-closed：只证明
+   marker/timestamp，不铸 duration 或 target causal window；explorer/finalizer 共享同一解释边界。当前链上
+   root-cause population 仍完整保留有量测前提的优先级反转（链上低优先级依赖的 runnable 有效量和/或
+   running 算力供给缺口）、调度供给、算力供给、D/IO、确定性语义工作与业务线索；邻近/背景不得加冕。
+   `span_window` 未配对、IRQ 不升主因与 priority-inversion 专项回归均绿。该旧客户 trace 仍需用新构建做
+   一次生产回放，才能评价 54 分钟探索轮次是否已经下降；在回放前不把旧模型长思考单独立为当前代码 gap。
+5. `repl_log2.txt` 精确记录了一次至少 13m30s 的第 5 轮请求：socket 有字节活性，因此 3 分钟首包静默
+   滑窗没有触发；旧 UI 只能显示“上游字节活性”，不能回答是保活、有效协议帧还是模型语义输出。当前
+   `733322160` 已建立 passive typed 活动分类与显示：仅传输字节、有效协议但无正文/工具增量、模型
+   reasoning/content/tool-call 语义增量三层分开。活动 telemetry 不参与答案、路由或结论权。
+6. 固定总时长终止仍明确禁止。4ms 连续 partial-frame 字节与 heartbeat-only 超过旧 total-cap 两个行为 pin
+   均通过；活跃流不会因 4ms、4m 或累计年龄被系统降级/代写。精确结束信号仍只有 caller cancel/deadline、
+   首包字节静默、流中字节停滞、transport/decode failure。对“仅保活、无语义”贸然补累计硬超时会重新
+   杀死后续能正常返回答案的 reasoning gateway，因此本次不这样施工。
+7. 新确认 B814/P2 为启动展示契约，而不是请求执行 gap：旧启动头裸写`超时=4m0s`，看起来像流式请求总
+   时长上限，却与活跃流合法超过 4 分钟相矛盾。现按 adapter typed capability 分流：非流式仍显示普通
+   request timeout；流式显示`首包静默上限…，活跃流继续`，不再把 RequestTimeout 冒充 total cap。
+   中英文正反 pin 通过；只改启动展示，不改 watchdog、cancel、retry、Trace、成文或恢复逻辑。
+8. 当前专项验证：
+   `go test ./internal/agent -run 'Test(IsolatedFinalizerProseFallbackCarriesRuntimeLedgerFacts|AnswerDocumentEmptyModelFallbackCarriesRuntimeFactsWithoutConclusion|AnswerDocumentRawModelFallbackPreservesProseAndAppendsTypedRuntimeFacts|AnswerDocumentRuntimeFallbackEvidenceEnglishParity|AnswerDocumentEmptyRuntimeFallbackPrefersDeterministicSectionsOverShortFactList)$'`；
+   `go test ./internal/tracequery -run 'Test(SpanWindowDisclosesMatchingUnpairedBeginWithoutMintingDuration|SpanWindowDoesNotDisclosePaddingOnlyUnpairedBegin|PriorityInversion.*|UnpairedIRQBurstNeverBecomesRootCause)$'`；
+   `go test ./internal/llm ./internal/render -run 'Test(DoStreamRequest_PartialFrameBytesOutliveFourMillisecondThreshold|DoStreamRequest_KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel|ParseSSEStreamTracked_ClassifiesTransportAndSemanticActivity|FormatLLMWaitHeartbeatLine_StreamActivityClassification|FormatLLMWaitHeartbeatLine_ExceededCeilingAnnotated)$'`；
+   `go test ./cmd -run 'TestReplModelSummaryLine(StreamingDoesNotAdvertiseRequestTimeoutAsTotalCap|NonStreamingRetainsRequestTimeout)$'`；全部 PASS。
+
+状态：
+
+`RLOG1-FINALRUNTIMEFACTBLACKOUT=historical-P0/closed-current-main`；
+`RLOG2-UNPAIREDSPANCAUSALMINT=historical-P0/closed-current-main+customer-replay-needed`；
+`RLOG3-STREAMACTIVITYCONFLATION=historical-P1/closed-current-main`；
+`B814-STREAMSTARTUPTIMEOUTCONTRACT1=implemented/display-only+pinned`；
+`trace-query-54m-churn=current-production-replay-watch/not-yet-current-gap`；
+`active-stream-fixed-age-degrade=forbidden/4ms+heartbeat-pins-pass`；
+`Trace-causal-projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
