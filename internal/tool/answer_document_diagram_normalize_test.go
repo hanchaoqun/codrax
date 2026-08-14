@@ -121,6 +121,106 @@ func TestNormalizeDiagramEdgeAnchorMetadata_DoesNotUseDisconnectedLabelsAsEdge(t
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPreservesBusinessLabels(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "business", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  n11["提交阶段请求"] -->|call| n5["分发当前阶段"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "n11", ToNode: "n5", RelationKind: types.DiagramRelCall}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{{
+		FromNode: "n11", ToNode: "n5",
+		FromIdentity: "Orchestrator.executeStageRequest", ToIdentity: "Orchestrator.dispatchStage",
+		RelationKind: types.DiagramRelCall,
+	}}
+	originalBody := doc.Blocks[0].Diagram.Body
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 1 {
+		t.Fatalf("fixed=%d, want one exact typed identity-pair restore", fixed)
+	}
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromIdentity != recipes[0].FromIdentity || got.ToIdentity != recipes[0].ToIdentity {
+		t.Fatalf("restored anchor=%+v, want recipe identity pair", got)
+	}
+	if doc.Blocks[0].Diagram.Body != originalBody {
+		t.Fatalf("typed identity repair must not rewrite business display copy:\n%s", doc.Blocks[0].Diagram.Body)
+	}
+	if mismatches := DiagramCallEdgeEvidenceMismatches(doc,
+		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow},
+		[]types.EvidenceItem{diagramEvidenceTestCall(recipes[0].FromIdentity, recipes[0].ToIdentity)},
+	); len(mismatches) != 0 {
+		t.Fatalf("restored exact identity pair must pass the unchanged evidence gate: %+v", mismatches)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesFailsClosed(t *testing.T) {
+	newDoc := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "ambiguous", Kind: types.BlockDiagram,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n  n1 --> n2\n"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "n1", ToNode: "n2", RelationKind: types.DiagramRelCall}},
+		}}}
+	}
+	base := types.DiagramEdgeAnchor{FromNode: "n1", ToNode: "n2", FromIdentity: "A.run", ToIdentity: "B.run", RelationKind: types.DiagramRelCall}
+	t.Run("ambiguous exact pairs", func(t *testing.T) {
+		doc := newDoc()
+		other := base
+		other.ToIdentity = "Other.run"
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, []types.DiagramEdgeAnchor{base, other}); fixed != 0 || doc.Blocks[0].EdgeAnchors[0].HasEndpointIdentityPair() {
+			t.Fatalf("ambiguous recipes must remain unmodified: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+		}
+	})
+	t.Run("relation mismatch", func(t *testing.T) {
+		doc := newDoc()
+		doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelDataFlow
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, []types.DiagramEdgeAnchor{base}); fixed != 0 {
+			t.Fatalf("different relation kind must not receive call identities: fixed=%d", fixed)
+		}
+	})
+	t.Run("no visible body edge", func(t *testing.T) {
+		doc := newDoc()
+		doc.Blocks[0].Diagram.Body = "flowchart TD\n  n1\n  n2\n"
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, []types.DiagramEdgeAnchor{base}); fixed != 0 {
+			t.Fatalf("metadata-only anchor must not be authorized: fixed=%d", fixed)
+		}
+	})
+	t.Run("partial model identity", func(t *testing.T) {
+		doc := newDoc()
+		doc.Blocks[0].EdgeAnchors[0].FromIdentity = "Wrong.run"
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, []types.DiagramEdgeAnchor{base}); fixed != 0 || doc.Blocks[0].EdgeAnchors[0].FromIdentity != "Wrong.run" {
+			t.Fatalf("partial model identity must remain fail-closed: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+		}
+	})
+}
+
+func TestNormalizeAnswerDocumentForPreEmitWiresTypedRecipeIdentityRepair(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("render an architecture diagram")}
+	recipe := types.DiagramEdgeAnchor{
+		FromNode: "n5", ToNode: "n6",
+		FromIdentity: "Orchestrator.dispatchStage", ToIdentity: "o.agents.Get",
+		RelationKind: types.DiagramRelCall,
+	}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{recipe})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "dispatch", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart TD\n  n5[\"阶段分发\"] -->|call| n6[\"获取代理\"]\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "n5", ToNode: "n6", RelationKind: types.DiagramRelCall}},
+	}}}
+	pctx := newPreEmitCheckContext(bus)
+	normalizeAnswerDocumentForPreEmit("emit_answer_document", doc,
+		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}, bus, pctx)
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromIdentity != recipe.FromIdentity || got.ToIdentity != recipe.ToIdentity {
+		t.Fatalf("production normalizer did not consume the dispatch-scoped typed receipt: %+v", got)
+	}
+	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 1 {
+		t.Fatalf("production repair accounting missing: %+v", pctx.repairCounts)
+	}
+}
+
 func TestNormalizeOrphanDiagramEdgeAnchors_RemovedOptionalDiagramClearsSiblingMetadata(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{

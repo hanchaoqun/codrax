@@ -9163,6 +9163,12 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	if !ctx.Mutable.FinalizerTypedRelationRecipeAvailable() {
 		t.Fatal("the prompt compiler must stamp a typed receipt when exact relation recipes were emitted")
 	}
+	receipt := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+	if len(receipt) != 3 || receipt[0].FromNode != "n1" || receipt[0].ToNode != "n2" ||
+		receipt[0].FromIdentity != "Analyzer" || receipt[0].ToIdentity != "Explorer" ||
+		receipt[0].RelationKind != types.DiagramRelPrecedence {
+		t.Fatalf("prompt receipt must preserve the exact schema-native recipe anchors: %+v", receipt)
+	}
 	authority := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
 		"explicit_typed_directed_relations=3",
@@ -9310,10 +9316,16 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmitted(t *testing.T) {
 	mut := types.NewMutableState("summarize the repository")
 	mut.SetFinalizerTypedRelationRecipeAvailable(true)
+	mut.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "A", ToIdentity: "B", RelationKind: types.DiagramRelCall,
+	}})
 	ctx := &types.AgentContext{Mutable: mut}
 	_ = (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if mut.FinalizerTypedRelationRecipeAvailable() {
 		t.Fatal("a fresh prompt without a typed relation recipe must clear the prior dispatch receipt")
+	}
+	if got := mut.FinalizerTypedRelationRecipeAnchors(); len(got) != 0 {
+		t.Fatalf("a fresh prompt without recipes must clear stale exact anchors: %+v", got)
 	}
 }
 

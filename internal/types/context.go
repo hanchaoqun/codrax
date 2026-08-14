@@ -384,6 +384,12 @@ type MutableState struct {
 	// omission (retry finalizer) from missing relation evidence (re-explore).
 	// It is not graph truth and must never mint or rewrite a visible edge.
 	finalizerTypedRelationRecipeAvailable bool
+	// finalizerTypedRelationRecipeAnchors is the dispatch-scoped exact identity
+	// receipt behind the schema-native recipes delivered to the finalizer. It
+	// may restore only a missing from_identity/to_identity pair on an already
+	// model-authored anchor with the same node IDs, direction, and relation kind.
+	// It never creates a body edge, an edge anchor, or a relation kind.
+	finalizerTypedRelationRecipeAnchors []DiagramEdgeAnchor
 
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
@@ -3397,6 +3403,9 @@ func (m *MutableState) SetFinalizerTypedRelationRecipeAvailable(available bool) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.finalizerTypedRelationRecipeAvailable = available
+	if !available {
+		m.finalizerTypedRelationRecipeAnchors = nil
+	}
 }
 
 // FinalizerTypedRelationRecipeAvailable reports the current finalizer
@@ -3410,6 +3419,29 @@ func (m *MutableState) FinalizerTypedRelationRecipeAvailable() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.finalizerTypedRelationRecipeAvailable
+}
+
+// SetFinalizerTypedRelationRecipeAnchors stores the exact endpoint identities
+// from the typed authoring capsule for this finalizer dispatch. The defensive
+// copy prevents later prompt assembly from changing pre-emit authority.
+func (m *MutableState) SetFinalizerTypedRelationRecipeAnchors(in []DiagramEdgeAnchor) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalizerTypedRelationRecipeAnchors = append([]DiagramEdgeAnchor(nil), in...)
+}
+
+// FinalizerTypedRelationRecipeAnchors returns a defensive copy of the current
+// dispatch receipt. Empty means no exact schema-native recipe was delivered.
+func (m *MutableState) FinalizerTypedRelationRecipeAnchors() []DiagramEdgeAnchor {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]DiagramEdgeAnchor(nil), m.finalizerTypedRelationRecipeAnchors...)
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -3548,6 +3580,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
 	m.finalizerTypedRelationRecipeAvailable = false
+	m.finalizerTypedRelationRecipeAnchors = nil
 }
 
 // ResetActiveAnswerDocumentV2ForFinalizeDispatch clears only the active

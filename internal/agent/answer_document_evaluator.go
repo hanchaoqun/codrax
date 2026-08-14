@@ -7125,7 +7125,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 	}
 	if len(edges) > 0 || len(unaryAnnotations) > 0 {
-		renderAnswerDocMechanismRelationAuthoringCapsule(
+		recipeAnchors := renderAnswerDocMechanismRelationAuthoringCapsule(
 			&b,
 			edges,
 			unaryAnnotations,
@@ -7134,6 +7134,9 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			answerDocMechanismCopyReadyDiagramKind(ctx),
 			answerDocMechanismRequestedDiagramKind(ctx),
 		)
+		if ctx.Mutable != nil {
+			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(recipeAnchors)
+		}
 	}
 	for i, path := range typedPaths {
 		if i >= 4 {
@@ -7372,9 +7375,9 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	limit int,
 	copyReadyKind types.DiagramKind,
 	requestedKind types.DiagramKind,
-) {
+) []types.DiagramEdgeAnchor {
 	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
-		return
+		return nil
 	}
 	// Source authority and visual authority have different cardinalities. Two
 	// grounded call sites may prove the same directed endpoint relation; they
@@ -7427,7 +7430,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		})
 	}
 	if len(recipes) == 0 && len(unaryAnnotations) == 0 {
-		return
+		return nil
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
@@ -7485,6 +7488,11 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if len(visualEdges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional unique typed relation(s) omitted only from this compact authoring view)\n", len(visualEdges)-len(bounded))
 	}
+	anchors := make([]types.DiagramEdgeAnchor, 0, len(recipes))
+	for _, recipe := range recipes {
+		anchors = append(anchors, recipe.typed)
+	}
+	return anchors
 }
 
 // renderAnswerDocMechanismCopyReadyComponentFragments gives a required flow

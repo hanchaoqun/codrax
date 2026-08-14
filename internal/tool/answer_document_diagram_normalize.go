@@ -101,6 +101,67 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 	return fixed
 }
 
+// normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes restores only endpoint
+// identity metadata that the model omitted while copying an exact authoring
+// recipe. The model must already have authored the visible edge and an anchor
+// with the same stable node IDs, direction, and relation kind. A unique typed
+// receipt supplies the pair; ambiguity, a partial model identity pair, or any
+// topology/relation mismatch stays fail-closed for the ordinary validator.
+//
+// This repair never reads visible labels and never creates an edge, anchor, or
+// relation. Business-facing labels therefore cannot overwrite typed identity,
+// while an unproved model-authored relation gains no authority.
+func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocumentV2, recipes []types.DiagramEdgeAnchor) int {
+	if doc == nil || len(recipes) == 0 {
+		return 0
+	}
+	type pair struct{ from, to string }
+	candidates := make(map[string]map[pair]bool)
+	for _, recipe := range recipes {
+		if !recipe.HasEndpointIdentityPair() || !recipe.RelationKind.IsValid() {
+			continue
+		}
+		key := diagramEvidenceEdgeKey(recipe.FromNode, recipe.ToNode) + "\x00" + string(recipe.RelationKind)
+		if candidates[key] == nil {
+			candidates[key] = make(map[pair]bool)
+		}
+		candidates[key][pair{
+			from: strings.TrimSpace(recipe.FromIdentity),
+			to:   strings.TrimSpace(recipe.ToIdentity),
+		}] = true
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		visible := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
+		for j := range block.EdgeAnchors {
+			anchor := &block.EdgeAnchors[j]
+			// A partial pair is structurally suspicious. Do not silently replace
+			// model-authored identity metadata with a different typed pair.
+			if strings.TrimSpace(anchor.FromIdentity) != "" || strings.TrimSpace(anchor.ToIdentity) != "" ||
+				!anchor.RelationKind.IsValid() || !visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				continue
+			}
+			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) + "\x00" + string(anchor.RelationKind)
+			if len(candidates[key]) != 1 {
+				continue
+			}
+			for candidate := range candidates[key] {
+				anchor.FromIdentity = candidate.from
+				anchor.ToIdentity = candidate.to
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
 func diagramUniqueVisibleAliasPair(doc *types.AnswerDocumentV2, rawFrom, rawTo string) (string, string, bool) {
 	if doc == nil || strings.TrimSpace(rawFrom) == "" || strings.TrimSpace(rawTo) == "" {
 		return "", "", false

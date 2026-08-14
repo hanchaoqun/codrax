@@ -764,6 +764,12 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
+	if ctx != nil && ctx.Mutable != nil {
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, ctx.Mutable.FinalizerTypedRelationRecipeAnchors()); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes", fixed)
+			logging.Warning("[%s] restored %d exact diagram edge identity pair(s) from the finalizer typed-recipe receipt", toolName, fixed)
+		}
+	}
 	// Capture an exact model-selected source-inventory row before any weaker
 	// candidate or aggregate citation repair can move a same-name declaration
 	// to another file/family. The row-id citation binder near the end then

@@ -37997,13 +37997,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     `Trace 因果投影` 当硬 oracle 的旧拟合；四态精确值、CPU4 2.10GHz direct policy-limit witness、
     “limit row 不能单独证明触顶/性能影响”的 principal 正反校验全部保留。该变更仅收窄有限
     condition→target verdict case，不改变任何显式 root-cause/causal-diagnosis case 的完整投影要求。
+16. 在 `main@3a92bd471` 重建二进制后执行严格并发恰好两个 r459：
+    `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`，runner `1 PASS / 1 FAIL`，人工
+    均 partial；详见
+    `eval/parallel_selected_summary_evalcampaign_relation_bounded_trace_r459_20260813_manual_audit.md`。
+    Trace 的 FAIL 是 eval regex 未接受大写 `CPU=4`，并非答案事实失败；现兼容 `CPU4/CPU 4/CPU=4`
+    三种表面，CPU4、2.10GHz、policy-limit 与 target binding 未证的负向约束均未放宽。
+17. Trace 正文完整给出 running=157.248ms、runnable=5.604ms、sleep=70.338ms、D=0，和 CPU4
+    max=2100MHz/28 行直接上限 witness；结论明确“窗口存在策略上限记录，但目标线程是否实际受限
+    未获独立证据”。没有生成完整 Trace 因果投影、没有覆盖模型结论，证明 B749 的 answer breadth
+    目标正确；但 analyzer 仍发出 `bounded_fact_set + observed_value`，没有发出
+    `bounded_effect_verdict + causal_attribution`。新立 B753 为 production-classification partial；
+    不得用用户原文/模型正文关键词硬门，先以异构复放判断是持续 schema 心智问题还是模型波动。
+18. 代码图确认 B751 仍有下游合同断层。typed component fragments 与完整 anchor JSON 均已进
+    finalizer prompt，模型也第二轮复用了 `n5/n6/n10/n11/n12` 和正确方向，但提交时省略可选
+    `from_identity/to_identity`；validator 随即从可见换行短标签回退解析，把
+    `Orchestrator.executeStageRequest -> Orchestrator.dispatchStage` 降成
+    `Orchestrator -> Orchestrator` 并拒绝。第三次修补仍拒，第四次被迫删除五条真实 call edge 与
+    一条 data-flow edge，只保留 stage precedence。自动 PASS 因只校验最小边数而未识别语义缩水。
+19. B752 根修为 dispatch-scoped typed recipe receipt。finalizer 发布 schema-native recipe 时同时
+    保存 defensive-copy anchor ledger；pre-emit 仅在模型已经提交同 `from_node/to_node`、同方向、
+    同 `relation_kind` 且 body 中确有该可见边时，补回完全缺失的 exact identity pair。一个 key
+    若有多个不同 identity pair、模型只填半对 identity、关系类型不同、方向不同或 body 无边，均
+    不修并继续 fail-closed。该机械修复不读业务 label，不增删 Mermaid、edge anchor、关系、顺序、
+    正文或结论；所以跨 sequence/flow/architecture/call-DAG 及全部语言统一成立。
+20. 新增 producer receipt、fresh-dispatch 清空、production normalizer 接线和四个否证臂 pin；
+    业务中文 label 在 exact receipt 下可保留，validator 仍以 citable typed call evidence复验同方向
+    identity pair。r459 两案均未发生畸形 JSON、旧稿降级、空答案或 active-stream 4ms 降级。
+    活跃字节流即使 4ms 内尚无完整 SSE/答案也不得授权降级；现有 byte-watchdog/caller-deadline
+    结构测试继续作为该红线所有者。
 
 状态：
 
 `B748-CARRIEROPERATIONDISCOVERY1=unit-covered/production-partial`；
 `B749-RUNTIMECAUSALDIMENSIONROLEOVERLAP1=implemented/three-tier-scope+schema+production-pins-pass`；
 `B750-PARTICIPANTSOURCEIDENTITYPRODUCTIONDRIFT1=implemented/parser-identity-pins-pass`；
-`B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=implemented/component-fragments+exact-anchor+parser-pins-pass`；
+`B751-DIAGRAMDISPLAYENDPOINTSEPARATION1=production-partial/superseded-by-B752`；
+`B752-DIAGRAMTYPEDRECIPEIDENTITYRECEIPT1=implemented/typed-receipt+fail-closed-normalizer+pins-pass`；
+`B753-RUNTIMEBOUNDEDEFFECTPRODUCTIONCLASSIFICATION1=confirmed/P2/replay-required/no-prose-keyword-gate`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/auto-supplement=unchanged`；Trace root=`typed-on-chain-only`；
 adjacent/background=`support-only`；`system-answer/conclusion-authorship=none`。
