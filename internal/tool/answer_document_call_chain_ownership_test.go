@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -82,6 +83,82 @@ func TestNormalizeAnswerDocumentForPreEmit_CallChainConclusionRemainsModelOwned(
 	}
 	if hints := preCheckRelationMemberSetAnswerShape(doc, ctx); len(hints) != 0 {
 		t.Fatalf("relation-only call-chain exploration member_set must not become a hard relation-table obligation: %+v", hints)
+	}
+}
+
+func TestPreCheckCallChainEndpointBoundaryFacetOwnership_RejectsSiblingCallsOnlyFromPrincipalCarrier(t *testing.T) {
+	mu := types.NewMutableState("typed endpoint-boundary facet ownership")
+	evidence := []types.EvidenceItem{
+		{ID: "source-edge", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "sink-edge", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "sibling-edge", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 2321, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+	}
+	mu.AppendEvidence(evidence)
+	ctx := &types.BusContext{Mutable: mu, EvidenceItems: evidence}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
+			Disposition:    types.CallChainEndpointNoDirectedPath,
+			SourceEndpoint: "buildAnalysisIR",
+			RequestedSink:  "gate.Run",
+			EvidenceCapsule: &types.CallChainEndpointEvidenceCapsule{
+				Status:     types.CallChainEndpointEvidenceSharedCalleeBoundary,
+				SourcePath: []types.CallChainEvidenceEdge{{From: "buildAnalysisIR", To: "gate.RunWith", EvidenceID: "source-edge", Source: "internal/agent/analyzer.go", LineStart: 2722}},
+				SinkPath:   []types.CallChainEvidenceEdge{{From: "gate.Run", To: "gate.RunWith", EvidenceID: "sink-edge", Source: "internal/analysis/gate/gate.go", LineStart: 135}},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 2722},
+			{File: "internal/analysis/gate/gate.go", Line: 135},
+			{File: "internal/agent/analyzer.go", Line: 2321},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID: "boundary", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge)}},
+				Items: []types.AnswerBlockItem{
+					{ID: "source", CitationRef: 0},
+					{ID: "sink", CitationRef: 1},
+					{ID: "sibling", CitationRef: 2},
+				},
+			},
+			{
+				ID: "support", Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{{ID: "independent-local-call", CitationRef: 2}},
+			},
+		},
+	}
+
+	hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, `item="sibling"`) {
+		t.Fatalf("principal boundary carrier must reject only the sibling item, got %+v", hints)
+	}
+	if strings.Contains(hints[0].ExpectedShape, `independent-local-call`) {
+		t.Fatalf("the same grounded sibling must remain legal in a separate support block: %+v", hints[0])
+	}
+	tagged := tagPreEmitHints(types.ViolFacetUncovered, hints)
+	hard, advisory := splitPreEmitHintsByGate(tagged)
+	if len(hard) != 1 || len(advisory) != 0 || hard[0].HardSignal != preEmitHardSignalTypedFacetCandidateOwnership {
+		t.Fatalf("exact facet-candidate mismatch must use the narrow typed hard lane: hard=%+v advisory=%+v", hard, advisory)
+	}
+	integrated := runPreEmitChecks(doc, view, nil, ctx)
+	integratedFound := false
+	for _, hint := range integrated {
+		if hint.HardSignal == preEmitHardSignalTypedFacetCandidateOwnership {
+			integratedFound = true
+			break
+		}
+	}
+	if !integratedFound {
+		t.Fatalf("runPreEmitChecks lost the endpoint-boundary facet ownership wiring: %+v", integrated)
+	}
+
+	doc.Blocks[0].Items = doc.Blocks[0].Items[:2]
+	if hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("exact endpoint-boundary pair must pass while support facts remain available: %+v", hints)
 	}
 }
 

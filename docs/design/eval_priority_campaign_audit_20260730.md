@@ -36162,6 +36162,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.802 r482：B787 生产收窄图关系；principal facet 的逐项证据所有权断层（2026-08-14）
+
+1. 在 `main@c4f94159e` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + patch_go_typo`。Runner `2 PASS / 2`；人工 `1 pass / 1 partial`。
+   逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_write_r482_20260814_manual_audit.md`。
+2. 写模式案例为完整正证：工作树只把 `main.go:25` 的 `retrun` 改成 `return`，diff 仅一行；计划、
+   apply、verify、finish 无 replan。验证恰好执行一次 `go test -json ./...`，1/1 test 通过；
+   changed-path coverage 对 `main.go` 标为 `target_behavior/project_runner/covered`，终态 `verified`，
+   累计验证域非空，没有 stamp 自清空或重复插入。
+3. Sequence 证明 B787 的生产接线已生效。探索补到两条真实关系：
+   `buildAnalysisIR -> gate.RunWith @ analyzer.go:2722` 与
+   `gate.Run -> gate.RunWith @ gate.go:135`；endpoint capsule 为 `shared_callee_boundary`。
+   support lane、facet evidence count、机制 recipe 与 First-Pass Diagram Reference 都只给这两条双入边，
+   最终 Mermaid 也精确画成两个调用者分别指向 `gate.RunWith`，没有再把两边串成顺序链。
+4. 人工仍判 partial：第一稿的 ordered-list 块声明 `principal_path_edge`，却列了 19 个
+   `buildAnalysisIR` 内部同级调用。系统已有两条精确主边，但旧校验只检查 facet 名是否在某个块出现，
+   不检查同块每个 `citation_ref` 是否属于该 facet 的 SourceCandidate；一条合法主边因此替其余 18 条
+   支持事实借到了“关键中间函数”权限。关系门只修正 Mermaid，无法纠正正文列表。这是系统结构化
+   所有权断层，不是模型波动。
+5. 实现 `B789-PRINCIPALFACETCANDIDATEOWNERSHIP1/P1`：对 typed no-directed-path endpoint capsule，
+   声明 `principal_path_edge` 的 list/table 每个 item 必须引用 capsule 精确 endpoint-boundary EvidenceID。
+   同一真实 sibling call 仍允许放在不声明该 facet 的独立支持块；系统不删除证据，也不替模型决定哪些
+   支持事实值得讲。提示端同时明确“主关系块只装端点边，其他本地调用另放支持块”，降低首稿心智负担。
+6. 该门只读 schema-validated disposition/status、typed call-edge EvidenceID、block facet enum 与
+   `citation_ref`；不扫描用户问题、模型推理、可见列表文字或终稿，不按函数名/语言/case 特判。新增
+   exact pair 通过、同块 sibling 拒绝、同证据支持块放行与 hard-lane registry pin；专项
+   `go test ./internal/tool ./internal/agent ./internal/types` 仅在新增 ratchet 数量钉未同步时先红，更新明确
+   九席 hard-policy 清册后专项全绿，等待 r483 双例生产回放。
+7. Read/Trace 路径零改动。显式时间窗、Trace 因果投影、自动补齐、链上-only 根因、实际占时/规则可消
+   双轴、确定性优化与业务线索保持；邻近/背景仍 support-only。持续流不因 4ms、4m 或固定累计年龄
+   降级，本批未观察 active-stream 恢复旧稿。
+
+状态：
+
+`B787-ENDPOINTUNRESOLVEDBOUNDARYSEED1=production-positive-r482`；
+`B789-PRINCIPALFACETCANDIDATEOWNERSHIP1=implemented/typed-ownership-pins-pass/pending-r483`；
+`write cumulative-verification-domain=production-positive-r482`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

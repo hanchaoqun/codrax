@@ -3774,6 +3774,8 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 		}
 		if len(principalEdges) == 0 {
 			b.WriteString("- No principal endpoint-boundary call edge is available. Other accepted call facts remain audit/support evidence only and are not intermediate hops for this exact endpoint question.\n")
+		} else {
+			b.WriteString("- A structured list/table block that declares `principal_path_edge` is reserved for the endpoint-boundary edges above. Put other grounded local calls in a separate supporting block without that facet; do not mix sibling calls into the principal endpoint carrier.\n")
 		}
 		b.WriteString("- `call_graph_status` describes only resolution inside the grounded call-edge graph; endpoint existence is reported separately by the two `*_existence_proof` fields and is not contradicted by a definition-only endpoint being absent from that graph.\n")
 	}

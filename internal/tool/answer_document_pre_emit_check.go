@@ -423,6 +423,7 @@ const (
 	preEmitHardSignalRuntimeTraceModelPrincipal      preEmitSameTurnHardSignal = "runtime_trace_model_principal"
 	preEmitHardSignalTypedTraceCausalClaimCaliber    preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
 	preEmitHardSignalTypedSourceInventoryRowID       preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
+	preEmitHardSignalTypedFacetCandidateOwnership    preEmitSameTurnHardSignal = "typed_facet_candidate_ownership"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -440,6 +441,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber},
 		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedSourceInventoryRowID},
+		{Kind: types.ViolFacetUncovered, Signal: preEmitHardSignalTypedFacetCandidateOwnership},
 	}
 }
 
@@ -502,6 +504,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "uncertainty_block", ViolationKind: types.ViolUncertaintyBlockMissing},
 		// 4. Required facet coverage.
 		{Subgate: "facet_coverage", ViolationKind: types.ViolFacetUncovered},
+		{Subgate: "call_chain_endpoint_boundary_facet_ownership", ViolationKind: types.ViolFacetUncovered, HardLane: preEmitHardSignalTypedFacetCandidateOwnership},
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "source_inventory_row_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
@@ -769,6 +772,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 
 	// 4. Required facet coverage.
 	if h := preCheckFacetCoverage(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolFacetUncovered, h)
+	}
+	if h := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolFacetUncovered, h)
 	}
 
@@ -13533,6 +13539,105 @@ func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		})
 	}
 	return out
+}
+
+// preCheckCallChainEndpointBoundaryFacetOwnership closes the structured
+// ownership seam between a typed no-directed-path endpoint capsule and the
+// block that declares principal_path_edge. SourceCandidate has already been
+// narrowed to the exact endpoint-boundary subgraph, but a block-level facet
+// annotation can otherwise cover an arbitrary roster of sibling calls because
+// items intentionally do not carry their own claim annotations.
+//
+// The check reads only the typed boundary disposition, typed call-edge evidence
+// IDs, structured facet annotations, and citation refs. It does not inspect the
+// user's request or any visible model prose. Independent grounded calls remain
+// legal in sibling support blocks; they simply cannot borrow the principal
+// endpoint facet.
+func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || view == nil || pctx == nil || pctx.ctx == nil ||
+		view.Family != types.QFCallChain || view.CallChainEndpointBoundary == nil ||
+		!view.CallChainEndpointBoundary.Active() ||
+		view.CallChainEndpointBoundary.Disposition != types.CallChainEndpointNoDirectedPath ||
+		view.CallChainEndpointBoundary.EvidenceCapsule == nil {
+		return nil
+	}
+	edges := types.CallChainEndpointBoundaryPrincipalEdges(view.CallChainEndpointBoundary.EvidenceCapsule)
+	if len(edges) == 0 {
+		// With no endpoint-boundary edge, the facet may carry only the typed
+		// uncertainty/boundary shape described by the prompt. There is no exact
+		// candidate set against which item citations can be compared here.
+		return nil
+	}
+	allowedIDs := make(map[string]bool, len(edges))
+	allowedShapes := make([]string, 0, len(edges))
+	for _, edge := range edges {
+		if id := strings.TrimSpace(edge.EvidenceID); id != "" {
+			allowedIDs[id] = true
+		}
+		shape := fmt.Sprintf("%s -> %s", strings.TrimSpace(edge.From), strings.TrimSpace(edge.To))
+		if source := strings.TrimSpace(edge.Source); source != "" && edge.LineStart > 0 {
+			shape += fmt.Sprintf(" at %s:%d", source, edge.LineStart)
+		}
+		allowedShapes = append(allowedShapes, shape)
+	}
+	if len(allowedIDs) == 0 {
+		return nil
+	}
+
+	var mismatches []string
+	for _, block := range doc.Blocks {
+		if !containsBlockFacet(block, types.FacetPrincipalPathEdge) {
+			continue
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		for _, item := range block.Items {
+			owned := false
+			citation := "missing"
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				cit := doc.Citations[item.CitationRef]
+				citation = fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line)
+				if evidence, found := pctx.citedEvidenceItems(cit); found {
+					for _, ev := range evidence {
+						id := strings.TrimSpace(ev.ID)
+						if id == "" {
+							id = types.StableEvidenceID(ev)
+						}
+						if allowedIDs[id] {
+							owned = true
+							break
+						}
+					}
+				}
+			}
+			if owned {
+				continue
+			}
+			itemID := strings.TrimSpace(item.ID)
+			if itemID == "" {
+				itemID = "<unnamed>"
+			}
+			mismatches = append(mismatches, fmt.Sprintf("block=%q item=%q citation=%s", strings.TrimSpace(block.ID), itemID, citation))
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	const maxShown = 8
+	if len(mismatches) > maxShown {
+		mismatches = append(mismatches[:maxShown], fmt.Sprintf("+%d more", len(mismatches)-maxShown))
+	}
+	return []emitFixHint{{
+		Field: "blocks[facet_id=principal_path_edge].items[].citation_ref / blocks[].facet_ids",
+		ExpectedShape: "keep only items cited by the exact endpoint-boundary edge set in the block that declares `principal_path_edge`; move other grounded local calls to a separate supporting block without that facet. Endpoint-boundary edges: " +
+			strings.Join(allowedShapes, "; ") + ". Off-facet items: " + strings.Join(mismatches, "; "),
+		Reason:     "a principal endpoint-path facet cannot authorize sibling calls that do not belong to the typed endpoint-boundary subgraph; those calls remain available as independent supporting facts.",
+		ForceHard:  true,
+		HardSignal: preEmitHardSignalTypedFacetCandidateOwnership,
+	}}
 }
 
 func preEmitDocumentHasStructuralEnumerationFacetCarrier(doc *types.AnswerDocumentV2) bool {
