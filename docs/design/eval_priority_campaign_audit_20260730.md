@@ -35774,6 +35774,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `active-stream-4ms-degrade=forbidden/not-observed-r475`。
 
+### §123.795 r476：非线性调用拓扑退出可选 sequence 骨架；C++ 原生 replan 正证（2026-08-14）
+
+1. 在 `main@bd3575622` 严格并发恰好两个案例：
+   `sr_rust_cross_module_chain + github_issue_fmt_tm_year_overflow_symptom`。Runner `2/2 PASS`；人工为
+   Rust partial、C++ write pass。逐轮记录见 r476 summary/manual audit；两案均有完整交付，无空答案、
+   JSON/旧稿恢复、unavailable 或 active-stream 固定年龄降级。
+2. C++ 写案提供健康 replan 正证。首计划只把 `parts.year_offset + 1900` 提升为 `long long`，但结果仍传入
+   `render_year(int)` 截断；真实 `make check` 得 `got -2147481749, want 2147485547` 并失败。Controller
+   保留失败证据，第二计划再把 `render_year` 参数提升为 `long long`，累计 patch 不改测试；复验以
+   `-Wall -Wextra -fwrapv` 编译并运行 ordinary/INT_MAX 两臂，输出 `tm year formatting checks passed`。
+   changed path 为 `covered/project_runner/target_behavior`，最终 `all_verified`。用户面显示两个 recovery
+   ref 是两个 checkpoint 都需按序取回，不是重复垃圾计划。
+3. Rust 关系边主体在：`main→run`、`run→collect_files`、`collect_files→walk`、`run→index_file`、
+   `index_file→Matcher.is_match` 均保留，walker 的文件发现职责也答出。但模型把同 caller 的两个 call site
+   写成“并行”，可见 sequence 又把 `collect_files→walk` 放在 `index_file→is_match` 之后；这超出了 call
+   topology 的时序/并发 authority。RegexLikeMatcher 还被概括成普通“正则匹配”，组合行只引用
+   LiteralMatcher 声明，因此人工不能判全对。
+4. 这不是缺教学：生产 prompt 同轮三处已明确 sibling call 不等于 concurrent、fan-out 不证明 temporal
+   order、source line 只可作展示次序。禁止为“并行”字样新增终稿扫描/硬拒或由系统改正文。真正系统
+   GAP 是首次图被 relation gate 拒绝后，系统仍发放非线性 call graph 的 copy-ready `sequenceDiagram`；
+   消息自上而下天然像时序，模型直接复制后让精确 topology carrier 反向制造 temporal 心智。
+5. 登记并完成 `B776-OPTIONALSEQUENCETOPOLOGY1`：仅当当前请求没有显式 Diagram Contract、通用 call-chain
+   默认自动选择 optional sequence 且 typed relation graph 非单线性时，停发系统 whole-sequence/component skeleton；逐边 exact recipe、anchor、
+   topology 与 soft guidance 保留，模型可选 call-DAG/flow/prose。新增跨语言提示：sequence 的 top-to-bottom
+   本身是 ordering claim，无 precedence/control-flow authority 时不得称 sibling calls parallel/concurrent。
+   判定只读 typed DiagramPlan + relation graph，不读用户/模型/终稿/Mermaid body，不增加 hard gate；用户
+   明确 required/preferred diagram contract、单线性 chain 与 Trace runtime temporal capsule 均不变。
+6. Explorer 另暴露观测 gap：4 次 completion 中 3 次为 typed `DOWNGRADED`，runner 却显示
+   `investigation_complete_rejects=0`，因为当前指标只认 transport reject。登记
+   `B777-COMPLETIONDOWNGRADEMETRIC1/P2-observability`：以后单独统计 downgraded count/reason，避免把
+   12 轮/3 次修补误读成零 completion churn；它不改变 closure gate 结论，本批不与 B776 混修。
+
+状态：`B776-OPTIONALSEQUENCETOPOLOGY1=implemented/typed-soft/no-sequence-skeleton-for-optional-nonlinear`；
+`B777-COMPLETIONDOWNGRADEMETRIC1=P2-observability/open`；
+`C++ write=native-runtime-replan-positive/all-verified`；
+`Rust call-chain=human-partial/topology-correct/order-overclaim`；
+`system answer/diagram/node/label/edge/relation/conclusion synthesis=none`；
+`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed-r476`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

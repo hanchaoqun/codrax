@@ -7297,8 +7297,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			unaryAnnotations,
 			semanticHandoffs,
 			answerDocMechanismCopyReadyRelationLimit(ctx),
-			answerDocMechanismCopyReadyDiagramKind(ctx),
-			answerDocMechanismRequestedDiagramKind(ctx),
+			answerDocMechanismCopyReadyDiagramKind(ctx, edges),
+			answerDocMechanismRequestedDiagramKind(ctx, edges),
 		)
 		if ctx.Mutable != nil {
 			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(recipeAnchors)
@@ -8467,7 +8467,7 @@ func answerDocMechanismMermaidLabel(identity string) string {
 // renders Required Answer Blocks. Reading the analyzer's earlier hint or raw
 // contract here created two competing tutorials (for example, flowchart here
 // while the effective call-chain contract taught sequenceDiagram).
-func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.DiagramKind {
+func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) types.DiagramKind {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	// A typed flow answer asks the model to select the principal transfer
 	// topology. A bounded arbitrary source relation (for example one helper
@@ -8479,17 +8479,47 @@ func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.Diagr
 		return types.DiagramNone
 	}
 	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
+		if answerDocMechanismOptionalSequenceTopologyOnly(ctx, view, edges) {
+			return types.DiagramNone
+		}
 		return view.DiagramPlan.Kind
 	}
 	return types.DiagramNone
 }
 
-func answerDocMechanismRequestedDiagramKind(ctx *types.AgentContext) types.DiagramKind {
+func answerDocMechanismRequestedDiagramKind(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) types.DiagramKind {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
+		if answerDocMechanismOptionalSequenceTopologyOnly(ctx, view, edges) {
+			return types.DiagramNone
+		}
 		return view.DiagramPlan.Kind
 	}
 	return types.DiagramNone
+}
+
+// answerDocMechanismOptionalSequenceTopologyOnly prevents a system-authored
+// copy-ready sequence body from adding a top-to-bottom time/order implication
+// to a non-linear relation graph. An explicit required/preferred diagram
+// contract remains available: it is typed presentation intent and the model
+// must represent any unproved order honestly. Generic optional non-linear call
+// evidence keeps its exact per-edge recipes, while the model may choose
+// call-DAG/flow/prose.
+// This predicate reads only the final typed diagram plan and relation graph;
+// it never inspects request text, model prose, or a Mermaid body.
+func answerDocMechanismOptionalSequenceTopologyOnly(ctx *types.AgentContext, view *types.AnswerSemanticView, edges []answerDocMechanismRelationEdge) bool {
+	if view == nil || view.DiagramPlan == nil || view.DiagramPlan.Required || view.DiagramPlan.Kind != types.DiagramSequence {
+		return false
+	}
+	// A concrete AnswerContract diagram is typed current-turn presentation
+	// intent even when the diagram remains optional. Preserve its selected
+	// family; this guard is only for the generic call-chain default that has no
+	// explicit diagram contract at all.
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.Diagram != nil {
+		return false
+	}
+	topology, ok := answerDocMechanismRelationGraphTopology(edges)
+	return ok && !topology.singleLinearGraph
 }
 
 const (
@@ -10617,6 +10647,7 @@ func renderAnswerDocCallChainDiagramSemanticsGuide() string {
 		"- For an invocation edge, prefer function/method-qualified participants. The message after `:` should name the exact callee operation carried by the current grounded call-edge entry; if you show arguments, literals, selectors, or operators, copy only what the cited call site establishes. Do not substitute the caller operation or an illustrative payload.\n" +
 		"- One grounded invocation proves one direct caller-to-callee edge, not a complete path. Join two invocation edges into consecutive hops only when the first callee is the second caller under the typed identity rules. Calls with the same caller are sibling call sites; their source-line ordering is useful presentation order but does not by itself prove runtime co-execution, branch selection, value transfer, or a path through the callees.\n" +
 		"- For a sequence view of several sibling calls inside one orchestration function, keep that function as the sender for each grounded message and place messages in cited source order. Describe this as source-ordered stages/call sites, with branch uncertainty where applicable; do not rename the fan-out as several independent paths converging on the last callee.\n" +
+		"- A sequence diagram's top-to-bottom message order is itself an ordering claim. When the typed carrier proves only a non-linear call topology and supplies no separate precedence/control-flow authority for that order, prefer a call-DAG/flow view or omit the optional diagram; never label sibling calls as parallel/concurrent merely because they share a caller.\n" +
 		"- A condition, capacity check, match arm, null guard, loop predicate, or other control decision that does not invoke a second symbol is not a call edge. In a sequence diagram render it as `Note`, `alt`/`else`, or `opt`; in a flow diagram render it as a branch. Do not manufacture a self-call to make the condition visible.\n" +
 		"- A language/runtime binding boundary (FFI, JNI, PyO3, native-module registration, generated RPC binding) is not a source-level invocation unless a grounded call row proves that exact edge. A matching `registration_binding_fact` proves that a public/exported surface is bound to a callable; therefore describe a caller targeting that exact export as going through the registered binding, never as bypassing it. It still does not prove execution of the registered callable or its downstream core call unless those calls have their own `directed_hop` rows. In a sequence diagram show an unproved binding transition as a `Note over` the two grounded endpoints, not an arrow; use the same note shape for an unproved execution transition after a proved binding. In a call-DAG/architecture diagram, use only the matching typed non-call relation carried by evidence. Keep independently grounded calls on both sides visible and qualified.\n" +
 		"- A compound condition can still contain a real invocation. Preserve the grounded caller-to-callee edge for that operation, then annotate the comparison/branch separately; never replace the callee with an abstract guard node, and never make the guard node the caller of the post-guard operation.\n" +

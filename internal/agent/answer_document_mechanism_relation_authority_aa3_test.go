@@ -1048,6 +1048,48 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 }
 
+func TestMechanismRelationOptionalSequenceWithNonLinearCallTopologyPublishesRecipesWithoutTemporalSkeleton(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "first", Kind: types.EvidenceRelationship,
+				Source: "src/run.rs", LineStart: 10, AnchorKind: types.AnchorCall,
+				Subject: "run", Object: "collect_files", GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "second", Kind: types.EvidenceRelationship,
+				Source: "src/run.rs", LineStart: 20, AnchorKind: types.AnchorCall,
+				Subject: "run", Object: "index_file", GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"fan_out_present=true",
+		"None of them proves concurrent/parallel execution, temporal order",
+		"edge_recipe[1]",
+		"edge_recipe[2]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("optional non-linear sequence authority missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"#### Copy-ready optional typed diagram",
+		"#### Verified component fragment",
+		"sequenceDiagram",
+		"edge_anchors_json=",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("optional non-linear call topology leaked temporal skeleton %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestMechanismRelationCopyReadyDiagramSharesQualifiedCallableIdentityAA3(t *testing.T) {
 	inbound := types.EvidenceItem{
 		ID: "inbound", Kind: types.EvidenceRelationship,
