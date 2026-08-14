@@ -14126,9 +14126,9 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 			b.WriteString(directive)
 			b.WriteString("\n\n")
 		}
-		b.WriteString("## 已验证证据\n\n")
+		b.WriteString("## 已验证事实\n\n")
 		if len(rows) == 0 {
-			b.WriteString("- 当前没有可列出的代码证据；请明确说明无法形成可靠代码结论。\n")
+			b.WriteString("- 当前没有可列出的已验证事实；请明确说明无法形成可靠结论。\n")
 		} else {
 			for _, row := range rows {
 				fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
@@ -14151,7 +14151,7 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 	}
 	b.WriteString("## Verified Evidence\n\n")
 	if len(rows) == 0 {
-		b.WriteString("- No verified code evidence is available; say that a reliable code conclusion cannot be formed.\n")
+		b.WriteString("- No verified facts are available; say that a reliable conclusion cannot be formed.\n")
 	} else {
 		for _, row := range rows {
 			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
@@ -16127,8 +16127,10 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if surfaceFallback := answerDocumentModelSurfaceDraftFallback(ctx, e.language); surfaceFallback != "" && safeFallback == "" {
 		safeFallback = surfaceFallback
 	}
+	evidenceOnlyFallback := false
 	if safeFallback == "" {
 		safeFallback = answerDocumentEmptyModelEvidenceFallback(ctx, e.language)
+		evidenceOnlyFallback = safeFallback != ""
 	}
 	if safeFallback == "" {
 		safeFallback = strings.TrimSpace(lastContent)
@@ -16143,6 +16145,17 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	}
 	if safeFallback != "" {
 		combined = combined + "\n\n" + safeFallback
+	}
+	// B779-RUNTIMEFALLBACKEVIDENCE1: a non-empty model prose fallback is
+	// preserved byte-for-byte, but it must no longer make the already accepted
+	// runtime/VCS/document facts disappear. Append the same typed, scope-filtered
+	// ledger projection that feeds the ordinary finalizer prompt. This is an
+	// evidence appendix, not a system-authored conclusion, and it is omitted when
+	// answerDocumentEmptyModelEvidenceFallback already rendered the same rows.
+	if !evidenceOnlyFallback {
+		if facts := answerDocumentCollectedFactsAppendix(ctx, e.language, 8, 260); facts != "" {
+			combined = combined + "\n\n" + facts
+		}
 	}
 	if ctx != nil && ctx.Mutable != nil {
 		if recovered := render.RenderAnswerDocumentWithAttachments(nil, ctx.Mutable.AnswerDisplayAttachments(), e.language); strings.TrimSpace(recovered) != "" {
@@ -16243,14 +16256,14 @@ func answerDocumentEmptyModelEvidenceFallback(ctx *types.AgentContext, lang stri
 	}
 	var b strings.Builder
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
-		b.WriteString("**Verified code evidence collected before the answering pass failed to draft**\n\n")
+		b.WriteString("**Verified facts collected before the answering pass failed to draft**\n\n")
 		for _, row := range rows {
 			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
 		}
 		b.WriteString("\n**Boundary:** the answering pass returned no usable prose or structured tool call, so the system is showing collected evidence only and is not adding a conclusion.")
 		return b.String()
 	}
-	b.WriteString("**已收集到的可验证代码证据（模型未完成成文）**\n\n")
+	b.WriteString("**已收集到的可验证事实（模型未完成成文）**\n\n")
 	for _, row := range rows {
 		fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
 	}
@@ -16264,12 +16277,35 @@ type answerDocumentFallbackEvidenceRow struct {
 }
 
 func answerDocumentFallbackEvidenceRows(ctx *types.AgentContext, limit, textLimit int) []answerDocumentFallbackEvidenceRow {
-	pool := answerDocumentAuthorityEvidencePool(ctx)
-	if len(pool) == 0 || limit <= 0 {
+	if limit <= 0 {
 		return nil
 	}
 	rows := make([]answerDocumentFallbackEvidenceRow, 0, limit)
 	seen := map[string]bool{}
+	// Runtime artifacts and every other non-current-source evidence lane live in
+	// ObservationLedger rather than EvidenceItem. Project them through the same
+	// typed ranking/scope rules as the ordinary finalizer prompt; never infer a
+	// row from user or model prose here.
+	var observationRecords []types.ObservationRecord
+	if ctx != nil && ctx.Mutable != nil {
+		observationRecords = answerDocObservationLedger(ctx).Records
+	}
+	for _, record := range answerDocObservationPromptRecords(ctx, observationRecords, limit) {
+		if !types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+			continue
+		}
+		row, ok := answerDocumentFallbackObservationRow(record, textLimit)
+		if !ok || seen[row.loc] {
+			continue
+		}
+		seen[row.loc] = true
+		rows = append(rows, row)
+		if len(rows) >= limit {
+			return rows
+		}
+	}
+
+	pool := answerDocumentAuthorityEvidencePool(ctx)
 	for _, item := range pool {
 		if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocEvidenceIsCurrentRepoOnly(item) {
 			continue
@@ -16299,6 +16335,70 @@ func answerDocumentFallbackEvidenceRows(ctx *types.AgentContext, limit, textLimi
 		}
 	}
 	return rows
+}
+
+func answerDocumentFallbackObservationRow(record types.ObservationPromptRecord, textLimit int) (answerDocumentFallbackEvidenceRow, bool) {
+	locParts := []string{"origin=" + string(record.Origin)}
+	if record.Producer != "" {
+		locParts = append(locParts, "producer="+record.Producer)
+	}
+	if record.Source != "" {
+		locParts = append(locParts, "source="+record.Source)
+	}
+	if record.Span != "" {
+		locParts = append(locParts, "span="+record.Span)
+	}
+	if record.ID != "" {
+		locParts = append(locParts, "id="+record.ID)
+	}
+	textParts := make([]string, 0, 6)
+	if record.Claim != "" {
+		textParts = append(textParts, "claim="+record.Claim)
+	}
+	if record.Value != "" {
+		textParts = append(textParts, "value="+record.Value)
+	}
+	if record.Summary != "" {
+		textParts = append(textParts, "summary="+record.Summary)
+	}
+	if record.Excerpt != "" {
+		textParts = append(textParts, "excerpt="+record.Excerpt)
+	}
+	if len(record.Notes) > 0 {
+		textParts = append(textParts, "notes="+strings.Join(record.Notes, " | "))
+	}
+	if len(textParts) == 0 {
+		return answerDocumentFallbackEvidenceRow{}, false
+	}
+	loc := strings.ReplaceAll(strings.Join(locParts, "; "), "`", "'")
+	text := strings.Join(textParts, "; ")
+	text = strings.Join(strings.Fields(text), " ")
+	return answerDocumentFallbackEvidenceRow{
+		loc:  truncateAnswerDocPromptText(loc, 260),
+		text: truncateAnswerDocPromptText(text, textLimit),
+	}, true
+}
+
+func answerDocumentCollectedFactsAppendix(ctx *types.AgentContext, lang string, limit, textLimit int) string {
+	rows := answerDocumentFallbackEvidenceRows(ctx, limit, textLimit)
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		b.WriteString("**Collected verified facts (separate from the degraded model prose above)**\n\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+		}
+		b.WriteString("\n**Boundary:** these are accepted producer facts preserved by the system; they are not a system-authored conclusion.")
+		return b.String()
+	}
+	b.WriteString("**已收集到的可验证事实（与上方降级模型正文分列）**\n\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+	}
+	b.WriteString("\n**边界说明：** 这些是系统保留的已接受生产者事实，不是系统代写的结论。")
+	return b.String()
 }
 
 func answerDocumentEmissionMissingWarning(lang string) string {

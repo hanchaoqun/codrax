@@ -35880,8 +35880,19 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
 时间窗、Trace 因果投影、自动补齐、链上-only 根因、实际耗时与规则可消除量双轴均保持；系统仍不写
 答案/图/节点/边/关系或结论。
 
+`R2` 已完成 `B779-RUNTIMEFALLBACKEVIDENCE1`：isolated prose 与空响应 evidence-only 两条降级车道
+不再另读只接受仓库 `file:line` 的窄证据面，而是复用普通 finalizer 的
+`ObservationLedger → answerDocObservationPromptRecords` 投影、优先级与显式窗/target scope 过滤。
+`runtime_artifact/VCS/diff/command/external document/web/MCP/connector` 等 typed origin 现在可携
+`producer/source/span/claim/value/summary/notes` 进入最后一跳；current-source 仍由既有 EvidenceItem
+负责，`system_inference/unknown` 不会被该新车道晋升为事实。模型有非空降级散文时原文保留一次，系统
+只在其后分列已接受事实并明确“不是系统代写结论”；模型为空时只展示事实和“不补写结论”边界。
+中英文、trace-only 无 EvidenceItem、空响应、非空模型散文、current-source 隔离均有 pin。
+验证：`go test ./internal/agent ./internal/types ./internal/render`、`go build ./...` 全绿。
+
 状态：`B778-STREAMACTIVITYCALIBER1=implemented/passive-display-only/tests-pass`；
-`B779-RUNTIMEFALLBACKEVIDENCE1=P0/next`；`B780-EXACTSPANWINDOWAUTHORITY1=P1/audit-next`；
+`B779-RUNTIMEFALLBACKEVIDENCE1=implemented/shared-ledger-projection+degraded-fact-appendix/tests-pass`；
+`B780-EXACTSPANWINDOWAUTHORITY1=P1/audit-next`；
 `B781-PICANDIDATESEMANTICS1=P1/audit-next`；`active-stream-fixed-age-degrade=forbidden`；
 `system answer/conclusion authorship=none`。
 

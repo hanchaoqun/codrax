@@ -6760,8 +6760,14 @@ func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRe
 			GroundingStatus: types.GroundingGrounded,
 		}},
 	}
-	if rows := answerDocumentFallbackEvidenceRows(ctx, 8, 200); len(rows) != 0 {
-		t.Fatalf("runtime observation-only fallback must not surface current-repo helper rows: %+v", rows)
+	rows := answerDocumentFallbackEvidenceRows(ctx, 8, 200)
+	if len(rows) == 0 {
+		t.Fatal("runtime observation-only fallback should preserve accepted runtime facts")
+	}
+	for _, row := range rows {
+		if strings.Contains(row.loc, "internal/agent/helper.go") || strings.Contains(row.text, "repo helper") {
+			t.Fatalf("runtime observation-only fallback must not surface current-repo helper rows: %+v", rows)
+		}
 	}
 }
 
