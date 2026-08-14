@@ -35701,6 +35701,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 不再因等待递归为空而铸造数据盲区；部分覆盖仍保留尾部 unavailable caveat。定向 tool pin 与
 `go test ./... -count=1` 均通过。
 
+### §123.811 r491：尾部证据生产闭环；peer 关系进入结构化答案断层（2026-08-14）
+
+1. 在 `main@7c5c9b46c` 严格并发恰好两个案例：
+   `trace_query_perf_quality_raw_fallback + hilog_mixed_arkts_cangjie`。Runner `2 PASS / 0 FAIL`，
+   人工 `0 pass / 2 fail`；逐轮证据见 r491 summary/manual audit。两案 126s/130s，均有完整模型答案，
+   无畸形 JSON、旧稿恢复、空答案、Mermaid 失败或 active-stream 固定年龄降级。
+2. `B801` 已获生产正证：3.000..3.008 的 8.000ms Running 保留，3.008..3.010 物理尾部未被
+   外推为 runnable，也没有 `trace_gap` 或调度根因席。显式时间窗、Trace 因果投影和自动补齐
+   没有被全局关闭；本题只问采样热点/粒度，本来就不需要强制因果投影。
+3. `B803` 本轮未复现：最终稿只使用 bracket CPU 5，没有把 parenthesized TGID 20 写成 CPU20
+   或迁移，也没有把 cycles 换成时间。继续保留 typed header-role 软教学，不增加正文关键词硬门。
+4. 新确认 `B805-PERFSAMPLECALIBER1`（P1）：模型把单条 sample 直接加冕为 hotspot，并以
+   `1 sample / 8ms = 12.5%` 伪造 profiler coverage。sample count、运行时长、cycle weight 是不同
+   量纲；没有采样周期/频率/duty receipt 时，只能证明“观测到一个 IP-only sample”，不能证明
+   比较意义上的热点或时间覆盖比例。最优修向是 typed statistical caliber + 软教学，不代写正文。
+5. `B802` 投影生产生效：finalizer context 已无 unsupported behavior/error-granularity aggregate，
+   同时明确携带两个 peer occurrence 与 `cross_error_relation=unproven`。但 analyzer 的
+   `observation_summary`、explorer 的 completion `reason` 仍携带未证 caller/callee 传播叙述；
+   finalizer 选择了嘈声草稿而非 precise relation carrier，最终又宣称“形成因果关系”。
+6. 因此新立 `B806-RUNTIMERELATIONASSERT1`（P0）：AnswerDocument 目前允许 principal block 只写
+   `claim_form=external_observation`，没有结构字段声明运行时关系的 caliber/authority。最优形是在
+   schema/contract 中加入绑定 typed LogBundle relation carrier 的关系断言：多顶层 peer 只能声明
+   `unproven`，递归 Cause 必须有 `explicit_artifact_marker` 才能声明 direct cause。validator 只读
+   typed block 字段与 LogBundle，不扫用户/模型/答案正文；失败时让模型修订，不由系统替换答案。
+7. Trace 主因仍只允许 typed 链上席；PI、调度延迟/供给、算力供给、D/IO、确定性语义工作、
+   业务线索和实际占用/规则可消除双轴均保持。邻近/背景仅支撑额外排查方向。
+
+状态：
+
+`B801-TRACETAIL1=production-closed-r491`；
+`B802-LOGPEERCTX1=partial/aggregate-closed/draft-summary-open`；
+`B803-TRACECPUROLE1=not-recurred-r491`；
+`B805-PERFSAMPLECALIBER1=P1-confirmed`；
+`B806-RUNTIMERELATIONASSERT1=P0-confirmed/next-batch`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：
