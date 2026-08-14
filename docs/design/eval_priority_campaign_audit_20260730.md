@@ -36303,6 +36303,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.828 r502：因果 roster 生产复绿；单一效果角色仍有模型漂移但精确上下文幸存（2026-08-14）
+
+1. 在 `main@a52bcea54` 重建后严格并发恰好两个互为反证的 Trace 案：H7 全根因清单 234s PASS，H4
+   单一频率影响 verdict 133s FAIL；人工均 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_causal_breadth_r502_20260814_manual_audit.md`。
+2. B817 获生产正证。H7 Analyzer 首稿先有独立 runtime target tuple 错误，第二稿为
+   `intent/scenario=root_cause + bounded_fact_set`，被既有 B815 精确拒绝；第三稿明确把主要来源与小贡献来源改为
+   required `causal_contributor_set`，保留 `causal_attribution`，并以 `causal_diagnosis`、无 fact families
+   成功落地。新 enum 已真实经过 schema、normalize、RequestModel 和 finalizer handoff，不是只在单测存在。
+3. H7 `trace_query_final_projection_blocks=1`，完整 Trace 因果投影恢复；机器 oracle 所需
+   65.912/36.757/49.623/0.033ms、全域最高频折算、enumeration incomplete、未计价占用和微小贡献者都可见。
+   主因只来自 typed 链上席，logd.writer 等无链凭证项留在邻近区，业务 span 留作链上排查线索而不占根因席。
+4. H7 人工仍是 partial：模型导语把按 CPU 聚合的 4 个 D-state 成员误称“4 次独立 D 段”，同句又承认总等待
+   11 次；还把 `dma_fence_default_w` blocked caller 扩写为确定 GPU fence 机理。确定性投影/blocked caller caveat
+   保留了正确口径，但系统不得删除或重写模型正文；后续以异构案例观察这类模型数值/权限漂移。
+5. H4 反向证明没有被 B817 误扩：accepted scope 仍为 `bounded_fact_set`，零 root-cause/wakeup view、零 Trace
+   因果投影。它正确输出 running 157.248ms、runnable 5.604ms、sleep 70.338ms、D/IO 0、cpu0 1.53GHz 和
+   cpu4 2.10GHz 直接 policy ceiling，并给出“目标实际 binding impact 未证”的方向正确结论。
+6. H4 机器 FAIL 主要是 oracle 词面边界：答案使用“频率限制证据/未证实”，旧 regex 只接受
+   `limit row|policy limit|策略上限|限制记录|限频记录` 邻接否定词。人工不能判 full pass，因为模型以“主要跑
+   cpu12”作为未证理由，忽略同一上下文已明确给出的目标 cpu4 35.960ms；正确边界应是 policy ceiling presence
+   与 slice-level binding impact 权限分离，而不是主导核替代所有运行核。
+7. 登记观察项 `B818-FINITEEFFECTROLEDIRFT1/P2-watch`：H4 Analyzer 把“目标频率是否受到限制”发为
+   `observed_value + bounded_fact_set`，没有使用教学要求的 `causal_attribution + bounded_effect_verdict`。
+   但 finalizer 已收到 cpu4 target runtime、direct policy witness、`target_binding_status=unproven` 和 caliber
+   的精确上下文，故这不是证据供给缺口。当前也没有第二个独立 typed 信号能证明 role 错误；禁止扫描 label、
+   source quote 或用户/答案原文作 hard retry。先作异构单效果问题复放，若重复再仅优化通用软教学/JSON 认知负担。
+8. 本轮无 malformed JSON salvage、旧稿回退、答案消失、finalizer rewrite 或系统接管结论；活跃字节流没有因
+   4ms、4m 或累计年龄降级。显式时间窗、因果投影、自动补齐、实际占用/规则可消双轴、优先级反转、调度/算力
+   供给、D/IO、确定性语义工作与链上业务线索均保持；邻近/背景只能支撑额外排查。
+
+状态：
+
+`B817-CAUSALROSTERBREADTHREPAIR1=production-positive-r502`；
+`B818-FINITEEFFECTROLEDIRFT1=P2-watch/model-role-drift/context-precise`；
+`r502-H7=machine-pass/human-partial/projection-restored`；
+`r502-H4=machine-fail/human-partial/oracle-wording+model-rationale`；
+`Trace-causal-projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
