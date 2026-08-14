@@ -35860,6 +35860,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；
 `no-user-model-final-prose-hard-scan=preserved`。
 
+### §123.816 r493 / B808：多错误 LogBundle 的 observation summary 仍与 typed 关系权限冲突（2026-08-14）
+
+1. 在 `main@caa6f4820` 严格并发恰好两个案例，机器均 PASS，均首次成文、零 reject/retry/recovery：
+   - `trace_query_perf_quality_raw_fallback` 125s；
+   - `harmony/hilog_mixed_arkts_cangjie` 81s。
+2. B805 生产生效：Trace finalizer 收到 typed `perf_sample_statistical_caliber`；最终答案把 9000 明确为
+   cpu-cycles 事件计数而非 elapsed time/CPU 利用率，并明确单个样本不能定性为工作负载热点、时间覆盖率
+   unavailable。旧 12.5% 伪覆盖及“约等于 CPU 占用”均未再出现。
+3. B807 生产部分生效：有限诊断事实的 bounded scope 不再触发 diagnostic/root_cause 互斥；analyzer 的第二轮
+   仅为其首次遗漏 scenario 的普通结构修补，不再出现旧合同所要求的 scope 改写。
+4. 混合日志仍人工 FAIL。新 typed 尾边界已逐字进入 finalizer，但前部 `formatLogTriageStructured` 仍输出
+   triager 自写的“ArkTS 捕获并向上传播” observation summary；它没有 typed error-occurrence binding，却与
+   `cross_error_relation=unproven` 同时出现。模型最终在同段先写未证、后写传播，证明这不是纯模型波动，
+   而是系统上下文的双权威冲突。
+5. B808 根修：当 `LogBundle.Errors` 有多个顶层 occurrence 时，仍完整保留每条 literal
+   `observed_evidence`、行锚、Errors tree 和 residue，但下游不再接收无法绑定到具体 occurrence 的
+   model-authored observation summary。单错误与普通 operational observation 的 summary 反向臂保持不变。
+   触发只读 typed bundle shape；不扫描用户/模型/final prose，不新增硬门，不系统改写答案。
+
+状态：
+
+`B805-PERFSAMPLECALIBER1=implemented+production-pass`；
+`B807-BOUNDEDSCOPETEACH1=implemented+production-pass`；
+`B806-RUNTIMERELATIONASSERT1=typed-tail-present/context-conflict-found`；
+`B808-PEEROBSSUMMARYAUTH1=implementation-in-progress`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+`active-stream-fixed-age-degrade=not-observed`。
+
 ### §123.792 r473 / B773：请求关系主干未证时的业务主图选择边界（2026-08-14）
 
 1. 在 `main@44402e94d` 严格并发恰好两个案例：

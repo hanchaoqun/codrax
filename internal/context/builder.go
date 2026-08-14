@@ -4209,11 +4209,15 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// can align the investigation to the user's diagnostic ask without
 	// treating unknown_chunks as a hidden evidence source.
 	if len(bundle.Observations) > 0 {
+		peerErrors := len(bundle.Errors) > 1
 		b.WriteString("### Operational observations\n\n")
 		b.WriteString("Each row separates observed artifact text from the triager's advisory interpretation. " +
 			"Only `observed_evidence` plus its artifact-local line span is a runtime fact; `triager_interpretation` is a search hypothesis that must not establish code mechanism, producer identity, counter meaning, or causality by itself. " +
 			"These rows are not repo file:line citations by themselves. " +
 			"When the current request asks whether an observed issue still exists, answer in two lanes: what the log observed, and what current code evidence proves now.\n\n")
+		if peerErrors {
+			b.WriteString("**Peer-observation authority boundary**: this artifact has multiple top-level error occurrences, but observation summaries have no typed occurrence binding. Their model-authored interpretations are therefore withheld from downstream reasoning; each row retains only its literal `observed_evidence`. Use the Errors tree for each occurrence's type, message, frames, and within-stack order, and keep cross-error relations unproven unless an explicit artifact marker establishes one.\n\n")
+		}
 		if logBundleHasThreadSnapshots(bundle) {
 			b.WriteString("**Thread-snapshot authority boundary**: rows with `kind=thread_snapshot` are concurrent execution context captured at dump time, not independent error occurrences. Only entries in the Errors tree establish an emitted panic/error/exception. A thread snapshot may support saying that a thread was executing the shown frame; it does not by itself support saying that thread crashed, emitted the error, touched the same resource, or caused the failure. Keep snapshot identities separate from explicit-error identities in reasoning and in the final answer.\n\n")
 		}
@@ -4236,7 +4240,9 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			if obs.Evidence != "" {
 				fmt.Fprintf(&b, "\n     observed_evidence: %s\n", truncateForPrompt(obs.Evidence, 240))
 			}
-			fmt.Fprintf(&b, "     triager_interpretation (advisory): %s\n", truncateForPrompt(obs.Summary, 240))
+			if !peerErrors {
+				fmt.Fprintf(&b, "     triager_interpretation (advisory): %s\n", truncateForPrompt(obs.Summary, 240))
+			}
 		}
 		b.WriteString("Observation log_line/log_lines are artifact-local anchors from the attached log, not repository source citations.\n")
 		b.WriteString("\n")

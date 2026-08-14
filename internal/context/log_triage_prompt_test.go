@@ -416,10 +416,20 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 			{Type: "Error", Message: "native call failed"},
 			{Type: "panic", Message: "index out of bounds"},
 		},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Evidence:   "Error: native call failed",
+			Summary:    "the first peer captured and propagated the second peer panic",
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
 	}
 	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"Cross-error relationship authority",
+		"Peer-observation authority boundary",
+		"observation summaries have no typed occurrence binding",
+		"observed_evidence: Error: native call failed",
 		"cross_error_relation=unproven",
 		"observed_scope=peer_error_occurrences_only",
 		"independent observed error occurrences",
@@ -430,6 +440,9 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 		if !strings.Contains(got, want) {
 			t.Fatalf("peer-error authority boundary missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "the first peer captured and propagated the second peer panic") {
+		t.Fatalf("unbound peer observation interpretation must not compete with typed relation authority:\n%s", got)
 	}
 }
 
