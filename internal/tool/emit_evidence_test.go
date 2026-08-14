@@ -4253,6 +4253,143 @@ func TestEmitEvidence_AcceptsExactArgumentFlowWithoutMintingCalleeUse(t *testing
 	}
 }
 
+func TestEmitEvidence_RequiredFlowCallPublishesTypedArgumentSiblingRepairAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		name         string
+		source       string
+		language     string
+		line         string
+		owner        string
+		method       string
+		binding      string
+		argument     string
+		callee       string
+		calleeName   string
+		calleeRecv   string
+		declaredType string
+	}{
+		{name: "go", source: "pipeline.go", language: repomap.LangGo, line: "agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)", owner: "Orchestrator", method: "dispatchStage", binding: "busCtx", argument: "o.busCtx", callee: "ctxbuilder.BuildAgentContext", calleeName: "BuildAgentContext", calleeRecv: "ctxbuilder", declaredType: "*types.BusContext"},
+		{name: "python", source: "pipeline.py", language: repomap.LangPython, line: "agent_ctx = builder.build(self.bus_ctx, agent_name, stage)", owner: "Pipeline", method: "dispatch", binding: "bus_ctx", argument: "self.bus_ctx", callee: "builder.build", calleeName: "build", calleeRecv: "builder", declaredType: "BusContext"},
+		{name: "arkts", source: "pipeline.ets", language: repomap.LangArkTS, line: "const agentCtx = builder.build(this.busContext, agentName, stage);", owner: "Pipeline", method: "dispatch", binding: "busContext", argument: "this.busContext", callee: "builder.build", calleeName: "build", calleeRecv: "builder", declaredType: "BusContext"},
+		{name: "cangjie", source: "pipeline.cj", language: repomap.LangCangjie, line: "let agentCtx = builder.build(this.busContext, agentName, stage)", owner: "Pipeline", method: "dispatch", binding: "busContext", argument: "this.busContext", callee: "builder.build", calleeName: "build", calleeRecv: "builder", declaredType: "BusContext"},
+		{name: "cpp", source: "pipeline.cpp", language: repomap.LangCpp, line: "auto agentCtx = builder.build(this->busContext_, agentName, stage);", owner: "Pipeline", method: "dispatch", binding: "busContext_", argument: "this->busContext_", callee: "builder.build", calleeName: "build", calleeRecv: "builder", declaredType: "BusContext*"},
+		{name: "rust", source: "pipeline.rs", language: repomap.LangRust, line: "let agent_ctx = builder.build(&self.bus_context, agent_name, stage);", owner: "Pipeline", method: "dispatch", binding: "bus_context", argument: "&self.bus_context", callee: "builder.build", calleeName: "build", calleeRecv: "builder", declaredType: "BusContext"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+					Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+				}}},
+			}}
+			fi := &repomap.FileInfo{
+				RelPath: tc.source, Language: tc.language,
+				Symbols: []repomap.Symbol{
+					{Name: tc.binding, Kind: "field", Parent: tc.owner, DeclaredType: tc.declaredType, Line: 5, EndLine: 5},
+					{Name: tc.method, Kind: "method", Parent: tc.owner, Line: 10, EndLine: 30},
+				},
+				Relations: []repomap.Relation{{
+					Kind: "call", File: tc.source, Line: 20,
+					FromEP:     repomap.RelationEndpoint{Name: tc.method, Receiver: tc.owner, File: tc.source, Line: 20},
+					ToEP:       repomap.RelationEndpoint{Name: tc.calleeName, Receiver: tc.calleeRecv, File: tc.source, Line: 20},
+					Confidence: 1, Provenance: "tree_sitter", ResolvedBy: tc.language + "_call",
+				}},
+			}
+			ctx.Mutable.SetSearchGraph(callTargetTestGraph(fi))
+			seedReadFileHistory(ctx, tc.source, 20, tc.line)
+			callPayload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":%q,"predicate":"calls","object":%q,"source":%q,"line_start":20,"summary":"dispatch invokes the context builder","anchor_kind":"call","anchor_symbol":%q,"snippet":%q}]}`,
+				tc.owner+"."+tc.method, tc.callee, tc.source, tc.callee, tc.line))
+			res, err := tool.Execute(ctx, callPayload)
+			if err != nil || !res.Success {
+				t.Fatalf("call row rejected, err=%v result=%+v", err, res)
+			}
+			if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_argument_flow_pair" ||
+				res.Repair.Metadata["completion_blocking"] != "true" {
+				t.Fatalf("missing typed argument sibling repair: %+v", res.Repair)
+			}
+			for _, want := range []string{`anchor_kind="argument"`, fmt.Sprintf(`subject=%q`, tc.argument), fmt.Sprintf(`object=%q`, tc.callee)} {
+				if !strings.Contains(res.Repair.Hint, want) {
+					t.Fatalf("repair missing %q: %s", want, res.Repair.Hint)
+				}
+			}
+			got := ctx.Mutable.EmittedEvidence()
+			if len(got) != 1 || got[0].AnchorKind != types.AnchorCall {
+				t.Fatalf("system must retain only the model-authored call before repair: %+v", got)
+			}
+
+			argumentPayload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":%q,"predicate":"passes argument","object":%q,"source":%q,"line_start":20,"summary":"the carrier is passed to the builder","anchor_kind":"argument","anchor_symbol":%q,"snippet":%q}]}`,
+				tc.argument, tc.callee, tc.source, tc.argument, tc.line))
+			res, err = tool.Execute(ctx, argumentPayload)
+			if err != nil || !res.Success {
+				t.Fatalf("argument sibling rejected, err=%v result=%+v", err, res)
+			}
+			if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+				t.Fatalf("exact argument sibling must close current repair: %+v", res.Repair)
+			}
+			got = ctx.Mutable.EmittedEvidence()
+			if len(got) != 2 || got[1].AnchorKind != types.AnchorArgument || types.ClaimFormOf(got[1]) != types.ClaimArgumentFlow {
+				t.Fatalf("model-authored argument sibling did not become typed authority: %+v", got)
+			}
+		})
+	}
+}
+
+func TestRequiredCallArgumentFlowRepairIsTypedParticipantAndTraceIsolated(t *testing.T) {
+	const source = "pipeline.go"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "dispatchStage", Kind: "method", Parent: "Orchestrator", Line: 10, EndLine: 30},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 20,
+			FromEP:     repomap.RelationEndpoint{Name: "dispatchStage", Receiver: "Orchestrator", Line: 20},
+			ToEP:       repomap.RelationEndpoint{Name: "BuildAgentContext", Receiver: "ctxbuilder", Line: 20},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call",
+		}},
+	}
+	gc := &ground.Context{
+		Graph:     callTargetTestGraph(fi),
+		LineIndex: map[string]map[int]string{source: {20: "agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, stage)"}},
+	}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 20,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "ctxbuilder.BuildAgentContext",
+		Subject: "Orchestrator.dispatchStage", Predicate: "calls", Object: "ctxbuilder.BuildAgentContext",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	for _, tc := range []struct {
+		name        string
+		intent      types.Intent
+		required    bool
+		participant string
+		want        bool
+	}{
+		{name: "exact typed carrier", intent: types.IntentExplain, required: true, participant: "BusContext", want: true},
+		{name: "different participant", intent: types.IntentExplain, required: true, participant: "OtherContext"},
+		{name: "optional diagram", intent: types.IntentExplain, participant: "BusContext"},
+		{name: "trace isolation", intent: types.IntentTrace, required: true, participant: "BusContext"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: tc.intent, PredicateAxis: types.AxisFlow,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: tc.required, Participants: []types.DiagramParticipantHint{{
+					Identity: tc.participant, Role: types.DiagramParticipantIncidentRequired,
+				}}},
+			}}
+			got := emitEvidenceRequiredCallArgumentFlowRepairs(ctx, item, 0, gc)
+			if (len(got) > 0) != tc.want {
+				t.Fatalf("repairs=%+v want=%t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

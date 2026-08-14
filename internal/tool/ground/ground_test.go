@@ -127,6 +127,42 @@ func TestDetectArgumentFlowAtLineRejectsAmbiguousDuplicateTuple(t *testing.T) {
 	}
 }
 
+func TestDetectArgumentFlowsAtLineEnumeratesCompleteArgumentsAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		line     string
+		receiver string
+		want     []string
+	}{
+		{name: "go", source: "runner.go", line: "ctx := Build(o.busCtx, stage)", receiver: "Build", want: []string{"o.busCtx", "stage"}},
+		{name: "python", source: "runner.py", line: "ctx = builder.build(self.bus_ctx, stage)", receiver: "builder.build", want: []string{"self.bus_ctx", "stage"}},
+		{name: "arkts", source: "runner.ets", line: "const ctx = builder.build(this.busContext, stage);", receiver: "builder.build", want: []string{"this.busContext", "stage"}},
+		{name: "cangjie", source: "runner.cj", line: "let ctx = builder.build(this.busContext, stage)", receiver: "builder.build", want: []string{"this.busContext", "stage"}},
+		{name: "cpp", source: "runner.cpp", line: "auto ctx = builder.build(this->busContext_, stage);", receiver: "builder.build", want: []string{"this->busContext_", "stage"}},
+		{name: "rust", source: "runner.rs", line: "let ctx = builder.build(&self.bus_context, make_stage(kind));", receiver: "builder.build", want: []string{"&self.bus_context", "make_stage(kind)"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gc := &Context{LineIndex: map[string]map[int]string{tc.source: {9: tc.line}}}
+			flows := DetectArgumentFlowsAtLine(gc, tc.source, 9, tc.receiver)
+			if len(flows) != len(tc.want) {
+				t.Fatalf("flows=%+v want %v", flows, tc.want)
+			}
+			for i, want := range tc.want {
+				if flows[i].Argument != want || !endpointIdentityCompatible(flows[i].Receiver, tc.receiver) {
+					t.Fatalf("flow[%d]=%+v want argument=%q receiver=%q", i, flows[i], want, tc.receiver)
+				}
+			}
+		})
+	}
+
+	gc := &Context{LineIndex: map[string]map[int]string{"runner.go": {12: "pair(Build(ctx), Build(other))"}}}
+	if flows := DetectArgumentFlowsAtLine(gc, "runner.go", 12, "Build"); len(flows) != 0 {
+		t.Fatalf("same receiver appears twice and must fail closed: %+v", flows)
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

@@ -3102,6 +3102,10 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 				} else if !types.PredicateAxisHasMatchingAnchor(types.AxisCall, item) {
 					continue
 				}
+			case types.AnchorArgument:
+				if types.ClaimFormOf(item) != types.ClaimArgumentFlow {
+					continue
+				}
 			}
 			matched = true
 			break

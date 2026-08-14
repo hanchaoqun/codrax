@@ -1556,24 +1556,37 @@ func DetectCallbackHandoffAtLine(gc *Context, source string, line int, target st
 // JS/TS/ArkTS, Cangjie, C/C++, Rust, Swift and the remaining supported source
 // families. Quoted content is masked only while locating delimiters; the
 // returned argument is the byte-exact source slice.
-func DetectArgumentFlowAtLine(gc *Context, source string, line int, wantArgument, wantReceiver string) (string, string, bool) {
-	if gc == nil || line <= 0 || strings.TrimSpace(wantArgument) == "" || strings.TrimSpace(wantReceiver) == "" {
-		return "", "", false
+type CallArgumentFlow struct {
+	Argument string
+	Receiver string
+}
+
+// DetectArgumentFlowsAtLine returns every complete top-level argument for one
+// uniquely identified receiving invocation on an already-read source line.
+// It is the enumeration companion to DetectArgumentFlowAtLine: callers may
+// use the parser-owned roster to offer exact evidence choices, but the roster
+// itself does not decide which argument is relevant to a request or create an
+// EvidenceItem. Multiple same-receiver invocations on one line fail closed so
+// a later consumer cannot silently choose an occurrence by position.
+func DetectArgumentFlowsAtLine(gc *Context, source string, line int, wantReceiver string) []CallArgumentFlow {
+	if gc == nil || line <= 0 || strings.TrimSpace(wantReceiver) == "" {
+		return nil
 	}
 	source = canonicalContextPath(gc, source)
 	fileLines, ok := gc.LineIndex[source]
 	if !ok || isLineComment(fileLines, line, source) {
-		return "", "", false
+		return nil
 	}
 	raw, ok := fileLines[line]
 	if !ok || strings.TrimSpace(raw) == "" || looksLikeCallableDefinitionLine(raw) {
-		return "", "", false
+		return nil
 	}
 	masked := maskQuotedSourceLine(raw)
-	wantArgument = strings.TrimSpace(wantArgument)
-	wantReceiver = strings.TrimSpace(wantReceiver)
-	type match struct{ argument, receiver string }
-	matches := make([]match, 0, 1)
+	type callMatch struct {
+		receiver string
+		spans    [][2]int
+	}
+	matches := make([]callMatch, 0, 1)
 	for open := 0; open < len(masked); open++ {
 		if masked[open] != '(' {
 			continue
@@ -1586,12 +1599,31 @@ func DetectArgumentFlowAtLine(gc *Context, source string, line int, wantArgument
 		if !ok {
 			continue
 		}
-		for _, span := range sourceCallArgumentSpans(masked, open+1, close) {
-			argument := strings.TrimSpace(raw[span[0]:span[1]])
-			if argument != wantArgument {
-				continue
-			}
-			matches = append(matches, match{argument: argument, receiver: receiver})
+		matches = append(matches, callMatch{receiver: receiver, spans: sourceCallArgumentSpans(masked, open+1, close)})
+	}
+	if len(matches) != 1 {
+		return nil
+	}
+	out := make([]CallArgumentFlow, 0, len(matches[0].spans))
+	for _, span := range matches[0].spans {
+		argument := strings.TrimSpace(raw[span[0]:span[1]])
+		if argument == "" {
+			continue
+		}
+		out = append(out, CallArgumentFlow{Argument: argument, Receiver: matches[0].receiver})
+	}
+	return out
+}
+
+func DetectArgumentFlowAtLine(gc *Context, source string, line int, wantArgument, wantReceiver string) (string, string, bool) {
+	if gc == nil || line <= 0 || strings.TrimSpace(wantArgument) == "" || strings.TrimSpace(wantReceiver) == "" {
+		return "", "", false
+	}
+	wantArgument = strings.TrimSpace(wantArgument)
+	matches := make([]CallArgumentFlow, 0, 1)
+	for _, flow := range DetectArgumentFlowsAtLine(gc, source, line, wantReceiver) {
+		if flow.Argument == wantArgument {
+			matches = append(matches, flow)
 		}
 	}
 	// Multiple syntactic occurrences make the cited tuple ambiguous. Do not
@@ -1599,7 +1631,7 @@ func DetectArgumentFlowAtLine(gc *Context, source string, line int, wantArgument
 	if len(matches) != 1 {
 		return "", "", false
 	}
-	return matches[0].argument, matches[0].receiver, true
+	return matches[0].Argument, matches[0].Receiver, true
 }
 
 func matchingSourceCallParen(masked string, open int) (int, bool) {

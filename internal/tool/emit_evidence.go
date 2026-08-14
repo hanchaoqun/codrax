@@ -722,6 +722,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	valueTransferClassificationRepairs := make([]emitEvidenceValueTransferClassificationRepair, 0)
 	assignmentEndpointRepairs := make([]emitEvidenceAssignmentEndpointRepair, 0)
 	callEndpointRepairs := make([]emitEvidenceCallEndpointRepair, 0)
+	argumentFlowRepairs := make([]emitEvidenceArgumentFlowRepair, 0)
 	registrationBindingRepairs := make([]emitEvidenceRegistrationBindingRepair, 0)
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
@@ -874,6 +875,13 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
+		// One exact call row can also contain a complete data argument that is
+		// statically bound to an incident-required carrier participant. Run this
+		// only after every call-authority stabilizer, then publish a separate,
+		// copy-ready model re-emit obligation. This is parser-owned source truth,
+		// not a system-authored EvidenceItem or diagram edge.
+		argumentFlowRepairs = append(argumentFlowRepairs,
+			emitEvidenceRequiredCallArgumentFlowRepairs(ctx, built[i], builtParamIndexes[i], gc)...)
 		// Registration is typed selection authority. The concrete selected
 		// endpoint must therefore occur on the cited binding surface (or be a
 		// parser/read-file-proven attached decorator), independent of which
@@ -931,8 +939,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	repairEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
 	repairEvidence = append(repairEvidence, built...)
 	callEndpointRepairs = filterSatisfiedCallbackReceiverCallRepairs(callEndpointRepairs, repairEvidence)
+	argumentFlowRepairs = filterSatisfiedArgumentFlowRepairs(argumentFlowRepairs, repairEvidence)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
+	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
+		relationEndpointRepair, buildEmitEvidenceArgumentFlowRepair(argumentFlowRepairs))
 	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
 		relationEndpointRepair, buildEmitEvidenceRegistrationBindingRepair(registrationBindingRepairs))
 	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
@@ -5243,6 +5254,14 @@ type emitEvidenceCallEndpointRepair struct {
 	callbackReceiverPair bool
 }
 
+type emitEvidenceArgumentFlowRepair struct {
+	itemIndex int
+	argument  string
+	receiver  string
+	source    string
+	line      int
+}
+
 const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obligations_v1"
 
 // emitEvidenceRelationRepairObligation is the durable, syntax-owned identity
@@ -5311,6 +5330,21 @@ func callEndpointRepairObligations(in []emitEvidenceCallEndpointRepair) []emitEv
 			Line:       row.line,
 			Subject:    row.caller,
 			Object:     row.callee,
+		})
+	}
+	return out
+}
+
+func argumentFlowRepairObligations(in []emitEvidenceArgumentFlowRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			EvidenceKind: types.EvidenceRelationship,
+			AnchorKind:   types.AnchorArgument,
+			Source:       row.source,
+			Line:         row.line,
+			Subject:      row.argument,
+			Object:       row.receiver,
 		})
 	}
 	return out
@@ -5718,6 +5752,137 @@ func filterSatisfiedCallbackReceiverCallRepairs(
 		out = append(out, row)
 	}
 	return out
+}
+
+// emitEvidenceRequiredCallArgumentFlowRepairs joins three exact typed facts:
+// a grounded direct-call row, the parser's complete argument roster for that
+// same invocation, and a static declaration binding that aligns one argument
+// with an incident-required diagram participant. The join only creates repair
+// debt. It never appends evidence, selects a diagram edge, or interprets user
+// or answer prose.
+func emitEvidenceRequiredCallArgumentFlowRepairs(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+) []emitEvidenceArgumentFlowRepair {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.Scope != types.ScopeLine ||
+		item.AnchorKind != types.AnchorCall || item.LineStart <= 0 ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return nil
+	}
+	_, callee, exact := exactCallEvidenceDirection(&item, gc)
+	if !exact || strings.TrimSpace(callee) == "" {
+		return nil
+	}
+	flows := ground.DetectArgumentFlowsAtLine(gc, item.Source, item.LineStart, callee)
+	if len(flows) == 0 {
+		return nil
+	}
+	out := make([]emitEvidenceArgumentFlowRepair, 0, len(flows))
+	for _, flow := range flows {
+		candidate := item
+		candidate.Kind = types.EvidenceRelationship
+		candidate.AnchorKind = types.AnchorArgument
+		candidate.AnchorSymbol = flow.Argument
+		candidate.Subject = flow.Argument
+		candidate.Predicate = "passes argument"
+		candidate.Object = flow.Receiver
+		candidate.DeclaredBinding = ""
+		candidate.DeclaredType = ""
+		candidate.DeclaredOwner = ""
+		candidate.DeclaredIdentityBindings = nil
+		stampEvidenceTypedIdentityBindings(&candidate, gc)
+		if !argumentFlowCandidateTouchesIncidentParticipant(rm, candidate) {
+			continue
+		}
+		out = append(out, emitEvidenceArgumentFlowRepair{
+			itemIndex: itemIndex,
+			argument:  flow.Argument,
+			receiver:  flow.Receiver,
+			source:    item.Source,
+			line:      item.LineStart,
+		})
+	}
+	return out
+}
+
+func argumentFlowCandidateTouchesIncidentParticipant(rm types.RequestModel, candidate types.EvidenceItem) bool {
+	if rm.DiagramHint == nil || len(candidate.DeclaredIdentityBindings) == 0 {
+		return false
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		surfaces := []string{strings.TrimSpace(participant.Identity)}
+		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+		for _, surface := range surfaces {
+			if types.AnswerCodeIdentityIncidentViaDeclaredBinding(
+				surface, candidate.Subject, candidate, nil,
+			) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func filterSatisfiedArgumentFlowRepairs(
+	in []emitEvidenceArgumentFlowRepair,
+	evidence []types.EvidenceItem,
+) []emitEvidenceArgumentFlowRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]emitEvidenceArgumentFlowRepair, 0, len(in))
+	for _, row := range in {
+		if emitEvidenceRelationRepairObligationsSatisfied(
+			argumentFlowRepairObligations([]emitEvidenceArgumentFlowRepair{row}), evidence,
+		) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in))
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields, "items")
+		loc := row.source
+		if row.line > 0 {
+			loc = fmt.Sprintf("%s:%d", row.source, row.line)
+		}
+		rows = append(rows, fmt.Sprintf(
+			"the direct call from items[%d] @ %s is accepted; emit one additional item with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
+			row.itemIndex, loc, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
+			string(types.AnchorArgument), row.argument, row.argument, "passes argument", row.receiver,
+		))
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "An exact call site contains a complete data argument whose parser-owned static type matches an incident-required carrier participant. The direct-call row proves only caller -> callee; preserve the separate argument -> receiver handoff by emitting only the additional row(s) below. The accepted call stays unchanged, and the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
+		Fields: uniqueEmitEvidenceRepairFields(fields),
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "call_argument_flow_pair",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				argumentFlowRepairObligations(in)),
+		},
+	}
 }
 
 // emitEvidenceExactCallRelationRepairRequestShape selects source questions for

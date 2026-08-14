@@ -35695,11 +35695,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B767-ANALYZERJSONCONVERGENCE1=production-performance-positive/canonical-arm-pending`；
 `B768-TARGETSTATEEXACTCALIBER1=confirmed/P1/typed-soft-context-only`；
 `B744-CALLARGUMENTCARRIERRELATION1=production-partial/expression+validation-closed/discovery-open`；
-`B769-RELATIONOPERATIONDERIVATION1=confirmed/P0/high-ROI/queued-next`；
+`B769-RELATIONOPERATIONDERIVATION1=implemented/parser-roster+typed-sibling-obligation/pending-r471`；
 `active-stream-4ms-degrade=forbidden/not-observed-r470`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+#### B769：已验证 call 行补齐完整实参 relation 候选（2026-08-13）
+
+1. 现有 B744 已能验证模型明确提交的 `argument_flow`，B748 也能用 declared binding 引导搜索；r470
+   证明两者之间仍有断层：Explorer 已读取并提交精确 direct-call 行，却只保留 caller→callee，未把同一行
+   的 complete data argument 发成独立关系，最终载体参与者被迫断开。
+2. grounder 新增唯一 receiver 调用的 complete top-level argument roster。它沿用括号、方括号、花括号、
+   generic/turbofish 嵌套边界，返回 byte-exact argument；同一行出现两个同名 receiver、括号不闭合、定义行
+   或未读行均 fail-closed。该 roster 只提供源码事实，不创建 EvidenceItem。
+3. `emit_evidence` 在严格限定的 required source-flow 图中，将三项精确信号合取：模型已提交并 grounded 的
+   direct call、同一调用的 complete argument、parser-owned 静态声明绑定与 typed
+   `incident_required` participant 一致。命中后发布持久 `call_argument_flow_pair` obligation，要求模型仅
+   补发 `relationship + anchor_kind=argument + argument->receiver`；已接受 call 不变，系统不自动 append
+   证据、不画边、不修改答案。
+4. obligation 使用 source/line/anchor/subject/object 的 durable syntax key。模型在同批或后批补发 exact
+   argument row 即清债；不相关的成功 emit 不能覆盖早先债。错 participant、无静态类型/歧义类型、可选图、
+   非 flow axis 和 Runtime Trace 全部 fail-open，避免把普通调用的每个参数都升级为关系义务。
+5. 该实现没有任何语言或仓库特判。完整实参枚举与端到端 sibling repair 覆盖 Go、Python、ArkTS、
+   Cangjie、C++、Rust；底层 punctuation parser 同样服务 Java/Kotlin、JS/TS、C、Swift 等已支持语言，
+   callable value 仍走独立 callback 合同。
+6. 验证：
+   `go test ./internal/types ./internal/tool/ground ./internal/tool ./internal/skill ./internal/agent -count=1`
+   全绿（tool 174.596s）；`go build ./...`、`git diff --check` 通过。下一步严格并发两案回放 QF 逻辑图与
+   一个异构关系 case，生产验收关系是否到达模型且不增加成文重试。
+
+状态：`B769-RELATIONOPERATIONDERIVATION1=implemented/full-tests-pass/pending-production-replay`；
+`system evidence/edge synthesis=none`；`raw request/model/final prose hard gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`active-stream-4ms-degrade=forbidden/unchanged`。
 
 ### §123.777 r462 / B758：有限问题的根因榜上下文越权；按 typed scope 投影证据（2026-08-13）
 
