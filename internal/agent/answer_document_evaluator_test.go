@@ -972,6 +972,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		EvidenceItems: []types.EvidenceItem{
 			{ID: "E-call-source", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 			{ID: "E-call-sink", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 134, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			{ID: "E-sibling", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "normalizer.Normalize", AnchorSymbol: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 2321, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 		},
 		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
 			Kind:    types.AnswerAggregateMemberSet,
@@ -999,19 +1000,22 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"disposition=`no_directed_path`",
 		"source_endpoint=`buildAnalysisIR`",
 		"requested_sink=`gate.Run`",
-		"call_graph_status=`parallel_convergence`",
-		"grounded_call_edge_count=`2`",
+		"call_graph_status=`shared_callee_boundary`",
+		"grounded_call_edge_count=`3`",
 		"source_endpoint_existence_proof=`call_edge`",
 		"requested_sink_existence_proof=`call_edge`",
-		"shared_frontier=`gate.RunWith`",
+		"shared_callee=`gate.RunWith`",
 		"directed_topology_shape=`buildAnalysisIR -> ... -> gate.RunWith <- ... <- gate.Run`",
-		"two independently grounded inbound paths converge on the shared frontier",
+		"each have a grounded same-direction call path ending at the same callee",
 		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
 		"requested_sink_path: `gate.Run` -> `gate.RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
 		"not a reachable-chain member declaration",
-		"reverse or parallel typed calls",
-		"both arrowheads point toward the shared frontier",
-		"never rewrite `source -> ... -> frontier <- ... <- requested_sink`",
+		"reverse or shared-callee typed calls",
+		"both arrowheads end at the same callee",
+		"do not prove parallel execution, convergence, a join",
+		"Never rewrite `source -> ... -> shared_callee <- ... <- requested_sink`",
+		"principal_relation_scope=`typed_endpoint_boundary`",
+		"supporting_directed_relations_outside_boundary=`1`",
 		"separate supporting item/block",
 		"model owns the conclusion",
 	} {
@@ -1021,6 +1025,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	}
 	if strings.Contains(prompt, "node_alias[n4]=`RunWith`") {
 		t.Fatalf("one canonical call endpoint must not be republished under a short duplicate identity:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "node_alias[n4]=`normalizer.Normalize`") ||
+		strings.Contains(prompt, "node_alias[n3]=`normalizer.Normalize`") {
+		t.Fatalf("same-caller sibling must stay outside the principal endpoint-boundary recipe:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "verified_relation_component_count=1") ||
 		!strings.Contains(prompt, "node_alias[n2]=`gate.RunWith`") ||

@@ -91,17 +91,17 @@ func TestResolveUniqueQualifiedCallEndpoint_FailsClosedOnIdentityAmbiguity(t *te
 	}
 }
 
-func TestAnalyzeCallChainEvidenceGraph_ParallelConvergencePreservesBothDirections(t *testing.T) {
+func TestAnalyzeCallChainEvidenceGraph_SharedCalleeBoundaryPreservesBothDirections(t *testing.T) {
 	evidence := []EvidenceItem{
 		groundedCallEdge("E1", "internal/agent/analyzer.go", 2666, "buildAnalysisIR", "gate.RunWith"),
 		groundedCallEdge("E2", "internal/analysis/gate/gate.go", 134, "gate.Run", "RunWith"),
 	}
 	got := AnalyzeCallChainEvidenceGraph(evidence, "buildAnalysisIR", "gate.Run")
 	if !got.StartResolved || !got.EndResolved || len(got.DirectedPath) != 0 || len(got.ReversePath) != 0 {
-		t.Fatalf("parallel graph must not become endpoint reachability: %+v", got)
+		t.Fatalf("shared-callee graph must not become endpoint reachability: %+v", got)
 	}
 	if got.SharedFrontier != "gate.RunWith" || len(got.SourcePath) != 1 || len(got.SinkPath) != 1 {
-		t.Fatalf("parallel convergence capsule missing: %+v", got)
+		t.Fatalf("shared-callee boundary capsule missing: %+v", got)
 	}
 	if got.SourcePath[0].From != "buildAnalysisIR" || got.SourcePath[0].To != "gate.RunWith" ||
 		got.SinkPath[0].From != "gate.Run" || got.SinkPath[0].To != "gate.RunWith" {
@@ -197,11 +197,11 @@ func TestCompileCallChainEndpointBoundaryWithEvidence_ClassifiesCapsule(t *testi
 		groundedCallEdge("E1", "analyzer.go", 10, "buildAnalysisIR", "gate.RunWith"),
 		groundedCallEdge("E2", "gate.go", 20, "gate.Run", "RunWith"),
 	})
-	if got == nil || got.EvidenceCapsule == nil || got.EvidenceCapsule.Status != CallChainEndpointEvidenceParallelConvergence {
-		t.Fatalf("typed boundary did not carry parallel evidence: %+v", got)
+	if got == nil || got.EvidenceCapsule == nil || got.EvidenceCapsule.Status != CallChainEndpointEvidenceSharedCalleeBoundary {
+		t.Fatalf("typed boundary did not carry shared-callee evidence: %+v", got)
 	}
 	if got.EvidenceCapsule.SourceProof != CallChainEndpointExistenceCallEdge || got.EvidenceCapsule.RequestedSinkProof != CallChainEndpointExistenceCallEdge {
-		t.Fatalf("parallel endpoint proof kinds should expose incident call evidence: %+v", got.EvidenceCapsule)
+		t.Fatalf("shared-callee endpoint proof kinds should expose incident call evidence: %+v", got.EvidenceCapsule)
 	}
 	clone := cloneAnswerSemanticView(&AnswerSemanticView{CallChainEndpointBoundary: got})
 	clone.CallChainEndpointBoundary.EvidenceCapsule.SourcePath[0].From = "mutated"

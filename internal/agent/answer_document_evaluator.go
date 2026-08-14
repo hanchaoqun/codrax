@@ -3743,14 +3743,14 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 			b.WriteString("- requested_sink_incident_call_evidence=`not_emitted`\n")
 		}
 		if capsule.SharedFrontier != "" {
-			fmt.Fprintf(&b, "- shared_frontier=`%s`\n", answerDocCallChainInline(capsule.SharedFrontier))
+			fmt.Fprintf(&b, "- shared_callee=`%s`\n", answerDocCallChainInline(capsule.SharedFrontier))
 		}
-		if capsule.Status == types.CallChainEndpointEvidenceParallelConvergence && capsule.SharedFrontier != "" {
+		if capsule.Status == types.CallChainEndpointEvidenceSharedCalleeBoundary && capsule.SharedFrontier != "" {
 			fmt.Fprintf(&b, "- directed_topology_shape=`%s -> ... -> %s <- ... <- %s`\n",
 				answerDocCallChainInline(boundary.SourceEndpoint),
 				answerDocCallChainInline(capsule.SharedFrontier),
 				answerDocCallChainInline(boundary.RequestedSink))
-			b.WriteString("- topology_semantics=`two independently grounded inbound paths converge on the shared frontier; this is not a source-to-sink path`\n")
+			b.WriteString("- topology_semantics=`the source and requested sink each have a grounded same-direction call path ending at the same callee; neither path reaches the other endpoint`\n")
 		}
 		b.WriteString("\n### Grounded endpoint evidence capsule\n\n")
 		renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
@@ -3778,9 +3778,9 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 	b.WriteString("- Treat the capsule rows as grounded facts, not system-authored answer prose. Use them to synthesize the explanation and conclusion yourself.\n")
 	b.WriteString("- Keep the nearest proven directed path from the typed call-edge rows above. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
 	b.WriteString("- `definition_only` proves that exact endpoint exists, but `incident_call_evidence=not_emitted` does not prove the endpoint is a leaf or has no callers/callees. Keep that local topology unproven unless an explicit typed call edge above establishes it.\n")
-	b.WriteString("- Keep reverse or parallel typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
-	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceParallelConvergence {
-		b.WriteString("- For `parallel_convergence`, read the displayed topology literally: both arrowheads point toward the shared frontier. In prose and Mermaid, keep the two inbound paths separate; never rewrite `source -> ... -> frontier <- ... <- requested_sink` as `source -> frontier -> requested_sink`.\n")
+	b.WriteString("- Keep reverse or shared-callee typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
+	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceSharedCalleeBoundary {
+		b.WriteString("- For `shared_callee_boundary`, read the displayed topology literally: both arrowheads end at the same callee. Keep the two call facts separate; call edges alone do not prove parallel execution, convergence, a join, or a source-to-sink sequence. Never rewrite `source -> ... -> shared_callee <- ... <- requested_sink` as `source -> shared_callee -> requested_sink`.\n")
 	}
 	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
 	b.WriteString("- Keep that requested-sink boundary in a separate supporting item/block, not as the last hop of the principal directed ordered_list. A definition-only boundary is visible context, not an extra path member.\n")
@@ -7251,7 +7251,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || !answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
 		return ""
 	}
-	evidence, edges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
+	evidence, allEdges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
+	edges := answerDocMechanismEndpointBoundaryEdges(ctx, allEdges)
 	unaryAnnotations := answerDocMechanismUnaryAnnotations(evidence)
 	semanticHandoffs := answerDocRegisteredExportHandoffsForContext(ctx)
 	if acceptedFacts == 0 {
@@ -7271,6 +7272,9 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	fmt.Fprintf(&b,
 		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; typed_unary_annotations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), len(unaryAnnotations), status)
+	if len(edges) < len(allEdges) {
+		fmt.Fprintf(&b, "- principal_relation_scope=`typed_endpoint_boundary`; supporting_directed_relations_outside_boundary=`%d`. The omitted relations remain grounded support facts, but they are not principal intermediate hops or principal diagram edges for this exact endpoint answer.\n", len(allEdges)-len(edges))
+	}
 	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
@@ -7313,6 +7317,49 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocMechanismEndpointBoundaryEdges narrows the copy-ready relation
+// carrier to the exact typed endpoint boundary after a no-directed-path
+// closure. Broad source evidence remains available elsewhere, but it must not
+// become a system-suggested principal path merely because it shares the source
+// caller. The predicate is schema/edge based and language-neutral.
+func answerDocMechanismEndpointBoundaryEdges(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) []answerDocMechanismRelationEdge {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || view.CallChainEndpointBoundary == nil ||
+		view.CallChainEndpointBoundary.EvidenceCapsule == nil ||
+		view.CallChainEndpointBoundary.Disposition != types.CallChainEndpointNoDirectedPath ||
+		view.CallChainEndpointBoundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceDirectedPathPresent {
+		return edges
+	}
+	capsule := view.CallChainEndpointBoundary.EvidenceCapsule
+	var groups [][]types.CallChainEvidenceEdge
+	switch capsule.Status {
+	case types.CallChainEndpointEvidenceSharedCalleeBoundary:
+		groups = [][]types.CallChainEvidenceEdge{capsule.SourcePath, capsule.SinkPath}
+	case types.CallChainEndpointEvidenceReversePath:
+		groups = [][]types.CallChainEvidenceEdge{capsule.SinkPath}
+	default:
+		groups = [][]types.CallChainEvidenceEdge{capsule.SourceFrontier, capsule.RequestedBoundary}
+	}
+	allowed := make([]types.CallChainEvidenceEdge, 0)
+	for _, group := range groups {
+		allowed = append(allowed, group...)
+	}
+	out := make([]answerDocMechanismRelationEdge, 0, len(allowed))
+	for _, edge := range edges {
+		if edge.relation != types.DiagramRelCall {
+			continue
+		}
+		for _, boundaryEdge := range allowed {
+			if types.AnswerCodeIdentitySurfacesEquivalent(edge.from, boundaryEdge.From) &&
+				types.AnswerCodeIdentitySurfacesEquivalent(edge.to, boundaryEdge.To) {
+				out = append(out, edge)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // answerDocCurrentSourceMechanismRelations is the single producer for the

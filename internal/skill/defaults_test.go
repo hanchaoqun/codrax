@@ -743,7 +743,8 @@ func TestExploreSkill_CallChainFrontierHandoffSeparatesSiblingAndReverseEdges(t 
 		"language-neutral",
 		"ArkTS",
 		"Cangjie",
-		"reverse or parallel direct call",
+		"reverse or shared-callee direct call",
+		"does not prove parallel execution, convergence, or a join",
 		"a definition row or waiver rationale cannot substitute for the edge",
 		"bounded semantic descent, not exhaustive traversal",
 	} {

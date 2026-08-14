@@ -13153,14 +13153,14 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 						Files:      []string{demand.File},
 						Keywords:   []string{demand.Endpoint},
 						Tools:      []string{"read_file", "emit_evidence"},
-						Rationale:  "read the exact endpoint definition/body before declaring no_directed_path so any reverse or parallel parser edge can be carried without guessing",
+						Rationale:  "read the exact endpoint definition/body before declaring no_directed_path so any reverse or shared-callee parser edge can be carried without guessing",
 						Origin:     "pre_complete.call_chain_no_path_endpoint_body_read",
 						Stage:      string(types.StageExplore),
 						LineRanges: []types.LineRange{{Start: demand.Start, End: demand.End}},
 					})
 				}
 			}
-			return fmt.Sprintf("%s — principal_span_waiver=no_directed_path lacks direct endpoint-body inspection.\n\nEndpoint body not present in the read closure: `%s`. A grep/repo-map row or grounded definition proves existence only; read the exact definition/body, emit any observed reverse or parallel call edge, then retry. The system will carry an AST-grade call from an already-read endpoint line, but it will not infer one from the waiver rationale.",
+			return fmt.Sprintf("%s — principal_span_waiver=no_directed_path lacks direct endpoint-body inspection.\n\nEndpoint body not present in the read closure: `%s`. A grep/repo-map row or grounded definition proves existence only; read the exact definition/body, emit any observed reverse or shared-callee call edge, then retry. The system will carry an AST-grade call from an already-read endpoint line, but it will not infer one from the waiver rationale.",
 				EmitInvestigationCompleteDowngradePrefix, strings.Join(unread, "`, `"))
 		}
 		return ""

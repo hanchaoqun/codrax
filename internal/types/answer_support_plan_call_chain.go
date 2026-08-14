@@ -67,6 +67,81 @@ func compileCallChainCurrentPathSupportLane(rm RequestModel, plan *AnswerSurface
 	return lane
 }
 
+// projectCallChainEndpointBoundarySupportPlan keeps an accepted exact
+// no-directed-path boundary from publishing every nearby call edge as a
+// principal path member. The endpoint evidence capsule already contains the
+// bounded, direction-preserving edges that explain the boundary. Only those
+// edges remain in the principal current-path lane; unrelated sibling calls stay
+// available in the raw evidence pool for model-authored supporting discussion.
+//
+// This projection consumes only typed endpoint disposition and typed call-edge
+// identities. It does not inspect request prose, model prose, or answer text,
+// and it never writes an answer or chooses a conclusion.
+func projectCallChainEndpointBoundarySupportPlan(plan *AnswerSupportPlan, boundary *CallChainEndpointBoundary) *AnswerSupportPlan {
+	if plan == nil || plan.Family != QFCallChain || boundary == nil ||
+		!boundary.Active() || boundary.Disposition != CallChainEndpointNoDirectedPath ||
+		boundary.EvidenceCapsule == nil ||
+		boundary.EvidenceCapsule.Status == CallChainEndpointEvidenceDirectedPathPresent {
+		return plan
+	}
+	allowed := callChainEndpointBoundaryEvidenceEdges(boundary.EvidenceCapsule)
+	lanes := make([]AnswerSupportLane, 0, len(plan.Lanes))
+	for _, lane := range plan.Lanes {
+		if lane.Kind != SupportLaneCurrentCodePath {
+			lanes = append(lanes, lane)
+			continue
+		}
+		filtered := make([]AnswerSupportEntry, 0, len(lane.Entries))
+		for _, entry := range lane.Entries {
+			if entry.ClaimForm != ClaimCallEdge ||
+				!callChainSupportEntryMatchesBoundaryEdge(entry, allowed) {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		lane.Entries = filtered
+		lane.Guidance = "This exact endpoint investigation established a no-directed-path boundary. " +
+			"This lane contains only the grounded call edges that explain that boundary. " +
+			"Keep each edge in its real direction and keep the requested sink separate; do not promote other same-caller calls into intermediate hops."
+		lanes = append(lanes, lane)
+	}
+	plan.Lanes = lanes
+	return plan
+}
+
+func callChainEndpointBoundaryEvidenceEdges(capsule *CallChainEndpointEvidenceCapsule) []CallChainEvidenceEdge {
+	if capsule == nil {
+		return nil
+	}
+	var groups [][]CallChainEvidenceEdge
+	switch capsule.Status {
+	case CallChainEndpointEvidenceSharedCalleeBoundary:
+		groups = [][]CallChainEvidenceEdge{capsule.SourcePath, capsule.SinkPath}
+	case CallChainEndpointEvidenceReversePath:
+		groups = [][]CallChainEvidenceEdge{capsule.SinkPath}
+	default:
+		groups = [][]CallChainEvidenceEdge{capsule.SourceFrontier, capsule.RequestedBoundary}
+	}
+	out := make([]CallChainEvidenceEdge, 0)
+	for _, group := range groups {
+		out = append(out, group...)
+	}
+	return out
+}
+
+func callChainSupportEntryMatchesBoundaryEdge(entry AnswerSupportEntry, allowed []CallChainEvidenceEdge) bool {
+	for _, edge := range allowed {
+		if AnswerCodeIdentitySurfacesEquivalent(entry.Subject, edge.From) &&
+			AnswerCodeIdentitySurfacesEquivalent(entry.Object, edge.To) {
+			return true
+		}
+	}
+	return false
+}
+
 func selectCallChainSupportEntries(rm RequestModel, plan *AnswerSurfacePlan) []AnswerSupportEntry {
 	if plan == nil {
 		return nil

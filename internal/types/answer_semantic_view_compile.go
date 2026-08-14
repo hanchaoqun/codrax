@@ -491,7 +491,7 @@ func CompileCallChainEndpointBoundaryWithEvidence(rm RequestModel, waiver *Princ
 	case !analysis.StartResolved || !analysis.EndResolved:
 		capsule.Status = CallChainEndpointEvidenceEndpointUnresolved
 	case analysis.SharedFrontier != "":
-		capsule.Status = CallChainEndpointEvidenceParallelConvergence
+		capsule.Status = CallChainEndpointEvidenceSharedCalleeBoundary
 	default:
 		capsule.Status = CallChainEndpointEvidenceDisjointFrontiers
 	}

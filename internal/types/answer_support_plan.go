@@ -114,6 +114,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	view := BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, ctx.AnalysisIR.RequestModel, plan); out != nil {
+			out = projectCallChainEndpointBoundarySupportPlan(out, view.CallChainEndpointBoundary)
 			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 			ctx.storeAnswerSupportPlan(out)
 			return cloneAnswerSupportPlan(out)
@@ -219,6 +220,7 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	view := BuildAnswerSemanticViewForBusContext(bus)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, bus.AnalysisIR.RequestModel, plan); out != nil {
+			out = projectCallChainEndpointBoundarySupportPlan(out, view.CallChainEndpointBoundary)
 			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 			bus.storeAnswerSupportPlan(out)
 			return cloneAnswerSupportPlan(out)

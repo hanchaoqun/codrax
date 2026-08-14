@@ -204,8 +204,13 @@ const (
 	CallChainEndpointEvidenceEndpointAmbiguous   CallChainEndpointEvidenceStatus = "endpoint_ambiguous"
 	CallChainEndpointEvidenceDirectedPathPresent CallChainEndpointEvidenceStatus = "directed_path_present"
 	CallChainEndpointEvidenceReversePath         CallChainEndpointEvidenceStatus = "reverse_path"
-	CallChainEndpointEvidenceParallelConvergence CallChainEndpointEvidenceStatus = "parallel_convergence"
-	CallChainEndpointEvidenceDisjointFrontiers   CallChainEndpointEvidenceStatus = "disjoint_frontiers"
+	// SharedCalleeBoundary is a static call-graph shape only: the two endpoint
+	// paths end at the same callee, but neither endpoint reaches the other.  Do
+	// not call this "parallel" or "convergence" in the model-facing carrier;
+	// those words imply runtime scheduling/join semantics that call edges alone
+	// do not prove.
+	CallChainEndpointEvidenceSharedCalleeBoundary CallChainEndpointEvidenceStatus = "shared_callee_boundary"
+	CallChainEndpointEvidenceDisjointFrontiers    CallChainEndpointEvidenceStatus = "disjoint_frontiers"
 )
 
 // CallChainEndpointEvidenceCapsule is a bounded, typed context carrier for the

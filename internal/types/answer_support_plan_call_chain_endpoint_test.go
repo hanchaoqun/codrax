@@ -17,6 +17,38 @@ func TestCallChainRequestedEndpointHints_PrefersExactTargets(t *testing.T) {
 	}
 }
 
+func TestProjectCallChainEndpointBoundarySupportPlan_KeepsOnlyBoundaryEdges(t *testing.T) {
+	plan := &AnswerSupportPlan{Family: QFCallChain, Lanes: []AnswerSupportLane{
+		{Kind: SupportLaneCurrentCodePath, Entries: []AnswerSupportEntry{
+			{EvidenceID: "sibling", ClaimForm: ClaimCallEdge, Subject: "Source.run", Object: "Other.work"},
+			{EvidenceID: "source", ClaimForm: ClaimCallEdge, Subject: "Source.run", Object: "Shared.work"},
+			{EvidenceID: "sink", ClaimForm: ClaimCallEdge, Subject: "Sink.run", Object: "Shared.work"},
+			{EvidenceID: "definition", ClaimForm: ClaimDefinitionFact, Subject: "Sink.run"},
+		}},
+		{Kind: SupportLaneUncertaintyBound, Entries: []AnswerSupportEntry{{Text: "no directed path"}}},
+	}}
+	boundary := &CallChainEndpointBoundary{
+		Disposition:    CallChainEndpointNoDirectedPath,
+		SourceEndpoint: "Source.run",
+		RequestedSink:  "Sink.run",
+		EvidenceCapsule: &CallChainEndpointEvidenceCapsule{
+			Status:     CallChainEndpointEvidenceSharedCalleeBoundary,
+			SourcePath: []CallChainEvidenceEdge{{From: "Source.run", To: "Shared.work"}},
+			SinkPath:   []CallChainEvidenceEdge{{From: "Sink.run", To: "Shared.work"}},
+		},
+	}
+	got := projectCallChainEndpointBoundarySupportPlan(plan, boundary)
+	if got == nil || len(got.Lanes) != 2 || len(got.Lanes[0].Entries) != 2 {
+		t.Fatalf("endpoint-boundary support projection = %+v", got)
+	}
+	if got.Lanes[0].Entries[0].EvidenceID != "source" || got.Lanes[0].Entries[1].EvidenceID != "sink" {
+		t.Fatalf("principal path retained non-boundary rows: %+v", got.Lanes[0].Entries)
+	}
+	if !strings.Contains(got.Lanes[0].Guidance, "only the grounded call edges that explain that boundary") {
+		t.Fatalf("boundary guidance missing: %q", got.Lanes[0].Guidance)
+	}
+}
+
 func TestCallChainRequestedEndpointHints_PathOnlyExactTargetsFallBackToTypedEntities(t *testing.T) {
 	rm := RequestModel{AnalyzerHints: AnalyzerHints{
 		ExactTargets:      []string{"internal/agent/analyzer.go"},

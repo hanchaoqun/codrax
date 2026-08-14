@@ -36071,6 +36071,53 @@ RandomStringUtils 写模式。Runner `0/2 PASS`；人工为一项系统 fail、�
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.800 r480：关系枚举正证；no-path 边界内部教学冲突与主载体扩域根修（2026-08-14）
+
+1. 在 `main@2e965bee6` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + qf_called_by_typed_relation_query`。Runner `2 PASS / 2`；人工
+   `1 pass / 1 partial`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_sequence_calledby_r480_20260814_manual_audit.md`。
+2. called-by 案正确枚举两个生产 caller、三个调用点并排除全部测试文件；最终 Mermaid 只含三条
+   同向 direct-call 边。Analyzer 的 files-only 粗判一度声称“无生产 caller”，Explorer 读源后纠正，
+   未污染终稿；先作为 P2 收敛效率观察，不为一次模型预判增加硬门。
+3. sequence 案是 `B785` 生产正证：重复 support entry 不再触发切片越界，246s 后完整成文；
+   `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith` 两条真实边方向、引用及 Mermaid 语法
+   均正确，终稿也明确不存在 `buildAnalysisIR -> gate.Run` 的有向路径。
+4. 人工仍不能签 full pass。既有 B688 Finalizer 教学明确说同 caller 边只是 sibling callsites、不得称
+   parallel/convergence；但 typed endpoint renderer 同时发布 `call_graph_status=parallel_convergence`、
+   “two independent paths converge”，而机制 copy-ready recipe、Principal Support Path 和 support lane
+   继续携带 `buildAnalysisIR` 的十条 sibling calls。模型按系统另一面词源把这些边列作“关键中间函数”，
+   并在摘要/附注写“并行汇聚”。这是系统 carrier 自冲突，不是单纯模型波动。
+5. 新确认并实现 `B786-ENDPOINTBOUNDARYPRINCIPALSCOPE1/P1`。`QFCallChain + exact endpoints + typed
+   no_directed_path` 下，AnswerSupportPlan 的 principal current-path lane 和 Finalizer 的 copy-ready relation
+   recipe 只消费 endpoint evidence capsule 中解释边界的同向 call edges；共享 callee 形只保留两端各自
+   指向该 callee 的边，reverse/disjoint/unresolved 形各按自己的 bounded boundary rows 投影。其他已证
+   sibling 仍保留在 raw evidence/enrichment/support 面，不能再由系统标成 principal intermediate/diagram edge。
+6. 同批把模型可见状态从 `parallel_convergence` 改为 `shared_callee_boundary`，并明确“两个 endpoint
+   各有一条同向路径终止于同一 callee，但彼此不可达”。共享 callee 只描述静态调用图，不授权
+   parallel execution、convergence、join、时序或 source-to-sink path；skill 与 completion 提示也统一为
+   `reverse or shared-callee call`，消除相反教学。内部 `shared_frontier` 展示键改为更直接的
+   `shared_callee`，降低模型心智和内部术语外泄概率。
+7. 所有判定只读 typed waiver/disposition、endpoint evidence status、ClaimCallEdge 的精确 Subject/Object；
+   不扫描用户问题、模型推理、answer prose 或 Mermaid 文案，不增加关键词硬拒，不由系统重画图、
+   重写答案或选择结论。专项 `internal/types + internal/agent + internal/skill` 通过，完整
+   `internal/tool` 166.901s 通过；下一批以恰好两案之一回放 sequence，验证生产模型是否只消费边界两边。
+8. 本批成文第一稿发生一次 `</parameter>` transport markup 泄漏，严格 schema 拒绝后第二稿成功；
+   归入既有 JSON/transport 波动观察，不以宽松解析接受污染载荷。Read/Write/Trace 数据路径未改；
+   Trace 显式时间窗、因果投影、自动补齐、链上-only 主因、实际耗时/规则可消双轴和业务线索均保持，
+   邻近/背景仍只能 support-only。活跃流没有 4ms 固定年龄降级。
+
+状态：
+
+`B785-CALLCHAINSUPPORTDEDUPEBOUNDS1=production-positive-r480`；
+`B688-CALLEDGERELATIONTOPOLOGY1=production-mixed-r480/superseded-by-B786`；
+`B786-ENDPOINTBOUNDARYPRINCIPALSCOPE1=implemented/typed-scope+pinned/pending-production-replay`；
+`B783-ANALYZERRUNTIMEJSONCHURN1=P2-observe/no-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
