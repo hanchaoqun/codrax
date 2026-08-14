@@ -981,8 +981,8 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 	if diagnostic.Role != AnswerAggregateRolePrincipalAnswer || diagnostic.GroundingPolicy != ClaimGroundingRepairable {
 		t.Fatalf("diagnostic runtime observation should remain principal repairable evidence, got %+v", diagnostic)
 	}
-	if diagnostic.ProvenanceLane != ObservationProvenanceObservedDirectCause {
-		t.Fatalf("diagnostic runtime observation should carry observed_direct_cause lane, got %+v", diagnostic)
+	if diagnostic.ProvenanceLane != ObservationProvenanceObservedErrorOccurrence {
+		t.Fatalf("diagnostic runtime observation should carry observed_error_occurrence lane, got %+v", diagnostic)
 	}
 	context := findObservationRecord(t, ledger, "log:observation:1")
 	if context.Role != AnswerAggregateRoleSupportingCoverage || context.GroundingPolicy != ClaimGroundingSoft {
@@ -992,11 +992,64 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 		t.Fatalf("non-diagnostic log line should carry artifact_span lane, got %+v", context)
 	}
 	errRecord := findObservationRecord(t, ledger, "log:error:0")
-	if errRecord.ProvenanceLane != ObservationProvenanceObservedDirectCause {
-		t.Fatalf("log error should carry observed_direct_cause lane, got %+v", errRecord)
+	if errRecord.ProvenanceLane != ObservationProvenanceObservedErrorOccurrence {
+		t.Fatalf("top-level log error should carry observed_error_occurrence lane, got %+v", errRecord)
 	}
 	if len(errRecord.RichNotes) == 0 || !strings.Contains(errRecord.RichNotes[0], "artifact-local") {
 		t.Fatalf("log error should warn that stack refs are artifact-local support, got %+v", errRecord.RichNotes)
+	}
+}
+
+func TestCompileObservationLedger_PeerErrorsKeepRelationUnproven(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{Errors: []LogError{
+			{Type: "panic", Message: "index out of bounds"},
+			{Type: "runtime_error", Message: "native call failed"},
+		}},
+	})
+
+	for _, id := range []string{"log:error:0", "log:error:1"} {
+		record := findObservationRecord(t, ledger, id)
+		if record.ProvenanceLane != ObservationProvenanceObservedErrorOccurrence {
+			t.Fatalf("peer error %s must not mint direct-cause authority: %+v", id, record)
+		}
+		if !strings.Contains(strings.Join(record.RichNotes, "\n"), "cross_error_relation=unproven") {
+			t.Fatalf("peer error %s lost relation boundary: %+v", id, record)
+		}
+	}
+	relation := findObservationRecord(t, ledger, "log:cross_error_relation")
+	if relation.Role != AnswerAggregateRoleSupportingCoverage ||
+		relation.GroundingPolicy != ClaimGroundingSoft ||
+		relation.Predicate != "relation_status" ||
+		relation.Value != "unproven" {
+		t.Fatalf("typed peer-relation boundary drifted: %+v", relation)
+	}
+}
+
+func TestCompileObservationLedger_ExplicitNestedCauseKeepsDirectCauseLane(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{Errors: []LogError{{
+			Type:  "Outer",
+			Cause: &LogError{Type: "Inner"},
+			CauseRelation: &LogCauseRelation{
+				Authority: LogCauseAuthorityExplicitArtifactMarker,
+				Marker:    "Caused by: Inner",
+			},
+		}}},
+	})
+
+	outer := findObservationRecord(t, ledger, "log:error:0")
+	inner := findObservationRecord(t, ledger, "log:error:1")
+	if outer.ProvenanceLane != ObservationProvenanceObservedErrorOccurrence {
+		t.Fatalf("outer occurrence must not claim it is its own cause: %+v", outer)
+	}
+	if inner.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("validated nested cause should carry direct-cause authority: %+v", inner)
+	}
+	for _, record := range ledger.Records {
+		if record.ID == "log:cross_error_relation" {
+			t.Fatalf("one explicit cause tree must not emit a peer-error boundary: %+v", record)
+		}
 	}
 }
 

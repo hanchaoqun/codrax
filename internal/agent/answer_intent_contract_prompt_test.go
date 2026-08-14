@@ -763,12 +763,44 @@ func TestRenderAnswerDocObservationLedger_RendersRuntimeProvenanceLane(t *testin
 	for _, want := range []string{
 		"`log:error:0`",
 		"producer=`log_triage`",
-		"lane=`observed_direct_cause`",
+		"lane=`observed_error_occurrence`",
 		"Stack frames are artifact-local runtime support",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("observation ledger prompt missing runtime provenance lane %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_PeerErrorsDoNotContradictRelationFence(t *testing.T) {
+	logBundle := &types.LogBundle{Errors: []types.LogError{
+		{Type: "panic", Message: "index out of bounds"},
+		{Type: "runtime_error", Message: "native call failed"},
+	}}
+	mut := types.NewMutableState("定位混合语言日志中的两个错误帧")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			LogTriage: logBundle,
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`log:error:0`",
+		"`log:error:1`",
+		"lane=`observed_error_occurrence`",
+		"`log:cross_error_relation`",
+		`value="unproven"`,
+		"observed_scope=peer_error_occurrences_only",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("peer-error observation handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "lane=`observed_direct_cause`") {
+		t.Fatalf("peer errors must not regain direct-cause authority in finalizer handoff:\n%s", got)
 	}
 }
 

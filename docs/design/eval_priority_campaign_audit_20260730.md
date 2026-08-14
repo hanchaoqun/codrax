@@ -35985,6 +35985,51 @@ complete-reference 投影。Runner 为 `1 PASS / 1 FAIL`，人工同为一 pass�
 `Trace=production-pass/on-chain-only/projection-present`；
 `system-answer-or-business-semantics-rewrite=none`；`raw-prose-hard-gate=none`。
 
+### §123.798 r478：Data repair 生产转正；peer error 被 typed ledger 误铸为 direct cause（2026-08-14）
+
+在 `main@051a3a8cb` 严格并行恰好两个异构案例：多文件 Data complete-reference 投影与
+ArkTS/Cangjie 混合运行时日志。Runner `2/2 PASS`；人工一 pass、一 partial：
+
+1. `B782-DATAREPAIRPREVIOUSPARAMS1` 获生产正证。compact repair 保住前一版完整
+   `complete_reference/reference_path/reference_key_field` tuple，只修报告的非法 `output_field` locus；
+   工作流最终产生 15 decisions、4 contributions、6 resolutions、reconcile=pass，答案精确为 `17,0,5`。
+   系统没有 merge 计划、选择 complete-reference 语义或计算业务值；
+2. Data 小材料仍耗 10 轮、2 repair、7 failed actions、195 秒。它说明 typed DAG 规划/模型收敛仍有
+   P2 效率债，但不授权跳过 rank materialization、对账或完整引用域。本批不以调大内存、系统代填计划
+   或 case 专用短路换取速度；
+3. 混合日志正确保留两种语言全部关键帧：仓颉 `demo.bridge.ohSum:18`、`checkout:42`，ArkTS
+   `NativeBridge.invokeOhSum:33:11`、`HomePage.computeTotal:54:7`。首个 log-triage emission 用普通错误行
+   冒充 cause marker，被精确门拒绝；第二个 accepted bundle 正确形成两个 top-level peer errors；
+4. 最终答案仍宣称“仓颉根因沿 bridge 传播”。深审确认不是单纯模型波动：Finalizer 的结构上下文一边
+   明示 `cross_error_relation=unproven`，Observation Ledger 另一边却把两个 peer row 都发布为
+   `lane=observed_direct_cause`。后者是更强 typed carrier，构成系统自身的矛盾合同，诱导模型重新确权；
+5. 新确认并实现 `B784-LOGPEERRELATIONAUTHORITY1/P0`。新增通用
+   `observed_error_occurrence` provenance：top-level error 以及仅凭 diagnostic/severity 分类的 log observation
+   只证明“错误/诊断事件确实被记录”，不证明其与另一个 error 的因果边。只有 `errors[].cause` 的 incoming
+   `cause_relation` 携带、并已通过 verbatim 显式 artifact marker 校验时，嵌套 cause 才进入
+   `observed_direct_cause`；
+6. 多个 top-level error 同时发布 support-only typed 行
+   `log:cross_error_relation value=unproven`，并在每个 peer row 携带
+   `observed_scope=peer_error_occurrences_only`。Finalizer e2e pin 要求两个 peer 均无 direct-cause lane，
+   explicit nested cause 正向 pin 则保持 direct-cause 权限；这只读结构化 errors tree，不扫描请求、模型
+   reasoning 或最终答案原文；
+7. B784 不删改模型正文、不替模型选择根因或绘图，也不按 ArkTS/Cangjie/错误文案特判；Java、Go、Rust、
+   Python、C/C++ 及以后新增语言共享同一错误拓扑权限。模型仍可把 bridge 传播写成待验证假设，但在没有
+   explicit marker 时不能从系统 ledger 获得“已证 direct cause”背书；
+8. 本批未改 Trace 查询、显式时间窗、自动补采、因果投影、链上-only 主因或邻近/背景 support-only
+   边界；PI、调度延迟/供给、算力、D/IO、确定性工作与业务线索双轴也未受影响。活跃连接继续不因
+   4ms、4m 或固定累计年龄降级；结束/恢复权仍只来自 cancel/deadline、无首字节、byte-stall、
+   transport/decode failure。
+
+状态：`r478 runner=2/2,human=1-pass+1-partial`；
+`B782-DATAREPAIRPREVIOUSPARAMS1=production-positive-r478`；
+`B783-ANALYZERRUNTIMEJSONCHURN1=P2-observe/no-hard-gate`；
+`B784-LOGPEERRELATIONAUTHORITY1=implemented/typed-topology+pinned`；
+`Data-small-fixture-efficiency=P2-observe/no-unsafe-shortcut`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：

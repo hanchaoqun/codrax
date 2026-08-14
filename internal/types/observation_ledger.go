@@ -113,8 +113,14 @@ type ObservationSpan struct {
 type ObservationProvenanceLane string
 
 const (
-	ObservationProvenanceUnknown                     ObservationProvenanceLane = ""
-	ObservationProvenanceObservedDirectCause         ObservationProvenanceLane = "observed_direct_cause"
+	ObservationProvenanceUnknown             ObservationProvenanceLane = ""
+	ObservationProvenanceObservedDirectCause ObservationProvenanceLane = "observed_direct_cause"
+	// ObservationProvenanceObservedErrorOccurrence means the artifact
+	// explicitly printed this error occurrence, but did not establish that it
+	// caused another peer occurrence.  Keep this distinct from
+	// ObservedDirectCause: two adjacent top-level errors may both be real while
+	// their cross-error relationship remains unproven.
+	ObservationProvenanceObservedErrorOccurrence     ObservationProvenanceLane = "observed_error_occurrence"
 	ObservationProvenanceArtifactSpan                ObservationProvenanceLane = "artifact_span"
 	ObservationProvenanceInferredUpstreamPossibility ObservationProvenanceLane = "inferred_upstream_possibility"
 )
@@ -122,6 +128,7 @@ const (
 func (l ObservationProvenanceLane) IsValid() bool {
 	switch l {
 	case ObservationProvenanceObservedDirectCause,
+		ObservationProvenanceObservedErrorOccurrence,
 		ObservationProvenanceArtifactSpan,
 		ObservationProvenanceInferredUpstreamPossibility:
 		return true
@@ -134,6 +141,8 @@ func NormalizeObservationProvenanceLane(raw string) ObservationProvenanceLane {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case string(ObservationProvenanceObservedDirectCause), "direct_cause", "direct_runtime_cause", "observed_failure":
 		return ObservationProvenanceObservedDirectCause
+	case string(ObservationProvenanceObservedErrorOccurrence), "error_occurrence", "observed_runtime_error":
+		return ObservationProvenanceObservedErrorOccurrence
 	case string(ObservationProvenanceArtifactSpan), "artifact_coordinate", "artifact_line", "artifact_measurement":
 		return ObservationProvenanceArtifactSpan
 	case string(ObservationProvenanceInferredUpstreamPossibility), "upstream_possibility", "possible_upstream_cause", "bounded_inference":
@@ -872,6 +881,8 @@ func mergeObservationRecordRichNotes(dst, src ObservationRecord) []string {
 func observationProvenanceLanePriority(lane ObservationProvenanceLane) int {
 	switch lane {
 	case ObservationProvenanceObservedDirectCause:
+		return 4
+	case ObservationProvenanceObservedErrorOccurrence:
 		return 3
 	case ObservationProvenanceInferredUpstreamPossibility:
 		return 2
@@ -1044,6 +1055,8 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	switch record.ProvenanceLane {
 	case ObservationProvenanceObservedDirectCause:
 		rank -= 25
+	case ObservationProvenanceObservedErrorOccurrence:
+		rank -= 15
 	case ObservationProvenanceInferredUpstreamPossibility:
 		rank += 60
 	}
@@ -3545,22 +3558,37 @@ func rootCauseTierName(rank int) string {
 	}
 }
 
+const logPeerRelationUnprovenNote = "cross_error_relation=unproven; observed_scope=peer_error_occurrences_only"
+
 func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)) {
 	if bundle == nil {
 		return
 	}
 	var errIndex int
-	var walkErr func(LogError)
-	walkErr = func(err LogError) {
+	peerRelationUnproven := len(bundle.Errors) > 1
+	var walkErr func(LogError, int)
+	walkErr = func(err LogError, depth int) {
 		target := firstNonEmptyString(err.Type, err.Message)
 		if target != "" {
+			lane := ObservationProvenanceObservedErrorOccurrence
+			if depth > 0 {
+				// Nested errors can only survive emit_log_triage when their
+				// incoming cause_relation carries a validated, verbatim explicit
+				// artifact marker.  That is the only log-error shape authorized to
+				// enter the direct-cause lane.
+				lane = ObservationProvenanceObservedDirectCause
+			}
+			notes := logErrorObservationRichNotes(err)
+			if peerRelationUnproven && depth == 0 {
+				notes = appendUniqueObservationString(notes, logPeerRelationUnprovenNote)
+			}
 			add(ObservationRecord{
 				ID:              fmt.Sprintf("log:error:%d", errIndex),
 				Origin:          AnswerEvidenceOriginRuntimeArtifact,
 				Producer:        "log_triage",
 				Role:            AnswerAggregateRolePrincipalAnswer,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-				ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+				ProvenanceLane:  lane,
 				SourceRef: ObservationSourceRef{
 					Kind:         ObservationSourceRuntimeArtifact,
 					ArtifactID:   "attached_log",
@@ -3569,17 +3597,39 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				ClaimKey:    target,
 				Subject:     target,
 				Summary:     firstNonEmptyString(err.Message, err.Type),
-				RichNotes:   logErrorObservationRichNotes(err),
+				RichNotes:   notes,
 				SupportRefs: logFrameRawRefs(err.Frames),
 			})
 			errIndex++
 		}
 		if err.Cause != nil {
-			walkErr(*err.Cause)
+			walkErr(*err.Cause, depth+1)
 		}
 	}
 	for _, err := range bundle.Errors {
-		walkErr(err)
+		walkErr(err, 0)
+	}
+	if peerRelationUnproven {
+		add(ObservationRecord{
+			ID:              "log:cross_error_relation",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "log_triage",
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingSoft,
+			ProvenanceLane:  ObservationProvenanceObservedErrorOccurrence,
+			SourceRef: ObservationSourceRef{
+				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactID:   "attached_log",
+				ArtifactKind: "log",
+			},
+			ClaimKey:   "cross_error_relation",
+			Subject:    "peer error occurrences",
+			Predicate:  "relation_status",
+			Value:      "unproven",
+			Summary:    "Multiple explicit error occurrences were observed; no explicit artifact marker established a cross-error causal edge.",
+			RichNotes:  []string{"observed_scope=peer_error_occurrences_only"},
+			Confidence: 1,
+		})
 	}
 	relationFence := logOperationalSemanticsNeedRelationFence(bundle.OperationalSemantics)
 	for i, semantic := range bundle.OperationalSemantics {
@@ -3746,7 +3796,11 @@ func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationP
 		return ObservationProvenanceUnknown
 	}
 	if obs.Diagnostic || obs.Severity == LogObservationFailure || obs.Severity == LogObservationWarning {
-		return ObservationProvenanceObservedDirectCause
+		// Diagnostic/severity are model-emitted classification fields.  They
+		// can promote an exact artifact excerpt into a principal observed
+		// occurrence, but cannot establish a causal edge.  Log causality is
+		// reserved for a validated errors[].cause_relation marker.
+		return ObservationProvenanceObservedErrorOccurrence
 	}
 	if obs.LineStart > 0 || obs.LineEnd > 0 || strings.TrimSpace(obs.Evidence) != "" {
 		return ObservationProvenanceArtifactSpan
