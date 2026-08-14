@@ -6709,6 +6709,13 @@ func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.Wr
 		fmt.Sprintf("%s rejected in %s: %s", decision.Action, view.State, validation.ReasonCode))
 	next := controllerDecisionFromWorkflowTransitionValidation(view, validation, decision, run)
 	next = writeflow.NormalizeWriteWorkflowDecision(next)
+	// Transition recovery is controller-owned, but it is not exempt from the
+	// same typed authority normalization as a model-emitted decision.  In
+	// particular, a rejected verify_batch on an already-complete batch is
+	// recovered as finish; that recovered finish must still observe weak-proof
+	// verdicts such as source_static-only production coverage before it can
+	// claim all_verified.  This consumes only the typed run/plan/report state.
+	next = o.normalizeControllerTypedStateDecision(next, run)
 	if errs := writeflow.ValidateWriteWorkflowDecision(next); len(errs) > 0 {
 		appendControllerProgress(run, batchID, "workflow_transition_recovery_invalid",
 			strings.Join(errs, "; "))
@@ -9879,7 +9886,18 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			*run = attachPlanContextPackToWorkflowRun(*run, plan)
 		}
 		o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
-		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
+		verifyStatus := writeWorkflowVerifyAttemptStatus(report, innerErr)
+		verifyReason := writeWorkflowVerifyAttemptReason(report, innerErr)
+		// This terminal lane has no later controller turn on which the normal
+		// finish authority gate could downgrade a report-level pass. Preserve the
+		// useful static-check pass, but record the durable verification verdict as
+		// unverified when production bytes were never executed.
+		if outcome := writeflow.ClassifyVerifyAttemptOutcome(report, innerErr); outcome.Kind == writeflow.VerifyOutcomeReportPassed &&
+			reportHasProductionPathWithoutTargetExecutionCoverage(report) {
+			verifyStatus = "unverified"
+			verifyReason = "production_verification_source_static_only"
+		}
+		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, verifyStatus, verifyReason)
 		o.syncCurrentWriteContextPackToRun(run)
 	}
 	outcome := writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
@@ -9894,8 +9912,14 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 		default:
-			updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
-			appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
+			if reportHasProductionPathWithoutTargetExecutionCoverage(report) {
+				const weakReason = "production_verification_source_static_only"
+				updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, weakReason, "verify_attempt")
+				appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", weakReason)
+			} else {
+				updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
+				appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
+			}
 		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
 		run.Status = types.WriteWorkflowRunComplete
@@ -9921,6 +9945,18 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 
 func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types.WriteWorkflowRun, reasonCode string) bool {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || !workflowRunAllBatchesComplete(run) {
+		return false
+	}
+	// Budget/interruption completion is a terminal shortcut. It must pass the
+	// same typed finish authority gate as an ordinary controller finish instead
+	// of aggregating an already-complete batch directly. The normalizer may
+	// mutate a weak passed attempt into an honest unverified completion.
+	finish := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: strings.TrimSpace(reasonCode),
+		Reason:     "all workflow batches already have typed completion verdicts",
+	}, run)
+	if finish.Action != writeflow.ActionFinish || writeflow.FinishBlockedReason(*run, finish) != "" {
 		return false
 	}
 	run.Status = types.WriteWorkflowRunComplete

@@ -4298,6 +4298,72 @@ func TestEnforceControllerWorkflowTransitionBlocksStaleApprovalApply(t *testing.
 	}
 }
 
+func TestEnforceControllerWorkflowTransitionRecoveryRechecksSourceStaticFinishAuthority(t *testing.T) {
+	mu := types.NewMutableState("transition recovery must not bypass weak verification authority")
+	plan := &types.ChangePlan{
+		ID:          "plan-static-recovery",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.rs", "tests/widget_test.rs"},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/widget.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}, {
+			Path:       "tests/widget_test.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-static-recovery",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			PlanID: plan.ID,
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed",
+			},
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	// This is the production r468 shape: the model echoed verify_batch after
+	// the batch was already complete, so transition validation recovers it to
+	// finish. The recovered finish must traverse typed authority normalization.
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionVerifyBatch, ReasonCode: "verify_again",
+	}, run)
+	if got.Action != writeflow.ActionFinish ||
+		got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified ||
+		got.ReasonCode != "production_verification_source_static_only" {
+		t.Fatalf("recovered finish bypassed source-static authority: %+v", got)
+	}
+	if run.Batches[0].Completion == nil ||
+		run.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		run.Batches[0].Attempts[1].Status != "unverified" {
+		t.Fatalf("durable weak-proof state not downgraded: %+v", run.Batches[0])
+	}
+}
+
 func TestEnforceControllerWorkflowTransitionBlocksModePlanApply(t *testing.T) {
 	mu := types.NewMutableState("plan mode transition")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModePlan}}
@@ -11570,6 +11636,114 @@ func TestRunWriteControllerWorkflow_BudgetCompletionVerifyFailureStillBlocks(t *
 	// The failed verdict must leave durable evidence.
 	if _, statErr := os.Stat(filepath.Join(planDir, "plan-budget-fail.report.json")); statErr != nil {
 		t.Fatalf("completion verify failure must persist the report: %v", statErr)
+	}
+}
+
+func TestCompleteBudgetExhaustedRunRechecksSourceStaticFinishAuthority(t *testing.T) {
+	mu := types.NewMutableState("budget terminal shortcut must preserve weak proof caliber")
+	plan := &types.ChangePlan{
+		ID:          "plan-budget-static",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.rs"},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/widget.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{
+		busCtx:                &types.BusContext{Mutable: mu, Mode: types.ModeApply, WorkDir: t.TempDir()},
+		writeWorkflowRunStore: &fakeWorkflowRunStore{},
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-budget-static",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			PlanID: plan.ID,
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed",
+			},
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID,
+			}},
+		}},
+	}
+	if !o.completeBudgetExhaustedRunIfAllBatchesComplete(run, "controller_turn_budget_all_batches_complete") {
+		t.Fatal("static-only completed batch should terminalize honestly as unverified")
+	}
+	if run.Status != types.WriteWorkflowRunComplete || run.Completion == nil ||
+		run.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		run.Completion.ReasonCode != "production_verification_source_static_only" {
+		t.Fatalf("budget shortcut falsely signed source-static proof as verified: %+v", run.Completion)
+	}
+}
+
+func TestRunAppliedPendingCompletionVerifySourceStaticProductionFinishesUnverified(t *testing.T) {
+	mu := types.NewMutableState("terminal completion verify must preserve source-static caliber")
+	plan := &types.ChangePlan{
+		ID:          "plan-terminal-static",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.rs"},
+	}
+	mu.SetChangePlan(plan)
+	store := &fakeWorkflowRunStore{}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mutable: mu, Mode: types.ModeApply, WorkDir: t.TempDir(), AnalysisIR: &types.AnalysisIR{},
+		},
+		writeWorkflowRunStore: store,
+	}
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StageVerify {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		mu.SetChangeReport(&types.ChangeReport{
+			PlanID:             plan.ID,
+			Channel:            types.ChangeReportChannelPostApplyVerify,
+			Passed:             true,
+			VerificationStatus: types.VerificationStatusPassed,
+			TestResults: []types.TestResult{{
+				Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true,
+			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/widget.rs",
+				Status:     types.ChangedPathVerificationCovered,
+				Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+				Capability: types.VerificationCapabilitySourceStatic,
+			}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-terminal-static",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", PlanID: plan.ID, Status: types.WriteWorkflowBatchApplying,
+			Attempts: []types.WriteWorkflowAttempt{{Kind: "apply", Status: "applied", PlanID: plan.ID}},
+		}},
+	}
+	steps := 0
+	if !o.runAppliedPendingCompletionVerify(run, &steps, "", "completion_verify", "verify", "verify") {
+		t.Fatal("terminal verification lane should complete with an honest unverified verdict")
+	}
+	if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		run.Completion.ReasonCode != "production_verification_source_static_only" ||
+		run.Batches[0].Attempts[len(run.Batches[0].Attempts)-1].Status != "unverified" {
+		t.Fatalf("terminal lane falsely promoted static proof: run=%+v batch=%+v", run.Completion, run.Batches[0])
 	}
 }
 

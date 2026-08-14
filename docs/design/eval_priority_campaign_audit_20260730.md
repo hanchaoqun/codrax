@@ -35946,6 +35946,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.783 r468 / B764+B765：CPU 状态值域仍被混算；系统恢复终止绕过弱证明红线（2026-08-13）
+
+在 `main@8b1877a21` 严格并发恰好两个异构案例：
+`real_trace_h4_supply_thermal_witness + github_issue_chrono_duration_min`。Runner 为
+`1 PASS / 1 FAIL`，人工为 `0 PASS / 2 FAIL`；逐轮证据见
+`eval/parallel_selected_summary_evalcampaign_trace_write_r468_20260813_manual_audit.md`。
+
+1. H4 证明 B763 的 representative 口径已生产生效：Finalizer 收到
+   `cpu_scope=dominant_state_slice_representative_not_exclusive`，探索过程也明确识别目标在 CPU12
+   运行 96.081ms、CPU4 运行 35.960ms。此前“只知道 CPU12”的证据过滤 gap 已关闭。
+2. 但终稿仍把全窗口、跨 CPU 的 `running=157.248ms` 写成“在 CPU12 上”，又把
+   off-CPU `runnable=5.604ms` 加成“有效 CPU 占用=162.852ms”，并在主体频率结论中遗漏 CPU4。
+   新确认 `B764-THREADCPUSTATECALIBER1/P1`：代表 CPU 已有 scope，running/runnable 两个数值本身
+   仍缺 `running_scope=full_window_all_cpu` 与
+   `runnable_scope=off_cpu_wait_not_cpu_occupancy`。应在 typed wire 与同源软教学补齐，禁止通过扫描
+   最终答案或系统代写来修正算术。
+3. Chrono 的 runner PASS 是确定性假绿。应用树把 `try_milliseconds` 放在 `impl Duration` 外，
+   Rust 语义不可编译；本机又没有 rustc。唯一 `make check` 只运行 Python 源码形状检查。ChangeReport
+   已准确记录两个 Rust 路径均为 `declared_project_check/source_static`，所以信息采集与 capability
+   分类没有丢失。
+4. 模型本轮也正确读到 `source_static/syntax_only` 不能证明运行行为，主动请求 `verify_batch`。
+   真正红线在系统裁决接线：batch 已 complete，transition validator 把该请求恢复成
+   `finish/workflow_already_complete`；系统铸造的 recovery finish 没有再次经过既有 B164
+   source-static authority normalizer，最终发布 `all_batches_verified`。这不是模型波动，也不是需要
+   为 fixture 放宽杆，而是 `B765-WRITETERMINALAUTHORITYBYPASS1/P0`。
+5. B765 根修覆盖三类同根终止捷径：transition recovery 决定重新进入唯一 typed normalizer；
+   all-batches-complete/budget shortcut 在聚合前执行同一 finish authority；applied-pending terminal
+   verify 因没有后续 controller turn，直接依据 typed changed-path capability 把 durable verify attempt、
+   batch 与 run 标为 `unverified/production_verification_source_static_only`。静态检查通过仍保留为有用
+   局部证据，不改写成代码失败；同路径存在 target_execution/target_behavior 时仍可正常 verified。
+6. 新 pin 逐字复现 r468 的 `verify_batch → workflow_already_complete → finish` 路径，并覆盖 budget
+   completed shortcut 与 direct terminal verify。定向测试和完整 orchestrator 套件通过。
+7. 本批不触及 Read/Trace 显式窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则
+   可消除量双轴，也不读取 request/model/final prose 或替模型写结论。活跃字节流没有 4ms 固定累计年龄
+   降级；仍只服从 caller cancel/deadline、无首字节、byte-stall 与 transport/decode failure。
+
+状态：
+
+`B762-RUNTIMETARGETDIAGNOSTICPIDSUFFIX1=production-positive-r467`；
+`B763-THREADCPULOADREPRESENTATIVECPUCALIBER1=production-context-positive-r468`；
+`B764-THREADCPUSTATECALIBER1=confirmed/next-trace-batch`；
+`B765-WRITETERMINALAUTHORITYBYPASS1=implemented/typed-terminal-seams+pinned/pending-replay`；
+`Chrono-r468=runner-pass-human-fail-overturned`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：
