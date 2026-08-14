@@ -1795,6 +1795,56 @@ func TestEmitAnalysis_SourceCallChainRejectsDiscoverEmptyWithUniqueTypedExactDes
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainRequiredSequencePairRepairsDiscardedSink(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请用 Mermaid 时序图展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["buildAnalysisIR","gate.Run","call","sequence"],
+		"entities":["buildAnalysisIR","gate.Run","unrelated.Helper"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.9,
+			"rationale":"用户要求时序图",
+			"dimensions":[{"index":1,"label":"Mermaid 时序图","role":"diagram","required":true,"source_quote":"用 Mermaid 时序图"}]
+		},
+		"diagram_hint":{
+			"kind":"sequence",
+			"required":true,
+			"relation_scope_quote":"buildAnalysisIR 到 gate.Run 的调用顺序",
+			"participants":[
+				{"identity":"buildAnalysisIR","role":"incident_required","source_quote":"buildAnalysisIR 到 gate.Run 的调用顺序"},
+				{"identity":"gate.Run","role":"incident_required","source_quote":"buildAnalysisIR 到 gate.Run 的调用顺序"}
+			]
+		},
+		"call_chain_endpoints":{
+			"source":"buildAnalysisIR",
+			"sink":"",
+			"sink_mode":"discover",
+			"runtime_selection_required":false,
+			"runtime_selection_source_quote":""
+		}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("typed diagram pair should repair the discarded sink: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.ExactActive() || profile.Source != "buildAnalysisIR" || profile.Sink != "gate.Run" {
+		t.Fatalf("required sequence pair was not preserved as ordered exact endpoints: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "required typed call diagram") {
+		t.Fatalf("diagram participant repair must remain auditable: %q", res.Summary)
+	}
+}
+
 func TestCallChainUniqueExactDestinationUsesSetIdentityWithoutGuessing(t *testing.T) {
 	discover := &types.CallChainEndpointProfile{Source: "pkg::Start", SinkMode: types.CallChainSinkResolutionDiscover}
 	for _, tc := range []struct {

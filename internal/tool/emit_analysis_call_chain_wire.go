@@ -27,6 +27,78 @@ func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile
 	return &normalized, "normalized call_chain_endpoints sink_mode from " + string(previousMode) + " to exact because both ordered endpoint fields were present; current-request provenance checks still apply"
 }
 
+// normalizeCallChainEndpointFromRequiredDiagramParticipants repairs the
+// remaining schema-to-schema contradiction where a required call visual names
+// exactly two current-request code participants, while the ordered call-chain
+// profile keeps the first participant as source but discards the other one by
+// selecting discover/discover_terminal mode. parseDiagramHint has already
+// verified that every retained participant and the shared relation scope are
+// verbatim current-request carriers. The profile supplies direction; the
+// participant set supplies only the unique other endpoint. Neither participant
+// order nor entities/buckets are used as direction authority.
+//
+// This is intentionally narrow: optional diagrams, context-only participants,
+// non-call visual families, more than two incident participants, ambiguous
+// aliases, and untyped identities all fail open. Grounded exploration still
+// owns whether a path exists and may return a typed no_directed_path boundary.
+func normalizeCallChainEndpointFromRequiredDiagramParticipants(
+	kind string,
+	axis types.PredicateAxis,
+	profile *types.CallChainEndpointProfile,
+	hint *types.DiagramHint,
+) (*types.CallChainEndpointProfile, string) {
+	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall ||
+		profile == nil || hint == nil || !hint.Required ||
+		(hint.Kind != types.DiagramSequence && hint.Kind != types.DiagramCallDAG) ||
+		(profile.SinkMode != types.CallChainSinkResolutionDiscover &&
+			profile.SinkMode != types.CallChainSinkResolutionDiscoverTerminal) ||
+		strings.TrimSpace(profile.Source) == "" || strings.TrimSpace(profile.Sink) != "" {
+		return profile, ""
+	}
+
+	incident := make([]string, 0, 2)
+	for _, participant := range hint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			return profile, ""
+		}
+		identity := strings.TrimSpace(participant.Identity)
+		if identity == "" || !types.IsCodeIdentitySurface(identity) {
+			return profile, ""
+		}
+		incident = append(incident, identity)
+	}
+	if len(incident) != 2 {
+		return profile, ""
+	}
+
+	source := strings.TrimSpace(profile.Source)
+	sourceIndex := -1
+	for i, identity := range incident {
+		if types.CallChainEndpointCompatible(identity, source) ||
+			types.CallChainEndpointCompatible(source, identity) {
+			if sourceIndex >= 0 {
+				return profile, ""
+			}
+			sourceIndex = i
+		}
+	}
+	if sourceIndex < 0 {
+		return profile, ""
+	}
+	destination := incident[1-sourceIndex]
+	if types.CallChainEndpointCompatible(destination, source) ||
+		types.CallChainEndpointCompatible(source, destination) {
+		return profile, ""
+	}
+
+	normalized := *profile
+	previousMode := normalized.SinkMode
+	normalized.Sink = destination
+	normalized.SinkMode = types.CallChainSinkResolutionExact
+	return &normalized, "normalized call_chain_endpoints sink_mode from " + string(previousMode) +
+		" to exact because the required typed call diagram names one unique other incident participant; current-request provenance and grounded reachability checks still apply"
+}
+
 // validateCallChainEndpointWireShape rejects a schema-level contradiction
 // before normalization can silently erase directional authority. Discover
 // mode carries only the named source; an already named sink belongs to exact

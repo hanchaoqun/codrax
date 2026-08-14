@@ -36286,6 +36286,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
 
+### §123.805 r485：required diagram 双端点与 discover 模式自冲突；结构化同源归一（2026-08-14）
+
+1. 在 `main@175d644d7` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + s8a`。Runner `0 PASS / 2`，人工 `0 pass / 1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_owner_r485_20260814_manual_audit.md`。
+2. B792 获生产正证。s8a 的 typed endpoint block 已一致发布 source=`definition_and_call_edge`、sink=`call_edge`
+   以及两条真实 capsule 边；终稿正确保持 `buildAnalysisIR -> gate.RunWith <- gate.Run`，没有再出现
+   `definition_only/not_emitted`。两次拒绝分别是模型把 `candidate_role` 发成数字，以及系统正确阻止 principal
+   facet 混入定义/抽象中间边，均非矛盾合同。
+3. qf 暴露 `B793-REQUIREDDIAGRAMENDPOINTMODEPARITY1/P0`：schema-valid required sequence diagram 用同一条
+   current-request relation quote 固定了两个 `incident_required` 代码 participant：`buildAnalysisIR` 与
+   `gate.Run`；call profile 却同时发 `source=buildAnalysisIR,sink="",sink_mode=discover`，并漏掉
+   `exact_targets`。既有 wire validator 只会在 exact_targets 提供唯一目的地时拒绝，未消费同样经过逐项
+   verbatim provenance 校验的 diagram participant 载体，导致后续根本没有调查 `gate.Run -> RunWith@135`。
+4. 最终结果是系统上下文先丢失用户终点，First-Pass 只发布 `buildAnalysisIR` 的同体 sibling calls；模型把
+   `gate.RunWith` 写成题设 `gate.Run` 的终点，图/列表均缺 `gate.Run -> RunWith`。唯一 Finalizer reject 只纠正
+   `gate.RunWith -> ir.QualityGate` 的 assignment/reply operator，关系门无法补造未进入 IR 的端点事实。
+   Runner 与人工 FAIL 均属实，不可归为单纯模型波动。
+5. 实现 B793：仅对 source-code call_chain + AxisCall + required sequence/call_dag + 恰好两个全部为
+   `incident_required` 的精确代码 participant 生效。call profile 已给 source 方向；participant 集合只提供唯一
+   另一端，归一为 exact 后仍经原有 current-request provenance 与 grounded reachability/no_directed_path 门。
+   optional 图、context participant、三席以上、非 call 图族、非代码身份或同名歧义全部 fail-open。
+6. 该归一只读取 schema-validated `CallChainEndpointProfile` 与 `DiagramHint`，不读取用户原文、模型推理、终稿、
+   Mermaid body/label 或关键词，不铸造调用边、不替模型写答案或结论。新增 exact 正 pin、optional/context/
+   three-member/non-call 负矩阵与 emit_analysis 全接线 pin。
+7. s8a 仍漏 normalizer/compiler/hdp/binder 等核心阶段；本轮证据只支持把它登记为 P2 异构回放观察：同一主线的
+   qf 能找到这些阶段，当前没有精确信号证明需要硬化某个函数名。禁止为 eval regex 扫描终稿或强制指定函数。
+8. Trace/Write 数据路径未改。显式窗、Trace 因果投影、自动补齐、链上-only 主因、优先级反转、调度/算力
+   供给、D/IO、确定性优化、实际占时/规则可消双轴与业务线索保持；邻近/背景仍 support-only。没有空答案、
+   恢复旧稿或 active-stream 的 4ms/4m/固定总年龄降级。
+
+状态：
+
+`B792-ENDPOINTEXISTENCEOWNERPARITY1=production-positive-r485`；
+`B793-REQUIREDDIAGRAMENDPOINTMODEPARITY1=implemented/typed-schema-only+pinned`；
+`B794-DETERMINISTICPHASEROSTERVARIANCE1=P2-observe/heterogeneous-replay/no-name-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`raw-prose-hard-gate=none`。
+
 ### §123.788 r470：目标 CPU 名册生产闭环；精确状态口径与关系 operation 发现仍断层（2026-08-13）
 
 1. 在 `main@d93d03c12` 严格并发恰好两个案例：
