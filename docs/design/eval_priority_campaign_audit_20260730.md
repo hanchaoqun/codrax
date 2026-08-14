@@ -35958,6 +35958,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.820 r497：B811 生产闭环；CPU 软教学仍有一次模型忽略；写验证副作用未披露（2026-08-14）
+
+1. 在 `main@edfc42f2d` 严格并发恰好两个案例；机器、人工均 `2 PASS / 0 FAIL`：
+   `trace_query_perf_quality_raw_fallback` 126s、写模式 `patch_c_typo` 94s。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_write_r497_20260814_manual_audit.md`。
+2. B811 获生产闭环：有限 Trace fact set 只调用 2 次 trace_query，第一次
+   `emit_investigation_complete` 即成功；日志不存在 `flow_operation_carrier_evidence`、external-only waiver
+   或 “operation-level flow remains unproven”。终稿继续保持一个样本、CPU5、8ms、未符号化/IP-only、仅
+   DSO+地址粒度，不宣称函数/行/热点比例。
+3. B812 明显改善但暂不宣称全闭环。Perf triager 与 analyzer 都准确识别 CPU5；explorer 也收到逐字共享
+   语法，但其第一次调用 trace_query 前的临时推理仍一次把 `(20)` 写成 CPU20。typed trace_query 立即返回
+   CPU5，之后 closure/final 全部正确且没有伪迁移。这是软教学已到达但模型单轮忽略；不把 model thought/
+   request/final prose 扫描升级成硬门，不由系统改写推理或答案。继续跨 trace 观察，只有多样样本证明稳定
+   系统性缺口才改 typed 投影/工具结果优先级。
+4. 写模式人工通过：ChangePlan 只有 `main.c:19` 一处 `kind=patch`，applied commit 精确 +1/-1；
+   `make test` 真实执行 `cc -Wall -O0` 并运行两次二进制，exit 0，changed-path caliber 为
+   `project_runner/target_behavior`。Read/Trace 改动没有污染 write controller、apply、verify 或 recovery ref。
+5. 新立案 B813/P2：`make test` 在 retained isolated worktree 生成未跟踪二进制 `main`，但终态仍只说
+   fully verified。该文件不在 applied commit/recovery ref 中，因此交付 patch 正确；但“已验证的提交”与
+   “仍有验证副作用的工作树”被混成一个状态，后续 batch 可能读到残留。最优方向是 run_tests 前后基于 git
+   status/fingerprint 生成 typed verification-side-effect roster：tracked 非计划漂移应 fail-loud；untracked
+   输出至少披露并隔离，自动清理只允许经过严格 owner/生成物证明的路径，禁止泛化删除客户未跟踪文件。
+6. Trace 终稿仍有“系统补充：结构化指标摘录”并暴露长串英文 `perf_quality` key。它不改结论，属于已知
+   customer-language/internal-term 展示债，不在本样例按词删除；后续应从 typed locale renderer 做通用字段
+   释义/折叠。
+7. 两案均无畸形 JSON salvage、旧稿恢复、空答案、成文 retry 或系统接管结论；活跃流没有 4ms 固定年龄
+   降级。完整 causal-diagnosis 的 Trace 因果投影/自动补齐、链上-only 主因与实际占用/规则可消除双轴不变；
+   本案是 finite fact scope，正确不生成完整因果投影。
+
+状态：
+
+`B811-BOUNDEDRUNTIMEFLOWCONTRACT1=production-closed-r497`；
+`B812-CROSSSTAGECPUIDSYNTAX1=final-closed/analyze-positive/explorer-model-watch`；
+`B813-WRITEVERIFYSIDEEFFECT1=filed-P2/applied-ref-clean+retained-worktree-dirty`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
