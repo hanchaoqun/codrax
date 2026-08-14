@@ -555,12 +555,37 @@ func TestRuntimeQuestionBoundedFactsAllowDiagnosticFrameLocation(t *testing.T) {
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
 		dimensions,
-		types.IntentRootCause,
-		types.ScenarioRootCause,
+		types.IntentExplain,
+		types.ScenarioGeneric,
 		types.SemanticPredicates{IsDiagnosticQuestion: true},
 		types.DiagnosticIntentProfile{IsDiagnostic: true},
 	); issue != "" {
 		t.Fatalf("finite observed crash-frame dimensions were incorrectly widened or rejected: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		dimensions,
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	); !strings.Contains(issue, "must not suppress the chain/ranking evidence") ||
+		!strings.Contains(issue, "role=causal_attribution") {
+		t.Fatalf("explicit root-cause classifiers must not be accepted with bounded-fact breadth: %q", issue)
+	}
+}
+
+func TestParseRequestedAnswerDimensionsRejectsActiveEmptyProfile(t *testing.T) {
+	active := true
+	confidence := 0.9
+	profile, signals, errText, warnings := parseRequestedAnswerDimensions("find the root cause", &emitRequestedAnswerDimensionsParam{
+		IsDimensionedAnswer: &active,
+		Confidence:          &confidence,
+	})
+	if profile != nil || len(signals) != 0 || len(warnings) != 0 ||
+		!strings.Contains(errText, "requires at least one dimensions row") ||
+		!strings.Contains(errText, "role=causal_attribution") {
+		t.Fatalf("active empty answer-dimension profile must fail as one actionable typed contradiction: profile=%+v signals=%v err=%q warnings=%v", profile, signals, errText, warnings)
 	}
 }
 

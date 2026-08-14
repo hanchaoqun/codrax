@@ -36053,6 +36053,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.822 r498：root-cause typed breadth 自冲突抑制链上席；Analyzer JSON 一致性根修（2026-08-14）
+
+1. 在 `main@16c34d562` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable` 175s、`sr_rust_cross_module_chain` 121s。Runner `1 PASS / 1 FAIL`；
+   人工 Trace fail、Rust partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_rust_r498_20260814_manual_audit.md`。
+2. Trace 的物理查询没有漏算。raw `trace-query-result` 含两条 `wakeup_chain.causal_impacts`：目标
+   app 的 10ms sleep 是 context/advisory；worker-200 位于 net→worker→app 闭合链，runnable=8.300ms，
+   prio=20 对目标 52，`priority_inversion_candidate=true`，gated/effective impact=8.300ms。发布层也把两条
+   observation 都写入 ledger。
+3. 真正断点在 Analyzer：同一对象同时声明 `intent=root_cause`、`scenario=root_cause`、诊断布尔为真，
+   又声明 `requested_answer_dimensions.is_dimensioned_answer=true` 但零 `dimensions`，并选择
+   `runtime_question_profile.scope=bounded_fact_set`。旧 parser 只警告后把 active dimension profile 归空；
+   旧 consistency 又刻意允许 root-cause classifier 与 bounded facts 共存。Finalizer scope projector 随后
+   正确执行错误的有限宽度，只保留目标 app 事实并裁掉非 target 的 worker 链上影响席。最终模型虽写出
+   worker 调度延迟，却因看不到 typed candidate 而错误否定优先级反转，并把未证初始 sleep 过度宣称成
+   “唯一等待来源”。这不是 `trace_query`、JSON salvage、成文 retry 或答案补丁问题。
+4. 登记并施工 `B815-RUNTIMEBOUNDEDROOTCAUSECONFLICT1/P1`。`bounded_fact_set` 现在与精确
+   `intent=root_cause` 或 `scenario=root_cause` fail-loud 冲突：模型必须完整重发为
+   `causal_diagnosis + required causal_attribution + typed diagnostic carrier`，或在请求确为有限观察时选择
+   非 root-cause intent/scenario。系统不自动扩宽、不修改已发 payload、不替模型选择根因或结论。
+5. `requested_answer_dimensions.is_dimensioned_answer=true` 且零行也改为一次可操作的 parse reject，不再
+   先归空再让下游猜 breadth。JSON 教学收敛为单向规则：有限事实可以处于诊断上下文并保留 diagnostic
+   predicate/profile，但明确 root-cause intent/scenario 不能用会抑制链/排序证据的 bounded fact scope；
+   根因或 target-effect 可见维度必须用 `causal_attribution`。所有判断只读 schema enum、boolean 与数组
+   cardinality，不扫描 request/thought/final prose。
+6. 邻接负例保持：读取一个目标状态、定位若干已观察 crash frame 等有限事实，即使具有诊断背景，只要
+   intent/scenario 非 root-cause 仍可使用 `bounded_fact_set`，不会重新被强制套入完整因果投影。真正完整
+   causal diagnosis 则不再因 analyzer 自冲突丢失链上 priority inversion、调度供给、算力供给、D/IO、
+   确定性语义工作、业务线索和实际占用/规则可消除双轴。
+7. Rust 案的六条 typed call edge、两分支和 Mermaid 均正确，系统没有代画或删图；模型把实际“先收集
+   文件、再循环匹配”误称为“两分支并行”。Finalizer 已有“fan-out 不证明并发”的准确提示，因此先按模型
+   单轮措辞 partial 记录，不扫描答案关键词、不加系统改写或 case-specific hard gate。
+8. 专项 `internal/tool`、`internal/skill`、`internal/types` 套件通过；显式时间窗只决定用户范围，不独自
+   决定 causal breadth。Trace 主因仍只能来自 typed on-chain 证据，背景/邻近只能支撑额外排查；系统自动
+   补齐与模型结论权不变。活跃流也不因 4ms/4m/累计年龄降级。
+
+状态：
+
+`B815-RUNTIMEBOUNDEDROOTCAUSECONFLICT1=implemented/typed-fail-loud+json-cardinality-pins`；
+`r498-trace=production-negative/pre-fix-replay-required`；
+`r498-rust=relation-complete/model-concurrency-wording-partial`；
+`Trace-causal-projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

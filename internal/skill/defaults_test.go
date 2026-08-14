@@ -1209,11 +1209,11 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"`causal_diagnosis` without that required dimension is structurally inconsistent",
 		"`performance_bottleneck` scenario label alone does not authorize full causal breadth",
 		"Emit the companion tuple together, never one field at a time",
-		"A finite fact lookup may still occur inside a diagnostic request",
+		"A finite fact lookup may still occur in a diagnostic context",
 		"locating each observed crash frame",
-		"those classifiers do not widen bounded_fact_set into causal diagnosis",
-		"`bounded_fact_set` = non-empty fact_families + no required causal_attribution",
-		"intent/scenario/diagnostic flags continue to describe the current request",
+		"must use a non-root-cause intent/scenario",
+		"suppressing chain/ranking evidence would make that declared goal unanswerable",
+		"`bounded_fact_set` = non-empty fact_families + no required causal_attribution + non-root-cause intent/scenario",
 		"`bounded_effect_verdict` = non-empty fact_families + one required causal_attribution + non-root-cause intent + all diagnostic predicate/profile flags false",
 		"`causal_diagnosis` = fact_families omitted + required causal_attribution + intent=root_cause + a coherent diagnostic predicate/profile carrier",
 		"A scenario label cannot repair a contradictory tuple",
@@ -1225,8 +1225,8 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 			t.Fatalf("runtime scope teaching missing one-way consequence %q", want)
 		}
 	}
-	if strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, "`bounded_fact_set` = non-empty fact_families + no required causal_attribution + non-root-cause intent") {
-		t.Fatal("runtime scope teaching still contradicts the accepted diagnostic bounded-fact tuple")
+	if strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, "intent/scenario/diagnostic flags continue to describe the current request") {
+		t.Fatal("runtime scope teaching still permits explicit root-cause classifiers to suppress their own causal evidence")
 	}
 	for _, want := range []string{
 		"ENTIRE principal answer is one scalar",

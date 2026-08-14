@@ -4564,6 +4564,10 @@ func validateRuntimeQuestionProfileConsistency(
 		return ""
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
+		(intent == types.IntentRootCause || scenario == types.ScenarioRootCause) {
+		return "runtime_question_profile.scope=bounded_fact_set conflicts with intent=root_cause or scenario=root_cause. A finite observed-fact lookup may remain inside a diagnostic context, but an explicit root-cause classifier requests causal breadth and must not suppress the chain/ranking evidence needed to answer it. Re-emit one coherent tuple: use causal_diagnosis, omit fact_families, retain intent=root_cause plus the typed diagnostic carrier, and emit at least one required requested_answer_dimensions role=causal_attribution; if the current request truly asks only for finite observations, keep bounded_fact_set and choose a non-root-cause intent/scenario. The system will not widen or rewrite the model-owned classification"
+	}
+	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
 		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one finite target-effect verdict plus finite evidence; the constraining condition may be named or may remain an unresolved mechanism that evidence must not guess. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
 		if repair := runtimeQuestionFiniteVerdictRepairTarget(profile, intent, scenario); repair != "" {
@@ -5187,6 +5191,9 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 	}
 	if !*p.IsDimensionedAnswer {
 		return nil, nil, "", nil
+	}
+	if len(p.Dimensions) == 0 {
+		return nil, nil, "requested_answer_dimensions.is_dimensioned_answer=true requires at least one dimensions row. Emit every explicitly requested visible dimension once; root-cause or target-effect verdicts use role=causal_attribution. Set is_dimensioned_answer=false only when the current request names no visible answer dimension", nil
 	}
 	dimensions := make([]types.RequestedAnswerDimension, 0, len(p.Dimensions))
 	var roleWarnings []string
