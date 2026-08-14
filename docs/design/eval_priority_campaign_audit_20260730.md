@@ -36110,6 +36110,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.787 B767：Runtime Analyzer JSON 合同单向收敛（2026-08-13）
+
+1. r469 H4 的七次 emit 中，首包已同时携带 non-empty fact_families、required causal_attribution、
+   `intent=explain`，但又遗留 `is_diagnostic_question/is_diagnostic=true`。旧顺序先让
+   bounded_effect 服从这两个陈旧 full-diagnosis flags，提示改成 causal_diagnosis；后续自一致性才指出
+   diagnostic flags 与 explain 冲突，模型遂在三种 scope 间往返。合同可满足，但 repair direction 不收敛。
+2. 最优裁定：`runtime_question_profile.scope` 是专用 answer-breadth authority；当它与 non-root intent 已共同
+   选中有限车道时，单个 legacy diagnostic flag 不得把修复提示反向弹到 full diagnosis。validator 仍 fail-loud，
+   但从已解析 enum/boolean/fact-family 生成一个 `canonical_field_target`：bounded_effect_verdict、保留当前非空
+   facts 与 required causal_attribution、保留 non-root intent/scenario、一次清零四个 diagnostic profile flags
+   与 diagnostic predicate。模型把这个局部目标合并进下一份完整 emit；系统不自动 mutation/accept。
+3. 对真正 full diagnosis，causal_diagnosis 仍要求 facts omitted + required causal attribution + root_cause intent +
+   coherent diagnostic carrier；错误面给出独立 full-diagnosis typed target，并明确仅在当前请求确实要求完整
+   根因/排名/竞争贡献者时采用。有限 verdict 不会因此获得根因榜、唤醒链或 Trace 因果投影合同。
+4. JSON 教学新增紧邻 scope 的三行 companion tuple 真值表；强调 scope/facts/causal dimension/intent/
+   diagnostic flags 必须一次成组发出，scenario 不能修复矛盾 tuple。它是软教学；硬校验仍只读 schema-validated
+   typed fields，不扫描用户原文、模型 reasoning 或最终答案。
+5. Pin 覆盖 r469 同构矛盾：第一次 reject 必须携带有效、确定性的 finite `canonical_field_target`；应用该
+   typed target 后下一次 consistency check 立即通过；bounded_effect 上单个陈旧诊断 flag 不得再提示删除 facts
+   并跳 causal_diagnosis。既有 causal/full-report 正反臂保持。
+
+状态：
+
+`B767-ANALYZERJSONCONVERGENCE1=implemented/typed-canonical-repair+companion-tuple-teaching/pending-r470`；
+`runtime-contract-auto-rewrite=forbidden/none`；
+`raw-request/model-output keyword hard gate=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

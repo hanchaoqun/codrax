@@ -678,6 +678,73 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 	}
 }
 
+func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *testing.T) {
+	causalVerdict := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "target effect", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+		}},
+	}
+	profile := &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactCountOrDuration,
+			types.RuntimeQuestionFactTargetSchedulerState,
+			types.RuntimeQuestionFactFrequencyResidency,
+		},
+	}
+	issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	)
+	for _, want := range []string{
+		"canonical_field_target=",
+		`"scope":"bounded_effect_verdict"`,
+		`"fact_families":["count_or_duration","target_scheduler_state","frequency_residency"]`,
+		`"intent":"explain"`,
+		`"scenario":"performance_bottleneck"`,
+		`"is_diagnostic_question":false`,
+		`"is_diagnostic":false`,
+		"next COMPLETE object",
+		"preserve the required causal_attribution dimension",
+	} {
+		if !strings.Contains(issue, want) {
+			t.Fatalf("finite-verdict repair target missing %q: %s", want, issue)
+		}
+	}
+
+	// Applying the typed field target to a complete model-owned object must
+	// converge immediately. The validator does not mutate the model payload.
+	profile.Scope = types.RuntimeQuestionScopeBoundedEffectVerdict
+	if got := validateRuntimeQuestionProfileConsistency(
+		profile,
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); got != "" {
+		t.Fatalf("canonical finite-verdict tuple did not converge: %q", got)
+	}
+
+	// A stale diagnostic flag on an otherwise coherent bounded-effect tuple
+	// points back to the same finite target instead of bouncing to causal.
+	if got := validateRuntimeQuestionProfileConsistency(
+		profile,
+		causalVerdict,
+		types.IntentExplain,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	); !strings.Contains(got, "canonical_field_target=") || strings.Contains(got, "use causal_diagnosis and omit fact_families") {
+		t.Fatalf("stale legacy flags caused another breadth bounce: %q", got)
+	}
+}
+
 func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing.T) {
 	raw := "请说明目标进程、transaction 编号和直接唤醒者"
 	payload := `{

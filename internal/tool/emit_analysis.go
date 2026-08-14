@@ -4498,13 +4498,25 @@ func validateRuntimeQuestionProfileConsistency(
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
-		return "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one finite target-effect verdict plus finite evidence; the constraining condition may be named or may remain an unresolved mechanism that evidence must not guess. Use causal_diagnosis and omit fact_families for root-cause/ranking, competing contributors, or a full causal investigation. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Use relation_analysis instead only for a requested dependency/call/wakeup path, or system_overview for a broad trace report. Keep bounded_fact_set only when every requested dimension is a finite observed value and no causal verdict is requested. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
+		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one finite target-effect verdict plus finite evidence; the constraining condition may be named or may remain an unresolved mechanism that evidence must not guess. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
+		if repair := runtimeQuestionFiniteVerdictRepairTarget(profile, intent, scenario); repair != "" {
+			issue += ". " + repair
+		}
+		return issue
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
 		if !requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
 			return "runtime_question_profile.scope=bounded_effect_verdict requires a required requested_answer_dimensions role=causal_attribution; use bounded_fact_set for finite observations without a target-effect verdict, or preserve the verdict dimension"
 		}
 		if intent == types.IntentRootCause || predicates.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause() || scenario == types.ScenarioRootCause {
+			// The dedicated runtime scope plus a non-root intent is the more
+			// specific breadth declaration.  Do not let one stale legacy
+			// diagnostic flag bounce the model into causal_diagnosis; return one
+			// coherent finite field target and let the next complete model emit
+			// own the classification.
+			if repair := runtimeQuestionFiniteVerdictRepairTarget(profile, intent, scenario); repair != "" {
+				return "runtime_question_profile.scope=bounded_effect_verdict conflicts with legacy diagnostic predicate/profile flags while intent/scenario remain non-root-cause. Keep the finite verdict breadth and clear the contradictory full-diagnosis flags, or deliberately choose the full causal tuple from the current request; do not change only the scope. " + repair
+			}
 			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with a typed full root-cause/diagnostic request; use causal_diagnosis and omit fact_families so the chain/ranking investigation remains available"
 		}
 		return ""
@@ -4521,7 +4533,65 @@ func validateRuntimeQuestionProfileConsistency(
 		scenario == types.ScenarioRootCause {
 		return ""
 	}
-	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause) in addition to a required causal_attribution dimension. scenario=performance_bottleneck alone does not prove full answer breadth: use bounded_effect_verdict with fact_families for one finite target-effect verdict, or mark the actual broad diagnostic carrier when the current request asks for root-cause/ranking, competing contributors, or a full mechanism investigation. Use bounded_fact_set for finite observations without a verdict, and relation_analysis for a requested caller/wakeup/IPC/dependency path or topology"
+	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause) in addition to a required causal_attribution dimension. scenario=performance_bottleneck alone does not prove full answer breadth. If full diagnosis is intended, align the whole companion tuple at once; otherwise use bounded_effect_verdict with non-empty fact_families and clear every full-diagnosis flag. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
+}
+
+// runtimeQuestionFiniteVerdictRepairTarget renders a deterministic PARTIAL
+// JSON field target from already parsed typed fields.  It never reads request
+// or model prose and never mutates/accepts the analysis.  The model must merge
+// this target into its next complete emit_analysis object, preserving every
+// unrelated required field and its required causal_attribution dimension.
+func runtimeQuestionFiniteVerdictRepairTarget(
+	profile *types.RuntimeQuestionProfile,
+	intent types.Intent,
+	scenario types.Scenario,
+) string {
+	if profile == nil || len(profile.FactFamilies) == 0 ||
+		intent == types.IntentRootCause || scenario == types.ScenarioRootCause {
+		return ""
+	}
+	target := map[string]any{
+		"diagnostic_profile": map[string]bool{
+			"current_risk":          false,
+			"current_version_check": false,
+			"historical_regression": false,
+			"is_diagnostic":         false,
+		},
+		"intent":   intent,
+		"scenario": scenario,
+		"predicates": map[string]bool{
+			"is_diagnostic_question": false,
+		},
+		"runtime_question_profile": map[string]any{
+			"scope":         types.RuntimeQuestionScopeBoundedEffectVerdict,
+			"fact_families": profile.FactFamilies,
+		},
+	}
+	payload, err := json.Marshal(target)
+	if err != nil {
+		return ""
+	}
+	return "canonical_field_target=" + string(payload) + "; apply these fields to the next COMPLETE object, preserve the required causal_attribution dimension and all unrelated required fields"
+}
+
+func runtimeQuestionFullDiagnosisRepairTarget(scenario types.Scenario) string {
+	if scenario != types.ScenarioRootCause && scenario != types.ScenarioPerformanceBottleneck {
+		scenario = types.ScenarioRootCause
+	}
+	target := map[string]any{
+		"diagnostic_profile": map[string]bool{"is_diagnostic": true},
+		"intent":             types.IntentRootCause,
+		"scenario":           scenario,
+		"predicates":         map[string]bool{"is_diagnostic_question": true},
+		"runtime_question_profile": map[string]any{
+			"scope": types.RuntimeQuestionScopeCausalDiagnosis,
+		},
+	}
+	payload, err := json.Marshal(target)
+	if err != nil {
+		return ""
+	}
+	return "full_diagnosis_canonical_field_target=" + string(payload) + "; fact_families must be omitted and the required causal_attribution dimension preserved; apply only if the current request truly asks for full diagnosis"
 }
 
 func requestedAnswerDimensionsRequireCausalAttribution(profile *types.RequestedAnswerDimensionProfile) bool {
