@@ -339,7 +339,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 				"- aggregated_impact thread=worker-21 path=worker-21 -> com.app-42 depth=1 occurrences=2 occurrence_windows=1.010000..1.025000,state=runnable,total=8.500ms,target=12.000ms;1.040000..1.050000,state=runnable,total=4.500ms,target=8.000ms dominant_state=runnable impact=12.000ms total=13.000ms target_impact=20.000ms fragments=4 switches=2 max_segment=8.000ms running=0.000ms runnable=12.000ms sleep=1.000ms d_state=0.000ms io_wait=0.000ms priority_relation=lower_priority_dependency priority_inversion_candidate=true lines=80-95 — worker aggregate runnable dependency repeated across fragments",
 				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
 				"## Window stats",
-				"- thread_cpu_load thread=rival-30 running=6.000ms runnable=1.000ms high_prio_running=6.000ms cpu=1 core_class=small freq=900000kHz prio=80/ohos_rt lines=45-49 — rival thread load",
+				"- thread_cpu_load thread=rival-30 running=6.000ms runnable=1.000ms high_prio_running=6.000ms cpu=1 cpu_scope=dominant_state_slice_representative_not_exclusive core_class=small freq=900000kHz prio=80/ohos_rt lines=45-49 — rival thread load",
 				"- cpu_constraint thread=com.app-42 kind=sched_switch_next_info allowed_cpus=0,1 allowed_core_classes=small cpuset=top-app policy=next_info_affinity_3 observed_cpu=1 observed_core_class=small migrations=0 runnable=5.000ms other_cpu_idle=12.000ms lines=46-48 — app constrained to small cores",
 				"- runnable_context thread=com.app-42 runnable=5.000ms cpu=1 core_class=small freq=900000kHz same_cpu_busy=9.000ms same_cpu_idle=0.500ms other_cpu_idle=12.000ms high_prio_running=6.000ms top_background_threads=rival-30/7.000ms top_background_process=rival_proc-300/7.000ms constraint=allowed_cpus=0,1;allowed_core_classes=small;cpuset=top-app;policy=next_info_affinity_3 verdict=restricted_to_busy_or_small_cores confidence=0.84 lines=45-49 — app runnable context with rival thread",
 				"- process_cpu_load process=rival_proc-300 threads=1 running=6.000ms runnable=1.000ms high_prio_running=6.000ms top_thread=rival-30 top_thread_ms=7.000ms cpus=1 core_classes=small lines=45-49 — secondary process rollup",
@@ -432,6 +432,7 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	if threadLoad.Predicate != "thread_cpu_load" ||
 		threadLoad.Subject != "rival-30" ||
 		threadLoad.Value != "7.000" ||
+		!strings.Contains(threadLoad.Summary, "cpu_scope=dominant_state_slice_representative_not_exclusive") ||
 		!observationLedgerTestContainsString(threadLoad.RichNotes, "core_class=small") {
 		t.Fatalf("trace_query thread_cpu_load should survive as runtime observation: %+v", threadLoad)
 	}

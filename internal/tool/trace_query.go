@@ -6384,7 +6384,7 @@ func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary)
 }
 
 func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSummary) {
-	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%s core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%s cpu_scope=dominant_state_slice_representative_not_exclusive core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		item.RunningMs,
 		item.RunnableWaitMs,
@@ -14192,6 +14192,7 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
+		{"cpu_scope", "dominant_state_slice_representative_not_exclusive"},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},

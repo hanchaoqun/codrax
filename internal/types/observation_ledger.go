@@ -3027,7 +3027,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 
 func traceQueryLoadSummaryFromFields(label string, fields map[string]string, fallback string) string {
 	parts := []string{label}
-	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", "cpu", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
+	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", "cpu", "cpu_scope", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
 	for _, key := range keys {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			parts = append(parts, key+"="+value)

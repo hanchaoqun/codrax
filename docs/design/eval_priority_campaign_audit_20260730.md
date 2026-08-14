@@ -35894,6 +35894,58 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.782 r467 / B763：目标 CPU 证据恢复，但代表 CPU 被误解成唯一 CPU（2026-08-13）
+
+1. 在 `main@f98fc95fd` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`；人工
+   Trace partial、QF fail。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_target_pid_replay_r467_20260813_manual_audit.md`。
+2. B762 获生产正证。H4 Finalizer 已收到目标的两条 `target_window_states`、`top_running`
+   CPU12=96.081ms@2075MHz、CPU4=35.960ms@558MHz，以及 full-window `thread_cpu_load`；正文恢复
+   CPU12=2075MHz，不再声称所有运行 CPU 编号都缺失。原客户症状确认是 Codrax prompt projection
+   身份匹配 gap，而不是 trace 不完整。
+3. 新确认 `B763-THREADCPULOADREPRESENTATIVECPUCALIBER1/P1`。`computeThreadCPULoad` 的 running/
+   runnable 数值是全窗口、全 CPU census 总量，但 `CPU/CoreClass/Frequency` 明确从该线程最大的单一
+   running/runnable 切片选代表。旧输出只写 `cpu=12`，没有发布该非排他 caliber；模型因此把它写成
+   “线程绑定 CPU12”，并漏列同一 target 已在 prompt 中的 CPU4 运行桶。这是 producer 语义不自描述，
+   不是模型随机漏字。
+4. B763 在两条 trace_query 输出面统一追加
+   `cpu_scope=dominant_state_slice_representative_not_exclusive`：文本 banner、typed observation summary 与
+   legacy summary parser 同义。Finalizer 仅获软引导：`thread_cpu_load.cpu` 不得称为唯一 CPU；当问题询问
+   运行 CPU 或 per-CPU 频率 binding 时，逐条列出现有 target-owned `top_running`/scheduler CPU 行及各自
+   duration/frequency，并把 capped roster 诚实称为已观测集合，不冒充完整 CPU census。一个 CPU 的 policy
+   row 只可与同 CPU 的 target slice 讨论，禁止跨核迁移。
+5. 该改动不重算 157.248ms，不由系统决定“受限/未受限”，也不扫描请求、模型推理或答案原文。
+   CPU4 target bucket 与 CPU4 limit witness 同在窗口仍不足以自动证明性能影响；没有 exact running-slice
+   overlap/binding carrier 时，模型应保持“策略上限存在，实际命中影响未证”。旧 oracle 仍因词序/距离拒绝
+   等价中文，是次级假阴性，不据此硬化答案。
+6. QF 自动 PASS、人工 fail。探索 600s、32 reads、16 midloop、6 次 investigation completion reject；
+   第一稿画出大量未证关系后 validator 正确拒绝，但 patch 最终只剩
+   `Run→runAnalyzePhase` 与 `dispatchStage→applyStageOutput` 两条 call，用户点名的四 evaluator 与
+   Mutable/BusContext 均未进入关系图。正文保留口头关系不等于图层闭环。
+7. QF 根因应作为通用 `typed obligation identity + completion repair convergence` 战役处理：同一未完成
+   operation-level relation 义务在主 explorer、两条 current-source lane、recovered evidence 与 aggregate
+   support_ref 之间没有稳定 ID/去重，模型反复重读再重发；最终关系图又只能消费 call 边，现有 argument/
+   data-flow/assignment 证据没有形成用户点名参与者的 request-scoped incident set。不得降低 validator、
+   系统造边或针对 QF 文案强制节点；先审计义务的单源 ID、已满足判定与 parser-owned carrier 覆盖。
+8. 活跃字节流本轮持续 600s 仍未发生 4ms 降级；结束权保持 caller cancel/deadline、no-first-byte、
+   byte-stall、transport/decode failure。Trace causal diagnosis 的因果投影、自动补齐、链上-only 根因及
+   优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索双轴均未修改。
+
+状态：
+
+`B762-RUNTIMETARGETDIAGNOSTICPIDSUFFIX1=production-positive-r467`；
+`B763-THREADCPULOADREPRESENTATIVECPUCALIBER1=implemented/typed-output+legacy-parser+soft-guidance/pending-r468`；
+`B761-REQUIREDANALYSISDIMENSIONADMISSION1=production-positive-r467/causal-role-restored`；
+`H4-CPU-EVIDENCE=restored/multi-cpu-presentation-partial`；
+`H4-ORACLE=automatic-fail/secondary-prose-shape-overfit`；
+`QF-RELATIONGRAPH=automatic-pass/human-fail/two-edge-only`；
+`QF-COMPLETION-CONVERGENCE=confirmed/high-ROI/32-reads+6-rejects`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

@@ -43,6 +43,10 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"neither that lower observed frequency nor the limit row proves that the workload hit the ceiling",
 		"does not by itself identify the lower-frequency cause or prove governance binding",
 		"Normalize every frequency comparison to one unit",
+		"`cpu_scope=dominant_state_slice_representative_not_exclusive`",
+		"Never call that CPU the target's only CPU",
+		"enumerate every available target-owned CPU row",
+		"A policy row for one CPU binds only to target running evidence on that same CPU",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)
