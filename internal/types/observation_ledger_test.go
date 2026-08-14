@@ -2286,6 +2286,29 @@ func TestPrioritizeObservationRecords_RuntimeTargetFactsSurviveBackgroundBudget(
 	}
 }
 
+func TestObservationRecordMatchesUserRuntimeTarget_TypedDiagnosticPIDSuffix(t *testing.T) {
+	record := ObservationRecord{Subject: ".ugc.aweme.lite-17267"}
+	rm := RequestModel{RuntimeTargets: []RuntimeTarget{{
+		Kind: RuntimeTargetKindThread, Thread: ".ugc.aweme.lite-17267 [17267]", Source: "user_explicit",
+	}}}
+	if !ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("typed name-tid [tid] display must match the same deterministic target")
+	}
+	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite [17267]"
+	if !ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("typed bare-name [tid] display must match the same deterministic target")
+	}
+	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite-17267 [17268]"
+	if ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("contradictory name tid and bracket tid must fail closed")
+	}
+	rm.RuntimeTargets[0].Source = RuntimeTargetSourceExplicitToolCall
+	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite-17267 [17267]"
+	if ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("exploration cursor must remain excluded after display normalization")
+	}
+}
+
 // sourceInventoryAttributeDemandRecords builds a compile-order ledger slice —
 // set record, then member rows each immediately followed by their attribute
 // row, then unrelated evidence records — with identical anchor shapes so rank

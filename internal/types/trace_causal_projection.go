@@ -2662,11 +2662,18 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 	if !labelHasPid {
 		labelPid, labelHasPid = traceCausalProjectionPidPeerForm(label)
 	}
+	if !labelHasPid {
+		if base, pid, ok := traceCausalProjectionTypedDiagnosticPIDDisplay(label); ok {
+			label, labelPid, labelHasPid = base, pid, true
+		}
+	}
 	// F2/F3: the "-<digits>" tail and bare-integer arms are TYPED-lane only.
 	// The explicit "pid=N" handle is unambiguous and stays open to prose.
 	entityPid, entityHasPid := traceCausalProjectionPidPeerForm(value)
 	if !entityHasPid && entity.typedLane {
-		if entityPid, entityHasPid = traceCausalProjectionNamePidTail(value); !entityHasPid {
+		if base, pid, ok := traceCausalProjectionTypedDiagnosticPIDDisplay(value); ok {
+			value, entityPid, entityHasPid = base, pid, true
+		} else if entityPid, entityHasPid = traceCausalProjectionNamePidTail(value); !entityHasPid {
 			entityPid, entityHasPid = traceCausalProjectionPureInt(value)
 		}
 	}
@@ -2683,6 +2690,33 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 		}
 	}
 	return false
+}
+
+// traceCausalProjectionTypedDiagnosticPIDDisplay accepts a typed diagnostic
+// display suffix such as "worker-17267 [17267]" or "worker [17267]". Models
+// sometimes retain the human-facing bracketed tid inside RuntimeTarget.Thread
+// instead of populating RuntimeTarget.PID separately. The suffix is still a
+// precise typed integer carrier; if a name-tid base exposes a different tid,
+// the shape is contradictory and fails closed.
+func traceCausalProjectionTypedDiagnosticPIDDisplay(raw string) (string, int, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 4 || raw[len(raw)-1] != ']' {
+		return "", 0, false
+	}
+	open := strings.LastIndexByte(raw, '[')
+	if open <= 0 {
+		return "", 0, false
+	}
+	base := strings.TrimSpace(raw[:open])
+	digits := strings.TrimSpace(raw[open+1 : len(raw)-1])
+	pid, err := strconv.Atoi(digits)
+	if err != nil || pid <= 0 || pid > RuntimeTargetMaxPID || base == "" {
+		return "", 0, false
+	}
+	if basePID, ok := traceCausalProjectionNamePidTail(base); ok && basePID != pid {
+		return "", 0, false
+	}
+	return base, pid, true
 }
 
 type traceCausalProjectionWakeupEdge struct {

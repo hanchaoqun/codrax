@@ -129,6 +129,37 @@ func TestAnswerDocBoundedNamedTargetPromptProjectsUnrelatedRuntimeRows(t *testin
 	}
 }
 
+func TestAnswerDocBoundedNamedTargetPromptAcceptsTypedDiagnosticPIDSuffix(t *testing.T) {
+	record := func(id, subject, predicate string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Subject: subject, Predicate: predicate,
+		}
+	}
+	records := []types.ObservationRecord{
+		record("target-state", ".ugc.aweme.lite-17267", "target_window_states"),
+		record("target-running-cpu", ".ugc.aweme.lite-17267", "top_running"),
+		record("other-state", "tui thread-13629", "state_churn"),
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, Thread: ".ugc.aweme.lite-17267 [17267]", Source: "user_explicit",
+		}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedEffectVerdict,
+			FactFamilies: []types.RuntimeQuestionFactFamily{
+				types.RuntimeQuestionFactTargetSchedulerState,
+				types.RuntimeQuestionFactFrequencyResidency,
+			},
+		},
+	}}}
+
+	got := answerDocScopeProjectedObservationRecords(ctx, records)
+	if gotIDs := strings.Join(answerDocObservationRecordIDs(got), ","); gotIDs != "target-state,target-running-cpu" {
+		t.Fatalf("typed diagnostic pid display filtered genuine target rows: %s", gotIDs)
+	}
+}
+
 func TestAnswerDocBoundedPromptProjectionFailsOpenWithoutUserTargetAndSkipsCausalScope(t *testing.T) {
 	records := []types.ObservationRecord{{
 		ID: "other-state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,

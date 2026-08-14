@@ -35846,6 +35846,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.781 r466 / B762：typed 目标诊断 PID 显示形误删真实 CPU 证据（2026-08-13）
+
+1. 在 `main@acb9f8ce7` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   QF partial、Trace fail。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_bounded_wait_projection_r466_20260813_manual_audit.md`。
+2. B760b 获生产正证：H4 Finalizer 不再出现独立的
+   `Runtime Trace Kernel Wait Call-Site & Wakeup Evidence` 旁路，也没有未请求 blocked-reason census；
+   coverage 不再把无关线程 `cpu_constraint` 当全局频率事实。subject/object incident 投影与
+   `recorded_reason ∧ count_or_duration` 单一权限已生效。
+3. 新确认 `B762-RUNTIMETARGETDIAGNOSTICPIDSUFFIX1/P0`。Analyzer 发出 schema-valid typed target
+   `Thread=".ugc.aweme.lite-17267 [17267]", PID=0, source=user_explicit`。旧比较器只认识 bare comm、
+   `comm-tid`、纯 tid 和 `pid=N`，不认识附加的人类诊断 `[tid]`；bounded prompt projection 因而把
+   `.ugc.aweme.lite-17267` 的 `target_window_states/top_running` 全部当成异线程剔除。模型只看到全局
+   frequency witness，终稿遂错误宣称“切换入 Running 时所在 CPU 编号未明确标注”。
+4. 这不是 trace 缺数据。相同查询的 lossless trace/tool 结果明确包含：窗口首行目标切入 CPU3；
+   `top_running` 有 CPU12=96.081ms@2075000kHz、CPU4=35.960ms@558000kHz；CPU4 policy max=2100000kHz、
+   28 rows。需要继续分开两个权限：这些证据足以回答“运行在哪些 CPU/各运行多久”，但若没有 slice
+   overlap/binding carrier，仍不能把策略上限存在直接升级为“目标性能已受频率限制”。
+5. B762 在既有 typed identity comparator 单点根修：接受 `worker-17267 [17267]` 与
+   `worker [17267]` 诊断显示形；括号整数仍受 PID 上限校验，若 base 的 `-tid` 与 `[tid]` 不一致则
+   fail-closed。仅 `RuntimeTarget` typed lane 可消费该形；探索 cursor 继续排除，用户原文、模型推理和
+   最终答案均不扫描。比较器单测与 finalizer projection 接线测试同时固定 target row 保留、异线程剔除。
+6. H4 Analyzer 本轮恢复发出三条 requested dimensions，但把“频率是否受限”仍标成
+   `observed_value` 而非 `causal_attribution`，B761 仍为 P1；不得由 runtime system 猜改 scope/role。
+   D-state 在 conversion coverage 下为 unavailable，不应为迎合旧 oracle 伪装成 0。该 case 对合格的
+   evidence-boundary 文案仍有窄正则假阴性，继续人工审计，不用答案词硬拟合。
+7. QF 自动 PASS、人工 partial：第一稿的未证 Explorer→Mutable/PipelineStage→阶段边被 validator 正确
+   拒绝；patch 保留三条 precedence 与两条 exact data_flow，BusContext/Mutable 断开披露未证。正文仍
+   口头声称完整共享载体流，且 420s/15 轮探索偏重；后续应补 parser-owned incident relation 或收窄
+   模型主张，不得系统造边、代画或改写结论。
+8. 本批不改 trace engine、因果投影编译、根因排序、唤醒链或窗内可消除量。完整 causal diagnosis
+   仍保留 typed 链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义与业务线索双轴；邻近/
+   背景只能作额外排查支撑。活跃字节流超过 4ms 未形成完整 answer_document 时仍禁止降级。
+
+状态：
+
+`B760b-BOUNDEDWAITPROMPTBYPASS1=production-positive-r466`；
+`B762-RUNTIMETARGETDIAGNOSTICPIDSUFFIX1=implemented/typed-comparator+projection-pin/pending-r467`；
+`B761-REQUIREDANALYSISDIMENSIONADMISSION1=open/P1/role-still-wrong-r466`；
+`H4-CPU-EVIDENCE=present/lost-by-prompt-projection-not-trace-loss`；
+`H4-ORACLE=automatic-fail/human-fail-mainly-B762+secondary-prose-overfit`；
+`QF-READ-NAVIGATION-CHURN=15-rounds/one-valid-repair/relationship-evidence-partial`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：
