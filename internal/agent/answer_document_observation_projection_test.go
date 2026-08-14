@@ -75,6 +75,88 @@ func TestAnswerDocFiniteRuntimeScopeProjectsRankingRowsOutOfFinalizerPromptOnly(
 	}
 }
 
+func TestAnswerDocBoundedNamedTargetPromptProjectsUnrelatedRuntimeRows(t *testing.T) {
+	count := 50
+	record := func(id, subject, predicate string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Subject: subject, Predicate: predicate,
+		}
+	}
+	records := []types.ObservationRecord{
+		record("target-state", ".ugc.aweme.lite-17267", "target_window_states"),
+		record("target-blocked-census", ".ugc.aweme.lite-17267", "blocked_reason_census"),
+		record("other-state", "tui thread-13629", "state_churn"),
+		record("other-semantic", "Jit thread pool-17284", "trace_semantic_span"),
+		record("frequency", "cpu=4", "cpu_frequency_limit"),
+		record("pressure", "cpu=4", "background_pressure"),
+		record("gap", "", "trace_gap"),
+		{ID: "repo", Origin: types.AnswerEvidenceOriginCurrentSource, Producer: "emit_evidence"},
+	}
+	records[1].ResultCount = &count
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 17267, Thread: ".ugc.aweme.lite-17267", Source: "user_explicit"}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedEffectVerdict,
+			FactFamilies: []types.RuntimeQuestionFactFamily{
+				types.RuntimeQuestionFactTargetSchedulerState,
+				types.RuntimeQuestionFactCountOrDuration,
+				types.RuntimeQuestionFactFrequencyResidency,
+			},
+		},
+	}}}
+
+	got := answerDocScopeProjectedObservationRecords(ctx, records)
+	if gotIDs := answerDocObservationRecordIDs(got); strings.Join(gotIDs, ",") != "target-state,frequency,gap,repo" {
+		t.Fatalf("bounded prompt retained unrelated or unauthorized rows: %v", gotIDs)
+	}
+	if len(records) != 8 {
+		t.Fatalf("prompt projection mutated the lossless source ledger: %+v", records)
+	}
+
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies = append(
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies,
+		types.RuntimeQuestionFactRecordedReason,
+		types.RuntimeQuestionFactResourcePressure,
+	)
+	got = answerDocScopeProjectedObservationRecords(ctx, records)
+	gotIDs := strings.Join(answerDocObservationRecordIDs(got), ",")
+	for _, want := range []string{"target-blocked-census", "frequency", "pressure"} {
+		if !strings.Contains(gotIDs, want) {
+			t.Fatalf("requested bounded fact family lost %q: %s", want, gotIDs)
+		}
+	}
+}
+
+func TestAnswerDocBoundedPromptProjectionFailsOpenWithoutUserTargetAndSkipsCausalScope(t *testing.T) {
+	records := []types.ObservationRecord{{
+		ID: "other-state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", Subject: "other-7", Predicate: "state_churn",
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState},
+		},
+	}}}
+	if got := answerDocScopeProjectedObservationRecords(ctx, records); len(got) != 1 {
+		t.Fatalf("bounded prompt without a user target must fail open: %+v", got)
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{PID: 7, Thread: "target-7", Source: "user_explicit"}}
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeCausalDiagnosis
+	if got := answerDocScopeProjectedObservationRecords(ctx, records); len(got) != 1 {
+		t.Fatalf("causal diagnosis must keep full runtime context: %+v", got)
+	}
+}
+
+func answerDocObservationRecordIDs(records []types.ObservationRecord) []string {
+	out := make([]string, 0, len(records))
+	for _, record := range records {
+		out = append(out, record.ID)
+	}
+	return out
+}
+
 func TestAnswerDocFiniteRuntimeScopeUsesTypedTraceRowsInsteadOfModelAggregateRestatements(t *testing.T) {
 	modelFacts := []types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,

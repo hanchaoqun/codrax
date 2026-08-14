@@ -6344,24 +6344,101 @@ func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []typ
 	return out, omitted
 }
 
-// answerDocScopeProjectedObservationRecords removes only causal-ranking prompt
-// rows when the analyzer's typed answer breadth does not authorize a root-cause
-// roster. The full ObservationLedger remains unchanged for audit, deterministic
-// projection, and causal-diagnosis runs. This projection consumes no request or
-// model/final prose.
+// answerDocScopeProjectedObservationRecords removes prompt-only rows that the
+// analyzer's typed finite scope does not authorize. The full ObservationLedger
+// remains unchanged for audit, deterministic projection, and causal-diagnosis
+// runs. A bounded named-target question keeps target-owned rows, exact evidence
+// boundaries, and explicitly requested global fact families; unrelated runtime
+// subjects cannot crowd or contaminate the final synthesis. This projection
+// consumes no request or model/final prose.
 func answerDocScopeProjectedObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) []types.ObservationRecord {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil ||
-		!ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil {
 		return records
 	}
+	rm := &ctx.AnalysisIR.RequestModel
+	profile := rm.RuntimeQuestionProfile
+	if !profile.SuppressesRootCauseRankingPrompt() {
+		return records
+	}
+	projectNamedTarget := profile.CarriesBoundedFactFamilies() && answerDocHasUserRuntimeTarget(rm)
 	out := make([]types.ObservationRecord, 0, len(records))
 	for _, record := range records {
 		if answerDocObservationRecordIsCausalRankingPromptRow(record) {
 			continue
 		}
+		if projectNamedTarget && !answerDocBoundedRuntimeObservationPromptRecordAllowed(record, rm, profile) {
+			continue
+		}
 		out = append(out, record)
 	}
 	return out
+}
+
+func answerDocHasUserRuntimeTarget(rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
+			continue
+		}
+		if (target.PID > 0 && target.PID <= types.RuntimeTargetMaxPID) || strings.TrimSpace(target.Thread) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// answerDocBoundedRuntimeObservationPromptRecordAllowed is deliberately a
+// small typed projector, not a truth filter. Non-runtime rows stay available;
+// evidence-boundary rows remain visible; causal diagnosis never calls it.
+func answerDocBoundedRuntimeObservationPromptRecordAllowed(
+	record types.ObservationRecord,
+	rm *types.RequestModel,
+	profile *types.RuntimeQuestionProfile,
+) bool {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+		!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+		return true
+	}
+	predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
+	if types.TraceObservationIsEvidenceBoundary(record) || answerDocBoundedRuntimeTargetDiagnosticPredicate(predicate) {
+		return true
+	}
+	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+		// A count/duration request does not authorize a kernel caller census.
+		// The profile's existing two-axis contract owns this exceptional row.
+		return predicate != "blocked_reason_census" || profile.RequestsBlockedReasonCensus()
+	}
+	return answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate, profile)
+}
+
+func answerDocBoundedRuntimeTargetDiagnosticPredicate(predicate string) bool {
+	switch predicate {
+	case "frame_target_resolution", "thread_incarnation_suppression", "thread_selector_exact_name_mismatch", "trace_gap", "missing_wakeup":
+		return true
+	default:
+		return false
+	}
+}
+
+func answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate string, profile *types.RuntimeQuestionProfile) bool {
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactOtherObservedValue) {
+		return true
+	}
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactFrequencyResidency) {
+		switch predicate {
+		case "cpu_constraint", "cpu_frequency_limit", "frequency_tier_census":
+			return true
+		}
+	}
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactResourcePressure) {
+		switch predicate {
+		case "background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy":
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocObservationRecordIsCausalRankingPromptRow(record types.ObservationRecord) bool {
@@ -11470,11 +11547,9 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			}
 		}
 		if len(view.FrequencyLimitWitnesses) > 0 {
-			b.WriteString("- Runtime direct frequency-limit authority: the following typed rows are strict in-window policy-limit witnesses: ")
-			for i, witness := range view.FrequencyLimitWitnesses {
-				if i > 0 {
-					b.WriteString("; ")
-				}
+			b.WriteString("- Runtime direct frequency-limit authority: each following line is one strict in-window policy-limit witness. Keep each CPU's fields on its own line; never exchange row counts or bounds between CPUs.\n")
+			for _, witness := range view.FrequencyLimitWitnesses {
+				b.WriteString("  - ")
 				fmt.Fprintf(&b, "`cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s`",
 					witness.CPU,
 					witness.MinFrequencyKHz,
@@ -11486,8 +11561,9 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 					witness.WindowEndTs,
 					witness.Authority,
 				)
+				b.WriteByte('\n')
 			}
-			b.WriteString(". Typed conclusion axes: `policy_limit_status=present`; `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`; `binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_binding_evidence`. Keep these as two independent verdicts. If the question's subject is whether this target/workload was frequency-restricted, the direct yes/no conclusion is governed by `target_binding_status`, not by policy-ceiling presence: with the statuses above, say `policy ceiling present; target binding unproven`, and do not turn that pair into an affirmative `the target was frequency-restricted`. The policy ceiling existed in the window, while whether that ceiling bound this target's running slices remains unproven unless a separate typed overlap/binding carrier says otherwise. In each witness, `min_frequency_khz` is the lower policy bound and `max_frequency_khz` is the upper policy ceiling; an observed frequency equal to `min_frequency_khz` must not be described as equal to the maximum or as proving that the upper ceiling was reduced to the minimum. A direct limit row proves that the policy ceiling existed in the window; an actual/average/residency frequency below that ceiling does not negate the policy limit and must never be used to conclude `no policy limit`. Conversely, neither that lower observed frequency nor the limit row proves that the workload hit the ceiling or quantifies binding performance impact. A supply-fold deficit is separate frequency-relative compute headroom against its published ideal basis; it does not by itself identify the lower-frequency cause or prove governance binding. Normalize every frequency comparison to one unit before choosing `<`, `=`, or `>` (for example kHz to GHz by dividing by 1,000,000), and recompute the relation from the named typed fields rather than copying prose.\n")
+			b.WriteString("- Typed frequency conclusion axes: `policy_limit_status=present`; `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`; `binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_binding_evidence`. Keep these as two independent verdicts. If the question's subject is whether this target/workload was frequency-restricted, the direct yes/no conclusion is governed by `target_binding_status`, not by policy-ceiling presence: with the statuses above, say `policy ceiling present; target binding unproven`, and do not turn that pair into an affirmative `the target was frequency-restricted`. The policy ceiling existed in the window, while whether that ceiling bound this target's running slices remains unproven unless a separate typed overlap/binding carrier says otherwise. In each witness, `min_frequency_khz` is the lower policy bound and `max_frequency_khz` is the upper policy ceiling; an observed frequency equal to `min_frequency_khz` must not be described as equal to the maximum or as proving that the upper ceiling was reduced to the minimum. A direct limit row proves that the policy ceiling existed in the window; an actual/average/residency frequency below that ceiling does not negate the policy limit and must never be used to conclude `no policy limit`. Conversely, neither that lower observed frequency nor the limit row proves that the workload hit the ceiling or quantifies binding performance impact. A supply-fold deficit is separate frequency-relative compute headroom against its published ideal basis; it does not by itself identify the lower-frequency cause or prove governance binding. Normalize every frequency comparison to one unit before choosing `<`, `=`, or `>` (for example kHz to GHz by dividing by 1,000,000), and recompute the relation from the named typed fields rather than copying prose.\n")
 		}
 		// Scheduler transition semantics are common to both trace guidance lanes.
 		// Keeping this outside the typed/non-typed split prevents the compact typed

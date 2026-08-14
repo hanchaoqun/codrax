@@ -119,6 +119,21 @@ func (p *RuntimeQuestionProfile) CarriesBoundedFactFamilies() bool {
 	return p != nil && (p.BoundedFactSet() || p.BoundedEffectVerdict())
 }
 
+// RequestsFactFamily reports whether a finite runtime answer explicitly owns
+// one semantic fact family. Consumers use this typed declaration instead of
+// inferring scope from request words, query view names, or model prose.
+func (p *RuntimeQuestionProfile) RequestsFactFamily(want RuntimeQuestionFactFamily) bool {
+	if p == nil || !p.CarriesBoundedFactFamilies() || !want.IsValid() {
+		return false
+	}
+	for _, family := range p.FactFamilies {
+		if family == want {
+			return true
+		}
+	}
+	return false
+}
+
 // SuppressesRootCauseRankingPrompt reports that the current typed answer
 // breadth does not authorize a root-cause roster as model-facing context.
 // The underlying observation ledger remains lossless for audit and later

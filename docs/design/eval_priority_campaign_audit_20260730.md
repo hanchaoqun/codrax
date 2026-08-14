@@ -35748,6 +35748,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.779 r464 / B760：有限目标提示的跨线程污染与未请求事实族泄漏（2026-08-13）
+
+1. 在 `main@3136d765e` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   QF partial、Trace fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_typed_bounded_authority_r464_20260813_manual_audit.md`。
+2. B759 获生产正证：Finalizer 不再收到把 558000kHz 写成上限的旧模型聚合，答案也不再宣称目标
+   已受限；策略上限存在与 target binding 未证保持分离。H4 从 3 次缩至 2 次 trace_query、146s
+   缩至 103s，仍无 Root-Cause Board、根因 rank roster 或完整系统因果投影。
+3. 新确认 `B760-BOUNDEDTARGETPROMPTFACTFAMILY1/P0`。最终 Observation Ledger 虽按目标优先排序，
+   其 Trace Observation Coverage 仍显示其他线程：`tui thread-13629` 的 36 段、最长 33.322ms、
+   p95 33.272ms。模型把三值原样归给目标 `.ugc.aweme.lite-17267`。这是确定性上下文跨 subject 污染，
+   不是 trace 缺值或模型随机算术。
+4. 同一 profile 只声明 `target_scheduler_state + count_or_duration + frequency_residency`，却仍把目标
+   `blocked_reason_census` 送进 prompt。其 50 条 kernel caller 仅 Σ16.358ms，且没有 record→state
+   interval join；模型仍将它扩写为全部 70.338ms S-sleep 的 fscache 原因。已有软警示无法抵消一个
+   本就不属于请求事实族的高显著 row。
+5. B760 在既有 finalizer prompt projection 单点根修：只对 bounded fact/effect + typed 用户目标生效；
+   deterministic runtime row 仅保留用户目标匹配行、精确 evidence boundary/目标身份诊断，以及 profile
+   明确请求的全局 frequency/resource-pressure 事实。`blocked_reason_census` 继续服从现有
+   `recorded_reason ∧ count_or_duration` 两轴权限。原始 ObservationLedger、ToolResult、Mutable/TurnA
+   全部无损，其他 producer/current-source 行 fail-open。
+6. 因果诊断完全跳过该投影，显式时间窗、全链补齐、链上根因及实际占用/业务线索/规则可消除量均不
+   丢失；相同 JIT/GC/IO/供给 row 若属于 typed 目标仍保留，只有 bounded 问题的异 subject 背景不再
+   混入 principal synthesis。无用户目标或旧序列化 profile 也 fail-open，不会把全局 overview 削空。
+7. typed CPU frequency witness 从一条分号长串改为每 CPU 独立一行，并明确字段不得跨 CPU 交换；
+   policy-present 与 target-binding 两 verdict 另起一行。该改动只降低模型 copy-binding 心智，不扫描或
+   校验答案文本，不替模型下结论。r464 的 CPU0/CPU4 row-count 对调由后续 replay 验收。
+8. QF 自动 PASS、人工 partial：阶段 precedence 与 exact data-flow recipe 保留，BusContext/Mutable
+   缺 incidence 证据时保持断开。运行从 590s 降至 252s，但仍有 5 次 mid-loop 与 2 次合法 relation
+   repair，继续作为通用导航效率债观察，禁止为单 case 降低关系证据门。
+9. 活跃字节流持续时，4ms 未形成完整 answer_document 仍不得降级。行为终止只属于 caller cancel/
+   deadline、no-first-byte、byte-stall、transport/decode failure；现有跨 40ms 行为 pin 持续执行。
+
+状态：
+
+`B759-BOUNDEDRUNTIMEADVISORYAUTHORITYCOLLISION1=production-positive-r464`；
+`B760-BOUNDEDTARGETPROMPTFACTFAMILY1=implemented/typed-target+family-projection+pinned/pending-r465`；
+`H4-BLOCKEDREASON-CALIBER=implementation-closed/pending-r465`；
+`H4-FREQUENCY-WITNESS-COPYBINDING=implemented/per-cpu-lines/pending-r465`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-fit-before-human-correctness`；
+`QF-READ-NAVIGATION-CHURN=observed-r464/generalized-audit-open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.775 r456：Trace 双轴结论组合与架构载体关系缺口（2026-08-13）
 
 1. 在 `main@f78d74369` 严格并发恰好两个案例：

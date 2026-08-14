@@ -17,6 +17,10 @@ func TestRuntimeQuestionProfilePromptBreadthIsTyped(t *testing.T) {
 	if finite.RequestsTraceWaitEvidencePrompt() {
 		t.Fatal("state/duration/frequency families must not inherit the wait+wakeup appendix")
 	}
+	if !finite.RequestsFactFamily(RuntimeQuestionFactFrequencyResidency) ||
+		finite.RequestsFactFamily(RuntimeQuestionFactRecordedReason) {
+		t.Fatal("bounded fact-family membership must come only from the typed family list")
+	}
 
 	finite.FactFamilies = append(finite.FactFamilies, RuntimeQuestionFactDirectWaker)
 	if !finite.RequestsTraceWaitEvidencePrompt() {
