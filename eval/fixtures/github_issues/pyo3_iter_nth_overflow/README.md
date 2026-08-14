@@ -11,5 +11,6 @@ Observed behavior:
   exhausted;
 - extremely large skip counts can overflow index arithmetic.
 
-The regression contract is encoded in `tests/check_iterators.py` so this
-fixture can run without a full Rust toolchain.
+The source-shape contract is encoded in `tests/check_iterators.py`. The
+behavioral contract is independently executed by the minimal Cargo crate, so
+the static checker cannot sign Rust runtime behavior as verified.

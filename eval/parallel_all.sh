@@ -175,8 +175,9 @@ wait
 # Tail rollup.
 echo "" >>"$SUMMARY"
 total_pass=$(grep -c '| PASS |' "$SUMMARY" || true)
+total_skip=$(grep -c '| SKIP |' "$SUMMARY" || true)
 total_fail=$(grep -cE '\| FAIL |\| TIMEOUT |\| LAUNCH_FAIL ' "$SUMMARY" || true)
-echo "**Pass: $total_pass / $TOTAL — Fail/Timeout/LaunchFail: $total_fail**" >>"$SUMMARY"
+echo "**Pass: $total_pass / $TOTAL — Skip/Unavailable: $total_skip — Fail/Timeout/LaunchFail: $total_fail**" >>"$SUMMARY"
 
 # Pipeline-efficiency digest — per case extracts the dispatch counts
 # and repair-loop activation. Helps the operator audit answer quality
@@ -206,4 +207,4 @@ for case_file in "${CASES[@]}"; do
     "$(eval_metric_field "$m" semantic_quality_dispatches)" >>"$SUMMARY"
 done
 
-echo "[$(date +%H:%M:%S)] sweep complete — pass=$total_pass fail=$total_fail of $TOTAL" >&2
+echo "[$(date +%H:%M:%S)] sweep complete — pass=$total_pass skip=$total_skip fail=$total_fail of $TOTAL" >&2

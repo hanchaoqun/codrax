@@ -230,9 +230,10 @@ done
 wait
 
 pass_count="$(grep -c '| PASS |' "$SUMMARY" || true)"
+skip_count="$(grep -c '| SKIP |' "$SUMMARY" || true)"
 fail_count="$(grep -cE '\| FAIL |\| TIMEOUT |\| LAUNCH_FAIL ' "$SUMMARY" || true)"
 echo "" >>"$SUMMARY"
-echo "**Pass: $pass_count / $TOTAL — Fail/Timeout/LaunchFail: $fail_count**" >>"$SUMMARY"
+echo "**Pass: $pass_count / $TOTAL — Skip/Unavailable: $skip_count — Fail/Timeout/LaunchFail: $fail_count**" >>"$SUMMARY"
 echo "" >>"$MANUAL_AUDIT"
 echo "## Human Audit Checklist" >>"$MANUAL_AUDIT"
 echo "" >>"$MANUAL_AUDIT"
@@ -240,4 +241,4 @@ echo "- Mark human_correctness as pass/fail/uncertain only after reading the fin
 echo "- For inventory cases, prefer typed_inventory_rowset or row/origin evidence over broad answer_contains or dimension_substring oracles." >>"$MANUAL_AUDIT"
 echo "- For runtime/log/trace cases, interpret trace_query absence together with runtime_authority; pre-stage log_triage/perf_triage can be authoritative." >>"$MANUAL_AUDIT"
 echo "- Record prompt/tool noise, repeated completion/form repair, unavailable tool attempts, context pressure, and any answer supplement that changes the main conclusion." >>"$MANUAL_AUDIT"
-echo "[$(date +%H:%M:%S)] selected sweep complete — pass=$pass_count fail=$fail_count of $TOTAL" >&2
+echo "[$(date +%H:%M:%S)] selected sweep complete — pass=$pass_count skip=$skip_count fail=$fail_count of $TOTAL" >&2

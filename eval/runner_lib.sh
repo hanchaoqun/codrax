@@ -3,6 +3,29 @@
 # Shared helpers for eval runners. Kept bash-3.2 compatible because
 # macOS still ships that shell.
 
+# eval_missing_required_executables <space-separated-command-names>
+#
+# Returns a comma-separated list of PATH commands that are unavailable. Case
+# files are trusted/versioned inputs, but command names still use a narrow
+# grammar so this capability preflight cannot become another shell-eval lane.
+# Return 2 means the declaration itself is invalid.
+eval_missing_required_executables() {
+  local declared="${1:-}"
+  local executable missing=""
+  for executable in $declared; do
+    case "$executable" in
+      ''|*[!A-Za-z0-9_.+-]*)
+        printf '__invalid__:%s' "$executable"
+        return 2
+        ;;
+    esac
+    if ! command -v "$executable" >/dev/null 2>&1; then
+      missing="${missing:+$missing,}$executable"
+    fi
+  done
+  printf '%s' "$missing"
+}
+
 eval_run_with_timeout() {
   local seconds="$1"
   shift

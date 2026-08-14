@@ -36388,6 +36388,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.830 B820：原生运行时前置能力进入 eval，缺 Cargo 不再伪装产品失败（2026-08-14）
+
+1. §123.829 施工时确认当前主机同时缺少 `cargo`、`rustc`、`rustup`。因此“给 fixture 增加 Cargo 文件后立即
+   重跑”仍不可能取得 Rust 行为权威；用 Python 重演 Rust 算法、把 source checker 升格为 behavior，或把
+   `source_static` 改成 verified 都违反既有跨语言验证红线。
+2. 新增 case-level typed prerequisite `REQUIRED_EXECUTABLES`。它只接受 versioned case 中空格分隔的安全 PATH
+   command name；runner 在构建 Codrax、复制 fixture 和调用模型前检查。缺失时产出独立结果目录、
+   `SKIP runtime_prerequisite_missing:<commands>`、零 dispatch metrics 和 typed unavailable 状态；它既不是产品
+   PASS，也不是产品 FAIL/timeout/launch failure。
+3. selected/all/priority 三种并发 runner 的 rollup 现分别统计 `Pass / Skip-Unavailable / Fail`，不会再出现总数
+   对不上，也不会把缺本机工具链混入产品回归率。非法 executable/path 声明 fail-loud，未开放 shell eval 或任意命令
+   参数通道。
+4. PyO3 fixture 新增最小 Cargo crate，关闭自动 integration-test 发现并由 `src/lib.rs` 把现有测试作为 crate unit
+   tests 编译；`make check` 先运行静态 checker 自测/辅助检查，再运行 `cargo test`。测试基线直接携带
+   `usize::MAX`、恰好等于剩余长度的 reverse skip，以及失败后正反方向都必须耗尽的 state-transition 断言，避免
+   模型把 `#[test]` 嵌进函数却无人执行。
+5. 当前主机对该 case 的真实生产 preflight 为 0s `SKIP`，`analyzer/explorer/extractor/finalizer=0`，没有消耗模型
+   调用。用 r503 已生成的候选实现覆盖临时 fixture 后，Python 辅助 checker 通过；Cargo 行为测试因本机确实无
+   `cargo` 未宣称通过。具备 Cargo 的环境才有资格执行和签署该案。
+6. `runner_lib_test.sh` 全合同通过，并增加：已安装+缺失命令清单、非法 path/shell token 拒绝、真实 `run.sh`
+   早期 SKIP、结果/metrics 落盘及零模型 dispatch pin；六个相关 shell 文件语法检查全绿。该批只改 eval 基础设施和
+   fixture，不改 write verifier 的 production caliber、模型计划/答案或 read/Trace 路径。
+7. 后续优先队列在本机应跳过 Cargo-required 案，换成可执行语言 write case；在 Rust 工具链主机上再把它作为
+   原生行为回归。这样既避免 200–900s 无效模型消耗，也不以“预算不足/环境缺失”掩盖真实实现错误。
+
+状态：
+
+`B820-EVALRUNTIMEPREREQUISITE1=implemented/shell-suite-pass`；
+`B774-WRITEEVALNATIVEPROOF1=fixture-native-carrier-ready/runtime-unavailable-on-current-host`；
+`pyo3-case=current-host-SKIP-before-model-dispatch/cargo-host-native-replay-required`；
+`write-production-verification-caliber=unchanged/fail-closed`；
+`Trace-causal-projection/auto-supplement=unchanged`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

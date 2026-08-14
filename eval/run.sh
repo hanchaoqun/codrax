@@ -47,6 +47,9 @@
 #                        # apply stamps; run-1.plan.json itself is the
 #                        # engine-maintained live mirror of the last plan)
 #     summary.md         # aggregated table
+# Cases that require a native runtime may set REQUIRED_EXECUTABLES to a
+# space-separated PATH command list. Missing prerequisites produce a typed
+# SKIP result before any model call; they never count as product PASS/FAIL.
 
 set -uo pipefail
 
@@ -159,6 +162,7 @@ PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
 COMMANDLESS_APPLY="${COMMANDLESS_APPLY:-}"
 ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
+REQUIRED_EXECUTABLES="${REQUIRED_EXECUTABLES:-}"
 # Read evals are expected to reach the validated answer carrier. Cases whose
 # explicit subject is the degraded fallback lane may opt out, but ordinary
 # answer regexes must not turn SkipAnswerChecks=true into a false green.
@@ -299,23 +303,6 @@ if [[ -n "$HTRACE_FILE" && ! -f "$HTRACE_FILE" ]]; then
   exit 2
 fi
 
-# Standalone eval runs rebuild so metrics never silently use a stale
-# binary. Parallel sweeps pass CODRAX_BIN as a private snapshot; in
-# that mode rebuilding per case defeats the snapshot and dirties the
-# working tree under concurrent runs.
-if [[ -n "$CODRAX_BIN_FROM_ENV" && ! -x "$CODRAX_BIN" ]]; then
-  echo "codrax snapshot missing or not executable: $CODRAX_BIN; falling back to ./codrax" >&2
-  CODRAX_BIN_FROM_ENV=""
-  CODRAX_BIN="./codrax"
-fi
-if [[ -n "$CODRAX_BIN_FROM_ENV" && -x "$CODRAX_BIN" ]]; then
-  echo "using codrax snapshot: $CODRAX_BIN" >&2
-else
-  echo "building codrax..." >&2
-  make build >/dev/null || { echo "build failed" >&2; exit 1; }
-  CODRAX_BIN="./codrax"
-fi
-
 TS="$(date +%Y%m%d-%H%M%S)"
 RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
 OUTDIR="${RESULTS_ROOT}/${ID}-${TS}"
@@ -336,6 +323,54 @@ while ! mkdir "$OUTDIR" 2>/dev/null; do
     exit 1
   fi
 done
+
+required_missing="$(eval_missing_required_executables "$REQUIRED_EXECUTABLES")"
+required_status=$?
+if [[ "$required_status" -ne 0 ]]; then
+  echo "case REQUIRED_EXECUTABLES declaration invalid: $required_missing" >&2
+  exit 2
+fi
+if [[ -n "$required_missing" ]]; then
+  skip_reason="runtime_prerequisite_missing:${required_missing}"
+  printf 'SKIP %s\n' "$skip_reason" >"$OUTDIR/run-1.verdict"
+  printf '0\n' >"$OUTDIR/run-1.wall"
+  printf 'Skipped before model dispatch: %s\n' "$skip_reason" >"$OUTDIR/run-1.out"
+  {
+    echo "exit_code=0"
+    echo "runtime_prerequisite_status=unavailable"
+    echo "runtime_prerequisite_missing=$required_missing"
+    echo "analyzer_dispatches=0"
+    echo "explorer_dispatches=0"
+    echo "extractor_dispatches=0"
+    echo "finalizer_dispatches=0"
+  } >"$OUTDIR/run-1.metrics.txt"
+  {
+    echo "# Eval summary"
+    echo
+    echo "- case: $ID"
+    echo "- verdict: SKIP"
+    echo "- reason: $skip_reason"
+  } >"$OUTDIR/summary.md"
+  echo "case $ID skipped before model dispatch: $skip_reason" >&2
+  exit 0
+fi
+
+# Standalone eval runs rebuild so metrics never silently use a stale
+# binary. Parallel sweeps pass CODRAX_BIN as a private snapshot; in
+# that mode rebuilding per case defeats the snapshot and dirties the
+# working tree under concurrent runs.
+if [[ -n "$CODRAX_BIN_FROM_ENV" && ! -x "$CODRAX_BIN" ]]; then
+  echo "codrax snapshot missing or not executable: $CODRAX_BIN; falling back to ./codrax" >&2
+  CODRAX_BIN_FROM_ENV=""
+  CODRAX_BIN="./codrax"
+fi
+if [[ -n "$CODRAX_BIN_FROM_ENV" && -x "$CODRAX_BIN" ]]; then
+  echo "using codrax snapshot: $CODRAX_BIN" >&2
+else
+  echo "building codrax..." >&2
+  make build >/dev/null || { echo "build failed" >&2; exit 1; }
+  CODRAX_BIN="./codrax"
+fi
 
 # ARTIFACT-KEEP (PIN-1 B7): runs write dumps into <root>/.codrax/output and
 # the product's retention prune evicts the oldest — archive every existing

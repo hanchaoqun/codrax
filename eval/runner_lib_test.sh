@@ -25,6 +25,30 @@ assert_eq() {
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/codrax-eval-runner-test.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
+assert_eq "$(eval_missing_required_executables "sh codrax_runtime_that_must_not_exist_6f13")" \
+  "codrax_runtime_that_must_not_exist_6f13" "runtime prerequisite inventory"
+invalid_required="$(eval_missing_required_executables "bad/name")"
+invalid_required_rc=$?
+assert_eq "$invalid_required_rc" "2" "runtime prerequisite declaration rejects shell/path syntax"
+assert_eq "$invalid_required" "__invalid__:bad/name" "invalid runtime prerequisite diagnostic"
+
+cat >"$tmp/runtime-prerequisite.case" <<'CASE'
+ID="runtime_prerequisite"
+NAME="runtime prerequisite"
+QUESTION="must not dispatch"
+REQUIRED_EXECUTABLES="codrax_runtime_that_must_not_exist_6f13"
+CASE
+mkdir -p "$tmp/runtime-prerequisite-results"
+CODRAX_BIN="$tmp/missing-codrax-must-not-run" EVAL_RESULTS_ROOT="$tmp/runtime-prerequisite-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/runtime-prerequisite.case" 1 >/dev/null 2>&1 || fail "missing runtime prerequisite should be a successful typed skip"
+runtime_skip_dir="$(ls -dt "$tmp/runtime-prerequisite-results"/runtime_prerequisite-* 2>/dev/null | head -1)"
+[[ -n "$runtime_skip_dir" ]] || fail "runtime prerequisite skip did not materialize a result directory"
+assert_eq "$(cat "$runtime_skip_dir/run-1.verdict")" \
+  "SKIP runtime_prerequisite_missing:codrax_runtime_that_must_not_exist_6f13" \
+  "missing runtime prerequisite verdict"
+assert_eq "$(eval_metric_field "$runtime_skip_dir/run-1.metrics.txt" analyzer_dispatches)" "0" \
+  "runtime prerequisite skip must happen before model dispatch"
+
 mkdir -p "$tmp/results/sample-20260511-000000"
 mkdir -p "$tmp/results/sample-20260511-010000"
 latest="$(eval_latest_result_dir "$tmp/results" sample 20260511-005959)" || fail "latest result dir not found"

@@ -126,9 +126,11 @@ run_one() {
     eval_materialize_partial_run_result "$dir" 1 "$rc" "$elapsed" "eval_worker_incomplete"
   fi
   if [[ -n "$dir" && -f "$dir/run-1.verdict" ]]; then
-    verdict=$(head -1 "$dir/run-1.verdict")
-    reason=$(awk '/reasons:/{flag=1;next}flag' "$dir/run-1.verdict" | head -1 | tr -d '\n' | head -c 120)
-    if [[ -z "$reason" || "$reason" == "" ]]; then
+    local first_line
+    first_line=$(head -1 "$dir/run-1.verdict")
+    verdict=$(echo "$first_line" | awk '{print $1}')
+    reason=$(echo "$first_line" | cut -d' ' -f2- | head -c 120)
+    if [[ -z "$reason" || "$reason" == "$verdict" ]]; then
       reason="-"
     fi
   fi
@@ -194,6 +196,7 @@ fi
 # Rollup.
 echo "" >>"$SUMMARY"
 total_pass=$(grep -c '| PASS |' "$SUMMARY" || true)
+total_skip=$(grep -c '| SKIP |' "$SUMMARY" || true)
 total_fail=$(grep -cE '\| FAIL |\| TIMEOUT |\| LAUNCH_FAIL ' "$SUMMARY" || true)
-echo "**Pass: $total_pass / $TOTAL — Fail/Timeout/LaunchFail: $total_fail**" >>"$SUMMARY"
-echo "[$(date +%H:%M:%S)] sweep complete — pass=$total_pass fail=$total_fail of $TOTAL" >&2
+echo "**Pass: $total_pass / $TOTAL — Skip/Unavailable: $total_skip — Fail/Timeout/LaunchFail: $total_fail**" >>"$SUMMARY"
+echo "[$(date +%H:%M:%S)] sweep complete — pass=$total_pass skip=$total_skip fail=$total_fail of $TOTAL" >&2
