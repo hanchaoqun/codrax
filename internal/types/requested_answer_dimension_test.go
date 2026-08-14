@@ -77,6 +77,28 @@ func TestNormalizeRequestedAnswerDimensionProfile_DoesNotAnchorParaphraseOrPunct
 	}
 }
 
+func TestNormalizeRequestedAnswerDimensionProfile_PreservesCausalContributorSet(t *testing.T) {
+	raw := "请按重要性列出全部主要和次要根因"
+	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Confidence:          0.95,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:       "全部主要和次要根因",
+			Role:        RequestedAnswerDimensionCausalContributorSet,
+			SourceQuote: "全部主要和次要根因",
+			Required:    true,
+			Index:       1,
+		}},
+	})
+	if profile == nil || len(profile.Dimensions) != 1 ||
+		profile.Dimensions[0].Role != RequestedAnswerDimensionCausalContributorSet {
+		t.Fatalf("causal contributor role was not preserved: profile=%+v warnings=%v", profile, warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("anchored causal contributor role emitted warnings: %v", warnings)
+	}
+}
+
 func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSourceRoles(t *testing.T) {
 	// §29.166 OBLSWEEP-1: the dropped obligation dims must carry a precise
 	// current-source anchor (path suffix / file:line) to keep minting; the

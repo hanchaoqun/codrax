@@ -570,7 +570,8 @@ func TestRuntimeQuestionBoundedFactsAllowDiagnosticFrameLocation(t *testing.T) {
 		types.SemanticPredicates{IsDiagnosticQuestion: true},
 		types.DiagnosticIntentProfile{IsDiagnostic: true},
 	); !strings.Contains(issue, "must not suppress the chain/ranking evidence") ||
-		!strings.Contains(issue, "role=causal_attribution") {
+		!strings.Contains(issue, "requested_answer_dimensions causal role") ||
+		!strings.Contains(issue, "causal_contributor_set for a roster/ranking") {
 		t.Fatalf("explicit root-cause classifiers must not be accepted with bounded-fact breadth: %q", issue)
 	}
 }
@@ -727,6 +728,58 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 	}
 }
 
+func TestRuntimeQuestionCausalContributorSetCannotEnterFiniteScope(t *testing.T) {
+	roster := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label:    "ranked contributors",
+			Role:     types.RequestedAnswerDimensionCausalContributorSet,
+			Required: true,
+		}},
+	}
+	profile := &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactCountOrDuration},
+	}
+	for _, scope := range []types.RuntimeQuestionScope{
+		types.RuntimeQuestionScopeBoundedFactSet,
+		types.RuntimeQuestionScopeBoundedEffectVerdict,
+	} {
+		profile.Scope = scope
+		issue := validateRuntimeQuestionProfileConsistency(
+			profile,
+			roster,
+			types.IntentExplain,
+			types.ScenarioGeneric,
+			types.SemanticPredicates{},
+			types.DiagnosticIntentProfile{},
+		)
+		for _, want := range []string{
+			"causal_contributor_set",
+			"causal_diagnosis",
+			"full_diagnosis_canonical_field_target=",
+			`"intent":"root_cause"`,
+			`"scope":"causal_diagnosis"`,
+		} {
+			if !strings.Contains(issue, want) {
+				t.Fatalf("scope %s causal-roster repair missing %q: %s", scope, want, issue)
+			}
+		}
+	}
+
+	causal := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		causal,
+		roster,
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	); issue != "" {
+		t.Fatalf("full causal roster tuple rejected: %q", issue)
+	}
+}
+
 func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *testing.T) {
 	causalVerdict := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
@@ -868,7 +921,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	boundedWithCausalDimension := strings.Replace(
 		bounded,
 		`"completeness_obligation":`,
-		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"根因排序","role":"causal_attribution","source_quote":"根因排序","required":true}]},"completeness_obligation":`,
+		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"根因排序","role":"causal_contributor_set","source_quote":"根因排序","required":true}]},"completeness_obligation":`,
 		1,
 	)
 	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
@@ -877,8 +930,38 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if err != nil {
 		t.Fatalf("bounded causal-dimension Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "bounded_fact_set conflicts") || !strings.Contains(res.Summary, "causal_attribution") {
-		t.Fatalf("production entry must reject a bounded scope that cannot satisfy required causal attribution: success=%t summary=%q", res.Success, res.Summary)
+	if res.Success || !strings.Contains(res.Summary, "bounded_fact_set conflicts") ||
+		!strings.Contains(res.Summary, "causal_contributor_set") ||
+		!strings.Contains(res.Summary, "full_diagnosis_canonical_field_target=") {
+		t.Fatalf("production entry must reject a bounded scope that cannot satisfy a required causal roster: success=%t summary=%q", res.Success, res.Summary)
+	}
+
+	causalRoster := strings.Replace(
+		boundedWithCausalDimension,
+		`"scope":"bounded_fact_set","fact_families":["relation_peer","transaction_id","direct_waker"]`,
+		`"scope":"causal_diagnosis"`,
+		1,
+	)
+	causalRoster = strings.Replace(causalRoster, `"intent":"trace"`, `"intent":"root_cause"`, 1)
+	causalRoster = strings.Replace(causalRoster, `"scenario":"generic"`, `"scenario":"root_cause"`, 1)
+	causalRoster = strings.Replace(causalRoster, `"is_diagnostic_question":false`, `"is_diagnostic_question":true`, 1)
+	causalRoster = strings.Replace(causalRoster, `"is_diagnostic":false`, `"is_diagnostic":true`, 1)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalRoster))
+	if err != nil {
+		t.Fatalf("causal roster Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("coherent causal roster tuple must be accepted: %q", res.Summary)
+	}
+	gotRM := ctx.Mutable.RequestModel()
+	if gotRM == nil || gotRM.RuntimeQuestionProfile == nil ||
+		gotRM.RuntimeQuestionProfile.Scope != types.RuntimeQuestionScopeCausalDiagnosis ||
+		gotRM.RequestedAnswerDimensions == nil ||
+		len(gotRM.RequestedAnswerDimensions.Dimensions) != 1 ||
+		gotRM.RequestedAnswerDimensions.Dimensions[0].Role != types.RequestedAnswerDimensionCausalContributorSet {
+		t.Fatalf("causal contributor role/scope not persisted: %+v", gotRM)
 	}
 
 	causalWithRedundantFamilies := strings.Replace(payload, `"scenario":"generic"`, `"scenario":"performance_bottleneck"`, 1)

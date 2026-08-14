@@ -36265,6 +36265,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.827 B817：因果 verdict 与多贡献者 roster 分轴，有限车道不再吞完整投影（2026-08-14）
+
+1. 冷读后对 §123.826 的初始修向做了必要精化：通用 required `member_set` 不能硬解释成“因果贡献者集合”，
+   因为它也可能是一个有限的 occurrence/object/thread/record 清单；直接使用
+   `causal_attribution + member_set` 作硬扩域仍会误伤“单一效果判定 + 事件清单”。
+2. 新增精确 enum `requested_answer_dimensions.role=causal_contributor_set`。它只表示用户要求可见的根因排名、
+   竞争贡献者或主要/次要因果来源 roster；普通成员集合继续使用 `member_set`，一个目标是否受条件影响的单一
+   verdict 继续使用 `causal_attribution`。这三个角色的边界由 Analyzer JSON 教学单源声明，系统不读 label、
+   source quote、请求正文、模型 thought 或最终答案作硬判定。
+3. runtime breadth 合同现为正交三形：`bounded_fact_set` 不得携任何 causal role；
+   `bounded_effect_verdict` 只允许一个 required `causal_attribution` 加有限 fact families，明确禁止
+   `causal_contributor_set`；`causal_diagnosis` 接受 required `causal_attribution` 或
+   `causal_contributor_set`，但仍要求 `intent=root_cause`/diagnostic typed carrier 并禁止 fact families。
+4. 有限 scope 一旦携 `causal_contributor_set`，emit-time fail-loud 返回
+   `full_diagnosis_canonical_field_target`，要求模型完整重发 causal tuple、保留 causal roster 维度并移除
+   fact families。系统不自动改 AnalysisIR、不替模型选择根因、更不代写答案；找到的证据仍可得出 yes/no/mixed/
+   unproven，role 只声明必须调查和展示的答案宽度。
+5. 单一 target-effect 反向车道保持：`causal_attribution + observed_value/evidence_source` 仍可生产到达
+   `bounded_effect_verdict`，不会获得根因 roster、唤醒链或完整 Trace 因果投影。这避免为了修 H7 把有限频率限制、
+   单条件影响等问法过度扩成全量诊断。
+6. 新增 schema/normalize、两条有限 scope 拒绝、完整 causal scope 接受、full target 字段、Execute 生产入口
+   持久化和既有 finite verdict 正向 pin；`types/skill/tool/agent/orchestrator` 全包通过（22.9s/0.6s/
+   171.3s/9.6s/13.0s），`go build ./...` 通过。
+7. 本批没有新增请求/答案关键词 hard gate，没有改变 answer_document、系统补充或 trace_query 排名算法。
+   因此系统只修复给模型的 typed 上下文和重试方向；模型仍拥有业务解释、根因判断、优化方向和答案措辞。
+8. 下一步用 H7 原案例生产回放验证 Analyzer 是否直接发出、或经一次 typed retry 收敛到
+   `causal_contributor_set + causal_diagnosis`，并确认完整 32 行链上排名重新进入 Trace 因果投影；并行配一个真正
+   bounded-effect 案例，反证有限车道没有被误扩。活跃流仍不得因 4ms/4m 固定年龄降级。
+
+状态：
+
+`B817-CAUSALROSTERBREADTHREPAIR1=implemented/dedicated-typed-role+positive-negative-pins`；
+`B813-WRITEVERIFYSIDEEFFECT1=production-closed-r501`；
+`Trace-causal-projection/auto-supplement=preserved/production-replay-next`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

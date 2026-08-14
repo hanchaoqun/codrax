@@ -40,16 +40,23 @@ const (
 	// models to emit schema-invalid dimension roles that silently became other.
 	RequestedAnswerDimensionObservedValue RequestedAnswerDimensionRole = "observed_value"
 	// RequestedAnswerDimensionCausalAttribution identifies a current-request
-	// demand for causal attribution, including a verdict about whether an
-	// observed condition constrained, caused, or materially affected a runtime
-	// outcome, ranked causes/contributors, or a root-cause/bottleneck
-	// conclusion. It is deliberately distinct from the
+	// demand for one causal verdict/conclusion about whether an observed
+	// condition constrained, caused, or materially affected a runtime outcome.
+	// A requested ranked/multi-contributor causal roster uses the distinct
+	// CausalContributorSet role so a finite verdict cannot suppress that roster.
+	// It is deliberately distinct from the
 	// generic function_or_purpose role and from bounded observed-value roles:
 	// downstream runtime breadth validation may reject a bounded_fact_set that
 	// cannot structurally satisfy this dimension without scanning request or
 	// answer prose.
 	RequestedAnswerDimensionCausalAttribution RequestedAnswerDimensionRole = "causal_attribution"
-	RequestedAnswerDimensionOther             RequestedAnswerDimensionRole = "other"
+	// RequestedAnswerDimensionCausalContributorSet identifies a visible set or
+	// ranking of causes/competing contributors. It is not a generic member set:
+	// ordinary occurrence, object, thread, or record rosters continue to use
+	// member_set. This exact role gives runtime breadth validation a precise
+	// cardinality signal without inspecting labels, quotes, or answer prose.
+	RequestedAnswerDimensionCausalContributorSet RequestedAnswerDimensionRole = "causal_contributor_set"
+	RequestedAnswerDimensionOther                RequestedAnswerDimensionRole = "other"
 )
 
 func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
@@ -68,6 +75,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionStageWorkflow,
 		RequestedAnswerDimensionObservedValue,
 		RequestedAnswerDimensionCausalAttribution,
+		RequestedAnswerDimensionCausalContributorSet,
 		RequestedAnswerDimensionOther,
 	}
 }
