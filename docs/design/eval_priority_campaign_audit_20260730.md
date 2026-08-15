@@ -36863,6 +36863,48 @@ r510 回放验证正文是否停止虚构同核占用；若精确上下文已完
 `raw request/model/final prose hard gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.840 r510 / B834：TestSurface 已选中 unittest discover，根目录 impact selector 却被重构成空模块（2026-08-15）
+
+1. 在 `main@479ad949a` 重建后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。
+   Runner `1 PASS / 1 FAIL`，人工两案均 system fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_replan_trace_r510_20260815_manual_audit.md`。Trace 187s 正常结束；写案
+   948s 因 workflow exhaustion 阻断，均未由 4ms/4s/4m 或其他 fixed-age active-stream 条件降级。
+2. B833 获 production-positive：最终生成前 prompt 精确携带
+   `worker-200 CPU2 -> app-100 target CPU1; cpu_relation=cross_cpu` 及权限上限，正文不再声称 worker 占用 CPU1、同核抢占
+   或把 0.800ms 拆成 worker 后续工作 + 调度响应。显式时间窗、`Trace 因果投影`、自动补齐、链上-only 根因和双轴均保留。
+3. Trace 仍未人工闭环：perf triage/analyzer/explorer 的模型摘要在 typed 查询前后多次把 VerifyClass 写成“同步 RPC
+   阻塞/目标等待完成/完成后才唤醒”，而精确事实是 wakeup=5.005000、span end=5.005400、direct wait/completion binding
+   未建立。Finalizer 虽收到 B831/B833 的正确 typed 边界，仍在一份互相矛盾的上下文中生成，最终保留“刚完成”及
+   “目标对此工作完成的等待方式为 sleep”。登记 `B835-TRACEUPSTREAMSUMMARYCALIBER1/P0`：从 typed authority 与上下文
+   所有权根修，不用答案关键词硬门，也不让系统改写模型结论。
+4. 写案的第一版补丁正确，真正首错在 deterministic TestSurface 接线。报告同时记录：selected candidate command 为
+   `python3 -m unittest discover -v`；root-level related test 被 impact scope 转成 `suite="."`；执行器再构造为
+   `python3 -m unittest "." -v`，Python 报 `ValueError: Empty module name`。随后 planner bounded probe 已跑出 5/5 OK，
+   但普通 replan 没有 `changes:[]` typed 授权，模型被合同逼入 no-op、重复插入、无关文档改动和整文件覆盖，25 次读取后阻断。
+5. 实施 `B834-PYUNITTESTROOTDISCOVERY1/P0`：unittest command builder 将 typed root selector 的
+   `""|"."|"./"|".\\"` 统一渲染为 canonical `<python> -m unittest discover -v`。已验证子目录仍通过
+   filesystem-owned `discover -s <dir> -v`，模块 selector 继续原语义；不读取请求、计划摘要或测试输出文字决定命令。
+6. 新 production-shape pin 建立 root source + root unittest 的 applied ChangePlan，让空参数 `run_tests` 走真实
+   TestSurface/impact queue；断言最终 report passed、executed command 含 `unittest discover -v` 且不含
+   `unittest "."`。修首个 deterministic verifier 后不会进入上述 impossible replan；本批不放松验证、不接受空操作补丁，
+   planner observation 也不冒充 project-suite authority。
+7. 本批只改写模式的 Python unittest selector 渲染。Read/Trace 零改动；模型答案与结论所有权、Trace 精确信息供给、
+   邻近/背景 support-only、实际占用/业务线索与规则可消除量分轴均保持。
+
+验证：`go test ./internal/tool -run 'TestRunTestsPythonUnittest(RootImpactTargetUsesDiscovery|FrameworkPasses)$|TestImpactRunnerPlans' -count=1`、
+`go test ./internal/tool -count=1`、`go build ./...` 与 `git diff --check` 全部通过。
+
+状态：
+
+`B833-TRACEWAKEUPCPUTOPOLOGYPREGEN1=production-positive-r510/exact-purpose-closed`；
+`B834-PYUNITTESTROOTDISCOVERY1=implemented/production-shape-pin-pass/full-regression-pass`；
+`B835-TRACEUPSTREAMSUMMARYCALIBER1=confirmed/P0/next-batch`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r510`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

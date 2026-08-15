@@ -4379,6 +4379,67 @@ class SampleTests(unittest.TestCase):
 	}
 }
 
+func TestRunTestsPythonUnittestRootImpactTargetUsesDiscovery(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "test_widget.py"), []byte(`import unittest
+
+import widget
+
+class WidgetTests(unittest.TestCase):
+    def test_value(self):
+        self.assertEqual(widget.VALUE, 42)
+`), 0o644); err != nil {
+		t.Fatalf("write unittest file: %v", err)
+	}
+	mu := types.NewMutableState("root unittest impact verify")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-root-unittest-impact",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"widget.py", "test_widget.py"},
+		Changes: []types.FileChange{
+			{Path: "widget.py", Kind: "patch"},
+			{Path: "test_widget.py", Kind: "patch"},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("root unittest impact run should pass, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || !report.Passed {
+		t.Fatalf("unexpected root unittest report: %+v", report)
+	}
+	found := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner != "python" || cmd.Framework != pythonFrameworkUnittest || cmd.Outcome != "executed" {
+			continue
+		}
+		found = true
+		if !strings.Contains(cmd.Command, "-m unittest discover -v") || strings.Contains(cmd.Command, "unittest \".\"") {
+			t.Fatalf("root impact selector must render discovery, got command=%q", cmd.Command)
+		}
+	}
+	if !found {
+		t.Fatalf("missing executed unittest command: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsFrameworkOnlyDjangoBypassesManifestAutoDetect(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

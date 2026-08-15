@@ -6685,7 +6685,13 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		if framework == pythonFrameworkUnittest {
 			interp := pythonRuntimeInterpreter(repoRoot, mainRoot)
 			filter := strings.TrimSpace(suite)
-			if filter == "" {
+			// A root-level impacted unittest file is represented by the typed
+			// TestSurface as suite=".". In unittest CLI syntax, however, "."
+			// is an empty module name, not repository-root discovery. Preserve
+			// the impact scope while rendering the same canonical discovery
+			// command as the root candidate. Subdirectories continue through
+			// the filesystem-verified `discover -s` branch below.
+			if filter == "" || filter == "." || filter == "./" || filter == ".\\" {
 				return fmt.Sprintf("%s -m unittest discover -v", interp), ""
 			}
 			if pythonUnittestSuiteIsDirectory(repoRoot, filter) {
