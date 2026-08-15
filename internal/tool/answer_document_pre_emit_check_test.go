@@ -939,6 +939,113 @@ func TestNormalizeAnswerDocumentForPreEmitRebindsScalarLiteralCitation(t *testin
 	}
 }
 
+func TestNormalizeScalarLiteralCitationRefsDoesNotRebindPrincipalDerivedAggregateByNakedValue(t *testing.T) {
+	mu := types.NewMutableState("derived aggregate citation authority")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "registration",
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       64,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "RegisterDefaultSubAgents",
+			Object:          "SubAgentRegistry.Register",
+			Snippet:         "r.Register(NewSubExplorer(deps))",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "unrelated-naked-value",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       19917,
+			AnchorKind:      types.AnchorDefinition,
+			Snippet:         `if dot := strings.LastIndex(p, "."); dot > 0 && dot < len(p)-1 {`,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "registered names",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"internal/agent/subagent.go:64"},
+	}})
+	mu.SetInvestigationComplete("accepted principal aggregate")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu}
+	newDocument := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{
+			Citations: []types.Citation{
+				{File: "internal/agent/subagent.go", Line: 64, Quote: "r.Register(NewSubExplorer(deps))"},
+				{File: "internal/agent/explorer.go", Line: 19917, Quote: `if dot := strings.LastIndex(p, "."); dot > 0 && dot < len(p)-1 {`},
+			},
+			Blocks: []types.AnswerBlock{{
+				ID:        "count",
+				Kind:      types.BlockScalar,
+				Text:      "1",
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}},
+				Items:     []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+			}},
+		}
+	}
+
+	doc := newDocument()
+	if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, nil); fixed != 0 {
+		t.Fatalf("fixed=%d, a principal derived aggregate must stay outside source-literal rebinding", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("derived aggregate citation_ref=%d, want model-selected ref 0", got)
+	}
+
+	doc = newDocument()
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) {
+		t.Fatalf("production normalize detached accepted aggregate support: ref=%d citations=%+v", ref, doc.Citations)
+	}
+	if got := doc.Citations[ref]; got.File != "internal/agent/subagent.go" || got.Line != 64 {
+		t.Fatalf("production normalize moved aggregate support to unrelated naked-value citation: %+v", got)
+	}
+}
+
+func TestNormalizeScalarLiteralCitationRefsSupportingAggregateDoesNotMaskSourceLiteral(t *testing.T) {
+	mu := types.NewMutableState("supporting aggregate does not own source literal")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{ID: "wrong", Kind: types.EvidenceDirect, Source: "wrong.go", LineStart: 1, AnchorKind: types.AnchorDefinition, Snippet: "const Wrong = 500", GroundingStatus: types.GroundingGrounded},
+		{ID: "target", Kind: types.EvidenceDirect, Source: "target.go", LineStart: 2, AnchorKind: types.AnchorDefinition, Snippet: "const DefaultLimit = 50", GroundingStatus: types.GroundingGrounded},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "advisory sample",
+		Value: "50",
+		Role:  types.AnswerAggregateRoleSupportingCoverage,
+	}})
+	mu.SetInvestigationComplete("accepted supporting aggregate")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "wrong.go", Line: 1, Quote: "const Wrong = 500"},
+			{File: "target.go", Line: 2, Quote: "const DefaultLimit = 50"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:        "default",
+			Kind:      types.BlockScalar,
+			Text:      "50",
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}},
+			Items:     []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+		}},
+	}
+
+	if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, nil); fixed != 1 {
+		t.Fatalf("fixed=%d, supporting aggregate must not suppress exact source-literal repair", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("source literal citation_ref=%d, want exact source ref 1", got)
+	}
+}
+
 func TestNormalizeScalarLiteralCitationRefsTypedBoundaries(t *testing.T) {
 	newContext := func() *types.BusContext {
 		mu := types.NewMutableState("scalar literal boundaries")

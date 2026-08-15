@@ -1751,6 +1751,15 @@ func normalizeScalarLiteralCitationRefsWithContext(doc *types.AnswerDocumentV2, 
 		if !ok {
 			continue
 		}
+		// A principal aggregate value is derived from the investigator's
+		// accepted structured handoff. It is not a source literal merely
+		// because an unrelated evidence line happens to contain the same
+		// number or token. Keep that typed authority lane out of the global
+		// source-literal search; aggregate support validation remains
+		// responsible for the model-selected citation.
+		if preEmitScalarLiteralIsPrincipalAggregateValue(pctx, value) {
+			continue
+		}
 		candidate, candidateOK := preEmitPreferredScalarLiteralCitation(doc, pctx, *block, value)
 		candidateRef := -1
 		if candidateOK {
@@ -1783,6 +1792,50 @@ func normalizeScalarLiteralCitationRefsWithContext(doc *types.AnswerDocumentV2, 
 		}
 	}
 	return fixed
+}
+
+func preEmitScalarLiteralIsPrincipalAggregateValue(pctx *preEmitCheckContext, value string) bool {
+	if pctx == nil || pctx.ctx == nil {
+		return false
+	}
+	facts := pctx.stableAggregateFactsForCheck()
+	if len(facts) == 0 {
+		return false
+	}
+	if pctx.ctx.AnalysisIR != nil {
+		facts = types.NormalizeAggregateFactRolesForRequest(facts, &pctx.ctx.AnalysisIR.RequestModel)
+	}
+	for idx, fact := range facts {
+		if types.NormalizeAnswerAggregateRole(fact.Role) != types.AnswerAggregateRolePrincipalAnswer ||
+			!preEmitScalarLiteralMatchesAggregateFact(value, fact) ||
+			!preEmitAggregateFactRequiresVisibleValue(pctx.ctx, facts, idx, fact) {
+			continue
+		}
+		if fact.Kind == types.AnswerAggregateMemberSet {
+			var rm *types.RequestModel
+			if pctx.ctx.AnalysisIR != nil {
+				rm = &pctx.ctx.AnalysisIR.RequestModel
+			}
+			if !types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+				continue
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func preEmitScalarLiteralMatchesAggregateFact(value string, fact types.AnswerAggregateFact) bool {
+	value = strings.TrimSpace(value)
+	factValue := strings.TrimSpace(fact.Value)
+	if value == "" || factValue == "" {
+		return false
+	}
+	if value == factValue {
+		return true
+	}
+	unit := strings.TrimSpace(fact.Unit)
+	return unit != "" && (value == factValue+unit || value == factValue+" "+unit)
 }
 
 func preEmitAtomicScalarLiteralSurface(block types.AnswerBlock) (string, bool) {

@@ -36121,6 +36121,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.860 B846 根修 + B848 生产教学：派生聚合值与源码 literal 分域（2026-08-15）
+
+1. B846 根因已按 typed authority 分域修复。`normalizeScalarLiteralCitationRefsWithContext` 在进入全 evidence
+   的源码 literal 搜索前，先检查稳定 investigation aggregate facts；只有 `role=principal_answer`、exact typed
+   `value[/unit]` 相等、且该 fact 当前确实要求显示主值时才退出源码重绑。`member_set` 还必须通过既有 principal
+   authority 判定，不能让 retained inference 或 advisory roster 获得豁免。该判定只读结构化
+   `kind/role/value/unit/authority`，不读用户输入、fact label、模型 prose 或最终答案词面。
+2. 这个 fail-open 边界不替模型选证据，也不为派生值制造新 citation：保留模型选中的 ref，后续既有 aggregate
+   support/authority 校验仍负责其合法性。r522 复现形中，principal `member_set.value="1"` 的 scalar 继续绑定
+   `subagent.go:64` 注册 support，绝不会因为 `explorer.go:19917` 恰好含裸数字 `1` 而改绑；完整 production
+   normalize seam 也钉定该结果。
+3. 反例同时锁住：普通源码默认值 `50` 仍会从错误邻行重绑到 exact definition；相同 `value=50` 的
+   `supporting_coverage` aggregate 不获得 principal 豁免，因而不能屏蔽源码 literal 修复。这样解决的是所有
+   “派生聚合值与源码 token 偶然相同”类别，不是对 `1`、registry、文件名或本案答案做特判。
+4. B848 在同批只补 soft、schema-near 教学，不新增 hard gate。最前置 JSON shape rule 现在用一句话说明：同一 row
+   已由模型选择多个 evidence anchors 时，主锚放 `citation_ref`、其余放 `citation_refs`，且禁止加入模型未选择的
+   锚。既有完整 semantic contract、full/patch schema 与生命周期不变；没有强迫每行多引，也没有让系统按列名、
+   请求或答案 prose 猜锚。下一步必须靠 r523 生产回放判断模型是否采用，不能把静态教学存在记作生产闭环。
+5. 验证：`go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿；新增 focused production seam、
+   principal/supporting 双臂、普通源码 literal 保留臂和 shape-first 教学 pin 均绿。本批不改 Trace，显式时间窗、
+   因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴继续保持；邻近/背景只作支持，
+   系统不写模型结论。
+
+状态：
+
+`B846-PATCHCITATIONIDENTITYREMAP1=implemented/typed-principal-aggregate-carve-out/awaiting-r523`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=carrier+soft-shape-teaching/awaiting-r523`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

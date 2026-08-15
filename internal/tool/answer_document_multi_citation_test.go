@@ -134,4 +134,14 @@ func TestAnswerDocumentFullAndPatchSchemasExposeSameMultipleCitationCarrier(t *t
 			t.Fatalf("%s schema omits item citation_refs", name)
 		}
 	}
+	for _, want := range []string{
+		"several evidence anchors you already selected",
+		"primary index in citation_ref",
+		"remaining indexes in citation_refs",
+		"do not add unselected anchors",
+	} {
+		if !strings.Contains(types.AnswerDocumentJSONShapeFirstTeaching, want) {
+			t.Fatalf("shape-first multi-citation teaching missing %q: %s", want, types.AnswerDocumentJSONShapeFirstTeaching)
+		}
+	}
 }
