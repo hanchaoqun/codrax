@@ -4715,6 +4715,35 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_EquivalentTopLevelDimensionDuplicateIsLosslesslyRemoved(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"is_dimensioned_answer": "false",
+		"intent": "root-cause",
+		"scenario": "root_cause",
+		"complexity": "moderate",
+		"keywords": ["orchestrator", "pipeline", "analyze"],
+		"entities": ["Orchestrator", "StageAnalyze"],
+		"question_kind": "mechanism"
+	}`)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
+
+	res, mu := runEmitAnalysisPayload(t, "trace the pipeline through analyze", payload)
+	if !res.Success {
+		t.Fatalf("equivalent legacy duplicate should not burn an analyzer retry: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("request model was not persisted after lossless duplicate repair")
+	}
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.IsDimensionedAnswer {
+		t.Fatalf("canonical nested false decision changed to true: %+v", rm.RequestedAnswerDimensions)
+	}
+}
+
 func TestEmitAnalysis_Execute_StringWrappedSubTopics(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

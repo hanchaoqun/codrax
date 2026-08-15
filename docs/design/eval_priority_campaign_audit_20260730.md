@@ -37023,6 +37023,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 验证：`go test ./internal/tracequery ./internal/tool -count=1`（首次仅被词义 lint 拒绝；校准后
 `go test ./internal/tool -count=1` 全绿）、SYM-2/双语专项、`go build ./...` 与 `git diff --check` 全部通过。
 
+### §123.844 B837-A：等价 nested decision 副本无损归一；畸形数组仍 fail-loud（2026-08-15）
+
+1. 共享 structured-payload compatibility 增加 schema-driven 通用臂，处理一类“nested 决策被等价重复到
+   顶层”的结构错误，而不是为 `emit_analysis`/单字段打补丁。顶层 key 必须不属于 schema；schema 中必须
+   恰有一条 nested object 路径声明同名 boolean；canonical nested 值必须是原生 JSON boolean；顶层副本
+   只接受原生 boolean 或 `"true"/"false"` 且两值相等。满足时删除无 schema 权限的顶层副本，保留
+   canonical 值并记录 tool/path 日志。r511 的 `is_dimensioned_answer →
+   requested_answer_dimensions.is_dimensioned_answer` 只是该通用规则的生产 witness。
+2. 任何缺 canonical carrier、nested 非原生 bool、值冲突、未知字面、多个 schema 候选路径、数组成员
+   路径或 JSON 解析失败都不修，继续交给 `DisallowUnknownFields`/typed consistency 门 fail-loud。该臂
+   不是通用 unknown-field pruning，不会删除其他字段，也不读取 request、thinking、模型正文或最终答案。
+3. r511 的 perf 首轮把 `observations[]` 和 sibling `residue[]` 粘进同一个 JSON-encoded string，inner
+   payload 已非合法数组。现有恢复层拒绝是正确的：只有完整、合法、shape 匹配的 inner JSON 才能无损
+   解包；系统不得猜测数组截止位置、抽取“看起来有用”的成员或代替模型重建 sibling。该残余继续以
+   schema 显著性/异构回放观察，不为一个模型样本扩展危险修复器。
+4. 本批不修改 causal breadth 一致性门。r511 第二次对
+   `root_cause + bounded_fact_set/fact_families` 的拒绝是准确合同，不应为了少一轮而静默选择 scope；
+   只有第一轮的等价重复字段属于可安全消除的纯结构成本。
+5. Trace 查询、投影、自动补齐、排名和模型结论均未改；活跃流仍不以 4ms/4s/4m 固定年龄降级。
+
+状态：`B837-STRUCTUREDEMISSIONMENTALLOAD1=part-A-implemented/lossless-duplicate-only`；
+`malformed-observations+residue-string=fail-loud/by-design`；
+`raw request/model/final prose hard gate=none`；`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

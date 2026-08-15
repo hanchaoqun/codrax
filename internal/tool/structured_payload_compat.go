@@ -28,6 +28,11 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 		logging.Warning("[structured_payload_compat] tool=%s redundant top-level type field removed before schema normalization", toolName)
 		raw = repaired
 	}
+	if repaired, fields, ok := repairRedundantUniqueNestedBooleanFields(raw, schema); ok {
+		logging.Warning("[structured_payload_compat] tool=%s redundant top-level boolean field(s) removed; identical canonical nested decisions retained: %s",
+			toolName, strings.Join(fields, ", "))
+		raw = repaired
+	}
 	repaired, report := toolparam.Normalize(raw, schema, types.DefaultToolParamCompatConfig())
 	if !report.Changed() {
 		return raw
@@ -35,6 +40,138 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	logging.Warning("[structured_payload_compat] tool=%s bytes=%d→%d arrays=%s repairs=%s",
 		toolName, len(raw), len(repaired), topLevelArrayLengthSummary(repaired), report.Summary(8))
 	return repaired
+}
+
+// repairRedundantUniqueNestedBooleanFields is a schema-driven lossless repair
+// for a recurring structured-emission class: a model emits a decision both in
+// its canonical nested object and as an extra top-level key. A field is removed
+// only when all of these precise conditions hold:
+//   - the top-level key is not owned by the schema;
+//   - the schema contains exactly one nested object path with that key and its
+//     declared type is boolean;
+//   - the canonical nested payload is present as a native JSON boolean;
+//   - the redundant value is that same boolean (native or "true"/"false").
+//
+// Missing, ambiguous, malformed, or conflicting shapes pass through unchanged
+// to strict decoding. Arrays are deliberately outside this repair because a
+// top-level scalar cannot identify which array member it duplicates.
+func repairRedundantUniqueNestedBooleanFields(raw json.RawMessage, schema json.RawMessage) (json.RawMessage, []string, bool) {
+	var root map[string]json.RawMessage
+	var schemaRoot struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(raw, &root) != nil || json.Unmarshal(schema, &schemaRoot) != nil || len(root) == 0 {
+		return raw, nil, false
+	}
+	keys := make([]string, 0, len(root))
+	for key := range root {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	removed := make([]string, 0, 2)
+	for _, key := range keys {
+		if _, schemaOwnsTopLevel := schemaRoot.Properties[key]; schemaOwnsTopLevel {
+			continue
+		}
+		paths := structuredNestedBooleanSchemaPaths(schema, key)
+		if len(paths) != 1 {
+			continue
+		}
+		canonicalRaw, ok := structuredRawValueAtObjectPath(raw, paths[0])
+		if !ok {
+			continue
+		}
+		var canonical bool
+		if json.Unmarshal(canonicalRaw, &canonical) != nil {
+			continue
+		}
+		legacy, ok := structuredCompatBool(root[key])
+		if !ok || legacy != canonical {
+			continue
+		}
+		delete(root, key)
+		removed = append(removed, key+"→"+strings.Join(paths[0], "."))
+	}
+	if len(removed) == 0 {
+		return raw, nil, false
+	}
+	repaired, err := json.Marshal(root)
+	if err != nil || !json.Valid(repaired) {
+		return raw, nil, false
+	}
+	return repaired, removed, true
+}
+
+func structuredNestedBooleanSchemaPaths(schema json.RawMessage, field string) [][]string {
+	var out [][]string
+	var walk func(json.RawMessage, []string, bool)
+	walk = func(nodeRaw json.RawMessage, prefix []string, root bool) {
+		var node struct {
+			Type       string                     `json:"type"`
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if json.Unmarshal(nodeRaw, &node) != nil || len(node.Properties) == 0 {
+			return
+		}
+		keys := make([]string, 0, len(node.Properties))
+		for key := range node.Properties {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			child := node.Properties[key]
+			path := append(append([]string(nil), prefix...), key)
+			var shape struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(child, &shape) != nil {
+				continue
+			}
+			if !root && key == field && shape.Type == "boolean" {
+				out = append(out, path)
+			}
+			if shape.Type == "object" {
+				walk(child, path, false)
+			}
+		}
+	}
+	walk(schema, nil, true)
+	return out
+}
+
+func structuredRawValueAtObjectPath(raw json.RawMessage, path []string) (json.RawMessage, bool) {
+	current := raw
+	for _, key := range path {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(current, &obj) != nil {
+			return nil, false
+		}
+		next, ok := obj[key]
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return current, true
+}
+
+func structuredCompatBool(raw json.RawMessage) (bool, bool) {
+	var value bool
+	if json.Unmarshal(raw, &value) == nil {
+		return value, true
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return false, false
+	}
+	switch strings.TrimSpace(strings.ToLower(text)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func repairRedundantToolNameTypeField(toolName string, raw json.RawMessage, schema json.RawMessage) (json.RawMessage, bool) {

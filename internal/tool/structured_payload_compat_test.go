@@ -1,12 +1,58 @@
 package tool
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestStructuredPayloadCompatRepairsUniqueNestedBooleanDuplicateGenerically(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"name":{"type":"string"},
+			"decision_profile":{"type":"object","properties":{"enabled":{"type":"boolean"}}}
+		}
+	}`)
+	raw := json.RawMessage(`{"name":"x","enabled":"true","decision_profile":{"enabled":true}}`)
+	got := applyStructuredPayloadCompat("synthetic_decision", raw, schema)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(got, &obj); err != nil {
+		t.Fatalf("repaired payload invalid: %v\n%s", err, got)
+	}
+	if _, exists := obj["enabled"]; exists {
+		t.Fatalf("redundant top-level decision survived: %s", got)
+	}
+	if string(obj["decision_profile"]) != `{"enabled":true}` {
+		t.Fatalf("canonical nested decision changed: %s", got)
+	}
+}
+
+func TestStructuredPayloadCompatNestedBooleanDuplicateFailsClosedWhenAmbiguousOrConflicting(t *testing.T) {
+	uniqueSchema := json.RawMessage(`{"type":"object","properties":{"decision_profile":{"type":"object","properties":{"enabled":{"type":"boolean"}}}}}`)
+	ambiguousSchema := json.RawMessage(`{"type":"object","properties":{"left":{"type":"object","properties":{"enabled":{"type":"boolean"}}},"right":{"type":"object","properties":{"enabled":{"type":"boolean"}}}}}`)
+	for _, tc := range []struct {
+		name   string
+		schema json.RawMessage
+		raw    json.RawMessage
+	}{
+		{"conflict", uniqueSchema, json.RawMessage(`{"enabled":true,"decision_profile":{"enabled":false}}`)},
+		{"missing-canonical", uniqueSchema, json.RawMessage(`{"enabled":true}`)},
+		{"nested-not-native-bool", uniqueSchema, json.RawMessage(`{"enabled":"false","decision_profile":{"enabled":"false"}}`)},
+		{"invalid-legacy-bool", uniqueSchema, json.RawMessage(`{"enabled":"maybe","decision_profile":{"enabled":false}}`)},
+		{"ambiguous-schema-path", ambiguousSchema, json.RawMessage(`{"enabled":true,"left":{"enabled":true},"right":{"enabled":true}}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, fields, ok := repairRedundantUniqueNestedBooleanFields(tc.raw, tc.schema)
+			if ok || len(fields) != 0 || string(got) != string(tc.raw) {
+				t.Fatalf("ambiguous/conflicting payload must pass through for strict rejection: ok=%v fields=%v\nraw=%s\ngot=%s", ok, fields, tc.raw, got)
+			}
+		})
+	}
+}
 
 func structuredPayloadContractFiles() []string {
 	files := []string{
