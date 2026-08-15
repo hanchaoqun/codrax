@@ -4892,6 +4892,74 @@ func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_StripsEnumerationBoundaryDuplicatingExplicitRuntimeWindow(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(withV4Required(`{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["trace", "window", "app-100"],
+		"entities": ["app-100"],
+		"question_kind": "mechanism"
+	}`)), &payload); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	payload["runtime_artifact_scope_profile"] = map[string]any{
+		"requested_scope": "explicit_time_window",
+		"time_start":      5.000,
+		"time_end":        5.007,
+		"source_quote":    "5.000s 到 5.007s",
+		"confidence":      1.0,
+	}
+	payload["enumeration_boundary"] = map[string]any{
+		"declared_count": 7,
+		"source_quote":   "5.000s 到 5.007s",
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	mu := types.NewMutableState("请分析 app-100 在 5.000s 到 5.007s 的 trace 状态")
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, AttachedHitrace: "inline trace"}, raw)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("time window conflict should be normalized without an analyzer retry: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.RuntimeArtifactScopeProfile == nil {
+		t.Fatalf("runtime scope missing: %+v", rm)
+	}
+	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); !ok {
+		t.Fatalf("typed time window changed: %+v", rm.RuntimeArtifactScopeProfile)
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("time interval became a principal member count: %+v", rm.EnumerationBoundary)
+	}
+	if !strings.Contains(res.Summary, "already the typed explicit runtime time window") {
+		t.Fatalf("normalization audit warning missing: %q", res.Summary)
+	}
+}
+
+func TestEnumerationBoundarySeparateFromExplicitRuntimeWindowRemainsActive(t *testing.T) {
+	start, end := 5.0, 5.007
+	profile := &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "5.000s 到 5.007s",
+	}
+	boundary := &emitEnumerationBoundaryParam{DeclaredCount: 7, SourceQuote: "7 checks"}
+	if enumerationBoundaryDuplicatesExplicitRuntimeWindow(boundary, profile) {
+		t.Fatal("a separately quoted principal set inside a runtime window must remain active")
+	}
+}
+
 func TestEmitAnalysis_Execute_ScalarCountStripsScopeEnumerationBoundary(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

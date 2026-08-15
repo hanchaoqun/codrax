@@ -37069,6 +37069,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 状态：`B838-PROBEAUTHORITY1=implemented/pending-full-suite`；
 `probe-code-system-rewrite=none`；`project-suite-failure-downgrade=none`。
 
+### §123.846 r512 / B839：显式时间窗不得兼任 principal-set 基数（2026-08-15）
+
+1. Trace r512 机器 PASS，但人工过程审计发现 analyzer 同时发射：
+   `runtime_artifact_scope_profile=explicit_time_window/source_quote="5.000s 到 5.007s"` 与
+   `enumeration_boundary=declared_count:7/source_quote="5.000s 到 5.007s"`。后者把小数端点中的 `7` 误当成
+   “7 个 principal members”，使 extractor 硬要求 `emit_answer_symbol` 7 项；模型连续 4 轮明确报告合同矛盾，
+   尝试事件清单、artifact 行引用，最后才走 external-trace 空 slate escape。最终正文虽保留 Trace 因果投影，
+   系统仍追加“枚举条目未完整”的假缺口。该成本与结论缺口均为 typed scope/set 冲突，不是模型波动。
+2. 根修不扫描 request/thinking/final prose：两 carrier 已各自通过 verbatim quote 与 schema 校验；当
+   enumeration source_quote 与一个有效 `ExplicitTimeWindow()` 的 source_quote 字节级同一时，前者 soft-strip
+   并记录 audit warning，后者保持。小数值、时间单位和自然语言连接词都不参与下游硬门。
+3. 独立 principal set 不受影响：同一请求若时间窗 quote 为 `5.000s 到 5.007s`，另有集合 quote
+   `7 checks`，二者不相同，7 项边界继续生效。schema 教学同步明确“区间端点不是成员数”，减少模型心智。
+4. 新 e2e pin 使用 r512 形：必须一次接受分析、保留 5.000..5.007 typed window、删除错误 boundary；另有
+   反向 pin 保留独立 `7 checks`。Trace 查询、因果投影、自动补齐、链内排序与模型答案所有权零改动。
+
+状态：`B839-INTERVALSETCONFLICT1=implemented/pending-full-suite-and-replay`；
+`raw-prose-keyword-hard-gate=none`；`trace-causal-projection=unchanged`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
