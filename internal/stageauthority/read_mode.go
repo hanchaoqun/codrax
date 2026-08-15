@@ -178,9 +178,11 @@ func CoversAllRequiredIncidentParticipants(rm types.RequestModel, main []StageRo
 // stage participant slate remains sufficient. The second arm covers a required
 // typed stage/workflow answer dimension only when the investigation also
 // carries citable grounded evidence from the current read-pipeline authority
-// sources. This is the same precise signal used by the finalizer prompt; it
-// prevents a prompt recipe from being rejected by sibling validators merely
-// because the analyzer supplied a partial participant slate.
+// sources. The third arm accepts at least two unambiguous canonical stage
+// identities from those same grounded authority sources. These are the same
+// precise signals used by the finalizer prompt; they prevent a prompt recipe
+// from being rejected by sibling validators merely because the analyzer
+// supplied a partial/empty participant slate or lost one soft dimension.
 //
 // The result authorizes only checkout-verified adjacent stage precedence. It
 // never authorizes calls, data flow, participant connectivity, or runtime
@@ -201,15 +203,20 @@ func RelevantToRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.
 		return true
 	}
 	_, _, ok := requiredReadModeParticipantStageSpan(rm, main)
+	if ok {
+		return true
+	}
+	_, _, ok = groundedReadModeEvidenceStageSpan(evidence, main)
 	return ok
 }
 
 // SelectRequiredReadModeWorkflow returns the narrowest verified stage span
 // authorized by the typed request. A complete stage slate or a required typed
 // stage/workflow dimension selects the whole main lane. Otherwise two or more
-// unambiguous incident participants that resolve to current read stages select
-// only their contiguous canonical interval. Unmatched participants remain
-// independent coverage obligations and do not invalidate a valid stage span.
+// unambiguous incident participants, or two or more unambiguous grounded stage
+// identities from checkout authority files, select only their contiguous
+// canonical interval. Unmatched participants remain independent coverage
+// obligations and do not invalidate a valid stage span.
 //
 // The endpoint arm additionally requires grounded current-pipeline evidence;
 // it never reads request prose, participant source_quote, answer text, or
@@ -230,6 +237,9 @@ func SelectRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.Evid
 		return copyWorkflowSelection(authority.Main, authority.Precedence)
 	}
 	start, end, ok := requiredReadModeParticipantStageSpan(rm, authority.Main)
+	if !ok {
+		start, end, ok = groundedReadModeEvidenceStageSpan(evidence, authority.Main)
+	}
 	if !ok || start < 0 || end >= len(authority.Main) || start >= end {
 		return WorkflowSelection{}
 	}
@@ -244,14 +254,15 @@ func copyWorkflowSelection(main []StageRow, precedence []PrecedenceRelation) Wor
 }
 
 func hasGroundedReadModeAuthorityEvidence(evidence []types.EvidenceItem) bool {
+	authorityFiles := make(map[string]bool, len(types.ReadModePipelineAuthorityFiles()))
+	for _, path := range types.ReadModePipelineAuthorityFiles() {
+		authorityFiles[normalizedReadModeAuthorityPath(path)] = true
+	}
 	for _, item := range evidence {
 		if item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded || !item.IsCitable() {
 			continue
 		}
-		switch normalizedReadModeAuthorityPath(item.Source) {
-		case types.ReadModePipelineStageBindingFile,
-			types.ReadModePipelineTopologyFile,
-			types.ReadModePipelineOrchestratorFile:
+		if authorityFiles[normalizedReadModeAuthorityPath(item.Source)] {
 			return true
 		}
 	}
@@ -278,6 +289,65 @@ func requiredReadModeParticipantStageSpan(rm types.RequestModel, main []StageRow
 		}
 		if len(indexes) == 1 {
 			matched[indexes[0]] = true
+		}
+	}
+	if len(matched) < 2 {
+		return 0, 0, false
+	}
+	start, end = len(main), -1
+	for index := range matched {
+		if index < start {
+			start = index
+		}
+		if index > end {
+			end = index
+		}
+	}
+	return start, end, start < end
+}
+
+// groundedReadModeEvidenceStageSpan recovers a precise canonical stage span
+// when the analyzer preserved the required flow/diagram shape but omitted its
+// participant slate or lost a soft stage/workflow dimension. It consumes only
+// citable grounded evidence fields from the checkout-defined read-pipeline
+// authority files. Request prose, evidence summaries, Mermaid labels, and the
+// model's final answer are deliberately outside the decision.
+//
+// Two distinct unambiguous stage identities are required. A broad identity
+// that matches zero or multiple rows contributes nothing; one endpoint alone
+// cannot activate the provider. The result still authorizes precedence only.
+func groundedReadModeEvidenceStageSpan(evidence []types.EvidenceItem, main []StageRow) (start, end int, ok bool) {
+	if len(main) < 2 || len(evidence) == 0 {
+		return 0, 0, false
+	}
+	authorityFiles := make(map[string]bool, len(types.ReadModePipelineAuthorityFiles()))
+	for _, path := range types.ReadModePipelineAuthorityFiles() {
+		authorityFiles[normalizedReadModeAuthorityPath(path)] = true
+	}
+	matched := make(map[int]bool, len(main))
+	for _, item := range evidence {
+		if item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded || !item.IsCitable() ||
+			!authorityFiles[normalizedReadModeAuthorityPath(item.Source)] {
+			continue
+		}
+		for _, surface := range []string{item.Subject, item.Object, item.AnchorSymbol} {
+			surface = strings.TrimSpace(surface)
+			if surface == "" {
+				continue
+			}
+			var indexes []int
+			for i, row := range main {
+				for _, alias := range row.IdentityAliases() {
+					if types.AnswerCodeIdentitySurfacesEquivalent(surface, alias) ||
+						types.AnswerCodeIdentitySurfacesCompatible(surface, alias) {
+						indexes = append(indexes, i)
+						break
+					}
+				}
+			}
+			if len(indexes) == 1 {
+				matched[indexes[0]] = true
+			}
 		}
 	}
 	if len(matched) < 2 {

@@ -9263,6 +9263,53 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedEndpointSpan(t *tes
 	}
 }
 
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesGroundedCanonicalEvidenceSpan(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("required sequence with omitted analyzer participants")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 34,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageAnalyze", AnchorSymbol: "StageAnalyze", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 37,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageFinalize", AnchorSymbol: "StageFinalize", GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.AgentContext{
+		RepoRoot: repoRoot, Mode: types.ModeRead, Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+		}},
+	}
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	if !strings.Contains(got, "canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`") ||
+		strings.Count(got, "- stage_precedence[") != 3 {
+		t.Fatalf("grounded endpoints must reach the shared finalizer stage authority:\n%s", got)
+	}
+	if relations := answerDocVerifiedReadModeStagePrecedenceForRequest(ctx); len(relations) != 3 {
+		t.Fatalf("prompt and relation authority drifted: %+v", relations)
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Current Run Stage-Lane Authority",
+		"stage_precedence[1]",
+		"stage_precedence[2]",
+		"stage_precedence[3]",
+		"They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesExactGroundedMembershipWithoutOptionalDimension(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

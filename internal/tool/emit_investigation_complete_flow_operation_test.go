@@ -236,6 +236,53 @@ func TestRequestedWorkflowAuthorityConsumersAcceptPartialAnalyzerSlate(t *testin
 	}
 }
 
+func TestRequestedWorkflowAuthorityConsumersAcceptGroundedCanonicalStageSpan(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 34,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageAnalyze", AnchorSymbol: "StageAnalyze", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 37,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageFinalize", AnchorSymbol: "StageFinalize", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	ctx := flowOperationCompletionContext(evidence)
+	ctx.RepoRoot = repoRoot
+	ctx.Mode = types.ModeRead
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentExplain
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+	}
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = nil
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture, RelationAxis: types.AxisFlow,
+		DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramSequence, Required: true},
+	}
+	if got := completionVerifiedReadModeStagePrecedence(ctx); len(got) != 3 {
+		t.Fatalf("completion evidence-span precedence=%d, want 3", len(got))
+	}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 3 {
+		t.Fatalf("diagram evidence-span precedence=%d, want 3", len(got))
+	}
+
+	ctx.Mutable = types.NewMutableState("one grounded endpoint is insufficient")
+	ctx.Mutable.AppendEvidence(evidence[:1])
+	if got := completionVerifiedReadModeStagePrecedence(ctx); len(got) != 0 {
+		t.Fatalf("completion must fail closed for one endpoint: %+v", got)
+	}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 0 {
+		t.Fatalf("diagram validator must fail closed for one endpoint: %+v", got)
+	}
+}
+
 func TestRequestedWorkflowAuthorityConsumersAcceptTypedStageEndpointSpan(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

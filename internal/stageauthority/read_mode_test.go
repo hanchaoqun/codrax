@@ -268,6 +268,70 @@ func TestSelectRequiredReadModeWorkflowUsesTypedEndpointSpanWithoutProse(t *test
 	}
 }
 
+func TestSelectRequiredReadModeWorkflowUsesGroundedCanonicalEvidenceSpan(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 34,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageAnalyze", AnchorSymbol: "StageAnalyze", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 37,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
+			Subject: "StageFinalize", AnchorSymbol: "StageFinalize", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	selection := SelectRequiredReadModeWorkflow(rm, evidence, authority)
+	if len(selection.Main) != 4 || len(selection.Precedence) != 3 {
+		t.Fatalf("grounded canonical endpoints should select the full contiguous lane: %+v", selection)
+	}
+	if !RelevantToRequiredReadModeWorkflow(rm, evidence, authority.Main) {
+		t.Fatal("shared relevance decision drifted from the evidence-span selector")
+	}
+
+	for name, mutate := range map[string]func([]types.EvidenceItem) []types.EvidenceItem{
+		"one endpoint": func(in []types.EvidenceItem) []types.EvidenceItem { return in[:1] },
+		"untrusted source": func(in []types.EvidenceItem) []types.EvidenceItem {
+			out := append([]types.EvidenceItem(nil), in...)
+			out[1].Source = "customer/stage_binding.go"
+			return out
+		},
+		"uncitable endpoint": func(in []types.EvidenceItem) []types.EvidenceItem {
+			out := append([]types.EvidenceItem(nil), in...)
+			out[1].LineStart = 0
+			return out
+		},
+		"ambiguous broad identity": func(in []types.EvidenceItem) []types.EvidenceItem {
+			out := append([]types.EvidenceItem(nil), in[:1]...)
+			out = append(out, types.EvidenceItem{
+				Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 7,
+				Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+				Subject: "PipelineStage", AnchorSymbol: "PipelineStage", GroundingStatus: types.GroundingGrounded,
+			})
+			return out
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := SelectRequiredReadModeWorkflow(rm, mutate(evidence), authority); len(got.Precedence) != 0 {
+				t.Fatalf("%s must fail closed: %+v", name, got)
+			}
+		})
+	}
+
+	rm.Intent = types.IntentTrace
+	if got := SelectRequiredReadModeWorkflow(rm, evidence, authority); len(got.Precedence) != 0 {
+		t.Fatalf("Trace must stay outside current-source stage authority: %+v", got)
+	}
+}
+
 func writeReadModeAuthorityFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

@@ -20299,15 +20299,12 @@ func answerDocumentHasGroundedReadModeMembershipAuthority(ctx *types.AgentContex
 }
 
 func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	authorityFiles := make(map[string]bool, len(types.ReadModePipelineAuthorityFiles()))
+	for _, path := range types.ReadModePipelineAuthorityFiles() {
+		authorityFiles[normalizedStageBindingSourcePath(path)] = true
+	}
 	isAuthority := func(path string) bool {
-		switch normalizedStageBindingSourcePath(path) {
-		case "internal/types/stage_binding.go",
-			"internal/orchestrator/topology.go",
-			"internal/orchestrator/orchestrator.go":
-			return true
-		default:
-			return false
-		}
+		return authorityFiles[normalizedStageBindingSourcePath(path)]
 	}
 	if doc != nil {
 		for _, cit := range doc.Citations {

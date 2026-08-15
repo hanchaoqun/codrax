@@ -36680,6 +36680,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.876 B858：以 grounded canonical stage span 恢复完整 read precedence（2026-08-15）
+
+1. `B858-READSTAGEEVIDENCESPAN1` 已按 §123.875 冻结方案施工。共享 `stageauthority` provider 新增第三个
+   admission arm：仅在 read mode、required flow diagram、checkout authority 已验证时，从 citable、grounded
+   evidence 的 `Subject/Object/AnchorSymbol` 中解析 canonical stage identity；至少两个不同且各自唯一命中的
+   stage 才选择两端之间的连续主车道。
+2. 信号边界保持精确：只接受 `ReadModePipelineAuthorityFiles()` 名册内的权威源码、正行号与 grounded/citable
+   状态；单 endpoint、非权威源、不可引用行、零匹配或多匹配的 broad identity 全部 fail-closed。实现不读取
+   request/source quote、evidence summary、Mermaid label/body、模型草稿或最终答案，也不依赖某个 eval case 名称。
+3. 该 provider 仍只授权 checkout-verified `relation_kind=precedence`。它不铸造 `call`、`data_flow`、artifact
+   handoff、共享状态 incidence 或 runtime causality；系统不生成图、不补边、不修改模型文字或结论。完整
+   Analyze→Explore→Extract→Finalize 只是把已经存在的三条相邻真边作为 typed recipe 交给模型。
+4. finalizer prompt、explorer completion 与 diagram pre/post-emit validator 已用同一 selection 接线，并新增
+   真实消费 pin；同时把 authority-source 判定统一到 `ReadModePipelineAuthorityFiles()`，消除 evaluator 与
+   provider 各自手写文件 switch 的漂移。正 pin 覆盖空 participant、无 workflow dimension、仅
+   `StageAnalyze + StageFinalize` grounding 的完整三边；负 pin 覆盖上述 fail-closed 矩阵和 Trace 隔离。
+5. 验证：`go test ./internal/stageauthority ./internal/agent -count=1`、
+   `go test ./internal/tool -run 'TestRequestedWorkflowAuthorityConsumersAcceptGroundedCanonicalStageSpan|TestRequestedWorkflowAuthorityConsumersAcceptPartialAnalyzerSlate' -count=1`
+   与 `git diff --check` 全绿；生产代码落定后执行的 `go test ./... -count=1` 亦全绿。下一轮用生产二进制严格
+   并发恰好两个异构案例回放 read combo 与另一高优先关系/模式案例，验收模型是否消费全生命周期真边且不增加
+   成文重试。
+6. 本批不改 Trace 触发、显式时间窗、因果投影或自动补齐。链上-only 主因、邻近/背景 support-only、
+   优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义、业务线索，以及实际占时与规则可消除量双轴均保持；
+   active stream 不因 4ms/4s/4m 或固定总年龄降级。
+
+状态：
+
+`B858-READSTAGEEVIDENCESPAN1=implemented/shared-provider+all-consumer-pins/full-tests-pass`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-confirmed/continue-heterogeneous-observation`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
