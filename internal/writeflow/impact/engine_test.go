@@ -130,6 +130,27 @@ func TestBuildObligationSetMergesPatchEffectAndGraph(t *testing.T) {
 	}
 }
 
+func TestBuildObligationSetDoesNotPromotePatchEffectWarningToVerificationTarget(t *testing.T) {
+	set := BuildObligationSet(Input{
+		Plan: &types.ChangePlan{ID: "plan-warning"},
+		PatchEffect: &types.PatchEffectRecord{Files: []types.PatchEffectFile{{
+			Path:     "pkg/a.py",
+			PathRole: types.SourcePathRoleProduction,
+			Events: []types.PatchEffectEvent{{
+				Code:     "non_ascii_source_comment_added",
+				Severity: "warning",
+				Path:     "pkg/a.py",
+			}},
+		}}},
+	})
+	if impactSetHasObligation(set, "effect_followup", "non_ascii_source_comment_added", "pkg/a.py", "", "") {
+		t.Fatalf("soft warning must remain advisory rather than a terminal verification obligation: %+v", set.Obligations)
+	}
+	if !impactSetHasObligation(set, "changed_file", "actual_diff", "pkg/a.py", "", "") {
+		t.Fatalf("warning must not remove ordinary changed-file coverage: %+v", set.Obligations)
+	}
+}
+
 func TestBuildObligationSetSkipsGraphForAuxiliaryPatchEffectPath(t *testing.T) {
 	graph := fakeGraphProvider{
 		reverseImports: map[string][]string{

@@ -163,8 +163,27 @@ func TestReviewAppliedPatchScopeCarriesSoftPatchEffectEvents(t *testing.T) {
 		t.Fatalf("soft patch effect finding missing: %+v", review.Findings)
 	}
 	finding := patchReviewFindingByCode(review, "control_flow_guard_touched")
-	if finding.Category != types.PatchReviewCategorySemanticCoverage {
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory {
 		t.Fatalf("soft patch effect finding should carry semantic category: %+v", finding)
+	}
+	summary := types.SummarizePatchReviewCoverage(review)
+	if summary.Verdict != types.PatchReviewCoverageVerdictAdvisory || summary.HasUncoveredSemantic {
+		t.Fatalf("soft warning must remain visible without weakening terminal verification: %+v", summary)
+	}
+}
+
+func TestPatchReviewSoftEventRegistryNeverOwnsTerminalVerification(t *testing.T) {
+	if len(patchReviewEffectSoftEventCodes) == 0 {
+		t.Fatal("soft event registry unexpectedly empty")
+	}
+	for code := range patchReviewEffectSoftEventCodes {
+		if PatchReviewEffectRequiresVerification(code) {
+			t.Fatalf("soft event %q cannot also own a terminal verification obligation", code)
+		}
+		if !PatchReviewEffectIsSoftAdvisory(code) {
+			t.Fatalf("soft event %q lost advisory classification", code)
+		}
 	}
 }
 

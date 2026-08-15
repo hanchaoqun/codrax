@@ -47,8 +47,8 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 	"typescript_nested_string_key_direct_access_added": true,
 	// Demoted from hard to soft: these are regex / single-line
 	// source-shape heuristics, not parser-confirmed facts, so they may
-	// only advise (they still surface to the LLM as effect-followup
-	// repair guidance via the unknown-coverage map below).
+	// only advise; they remain visible in PatchEffect/PatchReview context but
+	// do not become terminal verification obligations.
 	"duplicate_inserted_block_added":             true,
 	"python_docstring_section_executable_added":  true,
 	"python_duplicate_symbol_added":              true,
@@ -56,40 +56,29 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 	"python_unreachable_body_after_added_return": true,
 }
 
-var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
-	"brace_return_before_existing_statement_added":     true,
-	"caller_return_shape_adapter_added":                true,
-	"diagnostic_signal_conditionally_suppressed":       true,
-	"external_private_state_sync_workaround":           true,
-	"go_nested_string_map_assignment_added":            true,
-	"java_chained_string_map_get_added":                true,
-	"javascript_nested_string_key_direct_access_added": true,
-	"kotlin_chained_string_map_get_added":              true,
-	"nearby_duplicate_statement_added":                 true,
-	"nested_collection_branch_exclusion_added":         true,
-	"non_ascii_source_comment_added":                   true,
-	"production_test_scaffold_added":                   true,
-	"python_nested_string_key_direct_access_added":     true,
-	"ruby_nested_key_direct_access_added":              true,
-	"typescript_nested_string_key_direct_access_added": true,
-	// Demoted-to-soft structural heuristics carry Unknown coverage so the
-	// repair queue still raises an effect-followup for the LLM to confirm
-	// the change is intentional, without hard-blocking the batch.
-	"duplicate_inserted_block_added":             true,
-	"python_docstring_section_executable_added":  true,
-	"python_duplicate_symbol_added":              true,
-	"python_top_level_self_method":               true,
-	"python_unreachable_body_after_added_return": true,
-}
+// patchReviewEffectVerificationEventCodes is deliberately empty today.
+// Patch-effect warnings are regex/line-shape or convention advisories: turning
+// one into Unknown semantic coverage makes the terminal verdict fail closed
+// on a fact that the verifier cannot prove and repeatedly schedules the same
+// verify-only work. A future member may be added only when its producer emits
+// a parser/IO/path-owned precise signal with a typed closure mechanism.
+// Parser/IO/path failures currently use severity=error and the hard registry.
+var patchReviewEffectVerificationEventCodes = map[string]bool{}
 
 const patchReviewMaxSemanticFindings = 32
 
-// PatchReviewEffectUnknownCoverage reports whether code names an actual-diff
-// effect that must stay uncovered until a typed verifier signal proves the
-// boundary. It lets controller-side coverage projection consume the same
-// language registry as PatchReview without duplicating event names.
-func PatchReviewEffectUnknownCoverage(code string) bool {
-	return patchReviewEffectUnknownCoverageEventCodes[strings.TrimSpace(code)]
+// PatchReviewEffectRequiresVerification reports whether a non-hard actual-diff
+// event owns a precise typed verification obligation. No current warning does.
+func PatchReviewEffectRequiresVerification(code string) bool {
+	return patchReviewEffectVerificationEventCodes[strings.TrimSpace(code)]
+}
+
+// PatchReviewEffectIsSoftAdvisory identifies the current noisy warning lane.
+// It is exported so persisted plans can be migrated at typed controller seams
+// instead of replaying an impossible verification obligation.
+func PatchReviewEffectIsSoftAdvisory(code string) bool {
+	code = strings.TrimSpace(code)
+	return patchReviewEffectSoftEventCodes[code] && !patchReviewEffectVerificationEventCodes[code]
 }
 
 type SemanticPatchReviewInput struct {
@@ -305,8 +294,11 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 				event.Message,
 			))
 			findings[len(findings)-1].EvidenceRef = strings.TrimSpace(event.EvidenceRef)
-			if patchReviewEffectUnknownCoverageEventCodes[code] {
+			if patchReviewEffectVerificationEventCodes[code] {
 				findings[len(findings)-1].CoverageStatus = types.PatchReviewCoverageUnknown
+				findings[len(findings)-1].ImpactKind = types.PatchReviewImpactKindEffectFollowup
+			} else if severity == types.PatchReviewSeverityWarning {
+				findings[len(findings)-1].CoverageStatus = types.PatchReviewCoverageAdvisory
 				findings[len(findings)-1].ImpactKind = types.PatchReviewImpactKindEffectFollowup
 			}
 		}

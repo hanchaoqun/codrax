@@ -198,7 +198,7 @@ func TestAnnotatePatchEffectPythonTopLevelSelfMethodIsSoftAdvisory(t *testing.T)
 	}
 	finding := patchReviewFindingByCode(review, "python_top_level_self_method")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("python top-level self method should be a soft semantic-coverage advisory: %+v", finding)
 	}
@@ -244,7 +244,7 @@ func TestAnnotatePatchEffectPythonDuplicateSymbolIsSoftAdvisory(t *testing.T) {
 	}
 	finding := patchReviewFindingByCode(review, "python_duplicate_symbol_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("python duplicate symbol should be a soft semantic-coverage advisory: %+v", finding)
 	}
@@ -297,7 +297,7 @@ func TestAnnotatePatchEffectPythonAddedReturnBeforeExistingBodyIsSoftAdvisory(t 
 	}
 	finding := patchReviewFindingByCode(review, "python_unreachable_body_after_added_return")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("unreachable body after added return should be a soft semantic-coverage advisory: %+v", finding)
 	}
@@ -393,7 +393,7 @@ func TestAnnotatePatchEffectPythonDocstringSectionExecutableIsSoftAdvisory(t *te
 	}
 	finding := patchReviewFindingByCode(review, "python_docstring_section_executable_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("docstring executable section should be a soft semantic-coverage advisory: %+v", finding)
 	}
@@ -500,7 +500,7 @@ func TestAnnotatePatchEffectDuplicateInsertedBlockIsSoftAdvisory(t *testing.T) {
 	}
 	finding := patchReviewFindingByCode(review, "duplicate_inserted_block_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("duplicate inserted block should be a soft semantic-coverage advisory: %+v", finding)
 	}
@@ -553,9 +553,9 @@ func TestAnnotatePatchEffectNonASCIISourceCommentWarns(t *testing.T) {
 	}
 	finding := patchReviewFindingByCode(review, "non_ascii_source_comment_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
-		t.Fatalf("non-ASCII source comment should be semantic coverage unknown: %+v", finding)
+		t.Fatalf("non-ASCII source comment should stay advisory: %+v", finding)
 	}
 }
 
@@ -614,9 +614,9 @@ func TestAnnotatePatchEffectNearbyDuplicateStatementWarns(t *testing.T) {
 	}
 	finding := patchReviewFindingByCode(review, "nearby_duplicate_statement_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
-		t.Fatalf("nearby duplicate statement should be semantic coverage unknown: %+v", finding)
+		t.Fatalf("nearby duplicate statement should stay advisory: %+v", finding)
 	}
 }
 
@@ -658,8 +658,8 @@ func TestAnnotatePatchEffectProductionTestScaffoldWarns(t *testing.T) {
 		t.Fatalf("production test scaffold is soft semantic coverage, not a hard block: %+v", review)
 	}
 	finding := patchReviewFindingByCode(review, "production_test_scaffold_added")
-	if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
-		t.Fatalf("production test scaffold finding should be semantic coverage unknown: %+v", finding)
+	if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageAdvisory {
+		t.Fatalf("production test scaffold finding should stay advisory: %+v", finding)
 	}
 }
 
@@ -701,9 +701,9 @@ func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 	}
 	finding := patchReviewFindingByCode(review, "python_nested_string_key_direct_access_added")
 	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
-		t.Fatalf("nested key access finding should be semantic coverage unknown: %+v", finding)
+		t.Fatalf("nested key access finding should stay advisory: %+v", finding)
 	}
 }
 
@@ -836,9 +836,9 @@ func TestAnnotatePatchEffectNestedCollectionBranchExclusionWarnsAcrossProviders(
 			}
 			finding := patchReviewFindingByCode(review, "nested_collection_branch_exclusion_added")
 			if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-				finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+				finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 				finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
-				t.Fatalf("nested collection exclusion finding should be semantic coverage unknown: %+v", finding)
+				t.Fatalf("nested collection exclusion finding should stay advisory: %+v", finding)
 			}
 		})
 	}
@@ -973,9 +973,9 @@ func TestAnnotatePatchEffectOwnerBoundaryWarnings(t *testing.T) {
 			}
 			finding := patchReviewFindingByCode(review, tc.eventCode)
 			if finding.Category != types.PatchReviewCategorySemanticCoverage ||
-				finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+				finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 				finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
-				t.Fatalf("owner-boundary finding should be semantic coverage unknown: %+v", finding)
+				t.Fatalf("owner-boundary finding should stay advisory: %+v", finding)
 			}
 		})
 	}
@@ -1094,8 +1094,8 @@ func TestAnnotatePatchEffectMultiLanguageLineShapeWarnings(t *testing.T) {
 				t.Fatalf("line shape event is a soft semantic finding, not a hard block: %+v", review)
 			}
 			finding := patchReviewFindingByCode(review, tc.eventCode)
-			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
-				t.Fatalf("finding should be semantic coverage unknown: %+v", finding)
+			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageAdvisory {
+				t.Fatalf("finding should stay advisory: %+v", finding)
 			}
 		})
 	}
@@ -1234,8 +1234,8 @@ func TestAnnotatePatchEffectBraceReturnBeforeExistingStatementWarnsAcrossProvide
 				t.Fatalf("brace return signal is soft coverage, not a hard block: %+v", review)
 			}
 			finding := patchReviewFindingByCode(review, "brace_return_before_existing_statement_added")
-			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
-				t.Fatalf("brace return finding should be semantic coverage unknown: %+v", finding)
+			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageAdvisory {
+				t.Fatalf("brace return finding should stay advisory: %+v", finding)
 			}
 		})
 	}
@@ -1354,7 +1354,7 @@ func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 	}
 }
 
-func TestPatchEffectOwnerBoundaryEventsRequireCoverage(t *testing.T) {
+func TestPatchEffectOwnerBoundaryWarningEventsStayAdvisory(t *testing.T) {
 	for _, code := range []string{
 		"brace_return_before_existing_statement_added",
 		"caller_return_shape_adapter_added",
@@ -1363,8 +1363,8 @@ func TestPatchEffectOwnerBoundaryEventsRequireCoverage(t *testing.T) {
 		"nested_collection_branch_exclusion_added",
 	} {
 		t.Run(code, func(t *testing.T) {
-			if !PatchReviewEffectUnknownCoverage(code) {
-				t.Fatalf("event %s must remain semantic coverage unknown", code)
+			if PatchReviewEffectRequiresVerification(code) {
+				t.Fatalf("noisy warning event %s must not become a terminal verification obligation", code)
 			}
 		})
 	}

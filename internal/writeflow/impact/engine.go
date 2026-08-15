@@ -94,7 +94,11 @@ func patchEffectObligations(effect *types.PatchEffectRecord) []types.ImpactOblig
 		})
 		for _, event := range file.Events {
 			code := strings.TrimSpace(event.Code)
-			if code == "" {
+			// Warning events are soft guidance. They remain in PatchEffect for
+			// controller/model context, but a project test cannot close a regex
+			// shape or source-comment convention. Only precise hard events enter
+			// the terminal effect-followup obligation lane.
+			if code == "" || strings.TrimSpace(event.Severity) != "error" {
 				continue
 			}
 			eventPath := normalizeImpactPath(event.Path)

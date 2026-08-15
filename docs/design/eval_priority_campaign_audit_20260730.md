@@ -36779,6 +36779,46 @@ Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-onl
 `raw request/model/final prose hard gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.838 B832：PatchEffect 软建议不再伪装成不可闭合的终态验证义务（2026-08-15）
+
+1. r508 写案的 actual report 纠正了初步推测：`changed_symbol_without_probe_coverage` 本身已经
+   `coverage_status=verified`，变更路径也由项目 runner 覆盖，两个 inline probe + 四条 unittest 共 6/6 通过。真正让
+   `VerificationProofProfile` 产生 `impact_targets_unverified` 的，是补丁里两行中文注释触发的两条
+   `non_ascii_source_comment_added`。
+2. 深审确认是同一 signal 的合同自冲突。`patchReviewEffectSoftEventCodes` 明确把非 ASCII 注释、重复语句、嵌套 key
+   访问、owner-boundary/source-shape 等 regex 或单行启发式定义为 soft advisory；紧邻的旧
+   `patchReviewEffectUnknownCoverageEventCodes` 却把同一 closed set 全部标成 Unknown semantic coverage。Impact engine
+   又无条件把每个 PatchEffect event 铸成 `effect_followup` verification target，Controller 因而反复追加 verify-only
+   补证批。测试无法证明“注释语言符合仓库习惯”，所以测试全绿也永远不能闭合。这不是软提示，而是终态上的隐形硬门。
+3. `B832-WRITESOFTADVISORYTERMINALAUTH1/P0` 统一权威：schema-valid `PatchEffectEvent.severity=warning` 保留在
+   PatchEffect/PatchReview/模型上下文，继续提供检查与修向，但发布为 `coverage_status=advisory`，不生成 impact
+   obligation/verification target，也不进入 repair queue。只有 parser/IO/path 精确事实的 `severity=error` 可进入 hard
+   registry 与终态阻断；当前没有任何 warning 同时拥有 terminal verification 权。
+4. 这不是只为中文注释开特例。所有现有 soft event 共用一个注册表和同一判据；新增 warning 默认只能建议。未来若要让
+   非 hard event 进入验证义务，必须先提供 parser/IO/path-owned 精确信号与 typed closure mechanism，再显式加入独立
+   verification registry，不能借 warning 文案、正则命中、模型确认或答案关键词获得权威。
+5. 为旧持久化计划增加 typed 迁移：从 `ImpactObligationSet.kind=effect_followup + relation + exact path` 识别已知 soft
+   obligation，并删除其旧 flattened target；若同一路径同时存在未知或 precise effect relation，则 fail-closed 保留 target。
+   PatchReview 中旧 `coverage=unknown` 的已知 soft code 同步迁移为 advisory。迁移不扫描计划/模型/答案 prose，也不把
+   真正 changed-symbol、behavior-contract、dependent/test-surface 或 hard patch-effect 证明降级。
+6. 本批只修写模式验证权威与无意义重试，不碰 Read/Trace。显式时间窗、`Trace 因果投影`、自动补齐、链上-only 主因、
+   实际占用/业务线索与规则可消除量双轴、邻近/背景 support-only、模型结论所有权均保持。活跃字节流仍不得因
+   4ms/4s/4m 内尚无完整答案而降级。
+
+验证：`go test ./internal/writeflow/... -count=1`、`go test ./internal/orchestrator -count=1`、
+`go test ./internal/types -count=1`、`git diff --check` 与 `go build ./...` 均通过。
+
+状态：
+
+`B832-WRITESOFTADVISORYTERMINALAUTH1=implemented/full-regression-pass/production-replay-required`；
+`patch-effect warning=advisory-only/no-terminal-obligation`；
+`patch-effect error=precise-hard-authority`；
+`persisted-soft-target-migration=typed-relation+exact-path/fail-closed-on-mixed`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

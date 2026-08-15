@@ -3637,6 +3637,7 @@ func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.Chang
 	}
 	if plan.ImpactAnalysis != nil {
 		analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		analysis = dropSoftPatchEffectVerificationTargets(analysis)
 		for i := range analysis.VerificationTargets {
 			analysis.VerificationTargets[i].CoverageStatus = impactCoverageForTarget(analysis.VerificationTargets[i], projection)
 		}
@@ -3817,6 +3818,9 @@ func impactCoverageForTarget(target types.ImpactVerificationTarget, projection v
 }
 
 func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection verifyCoverageProjection) types.PatchReviewCoverageStatus {
+	if writeflow.PatchReviewEffectIsSoftAdvisory(finding.Code) {
+		return types.PatchReviewCoverageAdvisory
+	}
 	switch projection.ReviewStatus {
 	case types.PatchReviewCoverageVerified:
 		switch strings.TrimSpace(finding.Code) {
@@ -3849,7 +3853,7 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
 			}
 		default:
-			if writeflow.PatchReviewEffectUnknownCoverage(finding.Code) {
+			if writeflow.PatchReviewEffectRequiresVerification(finding.Code) {
 				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
 			}
 			if patchReviewFindingNeedsExplicitCoverage(finding) {
@@ -3864,6 +3868,53 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 	default:
 		return finding.CoverageStatus
 	}
+}
+
+// dropSoftPatchEffectVerificationTargets migrates persisted pre-B832 impact
+// analyses. Those plans still carry the typed event relation in their
+// obligation set even though the flattened verification target lost it. A
+// target is removed only when every effect-followup obligation for its exact
+// path is a known soft advisory. Mixed/unknown paths fail closed and remain.
+func dropSoftPatchEffectVerificationTargets(in types.ImpactAnalysisResult) types.ImpactAnalysisResult {
+	if in.ObligationSet == nil {
+		return in
+	}
+	softPath := map[string]bool{}
+	precisePath := map[string]bool{}
+	set := types.NormalizeImpactObligationSet(*in.ObligationSet)
+	keptObligations := make([]types.ImpactObligation, 0, len(set.Obligations))
+	for _, obligation := range set.Obligations {
+		if strings.TrimSpace(obligation.Kind) != "effect_followup" {
+			keptObligations = append(keptObligations, obligation)
+			continue
+		}
+		path := normalizeControllerPath(firstNonEmptyController(obligation.SubjectPath, obligation.RelatedPath))
+		if writeflow.PatchReviewEffectIsSoftAdvisory(obligation.Relation) {
+			if path != "" {
+				softPath[path] = true
+			}
+			continue
+		}
+		if path != "" {
+			precisePath[path] = true
+		}
+		keptObligations = append(keptObligations, obligation)
+	}
+	set.Obligations = keptObligations
+	set = types.NormalizeImpactObligationSet(set)
+	in.ObligationSet = &set
+	keptTargets := make([]types.ImpactVerificationTarget, 0, len(in.VerificationTargets))
+	for _, target := range in.VerificationTargets {
+		path := normalizeControllerPath(firstNonEmptyController(target.Path, target.RelatedPath))
+		if strings.TrimSpace(target.Kind) == "effect_followup" &&
+			strings.TrimSpace(target.Source) == "patch_effect" &&
+			path != "" && softPath[path] && !precisePath[path] {
+			continue
+		}
+		keptTargets = append(keptTargets, target)
+	}
+	in.VerificationTargets = keptTargets
+	return types.NormalizeImpactAnalysisResult(in)
 }
 
 func (conf verifyCoverageConfidence) CoversPath(paths ...string) bool {
@@ -8946,7 +8997,7 @@ func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
 	case "dependent", "dependency", "test_surface":
 		return true
 	case "semantic_coverage", "effect_followup":
-		return writeflow.PatchReviewEffectUnknownCoverage(item.Code)
+		return writeflow.PatchReviewEffectRequiresVerification(item.Code)
 	default:
 		return false
 	}

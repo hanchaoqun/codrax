@@ -6370,7 +6370,7 @@ func TestNormalizeControllerTypedStateDecisionVerifiedSoftTelemetryOnlyFinishes(
 	}
 }
 
-func TestNormalizeControllerTypedStateDecisionVerifiedActualDiffBoundaryAppendsFollowup(t *testing.T) {
+func TestNormalizeControllerTypedStateDecisionVerifiedActualDiffWarningStaysAdvisory(t *testing.T) {
 	mu := types.NewMutableState("verified actual-diff boundary")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID:     "plan-boundary",
@@ -6406,14 +6406,11 @@ func TestNormalizeControllerTypedStateDecisionVerifiedActualDiffBoundaryAppendsF
 		ReasonCode: "done",
 	}, run)
 
-	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
-		t.Fatalf("actual-diff boundary finding should append impact repair batch, got %+v", got)
+	if got.Action != writeflow.ActionFinish || got.Batch != nil {
+		t.Fatalf("noisy actual-diff warning must remain visible without spawning an impossible verify-only batch, got %+v", got)
 	}
-	if !containsString(got.Batch.ExpectedPaths, "src/widget.ts") {
-		t.Fatalf("boundary follow-up should stay scoped to typed path, got %+v", got.Batch.ExpectedPaths)
-	}
-	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "typescript_nested_string_key_direct_access_added") {
-		t.Fatalf("boundary follow-up should preserve typed event code, got %+v", got.Batch.SuccessCriteria)
+	if workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("soft warning must not enter the impact repair queue: %+v", run.ProgressLedger)
 	}
 }
 
@@ -7861,7 +7858,7 @@ func TestImpactRepairQueueVerificationProbeSourceStaysProofOnly(t *testing.T) {
 	}
 }
 
-func TestApplyVerifyCoverageToChangePlanPreservesActualDiffUnknownCoverage(t *testing.T) {
+func TestApplyVerifyCoverageToChangePlanMigratesPersistedSoftActualDiffCoverage(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:     "plan-boundary",
 		Status: types.PlanStatusUnverified,
@@ -7886,6 +7883,10 @@ func TestApplyVerifyCoverageToChangePlanPreservesActualDiffUnknownCoverage(t *te
 			},
 		},
 		ImpactAnalysis: &types.ImpactAnalysisResult{
+			ObligationSet: &types.ImpactObligationSet{Obligations: []types.ImpactObligation{
+				{Kind: "changed_file", Relation: "actual_diff", Obligation: "verify_changed_file", SubjectPath: "pkg/widget.py"},
+				{Kind: "effect_followup", Relation: "python_nested_string_key_direct_access_added", Obligation: "review_patch_effect_event", SubjectPath: "pkg/widget.py", Source: "patch_effect"},
+			}},
 			VerificationTargets: []types.ImpactVerificationTarget{{
 				Kind:           "effect_followup",
 				Path:           "pkg/widget.py",
@@ -7908,21 +7909,39 @@ func TestApplyVerifyCoverageToChangePlanPreservesActualDiffUnknownCoverage(t *te
 		}},
 	}, nil)
 
-	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
-		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" {
-		t.Fatalf("actual-diff effect follow-up should require explicit coverage: %+v", plan.ImpactAnalysis)
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 0 {
+		t.Fatalf("persisted soft effect target should be removed using its typed obligation relation: %+v", plan.ImpactAnalysis)
 	}
 	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 2 {
 		t.Fatalf("patch review missing: %+v", plan.PatchReview)
 	}
 	for _, finding := range plan.PatchReview.Findings {
-		if finding.CoverageStatus != types.PatchReviewCoverageUnknown {
-			t.Fatalf("actual-diff unknown coverage event %s should stay unknown after unrelated pass: %+v", finding.Code, finding)
+		if finding.CoverageStatus != types.PatchReviewCoverageAdvisory {
+			t.Fatalf("known soft event %s should migrate to advisory after verify: %+v", finding.Code, finding)
 		}
 	}
 	summary := types.SummarizePatchReviewCoverage(*plan.PatchReview)
-	if summary.Verdict != types.PatchReviewCoverageVerdictUnverified || !summary.HasUncoveredSemantic {
-		t.Fatalf("coverage summary should remain uncovered: %+v", summary)
+	if summary.Verdict != types.PatchReviewCoverageVerdictAdvisory || summary.HasUncoveredSemantic {
+		t.Fatalf("soft events must not weaken the terminal coverage verdict: %+v", summary)
+	}
+}
+
+func TestDropSoftPatchEffectVerificationTargetsKeepsMixedPrecisePath(t *testing.T) {
+	got := dropSoftPatchEffectVerificationTargets(types.ImpactAnalysisResult{
+		ObligationSet: &types.ImpactObligationSet{Obligations: []types.ImpactObligation{
+			{Kind: "effect_followup", Relation: "non_ascii_source_comment_added", Obligation: "review_patch_effect_event", SubjectPath: "pkg/widget.py", Source: "patch_effect"},
+			{Kind: "effect_followup", Relation: "future_parser_precise_signal", Obligation: "review_patch_effect_event", SubjectPath: "pkg/widget.py", Source: "patch_effect"},
+		}},
+		VerificationTargets: []types.ImpactVerificationTarget{{
+			Kind: "effect_followup", Path: "pkg/widget.py", Source: "patch_effect", CoverageStatus: "unverified",
+		}},
+	})
+	if len(got.VerificationTargets) != 1 {
+		t.Fatalf("mixed soft+precise path must fail closed and retain its target: %+v", got)
+	}
+	if got.ObligationSet == nil || len(got.ObligationSet.Obligations) != 1 ||
+		got.ObligationSet.Obligations[0].Relation != "future_parser_precise_signal" {
+		t.Fatalf("migration should remove only the known soft obligation: %+v", got.ObligationSet)
 	}
 }
 
