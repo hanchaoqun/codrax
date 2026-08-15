@@ -6357,25 +6357,30 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
 }
 
-// answerDocFinalizerObservationRecords removes only model-extracted,
-// free-form PerfObservation rows whose physical capture is also covered by a
-// deterministic runtime query. The full ledger remains lossless for audit and
-// every measured frame/jank/stall row remains present. Selection is structural:
-// PerfObservation.Authority + compiler-owned row ID + typed capture identity;
-// neither user/model prose nor observation summaries participate.
+// answerDocFinalizerObservationRecords removes model-extracted
+// PerfObservation and PerfStall candidate rows whose physical capture is also
+// covered by a deterministic runtime query. The full ledger remains lossless
+// for audit. Selection is structural: producer-owned authority, compiler-owned
+// row ID, and typed capture identity; neither user/model prose nor observation
+// summaries participate. Validator-owned stall rows remain available.
 func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) ([]types.ObservationRecord, int) {
 	if ctx == nil || (ctx.AgentName != types.AgentFinalizer && ctx.Stage != types.StageFinalize) || len(records) == 0 {
 		return records, 0
 	}
 	records = answerDocScopeProjectedObservationRecords(ctx, records)
 	perf := answerDocObservationLedgerPerfBundle(ctx)
-	if perf == nil || len(perf.Observations) == 0 {
+	if perf == nil || (len(perf.Observations) == 0 && len(perf.Stalls) == 0) {
 		return records, 0
 	}
 	preTriageIDs := make(map[string]bool)
 	for i, observation := range perf.Observations {
 		if observation.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
 			preTriageIDs[fmt.Sprintf("perf:observation:%d", i)] = true
+		}
+	}
+	for i, stall := range perf.Stalls {
+		if stall.IsNavigationOnly() {
+			preTriageIDs[fmt.Sprintf("perf:stall:%d", i)] = true
 		}
 	}
 	if len(preTriageIDs) == 0 {

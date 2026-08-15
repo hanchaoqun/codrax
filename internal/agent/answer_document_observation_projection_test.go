@@ -323,11 +323,17 @@ func TestAnswerDocObservationPromptRecords_DefaultBudgetUnchanged(t *testing.T) 
 	}
 }
 
-func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTriageNarrative(t *testing.T) {
-	perf := &types.PerfBundle{Observations: []types.PerfObservation{
-		{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Subject: "navigation"},
-		{Authority: types.PerfObservationAuthorityDeterministicValidator, Subject: "validated"},
-	}}
+func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTriageCandidates(t *testing.T) {
+	perf := &types.PerfBundle{
+		Observations: []types.PerfObservation{
+			{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Subject: "navigation"},
+			{Authority: types.PerfObservationAuthorityDeterministicValidator, Subject: "validated"},
+		},
+		Stalls: []types.PerfStall{
+			{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Symbol: "candidate stall"},
+			{Authority: types.PerfObservationAuthorityDeterministicValidator, Symbol: "validated stall"},
+		},
+	}
 	ctx := &types.AgentContext{
 		AgentName: types.AgentFinalizer,
 		Stage:     types.StageFinalize,
@@ -350,24 +356,32 @@ func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTria
 			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "validated",
 		},
 		{
+			ID: "perf:stall:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "candidate stall",
+		},
+		{
+			ID: "perf:stall:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "validated stall",
+		},
+		{
 			ID: "trace_query:q#evidence_fact:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 			SourceRef: types.ObservationSourceRef{CaptureIdentityPath: capture}, Subject: "exact query row",
 		},
 	}
 	got, omitted := answerDocFinalizerObservationRecords(ctx, records)
-	if omitted != 1 || len(got) != 3 {
+	if omitted != 2 || len(got) != 4 {
 		t.Fatalf("same-capture filter omitted=%d records=%+v", omitted, got)
 	}
 	joined := ""
 	for _, record := range got {
 		joined += record.ID + "\n"
 	}
-	for _, want := range []string{"perf:frame:0", "perf:observation:1", "trace_query:q#evidence_fact:1"} {
+	for _, want := range []string{"perf:frame:0", "perf:observation:1", "perf:stall:1", "trace_query:q#evidence_fact:1"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("required measured/deterministic row %q missing: %s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "perf:observation:0") {
+	if strings.Contains(joined, "perf:observation:0") || strings.Contains(joined, "perf:stall:0") {
 		t.Fatalf("pre-triage narrative leaked after same-capture query: %s", joined)
 	}
 }

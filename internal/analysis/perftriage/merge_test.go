@@ -82,6 +82,31 @@ func TestMergePerfBundles_SignalsUnion_FramesConcatDedup(t *testing.T) {
 	}
 }
 
+func TestMergePerfBundles_StallDedupMonotonicallyUpgradesAuthority(t *testing.T) {
+	candidate := types.PerfStall{
+		Authority:  types.PerfObservationAuthorityPreTriageModelExtraction,
+		StartTsMs:  200,
+		DurationMs: 45,
+		Kind:       "sync-rpc",
+		Symbol:     "DataLoader.fetchSync",
+	}
+	validated := candidate
+	validated.Authority = types.PerfObservationAuthorityDeterministicValidator
+
+	for _, parts := range [][]*types.PerfBundle{
+		{{Stalls: []types.PerfStall{candidate}}, {Stalls: []types.PerfStall{validated}}},
+		{{Stalls: []types.PerfStall{validated}}, {Stalls: []types.PerfStall{candidate}}},
+	} {
+		merged := MergePerfBundles(parts, 0)
+		if merged == nil || len(merged.Stalls) != 1 {
+			t.Fatalf("unexpected merged stalls: %+v", merged)
+		}
+		if merged.Stalls[0].Authority != types.PerfObservationAuthorityDeterministicValidator {
+			t.Fatalf("same-signature candidate shadowed validator authority: %+v", merged.Stalls[0])
+		}
+	}
+}
+
 func TestMergePerfBundles_ResidueDedup_CoverageDrops(t *testing.T) {
 	a := &types.PerfBundle{
 		Meta:    types.PerfMeta{Source: "atrace"},

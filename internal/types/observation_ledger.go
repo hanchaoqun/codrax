@@ -3896,12 +3896,29 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 		})
 	}
 	for i, stall := range bundle.Stalls {
+		role := AnswerAggregateRolePrincipalAnswer
+		summary := firstNonEmptyString(stall.Kind, "observed stall")
+		notes := []string(nil)
+		if stall.IsNavigationOnly() {
+			role = AnswerAggregateRoleSupportingCoverage
+			summary = "pre-triage stall candidate"
+			authority := stall.Authority
+			if authority == "" {
+				authority = PerfObservationAuthorityPreTriageModelExtraction
+			}
+			notes = append(notes,
+				"stall_authority="+string(authority),
+				"candidate_kind="+strings.TrimSpace(stall.Kind),
+				"candidate_symbol="+strings.TrimSpace(stall.Symbol),
+				"candidate_duration_ms="+strconv.FormatFloat(stall.DurationMs, 'f', -1, 64),
+			)
+		}
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("perf:stall:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "perf_trace",
-			Role:            AnswerAggregateRolePrincipalAnswer,
-			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			Role:            role,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, role),
 			ProvenanceLane:  observationProvenanceLaneForPerfStall(stall),
 			SourceRef:       perfObservationSourceRef(bundle, stall.File),
 			Span: ObservationSpan{
@@ -3914,7 +3931,8 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Predicate: "duration",
 			Value:     strconv.FormatFloat(stall.DurationMs, 'f', -1, 64),
 			Unit:      "ms",
-			Summary:   firstNonEmptyString(stall.Kind, "observed stall"),
+			Summary:   summary,
+			RichNotes: notes,
 		})
 	}
 	if bundle.Startup != nil {
@@ -4008,6 +4026,9 @@ func observationProvenanceLaneForPerfJank(jank PerfJank) ObservationProvenanceLa
 }
 
 func observationProvenanceLaneForPerfStall(stall PerfStall) ObservationProvenanceLane {
+	if stall.IsNavigationOnly() {
+		return ObservationProvenanceArtifactSpan
+	}
 	if strings.TrimSpace(stall.Kind) != "" || strings.TrimSpace(stall.Symbol) != "" {
 		return ObservationProvenanceObservedDirectCause
 	}

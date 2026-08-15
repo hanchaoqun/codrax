@@ -478,7 +478,22 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 		if target == "" {
 			target = stall.Kind
 		}
-		add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f file=%s:%d", stall.StartTsMs, stall.DurationMs, stall.File, stall.Line)})
+		if stall.IsNavigationOnly() {
+			authority := stall.Authority
+			if authority == "" {
+				authority = PerfObservationAuthorityPreTriageModelExtraction
+			}
+			before := len(out)
+			add(target, []string{fmt.Sprintf(
+				"candidate_start_ts_ms=%.3f candidate_duration_ms=%.3f candidate_kind=%s file=%s:%d stall_authority=%s",
+				stall.StartTsMs, stall.DurationMs, stall.Kind, stall.File, stall.Line, authority)})
+			if len(out) > before {
+				out[len(out)-1].AuthorityCeiling = AuthorityIllustrative
+				out[len(out)-1].GroundingPolicy = ClaimGroundingDisplayOnly
+			}
+			continue
+		}
+		add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f file=%s:%d stall_authority=%s", stall.StartTsMs, stall.DurationMs, stall.File, stall.Line, stall.Authority)})
 	}
 	for _, obs := range bundle.Observations {
 		target := firstNonEmptyAnswerString(obs.Subject, obs.Kind, "trace observation")

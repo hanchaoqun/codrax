@@ -36905,6 +36905,54 @@ r510 回放验证正文是否停止虚构同核占用；若精确上下文已完
 `raw request/model/final prose hard gate=none`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.841 B835：perf 预检 Stall 缺少权威轴，分类叙述与候选机制污染 typed Trace 上下文（2026-08-15）
+
+1. r510 的剩余错误不是单纯 finalizer 波动。精确查询已经给出 `worker-200 CPU2 -> app-100 target CPU1`
+   与 `direct wait/completion binding=unproven`，但两个更早的系统交接面仍反向喂入“同步 RPC / 等待完成”：
+   Analyzer 的自由成文报告进入 Explorer；`PerfStall` 与 `PerfObservation`/`PerfJank` 不对称，既无 authority 字段，又被
+   ObservationLedger 编成 `principal_answer + observed_direct_cause`。该例还把 4.6ms 候选误写为 4600ms，证明 duration
+   也不能因进入结构体就自动成为测量事实。
+2. 实施 `B835-TRACEUPSTREAMSUMMARYCALIBER1/P0`。`PerfStall` 新增 validator-owned
+   `PerfObservationAuthority`；`emit_perf_trace` 只能铸 `pretriage_model_extraction`，旧 bundle 零值按 navigation-only
+   fail-closed。只有未来确定性 validator 才能铸 `deterministic_validator`，模型不能从 tool schema 写该字段。
+3. 预检 stall 的 span/kind/symbol/duration 在上下文、perf triager 摘要、ObservationLedger、claim binding 四面统一降为
+   candidate/supporting/display-only：不再铸 direct-cause、principal 或 repairable 权限；`main-thread-stall` 信号也不再由
+   candidate duration 阈值产生。文件 `★ resolved` 只证明路径存在，不证明 stall tuple 或机制。
+4. 当同一 runtime capture 已有 deterministic query 时，prompt projection 与 finalizer observation projection 按
+   `Authority + compiler row ID + capture identity` 去除 model stall/observation candidate；validator 行保留，完整 ledger/bundle
+   仍留作审计。多 bundle 同签名去重也改为 authority 单调升级：candidate 先到不能吞掉后到 validator，反序仍保留
+   validator。判定不读取用户输入、模型报告、候选 summary 或最终答案文字。
+5. Runtime 下游阶段不再接收 Analyzer 的自由叙述 StageReport。Analyzer 的职责是分类，其 typed IR、原请求、PerfBundle、raw
+   attachment 与后续 query 均独立存在；自由叙述既无证据也无业务线索独占权。业务名、span 名和链上业务线索继续由 raw
+   artifact、validator observation、typed semantic span/query rows 携带，不因本批被删除。
+6. 本批不改 trace_query、根因排序、投影编译、自动补齐、显式窗、链上席位或可消除量算法；也不扫描/删除/替换模型最终答案。
+   Finalizer 仍自行形成结论。邻近/背景仍 support-only；真实占用/业务优化线索与规则折算可消除量继续分轴。
+7. r511 验收冻结：同一 trace 案最终 prompt 不再出现事实形 `Stall: VerifyClass 4600ms` 或 analyzer 的“直接阻塞”叙述，
+   `VerifyClass` typed semantic span、CPU2→CPU1、0.800ms 调度供给席与 `Trace 因果投影` 仍在；正文不得把 span end
+   5.005400 写成在 wakeup 5.005000 前“刚完成”。同批写案必须执行 `python -m unittest discover -v` 并首次验证结束。
+
+新增 pin：
+
+- model-emitted 与 legacy-zero `PerfStall` 均 navigation-only；validator stall 可保留 direct-cause lane；
+- pre-triage stall 在 ledger 为 supporting/soft/artifact-span，claim binding 为 illustrative/display-only；
+- structured prompt 发射 `candidate_* + authority`，不再发事实形 stall；
+- deterministic query 同采集面只抑制 model candidates，different-capture fail-open，validator rows 保留；
+- 多 bundle 同签名 stall 以 validator authority 胜出，candidate-first / validator-first 两序均已钉；
+- typed Perf carrier 存在时 Explorer 不继承 Analyzer 自由机制叙述；
+- 无 raw request / model output / final prose keyword gate；系统不创作、不改写答案或结论。
+
+状态：
+
+`B835-TRACEUPSTREAMSUMMARYCALIBER1=implemented/targeted-pins-pass/full-regression-pass`；
+`B834-PYUNITTESTROOTDISCOVERY1=committed-pushed@9cca3b753/r511-pending`；
+`Trace explicit-window/causal projection/auto-supplement=preserved-by-construction/r511-pending`；
+`active-stream-fixed-age-degrade=forbidden/no-change`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/conclusion-authorship=none`。
+
+验证：`go test ./internal/types ./internal/context ./internal/agent ./internal/tool -count=1`、
+`go test ./internal/analysis/perftriage -count=1`、`go build ./...` 与 `git diff --check` 全部通过。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

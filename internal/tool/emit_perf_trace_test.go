@@ -65,6 +65,25 @@ func TestEmitPerfTrace_DurationAloneDoesNotMintDefault60HzJank(t *testing.T) {
 	}
 }
 
+func TestEmitPerfTrace_StallAuthorityIsValidatorOwnedAndFailClosed(t *testing.T) {
+	bundle := toPerfBundle(&emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{Source: "hitrace"},
+		Stalls: []emitPerfTraceStall{{
+			StartTsMs: 5001, DurationMs: 4600, Kind: "sync-rpc", Symbol: "VerifyClass",
+		}},
+	})
+	if len(bundle.Stalls) != 1 || !bundle.Stalls[0].IsNavigationOnly() {
+		t.Fatalf("model-emitted stall must remain navigation-only: %+v", bundle.Stalls)
+	}
+	if bundle.Stalls[0].Authority != types.PerfObservationAuthorityPreTriageModelExtraction {
+		t.Fatalf("model-emitted stall authority=%q, want pre-triage extraction", bundle.Stalls[0].Authority)
+	}
+	legacy := types.PerfStall{Kind: "lock", Symbol: "LegacyWait"}
+	if !legacy.IsNavigationOnly() {
+		t.Fatalf("legacy zero-authority stall must fail closed: %+v", legacy)
+	}
+}
+
 func TestEmitPerfTrace_Execute_AcceptsTraceObservationsOnly(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:         types.NewMutableState("trace line lookup"),

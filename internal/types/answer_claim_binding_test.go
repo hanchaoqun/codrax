@@ -396,6 +396,33 @@ func TestAnswerClaimBindingOriginSpecificHelpers(t *testing.T) {
 	}
 }
 
+func TestPerfBundleClaimBindings_PreTriageStallIsIllustrativeCandidate(t *testing.T) {
+	bindings := perfBundleClaimBindings(&PerfBundle{Stalls: []PerfStall{{
+		Authority:  PerfObservationAuthorityPreTriageModelExtraction,
+		StartTsMs:  5001,
+		DurationMs: 4600,
+		Kind:       "sync-rpc",
+		Symbol:     "VerifyClass",
+	}}}, []AnswerRequestedOutput{AnswerRequestedOutputSummary})
+	if len(bindings) != 1 {
+		t.Fatalf("bindings=%+v", bindings)
+	}
+	binding := bindings[0]
+	if binding.AuthorityCeiling != AuthorityIllustrative || binding.GroundingPolicy != ClaimGroundingDisplayOnly {
+		t.Fatalf("pre-triage stall must not mint factual/repairable authority: %+v", binding)
+	}
+	joined := strings.Join(binding.SupportRefs, "\n")
+	for _, want := range []string{
+		"candidate_duration_ms=4600.000",
+		"candidate_kind=sync-rpc",
+		"stall_authority=pretriage_model_extraction",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("candidate binding missing %q: %+v", want, binding.SupportRefs)
+		}
+	}
+}
+
 func assertClaimBinding(t *testing.T, bindings []AnswerClaimBinding, origin AnswerEvidenceOrigin, policy ClaimGroundingPolicy, output AnswerRequestedOutput) AnswerClaimBinding {
 	t.Helper()
 	for _, binding := range bindings {

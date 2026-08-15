@@ -134,17 +134,24 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 			merged.Janks = append(merged.Janks, j)
 		}
 	}
-	stallSeen := map[string]bool{}
+	stallSeen := map[string]int{}
 	for _, p := range parts {
 		if p == nil {
 			continue
 		}
 		for _, s := range p.Stalls {
 			key := stallKey(s)
-			if stallSeen[key] {
+			if index, ok := stallSeen[key]; ok {
+				// Authority is validator-owned and monotonic. A model-extracted
+				// candidate arriving first must never shadow a later deterministic
+				// row with the same physical tuple; equal/weaker duplicates keep
+				// the stable first-seen representation.
+				if merged.Stalls[index].IsNavigationOnly() && !s.IsNavigationOnly() {
+					merged.Stalls[index] = s
+				}
 				continue
 			}
-			stallSeen[key] = true
+			stallSeen[key] = len(merged.Stalls)
 			merged.Stalls = append(merged.Stalls, s)
 		}
 	}

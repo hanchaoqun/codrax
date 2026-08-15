@@ -257,6 +257,7 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 	stalls := make([]types.PerfStall, len(p.Stalls))
 	for i, s := range p.Stalls {
 		stalls[i] = types.PerfStall{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
 			StartTsMs: s.StartTsMs, DurationMs: s.DurationMs,
 			Kind: s.Kind, Symbol: s.Symbol, File: s.File, Line: s.Line,
 		}
@@ -355,7 +356,7 @@ func derivePerfLayer4(b *types.PerfBundle) {
 		}
 	}
 	for _, s := range b.Stalls {
-		if s.DurationMs >= types.PerfMainThreadStallMs {
+		if !s.IsNavigationOnly() && s.DurationMs >= types.PerfMainThreadStallMs {
 			pushSig("main-thread-stall")
 			break
 		}

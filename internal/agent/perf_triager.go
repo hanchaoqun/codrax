@@ -463,8 +463,17 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 			fmt.Fprintf(&sb, "  … +%d more stalls\n", len(b.Stalls)-3)
 			break
 		}
-		fmt.Fprintf(&sb, "  stall[%d] %.1fms kind=%s sym=%s\n",
-			i, s.DurationMs, s.Kind, s.Symbol)
+		if s.IsNavigationOnly() {
+			authority := s.Authority
+			if authority == "" {
+				authority = types.PerfObservationAuthorityPreTriageModelExtraction
+			}
+			fmt.Fprintf(&sb, "  stall_candidate[%d] candidate_duration_ms=%.1f candidate_kind=%s candidate_sym=%s authority=%s\n",
+				i, s.DurationMs, s.Kind, s.Symbol, authority)
+			continue
+		}
+		fmt.Fprintf(&sb, "  stall[%d] %.1fms kind=%s sym=%s authority=%s\n",
+			i, s.DurationMs, s.Kind, s.Symbol, s.Authority)
 	}
 	if b.Startup != nil {
 		fmt.Fprintf(&sb, "Startup: mode=%s launch=%.1fms firstFrame=%.1fms\n",

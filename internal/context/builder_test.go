@@ -559,8 +559,15 @@ func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
 	}
 
 	structured := formatAttachedTrace(payload, "", attachedTriageStructured, "")
-	if !strings.Contains(structured, "structured performance summary is already available") {
-		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
+	for _, want := range []string{
+		"structured performance pre-triage summary is available",
+		"Validator-owned rows are factual",
+		"model-extracted candidate rows are navigation only",
+		"deterministic trace_query result supersedes",
+	} {
+		if !strings.Contains(structured, want) {
+			t.Fatalf("structured-bundle preamble missing authority-aware cue %q: %s", want, structured)
+		}
 	}
 
 	producer := formatAttachedTrace(payload, "", attachedTriageProducer, "")
@@ -2142,6 +2149,25 @@ func TestStageReportsForAgent_FinalizerDropsAnalyzerNarrativeAfterDeterministicR
 	got := stageReportsForAgent(reports, ac)
 	if len(got) != 1 || got[0].Agent != types.AgentExplorer {
 		t.Fatalf("finalizer must drop only the pre-query analyzer prose after typed runtime authority, got %+v", got)
+	}
+}
+
+func TestStageReportsForAgent_ExplorerDropsAnalyzerNarrativeWithTypedPerfCarrier(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityDeterministicValidator,
+			Subject:   "trace timestamp unit",
+		}}},
+	}
+	reports := []types.StageReport{
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "worker directly blocked target"},
+		{Stage: types.StagePerfTriage, Agent: types.AgentPerfTriager, Findings: "pre-triage report"},
+	}
+	got := stageReportsForAgent(reports, ac)
+	if len(got) != 0 {
+		t.Fatalf("runtime explorer must consume typed IR/bundle instead of free-form analyzer or duplicate pre-triage prose, got %+v", got)
 	}
 }
 
@@ -4341,6 +4367,69 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("navigation-only model semantics leaked into downstream prompt as %q:\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestFormatPerfTriageStructured_LabelsPreTriageStallAsCandidate(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Stalls: []types.PerfStall{{
+			Authority:  types.PerfObservationAuthorityPreTriageModelExtraction,
+			StartTsMs:  5001,
+			DurationMs: 4600,
+			Kind:       "sync-rpc",
+			Symbol:     "VerifyClass",
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"Stall candidates",
+		"navigation hypotheses",
+		"candidate_start_ms=5001.0",
+		"candidate_duration_ms=4600.0",
+		"candidate_kind=sync-rpc",
+		"candidate_symbol=`VerifyClass`",
+		"authority=pretriage_model_extraction",
+		"deterministic trace query supersedes",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf structured section missing stall-candidate boundary %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"**Stalls**", " kind=sync-rpc", " duration=4600.0ms"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("pre-triage stall leaked as fact-shaped output %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestPerfTriageBundleForPrompt_DeterministicQuerySuppressesSameRunModelStalls(t *testing.T) {
+	mu := types.NewMutableState("trace root cause")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace_query:q#evidence_fact:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			Subject:  "typed runtime row",
+		}},
+	})
+	bundle := &types.PerfBundle{Stalls: []types.PerfStall{
+		{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Symbol: "candidate"},
+		{Authority: types.PerfObservationAuthorityDeterministicValidator, Symbol: "validated"},
+	}}
+	projected := perfTriageBundleForPrompt(&types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Mutable:   mu,
+		PerfTrace: bundle,
+	})
+	if projected == nil || len(projected.Stalls) != 1 || projected.Stalls[0].Symbol != "validated" {
+		t.Fatalf("deterministic query must supersede only model stall candidates: %+v", projected)
+	}
+	if len(bundle.Stalls) != 2 {
+		t.Fatalf("prompt projection mutated audit bundle: %+v", bundle.Stalls)
 	}
 }
 

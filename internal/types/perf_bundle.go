@@ -260,12 +260,22 @@ func (b *PerfBundle) HasAuthoritativeJankVerdict() bool {
 // a separate slice so consumers can list stalls without walking
 // Jank.Tags.
 type PerfStall struct {
-	StartTsMs  float64 `json:"start_ts_ms"`
-	DurationMs float64 `json:"duration_ms"`
-	Kind       string  `json:"kind,omitempty"` // "io" / "lock" / "sync-rpc" / "native-call" / ""
-	Symbol     string  `json:"symbol,omitempty"`
-	File       string  `json:"file,omitempty"`
-	Line       int     `json:"line,omitempty"`
+	Authority  PerfObservationAuthority `json:"authority,omitempty"`
+	StartTsMs  float64                  `json:"start_ts_ms"`
+	DurationMs float64                  `json:"duration_ms"`
+	Kind       string                   `json:"kind,omitempty"` // "io" / "lock" / "sync-rpc" / "native-call" / ""
+	Symbol     string                   `json:"symbol,omitempty"`
+	File       string                   `json:"file,omitempty"`
+	Line       int                      `json:"line,omitempty"`
+}
+
+// IsNavigationOnly reports whether the stall tuple is a pre-triage model
+// extraction rather than a validator-owned runtime fact. The zero value is
+// fail-closed for persisted bundles produced before this discriminator was
+// introduced: a model-selected span, kind, symbol, or duration must not gain
+// causal authority merely because an older producer omitted the field.
+func (s PerfStall) IsNavigationOnly() bool {
+	return s.Authority != PerfObservationAuthorityDeterministicValidator
 }
 
 // PerfStartup carries cold-start / warm-start timing when the trace

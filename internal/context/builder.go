@@ -1361,8 +1361,9 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 	}
 	suppressResidue := shouldSuppressPerfTriageResidueInPrompt(ac)
 	suppressModelObservations := shouldSuppressModelPerfObservationsInPrompt(ac)
+	suppressModelStalls := shouldSuppressModelPerfStallsInPrompt(ac)
 	analyzerProjection := ac.AgentName == types.AgentAnalyzer || ac.Stage == types.StageAnalyze
-	if !suppressResidue && !suppressModelObservations && !analyzerProjection {
+	if !suppressResidue && !suppressModelObservations && !suppressModelStalls && !analyzerProjection {
 		return ac.PerfTrace
 	}
 	projected := *ac.PerfTrace
@@ -1409,7 +1410,33 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 			projected.Observations = append(projected.Observations, obs)
 		}
 	}
+	if suppressModelStalls {
+		projected.Stalls = make([]types.PerfStall, 0, len(ac.PerfTrace.Stalls))
+		for _, stall := range ac.PerfTrace.Stalls {
+			if !stall.IsNavigationOnly() {
+				projected.Stalls = append(projected.Stalls, stall)
+			}
+		}
+	}
 	return &projected
+}
+
+func shouldSuppressModelPerfStallsInPrompt(ac *types.AgentContext) bool {
+	if ac == nil || ac.PerfTrace == nil {
+		return false
+	}
+	hasModelStall := false
+	for _, stall := range ac.PerfTrace.Stalls {
+		if stall.IsNavigationOnly() {
+			hasModelStall = true
+			break
+		}
+	}
+	if !hasModelStall {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ac, 64))
+	return ledger.HasDeterministicRuntimeQueryObservation()
 }
 
 func shouldSuppressModelPerfObservationsInPrompt(ac *types.AgentContext) bool {
@@ -3501,7 +3528,7 @@ func attachedTracePreamble(state attachedRuntimeTriageState, options ...attached
 			lineNote
 	case attachedTriageStructured:
 		return "The user attached the performance trace below alongside their question. " +
-			"A structured performance summary is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, artifact line numbers, or event tags not visible in the structured summary. " +
+			"A structured performance pre-triage summary is available above. Validator-owned rows are factual; model-extracted candidate rows are navigation only, and a deterministic trace_query result supersedes their semantics and values. Consult the raw trace for literal timestamps, thread names, artifact line numbers, event tags, or to resolve a candidate before repeating it as fact. " +
 			lineNote
 	default:
 		return "The user attached the performance trace below alongside their question. " +
@@ -4351,8 +4378,8 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 
 	var b strings.Builder
 	b.WriteString("The attached performance trace was parsed into the structured view below. " +
-		"Prefer this view for citing jank frames, stall symbols, and cold-start " +
-		"measurements — the full raw trace is still in the next section for " +
+		"Use validator-owned rows as facts and pre-triage model-extracted rows only as navigation candidates; a later deterministic trace query supersedes candidate semantics and values. " +
+		"The full raw trace is still in the next section for " +
 		"context the structured schema did not capture. When the current request asks " +
 		"whether an observed trace symptom still exists, answer in two lanes: what the trace " +
 		"observed, and what current code evidence proves now.\n\n")
@@ -4373,7 +4400,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). Facts drawn from the trace must stay in the attached-trace observation lane — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")
 		b.WriteString("  - If the current request separately asks to explain or verify current-checkout code, keep two lanes: attached-trace timing / jank / stall observations for what happened, and current-source evidence for how this repo analyzes or implements the related behavior. Do not collapse a mixed request into observation-only just because the trace spans are external.\n")
 		b.WriteString("  - For scalar or summary claims drawn directly from the trace, leave the claim uncited unless a current repo line literally states the same claim.\n")
-		b.WriteString("  - Quote trace span names, tags, stall symbols, and timing values as runtime observations; do not invent file:line anchors in this repo.\n\n")
+		b.WriteString("  - Quote validator-owned trace span names, tags, stall symbols, and timing values as runtime observations. Keep pre-triage candidates as navigation only, and do not invent file:line anchors in this repo.\n\n")
 	}
 
 	if section := renderPerfTriageFrameDrift(bundle, locator); section != "" {
@@ -4392,7 +4419,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	}
 	if len(bundle.Meta.Signals) > 0 {
 		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(bundle.Meta.Signals, ", "))
-		b.WriteString("  Perf pre-triage `jank`/`render-miss` signals are navigation tags, not device-deadline verdicts; keep measured durations separate until typed refresh/deadline authority is available.\n")
+		b.WriteString("  Perf pre-triage signals are routing/navigation tags, not device-deadline, mechanism, or causal verdicts; keep typed measurements and validator-owned semantics separate.\n")
 	}
 	if bundle.IntentHint != "" {
 		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
@@ -4523,17 +4550,49 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		b.WriteString("\n")
 	}
 
-	// Stalls — main-thread blocking calls. file:line is citation-grade.
+	// Stalls — pre-triage emits model-extracted candidates. Only a future
+	// deterministic validator may promote one to a fact-bearing stall row.
 	if len(bundle.Stalls) > 0 {
-		fmt.Fprintf(&b, "**Stalls** (%d):\n", len(bundle.Stalls))
+		navigationCount := 0
+		for _, s := range bundle.Stalls {
+			if s.IsNavigationOnly() {
+				navigationCount++
+			}
+		}
+		title := "Stalls"
+		switch {
+		case navigationCount == len(bundle.Stalls):
+			title = "Stall candidates"
+		case navigationCount > 0:
+			title = "Stalls and candidates"
+		}
+		fmt.Fprintf(&b, "**%s** (%d):\n", title, len(bundle.Stalls))
+		for _, s := range bundle.Stalls {
+			if s.IsNavigationOnly() {
+				b.WriteString("  ⚠ Pre-triage stall span/kind/symbol/duration fields are model-extracted navigation hypotheses, not measured blocking facts or causal authority; inspect the raw region and prefer deterministic trace_query rows.\n")
+				break
+			}
+		}
 		for i, s := range bundle.Stalls {
-			fmt.Fprintf(&b, "  [%d] start=%.1fms duration=%.1fms",
-				i+1, s.StartTsMs, s.DurationMs)
+			candidate := s.IsNavigationOnly()
+			prefix := ""
+			if candidate {
+				prefix = "candidate_"
+			}
+			fmt.Fprintf(&b, "  [%d] %sstart_ms=%.1f %sduration_ms=%.1f",
+				i+1, prefix, s.StartTsMs, prefix, s.DurationMs)
 			if s.Kind != "" {
-				fmt.Fprintf(&b, " kind=%s", s.Kind)
+				fmt.Fprintf(&b, " %skind=%s", prefix, s.Kind)
 			}
 			if s.Symbol != "" {
-				fmt.Fprintf(&b, " symbol=`%s`", s.Symbol)
+				fmt.Fprintf(&b, " %ssymbol=`%s`", prefix, s.Symbol)
+			}
+			if candidate {
+				authority := s.Authority
+				if authority == "" {
+					authority = types.PerfObservationAuthorityPreTriageModelExtraction
+				}
+				fmt.Fprintf(&b, " authority=%s", authority)
 			}
 			if s.File != "" {
 				file := strings.TrimSpace(strings.ReplaceAll(s.File, `\`, `/`))
@@ -4589,7 +4648,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 
 	// Audit legend
 	b.WriteString("Citation contract:\n")
-	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
+	b.WriteString("- A stall file marked `★ resolved` only proves that the repo-relative file path exists; pre-triage stall span/kind/symbol/duration remain navigation candidates unless `authority=deterministic_validator`.\n")
 	b.WriteString("- PerfFrame `janky` and PerfJank membership emitted by pre-triage are navigation candidates unless a separate typed refresh/deadline authority proves the verdict; trigger/tags/reason retain their independent causal-authority ceiling.\n")
 	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
 	b.WriteString("- Non-validator trace observations are navigation-only and expose only candidate locators in this prompt; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
@@ -5036,7 +5095,7 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
 		return modelSurfaceStageReportsForTypedFinalizer(reports, ac)
 	}
-	suppressAnalyzerRuntimeNarrative := finalizerHasDeterministicRuntimeQuery(ac)
+	suppressAnalyzerRuntimeNarrative := downstreamHasTypedRuntimeCarrier(ac)
 	if ac.AgentName == types.AgentExtractor && ac.Mutable != nil {
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && (len(ta.EvidenceItems) > 0 || strings.TrimSpace(ta.AcceptedClosureReason) != "") {
 			return nil
@@ -5049,13 +5108,13 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 		}
 		if suppressAnalyzerRuntimeNarrative &&
 			(report.Agent == types.AgentAnalyzer || report.Stage == types.StageAnalyze) {
-			// The analyzer's visible prose is a pre-query, model-authored
-			// navigation hypothesis. Once deterministic runtime query rows are
-			// present, the Finalizer already receives the analyzer's typed IR
-			// plus the exact runtime ledger; carrying this earlier prose as a
-			// third semantic lane lets a stale mechanism claim compete with the
-			// later evidence. Suppress by stage provenance only — never by
-			// scanning the report text, and never mutate the model's final answer.
+			// The analyzer's visible prose is model-authored classification
+			// narration, not runtime evidence. Once a typed runtime carrier is
+			// present, every downstream stage already receives the analyzer's
+			// structured IR plus the bundle/query lanes; replaying prose creates
+			// a competing mechanism channel before and after deterministic
+			// queries. Suppress by stage provenance only — never by scanning the
+			// report text, and never mutate the model's final answer.
 			continue
 		}
 		switch report.Agent {
@@ -5078,6 +5137,13 @@ func finalizerHasDeterministicRuntimeQuery(ac *types.AgentContext) bool {
 		return false
 	}
 	return ac.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+func downstreamHasTypedRuntimeCarrier(ac *types.AgentContext) bool {
+	if ac == nil || ac.Stage == types.StageAnalyze || ac.AgentName == types.AgentAnalyzer {
+		return false
+	}
+	return ac.PerfTrace != nil || ac.LogTriage != nil || finalizerHasDeterministicRuntimeQuery(ac)
 }
 
 func modelSurfaceStageReportsForTypedFinalizer(reports []types.StageReport, ac *types.AgentContext) []types.StageReport {

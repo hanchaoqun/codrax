@@ -1104,6 +1104,7 @@ func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 				CausalAuthority:  PerfObservationAuthorityDeterministicValidator,
 			}},
 			Stalls: []PerfStall{{
+				Authority:  PerfObservationAuthorityDeterministicValidator,
 				StartTsMs:  220,
 				DurationMs: 110,
 				Kind:       "lock",
@@ -1139,6 +1140,34 @@ func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 	stall := findObservationRecord(t, ledger, "perf:stall:0")
 	if stall.ProvenanceLane != ObservationProvenanceObservedDirectCause {
 		t.Fatalf("typed stall symbol should carry observed_direct_cause lane, got %+v", stall)
+	}
+}
+
+func TestCompileObservationLedger_PreTriageStallStaysSupportingCandidate(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{PerfBundle: &PerfBundle{Stalls: []PerfStall{{
+		Authority:  PerfObservationAuthorityPreTriageModelExtraction,
+		StartTsMs:  5001,
+		DurationMs: 4600,
+		Kind:       "sync-rpc",
+		Symbol:     "VerifyClass",
+	}}}})
+	stall := findObservationRecord(t, ledger, "perf:stall:0")
+	if stall.Role != AnswerAggregateRoleSupportingCoverage || stall.GroundingPolicy != ClaimGroundingSoft {
+		t.Fatalf("pre-triage stall must remain supporting/soft: %+v", stall)
+	}
+	if stall.ProvenanceLane != ObservationProvenanceArtifactSpan || stall.Summary != "pre-triage stall candidate" {
+		t.Fatalf("pre-triage stall minted direct-cause semantics: %+v", stall)
+	}
+	joined := strings.Join(stall.RichNotes, "\n")
+	for _, want := range []string{
+		"stall_authority=pretriage_model_extraction",
+		"candidate_kind=sync-rpc",
+		"candidate_symbol=VerifyClass",
+		"candidate_duration_ms=4600",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("pre-triage stall missing candidate metadata %q: %+v", want, stall.RichNotes)
+		}
 	}
 }
 
