@@ -35985,6 +35985,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
 
+### §123.856 B849：注册关系同时支持 registrar 与 registry/receiver 的精确查询端（2026-08-15）
+
+1. 先红三层：`EvidenceRelationCandidateSource` 面对 system-only `DeclaredOwner=SubAgentRegistry` 仍返回零候选；
+   bridge extractor 面对同一行解析后的 `SubAgentRegistry.Register` 未携带 receiver owner；把 r520 生产同形 fixture
+   收窄到只含 `ExactTargets/PrimaryEntities=[SubAgentRegistry, Name, Names]` 后，旧实现不能刷新 aggregate/Turn-A 的
+   typed principal authority。由此排除“把 registrar 填回 analyzer entities”这类掩盖方案。
+2. 根修在 bridge binding 点读取 RepoMap 同文件同一行的 parser-authored `call` relation：优先消费 resolved
+   `ToEP.ID`；真实 Go 图中 AST 会把参数 receiver `r` 规范化为 `SubAgentRegistry`、但 ID 仍为空，因此复用共享
+   `ResolveCallTarget`，并额外要求静态 receiver+method 在全图唯一。只接受 `tree_sitter/cangjie_parser` provenance；
+   regex fallback、name-only target、无静态 receiver、跨包同 receiver+method 重名、同一行多 registry owner 均留空。
+3. 唯一 owner 以 system-only `EvidenceItem.DeclaredOwner` 携带。bridge 的 owner/registrar、terminal identity、
+   `DerivedFrom` 闭包和 member 不变；evidence relation provider 可从 `OwnerSymbol` 产
+   `registrar_identity_chain`，也可从 `DeclaredOwner` 产 `registry_identity_chain`。两端只是同一已证关系的查询方向，
+   不新生成成员、不改模型答案、不从 request/reasoning/final prose 或 `SurfaceTerms` 猜端点。
+4. 回归面：既有 registrar 查询字节语义；registry receiver 正臂；`SurfaceTerms` 伪装负臂；真实 Go
+   `ScanFiles→ParseFiles→BuildGraph` 生产图；ID 直达臂；同一行多 owner、跨包同 owner 同 method、regex fallback
+   三种 fail-closed；`SupportedReadLanguages()` 全矩阵（含 ArkTS/Cangjie）共用同一个 endpoint consumer；r520
+   生产同形 ParseOutput 的 accepted aggregate 与 Turn-A 双 marker。
+5. `internal/types`、`internal/agent`、`internal/tool/repomap`、`internal/tool` 全包及 `go build ./...` 均通过。
+   下一步只以提交后二进制做 r521 双案例生产回放；必须同时看到 principal authority 激活、弱证据 caveat 消失、
+   写模式对照不回归才关闭 B849/B844。
+
+状态：
+
+`B849-REGISTRATIONTARGETROLE1=implemented+pinned/awaiting-r521`；
+`B847-EXPLICITRELATIONAXISAUTHORITYSPLIT1=implemented+pinned/production-entry-confirmed`；
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=bridge+closure+target-query-implemented/awaiting-r521`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-open`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

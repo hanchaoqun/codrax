@@ -137,6 +137,199 @@ func (s *SubExplorer) Name() string {
 	}
 }
 
+func TestExtractBridgeLiteralChains_ExactResolvedRegistrationOwner(t *testing.T) {
+	registry := `package agent
+
+type SubAgentRegistry struct{}
+
+func (r *SubAgentRegistry) Register(sa any) {}
+
+func RegisterDefaultSubAgents(r *SubAgentRegistry) {
+	r.Register(NewSubExplorer())
+}
+`
+	explorer := `package agent
+
+type SubExplorer struct{}
+func NewSubExplorer() *SubExplorer { return &SubExplorer{} }
+func (s *SubExplorer) Name() string { return "explorer" }
+`
+	files := map[string][]repomap.Symbol{
+		"registry.go": {
+			{Name: "SubAgentRegistry", Kind: "type", File: "registry.go", Line: 3, EndLine: 3},
+			{Name: "Register", Kind: "method", File: "registry.go", Line: 5, EndLine: 5, Receiver: "SubAgentRegistry", Arity: 1},
+			{Name: "RegisterDefaultSubAgents", Kind: "function", File: "registry.go", Line: 7, EndLine: 9, Arity: 1},
+		},
+		"explorer.go": {
+			{Name: "SubExplorer", Kind: "type", File: "explorer.go", Line: 3, EndLine: 3},
+			{Name: "NewSubExplorer", Kind: "function", File: "explorer.go", Line: 4, EndLine: 4},
+			{Name: "Name", Kind: "method", File: "explorer.go", Line: 5, EndLine: 5, Receiver: "SubExplorer"},
+		},
+	}
+	graph, root := buildFakeGraph(t, files, map[string]string{"registry.go": registry, "explorer.go": explorer})
+	registerID := repomap.MakeSymbolID(repomap.LangGo, "agent", "SubAgentRegistry", "Register", 1)
+	registerSym := &graph.FileIndex["registry.go"].Symbols[1]
+	registerSym.ID = registerID
+	graph.SymbolByID = map[repomap.SymbolID]*repomap.Symbol{registerID: registerSym}
+	graph.FileIndex["registry.go"].Relations = []repomap.Relation{{
+		Kind: "call", File: "registry.go", Line: 8,
+		ToEP:       repomap.RelationEndpoint{ID: registerID, Name: "Register", Receiver: "r", File: "registry.go", Line: 5},
+		Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_ast_selector_call",
+	}}
+	got := extractBridgeLiteralEvidence(graph, root, nil).chains
+	for _, item := range got {
+		if item.OwnerSymbol == "RegisterDefaultSubAgents" && item.Object == `"explorer"` {
+			if item.DeclaredOwner != "SubAgentRegistry" {
+				t.Fatalf("exact resolved registration owner not carried: %+v", item)
+			}
+			return
+		}
+	}
+	t.Fatalf("registration bridge missing: %+v", got)
+}
+
+func TestExtractBridgeLiteralChains_ProductionGoGraphResolvesRegistryOwner(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"registry.go": `package agent
+
+type SubAgentRegistry struct{}
+func (r *SubAgentRegistry) Register(sa any) {
+}
+func RegisterDefaultSubAgents(r *SubAgentRegistry) {
+	r.Register(NewSubExplorer())
+}
+`,
+		"explorer.go": `package agent
+
+type SubExplorer struct{}
+func NewSubExplorer() *SubExplorer {
+	return &SubExplorer{}
+}
+func (s *SubExplorer) Name() string {
+	return "explorer"
+}
+`,
+	}
+	for rel, body := range files {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	entries, err := repomap.ScanFiles(root)
+	if err != nil {
+		t.Fatalf("scan fixture: %v", err)
+	}
+	graph := repomap.BuildGraph(root, repomap.ParseFiles(entries, root))
+	for _, item := range extractBridgeLiteralEvidence(graph, root, nil).chains {
+		if item.OwnerSymbol == "RegisterDefaultSubAgents" && item.Object == `"explorer"` {
+			if item.DeclaredOwner != "SubAgentRegistry" {
+				t.Fatalf("production graph did not resolve registry owner: item=%+v relations=%+v symbol_ids=%+v", item, graph.FileIndex["registry.go"].Relations, graph.SymbolByID)
+			}
+			return
+		}
+	}
+	t.Fatalf("production graph registration bridge missing")
+}
+
+func TestExtractBridgeLiteralChains_AmbiguousRegistrationOwnersFailClosed(t *testing.T) {
+	registry := `package agent
+
+func RegisterDefaults(a *ARegistry, b *BRegistry) {
+	a.Register(NewWorker()); b.Register(NewWorker())
+}
+`
+	worker := `package agent
+type Worker struct{}
+func NewWorker() *Worker { return &Worker{} }
+func (w *Worker) Name() string { return "worker" }
+`
+	files := map[string][]repomap.Symbol{
+		"registry.go": {{Name: "RegisterDefaults", Kind: "function", File: "registry.go", Line: 3, EndLine: 5}},
+		"worker.go": {
+			{Name: "Worker", Kind: "type", File: "worker.go", Line: 2, EndLine: 2},
+			{Name: "NewWorker", Kind: "function", File: "worker.go", Line: 3, EndLine: 3},
+			{Name: "Name", Kind: "method", File: "worker.go", Line: 4, EndLine: 4, Receiver: "Worker"},
+		},
+	}
+	graph, root := buildFakeGraph(t, files, map[string]string{"registry.go": registry, "worker.go": worker})
+	graph.SymbolByID = map[repomap.SymbolID]*repomap.Symbol{}
+	for _, owner := range []string{"ARegistry", "BRegistry"} {
+		id := repomap.MakeSymbolID(repomap.LangGo, "agent", owner, "Register", 1)
+		sym := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: owner, ID: id, Arity: 1}
+		graph.SymbolByID[id] = sym
+		graph.FileIndex["registry.go"].Relations = append(graph.FileIndex["registry.go"].Relations, repomap.Relation{
+			Kind: "call", File: "registry.go", Line: 4,
+			ToEP:       repomap.RelationEndpoint{ID: id, Name: "Register"},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_ast_selector_call",
+		})
+	}
+	for _, item := range extractBridgeLiteralEvidence(graph, root, nil).chains {
+		if item.OwnerSymbol == "RegisterDefaults" && item.DeclaredOwner != "" {
+			t.Fatalf("ambiguous same-line receivers must not mint one registry endpoint: %+v", item)
+		}
+	}
+}
+
+func TestExactResolvedRegistrationOwnerAtLine_AllSupportedLanguagesShareTypedEndpoint(t *testing.T) {
+	for _, language := range repomap.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			id := repomap.MakeSymbolID(language, "pkg", "Registry", "Register", 1)
+			target := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: "Registry", ID: id, Arity: 1}
+			provenance := repomap.ProvenanceTreeSitter
+			if language == repomap.LangCangjie {
+				provenance = repomap.ProvenanceCangjieParser
+			}
+			file := &repomap.FileInfo{RelPath: "registry.src", Language: language, Relations: []repomap.Relation{{
+				Kind: "call", File: "registry.src", Line: 7,
+				ToEP:       repomap.RelationEndpoint{ID: id, Name: "Register"},
+				Confidence: 1, Provenance: provenance, ResolvedBy: "typed_call",
+			}}}
+			graph := &repomap.Graph{SymbolByID: map[repomap.SymbolID]*repomap.Symbol{id: target}}
+			got := exactResolvedRegistrationOwnerAtLine(graph, file, 7, func(name string) bool {
+				return strings.EqualFold(name, "register")
+			})
+			if got != "Registry" {
+				t.Fatalf("language %s lost shared typed registration endpoint: %q", language, got)
+			}
+		})
+	}
+}
+
+func TestExactResolvedRegistrationOwnerAtLine_RegexFallbackCannotMintEndpoint(t *testing.T) {
+	id := repomap.MakeSymbolID(repomap.LangGo, "pkg", "Registry", "Register", 1)
+	target := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: "Registry", ID: id, Arity: 1}
+	file := &repomap.FileInfo{RelPath: "registry.go", Language: repomap.LangGo, Relations: []repomap.Relation{{
+		Kind: "call", File: "registry.go", Line: 7,
+		ToEP:       repomap.RelationEndpoint{ID: id, Name: "Register"},
+		Confidence: 0.6, Provenance: "regex_fallback", ResolvedBy: "regex_call",
+	}}}
+	graph := &repomap.Graph{SymbolByID: map[repomap.SymbolID]*repomap.Symbol{id: target}}
+	if got := exactResolvedRegistrationOwnerAtLine(graph, file, 7, func(string) bool { return true }); got != "" {
+		t.Fatalf("regex fallback must not mint a hard registration endpoint: %q", got)
+	}
+}
+
+func TestExactResolvedRegistrationOwnerAtLine_CrossPackageSameOwnerIsAmbiguous(t *testing.T) {
+	left := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: "Registry", File: "left/registry.go", Arity: 1}
+	right := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: "Registry", File: "right/registry.go", Arity: 1}
+	file := &repomap.FileInfo{RelPath: "caller.go", Package: "caller", Language: repomap.LangGo, Relations: []repomap.Relation{{
+		Kind: "call", File: "caller.go", Line: 9,
+		ToEP:       repomap.RelationEndpoint{Name: "Register", Receiver: "Registry"},
+		Confidence: 1, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "go_ast_selector_call",
+	}}}
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{"Register": {left, right}},
+		MethodIndex: map[repomap.MethodKey]*repomap.Symbol{
+			{Pkg: "left", Receiver: "Registry", Name: "Register"}:  left,
+			{Pkg: "right", Receiver: "Registry", Name: "Register"}: right,
+		},
+	}
+	if got := exactResolvedRegistrationOwnerAtLine(graph, file, 9, func(string) bool { return true }); got != "" {
+		t.Fatalf("cross-package same-owner ambiguity must fail closed: %q", got)
+	}
+}
+
 func TestExplorerParseOutputRefreshesAcceptedRelationAuthorityAfterBridgeEvidence(t *testing.T) {
 	subagent := `package agent
 
@@ -169,6 +362,14 @@ func (s *SubExplorer) Name() string {
 	graph, root := buildFakeGraph(t, files, map[string]string{
 		"subagent.go": subagent, "sub_explorer.go": subExplorer,
 	})
+	registerID := repomap.MakeSymbolID(repomap.LangGo, "agent", "SubAgentRegistry", "Register", 1)
+	registerSym := &repomap.Symbol{Name: "Register", Kind: "method", Receiver: "SubAgentRegistry", ID: registerID, Arity: 1}
+	graph.SymbolByID = map[repomap.SymbolID]*repomap.Symbol{registerID: registerSym}
+	graph.FileIndex["subagent.go"].Relations = []repomap.Relation{{
+		Kind: "call", File: "subagent.go", Line: 4,
+		ToEP:       repomap.RelationEndpoint{ID: registerID, Name: "Register", Receiver: "r"},
+		Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_ast_selector_call",
+	}}
 	rm := types.RequestModel{
 		Intent:        types.IntentEnumerate,
 		PredicateAxis: types.AxisRegister,
@@ -183,8 +384,8 @@ func (s *SubExplorer) Name() string {
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              string(types.ReqEnumeration),
 			ExactTargets:      []string{"SubAgentRegistry"},
-			MentionedEntities: []string{"SubAgentRegistry", "RegisterDefaultSubAgents", "Name", "Names"},
-			PrimaryEntities:   []string{"SubAgentRegistry", "RegisterDefaultSubAgents", "Name", "Names"},
+			MentionedEntities: []string{"SubAgentRegistry", "Name", "Names"},
+			PrimaryEntities:   []string{"SubAgentRegistry", "Name", "Names"},
 		},
 		CompletenessObligation: &types.CompletenessObligation{Required: true},
 	}
@@ -243,7 +444,7 @@ func (s *SubExplorer) Name() string {
 	foundBridge := false
 	for _, item := range out.EvidenceItems {
 		if item.Producer == "bridge_literal" && item.OwnerSymbol == "RegisterDefaultSubAgents" &&
-			item.Object == `"explorer"` {
+			item.DeclaredOwner == "SubAgentRegistry" && item.Object == `"explorer"` {
 			foundBridge = true
 			break
 		}

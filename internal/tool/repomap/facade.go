@@ -82,6 +82,12 @@ const (
 	LangRust       = types.LangRust
 	LangC          = types.LangC
 	LangCpp        = types.LangCpp
+
+	// Exact parser relation provenance values are re-exported so consumers
+	// can distinguish AST/Cangjie edges from regex salvage without importing
+	// repomap's implementation package.
+	ProvenanceTreeSitter    = types.ProvenanceTreeSitter
+	ProvenanceCangjieParser = types.ProvenanceCangjieParser
 )
 
 // ---- function re-exports --------------------------------------------

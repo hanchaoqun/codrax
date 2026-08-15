@@ -18292,6 +18292,7 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 		verb          string
 		targetClass   string
 		targetFactory string
+		registryOwner string
 	}
 	type identity struct {
 		class   string
@@ -18336,6 +18337,8 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 						if sym.Receiver != "" {
 							qual = sym.Receiver + "." + sym.Name
 						}
+						bindingLine := concreteValueAbsoluteLine(sym.Line, cv.lineOffset)
+						registryOwner := exactResolvedRegistrationOwnerAtLine(graph, fi, bindingLine, isRegName)
 						for _, part := range strings.Split(cv.value, ",") {
 							part = strings.TrimSpace(part)
 							tgt := parseTargetClassFromBinding(part)
@@ -18346,10 +18349,11 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 							bindings = append(bindings, binding{
 								fnQual:        qual,
 								file:          fi.RelPath,
-								line:          concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
+								line:          bindingLine,
 								verb:          cv.kind,
 								targetClass:   tgt,
 								targetFactory: factory,
+								registryOwner: registryOwner,
 							})
 						}
 					}
@@ -18509,6 +18513,12 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 						Scope:        types.ScopeLine,
 						AnchorSymbol: id.class + "." + id.method,
 						OwnerSymbol:  b.fnQual,
+						// DeclaredOwner is a system-only endpoint identity resolved from
+						// the parser-authored call edge at this exact binding line. The
+						// bridge already proves the registration relation; this field
+						// only lets typed consumers address that same fact from the
+						// registry/receiver side. Missing or ambiguous owners stay empty.
+						DeclaredOwner: b.registryOwner,
 					}
 					bridgeItem.ID = types.StableEvidenceID(bridgeItem)
 					items = append(items, bridgeItem)
@@ -18607,6 +18617,95 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 	}
 
 	return bridgeLiteralEvidence{chains: items, terminalReturns: terminalReturns}
+}
+
+// exactResolvedRegistrationOwnerAtLine returns the unique declaration owner
+// of a register-family call at one binding line. It consumes only exact
+// parser-authored relations with either a resolved SymbolID or one unique
+// static receiver+method declaration. Receiver variable names, source text,
+// signatures, regex-fallback edges and name-only targets cannot mint this
+// endpoint. Multiple different owners on one line fail closed.
+func exactResolvedRegistrationOwnerAtLine(
+	graph *repomap.Graph,
+	file *repomap.FileInfo,
+	line int,
+	isRegistrationName func(string) bool,
+) string {
+	if graph == nil || file == nil || line <= 0 || isRegistrationName == nil || len(graph.SymbolByID) == 0 {
+		return ""
+	}
+	owners := map[string]bool{}
+	for _, relation := range file.Relations {
+		if relation.Kind != "call" || relation.Line != line {
+			continue
+		}
+		switch relation.Provenance {
+		case repomap.ProvenanceTreeSitter, repomap.ProvenanceCangjieParser:
+		default:
+			continue
+		}
+		var target *repomap.Symbol
+		if relation.ToEP.ID != "" {
+			target = graph.SymbolByID[relation.ToEP.ID]
+		} else if strings.TrimSpace(relation.ToEP.Receiver) != "" {
+			target = graph.ResolveCallTarget(file, relation)
+			if target != nil && !exactResolvedMethodOwnerUnique(graph, target) {
+				target = nil
+			}
+		}
+		if target == nil || !isRegistrationName(target.Name) {
+			continue
+		}
+		owner := strings.TrimSpace(target.Receiver)
+		if owner == "" {
+			owner = strings.TrimSpace(target.Parent)
+		}
+		if owner != "" {
+			owners[owner] = true
+		}
+	}
+	if len(owners) != 1 {
+		return ""
+	}
+	for owner := range owners {
+		return owner
+	}
+	return ""
+}
+
+// exactResolvedMethodOwnerUnique rejects the graph resolver's deterministic
+// cross-package first-match fallback when multiple declarations share the same
+// receiver+method surface. Same-package/parser-resolved calls remain usable;
+// ambiguous global identities stay advisory instead of driving a hard gate.
+func exactResolvedMethodOwnerUnique(graph *repomap.Graph, target *repomap.Symbol) bool {
+	if graph == nil || target == nil {
+		return false
+	}
+	owner := strings.TrimSpace(target.Receiver)
+	if owner == "" {
+		owner = strings.TrimSpace(target.Parent)
+	}
+	if owner == "" || strings.TrimSpace(target.Name) == "" {
+		return false
+	}
+	matches := 0
+	for _, candidate := range graph.SymbolDefs[target.Name] {
+		if candidate == nil || candidate.Kind != "method" {
+			continue
+		}
+		candidateOwner := strings.TrimSpace(candidate.Receiver)
+		if candidateOwner == "" {
+			candidateOwner = strings.TrimSpace(candidate.Parent)
+		}
+		if candidateOwner != owner {
+			continue
+		}
+		matches++
+		if matches > 1 {
+			return false
+		}
+	}
+	return matches == 1
 }
 
 // parseConsumerGateField extracts the last capitalised identifier

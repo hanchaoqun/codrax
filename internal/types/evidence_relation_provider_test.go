@@ -109,6 +109,41 @@ func TestEvidenceRelationCandidateSource_BridgeLiteralJoinToRegisteredIdentity(t
 	}
 }
 
+func TestEvidenceRelationCandidateSource_BridgeLiteralJoinQueryableByExactRegistryOwner(t *testing.T) {
+	terminal := EvidenceItem{
+		ID: "terminal-explorer", Kind: EvidenceConcrete, Subject: "SubExplorer.Name",
+		Predicate: "returns", Object: `"explorer"`, Source: "internal/agent/sub_explorer.go", LineStart: 33, LineEnd: 33,
+		Producer: "bridge_literal_terminal", Scope: ScopeLine, AnchorKind: AnchorReturn,
+		AnchorSymbol: "Name", OwnerSymbol: "SubExplorer", GroundingStatus: GroundingGrounded,
+	}
+	bridge := EvidenceItem{
+		ID: "bridge-default-subagent", Kind: EvidenceDataflowPath, Predicate: "resolution_chain",
+		Object: `"explorer"`, Source: "internal/agent/subagent.go", LineStart: 64, LineEnd: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents",
+		DeclaredOwner: "SubAgentRegistry", GroundingStatus: GroundingGrounded,
+	}
+	rows := (EvidenceRelationCandidateSource{Items: []EvidenceItem{bridge, terminal}}).TypedRelationCandidates(TypedRelationQuery{
+		Kinds: []TypedRelationKind{TypedRelationRegisters}, Sources: []string{"SubAgentRegistry"},
+		Purpose: TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one exact receiver-addressed registration row", rows)
+	}
+	if rows[0].SourceName != "SubAgentRegistry" || rows[0].SourceKind != "registry_identity_chain" || rows[0].Member.Name != "explorer" {
+		t.Fatalf("unexpected receiver-addressed candidate: %+v", rows[0])
+	}
+
+	bridge.DeclaredOwner = ""
+	bridge.SurfaceTerms = []string{"SubAgentRegistry"}
+	if rows := (EvidenceRelationCandidateSource{Items: []EvidenceItem{bridge, terminal}}).TypedRelationCandidates(TypedRelationQuery{
+		Kinds: []TypedRelationKind{TypedRelationRegisters}, Sources: []string{"SubAgentRegistry"},
+		Purpose: TypedRelationPurposeCoverageGate,
+	}); len(rows) != 0 {
+		t.Fatalf("advisory surface terms must not mint an exact registry endpoint: %+v", rows)
+	}
+}
+
 func TestEvidenceRelationCandidateSource_BridgeTerminalWinsStableIDCollision(t *testing.T) {
 	terminal := EvidenceItem{
 		Kind: EvidenceConcrete, Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`,

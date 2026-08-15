@@ -106,7 +106,13 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 		return nil
 	}
 	source := strings.TrimSpace(rawSource)
-	if source == "" || !evidenceRelationSurfaceMatches(source, bridge.OwnerSymbol) {
+	if source == "" {
+		return nil
+	}
+	registrarMatch := evidenceRelationSurfaceMatches(source, bridge.OwnerSymbol)
+	registryMatch := strings.TrimSpace(bridge.DeclaredOwner) != "" &&
+		evidenceRelationSurfaceMatches(source, bridge.DeclaredOwner)
+	if !registrarMatch && !registryMatch {
 		return nil
 	}
 	terminal, ok := itemsByID[strings.TrimSpace(bridge.DerivedFrom[0])]
@@ -127,10 +133,14 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 	if !ok {
 		return nil
 	}
+	sourceKind := "registrar_identity_chain"
+	if registryMatch && !registrarMatch {
+		sourceKind = "registry_identity_chain"
+	}
 	return []TypedRelationCandidate{{
 		Relation:   TypedRelationRegisters,
 		SourceName: source,
-		SourceKind: "registrar_identity_chain",
+		SourceKind: sourceKind,
 		SourceFile: cleanEvidenceRelationPath(bridge.Source),
 		SourceLine: bridge.LineStart,
 		Member: TypedRelationMember{
