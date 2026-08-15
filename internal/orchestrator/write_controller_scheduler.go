@@ -2877,6 +2877,12 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 		items = items[:4]
 	}
 	batch := newImpactRepairFollowupBatch(run, run.ActiveBatchID, "cumulative-review", items)
+	if proofFollowupWouldRepeatStableStaticVerification(probeAuthorityPlan, report, &batch, func(language string) bool {
+		return tool.VerificationProbeRuntimeAvailable(language, probeAuthorityPlan.WorktreePath)
+	}) {
+		appendStableStaticProofFollowupSuppressed(run, run.ActiveBatchID)
+		return false
+	}
 	oldBatchID := strings.TrimSpace(run.ActiveBatchID)
 	appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_requested",
 		"typed cumulative actual-diff review found uncovered source proof after a non-failed verifier attempt")
@@ -8289,6 +8295,88 @@ func appendStableUnavailableProofFollowupSuppressed(run *types.WriteWorkflowRun,
 	}
 	appendControllerProgress(run, batchID, "verification_proof_followup_suppressed_stable_unavailable",
 		"verify-only proof follow-up suppressed because its sole typed probe already reported runner_missing in the unchanged single-plan worktree")
+}
+
+// proofFollowupWouldRepeatStableStaticVerification closes a cumulative-review
+// bypass around the ordinary weak-proof finish gate. A verify-only follow-up
+// cannot strengthen an unchanged post-apply observation when every production
+// path it would revisit was already covered only by a static/syntax capability
+// and this controller has no direct runtime for any of those paths. The check
+// is exact and deliberately fail-open: stale reports, missing path rows,
+// mixed/strong capabilities, absent executed-command receipts, mutable repair
+// batches, and an available direct runtime all retain the follow-up.
+func proofFollowupWouldRepeatStableStaticVerification(
+	plan *types.ChangePlan,
+	report *types.ChangeReport,
+	batch *writeflow.WriteBatchPlan,
+	runtimeAvailable func(string) bool,
+) bool {
+	if plan == nil || report == nil || batch == nil ||
+		strings.TrimSpace(plan.ID) == "" || strings.TrimSpace(report.PlanID) != strings.TrimSpace(plan.ID) ||
+		report.Channel != types.ChangeReportChannelPostApplyVerify ||
+		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		strings.TrimSpace(batch.Purpose) != "verification_proof_followup" ||
+		batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly {
+		return false
+	}
+	hasExecutedReceipt := false
+	for _, command := range report.ExecutedCommands {
+		if strings.TrimSpace(command.Outcome) == "executed" && command.ExitCode == 0 {
+			hasExecutedReceipt = true
+			break
+		}
+	}
+	if !hasExecutedReceipt {
+		return false
+	}
+
+	type pathAuthority struct {
+		weak   bool
+		strong bool
+	}
+	coverage := make(map[string]pathAuthority, len(report.ChangedPathCoverage))
+	for _, row := range report.ChangedPathCoverage {
+		path := normalizeControllerPath(row.Path)
+		if path == "" || row.Status != types.ChangedPathVerificationCovered {
+			continue
+		}
+		authority := coverage[path]
+		switch row.Capability {
+		case types.VerificationCapabilityTargetExecution, types.VerificationCapabilityTargetBehavior:
+			authority.strong = true
+		case types.VerificationCapabilitySourceStatic, types.VerificationCapabilitySyntaxOnly:
+			authority.weak = true
+		}
+		coverage[path] = authority
+	}
+
+	seenProductionPath := false
+	for _, raw := range batch.ExpectedPaths {
+		path := normalizeControllerPath(raw)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		seenProductionPath = true
+		authority, ok := coverage[path]
+		if !ok || !authority.weak || authority.strong {
+			return false
+		}
+		language := controllerDirectInlineProbeLanguage(path)
+		if language != "" {
+			if runtimeAvailable == nil || runtimeAvailable(language) {
+				return false
+			}
+		}
+	}
+	return seenProductionPath
+}
+
+func appendStableStaticProofFollowupSuppressed(run *types.WriteWorkflowRun, batchID string) {
+	if run == nil || workflowProgressReasonCount(run, "", "verification_proof_followup_suppressed_stable_static_without_runtime") > 0 {
+		return
+	}
+	appendControllerProgress(run, batchID, "verification_proof_followup_suppressed_stable_static_without_runtime",
+		"verify-only cumulative proof follow-up suppressed because every production target already has the same static-only post-apply coverage and no direct target runtime is available")
 }
 
 func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport, limit int) []impactRepairQueueItem {

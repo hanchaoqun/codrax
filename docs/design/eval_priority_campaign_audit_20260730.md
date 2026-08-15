@@ -36551,8 +36551,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 5. Rust 变更本身正确：新增 fallible constructor、panicking wrapper 复用它、MIN/MAX 继续直接构造，并补测试。首轮插入位置错误
    被 `make check` 捕获，replan 修复。fixture 无 Cargo/native Rust runner，只有 source-static Python 检查，所以终态
    `verification_proof_incomplete` 是诚实边界，禁止降低验证杆换取 eval PASS。
-6. Rust 同时新立 `B856-SOURCESTATICVERIFYREPEAT1/P1`：可用验证面耗尽后仍重复相同 static verify/controller review，
-   共 19 次 dispatch。下一批只按 typed plan/report generation、命令集合、changed-path capability 与验证结果去重无进展轮次；
+6. Rust 同时新立 `B856-SOURCESTATICVERIFYREPEAT1/P1`：全流程共 19 次 dispatch；可用验证面耗尽后，累计复核旁路仍新建
+   一个 verify-only 批并重复同一 static verifier，随后又付出 controller 终结轮。下一批只按 typed plan/report generation、
+   changed-path capability 与验证结果去重无进展轮次；
    没有项目原生运行器时应尽早诚实结束为 unverified，而不是循环，也不能按请求/计划/答案 prose 猜测语言或成功。
 7. 本批不改 Read/Trace 查询和成文所有权。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价
    可消除量双轴保持；邻近/背景仅支持，系统不代写模型答案、图关系或结论。
@@ -36565,6 +36566,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `rust-verification-caliber=honest-unverified/not-lowered`；
 `raw-request/model/final-prose-hard-gate=forbidden/not-added`；
 `active-stream-fixed-age-degrade=forbidden/not-observed-r530`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
+### §123.873 B856：累计复核的静态无增量旁路闭环（2026-08-15）
+
+1. 冷读纠正施工范围：普通 `normalizeControllerTypedStateDecision` 已有精确弱证明终结臂，Rust/C/C++/ArkTS/Cangjie 等
+   生产路径只有 `source_static/syntax_only` 时会诚实 `accept_unverified`，不会冒充行为绿。r530 的重复来自更早的
+   `appendCumulativePatchReviewFollowupIfNeeded`：它在普通终结臂之前直接铸造 verify-only 累计批，因此绕开既有收口。
+2. 根修只封该累计旁路。候选必须同时满足：active persisted plan 与 post-apply report 的 `PlanID` 精确一致；report passed 且有
+   成功 executed-command receipt；候选是纯 `verification_proof_followup + verify_only`；其每个非辅助 ExpectedPath 均在同一 report
+   中 exact covered，最强能力仅为 `source_static/syntax_only`；对应语言不存在可用 controller direct runtime。全部成立时，不再
+   新建无增量累计批，记录 typed suppression reason，随后由既有终结权威发布 unverified。
+3. fail-open 面完整保留：任一路径缺 coverage、出现 target_execution/target_behavior、report/plan provenance 陈腐、没有执行
+   receipt、批次同时含 impact repair、或 Go/Python/Java/JavaScript/Ruby 等直接运行时存在/运行时可用性未知，均继续原有 follow-up。
+   辅助 test/fixture 路径不单独授权抑制，至少要有一个生产路径。判断不读用户请求、模型 rationale、计划/命令正文或最终答案。
+4. 生产 seam 集成 pin 用 Rust source patch + hard typed behavior contract 复现累计 actual-diff 形，证明 active batch 不迁移、
+   `cumulative_actual_diff_review_followup_requested` 不再铸造，同时 suppression receipt 存在。矩阵负 pin 覆盖强执行、缺路径、JS runtime、
+   未知 runtime、mixed batch 与 stale report；原 missing-runner suppression、test-only→source cumulative follow-up、inline runtime proof
+   authoring 和普通 source-static unverified 终结测试均继续通过。
+5. 该优化删除的是一轮确定性无增量 verifier/调度开销，不降低验证标准，也不把静态检查换算成行为通过。没有 Cargo/native runner
+   的 r530 形仍会交付正确补丁并明确未完整验证；若仓库后来补上可执行验证面，fail-open 条件允许重新进入验证。
+6. 本批不改 Read/Trace、AnswerDocument、图关系或流式策略。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际占用/
+   业务线索与规则计价可消除量双轴保持；邻近/背景仅支持，系统不代写模型答案或结论，活跃流不按固定年龄降级。
+
+状态：
+
+`B856-SOURCESTATICVERIFYREPEAT1=implemented/cumulative-bypass-closed+typed-fail-open-pins`；
+`source-static-verdict=honest-unverified/unchanged`；
+`direct-runtime-proof-followup=preserved`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。

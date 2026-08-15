@@ -6999,6 +6999,68 @@ func TestNewImpactRepairFollowupBatchKeepsSourceStaticLaneAcrossDiscoveryEntrypo
 	}
 }
 
+func TestProofFollowupWouldRepeatStableStaticVerificationRequiresClosedTypedShape(t *testing.T) {
+	plan := &types.ChangePlan{ID: "plan-static", WorktreePath: "/tmp/static-proof"}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "make", Outcome: "executed", ExitCode: 0}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/duration.rs", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	batch := &writeflow.WriteBatchPlan{
+		Purpose: "verification_proof_followup", ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+		ExpectedPaths: []string{"src/duration.rs", "tests/duration_min.rs"},
+	}
+	if !proofFollowupWouldRepeatStableStaticVerification(plan, report, batch, func(string) bool { return false }) {
+		t.Fatal("fully covered Rust static-only observation should suppress an identical verify-only generation")
+	}
+
+	strong := *report
+	strong.ChangedPathCoverage = append([]types.ChangedPathVerificationCoverage(nil), report.ChangedPathCoverage...)
+	strong.ChangedPathCoverage[0].Capability = types.VerificationCapabilityTargetExecution
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &strong, batch, func(string) bool { return false }) {
+		t.Fatal("target execution authority must fail open")
+	}
+
+	missing := *report
+	missing.ChangedPathCoverage = nil
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &missing, batch, func(string) bool { return false }) {
+		t.Fatal("missing exact path coverage must fail open")
+	}
+
+	jsReport := *report
+	jsReport.ChangedPathCoverage = []types.ChangedPathVerificationCoverage{{
+		Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+		Capability: types.VerificationCapabilitySyntaxOnly,
+	}}
+	jsBatch := *batch
+	jsBatch.ExpectedPaths = []string{"src/widget.ts"}
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &jsReport, &jsBatch, func(language string) bool { return language == "javascript" }) {
+		t.Fatal("an available direct runtime must retain the bounded probe-authoring route")
+	}
+	if !proofFollowupWouldRepeatStableStaticVerification(plan, &jsReport, &jsBatch, func(string) bool { return false }) {
+		t.Fatal("an unavailable direct runtime cannot strengthen an unchanged verify-only replay")
+	}
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &jsReport, &jsBatch, nil) {
+		t.Fatal("unknown runtime availability must fail open")
+	}
+
+	mixed := *batch
+	mixed.Purpose = "impact_and_verification_proof_followup"
+	if proofFollowupWouldRepeatStableStaticVerification(plan, report, &mixed, func(string) bool { return false }) {
+		t.Fatal("a mixed repair batch must fail open")
+	}
+	stale := *report
+	stale.PlanID = "plan-stale"
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &stale, batch, func(string) bool { return false }) {
+		t.Fatal("stale report provenance must fail open")
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
@@ -7281,7 +7343,6 @@ func TestAppendCumulativePatchReviewFollowupSuppressesIdenticalMissingRunnerProb
 			},
 		}},
 	}
-
 	if o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
 		Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed",
 	}) {
@@ -7292,6 +7353,102 @@ func TestAppendCumulativePatchReviewFollowupSuppressesIdenticalMissingRunnerProb
 	}
 	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_unavailable") {
 		t.Fatalf("cumulative suppression wiring was not recorded: %+v", run.ProgressLedger)
+	}
+}
+
+func TestAppendCumulativePatchReviewFollowupSuppressesStableRustSourceStaticReplay(t *testing.T) {
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(filepath.Join(mainRoot, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "init", "-q")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.email", "test@local")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(mainRoot, "src", "duration.rs"), []byte("pub const LIMIT: i64 = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "add", ".")
+	runGitForWorkflowRestoreTest(t, mainRoot, "commit", "-q", "-m", "seed")
+
+	sess, err := worktree.Create(filepath.Join(t.TempDir(), "wt"), mainRoot, "stable-static-cumulative-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Discard() })
+	if err := os.WriteFile(filepath.Join(sess.Path(), "src", "duration.rs"), []byte("pub const LIMIT: i64 = 2;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchSHA, err := worktree.CommitChanges(sess.Path(), "duration fix")
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+
+	plan := &types.ChangePlan{
+		ID: "plan-rust-static", Status: types.PlanStatusApplied, WorktreePath: sess.Path(),
+		TargetPaths: []string{"src/duration.rs"}, AppliedPaths: []string{"src/duration.rs"},
+		Changes: []types.FileChange{{
+			Path: "src/duration.rs", Kind: "patch", Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "duration-boundary", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpEquals,
+			Expected: "boundary behavior result", Required: true, Source: "write_analyzer",
+		}},
+	}
+	planDir := t.TempDir()
+	if err := types.WritePlanToFile(plan, filepath.Join(planDir, writeWorkflowArtifactFileStem(plan.ID)+".json")); err != nil {
+		t.Fatalf("persist plan: %v", err)
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "make", Source: "declared_coverage_test_surface", Outcome: "executed", ExitCode: 0,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/duration.rs", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationDeclaredProjectCheck, Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu := types.NewMutableState("stable Rust static-only cumulative proof")
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu, Mode: types.ModeApply, RepoRoot: sess.Path(), MainRepoRoot: mainRoot, WorktreePath: sess.Path(),
+	}, reportDir: planDir}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-rust-static", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID, ArtifactRef: patchSHA},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+	cumulative := o.buildCumulativePatchReviewPlan(run, report, nil)
+	if cumulative == nil {
+		t.Fatal("Rust cumulative review fixture did not produce a plan")
+	}
+	fixtureItems := selectImpactRepairQueueItems(cumulative, report, 0)
+	if len(fixtureItems) == 0 {
+		t.Fatalf("Rust cumulative review fixture did not produce proof obligations: review=%+v impact=%+v", cumulative.PatchReview, cumulative.ImpactAnalysis)
+	}
+
+	if o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
+		Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed",
+	}) {
+		t.Fatalf("stable Rust source-static observation appended an identical cumulative verify batch: %+v", run)
+	}
+	if run.ActiveBatchID != "batch-1" {
+		t.Fatalf("stable static suppression moved the active batch: %+v", run)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_static_without_runtime") {
+		t.Fatalf("stable static suppression was not recorded: %+v", run.ProgressLedger)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "cumulative_actual_diff_review_followup_requested") {
+		t.Fatalf("suppressed static replay still minted a cumulative batch: %+v", run.ProgressLedger)
 	}
 }
 
