@@ -222,6 +222,84 @@ func TestRequestedSourceLocationDimensionRequiresLocationOnEveryTypedRelationMem
 	}
 }
 
+func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows(t *testing.T) {
+	mut := types.NewMutableState("list file and package per declaration")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "public class",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Alpha @ src/alpha.cj:10",
+			"Beta @ src/beta.cj:20",
+		},
+		SupportRefs: []string{
+			"Alpha @ src/alpha.cj:10",
+			"Beta @ src/beta.cj:20",
+		},
+	}})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Alpha", Role: types.AnswerCandidateRoleType, File: "src/alpha.cj", Line: 10, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.alpha"}}},
+				{Name: "Beta", Role: types.AnswerCandidateRoleType, File: "src/beta.cj", Line: 20, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.beta"}}},
+			},
+		}},
+	})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
+				},
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "file", Role: types.RequestedAnswerDimensionSourceLocation, Required: true},
+					{Index: 2, Label: "package", Role: types.RequestedAnswerDimensionSourceAttribute, Required: true},
+				},
+			},
+		}},
+	}
+	sets := answerDocPrincipalEnumerationSets(ctx, answerSurfacePlan(ctx))
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("typed source-inventory rows unavailable: %+v", sets)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{Kind: types.BlockSection}}}
+	for _, row := range sets[0].Rows {
+		if len(row.Attributes) != 1 {
+			t.Fatalf("row attributes unavailable: %+v", row)
+		}
+		doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{
+			Label:                row.DisplayLabel,
+			Text:                 row.Location + "; package=" + row.Attributes[0].Name,
+			SourceInventoryRowID: row.RowID,
+		})
+	}
+	if !answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc) {
+		t.Fatal("exact row identities with visible typed paths should cover source_location")
+	}
+	if !answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc) {
+		t.Fatal("exact row identities with visible typed package values should cover source_attribute")
+	}
+	doc.Blocks[0].Items[1].Text = sets[0].Rows[1].Location
+	if answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc) {
+		t.Fatal("omitting one exact row-local package value must remain a soft presentation miss")
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveStopsWhenPresentationOnlyDimensionMissing(t *testing.T) {
 	mut := types.NewMutableState("说明影响")
 	ctx := &types.AgentContext{

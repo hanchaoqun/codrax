@@ -99,6 +99,56 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesCausalContributorSet(
 	}
 }
 
+func TestReconcileSourceInventoryAttributeDimensionRoles_SeparatesFileAndPackageSeats(t *testing.T) {
+	profile := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{
+			{Index: 1, Label: "文件路径", Role: RequestedAnswerDimensionSourceLocation, Required: true},
+			{Index: 2, Label: "符号名", Role: RequestedAnswerDimensionMemberSet, Required: true},
+			{Index: 3, Label: "包路径", Role: RequestedAnswerDimensionSourceLocation, Required: true},
+		},
+	}
+	inventory := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldName,
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldPackage,
+		},
+	}
+	if changed := ReconcileSourceInventoryAttributeDimensionRoles(profile, inventory); changed != 1 {
+		t.Fatalf("changed=%d, want 1; profile=%+v", changed, profile)
+	}
+	if profile.Dimensions[0].Role != RequestedAnswerDimensionSourceLocation ||
+		profile.Dimensions[2].Role != RequestedAnswerDimensionSourceAttribute {
+		t.Fatalf("file/package seats not separated: %+v", profile.Dimensions)
+	}
+	if changed := ReconcileSourceInventoryAttributeDimensionRoles(profile, inventory); changed != 0 {
+		t.Fatalf("reconciliation must be idempotent, changed=%d", changed)
+	}
+}
+
+func TestReconcileSourceInventoryAttributeDimensionRoles_DoesNotGuessAmbiguousSingleSeat(t *testing.T) {
+	profile := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Index: 1, Label: "路径", Role: RequestedAnswerDimensionSourceLocation, Required: true,
+		}},
+	}
+	inventory := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		RequestedFields: []SourceInventoryRequestedField{
+			SourceInventoryFieldLocation,
+			SourceInventoryFieldPackage,
+		},
+	}
+	if changed := ReconcileSourceInventoryAttributeDimensionRoles(profile, inventory); changed != 0 {
+		t.Fatalf("ambiguous single seat must stay model-owned, changed=%d profile=%+v", changed, profile)
+	}
+}
+
 func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSourceRoles(t *testing.T) {
 	// §29.166 OBLSWEEP-1: the dropped obligation dims must carry a precise
 	// current-source anchor (path suffix / file:line) to keep minting; the

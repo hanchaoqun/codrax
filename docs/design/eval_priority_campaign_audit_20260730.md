@@ -36491,6 +36491,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.871 r529 / B854：源码位置与语言作用域维度分席；B853 生产未命中（2026-08-15）
+
+1. 在 `main@b296b90b1` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + harmony/cangjie_repomap`。Runner `2/2 PASS`，人工 `2/2 pass`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_sequence_cangjie_r529_20260815_manual_audit.md`。
+2. sequence 终稿继续正确判定没有 `buildAnalysisIR -> gate.Run` 有向路径，源码只证明
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`。首稿图已经携带两条 required edge anchors；拒绝来自把 supporting local calls
+   放入 principal path facet，修补后改为 endpoint boundary 与 local supporting calls 分栏，Mermaid body/方向/关系均保留。
+   因此 B853 本轮没有 production 命中：实现和 mixed-violation 集成 pin 已闭，但不能把“未触发”写成生产正证，后续随异构案自然观察。
+3. Cangjie 终稿内容完整：2 个 extend、2 个 foreign func、8 个 public class 全部逐行带文件、符号、package；同名
+   `native_add` 由 exact row/file/package 保持为两个独立成员，package 来自 source-inventory typed attribute，非路径推断。
+4. 新确认 `B854-SOURCEATTRIBUTELOCATIONROLE1/P1`。Analyzer 把“文件路径”和“包路径（package 声明）”都铸为
+   `source_location`；首稿虽然 12 行都已带 package，软维度检查仍把第 3 维判缺失。模型按错误提示重写三个 section 时遗漏
+   `surface_role/facet_ids/claim_uses/source_inventory_family`，枚举校验把全部行判 missing。终态正确保留首稿并追加“输出维度核对”，
+   所以内容没丢，但发生一次可避免的成文重试和内部化补充。这不是模型波动，也不是 package 解析缺失。
+5. 根修将 `source_location` 与新 typed `source_attribute` 分席：前者只表示逐主体 file/file:line；后者表示
+   source-inventory 的 package/module/namespace。Analyzer schema 明确禁止用文件位置角色表示语言作用域。旧模型兼容臂只在 typed
+   `source_inventory.requested_fields` 同时声明 location 与属性、且 `source_location` 席位数超过 location 需求时，从末席纠正恰好
+   对应数量；不读原始请求、模型思考或最终答案关键词，不创造缺失维度，不改 label/quote/required/index。
+6. 展示覆盖消费 exact `source_inventory_row_id + principal EnumerationDisplayRow + typed attribute value`。逐行缺属性时只发
+   display-only 软提示；它不是 emit hard reject，也不能更改、删除或替换模型正文。逐行文件位置同样以 exact row identity 与 typed
+   source path 对齐；模糊标题、总结词或 citation 数量不能代替。系统仍不运行任何 visible answer mutator，不代写表格、图或结论。
+7. 新旧语义、兼容幂等/歧义 fail-open、逐行 location/attribute 完整与单行缺属性负臂均有 pin；
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 和 `go build ./...` 全绿。
+8. Read/Trace 生产路径零改动。显式时间窗、Trace 因果投影、系统补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量
+   双轴保持；邻近/背景仍仅支持。两个活跃流分别 146s/196s 正常完成，没有 4ms/4s/固定年龄降级；Cangjie 的旧稿恢复由 patch
+   结构失败触发，不是流式等待超时。
+
+状态：
+
+`B854-SOURCEATTRIBUTELOCATIONROLE1=implemented/typed-role+legacy-cardinality-reconcile+row-identity-soft-coverage`；
+`B853-GROUNDEDDIAGRAMANCHORMIXEDREPAIR1=implemented/pinned/production-not-hit-r529`；
+`cangjie-source-inventory=content-pass/retry-churn-root-fixed`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`visible-model-answer-mutator=forbidden/not-connected`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r529`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

@@ -10777,7 +10777,7 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 	itemProperties, _ := items["properties"].(map[string]any)
 	role, _ := itemProperties["role"].(map[string]any)
 	roleDescription, _ := role["description"].(string)
-	for _, want := range []string{"source_location", "citation alone does not display it", "stage_or_workflow", "does not imply a source declaration inventory"} {
+	for _, want := range []string{"source_location", "citation alone does not display it", "source_attribute", "package/module/namespace", "stage_or_workflow", "does not imply a source declaration inventory"} {
 		if !strings.Contains(roleDescription, want) {
 			t.Fatalf("requested_answer_dimensions role teaching missing %q: %q", want, roleDescription)
 		}
@@ -10832,6 +10832,15 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 			"requested_fields": ["name", "location", "package"],
 			"source_quotes": ["extend 块", "foreign func 声明", "public class"],
 			"confidence": 0.9
+		},
+		"requested_answer_dimensions": {
+			"is_dimensioned_answer": true,
+			"confidence": 0.9,
+			"dimensions": [
+				{"index": 1, "label": "文件路径", "role": "source_location", "source_quote": "列出文件路径", "required": true},
+				{"index": 2, "label": "符号名", "role": "member_set", "source_quote": "符号名", "required": true},
+				{"index": 3, "label": "包路径（package 声明）", "role": "source_location", "source_quote": "并指出包路径（package 声明）", "required": true}
+			]
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
@@ -10849,6 +10858,14 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 	}
 	if strings.Contains(res.Summary, "target_roles omitted or empty") {
 		t.Fatalf("summary should not drop source inventory profile: %s", res.Summary)
+	}
+	if rm.RequestedAnswerDimensions == nil || len(rm.RequestedAnswerDimensions.Dimensions) != 3 ||
+		rm.RequestedAnswerDimensions.Dimensions[0].Role != types.RequestedAnswerDimensionSourceLocation ||
+		rm.RequestedAnswerDimensions.Dimensions[2].Role != types.RequestedAnswerDimensionSourceAttribute {
+		t.Fatalf("legacy package/source_location drift should reconcile from typed requested_fields: %+v", rm.RequestedAnswerDimensions)
+	}
+	if !strings.Contains(res.Summary, "source_attribute") {
+		t.Fatalf("normalization warning should remain auditable: %s", res.Summary)
 	}
 	if len(rm.SubTopics) != 3 {
 		t.Fatalf("source inventory subtopics should be reconstructed from source_quotes, got %+v", rm.SubTopics)

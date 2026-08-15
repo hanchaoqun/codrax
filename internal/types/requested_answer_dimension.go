@@ -29,10 +29,17 @@ const (
 	// path visible in that row, while this role requires the model-authored
 	// answer surface to show the location itself.
 	RequestedAnswerDimensionSourceLocation RequestedAnswerDimensionRole = "source_location"
-	RequestedAnswerDimensionEvidenceSource RequestedAnswerDimensionRole = "evidence_source"
-	RequestedAnswerDimensionBoundary       RequestedAnswerDimensionRole = "boundary"
-	RequestedAnswerDimensionDiagram        RequestedAnswerDimensionRole = "diagram"
-	RequestedAnswerDimensionStageWorkflow  RequestedAnswerDimensionRole = "stage_or_workflow"
+	// RequestedAnswerDimensionSourceAttribute identifies a user-visible,
+	// per-subject source-inventory attribute such as a declared package,
+	// module, or namespace. It is deliberately distinct from SourceLocation:
+	// a file path proves where a declaration lives, but it does not display the
+	// declaration's language scope. The exact requested attribute families
+	// remain in SourceInventoryProfile.RequestedFields.
+	RequestedAnswerDimensionSourceAttribute RequestedAnswerDimensionRole = "source_attribute"
+	RequestedAnswerDimensionEvidenceSource  RequestedAnswerDimensionRole = "evidence_source"
+	RequestedAnswerDimensionBoundary        RequestedAnswerDimensionRole = "boundary"
+	RequestedAnswerDimensionDiagram         RequestedAnswerDimensionRole = "diagram"
+	RequestedAnswerDimensionStageWorkflow   RequestedAnswerDimensionRole = "stage_or_workflow"
 	// RequestedAnswerDimensionObservedValue is the generic visible lane for a
 	// finite runtime observation (state, time, count, frequency, pressure, or
 	// another measured value). The more specific runtime fact family remains in
@@ -69,6 +76,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionCount,
 		RequestedAnswerDimensionMemberSet,
 		RequestedAnswerDimensionSourceLocation,
+		RequestedAnswerDimensionSourceAttribute,
 		RequestedAnswerDimensionEvidenceSource,
 		RequestedAnswerDimensionBoundary,
 		RequestedAnswerDimensionDiagram,
@@ -163,6 +171,68 @@ func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAn
 	default:
 		return false
 	}
+}
+
+// ReconcileSourceInventoryAttributeDimensionRoles repairs one closed-enum
+// compatibility drift without reading the request or model prose. Older
+// analyzer prompts exposed source_location as the only source-shaped answer
+// dimension, so models sometimes used it both for the requested file path and
+// for package/module/namespace attributes. When the typed source-inventory
+// profile independently declares those attribute fields, excess
+// source_location seats can be reassigned to source_attribute while preserving
+// the first seats needed by the explicitly requested location field.
+//
+// The function never creates a missing dimension and never changes labels,
+// quotes, requiredness, or ordering. Ambiguous single-seat cases therefore
+// remain model-owned instead of being guessed.
+func ReconcileSourceInventoryAttributeDimensionRoles(profile *RequestedAnswerDimensionProfile, inventory *SourceInventoryProfile) int {
+	if profile == nil || !profile.Active() || inventory == nil || !inventory.Active() {
+		return 0
+	}
+	attributeSeats := 0
+	for _, field := range []SourceInventoryRequestedField{
+		SourceInventoryFieldPackage,
+		SourceInventoryFieldModule,
+		SourceInventoryFieldNamespace,
+	} {
+		if inventory.RequestsField(field) {
+			attributeSeats++
+		}
+	}
+	if attributeSeats == 0 {
+		return 0
+	}
+	locationSeats := 0
+	if inventory.RequestsField(SourceInventoryFieldLocation) {
+		locationSeats = 1
+	}
+	sourceLocations := 0
+	sourceAttributes := 0
+	for _, dim := range profile.Dimensions {
+		switch dim.Role {
+		case RequestedAnswerDimensionSourceLocation:
+			sourceLocations++
+		case RequestedAnswerDimensionSourceAttribute:
+			sourceAttributes++
+		}
+	}
+	needed := attributeSeats - sourceAttributes
+	excessLocations := sourceLocations - locationSeats
+	if needed <= 0 || excessLocations <= 0 {
+		return 0
+	}
+	if needed > excessLocations {
+		needed = excessLocations
+	}
+	changed := 0
+	for i := len(profile.Dimensions) - 1; i >= 0 && changed < needed; i-- {
+		if profile.Dimensions[i].Role != RequestedAnswerDimensionSourceLocation {
+			continue
+		}
+		profile.Dimensions[i].Role = RequestedAnswerDimensionSourceAttribute
+		changed++
+	}
+	return changed
 }
 
 // RequestedAnswerDimensionProfile is analyzer-emitted presentation guidance.

@@ -6721,6 +6721,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				b.WriteString("  - For per-member source answers, put each member's verified source path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
 			}
 		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionSourceAttribute {
+			if lang == "zh" {
+				b.WriteString("  - 对逐成员源码答案，把每个成员已验证的 package/module/namespace 属性放在该成员自己的可见行/单元格中；不要用文件路径代替语言作用域。\n")
+			} else {
+				b.WriteString("  - For per-member source answers, put each verified package/module/namespace attribute in that member's own visible row/cell; a file path does not substitute for the language scope.\n")
+			}
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -13327,6 +13334,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 			answerDocumentHasMemberSetPayload(doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
+	case types.RequestedAnswerDimensionSourceAttribute:
+		return answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc)
 	case types.RequestedAnswerDimensionBoundary:
 		return answerDocumentHasBoundaryPayload(doc)
 	case types.RequestedAnswerDimensionEvidenceSource:
@@ -13369,6 +13378,7 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 	case types.RequestedAnswerDimensionCount,
 		types.RequestedAnswerDimensionMemberSet,
 		types.RequestedAnswerDimensionSourceLocation,
+		types.RequestedAnswerDimensionSourceAttribute,
 		types.RequestedAnswerDimensionBoundary,
 		types.RequestedAnswerDimensionEvidenceSource:
 		return true
@@ -13404,7 +13414,110 @@ func answerDocumentCoversTypedPerMemberSourceLocations(ctx *types.AgentContext, 
 			}
 		}
 	}
-	return found
+	if found {
+		return true
+	}
+	rows, items, ok := answerDocumentTypedSourceInventoryRows(ctx, doc)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		item := items[row.RowID]
+		file := strings.TrimSpace(strings.ReplaceAll(row.Source, `\`, "/"))
+		if file == "" || row.LineStart <= 0 {
+			return false
+		}
+		surface := strings.ToLower(strings.ReplaceAll(types.AnswerBlockItemVisibleSurface(item), `\`, "/"))
+		if !strings.Contains(surface, strings.ToLower(file)) {
+			return false
+		}
+	}
+	return true
+}
+
+// answerDocumentCoversTypedPerMemberSourceAttributes is a soft presentation
+// coverage check over exact typed row identities and exact attribute values.
+// It does not inspect the request, headings, conclusions, or fuzzy keywords.
+// Missing coverage can request a display-only patch, but cannot reject an
+// otherwise valid answer document.
+func answerDocumentCoversTypedPerMemberSourceAttributes(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
+		return false
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if !profile.Active() ||
+		!profile.RequestsField(types.SourceInventoryFieldPackage) &&
+			!profile.RequestsField(types.SourceInventoryFieldModule) &&
+			!profile.RequestsField(types.SourceInventoryFieldNamespace) {
+		return false
+	}
+	rows, items, ok := answerDocumentTypedSourceInventoryRows(ctx, doc)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		item := items[row.RowID]
+		surface := types.AnswerBlockItemVisibleSurface(item)
+		attributeCount := 0
+		for _, attr := range row.Attributes {
+			if attr.Role != types.AnswerCandidateRolePackage {
+				continue
+			}
+			value := strings.TrimSpace(attr.Name)
+			if value == "" {
+				continue
+			}
+			attributeCount++
+			if !strings.Contains(surface, value) {
+				return false
+			}
+		}
+		if attributeCount == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func answerDocumentTypedSourceInventoryRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) ([]types.EnumerationDisplayRow, map[string]types.AnswerBlockItem, bool) {
+	if ctx == nil || doc == nil {
+		return nil, nil, false
+	}
+	sets := answerDocPrincipalEnumerationSets(ctx, answerSurfacePlan(ctx))
+	if len(sets) == 0 {
+		return nil, nil, false
+	}
+	items := make(map[string]types.AnswerBlockItem)
+	duplicates := map[string]bool{}
+	for _, block := range doc.Blocks {
+		if !types.AnswerBlockRendersStructuredItems(block) {
+			continue
+		}
+		for _, item := range block.Items {
+			rowID := strings.TrimSpace(item.SourceInventoryRowID)
+			if rowID == "" {
+				continue
+			}
+			if _, exists := items[rowID]; exists {
+				duplicates[rowID] = true
+			}
+			items[rowID] = item
+		}
+	}
+	var rows []types.EnumerationDisplayRow
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			rowID := strings.TrimSpace(row.RowID)
+			if rowID == "" || duplicates[rowID] {
+				return nil, nil, false
+			}
+			if _, exists := items[rowID]; !exists {
+				return nil, nil, false
+			}
+			rows = append(rows, row)
+		}
+	}
+	return rows, items, len(rows) > 0
 }
 
 func answerDocumentHasVisibleMemberLocationRow(doc *types.AnswerDocumentV2, member, file string) bool {

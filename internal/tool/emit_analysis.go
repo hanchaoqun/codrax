@@ -830,7 +830,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). source_attribute means a user-visible per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields; never label one of those language-scope attributes as source_location. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -2223,6 +2223,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	if warning := normalizeSourceInventoryAuxiliaryExclusion(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if changed := types.ReconcileSourceInventoryAttributeDimensionRoles(rm.RequestedAnswerDimensions, rm.SourceInventoryProfile); changed > 0 {
+		warning := fmt.Sprintf("normalized %d excess source_location answer dimension(s) to source_attribute from typed source_inventory requested_fields; labels and ordering were preserved", changed)
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
