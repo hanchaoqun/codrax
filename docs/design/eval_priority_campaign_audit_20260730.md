@@ -36225,6 +36225,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.863 r524：多引用心智模型残口；写语法预检能力未交付 planner（2026-08-15）
+
+1. 在 `main@65df90844` 严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_registry_write_r524_20260815_manual_audit.md`。
+2. Registry 的结论继续正确：默认注册总数 `1`、唯一成员 `explorer`。Finalizer prompt 内 canonical
+   item-citation 教学只出现一次，旧 singular-only 静态/动态合同已确认退役；但模型仍提交三条 citation 后，只让
+   table row 携带一个 `citation_ref`，未发 `citation_refs[]`。注册调用 pool slot 被 unused-prune，最终引用只覆盖
+   `Name()` 定义/返回，未覆盖同一行的注册事实。因此 B848 的载体与教学单源已闭，但生产采用仍 partial。
+3. 新根因不是字段不可用或合同竞争，而是模型仍把 doc-level citation pool 当成全局背书。下一步只补通用软运输语义：
+   pool entry 自身不支撑任何 visible item，未绑定项会清理，相邻 block 的引用也不替当前 item 背书；仍禁止系统扫描
+   表头/正文猜关系、禁止加入未选择锚、禁止“每行必须多引”硬门。
+4. 写案例最终仍是正确的一行 `retrun -> return` 计划，但 planner 连续第二轮先提交无失败信号的 `import main`
+   probe，被既有精确校验正确拒绝后才删除。B850 因此从 model variance 升级为 context capability gap：现有省略教学
+   只覆盖 typed native project runner，没有告诉 planner verify 阶段对无测试设施 Python 仓仍拥有 changed-file syntax
+   preflight / `py_compile` fallback。最优修复是补这条 typed verify 能力的软提示，不降低 probe fail-closed 校验，
+   不在后处理硬删模型计划。
+5. 本轮无畸形 JSON、旧稿恢复、空答案或 active-stream fixed-age 降级。Read/Trace 路径未改；显式时间窗、因果投影、
+   自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴继续保持，邻近/背景只作支持，系统不写模型结论。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-partial/pool-global-mental-model-open`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=P2-confirmed/context-capability-gap`；
+`B846-PATCHCITATIONIDENTITYREMAP1=implemented/static-production-seam-pinned`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
