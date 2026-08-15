@@ -36385,6 +36385,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.868 B848：Markdown 表引用侧车软合同单源（2026-08-15）
+
+1. 保留完整 Markdown table 作为一等可见载体，不强迫模型改写为 structured table。唯一共享的
+   `AnswerDocumentItemCitationCarrierTeaching` 增加低心智决策：需要引用的行优先 structured item；若完整表继续放在
+   `block.text`，则每个需引用的可见行增加一个仅含 `id + citation_ref/citation_refs` 的 sidecar item，不带
+   label/text/cells，renderer 不会把它显示成第二张表。
+2. sidecar 只运输模型已经选择的 citation pool indexes；不引用的行不造 sidecar，系统也不得解析 Markdown table prose
+   推导 index、锚或行映射。primary/additional 仍遵守单一 `citation_ref + citation_refs` 合同，未绑定 pool slot 继续清理。
+3. 该规则经 JSON-shape tool description 与 finalizer workflow 的既有单源接线同时投放，没有新增 validator、重试、强制引用数、
+   block 重写或系统补证。测试钉住 structured-row preference、citation-only sidecar、不重复渲染和禁止 prose-derived sidecar。
+4. 验证：multi-citation focused tests、skill/agent schema focused tests 与 `go build ./...` 全绿。下一轮只做一次生产采用回放；
+   若模型仍未采用，则按 authoring variance 留档并切换到更高优先异构案例，不继续叠加 case-specific prompt。
+5. B851/B852 保持独立：错误 required candidate role 不在本批按 `subagent` 关键词纠正；泛化 caveat 也不靠扫描已有 boundary prose
+   删除。两者等待结构化异构证据后沿 typed context/facet 修复。
+6. Read/Trace 执行逻辑未改。显式窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持；
+   邻近/背景只作支持，活跃流不按固定累计年龄降级。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=implemented/markdown-sidecar-soft-single-source/awaiting-production`；
+`B851-ANSWERROLEPROFILESEMANTICDRIFT1=P2-observe`；
+`B852-GENERICCAVEATAFTERLOCALBOUNDARY1=P2-recurrent/typed-root-fix-required`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

@@ -144,6 +144,10 @@ func TestAnswerDocumentFullAndPatchSchemasExposeSameMultipleCitationCarrier(t *t
 		"citations[] pool is not document-wide support",
 		"an unreferenced pool entry is pruned",
 		"a citation carried by a neighboring block or item does not support this item's claims",
+		"When table rows need citations, prefer structured items",
+		"one citation-only item sidecar per cited visible row",
+		"these sidecars do not render a second table",
+		"Never derive sidecar indexes from table prose or add sidecars for uncited rows",
 	} {
 		if !strings.Contains(types.AnswerDocumentItemCitationCarrierTeaching, want) {
 			t.Fatalf("canonical multi-citation teaching missing %q: %s", want, types.AnswerDocumentItemCitationCarrierTeaching)
