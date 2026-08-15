@@ -9280,12 +9280,20 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesGroundedCanonicalEvidenc
 			Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral,
 			Subject: "StageFinalize", AnchorSymbol: "StageFinalize", GroundingStatus: types.GroundingGrounded,
 		},
+		{
+			ID: "cross-mode-support", Kind: types.EvidenceRelationship,
+			Source: "internal/orchestrator/orchestrator.go", LineStart: 2952,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorCall, AnchorSymbol: "dispatchStage",
+			Subject: "Orchestrator.runWriteAnalyzePhase", Object: "Orchestrator.dispatchStage",
+			Producer: types.EvidenceProducerExplorerEmitEvidence, GroundingStatus: types.GroundingGrounded,
+		},
 	})
 	ctx := &types.AgentContext{
 		RepoRoot: repoRoot, Mode: types.ModeRead, Mutable: mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
-			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
 		}},
 	}
 	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
@@ -9307,6 +9315,13 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesGroundedCanonicalEvidenc
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("finalizer prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if firstPass := renderAnswerDocFirstPassDiagramSkeleton(ctx); firstPass != "" {
+		t.Fatalf("grounded canonical endpoints must keep cross-mode support out of the generic first-pass floor:\n%s", firstPass)
+	}
+	if payload := answerDocMechanismPrincipalRelationRepairPayload(ctx); payload == "" ||
+		strings.Contains(payload, "runWriteAnalyzePhase") || strings.Contains(payload, "relation_kind=`call`") {
+		t.Fatalf("principal repair must retain only the recovered canonical stage span:\n%s", payload)
 	}
 }
 
@@ -9498,6 +9513,32 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 	}
 	if strings.Contains(got, "Principal-diagram display guidance (soft)") {
 		t.Fatalf("an already proved requested spine must not receive the unproven-spine display guidance:\n%s", got)
+	}
+	if firstPass := renderAnswerDocFirstPassDiagramSkeleton(ctx); firstPass != "" {
+		t.Fatalf("a complete request spine must suppress the competing generic first-pass support floor:\n%s", firstPass)
+	}
+	principalRepair := answerDocMechanismPrincipalRelationRepairPayload(ctx)
+	for _, want := range []string{
+		"principal_diagram_recipe_source=`request_scoped_typed_authority`",
+		"principal_edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
+		"principal_edge_recipe[3]=`n3 -> n4`; relation_kind=`precedence`",
+		"supporting_recipe_policy=`optional_prose_or_separate_visual`",
+	} {
+		if !strings.Contains(principalRepair, want) {
+			t.Fatalf("principal-only required-repair payload missing %q:\n%s", want, principalRepair)
+		}
+	}
+	for _, forbidden := range []string{"Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage", "relation_kind=`call`"} {
+		if strings.Contains(principalRepair, forbidden) {
+			t.Fatalf("supporting relation %q must stay outside the principal repair payload:\n%s", forbidden, principalRepair)
+		}
+	}
+	repairHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false)
+	if !ok || !strings.Contains(repairHint, "request-scoped typed provider already proves the complete principal relation spine") {
+		t.Fatalf("required repair must select the principal-only lane:\n%s", repairHint)
+	}
+	if strings.Contains(repairHint, "Orchestrator.runAnalyzePhase") || strings.Contains(repairHint, "Orchestrator.dispatchStage") {
+		t.Fatalf("required principal repair must not re-promote supporting calls:\n%s", repairHint)
 	}
 	principalBlockStart := strings.Index(got, "principal_diagram_recipe_source=")
 	if principalBlockStart < 0 {

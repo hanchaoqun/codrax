@@ -4233,6 +4233,16 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 }
 
 func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
+	// A complete request-scoped spine is narrower than the generic grounded
+	// support graph. Publishing both as peer "first-pass" floors makes a true
+	// but out-of-scope sibling relation compete with the exact relation the
+	// user asked to see. The mechanism authority already publishes the compact
+	// principal recipe in this case, so withhold the generic skeleton and let
+	// the model author the visible diagram from that typed spine. Supporting
+	// relations remain available in the full advisory capsule and ledger.
+	if answerDocMechanismHasCompleteRequestSpine(ctx) {
+		return ""
+	}
 	// Prefer the validator-aligned typed carrier when one exists. The legacy
 	// seed renderer publishes only Mermaid display labels; for a canonicalized
 	// call graph those labels can intentionally be more qualified than the
@@ -15314,7 +15324,12 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 // disconnected with an uncertainty note; the system neither deletes the
 // required block nor authors a synthetic bridge.
 func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
-	payload := answerDocMechanismTypedRelationBoundaryRepairPayload(ctx)
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	payload := answerDocMechanismPrincipalRelationRepairPayloadFromAuthority(authority)
+	principalOnly := payload != ""
+	if !principalOnly {
+		payload = answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority)
+	}
 	if payload == "" {
 		return "", false
 	}
@@ -15327,10 +15342,14 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 	}
 	hint := prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
 		action + "; repair only the rejected diagram carrier, retain every unrelated sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
-		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. " +
+		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven incident relation may remain disconnected and must be disclosed as an unproven boundary in the model-authored diagram/note. "
+	if principalOnly {
+		hint += "A request-scoped typed provider already proves the complete principal relation spine, so this repair intentionally repeats only that compact spine. Grounded sibling relations outside it remain valid supporting facts, but do not insert them into, replace, or truncate this principal diagram. "
+	}
+	hint +=
 		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
-		"\n\nWhen retaining one of these relations, declare the recipe's exact node alias as the Mermaid node/participant ID and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases." +
-		answerDocDiagramBusinessDisplayRepairGuidance()
+			"\n\nWhen retaining one of these relations, declare the recipe's exact node alias as the Mermaid node/participant ID and copy that recipe's `edge_anchor_json` unchanged. Do not remap the endpoints to broader role/component aliases." +
+			answerDocDiagramBusinessDisplayRepairGuidance()
 	if participantBoundaryPayload != "" {
 		hint += "\n\nThe same typed diagram contract also provides these exact no-edge participant repairs; use only the rows that remain uncovered after the verified relations above:\n\n" + participantBoundaryPayload
 		hint += "\n\nBoundary carrier placement: `participant_boundaries` is block-level and valid only on a block whose `kind` is `diagram`. If the rejected Mermaid body currently sits in a `section`, `summary`, or another non-diagram block, do not attach boundary rows there. Keep or replace that prose block without its embedded diagram fields, and add one separate `kind=diagram` block carrying the Mermaid `diagram` object, `edge_anchors`, and `participant_boundaries`; this carrier split is the only new block allowed in this repair. If the rejected block is already `kind=diagram`, replace it in place and do not add another diagram block."
@@ -15378,6 +15397,56 @@ func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
 func answerDocMechanismTypedRelationBoundaryRepairPayload(ctx *types.AgentContext) string {
 	return answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(
 		renderAnswerDocMechanismRelationAuthority(ctx))
+}
+
+// answerDocMechanismPrincipalRelationRepairPayload returns the compact
+// request-scoped relation spine already rendered by the single mechanism
+// authority producer. It intentionally excludes generic grounded siblings:
+// those remain available in the surrounding full capsule and evidence ledger,
+// but cannot compete with a complete principal spine during a required-diagram
+// repair. This is typed metadata only; it reads no request, draft, final prose,
+// or Mermaid labels and authors no visible diagram.
+func answerDocMechanismPrincipalRelationRepairPayload(ctx *types.AgentContext) string {
+	return answerDocMechanismPrincipalRelationRepairPayloadFromAuthority(
+		renderAnswerDocMechanismRelationAuthority(ctx))
+}
+
+func answerDocMechanismHasCompleteRequestSpine(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		!answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	_, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
+	for _, edge := range edges {
+		if edge.requestSpine {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocMechanismPrincipalRelationRepairPayloadFromAuthority(authority string) string {
+	const startMarker = "- principal_diagram_recipe_source=`request_scoped_typed_authority`"
+	const endMarker = "- supporting_recipe_policy=`optional_prose_or_separate_visual`"
+	start := strings.Index(authority, startMarker)
+	if start < 0 {
+		return ""
+	}
+	section := authority[start:]
+	end := strings.Index(section, endMarker)
+	if end < 0 {
+		return ""
+	}
+	end += len(endMarker)
+	if lineEnd := strings.IndexByte(section[end:], '\n'); lineEnd >= 0 {
+		end += lineEnd
+	}
+	payload := strings.TrimSpace(section[:end])
+	if !strings.Contains(payload, "principal_edge_recipe[") ||
+		!strings.Contains(payload, "edge_anchor_json=`") {
+		return ""
+	}
+	return payload
 }
 
 // answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority reads only
@@ -20123,8 +20192,34 @@ func answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope(ctx *types.Age
 		answerDocumentAuthorityEvidencePool(ctx),
 		authority,
 	)
-	return len(selection.Precedence) > 0 &&
-		stageauthority.CoversAllRequiredIncidentParticipants(ctx.AnalysisIR.RequestModel, selection.Main)
+	if len(selection.Precedence) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if stageauthority.CoversAllRequiredIncidentParticipants(rm, selection.Main) {
+		return true
+	}
+	if rm.DiagramHint == nil {
+		return false
+	}
+	// An empty incident roster cannot create an extra participant obligation.
+	// When the shared provider nevertheless selected a stage span from a typed
+	// required dimension or at least two unambiguous grounded canonical stage
+	// identities, that selected span is the whole requested relation surface.
+	// A non-empty roster remains strict: any carrier or unmatched participant
+	// keeps the stage relations supporting-only until its own incidence is
+	// proved. This consumes schema/evidence only and never request prose.
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role == types.DiagramParticipantIncidentRequired &&
+			strings.TrimSpace(participant.Identity) != "" {
+			return false
+		}
+	}
+	return stageauthority.RelevantToRequiredReadModeWorkflow(
+		rm,
+		answerDocumentAuthorityEvidencePool(ctx),
+		selection.Main,
+	)
 }
 
 func answerDocRequestedParticipantIdentityForStageRow(rm types.RequestModel, row stageauthority.StageRow) string {

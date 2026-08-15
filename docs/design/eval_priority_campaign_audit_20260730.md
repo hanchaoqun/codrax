@@ -36760,6 +36760,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.878 B859：让完整 typed request spine 优先于通用关系背景（2026-08-15）
+
+1. `B859-REQUESTSPINECONTEXTPRECEDENCE1` 已按 §123.877 的通用方案施工。当现有 request-scoped typed
+   provider 已证明完整 requested relation spine，finalizer 不再把 generic grounded support graph 同时发布为
+   `First-Pass Diagram Reference`。这只调整上下文层级：窄而完整的请求主链成为 principal floor，宽关系图仍保留在
+   full advisory capsule、Observation Ledger 与 support prose 中，没有删除证据或把真实 sibling relation 判成假。
+2. required-diagram repair 同样改为单源消费 `principal_diagram_recipe_source=request_scoped_typed_authority` 到
+   `supporting_recipe_policy=optional_prose_or_separate_visual` 的 compact recipe 段。只有该段具备
+   `principal_edge_recipe + edge_anchor_json` 才启用；否则严格回退原有 broad typed boundary。修补提示明确支持关系可留在
+   独立 support 段，但不得插入、替换或截断 principal diagram。
+3. 完整性判定只读现有 typed `requestSpine` 元数据。空 incident roster 时，共享 stage provider 从 required dimension
+   或至少两个无歧义 grounded canonical stage identity 选出的连续 span 可覆盖全部请求面；一旦存在未覆盖的
+   `incident_required` participant，仍 fail-closed 为 supporting-only。新增生产同形正 pin 覆盖
+   `StageAnalyze + StageFinalize + cross-mode support call`，并保留额外 carrier 的负 pin，避免把部分主链误判完整。
+4. 本批不扫描用户原始输入、模型推理/草稿/终稿或 Mermaid label，不按 read/write、函数名、语言、case 名写特判；系统
+   不画最终图、不增删模型正文、不替模型给关系或结论确权。它只对已经由 typed provider 证明的主链与同样真实但更宽的
+   背景做 presentation precedence，降低冲突上下文和无效重试。
+5. 验证：相关 production-shape、strict-subset 与 consumer pin 全绿；代码定稿后的 `go test ./... -count=1` 全绿，
+   `git diff --check` 全绿。下一轮严格并发恰好两个生产案例：read combo 验证 `write_analyze` 不再污染主序列，同时以
+   explicit-window Trace 根因案例保护因果投影、自动补齐和链上-only 语义。
+6. Trace 路径未改：显式时间窗、因果投影、自动补齐、优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义和链上
+   业务线索保持；邻近/背景仍只能 support-only，实际占时与规则可消除量双轴保持。active stream 不因 4ms/4s/4m 或
+   固定总年龄降级。
+
+状态：
+
+`B859-REQUESTSPINECONTEXTPRECEDENCE1=implemented/typed-principal-first/full-tests-pass/pending-production-replay`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-observe`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
