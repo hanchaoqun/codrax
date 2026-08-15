@@ -36677,6 +36677,63 @@ Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-onl
 `raw request/model/final prose hard gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.836 r507 / B830：非目标 semantic 链窗交集只证关系，原始占用与可消除因果量分席（2026-08-15）
+
+1. 在 `main@8e91371e1` 构建不可变二进制后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。
+   Runner `2 PASS / 0 FAIL`；人工写案 pass、Trace fail-system。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_replan_trace_r507_20260815_manual_audit.md`。两案分别 144s/146s，
+   均产出完整答案，未发生固定 4ms/4s/4m active-stream 降级、空答案或旧稿恢复。
+2. Python 写案一次 apply/verify 即正确结束：整数值 float 归一、非整数 float 拒绝，系统与 fixture 共 8 条测试通过。
+   本轮没有进入 replan，故 B828 只有“无回归”而没有生产正触发，仍须后续真实 replan replay；不得借机器 PASS
+   把未触发分支收账。
+3. Trace 再次证实不是模型随机波动。最终答案把非目标 `worker-200/VerifyClass` 的 4.600ms 链窗重叠加冕，并写成
+   “app 等待类校验完成/完成触发唤醒”；同一答案 caveat 却明确没有 typed holder/waiter/direct-blocking proof。
+   `sched_wakeup=5.005000s`、span end=`5.005400s`，完成晚于唤醒 0.400ms，机制陈述物理不成立。
+4. B829 只关掉 `host_wakeup_edge_pre_span` 入口；生产 fixture 走的是更早的
+   “同线程 semantic span 与 typed chain interval 精确交集”入口。该入口的 `OnChainBasis` 原为空，family/single-span
+   mint、score boost、P3 量测、容量、wire、投影与成文仍把 overlap 直接当正的 effective。登记并实施
+   `B830-TRACESEMANTICCHAININTERVALRELATION1/P0`，不是扩大 B829 的字符串特判，而是补齐共享 typed authority closed set。
+5. 新 basis `semantic_chain_interval_relation` 只由 producer 在“非目标线程 semantic span 与 typed chain node 的精确区间
+   交集”形铸造。目标线程自身确定性工作继续使用 `self_deterministic_span` 并可按自身 typed interval 计价；非目标
+   interval relation 与 `host_wakeup_edge_pre_span` 统一只证链上关系/原始占用，除非未来存在 exact typed
+   target-wait 或 semantic-completion binding，否则 `effective=0/rank=0/no boost/context-only`。判定只读 typed
+   target/thread/basis/interval，零用户原文、模型草稿、最终答案关键词扫描。
+6. 双轴信息不丢：relation-only family 继续携 span 名、semantic class、业务阶段、完整成员 roster、行号、完整窗内 union、
+   精确 chain overlap、实际跨窗范围和确定性优化修向；只撤销“规则可消除/根因排序/机制因果”权力。优先级反转、目标
+   runnable 调度延迟/供给不足、running 算力供给折算、D 状态、IO 等待、锁/binder 与未来 exact semantic binding
+   的正值席均未改；邻近/背景仍只能 support-only。
+7. `RootCauseRankItem`、family fold、P3 counterfactual、容量 side lane、typed observation、Projection compile 和中英成文
+   共用同一 relation-only helper。旧缓存即使残留正 effective，也由 basis 归一为 published zero；raw
+   `ImpactMS/CumulativeImpactMS/SemanticChainProjectedMS` 不被清零。Description/Parameters 同源教学改为
+   “target-self 可计价；non-target overlap/edge 只证关系”，并按 PIN-1 ritual 重签 golden，删除两条互相矛盾的旧教学。
+8. 成文层另修复同一 semantic family 的双载体重复：relation-only 的 root-cause-context 记录与
+   `trace_semantic_span` 记录仅在 subject+typed class+exact line range+relevance+basis+raw overlap+member count+window 全部一致时
+   合一；保留 `[E#+E#]` 和完整证据索引，只显示一席。任何歧义、basis/value/window 不一致仍 fail-open 为两条，系统不按
+   名称或 prose 猜合并。
+9. 生产形 pin 冻结两个代表样本：完整重叠 5.300ms family 只显示一次、规则可消 0.000ms、目标 runnable 0.500ms
+   加冕；部分重叠保留 typed overlap 5.500ms + raw union 9.300ms + effective 0.000ms，任何一个 raw 数值都不得穿上
+   “有效归因”或主根因词。另有 stale-positive cache、host-edge、target-self positive、P3 防复活、多 family TOP-N
+   提及义务和中英发布面正负 pin。
+10. 本批只改变系统提供给模型的 typed 数据口径、教学与确定性展示去重，不生成、删除、替换模型的业务结论或答案。
+    显式时间窗、`Trace 因果投影`、系统自动补齐、帧/链探索和双维根因分析均保留；系统仍只提供精确信息与软引导，
+    最终总结和优化判断归模型。
+
+验证：`internal/tracequery` 全包通过（72.545s），`internal/types` 全包通过（25.348s），`internal/tool`
+聚焦生产形与合同 pin 通过，完整套件通过（165.664s）；`git diff --check` 与 `go build ./...`
+通过。本批已达到提交前全包回归门槛，提交构建后使用同一 exact-two 生产回放验收。
+
+状态：
+
+`B828-REPLANCURRENTSTATEHANDOFF1=implemented/full-package-regression-pass/production-positive-required`；
+`B829-TRACESEMANTICBINDINGAUTH1=implemented/host-edge-only/production-bypass-found-r507`；
+`B830-TRACESEMANTICCHAININTERVALRELATION1=implemented/full-package-regression-pass/production-replay-required`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r507`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+`raw-occupancy/business-clue/rule-priced-eliminable=separate`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

@@ -3,9 +3,9 @@ package tool
 // answer_document_projection_semlead_test.go — SEM-LEAD display-half pins
 // (ledger real_trace_campaign_20260705.md §29.7-2, 2026-07-10):
 //
-//	① board/lead/➊➋➌ fully open for ON-CHAIN semantic rows — the ✦ 语义 row
-//	  carrying the engine rank seat joins the shared rank board, wears the
-//	  ➊ badge and crowns 主根因 (792-textup "主根因: 纹理上传" 追认);
+//	① board/lead/➊➋➌ stay open only for positively attributed semantic rows.
+//	  A NON-target semantic family with typed chain-interval relation keeps its
+//	  raw occupancy/business clue but does not wear a badge or crown 主根因;
 //	② the published effective attribution is the family REAL total — no
 //	  boosted 表值 anywhere on the answer surface;
 //	③ E9/E13 双席合一 — the rank-lane twin folds into the ✦ row (one E# seat,
@@ -70,11 +70,12 @@ func semLeadEngineObservations(t *testing.T) []types.ObservationRecord {
 		time.Unix(1751600000, 0).UTC())
 }
 
-func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
+func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) {
 	obs := semLeadEngineObservations(t)
 	md := audit730Render(t, audit730Bus(""), obs, "")
 
-	// ① 主根因 crown through the primary lane, named by subject + class.
+	// ① The target's typed runnable seat crowns; the non-target semantic
+	// family is relation-only and cannot take the primary lane from overlap.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
@@ -82,15 +83,14 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "worker-200") || !strings.Contains(leadLine, "纹理上传") {
-		t.Fatalf("the on-chain semantic family must crown 主根因 (§29.7-2 ①), got %q in:\n%s", leadLine, md)
+	if leadLine == "" || !strings.Contains(leadLine, "关注线程自身") || !strings.Contains(leadLine, "runnable") {
+		t.Fatalf("the typed target runnable seat must crown instead of a relation-only semantic family, got %q in:\n%s", leadLine, md)
 	}
-	if strings.Contains(md, "未定位到链上主根因;窗口内最大语义优化span") {
-		t.Fatalf("a rank-seated semantic lead must use the primary lane, not the tier-4 fallback:\n%s", md)
+	if strings.Contains(leadLine, "worker-200") || strings.Contains(leadLine, "纹理上传") {
+		t.Fatalf("non-target semantic overlap must not crown without a typed wait/completion binding: %q", leadLine)
 	}
 
-	// ① ➊ badge lands on the semantic family row (board seat 1), which also
-	// wears the rank ordinal + tier word on 行2.
+	// ① The semantic row stays visible but must not acquire a rank badge.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "纹理上传 2次") && strings.Contains(line, "✦") {
@@ -98,13 +98,11 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 			break
 		}
 	}
-	if fenceRow == "" || !strings.Contains(fenceRow, "➊") {
-		t.Fatalf("the semantic family fence row must wear the ➊ badge, got %q in:\n%s", fenceRow, md)
+	if fenceRow == "" || strings.ContainsAny(fenceRow, "➊➋➌➍➎") {
+		t.Fatalf("the relation-only semantic family must stay visible without a rank badge, got %q in:\n%s", fenceRow, md)
 	}
-	// RULE3-1 件2: the ➊ badge carries the adopted seat; 行2 keeps the tier
-	// word without restating the ordinal.
-	if !strings.Contains(md, "语义优化候选·置信") {
-		t.Fatalf("行2 must carry the tier word:\n%s", md)
+	if !strings.Contains(md, "语义优化候选·优化点·未入根因排序前1") {
+		t.Fatalf("the relation-only semantic row must disclose its optimization-only position:\n%s", md)
 	}
 
 	// ③ single seat: the rank-lane twin folded in — merged evidence bracket +
@@ -155,17 +153,18 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if strings.Contains(md, "hidden_cost_boost") || strings.Contains(md, "semantic_multiplier") {
 		t.Fatalf("internal ranking tokens must never surface:\n%s", md)
 	}
-	if !strings.Contains(md, "确定性优化点(链上参与根因排序)") {
-		t.Fatalf("an on-chain semantic cause must disclose its root-cause ranking participation:\n%s", md)
+	if !strings.Contains(md, "确定性优化点(优化项,非根因)") {
+		t.Fatalf("a relation-only semantic row must disclose optimization value without claiming a cause seat:\n%s", md)
 	}
-	if strings.Contains(md, "确定性优化点(优化项,非根因)") {
-		t.Fatalf("an on-chain semantic cause must never contradict its rank seat with the off-chain non-cause wording:\n%s", md)
+	if strings.Contains(md, "确定性优化点(链上参与根因排序)") {
+		t.Fatalf("a relation-only semantic row must not claim ranking participation:\n%s", md)
 	}
 
 	// Roster members stay lossless on the sub-rows (§24.7.1 ① 区分键不能丢).
 	// C12 (DISPLAY-HYG 二轮): semantic-family member rows wear the verbatim-span
 	// chip — the roster bytes are quoted source.
-	if !strings.Contains(md, "成员(span原文) Texture upload(15573) 1140x1856") {
+	if !strings.Contains(md, "成员(span原文):") ||
+		!strings.Contains(md, "Texture upload(15573) 1140x1856") {
 		t.Fatalf("the member roster must keep the real span names:\n%s", md)
 	}
 	html, err := preview.RenderStandaloneMarkdownHTML("trace", []byte(md))
@@ -175,13 +174,13 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if !strings.Contains(html, "纹理上传") || !strings.Contains(html, "Texture upload(15573) 1140x1856") {
 		t.Fatalf("HTML must preserve the same localized UX label and verbatim span boundary as Markdown")
 	}
-	if !strings.Contains(html, "确定性优化点(链上参与根因排序)") || strings.Contains(html, "确定性优化点(优化项,非根因)") {
-		t.Fatalf("HTML must preserve the same on-chain semantic ranking meaning as Markdown")
+	if !strings.Contains(html, "确定性优化点(优化项,非根因)") || strings.Contains(html, "确定性优化点(链上参与根因排序)") {
+		t.Fatalf("HTML must preserve the same relation-only semantic meaning as Markdown")
 	}
 	en := audit730Render(t, audit730Bus("en"), obs, "en")
-	if !strings.Contains(en, "semantic (on-chain root-cause ranking participant)") ||
-		strings.Contains(en, "semantic (optimization item, not a root cause)") {
-		t.Fatalf("EN Markdown must preserve the same on-chain semantic ranking meaning:\n%s", en)
+	if !strings.Contains(en, "semantic (optimization item, not a root cause)") ||
+		strings.Contains(en, "semantic (on-chain root-cause ranking participant)") {
+		t.Fatalf("EN Markdown must preserve the same relation-only semantic meaning:\n%s", en)
 	}
 }
 
@@ -196,6 +195,11 @@ func TestSemLeadDetailPositionSeparatesOnChainAndOffChainSemanticMeaning(t *test
 	}
 	if got := runtimeTraceProjDetailPositionMerged(onChain, false, false); got != "semantic (on-chain root-cause ranking participant)" {
 		t.Fatalf("EN on-chain semantic detail meaning drifted: %q", got)
+	}
+	relationOnly := onChain
+	relationOnly.OnChainBasis = types.TraceCausalOnChainBasisSemanticChainIntervalRelation
+	if got := runtimeTraceProjDetailPositionMerged(relationOnly, true, false); got != "确定性优化点(优化项,非根因)" {
+		t.Fatalf("typed relation-only semantic detail must not claim a rank seat: %q", got)
 	}
 
 	// Causality alone is an accepted typed fallback when a producer omitted
@@ -260,7 +264,9 @@ func TestSemLeadOnChainSemanticOutsideRootTopNStillMandatoryOptimizationMention(
 		if record.Predicate == "trace_semantic_span" {
 			semanticClasses[strings.TrimSpace(record.Object)] = true
 		}
-		if strings.HasPrefix(record.Predicate, "root_cause_") &&
+		if (record.Predicate == "root_cause_primary" ||
+			record.Predicate == "root_cause_secondary" ||
+			record.Predicate == "root_cause_tertiary") &&
 			traceQueryRootCauseItemIsSemanticSpanWork(strings.TrimSpace(record.Object)) {
 			rankedSemantic++
 		}
@@ -565,12 +571,11 @@ const semLeadPartialOverlapToolTrace = `
      worker-200 (100) [002] .... 5.009800: tracing_mark_write: E|200
 `
 
-// TestSemLeadPartialOverlapSingleSeatDualCaliber — 审计 #5 must-fix e2e pin:
-// on the partial-overlap form the report keeps ONE ✦ seat (the rank twin
-// folds through the typed-intersection mirror), the 有效归因 label carries
-// the engine's intersection (5.500ms) with the dual-caliber disclosure
-// (链上计入 + 窗口投影合计 9.300ms), and the union NEVER wears 有效归因.
-func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
+// TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount — B830 e2e pin:
+// a non-target partial overlap keeps ONE ✦ seat, the exact 5.500ms typed
+// relation and complete 9.300ms raw union, but publishes effective=0 and
+// cannot crown without a target-wait/semantic-completion binding.
+func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 	obs := semLeadEngineObservationsFromTrace(t, "semlead_partial_overlap.systrace",
 		semLeadPartialOverlapToolTrace,
 		tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.010, MaxDepth: 4,
@@ -602,23 +607,36 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 		t.Fatalf("#5: the folded rank twin's E# must merge into the [E#+E#] bracket:\n%s", md)
 	}
 
-	// Dual-caliber disclosure (#62 ①): intersection wears 有效归因; the union
-	// is disclosed beside it and never wears the label.
-	if !strings.Contains(md, "有效归因 5.500ms = 链上计入(共2段,同线程)") {
-		t.Fatalf("#62: 行3 must publish the intersection under the dual-caliber word:\n%s", md)
+	// Typed dual account: exact overlap remains on the data wire, while the
+	// answer publishes zero rule-priced elimination and keeps the raw union.
+	semanticNotes := ""
+	for _, record := range obs {
+		if record.Predicate == "trace_semantic_span" && strings.TrimSpace(record.Object) == "texture_upload" {
+			semanticNotes = strings.Join(record.RichNotes, " ")
+			break
+		}
 	}
-	if !strings.Contains(md, "窗口投影合计 9.300ms") {
-		t.Fatalf("#62: the complete union must stay disclosed beside the intersection:\n%s", md)
+	for _, want := range []string{
+		"on_chain_basis=semantic_chain_interval_relation",
+		"projected_impact=5.500",
+		"effective_impact_ms=0.000",
+	} {
+		if !strings.Contains(semanticNotes, want) {
+			t.Fatalf("B830: typed semantic relation omitted %q: %s", want, semanticNotes)
+		}
 	}
-	if strings.Contains(md, "有效归因 9.300") || strings.Contains(md, "有效归因 9.3") {
-		t.Fatalf("#5: the union must never wear the 有效归因 label:\n%s", md)
+	if !strings.Contains(md, "| 纹理上传 2次 | 纹理上传 | worker-200 | 合计9.300ms | 0.000ms |") {
+		t.Fatalf("B830: optimization table must separate raw union from zero rule-priced elimination:\n%s", md)
+	}
+	if strings.Contains(md, "有效归因 5.500") || strings.Contains(md, "有效归因 9.300") || strings.Contains(md, "有效归因 9.3") {
+		t.Fatalf("B830: neither relation overlap nor raw union may wear the effective-attribution label:\n%s", md)
 	}
 	// 行1 keeps the lossless window-projection union (§24.10 semantics).
 	if !strings.Contains(md, "合计9.300ms") {
 		t.Fatalf("#62: 行1/表面 must keep the lossless union value:\n%s", md)
 	}
-	// The crown follows the published intersection lane (engine ordinal ==
-	// published eff — §29.22.1 修向(a) unchanged by this batch).
+	// The crown follows the remaining typed positive seat, never the semantic
+	// relation or its larger raw union.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
@@ -626,11 +644,11 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") {
-		t.Fatalf("#5: the folded seat keeps the crown, got %q", leadLine)
+	if leadLine == "" || !strings.Contains(leadLine, "runnable") || strings.Contains(leadLine, "纹理上传") {
+		t.Fatalf("B830: typed runnable must crown instead of relation-only semantic overlap, got %q", leadLine)
 	}
-	if strings.Contains(leadLine, "9.300") {
-		t.Fatalf("#5: the headline must not publish the union as the participation value: %q", leadLine)
+	if strings.Contains(leadLine, "5.500") || strings.Contains(leadLine, "9.300") {
+		t.Fatalf("B830: headline must not publish relation/raw semantic values as eliminable impact: %q", leadLine)
 	}
 }
 
@@ -752,7 +770,8 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 			distinct, unionMs, maxSingle, windows)
 	}
 
-	// 值同源: rank effective == observation overlap == the intersection union.
+	// 双轴同源: rank 保留 raw overlap，但非目标 semantic interval relation
+	// 的 effective 必须为 0；semantic observation 的 overlap 仍等于多链窗交集并集。
 	obs := traceQueryTypedObservations(tracequery.Result{WakeupChain: &chain, RootCauseRank: &rank, WindowStats: &stats},
 		"semlead_two_window_single_span.systrace", "payload", "raw", "", time.Unix(1751600000, 0).UTC())
 	var rankRecord, semRecord *types.ObservationRecord
@@ -768,17 +787,21 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 		t.Fatalf("both lanes must publish the JIT span: %+v", obs)
 	}
 	eff := semLeadNoteFloat(t, *rankRecord, "effective_impact_ms")
+	raw := semLeadNoteFloat(t, *rankRecord, "projected_impact_ms")
 	overlap := semLeadNoteFloat(t, *semRecord, "overlap")
-	if math.Abs(eff-overlap) > 0.0005 {
-		t.Fatalf("R1 值同源 broken: rank effective=%.3f vs observation overlap=%.3f", eff, overlap)
+	fullRaw, err := strconv.ParseFloat(strings.TrimSpace(semRecord.Value), 64)
+	if err != nil {
+		t.Fatalf("parse semantic full raw occupancy %q: %v", semRecord.Value, err)
 	}
-	if math.Abs(eff-unionMs) > 0.0005 {
-		t.Fatalf("R1: participation must be the cross-window intersection union: eff=%.3f union=%.3f", eff, unionMs)
+	if math.Abs(eff) > 0.0005 {
+		t.Fatalf("B830: non-target semantic relation must not mint effective impact, got %.3f", eff)
+	}
+	if math.Abs(raw-overlap) > 0.0005 || math.Abs(overlap-unionMs) > 0.0005 {
+		t.Fatalf("B830 raw-axis mismatch: rank raw=%.3f observation overlap=%.3f union=%.3f", raw, overlap, unionMs)
 	}
 
-	// Render: ONE ✦ seat (the twin folds), the intersection wears 有效归因
-	// under the dual-caliber word, and the never-published best-single-window
-	// value appears on no attribution face.
+	// Render: the twin carriers still fold into ONE raw semantic row with merged
+	// evidence. It must not wear any effective-attribution or ranked-seat wording.
 	md := audit730Render(t, audit730Bus(""), obs, "")
 	seats := 0
 	for _, line := range strings.Split(md, "\n") {
@@ -792,12 +815,14 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 	if !regexp.MustCompile(`\[E\d+(\(\+\d+\))?\+E\d+(\(\+\d+\))?\]`).MatchString(md) {
 		t.Fatalf("R1: the folded rank twin's E# must merge into the [E#+E#] bracket:\n%s", md)
 	}
-	if !strings.Contains(md, fmt.Sprintf("有效归因 %.3fms = 链上计入", eff)) {
-		t.Fatalf("R1: 行3 must publish the engine participation %.3f under the dual-caliber word:\n%s", eff, md)
+	semanticBlock := strings.Join(semLeadNodeBlockLines(md, "JIT compiling Foo.bar"), "\n")
+	if !strings.Contains(semanticBlock, fmt.Sprintf("%.3fms", fullRaw)) {
+		t.Fatalf("B830: the folded semantic row must retain full raw occupancy %.3fms:\n%s", fullRaw, semanticBlock)
 	}
-	if math.Round(maxSingle*1000) != math.Round(eff*1000) &&
+	if strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", raw)) ||
+		strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", fullRaw)) ||
 		strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", maxSingle)) {
-		t.Fatalf("R1: the best-single-window value %.3f (never engine-published) must not wear 有效归因:\n%s", maxSingle, md)
+		t.Fatalf("B830: neither raw overlap %.3f, full occupancy %.3f nor best-single %.3f may wear effective attribution:\n%s", raw, fullRaw, maxSingle, md)
 	}
 }
 
@@ -926,11 +951,9 @@ func semLeadNodeBlockLines(md, marker string) []string {
 	return nil
 }
 
-// TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary — 复核 P1-1 witness
-// face: on the real<primary form the ➊ badge row and the 根因排序#1 ordinal
-// are the SAME node (序数 ≡ 徽章 ≡ 图例; the review caught ➊ paired with
-// 根因排序#2 on one page), and the semantic family wears its honest lower
-// ordinal while staying published with its tier word (参赛+提及地板不回退).
+// TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary — the real ranked primary
+// keeps ordinal≡badge. A non-target semantic relation remains published with its
+// optimization tier but has no lower ordinal: relation-only evidence is not a rank seat.
 func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	obs := semLeadEngineObservationsFromTrace(t, "semlead_real_below_primary.systrace",
 		semLeadRealBelowPrimaryToolTrace,
@@ -958,30 +981,23 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if !strings.Contains(texBlock, "语义优化候选") {
 		t.Fatalf("the family keeps its tier word (提及地板 carrier):\n%s", texBlock)
 	}
-	// RULE3-1 件2: the honest lower ordinal rides the badge glyph (➋..➎,
-	// never ➊) — the 行2 word form retired on badged seats.
-	if strings.Contains(texBlock, "➊") {
-		t.Fatalf("the family must not wear ➊ (honest lower ordinal):\n%s", texBlock)
-	}
-	lower := false
-	for _, glyph := range []string{"➋", "➌", "➍", "➎"} {
+	for _, glyph := range []string{"➊", "➋", "➌", "➍", "➎"} {
 		if strings.Contains(texBlock, glyph) {
-			lower = true
-			break
+			t.Fatalf("relation-only semantic family must not wear ranked badge %s:\n%s", glyph, texBlock)
 		}
 	}
-	if !lower {
-		t.Fatalf("the family must wear its honest lower ordinal badge:\n%s", texBlock)
+	if !strings.Contains(texBlock, "未入根因排序前4") {
+		t.Fatalf("relation-only semantic family must disclose its non-ranked placement:\n%s", texBlock)
 	}
 	if strings.Contains(md, "11.130") {
 		t.Fatalf("the boosted internal value must never surface:\n%s", md)
 	}
 }
 
-// semLeadPureSemanticBoardTrace — 复核 P2-1: a window whose ONLY on-chain
-// competitor is the semantic family. The worker has no sched intervals (marks
-// + wakeup only) and the target's runnable slice sits under the 0.05ms floor,
-// so the semantic family itself must mint the sole primary-tier row.
+// semLeadPureSemanticBoardTrace — a window whose ONLY non-target semantic
+// evidence is an interval relation. The worker has no sched intervals (marks +
+// wakeup only) and the target runnable slice sits under the 0.05ms floor. The
+// system must preserve the semantic raw clue but must not manufacture a primary.
 const semLeadPureSemanticBoardTrace = `
         app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
      worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|Texture upload(15573) 1140x1856
@@ -992,35 +1008,42 @@ const semLeadPureSemanticBoardTrace = `
         app-100 (100) [001] .... 5.006000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
 `
 
-func TestSemLeadPureSemanticBoardMintsTypedPrimaryAndCrowns(t *testing.T) {
+func TestSemLeadPureSemanticBoardKeepsRawClueWithoutCrowning(t *testing.T) {
 	q := tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.007, MaxDepth: 4,
 		MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
 	obs := semLeadEngineObservationsFromTrace(t, "semlead_pure_semantic.systrace",
 		semLeadPureSemanticBoardTrace, q)
 	primarySemantic := false
+	relationContext := false
 	for _, record := range obs {
 		if strings.HasPrefix(strings.TrimSpace(record.Predicate), "root_cause_primary") &&
 			strings.TrimSpace(record.Object) == "texture_upload" {
 			primarySemantic = true
 		}
+		if strings.TrimSpace(record.Predicate) == "root_cause_context_only" &&
+			strings.TrimSpace(record.Object) == "texture_upload" &&
+			strings.Contains(strings.Join(record.RichNotes, " "), "on_chain_basis=semantic_chain_interval_relation") &&
+			strings.Contains(strings.Join(record.RichNotes, " "), "effective_impact_ms=0.000") {
+			relationContext = true
+		}
 	}
-	if !primarySemantic {
-		t.Fatalf("the on-chain semantic family must mint a typed primary record: %+v", obs)
+	if primarySemantic || !relationContext {
+		t.Fatalf("B830: pure non-target semantic relation must be typed context-only, primary=%t context=%t: %+v", primarySemantic, relationContext, obs)
 	}
 	md := audit730Render(t, audit730Bus(""), obs, "")
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
+		if strings.HasPrefix(strings.TrimSpace(line), "**主根因") {
 			leadLine = line
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") || strings.Contains(leadLine, "未定位到链上主根因") {
-		t.Fatalf("the pure-semantic typed primary must crown (§29.7-2 可登顶), got %q in:\n%s", leadLine, md)
+	if leadLine == "" || !strings.Contains(leadLine, "未定位到链上主根因") {
+		t.Fatalf("B830: relation-only semantic evidence must leave the root-cause seat empty, got %q in:\n%s", leadLine, md)
 	}
-	badge := semLeadNodeBlockLines(md, "➊")
-	if len(badge) == 0 || !strings.Contains(strings.Join(badge, "\n"), "纹理上传") {
-		t.Fatalf("➊ must seat on the semantic family:\n%s", md)
+	tex := semLeadNodeBlockLines(md, "纹理上传 2次")
+	if len(tex) == 0 || !strings.Contains(strings.Join(tex, "\n"), "未入根因排序") {
+		t.Fatalf("B830: semantic raw clue must remain visible and explicitly unranked:\n%s", md)
 	}
 }
 

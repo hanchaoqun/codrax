@@ -5699,7 +5699,7 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 // No rank value is required: on-chain semantic work keeps the mention and
 // participation obligation even when it falls outside the visible root TOP N.
 func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCausalProjectionNode) bool {
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+	if node.IsSemanticRelationOnly() {
 		return false
 	}
 	if node.IsContextOnlyRow() {
@@ -7719,7 +7719,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //     evidence line range (both lanes carry the engine's OWN verbatim family
 //     envelope / span lines — never a name or substring; 语义类身份必须
 //     typed token);
-//   - exactly ONE rank arm and ONE semantic arm under a key — any other
+//   - exactly ONE rank/context arm and ONE semantic arm under a key — any other
 //     shape is ambiguity and never folds;
 //   - value mirror equality: both lanes carry the engine's ONE participation
 //     value. On-chain semantic rows mirror rank participation (the exact
@@ -7729,14 +7729,17 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //     lossless observation) and must NOT be the mirror (审计 #5, §29.25/
 //     §29.26: intersection<union on every partial-overlap family re-opened
 //     the twin seats). Rows without the typed intersection keep the legacy
-//     display-impact mirror; a differing value is a different accounting and
-//     never folds;
+//     display-impact mirror; typed relation-only pairs instead mirror the
+//     same raw chain-intersection amount while both keep effective=0. A
+//     differing value or basis is a different accounting and never folds;
 //   - family mirror: both lanes carry the same typed member count;
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window beyond the ±1ms tolerance never fold.
 func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
-		return false
+	if node.IsSemanticRelationOnly() {
+		_, laneOK := runtimeTraceProjSemanticTwinLane(node)
+		return laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
+			strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
 	}
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
 	return !node.IsContextOnlyRow() && laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
@@ -7745,9 +7748,6 @@ func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) b
 }
 
 func runtimeTraceProjSemanticLaneTwinArm(node types.TraceCausalProjectionNode) bool {
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
-		return false
-	}
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
 	return laneOK && runtimeTraceCausalProjectionSemanticSpanRow(node) &&
 		strings.TrimSpace(node.SemanticClass) != ""
@@ -7856,7 +7856,25 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		rank := rankNodes[g.rankIdx[0]]
 		sem := &semantics[g.semIdx[0]]
-		if sem.SemanticChainProjectedMS > 0 {
+		relationOnly := rank.IsSemanticRelationOnly() || sem.IsSemanticRelationOnly()
+		if relationOnly {
+			// B830: the root-cause context carrier and trace_semantic_span
+			// carrier describe one relation-only raw account. Fold only when
+			// BOTH independently carry the same typed basis and the same raw
+			// chain projection; never infer this identity from names or prose.
+			if !rank.IsSemanticRelationOnly() || !sem.IsSemanticRelationOnly() ||
+				strings.TrimSpace(rank.OnChainBasis) != strings.TrimSpace(sem.OnChainBasis) {
+				continue
+			}
+			rankRaw := runtimeTraceProjNodeDisplayImpact(rank)
+			semRaw := sem.SemanticChainProjectedMS
+			if semRaw <= 0 {
+				semRaw = runtimeTraceProjNodeDisplayImpact(*sem)
+			}
+			if rankRaw <= 0 || semRaw <= 0 || !runtimeTraceProjRound3Equal(rankRaw, semRaw) {
+				continue
+			}
+		} else if sem.SemanticChainProjectedMS > 0 {
 			// 审计 #5 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
 			// SAME-SOURCE value mirror for on-chain semantic twins. The rank
 			// lane's participation value is the exact member∩chain intersection
@@ -7909,8 +7927,12 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		switch lane {
 		case "on_chain":
-			sem.Rank = rank.Rank
-			adoptBoard()
+			if relationOnly {
+				sem.Rank = 0
+			} else {
+				sem.Rank = rank.Rank
+				adoptBoard()
+			}
 		case "adjacent":
 			// UXR-1 (§29.36.2, 2026-07-11): the adjacent twin's Rank is the
 			// 邻近影响 channel's own ordinal — the survivor adopts it (the chip
@@ -7935,7 +7957,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 				sem.BackgroundRank = rank.BackgroundRank
 			}
 		}
-		if strings.TrimSpace(sem.Tier) == "" {
+		if !relationOnly && strings.TrimSpace(sem.Tier) == "" {
 			sem.Tier = rank.Tier
 		}
 		if sem.EffectiveImpactMS <= 0 {
@@ -18724,7 +18746,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread && !compositeCaliber, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
-		if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		if node.IsSemanticRelationOnly() {
 			effective = "0.000ms"
 		}
 		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic
@@ -18786,7 +18808,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
 		// running StateKinds) keep their values on this arm too.
 		if node.IsTargetSelfStateRow() ||
-			(node.IsContextOnlyRow() && !node.IsHostWakeupEdgeRelationOnlySemantic()) ||
+			(node.IsContextOnlyRow() && !node.IsSemanticRelationOnly()) ||
 			runtimeTraceProjStanzaRowKind(row.Kind) ||
 			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash

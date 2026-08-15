@@ -432,8 +432,10 @@ func TestDCSSameThreadNoOverlapSpanStaysNonChainAdjacent(t *testing.T) {
 			tailSpan = &rank.Items[i]
 		}
 	}
-	if onChainSpan == nil || onChainSpan.ChainRelevance != "on_chain" || onChainSpan.Tier != "primary" {
-		t.Fatalf("the overlapping span must stay on-chain and participate in the primary election: %+v", onChainSpan)
+	if onChainSpan == nil || onChainSpan.ChainRelevance != "on_chain" ||
+		onChainSpan.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
+		onChainSpan.Tier != RootCauseTierContextOnly || onChainSpan.EffectiveImpactMs != 0 {
+		t.Fatalf("the overlapping non-target span must stay as a relation-only chain clue: %+v", onChainSpan)
 	}
 	if tailSpan == nil {
 		t.Fatalf("the no-overlap span must still mint a typed row (E2 fall-through): %+v", rank.Items)

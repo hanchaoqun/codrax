@@ -13,7 +13,6 @@ package tracequery
 // TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork.
 
 import (
-	"sort"
 	"strings"
 	"testing"
 )
@@ -54,30 +53,29 @@ func TestSemLeadFamilyPublishesRealTotalKeepsBoostInternal(t *testing.T) {
 	// identity ("确定性优化候选") now rides the typed SemanticClass token on
 	// the display faces (types.go RootCauseTierDeterministicOptimization
 	// record).
-	if fam.ChainRelevance != "on_chain" || fam.Tier != "primary" {
-		t.Fatalf("the leading on-chain family must be a primary candidate: %+v", fam)
+	if fam.ChainRelevance != "on_chain" || fam.Tier != RootCauseTierContextOnly ||
+		fam.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation {
+		t.Fatalf("the non-target family must remain a relation-only chain clue: %+v", fam)
 	}
-	// §29.7-2 ②: published effective = the family REAL window-projection
-	// total (5.300ms = 2.100 + 3.200), never the boosted value.
-	if fam.EffectiveImpactMs != fam.ProjectedImpactMs {
-		t.Fatalf("family effective must publish the real total: %+v", fam)
+	// B830: the complete family REAL window projection (5.300ms =
+	// 2.100+3.200) remains raw disclosure, while relation-only published
+	// effective stays zero and no boosted value survives.
+	if fam.EffectiveImpactMs != 0 {
+		t.Fatalf("relation-only family effective must be zero: %+v", fam)
 	}
-	if fam.RankSortBoostedEffectiveMs <= fam.ProjectedImpactMs {
-		t.Fatalf("the boost must survive on the internal sort channel: %+v", fam)
+	if fam.RankSortBoostedEffectiveMs != 0 || fam.Score != 0 {
+		t.Fatalf("relation-only family must not retain a sort/score boost: %+v", fam)
 	}
-	if fam.Score < fam.RankSortBoostedEffectiveMs*fam.Confidence*0.999 {
-		t.Fatalf("Score must consume the boosted internal channel (乘子留引擎排序内部): %+v", fam)
-	}
-	// §29.7-2 参赛可登顶: the on-chain family competes through the ordinary
-	// rank ordinals — on this board it wins seat #1.
-	if fam.Rank != 1 {
-		t.Fatalf("the dominant on-chain semantic family should top this board: %+v", rank.Items)
+	// Relation-only on-chain membership carries no ordinary rank ordinal.
+	if fam.Rank != 0 {
+		t.Fatalf("relation-only semantic family must not receive an ordinal: %+v", rank.Items)
 	}
 	if strings.Contains(fam.Summary, "hidden_cost_boost") || strings.Contains(fam.Summary, "semantic_multiplier") {
 		t.Fatalf("internal ranking tokens must not leak into the family summary: %q", fam.Summary)
 	}
-	if !strings.Contains(fam.Summary, "effective_impact=5.300ms") {
-		t.Fatalf("the family summary must state the REAL published effective: %q", fam.Summary)
+	if !strings.Contains(fam.Summary, "effective_impact=0.000ms") ||
+		!strings.Contains(fam.Summary, "target wait/completion binding=unproven") {
+		t.Fatalf("the family summary must state the relation-only caliber: %q", fam.Summary)
 	}
 }
 
@@ -111,55 +109,15 @@ func TestSemLeadOrdinalFollowsPublishedEffectiveNotBoost(t *testing.T) {
 	idx := buildTraceIndex(t, "semlead_real_below_primary.systrace", semLeadRealBelowPrimaryTrace)
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.015, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	var fam *RootCauseRankItem
-	var onChain []*RootCauseRankItem
 	for i := range rank.Items {
 		item := &rank.Items[i]
 		if item.Type == "texture_upload" {
 			fam = item
 		}
-		if item.Rank > 0 && rootCauseItemIsOnChain(*item) {
-			onChain = append(onChain, item)
-		}
 	}
-	// EVOLUTION RECORD (审计 #66, §29.25/§29.26, 2026-07-10): flipped from
-	// asserting the independent deterministic_optimization tier to asserting
-	// the ordinary typed election — the tier mint retirement is 追认
-	// (types.go RootCauseTierDeterministicOptimization record; display
-	// identity survives on the SemanticClass token lane).
-	if fam == nil || fam.Rank <= 0 || fam.Tier == RootCauseTierDeterministicOptimization || fam.Tier == "" {
-		t.Fatalf("the texture family must stay in the ordinary typed election: %+v", rank.Items)
-	}
-	// Premise: the internal boost WOULD have jumped at least one competitor
-	// (a non-semantic on-chain row with real < eff < boost exists) — i.e.
-	// this IS the 复核 real<primary shape, not a vacuous board.
-	jumped := false
-	for _, item := range onChain {
-		if rootCauseItemIsSemanticSpanWork(*item) {
-			continue
-		}
-		eff := rootCauseEffectiveImpactMs(*item)
-		if eff > fam.EffectiveImpactMs && eff < fam.RankSortBoostedEffectiveMs {
-			jumped = true
-			// P1-1: the ordinal follows the PUBLISHED effective — the row the
-			// boost would have jumped seats AHEAD of the semantic family.
-			if item.Rank >= fam.Rank {
-				t.Fatalf("ordinal must follow published effective (competitor eff=%.3f rank=%d vs fam eff=%.3f boost=%.3f rank=%d)",
-					eff, item.Rank, fam.EffectiveImpactMs, fam.RankSortBoostedEffectiveMs, fam.Rank)
-			}
-		}
-	}
-	if !jumped {
-		t.Fatalf("fixture premise broken (no competitor between real and boost): %+v", rank.Items)
-	}
-	// Invariant (ordinal ≡ published-eff order): across the ranked on-chain
-	// prefix, rank order never contradicts published-effective order.
-	sort.Slice(onChain, func(i, j int) bool { return onChain[i].Rank < onChain[j].Rank })
-	for i := 1; i < len(onChain); i++ {
-		if rootCauseEffectiveImpactMs(*onChain[i-1]) < rootCauseEffectiveImpactMs(*onChain[i]) {
-			t.Fatalf("rank ordinal contradicts published effective order: #%d eff=%.3f < #%d eff=%.3f",
-				onChain[i-1].Rank, rootCauseEffectiveImpactMs(*onChain[i-1]),
-				onChain[i].Rank, rootCauseEffectiveImpactMs(*onChain[i]))
-		}
+	if fam == nil || fam.Rank != 0 || fam.Tier != RootCauseTierContextOnly ||
+		fam.EffectiveImpactMs != 0 || fam.RankSortBoostedEffectiveMs != 0 {
+		t.Fatalf("non-target semantic relation must never enter or boost the ordinal board: %+v", rank.Items)
 	}
 }
 

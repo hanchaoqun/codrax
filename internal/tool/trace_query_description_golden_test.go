@@ -159,14 +159,28 @@ package tool
 // EVOLUTION RECORD (B829, 2026-08-15): the existing semantic-work sentence
 // and shared closed-matrix contract are scope-corrected from blanket
 // on-chain participation to the typed authority split already emitted by the
-// engine: exact chain/window intersection and target-self deterministic work
-// may publish positive effective attribution; host_wakeup_edge_pre_span is a
+// engine as understood in that batch: exact chain/window intersection and
+// target-self deterministic work may publish positive effective attribution;
+// host_wakeup_edge_pre_span is a
 // relation-only raw-occupancy/business clue with effective=0 because the edge
-// does not prove semantic completion delayed or triggered the wakeup. No new
+// does not prove semantic completion delayed or triggered the wakeup. B830
+// below supersedes the then-still-positive non-target intersection lane. No new
 // view, note key, dispatch vocabulary or hard gate is added. The real R3
-// trace sentinel plus heterogeneous positive exact-intersection/self tests
+// trace sentinel plus heterogeneous positive target-self tests
 // are the deterministic regression weigh; h2/h3 remain the live dispatch
 // follow-up in the exact-two eval campaign.
+//
+// EVOLUTION RECORD (B830, 2026-08-15): B829's first production replay proved
+// that exact NON-target span∩chain overlap is still only a typed relation, not
+// proof that the target waited for semantic completion. The semantic-work
+// paragraph and shared closed-matrix contract now use one authority split:
+// target-thread deterministic work may price its typed self interval;
+// semantic_chain_interval_relation and host_wakeup_edge_pre_span preserve raw
+// occupancy/business clues but publish effective=0 until an exact typed
+// target-wait or semantic-completion binding exists. This removes two stale
+// blanket-participation clauses rather than adding a view, dispatch term,
+// prose classifier, or answer-side hard gate. The exact trace replay plus the
+// heterogeneous target-self semantic tests are the live-eval weigh.
 //
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes

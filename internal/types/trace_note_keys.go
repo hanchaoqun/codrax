@@ -161,7 +161,11 @@ const (
 	// causality then reads "self_deterministic", never "on_wakeup_chain");
 	// "self_wall_clock_interval" = the target's own WALL-CLOCK seat
 	// (blocked-state family / IO facet / runnable / running) admitted the same
-	// way (causality "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL
+	// way (causality "self_wall_clock"); "semantic_chain_interval_relation"
+	// (B830, 2026-08-15) = a NON-target semantic span with an exact typed-chain
+	// interval intersection: raw overlap/business evidence survives, but
+	// effective=0 because overlap alone is not a target-wait or semantic-
+	// completion binding; "host_wakeup_edge_pre_span" (R3-IMPL
 	// §29.88.1, 2026-07-15) = a NON-target host's deterministic semantic span
 	// seated by the HOST's own in-window typed wakeup edge toward the target
 	// (causality keeps the honest relation token "on_wakeup_chain" — a real

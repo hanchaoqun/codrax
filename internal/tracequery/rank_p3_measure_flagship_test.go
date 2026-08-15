@@ -110,8 +110,7 @@ func TestP3MeasureFlagshipABPurityAndIdentity(t *testing.T) {
 			item := &rank.Items[i]
 			switch item.P3MDisposition {
 			case "":
-				relationOnlySemantic := item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge &&
-					rootCauseItemIsSemanticSpanWork(*item) && rootCauseEffectiveImpactMs(*item) <= 0
+				relationOnlySemantic := rootCauseItemIsRelationOnlySemantic(*item)
 				if rootCauseItemIsOnChain(*item) && !relationOnlySemantic {
 					t.Fatalf("%s: on-chain seat without a measurement disposition: r%d %s pid=%d basis=%q",
 						board.name, item.Rank, item.Type, item.Thread.PID, item.OnChainBasis)

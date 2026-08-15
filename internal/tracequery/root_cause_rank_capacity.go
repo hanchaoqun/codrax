@@ -421,8 +421,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			sideTotal++
 			if item.Type == "trace_gap" {
 				gapSide = append(gapSide, item)
-			} else if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge &&
-				rootCauseItemIsSemanticSpanWork(item) && rootCauseEffectiveImpactMs(item) <= 0 {
+			} else if rootCauseItemIsRelationOnlySemantic(item) {
 				relationSemanticSide = append(relationSemanticSide, item)
 			} else if rootCauseOrdinalChannel(item) != rootCauseOrdinalChannelBackground &&
 				CausalTokenCaliberSideClass(item.Type) != CausalCaliberSideNone {

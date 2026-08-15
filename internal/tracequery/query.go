@@ -18881,11 +18881,12 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	// row's competitive strength is unchanged while no boosted ms ever leaves
 	// the engine as a value or a token.
 	publishedEffectiveMs := projection.ImpactMs
-	if projection.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
-		// B829: the typed host edge is a relation credential, not proof that
-		// the target waited for this semantic span's completion. Preserve the
-		// exact pre-edge occupancy, span identity and business optimization
-		// lead, but do not price it into the root-cause election.
+	if semanticProjectionIsRelationOnly(projection) {
+		// B829/B830: a typed host edge or non-target chain-interval
+		// intersection is a relation credential, not proof that the target
+		// waited for this semantic span's completion. Preserve exact raw
+		// occupancy, span identity, and business optimization value, but do not
+		// price it into the root-cause election.
 		publishedEffectiveMs = 0
 	}
 	sortBoostedMs := 0.0
@@ -18958,6 +18959,12 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	} else if projection.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
+		item.OnChainBasis = projection.OnChainBasis
+		item.OverlapMs = projection.ImpactMs
+		if projection.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation {
+			item.Summary = appendRootCauseSummaryDetail(item.Summary,
+				"semantic interval overlaps typed chain work, but target wait/completion binding is unproven; raw occupancy only, effective_impact=0.000ms")
+		}
 	}
 	applySemanticTraceSpanState(&item, projection.DominantState, dominantStateImpactMs)
 	// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
@@ -18997,6 +19004,15 @@ func semanticTraceSpanEffectiveImpactMs(work traceSpanSemanticWork, projection s
 	return effective
 }
 
+func semanticProjectionIsRelationOnly(projection semanticTraceSpanProjection) bool {
+	switch projection.OnChainBasis {
+	case RootCauseOnChainBasisSemanticChainIntervalRelation, RootCauseOnChainBasisHostWakeupEdge:
+		return true
+	default:
+		return false
+	}
+}
+
 func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) (semanticTraceSpanProjection, float64) {
 	start, end, ok := selectedTraceSpanWindow(q, span)
 	if !ok {
@@ -19009,6 +19025,9 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 		// branch nodes) from counting the same physical span twice.
 		intersection := semanticTraceSpanChainIntersection(&chain, span.Thread, []foldInterval{{start: start, end: end}})
 		if intersection.projection.ImpactMs > 0 {
+			if !sameThreadRef(span.Thread, chain.Target) {
+				intersection.projection.OnChainBasis = RootCauseOnChainBasisSemanticChainIntervalRelation
+			}
 			return intersection.projection, intersection.dominantStateImpactMs
 		}
 		// DCS E2 fall-through (ledger §23.1 rulings ①/②, 2026-07-08): a chain
@@ -20173,6 +20192,21 @@ func rootCauseTier(idx int) string {
 // heuristic.
 func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
 	return rootCauseTypeIsSemanticSpanWork(item.Type)
+}
+
+// rootCauseItemIsRelationOnlySemantic is the shared typed authority predicate
+// for non-target semantic work whose chain evidence proves relation/raw
+// occupancy but not target wait or semantic-completion causality.
+func rootCauseItemIsRelationOnlySemantic(item RootCauseRankItem) bool {
+	if !rootCauseItemIsSemanticSpanWork(item) || rootCauseEffectiveImpactMs(item) > 0 {
+		return false
+	}
+	switch item.OnChainBasis {
+	case RootCauseOnChainBasisSemanticChainIntervalRelation, RootCauseOnChainBasisHostWakeupEdge:
+		return true
+	default:
+		return false
+	}
 }
 
 // rootCauseTypeIsSemanticSpanWork is the token half of the same closed set

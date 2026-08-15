@@ -100,6 +100,8 @@ func censusChainSeatCredential(item RootCauseRankItem, zeroStartReal bool) strin
 		return RootCauseChainCredentialCensusTargetSelf
 	case RootCauseOnChainBasisHostWakeupEdge, RootCauseOnChainBasisHostWakeupEdgeState:
 		return RootCauseChainCredentialCensusWakeupAnchored
+	case RootCauseOnChainBasisSemanticChainIntervalRelation:
+		return RootCauseChainCredentialCensusIntervalProven
 	}
 	switch strings.TrimSpace(item.Causality) {
 	case RootCauseCausalitySelfDeterministic, RootCauseCausalitySelfWallClock:

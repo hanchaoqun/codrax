@@ -49,11 +49,12 @@ func TestSemLeadFamilyPartialOverlapPublishesIntersectionKeepsUnionDisclosed(t *
 	if fam == nil || fam.MemberCount != 2 || fam.ChainRelevance != "on_chain" {
 		t.Fatalf("expected the on-chain ×2 texture family: %+v", rank.Items)
 	}
-	// Participation/published effective = the exact intersection (5.500ms),
-	// never the complete union (9.300ms).
-	if !semLeadRound3Close(fam.ProjectedImpactMs, 5.5) || !semLeadRound3Close(fam.EffectiveImpactMs, 5.5) ||
+	// The exact intersection remains a raw relation/occupancy measurement, but
+	// a non-target semantic family has no target-wait/completion binding and
+	// therefore no priced effective attribution.
+	if !semLeadRound3Close(fam.ProjectedImpactMs, 5.5) || fam.EffectiveImpactMs != 0 ||
 		!semLeadRound3Close(fam.ImpactMs, 5.5) {
-		t.Fatalf("on-chain participation must be the exact intersection 5.500ms: proj=%.3f eff=%.3f impact=%.3f",
+		t.Fatalf("on-chain relation must preserve raw intersection 5.500ms with zero effective: proj=%.3f eff=%.3f impact=%.3f",
 			fam.ProjectedImpactMs, fam.EffectiveImpactMs, fam.ImpactMs)
 	}
 	// The complete selected-window member union stays LOSSLESS on the
@@ -64,7 +65,8 @@ func TestSemLeadFamilyPartialOverlapPublishesIntersectionKeepsUnionDisclosed(t *
 	}
 	// The summary discloses BOTH calibers (intersection participation + the
 	// complete union it was attributed from).
-	if !strings.Contains(fam.Summary, "attributed 5.500ms by exact on-chain interval intersection") ||
+	if !strings.Contains(fam.Summary, "carried 5.500ms raw overlap with typed chain intervals") ||
+		!strings.Contains(fam.Summary, "target wait/completion binding=unproven") ||
 		!strings.Contains(fam.Summary, "9.300ms complete selected-window span union") {
 		t.Fatalf("the family summary must disclose both calibers: %q", fam.Summary)
 	}

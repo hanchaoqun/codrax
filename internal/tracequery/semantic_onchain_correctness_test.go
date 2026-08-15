@@ -91,8 +91,9 @@ func TestGCPauseEndToEndRanksOnChainAndStaysOptimizationObservable(t *testing.T)
 			continue
 		}
 		found = true
-		if item.ChainRelevance != "on_chain" || item.Tier != "primary" || item.BackgroundRank != 0 {
-			t.Fatalf("on-chain GC pause must compete as primary and never background: %+v", item)
+		if item.ChainRelevance != "on_chain" || item.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
+			item.Tier != RootCauseTierContextOnly || item.EffectiveImpactMs != 0 || item.BackgroundRank != 0 {
+			t.Fatalf("non-target GC pause must remain a relation-only on-chain business clue: %+v", item)
 		}
 		if item.SemanticClass != "gc_pause" || !strings.Contains(item.Summary, "GC pause") {
 			t.Fatalf("GC typed identity/label was lost: %+v", item)

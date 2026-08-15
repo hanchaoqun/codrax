@@ -3844,6 +3844,12 @@ const RootCauseOnChainBasisSelfDeterministicSpan = types.TraceCausalOnChainBasis
 // those rows, so the honest interval-scoped token is used instead.
 const RootCauseOnChainBasisSelfWallClockInterval = types.TraceCausalOnChainBasisSelfWallClockInterval
 
+// RootCauseOnChainBasisSemanticChainIntervalRelation marks a non-target
+// deterministic semantic span whose interval intersects a same-thread typed
+// wakeup-chain window. This is a precise relation/occupancy credential, not a
+// proof that the target waited for the semantic work or its completion.
+const RootCauseOnChainBasisSemanticChainIntervalRelation = types.TraceCausalOnChainBasisSemanticChainIntervalRelation
+
 // RootCauseOnChainBasisHostWakeupEdge (R3-IMPL, §29.88.1 user ruling
 // 2026-07-14, ledger real_trace_campaign_20260705.md; R4 §29.88.2 通则):
 // the THIRD non-empty member of the OnChainBasis closed set — a NON-target
@@ -4464,6 +4470,13 @@ type RootCauseRankItem struct {
 	//                               consumes the SAME per-state ladder as every
 	//                               on-chain row (running=supply-fold,
 	//                               runnable=full, D/IO=wall-clock sum — 零特判).
+	//   "semantic_chain_interval_relation" — B830 (2026-08-15): a NON-target
+	//                               deterministic semantic span with an exact
+	//                               interval intersection against a typed chain
+	//                               node. The intersection is retained as raw
+	//                               occupancy/business evidence; effective is
+	//                               zero because it proves neither target wait
+	//                               nor semantic-completion causality.
 	//   "host_wakeup_edge_pre_span" — R3-IMPL (§29.88.1/§29.88.2): a NON-target
 	//                               thread's deterministic semantic span whose
 	//                               HOST holds an in-window typed wakeup edge

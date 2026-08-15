@@ -244,7 +244,7 @@ func runtimeTraceProjFamilyValuePrefix(node types.TraceCausalProjectionNode, zh 
 // 「有效归因」标签不得回退 union 裸值). Folded rows already carry the same
 // intersection on EffectiveImpactMS — byte-identical for them.
 func runtimeTraceProjFamilyPublishedMS(node types.TraceCausalProjectionNode) float64 {
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+	if node.IsSemanticRelationOnly() {
 		return 0
 	}
 	if node.EffectiveImpactMS > 0 {
@@ -268,7 +268,7 @@ func runtimeTraceProjSemanticChainIntersectionMS(node types.TraceCausalProjectio
 	// typed basis outranks legacy projected_impact carriers so every display
 	// face fails closed to zero effective attribution while preserving raw
 	// Impact/Cumulative values.
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+	if node.IsSemanticRelationOnly() {
 		return 0
 	}
 	if strings.TrimSpace(node.SemanticClass) == "" {

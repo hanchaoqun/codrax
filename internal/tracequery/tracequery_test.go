@@ -4369,12 +4369,11 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ChainRelevance != "on_chain" || item.Causality != "on_wakeup_chain" {
 			t.Fatalf("semantic span work should be on-chain: %+v all=%+v", item, rank.Items)
 		}
-		// SEM-LEAD-P0: chain membership is causal, so semantic work uses the
-		// same positional election as other ranked rows. In this fixture it is
-		// the leading contender and therefore primary; the independent semantic
-		// observation still guarantees its optimization-point mention.
-		if item.Tier != "primary" {
-			t.Fatalf("leading on-chain semantic span work should be primary: %+v", item)
+		// B830: exact non-target span∩chain overlap proves relation and raw
+		// occupancy, not that the target waited for this semantic completion.
+		if item.Tier != RootCauseTierContextOnly || item.Rank != 0 ||
+			item.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation {
+			t.Fatalf("non-target semantic span work should remain relation-only context: %+v", item)
 		}
 		if item.BackgroundRank != 0 {
 			t.Fatalf("on-chain semantic span work is not on the background board: %+v", item)
@@ -4393,14 +4392,11 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		// 214.561 表值泄漏修根); the deterministic boost stays engine-internal
 		// on RankSortBoostedEffectiveMs (sort/Score channel) and the internal
 		// tokens never reach the Summary (红线: no internal tokens in prose).
-		if item.EffectiveImpactMs != item.ProjectedImpactMs {
-			t.Fatalf("on-chain semantic span must publish the real projection as effective impact: %+v", item)
+		if item.EffectiveImpactMs != 0 {
+			t.Fatalf("relation-only semantic span must publish zero effective impact: %+v", item)
 		}
-		if item.RankSortBoostedEffectiveMs <= item.ProjectedImpactMs {
-			t.Fatalf("on-chain semantic span should keep the boosted ranking channel engine-internal: %+v", item)
-		}
-		if item.Score < item.RankSortBoostedEffectiveMs*item.Confidence*0.999 {
-			t.Fatalf("semantic span Score should consume the boosted internal channel: %+v", item)
+		if item.RankSortBoostedEffectiveMs != 0 || item.Score != 0 {
+			t.Fatalf("relation-only semantic span must not retain a ranking boost: %+v", item)
 		}
 		if !strings.Contains(item.Summary, "effective_impact=") {
 			t.Fatalf("semantic span summary should state its effective impact: %q", item.Summary)
@@ -4411,6 +4407,40 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected on-chain class_verification root cause: %+v", rank.Items)
+	}
+}
+
+func TestB830NonTargetSemanticIntersectionCannotOutrankTypedTargetRunnable(t *testing.T) {
+	idx := buildTraceIndex(t, "b830_semantic_relation_only.systrace", `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|VerifyClass com.example.Foo
+     worker-200 (100) [002] .... 5.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.005000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 5.005400: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.005600: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 5.005800: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 5.007000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.007,
+		MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var semantic, scheduling *RootCauseRankItem
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		switch {
+		case item.Type == "class_verification":
+			semantic = item
+		case (item.Type == "scheduler_latency" || item.Type == "runnable_wait") &&
+			item.Thread.PID == 100 && item.Rank == 1:
+			scheduling = item
+		}
+	}
+	if semantic == nil || semantic.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
+		!near(semantic.ProjectedImpactMs, 4.6, 0.001) || !near(semantic.ActualImpactMs, 5.0, 0.001) ||
+		semantic.EffectiveImpactMs != 0 || semantic.Rank != 0 || semantic.Tier != RootCauseTierContextOnly {
+		t.Fatalf("semantic overlap must survive as exact raw relation-only evidence: %+v", semantic)
+	}
+	if scheduling == nil || !near(scheduling.EffectiveImpactMs, 0.8, 0.001) || scheduling.Tier != "primary" {
+		t.Fatalf("typed target scheduling delay must own the priced primary seat: %+v all=%+v", scheduling, rank.Items)
 	}
 }
 

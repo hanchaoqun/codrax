@@ -79,3 +79,25 @@ func TestB829HostWakeupEdgeBasisMakesEffectiveZeroAuthoritative(t *testing.T) {
 		t.Fatalf("legacy relation-only record must normalize to published zero: published=%v value=%v", node.EffectiveImpactPublished, node.EffectiveImpactMS)
 	}
 }
+
+func TestB830ChainIntervalRelationBasisMakesEffectiveZeroAuthoritative(t *testing.T) {
+	record := semIntRecord("trace_semantic_span", "on_chain",
+		"on_chain_basis="+TraceCausalOnChainBasisSemanticChainIntervalRelation,
+		"projected_impact=4.600",
+		// Persisted or mixed-version positive values must lose to the exact
+		// relation-only authority token, without erasing raw occupancy.
+		"effective_impact_ms=4.600")
+	node := traceCausalProjectionNodeFromRecord(TraceCausalRoleSemanticSpan, record)
+	if !node.IsSemanticRelationOnly() {
+		t.Fatalf("typed chain-interval relation basis was not preserved: %+v", node)
+	}
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		t.Fatalf("the compatibility helper must remain specific to the host-edge basis: %+v", node)
+	}
+	if !node.EffectiveImpactPublished || node.EffectiveImpactMS != 0 {
+		t.Fatalf("chain-interval relation must publish authoritative zero effective impact: published=%v value=%v", node.EffectiveImpactPublished, node.EffectiveImpactMS)
+	}
+	if node.ImpactMS != 9.3 || node.SemanticChainProjectedMS != 4.6 {
+		t.Fatalf("raw occupancy carriers must remain lossless: impact=%v projected=%v", node.ImpactMS, node.SemanticChainProjectedMS)
+	}
+}

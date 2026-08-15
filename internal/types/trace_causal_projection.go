@@ -21,8 +21,14 @@ const (
 const (
 	TraceCausalOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
 	TraceCausalOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
-	TraceCausalOnChainBasisHostWakeupEdgeSpan    = "host_wakeup_edge_pre_span"
-	TraceCausalOnChainBasisHostWakeupEdgeState   = "host_wakeup_edge_pre_state"
+	// TraceCausalOnChainBasisSemanticChainIntervalRelation means a non-target
+	// semantic span has an exact interval intersection with a typed wakeup-chain
+	// window. The intersection proves relation/occupancy only; it is not a
+	// target wait or semantic-completion binding and therefore carries zero
+	// effective attribution until a stronger typed binding exists.
+	TraceCausalOnChainBasisSemanticChainIntervalRelation = "semantic_chain_interval_relation"
+	TraceCausalOnChainBasisHostWakeupEdgeSpan            = "host_wakeup_edge_pre_span"
+	TraceCausalOnChainBasisHostWakeupEdgeState           = "host_wakeup_edge_pre_state"
 )
 
 const (
@@ -30,7 +36,8 @@ const (
 	traceCausalProjectionOnChainLimit       = 24
 	traceCausalProjectionContextBucketLimit = 8
 	// Off-chain semantic spans are bounded detail. Typed on-chain semantic
-	// spans are causal candidates and are never truncated at projection compile.
+	// findings (priced target-self or relation-only non-target) are never
+	// truncated at projection compile.
 	traceCausalProjectionSemanticOffChainLimit = 16
 	traceCausalProjectionSupportingHopLimit    = 10
 )
@@ -1705,13 +1712,27 @@ func (n TraceCausalProjectionNode) IsContextOnlyRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierContextOnly
 }
 
-// IsHostWakeupEdgeRelationOnlySemantic reports the exact typed authority
-// shape where a host's wakeup edge proves relation and a pre-edge raw
-// occupancy boundary, but does not prove that semantic completion delayed or
-// caused the target wakeup.  Consumers must preserve the raw span/business
-// clue while keeping effective attribution and root-election participation at
-// zero.  The single on_chain_basis field is authoritative; no prose, subject
-// name, semantic class or timing heuristic is recomposed here.
+// IsSemanticRelationOnly reports the exact typed authority shapes where a
+// non-target semantic span has either an interval relation to a typed chain
+// node or a pre-edge relation to its host's wakeup. Neither relation proves
+// that the target waited for semantic completion or that completion caused
+// the wakeup. Consumers preserve the raw span/business clue while keeping
+// effective attribution and root-election participation at zero. The single
+// on_chain_basis field is authoritative; no prose, subject name, semantic
+// class, or timing heuristic is recomposed here.
+func (n TraceCausalProjectionNode) IsSemanticRelationOnly() bool {
+	switch strings.TrimSpace(n.OnChainBasis) {
+	case TraceCausalOnChainBasisSemanticChainIntervalRelation,
+		TraceCausalOnChainBasisHostWakeupEdgeSpan:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsHostWakeupEdgeRelationOnlySemantic is retained for source compatibility;
+// new consumers should use IsSemanticRelationOnly so the same authority rule
+// covers both exact chain-interval overlap and bare host-edge relation lanes.
 func (n TraceCausalProjectionNode) IsHostWakeupEdgeRelationOnlySemantic() bool {
 	return strings.TrimSpace(n.OnChainBasis) == TraceCausalOnChainBasisHostWakeupEdgeSpan
 }
@@ -4028,7 +4049,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// fallback can reinterpret raw pre-edge occupancy as eliminable impact.
 	// A stale positive effective note also loses to this closed basis: the edge
 	// proves relation, not semantic-completion causality.
-	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+	if node.IsSemanticRelationOnly() {
 		node.EffectiveImpactMS = 0
 		node.EffectiveImpactPublished = true
 	}

@@ -440,6 +440,9 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		group, ok := groups[key]
 		if !ok {
 			basis := ""
+			if lane == semanticSpanLaneChainOverlap && (chain == nil || !sameThreadRef(span.Thread, chain.Target)) {
+				basis = RootCauseOnChainBasisSemanticChainIntervalRelation
+			}
 			if lane == semanticSpanLaneChainSelf {
 				basis = RootCauseOnChainBasisSelfDeterministicSpan
 			}
@@ -519,7 +522,8 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		} else {
 			fam.FoldCaliber = RootCauseMemberFoldCaliberIntervalUnion
 		}
-		if fam.OnChain && fam.OnChainBasis == "" {
+		if fam.OnChain && (fam.OnChainBasis == "" ||
+			fam.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation) {
 			// EVOLUTION RECORD (§24.10 → on-chain intersection caliber; 审计
 			// #62 追认, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10).
 			// §24.10 用户裁定原文: "合并键=(线程,语义类),参赛值=窗口投影合计
@@ -650,6 +654,8 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	projectionStartTs, projectionEndTs := fam.StartTs, fam.EndTs
 	selfBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan
 	edgeBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge
+	intervalRelationBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation
+	relationOnlyBasis := edgeBasis || intervalRelationBasis
 	if fam.OnChain && !selfBasis {
 		participationMs = fam.ProjectedImpactMs
 		projectionStartTs, projectionEndTs = fam.ProjectedStartTs, fam.ProjectedEndTs
@@ -691,14 +697,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// intersection union (see the FoldSemanticSpanFamilies OnChain record
 	// above); full-overlap families — the §29.22 textup 102.172 witness —
 	// are byte-identical because there intersection == union.
-	// B829: a host-owned wakeup edge proves that this thread is related to the
-	// target and gives the pre-edge span a precise raw-occupancy boundary.  It
+	// B829/B830: a host-owned wakeup edge or a non-target chain-interval
+	// intersection proves relation and a precise raw-occupancy boundary. It
 	// does NOT prove that the target waited for this semantic operation to
-	// finish (or that finishing it triggered the wakeup).  Keep the raw
-	// projection and business identity, but publish no eliminable attribution
-	// until an exact chain-window intersection or target-self basis exists.
+	// finish (or that finishing it triggered the wakeup). Keep raw projection
+	// and business identity, but publish no eliminable attribution until a
+	// target-self basis or exact typed target-wait/semantic-completion binding
+	// exists.
 	publishedEffectiveMs := participationMs
-	if edgeBasis {
+	if relationOnlyBasis {
 		publishedEffectiveMs = 0
 	}
 	sortBoostedMs := 0.0
@@ -717,8 +724,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		// is the pre-edge share, the complete union stays disclosed.
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms raw pre-edge occupancy before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=relation credential; semantic completion/delay binding=unproven; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=0.000ms; fold_caliber=%s",
 			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.FoldCaliber)
+	} else if intervalRelationBasis {
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms raw overlap with typed chain intervals from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); target wait/completion binding=unproven; effective_impact=0.000ms; fold_caliber=%s",
+			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.FoldCaliber)
 	} else if fam.OnChain {
-		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+		summary = fmt.Sprintf("%s family n=%d target-thread span(s) attributed %.3fms by exact self interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
@@ -790,6 +800,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 			item.hostEdgeRemainderStartTs = fam.EdgeAnchorRemainderStartTs
 			item.hostEdgeRemainderEndTs = fam.EdgeAnchorRemainderEndTs
 		}
+	} else if intervalRelationBasis {
+		item.Causality = "on_wakeup_chain"
+		item.ChainRelevance = "on_chain"
+		item.OnChainBasis = RootCauseOnChainBasisSemanticChainIntervalRelation
+		item.OverlapMs = participationMs
 	} else if fam.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"

@@ -121,18 +121,19 @@ func TestDCSBackgroundRankNoteEmissionScope(t *testing.T) {
 // competes on equal footing, may be reported as THE root cause when it
 // ranks highest, and keeps its unconditional optimization-point mention
 // floor; non-chain rows keep the background_rank mention gate. The pins now
-// assert the equal-footing wording and keep the retired ban out.
+// assert the typed self-vs-relation authority split and keep the retired
+// blanket-participation rule out.
 func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
 		"background_rank",
-		"ordinary primary/secondary/tertiary root-cause election",
-		"positive effective_impact_ms from exact chain/window intersection or target-self deterministic work",
-		"on_chain_basis=host_wakeup_edge_pre_span is a relation-only raw-occupancy/business clue",
-		"must never enter the background board",
-		"report it as the root cause named by its semantic class",
-		"never one member's span name",
-		"always also report it as a deterministic optimization point",
+		"target-thread deterministic semantic work may enter the ordinary strict positional ranking from its typed self interval",
+		"semantic_chain_interval_relation",
+		"host_wakeup_edge_pre_span",
+		"publish effective_impact_ms=0 until an exact typed target-wait or semantic-completion binding exists",
+		"interval overlap or a wakeup edge alone proves neither",
+		"Every semantic row remains a deterministic optimization point to mention",
+		"only rows without on-chain overlap stay background candidates",
 		"explicit GC pauses",
 	} {
 		if !strings.Contains(description, want) {
@@ -142,6 +143,8 @@ func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *t
 	for _, banned := range []string{
 		"never as the root cause itself",
 		"semantic span-work rows never join that election",
+		"exact chain/window intersection or target-self deterministic work",
+		"when such a row ranks highest, report it as the root cause",
 		// EVOLUTION RECORD (审计 #66, §29.25 处置委托 + §29.26 待主会话落账,
 		// 2026-07-10): this third entry retired the §29.22-era description
 		// sentence when the engine stopped minting the

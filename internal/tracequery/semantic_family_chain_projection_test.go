@@ -16,6 +16,7 @@ func semanticProjectionSpan(thread ThreadRef, name string, start, end float64, l
 func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	chain := &ChainResult{
+		Target: worker,
 		Nodes: []ChainNode{{
 			Thread: worker, Window: TimeWindow{StartTs: 5.002, EndTs: 5.008},
 			Dominant: StateRunning, Depth: 1, Branch: 1,
@@ -82,7 +83,7 @@ func TestSemanticFamilyOnChainRankUsesExactIntersectionUnion(t *testing.T) {
 	if !near(item.StartTs, 5.002, 0.000001) || !near(item.EndTs, 5.012, 0.000001) {
 		t.Fatalf("rank interval must be the projected intersection envelope: %+v", item)
 	}
-	if !strings.Contains(item.Summary, "exact on-chain interval intersection") ||
+	if !strings.Contains(item.Summary, "exact self interval intersection") ||
 		!strings.Contains(item.Summary, "15.000ms complete selected-window span union") {
 		t.Fatalf("summary must distinguish causal attribution from full disclosure: %q", item.Summary)
 	}
@@ -111,7 +112,7 @@ func TestSemanticFamilyOffChainCaliberRemainsCompleteWindowUnion(t *testing.T) {
 func TestSemanticSingleSpanAndFamilyProjectionUseSameDeduplicatedIntersection(t *testing.T) {
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	span := semanticProjectionSpan(worker, "VerifyClass A", 5.000, 5.010, 10)
-	chain := ChainResult{Nodes: []ChainNode{{
+	chain := ChainResult{Target: worker, Nodes: []ChainNode{{
 		Thread: worker, Window: TimeWindow{StartTs: 5.002, EndTs: 5.006}, Dominant: StateRunning,
 	}, {
 		Thread: worker, Window: TimeWindow{StartTs: 5.004, EndTs: 5.008}, Dominant: StateRunning,

@@ -344,13 +344,13 @@ func p3mMeasureSeat(item *RootCauseRankItem, ctx *p3MeasureContext) {
 	// not resurrect a positive causal-looking millisecond through the silent
 	// counterfactual audit after the priced effective channel was zeroed. The
 	// host-edge STATE sibling remains in the measurement population.
-	if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge &&
-		rootCauseItemIsSemanticSpanWork(*item) && rootCauseEffectiveImpactMs(*item) <= 0 {
+	if rootCauseItemIsRelationOnlySemantic(*item) {
 		return
 	}
 	switch item.OnChainBasis {
 	case "", RootCauseOnChainBasisSelfDeterministicSpan,
 		RootCauseOnChainBasisSelfWallClockInterval,
+		RootCauseOnChainBasisSemanticChainIntervalRelation,
 		RootCauseOnChainBasisHostWakeupEdge,
 		RootCauseOnChainBasisHostWakeupEdgeState:
 	default:
