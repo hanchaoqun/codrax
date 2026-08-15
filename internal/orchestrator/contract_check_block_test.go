@@ -1727,6 +1727,43 @@ func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *t
 	}
 }
 
+func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingAdditionalCitation(t *testing.T) {
+	mut := types.NewMutableState("multi-axis relation evidence")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "def-build", Kind: types.EvidenceDirect,
+			Source: "internal/agent/analyzer.go", LineStart: 1289,
+			AnchorKind: types.AnchorDefinition, Subject: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "call-parse-build", Kind: types.EvidenceDirect,
+			Source: "internal/agent/analyzer.go", LineStart: 1039,
+			AnchorKind: types.AnchorCall, Subject: "ParseOutput", Object: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 1289},
+			{File: "internal/agent/analyzer.go", Line: 1039},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "hops", Kind: types.BlockOrderedList,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{{
+				ID: "h1", Label: "buildAnalysisIR", Text: "`ParseOutput` -> `buildAnalysisIR`",
+				CitationRef: 0, CitationRefs: []int{1},
+			}},
+		}},
+	}
+
+	if vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut); len(vs) != 0 {
+		t.Fatalf("matching additional citation should satisfy typed role alignment, got %+v", vs)
+	}
+}
+
 func TestValidateCallChainItemCitationRoleAlignment_EndpointOnlyLabelRejectsDefinition(t *testing.T) {
 	mut := types.NewMutableState("endpoint-only relation")
 	mut.AppendEvidence([]types.EvidenceItem{

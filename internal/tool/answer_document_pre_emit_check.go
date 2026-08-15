@@ -968,12 +968,11 @@ func preCheckCitationPoolIntegrity(doc *types.AnswerDocumentV2) []emitFixHint {
 	refCount := 0
 	for _, block := range doc.Blocks {
 		for _, item := range block.Items {
-			if item.CitationRef < 0 {
-				continue
-			}
-			refCount++
-			if item.CitationRef > maxRef {
-				maxRef = item.CitationRef
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				refCount++
+				if ref > maxRef {
+					maxRef = ref
+				}
 			}
 		}
 	}
@@ -984,14 +983,14 @@ func preCheckCitationPoolIntegrity(doc *types.AnswerDocumentV2) []emitFixHint {
 		return nil
 	}
 	expected := "preserve / emit a top-level citations[] pool with at least " +
-		fmt.Sprintf("%d entries so every non-negative blocks[].items[].citation_ref resolves to an existing citation object", maxRef+1)
+		fmt.Sprintf("%d entries so every non-negative blocks[].items[].citation_ref/citation_refs value resolves to an existing citation object", maxRef+1)
 	if len(doc.Citations) == 0 {
 		expected = "preserve / emit the top-level citations[] pool; this payload contains cited items but no citations[] entries"
 	}
 	return []emitFixHint{{
 		Field:         "citations[]",
 		ExpectedShape: expected,
-		Reason:        "citation_ref is an index into the model-emitted citations[] array; semantic coverage checks cannot run correctly until the carrier's citation pool is structurally complete.",
+		Reason:        "citation_ref and citation_refs values are indexes into the model-emitted citations[] array; semantic coverage checks cannot run correctly until the carrier's citation pool is structurally complete.",
 	}}
 }
 
@@ -1280,8 +1279,10 @@ func answerDocumentHasOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) bool {
 	}
 	for _, block := range doc.Blocks {
 		for _, item := range block.Items {
-			if item.CitationRef > 0 && item.CitationRef >= len(doc.Citations) {
-				return true
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref >= len(doc.Citations) {
+					return true
+				}
 			}
 		}
 	}

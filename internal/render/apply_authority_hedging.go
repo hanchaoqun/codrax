@@ -97,7 +97,9 @@ func strongestHedgeForV2Block(blk types.AnswerBlock, citations []types.Citation,
 		}
 	}
 	for _, it := range blk.Items {
-		consider(it.CitationRef)
+		for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+			consider(ref)
+		}
 	}
 	if !considered {
 		return ""

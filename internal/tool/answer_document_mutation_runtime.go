@@ -526,9 +526,10 @@ func exactVisibleAnswerBlockCitationKey(block types.AnswerBlock, citations []typ
 	}
 	out := make([]string, 0, len(block.Items))
 	for _, item := range block.Items {
-		key := answerBlockItemCitationDedupeKey(item.CitationRef, citations)
+		key := answerBlockItemCitationSetDedupeKey(item, citations)
 		if key == "" {
-			key = fmt.Sprintf("ref:%d", item.CitationRef)
+			refs := types.AnswerBlockItemCitationRefs(item)
+			key = fmt.Sprintf("refs:%v", refs)
 		}
 		out = append(out, key)
 	}
@@ -569,7 +570,7 @@ func semanticPrincipalAnswerItemDedupeKey(item types.AnswerBlockItem, citations 
 	if label == "" {
 		return ""
 	}
-	citation := answerBlockItemCitationDedupeKey(item.CitationRef, citations)
+	citation := answerBlockItemCitationSetDedupeKey(item, citations)
 	if citation == "" {
 		return ""
 	}
@@ -579,6 +580,22 @@ func semanticPrincipalAnswerItemDedupeKey(item types.AnswerBlockItem, citations 
 		normalizeAnswerBlockDedupeSurface(item.Text) + "\x1e" +
 		strings.Join(answerBlockNormalizedSurfaces(item.Cells), "\x1d") + "\x1e" +
 		citation
+}
+
+func answerBlockItemCitationSetDedupeKey(item types.AnswerBlockItem, citations []types.Citation) string {
+	refs := types.AnswerBlockItemCitationRefs(item)
+	if len(refs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		key := answerBlockItemCitationDedupeKey(ref, citations)
+		if key == "" {
+			return ""
+		}
+		keys = append(keys, key)
+	}
+	return strings.Join(keys, "\x1d")
 }
 
 func answerBlockItemCitationDedupeKey(ref int, citations []types.Citation) string {

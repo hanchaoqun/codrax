@@ -75,6 +75,7 @@ var (
 		"candidate_role",
 		"source_inventory_row_id",
 		"citation_ref",
+		"citation_refs",
 	)
 	answerDocumentCitationAllowedFields = stringSet(
 		"file",

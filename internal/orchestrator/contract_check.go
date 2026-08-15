@@ -2735,18 +2735,28 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 
 func itemBodyTextWithCitation(it types.AnswerBlockItem, doc *types.AnswerDocumentV2) string {
 	base := itemBodyText(it)
-	if doc == nil || it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
+	if doc == nil {
 		return base
 	}
-	cit := doc.Citations[it.CitationRef]
-	file := strings.TrimSpace(cit.File)
-	if file == "" || cit.Line <= 0 {
+	var locations []string
+	for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+		if ref < 0 || ref >= len(doc.Citations) {
+			continue
+		}
+		cit := doc.Citations[ref]
+		file := strings.TrimSpace(cit.File)
+		if file == "" || cit.Line <= 0 {
+			continue
+		}
+		loc := fmt.Sprintf("%s:%d", file, cit.Line)
+		if !strings.Contains(base, loc) {
+			locations = append(locations, loc)
+		}
+	}
+	if len(locations) == 0 {
 		return base
 	}
-	loc := fmt.Sprintf("%s:%d", file, cit.Line)
-	if strings.Contains(base, loc) {
-		return base
-	}
+	loc := strings.Join(locations, "; ")
 	if base == "" {
 		return "cite: " + loc
 	}

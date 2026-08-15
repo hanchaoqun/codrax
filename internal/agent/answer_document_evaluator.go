@@ -18100,12 +18100,14 @@ func answerDocPrincipalCitationFileSet(doc *types.AnswerDocumentV2) map[string]b
 			continue
 		}
 		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			file := answerDocSourceFileKey(doc.Citations[item.CitationRef].File)
-			if file != "" {
-				out[file] = true
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
+				}
+				file := answerDocSourceFileKey(doc.Citations[ref].File)
+				if file != "" {
+					out[file] = true
+				}
 			}
 		}
 	}

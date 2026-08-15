@@ -167,15 +167,24 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			if !ok {
 				candidateRole = types.AnswerCandidateRoleOther
 			}
-			blk.Items = append(blk.Items, types.AnswerBlockItem{
+			item := types.AnswerBlockItem{
 				ID:                   it.ID,
 				Label:                it.Label,
 				Text:                 it.Text,
 				Cells:                normalizeTableStringSlice(it.Cells),
 				CandidateRole:        candidateRole,
 				SourceInventoryRowID: strings.TrimSpace(it.SourceInventoryRowID),
-				CitationRef:          citationRefFromWire(it.CitationRef),
-			})
+				CitationRef:          types.CitationRefUnset,
+			}
+			refs := make([]int, 0, 1+len(it.CitationRefs))
+			if primary := citationRefFromWire(it.CitationRef); primary >= 0 {
+				refs = append(refs, primary)
+			}
+			for _, ref := range it.CitationRefs {
+				refs = append(refs, int(ref))
+			}
+			types.SetAnswerBlockItemCitationRefs(&item, refs)
+			blk.Items = append(blk.Items, item)
 		}
 	}
 	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {

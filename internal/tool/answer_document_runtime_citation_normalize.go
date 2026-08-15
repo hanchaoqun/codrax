@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -269,24 +270,34 @@ func normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
+			kept := make([]int, 0, 1+len(item.CitationRefs))
+			detached := false
+			for _, ref := range types.AnswerBlockItemCitationRefs(*item) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					kept = append(kept, ref)
+					continue
+				}
+				cit := doc.Citations[ref]
+				if cit.Line <= 0 || cit.Scope == types.ScopeNegative ||
+					types.LooksLikeRuntimeArtifactPath(cit.File) ||
+					citationFileIsRuntimeArtifact(artifactSpellings, cit.File) {
+					kept = append(kept, ref)
+					continue
+				}
+				sourcePath, ok := currentSourceCitationPath(ctx.RepoRoot, cit.File)
+				if !ok || !currentSourceCitationFileExists(sourcePath) {
+					kept = append(kept, ref)
+					continue
+				}
+				detached = true
+				fixed++
 			}
-			cit := doc.Citations[item.CitationRef]
-			if cit.Line <= 0 || cit.Scope == types.ScopeNegative ||
-				types.LooksLikeRuntimeArtifactPath(cit.File) ||
-				citationFileIsRuntimeArtifact(artifactSpellings, cit.File) {
-				continue
+			if detached {
+				types.SetAnswerBlockItemCitationRefs(item, kept)
+				if pctx != nil {
+					pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindEvidenceOriginMismatch)
+				}
 			}
-			sourcePath, ok := currentSourceCitationPath(ctx.RepoRoot, cit.File)
-			if !ok || !currentSourceCitationFileExists(sourcePath) {
-				continue
-			}
-			item.CitationRef = -1
-			if pctx != nil {
-				pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindEvidenceOriginMismatch)
-			}
-			fixed++
 		}
 	}
 	return fixed
@@ -402,8 +413,11 @@ func recordRuntimeArtifactCitationDetachDisclosures(doc *types.AnswerDocumentV2,
 		block := &doc.Blocks[bi]
 		for ii := range block.Items {
 			item := &block.Items[ii]
-			if item.CitationRef >= 0 && artifact[item.CitationRef] {
-				pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindRuntimeArtifact)
+			for _, ref := range types.AnswerBlockItemCitationRefs(*item) {
+				if artifact[ref] {
+					pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindRuntimeArtifact)
+					break
+				}
 			}
 		}
 	}
@@ -479,19 +493,22 @@ func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[
 	doc.Citations = next
 	for bi := range doc.Blocks {
 		for ii := range doc.Blocks[bi].Items {
-			ref := doc.Blocks[bi].Items[ii].CitationRef
-			if ref < 0 {
-				continue
+			item := &doc.Blocks[bi].Items[ii]
+			refs := types.AnswerBlockItemCitationRefs(*item)
+			mappedRefs := make([]int, 0, len(refs))
+			for _, ref := range refs {
+				if remove[ref] {
+					changed++
+					continue
+				}
+				if mapped, ok := remap[ref]; ok {
+					mappedRefs = append(mappedRefs, mapped)
+					if mapped != ref {
+						changed++
+					}
+				}
 			}
-			if remove[ref] {
-				doc.Blocks[bi].Items[ii].CitationRef = -1
-				changed++
-				continue
-			}
-			if mapped, ok := remap[ref]; ok && mapped != ref {
-				doc.Blocks[bi].Items[ii].CitationRef = mapped
-				changed++
-			}
+			types.SetAnswerBlockItemCitationRefs(item, mappedRefs)
 		}
 	}
 	return changed
@@ -504,8 +521,10 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2, ctx *types.
 	used := make(map[int]bool)
 	for _, block := range doc.Blocks {
 		for _, item := range block.Items {
-			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
-				used[item.CitationRef] = true
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref >= 0 && ref < len(doc.Citations) {
+					used[ref] = true
+				}
 			}
 		}
 	}
@@ -520,6 +539,30 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2, ctx *types.
 		}
 	}
 	return dropAnswerDocumentCitationsByIndex(doc, remove, "unused_pool_entry_pruned")
+}
+
+// normalizeAnswerDocumentItemCitationSets restores the canonical legacy
+// primary slot after earlier evidence-origin or alignment passes may have
+// detached/rebound it. Additional refs remain explicit typed carriers; this
+// pass only deduplicates indexes and promotes the first surviving ref. It does
+// not inspect visible text or create a citation.
+func normalizeAnswerDocumentItemCitationSets(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	changed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			beforePrimary := item.CitationRef
+			beforeExtra := append([]int(nil), item.CitationRefs...)
+			types.SetAnswerBlockItemCitationRefs(item, types.AnswerBlockItemCitationRefs(*item))
+			if beforePrimary != item.CitationRef || !slices.Equal(beforeExtra, item.CitationRefs) {
+				changed++
+			}
+		}
+	}
+	return changed
 }
 
 // normalizeUnusedContradictedRuntimeArtifactNegativeCitations removes only a
@@ -539,8 +582,10 @@ func normalizeUnusedContradictedRuntimeArtifactNegativeCitations(doc *types.Answ
 	used := make(map[int]bool)
 	for _, block := range doc.Blocks {
 		for _, item := range block.Items {
-			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
-				used[item.CitationRef] = true
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref >= 0 && ref < len(doc.Citations) {
+					used[ref] = true
+				}
 			}
 		}
 	}

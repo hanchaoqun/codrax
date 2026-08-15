@@ -659,15 +659,24 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" && len(cells) == 0 {
 			continue
 		}
-		blk.Items = append(blk.Items, types.AnswerBlockItem{
+		typedItem := types.AnswerBlockItem{
 			ID:                   item.ID,
 			Label:                item.Label,
 			Text:                 item.Text,
 			Cells:                cells,
 			CandidateRole:        candidateRole,
 			SourceInventoryRowID: strings.TrimSpace(item.SourceInventoryRowID),
-			CitationRef:          citationRefFromWire(item.CitationRef),
-		})
+			CitationRef:          types.CitationRefUnset,
+		}
+		refs := make([]int, 0, 1+len(item.CitationRefs))
+		if primary := citationRefFromWire(item.CitationRef); primary >= 0 {
+			refs = append(refs, primary)
+		}
+		for _, ref := range item.CitationRefs {
+			refs = append(refs, int(ref))
+		}
+		types.SetAnswerBlockItemCitationRefs(&typedItem, refs)
+		blk.Items = append(blk.Items, typedItem)
 	}
 	if block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {
 		blk.Diagram = &types.AnswerDiagramBlock{

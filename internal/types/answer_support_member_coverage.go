@@ -583,19 +583,21 @@ func newAnswerSupportDocumentIndex(doc *AnswerDocumentV2) *answerSupportDocument
 			index.principalText = append(index.principalText, AnswerBlockVisibleSurface(block))
 		}
 		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			entry := answerSupportIndexedItem{
-				item:      item,
-				blockText: AnswerBlockVisibleSurface(block),
-				citation:  doc.Citations[item.CitationRef],
-			}
-			if principal {
-				index.addPrincipal(entry)
-			}
-			if caveat {
-				index.addCaveat(entry)
+			for _, ref := range AnswerBlockItemCitationRefs(item) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
+				}
+				entry := answerSupportIndexedItem{
+					item:      item,
+					blockText: AnswerBlockVisibleSurface(block),
+					citation:  doc.Citations[ref],
+				}
+				if principal {
+					index.addPrincipal(entry)
+				}
+				if caveat {
+					index.addCaveat(entry)
+				}
 			}
 		}
 	}

@@ -111,10 +111,14 @@ func answerDocumentDuplicatedSectionItemBlocks(doc *types.AnswerDocumentV2) map[
 }
 
 func answerDocumentVisibleItemKey(it types.AnswerBlockItem) string {
+	refParts := make([]string, 0, 1+len(it.CitationRefs))
+	for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+		refParts = append(refParts, fmt.Sprintf("%d", ref))
+	}
 	parts := []string{
 		strings.TrimSpace(it.Label),
 		strings.TrimSpace(it.Text),
-		fmt.Sprintf("%d", it.CitationRef),
+		strings.Join(refParts, ","),
 	}
 	for _, cell := range it.Cells {
 		parts = append(parts, strings.TrimSpace(cell))
@@ -1431,10 +1435,18 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 	if strings.TrimSpace(out) == "" {
 		return ""
 	}
-	if doc != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
-		cite := renderCitationDisplay(doc.Citations[it.CitationRef])
-		if cite != "" {
-			out = out + " (" + cite + ")"
+	if doc != nil {
+		cites := make([]string, 0, 1+len(it.CitationRefs))
+		for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+			if ref < 0 || ref >= len(doc.Citations) {
+				continue
+			}
+			if cite := renderCitationDisplay(doc.Citations[ref]); cite != "" {
+				cites = append(cites, cite)
+			}
+		}
+		if len(cites) > 0 {
+			out = out + " (" + strings.Join(cites, "; ") + ")"
 		}
 	}
 	return out
@@ -1448,8 +1460,10 @@ func blockTopCitation(blk types.AnswerBlock, doc *types.AnswerDocumentV2) string
 		return ""
 	}
 	for _, it := range blk.Items {
-		if it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
-			return renderCitationDisplay(doc.Citations[it.CitationRef])
+		for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+			if ref >= 0 && ref < len(doc.Citations) {
+				return renderCitationDisplay(doc.Citations[ref])
+			}
 		}
 	}
 	return ""

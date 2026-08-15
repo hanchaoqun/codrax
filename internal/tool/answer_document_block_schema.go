@@ -55,7 +55,7 @@ import (
 func BuildAnswerDocumentSemanticContractDescription() string {
 	return "Block kinds (the user section's Required Answer Blocks list flags which kinds + counts your answer must include): " +
 		"summary (block.text — a multi-paragraph explanation), section (title + text — per-bucket / per-layer chunks), " +
-		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref), " +
+		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref or citation_refs), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
 		"table (complete markdown table inside text, OR preferably structured rows with columns[] + items[].cells[] where label/text are omitted and each row has exactly one cell per column. Legacy label-first rows remain accepted only when label deliberately owns the first visible column and cells[]/text supply every remaining column; columns[] may omit only that synthetic label header. Use label/text without columns only for the legacy two-column fallback), " +
@@ -79,7 +79,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n\n" +
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
 		"\n\n" +
-		"Citations live in a shared `citations` pool; per-item `citation_ref` is a zero-based index into it. Omit the field when no current-repo cite backs the item. This is an internal carrier only: do not mention `citation_ref` or `citations[]` in visible answer prose. `claim_use` / `claim_uses` never carry `citation_ref`. " +
+		"Citations live in a shared `citations` pool. Per-item `citation_ref` is one zero-based primary index; when the same visible item states several independently grounded facts, put only the additional zero-based indexes in `citation_refs`, in stable evidence order. If `citation_ref` is omitted, the first `citation_refs` entry becomes primary during normalization. Use the singular field for one anchor, never repeat an index, and omit both fields when no current-repo cite backs the item. These are internal carriers only: do not mention `citation_ref`, `citation_refs`, or `citations[]` in visible answer prose. `claim_use` / `claim_uses` never carry citation indexes. " +
 		"`exact_resolution`, `missing_requested_roles[]`, `caveats[]`, `snippets[]` are document-level optional fields. Use `missing_requested_roles[]` only when the question explicitly asked for named config-precedence layers and one or more of those requested layers has NO grounded binding for the exact target. Each entry is `{role: default|config|runtime|override, label?: <user-facing bucket name>}`; the renderer materialises the explicit missing-layer prose from this typed field, so do not hide missing requested layers behind vague placeholders like `N/A`. " +
 		"\n\n" +
 		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only. " +

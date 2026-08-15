@@ -301,6 +301,22 @@ func TestExtractCitations_EmptyText(t *testing.T) {
 	}
 }
 
+func TestItemBodyTextWithCitation_IncludesEveryIndependentAnchor(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Citations: []types.Citation{
+		{File: "registry.go", Line: 10},
+		{File: "plugin.go", Line: 20},
+	}}
+	item := types.AnswerBlockItem{
+		Label: "JsonPlugin", CitationRef: 0, CitationRefs: []int{1},
+	}
+	got := itemBodyTextWithCitation(item, doc)
+	for _, want := range []string{"registry.go:10", "plugin.go:20"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("review context lost %q: %q", want, got)
+		}
+	}
+}
+
 func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 	out := &agent.StageOutput{FinalAnswer: "anything goes"}
 	res := runContractCheck(out, types.AnswerContract{}, nil, nil)

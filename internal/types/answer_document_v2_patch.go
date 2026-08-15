@@ -441,7 +441,7 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 
 func answerBlockHasCitationRefs(b AnswerBlock) bool {
 	for _, item := range b.Items {
-		if item.CitationRef >= 0 {
+		if len(AnswerBlockItemCitationRefs(item)) > 0 {
 			return true
 		}
 	}

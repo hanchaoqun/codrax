@@ -99,6 +99,10 @@ type emitAnswerBlockItemV2 struct {
 	// pooled citation). A value FlexInt here collapsed both to 0, which
 	// glued citations[0] onto items the LLM left intentionally uncited.
 	CitationRef *FlexInt `json:"citation_ref,omitempty"`
+	// CitationRefs carries zero or more additional anchors for a visible item.
+	// NormalizeEmitAnswerBlock canonicalizes the first available ref into the
+	// legacy primary slot and deduplicates the remainder.
+	CitationRefs []FlexInt `json:"citation_refs,omitempty"`
 }
 
 type emitAnswerDiagramV2 struct {
@@ -933,6 +937,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source file:line", toolName, fixed)
 		}
 	}
+	if fixed := normalizeAnswerDocumentItemCitationSets(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeAnswerDocumentItemCitationSets", fixed)
+	}
 	// QCE GAP-A (2026-07-05): the detach disclosure is NOT materialized
 	// here. The persist chain can append separately marked typed supplements
 	// after this chain returns. Ferry the typed records (replace semantics,
@@ -955,11 +962,16 @@ func normalizeOutOfRangeCitationRefsBeforePoolGrowth(doc *types.AnswerDocumentV2
 	for bi := range doc.Blocks {
 		for ii := range doc.Blocks[bi].Items {
 			item := &doc.Blocks[bi].Items[ii]
-			if item.CitationRef < poolSize {
-				continue
+			refs := types.AnswerBlockItemCitationRefs(*item)
+			kept := make([]int, 0, len(refs))
+			for _, ref := range refs {
+				if ref < poolSize {
+					kept = append(kept, ref)
+					continue
+				}
+				fixed++
 			}
-			item.CitationRef = types.CitationRefUnset
-			fixed++
+			types.SetAnswerBlockItemCitationRefs(item, kept)
 		}
 	}
 	return fixed
@@ -1091,14 +1103,19 @@ func normalizeInvisibleOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) int {
 	for bi := range doc.Blocks {
 		for ii := range doc.Blocks[bi].Items {
 			item := &doc.Blocks[bi].Items[ii]
-			if item.CitationRef < 0 || item.CitationRef < len(doc.Citations) {
-				continue
-			}
 			if strings.TrimSpace(types.AnswerBlockItemVisibleSurface(*item)) != "" {
 				continue
 			}
-			item.CitationRef = types.CitationRefUnset
-			fixed++
+			refs := types.AnswerBlockItemCitationRefs(*item)
+			kept := make([]int, 0, len(refs))
+			for _, ref := range refs {
+				if ref >= 0 && ref >= len(doc.Citations) {
+					fixed++
+					continue
+				}
+				kept = append(kept, ref)
+			}
+			types.SetAnswerBlockItemCitationRefs(item, kept)
 		}
 	}
 	return fixed
@@ -1154,8 +1171,10 @@ func answerBlockHasValidCitationCarrier(block types.AnswerBlock, doc *types.Answ
 		return false
 	}
 	for _, item := range block.Items {
-		if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
-			return true
+		for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+			if ref >= 0 && ref < len(doc.Citations) {
+				return true
+			}
 		}
 	}
 	return false
@@ -1168,8 +1187,10 @@ func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *ty
 	maxRef := -1
 	for _, block := range doc.Blocks {
 		for _, item := range block.Items {
-			if item.CitationRef > maxRef {
-				maxRef = item.CitationRef
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref > maxRef {
+					maxRef = ref
+				}
 			}
 		}
 	}
@@ -4288,10 +4309,12 @@ func repairAnswerBlockItemArrayFields(blkObj map[string]json.RawMessage) ([]stri
 	var paths []string
 	changed := false
 	for i := range items {
-		if r, ok := repairBlockArrayField(items[i], "cells"); ok {
-			items[i]["cells"] = r
-			paths = append(paths, fmt.Sprintf("items[%d].cells", i))
-			changed = true
+		for _, field := range []string{"cells", "citation_refs"} {
+			if r, ok := repairBlockArrayField(items[i], field); ok {
+				items[i][field] = r
+				paths = append(paths, fmt.Sprintf("items[%d].%s", i, field))
+				changed = true
+			}
 		}
 	}
 	if !changed {
@@ -4308,6 +4331,7 @@ var answerBlockItemKnownFieldNames = map[string]bool{
 	"cells":          true,
 	"candidate_role": true,
 	"citation_ref":   true,
+	"citation_refs":  true,
 }
 
 var answerBlockItemTextAliasForbiddenFieldNames = map[string]bool{
@@ -4410,7 +4434,8 @@ func answerBlockItemRawHasRenderableCarrier(item map[string]json.RawMessage) boo
 	// ID-only shells are not visible. citation_ref, however, is a valid
 	// scalar/decision citation anchor even when no item prose is rendered.
 	_, hasCitation := item["citation_ref"]
-	return hasCitation
+	_, hasCitations := item["citation_refs"]
+	return hasCitation || hasCitations
 }
 
 // repairAnswerBlockItemTextAliases preserves user-visible item prose when a

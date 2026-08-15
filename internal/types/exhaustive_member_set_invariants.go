@@ -72,7 +72,7 @@ type ExhaustiveMemberCoverage struct {
 	MissingMembers      []string // typed members with no matching principal item
 	UnexpectedItems     []string // principal items not in the typed member set
 	DuplicateCitations  []int    // citation_ref values appearing more than once
-	InvalidCitationRefs []int    // citation_ref outside [0, len(citations))
+	InvalidCitationRefs []int    // item citation_ref/citation_refs outside [0, len(citations))
 }
 
 // HasFailures reports whether the deterministic coverage projection
@@ -140,11 +140,11 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 				continue
 			}
 			cov.PrincipalItemCount++
-			if item.CitationRef >= 0 {
-				if item.CitationRef >= citationCount {
-					cov.InvalidCitationRefs = append(cov.InvalidCitationRefs, item.CitationRef)
+			for _, ref := range AnswerBlockItemCitationRefs(item) {
+				if ref >= citationCount {
+					cov.InvalidCitationRefs = append(cov.InvalidCitationRefs, ref)
 				} else {
-					citationSeen[item.CitationRef]++
+					citationSeen[ref]++
 				}
 			}
 			itemMatched := false

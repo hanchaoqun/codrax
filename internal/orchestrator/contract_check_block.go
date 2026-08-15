@@ -1724,7 +1724,8 @@ func validateCallChainItemCitationRoleAlignmentContext(ctx context.Context, doc 
 			if ctx != nil && ctx.Err() != nil {
 				return out
 			}
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			refs := types.AnswerBlockItemCitationRefs(item)
+			if len(refs) == 0 {
 				continue
 			}
 			expected, ok := idx.claimRoleMentionedByItemSurface(item, forms)
@@ -1734,16 +1735,33 @@ func validateCallChainItemCitationRoleAlignmentContext(ctx context.Context, doc 
 			if !ok {
 				continue
 			}
-			cit := doc.Citations[item.CitationRef]
-			cited := idx.citedEvidenceItems(cit)
-			if types.EvidenceSetContainsSameClaimRole(cited, expected) {
+			var (
+				firstCitation types.Citation
+				hasCitation   bool
+				supported     bool
+			)
+			for _, ref := range refs {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
+				}
+				cit := doc.Citations[ref]
+				if !hasCitation {
+					firstCitation = cit
+					hasCitation = true
+				}
+				if types.EvidenceSetContainsSameClaimRole(idx.citedEvidenceItems(cit), expected) {
+					supported = true
+					break
+				}
+			}
+			if !hasCitation || supported {
 				continue
 			}
 			out = append(out, types.Violation{
 				Kind: types.ViolClaimFormUnsupported,
 				Detail: fmt.Sprintf(
 					"answer item block=%q item=%q visibly names typed evidence role %s but citation_ref points at %s, whose evidence does not project to that same role",
-					b.ID, item.ID, types.EvidenceClaimRoleName(expected), answerCitationLocation(cit)),
+					b.ID, item.ID, types.EvidenceClaimRoleName(expected), answerCitationLocation(firstCitation)),
 				Repair: fmt.Sprintf(
 					"change item citation_ref to the citation for the matching typed evidence role at %s, or rewrite the item so it no longer asserts that role.",
 					types.EvidenceClaimRoleLocation(expected)),
@@ -3743,19 +3761,21 @@ func scalarValueSupportPool(b *types.AnswerBlock, doc *types.AnswerDocumentV2, m
 	}
 	if idx != nil {
 		for _, it := range b.Items {
-			if it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			for _, ev := range idx.citedEvidenceItems(doc.Citations[it.CitationRef]) {
-				add(ev.Snippet)
-				add(ev.Subject)
-				add(ev.Object)
-				add(ev.AnchorSymbol)
-				if ev.LoadBearingSummary {
-					add(ev.Summary)
+			for _, ref := range types.AnswerBlockItemCitationRefs(it) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
 				}
-				for _, term := range ev.SurfaceTerms {
-					add(term)
+				for _, ev := range idx.citedEvidenceItems(doc.Citations[ref]) {
+					add(ev.Snippet)
+					add(ev.Subject)
+					add(ev.Object)
+					add(ev.AnchorSymbol)
+					if ev.LoadBearingSummary {
+						add(ev.Summary)
+					}
+					for _, term := range ev.SurfaceTerms {
+						add(term)
+					}
 				}
 			}
 		}
@@ -5022,26 +5042,30 @@ func blockLaneAlignment(
 	matched := false
 	allowed := false
 	for _, item := range block.Items {
-		ref := item.CitationRef
-		if ref < 0 || ref >= len(doc.Citations) {
-			continue
-		}
-		cit := doc.Citations[ref]
-		key := citationLocationKey(cit)
-		if key == "" {
-			continue
-		}
-		attrs, ok := locIndex[key]
-		if !ok {
-			continue
-		}
-		for _, attrib := range attrs {
-			if !matched {
-				firstMatch = attrib
-				matched = true
+		for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+			if ref < 0 || ref >= len(doc.Citations) {
+				continue
 			}
-			if blockKindAllowedByLane(string(block.Kind), attrib.allowedBlocks) {
-				allowed = true
+			cit := doc.Citations[ref]
+			key := citationLocationKey(cit)
+			if key == "" {
+				continue
+			}
+			attrs, ok := locIndex[key]
+			if !ok {
+				continue
+			}
+			for _, attrib := range attrs {
+				if !matched {
+					firstMatch = attrib
+					matched = true
+				}
+				if blockKindAllowedByLane(string(block.Kind), attrib.allowedBlocks) {
+					allowed = true
+					break
+				}
+			}
+			if allowed {
 				break
 			}
 		}

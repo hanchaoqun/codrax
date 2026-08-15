@@ -3649,6 +3649,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 						CandidateRole:        it.CandidateRole,
 						SourceInventoryRowID: it.SourceInventoryRowID,
 						CitationRef:          it.CitationRef,
+						CitationRefs:         append([]int(nil), it.CitationRefs...),
 					}
 				}
 			}

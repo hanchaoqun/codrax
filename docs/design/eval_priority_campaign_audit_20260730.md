@@ -36051,6 +36051,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.858 B848：单条目多证据引用载体全链根修（2026-08-15）
+
+1. 根因不是注册关系抽取不足，而是 `AnswerBlockItem` 只有一个 `citation_ref`。同一模型条目若同时陈述两个
+   独立、均已探索的事实轴，只能任选其一；另一个 citation 随后被通用 unused-pool 清理裁掉。该基数约束会影响
+   表格、列表和 section item，不只影响 registry 样例，故不能通过表格列名或“注册/名称”等词面补丁修复。
+2. `AnswerBlockItem` 新增向后兼容的 `citation_refs[]`；`citation_ref` 继续是首锚，数组只保存其余独立锚。
+   唯一 canonicalizer 按“首锚优先、稳定顺序、去重、负值丢弃”归一，旧模型只发单值时字节语义不变；同时发
+   单值和数组时也不会重复引用。full emit、dispatch-projected patch schema、shape-first 教学、畸形 JSON 文本恢复
+   与 field quarantine 使用同一字段合同，不建立第二套接线。
+3. 引用生命周期按集合闭合：pool prune、删引用后的索引重映射、patch 引用重映射、runtime/current-source
+   provenance 分离、越界清理、unused/contradicted artifact 清理和 principal evidence view 均消费全部锚；持久化
+   clone 深拷贝数组。去重键也纳入完整证据集合，两个可见条目即使首锚相同，只要第二独立锚不同就不得被折叠。
+4. 消费面同样补齐：列表/section 的正文链接会按稳定顺序显示所有锚；authority hedging、support-member location
+   index、exhaustive citation census、principal cited-file census、scalar support pool、lane alignment 与 call-chain typed
+   role 校验均查看全部锚。Reviewer 上下文会列出全部独立位置，避免系统保存了第二证据、却在复核提示里再次丢掉。
+   Table 的可见列仍由模型决定，系统只保留/渲染引用，不写事实、不补结论。
+5. 结构 pin 覆盖：wire 的 int/string 混合数组归一；full emit 在中间 unused citation 被裁后保持两锚并正确重排；
+   patch replacement 同样重排两锚；无条目绑定的 pool citation 不得被猜成第二锚；full/patch schema 字段对称；渲染
+   显示双链接；MutableState clone 不别名；去重键不吃第二锚；support index、typed role validator 与 reviewer context
+   均消费第二锚。所有判据只读 schema-valid typed ref/evidence/location，不扫描用户输入、模型 reasoning 或答案原文。
+6. 本批不改变引用所支持的事实，也不从多个 citation 自动推导关系；cross-citation conflict 仍以条目主身份锚为
+   比较单位，避免把同一条目的多轴证据误判成自冲突。B846 的 patch 裸数字误重映射仍是独立开放项，不能借本批
+   多引用载体宣称关闭。
+7. Trace 查询、显式时间窗、因果投影、自动补齐与根因选举均零改动。主因继续只能来自 typed on-chain 证据，
+   实际占用/业务线索与规则计价可消除量双轴不丢；邻近/背景仅作支持。活跃字节流也不会因 4ms、4s、4m 或固定
+   累计年龄降级，结束/恢复权仍只属于 caller cancel/deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=implemented/full+patch+lifecycle+consumer-pins/awaiting-r522`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open`；
+`active-stream-fixed-age-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

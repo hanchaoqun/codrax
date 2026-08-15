@@ -57,12 +57,14 @@ func AnswerBlockHasStructuralPrincipalEnumerationCarrier(doc *AnswerDocumentV2, 
 		if AnswerBlockItemVisibleSurface(item) == "" {
 			continue
 		}
-		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-			continue
-		}
-		cit := doc.Citations[item.CitationRef]
-		if cit.File != "" && cit.Line > 0 {
-			return true
+		for _, ref := range AnswerBlockItemCitationRefs(item) {
+			if ref < 0 || ref >= len(doc.Citations) {
+				continue
+			}
+			cit := doc.Citations[ref]
+			if cit.File != "" && cit.Line > 0 {
+				return true
+			}
 		}
 	}
 	return false
@@ -95,27 +97,35 @@ func AnswerDocumentPrincipalEvidenceView(doc *AnswerDocumentV2) AnswerPrincipalE
 			if enumItem {
 				out.PrincipalEnumerationItems++
 			}
-			if item.CitationRef < 0 {
+			refs := AnswerBlockItemCitationRefs(item)
+			if len(refs) == 0 {
 				continue
 			}
-			if item.CitationRef >= len(doc.Citations) {
+			valid := false
+			invalid := false
+			for _, ref := range refs {
+				if ref >= len(doc.Citations) {
+					invalid = true
+					continue
+				}
+				citation := doc.Citations[ref]
+				if citation.File == "" || citation.Line <= 0 {
+					invalid = true
+					continue
+				}
+				valid = true
+			}
+			if invalid {
 				out.InvalidCitations++
 				if enumItem {
 					out.PrincipalEnumerationInvalidCitations++
 				}
-				continue
 			}
-			citation := doc.Citations[item.CitationRef]
-			if citation.File == "" || citation.Line <= 0 {
-				out.InvalidCitations++
+			if valid {
+				out.ValidCitations++
 				if enumItem {
-					out.PrincipalEnumerationInvalidCitations++
+					out.PrincipalEnumerationValidCitations++
 				}
-				continue
-			}
-			out.ValidCitations++
-			if enumItem {
-				out.PrincipalEnumerationValidCitations++
 			}
 		}
 	}

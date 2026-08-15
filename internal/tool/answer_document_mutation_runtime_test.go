@@ -2246,6 +2246,37 @@ func TestApplyAndPersistMutation_DoesNotDedupeSameLabelDifferentCitation(t *test
 	}
 }
 
+func TestAnswerBlockDedupeKeys_IncludeEveryItemCitation(t *testing.T) {
+	citations := []types.Citation{
+		{File: "pkg/shared.go", Line: 10},
+		{File: "pkg/registration.go", Line: 20},
+		{File: "pkg/name.go", Line: 30},
+	}
+	makeBlock := func(id string, secondary int) types.AnswerBlock {
+		return types.AnswerBlock{
+			ID:          id,
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:            id + "-item",
+				Label:         "JsonPlugin",
+				Text:          "registered identity and display name",
+				CandidateRole: types.AnswerCandidateRoleAgent,
+				CitationRef:   0,
+				CitationRefs:  []int{secondary},
+			}},
+		}
+	}
+	registration := makeBlock("registration", 1)
+	name := makeBlock("name", 2)
+	if got, want := exactVisibleAnswerBlockDedupeKey(registration, citations), exactVisibleAnswerBlockDedupeKey(name, citations); got == want {
+		t.Fatalf("exact visible dedupe key dropped secondary evidence: %q", got)
+	}
+	if got, want := semanticPrincipalAnswerBlockDedupeKey(registration, citations), semanticPrincipalAnswerBlockDedupeKey(name, citations); got == want {
+		t.Fatalf("semantic principal dedupe key dropped secondary evidence: %q", got)
+	}
+}
+
 func TestApplyAndPersistMutation_DoesNotSemanticallyDedupeNonPrincipalBlocks(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{

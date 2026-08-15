@@ -9,7 +9,7 @@ import "strings"
 // catalog: visible list prose and block-level evidence annotations are sibling
 // lanes, and confusing them can otherwise turn an enum such as "call_edge"
 // into user-visible answer text.
-const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref); evidence annotations use blocks[i].claim_uses[] at block level. Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
+const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref/citation_refs); evidence annotations use blocks[i].claim_uses[] at block level. Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
 
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
@@ -590,8 +590,59 @@ type AnswerBlockItem struct {
 
 	// CitationRef is a zero-based index into AnswerDocumentV2.
 	// Citations, or -1 when no citation backs this item. Renderer
-	// resolves the index to a (file, line) cite at render time.
+	// resolves the index to a (file, line) cite at render time. It remains
+	// the backwards-compatible primary anchor when CitationRefs also exists.
 	CitationRef int `json:"citation_ref,omitempty"`
+
+	// CitationRefs carries additional independently grounded anchors for the
+	// same visible item. It is needed when one row states several typed facts
+	// (for example a binding site and the bound value's definition site).
+	// The primary CitationRef is not repeated here after normalization.
+	CitationRefs []int `json:"citation_refs,omitempty"`
+}
+
+// AnswerBlockItemCitationRefs returns every citation index carried by an item
+// in stable primary-first order. Duplicate and negative refs are omitted. This
+// is the shared read contract for renderers, pool remappers, and validators;
+// callers must not infer extra anchors from item prose or table headings.
+func AnswerBlockItemCitationRefs(item AnswerBlockItem) []int {
+	out := make([]int, 0, 1+len(item.CitationRefs))
+	seen := make(map[int]bool, 1+len(item.CitationRefs))
+	appendRef := func(ref int) {
+		if ref < 0 || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+	appendRef(item.CitationRef)
+	for _, ref := range item.CitationRefs {
+		appendRef(ref)
+	}
+	return out
+}
+
+// SetAnswerBlockItemCitationRefs canonicalizes a citation set onto the legacy
+// primary slot plus the additional-ref slice. It never creates a reference;
+// callers supply refs derived from the structured item carrier.
+func SetAnswerBlockItemCitationRefs(item *AnswerBlockItem, refs []int) {
+	if item == nil {
+		return
+	}
+	item.CitationRef = CitationRefUnset
+	item.CitationRefs = nil
+	seen := make(map[int]bool, len(refs))
+	for _, ref := range refs {
+		if ref < 0 || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		if item.CitationRef == CitationRefUnset {
+			item.CitationRef = ref
+			continue
+		}
+		item.CitationRefs = append(item.CitationRefs, ref)
+	}
 }
 
 // AnswerDiagramBlock is the payload for BlockDiagram blocks. It
