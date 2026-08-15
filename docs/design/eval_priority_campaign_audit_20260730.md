@@ -36602,6 +36602,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.874 r531：关系顺序与静态复核生产闭环；成文反馈瀑布新 gap（2026-08-15）
+
+1. 在 `main@ba13bd660` 重建后严格并发恰好两个案例：
+   `sr_java_call_chain + github_issue_chrono_duration_min`。Runner `0/2 PASS`，人工均为 partial；详见
+   `eval/parallel_selected_summary_evalcampaign_java_rustwrite_r531_20260815_manual_audit.md`。两案 113s/235s 正常完成，
+   无空答案、JSON salvage、Mermaid 语法降级或 fixed-age stream fallback。
+2. B855 获生产正证。Java copy-ready skeleton 从 `VisitController.create` 开始，经 `VisitService.schedule`，其三个 sibling
+   call 严格按 source line 17/18/21 排列，最后到 `AuditLog.record`；body 与 `edge_anchors_json` 同序且五条边集合/方向不变。
+   模型最终图也保持该业务阅读顺序，r530 的 terminal-first 倒序未复现。
+3. B856 获生产正证。Rust 本轮一个 plan 即完成正确实现，只运行一次 verifier；既有 batch 完成后没有
+   `cumulative_actual_diff_review_followup`、report reset 或第二 verifier generation。系统把模型的 all_verified 终结请求直接
+   收窄为 `production_verification_source_static_only / accept_unverified`。墙钟由 r530 的 388s 降至 235s；性能收益来自删除无增量
+   批，不是降低 proof caliber。没有 Cargo/native runner 的事实仍诚实披露。
+4. 新确认 `B857-ANSWERDOCVALIDATIONWATERFALL1/P1`。Java 首稿已经同时存在两类结构问题：请求的 class/method 表格维度未显式携带，
+   以及模型把五条 `edge_anchors` 放在 ordered-list block、diagram block 本身无锚。首个 emit 只返回 dimension midloop hint；模型第二轮
+   只替换列表后，工具才首次暴露已存在的 diagram-local anchor violation，并立即停轮。可修草稿因此以未通过状态出厂。
+5. 这里有两个系统层风险，不能归成单次模型波动：验证反馈被 producer 顺序串行化，同一 draft 的独立 typed violations 未同轮聚合；
+   通用 block schema 又允许非 diagram block 携 `edge_anchors`，而语义合同要求 anchor 与可见 diagram body 同块所有。最优方案应让
+   block ownership 在 schema/shape teaching 中单义，并在一次失败响应中合并同稿所有已知 precise violations；不得由系统把 anchors
+   搬块、补边、删图或重写模型答案，也不得扫用户/答案 prose。
+6. Java 的 stdout durability 负边界仍未写出，runner FAIL 合理；源码证据和 soft teaching 已足够，本轮不按 `System.out`/“落库”词形
+   增加硬门。先用异构案例观察 B857 是否跨图族/非图合同复现，再决定施工，避免围绕一个模型草稿过拟合。
+7. 本轮不改 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持；邻近/背景
+   仅支持，系统不代写模型答案、图关系或结论。
+
+状态：
+
+`B855-SEQUENCEEVIDENCESLICEORDER1=production-closed-r531`；
+`B856-SOURCESTATICVERIFYREPEAT1=production-closed-r531`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-confirmed/needs-heterogeneous-replay`；
+`java-stdout-durability-boundary=model-authoring-partial/no-prose-hard-gate`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r531`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
