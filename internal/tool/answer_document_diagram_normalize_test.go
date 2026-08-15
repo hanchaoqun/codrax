@@ -225,6 +225,46 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPartialTopologyFail
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesSkipsFullyIdentifiedWideSymmetricComponent(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "identified-wide-star", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n"},
+	}}}
+	recipes := make([]types.DiagramEdgeAnchor, 0, 12)
+	for i := 0; i < 12; i++ {
+		leaf := "leaf" + string(rune('a'+i))
+		doc.Blocks[0].Diagram.Body += "  root->>" + leaf + ": call\n"
+		anchor := types.DiagramEdgeAnchor{
+			FromNode: "root", ToNode: leaf,
+			FromIdentity: "Analyzer.buildAnalysisIR", ToIdentity: "Analyzer.helper." + leaf,
+			RelationKind: types.DiagramRelCall,
+		}
+		doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, anchor)
+		recipe := anchor
+		recipe.FromNode = "typed-root"
+		recipe.ToNode = "typed-" + leaf
+		recipes = append(recipes, recipe)
+	}
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 {
+		t.Fatalf("fully identified component must bypass optional topology repair: fixed=%d", fixed)
+	}
+}
+
+func TestDiagramComponentIsomorphismsWideSymmetryExhaustionFailsClosed(t *testing.T) {
+	modelEdges := make([]diagramModelAnchorEdge, 0, 12)
+	recipeEdges := make([]diagramTypedRecipeEdge, 0, 12)
+	for i := 0; i < 12; i++ {
+		leaf := "leaf" + string(rune('a'+i))
+		modelEdges = append(modelEdges, diagramModelAnchorEdge{from: "root", to: leaf, relation: types.DiagramRelCall})
+		recipeEdges = append(recipeEdges, diagramTypedRecipeEdge{from: "typed-root", to: "typed-" + leaf, relation: types.DiagramRelCall})
+	}
+	model := diagramModelAnchorComponents(modelEdges)[0]
+	recipe := diagramTypedRecipeComponents(recipeEdges)[0]
+	if mappings, exhaustive := diagramComponentIsomorphisms(model, modelEdges, recipe, recipeEdges); exhaustive || len(mappings) != 0 {
+		t.Fatalf("budget exhaustion must discard partial mappings: exhaustive=%t mappings=%d", exhaustive, len(mappings))
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesFailsClosed(t *testing.T) {
 	newDoc := func() *types.AnswerDocumentV2 {
 		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

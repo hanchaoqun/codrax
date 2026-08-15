@@ -36855,6 +36855,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.881 r535：required 合同正证；patch 基座失明与拓扑同构爆炸（2026-08-15）
+
+1. 在 `main@380d9c5fb` 重建后严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + qf_sequence_analyzer_gate`。Runner `0/2`：read 在 495s 后
+   `degraded_answer_checks_skipped`，QF 在 1201s 超时；人工 `0/2`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_required_diagrams_r535_20260815_manual_audit.md`。
+2. B860 获生产正证：Analyzer 的 required dimension 在重试后仍把 sibling DiagramHint 提升为 required；Finalizer 没再把图称为
+   optional，也没有授权模型删除用户必需图。该合同一致化方向正确。
+3. B857 由观察升级为 P0 confirmed。read 首稿经确定性结构拆分产生派生 ID `table-stage-detail_diagram`，后续 patch 指令只抽象说明
+   `replace/add/remove/unchanged`，未告诉模型当前 rejected draft 的精确 block ID/kind 清册。模型因此连续新增/保留到三个 diagram
+   block；六次校验都报告“最大 1、当前 3”，却没有给出可操作的三图 ID。最终降级稿仍带三张图与未证调用关系。最优修复是把
+   typed patch base 的活动 block roster 和 diagram 子清册交给修补轮；系统不得自行删图、合并正文或替模型选择保留项。
+4. QF 暴露新的 `B862-DIAGRAMTOPOLOGYISOMORPHISMBUDGET1/P0`。模型第 3 轮 patch 已为 17 条 call anchor 提供完整 endpoint
+   identity，本地可选 normalizer 仍对 `buildAnalysisIR` 指向 12 个同签名叶节点的星形图枚举同构。进程持续单核约 100%、RSS
+   约 1.4GB；sample 栈稳定落在 `diagramComponentIsomorphisms` 递归，最终由 1200s runner timeout 终止。这是确定性阶乘爆炸，
+   不是模型或 provider 波动。
+5. B862 的泛化不变量：完整 identity component 没有修复任务，必须直接跳过；确有缺口时，拓扑枚举受确定性 visit budget 约束；
+   预算耗尽必须丢弃本次全部 partial mapping、返回 no-repair，由既有证据校验继续 fail-closed。禁止用先找到的映射铸造权威。
+6. 本轮没有 Trace 案例；Trace 显式窗、因果投影、自动补齐、链上-only 主因、实际占时/业务线索与规则可消除量双轴均未改。
+   active stream 也没有 4ms/4s/4m 或固定总年龄降级。
+
+状态：
+
+`r535 machine=0/2; human=0/2`；
+`B860-DIAGRAMREQUIREDCONTRACTCONSISTENCY1=production-positive`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P0-confirmed/typed-patch-base-roster-needed`；
+`B862-DIAGRAMTOPOLOGYISOMORPHISMBUDGET1=P0-confirmed/in-development`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
+### §123.882 B862：可选拓扑身份修复预算化（2026-08-15）
+
+1. `normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology` 现在先检查 component 是否真有空 identity pair；若全部 anchor 已有完整
+   pair，直接跳过。r535 的 17-anchor 形不再为已知信息执行无意义同构枚举。
+2. `diagramComponentIsomorphisms` 增加固定 visit budget，并显式返回 `exhaustive`。任何 recipe component 超预算时，调用者放弃整个
+   model component 的本轮修复；已收集 mapping 不进入 candidate，也不会产生半认证 endpoint identity。小规模唯一拓扑的既有
+   修复能力保持。
+3. 两条回归 pin 覆盖宽对称星形：12 叶、identity 已完整时同步返回零修复；identity 缺失时预算耗尽返回
+   `mappings=0, exhaustive=false`。这解决一类对称关系图的 CPU/内存爆炸，不按 qf case、语言、函数名或显示标签拟合。
+4. 改动仅限 emit 前的可选 typed metadata normalizer；不扫描用户/模型/终稿正文，不改 Mermaid body，不删除模型 block，不生成
+   relation/答案/结论。Trace 和 active-stream 终止语义均未触碰。
+
+状态：
+
+`B862-DIAGRAMTOPOLOGYISOMORPHISMBUDGET1=implemented/skip-complete+bounded-exhaustive-fail-closed`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P0-confirmed/next-batch`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

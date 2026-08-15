@@ -185,6 +185,12 @@ type diagramRelationComponent struct {
 
 type diagramIdentityPair struct{ from, to string }
 
+// Topology identity repair is an optional, fail-closed metadata recovery path.
+// Keep its search bounded so a wide symmetric component cannot turn a finalizer
+// validation pass into factorial CPU and memory growth. Exhausting this budget
+// means "no repair", never "use the mappings found so far".
+const diagramComponentIsomorphismVisitBudget = 16384
+
 // normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology is the alias-safe
 // continuation of the exact-node fast path above. It reads only model-authored
 // edge anchors plus parsed visible edge topology and the dispatch-scoped typed
@@ -221,6 +227,7 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 		for _, component := range diagramModelAnchorComponents(modelEdges) {
 			// One-sided identity is a model-authored conflict, not an omission.
 			partial := false
+			needsRepair := false
 			for _, edgeIndex := range component.edgeIndex {
 				anchor := modelEdges[edgeIndex].anchor
 				fromSet := strings.TrimSpace(anchor.FromIdentity) != ""
@@ -229,17 +236,29 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 					partial = true
 					break
 				}
+				if !fromSet {
+					needsRepair = true
+				}
 			}
-			if partial {
+			// Fully identified components have nothing for this normalizer to do.
+			// In particular, do not enumerate their topology merely to rediscover
+			// endpoint identities that the model already supplied.
+			if partial || !needsRepair {
 				continue
 			}
 			candidates := make(map[int]map[diagramIdentityPair]bool)
 			mappingCount := 0
+			exhaustive := true
 			for _, recipeComponent := range recipeComponents {
 				if len(component.nodes) != len(recipeComponent.nodes) || len(component.edgeIndex) != len(recipeComponent.edgeIndex) {
 					continue
 				}
-				for _, mapping := range diagramComponentIsomorphisms(component, modelEdges, recipeComponent, recipeEdges) {
+				mappings, complete := diagramComponentIsomorphisms(component, modelEdges, recipeComponent, recipeEdges)
+				if !complete {
+					exhaustive = false
+					break
+				}
+				for _, mapping := range mappings {
 					mappingCount++
 					for _, edgeIndex := range component.edgeIndex {
 						modelEdge := modelEdges[edgeIndex]
@@ -254,7 +273,7 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 					}
 				}
 			}
-			if mappingCount == 0 {
+			if !exhaustive || mappingCount == 0 {
 				continue
 			}
 			for _, edgeIndex := range component.edgeIndex {
@@ -356,12 +375,22 @@ func diagramIntSliceContains(values []int, target int) bool {
 	return false
 }
 
-func diagramComponentIsomorphisms(model diagramRelationComponent, modelEdges []diagramModelAnchorEdge, recipe diagramRelationComponent, recipeEdges []diagramTypedRecipeEdge) []map[string]string {
+func diagramComponentIsomorphisms(model diagramRelationComponent, modelEdges []diagramModelAnchorEdge, recipe diagramRelationComponent, recipeEdges []diagramTypedRecipeEdge) ([]map[string]string, bool) {
 	var out []map[string]string
 	mapping := make(map[string]string, len(model.nodes))
 	used := make(map[string]bool, len(recipe.nodes))
+	visits := 0
+	exhaustive := true
 	var visit func(int)
 	visit = func(at int) {
+		if !exhaustive {
+			return
+		}
+		visits++
+		if visits > diagramComponentIsomorphismVisitBudget {
+			exhaustive = false
+			return
+		}
 		if at == len(model.nodes) {
 			if diagramMappedComponentMatches(model, modelEdges, recipe, recipeEdges, mapping) {
 				copyMapping := make(map[string]string, len(mapping))
@@ -385,7 +414,10 @@ func diagramComponentIsomorphisms(model diagramRelationComponent, modelEdges []d
 		}
 	}
 	visit(0)
-	return out
+	if !exhaustive {
+		return nil, false
+	}
+	return out, true
 }
 
 func diagramNodeRelationSignatureEqual(modelNode string, model diagramRelationComponent, modelEdges []diagramModelAnchorEdge, recipeNode string, recipe diagramRelationComponent, recipeEdges []diagramTypedRecipeEdge) bool {
