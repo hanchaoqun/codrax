@@ -34,6 +34,12 @@ const rootCauseRankRemainderSideCap = 8
 // cap, same overflow disclosure through the side-row caveat counts.
 const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 
+// B829: relation-only semantic work has a dedicated bounded side lane. The
+// host_wakeup_edge_pre_span basis preserves an exact raw occupancy/business
+// clue but has effective=0, so it must neither consume a candidate seat nor
+// evict target-state/data-gap disclosures from their older shared cap.
+const rootCauseRankRelationSemanticSideCap = 8
+
 // rootCauseRankSelfSideCap bounds the ELIM-SELF-FIX 件2 selfSide sub-lane
 // (§29.93.1 Form-2 + §29.93.3 全族收编, 2026-07-15): in a degenerate window
 // (no cross-thread chain) the sort is channel-blind and the candidate cap
@@ -384,6 +390,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	// self-symptom/context disclosures out of the shared cap (donghu witness:
 	// the pacing_idle context row evicted by two IO caliber rows).
 	caliberSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
+	relationSemanticSide := make([]RootCauseRankItem, 0, rootCauseRankRelationSemanticSideCap)
 	remainderSide := make([]RootCauseRankItem, 0, rootCauseRankRemainderSideCap)
 	demotedSide := make([]RootCauseRankItem, 0, rootCauseRankDemotedSideCap)
 	for _, item := range items {
@@ -414,6 +421,9 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			sideTotal++
 			if item.Type == "trace_gap" {
 				gapSide = append(gapSide, item)
+			} else if item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge &&
+				rootCauseItemIsSemanticSpanWork(item) && rootCauseEffectiveImpactMs(item) <= 0 {
+				relationSemanticSide = append(relationSemanticSide, item)
 			} else if rootCauseOrdinalChannel(item) != rootCauseOrdinalChannelBackground &&
 				CausalTokenCaliberSideClass(item.Type) != CausalCaliberSideNone {
 				caliberSide = append(caliberSide, item)
@@ -485,6 +495,10 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	if len(caliberSide) > 0 {
 		caliberLimit := min(rootCauseRankZeroSeatDisclosureCap, len(caliberSide))
 		side = append(side, caliberSide[:caliberLimit]...)
+	}
+	if len(relationSemanticSide) > 0 {
+		relationLimit := min(rootCauseRankRelationSemanticSideCap, len(relationSemanticSide))
+		side = append(side, relationSemanticSide[:relationLimit]...)
 	}
 	if len(remainderSide) > 0 {
 		remainderLimit := min(rootCauseRankRemainderSideCap, len(remainderSide))

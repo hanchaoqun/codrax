@@ -36585,6 +36585,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.834 B829：宿主唤醒边只作关系凭证；原始语义占用与规则可消除量彻底分账（2026-08-15）
+
+1. 对 r506 的真实时序复核确认不是模型随机波动。目标在 `5.005000s` 被唤醒，而宿主的
+   `VerifyClass` span 到 `5.005400s` 才结束；旧规则却把边前 `4.600ms` 直接写入
+   `effective_impact_ms`，再由排序、P3 反事实量测、投影折叠和成文表格共同加冕。由于完成时刻晚于
+   唤醒时刻，“语义完成触发唤醒/目标等待该完成”在该 witness 上物理不可能成立。
+2. 根修没有删除 span 或业务语义，也没有把它降为邻近/背景。共享 typed closed set 现在明确区分：
+   `exact chain/window intersection` 和 `target-self deterministic` 可继续发布正的规则可消除量；
+   `host_wakeup_edge_pre_span` 只证明宿主与目标存在真实唤醒关系，并给出精确的边前原始占用边界，
+   不能单凭这条边证明目标等待语义完成。该形保留 `projected/cumulative/raw span`、span 名、类别、
+   行号、边时刻、业务线索和链上关系，但 `effective=0/rank=0/context-only`。
+3. 单 span、同线程语义 family 和跨边 remainder 三个生产入口统一使用同一判据：关系型 span 不再获得
+   sort boost、score、根因序数或正值 effective；跨边的前后两半都只保留原始占用账，不能从 remainder
+   侧重新进入邻近可消除榜。宿主 `runnable/D-IO` 状态席使用独立
+   `host_wakeup_edge_pre_state` basis，仍按真实状态段清单的边前份计价，未被一刀切。
+4. P3 counterfactual 量测增加同一 typed basis 早门，防止后置量测把已经归零的语义席重新铸成正毫秒。
+   容量层为关系型语义线索建立独立有界 side lane（cap=8）：它不消耗根因候选席，也不再挤掉
+   target-state/data-gap 披露；多板真实报告因此诚实多保留一条“链上但未计入等待归因”的原始线索，
+   最大根因值和榜位均不变。
+5. wire 端显式发布 `effective_impact_ms=0.000`。投影编译端同时把
+   `on_chain_basis=host_wakeup_edge_pre_span` 设为更强 authority：旧缓存即使没有显式零值，或残留错误
+   正值，也统一归一为 published zero；原始 `ImpactMS/CumulativeImpactMS/SemanticChainProjectedMS`
+   原样保留。该兼容只读 schema-valid enum，不读 summary、用户原文、模型草稿或最终答案。
+6. 成文四面收敛到同一 typed 判据：树面继续显示原始 span 和“仅关系凭证，语义完成/延迟机理未证”；
+   明细表不再从 raw/projected 回填有效归因；确定性优化表显示“窗内 span 墙钟 0.285ms / 规则可消除
+   0.000ms”；因果位置写“优化项，非根因”，不再写“链上参与根因排序”。系统只补充精确数据与口径，
+   未删除、替换或代写模型结论。
+7. 真实 tieba R3 sentinel、r506 同形 `5.000400..5.005400s` span、family、跨边二分、旧缓存缺零值、
+   stale positive effective、P3 防复活、容量隔离和中英双面均有正负 pin。精确链交集、自身确定性工作、
+   宿主状态席的正值控制组保持原语义；`internal/tracequery + internal/types` 全包通过，
+   `internal/tool` 全包通过（164.085s），Description golden 按仓库 ritual 重签并记录变更范围。
+8. 该批保留显式时间窗 Trace 因果投影和系统自动补齐；链上根因仍覆盖优先级反转、调度延迟/供给不足、
+   算力供给、D/IO、精确绑定的确定性语义及链上业务线索。实际占用/新修向与现有规则可消除量继续是
+   两个独立维度；邻近/背景只能支撑额外排查。活跃字节流终止权未改，4ms/4s/4m 均不能触发固定年龄
+   降级。
+
+状态：
+
+`B829-TRACESEMANTICBINDINGAUTH1=implemented/full-package-regression-pass/production-replay-required`；
+`B828-REPLANCURRENTSTATEHANDOFF1=confirmed/P1/next-write-batch`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-only`；
+`raw-occupancy/rule-priced-eliminable=separate`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

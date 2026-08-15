@@ -18880,7 +18880,18 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	// (RankSortBoostedEffectiveMs → rootCauseEffectiveImpactMs / Score), so the
 	// row's competitive strength is unchanged while no boosted ms ever leaves
 	// the engine as a value or a token.
-	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, span)
+	publishedEffectiveMs := projection.ImpactMs
+	if projection.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
+		// B829: the typed host edge is a relation credential, not proof that
+		// the target waited for this semantic span's completion. Preserve the
+		// exact pre-edge occupancy, span identity and business optimization
+		// lead, but do not price it into the root-cause election.
+		publishedEffectiveMs = 0
+	}
+	sortBoostedMs := 0.0
+	if publishedEffectiveMs > 0 {
+		sortBoostedMs = semanticTraceSpanEffectiveImpactMs(work, projection, span)
+	}
 	// DCS E4: a boundary-straddling span was minted from its window-clipped
 	// extent; the actual_* lanes carry the physical B/E extent when present.
 	actualStartTs, actualEndTs, actualMs := span.StartTs, span.EndTs, span.DurationMs
@@ -18888,7 +18899,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		actualStartTs, actualEndTs, actualMs = span.ActualStartTs, span.ActualEndTs, span.ActualDurationMs
 	}
 	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; effective_impact=%.3fms; actual_span=%.3fms window=%.6f..%.6f",
-		semanticSpanLabelWithCacheOutcome(work.Label, span.Subcategory), span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, projection.ImpactMs, actualMs, actualStartTs, actualEndTs)
+		semanticSpanLabelWithCacheOutcome(work.Label, span.Subcategory), span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, publishedEffectiveMs, actualMs, actualStartTs, actualEndTs)
 	if projection.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
 	}
@@ -18904,8 +18915,8 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item.CumulativeImpactMs = projection.ImpactMs
 	// SEM-LEAD (§29.7-2 ②): published effective = real projection; boost stays
 	// on the internal sort channel only.
-	item.EffectiveImpactMs = projection.ImpactMs
-	if sortBoostedMs > projection.ImpactMs {
+	item.EffectiveImpactMs = publishedEffectiveMs
+	if publishedEffectiveMs > 0 && sortBoostedMs > publishedEffectiveMs {
 		item.RankSortBoostedEffectiveMs = sortBoostedMs
 	}
 	item.SpanName = span.Name
@@ -18935,7 +18946,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
 		item.HostWakeupEdgeAnchorTs = projection.EdgeAnchorBoundaryTs
 		item.HostWakeupEdgeAnchorVia = projection.EdgeAnchorVia
-		item.Summary = fmt.Sprintf("%s; edge_anchored=host→target pre-edge share (edge=credential, pre-edge=effective, post-edge=released; host's latest in-window typed wakeup edge toward the analysis target at %.6f, via=%s)",
+		item.Summary = fmt.Sprintf("%s; edge_anchored=host→target raw pre-edge occupancy (edge=relation credential; semantic completion/delay binding=unproven; host's latest in-window typed wakeup edge toward the analysis target at %.6f, via=%s)",
 			item.Summary, projection.EdgeAnchorBoundaryTs, projection.EdgeAnchorVia)
 		if projection.EdgeAnchorRemainderEndTs > projection.EdgeAnchorRemainderStartTs {
 			remMs := (projection.EdgeAnchorRemainderEndTs - projection.EdgeAnchorRemainderStartTs) * 1000
@@ -19026,8 +19037,8 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 			// R3-IMPL (§29.88.1 user ruling, 2026-07-14): the no-overlap
 			// fall-through's HOST-EDGE arm — a non-target thread's span whose
 			// host holds an in-window typed wakeup edge toward the target
-			// takes the on-chain channel for its PRE-EDGE share (边=凭证,
-			// 边前=有效,边后=解除; SCAN-3 positive sentinel: tieba 61839
+			// takes the on-chain relation channel for its PRE-EDGE raw share
+			// (effective=0 until a stronger binding; SCAN-3 positive sentinel: tieba 61839
 			// VerifyClass 0.285ms entirely before the 34579.496810 裸边).
 			// The post-edge share (if any) rides the ◇ remainder clone via
 			// the projection's remainder extent (跨边按边界二分). Spans that

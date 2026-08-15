@@ -181,7 +181,10 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.OnChainBasis = ""
 	rem.StartTs, rem.EndTs = remStart, remEnd
 	rem.ActualStartTs, rem.ActualEndTs = remStart, remEnd
-	rem.EffectiveImpactMs = remMs
+	// B829: this clone is the raw post-edge half of a host-edge semantic
+	// account. The source edge proves relation only, not semantic completion
+	// causality, so neither half may enter a priced causal election.
+	rem.EffectiveImpactMs = 0
 	rem.ProjectedImpactMs = remMs
 	rem.CumulativeImpactMs = remMs
 	rem.ActualImpactMs = remMs
@@ -193,7 +196,7 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.ChainAnchorFullMs = seat.ChainAnchorFullMs
 	rem.hostEdgeRemainderStartTs, rem.hostEdgeRemainderEndTs = 0, 0
 	rem.Score = rootCauseRankScoreBasisMs(rem) * rem.Confidence * rootCauseItemScoreWeight(rem)
-	rem.Summary = fmt.Sprintf("%s span %q post-edge remainder %.3fms window=%.6f..%.6f — the share AFTER the host's latest in-window wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; anchored pre-edge share %.3fms is seated on the chain tier; the two shares partition the span's in-window projection %.3fms exactly)",
+	rem.Summary = fmt.Sprintf("%s span %q post-edge raw-occupancy remainder %.3fms window=%.6f..%.6f — the share AFTER the host's latest in-window wakeup edge toward the analysis target (edge=relation credential; semantic completion/delay binding=unproven; anchored pre-edge raw share %.3fms and this remainder partition the span's in-window projection %.3fms exactly; effective_impact=0.000ms)",
 		firstNonEmpty(rem.SemanticClass, rem.Type), rem.SpanName, remMs, remStart, remEnd, rem.ChainAnchoredMs, rem.ChainAnchorFullMs)
 	return rem, true
 }

@@ -156,6 +156,18 @@ package tool
 // root-cause seat, note-key hard gate, or prose classifier. The r229 frame
 // case plus one heterogeneous case is the required live-eval weigh.
 //
+// EVOLUTION RECORD (B829, 2026-08-15): the existing semantic-work sentence
+// and shared closed-matrix contract are scope-corrected from blanket
+// on-chain participation to the typed authority split already emitted by the
+// engine: exact chain/window intersection and target-self deterministic work
+// may publish positive effective attribution; host_wakeup_edge_pre_span is a
+// relation-only raw-occupancy/business clue with effective=0 because the edge
+// does not prove semantic completion delayed or triggered the wakeup. No new
+// view, note key, dispatch vocabulary or hard gate is added. The real R3
+// trace sentinel plus heterogeneous positive exact-intersection/self tests
+// are the deterministic regression weigh; h2/h3 remain the live dispatch
+// follow-up in the exact-two eval campaign.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

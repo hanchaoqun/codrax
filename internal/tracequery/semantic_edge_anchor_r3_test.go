@@ -77,9 +77,11 @@ func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	if seat.Causality != "on_wakeup_chain" || seat.ChainRelevance != "on_chain" {
 		t.Fatalf("正臂 seat must speak the honest edge token on the chain channel: %+v", seat)
 	}
-	// §29.88.8 SCAN-3 value pin: the whole 0.285ms span lies pre-edge.
-	if math.Abs(seat.EffectiveImpactMs-0.285) > 0.002 || math.Abs(seat.CumulativeImpactMs-0.285) > 0.002 {
-		t.Fatalf("正臂 seat value drifted from the 0.285ms sentinel: %+v", seat)
+	// B829: the whole 0.285ms span remains as exact raw pre-edge occupancy,
+	// but the host edge alone proves no semantic completion dependency.
+	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-0.285) > 0.002 ||
+		math.Abs(seat.CumulativeImpactMs-0.285) > 0.002 || seat.Rank != 0 || seat.Tier != RootCauseTierContextOnly {
+		t.Fatalf("正臂 must preserve 0.285ms raw occupancy without pricing it: %+v", seat)
 	}
 	// The anchor boundary is the raw 裸边 line 5639 timestamp, µs-exact.
 	if math.Abs(seat.HostWakeupEdgeAnchorTs-34579.496810) > 0.0000005 {
@@ -96,8 +98,9 @@ func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("正臂 seat must not fabricate a chain-window overlap: %+v", seat)
 	}
-	if !strings.Contains(seat.Summary, "edge=credential") {
-		t.Fatalf("正臂 seat summary must speak the edge=credential language: %q", seat.Summary)
+	if !strings.Contains(seat.Summary, "edge=relation credential") ||
+		!strings.Contains(seat.Summary, "completion/delay binding=unproven") {
+		t.Fatalf("正臂 seat summary must disclose relation-only caliber: %q", seat.Summary)
 	}
 }
 
@@ -122,8 +125,8 @@ func TestR3TiebaSentinelNegativeArmAndBoundaryFlip(t *testing.T) {
 		onChainFlipped[0].OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
 		t.Fatalf("翻道 window (+0.4ms end) must seat the 61839 span on-chain: %+v", onChainFlipped)
 	}
-	if math.Abs(onChainFlipped[0].EffectiveImpactMs-0.285) > 0.002 {
-		t.Fatalf("翻道 seat value must stay the 0.285ms pre-edge projection: %+v", onChainFlipped[0])
+	if onChainFlipped[0].EffectiveImpactMs != 0 || math.Abs(onChainFlipped[0].ProjectedImpactMs-0.285) > 0.002 {
+		t.Fatalf("翻道 must preserve the 0.285ms raw pre-edge projection without pricing it: %+v", onChainFlipped[0])
 	}
 }
 
@@ -324,7 +327,7 @@ func TestR3FamilyGrainEdgeAnchorFold(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("family seat must not fabricate a chain-window overlap: %+v", seat)
 	}
-	if math.Abs(seat.EffectiveImpactMs-2.0) > 0.0005 || math.Abs(seat.ChainAnchoredMs-2.0) > 0.0005 ||
+	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-2.0) > 0.0005 || math.Abs(seat.ChainAnchoredMs-2.0) > 0.0005 ||
 		math.Abs(seat.ChainAnchorFullMs-4.0) > 0.0005 {
 		t.Fatalf("family seat bipartition drifted: %+v", seat)
 	}
@@ -338,14 +341,13 @@ func TestR3FamilyGrainEdgeAnchorFold(t *testing.T) {
 	if rem.ChainRelevance != "adjacent" || !rem.ChainAnchorRemainderSeat {
 		t.Fatalf("family remainder lane drifted: %+v", rem)
 	}
-	if math.Abs(rem.EffectiveImpactMs-2.0) > 0.0005 {
-		t.Fatalf("family remainder share drifted: %+v", rem)
+	if rem.EffectiveImpactMs != 0 || math.Abs(rem.ProjectedImpactMs-2.0) > 0.0005 {
+		t.Fatalf("family remainder must preserve raw share without pricing it: %+v", rem)
 	}
-	// 克隆值恒等式: seat + remainder == the complete member union, and both
-	// halves carry ONE full account.
-	if math.Abs(seat.EffectiveImpactMs+rem.EffectiveImpactMs-fam.TotalMs) > 0.0005 {
-		t.Fatalf("family bisection must partition the union: %.3f + %.3f != %.3f",
-			seat.EffectiveImpactMs, rem.EffectiveImpactMs, fam.TotalMs)
+	// 克隆原始账恒等式: projected pre + projected post == complete union.
+	if math.Abs(seat.ProjectedImpactMs+rem.ProjectedImpactMs-fam.TotalMs) > 0.0005 {
+		t.Fatalf("family raw bisection must partition the union: %.3f + %.3f != %.3f",
+			seat.ProjectedImpactMs, rem.ProjectedImpactMs, fam.TotalMs)
 	}
 	if math.Abs(rem.ChainAnchorFullMs-seat.ChainAnchorFullMs) > 1e-9 {
 		t.Fatalf("both family halves must carry ONE full account: %v vs %v",
@@ -393,8 +395,8 @@ func TestR3BisectedSpanMintsSeatPlusRemainder(t *testing.T) {
 		t.Fatalf("seat lane drifted: %+v", seat)
 	}
 	// Pre-edge share: 6.005..6.006 = 1.000ms of the 3.000ms span.
-	if math.Abs(seat.EffectiveImpactMs-1.0) > 0.0005 {
-		t.Fatalf("pre-edge share drifted: %+v", seat)
+	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-1.0) > 0.0005 {
+		t.Fatalf("pre-edge raw share must survive without priced attribution: %+v", seat)
 	}
 	if math.Abs(seat.ChainAnchoredMs-1.0) > 0.0005 || math.Abs(seat.ChainAnchorFullMs-3.0) > 0.0005 {
 		t.Fatalf("bipartition pair drifted: %+v", seat)
@@ -407,13 +409,13 @@ func TestR3BisectedSpanMintsSeatPlusRemainder(t *testing.T) {
 		!rem.ChainAnchorRemainderSeat || rem.OnChainBasis != "" {
 		t.Fatalf("remainder lane drifted: %+v", rem)
 	}
-	if math.Abs(rem.EffectiveImpactMs-2.0) > 0.0005 {
-		t.Fatalf("remainder share drifted: %+v", rem)
+	if rem.EffectiveImpactMs != 0 || math.Abs(rem.ProjectedImpactMs-2.0) > 0.0005 {
+		t.Fatalf("remainder raw share must survive without priced attribution: %+v", rem)
 	}
-	// Exact partition: pre + post == the span's in-window projection.
-	if math.Abs(seat.EffectiveImpactMs+rem.EffectiveImpactMs-3.0) > 0.0005 {
-		t.Fatalf("bisection must partition the span exactly: %.3f + %.3f != 3.000",
-			seat.EffectiveImpactMs, rem.EffectiveImpactMs)
+	// Exact raw partition: pre + post == the span's in-window projection.
+	if math.Abs(seat.ProjectedImpactMs+rem.ProjectedImpactMs-3.0) > 0.0005 {
+		t.Fatalf("raw bisection must partition the span exactly: %.3f + %.3f != 3.000",
+			seat.ProjectedImpactMs, rem.ProjectedImpactMs)
 	}
 	if math.Abs(rem.ChainAnchorFullMs-seat.ChainAnchorFullMs) > 1e-9 {
 		t.Fatalf("both halves must carry ONE full account: %+v vs %+v", seat.ChainAnchorFullMs, rem.ChainAnchorFullMs)
@@ -431,6 +433,53 @@ func TestR3BisectedSpanMintsSeatPlusRemainder(t *testing.T) {
 	}
 	if _, cloned := semanticEdgeAnchorRemainderSeat(preSeat); cloned {
 		t.Fatalf("a fully pre-edge seat must not clone a remainder")
+	}
+}
+
+// TestB829HostEdgeDoesNotInventSemanticCompletionCausality mirrors the
+// production failure geometry: the target wakeup happens at 5.005000 while
+// the semantic span continues until 5.005400. The host edge proves relation,
+// but time order alone cannot prove that completing the span triggered or
+// delayed the wakeup. Both raw halves survive and neither receives a priced
+// root-cause seat.
+func TestB829HostEdgeDoesNotInventSemanticCompletionCausality(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: 100}
+	host := ThreadRef{Comm: "worker", PID: 200}
+	chain := ChainResult{
+		Target: target,
+		Window: TimeWindow{StartTs: 5.000000, EndTs: 5.010000},
+		Nodes: []ChainNode{{Thread: target, Depth: 0, Branch: 1,
+			Window: TimeWindow{StartTs: 5.000000, EndTs: 5.005000}, Dominant: StateSSleep}},
+		WakeupEdgeCensus: []WakeupEdgeCensusPair{{Waker: host, Wakee: target, Count: 1,
+			FirstTs: 5.005000, LastTs: 5.005000}},
+	}
+	span := TraceSpanSummary{
+		Thread: host, Name: "VerifyClass com.example.AfterWake", Kind: "sync",
+		SemanticClass: "class_verification",
+		StartTs:       5.000400, EndTs: 5.005400, DurationMs: 5.000,
+		StartLine: 20, EndLine: 30,
+	}
+	seat, ok := rootCauseItemFromSemanticTraceSpan(
+		Query{PID: target.PID, TimeStart: 5.000000, TimeEnd: 5.010000}, chain, span, true)
+	if !ok {
+		t.Fatal("relation-only semantic observation must remain available")
+	}
+	if got, want := seat.ProjectedImpactMs, 4.600; math.Abs(got-want) > 0.0005 {
+		t.Fatalf("raw pre-edge occupancy got %.3f want %.3f", got, want)
+	}
+	if seat.EffectiveImpactMs != 0 || seat.RankSortBoostedEffectiveMs != 0 || seat.Score != 0 {
+		t.Fatalf("relation-only span must not acquire priced or boosted authority: %+v", seat)
+	}
+	rem, ok := semanticEdgeAnchorRemainderSeat(seat)
+	if !ok || math.Abs(rem.ProjectedImpactMs-0.400) > 0.0005 || rem.EffectiveImpactMs != 0 {
+		t.Fatalf("post-wakeup raw remainder must survive without priced authority: %+v ok=%v", rem, ok)
+	}
+	items := []RootCauseRankItem{seat, rem}
+	assignRootCauseRanksAndTiers(items, true, false)
+	for _, item := range items {
+		if item.Rank != 0 || item.Tier != RootCauseTierContextOnly {
+			t.Fatalf("relation-only semantic halves must stay rank-0 context: %+v", item)
+		}
 	}
 }
 

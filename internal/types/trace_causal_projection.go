@@ -14,6 +14,17 @@ const (
 	TraceCausalRoleSemanticSpan     = "semantic_span"
 )
 
+// TraceCausalOnChainBasis* is the shared closed vocabulary for the typed
+// on_chain_basis carrier.  Keep the vocabulary in types: producers, ledger
+// compilation and presentation must not each hand-copy strings whose
+// authority semantics can then drift.
+const (
+	TraceCausalOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
+	TraceCausalOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
+	TraceCausalOnChainBasisHostWakeupEdgeSpan    = "host_wakeup_edge_pre_span"
+	TraceCausalOnChainBasisHostWakeupEdgeState   = "host_wakeup_edge_pre_state"
+)
+
 const (
 	traceCausalProjectionPrimaryLimit       = 10
 	traceCausalProjectionOnChainLimit       = 24
@@ -524,15 +535,18 @@ type TraceCausalProjectionNode struct {
 	// target's own wall-clock seat admitted the same way (causality
 	// "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL §29.88.1) = a
 	// NON-target host's semantic span seated by the host's own in-window
-	// typed wakeup edge toward the target (causality keeps the honest
-	// "on_wakeup_chain" — a real edge exists; the 行2 唤醒锚定(宿主→目标)
-	// sentence forks on this token); "host_wakeup_edge_pre_state"
+	// typed wakeup edge toward the target (causality keeps the honest relation
+	// token "on_wakeup_chain"; raw pre-edge occupancy survives while
+	// effective=0 because semantic completion/delay binding is unproven; the
+	// 行2 唤醒锚定(宿主→目标) sentence forks on this token); "host_wakeup_edge_pre_state"
 	// (ONCHAIN-3c, 2026-07-19) = a NON-target, NON-chain-member host's
 	// runnable / D-IO STATE seat anchored by the same credential (value = the
 	// segment inventory's pre-edge share sum; same honest causality; the 行2
 	// sentence forks its value clause on this sibling token). Display wording
-	// input ONLY (the 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers and
-	// the R3 disclosure sentence); no gate, score or sort lane reads it.
+	// input plus the shared typed relation-only authority gate (the
+	// 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers, the R3
+	// disclosure sentence, and the host-edge span's authoritative zero
+	// effective lane); score/sort producers use the same closed token.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
@@ -1689,6 +1703,17 @@ const TraceCausalTierContextOnly = "context_only"
 // carries rank fields.
 func (n TraceCausalProjectionNode) IsContextOnlyRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierContextOnly
+}
+
+// IsHostWakeupEdgeRelationOnlySemantic reports the exact typed authority
+// shape where a host's wakeup edge proves relation and a pre-edge raw
+// occupancy boundary, but does not prove that semantic completion delayed or
+// caused the target wakeup.  Consumers must preserve the raw span/business
+// clue while keeping effective attribution and root-election participation at
+// zero.  The single on_chain_basis field is authoritative; no prose, subject
+// name, semantic class or timing heuristic is recomposed here.
+func (n TraceCausalProjectionNode) IsHostWakeupEdgeRelationOnlySemantic() bool {
+	return strings.TrimSpace(n.OnChainBasis) == TraceCausalOnChainBasisHostWakeupEdgeSpan
 }
 
 // TraceCausalTierCaliberSide mirrors tracequery.RootCauseTierCaliberSide
@@ -3996,6 +4021,17 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// the emit side keeps its note untouched (other consumers).
 	node.EffectiveImpactPublished = !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") &&
 		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact, TraceNoteKeyEffectiveImpactScore)
+	// B829: on_chain_basis is the stronger typed authority.  Older cached
+	// semantic observations may carry the relation-only basis plus a raw
+	// projected_impact but predate the explicit effective_impact_ms=0.000
+	// carrier.  Normalize both old and new records here so no presentation
+	// fallback can reinterpret raw pre-edge occupancy as eliminable impact.
+	// A stale positive effective note also loses to this closed basis: the edge
+	// proves relation, not semantic-completion causality.
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		node.EffectiveImpactMS = 0
+		node.EffectiveImpactPublished = true
+	}
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// same strict window parser as every window-valued note (malformed notes

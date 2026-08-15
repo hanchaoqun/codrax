@@ -324,7 +324,8 @@ const (
 	// semanticSpanLaneChainEdgeAnchored (R3-IMPL, §29.88.1 user ruling
 	// 2026-07-14): a NON-target host's span admitted by the host's own
 	// in-window typed wakeup edge toward the target, its pre-edge share
-	// carrying the participation (边=凭证,边前=有效,边后=解除). The FOURTH
+	// carrying raw occupancy (relation credential; effective attribution is
+	// zero until a stronger binding exists). The FOURTH
 	// lane value — the three on-chain calibers (overlap / self union /
 	// pre-edge projection) never cross-fold.
 	semanticSpanLaneChainEdgeAnchored
@@ -690,7 +691,20 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// intersection union (see the FoldSemanticSpanFamilies OnChain record
 	// above); full-overlap families — the §29.22 textup 102.172 witness —
 	// are byte-identical because there intersection == union.
-	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
+	// B829: a host-owned wakeup edge proves that this thread is related to the
+	// target and gives the pre-edge span a precise raw-occupancy boundary.  It
+	// does NOT prove that the target waited for this semantic operation to
+	// finish (or that finishing it triggered the wakeup).  Keep the raw
+	// projection and business identity, but publish no eliminable attribution
+	// until an exact chain-window intersection or target-self basis exists.
+	publishedEffectiveMs := participationMs
+	if edgeBasis {
+		publishedEffectiveMs = 0
+	}
+	sortBoostedMs := 0.0
+	if publishedEffectiveMs > 0 {
+		sortBoostedMs = semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
+	}
 	// SHADERCACHE-1: the family label speaks the proven cache outcome (the
 	// key split guarantees a uniform outcome across members).
 	familyLabel := semanticSpanLabelWithCacheOutcome(work.Label, rep.Subcategory)
@@ -701,8 +715,8 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	} else if edgeBasis {
 		// R3-IMPL: the R4-family edge=credential wording — the participation
 		// is the pre-edge share, the complete union stays disclosed.
-		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms as the pre-edge share before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms raw pre-edge occupancy before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=relation credential; semantic completion/delay binding=unproven; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=0.000ms; fold_caliber=%s",
+			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.FoldCaliber)
 	} else if fam.OnChain {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
@@ -738,8 +752,8 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	item.CumulativeImpactMs = fam.TotalMs
 	// SEM-LEAD (§29.7-2 ②): published effective = the real causal projection;
 	// the boost rides the internal sort channel only.
-	item.EffectiveImpactMs = participationMs
-	if sortBoostedMs > participationMs {
+	item.EffectiveImpactMs = publishedEffectiveMs
+	if publishedEffectiveMs > 0 && sortBoostedMs > publishedEffectiveMs {
 		item.RankSortBoostedEffectiveMs = sortBoostedMs
 	}
 	item.SpanName = rep.Name

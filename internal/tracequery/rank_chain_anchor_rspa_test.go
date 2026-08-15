@@ -576,8 +576,11 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	}{
 		"fscache_page_wait_o": {7.386, true, true},
 		"":                    {10.433, true, true},
-		"hmfs_get_dnode":      {0.171, false, false},
-		"hmfs_read":           {0.145, false, false},
+		// B829 frees one candidate slot by removing relation-only semantic
+		// work from the priced election; the next legitimate off-chain D-state
+		// disclosure now survives the fixed cap.
+		"hmfs_get_dnode": {0.171, false, true},
+		"hmfs_read":      {0.145, false, false},
 	}
 	sum := 0.0
 	for cause, expect := range want {

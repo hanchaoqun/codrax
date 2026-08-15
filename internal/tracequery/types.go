@@ -3826,7 +3826,7 @@ const RootCauseChainRelevanceSelfCaliberSide = "self_caliber_side"
 // never by chain-window overlap. The row's Causality carries
 // RootCauseCausalitySelfDeterministic; the wakeup edge set is untouched
 // (不铸唤醒边不宣称跨线程关系).
-const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
+const RootCauseOnChainBasisSelfDeterministicSpan = types.TraceCausalOnChainBasisSelfDeterministicSpan
 
 // RootCauseOnChainBasisSelfWallClockInterval (SELF-ALL, §29.61.2/§29.61.2a
 // user rulings 2026-07-13, extending §29.61.1): the SECOND non-empty member of
@@ -3842,7 +3842,7 @@ const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
 // §29.61.2a effective-attribution ladder explicitly includes the target's own
 // RUNNING seats (supply-fold caliber) — "blocking" would be a false claim on
 // those rows, so the honest interval-scoped token is used instead.
-const RootCauseOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
+const RootCauseOnChainBasisSelfWallClockInterval = types.TraceCausalOnChainBasisSelfWallClockInterval
 
 // RootCauseOnChainBasisHostWakeupEdge (R3-IMPL, §29.88.1 user ruling
 // 2026-07-14, ledger real_trace_campaign_20260705.md; R4 §29.88.2 通则):
@@ -3851,16 +3851,19 @@ const RootCauseOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
 // the HOST thread's own in-window typed wakeup edge toward the analysis
 // target (direct raw census edge host→target, or the host's own chain edge —
 // 凭证沿链传递, the 60595 depth-2 multi-hop form), with the span lying BEFORE
-// that edge (边=凭证,边前=有效,边后=解除 — the R2/RSPA anchoring semantics
-// shared verbatim). The participation value is the pre-edge in-window
-// projection; a span crossing the edge bisects at the boundary (pre-edge part
-// stays on this seat, the post-edge part rides a ◇ ChainAnchorRemainderSeat
+// that edge. This basis proves relation and an exact raw pre-edge occupancy
+// boundary; it does NOT prove that the target waited for semantic completion
+// or that completion caused the wakeup. The pre-edge projection therefore
+// stays on projected/cumulative/raw lanes while effective_impact is zero; a
+// crossing span bisects at the boundary (the raw pre-edge part stays on this
+// context seat, the raw post-edge part rides a ◇ ChainAnchorRemainderSeat
 // clone). No credential edge → the span keeps the legacy adjacent/background
 // lane byte-identically (SCAN-3 negative sentinel; the donghu 17267 decoy pin:
 // a span straddling SOMEONE ELSE's edge earns nothing — the credential is the
 // host's OWN edge, never window co-presence). Causality carries the honest
-// "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists).
-const RootCauseOnChainBasisHostWakeupEdge = "host_wakeup_edge_pre_span"
+// "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists),
+// while rank=0/context_only follows from the zero effective attribution.
+const RootCauseOnChainBasisHostWakeupEdge = types.TraceCausalOnChainBasisHostWakeupEdgeSpan
 
 // RootCauseOnChainBasisHostWakeupEdgeState (ONCHAIN-3c — R3 凭证臂扩射程到
 // 状态席, mint audit 反向缺口5, 2026-07-19): the FOURTH non-empty member of
@@ -3884,7 +3887,7 @@ const RootCauseOnChainBasisHostWakeupEdge = "host_wakeup_edge_pre_span"
 // dio 3.550ms + runnable 0.370ms pre-edge shares had no door onto the chain
 // tier while its semantic span already rode the span basis. Causality
 // carries the honest "on_wakeup_chain" (a REAL typed edge exists).
-const RootCauseOnChainBasisHostWakeupEdgeState = "host_wakeup_edge_pre_state"
+const RootCauseOnChainBasisHostWakeupEdgeState = types.TraceCausalOnChainBasisHostWakeupEdgeState
 
 // Closed set for RootCauseRankItem.HostWakeupEdgeAnchorVia (R3-IMPL): which
 // typed edge inventory supplied the credential. Disclosure wording input only.
@@ -4466,11 +4469,13 @@ type RootCauseRankItem struct {
 	//                               HOST holds an in-window typed wakeup edge
 	//                               toward the target (direct or via its own
 	//                               chain edge), the span lying BEFORE that
-	//                               edge (边=凭证,边前=有效,边后=解除); the
-	//                               participation value is the pre-edge
-	//                               in-window projection. Causality carries the
-	//                               honest "on_wakeup_chain" (a REAL typed edge
-	//                               exists, unlike the self bases).
+	//                               edge. The pre-edge in-window projection is
+	//                               retained as raw occupancy/business evidence;
+	//                               effective_impact is zero because the edge
+	//                               does not prove semantic completion/delay
+	//                               causality. Causality carries the honest
+	//                               relation token "on_wakeup_chain" (a REAL
+	//                               typed edge exists, unlike the self bases).
 	//   "host_wakeup_edge_pre_state" — ONCHAIN-3c (R3 射程扩展, 2026-07-19): a
 	//                               NON-target, NON-chain-member thread's
 	//                               runnable / D-IO STATE seat anchored by the
@@ -5011,7 +5016,8 @@ type SemanticSpanFamily struct {
 	// Remainder pair is the post-boundary (边后) member-union extent — the
 	// mint loop clones the ◇ remainder seat from it; zero-width when every
 	// member lies fully pre-edge. ProjectedImpactMs on this lane carries the
-	// pre-edge in-window union (the participation value, 边前段窗内投影).
+	// raw pre-edge in-window union; the rank item's EffectiveImpactMs is zero
+	// until a stronger exact intersection/self semantic basis exists.
 	EdgeAnchorBoundaryTs       float64 `json:"edge_anchor_boundary_ts,omitempty"`
 	EdgeAnchorVia              string  `json:"edge_anchor_via,omitempty"`
 	EdgeAnchorRemainderMs      float64 `json:"edge_anchor_remainder_ms,omitempty"`

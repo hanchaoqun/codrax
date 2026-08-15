@@ -7121,6 +7121,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 // render unavailable — raw span wall time is an observation axis, not a safe
 // substitute for eliminability.
 func runtimeTraceSemanticOptimizationEliminableMS(span types.TraceCausalProjectionNode) (value float64, known bool) {
+	if span.IsHostWakeupEdgeRelationOnlySemantic() {
+		return 0, true
+	}
 	if span.EffectiveImpactPublished {
 		if span.EffectiveImpactMS < 0 {
 			return 0, false

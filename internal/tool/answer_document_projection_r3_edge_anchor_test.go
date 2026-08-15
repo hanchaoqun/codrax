@@ -58,8 +58,8 @@ func r3HostEdgeAnchoredProjection() types.TraceCausalProjection {
 			OnChainBasis:            "host_wakeup_edge_pre_span",
 			HostWakeupEdgeAnchorTS:  34579.496810,
 			HostWakeupEdgeAnchorVia: "direct",
-			ImpactMS:                0.285, CumulativeImpactMS: 0.285, EffectiveImpactMS: 0.285,
-			Rank: 2, Tier: "secondary", Confidence: 0.82, LineStart: 5552, LineEnd: 5572,
+			ImpactMS:                0.285, CumulativeImpactMS: 0.285, EffectiveImpactMS: 0,
+			Rank: 0, Tier: "context_only", Confidence: 0.82, LineStart: 5552, LineEnd: 5572,
 		}, {
 			// 件c ⛓ half: the bisected span's pre-edge seat (synthetic).
 			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "r3-straddle-seat",
@@ -70,9 +70,9 @@ func r3HostEdgeAnchoredProjection() types.TraceCausalProjection {
 			OnChainBasis:            "host_wakeup_edge_pre_span",
 			HostWakeupEdgeAnchorTS:  34579.498000,
 			HostWakeupEdgeAnchorVia: "chain_hop",
-			ImpactMS:                1.0, CumulativeImpactMS: 1.0, EffectiveImpactMS: 1.0,
+			ImpactMS:                1.0, CumulativeImpactMS: 1.0, EffectiveImpactMS: 0,
 			ChainAnchoredMS: 1.0, ChainAnchorFullMS: 3.0,
-			Rank: 3, Tier: "tertiary", Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
+			Rank: 0, Tier: "context_only", Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
 		}},
 		AdjacentCauses: []types.TraceCausalProjectionNode{{
 			// 件c ◇ half: the post-edge remainder clone (RSPA trio reused).
@@ -81,9 +81,9 @@ func r3HostEdgeAnchoredProjection() types.TraceCausalProjection {
 			SemanticClass:  "jit_compile",
 			SpanName:       "JIT compiling void com.example.Straddle.run()",
 			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain",
-			ImpactMS: 2.0, CumulativeImpactMS: 2.0, EffectiveImpactMS: 2.0,
+			ImpactMS: 2.0, CumulativeImpactMS: 2.0, EffectiveImpactMS: 0,
 			ChainAnchoredMS: 1.0, ChainAnchorFullMS: 3.0, ChainAnchorRemainderSeat: true,
-			Rank: 1, Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
+			Rank: 0, Tier: "context_only", Confidence: 0.82, LineStart: 5700, LineEnd: 5720,
 		}},
 	}
 }
@@ -102,6 +102,9 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	// with its per-row halves (最晚相关边 µs + 凭证 via).
 	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the credential sentence must render with the µs boundary + zh via word:\n%s", fence)
+	}
+	if !strings.Contains(fence, "仅关系凭证,语义完成/延迟机理未证") {
+		t.Fatalf("B829: semantic host-edge row must disclose relation-only authority:\n%s", fence)
 	}
 	if strings.Contains(fence, "凭证=direct") || strings.Contains(fence, "最近相关边") {
 		t.Fatalf("件a: the zh sentence must not leak the EN wire token or the retired 最近 word:\n%s", fence)
@@ -143,6 +146,9 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	// RULE3-1 件1(b): the EN row wears the same short marker form.
 	if !rspaFenceContains(fenceEN, "wakeup-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
+	}
+	if !strings.Contains(fenceEN, "relation only; semantic completion/delay mechanism unproven") {
+		t.Fatalf("B829 EN: semantic host-edge row must disclose relation-only authority:\n%s", fenceEN)
 	}
 }
 
@@ -190,6 +196,21 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 	}
 	if !strings.Contains(pos, "唤醒锚定(宿主→目标)") || !strings.Contains(pos, "34579.496810") {
 		t.Fatalf("正臂 must render the credential sentence with the µs boundary:\n%s", pos)
+	}
+	if !strings.Contains(pos, "仅关系凭证") || !strings.Contains(pos, "延迟机理未证") {
+		t.Fatalf("B829: real relation-only semantic row must not imply completion causality:\n%s", pos)
+	}
+	if !strings.Contains(pos, "| VerifyClass com.baidu.zeus.mml.lac.LacUtils | 类校验 | T7@ZeusThreadPo-61839 | 0.285ms | 0.000ms | 0.0% |") {
+		t.Fatalf("B829: optimization table must preserve raw wall time while pricing the relation-only basis at zero:\n%s", pos)
+	}
+	if !strings.Contains(pos, "T7@ZeusThreadPo-61839 / VerifyClass com.baidu.zeus.mml.lac.… [E10(+1)] | 0.285ms | 0.285ms | 0.000ms |") {
+		t.Fatalf("B829: detail table must not rehydrate raw occupancy into effective attribution:\n%s", pos)
+	}
+	if strings.Contains(pos, "因果位置: 确定性优化点(链上参与根因排序)") {
+		t.Fatalf("B829: relation-only semantic evidence must not claim root-cause ranking participation:\n%s", pos)
+	}
+	if !strings.Contains(pos, "因果位置: 确定性优化点(优化项,非根因)") {
+		t.Fatalf("B829: relation-only semantic evidence must retain the deterministic optimization clue:\n%s", pos)
 	}
 	// 负臂: no chain-tier semantic row and no credential sentence.
 	neg := r3RealTreeFence(t, 59566, 34579.466, 34579.4965)
@@ -277,7 +298,7 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 		t.Fatalf("件a: the EN state-seat short marker must render:\n%s", fenceEN)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(modelEN.Marks, false), "\n")
-	if !strings.Contains(legendEN, "pre-edge share sum") {
+	if !strings.Contains(legendEN, "typed pre-edge state-segment sum") {
 		t.Fatalf("件a: the EN legend must keep the state value clause:\n%s", legendEN)
 	}
 }

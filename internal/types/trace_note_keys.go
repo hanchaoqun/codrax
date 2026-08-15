@@ -164,8 +164,9 @@ const (
 	// way (causality "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL
 	// §29.88.1, 2026-07-15) = a NON-target host's deterministic semantic span
 	// seated by the HOST's own in-window typed wakeup edge toward the target
-	// (causality keeps the honest "on_wakeup_chain" — a real edge exists; the
-	// host_wakeup_edge_anchor_ts/-via pair rides beside it);
+	// (causality keeps the honest relation token "on_wakeup_chain" — a real
+	// edge exists; raw pre-edge occupancy survives but effective=0 because no
+	// semantic completion/delay binding is proven; the anchor pair rides beside it);
 	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) = a NON-target,
 	// NON-chain-member host's runnable / D-IO STATE seat anchored by the same
 	// credential (value = the segment inventory's pre-edge share sum; same

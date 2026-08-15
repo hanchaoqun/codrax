@@ -50,3 +50,32 @@ func TestSemanticChainProjectedPromotionScope(t *testing.T) {
 		t.Fatalf("rank rows must never mint the semantic intersection field: %v", node.SemanticChainProjectedMS)
 	}
 }
+
+func TestB829HostWakeupEdgeBasisMakesEffectiveZeroAuthoritative(t *testing.T) {
+	record := semIntRecord("trace_semantic_span", "on_chain",
+		"on_chain_basis="+TraceCausalOnChainBasisHostWakeupEdgeSpan,
+		"projected_impact=5.500",
+		// A stale producer value must lose to the stricter typed basis.
+		"effective_impact_ms=5.500")
+	node := traceCausalProjectionNodeFromRecord(TraceCausalRoleSemanticSpan, record)
+	if !node.IsHostWakeupEdgeRelationOnlySemantic() {
+		t.Fatalf("typed relation-only basis was not preserved: %+v", node)
+	}
+	if !node.EffectiveImpactPublished || node.EffectiveImpactMS != 0 {
+		t.Fatalf("relation-only basis must publish authoritative zero effective impact: published=%v value=%v", node.EffectiveImpactPublished, node.EffectiveImpactMS)
+	}
+	if node.ImpactMS != 9.3 || node.SemanticChainProjectedMS != 5.5 {
+		t.Fatalf("raw occupancy carriers must remain lossless: impact=%v projected=%v", node.ImpactMS, node.SemanticChainProjectedMS)
+	}
+
+	// Backward compatibility: an older cached record that predates the
+	// explicit effective note receives the same authoritative zero solely from
+	// the typed basis, never from summary prose.
+	record = semIntRecord("trace_semantic_span", "on_chain",
+		"on_chain_basis="+TraceCausalOnChainBasisHostWakeupEdgeSpan,
+		"projected_impact=5.500")
+	node = traceCausalProjectionNodeFromRecord(TraceCausalRoleSemanticSpan, record)
+	if !node.EffectiveImpactPublished || node.EffectiveImpactMS != 0 {
+		t.Fatalf("legacy relation-only record must normalize to published zero: published=%v value=%v", node.EffectiveImpactPublished, node.EffectiveImpactMS)
+	}
+}

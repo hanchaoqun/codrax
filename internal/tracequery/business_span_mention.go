@@ -36,7 +36,8 @@ package tracequery
 //   - On-chain (含自身), existing credential machinery only (禁自造第二套边
 //     判定): self = chain.Target; chain member = wakeupChainThreadSet; host =
 //     hostSemanticSpanEdgeAnchor R3 edge credential, and only members lying
-//     ENTIRELY before the latest credential edge count (边前=有效/边后=解除;
+//     ENTIRELY before the latest credential edge count (relation-qualified raw
+//     business occupancy, not a priced semantic-completion claim;
 //     a boundary-crossing span is excluded whole — no bisected values on
 //     this verbatim face). A thread with NO typed credential is never
 //     mentioned (硬纪律).

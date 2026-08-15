@@ -127,6 +127,8 @@ func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *t
 	for _, want := range []string{
 		"background_rank",
 		"ordinary primary/secondary/tertiary root-cause election",
+		"positive effective_impact_ms from exact chain/window intersection or target-self deterministic work",
+		"on_chain_basis=host_wakeup_edge_pre_span is a relation-only raw-occupancy/business clue",
 		"must never enter the background board",
 		"report it as the root cause named by its semantic class",
 		"never one member's span name",
@@ -148,6 +150,7 @@ func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *t
 		// RootCauseTierDeterministicOptimization). The adjudicated tier-word
 		// display identity survives on the typed SemanticClass lane.
 		"rows with chain_relevance=on_chain carry tier=deterministic_optimization",
+		"on-chain semantic span-work rows join that comparison through their primary/secondary/tertiary tier",
 	} {
 		if strings.Contains(description, banned) {
 			t.Fatalf("retired semantic-span ban wording resurfaced: %q", banned)

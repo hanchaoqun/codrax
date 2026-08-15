@@ -431,7 +431,7 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	traceBoard := BuildRootCauseRank(tieba, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(traceBoard, []string{
-		"; 52 valued candidate row(s) did not enter the published board (on_chain=2/adjacent=3/background=47)",
+		"; 51 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=3/background=47)",
 		"largest on_chain running RenderThread-59891 0.378ms",
 		"链上最大 running RenderThread-59891 0.378ms",
 		"另 1 行自身侧道已发布",

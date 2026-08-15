@@ -244,6 +244,9 @@ func runtimeTraceProjFamilyValuePrefix(node types.TraceCausalProjectionNode, zh 
 // 「有效归因」标签不得回退 union 裸值). Folded rows already carry the same
 // intersection on EffectiveImpactMS — byte-identical for them.
 func runtimeTraceProjFamilyPublishedMS(node types.TraceCausalProjectionNode) float64 {
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		return 0
+	}
 	if node.EffectiveImpactMS > 0 {
 		return node.EffectiveImpactMS
 	}
@@ -260,6 +263,14 @@ func runtimeTraceProjFamilyPublishedMS(node types.TraceCausalProjectionNode) flo
 // SemanticClass gate is defensive: the compile only mints the field on
 // trace_semantic_span records, which always carry the class token.
 func runtimeTraceProjSemanticChainIntersectionMS(node types.TraceCausalProjectionNode) float64 {
+	// B829: the host-edge pre-span value is raw occupancy bounded by a
+	// relation credential, not a semantic-completion intersection.  This
+	// typed basis outranks legacy projected_impact carriers so every display
+	// face fails closed to zero effective attribution while preserving raw
+	// Impact/Cumulative values.
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		return 0
+	}
 	if strings.TrimSpace(node.SemanticClass) == "" {
 		return 0
 	}

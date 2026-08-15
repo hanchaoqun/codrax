@@ -103,8 +103,9 @@ func TestRule3EdgeAnchorRowNeverRepeatsMechanism(t *testing.T) {
 		t.Fatalf("件1(b) 套话复活: the mechanism sentence must not ride a row:\n%s", fence)
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	if !strings.Contains(legend, "以宿主自身对目标的窗内 typed 唤醒边为链上凭证") ||
-		!strings.Contains(legend, "状态席值=状态段清单边前份合计") {
+	if !strings.Contains(legend, "宿主自身对目标的窗内 typed 唤醒边只证明关系") ||
+		!strings.Contains(legend, "缺少精确等待/完成绑定时现有规则可消除量为0") ||
+		!strings.Contains(legend, "runnable/D-IO 状态席仍按状态段清单的边前份计入") {
 		t.Fatalf("件1(b): the legend keeps the full mechanism + both value clauses:\n%s", legend)
 	}
 }

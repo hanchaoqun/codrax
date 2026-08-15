@@ -1343,9 +1343,10 @@ const (
 	// thread's deterministic semantic span seated on the chain tier by the
 	// HOST's own in-window typed wakeup edge toward the target (typed
 	// Node.OnChainBasis == "host_wakeup_edge_pre_span", single-field fork —
-	// the SELF-SEM qualifier discipline). The sentence speaks the R4 family
-	// language (边=凭证,边前=有效,边后=解除); the value is the pre-edge
-	// in-window projection, a boundary-crossing span bisects (its post-edge
+	// the SELF-SEM qualifier discipline). For a semantic span the pre-edge
+	// projection is raw occupancy and the completion/delay mechanism remains
+	// unproven (effective=0); the state-seat sibling keeps its typed pre-edge
+	// state accounting. A boundary-crossing span bisects (its post-edge
 	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
 	// 同源二分 sentence). ONCHAIN-3c (2026-07-19): the same mark covers the
 	// state-seat sibling basis "host_wakeup_edge_pre_state" (runnable / D-IO
@@ -1794,8 +1795,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- 入链凭证词族(每 ⛓ 席行恰佩其一,自强至弱四档;词越靠后,该行数值作为已证可消除量的成色越保守):",
 			"- Chain-credential word family (every ⛓ seat row wears exactly one; four tiers strong→weak — the later the word, the more conservative the row's value is as a proven eliminable amount):"},
 		{runtimeTraceProjMarkChainCredentialTierFamily, runtimeTraceProjLegendGroupCaliber,
-			"- `·" + tracefence.CredentialTierWakeupAnchoredZH + "` = 宿主线程自身对目标的窗内 typed 唤醒边为链上凭证(边前份计链上席)。",
-			"- `·" + tracefence.CredentialTierWakeupAnchoredEN + "` = the host thread's own in-window typed wakeup edge toward the target is the chain credential (the pre-edge share seats on-chain)."},
+			"- `·" + tracefence.CredentialTierWakeupAnchoredZH + "` = 宿主线程自身对目标的窗内 typed 唤醒边为关系凭证；状态席与语义 span 的计价口径不同，详见同名图例。",
+			"- `·" + tracefence.CredentialTierWakeupAnchoredEN + "` = the host thread's own in-window typed wakeup edge is a relation credential; state seats and semantic spans use different attribution calibers described in the matching legend."},
 		{runtimeTraceProjMarkChainCredentialTierFamily, runtimeTraceProjLegendGroupCaliber,
 			"- `·" + tracefence.CredentialTierTargetSelfZH + "` = 该板目标线程自身的墙钟/确定性工作席(·确定性优化 后缀=确定性语义工作)。",
 			"- `·" + tracefence.CredentialTierTargetSelfEN + "` = the board target thread's own wall-clock / deterministic-work seat (the ·deterministic-optimization suffix names deterministic semantic work)."},
@@ -2399,8 +2400,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// entry names BOTH carrier forms (图例是承诺面 — a state seat wearing
 		// the mark under a span-only legend would be a legend lie).
 		{runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjLegendGroupMark,
-			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 非目标线程的确定性语义 span 或 runnable/D-IO 状态席以宿主自身对目标的窗内 typed 唤醒边为链上凭证(直接裸边或宿主自身链上跳边,凭证沿链传递;边=凭证,边前=有效,边后=解除):边前份计链上席(span 值=边前段窗内投影,状态席值=状态段清单边前份合计;边界=最晚窗内凭证边),跨边按边界二分(边后部分记 ◇ 邻近余段),无边整段留 ◇/▒ 不入链上。",
-			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = a non-target thread's deterministic semantic span or runnable/D-IO state seat earns its chain seat from the HOST's own in-window typed wakeup edge toward the target (a direct raw edge or the host's own chain-hop edge — the credential travels down the chain; edge=credential, pre-edge=effective, post-edge=released): the pre-edge share seats on-chain (span value = its pre-edge in-window projection; state-seat value = the segment inventory's pre-edge share sum; the boundary is the LATEST in-window credential edge), a boundary-crossing account bisects at the edge (the post-edge share rides the ◇ adjacent remainder), and an edge-less account never enters the chain tier."},
+			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边只证明关系。确定性语义 span 保留边前原始占用与业务线索，但在缺少精确等待/完成绑定时现有规则可消除量为0，不宣称 span 完成触发唤醒；runnable/D-IO 状态席仍按状态段清单的边前份计入。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
+			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge proves relation only. A deterministic semantic span keeps its raw pre-edge occupancy and business clue, but its current-rule eliminable attribution is zero without an exact wait/completion binding and it does not claim span completion triggered the wakeup; runnable/D-IO state seats still use their typed pre-edge state-segment sum. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -5698,6 +5699,9 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 // No rank value is required: on-chain semantic work keeps the mention and
 // participation obligation even when it falls outside the visible root TOP N.
 func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCausalProjectionNode) bool {
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		return false
+	}
 	if node.IsContextOnlyRow() {
 		return false
 	}
@@ -6970,8 +6974,14 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 		}
 		text := tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标,见图例)" + detail
+		if basis == "host_wakeup_edge_pre_span" {
+			text += "·仅关系凭证,语义完成/延迟机理未证"
+		}
 		if !zh {
 			text = tracefence.CredentialTierWakeupAnchoredEN + " (host→target; see legend)" + detail
+			if basis == "host_wakeup_edge_pre_span" {
+				text += " · relation only; semantic completion/delay mechanism unproven"
+			}
 		}
 		out = append(out, text)
 	}
@@ -7725,6 +7735,9 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window beyond the ±1ms tolerance never fold.
 func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		return false
+	}
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
 	return !node.IsContextOnlyRow() && laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
 		node.Rank > 0 &&
@@ -7732,6 +7745,9 @@ func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) b
 }
 
 func runtimeTraceProjSemanticLaneTwinArm(node types.TraceCausalProjectionNode) bool {
+	if node.IsHostWakeupEdgeRelationOnlySemantic() {
+		return false
+	}
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
 	return laneOK && runtimeTraceCausalProjectionSemanticSpanRow(node) &&
 		strings.TrimSpace(node.SemanticClass) != ""
@@ -18708,6 +18724,9 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread && !compositeCaliber, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
+		if node.IsHostWakeupEdgeRelationOnlySemantic() {
+			effective = "0.000ms"
+		}
 		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic
 		// row carries no engine effective note, but its typed intersection IS
 		// the engine's participation value — the cell mirrors the tree 行3's
@@ -18766,7 +18785,8 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// effective feeds the visible 承自 chain (E17 "13.054ms(承自等待区间)"
 		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
 		// running StateKinds) keep their values on this arm too.
-		if node.IsTargetSelfStateRow() || node.IsContextOnlyRow() ||
+		if node.IsTargetSelfStateRow() ||
+			(node.IsContextOnlyRow() && !node.IsHostWakeupEdgeRelationOnlySemantic()) ||
 			runtimeTraceProjStanzaRowKind(row.Kind) ||
 			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash
