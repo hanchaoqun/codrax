@@ -37066,7 +37066,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    保留 `verification_probe_top_level_exception`。既有“无独立 suite 时 top-level exception 保持
    parser_error/unavailable”pin 保持不变。
 
-状态：`B838-PROBEAUTHORITY1=implemented/pending-full-suite`；
+状态：`B838-PROBEAUTHORITY1=implemented/production-closed-r513`；
 `probe-code-system-rewrite=none`；`project-suite-failure-downgrade=none`。
 
 ### §123.846 r512 / B839：显式时间窗不得兼任 principal-set 基数（2026-08-15）
@@ -37085,8 +37085,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. 新 e2e pin 使用 r512 形：必须一次接受分析、保留 5.000..5.007 typed window、删除错误 boundary；另有
    反向 pin 保留独立 `7 checks`。Trace 查询、因果投影、自动补齐、链内排序与模型答案所有权零改动。
 
-状态：`B839-INTERVALSETCONFLICT1=implemented/pending-full-suite-and-replay`；
+状态：`B839-INTERVALSETCONFLICT1=implemented/production-closed-r513`；
 `raw-prose-keyword-hard-gate=none`；`trace-causal-projection=unchanged`。
+
+### §123.847 r513：B838/B839 生产闭环；Trace 余项判为已有精确信号上的模型波动（2026-08-15）
+
+1. 在包含 B838/B839 的干净 `main@d79afe3de` 上严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom +
+   trace_query_frame_semantic_span_optimization`。Runner `2 PASS / 0 FAIL`，分别 213s/208s；
+   没有 extractor、finalizer reject、JSON salvage、旧稿回退、空答案或 fixed-age stream 降级。
+2. write 案例为 B838 生产正证：pre-suite probe 通过但缺 plan contract ref 后，真实
+   `python3 -m unittest discover -v` 继续执行并 4/4 PASS；report 聚合为 passed=true，最终交付明确“已验证”。
+   补丁在构造阶段把整数值 float 规范化为 int，非整数 float 仍 fail-loud；人工在 applied tree 复跑同一
+   suite 也是 4/4 PASS。项目测试权威恢复，没有降低 parser/probe 告警，也没有把 suite 绿伪造出来。
+3. Trace 案例为 B839 生产正证：Analyzer 没有再把同一个 `5.000s..5.007s` quote 兼任集合基数，
+   extractor=0，最终没有假“枚举不完整”补块。显式窗、target state partition、链上 0.800ms runnable
+   排名、5.000ms VerifyClass 实际占用/业务线索、实际占时与现规则可消量双轴、Trace 因果投影和自动补齐
+   均完整保留。
+4. 人工审计仍把 Trace 标为 partial：模型正文把 7.000ms 分析窗误写成“运行 7ms”，又把 CPU2 worker 与
+   CPU1 runnable 的跨核重叠称为直接资源竞争并建议独占核。该错误不能归因于系统缺少上下文：finalizer
+   已收到原始 `idle/1 -> app-100` 切换行、`running=1.200ms/runnable=0.800ms/total=7.000ms` 的 typed
+   互斥状态分区、`waker_cpu=2/wakee_target_cpu=1/cpu_relation=cross_cpu`，以及“不允许宣称 same-CPU
+   occupancy/preemption/direct competition”的显式 typed authority。模型在同一轮忽略互相印证的精确信号，
+   属于 answer-synthesis 波动，不是 trace_query、投影构造或最终上下文漏证据。
+5. 本轮不为该样本新增 request/thinking/final prose 扫描、数值 regex 硬门、系统正文替换或结论接管；已有
+   typed 上下文已经足够支撑正确回答，继续叠加同义教学只会增加心智与合同冲突风险。该观察保留为 P2
+   异构回放项：若不同模型/不同 trace 重复出现，再从 model routing/预算或更短的 typed recap 泛化处理，
+   不能按本例字符串拟合。
+6. 活跃流没有在 4ms、4s、4m 或任意固定累计年龄降级；结束/恢复权仍只属于 caller cancel/deadline、
+   无首字节、byte-stall、transport/decode failure。两案均得到完整最终答案。
+
+状态：`B838-PROBEAUTHORITY1=production-closed-r513`；
+`B839-INTERVALSETCONFLICT1=production-closed-r513`；
+`B840-TRACEFINALFACTDRIFT1=model-variance/P2-observe/no-hard-gate`；
+`Trace explicit-window/causal projection/auto-supplement=production-preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`raw request/model/final prose hard gate=none`；`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`。
 
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
