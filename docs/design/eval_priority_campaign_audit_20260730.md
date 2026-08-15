@@ -36931,6 +36931,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.884 r536：B857/B862 生产闭环；阶段表事实口径观察（2026-08-15）
+
+1. 在 `main@4df5c3bba` 重建后严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + qf_sequence_analyzer_gate`。Runner `2/2 PASS`；人工为 `1 pass / 1 partial`，逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_patchroster_topology_r536_20260815_manual_audit.md`。两案 347s/271s 正常完成，
+   无空答案、JSON salvage、旧稿恢复、Mermaid parser 降级或 fixed-age stream fallback。
+2. `B862` 获生产正证。qf 从 r535 的 1201s timeout 降到 271s PASS；17 条 identity 已完整的关系边没有再进入无意义的宽对称
+   同构枚举，也未出现单核满载/RSS 膨胀。模型最终诚实披露 `buildAnalysisIR` 与 `gate.Run` 不存在彼此可达链，而是各自调用
+   `gate.RunWith`；图中仅保留这两条有 typed call 权威的同向边，系统没有补边或改写结论。
+3. `B857` 获生产正证。read 从 r535 的 6 次 finalizer reject、3 diagram 降级，收敛为 1 次 reject + 1 次 patch，并保留唯一必需
+   sequence diagram 与完整 stage 表。派生 block ID 不再令后续 patch 猜错 live base；required diagram/cardinality/relation 合同均未降杆。
+4. read 人工仅判 partial：模型正文称 `AnswerDocumentV2` 自身“携带 AnswerContract 校验结果”，但当前类型没有该字段；其图也只对已证
+   stage precedence 和 dispatch call 作图，没有把未证载体 incidence 伪造成关系边。现有上下文已交付类型定义与 precise relation
+   recipes，关系硬门行为正确，因此暂记 `B863-FINALSTAGETABLEASSERTIONCALIBER1/P2-observe`，先做异构回放；不得扫描该句、替换正文、
+   合成表格事实或以单 case 新增硬门。
+5. qf 仍有 14 次 explore midloop 和 2 次成文拒绝。`no_directed_path` typed escape 已存在且最终被模型正确使用；当前没有第二个系统
+   合同自冲突见证，归入模型收敛波动观察，不为本 case/函数名加教学或约束。
+6. 本批只收账生产回放，不改 Trace、stream 或 answer renderer。显式窗 Trace 因果投影、系统补齐、链上-only 主因，实际占时/业务线索
+   与规则计价可消除量双轴均保持；活跃流不会因 4ms/4s/4m 或固定总年龄降级。
+
+状态：
+
+`B857-ANSWERDOCVALIDATIONWATERFALL1=production-closed-r536`；
+`B862-DIAGRAMTOPOLOGYISOMORPHISMBUDGET1=production-closed-r536`；
+`B863-FINALSTAGETABLEASSERTIONCALIBER1=P2-observe/heterogeneous-replay-first`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r536`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
