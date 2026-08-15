@@ -1286,6 +1286,126 @@ func TestMechanismRelationGraphTopologyRecognizesOnlyExactLinearGraphAA3(t *test
 	}
 }
 
+func TestMechanismSequenceDisplayOrderStartsAtEntrypointAndKeepsSiblingSourceOrderAA3(t *testing.T) {
+	item := func(path string, line int) types.EvidenceItem {
+		return types.EvidenceItem{Source: path, LineStart: line}
+	}
+	aliases := []answerDocMechanismAliasRow{
+		{identity: "VisitRepository.insert", alias: "n1"},
+		{identity: "AuditLog.record", alias: "n2"},
+		{identity: "VisitService.schedule", alias: "n3"},
+		{identity: "ClinicConfig.resolveMaxVisits", alias: "n4"},
+		{identity: "VisitRepository.countOpenVisits", alias: "n5"},
+		{identity: "VisitController.create", alias: "n6"},
+	}
+	recipe := func(from, to, path string, line int) answerDocMechanismRecipeRow {
+		return answerDocMechanismRecipeRow{
+			from: from, to: to,
+			edge: answerDocMechanismRelationEdge{from: from, to: to, relation: types.DiagramRelCall, sourceItem: item(path, line)},
+		}
+	}
+	// Deliberately use the production witness's evidence order: terminal edge
+	// first, entry edge last.
+	recipes := []answerDocMechanismRecipeRow{
+		recipe("n1", "n2", "VisitRepository.java", 23),
+		recipe("n3", "n1", "VisitService.java", 21),
+		recipe("n3", "n5", "VisitService.java", 18),
+		recipe("n3", "n4", "VisitService.java", 17),
+		recipe("n6", "n3", "VisitController.java", 18),
+	}
+
+	orderedAliases, orderedRecipes, ok := answerDocMechanismSequenceDisplayOrder(aliases, recipes)
+	if !ok {
+		t.Fatal("acyclic typed call graph must have a grounded display order")
+	}
+	wantEdges := [][2]string{{"n6", "n3"}, {"n3", "n4"}, {"n3", "n5"}, {"n3", "n1"}, {"n1", "n2"}}
+	if len(orderedRecipes) != len(wantEdges) {
+		t.Fatalf("ordered edge count=%d want=%d: %+v", len(orderedRecipes), len(wantEdges), orderedRecipes)
+	}
+	for i, want := range wantEdges {
+		if orderedRecipes[i].from != want[0] || orderedRecipes[i].to != want[1] {
+			t.Fatalf("edge[%d]=%s->%s want=%s->%s", i, orderedRecipes[i].from, orderedRecipes[i].to, want[0], want[1])
+		}
+	}
+	wantAliases := []string{"n6", "n3", "n4", "n5", "n1", "n2"}
+	for i, want := range wantAliases {
+		if i >= len(orderedAliases) || orderedAliases[i].alias != want {
+			t.Fatalf("alias order=%+v want prefix=%v", orderedAliases, wantAliases)
+		}
+	}
+}
+
+func TestMechanismSequenceDisplayOrderFailsOpenForCycleAA3(t *testing.T) {
+	aliases := []answerDocMechanismAliasRow{{identity: "A", alias: "n1"}, {identity: "B", alias: "n2"}}
+	recipes := []answerDocMechanismRecipeRow{
+		{from: "n1", to: "n2"},
+		{from: "n2", to: "n1"},
+	}
+	gotAliases, gotRecipes, ok := answerDocMechanismSequenceDisplayOrder(aliases, recipes)
+	if ok {
+		t.Fatal("cyclic static graph must not mint a root-first sequence order")
+	}
+	if gotAliases[0].alias != "n1" || gotRecipes[0].from != "n1" || gotRecipes[0].to != "n2" {
+		t.Fatalf("cycle must fail open to original order: aliases=%+v recipes=%+v", gotAliases, gotRecipes)
+	}
+}
+
+func TestMechanismCopyReadySequenceUsesGroundedRootFirstDisplayOrderAA3(t *testing.T) {
+	call := func(id, from, to, path string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			ID: id, Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: from, Object: to, Source: path, LineStart: line,
+			GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramSequence,
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			call("audit", "VisitRepository.insert", "AuditLog.record", "VisitRepository.java", 23),
+			call("insert", "VisitService.schedule", "VisitRepository.insert", "VisitService.java", 21),
+			call("count", "VisitService.schedule", "VisitRepository.countOpenVisits", "VisitService.java", 18),
+			call("limit", "VisitService.schedule", "ClinicConfig.resolveMaxVisits", "VisitService.java", 17),
+			call("entry", "VisitController.create", "VisitService.schedule", "VisitController.java", 18),
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	copyReadyAt := strings.Index(got, "#### Copy-ready optional typed diagram")
+	if copyReadyAt < 0 {
+		t.Fatalf("copy-ready sequence missing:\n%s", got)
+	}
+	copyReady := got[copyReadyAt:]
+	wantOrder := []string{
+		`participant n6 as VisitController.create`,
+		`participant n3 as VisitService.schedule`,
+		`participant n5 as ClinicConfig.resolveMaxVisits`,
+		`participant n4 as VisitRepository.countOpenVisits`,
+		`participant n1 as VisitRepository.insert`,
+		`participant n2 as AuditLog.record`,
+		`n6->>n3: call`,
+		`n3->>n5: call`,
+		`n3->>n4: call`,
+		`n3->>n1: call`,
+		`n1->>n2: call`,
+	}
+	last := -1
+	for _, want := range wantOrder {
+		at := strings.Index(copyReady, want)
+		if at < 0 || at <= last {
+			t.Fatalf("copy-ready sequence order lost at %q (at=%d last=%d):\n%s", want, at, last, copyReady)
+		}
+		last = at
+	}
+	if !strings.Contains(copyReady, "zero-indegree entrypoints come first") {
+		t.Fatalf("grounded ordering boundary missing:\n%s", copyReady)
+	}
+}
+
 func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA3(t *testing.T) {
 	grounded := func(id string, kind types.EvidenceKind, anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
 		return types.EvidenceItem{

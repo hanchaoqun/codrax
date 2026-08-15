@@ -36531,6 +36531,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.872 r530 / B855：真关系切片顺序泄漏为倒序时序；Rust 静态验证重复（2026-08-15）
+
+1. 在 `main@4233e3208` 重建后严格并发恰好两个案例：
+   `sr_java_call_chain + github_issue_chrono_duration_min`。Runner `0/2 PASS`，人工均为 partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_java_rustwrite_r530_20260815_manual_audit.md`。两案均正常完成，
+   无 fixed-age stream 降级、空答案或 JSON salvage。
+2. Java 的 typed evidence 已证明五条请求内 direct call，并另证
+   `AuditLog.record -> System.out.println`。模型正文保留主链，但把成员/步骤数写乱，且没有明确说明 stdout 不构成
+   持久化审计存储；这是 soft context 服从/总结质量 partial，不能靠扫描答案原文、系统改写结论或按 Java 方法名硬门闭环。
+3. 同轮确认 `B855-SEQUENCEEVIDENCESLICEORDER1/P1-high`：copy-ready sequence 的边方向和集合均正确，
+   但生产 evidence slice 从终端 body call 开始、入口 call 最后，旧 renderer 原样复制该顺序，于是图显示
+   `repository -> audit` 在前、`controller -> service` 在后。关系真假没有丢失，但业务阅读时序倒置，模型依系统骨架修图后
+   仍得到奇怪关系表达；这不是 Mermaid 语法问题或模型波动。
+4. 根修只对 sequence family 的既有 typed graph 做展示排序：有向无环图先列零入度入口，再列其后继；同一 caller、同一
+   grounded source file 的 sibling call 按 source line 排列。节点声明同步按首次展示出现排序，edge anchor JSON 与 body 使用同一
+   recipe 序列。算法不新增、删除、反转或重命名任何边，不把静态 sibling 顺序宣称为运行时必经/并发关系；遇到 cycle 或无
+   唯一 root-first 权威时 fail-open 保留原顺序。正向生产 witness、source-order 与 cycle 负臂均有 pin。
+5. Rust 变更本身正确：新增 fallible constructor、panicking wrapper 复用它、MIN/MAX 继续直接构造，并补测试。首轮插入位置错误
+   被 `make check` 捕获，replan 修复。fixture 无 Cargo/native Rust runner，只有 source-static Python 检查，所以终态
+   `verification_proof_incomplete` 是诚实边界，禁止降低验证杆换取 eval PASS。
+6. Rust 同时新立 `B856-SOURCESTATICVERIFYREPEAT1/P1`：可用验证面耗尽后仍重复相同 static verify/controller review，
+   共 19 次 dispatch。下一批只按 typed plan/report generation、命令集合、changed-path capability 与验证结果去重无进展轮次；
+   没有项目原生运行器时应尽早诚实结束为 unverified，而不是循环，也不能按请求/计划/答案 prose 猜测语言或成功。
+7. 本批不改 Read/Trace 查询和成文所有权。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价
+   可消除量双轴保持；邻近/背景仅支持，系统不代写模型答案、图关系或结论。
+
+状态：
+
+`B855-SEQUENCEEVIDENCESLICEORDER1=implemented/typed-root+source-order/pins-pass`；
+`B856-SOURCESTATICVERIFYREPEAT1=P1-confirmed/next-batch`；
+`java-stdout-durability-boundary=model-authoring-partial/no-prose-hard-gate`；
+`rust-verification-caliber=honest-unverified/not-lowered`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r530`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

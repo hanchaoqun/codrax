@@ -8037,6 +8037,121 @@ func answerDocMechanismUniqueVisualEdges(edges []answerDocMechanismRelationEdge)
 	return out, duplicates
 }
 
+// answerDocMechanismSequenceDisplayOrder gives an already-grounded acyclic
+// invocation graph a reader-facing order without changing its topology. The
+// evidence pool is assembled from several producers, so its slice order can
+// start at a terminal body call and end at the requested entrypoint. Copying
+// that order into a sequenceDiagram makes a true graph read backwards.
+//
+// This normalization consumes only typed endpoints and source locations:
+// roots precede their descendants, and sibling calls owned by the same caller
+// keep grounded source-line order. It never creates, removes, reverses, or
+// relabels an edge. Cycles fail open to the original order because a static
+// cycle has no unique root-first sequence authority.
+func answerDocMechanismSequenceDisplayOrder(
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) ([]answerDocMechanismAliasRow, []answerDocMechanismRecipeRow, bool) {
+	if len(recipes) < 2 {
+		return aliases, recipes, true
+	}
+
+	aliasOrder := make(map[string]int, len(aliases))
+	for i, row := range aliases {
+		aliasOrder[row.alias] = i
+	}
+	firstSeen := func(alias string) int {
+		if order, ok := aliasOrder[alias]; ok {
+			return order
+		}
+		return len(aliases) + len(recipes)
+	}
+
+	indegree := make(map[string]int, len(aliases))
+	outgoing := make(map[string][]int, len(aliases))
+	nodes := make(map[string]bool, len(aliases))
+	for i, recipe := range recipes {
+		nodes[recipe.from] = true
+		nodes[recipe.to] = true
+		outgoing[recipe.from] = append(outgoing[recipe.from], i)
+		indegree[recipe.to]++
+		if _, ok := indegree[recipe.from]; !ok {
+			indegree[recipe.from] = 0
+		}
+	}
+
+	ready := make([]string, 0, len(nodes))
+	for node := range nodes {
+		if indegree[node] == 0 {
+			ready = append(ready, node)
+		}
+	}
+	sort.SliceStable(ready, func(i, j int) bool { return firstSeen(ready[i]) < firstSeen(ready[j]) })
+	if len(ready) == 0 {
+		return aliases, recipes, false
+	}
+
+	ordered := make([]answerDocMechanismRecipeRow, 0, len(recipes))
+	processedNode := make(map[string]bool, len(nodes))
+	for len(ready) > 0 {
+		current := ready[0]
+		ready = ready[1:]
+		if processedNode[current] {
+			continue
+		}
+		processedNode[current] = true
+
+		edgeIndexes := append([]int(nil), outgoing[current]...)
+		sort.SliceStable(edgeIndexes, func(i, j int) bool {
+			left := recipes[edgeIndexes[i]].edge.sourceItem
+			right := recipes[edgeIndexes[j]].edge.sourceItem
+			leftSource := strings.TrimSpace(left.Source)
+			rightSource := strings.TrimSpace(right.Source)
+			if leftSource != "" && leftSource == rightSource && left.LineStart > 0 && right.LineStart > 0 && left.LineStart != right.LineStart {
+				return left.LineStart < right.LineStart
+			}
+			return edgeIndexes[i] < edgeIndexes[j]
+		})
+		newlyReady := make([]string, 0, len(edgeIndexes))
+		for _, edgeIndex := range edgeIndexes {
+			recipe := recipes[edgeIndex]
+			ordered = append(ordered, recipe)
+			indegree[recipe.to]--
+			if indegree[recipe.to] == 0 {
+				newlyReady = append(newlyReady, recipe.to)
+			}
+		}
+		sort.SliceStable(newlyReady, func(i, j int) bool { return firstSeen(newlyReady[i]) < firstSeen(newlyReady[j]) })
+		ready = append(ready, newlyReady...)
+	}
+	if len(ordered) != len(recipes) {
+		return aliases, recipes, false
+	}
+
+	usedAliases := make(map[string]bool, len(aliases))
+	orderedAliases := make([]answerDocMechanismAliasRow, 0, len(aliases))
+	appendAlias := func(alias string) {
+		if alias == "" || usedAliases[alias] {
+			return
+		}
+		for _, row := range aliases {
+			if row.alias == alias {
+				usedAliases[alias] = true
+				orderedAliases = append(orderedAliases, row)
+				return
+			}
+		}
+	}
+	for _, recipe := range ordered {
+		appendAlias(recipe.from)
+		appendAlias(recipe.to)
+	}
+	for _, row := range aliases {
+		appendAlias(row.alias)
+	}
+	return orderedAliases, ordered, true
+}
+
 func answerDocMechanismRelationGraphTopology(edges []answerDocMechanismRelationEdge) (answerDocMechanismRelationTopology, bool) {
 	unique, _ := answerDocMechanismUniqueVisualEdges(edges)
 	if len(unique) == 0 {
@@ -8365,6 +8480,12 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		}
 	}
 	diagramRecipes, annotationRecipes, omittedKinds := answerDocMechanismCopyReadyRecipes(recipes, kind)
+	sequenceOrderGrounded := false
+	if kind == types.DiagramSequence {
+		var ordered bool
+		aliases, diagramRecipes, ordered = answerDocMechanismSequenceDisplayOrder(aliases, diagramRecipes)
+		sequenceOrderGrounded = ordered
+	}
 	if kind == types.DiagramSequence && len(semanticHandoffs) > 0 {
 		// An exact owner/reference join gives the raw registration expression a
 		// business-level export/callable interpretation. Prefer that semantic
@@ -8421,6 +8542,9 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
 	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, Notes, and fact-node text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	if kind == types.DiagramSequence && sequenceOrderGrounded {
+		b.WriteString("- Sequence display order is normalized only from the typed graph: zero-indegree entrypoints come first, then same-caller call sites use grounded source-line order. This improves reading order but does not prove that every branch executes, that siblings are concurrent, or that a static cycle has runtime order.\n")
+	}
 	renderedAnnotationKinds := make(map[string]bool)
 	for _, recipe := range annotationRecipes {
 		renderedAnnotationKinds[string(recipe.edge.relation)] = true
