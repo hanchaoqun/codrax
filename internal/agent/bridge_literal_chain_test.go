@@ -177,8 +177,10 @@ func (s *SubExplorer) Name() string {
 			IsRelationalLookup:    true,
 		},
 		AnalyzerHints: types.AnalyzerHints{
-			Kind:            string(types.ReqRegistration),
-			PrimaryEntities: []string{"RegisterDefaultSubAgents"},
+			Kind:              string(types.ReqEnumeration),
+			ExactTargets:      []string{"SubAgentRegistry"},
+			MentionedEntities: []string{"SubAgentRegistry", "RegisterDefaultSubAgents", "Name", "Names"},
+			PrimaryEntities:   []string{"SubAgentRegistry", "RegisterDefaultSubAgents", "Name", "Names"},
 		},
 		CompletenessObligation: &types.CompletenessObligation{Required: true},
 	}

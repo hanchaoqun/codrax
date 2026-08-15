@@ -160,6 +160,106 @@ func TestConcreteValueEvidenceHandoffKeepsScalarLiteralBudgetWider(t *testing.T)
 	}
 }
 
+func TestConcreteValueEvidenceHandoffPreservesDerivedReferenceClosure(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion: "registry roster",
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			PredicateAxis: types.AxisRegister,
+		}},
+	}
+	terminal := types.EvidenceItem{
+		Kind: types.EvidenceConcrete, Subject: "OpaqueLeaf.Name", Predicate: "returns", Object: `"member"`,
+		Source: "internal/handler.go", LineStart: 90, LineEnd: 90,
+		Producer: "bridge_literal_terminal", Scope: types.ScopeLine,
+		AnchorKind: types.AnchorReturn, AnchorSymbol: "Name", OwnerSymbol: "OpaqueLeaf",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	terminal.ID = types.StableEvidenceID(terminal)
+	bridge := types.EvidenceItem{
+		Kind: types.EvidenceDataflowPath, Subject: "registry roster binding", Predicate: "resolution_chain", Object: `"member"`,
+		Source: "internal/register.go", LineStart: 10, LineEnd: 10,
+		Producer: "bridge_literal", Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "OpaqueLeaf.Name", OwnerSymbol: "RegisterDefaults",
+		DerivedFrom: []string{terminal.ID}, GroundingStatus: types.GroundingGrounded,
+	}
+	bridge.ID = types.StableEvidenceID(bridge)
+
+	items := []types.EvidenceItem{bridge}
+	for i := 0; i < concreteValueEvidenceExportRelationLimit+40; i++ {
+		item := types.EvidenceItem{
+			Kind: types.EvidenceConcrete, Subject: "Noise" + strconv.Itoa(i), Predicate: "returns", Object: strconv.Itoa(i),
+			Source: "internal/noise.go", LineStart: i + 1, LineEnd: i + 1,
+			Producer: "concrete_values", Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}
+		item.ID = types.StableEvidenceID(item)
+		items = append(items, item)
+	}
+	// Put the terminal at the tail so plain top-N truncation deterministically
+	// reproduces the production failure.
+	items = append(items, terminal)
+	readSet := map[string]bool{
+		"internal/register.go": true, "internal/handler.go": true,
+	}
+	ranked := rankEvidenceByRelevanceWithSubject(
+		eval.userQuestion,
+		items,
+		readSet,
+		types.AnswerSubject{},
+		nil,
+		types.AxisRegister,
+	)
+	bridgeRank, terminalRank := -1, -1
+	for i, item := range ranked {
+		if item.ID == bridge.ID {
+			bridgeRank = i
+		}
+		if item.ID == terminal.ID && item.Producer == "bridge_literal_terminal" {
+			terminalRank = i
+		}
+	}
+	if bridgeRank < 0 || bridgeRank >= concreteValueEvidenceExportRelationLimit || terminalRank < concreteValueEvidenceExportRelationLimit {
+		t.Fatalf("fixture must reproduce the old top-N closure break: bridge_rank=%d terminal_rank=%d limit=%d", bridgeRank, terminalRank, concreteValueEvidenceExportRelationLimit)
+	}
+
+	got := eval.compactConcreteValueEvidenceForHandoff(items, readSet, nil)
+	if len(got) != concreteValueEvidenceExportRelationLimit {
+		t.Fatalf("compacted relation evidence len = %d, want %d", len(got), concreteValueEvidenceExportRelationLimit)
+	}
+	foundBridge, foundTerminal := false, false
+	for _, item := range got {
+		if item.ID == bridge.ID {
+			foundBridge = true
+		}
+		if item.ID == terminal.ID && item.Producer == "bridge_literal_terminal" {
+			foundTerminal = true
+		}
+	}
+	if !foundBridge || !foundTerminal {
+		t.Fatalf("compaction broke typed dependency closure: bridge=%v terminal=%v", foundBridge, foundTerminal)
+	}
+}
+
+func TestCompactEvidenceWithDerivedClosureDropsDanglingRoot(t *testing.T) {
+	dangling := types.EvidenceItem{
+		ID: "dangling", Kind: types.EvidenceDataflowPath,
+		DerivedFrom: []string{"missing-terminal"},
+	}
+	ranked := []types.EvidenceItem{
+		dangling,
+		{ID: "independent-a", Kind: types.EvidenceConcrete},
+		{ID: "independent-b", Kind: types.EvidenceConcrete},
+	}
+	got := compactEvidenceWithDerivedClosure(ranked, 2)
+	if len(got) != 2 || got[0].ID != "independent-a" || got[1].ID != "independent-b" {
+		t.Fatalf("dangling composite root must fail closed while independent rows fill the budget: %+v", got)
+	}
+}
+
 // midLoopExplorer is the PhaseMidLoop analogue of softStopExplorer.
 func midLoopExplorer(eval *explorerEvaluator, iter int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
 	sig := eval.observeMidLoop(LoopObservation{

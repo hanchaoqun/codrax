@@ -15111,7 +15111,16 @@ func (e *explorerEvaluator) compactConcreteValueEvidenceForHandoff(items []types
 	if len(ranked) <= limit {
 		return ranked
 	}
-	out := append([]types.EvidenceItem(nil), ranked[:limit]...)
+	// Evidence rows can form a typed graph through DerivedFrom. A plain top-N
+	// truncation can retain a high-ranked composite row while discarding the
+	// lower-ranked terminal row that proves it. Downstream providers correctly
+	// fail closed on that dangling reference, but the resulting handoff has
+	// silently lost authority during compaction. Pack each ranked row together
+	// with the transitive dependency closure it names. The dependency choice is
+	// structural (stable evidence ID + typed carrier richness), never based on
+	// request or answer prose. If an atomic group cannot fit, skip that root and
+	// continue so the fixed export budget is preserved.
+	out := compactEvidenceWithDerivedClosure(ranked, limit)
 	architectureInventory := false
 	if e != nil && e.analysisIR != nil {
 		architectureInventory = types.IsArchitectureInventoryShape(e.analysisIR.RequestModel)
@@ -15119,6 +15128,120 @@ func (e *explorerEvaluator) compactConcreteValueEvidenceForHandoff(items []types
 	logging.Info("[explorer] concrete values: compacted handoff evidence %d → %d (limit=%d architecture_inventory=%v)",
 		len(items), len(out), limit, architectureInventory)
 	return out
+}
+
+// compactEvidenceWithDerivedClosure retains ranked evidence under a fixed
+// budget without emitting a dangling DerivedFrom reference. It is deliberately
+// generic: registration identity joins are one consumer, but any deterministic
+// evidence producer can use the same reference field.
+func compactEvidenceWithDerivedClosure(ranked []types.EvidenceItem, limit int) []types.EvidenceItem {
+	if limit <= 0 || len(ranked) == 0 {
+		return nil
+	}
+	if len(ranked) <= limit {
+		return ranked
+	}
+	byID := make(map[string][]int, len(ranked))
+	for i, item := range ranked {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = types.StableEvidenceID(item)
+		}
+		if id != "" {
+			byID[id] = append(byID[id], i)
+		}
+	}
+	bestDependency := func(id string) (int, bool) {
+		indexes := byID[strings.TrimSpace(id)]
+		if len(indexes) == 0 {
+			return 0, false
+		}
+		best := indexes[0]
+		bestScore := evidenceDerivedDependencyRichness(ranked[best])
+		for _, idx := range indexes[1:] {
+			if score := evidenceDerivedDependencyRichness(ranked[idx]); score > bestScore {
+				best, bestScore = idx, score
+			}
+		}
+		return best, true
+	}
+
+	selected := make(map[int]bool, limit)
+	order := make([]int, 0, limit)
+	for root := range ranked {
+		if selected[root] {
+			continue
+		}
+		group := make([]int, 0, 1+len(ranked[root].DerivedFrom))
+		seen := map[int]bool{}
+		valid := true
+		var visit func(int)
+		visit = func(idx int) {
+			if !valid || idx < 0 || idx >= len(ranked) || selected[idx] || seen[idx] {
+				return
+			}
+			seen[idx] = true
+			group = append(group, idx)
+			for _, depID := range ranked[idx].DerivedFrom {
+				dep, ok := bestDependency(depID)
+				if !ok {
+					valid = false
+					return
+				}
+				visit(dep)
+			}
+		}
+		visit(root)
+		if !valid || len(order)+len(group) > limit {
+			continue
+		}
+		for _, idx := range group {
+			if selected[idx] {
+				continue
+			}
+			selected[idx] = true
+			order = append(order, idx)
+		}
+		if len(order) == limit {
+			break
+		}
+	}
+	// Keep downstream ordering deterministic and aligned with the original
+	// relevance ranking even though dependencies were admitted atomically.
+	sort.Ints(order)
+	out := make([]types.EvidenceItem, 0, len(order))
+	for _, idx := range order {
+		out = append(out, ranked[idx])
+	}
+	return out
+}
+
+// evidenceDerivedDependencyRichness chooses among rows that intentionally
+// share a stable evidence ID. Exact typed amendments carry more parser-owned
+// anchor fields than a generic concrete row, so they win without a
+// producer-name special case. Ranking order remains the deterministic tie
+// breaker when two carriers expose the same field set.
+func evidenceDerivedDependencyRichness(item types.EvidenceItem) int {
+	score := 0
+	if item.IsCitable() {
+		score += 16
+	}
+	if strings.TrimSpace(item.Source) != "" && item.LineStart > 0 {
+		score += 8
+	}
+	if item.AnchorKind != "" {
+		score += 4
+	}
+	if strings.TrimSpace(item.AnchorSymbol) != "" {
+		score += 2
+	}
+	if strings.TrimSpace(item.OwnerSymbol) != "" {
+		score += 2
+	}
+	if strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(item.Predicate) != "" && strings.TrimSpace(item.Object) != "" {
+		score++
+	}
+	return score
 }
 
 // chainAnchorInfo records which source files a Resolution Chain or

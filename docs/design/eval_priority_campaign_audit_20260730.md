@@ -35825,6 +35825,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.852 r518 / B844 三段根因：证据压缩破坏 `DerivedFrom` 引用闭包（2026-08-15）
+
+1. 在 `main@11efad1c3` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；
+   逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r518_20260815_manual_audit.md`。
+2. Python 计划正确保持 micro-scope：只对 `main.py:20` 发一个 structured replace，`retrun -> return`，
+   没有 apply 或扩大文件面，dry-build 通过。计划摘要中“`retrun` 被误写为 `retrun`”是模型笔误，不影响
+   typed patch；不为该散文增加关键词 hard gate。
+3. 注册表答案事实仍正确，但 B844 未闭：生产日志的 post-explore refresh 段真实执行，aggregate fact
+   仍是 `fact_authority=advisory_model_inference/principal_contract=not_authorized`，最终继续发布弱证据 caveat。
+   因此 r517 的小图 M4 pin 只证明时序接线存在，不能证明生产规模 evidence handoff 保真。
+4. r518 精确根因不是 RequestModel source/target 漂移。真实 analyzer 虽发
+   `question_kind=enumeration + exact_target=SubAgentRegistry`，但 typed provenance lanes 同时保留
+   `RegisterDefaultSubAgents`，生产也明确构造并在 answer chain 中保留
+   `RegisterDefaultSubAgents -> SubExplorer.Name -> "explorer"`。失败发生在其前：确定性证据从
+   `16,397` 条压缩为 `160` 条时，top-N 留下 composite bridge，却丢掉 bridge 的 `DerivedFrom` terminal；
+   provider 面对 dangling reference 按设计 fail-closed。
+5. 这是通用 evidence graph compaction GAP，不应对注册器、Go 或本案例特判。B844-v3 将固定预算压缩改成
+   原子闭包打包：按现有 relevance 顺序选择 root；每个 root 连同 stable evidence ID 指向的传递
+   `DerivedFrom` 依赖一起入选；同 ID 多 carrier 时只按 citable/source-line/anchor/owner 等 typed 字段
+   完备度选最富 carrier；组装不下就跳过该 root，继续填充后续项。预算不扩大，不解析 request、模型草稿、
+   final prose 或 evidence summary，也不创建新事实、成员、关系或答案。
+6. 新测试制造高排名引用节点、尾部低排名依赖和超过 relation budget 的噪声，要求输出仍为固定 160 条且
+   bridge/terminal 同时存在；生产 wiring fixture 改成 r518 的真实
+   `enumeration + exact target + 四 primary entities` 形，避免再次使用理想化 `ReqRegistration` 掩盖差异。
+7. `/Users/han/opt/customlogs/repl_log.txt` 与 `repl_log2.txt` 本轮复核没有产生新的当前主线代码项：客户
+   `v0.1.20260813` 的“已拿到链上 Trace 排名、成文失败后只展示错误泛化散文”已由 B779/B800 的
+   ObservationLedger + deterministic runtime appendix 覆盖；至少 13m30s 的活跃流也已由 B778/B814
+   分型展示覆盖。仍需新版本生产回放，但不得按 4ms/4s/4m/累计年龄降级。
+8. r517 的 B846 无关 hitrace citation 在 r518 未复现；单次不复现不构成 citation identity/remap 合同闭环，
+   继续维持 P1 open。此批不改 Trace 查询、投影编译、自动补齐、Read/Write 路由、JSON 或 Mermaid。
+   完整 causal diagnosis 仍保留链上-only 主因、优先级反转、调度/算力供给、D/IO、确定性语义与业务线索，
+   邻近/背景只能 support-only；系统不替模型形成结论。
+
+状态：
+
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=implemented-v3/derived-reference-closure+pinned/awaiting-r519`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open/nonreproduction-is-not-closure`；
+`RLOG1-FINALRUNTIMEFACTBLACKOUT=historical-P0/current-main-covered/customer-replay-pending`；
+`active-stream-fixed-age-degrade=forbidden/4ms+heartbeat-pins-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
