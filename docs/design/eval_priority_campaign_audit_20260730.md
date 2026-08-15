@@ -35870,6 +35870,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.853 r519：压缩闭包生产生效；显式关系轴与冗余关系布尔发生 typed 合同分裂（2026-08-15）
+
+1. 在提交 `e91245bed` 构建不可变二进制后，严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_registry_write_r519_20260815_manual_audit.md`。
+2. 写模式对照仍保持 micro plan：只读取并计划 `main.py:20` 的 `retrun -> return`，没有 apply、没有扩大文件面；
+   说明 B844 的 evidence compaction 改动没有污染 Write 路由或计划域。
+3. B844-v3 的通用根修已在生产规模生效：探索压缩后 finalizer 明确收到
+   `producer=bridge_literal_terminal @ internal/agent/sub_explorer.go:33`，answer chain 保留
+   `RegisterDefaultSubAgents -> SubExplorer.Name -> "explorer"`，Typed Relation Source-Role Projection 输出
+   `complete_relation_roster=1; principal=1` 和 `relation=registers`。r517/r518 的
+   `fact_authority=advisory_model_inference`、`principal_contract=not_authorized` 及用户可见弱证据 caveat 均消失；
+   最终答案给出 `1 / explorer`，注册点与 `Name()` 返回点两处引用正确。
+4. 但 r519 暴露新的 B847 typed 合同分裂。真实 analyzer 同时发出
+   `intent=enumerate + predicate_axis=register + is_category_enumeration=true`，却把冗余
+   `is_relational_lookup=false`。关系 provider 已从精确 `AxisRegister` 产出 principal row；
+   `RequiresRelationMemberSetHandoff` / `PrincipalMemberSetRequiresTypedRelationAuthority` 却只以
+   `IsRelationalLookup` 打开 set authority。因此同一 finalizer 上下文一面显示 principal register row，
+   另一面又显示 `No hard principal relation member_set is active`，最终靠普通 enumeration rows 承载答案。
+   这是 schema 内部两种关系声明的单源缺失，不是模型答案波动，也不能用 request/answer 关键词硬补。
+5. B847 最优施工形：抽出一个共享的“显式 set-valued relation request”typed predicate，消费精确
+   `PredicateAxis`/`RequirementKind` 与 set/count/enumerate 形；`AxisImplement/AxisCall/AxisRegister` 及对应
+   requirement kind 可进入，`AxisConfigure` 保持 prompt-only，普通 category enumeration、mechanism-only、
+   scalar role lookup、change impact 与 runtime Trace causal diagnosis 保持原出口。关系 provider、completion
+   authority、最终 handoff 三面只读该单源。回归必须覆盖本次
+   `AxisRegister + IsRelationalLookup=false`、机制说明负臂、scalar 负臂、Trace 不受影响臂。
+6. r519 还立案 B848：一个表格 row 同时展示“注册位置”和“Name 返回位置”两个独立 evidence/location 维度，
+   但 `AnswerBlockItem` 只有一个 `citation_ref`。首稿因 `cells + label/text` 重复被正确拒绝；后续模型为保留两锚
+   进行长推理并以 citation pool + 单 row ref 绕行，最终仍触发机械的输出维度补充。先审计通用多锚 carrier、
+   patch 继承与 renderer；禁止以本例列名、中文词面或答案段落特判。
+7. B846 的 r517 无关 hitrace citation 本轮未复现，但已冷读定位到
+   `normalizeScalarLiteralCitationRefsWithContext`：它声称排除 derived aggregate，实际却会把 aggregate count
+   当源码 literal，在全 evidence 中用裸数字挑最高分行。B846 与 B848 同属 citation identity 面，后续单批用
+   typed aggregate/support-ref 身份修复；单次不复现不关账。
+8. 本批无 Trace/JSON/Mermaid/流终止代码改动。显式时间窗 Trace 因果投影、系统自动补齐、链上-only 主因、
+   背景 support-only、实际占用/业务线索与规则计价可消除量双轴继续保持；系统不替模型形成结论；
+   活跃字节流不得按 4ms/4s/4m/累计年龄降级。
+
+状态：
+
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=compaction-root-closed-in-production/overall-partial-on-B847`；
+`B847-EXPLICITRELATIONAXISAUTHORITYSPLIT1=P1-confirmed/next-batch`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-confirmed/design-pending`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-confirmed/exact-normalizer-root`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
