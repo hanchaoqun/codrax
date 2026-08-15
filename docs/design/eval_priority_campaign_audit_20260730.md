@@ -36288,6 +36288,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.865 r525：写重试闭环；隐式主聚合角色断层重新引入裸数误引证（2026-08-15）
+
+1. 在 `main@127f54b53` 严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 fail`；
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_registry_write_r525_20260815_manual_audit.md`。
+2. 写案例仍为正确的一行 `retrun -> return`，且首稿即通过，没有再发生 plan reject/retry。Planner 仍选择一条可执行、
+   语言匹配且带 baseline-failure 声明的 `import main` probe；这说明 B850 的高价值目标——消除矛盾合同导致的重试——
+   已获生产正证，而“能省则省”仍是软教学，系统不得删除一条合法的模型计划。
+3. Registry 的事实结论仍正确：默认总数 `1`、成员 `explorer`。B848 的多引用载体仍未被模型采用：同一 table row
+   只绑定 `Name()` citation，注册调用 slot 因未绑定而被正确清理。继续记录为 authoring partial，不设置“每行必须两个引用”
+   的硬门，也不由系统替模型选择第二锚。
+4. 新确认 B846 生产回归：补写总数的 scalar item 提交陈腐 `citation_ref=1`，系统先正确隔离越界引用；随后
+   scalar-literal normalizer 没有识别 investigator 的 `member_set value=1` 是主答案派生聚合，反而在全局证据中命中
+   `explorer.go:19917` 的 `len(p)-1`，最终把无关源码作为 `1` 的引用。事实正确但来源错误，人工判 fail。
+5. 根因是角色的两条结构化消费路径不一致：下游 prompt 使用 request-aware
+   `AnswerAggregateFactRoleForRequest`，能把未显式 role 的 member_set 推导为 `principal_answer`；而
+   `preEmitScalarLiteralIsPrincipalAggregateValue` 只检查 raw role。最优根修是在完成 typed request demotion 后统一读取
+   effective role，并把它传给 visible-value 判定；全程只消费 RequestModel + AnswerAggregateFact，不扫描用户/模型/答案原文。
+6. Analyze 在 source-inventory 已完成后又尝试 unavailable `grep`，作为低优先工具心智噪声继续观察；它没有污染证据或结论。
+   本轮无畸形 JSON、旧稿恢复、空答案或 active-stream fixed-age 降级。
+7. 本批不改 Trace；显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持，
+   邻近/背景只作支持，系统不代写模型结论。
+
+状态：
+
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-reopened/implicit-role-production-gap`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-partial/model-authoring-observe`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=production-positive/retry-closed/soft-omission-partial`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
