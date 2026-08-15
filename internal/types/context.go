@@ -577,6 +577,14 @@ type MutableState struct {
 	// verifies green or the run finishes.
 	verifyFailureHandoff *VerifyFailureHandoff
 
+	// replanCurrentWorktreeReceipt binds a replan to the current applied
+	// worktree generation. Unlike VerifyFailureHandoff it is not restricted to
+	// a failed ChangeReport: truth/proof authority can request a replan after a
+	// nominally passing report, and that planner still must not restart from
+	// original-source bytes. It survives the per-round planning reset and is
+	// replaced at each applied-work replan boundary.
+	replanCurrentWorktreeReceipt *ReplanCurrentWorktreeReceipt
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -4408,6 +4416,37 @@ func (m *MutableState) ResetVerifyFailureHandoff() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.verifyFailureHandoff = nil
+}
+
+// SetReplanCurrentWorktreeReceipt installs the typed current-generation
+// receipt consumed by the next planner dispatch.
+func (m *MutableState) SetReplanCurrentWorktreeReceipt(receipt *ReplanCurrentWorktreeReceipt) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.replanCurrentWorktreeReceipt = receipt
+}
+
+// ReplanCurrentWorktreeReceipt returns the current replan receipt, or nil.
+func (m *MutableState) ReplanCurrentWorktreeReceipt() *ReplanCurrentWorktreeReceipt {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.replanCurrentWorktreeReceipt
+}
+
+// ResetReplanCurrentWorktreeReceipt clears the current-generation receipt.
+func (m *MutableState) ResetReplanCurrentWorktreeReceipt() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.replanCurrentWorktreeReceipt = nil
 }
 
 // ResetPlanStageProbeReports clears the probe slice. Called at Run

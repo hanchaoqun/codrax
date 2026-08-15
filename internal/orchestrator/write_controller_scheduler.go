@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	if !o.busCtx.Mode.IsWrite() {
 		return fmt.Errorf("write controller workflow requires write mode, got %q", o.busCtx.Mode)
 	}
+	// Run-scoped receipt. A resumed run will recapture it from the restored
+	// applied plan immediately before its next replan dispatch.
+	o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 	run, err := o.loadOrSeedWriteWorkflowRun()
 	if err != nil {
 		// WFID-1 identity gate fail-closed verdict: surface the guidance
@@ -226,6 +230,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if h := o.busCtx.Mutable.VerifyFailureHandoff(); h != nil && h.BatchID != run.ActiveBatchID {
 				o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			}
+			if receipt := o.busCtx.Mutable.ReplanCurrentWorktreeReceipt(); receipt != nil && receipt.BatchID != run.ActiveBatchID {
+				o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
+			}
 		}
 		o.syncCurrentWriteContextPackToRun(&run)
 		o.persistWriteWorkflowRun(&run)
@@ -326,6 +333,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.persistWriteWorkflowRun(&run)
 				}
 			}
+			if decision.Action == writeflow.ActionReplanBatch {
+				o.captureReplanCurrentWorktreeReceipt(&run, priorPlan, decision.ReasonCode)
+			}
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
 			if current := o.busCtx.Mutable.WriteWorkflowRun(); current != nil && strings.TrimSpace(current.RunID) == strings.TrimSpace(run.RunID) {
 				run = *current
@@ -345,6 +355,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
 			if errors.Is(innerErr, errPlannerProbePassedExistingWorktree) {
+				o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
 				markWorkflowRunActiveSliceObservingForRestoredPlan(&run, run.ActiveBatchID, plan, "planner_probe_passed_existing_worktree")
 				appendControllerProgress(&run, run.ActiveBatchID, "planner_probe_passed_existing_worktree", "planner dry-run probe passed after replan without a new ChangePlan; run post-apply verify on the current worktree")
@@ -391,6 +402,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.publishBlockedRunGuidance(&run, "plan_batch_failed")
 					return lastInnerErr
 				}
+			}
+			if innerErr == nil {
+				o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 			}
 			if innerErr == nil && o.busCtx.Mode == types.ModeApply {
 				if explored, exploreErr := o.runOwnerLocalizationRequirementExplorationBeforeApply(&run, plan, stepsUsed); explored {
@@ -578,6 +592,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 				o.busCtx.TaskState.LastError = ""
 				o.busCtx.Mutable.ResetVerifyFailureHandoff()
+				o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 				o.persistWriteWorkflowRun(&run)
 				continue
 			}
@@ -635,12 +650,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				continue
 			}
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
+			o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionFinish:
 			o.enforceTerminalCumulativeProofAuthority(&run)
 			run.Status = types.WriteWorkflowRunComplete
 			writeflow.MarkWorkflowRunCompletionFromBatches(&run)
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
+			o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 			o.persistWriteWorkflowRun(&run)
 			result := "write workflow complete"
 			if decision.FinishDisposition == writeflow.FinishDispositionAcceptUnverified {
@@ -1455,6 +1472,9 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			if o.busCtx.Mutable.VerifyFailureHandoff() != nil {
 				hint += " Address the verification failure section above."
 			}
+			if o.busCtx.Mutable.ReplanCurrentWorktreeReceipt() != nil {
+				hint += " Construct the replacement from the typed current applied worktree receipt above; do not re-add its exact applied edits."
+			}
 			if o.busCtx.Mutable.WriteExplorationHandoff() != nil {
 				hint += " Preserve the exploration findings and evidence refs already supplied to this planning batch."
 			}
@@ -1577,7 +1597,7 @@ func controllerNoPlanRetryEligible(mu *types.MutableState, batch *writeflow.Writ
 	if mu == nil {
 		return false
 	}
-	if mu.VerifyFailureHandoff() != nil || mu.WriteExplorationHandoff() != nil {
+	if mu.VerifyFailureHandoff() != nil || mu.ReplanCurrentWorktreeReceipt() != nil || mu.WriteExplorationHandoff() != nil {
 		return true
 	}
 	return controllerHasBatchOrAnalysisAnchors(mu, batch)
@@ -4128,9 +4148,10 @@ func (o *Orchestrator) runControllerWriteStage(stage types.PipelineStage, stepsU
 }
 
 // prepareControllerPlanningState resets the per-round planning channels.
-// Mutable.VerifyFailureHandoff deliberately survives this reset: it is the
-// typed carrier that brings the latest failed verification into the replan
-// prompt, and the scheduler clears it only on green verify or finish.
+// Mutable.VerifyFailureHandoff and Mutable.ReplanCurrentWorktreeReceipt
+// deliberately survive this reset: the first carries failure authority; the
+// second carries exact current applied bytes even when a nominally passing
+// report is replanned by cumulative truth/proof authority.
 func (o *Orchestrator) prepareControllerPlanningState() {
 	mu := o.busCtx.Mutable
 	mu.ResetChangePlan()
@@ -5913,6 +5934,7 @@ func (o *Orchestrator) advanceWorkflowAfterSuccessfulSliceObserve(run *types.Wri
 	}
 	o.busCtx.TaskState.LastError = ""
 	o.busCtx.Mutable.ResetVerifyFailureHandoff()
+	o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 	return true
 }
 
@@ -6366,6 +6388,12 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	}
 	if truthDecision, ok := o.controllerTruthLedgerDecision(decision, run); ok {
 		appendControllerProgress(run, batchID, truthDecision.ReasonCode, truthDecision.Reason)
+		if truthDecision.Action == writeflow.ActionReplanBatch {
+			// Pin the truth-authority producer to the current-state carrier.
+			// The action switch recaptures after any checkpoint restore, before
+			// StagePlan, so this early copy is never used with stale bytes.
+			o.captureReplanCurrentWorktreeReceipt(run, plan, truthDecision.ReasonCode)
+		}
 		return truthDecision
 	}
 	if decision.Action == writeflow.ActionFinish &&
@@ -9489,6 +9517,199 @@ func (o *Orchestrator) resolveVerifyFailureHandoffArtifacts(h *types.VerifyFailu
 }
 
 const (
+	maxReplanCurrentWorktreePaths       = 8
+	maxReplanAppliedEditReceiptsPerPath = 32
+	maxReplanCurrentSnapshotsPerPath    = 3
+	maxReplanAppliedEditTextBytes       = 512
+	maxReplanCurrentSnapshotBytes       = 8192
+)
+
+// captureReplanCurrentWorktreeReceipt freezes the current applied generation
+// immediately before StagePlan resets ChangePlan. It is deliberately driven
+// only by typed plan/apply/diff state and filesystem bytes. Model prose, user
+// wording, test stdout and final-answer text are not inputs.
+func (o *Orchestrator) captureReplanCurrentWorktreeReceipt(run *types.WriteWorkflowRun, plan *types.ChangePlan, reasonCode string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
+	if run == nil || plan == nil || plan.PatchEffect == nil || !changePlanHasAppliedWork(plan) {
+		return
+	}
+	effect := plan.PatchEffect
+	planID := strings.TrimSpace(plan.ID)
+	if effectPlanID := strings.TrimSpace(effect.PlanID); effectPlanID != "" && effectPlanID != planID {
+		return
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if batchID == "" || planID == "" || len(effect.Files) == 0 {
+		return
+	}
+	repoRoot := strings.TrimSpace(o.busCtx.WorktreePath)
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(o.busCtx.RepoRoot)
+	}
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(o.busCtx.MainRepoRoot)
+	}
+	if repoRoot == "" {
+		return
+	}
+	receipt := &types.ReplanCurrentWorktreeReceipt{
+		BatchID:             batchID,
+		SourcePlanID:        planID,
+		ApplyGeneration:     workflowAppliedPlanGeneration(run, batchID, planID),
+		PatchEffectRecordID: strings.TrimSpace(effect.RecordID),
+		DiffFingerprint:     strings.TrimSpace(effect.DiffFingerprint),
+		TriggerReasonCode:   strings.TrimSpace(reasonCode),
+		GeneratedAt:         time.Now(),
+	}
+	if receipt.ApplyGeneration < 1 {
+		receipt.ApplyGeneration = 1
+	}
+	seen := map[string]struct{}{}
+	for _, file := range effect.Files {
+		if len(receipt.Paths) >= maxReplanCurrentWorktreePaths {
+			break
+		}
+		path := strings.TrimSpace(file.Path)
+		if path == "" {
+			path = strings.TrimSpace(file.OldPath)
+		}
+		path = verifyFailureRepairSourcePath(repoRoot, path)
+		if path == "" {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		state := buildReplanCurrentPathState(repoRoot, path, file)
+		receipt.Paths = append(receipt.Paths, state)
+	}
+	if len(receipt.Paths) == 0 {
+		return
+	}
+	o.busCtx.Mutable.SetReplanCurrentWorktreeReceipt(receipt)
+}
+
+func workflowAppliedPlanGeneration(run *types.WriteWorkflowRun, batchID, planID string) int {
+	if run == nil {
+		return 0
+	}
+	generation := 0
+	matched := 0
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != strings.TrimSpace(batchID) {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			generation++
+			if strings.TrimSpace(attempt.PlanID) == strings.TrimSpace(planID) {
+				matched = generation
+			}
+		}
+		break
+	}
+	return matched
+}
+
+func buildReplanCurrentPathState(repoRoot, path string, file types.PatchEffectFile) types.ReplanCurrentPathState {
+	state := types.ReplanCurrentPathState{Path: path}
+	for _, hunk := range file.Hunks {
+		state.AppliedEditTotal += len(hunk.AddedLineTexts) + len(hunk.RemovedLineTexts)
+		for _, line := range hunk.AddedLineTexts {
+			if len(state.AppliedEdits) >= maxReplanAppliedEditReceiptsPerPath {
+				continue
+			}
+			state.AppliedEdits = append(state.AppliedEdits, newReplanAppliedEditReceipt("added", line.Line, line.Text))
+		}
+		for _, line := range hunk.RemovedLineTexts {
+			if len(state.AppliedEdits) >= maxReplanAppliedEditReceiptsPerPath {
+				continue
+			}
+			state.AppliedEdits = append(state.AppliedEdits, newReplanAppliedEditReceipt("removed", line.Line, line.Text))
+		}
+	}
+	state.AppliedEditComplete = state.AppliedEditTotal == len(state.AppliedEdits)
+	content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
+	if errors.Is(err, os.ErrNotExist) {
+		state.State = types.ReplanWorktreePathMissing
+		return state
+	}
+	if err != nil {
+		state.State = types.ReplanWorktreePathUnreadable
+		return state
+	}
+	state.State = types.ReplanWorktreePathPresent
+	state.CurrentBytes = len(content)
+	state.CurrentSHA256 = fmt.Sprintf("%x", sha256.Sum256(content))
+	state.CurrentSourceSnapshots = replanCurrentSourceSnapshots(path, content, file)
+	return state
+}
+
+func newReplanAppliedEditReceipt(kind string, line int, raw string) types.ReplanAppliedEditReceipt {
+	receipt := types.ReplanAppliedEditReceipt{
+		Kind:         kind,
+		Line:         line,
+		Text:         raw,
+		TextBytes:    len([]byte(raw)),
+		TextSHA256:   fmt.Sprintf("%x", sha256.Sum256([]byte(raw))),
+		TextComplete: true,
+	}
+	if receipt.TextBytes > maxReplanAppliedEditTextBytes {
+		receipt.Text = types.CutPrefixRuneSafe(raw, maxReplanAppliedEditTextBytes)
+		receipt.TextComplete = false
+	}
+	return receipt
+}
+
+func replanCurrentSourceSnapshots(path string, content []byte, file types.PatchEffectFile) []types.RepairSourceSnapshot {
+	seen := map[string]struct{}{}
+	var out []types.RepairSourceSnapshot
+	for _, hunk := range file.Hunks {
+		if len(out) >= maxReplanCurrentSnapshotsPerPath {
+			break
+		}
+		line := hunk.NewStart
+		if len(hunk.AddedLineNumbers) > 0 && hunk.AddedLineNumbers[0] > 0 {
+			line = hunk.AddedLineNumbers[0]
+		}
+		if line < 1 {
+			line = 1
+		}
+		start, end, snippet := verifyFailureRepairSourceWindow(content, line, verifyFailureRepairSourceWindowRadius)
+		if snippet == "" {
+			continue
+		}
+		key := strconv.Itoa(start) + "|" + strconv.Itoa(end)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		if len([]byte(snippet)) > maxReplanCurrentSnapshotBytes {
+			snippet = types.CutPrefixRuneSafe(snippet, maxReplanCurrentSnapshotBytes) + "\n[truncated; use current_path sha256 plus read_file for exact remaining bytes]"
+		}
+		snap := types.RepairSourceSnapshot{
+			Path:       path,
+			LineStart:  start,
+			LineEnd:    end,
+			ReasonCode: "current_applied_generation",
+			Snippet:    snippet,
+		}
+		if anchor, ok := sourceowner.FindEnclosingOwner(path, content, line); ok {
+			snap.OwnerSymbol = anchor.OwnerSymbol
+			snap.AnchorSymbol = anchor.AnchorSymbol
+		}
+		out = append(out, snap)
+	}
+	return out
+}
+
+const (
 	maxVerifyFailureRepairSourceSnapshots = 6
 	verifyFailureRepairSourceWindowRadius = 12
 )
@@ -9996,6 +10217,7 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			}
 		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
+		o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
 		o.enforceTerminalCumulativeProofAuthority(run)
 		run.Status = types.WriteWorkflowRunComplete
 		writeflow.MarkWorkflowRunCompletionFromBatches(run)

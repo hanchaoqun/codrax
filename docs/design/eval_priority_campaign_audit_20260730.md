@@ -36631,6 +36631,52 @@ Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-onl
 `raw-occupancy/rule-priced-eliminable=separate`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.835 B828：replan 绑定当前已应用代次，原始源码与 mutable worktree 不再混权（2026-08-15）
+
+1. 对 r506 生产日志和持久化工件复核后，B828 确认为系统 gap。首个计划的
+   `PatchEffect` 已完整记录 `relativedelta.py` 新增 `_normalize` 的精确行和 diff SHA；项目原生
+   unittest 4/4 PASS，但 probe 的 `expected_stdout` 合同缺失使 truth ledger 把 finish 改为
+   `truth_ledger_failed_requires_repair`。由于报告本身 `Passed=true`，`BuildVerifyFailureHandoff`
+   正确返回 nil；紧接着 planning reset 又清空 `ChangePlan`。第二轮 Planner 因而只收到原始
+   request/source 语境，没有收到当前 worktree 已经落过的字节，先重复插入 `_normalize`，再以
+   第三计划删除重复。stale/no-op/create-existing validator 的拒绝均正确，但发生得太晚。
+2. 新增独立 typed `ReplanCurrentWorktreeReceipt`，不把 nominal pass 伪装成 verify failure。它在任何
+   `replan_batch` 进入 StagePlan、且当前计划已有真实 applied `PatchEffect` 时铸造，绑定
+   `batch_id + source_plan_id + apply_generation + patch_effect_record_id + diff_fingerprint +
+   trigger_reason_code`。truth-ledger 生成 replan 的席位另有直接 wiring pin；失败验证、模型主动
+   replan 等入口在统一 action switch 中复用同一捕获器。
+3. 每个 applied path 携当前存在状态、完整文件字节数和 SHA-256、精确 added/removed line receipt、
+   receipt 总数/枚举完整性，以及从当前 worktree 重新读取的 bounded owner/source window。普通行
+   携完整文本；超长行以完整字节数+SHA-256 继续持有精确身份，显示前缀标 `text_complete=false`；
+   路径最多 8、每路径 receipt 最多 32、源码窗口最多 3 且单窗 8KiB，避免把大 patch 变成 prompt
+   洪水。所有输入均来自 typed plan/workflow/PatchEffect 与文件字节，不扫描用户、模型、工具 stdout
+   或最终答案原文。
+4. Planner 的 replan 上下文先显示 current applied generation，再显示 verify failure（若有）和原始
+   task framing；明确 baseline 只说明意图，下一 patch 必须按 receipt 中的当前字节构造，不得重复
+   已落地 edit。该段是精确当前态+软规划引导，不替模型选择修复，也不新增 source mutation hard
+   gate；已有 old_text、no-op、create-existing、insertion-only already-present 等 validator 保持最终
+   硬权威。
+5. receipt 跨 per-round planning reset 保留；切换 batch、计划成功产出、green/unverified 终态与 finish
+   均清除。若 failed-verify replan 先恢复 checkpoint，action switch 会在恢复后重新捕获，避免 Planner
+   看到恢复前指纹。PatchEffect 的 PlanID 与当前 PlanID 不一致时 fail-closed，不发布伪 current
+   authority。
+6. 新增回归覆盖：apply generation=2、当前文件 SHA/字节数、5 条 exact receipt、当前源码中仅一个
+   `_normalize`、planning reset 后 carrier 仍在、PatchEffect PlanID 冲突拒绝、nominal report pass+
+   typed truth failed 会 replan 且不制造 `VerifyFailureHandoff`、truth producer 同时安装 current receipt、
+   Planner 首段渲染及跨 batch 隔离。`types/agent/orchestrator/tool` 全包已通过，待生产 write replay。
+7. Read/Trace 零改动；显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因，以及实际占用/
+   业务线索与规则可消除量双轴均保持。活跃字节流仍不得因 4ms、4s、4m 或连接累计年龄降级；系统
+   没有生成/替换模型答案、图、关系或结论。
+
+状态：
+
+`B828-REPLANCURRENTSTATEHANDOFF1=implemented/full-package-regression-pass/production-replay-required`；
+`B829-TRACESEMANTICBINDINGAUTH1=implemented/full-package-regression-pass/production-replay-required`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

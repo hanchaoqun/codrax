@@ -196,8 +196,14 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	// facts (Module B) → planning context / retry hint (existing).
 	// All sections are pure data — no "you should do X" prescriptions.
 	var sections []string
-	// Replan rounds open with the latest typed verification failure so the
-	// repair targets lead everything else the planner reads.
+	// Replan rounds open with current applied bytes before original task/source
+	// framing. A nominally passing ChangeReport can still be sent back by typed
+	// truth/proof authority, so this carrier is intentionally independent from
+	// VerifyFailureHandoff.
+	if receipt := e.buildReplanCurrentWorktreeReceiptSection(ctx); receipt != "" {
+		sections = append(sections, receipt)
+	}
+	// Then show the latest typed verification failure, when one exists.
 	if failure := e.buildVerifyFailureHandoffSection(ctx); failure != "" {
 		sections = append(sections, failure)
 	}
@@ -245,6 +251,75 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 		return ""
 	}
 	return "\n\n" + strings.Join(sections, "\n\n")
+}
+
+func (e *plannerEvaluator) buildReplanCurrentWorktreeReceiptSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	receipt := ctx.Mutable.ReplanCurrentWorktreeReceipt()
+	if receipt == nil || strings.TrimSpace(receipt.SourcePlanID) == "" || len(receipt.Paths) == 0 {
+		return ""
+	}
+	if run := ctx.Mutable.WriteWorkflowRun(); run != nil && strings.TrimSpace(receipt.BatchID) != "" &&
+		strings.TrimSpace(run.ActiveBatchID) != "" && strings.TrimSpace(receipt.BatchID) != strings.TrimSpace(run.ActiveBatchID) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Current applied worktree generation (typed replan receipt)\n\n")
+	b.WriteString("The original task/source framing describes intent and the repository baseline. Construct this replan against the current worktree bytes below: the source plan has already been applied. Do not re-add an already-applied edit. Preserve correct applied work and change only what the typed remaining obligation requires. This is current-state planning context, not permission to skip verification.\n\n")
+	fmt.Fprintf(&b, "- batch: %s source_plan: %s apply_generation: %d\n", receipt.BatchID, receipt.SourcePlanID, receipt.ApplyGeneration)
+	if receipt.PatchEffectRecordID != "" {
+		fmt.Fprintf(&b, "- patch_effect_record: %s\n", receipt.PatchEffectRecordID)
+	}
+	if receipt.DiffFingerprint != "" {
+		fmt.Fprintf(&b, "- applied_diff_sha256: %s\n", receipt.DiffFingerprint)
+	}
+	if receipt.TriggerReasonCode != "" {
+		fmt.Fprintf(&b, "- replan_trigger: %s\n", receipt.TriggerReasonCode)
+	}
+	for _, path := range receipt.Paths {
+		if strings.TrimSpace(path.Path) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- current_path: %s state=%s bytes=%d", path.Path, path.State, path.CurrentBytes)
+		if path.CurrentSHA256 != "" {
+			fmt.Fprintf(&b, " sha256=%s", path.CurrentSHA256)
+		}
+		fmt.Fprintf(&b, " applied_edit_receipts=%d/%d complete=%t\n", len(path.AppliedEdits), path.AppliedEditTotal, path.AppliedEditComplete)
+		for _, edit := range path.AppliedEdits {
+			fmt.Fprintf(&b, "  - already_applied_edit: kind=%s line=%d text_bytes=%d text_sha256=%s text_complete=%t text=%q\n",
+				edit.Kind, edit.Line, edit.TextBytes, edit.TextSHA256, edit.TextComplete, edit.Text)
+		}
+		for _, snap := range path.CurrentSourceSnapshots {
+			if strings.TrimSpace(snap.Snippet) == "" {
+				continue
+			}
+			loc := path.Path
+			if snap.LineStart > 0 {
+				loc = fmt.Sprintf("%s:%d-%d", path.Path, snap.LineStart, snap.LineEnd)
+			}
+			parts := []string{"loc=" + loc, "reason_code=" + firstNonEmptyPlannerReceipt(snap.ReasonCode, "current_applied_generation")}
+			if snap.OwnerSymbol != "" {
+				parts = append(parts, "owner="+snap.OwnerSymbol)
+			}
+			if snap.AnchorSymbol != "" {
+				parts = append(parts, "anchor="+snap.AnchorSymbol)
+			}
+			fmt.Fprintf(&b, "  - current_source_snapshot: %s\n", strings.Join(parts, " "))
+			fmt.Fprintf(&b, "    bytes:\n%s\n", indentPlannerHandoffPreview(snap.Snippet, "      "))
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func firstNonEmptyPlannerReceipt(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // buildTaskFramingSection renders the WriteAnalysisIR's task-shape
