@@ -36256,6 +36256,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.864 B848/B850：引用池作用域与 verify 语法预检能力软交付（2026-08-15）
+
+1. B848 不增加 citation completeness 硬门，也不由系统选择/追加 citation。唯一共享的 item-citation carrier 教学补齐
+   一个此前缺失的运输事实：`citations[]` pool 不是文档级背书；未被 item 引用的 slot 会被清理；相邻 block/item
+   携带的 citation 不支撑当前 item 的事实。模型已经选择多个独立锚且同一 visible item 使用它们时，仍由模型按
+   primary `citation_ref` + additional `citation_refs` 发出；禁止重复和加入未选择锚。
+2. 该补强由 `AnswerDocumentItemCitationCarrierTeaching` 单源供 schema-near shape 和静态 finalizer workflow 消费。
+   full/patch schema、normalization、prune 与 renderer 均不改；测试新增 pool 非全局、unused prune、neighbor 非代偿三项
+   字面 pin，并继续钉住 full/patch 多引用载体与“不发明 secondary citation”的生产边界。
+3. B850 只改 planner 软教学：本地纯 syntax/parse/build repair 优先只发 acceptance tests，省略 probe；verify 阶段拥有
+   changed-file syntax/compile preflight、无测试设施 fallback、typed native runner 或诚实 unavailable 边界。只有用户要求
+   的 runtime behavior 不能由这些面覆盖，或 controller 明确下发 verification proof-follow-up 时才发 probe。新增禁止
+   “只为证明 changed source 能 parse/import”造 probe；既有 executable-failure-signal 校验保持 fail-closed。
+4. 两项判断均不扫描用户 request、模型 reasoning、计划/答案 prose，也不按具体 typo、函数名或语言硬拟合。引用面只讲
+   typed JSON carrier 生命周期；probe 面是所有本地语法/解析/构建修复共享的 verify ownership。系统不补证据、不删模型
+   事实、不代写答案或结论。
+5. 验证：`go test ./internal/skill -count=1`、multi-citation/probe focused tests 与
+   `go test ./internal/agent -count=1` 已绿；types/tool 全包与 `go build ./...` 在提交前完成。下一步仍以 registry + write
+   严格并发 2 做 r525 生产回放，确认模型是否采用多引用以及 syntax repair 是否首稿省略 probe。
+6. 本批不改 Trace；显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持，
+   邻近/背景只作支持。活跃流不按 4ms/4s/4m 或累计年龄降级。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=implemented/pool-scope-soft-teaching/awaiting-r525`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=implemented/verify-ownership-soft-teaching/awaiting-r525`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

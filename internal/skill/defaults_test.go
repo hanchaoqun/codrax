@@ -126,12 +126,14 @@ func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing
 	body := allWorkflowBodies(sk)
 	for _, want := range []string{
 		"PROBE DECISION FIRST",
-		"typed test_surface advertises a native project runner for the changed language/package",
-		"local syntax/build repair",
-		"the verifier, not the planner, establishes exact changed-path coverage",
+		"local syntax/parse/build repair",
+		"deterministic changed-file syntax/compile preflight",
+		"honest unavailable boundary",
+		"typed native project runner",
 		"omit a probe",
+		"Never create a probe merely to prove that changed source parses/imports",
 		"copy the changed implementation into a standalone program",
-		"Never create a probe merely to reread changed source tokens",
+		"reread changed source tokens",
 		"verification_probes[] are optional source-level programs, not command runners",
 		"omit verification_probes[] and put the native build/test command in acceptance_tests[]",
 		"never launch an external compiler or test runner from a supported-language wrapper",

@@ -137,7 +137,14 @@ func TestAnswerDocumentFullAndPatchSchemasExposeSameMultipleCitationCarrier(t *t
 	if got := strings.Count(types.AnswerDocumentJSONShapeFirstTeaching, types.AnswerDocumentItemCitationCarrierTeaching); got != 1 {
 		t.Fatalf("shape-first item-citation teaching count=%d, want 1: %s", got, types.AnswerDocumentJSONShapeFirstTeaching)
 	}
-	for _, want := range []string{"primary index in citation_ref", "remaining indexes in citation_refs", "never repeat the primary or add unselected anchors"} {
+	for _, want := range []string{
+		"primary index in citation_ref",
+		"remaining indexes in citation_refs",
+		"never repeat the primary or add unselected anchors",
+		"citations[] pool is not document-wide support",
+		"an unreferenced pool entry is pruned",
+		"a citation carried by a neighboring block or item does not support this item's claims",
+	} {
 		if !strings.Contains(types.AnswerDocumentItemCitationCarrierTeaching, want) {
 			t.Fatalf("canonical multi-citation teaching missing %q: %s", want, types.AnswerDocumentItemCitationCarrierTeaching)
 		}
