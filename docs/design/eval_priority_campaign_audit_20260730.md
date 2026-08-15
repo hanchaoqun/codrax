@@ -36351,6 +36351,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.867 r526：裸数误引证与写重试生产闭环；Markdown 表引用侧车仍易失（2026-08-15）
+
+1. 在 `main@c61d58a6b` 严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_registry_write_r526_20260815_manual_audit.md`。
+2. B846 获生产闭环：先前错误引用 `internal/agent/explorer.go:19917` 在 emit、citation pool 和最终答案中均消失；
+   derived count `1` 保持可见，但不再被当成源码裸字面量。effective-role 根修符合预期。
+3. B850 同轮闭环：planner 首次完整采用 verify ownership，正确的一行 `retrun -> return` 计划没有 probe，首次 emit 即通过，
+   零拒绝、零重试；verify-owned Python dry-build 仍执行并通过，验证杆没有降低。
+4. B848 仍 partial，且暴露更通用运输形：模型选择合法的完整 Markdown table 放在 `block.text`，却没有为可见行增加
+   citation-only `items[]` sidecar。四条已选择 citation 中三条因无 item 绑定被正确 prune，最终正式引用只剩 Name 定义；
+   注册、返回字面量和 init 入口虽在正文出现，却没有进入 citation list。连续三轮未采用说明不是字段缺失，而是心智负担仍高。
+5. 下一安全小批只统一 soft carrier 教学：需要引用的 table 优先 structured rows；若保留 Markdown table，则每个需引用的可见行
+   增加不重复渲染的 item sidecar，再按 primary `citation_ref` + optional `citation_refs` 绑定模型已选锚。禁止解析 table prose
+   自造 sidecar，禁止每行固定引用数硬门，禁止系统替模型选证据。
+6. 上下文审计另见两个观察项：Analyzer 把 subagent member 错发成 required role `function,method`，给 finalizer 注入无关
+   candidate-role 合同；模型已经给出具体不确定性边界 block，但缺 typed facet metadata，accepted path 又追加泛化“覆盖可能不充分”。
+   前者待异构复现，后者只允许沿 typed violation/facet 根修，不能扫描可见 caveat 文本后静默压制。
+7. 无畸形 JSON、旧稿恢复、空答案或 fixed-age stream fallback。本批不改 Trace；显式窗、因果投影、自动补齐、链上-only
+   根因、实际占用/业务线索与规则计价可消除量双轴保持，邻近/背景只作支持，系统不代写结论。
+
+状态：
+
+`B846-PATCHCITATIONIDENTITYREMAP1=production-closed-r526`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-partial/markdown-sidecar-mind-gap`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=production-closed-r526`；
+`B851-ANSWERROLEPROFILESEMANTICDRIFT1=P2-observe/heterogeneous-replay-needed`；
+`B852-GENERICCAVEATAFTERLOCALBOUNDARY1=P2-recurrent/typed-root-fix-required`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
