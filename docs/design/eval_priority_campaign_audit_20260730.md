@@ -36322,6 +36322,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.866 B846：统一隐式聚合 effective role，阻断 patch 裸数误引证（2026-08-15）
+
+1. `preEmitScalarLiteralIsPrincipalAggregateValue` 不再只看 aggregate fact 的 raw role。它先保留
+   `NormalizeAggregateFactRolesForRequest` 的 typed demotion，再在 RequestModel 存在时通过
+   `AnswerAggregateFactRoleForRequest` 取得 effective role，并把该角色交给 visible-value authority 判定。
+2. 修复覆盖的不只是本次数字 `1`：任何由精确 typed relation/source-inventory authority 支撑、原始 role 省略、但按请求
+   应作为 principal 的派生 scalar/count，都不会再被当成源码字面量去做全局同值搜索。没有 AnalysisIR 的兼容调用仍维持旧的
+   raw-role 行为，避免凭空扩大主答案权限。
+3. 新生产形 pin 完整复现：隐式 role 的 typed relation member_set、有效注册 support、无关 `len(p)-1` 证据、以及 patch 隔离后
+   的 `citation_ref=-1`。专项断言 request-aware role 为 principal，scalar normalizer 不追加无关 citation，完整 pre-emit seam
+   也不得出现 `explorer.go:19917`。
+4. 既有显式 principal 与 supporting aggregate 边界继续通过。验证：相关 focused tests、
+   `go test ./internal/tool -count=1`（163.825s）及 `go build ./...` 全绿。
+5. 这是结构化角色单源修复，不读取请求、模型 reasoning、block text 或最终答案 prose 来判语义；不替模型选引用、不补事实、
+   不改模型结论。下一步 r526 严格并发 2 回放 registry + write，确认生产不再发射裸数误引证。
+6. Read/Trace 其他路径未改。显式时间窗、因果投影、自动补齐、链上-only 根因、实际占用/业务线索与规则计价可消除量双轴保持；
+   邻近/背景只作支持。活跃流不按 4ms/4s/4m 或累计年龄降级。
+
+状态：
+
+`B846-PATCHCITATIONIDENTITYREMAP1=implemented/implicit-effective-role-pinned/awaiting-r526`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-partial/model-authoring-observe`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=production-positive/retry-closed/soft-omission-partial`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

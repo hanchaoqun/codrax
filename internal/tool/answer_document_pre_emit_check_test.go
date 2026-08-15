@@ -1009,6 +1009,90 @@ func TestNormalizeScalarLiteralCitationRefsDoesNotRebindPrincipalDerivedAggregat
 	}
 }
 
+func TestNormalizeScalarLiteralCitationRefsDoesNotRebindImplicitPrincipalAggregateByNakedValue(t *testing.T) {
+	mu := types.NewMutableState("implicit derived aggregate citation authority")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "registration",
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       64,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "RegisterDefaultSubAgents",
+			Object:          "SubAgentRegistry.Register",
+			Snippet:         "r.Register(NewSubExplorer(deps))",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "unrelated-naked-value",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       19917,
+			AnchorKind:      types.AnchorDefinition,
+			Snippet:         `if dot := strings.LastIndex(p, "."); dot > 0 && dot < len(p)-1 {`,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "registered names",
+		Value:       "1",
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"internal/agent/subagent.go:64"},
+		Provenance:  types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		// Role is intentionally omitted. The request-aware aggregate contract
+		// derives principal_answer from this exact typed relation member set.
+	}})
+	mu.SetInvestigationComplete("accepted implicit principal aggregate")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:  "internal/agent/subagent.go",
+			Line:  64,
+			Quote: "r.Register(NewSubExplorer(deps))",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:        "count",
+			Kind:      types.BlockScalar,
+			Text:      "1",
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}},
+			// Reproduce the patch seam: the model submitted a stale pool index,
+			// and quarantine detached it before scalar normalization runs.
+			Items: []types.AnswerBlockItem{{ID: "value", CitationRef: -1}},
+		}},
+	}
+
+	if got := types.AnswerAggregateFactRoleForRequest(mu.StableInvestigationAggregateFacts()[0], &ctx.AnalysisIR.RequestModel); got != types.AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("effective aggregate role=%q, want principal_answer", got)
+	}
+	if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, nil); fixed != 0 {
+		t.Fatalf("fixed=%d, an implicit principal derived aggregate must stay outside source-literal rebinding", fixed)
+	}
+	if len(doc.Citations) != 1 {
+		t.Fatalf("scalar normalization appended unrelated naked-value citation: %+v", doc.Citations)
+	}
+	if got := doc.Citations[0]; got.File != "internal/agent/subagent.go" || got.Line != 64 {
+		t.Fatalf("aggregate support citation changed: %+v", got)
+	}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	for _, citation := range doc.Citations {
+		if citation.File == "internal/agent/explorer.go" && citation.Line == 19917 {
+			t.Fatalf("production normalize appended unrelated naked-value citation: %+v", doc.Citations)
+		}
+	}
+}
+
 func TestNormalizeScalarLiteralCitationRefsSupportingAggregateDoesNotMaskSourceLiteral(t *testing.T) {
 	mu := types.NewMutableState("supporting aggregate does not own source literal")
 	mu.AppendEvidence([]types.EvidenceItem{

@@ -1802,20 +1802,32 @@ func preEmitScalarLiteralIsPrincipalAggregateValue(pctx *preEmitCheckContext, va
 	if len(facts) == 0 {
 		return false
 	}
+	var rm *types.RequestModel
 	if pctx.ctx.AnalysisIR != nil {
-		facts = types.NormalizeAggregateFactRolesForRequest(facts, &pctx.ctx.AnalysisIR.RequestModel)
+		rm = &pctx.ctx.AnalysisIR.RequestModel
+		facts = types.NormalizeAggregateFactRolesForRequest(facts, rm)
 	}
 	for idx, fact := range facts {
-		if types.NormalizeAnswerAggregateRole(fact.Role) != types.AnswerAggregateRolePrincipalAnswer ||
-			!preEmitScalarLiteralMatchesAggregateFact(value, fact) ||
-			!preEmitAggregateFactRequiresVisibleValue(pctx.ctx, facts, idx, fact) {
+		// The effective aggregate role is request-aware. Completion may retain an
+		// omitted raw role while exact typed relation/source-inventory authority
+		// makes the fact principal for this request. Every other aggregate
+		// consumer uses this derivation; checking the raw role here alone would
+		// reinterpret a derived count as a source literal and bind an unrelated
+		// line that merely contains the same number.
+		role := types.NormalizeAnswerAggregateRole(fact.Role)
+		if rm != nil {
+			role = types.AnswerAggregateFactRoleForRequest(fact, rm)
+		}
+		if role != types.AnswerAggregateRolePrincipalAnswer ||
+			!preEmitScalarLiteralMatchesAggregateFact(value, fact) {
+			continue
+		}
+		effectiveFact := fact
+		effectiveFact.Role = role
+		if !preEmitAggregateFactRequiresVisibleValue(pctx.ctx, facts, idx, effectiveFact) {
 			continue
 		}
 		if fact.Kind == types.AnswerAggregateMemberSet {
-			var rm *types.RequestModel
-			if pctx.ctx.AnalysisIR != nil {
-				rm = &pctx.ctx.AnalysisIR.RequestModel
-			}
 			if !types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
 				continue
 			}
