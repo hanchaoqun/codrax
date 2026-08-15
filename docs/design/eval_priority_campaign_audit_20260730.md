@@ -36714,6 +36714,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.885 r537：Trace 全谱与 C 写模式回放；AK3 再次命中（2026-08-15）
+
+1. 在 `main@402b9ea32` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + github_issue_libgit2_foreach_worktree_symptom`。Runner `2/2 PASS`，人工为
+   `0 pass / 1 pass-with-caveat / 1 partial`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_cwrite_r537_20260815_manual_audit.md`。两案 215s/141s 完成，无空答案、JSON salvage、
+   旧稿恢复、Mermaid parser 降级或 fixed-age stream fallback。
+2. C 写模式的实际交付正确：`repository.c` 两处赋值表达式整体括起，`-42/-7/0` 三条回归均通过，测试文件未改；verify 与
+   `target_behavior` 都签绿。用户可见 ChangePlan 的摘要/变更理由却把修复示例写成 `error = (call(...)) != 0` 与
+   `error = (call(...)) < 0`，该文字形仍会先比较再赋值，与实际正确 patch 不一致。记
+   `B864-WRITEPLANPROSEPATCHPARITY1/P1-observe`：先做异构回放，不以模型 prose 扫描作硬门，也不由系统替写计划说明；候选泛化方向是
+   让用户可见的 exact patch/changed-lines typed 载体与 prose 并置并明确其权威，而不是句式拟合。
+3. H7 的主能力保持：显式 `13762.791708..13763.024898s` 窗、Trace 因果投影、确定性补齐、链上-only 根因排序均在；实际占时/
+   业务 span 与规则计价可消除量双轴同时发布，`running` 供给折算 `65.912ms`（raw `74.915ms`）、D-state `36.757ms`、
+   runnable/优先级反转/调度供给/IO 与语义工作没有被背景行替代。活跃 finalizer 流约 1 分钟持续产生语义字节，未因 4ms/4s/4m
+   或固定总年龄降级。
+4. H7 再次命中既有 `EVAL-B13-AK3`，现由 filed 升为 confirmed/next-batch：目标等待账 typed authority 是 `11` 个 D-state 区间、
+   `36.757ms`；镜像行的 `MergedCount=4` 实为 CPU3/CPU1/CPU2/CPU7 四个按 CPU 汇总桶，却被通用发生次数 renderer 写成
+   `4次(3.774~16.064ms)`，与同页 11 次发生数冲突。代码已有精确 `FamilyMirrorRef` 与真实单段 extrema，因此根修应在这个 typed
+   merge caliber 上显示“4组 CPU 汇总（组和…；单段…）”，不得扫描模型答案或更改选举数值。
+5. 模型仍把 `dma_fence_default_w` 内核 caller 过推为 GPU fence 等待对象/所有者，并以“全部由其产生”表述；typed footer 已正确说明
+   scheduler 11 段/36.757ms 与 blocked-reason census 12 条/39.157ms 不可逐行 join，caller 也不证明对象、owner 或机制。该项仍归
+   `B788/P2-observe` 的关系口径软教学，不新增正文硬门，不由系统删改结论。
+
+状态：
+
+`EVAL-B13-AK3=P2-confirmed/next-batch`；
+`B864-WRITEPLANPROSEPATCHPARITY1=P1-observe/heterogeneous-replay-first`；
+`B788-BLOCKEDREASONCALLERCALIBER=P2-observe/soft-guidance-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r537`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
