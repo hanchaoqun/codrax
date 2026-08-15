@@ -36639,6 +36639,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.875 r532：Trace 精确上下文下的模型违约；read stage precedence 接线漏臂（2026-08-15）
+
+1. 在 `main@2f6a53200` 重建后严格并发恰好两个案例：
+   `trace_query_donghu_real_frame_multicausal + read_combo_pipeline_sequence_table`。Runner `1 PASS / 1 FAIL`，
+   人工 `0 PASS / 1 partial / 1 fail`；详见
+   `eval/parallel_selected_summary_evalcampaign_trace_readcombo_r532_20260815_manual_audit.md`。两案 211s/283s
+   正常结束，没有 fixed-age stream fallback、JSON salvage、旧稿恢复或空答案。
+2. Trace 的系统投影与自动补采完整在场。主根因仍是 typed 链上 #1
+   `CookieMonsterCl-59843 23.994ms`；邻近/背景未晋升，实际占时与规则计价双轴也均保留。系统在成文前已交付
+   ordered rank roster、每个修向 leader、`direction_subtotal_authority=forbidden_by_typed_overlap`、
+   `cross_row_addition=not_authorized`，以及完整目标唤醒普查 `36=34+1+1`。
+3. 模型正文仍把同一 ThreadPool 线程的 D-state/io_wait/io_latency 三席直接相加成 24.492ms，并反称它是“最优先”；
+   又把 36 次目标直接唤醒全部描述成经过同一三跳上游链。前者与 typed #1 和“成员区间重叠、不可直加”冲突，后者把
+   per-pair census 与递归 path 混成一个全称关系。由于精确、紧凑 authority 已在 LLM request 前出现，本轮判为模型服从度
+   fail，而不是系统缺证；不增加答案关键词/算式扫描硬门，不让系统改写、删除或替代模型结论。继续异构回放，只有形成
+   跨模型重复的上下文布局问题才另立泛化施工件。
+4. Read combo 的文字和四阶段输入/输出/状态载体表完整，但 required sequence diagram 仅留下 Analyze 的局部 call/data-flow。
+   这不是 runner 只要求字面 `finalizer` 的 oracle gap 能解释的：用户要求的完整生命周期图确实缺了 Explore/Extract/Finalize
+   三段关系。
+5. 新确认 `B858-READSTAGEEVIDENCESPAN1/P1`。checkout-verified `stageauthority` 已有三条相邻 precedence 真边并由 prompt、completion、
+   pre/post-emit 共用；本轮却未激活，因为 analyzer 发出空 participant slate，另把 stage/workflow dimension 的 exact quote
+   写成 `每 stage...`（原请求为 `每个 stage...`）后被软丢弃。探索已经 citable grounding `StageAnalyze` 与 `StageFinalize`，
+   但共享 provider 没有“grounded canonical stage endpoints”入口，于是模型只能用更窄的直接 call 证据画局部图。
+6. 最优根修不是从用户/答案 prose 找 `analyze/finalizer`，也不是系统代画。新增同一 provider 的第三个 typed admission arm：
+   required flow diagram 下，仅从 citable+grounded evidence 的 exact stage identity 与 checkout-verified authority source 解析至少两个
+   无歧义 stage endpoint，选择其 canonical contiguous span；仍只授权 `relation_kind=precedence`，不授权 call、data-flow、共享载体
+   incidence 或 artifact handoff。prompt、completion、validator 必须继续消费同一个 selection，任一模糊/单 endpoint/非权威源均
+   fail closed。
+7. `B857` 本轮没有复现反馈瀑布：两次独立 diagram violation 均及时披露，第三轮修复成功。因此维持观察态，不围绕 r531 单稿
+   先施工。Read/Trace 红线保持：系统只供精确信息与约束，不代写答案、图或结论。
+
+状态：
+
+`B858-READSTAGEEVIDENCESPAN1=P1-confirmed/next-batch`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-confirmed/heterogeneous-replay-not-reproduced-r532`；
+`trace-r532-model-authority-noncompliance=observed/no-prose-hard-gate`；
+`trace-projection/auto-supplement=production-positive-r532`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r532`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
