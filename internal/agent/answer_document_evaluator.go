@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -14829,10 +14830,20 @@ func answerDocumentPatchRejectIsDiagramCallEdge(result *types.ToolResult) bool {
 // answerDocumentRejectOnlyGroundedMissingCallAnchors recognizes a
 // producer-owned metadata-only diagram defect. It deliberately consumes only
 // typed repair metadata: neither user input nor model/final prose participates
-// in routing. A mixed relation failure stays on the existing evidence-boundary
-// lane because adding anchors cannot make an unsupported edge true.
+// in routing. Other answer-contract failures may coexist and remain for the
+// next validation pass; what must be homogeneous is the diagram call-relation
+// failure set itself. Adding anchors cannot make an unsupported edge true, so
+// a mixed grounded/unsupported relation issue still fails closed.
 func answerDocumentRejectOnlyGroundedMissingCallAnchors(result *types.ToolResult) bool {
-	if !answerDocumentPatchRejectIsDiagramCallEdge(result) || result.Repair == nil || result.Repair.Metadata == nil {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return false
+	}
+	repair := result.Repair
+	if strings.TrimSpace(repair.Code) != "answer_doc_pre_emit_contract" {
+		return false
+	}
+	kinds := answerDocNonEmptyCSV(repair.Metadata["violation_kinds"])
+	if !slices.Contains(kinds, string(types.ViolDiagramCallEdgeUnproven)) {
 		return false
 	}
 	issues := answerDocNonEmptyCSV(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues])
@@ -14885,7 +14896,7 @@ func answerDocGroundedDiagramAnchorPatchHint(result *types.ToolResult, alreadyPa
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 		action = "Keep using `emit_answer_document_patch`"
 	}
-	return prefix + " only because one or more visible diagram call edges were already supported by accepted typed call evidence but were missing their structured `edge_anchors` metadata. " +
+	return prefix + " contained one or more visible diagram call edges that were already supported by accepted typed call evidence but were missing their structured `edge_anchors` metadata. Repair this producer-owned metadata defect first; any other reported fields remain for the next normal validation pass. " +
 		action + "; replace only the listed diagram block(s), retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
 		"Preserve each rejected diagram's Mermaid body byte-for-byte, including every node ID, visible label/message, edge, direction, operator, and ordering. Preserve all model-authored prose and conclusions. Do not remove, add, reverse, reconnect, relabel, or replace any visible relation, and do not substitute a reduced evidence skeleton. " +
 		"Set each listed block's `edge_anchors` to the corresponding complete array below; it includes the existing anchors plus only the missing metadata for visible edges that validation already matched to typed call evidence. Use native JSON arrays/objects, not a JSON-encoded string:\n\n" + payload +

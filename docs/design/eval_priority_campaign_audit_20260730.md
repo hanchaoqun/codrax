@@ -36452,6 +36452,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-occupancy/business-clue/rule-priced-eliminable=separate`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.870 r528 / B853：图关系缺锚与同轮字段错误分权；C++ 写计划正证（2026-08-15）
+
+1. 在 `main@4816f0d3f` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + patch_cpp_typo`。Runner `2/2 PASS`；人工为 sequence partial、C++ write pass。
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_sequence_cppwrite_r528_20260815_manual_audit.md`。
+2. C++ 写计划为一行精确 patch：`main.cpp:19` 的 `retrun -> return` 同时存在于 unified diff 与 structured replace，
+   没有第二路径、无关 probe、拒绝或 replan。plan-only 没有实际执行 g++，因此编译与行为保持验收合同而非已验证声明；
+   验证杆和所有权边界正确。
+3. 时序案的核心拓扑判断正确：当前源码不存在 `buildAnalysisIR -> gate.Run` 有向路径；真实边界是
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`。终稿保留该共享被调方结构、精确方向、合法 Mermaid 和关键本地调用列表，
+   没有为了满足题设伪造连续链。Mermaid 兼容层只给 participant display 加安全引号，未改关系，也未触发 L7 text fallback。
+4. 同轮确认 `B853-GROUNDEDDIAGRAMANCHORMIXEDREPAIR1/P1`。首稿图另含 7 条真实、有 citation 的
+   `buildAnalysisIR -> normalizer/amplifier/compiler/risk/hdp/binder` 调用边；模型只为两条 endpoint-boundary 边发了
+   `edge_anchors`。validator 正确把其余边分类为 `missing_grounded_call_anchor`，但同轮还有 principal facet/精确端点列表错误，
+   旧 metadata-only 路由要求“唯一 violation family 且唯一 offending block=diagram”，因此被旁路。
+5. generic repair 虽要求保留未列出的边，却把“为已证边补锚”和“删除该边”作为同等出口。模型选择删除 7 条真边，
+   一轮即通过，但图关系丰富度明显缩水。这不是 Mermaid 语法、模型随机选边或证据不足，而是精确 producer metadata 被
+   companion answer violations 阻断的 repair-routing gap；继续加本案例函数名教学会过拟合。
+6. B853 根修只消费 ToolRepair typed metadata：只要 violation set 包含 call-edge failure、该图关系 issue closed set 恰为
+   `missing_grounded_call_anchor`，且 producer 已发完整 block-local anchor replacement JSON，就先进入 metadata-only patch。
+   提示要求 Mermaid body、节点、标签、消息、方向、顺序、所有模型 prose/结论字节保持，只替换 `edge_anchors`；其他列表、
+   facet、端点错误留给下一次正常 validation。系统不生成图、不选边、不删边、不改结论。
+7. fail-closed 边界保持：若 relation issue 同时含 `unproven_call_edge/no_evidence`，即使 metadata payload 意外存在也不进入该车道；
+   补 anchor 永远不能把 unsupported edge 变真。新正 pin 覆盖 call-edge + endpoint/list companion violations，无损车道优先；
+   既有 mixed grounded/unsupported relation 负 pin 保持。
+8. `go test ./internal/agent -count=1` 与定向三臂测试全绿。两案均无畸形 JSON、旧稿恢复、空答案或 fixed-age stream fallback；
+   sequence 在活跃流中 255s 后正常完成。下一轮用同一 sequence + 异构非 C++ 案做一次生产验收后即切换，不连续拟合单案。
+
+状态：
+
+`B853-GROUNDEDDIAGRAMANCHORMIXEDREPAIR1=implemented/typed-metadata-only+mixed-answer-positive-pin`；
+`sequence-no-directed-path=correct/shared-callee-boundary`；
+`patch-cpp-plan=production-positive-r528/plan-only`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r528`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

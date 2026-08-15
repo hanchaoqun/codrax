@@ -616,6 +616,50 @@ func TestGroundedDiagramMissingAnchorsPreserveModelGraphOnFullAndPatchReject(t *
 	}
 }
 
+func TestGroundedDiagramMissingAnchorsPreserveModelGraphWithCompanionAnswerViolations(t *testing.T) {
+	anchorPayload := `[{"block_id":"sequence","edge_anchors":[{"from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Run","relation_kind":"call"},{"from_node":"B","to_node":"C","from_identity":"Beta.Run","to_identity":"Gamma.Run","relation_kind":"call"}]}]`
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds": strings.Join([]string{
+					string(types.ViolCallChainEndpointOmitted),
+					string(types.ViolDiagramCallEdgeUnproven),
+				}, ","),
+				types.ToolRepairMetaOffendingBlockKinds:            string(types.BlockOrderedList) + "," + string(types.BlockDiagram),
+				types.ToolRepairMetaDiagramRelationFailureIssues:   types.DiagramRelationFailureMissingGroundedCallAnchor,
+				types.ToolRepairMetaDiagramGroundedAnchorPatchJSON: anchorPayload,
+			},
+		},
+	}
+
+	if !answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
+		t.Fatal("companion non-relation violations must not bypass exact diagram metadata repair")
+	}
+	got := e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+	if !got.HintRequested || !strings.Contains(got.HintKey, "grounded-diagram-anchors") {
+		t.Fatalf("mixed answer failure did not preserve the grounded model graph first: %+v", got)
+	}
+	for _, want := range []string{
+		"Mermaid body byte-for-byte",
+		"other reported fields remain for the next normal validation pass",
+		anchorPayload,
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("mixed answer metadata repair missing %q:\n%s", want, got.Hint)
+		}
+	}
+	for _, forbidden := range []string{"remove the optional diagram"} {
+		if strings.Contains(got.Hint, forbidden) {
+			t.Errorf("mixed answer metadata repair offered lossy graph removal %q:\n%s", forbidden, got.Hint)
+		}
+	}
+}
+
 func TestGroundedDiagramAnchorRepairFailsClosedForMixedIssues(t *testing.T) {
 	result := &types.ToolResult{
 		ToolName: "emit_answer_document",
