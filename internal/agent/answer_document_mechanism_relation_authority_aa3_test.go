@@ -422,7 +422,8 @@ func TestMechanismRelationAuthorityTypedParticipantRolesStaySoftAndLanguageNeutr
 		}
 	}
 
-	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioRootCause
 	if got := renderAnswerDocMechanismRelationAuthority(ctx); strings.Contains(got, "typed_named_participant_relation_coverage") {
 		t.Fatalf("runtime trace must stay on its independent causal authority lane:\n%s", got)
 	}

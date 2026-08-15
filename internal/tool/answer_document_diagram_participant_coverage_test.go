@@ -670,11 +670,30 @@ func TestDiagramParticipantCoverageBoundaryMustBeUniqueAndVisibleInItsOwnBlock(t
 	}
 }
 
-func TestDiagramParticipantCoverageDoesNotEnterTrace(t *testing.T) {
+func TestDiagramParticipantCoverageDoesNotEnterRootCauseTrace(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
-	rm.Intent = types.IntentTrace
+	rm.Intent = types.IntentRootCause
+	rm.Scenario = types.ScenarioRootCause
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
 		t.Fatalf("Trace diagrams keep independent causal authority: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageEntersSourceCallChain(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	rm.Intent = types.IntentTrace
+	rm.PredicateAxis = types.AxisCall
+	view.Family = types.QFCallChain
+	view.RelationAxis = types.AxisCall
+	view.DiagramPlan.Kind = types.DiagramSequence
+	doc.Blocks[0].Diagram.Kind = types.DiagramSequence
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n participant Analyzer\n participant Explorer\n Analyzer->>Explorer: call"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelCall,
+	}}
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Participant != "MutableState" || got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("source call-chain diagrams must preserve every explicit typed participant or boundary: %+v", got)
 	}
 }
 

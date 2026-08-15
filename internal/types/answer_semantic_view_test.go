@@ -69,7 +69,7 @@ func TestBuildAnswerSemanticView_PreservesTypedRelationAxis(t *testing.T) {
 	}
 }
 
-func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *testing.T) {
+func TestApplyDiagramParticipantObligationsUsesRequiredTypedDiagramSlateAcrossRelationAxes(t *testing.T) {
 	participants := []DiagramParticipantHint{
 		{Identity: "Analyzer", Role: DiagramParticipantIncidentRequired, SourceQuote: "Analyzer"},
 		{Identity: "BusContext", Role: DiagramParticipantContextOnly, SourceQuote: "BusContext"},
@@ -104,8 +104,10 @@ func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *
 	}
 
 	for name, mutate := range map[string]func(*AnalysisIR, *AnswerSemanticView){
-		"trace":         func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.Intent = IntentTrace },
-		"non flow":      func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.PredicateAxis = AxisDefine },
+		"root cause trace": func(ir *AnalysisIR, _ *AnswerSemanticView) {
+			ir.RequestModel.Intent = IntentRootCause
+			ir.RequestModel.Scenario = ScenarioRootCause
+		},
 		"hint optional": func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.DiagramHint.Required = false },
 		"plan optional": func(_ *AnalysisIR, view *AnswerSemanticView) { view.DiagramPlan.Required = false },
 	} {
@@ -117,6 +119,16 @@ func TestApplyDiagramParticipantObligationsUsesOnlyRequiredNonTraceFlowSlate(t *
 				t.Fatalf("inactive lane leaked participant obligations: %+v", inactive.DiagramParticipantObligations)
 			}
 		})
+	}
+
+	callChain := newIR()
+	callChain.RequestModel.Intent = IntentTrace
+	callChain.RequestModel.PredicateAxis = AxisCall
+	callChain.RequestModel.DiagramHint.Kind = DiagramSequence
+	callView := &AnswerSemanticView{DiagramPlan: &DiagramFacetGraph{Kind: DiagramSequence, Required: true}}
+	applyDiagramParticipantObligations(callView, callChain)
+	if len(callView.DiagramParticipantObligations) != 2 {
+		t.Fatalf("required source call-chain participants must retain the typed slate: %+v", callView.DiagramParticipantObligations)
 	}
 }
 

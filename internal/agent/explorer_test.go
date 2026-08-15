@@ -12797,14 +12797,33 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		t.Fatalf("ordinary architecture presentation must not receive ordered-flow teaching: %q", got)
 	}
 
-	traceFlow := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-		Intent: types.IntentTrace, PredicateAxis: types.AxisFlow,
+	rootCauseTrace := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause, PredicateAxis: types.AxisFlow,
 		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{
 			{Identity: "render-thread", Role: types.DiagramParticipantIncidentRequired},
 		}},
 	}}}
-	if got := renderExplorerCallChainEdgeEvidenceGuide(traceFlow); strings.Contains(got, "Typed participant obligations") || strings.Contains(got, "render-thread") {
+	if got := renderExplorerCallChainEdgeEvidenceGuide(rootCauseTrace); strings.Contains(got, "Typed participant obligations") || strings.Contains(got, "render-thread") {
 		t.Fatalf("runtime trace participant must not enter source-flow guidance: %q", got)
+	}
+
+	callChain := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "buildAnalysisIR"},
+			{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "gate.Run"},
+		}},
+	}}}
+	callGuide := renderExplorerCallChainEdgeEvidenceGuide(callChain)
+	for _, want := range []string{
+		"Call-edge Evidence Handoff",
+		"source_operation_required=[buildAnalysisIR gate.Run]",
+		"planning only, never edge evidence",
+	} {
+		if !strings.Contains(callGuide, want) {
+			t.Fatalf("source call-chain participant obligation missing %q:\n%s", want, callGuide)
+		}
 	}
 }
 

@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
+
+1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + data_json_strict_ids`。Runner `1 PASS / 1 FAIL`；人工 JSON pass、
+   调用链 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_sequence_json_r514_20260815_manual_audit.md`。
+2. JSON 终稿精确输出 `{"ids":["u1","u3"]}`，并完成 rule coverage、contribution、reconcile 与
+   final projection，先前 split-brain 已闭环。两次 planner repair 中，第一轮把 17 行脚本错误放到
+   `extract_records`；`emit_data_task_plan` 的公开 schema 已同时用字段说明和
+   `if kind=custom_transform / else script.maxLength=0` 明确限制，执行前 guard 与之相同。因此这是
+   模型违反精确合同后被系统正确修复，不是“同一字段同时必带/必拒”的系统矛盾；不再追加重复教学、
+   关键词门或答案改写。
+3. 调用链终稿正确展示 `buildAnalysisIR` 的 fan-out 和直接边
+   `buildAnalysisIR -> gate.RunWith`，但遗漏用户显式要求的 `gate.Run` 以及真实汇合关系
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`。生产源码中 `gate.Run` 位于
+   `internal/analysis/gate/gate.go` 并直接调用 `RunWith`；Explorer 只读了 analyzer.go，未读 gate.go。
+4. B841 根因是 typed enum 车道碰撞，而非模型波动：源码调用链 profile 使用
+   `IntentTrace + AxisCall`，旧 participant obligation、Explorer guide、Finalizer soft closure 与
+   answer validator 都把任何 `IntentTrace` 当作运行时 Trace 而整体豁免。因此 Analyzer 已保留的
+   required participant `gate.Run` 没有产生证据计划、可见节点闭包或显式未证边界；runner regex
+   恰好发现了系统 typed validator 没发现的缺口。
+5. 根修把豁免权收窄到真实 `QFRootCauseTrace`。所有源码关系轴上的 typed required participant
+   现在统一进入证据计划、Explorer 软指引和答案可见闭包：必须具有证据支持的 incident edge，或由
+   模型显式发布 disconnected/unproven participant boundary。系统不根据名字猜边、不代画图、不改写
+   结论；边方向、关系类型、业务标签和最终叙述仍由模型基于 parser-owned evidence 形成。
+6. 正负 pin 覆盖 `IntentTrace + AxisCall` 源码调用链、普通 relation axis、真实
+   `QFRootCauseTrace` 独立豁免，以及 Explorer 的 source-operation 指引。`internal/types`、
+   `internal/tool`、`internal/agent` 全包测试和 `go build ./...` 通过。
+7. Trace 权限面没有改动：真实 root-cause Trace 继续由独立 typed causal authority 管理；显式窗、
+   因果投影、系统补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴均保持。邻近/背景
+   仍只能支撑额外排查，系统不替模型选择根因或结论。
+8. 两案均未发生空答案、旧稿降级或 active-stream 固定年龄降级。连接只要持续交付字节，4ms/4s/4m
+   均不授权降级；终止/恢复仍仅由 caller cancel/deadline、无首字节、byte-stall、transport/decode
+   failure 等精确信号驱动。
+
+状态：
+
+`B841-SOURCERELATIONPARTICIPANTTRACEENUMCOLLISION1=implemented/pins+package-tests+build-pass`；
+`B842-DATAACTIONSCRIPTDISCRIMINATOR1=no-gap/schema-and-guard-consistent/model-repair-success`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

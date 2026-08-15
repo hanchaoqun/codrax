@@ -1905,17 +1905,20 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	var guide string
+	participantGuide := renderExplorerFlowParticipantObligations(rm)
 	if rm.PredicateAxis == types.AxisFlow {
 		guide += "### Ordered-flow Evidence Handoff\n\n" +
 			types.FlowOperationEvidenceEmissionGuide + "\n" +
-			renderExplorerFlowParticipantObligations(rm) +
+			participantGuide +
 			"When one bounded source span contains an explicit ordered VALUE carrier for stages, handlers, middleware, rules, transforms, or other flow members, preserve each adjacent directed pair as its own grounded `emit_evidence` row: use `evidence_kind=relationship`, `anchor_kind=precedence`, the earlier exact endpoint in `subject`, the later exact endpoint in `object`, `anchor_symbol` equal to the earlier endpoint, and the smallest already-read `line_start..line_end` range containing the carrier and both endpoints. Returned/bound arrays, slices, tuples, middleware lists, and rule chains qualify. Const/enum/type declaration groups, arbitrary sibling statements, comments, summaries, ordinal wording, and model reasoning do not. This proves source order only, not invocation, runtime execution, containment, or causality. Use call/callback/assignment/return anchors instead when those are the actual transfer relation.\n" +
 			"This is one cross-language carrier contract for Go, Java/Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and the other supported source languages.\n\n"
+		participantGuide = ""
 	}
 	if types.ResolveQuestionFamily(rm) != types.QFCallChain {
 		return guide
 	}
 	guide += "### Call-edge Evidence Handoff\n\n" +
+		participantGuide +
 		"A repo_map call/relation row is navigation until the source line is read. When a read source span verifies a load-bearing direct invocation in the requested path, emit one grounded `emit_evidence` item for that invocation before closing: use `evidence_kind=relationship`, `predicate=calls`, the exact enclosing caller in `subject`, the exact callee surface in `object`, `anchor_kind=call`, the exact callee operation in `anchor_symbol`, `scope=line`, and the read `source` / `line_start` / `snippet`.\n" +
 		"- Preserve every distinct operation even when several messages share the same class/actor endpoints; for example, two calls from one service to one repository are two call-edge evidence rows.\n" +
 		"- A function definition, a read-coverage row, a path member_set, or closure prose does not prove caller-to-callee direction and must not substitute for the call-site row. Emit guards/conditions separately from calls.\n" +
@@ -1939,7 +1942,7 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 }
 
 func renderExplorerFlowParticipantObligations(rm types.RequestModel) string {
-	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+	if types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.DiagramHint == nil || len(rm.DiagramHint.Participants) == 0 {
 		return ""
 	}

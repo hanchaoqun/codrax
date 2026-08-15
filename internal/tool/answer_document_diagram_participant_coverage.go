@@ -303,7 +303,6 @@ func DiagramParticipantCoverageMismatches(
 	stagePrecedence ...stageauthority.PrecedenceRelation,
 ) []DiagramParticipantCoverageMismatch {
 	if doc == nil || view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required ||
-		view.RelationAxis != types.AxisFlow || rm.Intent == types.IntentTrace ||
 		types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
 		return nil
 	}

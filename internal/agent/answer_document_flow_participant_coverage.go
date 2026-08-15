@@ -85,10 +85,14 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 // PrimaryEntities fallback) with current citable relation endpoints. This is
 // intentionally a SOFT finalizer input: the planning identity is not evidence,
 // so absence never rejects an answer or manufactures an edge. It gives the
-// model a compact checklist without scanning request or answer prose.
+// model a compact checklist without scanning request or answer prose. Despite
+// the legacy helper name, typed diagram participants apply to every required
+// source-relation diagram (call, flow, registration, etc.); only runtime
+// root-cause trace diagrams keep their independent causal authority.
 func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types.RequestModel, edges []answerDocMechanismRelationEdge, evidence []types.EvidenceItem) {
-	if b == nil || rm.PredicateAxis != types.AxisFlow || rm.Intent == types.IntentTrace ||
-		types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
+	typedDiagramRequired := rm.DiagramHint != nil && rm.DiagramHint.Required
+	if b == nil || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		(!typedDiagramRequired && rm.PredicateAxis != types.AxisFlow) {
 		return
 	}
 	typed := rm.DiagramHint != nil && len(rm.DiagramHint.Participants) > 0
