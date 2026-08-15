@@ -37047,6 +37047,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `malformed-observations+residue-string=fail-loud/by-design`；
 `raw request/model/final prose hard gate=none`；`system-answer/conclusion-authorship=none`。
 
+### §123.845 r512 / B838-A：探针编写错误不得压住独立项目测试面（2026-08-15）
+
+1. r512 严格并行 2：Trace 案例机器 PASS（337s），write 案例机器 FAIL（543s）。write 首次错误补丁被
+   `python3 -m unittest discover -v` 的 4/4 失败正确拦截，replan 后代码已把规范化移入 `__init__`；对
+   保留 applied tree 人工运行同一 suite 为 4/4 PASS。
+2. 第二 plan 的 6 个 bounded probes 中，1 个使用 `from relativedelta import relativedelta` 并通过；另外
+   5 个使用 `import relativedelta` 后把模块当函数调用，均得到 typed
+   `verification_probe_top_level_exception/parser_error/probe_authoring`。虽然 TestSurface 已明确发现
+   `python/unittest@.`，pre-suite continuation 在 `finishReport` 之前只读 report 内已有 diagnostics，未把
+   `ExecutedCommands` 中稍后才铸造的通用 authoring diagnostics 合入判定，因而提前返回 unavailable，真实
+   suite 没有执行。这是验证权威编排 gap，不是产品代码失败或 B837 JSON 兼容回归。
+3. 修复在同一精确 typed 域内复用 `verificationDiagnosticsFromExecutedCommands`，在 continuation 判定前将
+   report diagnostics 与 command-derived diagnostics 合并。仅当独立 TestSurface 有真实 test work、全部失败
+   均属于 warning 级 probe-authoring/import/environment/comparator 非权威类别时才继续项目 suite；任何 error
+   级/真实行为失败仍 fail-loud。系统不改写 probe、不解析用户/模型 prose，也不以 suite 成功抹去 probe 告警。
+4. 新 pin 构造“模块被误当函数 + 独立 unittest”：必须执行 unittest 并以其 PASS 为权威，同时最终 report
+   保留 `verification_probe_top_level_exception`。既有“无独立 suite 时 top-level exception 保持
+   parser_error/unavailable”pin 保持不变。
+
+状态：`B838-PROBEAUTHORITY1=implemented/pending-full-suite`；
+`probe-code-system-rewrite=none`；`project-suite-failure-downgrade=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

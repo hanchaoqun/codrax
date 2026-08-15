@@ -1841,12 +1841,24 @@ func verificationProbeDiagnosticsAreNonAuthoritative(report *types.ChangeReport)
 	if report == nil {
 		return false
 	}
+	// runPlanVerificationProbes carries language-specific diagnostics on the
+	// provisional report, while some generic probe-authoring classifications
+	// (for example a Python top-level exception) are minted from the typed
+	// ExecutedCommand only when finishReport runs.  The continuation decision
+	// necessarily happens before finishReport, so evaluate the same typed
+	// command rows here as well.  Otherwise an authoring-broken bounded probe
+	// can suppress an independently discovered project suite even though the
+	// final report would later classify that probe as non-authoritative.
+	diagnostics := mergeVerificationDiagnostics(
+		report.VerificationDiagnostics,
+		verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands),
+	)
 	failed := countFailed(report.TestResults)
-	if failed == 0 || len(report.VerificationDiagnostics) < failed {
+	if failed == 0 || len(diagnostics) < failed {
 		return false
 	}
 	seen := false
-	for _, diag := range report.VerificationDiagnostics {
+	for _, diag := range diagnostics {
 		if strings.EqualFold(strings.TrimSpace(diag.Severity), "error") {
 			return false
 		}

@@ -3672,6 +3672,68 @@ func TestRunTestsVerificationProbeTopLevelExceptionIsParserError(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbeTopLevelExceptionDoesNotSuppressProjectSuite(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "test_widget.py"), []byte(strings.Join([]string{
+		"import unittest",
+		"import widget",
+		"",
+		"class WidgetTest(unittest.TestCase):",
+		"    def test_value(self):",
+		"        self.assertEqual(widget.VALUE, 42)",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe authoring failure with real suite")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-authoring-suite-continuation",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "module_called_as_function",
+			Language: "python",
+			Code:     "import widget\nwidget()\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("independent passing project suite should remain authoritative: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("project suite verdict missing: %+v", report)
+	}
+	if !changeReportHasVerificationDiagnostic(report, "probe_authoring", "verification_probe_top_level_exception") {
+		t.Fatalf("non-authoritative probe warning must remain visible: %+v", report.VerificationDiagnostics)
+	}
+	foundSuite := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == pythonFrameworkUnittest && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			foundSuite = true
+		}
+	}
+	if !foundSuite {
+		t.Fatalf("project unittest suite did not execute after probe authoring error: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsVerificationProbeNameErrorIsParserError(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
