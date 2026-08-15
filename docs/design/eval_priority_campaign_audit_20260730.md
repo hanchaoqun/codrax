@@ -36087,6 +36087,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.859 r522：多引用载体未被模型采用；derived count 被系统误绑裸数字源码行（2026-08-15）
+
+1. 在 `main@a72a9d72b` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；详见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r522_20260815_manual_audit.md`。Python 写计划仍只改
+   `main.py` 一行 `retrun -> return`，无范围、路由或验证杆回归。
+2. B844/B849 权威继续生产稳定：registry 答案为 `1 / explorer`，旧的 relation principal 未授权和弱证据
+   caveat 均未回归。但 B848 只能记 carrier/static closure，不能记生产闭环。Finalizer 明确提交注册调用与
+   `Name()` 返回两条 citation，同一个 member item 却仍只填 `citation_ref=1`，没有采用 `citation_refs[]`；两条
+   原始 pool slot 随后都被 unused 清理，条目只剩 typed label normalizer 重定位的 `sub_explorer.go:32`。
+3. 这说明新 schema、full/patch remap、pool lifecycle 和 renderer 接线正确，但“存在能力”不等于“模型会用”。
+   下一步只能加强通用 soft shape teaching：模型自己选择多个独立证据支持同一 item 时，首锚使用 singular、
+   额外锚使用 array；禁止按该案例列名、用户/模型/答案原文扫描，也禁止对所有 row 建多引用硬门或由系统猜锚。
+4. B846 在 r522 第二次生产复现，且比 B848 的采用 partial 更危险。补 count 维度的 scalar `1` 原本引用注册行，
+   `normalizeScalarLiteralCitationRefsWithContext` 却把它改绑到无关的
+   `internal/agent/explorer.go:19917`，只因为该行含多个裸数字 `1`。该错误 citation 最终同时出现在 scalar 和
+   引用区，是系统铸造假证据身份，不是模型波动。
+5. 冷读与 §123.853 预判一致：normalizer 注释称 derived aggregates 在车道外，代码实际没有 aggregate carve-out；
+   它把 accepted `member_set.value="1"` 当源码 literal，在全 evidence 中评分。根修应消费 typed stable aggregate
+   fact/role/value：exact scalar 已由 principal aggregate 提供时，source-literal cross-evidence rebind fail-open；
+   普通 definition/assignment/return 的源码 literal 精确修复保持。不得用“数字 1”、注册器或文件名特判。
+6. Registry 161 秒完成，无 finalizer reject、畸形 JSON、旧稿恢复或空答案；一次 patch 是 typed count 维度补齐，
+   不是冲突合同。活跃字节流没有按 4ms/4s/4m/累计年龄降级。本批未改 Trace；显式时间窗、因果投影、自动补齐、
+   链上-only 主因、实际占用/业务线索与规则计价可消除量双轴均保持，邻近/背景只作支持，系统不写模型结论。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=carrier-implemented/production-authoring-partial-r522`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-confirmed/r517+r522/system-false-citation/next-batch`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
