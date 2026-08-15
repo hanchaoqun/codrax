@@ -131,7 +131,7 @@ func HasTypedRelationMemberSetShape(rm RequestModel) bool {
 	if !HasTypedRelationQueryShape(rm, TypedRelationPurposeCoverageGate) {
 		return false
 	}
-	return rm.PredicateAxis == AxisImplement ||
+	return len(PrincipalTypedRelationKindsForRequest(rm)) > 0 ||
 		rm.Predicates.IsRelationalLookup ||
 		NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain ||
 		HasInterfaceTypedRelationDiagramShape(rm)
@@ -493,13 +493,16 @@ func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
 //
 // This is the relation-shaped counterpart to
 // RequiresExhaustiveEnumerationMemberSetHandoff. It only consumes typed answer
-// shape signals: relational lookup + set/count/enumerate shape. It intentionally
-// skips scalar role-location relations ("which function handles X?") and pure
-// architecture explanations ("how A talks to B?"), because those are answered
-// by a resolved literal or mechanism narrative rather than a qualifying-member
-// set.
+// shape signals: either the generic relational-lookup boolean or one exact
+// principal relation family, plus a set/count/enumerate shape. Reading the
+// exact family as a peer authority prevents a redundant analyzer boolean from
+// suppressing a provider-confirmed register/call/implement set. It
+// intentionally skips scalar role-location relations ("which function handles
+// X?") and pure architecture explanations ("how A talks to B?"), because
+// those are answered by a resolved literal or mechanism narrative rather than
+// a qualifying-member set.
 func RequiresRelationMemberSetHandoff(rm RequestModel) bool {
-	if !rm.Predicates.IsRelationalLookup {
+	if !rm.Predicates.IsRelationalLookup && len(PrincipalTypedRelationKindsForRequest(rm)) == 0 {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup {

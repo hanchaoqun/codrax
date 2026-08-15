@@ -1351,6 +1351,65 @@ func TestRequiresRelationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestRequiresRelationMemberSetHandoff_ExactAxisSurvivesRedundantBooleanDrift(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		axis PredicateAxis
+		kind RequirementKind
+	}{
+		{name: "implement axis", axis: AxisImplement},
+		{name: "call axis", axis: AxisCall},
+		{name: "register axis", axis: AxisRegister},
+		{name: "registration requirement", kind: ReqRegistration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := RequestModel{
+				Intent:        IntentEnumerate,
+				PredicateAxis: tc.axis,
+				Predicates: SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    false,
+				},
+				AnalyzerHints: AnalyzerHints{Kind: string(tc.kind)},
+			}
+			if !RequiresRelationMemberSetHandoff(rm) {
+				t.Fatalf("exact typed relation carrier must retain member-set authority: %+v", rm)
+			}
+		})
+	}
+
+	for _, rm := range []RequestModel{
+		{
+			Intent:        IntentExplain,
+			PredicateAxis: AxisRegister,
+			Predicates:    SemanticPredicates{IsCategoryEnumeration: false},
+		},
+		{
+			Intent:        IntentEnumerate,
+			PredicateAxis: AxisConfigure,
+			Predicates:    SemanticPredicates{IsCategoryEnumeration: true},
+		},
+		{
+			Intent:        IntentEnumerate,
+			PredicateAxis: AxisRegister,
+			Predicates: SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsScalarAnswer:        true,
+			},
+		},
+		{
+			Intent: IntentRootCause,
+			RuntimeQuestionProfile: &RuntimeQuestionProfile{
+				Scope: RuntimeQuestionScopeCausalDiagnosis,
+			},
+		},
+	} {
+		if RequiresRelationMemberSetHandoff(rm) {
+			t.Fatalf("non-set/prompt-only/scalar/runtime causal shape must stay outside relation member-set hard authority: %+v", rm)
+		}
+	}
+}
+
 func TestRequiresSourceOperationSiteMemberSetHandoff_TypedBoundary(t *testing.T) {
 	cgroup := RequestModel{
 		Intent: IntentRootCause,

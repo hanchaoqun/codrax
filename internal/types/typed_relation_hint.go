@@ -313,14 +313,15 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		out = appendTypedRelationKinds(out, kinds...)
 	}
 
-	switch rm.PredicateAxis {
-	case AxisImplement:
-		add(TypedRelationImplements)
-	case AxisCall:
-		add(TypedRelationCalledBy)
-	case AxisRegister:
-		add(TypedRelationRegisters)
-	case AxisConfigure:
+	// PrincipalTypedRelationKindsForRequest is the shared exact lane for
+	// set-valued relation authority. Prompt and coverage providers must start
+	// from the same relation family that completion/finalizer gates consume;
+	// otherwise a precise AxisRegister/AxisCall/AxisImplement can produce typed
+	// rows while a redundant generic relation boolean leaves their member set
+	// advisory.
+	add(PrincipalTypedRelationKindsForRequest(rm)...)
+
+	if rm.PredicateAxis == AxisConfigure {
 		if purpose == TypedRelationPurposePromptHint {
 			add(TypedRelationConfigures)
 		}
@@ -329,8 +330,6 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
 	case ReqCallChain:
 		add(TypedRelationCalledBy)
-	case ReqRegistration:
-		add(TypedRelationRegisters)
 	case ReqConfigMapping:
 		if purpose == TypedRelationPurposePromptHint {
 			add(TypedRelationConfigures)
@@ -368,6 +367,27 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		add(TypedRelationReferences)
 	}
 
+	return out
+}
+
+// PrincipalTypedRelationKindsForRequest returns only exact typed relation
+// families that can define a principal member-set axis. It deliberately omits
+// prompt-only configuration/routes and broad compatibility guesses. The
+// function is a schema single source shared by relation providers and
+// member-set authority gates; it never inspects request or answer prose.
+func PrincipalTypedRelationKindsForRequest(rm RequestModel) []TypedRelationKind {
+	var out []TypedRelationKind
+	switch rm.PredicateAxis {
+	case AxisImplement:
+		out = appendTypedRelationKinds(out, TypedRelationImplements)
+	case AxisCall:
+		out = appendTypedRelationKinds(out, TypedRelationCalledBy)
+	case AxisRegister:
+		out = appendTypedRelationKinds(out, TypedRelationRegisters)
+	}
+	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqRegistration {
+		out = appendTypedRelationKinds(out, TypedRelationRegisters)
+	}
 	return out
 }
 

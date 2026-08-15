@@ -174,7 +174,11 @@ func (s *SubExplorer) Name() string {
 		PredicateAxis: types.AxisRegister,
 		Predicates: types.SemanticPredicates{
 			IsCategoryEnumeration: true,
-			IsRelationalLookup:    true,
+			// Production r519 emitted the exact register axis while leaving
+			// the redundant generic relation boolean false. Exact typed relation
+			// authority must not disappear merely because those two analyzer
+			// carriers diverge.
+			IsRelationalLookup: false,
 		},
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              string(types.ReqEnumeration),

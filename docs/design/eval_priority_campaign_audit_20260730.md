@@ -35918,6 +35918,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
 
+### §123.854 B847：显式 principal 关系族成为 member-set authority 单源（2026-08-15）
+
+1. 先红证据：把 ParseOutput 生产 wiring fixture 改成 r519 原形
+   `AxisRegister + IntentEnumerate + IsCategoryEnumeration=true + IsRelationalLookup=false` 后，旧代码无法给
+   accepted aggregate/Turn-A handoff 加 `system:typed_relation_principal_member_set`；独立 traits 测试也证明
+   `AxisImplement/AxisCall/AxisRegister/ReqRegistration` 四种精确 carrier 全被旧 boolean-only 入口漏掉。
+2. 根修新增 `PrincipalTypedRelationKindsForRequest`：只列可定义 principal member-set 的精确关系族
+   `implements/called_by/registers`，同时由 typed relation provider 的 query 选择、
+   `HasTypedRelationMemberSetShape` 与 `RequiresRelationMemberSetHandoff` 消费。由此同一 enum/requirement carrier
+   不再一面产关系 rows、一面否认关系 authority；不解析 request、模型 reasoning、答案、label 或 evidence summary。
+3. 边界保持：`AxisConfigure` 继续只在 prompt-hint lane 开启；普通 category enumeration 不因 compatibility guess
+   变硬；mechanism-only、scalar role lookup、change impact 仍走原出口；runtime
+   `causal_diagnosis` 不进入 source relation member-set authority，Trace 因果投影仍由独立 typed causal contract 管理。
+4. 回归覆盖：四个精确关系正臂；configure/mechanism/scalar/runtime causal 四个负臂；r519 生产同形
+   ParseOutput 后 aggregate 与 Turn-A 双 marker；既有 relation query kind tests；`internal/types`、
+   `internal/agent`、`internal/tool` 全包和 `go build ./...` 均通过。
+5. 此批仅统一 typed request/authority 解释，不生成成员、不修改模型答案、不扩大 evidence、diagram 或 Trace
+   事实。需以已提交二进制做 r520 双案例，只有生产提示出现 hard principal relation set、无相反 handoff，
+   且写模式对照不回归后才关闭 B847。
+
+状态：
+
+`B847-EXPLICITRELATIONAXISAUTHORITYSPLIT1=implemented+pinned/awaiting-r520`；
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=compaction-root-closed/awaiting-B847-production-closure`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-open`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
