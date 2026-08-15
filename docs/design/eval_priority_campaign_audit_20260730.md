@@ -36018,6 +36018,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
 
+### §123.857 r521：registry/receiver 权威生产闭环；多轴单行引用仍被单槽裁掉（2026-08-15）
+
+1. 在 `main@af2ab3e9c` 严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r521_20260815_manual_audit.md`。写模式计划的单行修复、
+   路径与验收均正确，无越界改动。
+2. B849 已获生产正证：Relation Dossier 对 `SubAgentRegistry -> explorer` 明确发布
+   `provenance=typed_evidence, source_kind=registry_identity_chain`。最终 `1 / explorer` 正确，r520 中相反的
+   `No evidence-authorized principal relation member_set` 和“部分项证据支持稍弱”均消失。由此关闭 target/receiver
+   查询端断层，也完成 B844 从 bridge 抽取、引用闭包到 principal authority 的整条生产闭环。
+3. B848 再次确定性复现。Finalizer 提交 `subagent.go:64` 注册调用与 `sub_explorer.go:33` Name 返回两条 citation；
+   principal 表格行只能设置一个 `citation_ref`，normalize 随即以 `unused_pool_entry_pruned` 删除注册引用，最终引用区
+   只剩 Name 返回行。系统补充的 typed owner 锚保住了定位上下文，但不能冒充模型正文对两个独立事实轴的引用。
+4. 下一批根修必须提供通用 claim/item→evidence 多锚载体，同时向后兼容单一 `citation_ref`，按 typed evidence id/ref
+   去重和重映射。它不能读取表格列名、用户原文、模型 reasoning 或答案字符串猜“注册/返回”关系；不能要求所有行
+   必须多引用，也不能由系统新写事实或结论。B846 的裸数字 citation remap 与此同属 citation identity 面，但保留
+   独立 witness，避免把两个问题混成一个 case-specific 补丁。
+5. 本轮另有一次精确的表格 shape reject：四个 `cells[]` 与额外 `label/text` 同时提供可见值。第二轮按字段级提示修复，
+   不是相互矛盾合同，也没有丢答案；作为成文心智/时延观察项保留，不为该样例增加关键词或内容硬门。
+6. 100s 运行正常完成，未触发 active-stream 固定年龄降级。此批不改 Trace、显式时间窗、因果投影、自动补齐、链上
+   root-only、实际占用/业务线索与规则计价可消除量双轴；邻近/背景仍为 support-only，系统不接管模型答案或结论。
+
+状态：
+
+`B849-REGISTRATIONTARGETROLE1=production-closed-r521`；
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=production-closed-r521`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-confirmed/next-batch`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
