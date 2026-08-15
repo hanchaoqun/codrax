@@ -18301,19 +18301,18 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 	var items []types.EvidenceItem
 	var terminalReturns []types.EvidenceItem
 	seen := make(map[string]bool)
-	seenTerminalReturns := make(map[string]bool)
-	addTerminalReturn := func(id identity) {
+	terminalReturnIDs := make(map[string]string)
+	addTerminalReturn := func(id identity) string {
 		if id.class == "" || id.method == "" || id.literal == "" || id.file == "" || id.line <= 0 {
-			return
+			return ""
 		}
 		subject := id.class + "." + id.method
 		object := strconv.Quote(id.literal)
 		key := strings.ToLower(id.file) + "\x00" + strconv.Itoa(id.line) + "\x00" +
 			strings.ToLower(subject) + "\x00" + object
-		if seenTerminalReturns[key] {
-			return
+		if existing := terminalReturnIDs[key]; existing != "" {
+			return existing
 		}
-		seenTerminalReturns[key] = true
 		item := types.EvidenceItem{
 			Kind:         types.EvidenceConcrete,
 			Subject:      subject,
@@ -18331,7 +18330,9 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 			OwnerSymbol:  id.class,
 		}
 		item.ID = types.StableEvidenceID(item)
+		terminalReturnIDs[key] = item.ID
 		terminalReturns = append(terminalReturns, item)
+		return item.ID
 	}
 
 	// Pass C — Join on class identifier (existing bridge_literal chains).
@@ -18342,7 +18343,7 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 			ids := idByClass[b.targetClass]
 			if len(ids) > 0 {
 				for _, id := range ids {
-					addTerminalReturn(id)
+					terminalID := addTerminalReturn(id)
 					summary := fmt.Sprintf(
 						"`%s()` %s New%s(...) → `%s.%s()` returns %q",
 						b.fnQual, b.verb, b.targetClass, b.targetClass, id.method, id.literal)
@@ -18351,16 +18352,20 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 					}
 					seen[summary] = true
 					bridgeItem := types.EvidenceItem{
-						Kind:       types.EvidenceDataflowPath,
-						Subject:    summary,
-						Predicate:  "resolution_chain",
-						Summary:    summary,
-						Source:     b.file,
-						LineStart:  b.line,
-						LineEnd:    b.line,
-						Confidence: 0.9,
-						Producer:   "bridge_literal",
-						Scope:      types.ScopeLine,
+						Kind:         types.EvidenceDataflowPath,
+						Subject:      summary,
+						Predicate:    "resolution_chain",
+						Object:       strconv.Quote(id.literal),
+						Summary:      summary,
+						Source:       b.file,
+						LineStart:    b.line,
+						LineEnd:      b.line,
+						DerivedFrom:  []string{terminalID},
+						Confidence:   0.9,
+						Producer:     "bridge_literal",
+						Scope:        types.ScopeLine,
+						AnchorSymbol: id.class + "." + id.method,
+						OwnerSymbol:  b.fnQual,
 					}
 					bridgeItem.ID = types.StableEvidenceID(bridgeItem)
 					items = append(items, bridgeItem)

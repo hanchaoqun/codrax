@@ -101,6 +101,12 @@ func (s *SubExplorer) Name() string {
 		if strings.Contains(it.Summary, "RegisterDefaultSubAgents") &&
 			strings.Contains(it.Summary, "SubExplorer") &&
 			strings.Contains(it.Summary, `"explorer"`) {
+			if it.OwnerSymbol != "RegisterDefaultSubAgents" ||
+				it.AnchorSymbol != "SubExplorer.Name" ||
+				it.Object != `"explorer"` ||
+				len(it.DerivedFrom) != 1 || strings.TrimSpace(it.DerivedFrom[0]) == "" {
+				t.Fatalf("bridge chain must preserve the structured binding/identity join: %+v", it)
+			}
 			foundReal = true
 		}
 	}
@@ -108,6 +114,7 @@ func (s *SubExplorer) Name() string {
 		t.Fatalf("expected chain containing RegisterDefaultSubAgents/SubExplorer/\"explorer\"; got: %+v", got)
 	}
 	foundTerminal := false
+	var terminalID string
 	for _, it := range extraction.terminalReturns {
 		if it.Subject == "SubExplorer.Name" &&
 			it.Predicate == "returns" &&
@@ -116,10 +123,17 @@ func (s *SubExplorer) Name() string {
 			it.LineStart == 10 &&
 			it.AnchorKind == types.AnchorReturn {
 			foundTerminal = true
+			terminalID = it.ID
 		}
 	}
 	if !foundTerminal {
 		t.Fatalf("expected terminal return companion for SubExplorer.Name at sub_explorer.go:10, got %+v", extraction.terminalReturns)
+	}
+	for _, it := range got {
+		if it.OwnerSymbol == "RegisterDefaultSubAgents" && it.AnchorSymbol == "SubExplorer.Name" &&
+			(len(it.DerivedFrom) != 1 || it.DerivedFrom[0] != terminalID) {
+			t.Fatalf("bridge chain must derive from the exact terminal companion %q: %+v", terminalID, it)
+		}
 	}
 }
 

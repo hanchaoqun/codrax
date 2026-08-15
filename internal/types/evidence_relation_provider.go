@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,10 +25,19 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 	}
 	var out []TypedRelationCandidate
 	seen := map[string]bool{}
+	itemsByID := make(map[string]EvidenceItem, len(s.Items))
+	for _, item := range s.Items {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			itemsByID[id] = item
+		}
+	}
 	for _, item := range s.Items {
 		for _, source := range q.Sources {
 			if q.AllowsKind(TypedRelationRegisters) && evidenceRelationRegistrationItemUsable(item, q.Purpose) {
 				out = appendEvidenceRelationCandidates(out, seen, evidenceRegistrationCandidatesForSource(item, source, q.Purpose)...)
+			}
+			if q.AllowsKind(TypedRelationRegisters) {
+				out = appendEvidenceRelationCandidates(out, seen, evidenceBridgeLiteralRegistrationCandidatesForSource(item, itemsByID, source, q.Purpose)...)
 			}
 			if q.AllowsKind(TypedRelationConfigures) && evidenceRelationConfigItemUsable(item, q.Purpose) {
 				out = appendEvidenceRelationCandidates(out, seen, evidenceConfigCandidatesForSource(item, source, q.Purpose)...)
@@ -56,6 +66,95 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 		out = out[:q.MaxMembers]
 	}
 	return out
+}
+
+// evidenceBridgeLiteralRegistrationCandidatesForSource projects one exact
+// registry member only when the deterministic bridge producer preserved both
+// ends of the join: the registration-family binding site and the terminal
+// identity return. Generic dataflow prose, a lone literal, or a same-named
+// method cannot mint this relation. The projection consumes structured fields
+// and stable evidence IDs only; it never parses the bridge summary or any
+// request/model/final-answer prose.
+func evidenceBridgeLiteralRegistrationCandidatesForSource(
+	bridge EvidenceItem,
+	itemsByID map[string]EvidenceItem,
+	rawSource string,
+	purpose TypedRelationPurpose,
+) []TypedRelationCandidate {
+	if bridge.Kind != EvidenceDataflowPath ||
+		bridge.Producer != "bridge_literal" ||
+		bridge.Predicate != "resolution_chain" ||
+		strings.TrimSpace(bridge.Source) == "" || bridge.LineStart <= 0 ||
+		strings.TrimSpace(bridge.OwnerSymbol) == "" ||
+		strings.TrimSpace(bridge.AnchorSymbol) == "" ||
+		strings.TrimSpace(bridge.Object) == "" ||
+		len(bridge.DerivedFrom) != 1 ||
+		bridge.GroundingStatus == GroundingUngrounded ||
+		!evidenceRelationContextRoleUsable(bridge.ContextRole) {
+		return nil
+	}
+	if purpose == TypedRelationPurposeCoverageGate && !bridge.IsCitable() {
+		return nil
+	}
+	source := strings.TrimSpace(rawSource)
+	if source == "" || !evidenceRelationSurfaceMatches(source, bridge.OwnerSymbol) {
+		return nil
+	}
+	terminal, ok := itemsByID[strings.TrimSpace(bridge.DerivedFrom[0])]
+	if !ok || terminal.Kind != EvidenceConcrete ||
+		terminal.Producer != "bridge_literal_terminal" ||
+		terminal.Predicate != "returns" ||
+		strings.TrimSpace(terminal.Source) == "" || terminal.LineStart <= 0 ||
+		terminal.GroundingStatus == GroundingUngrounded ||
+		!evidenceRelationContextRoleUsable(terminal.ContextRole) ||
+		!strings.EqualFold(strings.TrimSpace(terminal.Subject), strings.TrimSpace(bridge.AnchorSymbol)) ||
+		strings.TrimSpace(terminal.Object) != strings.TrimSpace(bridge.Object) {
+		return nil
+	}
+	if purpose == TypedRelationPurposeCoverageGate && !terminal.IsCitable() {
+		return nil
+	}
+	memberName, ok := evidenceRelationQuotedLiteral(terminal.Object)
+	if !ok {
+		return nil
+	}
+	return []TypedRelationCandidate{{
+		Relation:   TypedRelationRegisters,
+		SourceName: source,
+		SourceKind: "registrar_identity_chain",
+		SourceFile: cleanEvidenceRelationPath(bridge.Source),
+		SourceLine: bridge.LineStart,
+		Member: TypedRelationMember{
+			Name:     memberName,
+			File:     cleanEvidenceRelationPath(terminal.Source),
+			Line:     terminal.LineStart,
+			Kind:     "registered_identity",
+			Distance: 1,
+		},
+		Carrier:   TypedRelationCarrierEvidence,
+		Precision: TypedRelationPrecisionExactEvidence,
+	}}
+}
+
+func evidenceRelationContextRoleUsable(role EvidenceContextRole) bool {
+	switch role {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleRelatedContext:
+		return false
+	default:
+		return true
+	}
+}
+
+func evidenceRelationQuotedLiteral(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 {
+		return "", false
+	}
+	value, err := strconv.Unquote(raw)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func appendEvidenceRelationCandidates(dst []TypedRelationCandidate, seen map[string]bool, candidates ...TypedRelationCandidate) []TypedRelationCandidate {

@@ -58,6 +58,94 @@ func TestEvidenceRelationCandidateSource_RegistrarToRegisteredTarget(t *testing.
 	}
 }
 
+func TestEvidenceRelationCandidateSource_BridgeLiteralJoinToRegisteredIdentity(t *testing.T) {
+	terminal := EvidenceItem{
+		ID:              "terminal-explorer",
+		Kind:            EvidenceConcrete,
+		Subject:         "SubExplorer.Name",
+		Predicate:       "returns",
+		Object:          `"explorer"`,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       33,
+		LineEnd:         33,
+		Producer:        "bridge_literal_terminal",
+		Scope:           ScopeLine,
+		AnchorKind:      AnchorReturn,
+		AnchorSymbol:    "Name",
+		OwnerSymbol:     "SubExplorer",
+		GroundingStatus: GroundingGrounded,
+	}
+	bridge := EvidenceItem{
+		ID:              "bridge-default-subagent",
+		Kind:            EvidenceDataflowPath,
+		Predicate:       "resolution_chain",
+		Object:          `"explorer"`,
+		Source:          "internal/agent/subagent.go",
+		LineStart:       64,
+		LineEnd:         64,
+		DerivedFrom:     []string{terminal.ID},
+		Producer:        "bridge_literal",
+		Scope:           ScopeLine,
+		AnchorSymbol:    "SubExplorer.Name",
+		OwnerSymbol:     "RegisterDefaultSubAgents",
+		GroundingStatus: GroundingGrounded,
+	}
+	rows := (EvidenceRelationCandidateSource{Items: []EvidenceItem{bridge, terminal}}).TypedRelationCandidates(TypedRelationQuery{
+		Kinds:   []TypedRelationKind{TypedRelationRegisters},
+		Sources: []string{"RegisterDefaultSubAgents"},
+		Purpose: TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one exact composite registration row", rows)
+	}
+	row := rows[0]
+	if row.Relation != TypedRelationRegisters || row.SourceName != "RegisterDefaultSubAgents" ||
+		row.SourceFile != "internal/agent/subagent.go" || row.SourceLine != 64 ||
+		row.Member.Name != "explorer" || row.Member.File != "internal/agent/sub_explorer.go" || row.Member.Line != 33 {
+		t.Fatalf("unexpected bridge-literal registration candidate: %+v", row)
+	}
+	if row.Carrier != TypedRelationCarrierEvidence || row.Precision != TypedRelationPrecisionExactEvidence {
+		t.Fatalf("bridge-literal relation lost exact evidence authority: %+v", row)
+	}
+}
+
+func TestEvidenceRelationCandidateSource_BridgeLiteralJoinFailsClosedWithoutExactTerminal(t *testing.T) {
+	terminal := EvidenceItem{
+		ID: "terminal-explorer", Kind: EvidenceConcrete, Subject: "SubExplorer.Name",
+		Predicate: "returns", Object: `"explorer"`, Source: "internal/agent/sub_explorer.go", LineStart: 33,
+		Producer: "bridge_literal_terminal", Scope: ScopeLine, GroundingStatus: GroundingGrounded,
+	}
+	base := EvidenceItem{
+		ID: "bridge-default-subagent", Kind: EvidenceDataflowPath, Predicate: "resolution_chain",
+		Object: `"explorer"`, Source: "internal/agent/subagent.go", LineStart: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents", GroundingStatus: GroundingGrounded,
+	}
+	query := TypedRelationQuery{
+		Kinds: []TypedRelationKind{TypedRelationRegisters}, Sources: []string{"RegisterDefaultSubAgents"},
+		Purpose: TypedRelationPurposeCoverageGate,
+	}
+	assertNone := func(name string, items []EvidenceItem) {
+		t.Helper()
+		if rows := (EvidenceRelationCandidateSource{Items: items}).TypedRelationCandidates(query); len(rows) != 0 {
+			t.Fatalf("%s must fail closed, got %+v", name, rows)
+		}
+	}
+	assertNone("missing terminal", []EvidenceItem{base})
+	mismatch := terminal
+	mismatch.Object = `"writer"`
+	assertNone("literal mismatch", []EvidenceItem{base, mismatch})
+	wrongOwner := base
+	wrongOwner.OwnerSymbol = "RegisterOtherAgents"
+	assertNone("source mismatch", []EvidenceItem{wrongOwner, terminal})
+	ungrounded := terminal
+	ungrounded.GroundingStatus = GroundingUngrounded
+	assertNone("ungrounded terminal", []EvidenceItem{base, ungrounded})
+	spoof := base
+	spoof.Producer = "model_bridge_literal"
+	assertNone("wrong producer", []EvidenceItem{spoof, terminal})
+}
+
 func TestEvidenceRelationCandidateSource_CoverageRequiresPrincipalEvidence(t *testing.T) {
 	supporting := EvidenceItem{
 		Kind:            EvidenceRegistration,

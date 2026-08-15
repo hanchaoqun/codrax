@@ -153,6 +153,56 @@ func TestExactTypedRelationProjectionMarksFactAndPreventsInventoryReplacement(t 
 	}
 }
 
+func TestExactTypedRelationProjectionMarksBridgeLiteralRegistryIdentitySet(t *testing.T) {
+	terminal := types.EvidenceItem{
+		ID: "terminal-explorer", Kind: types.EvidenceConcrete,
+		Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`,
+		Source: "internal/agent/sub_explorer.go", LineStart: 33, LineEnd: 33,
+		Producer: "bridge_literal_terminal", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	bridge := types.EvidenceItem{
+		ID: "bridge-default-subagent", Kind: types.EvidenceDataflowPath,
+		Predicate: "resolution_chain", Object: `"explorer"`,
+		Source: "internal/agent/subagent.go", LineStart: 64, LineEnd: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: types.ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	mut := types.NewMutableState("default registered subagent names")
+	bus := &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{bridge, terminal},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            string(types.ReqRegistration),
+				PrimaryEntities: []string{"RegisterDefaultSubAgents"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true},
+		}},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "default registered subagent names", Value: "1",
+		Members: []string{"explorer"}, SupportRefs: []string{"explorer: internal/agent/sub_explorer.go:33"},
+	}
+	marked := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(marked) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(marked[0]) {
+		t.Fatalf("exact bridge-literal registry identity chain must authorize the matching model member set: %+v", marked)
+	}
+
+	bus.EvidenceItems = []types.EvidenceItem{bridge}
+	unmarked := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(unmarked) != 1 || types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(unmarked[0]) {
+		t.Fatalf("a bridge without its exact terminal companion must remain advisory: %+v", unmarked)
+	}
+}
+
 func TestExactTypedRelationProjectionCanonicalizesRepeatedObservationsByCandidateIdentity(t *testing.T) {
 	bus := relationProjectionDriftBus()
 	fact := relationProjectionDriftFact("LoopController", "prodA", "prodB")

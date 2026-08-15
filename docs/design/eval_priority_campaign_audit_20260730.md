@@ -35734,6 +35734,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.850 r516 / B844：确定性注册身份链未进入 typed relation authority（2026-08-15）
+
+1. 在 `main@b12281fdd` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + github_issue_dayjs_duration_nan_symptom`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_dayjs_r516_20260815_manual_audit.md`。
+2. 注册表答案的事实本身正确：默认只注册 `NewSubExplorer`，`SubExplorer.Name()` 返回
+   `"explorer"`，所以完整成员集为一个 `explorer`。前两次 completion 为一个成员提交两个 positional
+   `support_refs`，公开 schema 已明确 `len(support_refs)==len(members)` 且不得追加第二批裸 ref；第三次
+   改成单一 labelled ref 后通过。这部分是模型违反精确合同后自行恢复，不是冲突合同，不追加重复
+   JSON 教学或词面硬门。
+3. 新确认 B844：Explorer 的确定性 producer 已构造
+   `RegisterDefaultSubAgents binding -> SubExplorer.Name return -> "explorer"`，但旧
+   `EvidenceRelationCandidateSource` 只把 `EvidenceRegistration` 适配为 `registers`，不消费
+   `bridge_literal + bridge_literal_terminal`。因此同一份正确 `member_set` 始终停留在
+   `fact_authority=advisory_model_inference/principal_contract=not_authorized`；aggregate principal lane
+   没有启用，四个 supporting symbol 被误当逐成员主答案义务，最终又追加“证据支持稍弱”的误导 caveat。
+4. 根修没有解析 bridge summary、用户输入、模型推理或最终答案。bridge producer 现在为每条双锚链
+   保留结构字段：绑定 owner、身份方法、精确 quoted literal，以及指向 terminal companion 的稳定
+   `DerivedFrom` ID。typed provider 只有在 producer/kind/predicate、绑定 source、terminal ID、
+   subject、literal、source:line 与 grounding 全部一致时，才发射 exact-evidence `registers` candidate；
+   缺 terminal、literal 不同、source 不符、未落地或伪 producer 均 fail-closed。
+5. completion 层集成 pin 证明 matching `explorer` member_set 会获得系统保留的 typed principal marker；
+   移除 terminal companion 后同一 fact 仍保持 advisory。这样 aggregate principal lane 只承载模型提交的
+   `explorer`，注册方法、接口、Names helper 等继续作为 supporting explanation，不再被要求冒充额外成员。
+   系统仍不写成员、不画关系、不改答案结论，只给模型已提交且与确定性双锚证据完全一致的集合附权威。
+6. Day.js 写案例的生产修补正确：`Number(value)` 改为 `Number(value || 0)`，已有 PT1H 与完整输入测试；
+   `make check` 的 Python source-shape oracle 通过。但运行环境没有 `node/npm`，JavaScript probe 与
+   `npm test --` 均为 `runner_missing`。系统正确保持 `unverified`，没有把源码形状检查冒充行为绿；
+   这是环境能力缺失，不立代码 GAP，也不降低验证杆。
+7. 专项正反测试、`internal/types`、`internal/agent`、`internal/tool` 全包与 `go build ./...` 通过。
+   本批不改 Read/Write 路由、JSON decoder、Mermaid 或 Trace 路径。显式时间窗、完整
+   causal-diagnosis 的因果投影与系统补齐、链上-only 主因、实际占用/业务线索和规则计价可消除量双轴
+   均保持；邻近/背景仍只作额外排查，系统不替模型形成结论。
+8. 两案均未出现空答案、畸形 JSON 恢复或活跃流固定年龄降级。持续交付字节时，4ms/4s/4m 均不能
+   触发降级；结束/恢复只接受 caller cancel/deadline、无首字节、byte-stall、transport/decode
+   failure 等精确信号。
+
+状态：
+
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=implemented/composite-two-anchor+negative-pins+package-tests+build-pass`；
+`B845-DAYJSRUNNERMISSING1=no-system-gap/honest-unverified/environment-dependent`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
