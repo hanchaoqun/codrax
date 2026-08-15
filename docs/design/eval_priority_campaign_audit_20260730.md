@@ -35764,7 +35764,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `make check` 的 Python source-shape oracle 通过。但运行环境没有 `node/npm`，JavaScript probe 与
    `npm test --` 均为 `runner_missing`。系统正确保持 `unverified`，没有把源码形状检查冒充行为绿；
    这是环境能力缺失，不立代码 GAP，也不降低验证杆。
-7. 专项正反测试、`internal/types`、`internal/agent`、`internal/tool` 全包与 `go build ./...` 通过。
+7. 专项正反测试、`internal/types`、`internal/agent`、`internal/tool` 全包与 `go build ./...` 通过；
+   但这些测试只覆盖 provider/completion 的静态组合，尚未覆盖 completion 发生在 ReAct 内、
+   bridge evidence 发生在 `Explorer.ParseOutput` 的生产时序。r517 已证明本项不能据此关账。
    本批不改 Read/Write 路由、JSON decoder、Mermaid 或 Trace 路径。显式时间窗、完整
    causal-diagnosis 的因果投影与系统补齐、链上-only 主因、实际占用/业务线索和规则计价可消除量双轴
    均保持；邻近/背景仍只作额外排查，系统不替模型形成结论。
@@ -35774,8 +35776,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=implemented/composite-two-anchor+negative-pins+package-tests+build-pass`；
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=production-failed-r517/post-explore-timing+stable-id-collision`；
 `B845-DAYJSRUNNERMISSING1=no-system-gap/honest-unverified/environment-dependent`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.851 r517 / B844 二段根修：后置证据权限刷新与 typed amendment 保留（2026-08-15）
+
+1. 在 `main@ac6a88e90` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 PASS / 1 partial`；
+   逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r517_20260815_manual_audit.md`。
+2. Python 写计划为真实通过：只规划 `main.py` 单行 `retrun -> return` 的 `patch`，没有 apply、
+   没有伪造运行时绿。注册表案例事实仍正确，但日志明确保留
+   `fact_authority=advisory_model_inference/principal_contract=not_authorized`，并声明没有已授权 relation
+   member set；最终又发布弱证据 caveat。因此 runner 的 regex PASS 不能替代人工关账。
+3. 冷读确认时序根因：`emit_investigation_complete` 在 Explorer ReAct loop 内先执行
+   `markExactTypedRelationPrincipalMemberSets`；而 cross-file `bridge_literal` 是 loop 退出后才由
+   `Explorer.ParseOutput -> getConcreteValuesCached` 构造。最终阶段同时拿到正确 bridge 和旧 advisory
+   fact，不是 provider 缺能力，而是生产接线没有 post-explore re-evaluation。
+4. 集成 pin 又发现第二根：`bridge_literal_terminal` 与普通 `concrete_values` return 表示同一语义行，
+   合理地共用 `StableEvidenceID`；旧 coverage collector 却用该粗 ID first-wins，丢掉 terminal 的
+   producer/owner/anchor typed amendment。修复改用既有 `EvidenceStableMergeKey` 保存不同 typed amendment，
+   provider 的 companion index 则不依赖输入顺序，始终优先精确 terminal carrier；完整字段合同仍逐项
+   校验，普通 producer 不能仅靠同 ID 获权。
+5. 新增唯一 post-explore 刷新喉口：只有调查已成功完成、模型已接受 aggregate facts、后置 exact
+   candidate 与成员完全匹配时，才复用 completion 层同一 matcher 更新 current+retained ledger；不创建
+   fact/member/relation，不匹配与未完成调查均 fail-closed，二次执行幂等。调用点位于 concrete evidence
+   merge 之后、AnswerSurfacePlan/Turn-A handoff 之前。
+6. M4 生产接线 pin 真实驱动 `Explorer.ParseOutput`，并同时断言 stable aggregate、Turn-A handoff 与
+   bridge evidence；删除刷新调用即失败。另有 incomplete、missing-terminal、稳定 ID 碰撞双输入顺序、
+   二次幂等正反测试。`internal/types`、`internal/tool`、`internal/agent` 全包及 `go build ./...` 均通过。
+7. r517 还确认独立 B846：finalizer 第二轮 patch 以 `citation_ref=0` 增补总数后，最终总数 `1` 被绑定到
+   无关的 `internal/hitraceconv/streamerdb_export_raw_ftrace.go:807`。这是 patch citation identity/pool remap
+   的系统 gap；B844 可能让本案例不再走该 patch，但不能据此关闭通用问题，列入下一高 ROI 批审计。
+8. 本批仍不解析用户输入、模型推理或最终答案词面，不增加 JSON/Mermaid/Trace 硬门，不改模型事实与
+   结论。显式时间窗 Trace 因果投影、系统自动补齐、链上-only 主因、实际占用/业务线索与规则计价
+   可消除量双轴保持；邻近/背景只支撑额外排查。活跃字节流继续禁止按 4ms/4s/4m 固定年龄降级。
+
+状态：
+
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=implemented-v2/post-explore-refresh+typed-amendment-preservation+M4-pin/awaiting-r518`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open/r517-production-witness`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

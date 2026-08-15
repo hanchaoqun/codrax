@@ -13376,6 +13376,26 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if err := explorerParseContextErr(ctx, "concrete_values"); err != nil {
 		return nil, err
 	}
+	// The completion tool runs inside the ReAct loop, while deterministic
+	// cross-file evidence (for example bridge-literal registry identities) is
+	// materialized above during ParseOutput. Reconcile only the already accepted
+	// model aggregate facts against that newly available typed evidence before
+	// answer-surface planning and the Turn-A handoff. The tool-layer helper owns
+	// the authority rule; Explorer supplies timing and evidence only.
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "typed_relation_authority_refresh")
+	if ctx != nil && ctx.Mutable != nil && ctx.AnalysisIR != nil {
+		tool.RefreshExactTypedRelationPrincipalMemberSets(&types.BusContext{
+			Mutable:       ctx.Mutable,
+			RepoRoot:      ctx.RepoRoot,
+			AnalysisIR:    ctx.AnalysisIR,
+			MultiGraph:    ctx.MultiGraph,
+			EvidenceItems: e.structuredEvidence,
+		})
+	}
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "typed_relation_authority_refresh"); err != nil {
+		return nil, err
+	}
 
 	stopParseSection = startExplorerParseSectionWatchdog(ctx, "exact_context")
 	e.refreshExactContextFiles(ctx)

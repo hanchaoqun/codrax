@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -6414,6 +6415,38 @@ func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []ty
 	return out
 }
 
+// RefreshExactTypedRelationPrincipalMemberSets re-evaluates the exact typed
+// relation authority on an already accepted completion after Explorer has
+// finished building deterministic evidence. Some evidence producers (notably
+// the cross-file bridge-literal join) run in Explorer.ParseOutput, after the
+// model's emit_investigation_complete call. Without this post-explore refresh,
+// the finalizer can receive the exact relation evidence while the accepted
+// aggregate fact remains stuck at its earlier advisory authority.
+//
+// This function does not mint a fact, member, or relation. It only applies the
+// same completion-owned exact matcher to the model-authored facts that already
+// passed completion, and persists a changed result atomically to both current
+// and retained handoff lanes. Incomplete investigations and non-matches remain
+// fail-closed.
+func RefreshExactTypedRelationPrincipalMemberSets(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil ||
+		!ctx.Mutable.IsInvestigationComplete() {
+		return false
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return false
+	}
+	refreshed := markExactTypedRelationPrincipalMemberSets(ctx, facts)
+	if reflect.DeepEqual(refreshed, facts) {
+		return false
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts(refreshed)
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	logging.Info("[explorer] refreshed accepted aggregate relation authority from post-explore typed evidence")
+	return true
+}
+
 func relationEvidenceItemsForCoverage(ctx *types.BusContext) []types.EvidenceItem {
 	if ctx == nil {
 		return nil
@@ -6422,7 +6455,14 @@ func relationEvidenceItemsForCoverage(ctx *types.BusContext) []types.EvidenceIte
 	seen := map[string]bool{}
 	add := func(items []types.EvidenceItem) {
 		for _, item := range items {
-			key := types.StableEvidenceID(item)
+			// StableEvidenceID intentionally coalesces the same semantic
+			// source fact across producers. Coverage authority also needs the
+			// typed anchor amendment, though: a bridge_literal_terminal can
+			// share its semantic ID with the ordinary concrete_values row while
+			// carrying the exact producer/owner/anchor contract required by the
+			// composite join. Use the normal answer-grade merge key so that
+			// distinct typed amendments survive without admitting duplicates.
+			key := types.EvidenceStableMergeKey(item)
 			if key == "" || seen[key] {
 				continue
 			}

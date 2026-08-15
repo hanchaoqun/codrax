@@ -137,6 +137,116 @@ func (s *SubExplorer) Name() string {
 	}
 }
 
+func TestExplorerParseOutputRefreshesAcceptedRelationAuthorityAfterBridgeEvidence(t *testing.T) {
+	subagent := `package agent
+
+func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {
+	r.Register(NewSubExplorer(deps))
+}
+`
+	subExplorer := `package agent
+
+type SubExplorer struct{ base *BaseAgent }
+
+func NewSubExplorer(deps *Dependencies) *SubExplorer {
+	return &SubExplorer{base: nil}
+}
+
+func (s *SubExplorer) Name() string {
+	return "explorer"
+}
+`
+	files := map[string][]repomap.Symbol{
+		"subagent.go": {
+			{Name: "RegisterDefaultSubAgents", Kind: "function", File: "subagent.go", Line: 3, EndLine: 5},
+		},
+		"sub_explorer.go": {
+			{Name: "SubExplorer", Kind: "type", File: "sub_explorer.go", Line: 3, EndLine: 3},
+			{Name: "NewSubExplorer", Kind: "function", File: "sub_explorer.go", Line: 5, EndLine: 7},
+			{Name: "Name", Kind: "method", File: "sub_explorer.go", Line: 9, EndLine: 11, Receiver: "SubExplorer"},
+		},
+	}
+	graph, root := buildFakeGraph(t, files, map[string]string{
+		"subagent.go": subagent, "sub_explorer.go": subExplorer,
+	})
+	rm := types.RequestModel{
+		Intent:        types.IntentEnumerate,
+		PredicateAxis: types.AxisRegister,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:            string(types.ReqRegistration),
+			PrimaryEntities: []string{"RegisterDefaultSubAgents"},
+		},
+		CompletenessObligation: &types.CompletenessObligation{Required: true},
+	}
+	mut := types.NewMutableState("default registered subagent names")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "default registered subagent names", Value: "1",
+		Members: []string{"explorer"}, SupportRefs: []string{"explorer: sub_explorer.go:10"},
+	}})
+	mut.SetInvestigationComplete("model accepted the exact registry member set")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "list the default registered subagent names",
+		RepoRoot:  root,
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: rm,
+		},
+		SearchGraph: graph,
+	}
+	eval := &explorerEvaluator{
+		userQuestion: "list the default registered subagent names",
+		analysisIR:   ctx.AnalysisIR,
+		mutable:      mut,
+		searchResult: &keywordSearchResult{Graph: graph},
+		requiredFiles: []string{
+			"subagent.go", "sub_explorer.go",
+		},
+		structuredEvidence: []types.EvidenceItem{
+			pinnedEvidenceItem("subagent.go", "RegisterDefaultSubAgents", 3),
+			pinnedEvidenceItem("sub_explorer.go", "SubExplorer.Name", 9),
+		},
+		investigationNotes: []string{
+			"- [REGISTRATION] RegisterDefaultSubAgents line 3: binds NewSubExplorer",
+			"- [DIRECT] SubExplorer.Name line 9: returns explorer",
+		},
+		isEnumerationQuery: true,
+	}
+	toolResults := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "subagent.go:3\nsub_explorer.go:9"},
+		readFileCoverageResult("subagent.go", 1, 5, 5),
+		readFileCoverageResult("sub_explorer.go", 1, 11, 11),
+	}
+	out, err := eval.ParseOutput(ctx, nil, toolResults, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("ParseOutput did not refresh the accepted aggregate authority after deterministic evidence: facts=%+v evidence=%+v", got, out.EvidenceItems)
+	}
+	handoff := mut.TurnAArtifacts()
+	if handoff == nil || len(handoff.AcceptedAggregateFacts) != 1 ||
+		!types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(handoff.AcceptedAggregateFacts[0]) {
+		t.Fatalf("Turn-A handoff did not receive refreshed authority: %+v", handoff)
+	}
+	foundBridge := false
+	for _, item := range out.EvidenceItems {
+		if item.Producer == "bridge_literal" && item.OwnerSymbol == "RegisterDefaultSubAgents" &&
+			item.Object == `"explorer"` {
+			foundBridge = true
+			break
+		}
+	}
+	if !foundBridge {
+		t.Fatalf("ParseOutput did not preserve the exact bridge evidence: %+v", out.EvidenceItems)
+	}
+}
+
 // TestExtractBridgeLiteralChains_IgnoresComments proves Step 1's
 // comment-filter composes with Step 2: a comment-text NewSubExplorer
 // reference inside a register-named function body must NOT emit a

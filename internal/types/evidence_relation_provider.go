@@ -28,7 +28,16 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 	itemsByID := make(map[string]EvidenceItem, len(s.Items))
 	for _, item := range s.Items {
 		if id := strings.TrimSpace(item.ID); id != "" {
-			itemsByID[id] = item
+			// A deterministic terminal companion describes the same source
+			// return as the ordinary concrete_values row and therefore may share
+			// its StableEvidenceID. Prefer the purpose-built typed companion for
+			// composite bridge lookup regardless of input order; other producers
+			// cannot spoof this value because the exact field contract below is
+			// still checked in full.
+			existing, exists := itemsByID[id]
+			if !exists || item.Producer == "bridge_literal_terminal" || existing.Producer != "bridge_literal_terminal" {
+				itemsByID[id] = item
+			}
 		}
 	}
 	for _, item := range s.Items {

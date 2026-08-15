@@ -203,6 +203,113 @@ func TestExactTypedRelationProjectionMarksBridgeLiteralRegistryIdentitySet(t *te
 	}
 }
 
+func TestRefreshExactTypedRelationPrincipalMemberSetsAfterExplorerEvidence(t *testing.T) {
+	terminal := types.EvidenceItem{
+		ID: "terminal-explorer", Kind: types.EvidenceConcrete,
+		Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`,
+		Source: "internal/agent/sub_explorer.go", LineStart: 33, LineEnd: 33,
+		Producer: "bridge_literal_terminal", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	bridge := types.EvidenceItem{
+		ID: "bridge-default-subagent", Kind: types.EvidenceDataflowPath,
+		Predicate: "resolution_chain", Object: `"explorer"`,
+		Source: "internal/agent/subagent.go", LineStart: 64, LineEnd: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: types.ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	mut := types.NewMutableState("default registered subagent names")
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "default registered subagent names", Value: "1",
+		Members: []string{"explorer"}, SupportRefs: []string{"explorer: internal/agent/sub_explorer.go:33"},
+	}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{fact})
+	mut.SetInvestigationComplete("model accepted the exact registry member set")
+	mut.RetainInvestigationAggregateFacts()
+	bus := &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{bridge, terminal},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            string(types.ReqRegistration),
+				PrimaryEntities: []string{"RegisterDefaultSubAgents"},
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true},
+		}},
+	}
+
+	if !RefreshExactTypedRelationPrincipalMemberSets(bus) {
+		t.Fatal("post-explore exact evidence should refresh the accepted fact authority")
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("refreshed stable handoff lacks exact relation authority: %+v", got)
+	}
+	if RefreshExactTypedRelationPrincipalMemberSets(bus) {
+		t.Fatal("a second refresh over identical evidence and facts must be idempotent")
+	}
+}
+
+func TestRefreshExactTypedRelationPrincipalMemberSetsFailsClosed(t *testing.T) {
+	newBus := func(complete bool, evidence []types.EvidenceItem) *types.BusContext {
+		mut := types.NewMutableState("default registered subagent names")
+		mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+			Kind: types.AnswerAggregateMemberSet, Label: "default registered subagent names", Value: "1",
+			Members: []string{"explorer"}, SupportRefs: []string{"explorer: internal/agent/sub_explorer.go:33"},
+		}})
+		if complete {
+			mut.SetInvestigationComplete("accepted before deterministic post-explore evidence")
+			mut.RetainInvestigationAggregateFacts()
+		}
+		return &types.BusContext{
+			Mutable: mut, EvidenceItems: evidence,
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate, PredicateAxis: types.AxisRegister,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqRegistration), PrimaryEntities: []string{"RegisterDefaultSubAgents"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true},
+			}},
+		}
+	}
+	terminal := types.EvidenceItem{
+		ID: "terminal-explorer", Kind: types.EvidenceConcrete,
+		Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`,
+		Source: "internal/agent/sub_explorer.go", LineStart: 33,
+		Producer: "bridge_literal_terminal", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	bridge := types.EvidenceItem{
+		ID: "bridge-default-subagent", Kind: types.EvidenceDataflowPath,
+		Predicate: "resolution_chain", Object: `"explorer"`,
+		Source: "internal/agent/subagent.go", LineStart: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: types.ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents",
+		GroundingStatus: types.GroundingGrounded,
+	}
+
+	incomplete := newBus(false, []types.EvidenceItem{bridge, terminal})
+	if RefreshExactTypedRelationPrincipalMemberSets(incomplete) {
+		t.Fatal("post-explore evidence must not authorize a completion that never succeeded")
+	}
+	missingTerminal := newBus(true, []types.EvidenceItem{bridge})
+	if RefreshExactTypedRelationPrincipalMemberSets(missingTerminal) {
+		t.Fatal("a bridge without its exact terminal companion must remain advisory")
+	}
+	got := missingTerminal.Mutable.StableInvestigationAggregateFacts()
+	if len(got) != 1 || types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("fail-closed refresh mutated stable authority: %+v", got)
+	}
+}
+
 func TestExactTypedRelationProjectionCanonicalizesRepeatedObservationsByCandidateIdentity(t *testing.T) {
 	bus := relationProjectionDriftBus()
 	fact := relationProjectionDriftFact("LoopController", "prodA", "prodB")

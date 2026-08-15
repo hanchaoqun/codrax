@@ -109,6 +109,41 @@ func TestEvidenceRelationCandidateSource_BridgeLiteralJoinToRegisteredIdentity(t
 	}
 }
 
+func TestEvidenceRelationCandidateSource_BridgeTerminalWinsStableIDCollision(t *testing.T) {
+	terminal := EvidenceItem{
+		Kind: EvidenceConcrete, Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`,
+		Source: "internal/agent/sub_explorer.go", LineStart: 33, LineEnd: 33,
+		Producer: "bridge_literal_terminal", Scope: ScopeLine, AnchorKind: AnchorReturn,
+		AnchorSymbol: "Name", OwnerSymbol: "SubExplorer", GroundingStatus: GroundingGrounded,
+	}
+	terminal.ID = StableEvidenceID(terminal)
+	ordinary := terminal
+	ordinary.Producer = "concrete_values"
+	ordinary.AnchorSymbol = ""
+	ordinary.OwnerSymbol = ""
+	ordinary.ID = terminal.ID
+	bridge := EvidenceItem{
+		ID: "bridge-default-subagent", Kind: EvidenceDataflowPath, Predicate: "resolution_chain",
+		Object: `"explorer"`, Source: "internal/agent/subagent.go", LineStart: 64, LineEnd: 64,
+		DerivedFrom: []string{terminal.ID}, Producer: "bridge_literal", Scope: ScopeLine,
+		AnchorSymbol: "SubExplorer.Name", OwnerSymbol: "RegisterDefaultSubAgents",
+		GroundingStatus: GroundingGrounded,
+	}
+	query := TypedRelationQuery{
+		Kinds: []TypedRelationKind{TypedRelationRegisters}, Sources: []string{"RegisterDefaultSubAgents"},
+		Purpose: TypedRelationPurposeCoverageGate,
+	}
+	for _, items := range [][]EvidenceItem{
+		{ordinary, terminal, bridge},
+		{terminal, ordinary, bridge},
+	} {
+		rows := (EvidenceRelationCandidateSource{Items: items}).TypedRelationCandidates(query)
+		if len(rows) != 1 || rows[0].Member.Name != "explorer" {
+			t.Fatalf("typed terminal must win a semantic-ID collision independent of input order: %+v", rows)
+		}
+	}
+}
+
 func TestEvidenceRelationCandidateSource_BridgeLiteralJoinFailsClosedWithoutExactTerminal(t *testing.T) {
 	terminal := EvidenceItem{
 		ID: "terminal-explorer", Kind: EvidenceConcrete, Subject: "SubExplorer.Name",
