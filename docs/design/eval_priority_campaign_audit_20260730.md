@@ -36793,6 +36793,68 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.879 r534：主链背景争权已消失，但 required diagram 在 Analyzer 重试中降级（2026-08-15）
+
+1. 在 `main@d76e84302` 重建后严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + trace_query_state_churn_root_cause_rank`。Runner `2 PASS / 2`；人工
+   `0 pass / 1 partial / 1 fail`。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_requestspine_trace_r534_20260815_manual_audit.md`。两案
+   256s/227s 正常结束，无空答案、畸形 JSON salvage、旧稿恢复、Mermaid parser 降级或 fixed-age stream fallback。
+2. B859 获得一半关键生产正证：read 首稿与终稿的四阶段主序列均正确，`write_analyze` 及其 call support 不再污染
+   principal prose/table/diagram；说明 typed principal-first presentation precedence 生效。但最终仍缺失用户明确必需的
+   sequenceDiagram，不能据 runner PASS 宣称闭环。
+3. 根因是新的 typed 合同自冲突 `B860-DIAGRAMREQUIREDCONTRACTCONSISTENCY1/P0`。Analyzer 首次提交
+   `diagram_hint.required=true`，因 participant quote 无当前请求来源被拒；重试保留
+   `requested_answer_dimensions[diagram].required=true`，却把 sibling `diagram_hint.required` 改成 false。后者使 shared
+   stage provider 与 complete request spine 同时失活，generic relation authority 只剩五个 disconnected support fragment；
+   校验器于是把图称为 OPTIONAL，模型单次 patch 删除整图，机器仍按软图合同验绿。
+4. 这不是关系证据不足或 B859 失效，而是更上游的 required intent 被同一 Analyzer 对象内另一个字段侵蚀。最优根修只读
+   现有精确信号：若 schema-validated、current-request-provenanced requested dimension 已声明
+   `role=diagram, required=true`，且 sibling hint 已给出合法 diagram kind，则统一 `DiagramHint.Required=true`；不合成 kind、
+   participant、relation、Mermaid body 或结论。该 required dimension 本来就能授权硬图，允许 sibling false 覆盖它属于
+   内部合同矛盾。
+5. Trace 护栏生产正证完整：显式 11.000..11.008s 窗、系统补齐、Trace 因果投影、链上 #1
+   `app-20 runnable/调度供给=5.000ms`、背景 `rival/pressure`、实际占时与规则可消除量双轴均在；没有把邻近背景加冕。
+6. Trace 人工仅判 partial。模型在正确 typed 投影之外自行估算“切换开销 1.6ms（4×0.4）”，把 app-20 的 running
+   share 误称 CPU 实际利用率，并写错若干 segment 数；这些值没有 typed measurement，系统也未用补充块替换模型结论。
+   新记 `B861-TRACEDERIVEDMETRICCALIBER1/P1`：优先强化结构化单位/计数口径软指导与异构回放，禁止扫描或重写正文。
+7. B857 未复现为瀑布：read 只有一次 diagram reject 与一次 patch；Trace 零成文拒绝。
+
+状态：
+
+`r534 machine=2/2; human=trace-partial/read-fail`；
+`B859-REQUESTSPINECONTEXTPRECEDENCE1=production-positive/no-cross-mode-pollution`；
+`B860-DIAGRAMREQUIREDCONTRACTCONSISTENCY1=P0-confirmed/in-development`；
+`B861-TRACEDERIVEDMETRICCALIBER1=P1-confirmed/soft-guidance-first`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-observe/not-reproduced-r532-r534`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r534`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
+### §123.880 B860：required diagram 双载体一致性收口（2026-08-15）
+
+1. `emit_analysis` 新增单一 typed reconciliation：当已通过当前请求 source-quote 校验的
+   `requested_answer_dimensions` 含 `diagram + required=true`，而同一提交的合法 `DiagramHint` 却为 optional 时，只把
+   `Required` 提升为 true，并发布明确 normalization warning。它复用现有 `requiredDiagramRequestedDimension` 权威，避免
+   同一个 carrier 一边授权 hard diagram、一边容许 sibling 字段把它降级。
+2. 边界严格：若 DiagramHint 缺失，不合成 diagram kind；若 diagram dimension 本身 optional，不提升；participant、关系、
+   图体、答案文字和结论均不生成。解析仍先逐行丢弃无 current-request provenance 的 inferred participant，再做 required
+   一致化，因此不会把模型猜测的 actor 变成硬义务。
+3. 新 pin 复现 r534 精确形：`DiagramHint(sequence, required=false, participants=[])` 与 required diagram dimension 并存，
+   验证持久化结果恢复 required sequence；另以 optional dimension 与 missing hint 两条负臂证明不扩大权限。既有
+   inferred-participant row-local repair pin 保持。
+4. 本批不读用户/模型/终稿自由文本作硬门，不按 read mode、函数名、语言或 eval case 特判；Trace 分类、显式窗、因果投影、
+   自动补齐、链上-only 根因和双轴输出代码均未改。下一轮生产回放继续严格并发恰好两个，重新验证 read 必需图与一项异构模式。
+
+状态：
+
+`B860-DIAGRAMREQUIREDCONTRACTCONSISTENCY1=implemented/targeted+full-suite-pass/pending-production-replay`；
+`B859-REQUESTSPINECONTEXTPRECEDENCE1=production-positive/pending-required-diagram-replay`；
+`B861-TRACEDERIVEDMETRICCALIBER1=P1-open`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

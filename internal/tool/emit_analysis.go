@@ -1609,6 +1609,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if reconciled, warning := reconcileDiagramHintRequiredWithRequestedDimensions(diagramHint, requestedAnswerDimensions); warning != "" {
+		diagramHint = reconciled
+		logging.Warning("[emit_analysis] %s", warning)
+		diagramHintWarnings = append(diagramHintWarnings, warning)
+	}
 	// Use the normalized, current-turn-authorized diagram contract rather than
 	// the model's raw required=true claim. An unauthorized claim is intentionally
 	// softened by parseDiagramHint and must not create a new retry gate.
@@ -5289,6 +5294,26 @@ func requiredDiagramRequestedDimension(profile *types.RequestedAnswerDimensionPr
 		}
 	}
 	return false
+}
+
+// reconcileDiagramHintRequiredWithRequestedDimensions closes a contradictory
+// analyzer tuple without inspecting free-form request or answer prose. A
+// required diagram dimension has already survived current-request provenance
+// validation and is already accepted above as hard presentation authority. If
+// the sibling diagram carrier keeps a concrete kind but marks it optional,
+// preserving that false value would let a retry erase an explicit requested
+// surface. Promote only Required; never synthesize a missing kind, participant,
+// relation, diagram body, or conclusion.
+func reconcileDiagramHintRequiredWithRequestedDimensions(
+	hint *types.DiagramHint,
+	profile *types.RequestedAnswerDimensionProfile,
+) (*types.DiagramHint, string) {
+	if hint == nil || hint.Required || !requiredDiagramRequestedDimension(profile) {
+		return hint, ""
+	}
+	copyHint := *hint
+	copyHint.Required = true
+	return &copyHint, "normalized diagram_hint.required from false to true because the schema-validated requested_answer_dimensions contains a required current-turn diagram surface"
 }
 
 func reconcileDiagramHintKindWithPredicateAxis(hint *types.DiagramHint, axis types.PredicateAxis) (*types.DiagramHint, string) {

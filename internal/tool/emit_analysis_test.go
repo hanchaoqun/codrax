@@ -4158,6 +4158,67 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 	}
 }
 
+func TestEmitAnalysis_Execute_RequiredDiagramDimensionPreventsSiblingHintDowngrade(t *testing.T) {
+	raw := "解释 read mode 从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并给 stage 表"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["read mode","analyze","finalizer","sequenceDiagram","stage"],
+		"entities":["analyze","finalizer"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":false,"relation_scope_quote":"read mode 从 analyze 到 finalizer 的时序","participants":[]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"sequenceDiagram","role":"diagram","source_quote":"Mermaid sequenceDiagram","required":true},
+			{"index":2,"label":"stage","role":"stage_or_workflow","source_quote":"stage 表","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || !hint.Required || hint.Kind != types.DiagramSequence {
+		t.Fatalf("DiagramHint=%+v, want required sequence contract reconciled from the typed dimension", hint)
+	}
+	if len(hint.Participants) != 0 {
+		t.Fatalf("reconciliation must not synthesize participants: %+v", hint.Participants)
+	}
+	if !strings.Contains(res.Summary, "normalized diagram_hint.required from false to true") {
+		t.Fatalf("summary must disclose the structured reconciliation: %q", res.Summary)
+	}
+}
+
+func TestReconcileDiagramHintRequiredWithRequestedDimensionsKeepsOptionalAndMissingShapes(t *testing.T) {
+	optional := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Role: types.RequestedAnswerDimensionDiagram, Required: false,
+		}},
+	}
+	hint := &types.DiagramHint{Kind: types.DiagramFlow, Required: false}
+	if got, warning := reconcileDiagramHintRequiredWithRequestedDimensions(hint, optional); got != hint || warning != "" {
+		t.Fatalf("optional dimension must remain optional: got=%+v warning=%q", got, warning)
+	}
+	required := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Role: types.RequestedAnswerDimensionDiagram, Required: true,
+		}},
+	}
+	if got, warning := reconcileDiagramHintRequiredWithRequestedDimensions(nil, required); got != nil || warning != "" {
+		t.Fatalf("a dimension cannot synthesize a missing diagram kind: got=%+v warning=%q", got, warning)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t *testing.T) {
 	raw := "解释 read mode 从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
