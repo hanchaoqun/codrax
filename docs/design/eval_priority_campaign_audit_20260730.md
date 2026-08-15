@@ -36191,6 +36191,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.862 B848 根修：finalizer item-citation 教学单源化（2026-08-15）
+
+1. 新增唯一共享的 `AnswerDocumentItemCitationCarrierTeaching`，只定义 JSON 运输而不决定答案或证据：
+   `citation_ref` 是 primary；仅当模型已选择多个 citation、且它们分别支撑同一 visible item 中的独立事实时，
+   其余索引进入 `citation_refs`；禁止重复 primary、禁止加入未选择锚；单锚仍只用 singular，无锚时两字段均省略。
+   `AnswerDocumentJSONShapeFirstTeaching` 组合该常量，字段语义不再散落手抄。
+2. 静态 `answer-document-skill` 的 workflow 只携带一次共享常量；enumeration/hop 规则改为引用 primary + additional
+   语义，Output Format 只回指 canonical rule，旧的“所有引用只活在 `items[i].citation_ref`”两条单数合同已删除并设
+   负 pin。claim annotation 与 prohibition 同步声明两字段只属于 item；Trace 专用 hop citation alignment 现在逐一
+   复核 primary 和所有 additional refs，而不是漏检额外锚。
+3. 动态 submission checklist 的 enumeration、hop、section 三形同时支持 `citation_ref + citation_refs`；仍以
+   “同一 item、独立事实、模型已选择”为软前提，并明确禁止为了填数组增加锚。scalar/decision 的 one-anchor 示例保留，
+   因为它们不构成 singular-only 合同。full tool 的 shape-first、full/patch projected item schema、共享 semantic contract
+   现在互相兼容；patch surface 不依赖 full-only 提示。
+4. 没有新增 hard gate、citation completeness mandate 或系统自动补锚。实现不读取用户输入、模型思考、最终答案 prose、
+   表头/列名，也不从未绑定 pool 猜事实关系；模型仍拥有证据选择、答案与结论。测试钉住共享规则出现次数、旧单数
+   合同退役、full/patch 字段存在、enumeration/hop/section 教学和 Trace 多锚逐项对齐。
+5. 验证：`go test ./internal/types ./internal/skill ./internal/tool ./internal/agent -count=1` 中 types/tool/agent 全套绿；
+   skill 首轮仅因旧 G16 测试仍期待单数词形而红，测试按增强后的全引用语义更新后 `go test ./internal/skill -count=1`
+   复绿；相关 focused tests 与 `go build ./...` 全绿。下一步 r524 仍用 registry + write 严格并发 2，确认生产采用，
+   不以静态绿替代回放。
+6. 本批不改 Trace 数据、显式时间窗、因果投影、自动补齐或根因选举；链上-only 主因、实际占用/业务线索与规则计价
+   可消除量双轴继续保持，邻近/背景只作支持，系统不写模型结论；活跃流不按 4ms/4s/4m/累计年龄降级。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=implemented/prompt-single-source/awaiting-r524`；
+`B846-PATCHCITATIONIDENTITYREMAP1=implemented/static-production-seam-pinned`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

@@ -1585,6 +1585,38 @@ func TestAnswerDocumentSkillFrontLoadsProjectedSchemaOwnership(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentSkillUsesOneCanonicalItemCitationCarrier(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("answer-document-skill missing: %v", err)
+	}
+	workflow := strings.Join(sk.Workflow, "\n")
+	if got := strings.Count(workflow, types.AnswerDocumentItemCitationCarrierTeaching); got != 1 {
+		t.Fatalf("canonical item-citation workflow teaching count=%d, want 1:\n%s", got, workflow)
+	}
+	blob := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"primary `citation_ref` plus additional `citation_refs`",
+		"`citation_ref=N` for one/primary anchor",
+		"`citation_refs=[...]` only for additional already-selected anchors",
+		"Item-level `citation_ref` / `citation_refs` follow the Workflow's canonical ITEM CITATION CARRIER rule",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("multi-citation skill teaching missing %q:\n%s", want, blob)
+		}
+	}
+	for _, stale := range []string{
+		"References to the citations[] array by zero-based integer index live on `items[i].citation_ref`",
+		"Every `citation_ref` lives on `items[i].citation_ref`",
+	} {
+		if strings.Contains(blob, stale) {
+			t.Fatalf("static finalizer retained singular-only citation contract %q", stale)
+		}
+	}
+}
+
 func TestLogTriageSkill_TeachesOperationalObservations(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

@@ -6054,7 +6054,7 @@ func TestRenderAnswerDocSubmissionChecklist_SectionOwnsStructuredRowsAndCitation
 	got := renderAnswerDocSubmissionChecklist(ctx, view, false)
 	for _, want := range []string{
 		"A section may also carry structured `items[]`",
-		"each item can use label/text/cells and its own citation_ref",
+		"primary citation_ref and optional additional citation_refs",
 		"put those rows once in the section's items[]",
 		"instead of duplicating the roster in a separate global list or table",
 	} {
@@ -6064,6 +6064,28 @@ func TestRenderAnswerDocSubmissionChecklist_SectionOwnsStructuredRowsAndCitation
 	}
 	if strings.Contains(got, "Section blocks have no built-in citation field") {
 		t.Fatalf("section JSON teaching retained the false citation-carrier instruction:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocSubmissionChecklist_EnumerationUsesMultiCitationCarrierWithoutMandate(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentEnumerate}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFEnumeration,
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind: types.BlockOrderedList, Required: true, SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+
+	got := renderAnswerDocSubmissionChecklist(ctx, view, false)
+	for _, want := range []string{
+		"primary `citation_ref=N`",
+		"optional additional `citation_refs=[...]`",
+		"only when that same item states independently supported facts from several already-selected anchors",
+		"Never add an unselected anchor merely to fill the array",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("enumeration checklist missing soft multi-citation guidance %q:\n%s", want, got)
+		}
 	}
 }
 

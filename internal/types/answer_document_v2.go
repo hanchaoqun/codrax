@@ -2,6 +2,12 @@ package types
 
 import "strings"
 
+// AnswerDocumentItemCitationCarrierTeaching is the one item-level citation
+// carrier rule shared by the schema-near tool teaching and the static finalizer
+// skill. Keep it independent of answer content: the model chooses the evidence
+// anchors; this rule only says how to transport those already-selected indexes.
+const AnswerDocumentItemCitationCarrierTeaching = "ITEM CITATION CARRIER: citation_ref is the primary zero-based citations[] index. When the same visible item states several independently grounded facts and you already selected all supporting citations, keep the primary index in citation_ref and put only the remaining indexes in citation_refs in stable evidence order; never repeat the primary or add unselected anchors. If citation_ref is omitted, normalization promotes the first citation_refs entry. For one anchor use citation_ref; omit both fields when no citation backs the item. Both fields live only on items, never inside claim_uses or visible answer prose."
+
 // AnswerDocumentJSONShapeFirstTeaching is the compact carrier decision owned by
 // the schema-near emit tool description. The static finalizer skill points to
 // the projected schema instead of copying this text, so the model sees one
@@ -9,7 +15,7 @@ import "strings"
 // catalog: visible list prose and block-level evidence annotations are sibling
 // lanes, and confusing them can otherwise turn an enum such as "call_edge"
 // into user-visible answer text.
-const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref/citation_refs); evidence annotations use blocks[i].claim_uses[] at block level. When one row is backed by several evidence anchors you already selected, put the primary index in citation_ref and the remaining indexes in citation_refs; do not add unselected anchors. Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
+const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref/citation_refs); evidence annotations use blocks[i].claim_uses[] at block level. " + AnswerDocumentItemCitationCarrierTeaching + " Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
 
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It

@@ -296,9 +296,10 @@ func TestG13FinalizerSkillHeadlineSingleAuthority(t *testing.T) {
 }
 
 // TestG16FinalizerSkillHopCitationAssertionAlignment pins §27.4 G16
-// (2026-07-09): a hop's citation must match the hop's own assertion kind,
-// and the one-position citation drift (opendir_79_01: the priority-inversion
-// hop carried an IO-latency reference) is called out as the failure shape.
+// (2026-07-09): every citation on a hop must match that hop's own assertion
+// kind, and the one-position citation drift (opendir_79_01: the
+// priority-inversion hop carried an IO-latency reference) is called out as the
+// failure shape.
 func TestG16FinalizerSkillHopCitationAssertionAlignment(t *testing.T) {
 	item := psgAnswerSkillTierBBody(t, "HOP CITATION-ASSERTION ALIGNMENT")
 	if !item.AppliesTo.RequiresTrace {
@@ -307,7 +308,7 @@ func TestG16FinalizerSkillHopCitationAssertionAlignment(t *testing.T) {
 	for _, want := range []string{
 		"SAME kind as that item's own assertion",
 		"priority inversion must not carry an IO-latency row's reference",
-		"re-check each item's citation_ref",
+		"re-check the primary citation_ref and every additional citation_refs index",
 		"off-by-one drift",
 		"leave that item uncited and state the boundary",
 	} {
