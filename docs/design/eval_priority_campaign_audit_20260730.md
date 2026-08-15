@@ -35948,6 +35948,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
 
+### §123.855 r520：显式关系轴生效后，注册关系的 target/receiver 身份仍无法进入精确候选（2026-08-15）
+
+1. 在 `main@521a73a5f` 严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`；人工 `1 PASS / 1 partial`，逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r520_20260815_manual_audit.md`。写模式单行 typo 计划
+   文件、行号、旧值/新值和验收均正确，无越界改动。
+2. B847 的 request 统一已经生效：生产 analyzer 明确给出 `predicate_axis=register`，该请求不再因冗余布尔字段
+   分裂而绕开 principal relation authority。探索也确定性抽取了注册调用、`SubExplorer.Name()="explorer"`、
+   `bridge_literal_terminal` 以及两条 bridge chain，最终事实 `1 / explorer` 本身正确。
+3. 但 principal aggregate 仍被发布为
+   `fact_authority=advisory_model_inference, principal_contract=not_authorized`，finalizer 同时收到
+   `No evidence-authorized principal relation member_set is active`，最终追加“部分项证据支持稍弱”。这不是
+   B847 回退，也不是模型结论波动；当前 bridge typed candidate 的 `SourceName` 只有
+   `RegisterDefaultSubAgents`（registrar），而生产 analyzer 的精确实体只有 `SubAgentRegistry/codrax/Name()`。
+   用户问的是“注册到哪个 registry”的 target/receiver 方向，同一个已证注册关系无法按该端查询，故候选为空。
+4. 冻结 `B849-REGISTRATIONTARGETROLE1`：注册关系 carrier 必须显式区分 registrar/source 与
+   registry/receiver target；精确 coverage query 可从任一合法端进入，但两端必须来自同一结构化调用/绑定 join，
+   禁止靠用户原文、模型 reasoning、最终答案、宽泛实体相似度或把全部 primary entities 填进 source 来补。
+   多 registry、同名 receiver、无调用边、桥链与调用不共 owner 时必须 fail closed；既有 registrar 查询保持字节语义。
+5. 同轮还确认 `B848-MULTIAXISTABLEROWCITATIONCARDINALITY1`：成员行同时回答“注册调用”和 `Name()` 返回值，
+   当前 `AnswerBlockItem` 只有单个 `citation_ref`。模型提交三条 citation 后，未被单引用槽使用的注册调用证据被清理，
+   可见表格虽然写出两轴，引用区只剩 identity return 与初始化调用。后续应以 typed claim-to-evidence 多引用载体根修，
+   不得按表格文本或特定字段名补引用。
+6. 337s 用时中 analyzer 首轮约四分钟一直有语义字节到达；finalizer 零 reject、零 repair。active stream 没有按
+   4ms/4s/4m 固定年龄降级，现阶段判为 provider/model 长尾，不借性能理由删除答案或降级到旧稿。
+
+状态：
+
+`B847-EXPLICITRELATIONAXISAUTHORITYSPLIT1=implemented+pinned/production-entry-confirmed`；
+`B849-REGISTRATIONTARGETROLE1=P1-confirmed/next-batch`；
+`B844-BRIDGELITERALREGISTRYRELATIONAUTHORITY1=bridge-extraction+reference-closure-closed/blocked-by-B849`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-open`；
+`B846-PATCHCITATIONIDENTITYREMAP1=P1-open`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden`；`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
