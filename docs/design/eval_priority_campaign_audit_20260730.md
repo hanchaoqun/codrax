@@ -36819,6 +36819,50 @@ Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-onl
 `raw request/model/final prose hard gate=none`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.839 r509 / B833：精确跨核唤醒 tuple 只在成文后出现，模型生成前仍可虚构同核竞争（2026-08-15）
+
+1. 在 `main@0b40f07cfa` 重建后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。
+   Runner `2 PASS / 2`；人工为写案 pass、Trace 案 system fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_replan_trace_r509_20260815_manual_audit.md`。两案均形成完整输出，未发生
+   固定 4ms/4s/4m active-stream 降级、空答案、旧稿恢复或系统替模型写答案。
+2. B832 获 production-positive：Python 补丁与回归测试正确，本轮 8 条检查通过，changed-symbol coverage 已验证，终态
+   `verified/all_batches_verified`。PatchEffect warning 继续可见但未再铸成 impact target、repair queue 或不可闭合的补证批。
+3. B831 的 typed semantic 边界也已进入真实 final prompt：`worker-200/VerifyClass` 仍保留原始 5.000ms 业务/确定性优化
+   线索，`effective=0/rank=0`，并明确禁止推导 target wait/completion/direct blocking。确定性投影、显式时间窗、
+   `Trace 因果投影` 与自动补齐均正确。模型却转而虚构 `worker-200` 在 CPU1 占用到 5.005600，并把目标 runnable
+   0.800ms 拆成“worker 后续工作 0.400ms + 调度器响应 0.400ms”。
+4. 深层原因不是 trace 缺证据。typed `wakeup_chain_edge` 已精确发布 `worker-200 CPU2 -> app-100 target CPU1`、
+   `cpu_relation=cross_cpu`；系统成文后附录也正确显示“该边不构成同核占用、抢占或直接竞争证据”。但 finalizer 生成前
+   只收到“cross_cpu 应如何解释”的通用教学，没有收到这条具体 tuple。成文后附录无法倒流纠正模型推理，继续靠后置
+   系统事实块也会让正文与附录相互冲突，失去指导意义。
+5. 登记并实施 `B833-TRACEWAKEUPCPUTOPOLOGYPREGEN1/P0`：在 `internal/types` 建立共享 typed compiler，只消费
+   runtime-artifact + deterministic query + hard-grounded `wakeup_chain_edge` 的 exact notes；按
+   `waker+wakee+waker_cpu+wakee_target_cpu+relation` 稳定去重并 cap 3。`same_cpu` 必须两 CPU 相等，`cross_cpu`
+   必须不等；缺字段、unknown、soft 或内部矛盾行 fail-closed 不发布，保持 unknown。
+6. Finalizer 在最终 Trace 决策尾部、模型生成前发布同一 compiler 的具体 tuple。跨核只授权“唤醒发生核/目标投递核”，
+   禁止据此声称 waker 占用、抢占或直接竞争 wakee 目标核，也禁止在没有独立 exact target-wait/completion/competition
+   关系时把 waker 后续工作计入 wakee runnable delay；同核仍只证 placement，直接竞争还需 compatible typed
+   running/runnable overlap。成文后事实附录改为复用相同 compiler，消除前后两套判据漂移。
+7. 该批不扫描用户问题、模型草稿或最终答案，不新增成文硬拒、重试门、系统结论或答案替换。系统提供精确事实与权限
+   上限，诊断、排序、业务解释和优化方向仍由模型完成。Trace 根因继续只能来自 typed 链上席；邻近/背景只作支撑；
+   实际占用/业务线索与既有规则可消除量继续分轴，不因补 CPU tuple 丢失。
+
+验证：`go test ./internal/types -count=1`、`go test ./internal/agent -count=1`、
+`go test ./internal/orchestrator -count=1`、`git diff --check` 与 `go build ./...` 均通过。提交后使用同一 exact-two
+r510 回放验证正文是否停止虚构同核占用；若精确上下文已完整而模型仍偶发偏离，再按模型波动观察，禁止增加正文关键词硬门。
+
+状态：
+
+`B831-TRACESEMANTICRELATIONSOFTTEACHING1=production-positive-r509/data+prompt`；
+`B832-WRITESOFTADVISORYTERMINALAUTH1=production-closed-r509`；
+`B833-TRACEWAKEUPCPUTOPOLOGYPREGEN1=implemented/shared-compiler/regression-pass/production-replay-required`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r509`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

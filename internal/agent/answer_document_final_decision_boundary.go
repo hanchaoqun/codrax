@@ -175,6 +175,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
+	b.WriteString(renderTraceFinalWakeupCPUTopologyAuthority(ledger))
 	b.WriteString(renderTraceFinalSemanticRelationOnlyAuthority(set))
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
@@ -194,6 +195,32 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	return b.String()
+}
+
+// renderTraceFinalWakeupCPUTopologyAuthority promotes the exact CPU tuple for
+// each typed wakeup edge into the pre-generation finalizer context. The same
+// compiler also feeds the post-answer fact appendix, preventing a late-only
+// correction from disagreeing with what the model saw while synthesizing.
+// This is evidence guidance only: it neither inspects nor rewrites prose and
+// it does not choose a cause.
+func renderTraceFinalWakeupCPUTopologyAuthority(ledger types.ObservationLedger) string {
+	rows := types.BuildTraceWakeupCPUTopologyAuthorities(ledger)
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- wakeup_cpu_topology_authority waker=`%s`; wakee=`%s`; waker_cpu=`%d`; wakee_target_cpu=`%d`; cpu_relation=`%s`; ",
+			traceDecisionPromptScalar(row.Waker), traceDecisionPromptScalar(row.Wakee),
+			row.WakerCPU, row.WakeeTargetCPU, row.Relation)
+		if row.Relation == types.TraceWakeupCPUTopologyCrossCPU {
+			b.WriteString("this exact edge proves cross-CPU wakeup placement. Do not say the waker occupied, preempted, or directly competed on the wakee target CPU, and do not attribute the wakee's post-wakeup runnable delay to the waker's later work without a separate exact typed target-wait/completion or compatible competition relation.\n")
+			continue
+		}
+		b.WriteString("this exact edge proves same-CPU wakeup placement only. Direct competition or preemption still requires a separate compatible typed running/runnable overlap; placement alone is not that evidence.\n")
+	}
+	b.WriteString("- wakeup_cpu_topology_unknowns=`remain_unknown`: an edge omitted from this exact roster, or carrying an unpublished/unknown relation, must not be guessed as same-CPU or cross-CPU from names, prose, temporal adjacency, or another edge's tuple.\n")
 	return b.String()
 }
 
