@@ -36154,6 +36154,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.861 r523：多引用未闭环的根因是 finalizer 教学漂移（2026-08-15）
+
+1. 在 `main@73f35a807` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + patch_python_typo`。Runner `2/2 PASS`，人工 `1 pass / 1 partial`；详见
+   `eval/parallel_selected_summary_evalcampaign_registry_write_r523_20260815_manual_audit.md`。写计划最终仍只改
+   `main.py` 一行，无范围扩张。
+2. Registry 事实层继续正确：`1 / explorer`，没有旧 relation authority caveat 或 finalizer reject。Finalizer 也
+   明确选择并提交 `sub_explorer.go:33` 的 Name 返回与 `subagent.go:64` 的注册调用两条 citation；但 row 仍只发
+   `citation_ref=0`，没有 `citation_refs[]`。两条原始 pool slot 随后被 unused 清理，最终只留系统从 typed member
+   support 定位的 `sub_explorer.go:32`，所以注册事实虽在正文，注册锚没有结构化绑定，B848 仍是 partial。
+3. 这次已把根因从“模型未采用新字段”进一步收窄为系统 prompt contract drift：schema-near 规则已经讲
+   primary + additional refs，后置静态 workflow、Output Format 和动态 enumeration checklist 却多次只教
+   `items[i].citation_ref` 单数。字段可用、parser/lifecycle/renderer 均已通过，模型是在同一 prompt 的竞争教学中
+   选择了重复更多的旧形，不应归为纯模型波动。
+4. 下一批须做单源修复：建立共享 item-citation teaching，让 schema-near、静态 skill 与动态 checklist 同语义；
+   single anchor 用 singular，模型已选择多个独立锚支持同一 item 时 primary + additional array，不重复、不加
+   unselected anchors。scalar/decision 的单锚例子保留。不得新增每行多引硬门，也不得从表头、用户/模型/答案
+   prose 或未绑定 pool 猜锚。
+5. B846 的错误 `explorer.go:19917` 本轮未再出现；但总数被模型放在 table text，scalar normalizer 未触发，因此
+   只能结合新增 production seam pin 记 implemented，不能把本轮当真实 scalar fire。另观察到 write planner 为
+   可选 Python probe 连续付出两次正确 fail-closed reject；既有 prompt 已明确本地语法修复可省 probe，先记
+   `B850=P2 observe/model-following variance`，不为一个波动增加硬门。
+6. Registry 134 秒、write 67 秒；无畸形 JSON、旧稿恢复、空答案或固定年龄流降级。本批未改 Trace；显式时间窗、
+   因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴均保持；邻近/背景只作支持，
+   系统不写模型结论。
+
+状态：
+
+`B846-PATCHCITATIONIDENTITYREMAP1=implemented/static-production-seam-pinned/no-r523-scalar-fire`；
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=P1-partial/prompt-contract-drift-confirmed/next-batch`；
+`B850-PROBEOMISSIONGUIDANCECHURN1=P2-observe/model-following-variance`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
