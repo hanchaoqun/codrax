@@ -497,28 +497,27 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// query window (DCS E5 lane). Pin evolved: "projected share of the
 		// analysis window" → "projected share of its own query window", plus
 		// the family-field vocabulary below.
-		// EVOLUTION RECORD (SEM-LEAD §29.7-2 ⑤, 2026-07-10,
-		// real_trace_campaign_20260705.md): the "never as the root cause"
-		// pin is RETIRED — on-chain semantic rows now compete for (and may
-		// be named) the root cause; the pin set asserts the new equal-footing
-		// clause + the unconditional mention floor + the class-word naming
-		// rule, and the negative pin below keeps the retired ban out.
+		// B830/B831: positive typed effective+rank may compete; relation-only
+		// non-target overlap/host-edge rows preserve raw business evidence but
+		// never acquire a rank seat or semantic-completion mechanism.
 		"`gc_pause`",
-		"ordinary primary/secondary/tertiary root-cause election",
+		"Only a semantic row with positive typed effective_impact_ms and a positive primary/secondary/tertiary rank",
+		"on_chain_basis=semantic_chain_interval_relation or host_wakeup_edge_pre_span is relation-only",
+		"effective_impact_ms=0/rank=0 means it is not a root-cause seat",
+		"Do not say the target slept waiting for that semantic operation",
+		"separate typed target-wait or semantic-completion binding",
+		"state the exact wakeup/path relation separately",
 		"MUST NEVER enter the Background board",
-		"compete for the root cause on equal footing",
-		"name it as the root cause within the selected-window chain ranking by its semantic class",
-		"it does not by itself prove that the row caused a particular dropped frame or missed deadline",
 		"`causal_conclusion=unproven` or `frame_evidence_status=absent`",
-		"strongest selected-window bottleneck / chain candidate",
+		"preserve the frame-causality boundary",
 		"never one member's span name",
 		"MUST mention EVERY retained on-chain semantic family",
 		"Independently of root-cause TOP N",
-		"never omitted merely because their rank row was truncated",
-		"projected share of its own query window",
+		"never omitted merely because their rank row was truncated or relation-only",
+		"raw share of its own query window",
 		"member_count",
 		"member_roster",
-		"combined window-projection total",
+		"typed raw span/overlap fields preserve the complete occupancy account",
 		"background_rank<=3",
 		// WO-P1 (SMR-1 批 S9-AWEME): the IO type-word single-source soft
 		// directive (答案侧一致性走 eval 观察, 本 pin 只保指令在场).
@@ -547,11 +546,18 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 	if strings.Contains(allWorkflowBodies(sk), "projected_impact_ms/projected_total_ms are the selected-window or target-blocking projection used for ranking") {
 		t.Fatalf("retired phantom projection-pair ranking claim resurfaced:\n%s", allWorkflowBodies(sk))
 	}
-	// SEM-LEAD §29.7-2 ⑤ negative pin: the retired ban wording must not
-	// resurface — "never as the root cause" contradicted the ruling's
-	// equal-footing crown lane (the mention floor stays as its own clause).
+	// A positive typed semantic seat may still crown; no blanket ban returns.
 	if strings.Contains(traceTier, "never as the root cause") {
 		t.Fatalf("retired semantic-span root-cause ban resurfaced in the trace tier:\n%s", traceTier)
+	}
+	for _, stale := range []string{
+		"Rows with chain_relevance=on_chain participate",
+		"compete for the root cause on equal footing",
+		"semantic span rows enter the cause election only through their on-chain ranked rows",
+	} {
+		if strings.Contains(traceTier, stale) {
+			t.Fatalf("B831 stale semantic authority teaching survived %q:\n%s", stale, traceTier)
+		}
 	}
 	if strings.Contains(traceTier, "tier=deterministic_optimization") || strings.Contains(traceTier, "largest on-chain one") {
 		t.Fatalf("retired semantic-span tier/mention contract resurfaced in the trace tier:\n%s", traceTier)

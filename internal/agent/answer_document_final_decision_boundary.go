@@ -175,6 +175,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
+	b.WriteString(renderTraceFinalSemanticRelationOnlyAuthority(set))
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
 	switch {
@@ -194,6 +195,33 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
+}
+
+// renderTraceFinalSemanticRelationOnlyAuthority keeps B830's typed semantic
+// relation boundary salient at the final synthesis tail. It activates only
+// when the compiled projection contains the precise relation-only basis enum;
+// it does not inspect request/model/final prose, choose a cause, or mutate an
+// answer. The model remains free to explain and prioritize the raw business
+// clue, but cannot mistake interval/edge relation for a target wait/completion
+// mechanism that the producer explicitly withheld.
+func renderTraceFinalSemanticRelationOnlyAuthority(set types.TraceCausalProjectionSet) string {
+	for _, projection := range set.Projections {
+		pools := [][]types.TraceCausalProjectionNode{
+			projection.PrimaryRootCauses,
+			projection.RankedSeats,
+			projection.OnChainCauses,
+			projection.SemanticSpans,
+		}
+		for _, pool := range pools {
+			for _, node := range pool {
+				if !node.IsSemanticRelationOnly() {
+					continue
+				}
+				return "- semantic_relation_only_authority=`typed_basis_present`: `semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` prove only an on-chain interval/edge relation plus raw semantic occupancy/business identity. They publish `effective_impact_ms=0` and no rank seat until a separate typed target-wait or semantic-completion binding exists. Keep the raw optimization clue, but do not say the target slept waiting for that operation, that operation completion triggered the wakeup, or the operation directly blocked the target; state the exact wakeup/path relation separately.\n"
+			}
+		}
+	}
+	return ""
 }
 
 // renderAnswerDocLogPeerFinalDecisionBoundary replays the precise LogBundle

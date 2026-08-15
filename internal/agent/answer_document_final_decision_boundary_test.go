@@ -146,6 +146,23 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 			Value:     "7.000",
 			Unit:      "ms",
 			RichNotes: []string{"rank=1", "tier=primary", "chain_relevance=on_chain", "impact_ms=7.000", "effective_impact_ms=6.000", "fix_direction=scheduling_priority", "selected_window=10.000000..10.020000"},
+		}, {
+			ID:              "semantic-relation-only",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "customer.systrace", ArtifactKind: "trace",
+			},
+			Span:      types.ObservationSpan{StartTs: 10.002, EndTs: 10.012, LineStart: 3, LineEnd: 4},
+			ClaimKey:  "root_cause_context_only:worker-201",
+			Predicate: "root_cause_context_only",
+			Subject:   "worker-201",
+			Object:    "class_verification",
+			Value:     "8.000",
+			Unit:      "ms",
+			RichNotes: []string{"rank=0", "tier=context_only", "chain_relevance=on_chain", "causality=on_wakeup_chain", "semantic_class=class_verification", "on_chain_basis=semantic_chain_interval_relation", "impact_ms=8.000", "effective_impact_ms=0.000", "selected_window=10.000000..10.020000"},
 		}},
 	}}})
 
@@ -176,6 +193,11 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"time from wakeup until the next sched-in is runnable_wait",
 		"trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`",
 		"never call it an actual wait/state duration",
+		"semantic_relation_only_authority=`typed_basis_present`",
+		"`semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` prove only an on-chain interval/edge relation",
+		"publish `effective_impact_ms=0` and no rank seat",
+		"do not say the target slept waiting for that operation",
+		"state the exact wakeup/path relation separately",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
 		"direct_blocking_decision=`not_established`",
 		"fix_direction_summary_authority=`exact_typed_subtotal_when_published_else_single_leader`",
@@ -214,6 +236,37 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	bounded := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if strings.Contains(bounded, "## Final Trace Decision Boundary") {
 		t.Fatalf("bounded fact request was widened into trace synthesis:\n%s", bounded)
+	}
+}
+
+func TestFinalTraceSemanticRelationAuthorityUsesTypedBasisOnly(t *testing.T) {
+	relation := types.TraceCausalProjectionNode{
+		Subject: "worker-201", SemanticClass: "class_verification",
+		OnChainBasis: types.TraceCausalOnChainBasisSemanticChainIntervalRelation,
+		ImpactMS:     8, EffectiveImpactMS: 0,
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		OnChainCauses: []types.TraceCausalProjectionNode{relation},
+	}}}
+	got := renderTraceFinalSemanticRelationOnlyAuthority(set)
+	for _, want := range []string{
+		"semantic_relation_only_authority=`typed_basis_present`",
+		"effective_impact_ms=0",
+		"separate typed target-wait or semantic-completion binding",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed relation-only boundary missing %q: %s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"the root cause is", "the primary cause is", "worker-201", "class_verification"} {
+		if strings.Contains(strings.ToLower(got), forbidden) {
+			t.Fatalf("boundary authored or copied a model conclusion/entity %q: %s", forbidden, got)
+		}
+	}
+
+	set.Projections[0].OnChainCauses[0].OnChainBasis = types.TraceCausalOnChainBasisSelfDeterministicSpan
+	if got := renderTraceFinalSemanticRelationOnlyAuthority(set); got != "" {
+		t.Fatalf("target-self positive semantic row must not trigger relation-only guidance: %s", got)
 	}
 }
 

@@ -36734,6 +36734,51 @@ Trace root=`typed-on-chain+mechanism-caliber`；adjacent/background=`support-onl
 `raw request/model/final prose hard gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.837 r508 / B831：typed semantic 关系已正确降权，旧通用教学仍诱导模型虚构等待机制（2026-08-15）
+
+1. 在 `main@56be5775f` 重建后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。
+   Runner `1 PASS / 1 FAIL`，但人工两案均为 system fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_replan_trace_r508_20260815_manual_audit.md`。两案均形成完整输出，未发生
+   固定 4ms/4s/4m active-stream 降级、空答案、旧稿恢复或系统替模型写答案。
+2. B830 获 production-positive 数据证据。目标 `app-100` 的 runnable 0.800ms 正常加冕；非目标
+   `worker-200/VerifyClass` 的原始 5.000ms 仍完整保留为链上业务/确定性优化线索，但成文数据明确为
+   `on_chain_basis=semantic_chain_interval_relation`、`effective=0.000ms`、`rank=0`、无根因 badge。显式时间窗、
+   `Trace 因果投影`、自动补齐和链上/背景边界均未丢失。
+3. 模型正文仍写出“目标进入 S 态等待 worker VerifyClass 完成/下游完成后返回”，随后 caveat 又正确声明该 semantic
+   span 没有 typed direct-blocking/completion binding。同一答案自相矛盾不是 producer 复活了正值，而是
+   `internal/skill/defaults.go` 的旧通用 Trace 教学仍声明“所有 chain_relevance=on_chain semantic rows 平等竞争根因”。
+   Finalizer 尾部虽已拿到 B830 的精确信号，较早的冲突教学仍增加模型心智并诱导错误机理补全。
+4. 登记并实施 `B831-TRACESEMANTICRELATIONSOFTTEACHING1/P0`。通用教学现只允许
+   `effective_impact_ms>0 + positive primary/secondary/tertiary rank` 进入根因选举；
+   `semantic_chain_interval_relation/host_wakeup_edge_pre_span` 保留原始占用、成员 roster、链上业务身份和优化方向，
+   但 rank/effective 为零时没有根因席。没有独立 typed target-wait 或 semantic-completion binding 时，模型不得把
+   区间/边关系扩写成“目标等待该操作完成/完成触发唤醒/该操作直接阻塞目标”，而应分别陈述精确 wakeup/path 关系。
+5. Finalizer 同步增加 typed-basis-only 的末端软边界，只遍历已编译投影节点的闭集 enum，不读取用户问题、模型草稿或
+   最终答案文字，不复制实体名，不选主因，也不修改答案。目标线程自身 `self_deterministic_span` 正值形不触发该边界；
+   关系线索仍属于 on-chain business clue，不因无 rank 被错误扔进背景板。
+6. Python 写案例补丁实际正确：apply 成功，两条 inline probe 与四条项目测试共 6/6 通过，changed path covered，
+   changed-symbol finding 也是 verified。终态却报 `impact_targets_unverified`；精确追踪发现不是此前推测的 symbol
+   父子名不匹配，而是两条 `non_ascii_source_comment_added` 嘈声启发式被铸成 unknown semantic effect-followup。
+   同一 verify-only 重放无法证明“注释语言是否符合仓库习惯”，故累计补证批即使测试全绿仍无法闭合。登记
+   `B832-WRITESOFTADVISORYTERMINALAUTH1/P0`，下一独立批从权威分类根修，不能靠放松行为测试或答案关键词匹配。
+7. 本批保持用户裁定的 Trace 双轴：实际耗时/业务线索引导新优化方向；只有 typed 可计价的优先级反转、runnable
+   调度延迟/供给不足、running 算力供给、D/IO、锁/binder、目标自身确定性语义或未来 exact binding 才进入规则可消除
+   排序。邻近/背景继续只能 support-only；系统只提供精确信息和软教学，最终总结与优化判断仍由模型形成。
+
+验证：`go test ./internal/skill -count=1`、`go test ./internal/agent -count=1`、`git diff --check` 与
+`go build ./...` 均通过。
+
+状态：
+
+`B830-TRACESEMANTICCHAININTERVALRELATION1=production-positive-r508`；
+`B831-TRACESEMANTICRELATIONSOFTTEACHING1=implemented/full-regression-pass/production-replay-required`；
+`B832-WRITESOFTADVISORYTERMINALAUTH1=confirmed/P0/next-batch`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r508`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
