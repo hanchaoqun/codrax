@@ -36906,6 +36906,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.883 B857：patch 基座 typed block roster 贯通（2026-08-15）
+
+1. Finalizer 的 patch-first、通用 patch-reject、grounded anchor、required relation/boundary、optional relation 与 block-cardinality
+   修补车道统一追加当前 patch base 的紧凑清册，只发布每个 block 的 exact `id + kind`。它与 patch 工具共享
+   `live AnswerDocumentV2 > RetryState.PrevEmitJSON > LastRejectedAnswerDocumentV2` 优先级，因此模型看到的 ID 就是下一次
+   `replace/remove/unchanged` 实际操作的基座，不再把原始 payload 误当作规范化后的 live draft。
+2. 对 typed cardinality `over_max`，同一清册额外列出 offending kind 的完整 block ID 数组。像 r535 中 fused table 被确定性拆出的
+   `table-stage-detail_diagram` 现在会明确出现；模型可自行选择一个承载内容，并用 exact `remove_block_ids` 删除其余项。系统不选择
+   主图、不自动删块、不合并正文，也不降低 required diagram、最大数量或关系证据合同。
+3. 清册只来自结构化 `AnswerDocumentV2.Blocks`，不扫描用户请求、模型正文、最终答案或 Mermaid 标签；正文、citation、relation、
+   participant 与结论均不进入该载体。JSON 编码保持派生 ID 的精确边界，文档规模仍受既有 block 上限约束。
+4. 回归 pin 复现 r535 的原始块、table 块、派生 diagram ID 和第二 diagram ID，要求 cardinality hint 同时携带完整 roster 与精确
+   diagram ID 子集；另钉 live > retry > rejected 基座优先级。`internal/agent` 全包与 `go test ./... -count=1` 均通过。
+5. 本批不改 answer renderer、Mermaid body、Trace 或 stream lifecycle。显式窗 Trace 因果投影、系统补齐、链上-only 主因、实际
+   占时/业务线索与规则计价可消除量双轴保持；活跃流不会因 4ms/4s/4m 或固定总年龄降级。
+
+状态：
+
+`B857-ANSWERDOCVALIDATIONWATERFALL1=implemented/typed-live-patch-base-roster/full-suite-pass/pending-production-replay`；
+`B862-DIAGRAMTOPOLOGYISOMORPHISMBUDGET1=implemented/full-suite-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：

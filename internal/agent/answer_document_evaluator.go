@@ -14893,6 +14893,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	e.rejectHintsUsed++
 	hint := "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. " + types.AnswerDocumentPatchOperationTeaching + " The patch tool rejects empty patches, unknown ids, and conflicting operations, so focus only on the actual fix."
 	hint = e.appendDiagramRelationRepeatGuidance(hint)
+	hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 	return LoopSignal{
 		HintRequested:  true,
 		BypassThrottle: true,
@@ -14902,32 +14903,78 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 }
 
 func answerDocumentPatchBaseAvailable(ctx *types.AgentContext, primary *types.MutableState) bool {
-	if answerDocumentPatchBaseAvailableInMutable(primary) {
+	if answerDocumentPatchBaseDocumentInMutable(primary) != nil {
 		return true
 	}
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable == primary {
 		return false
 	}
-	return answerDocumentPatchBaseAvailableInMutable(ctx.Mutable)
+	return answerDocumentPatchBaseDocumentInMutable(ctx.Mutable) != nil
 }
 
-func answerDocumentPatchBaseAvailableInMutable(mut *types.MutableState) bool {
+// answerDocumentPatchBaseDocumentInMutable mirrors the patch tool's base
+// precedence exactly. Retry hints use this typed document only to expose the
+// current block id/kind roster; they never copy, delete, or rewrite a block.
+func answerDocumentPatchBaseDocumentInMutable(mut *types.MutableState) *types.AnswerDocumentV2 {
 	if mut == nil {
-		return false
+		return nil
 	}
 	if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
-		return true
+		return doc
 	}
 	if rs := mut.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
 		var doc types.AnswerDocumentV2
 		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
-			return true
+			return &doc
 		}
 	}
 	if doc := mut.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
-		return true
+		return doc
 	}
-	return false
+	return nil
+}
+
+type answerDocumentPatchBaseBlockRosterEntry struct {
+	ID   string                `json:"id"`
+	Kind types.AnswerBlockKind `json:"kind"`
+}
+
+// answerDocPatchBaseBlockRosterHint gives a same-dispatch patch turn the exact
+// base it will mutate. This closes the gap where deterministic normalization
+// has split a fused block and minted a derived id that was never visible in the
+// model's original payload. The roster is a typed projection of the live patch
+// base, not a scan of request/answer prose, and deliberately omits block text.
+func answerDocPatchBaseBlockRosterHint(ctx *types.AgentContext, primary *types.MutableState, focusKind types.AnswerBlockKind) string {
+	var doc *types.AnswerDocumentV2
+	if doc = answerDocumentPatchBaseDocumentInMutable(primary); doc == nil && ctx != nil && ctx.Mutable != primary {
+		doc = answerDocumentPatchBaseDocumentInMutable(ctx.Mutable)
+	}
+	if doc == nil {
+		return ""
+	}
+	roster := make([]answerDocumentPatchBaseBlockRosterEntry, 0, len(doc.Blocks))
+	focusedIDs := make([]string, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		roster = append(roster, answerDocumentPatchBaseBlockRosterEntry{ID: block.ID, Kind: block.Kind})
+		if focusKind != "" && block.Kind == focusKind {
+			focusedIDs = append(focusedIDs, block.ID)
+		}
+	}
+	rosterJSON, err := json.Marshal(roster)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(" Current patch-base block roster (exact typed ids and kinds; normalization-derived ids in this list are already real existing ids): `")
+	b.Write(rosterJSON)
+	b.WriteString("`.")
+	if focusKind != "" {
+		idsJSON, marshalErr := json.Marshal(focusedIDs)
+		if marshalErr == nil {
+			fmt.Fprintf(&b, " Existing `kind=%s` block ids: `%s`. The model must choose which content to retain; the system does not choose or remove a block.", focusKind, idsJSON)
+		}
+	}
+	return b.String()
 }
 
 func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
@@ -14948,6 +14995,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if hint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, true); ok {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
+		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -14977,6 +15025,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 				e.rejectHintsUsed++
 				e.preferPatchNext = true
 				hint = e.appendDiagramRelationRepeatGuidance(hint)
+				hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 				hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 				return LoopSignal{
 					HintRequested:  true,
@@ -14992,6 +15041,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
 			hint = e.appendDiagramRelationRepeatGuidance(hint)
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 			return LoopSignal{
 				HintRequested:  true,
@@ -15008,6 +15058,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		e.preferPatchNext = true
 		hint := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
 		hint = e.appendDiagramRelationRepeatGuidance(hint)
+		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -15022,6 +15073,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
 		hint := fmt.Sprintf("Your last `emit_answer_document_patch` call was rejected because the document exceeds the typed maximum for `kind=%s`. Keep using `emit_answer_document_patch`; do not add another block of that kind. Fold the useful content into one retained block with `replace_blocks` and explicitly delete surplus block ids with `remove_block_ids`; keep unrelated blocks in `unchanged_block_ids`. %s Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.", cardinalityKind, types.AnswerDocumentPatchOperationTeaching)
+		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, cardinalityKind)
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -15036,6 +15088,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	e.preferPatchNext = true
 	hint := answerDocPatchRejectCorrectionHint(obs.LastToolResult)
 	hint = e.appendDiagramRelationRepeatGuidance(hint)
+	hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,

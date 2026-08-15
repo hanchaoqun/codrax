@@ -5435,8 +5435,13 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactContextSurfaceRejectUsesMet
 
 func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testing.T) {
 	mut := types.NewMutableState("patch cardinality")
-	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
-		Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "existing"}},
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "existing"},
+			{ID: "table-stage-detail", Kind: types.BlockTable, Text: "existing"},
+			{ID: "table-stage-detail_diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram"}},
+			{ID: "diagram-stage", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram"}},
+		},
 	})
 	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut}
 	e := &answerDocumentEvaluator{mu: mut}
@@ -5446,11 +5451,11 @@ func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testin
 		Summary:  "patch rejected: rendered text is audit only",
 		Repair: &types.ToolRepair{
 			Code:   "answer_doc_pre_emit_contract",
-			Fields: []string{"blocks[].kind=section"},
+			Fields: []string{"blocks[].kind=diagram"},
 			Metadata: map[string]string{
 				"violation_kinds": string(types.ViolBlockCoverageMissing),
 				types.ToolRepairMetaBlockCardinalityRelation: "over_max",
-				types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockSection),
+				types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockDiagram),
 			},
 		},
 	}
@@ -5459,9 +5464,33 @@ func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testin
 	if !sig.HintRequested || sig.HintKey != "answer_doc.patch_cardinality" {
 		t.Fatalf("typed patch cardinality repair should trigger cardinality lane, got %+v", sig)
 	}
-	if !strings.Contains(sig.Hint, "exceeds the typed maximum for `kind=section`") ||
+	if !strings.Contains(sig.Hint, "exceeds the typed maximum for `kind=diagram`") ||
 		!strings.Contains(sig.Hint, "explicitly delete surplus block ids with `remove_block_ids`") {
 		t.Fatalf("cardinality hint should preserve merge guidance, got %q", sig.Hint)
+	}
+	for _, want := range []string{
+		`{"id":"summary","kind":"summary"}`,
+		`{"id":"table-stage-detail","kind":"table"}`,
+		`{"id":"table-stage-detail_diagram","kind":"diagram"}`,
+		`{"id":"diagram-stage","kind":"diagram"}`,
+		`Existing ` + "`kind=diagram`" + ` block ids: ` + "`[\"table-stage-detail_diagram\",\"diagram-stage\"]`",
+		"The model must choose which content to retain; the system does not choose or remove a block",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("cardinality hint missing exact patch-base roster %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocPatchBaseBlockRosterHintMirrorsPatchBasePrecedence(t *testing.T) {
+	mut := types.NewMutableState("patch base precedence")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "rejected", Kind: types.BlockDiagram}}})
+	mut.SetRetryState(&types.RetryState{PrevEmitJSON: json.RawMessage(`{"blocks":[{"id":"retry","kind":"table"}]}`)})
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "live", Kind: types.BlockSummary}}})
+
+	hint := answerDocPatchBaseBlockRosterHint(&types.AgentContext{Mutable: mut}, mut, types.BlockSummary)
+	if !strings.Contains(hint, `[{"id":"live","kind":"summary"}]`) || strings.Contains(hint, "retry") || strings.Contains(hint, "rejected") {
+		t.Fatalf("roster must mirror live > retry > rejected patch-base precedence: %q", hint)
 	}
 }
 
