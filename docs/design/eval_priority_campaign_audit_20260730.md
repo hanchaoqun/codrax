@@ -36953,6 +36953,55 @@ r510 回放验证正文是否停止虚构同核占用；若精确上下文已完
 验证：`go test ./internal/types ./internal/context ./internal/agent ./internal/tool -count=1`、
 `go test ./internal/analysis/perftriage -count=1`、`go build ./...` 与 `git diff --check` 全部通过。
 
+### §123.842 r511：B834/B835 生产转正；自身 runnable 排名与覆盖边界词义冲突（2026-08-15）
+
+1. 在 `main@9a20dd9a9` 重建后严格并发恰好两个案例：
+   `github_issue_dateutil_relativedelta_float_symptom + trace_query_frame_semantic_span_optimization`。
+   Runner `2 PASS / 0 FAIL`；人工为 write pass、Trace partial。逐案记录见
+   `eval/parallel_selected_summary_evalcampaign_replan_trace_r511_20260815_manual_audit.md`。
+2. B834 获生产正证：根目录 Python TestSurface 真实执行
+   `python3 -m unittest discover -v`，4/4 测试与四条 typed behavior probe 全通过；changed path 为
+   `covered/project_runner/target_behavior`，首次 verify 后 `all_verified`，零 replan，未再把 `.` 拼成空
+   module，也没有 `ValueError: Empty module name`。
+3. B835 获生产正证。预检仍可在自身审计记录里提出 VerifyClass/sync-RPC 候选，但下游结构化上下文只发
+   `candidate_duration_ms=5.8 + authority=pretriage_model_extraction`；Analyzer 的自由机制叙述不再进入
+   Explorer，deterministic query 后 model candidate 不再进入 Finalizer 的事实投影。最终模型自行选择
+   0.800ms target runnable 调度供给候选，并明确 VerifyClass 4.6ms 为链上业务线索、target
+   wait/completion binding 未证；没有再把它说成已证同步等待或同核竞争。
+4. Trace 能力没有缩水：CPU2→CPU1 跨核 topology、目标四态、优先级语义、4.6ms deterministic semantic
+   span、实际占用/业务修向与规则计价可消除量双轴、frame/deadline 缺证边界及完整 `Trace 因果投影`
+   均保留。邻近/背景没有晋升主因，系统没有生成、删除或替换模型结论。
+5. 新确认 `B836-TARGETSELFSTATEWORDING1/P1`。引擎与 tool contract 已明确区分两类 target-self 行：
+   `sleep_wait/binder_wait/blocking_span` 等 wait-on-counterpart 是症状、rank=0；`runnable_wait`、互斥 typed
+   D/IO、正 compute-supply 是可分解自因，可持排名席。覆盖边界却无条件发“等待型自身状态是症状面，
+   不作为可消除影响参与根因排序席位”，与同页 `runnable_wait rank=1/effective=0.800ms` 自相矛盾。
+   根修必须消费同一个 typed wait-symptom closed set，只收窄解释词，不改排序、数值或答案。
+6. 登记 `B837-STRUCTUREDEMISSIONMENTALLOAD1/P2`。Analyzer 首次同时发 nested
+   `requested_answer_dimensions.is_dimensioned_answer=true` 和顶层字符串副本，严格解码先报 unknown field；
+   第二轮再因 causal scope/fact-family 冲突 fail-loud，第三轮成功。PerfTriager 首轮又把
+   `observations[]` 连同 `residue` 包进同一个 JSON string，安全恢复拒绝后第二轮成功。前者可在值等价且
+   canonical nested carrier 已存在时安全丢弃 schema-known duplicate；值冲突必须继续 fail-loud。后者不能
+   从畸形字符串猜造数组边界，应优先精简 schema/示例并只恢复完整合法 inner JSON。
+7. 模型正文两次写“CPU 空闲”。raw/typed 行确有 CPU1 在 5.000000 切入 idle、5.005800 从 idle 切入
+   app，且 window_stats 发布 CPU1 idle=5.8ms；但总 coverage 为 partial，正文又省略 CPU1 限定。
+   当前记为措辞/权限显著性观察，不扫描正文、不加硬门、不由系统改写；后续异构 replay 若重复泛化为
+   CPU-wide idle，再从 typed interval-overlap carrier 根修上下文。
+8. 两案均持续超过 4ms/4s/4m 后正常完成。不存在固定年龄降级、空答案、旧稿恢复或系统代写；连接活跃
+   字节仍持续刷新 liveness，终止/降级只由 caller cancel/deadline、无首字节、byte-stall、transport/
+   decode failure 等精确信号授权。
+
+状态：
+
+`B834-PYUNITTESTROOTDISCOVERY1=production-positive/closed-r511`；
+`B835-TRACEUPSTREAMSUMMARYCALIBER1=production-positive/closed-r511`；
+`B836-TARGETSELFSTATEWORDING1=confirmed/P1/next-batch`；
+`B837-STRUCTUREDEMISSIONMENTALLOAD1=confirmed/P2/design-open`；
+`Trace explicit-window/causal projection/auto-supplement=production-preserved-r511`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r511`；
+`raw request/model/final prose hard gate=none`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：
