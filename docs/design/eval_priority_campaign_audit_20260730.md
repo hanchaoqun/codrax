@@ -36413,6 +36413,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.869 r527：多引用载体生产采用；Trace 双轴与因果投影无回归（2026-08-15）
+
+1. 在 `main@ef0955f5d` 重建后严格并发恰好两个案例：
+   `qf_relation_subagent_registry + trace_query_frame_semantic_span_optimization`。Runner `2/2 PASS`；人工为
+   registry partial、Trace pass-with-caveat。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_registry_trace_r527_20260815_manual_audit.md`。
+2. B848 获生产正向采用。模型不再只发单锚，而是在同一结构化成员 item 上使用 primary
+   `citation_ref` 与 additional `citation_refs`，把 `Name()` 定义、返回字面量和 `Names()` 机制三轴绑定到同一可见成员。
+   这证明共享低心智载体已进入真实 finalizer。注册调用的 citation pool index 仍未被模型绑定，系统按合同将其 prune，
+   没有从正文猜造 sidecar 或自动选择证据；因此状态是 authoring partial，不是继续增加固定引用数硬门的理由。
+3. B851/B852 本轮均未复现。Analyzer 没再发错误 required candidate role，最终答案也没有在已有局部边界后追加泛化
+   “覆盖可能不充分”。前者保持异构观察，后者从 recurrent 调整为 non-persistent observation；单轮不证明全局闭环，
+   也不得扫描 `subagent`、caveat 或最终答案文本做静默修正。
+4. Trace 正对照完整保留显式 `5.000..5.007s` 用户窗、目标四态、`worker-200 CPU2 -> app-100 CPU1` 跨核唤醒、
+   唤醒后 runnable 0.800ms 调度供给席、frame/deadline 未证边界和完整「Trace 因果投影」。优先级反转、D/IO、算力供给
+   没有证据时未被猜造；邻近 sleep 与背景需求积压没有晋升主因。
+5. B829/B835 的双轴裁定生产保持：`VerifyClass` 原始窗内墙钟 5.000ms 作为链上确定性语义/业务修向完整可见；
+   由于 wakeup=5.005000s 早于 span end=5.005400s，且 target wait/completion binding 未证，规则计价 effective=0、rank=0。
+   目标自身 runnable 0.800ms 才进入可消除榜；真实 worker running 4.000ms 另列为未计价实际占用，不和规则收益相加。
+6. 模型先明确 frame evidence absent、无法证明实际丢帧，后又使用“此帧的主要瓶颈”，词面比 typed 权限略强；同文已再次
+   限定为 selected-window 最强候选，因此记为成文波动，不新增答案原文 hard gate，不由系统删除、替换或重写结论。
+   中文答案仍夹带 `frame evidence/causal_conclusion/tier/channel` 等内部枚举，是既有展示债，后续只允许从共享 typed word-face
+   软教学泛化收敛，不能按该 fixture 做词表删除器。
+7. 两案均在 transport bytes 持续到达时跨过 4ms/4s 正常完成。没有 fixed-age active-stream 降级、旧稿恢复、空答案、
+   畸形 JSON 恢复或系统答案代写。下一批停止复跑 registry，转向高优先异构图关系/写模式案例，继续恰好并发两个。
+
+状态：
+
+`B848-MULTIAXISTABLEROWCITATIONCARDINALITY1=production-positive-r527/carrier-adopted+authoring-partial`；
+`B851-ANSWERROLEPROFILESEMANTICDRIFT1=P2-observe/not-reproduced-r527`；
+`B852-GENERICCAVEATAFTERLOCALBOUNDARY1=P2-observe/not-reproduced-r527`；
+`B829/B835-TRACESEMANTICBINDINGCALIBER=production-preserved-r527`；
+`raw-request/model/final-prose-hard-gate=forbidden/not-added`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r527`；
+`Trace explicit-window/causal projection/auto-supplement=production-preserved-r527`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`raw-occupancy/business-clue/rule-priced-eliminable=separate`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
