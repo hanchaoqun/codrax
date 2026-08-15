@@ -36714,6 +36714,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
+
+1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + patch_go_typo`。Runner `2 PASS / 2`；人工 `1 pass / 1 partial`，
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_readstage_write_r533_20260815_manual_audit.md`。
+   两案 267s/91s 正常结束，无空答案、JSON salvage、旧稿恢复、Mermaid 语法降级或 fixed-age stream fallback。
+2. B858 获生产正证。Analyzer 仍发空 participant 且 stage/workflow dimension 本轮恢复，但 finalizer 的共享
+   provider 从 grounded `StageAnalyze + StageFinalize` 选出完整连续车道；最终 Mermaid 精确保留三条
+   Analyze→Explore→Extract→Finalize adjacent precedence，表格也保留 stage/输入/输出/状态载体四列。系统没有
+   代画图、代补关系或修改模型结论。
+3. write 异构护栏全绿：一行 Go typo 被规划为 `kind=patch`，只改 `main.go`，apply 与一次 verify 成功，最终
+   `complete/verified/all_batches_verified`。read-stage provider 没有跨入 write controller、计划或验证车道。
+4. 人工不能把 read 案判全绿。最终正文与表格把仅 write mode 调用的 `write_analyze` 当成 read 主阶段，并声称
+   `runAnalyzePhase → runWriteAnalyzePhase`。源码控制流明确相反：`runWriteAnalyzePhase` 只位于
+   `ModePlan/ModeApply/ModeVerify` 分支；read mode 直接保留 analyzer TaskGraph 后进入 read task phase。
+5. 该偏差不只是模型单点波动。Finalizer 同一 prompt 一方面给出精确
+   `canonical_read_main_sequence=analyze→explore→extract→finalize`，并明确列表外真实函数是 cross-mode/background、
+   不得进入 read sequence/table；另一方面 generic `First-Pass Diagram Reference` 又把
+   `runWriteAnalyzePhase→dispatchStage` 作为 grounded floor，required-diagram repair boundary 也把它与 request spine
+   并列。两组事实各自为真，但展示优先级把 supporting sibling 与 principal request spine 放在同一认知层，形成
+   上下文争权；模型首稿据此造出跨模式假链，经历 2 次 diagram reject 后只修图，保留了错误正文/表格。
+6. 新确认 `B859-REQUESTSPINECONTEXTPRECEDENCE1/P0`。泛化根修必须读取现有 typed `requestSpine/requestScoped`
+   元数据：当一个 request-scoped provider 已证明完整 requested relation spine，generic support-lane skeleton 不再成为
+   First-Pass principal floor；required diagram 的关系修补优先只重复 compact principal spine recipes。其他 grounded
+   call/data-flow/type relations继续留在 Observation Ledger、full advisory capsule 或独立 support 段，不删除证据，也不
+   宣称它们为假。
+7. 禁止形保持：不扫描 request、模型推理、草稿/终稿 prose 或 Mermaid label；不按 `read/write`、函数名、语言或
+   eval case 写特判；不由系统生成最终图、删除/替换模型正文或确权结论。该修复只解决“窄 typed 权威优先于宽 typed
+   背景”的通用上下文分层，可服务任何未来 request-spine provider。
+8. B857 本轮未复现。第二次成文拒绝来自模型第一份 patch 新增的 3 个 diagram block 与把 data_flow 写成 reply
+   operator，并非同一初稿的独立错误被 validator 串行隐藏；继续观察，不为一次 patch 失误扩大校验器。
+9. 本轮不改 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、优先级反转、
+   调度/算力供给、D/IO、确定性语义、业务线索，以及实际占时/规则可消除量双轴保持。
+
+状态：
+
+`r533 machine=2/2; human=write-pass/read-partial`；
+`B858-READSTAGEEVIDENCESPAN1=production-closed-r533`；
+`B859-REQUESTSPINECONTEXTPRECEDENCE1=P0-confirmed/next-batch`；
+`B857-ANSWERDOCVALIDATIONWATERFALL1=P1-observe/not-reproduced-r532-r533`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r533`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
