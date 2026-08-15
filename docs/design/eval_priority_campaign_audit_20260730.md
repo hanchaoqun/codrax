@@ -35693,6 +35693,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.849 r515：源码关系参与者生产闭环；JSON 阶段错序安全恢复（2026-08-15）
+
+1. 在 `main@0dad2f358` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + data_json_strict_ids`。Runner `2/2 PASS`，人工
+   `1 pass / 1 partial`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_sequence_json_r515_20260815_manual_audit.md`。
+2. B841 获得生产闭环正证。Explorer 这次由 typed required participant 义务继续读取
+   `internal/analysis/gate/gate.go:131-150`，证据池形成两条 parser-owned 真边：
+   `buildAnalysisIR -> gate.RunWith`（`analyzer.go:2723`）和
+   `gate.Run -> gate.RunWith`（`gate.go:135`）。终稿 Mermaid 诚实画成两个入口汇合到
+   `RunWith`，并明确 `buildAnalysisIR` 到 `gate.Run` 没有有向调用路径；系统没有猜边、代画
+   或替模型作结论。
+3. 调用链唯一 finalizer reject 是正确证据门：模型曾把 13 条从 `buildAnalysisIR` 发出的
+   sibling call 全部标成 `principal_path_edge`，而 endpoint 边界实际只有两条。随后模型改放
+   supporting block，真边和参与者均保留。末轮因 requested `member_set` 的可见标签不够显式，
+   模型又新增一张 13 行表，和已有 supporting list 重复；这是成文冗余/模型波动，不能让任意
+   list 自动满足关系成员集合，不能削弱 principal-edge authority，也不能由系统删除或重写答案。
+4. Explorer 的 `14/15` member count reject、找不到直达 sink 后要求发布
+   `no_directed_path`、以及必须 exact-read endpoint body 而不只接受 grep/repo-map，均有精确 typed
+   合同支撑。虽然产生 16 次探索迭代和 3 次 Finalizer 成文，但没有发现同一声明同时必带/必拒
+   的合同自冲突；当前仅把冗余列为 P2 异构回放观察项，不为单例增加硬门。
+5. JSON 终稿精确为 `{"ids":["u1","u3"]}`。6 个数据批次完成 3 条 rule coverage、2 条
+   contribution、reconcile 和 final projection。首轮模型错误提交当前阶段不允许的未来
+   `reconcile_artifacts/assemble_answer`，后续又把输出字段名 `ids` 当作输入字段；动态 schema、
+   typed stage gate 和 deferred queue 一致拒绝/拆批，并按真实字段 `id` 安全恢复。公开 schema
+   与执行 guard 没有矛盾，不能为了减少轮数放宽阶段秩序。
+6. 本轮没有空答案、旧稿降级或活跃流固定年龄降级。连接持续交付字节时，4ms、4s、4min 均
+   不构成降级依据；只有 caller cancel/deadline、无首字节、byte-stall、transport/decode failure
+   等精确信号可触发有界恢复。Read/Trace 合同零改动：显式时间窗、因果投影、自动补齐、链上-only
+   主因、实际占用/业务线索与规则计价可消除量双轴均保持，邻近/背景仍只能支撑额外排查。
+
+状态：
+
+`B841-SOURCERELATIONPARTICIPANTTRACEENUMCOLLISION1=production-closed-r515`；
+`B842-DATAACTIONSCRIPTDISCRIMINATOR1=no-gap/production-reconfirmed-r515`；
+`B843-SOURCECALLCHAINAUTHORINGREDUNDANCY1=P2-observe/model-variance/no-hard-gate`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.810 r490：Trace 工件尾部越界铸造假调度根因；多错误日志关系权威上下文自冲突（2026-08-14）
 
 1. 在 `main@7b0cd1f85` 严格并发恰好两个案例：
