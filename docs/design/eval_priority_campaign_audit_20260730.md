@@ -37002,6 +37002,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw request/model/final prose hard gate=none`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.843 B836：target-self 症状族与可拆解自因覆盖词义归一（2026-08-15）
+
+1. 覆盖边界不再把所有目标自身的“等待状态”笼统排除在根因榜外。新文案明确：自身休眠、等锁、
+   等对端是待下钻症状，不直接占根因席；唤醒后的 runnable 调度等待、已确认 D/IO 阻塞以及存在正向
+   提升量的运行供给，仍可按 typed 证据进入排序。
+2. 词义源移动到 `internal/tracequery`，与引擎拥有的 SYM-2 typed closed-set 同域；answer projection 只
+   调用该语义源，不再手抄第二套规则。该函数只解释已发布行，不准入行、不改 rank/effective value，
+   也不读取用户输入、模型输出或最终正文。
+3. 双语正负 pin 同时要求症状类别和可排序类别可见，并禁止旧的“全部 wait states never hold seats”
+   绝对化词形；引擎原有 registry-lane 闭集与 target-self runnable 可加冕 pin 一并通过。
+4. 词义分层 lint 阻止本辅助覆盖句自行发射“算力”专属词；此处使用中性的“运行供给”，正式算力供给
+   cause/fix-direction 仍由既有单一词源发射，能力和主因类别没有丢失。
+5. 本批只修改系统证据解释块，不修改模型答案、排名算法、Trace 补采、投影构造、显式窗或活跃流。
+
+状态：`B836-TARGETSELFSTATEWORDING1=implemented/pinned/full-tool-regression+build-pass`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`raw request/model/final prose hard gate=none`；`system-answer/conclusion-authorship=none`。
+
+验证：`go test ./internal/tracequery ./internal/tool -count=1`（首次仅被词义 lint 拒绝；校准后
+`go test ./internal/tool -count=1` 全绿）、SYM-2/双语专项、`go build ./...` 与 `git diff --check` 全部通过。
+
 ### §123.817 r494 / B809：有限 peer-error 查询的 typed scope 未进入日志探索交接（2026-08-14）
 
 1. 在 `main@db6239371` 严格并发恰好两个案例；机器均 PASS，均首次成文、零 reject/retry/recovery：

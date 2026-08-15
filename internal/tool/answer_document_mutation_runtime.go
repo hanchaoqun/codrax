@@ -4730,13 +4730,15 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			share = dominantMS / state.windowMS * 100
 		}
 		if zh {
-			parts = append(parts, fmt.Sprintf("目标窗内状态账: %s 窗%.3fms — 主导状态=%s %.3fms(%.1f%%)，running=%.3fms，runnable=%.3fms，sleep=%.3fms(其中 IO等待 %.3fms)，d_state=%.3fms，io_wait=%.3fms；等待型自身状态是症状面，不作为可消除影响参与根因排序席位",
+			parts = append(parts, fmt.Sprintf("目标窗内状态账: %s 窗%.3fms — 主导状态=%s %.3fms(%.1f%%)，running=%.3fms，runnable=%.3fms，sleep=%.3fms(其中 IO等待 %.3fms)，d_state=%.3fms，io_wait=%.3fms；%s",
 				state.subject, state.windowMS, dominantName, dominantMS, share,
-				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait))
+				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait,
+				tracequery.TargetSelfStateRankingBoundaryText(true)))
 		} else {
-			parts = append(parts, fmt.Sprintf("Target window state account: %s over %.3fms — dominant state %s %.3fms (%.1f%%), running=%.3fms, runnable=%.3fms, sleep=%.3fms (io-wait portion %.3fms), d_state=%.3fms, io_wait=%.3fms; the target's own wait states are the symptom face and never hold eliminable root-cause seats",
+			parts = append(parts, fmt.Sprintf("Target window state account: %s over %.3fms — dominant state %s %.3fms (%.1f%%), running=%.3fms, runnable=%.3fms, sleep=%.3fms (io-wait portion %.3fms), d_state=%.3fms, io_wait=%.3fms; %s",
 				state.subject, state.windowMS, dominantName, dominantMS, share,
-				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait))
+				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait,
+				tracequery.TargetSelfStateRankingBoundaryText(false)))
 		}
 	}
 	if authority.causalUnproven {

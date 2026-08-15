@@ -404,7 +404,7 @@ func TestRuntimeTraceCoverageZeroProjectionAdoptsConsistentLedgerWindow(t *testi
 
 func TestTraceCoveragePublishesTargetWindowStateAccount(t *testing.T) {
 	// GAP-B1 (§13.3): 覆盖块正面陈述目标窗内状态账(第四放留给模型叙事的
-	// 真空)——主导状态+五车道+「等待型自身状态是症状面」机制句。
+	// 真空)——主导状态+五车道+ SYM-2 的症状/可拆解自因边界。
 	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
@@ -445,10 +445,41 @@ func TestTraceCoveragePublishesTargetWindowStateAccount(t *testing.T) {
 		"目标窗内状态账: unknown-32788 窗227.367ms",
 		"主导状态=sleep 210.000ms(92.4%)",
 		"d_state=15.000ms",
-		"等待型自身状态是症状面，不作为可消除影响参与根因排序席位",
+		"休眠、等锁或等对端属于待下钻的症状，不直接占根因排序席",
+		"唤醒后的可运行等待、已确认的 D/IO 阻塞及有正向提升量的运行供给仍可按其 typed 证据进入排序",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("state account line missing %q:\n%s", want, block.Text)
+		}
+	}
+}
+
+func TestTraceCoverageTargetStateBoundaryKeepsDecomposableSelfCauses(t *testing.T) {
+	authority := runtimeTraceCoverageAuthorityBoundary{targetStates: []runtimeTraceCoverageTargetState{{
+		subject: "app-100", windowMS: 7, running: 1.2, runnable: 0.8, sleep: 5,
+	}}}
+	for _, tc := range []struct {
+		zh   bool
+		want []string
+		not  []string
+	}{
+		{true,
+			[]string{"休眠、等锁或等对端属于待下钻的症状", "可运行等待", "D/IO 阻塞", "运行供给仍可", "进入排序"},
+			[]string{"等待型自身状态是症状面", "不作为可消除影响参与根因排序席位"}},
+		{false,
+			[]string{"sleep, lock wait, and peer wait are drill-down symptoms", "post-wakeup runnable delay", "typed D/IO blocking", "positive compute-supply opportunity", "enter the ranking"},
+			[]string{"the target's own wait states are the symptom face", "never hold eliminable root-cause seats"}},
+	} {
+		got := runtimeTraceCoverageAuthorityText(authority, tc.zh, true)
+		for _, want := range tc.want {
+			if !strings.Contains(got, want) {
+				t.Fatalf("zh=%v missing %q:\n%s", tc.zh, want, got)
+			}
+		}
+		for _, bad := range tc.not {
+			if strings.Contains(got, bad) {
+				t.Fatalf("zh=%v retained overbroad target-self wording %q:\n%s", tc.zh, bad, got)
+			}
 		}
 	}
 }
