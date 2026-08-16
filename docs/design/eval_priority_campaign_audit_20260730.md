@@ -35880,6 +35880,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`。
 
+### §123.946 REPL 双日志复核收账：旧版 raw-last 证据黑洞已被当前恢复链覆盖（2026-08-16）
+
+1. 重新对照 `/Users/han/opt/customlogs/repl_log.txt`、`repl_log2.txt` 与当前代码，纠正 §123.945 的
+   `REPL-RAWLASTDRAFTPRIORITY1=audit-next`：两份日志启动头明确是客户 `v0.1.20260813`，其运行时间早于
+   B779/B800 当前恢复链。旧版确实在探索已取得 on-chain 排名后，因 Finalizer 三轮未调用
+   `emit_answer_document`，只发出末轮“未提供 systrace”的泛化散文；这是历史生产 P0，不是当前主线仍
+   未审的同一缺口。
+2. 当前恢复顺序只依赖载体类型、阶段与解析结果，不读正文好坏或关键词：先恢复可解析的
+   `AnswerDocumentV2`/畸形文本中的结构化 document，再恢复 retry-state/last-rejected structured draft；
+   都不存在时才保留模型散文。最终失败轮的 scratch 不会覆盖已恢复的结构化模型稿。
+3. 对纯散文车道，B779 已把 accepted `ObservationLedger` runtime rows 投入 isolated finalizer 与 evidence-only
+   recovery；B800 又在模型原文之后通过唯一 deterministic materializer 补回适用的 Trace 因果投影、关键事实、
+   指标与确定性优化板，并明确标注“系统确定性证据附录（不替代模型结论）”。系统不删除、改写或替换模型正文，
+   也不从证据自行创作一段模型结论。
+4. 当前专项回归再次通过：preserved no-tool structured JSON 胜过较弱 isolated prose；finalizer visible surface
+   可恢复；empty/raw runtime fallback 均保留 ledger facts；raw 模型散文位于 deterministic Trace appendix 之前；
+   中英文披露等价。执行：
+   `go test ./internal/agent -run 'Test(AnswerDocumentEvaluator_ParseOutput_RecoversPreservedNoToolDraftAfterIsolatedFallback|AnswerDocumentEvaluator_ParseOutput_FallsBackToPreservedFinalizerSurfaceDraft|AnswerDocumentEmptyModelFallbackCarriesRuntimeFactsWithoutConclusion|AnswerDocumentRawModelFallbackPreservesProseAndAppendsTypedRuntimeFacts|AnswerDocumentRuntimeFallbackEvidenceEnglishParity|AnswerDocumentEmptyRuntimeFallbackPrefersDeterministicSectionsOverShortFactList)$' -count=1`，PASS。
+5. 当前仍需要的是新版本客户/生产回放，不是继续按旧日志修改 carrier priority。若新版本再次丢失模型草稿，必须
+   先看 typed recovery mode/degrade reason、是否存在 structured/no-tool/retry-state carrier，再立新 gap；禁止根据
+   最终散文是否“像好答案”选稿。活跃流仍不能因 4ms/4s/4m 或累计年龄降级，结束权只属于 caller cancel/deadline、
+   首包静默、byte stall、transport/decode failure。
+
+状态：
+
+`REPL-RAWLASTDRAFTPRIORITY1=historical-P0/closed-current-main/customer-replay-pending`；
+`RLOG1-FINALRUNTIMEFACTBLACKOUT=historical-P0/closed-current-main`；
+`B779-RUNTIMEFALLBACKEVIDENCE1=current-main-covered+pinned`；
+`B800-RAWDETERMINISTIC1=current-main-covered+pinned`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：
