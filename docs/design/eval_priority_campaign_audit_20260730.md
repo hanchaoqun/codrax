@@ -35711,6 +35711,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.958 r585：枚举边界闭环；粗修向误导与 patch 载体漂移（2026-08-16）
+
+1. 在 `main@a8de9cfc3` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + mr_poly_binding_chain`。Runner `2/2 PASS`，人工均为 partial；
+   逐轮审计见 `eval/parallel_selected_summary_evalcampaign_trace_relation_r585_20260816_manual_audit.md`。
+2. B934 获生产正证并闭环。最终成文上下文明确携带
+   `runtime_enumeration_final_authority status=incomplete` 及 root-rank、critical-blocking 的 emitted/total；
+   终稿改为披露 12/65 与 20/33，不再宣称无遗漏。局部 complete target-wait rowset 仍按自己的 typed
+   authority 使用，没有被全局 incomplete 误伤。
+3. B933 接线存在但人工仍失败。最终 tail 已声明 blocked_reason caller 只是 kernel call-site，waited object、
+   holder、subsystem 和 caller→cause relation 均未提供；模型却仍把标识符 `dma_fence_default_w` 具体化为
+   GPU fence 对象/持续瓶颈/修向，随后又在附注承认对象未知，形成同页矛盾。
+4. 深层原因不是系统改写答案，也不是 Explorer aggregate prose 再回放：完整 Trace projection 已通过
+   `projectTypedTraceAnswerAuthority` 移除纯模型 trace restatement，Finalizer 主要从 typed rows 自行外推。
+   竞争信号来自 `d_state_or_io_wait -> fix_direction=io_dependency`：该内部枚举实际覆盖“IO/内核/依赖”
+   粗验证族，而该席同时明确 `io_wait=0`。因此 B933 后续必须发布“粗修向不证明对象/子系统/IO机理”
+   caliber，并禁止从标识符词义铸造资源身份；只做 prompt typed guidance，不扫/拒/替换答案文字。
+5. B935 获生产正证并闭环。compact handoff 保留 exact
+   `py.tokenize_bytes -> tokenize_bytes`，最终图也出现 wrapper→core 真边；PyO3 只是首个 witness，
+   owner/reference 谓词和既有语言矩阵对 JNI/NAPI/FFI、ArkTS/Cangjie 等同构。
+6. Poly 的 5 次成文拒绝暴露两个新 P1。B937：可见标签 `tokenize_bytes (core)` 被复制进 exact identity，
+   与唯一 recipe `tokenize_bytes -> best_merge` 冲突；应只在唯一 typed pair 下剥离一个空格分隔的尾部展示
+   qualifier，且只改 identity metadata，不改图/文字/方向/关系。B936：修边 patch 用整块替换时遗漏原块
+   `facet_ids/surface_role`，最终虽有四条验证边仍被附加“主路径关系未完整”。最优容错只在 exact prev block、
+   same kind、稳定 item-id overlap 且字段真正 omitted 时继承；显式空值、歧义和换内容形保持 model-owned。
+7. 两个修复均不读用户原文、模型 thinking、item 文案或终稿，不按 Python/Rust/type 名拟合。它们分别消费
+   typed repair-family/state caliber、dispatch-scoped relation recipe、patch block/item identity 与 JSON field
+   presence；系统不生成边、图、根因或结论。
+8. Trace 供给折算与优先级候选求和的模型措辞仍有误差，先作为 B933 回放同批人工观察，不用答案算式
+   regex 硬门。Poly 引用错位另记 typed citation identity 债，不以当前 label 文本拟合。
+
+状态：
+
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=production-partial/r585/coarse-direction-caliber-open`；
+`B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r585`；
+`B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=production-closed-r585`；
+`B936-STRUCTUREDPATCHCARRIERPRESERVATION1=confirmed/P1/planned`；
+`B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=confirmed/P1/planned`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r585`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
