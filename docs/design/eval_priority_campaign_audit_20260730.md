@@ -35649,6 +35649,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.952 r580：精确注册与定义体关系生产生效；Trace 显式窗保持完整（2026-08-16）
+
+1. 在 `main@b8ef2f1b1` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS / 2`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_poly_trace_r580_20260816_manual_audit.md`。
+2. B923 获生产正证。Polyglot 首批仍把 line 46 的 module declaration 当 registration，并给出错误
+   `precedence` anchor；post-grounding 发现同一 parser-owned module range 内唯一 structural binding 后，
+   要求模型重发。第二批得到 line 47 的 `m -> wrap_pyfunction!(tokenize_bytes, m)`、
+   `anchor=call/add_function` 精确行。系统没有替模型铸 evidence 或答案，粗 container 仍作为原证据保留。
+3. B924 获生产正证。模型已经选择的 Python fallback、Rust core、PyO3 wrapper definition 触发
+   `repomap_selected_callable_body_call`，共追加 10 条 parser-owned exact call；包括
+   `tokenize_bytes -> best_merge @ core-rs/src/lib.rs:13`、wrapper 的
+   `MergeTable.from_triples @ line 41` 以及 Python fallback 的 `list/len/range/self._rank.get`。
+   模型自己已发出的 wrapper line 42 call 被精确去重，没有系统重复边；这些关系只进入可用证据池，
+   未被强制写进终稿或强制画图。
+4. B921 同轮获生产正证。Finalizer 收到
+   `registered_export_binding_between_components`，把调用目标 `_fastlex.tokenize_bytes` 与已注册 callable
+   `py.tokenize_bytes` 以 non-call handoff 连接；下游执行只因独立 exact wrapper→core call 才标
+   `proved_by_exact_registered_callable_call`。这避免把注册关系伪装调用边，也消除了旧的“已绑定/仍断开”
+   同页矛盾。
+5. Polyglot 首稿漏掉请求中的入口 `FastTokenizer.tokenize`，pre-emit validator 精确拒绝后模型只补入口，
+   属正确看护。随后 B925 第二次异构回放复现：summary 和 ordered-list 已显式出现“原生模块名
+   `_fastlex`”，但 requested-dimension receipt 仍判 `member_set` 缺失，强制第三轮新增重复的
+   “第 2 维：中间原生模块名”。因此 B925 从观察升级为 confirmed；根修必须对齐 analyzer 的 typed
+   requested dimension 与 block/fact ownership receipt，不能搜索答案正文 `_fastlex`、标题或用户关键词。
+6. Polyglot 终稿完整说明入口、编码、guard、原生导出、wrapper、Rust core、registration 与 Python
+   fallback；没有图但题目并未要求图。其 caveat 把 import 成败描述为“构建时条件”不够精确，记为模型
+   partial；无 schema-valid 精确信号时不建立正文词面硬门，也不由系统改写模型结论。
+7. H7 Trace 使用用户显式窗 `13762.791708..13763.024898`，6 次 `trace_query` 均保持同窗。终稿保留
+   `Trace 因果投影`、链上-only 根因榜、目标 running `74.915ms` 与规则可消 `65.912ms` 双账、
+   非 IO D-state `36.757ms`/`dma_fence_default_w`、调度供给/算力供给/优先级反转/IO 等链上维度、
+   JIT 确定性优化和链上业务 span。邻近 `logd.writer` 的 `49.623ms` 只在邻近区显示，未被加冕。
+8. H7 没有 finalizer reject、畸形 JSON、旧稿恢复、空答案或 4ms/固定 answer-age 降级；真实占用与现有
+   规则可消除量仍分账。人工 partial 的唯一重要语义项是模型从“频率/策略供给候选，不能单独证明热机制”
+   外推到“改善散热”建议。后续只可收紧 typed evidence boundary 的软教学与上下文措辞，不能由系统删改
+   答案、凭正文关键词硬拒，或把邻近/背景升级为主因。
+
+状态：
+
+`B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=implemented/production-positive-r580`；
+`B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/no-recurrence-r579/pending-direct-production-trigger`；
+`B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=implemented/production-positive-r580`；
+`B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=implemented/production-positive-r580`；
+`B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=confirmed-r579+r580/pending-root-fix`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r580`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-occupancy/existing-rule-eliminable=separate-ledgers`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.951 r579：端点自环未复发；粗定义载体吞掉精确关系（2026-08-16）
 
 1. 在 `main@32177f9e3` 重建后严格并发恰好两个案例：
