@@ -7212,6 +7212,36 @@ func TestPreCheckRequiredBlocks_HappyPath(t *testing.T) {
 	}
 }
 
+func TestPreCheckRequiredBlocks_ComparisonPerMemberTableCannotPassWithSectionsOnly(t *testing.T) {
+	ir := &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		Buckets: []types.QuestionBucket{
+			{Label: "group A", Index: 1},
+			{Label: "group B", Index: 2},
+		},
+		Predicates: types.SemanticPredicates{HasPerMemberTable: true},
+	}}
+	view := types.BuildAnswerSemanticView(ir, nil)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary},
+		{ID: "a", Kind: types.BlockSection, Title: "group A"},
+		{ID: "b", Kind: types.BlockSection, Title: "group B"},
+	}}
+	hints := preCheckRequiredBlocks(doc, view)
+	if len(hints) != 1 || hints[0].Field != "blocks[].kind=table" {
+		t.Fatalf("section-only comparison must fail the typed per-member table contract: %+v", hints)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:       "members",
+		Kind:     types.BlockTable,
+		FacetIDs: []string{string(types.FacetEnumerationItem), string(types.FacetBucketLabel)},
+	})
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("one table must satisfy the typed comparison carrier: %+v", hints)
+	}
+}
+
 func TestPreCheckRequiredBlocks_AlternativeKindSatisfiesMin(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RequiredBlocks: []types.BlockRequirement{

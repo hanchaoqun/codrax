@@ -1303,6 +1303,42 @@ func TestCompileComparison_BucketSectionCountPinned(t *testing.T) {
 	}
 }
 
+func TestCompileComparison_PerMemberTableIsSingleRequiredPrincipalCarrier(t *testing.T) {
+	ir := irForComparison()
+	ir.RequestModel.Predicates.HasPerMemberTable = true
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("nil view")
+	}
+	var table *BlockRequirement
+	for i := range view.RequiredBlocks {
+		req := &view.RequiredBlocks[i]
+		switch req.Kind {
+		case BlockTable:
+			table = req
+		case BlockSection:
+			t.Fatalf("typed per-member comparison must not retain a required section escape: %+v", view.RequiredBlocks)
+		}
+	}
+	if table == nil {
+		t.Fatalf("typed per-member comparison missing required table: %+v", view.RequiredBlocks)
+	}
+	if !table.Required || table.MinCount != 1 || table.MaxCount != 1 ||
+		len(table.AlternativeKinds) != 0 || table.SurfaceRoleHint != SurfacePrincipal {
+		t.Fatalf("typed per-member comparison table contract drifted: %+v", table)
+	}
+	for _, facet := range []AnswerFacetKind{FacetEnumerationItem, FacetBucketLabel, FacetComponentRelation} {
+		if !containsString(table.FacetIDs, string(facet)) {
+			t.Fatalf("typed per-member comparison table missing facet %s: %+v", facet, table)
+		}
+	}
+	for _, optional := range view.OptionalBlocks {
+		if optional.Kind == BlockTable || optional.Kind == BlockSection {
+			t.Fatalf("typed per-member comparison must have one table carrier without duplicate roster surfaces: %+v", view.OptionalBlocks)
+		}
+	}
+}
+
 // TestCompileComparison_FacetBucketLabelHardPresent pins the
 // FacetCoverageContract template carries a HARD FacetBucketLabel
 // entry (the bucket-alignment signal). commonFacets() emits this

@@ -35845,6 +35845,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.961 r588：零 IO bucket 推理边界生产闭环；比较族逐成员表合同自冲突根修（2026-08-16）
+
+1. 在 `main@764f8bce1` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + cangjie_repomap`。Runner `1/2 PASS`，人工 `2/2 pass`；
+   逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_cangjie_r588_20260816_manual_audit.md`。
+2. Trace 为 B938 提供生产闭环：显式窗 `13762.791708..13763.024898`、Trace 因果投影与链上-only
+   排名都在；目标自身 running 74.915ms、供给折算缺口 65.912ms、D-state 36.757ms/11 段、runnable
+   1.536ms、sleep 118.586ms 与 `io_wait=0.000ms` 同时保留。最终明确
+   `dma_fence_default_w` 只是内核调用点，资源对象、持有者和子系统未证；blocked_reason 的
+   `12/Σ39.157ms` 也没有替代 11 段 D-state 墙钟。零 io_wait 没有再被外推为“排除存储/设备/依赖
+   机理”，粗粒度 IO/依赖只作为下一步验证方向。
+3. 因果正文和系统投影继续分权：链上 running/D-state/runnable 进入根因席，邻近 runnable 压力明确
+   标成背景且不计入链上归因；确定性 JIT 方向、业务线索与“实际占时 vs 规则计价可消除量”双轴未丢。
+   系统只发布 typed 量值、口径和边界，没有生成或替换模型结论。
+4. Cangjie runner 虽判 FAIL，人工核验确认 12 条事实全在且均正确：2 个 extend、2 个 foreign func、
+   8 个 public class 的符号、文件和 package 完整。这不是 extractor/repomap 丢行，也不是语言特有
+   解析问题；自动 oracle 要求逐成员表，而最终在三个 bucket 下用 section items 完整发出了同一 rowset。
+5. 新确认 B940（P1/红线合同冲突）：Analyzer 发出 schema-valid `has_per_member_table=true`、三个 bucket
+   与三个必答维度；`ResolveQuestionFamily` 因 bucket 数量把请求路由到 `QFComparison`。旧 comparison
+   compiler 又无条件要求每 bucket 一个 section、把 table 降为 optional，完全忽略同一 typed boolean。
+   因此 `QFEnumeration` 的“逐成员表不可删”权威在跨 family 路由后静默失效，模型遵守最终 prompt 仍被
+   eval 判漏表，还产生 bucket 标题与 item section 重复。这是精确信号之间的系统自冲突。
+6. B940 以 family compiler 通用形根修，不对 Cangjie、source inventory 或任何词面特判：普通比较仍是
+   `summary + 每 bucket 一 section`，表格可选；只有 closed typed `HasPerMemberTable=true` 时编译成
+   `summary + exactly one principal table`，零 list/section alternative。该表同时承载
+   `enumeration_item + bucket_label + component_relation`，每个成员的 bucket 身份、请求属性和引用留在
+   同一行；不再要求重复 roster section。
+7. 正负 pin 覆盖默认比较不变、逐成员比较只能有一个 principal table、缺表而只有 sections 必须在
+   pre-emit fail-loud、补入带 typed facet 的 table 即通过。门只读取 Analyzer schema boolean 和结构化
+   block/facet，不扫描用户原文、模型思考或最终正文，不创建任何成员、值、关系、图或结论；所有源码语言
+   与概念成员集共享同一规则。
+8. 本批无 malformed JSON、Mermaid、旧稿恢复、空答案或 active-stream 固定年龄降级。活跃连接继续以
+   原始字节 liveness 为权威，4ms 内无完整 answer 绝不触发降级；Trace 查询、投影、自动补齐与答案
+   materializer 均未因 B940 改动。
+
+状态：
+
+`B938-ZEROBUCKETMECHANISMEXCLUSION1=production-closed-r588`；
+`B940-COMPARISONPERMEMBERTABLEAUTHORITY1=implemented/typed-family-compiler-pins-pass/pending-replay`；
+`Cangjie inventory=facts-complete/runner-structural-false-negative-r588`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r588`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

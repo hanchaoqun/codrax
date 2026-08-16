@@ -6,7 +6,7 @@ package types
 // user-named buckets so each bucket gets its own principal section
 // preserving the user's mental partition end-to-end.
 //
-// Required blocks:
+// Default required blocks:
 //
 //	1× BlockSummary  — opens with "what's being compared" + the
 //	                   axis(es) of comparison; carries the
@@ -19,7 +19,17 @@ package types
 //	                   MaxCount=N (extra sections rejected so the
 //	                   user's mental partition stays exact).
 //
-// Optional:
+// Typed per-member-table shape:
+//
+// When RequestModel.Predicates.HasPerMemberTable is true, the analyzer has
+// explicitly declared that every member's requested attributes must remain in
+// a structured table. In that shape the required bucket sections are replaced
+// by exactly one principal BlockTable. This keeps the closed typed declaration
+// authoritative across family routing: QFComparison must not weaken the table
+// to an optional presentation choice merely because the same request has two
+// or more buckets.
+//
+// Default optional blocks:
 //
 //	0..1× BlockTable   — side-by-side rendering when the
 //	                     comparison has multiple discrete axes.
@@ -81,9 +91,42 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
+	perMemberTable := ir != nil && ir.RequestModel.Predicates.HasPerMemberTable
+	if perMemberTable {
+		view.RequiredBlocks = []BlockRequirement{
+			requireSummaryBlock(
+				"Open with what is being compared and along which axis(es). The summary MUST " +
+					"name every bucket label verbatim from the question. Keep the comparison " +
+					"axis explicit so the principal table below has a clear member × attribute contract."),
+			{
+				Kind:     BlockTable,
+				MinCount: 1,
+				MaxCount: 1,
+				Required: true,
+				FacetIDs: []string{
+					string(FacetEnumerationItem),
+					string(FacetBucketLabel),
+					string(FacetComponentRelation),
+				},
+				Rationale: "The typed request requires one principal per-member table with no list or section escape. " +
+					"Use one row per requested member and keep that member's bucket identity visible in the row. " +
+					"Use columns for the requested comparison attributes or axes, and keep grounded member identity, " +
+					"attributes, and citations together rather than duplicating the roster across bucket sections.",
+				SurfaceRoleHint: SurfacePrincipal,
+			},
+		}
+	}
 
 	view.OptionalBlocks = []BlockRequirement{
-		{
+		optionalCaveatBlock(
+			"When the comparison axis is asymmetric (e.g. one bucket lacks a feature the "+
+				"other has), disclose the asymmetry rather than synthesising a placeholder "+
+				"value for the missing side.",
+			string(FacetUncertaintyBoundary),
+		),
+	}
+	if !perMemberTable {
+		view.OptionalBlocks = append([]BlockRequirement{{
 			Kind:     BlockTable,
 			MinCount: 0,
 			MaxCount: 1,
@@ -97,13 +140,7 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 				"per bucket carries that bucket's value on each axis. Do not add this optional " +
 				"table merely to repeat typed member rows already carried by the required bucket " +
 				"sections; use it only when it adds a distinct cross-bucket axis grid.",
-		},
-		optionalCaveatBlock(
-			"When the comparison axis is asymmetric (e.g. one bucket lacks a feature the "+
-				"other has), disclose the asymmetry rather than synthesising a placeholder "+
-				"value for the missing side.",
-			string(FacetUncertaintyBoundary),
-		),
+		}}, view.OptionalBlocks...)
 	}
 
 	// No family-native DiagramPlan — comparison is prose-led. A user-explicit
