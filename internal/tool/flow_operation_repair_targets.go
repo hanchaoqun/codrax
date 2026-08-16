@@ -29,6 +29,54 @@ type flowResolvedParticipantIdentity struct {
 	files    []string
 }
 
+// flowOperationPlanningParticipants returns the identities that may steer a
+// SOFT operation-site search. An explicit diagram participant slate remains
+// authoritative when present. When a required flow visual intentionally has
+// no explicit slate, the repair lane would otherwise have no parser identity
+// to search even though entity resolution already proved exact source
+// symbols. In that narrow shape, reuse only resolver-confirmed symbol
+// provenance that was admitted for search or shape.
+//
+// The derived rows are navigation-only. They are not written back to
+// DiagramHint, do not create participant coverage obligations, and never mint
+// an evidence row or relation edge. Ambiguous symbols, concepts, scopes,
+// files, and unresolved names remain excluded.
+func flowOperationPlanningParticipants(rm types.RequestModel) []types.DiagramParticipantHint {
+	if rm.DiagramHint != nil && len(rm.DiagramHint.Participants) > 0 {
+		return rm.DiagramHint.Participants
+	}
+	if rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+		rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	out := make([]types.DiagramParticipantHint, 0, maxFlowOperationRepairKeywords)
+	for _, provenance := range rm.AnalyzerHints.EntityProvenance {
+		if !provenance.Resolved || provenance.Resolution != types.EntityResolutionSymbol ||
+			(!provenance.UseForSearch && !provenance.UseForShape) {
+			continue
+		}
+		identity := strings.TrimSpace(provenance.ResolvedAs)
+		if identity == "" {
+			identity = strings.TrimSpace(provenance.Surface)
+		}
+		key := strings.ToLower(identity)
+		if identity == "" || key == "" || seen[key] || !types.IsCodeIdentitySurface(identity) {
+			continue
+		}
+		seen[key] = true
+		out = append(out, types.DiagramParticipantHint{
+			Identity: identity,
+			Role:     types.DiagramParticipantIncidentRequired,
+		})
+		if len(out) == maxFlowOperationRepairKeywords {
+			break
+		}
+	}
+	return out
+}
+
 // flowResolveParticipantIdentity keeps the analyzer's unique-symbol lane as
 // the first authority, then permits one narrow late upgrade from the complete
 // parser graph. The upgrade exists for request labels that name a static member
@@ -59,7 +107,7 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 	}
 
 	var ownerSurfaces []string
-	for _, owner := range rm.DiagramHint.Participants {
+	for _, owner := range flowOperationPlanningParticipants(rm) {
 		if strings.EqualFold(strings.TrimSpace(owner.Identity), strings.TrimSpace(participant.Identity)) ||
 			!owner.Role.IsValid() ||
 			!types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, owner) {
@@ -148,10 +196,7 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 
 	var surfaces []string
 	var resolvedFiles []string
-	var participants []types.DiagramParticipantHint
-	if rm.DiagramHint != nil {
-		participants = rm.DiagramHint.Participants
-	}
+	participants := flowOperationPlanningParticipants(rm)
 	for _, participant := range participants {
 		if participant.Role != types.DiagramParticipantIncidentRequired {
 			continue
@@ -238,7 +283,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	}
 	var surfaces []string
 	if rm.DiagramHint != nil {
-		for _, participant := range rm.DiagramHint.Participants {
+		for _, participant := range flowOperationPlanningParticipants(rm) {
 			if participant.Role != types.DiagramParticipantIncidentRequired {
 				continue
 			}

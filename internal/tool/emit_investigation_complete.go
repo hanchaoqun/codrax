@@ -3394,8 +3394,17 @@ func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold
-	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection || lane == types.DowngradeLaneFlowOperationCarrier {
+	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection {
 		exactThreshold = 2
+	}
+	// The generic operation-carrier lane needs the same two-step recovery room
+	// as explicit participant coverage: one turn may locate a parser-owned
+	// occurrence and the next must read/materialize it. Converging on the
+	// second completion attempt turns a bounded no-match/navigation turn into a
+	// premature unproven answer. The third identical close remains a bounded
+	// escape when no grounded relation can be established.
+	if lane == types.DowngradeLaneFlowOperationCarrier {
+		exactThreshold = 3
 	}
 	// Participant coverage starts with analyzer-owned identities rather than a
 	// known operation line. One repair turn may therefore be legitimately spent

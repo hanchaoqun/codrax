@@ -321,19 +321,92 @@ func TestEmitInvestigationComplete_FlowNoProgressConvergesWithBoundary(t *testin
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})
 	tool := &EmitInvestigationComplete{}
-	if _, err := tool.Execute(ctx, flowOperationCompletionParams(t)); err != nil {
+	first, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
 		t.Fatalf("first Execute: %v", err)
 	}
-	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	second, err := tool.Execute(ctx, flowOperationCompletionParams(t))
 	if err != nil {
 		t.Fatalf("second Execute: %v", err)
 	}
+	if ctx.Mutable.IsInvestigationComplete() || first.Repair == nil || second.Repair == nil {
+		t.Fatalf("two attempts must leave room for locate then read/materialize: first=%+v second=%+v", first, second)
+	}
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("third Execute: %v", err)
+	}
 	if !ctx.Mutable.IsInvestigationComplete() {
-		t.Fatalf("second identical attempt should converge with a typed boundary: %+v", res)
+		t.Fatalf("third identical attempt should converge with a typed boundary: %+v", res)
 	}
 	if !ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) ||
 		!strings.Contains(res.Summary, "operation-level flow remains unproven") {
 		t.Fatalf("converged close must disclose the missing operation carrier: %+v", res)
+	}
+}
+
+func TestFlowOperationRepairUsesResolvedSymbolsWhenRequiredDiagramSlateIsEmpty(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{
+			Surface: "emit_answer_document", ResolvedAs: "EmitAnswerDocument",
+			Resolution: types.EntityResolutionSymbol, Resolved: true,
+			UseForSearch: true, UseForShape: true,
+		},
+		{
+			Surface: "Name", Resolution: types.EntityResolutionAmbiguousSymbol,
+			Resolved: false, UseForSearch: true,
+		},
+		{
+			Surface: "finalizer", Resolution: types.EntityResolutionInferredConcept,
+			Resolved: true, UseForSearch: true,
+		},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"cmd/root.go": {
+			RelPath: "cmd/root.go", Language: "go",
+			Relations: []repotypes.Relation{{
+				Kind: "type_usage", File: "cmd/root.go", Line: 4315,
+				FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: "cmd/root.go", Line: 4315},
+				ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "cmd/root.go", Line: 4315},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+			}},
+		},
+	}})
+
+	participants := flowOperationPlanningParticipants(ctx.AnalysisIR.RequestModel)
+	if len(participants) != 1 || participants[0].Identity != "EmitAnswerDocument" ||
+		participants[0].Role != types.DiagramParticipantIncidentRequired {
+		t.Fatalf("only resolver-confirmed source symbols may steer empty-slate navigation: %+v", participants)
+	}
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, nil)
+	if !ok || target.file != "cmd/root.go" ||
+		target.lineRange != (types.LineRange{Start: 4303, End: 4327}) {
+		t.Fatalf("resolved empty-slate entity must locate its parser operation site: ok=%t target=%+v", ok, target)
+	}
+	if len(ctx.AnalysisIR.RequestModel.DiagramHint.Participants) != 0 ||
+		len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Fatal("soft navigation must not mutate the hard participant slate or manufacture evidence")
+	}
+}
+
+func TestFlowOperationRepairKeepsExplicitParticipantSlateAuthoritative(t *testing.T) {
+	rm := flowOperationCompletionContext(nil).AnalysisIR.RequestModel
+	rm.DiagramHint = &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "ExplicitStage", Role: types.DiagramParticipantContextOnly,
+		}}}
+	rm.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{
+		Surface: "DerivedSymbol", Resolution: types.EntityResolutionSymbol,
+		Resolved: true, UseForSearch: true, UseForShape: true,
+	}}
+	got := flowOperationPlanningParticipants(rm)
+	if len(got) != 1 || got[0].Identity != "ExplicitStage" ||
+		got[0].Role != types.DiagramParticipantContextOnly {
+		t.Fatalf("explicit model-owned participant slate must not be replaced: %+v", got)
 	}
 }
 

@@ -36273,6 +36273,53 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.937 r568：零关系出口止住风暴，但空参与者表让真注册点失去补采入口（2026-08-16）
+
+1. 在 `main@b20e272dc208` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + github_issue_libgit2_foreach_worktree`。Runner `2 PASS / 0 FAIL`；
+   人工 Combo partial、write pass。详见
+   `eval/parallel_selected_summary_evalcampaign_relation_write_r568_20260816_manual_audit.md`。
+2. B906 获生产闭环。write 只改 `repository.c`，callback 使用 `(error = cb_result) != 0`、lookup 使用
+   `(error = lookup_result) < 0`；`make check` 同时覆盖 callback 负值、正非零 `17`、零值和 lookup 负值，
+   四类均通过。没有再次把任意非零 callback 语义缩成负值-only，也没有测试文件改动、多计划或重规划漂移。
+3. B905-A/B/C 也获得正向生产证据：Finalizer 对五条未证边正确拒绝；模型只改
+   `call/register/data_flow/precedence` 名称而没有补 source owner 时再次正确拒绝；相同 endpoint-pair 第二次
+   失败后短提示直接进入 model-authored node-only 出口，第三稿成功，r567 的 25 次拒绝风暴降为 2 次。
+4. 但 Combo 不能人工签 pass。终稿 literal/表格正确、Mermaid 语法有效，却只剩四个节点零箭头，而且正文
+   没有明确披露关系未证；用户要求的 finalizer 关系并未真正回答。Validator 没有错删真边，因为 Explorer
+   的权威载体确实为 `explicit_typed_directed_relations=0`。
+5. 深层根因是 B907：required flow diagram 的 `diagram_hint.participants` 合法为空，现有 operation repair
+   只从该显式列表构造 parser-owned 下一跳。Analyzer 已有两个 resolver-confirmed symbol 实体，但它们没有
+   进入软导航，因此系统没把模型导向 `cmd/root.go:4315/4319` 的真实注册操作。模型随后只在错误文件
+   1--100 行做一次无命中 grep，第二次 completion 就按 `flow_operation_carrier` 两次同 blocker 提前收敛。
+6. 最优根修冻结为两个同源小改动：空 participant 时仅把 typed `EntityProvenance` 中 resolver-confirmed、
+   可搜索/成形的 symbol 作为软导航种子；不把它加入 hard participant contract，不产生关系权威。并把
+   `flow_operation_carrier` 的同 blocker 阈值从 2 调到 3，允许一个定位回合和一个读取/`emit_evidence` 回合；
+   第三次仍零进展才进入 typed-unproven。所有显式 participants 继续优先，ambiguous/concept/scope/file 实体
+   不可驱动该补采。
+7. B907 只提升 source-flow 证据获取，不放宽 Finalizer 关系 gate，也不由系统生成 edge、diagram 或结论；
+   所有支持语言共享 parser graph 路径。`QFRootCauseTrace` 继续排除，Trace 显式窗、因果投影、自动补齐、
+   链上-only 主因及优先级反转/调度与算力供给/D/IO/确定性语义/业务线索双轴保持，背景仍 support-only。
+8. 活跃流红线复核不变：有持续字节时 4ms 或固定累计年龄均不授权降级；只有 caller cancel/deadline、
+   无首字节、byte-stall、transport/decode failure 可结束或进入明确披露恢复。本轮没有观察到相关降级。
+9. B907 已施工。`flowOperationPlanningParticipants` 保持显式 participant slate 原样优先；仅在
+   required `AxisFlow` 图为空表时，从 typed `EntityProvenance` 选择 resolver-confirmed symbol，且要求
+   `UseForSearch || UseForShape`，把 `ResolvedAs`/原 surface 作为 parser graph 的软导航 identity。
+   ambiguous symbol、concept、scope、file、unresolved 全部排除；派生行不回写 `DiagramHint`、不形成 hard
+   coverage obligation、不制造 evidence/edge。`flowOperationRepairTargets` 与 exact read-target 共用这一入口，
+   所有支持语言继续走相同 parser relation graph。`flow_operation_carrier` 同 blocker 阈值调为 3，两个修复
+   回合后第三次才 typed-unproven 收敛。专项及 `types/agent/orchestrator/tool` 全回归通过；待 production replay。
+
+状态：
+
+`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=production-positive/bounded-node-only-exit-r568`；
+`B906-WRITEORIGINALCONDITIONDOMAIN1=production-closed-r568`；
+`B907-FLOWEMPTYSLATENAVIGATION1=implemented/resolver-symbol-soft-navigation+3-attempt-bound/pending-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
