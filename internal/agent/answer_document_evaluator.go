@@ -7795,6 +7795,14 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		return alias
 	}
 
+	// Keep the exact invocation edges incident to a proved registered-export
+	// handoff ahead of unrelated helper fan-out before applying the compact
+	// authoring cap. Otherwise a broad callable body can fill the first N rows
+	// and make the authority capsule claim that the native/export bridge is
+	// disconnected even though the same typed evidence pool proves both sides.
+	// This is stable typed-edge selection only: it neither creates an edge nor
+	// changes its direction, relation, endpoint, or reader-facing wording.
+	visualEdges = answerDocMechanismPrioritizeRegisteredExportEdges(visualEdges, semanticHandoffs)
 	bounded := visualEdges
 	if len(bounded) > limit {
 		bounded = bounded[:limit]
@@ -7886,6 +7894,42 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		anchors = append(anchors, recipe.typed)
 	}
 	return anchors
+}
+
+func answerDocMechanismPrioritizeRegisteredExportEdges(
+	edges []answerDocMechanismRelationEdge,
+	handoffs []answerDocRegisteredExportHandoff,
+) []answerDocMechanismRelationEdge {
+	if len(edges) < 2 || len(handoffs) == 0 {
+		return edges
+	}
+	priority := func(edge answerDocMechanismRelationEdge) bool {
+		for _, handoff := range handoffs {
+			if edge.relation == types.DiagramRelCall &&
+				(types.AnswerCodeIdentitySurfacesEquivalent(edge.to, handoff.callTarget) ||
+					types.AnswerCodeIdentitySurfacesEquivalent(edge.from, handoff.registeredCallable)) {
+				return true
+			}
+			if strings.TrimSpace(handoff.bindingEvidenceID) != "" &&
+				(strings.TrimSpace(edge.sourceItem.ID) == strings.TrimSpace(handoff.bindingEvidenceID) ||
+					strings.TrimSpace(edge.sourceItem.EvidenceRef) == strings.TrimSpace(handoff.bindingEvidenceID)) {
+				return true
+			}
+		}
+		return false
+	}
+	out := make([]answerDocMechanismRelationEdge, 0, len(edges))
+	for _, edge := range edges {
+		if priority(edge) {
+			out = append(out, edge)
+		}
+	}
+	for _, edge := range edges {
+		if !priority(edge) {
+			out = append(out, edge)
+		}
+	}
+	return out
 }
 
 // renderAnswerDocMechanismCopyReadyComponentFragments gives a required flow

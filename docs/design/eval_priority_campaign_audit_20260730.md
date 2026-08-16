@@ -35686,6 +35686,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    B926 没有生产触发；不得把“无第三轮补块”误记成 B926 已回放。
 7. 本批无 Trace 案例，不外推 Trace 状态；未改显式窗、因果投影、自动补齐、链上-only 主因、实际
    占用/规则可消除量双轴、确定性语义及链上业务线索。活跃流不得因 4ms 或固定 answer-age 降级。
+8. B930 已按精确信号施工。复核证明 parser 实际已从模型选中且完整读过的 callable body 提取
+   `py.tokenize_bytes -> tokenize_bytes @ line 42` 与 `tokenize_bytes -> best_merge @ line 13`；旧注册桥却
+   只接受 producer=`explorer.emit_evidence` 的 wrapper call，拒绝同样 citable/grounded 的
+   `repomap_selected_callable_body_call`，造成前部 component capsule 说“断开”、后部 typed support lane
+   又列出真实边。现在 exact owner/reference join 接受这两种有限 producer，其他 parser/navigation/
+   heuristic producer 仍 fail-closed；注册行自身仍必须是模型发出并经 grounding 校验的 atomic
+   registration，不会把普通 receiver call 升格成注册。
+9. 同批修复 compact cap 的证据遮蔽：在 8 条可选 authoring recipe 截断前，只把已证 registered-export
+   handoff 两侧的 exact invocation 及其 exact binding row 稳定前置，剩余边保持原顺序。该选择不增加、
+   删除、反向或改名任何关系，也不产生答案；它只避免大量 fallback/helper sibling calls 把跨语言边界
+   的两侧挤出同一上下文。parser-owned wrapper 正臂、未知 producer 既有 fail-closed 矩阵、cap 稳定顺序
+   均有 pin；`go test ./internal/agent ./internal/types -count=1` 全绿。
 
 状态：
 
@@ -35693,7 +35705,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=soft-atomic-teaching/production-positive-r582`；
 `B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/production-positive-r582/closed`；
 `B929-STRUCTUREDRELATIONAUTHORITYPARITY1=confirmed/high/open`；
-`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=confirmed/high/open`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=implemented/parser-owned-selected-body-join+compact-priority/pinned/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

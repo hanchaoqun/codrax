@@ -808,6 +808,44 @@ func TestCallChainTypedBridgeAndBranchHandoffUsesExactTypedJoinsOnlyAA3(t *testi
 			t.Fatalf("exact owner/reference registration handoff missing %q:\n%s", want, got)
 		}
 	}
+
+	// A parser-owned invocation from a model-selected, already-read callable
+	// body has the same exact source/direction authority for this semantic join.
+	// Requiring a redundant model-authored call row makes the finalizer context
+	// contradict its own typed operation evidence.
+	plan.Lanes[0].Entries[2].Producer = types.EvidenceProducerRepoMapSelectedCallableBodyCall
+	got = renderAnswerDocCallChainSemanticHandoffs(plan)
+	if !strings.Contains(got, "binding_endpoint_status=`exact_owner_reference_join`") ||
+		!strings.Contains(got, "downstream_execution_status=`proved_by_exact_registered_callable_call`") {
+		t.Fatalf("parser-owned selected-body call must retain exact export handoff:\n%s", got)
+	}
+}
+
+func TestMechanismCompactCapsulePrioritizesRegisteredExportIncidentEdgesAA3(t *testing.T) {
+	binding := types.EvidenceItem{ID: "binding"}
+	edges := []answerDocMechanismRelationEdge{
+		{from: "Fallback.run", to: "list", relation: types.DiagramRelCall},
+		{from: "Fallback.run", to: "len", relation: types.DiagramRelCall},
+		{from: "Fallback.run", to: "range", relation: types.DiagramRelCall},
+		{from: "Core.run", to: "helperA", relation: types.DiagramRelCall},
+		{from: "Core.run", to: "helperB", relation: types.DiagramRelCall},
+		{from: "Entry.run", to: "_native.exported", relation: types.DiagramRelCall},
+		{from: "m", to: "wrap!(exported,m)", relation: types.DiagramRelRegister, sourceItem: binding},
+		{from: "ffi.exported", to: "Core.run", relation: types.DiagramRelCall},
+	}
+	handoffs := []answerDocRegisteredExportHandoff{{
+		callTarget: "_native.exported", registeredCallable: "ffi.exported", bindingEvidenceID: "binding",
+	}}
+	got := answerDocMechanismPrioritizeRegisteredExportEdges(edges, handoffs)
+	want := [][2]string{{"Entry.run", "_native.exported"}, {"m", "wrap!(exported,m)"}, {"ffi.exported", "Core.run"}}
+	for i := range want {
+		if got[i].from != want[i][0] || got[i].to != want[i][1] {
+			t.Fatalf("priority edge[%d]=%s -> %s, want %s -> %s: %+v", i, got[i].from, got[i].to, want[i][0], want[i][1], got)
+		}
+	}
+	if got[3].from != "Fallback.run" || got[3].to != "list" {
+		t.Fatalf("non-priority edge order drifted: %+v", got)
+	}
 }
 
 func TestMechanismRelationRegistrationOwnerReferenceJoinFailsClosedAA3(t *testing.T) {

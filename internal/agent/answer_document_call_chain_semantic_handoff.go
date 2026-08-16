@@ -161,7 +161,7 @@ func answerDocOwnerReferenceRegistrationEndpoints(callTarget string, binding typ
 	var candidateKey, candidateSurface string
 	for _, entry := range entries {
 		if entry.EvidenceID == binding.EvidenceID || entry.ClaimForm != types.ClaimCallEdge ||
-			entry.Producer != types.EvidenceProducerExplorerEmitEvidence ||
+			!answerDocRegisteredExportCallableProducerEligible(entry.Producer) ||
 			strings.TrimSpace(entry.Source) != strings.TrimSpace(binding.Source) {
 			continue
 		}
@@ -183,6 +183,23 @@ func answerDocOwnerReferenceRegistrationEndpoints(callTarget string, binding typ
 		return "", "", false
 	}
 	return exportOwner, candidateSurface, true
+}
+
+// answerDocRegisteredExportCallableProducerEligible keeps the semantic join on
+// exact, already-read operation evidence. A model-emitted call and the
+// parser-owned call extracted from a model-selected callable body have the
+// same citable source/direction authority here. The latter explicitly does not
+// choose a path or conclusion; it only prevents an exact wrapper call from
+// disappearing merely because the model selected the enclosing definition
+// instead of redundantly emitting every body call itself.
+func answerDocRegisteredExportCallableProducerEligible(producer string) bool {
+	switch strings.TrimSpace(producer) {
+	case types.EvidenceProducerExplorerEmitEvidence,
+		types.EvidenceProducerRepoMapSelectedCallableBodyCall:
+		return true
+	default:
+		return false
+	}
 }
 
 func answerDocChainIdentityParent(raw string) string {
