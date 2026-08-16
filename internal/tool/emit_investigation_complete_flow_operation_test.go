@@ -825,6 +825,41 @@ func TestRequiredRelationRepairDebtSurvivesUnrelatedSuccessfulEmitUntilExactRows
 	}
 }
 
+func TestRequiredValueTransferRepairAcceptsEquivalentAssignmentInitializerSpelling(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	repair := buildEmitEvidenceAssignmentEndpointRepair([]emitEvidenceAssignmentEndpointRepair{{
+		itemIndex: 0, anchor: types.AnchorInitializer,
+		receiver: "Stage", value: "StageAnalyze", source: "src/pipeline.go", line: 47,
+	}})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence", Success: true, Repair: repair,
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorAssignment,
+		Subject: "Stage", Object: "StageAnalyze", AnchorSymbol: "Stage",
+		Predicate: "assigns", Source: "src/pipeline.go", LineStart: 47,
+		Scope: types.ScopeLine, Snippet: "Stage: StageAnalyze,",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	if got := pendingBlockingEmitEvidenceItemValidationRepair(ctx); got != nil {
+		t.Fatalf("an exact value-transfer tuple must discharge an equivalent initializer obligation: %+v", got)
+	}
+
+	ctx = flowOperationCompletionContext(nil)
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence", Success: true, Repair: repair,
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		Subject: "Stage", Object: "StageAnalyze", AnchorSymbol: "StageAnalyze",
+		Predicate: "calls", Source: "src/pipeline.go", LineStart: 47,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}})
+	if got := pendingBlockingEmitEvidenceItemValidationRepair(ctx); got == nil {
+		t.Fatal("a non-value-transfer relation at the same location must not clear the obligation")
+	}
+}
+
 func TestEmitInvestigationComplete_FlowParticipantCoverageClosesAfterIncidentOperation(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

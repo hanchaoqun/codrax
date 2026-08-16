@@ -37229,6 +37229,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.899 B872：value-transfer 修补债按源码语义解除，不再按隐藏 schema 拼写死锁（2026-08-15）
+
+1. 根因进一步冷读为“旧债陈旧”与“修补教学不自包含”的组合。durable obligation 保存首批
+   `anchor_kind=initializer + source + line + LHS/RHS`；模型按可见 repair 补齐 `subject/object` 时改用同样会形成
+   `assignment_fact` 的 `anchor_kind=assignment`。`emit_evidence` 接受新行并宣称当前无修补目标，completion 却按
+   隐藏 anchor enum 五次重放旧债。两侧都各自符合局部实现，但联合合同不可满足。
+2. `B872-EVIDENCEVALIDATIONREPAIRSTALE1` 已以窄 typed 等价根修。obligation 的 anchor 匹配只把
+   `assignment` 与 `initializer` 视作同一 value-transfer 家族；其他 anchor 仍要求字节枚举相同。即使 enum 等价，
+   完成门也不会信任模型字段：它把候选的不可变 snippet 临时按 producer 原 anchor 重新解析，并继续要求同 source、
+   line、citable 状态及 exact LHS/RHS 全部匹配。call/argument/registration/return/precedence 均未扩域。
+3. repair 可见教学同步自包含：每项明确列出必须保持的 `anchor_kind`，并要求 evidence_kind、anchor_symbol、predicate、
+   source、line_start、scope、snippet 原样，仅修改 subject/object。模型遵循教学即可走原拼写；即使使用另一个合法
+   value-transfer 拼写，也不会再形成 evidence 已接受而 completion 永久阻塞的 split brain。
+4. 新 pin 覆盖生产同形：initializer obligation + `Stage: StageAnalyze,` 源码 snippet + assignment typed row 必须清债；
+   同源同线同端点的 call 不能清债。既有复合 pin 继续保证无关成功 emit 不清债、多项义务只修一项仍阻塞、全部 exact
+   typed rows 到齐才解除。exact duplicate 无需新插入，因为完成判定读取累计 typed evidence pool。
+5. 专项回归、完整 `go test ./internal/tool -count=1`（164.346s）及 `go test ./... -count=1` 全绿。该批不扫描
+   request、模型推理、tool summary、草稿/终稿 prose，不生成 evidence/图/答案，不修改 Finalizer 或 Trace。下一步必须用新二进制 exact-2 生产回放
+   `qf_logic_view_read_pipeline`；只有 Explorer 不再烧尽轮次后，才能公平判断 B871a 的 operation recovery 是否充分。
+6. Trace 显式窗、因果投影、自动补齐、链上-only 主因、实际耗时/业务线索与规则可消除量双轴不变；邻近/背景仍只能
+   支撑额外排查。活跃字节流不因 4ms/4s/4m 或累计年龄降级，系统答案/图/结论 authorship 仍为 none。
+
+状态：
+
+`B872-EVIDENCEVALIDATIONREPAIRSTALE1=implemented/typed-value-transfer-equivalence+closed-family-pins/tool-full-pass`；
+`B871a-CARRIERIDENTITY1=production-replay-next`；
+`B873-TRACERELATIONDECISIONCONSUMPTION1=confirmed/P1/pending-context-audit`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

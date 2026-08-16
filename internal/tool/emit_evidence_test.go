@@ -3613,6 +3613,8 @@ func TestEmitEvidence_RequiredFlowPublishesExactAssignmentEndpointRepair(t *test
 		t.Fatalf("repair fields=%v want=%v", res.Repair.Fields, wantFields)
 	}
 	for _, want := range []string{
+		`keep anchor_kind="assignment"`,
+		"keeping the listed anchor_kind plus the same evidence_kind, anchor_symbol, predicate, source, line_start, scope, and snippet",
 		`subject="o.busCtx.AnalysisIR"`,
 		`object="out.AnalysisIR"`,
 		"Current actionable repair targets: items[0].subject, items[0].object",

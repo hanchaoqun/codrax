@@ -3085,14 +3085,22 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 		for _, item := range evidence {
 			if !item.IsCitable() ||
 				(obligation.EvidenceKind != "" && item.Kind != obligation.EvidenceKind) ||
-				item.LineStart != obligation.Line || item.AnchorKind != obligation.AnchorKind ||
+				item.LineStart != obligation.Line ||
+				!emitEvidenceRepairObligationAnchorMatches(obligation.AnchorKind, item.AnchorKind) ||
 				canonicalRelationSourcePath(item.Source) != canonicalRelationSourcePath(obligation.Source) ||
 				!emitEvidenceRepairObligationEndpointsMatch(obligation, item) {
 				continue
 			}
 			switch obligation.AnchorKind {
 			case types.AnchorAssignment, types.AnchorInitializer:
-				if !types.AssignmentEvidenceEndpointsMatch(item) {
+				// Validate the source tuple with the producer-owned syntax
+				// spelling. A corrected model row may use the equivalent
+				// assignment/initializer schema enum; the immutable snippet,
+				// source, line, and exact endpoints still have to satisfy the
+				// original parser-owned obligation.
+				candidate := item
+				candidate.AnchorKind = obligation.AnchorKind
+				if !types.AssignmentEvidenceEndpointsMatch(candidate) {
 					continue
 				}
 			case types.AnchorCall:
@@ -3116,6 +3124,23 @@ func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRe
 		}
 	}
 	return true
+}
+
+// emitEvidenceRepairObligationAnchorMatches keeps every relation family exact
+// except the two schema spellings of one source-level value transfer. Both an
+// assignment and a member initializer become ClaimAssignmentFact, and the
+// completion gate still requires the same source/line plus
+// AssignmentEvidenceEndpointsMatch below. This prevents a hidden producer
+// anchor choice from keeping an otherwise exact model-authored repair pending
+// forever; it does not promote evidence, infer a direction, or widen call,
+// argument, registration, return, or precedence authority.
+func emitEvidenceRepairObligationAnchorMatches(want, got types.AnchorKind) bool {
+	if want == got {
+		return true
+	}
+	wantTransfer := want == types.AnchorAssignment || want == types.AnchorInitializer
+	gotTransfer := got == types.AnchorAssignment || got == types.AnchorInitializer
+	return wantTransfer && gotTransfer
 }
 
 func emitEvidenceRepairObligationEndpointsMatch(obligation emitEvidenceRelationRepairObligation, item types.EvidenceItem) bool {

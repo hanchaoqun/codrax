@@ -5668,14 +5668,14 @@ func buildEmitEvidenceAssignmentEndpointRepair(in []emitEvidenceAssignmentEndpoi
 			loc = fmt.Sprintf("%s:%d", row.source, row.line)
 		}
 		rows = append(rows, fmt.Sprintf(
-			"items[%d] @ %s requires subject=%q (exact LHS receiver) and object=%q (exact RHS value/source)",
-			row.itemIndex, loc, row.receiver, row.value,
+			"items[%d] @ %s: keep anchor_kind=%q and re-emit subject=%q (exact LHS receiver) and object=%q (exact RHS value/source)",
+			row.itemIndex, loc, string(row.anchor), row.receiver, row.value,
 		))
 	}
 	fields = uniqueEmitEvidenceRepairFields(fields)
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "The required source-flow diagram still needs an exact directed operation row. The submitted assignment/initializer remained citable text, but its semantic endpoints were broader than the unique source tuple, so relation authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and using the exact endpoint fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
+		Hint:   "The required source-flow diagram still needs an exact directed operation row. The submitted assignment/initializer remained citable text, but its semantic endpoints were broader than the unique source tuple, so relation authority was removed. Re-emit only the named item(s), keeping the listed anchor_kind plus the same evidence_kind, anchor_symbol, predicate, source, line_start, scope, and snippet; change only subject/object to the exact fields below. Do not rebuild accepted siblings or rename endpoints to stage/component roles: " + strings.Join(rows, "; "),
 		Fields: fields,
 		Metadata: map[string]string{
 			"repair_status":       types.ToolRepairStatusActionRequired,
