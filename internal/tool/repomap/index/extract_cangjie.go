@@ -2,6 +2,7 @@ package index
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -32,10 +33,16 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 // equivalent typed line features. The compatibility wrapper above preserves
 // the existing focused extractor API.
 func extractCangjieWithLineFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, tier int) {
+	pkg, syms, imps, rels, lineFeatures, _, tier = extractCangjieWithStructuralFeatures(src, file)
+	return
+}
+
+func extractCangjieWithStructuralFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, branches []types.ControlFlowBranch, tier int) {
 	// Phase 1: tokeniser + recursive-descent parser (D5/M1 upgrade).
 	pkg, syms, imps, rels = parseCangjie(src, file)
 	rels = append(rels, cangjieExtractCalls(src, file)...)
 	lineFeatures = cangjieExtractLineFeatures(src, rels)
+	branches = cangjieExtractControlFlowBranches(src, rels)
 	if len(syms) > 0 || pkg != "" {
 		tier = 1
 		return
@@ -51,6 +58,7 @@ func extractCangjieWithLineFeatures(src []byte, file string) (pkg string, syms [
 	rels = scanCangjieExtendRelations(cleaned, file)
 	rels = append(rels, cangjieExtractCalls(src, file)...)
 	lineFeatures = cangjieExtractLineFeatures(src, rels)
+	branches = cangjieExtractControlFlowBranches(src, rels)
 
 	if len(syms) > 0 || pkg != "" {
 		tier = 2
@@ -89,8 +97,14 @@ func cangjieExtractLineFeatures(src []byte, rels []types.Relation) map[int][]typ
 		out[line] = append(out[line], feature)
 	}
 	for _, token := range lexCangjie(src) {
-		if token.Text == "return" && (token.Kind == cjTokIdent || token.Kind == cjTokKeyword) {
+		if token.Kind != cjTokIdent && token.Kind != cjTokKeyword {
+			continue
+		}
+		switch token.Text {
+		case "return":
 			add(token.Line, types.LineFeatureReturnStmt)
+		case "if", "else", "match", "case":
+			add(token.Line, types.LineFeatureGuard)
 		}
 	}
 	for _, rel := range rels {
@@ -102,6 +116,144 @@ func cangjieExtractLineFeatures(src []byte, rels []types.Relation) map[int][]typ
 		return nil
 	}
 	return out
+}
+
+// cangjieExtractControlFlowBranches is the hand-written-parser counterpart of
+// extractControlFlowBranches. It accepts only exact lexer tokens and balanced
+// braces, then attaches parser-authored call/return effects by bounded source
+// positions. It never infers an arm from line adjacency.
+func cangjieExtractControlFlowBranches(src []byte, rels []types.Relation) []types.ControlFlowBranch {
+	tokens := lexCangjie(src)
+	var out []types.ControlFlowBranch
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].Text != "if" || (tokens[i].Kind != cjTokIdent && tokens[i].Kind != cjTokKeyword) {
+			continue
+		}
+		open := cangjieNextControlBrace(tokens, i+1)
+		if open < 0 {
+			continue
+		}
+		close := cangjieMatchingControlBrace(tokens, open)
+		if close < 0 {
+			continue
+		}
+		conditionStart := tokens[i].Offset + len(tokens[i].Text)
+		conditionEnd := tokens[open].Offset
+		condition := ""
+		if conditionStart >= 0 && conditionStart <= conditionEnd && conditionEnd <= len(src) {
+			condition = compactControlFlowText(string(src[conditionStart:conditionEnd]))
+		}
+		out = append(out, cangjieMaterializeControlBranch(
+			src, tokens, rels, condition, tokens[i].Line,
+			types.ControlFlowArmConsequence, open, close,
+		))
+
+		next := close + 1
+		if next >= len(tokens) || tokens[next].Text != "else" ||
+			(tokens[next].Kind != cjTokIdent && tokens[next].Kind != cjTokKeyword) {
+			continue
+		}
+		altOpen := cangjieNextControlBrace(tokens, next+1)
+		if altOpen < 0 {
+			continue
+		}
+		altClose := cangjieMatchingControlBrace(tokens, altOpen)
+		if altClose < 0 {
+			continue
+		}
+		out = append(out, cangjieMaterializeControlBranch(
+			src, tokens, rels, condition, tokens[next].Line,
+			types.ControlFlowArmAlternative, altOpen, altClose,
+		))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cangjieNextControlBrace(tokens []cangjieToken, start int) int {
+	paren, bracket := 0, 0
+	for i := start; i < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case cjTokLParen:
+			paren++
+		case cjTokRParen:
+			if paren > 0 {
+				paren--
+			}
+		case cjTokLBracket:
+			bracket++
+		case cjTokRBracket:
+			if bracket > 0 {
+				bracket--
+			}
+		case cjTokLBrace:
+			if paren == 0 && bracket == 0 {
+				return i
+			}
+		case cjTokSemicolon, cjTokEOF:
+			if paren == 0 && bracket == 0 {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+func cangjieMatchingControlBrace(tokens []cangjieToken, open int) int {
+	depth := 0
+	for i := open; i < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case cjTokLBrace:
+			depth++
+		case cjTokRBrace:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func cangjieMaterializeControlBranch(src []byte, tokens []cangjieToken, rels []types.Relation, condition string, guardLine int, arm types.ControlFlowBranchArm, open, close int) types.ControlFlowBranch {
+	startLine := tokens[open].Line
+	endLine := tokens[close].Line
+	var effects []types.ControlFlowEffect
+	seen := make(map[string]bool)
+	add := func(effect types.ControlFlowEffect) {
+		key := string(effect.Kind) + "\x00" + effect.Expression + "\x00" + strconv.Itoa(effect.LineStart)
+		if effect.Kind.IsValid() && effect.Expression != "" && effect.LineStart > 0 && !seen[key] {
+			seen[key] = true
+			effects = append(effects, effect)
+		}
+	}
+	for _, rel := range rels {
+		if rel.Kind != "call" || rel.Provenance != types.ProvenanceCangjieParser || rel.Line < startLine || rel.Line > endLine {
+			continue
+		}
+		expr := strings.TrimSpace(rel.ToEP.Name)
+		if rel.ToEP.Receiver != "" {
+			expr = strings.TrimSpace(rel.ToEP.Receiver) + "." + expr
+		}
+		add(types.ControlFlowEffect{Kind: types.ControlFlowEffectCall, Expression: expr, LineStart: rel.Line, LineEnd: rel.Line})
+	}
+	for i := open + 1; i < close; i++ {
+		if tokens[i].Text == "return" && (tokens[i].Kind == cjTokIdent || tokens[i].Kind == cjTokKeyword) {
+			add(types.ControlFlowEffect{Kind: types.ControlFlowEffectReturn, Expression: "return", LineStart: tokens[i].Line, LineEnd: tokens[i].Line})
+		}
+	}
+	return types.ControlFlowBranch{
+		Condition:     condition,
+		GuardLine:     guardLine,
+		Arm:           arm,
+		BodyLineStart: startLine,
+		BodyLineEnd:   endLine,
+		Effects:       effects,
+		Provenance:    types.ProvenanceCangjieParser,
+		ResolvedBy:    "cangjie_balanced_control_branch",
+	}
 }
 
 // cangjieExtractCalls performs an expression-level pass over the same

@@ -35694,6 +35694,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.942 B914-P1：跨语言 parser-owned 分支→效果载体（2026-08-16）
+
+1. 代码审计确认 B914 不是 Go/Java 单 case 缺词。当前 `LineFeatureGuard` 与
+   `dataflow.FunctionSummary.Guards` 只能证明“某 callable 内存在条件”，既有
+   `ClaimGuardCondition/DiagramRelGuard` 的严格端点也是 owner→condition；全仓没有 condition/case arm→
+   call/return/assignment/exit 的 typed ownership。若仅靠相邻行、答案标签或 Mermaid 箭头补边，会把语法邻近
+   冒充控制流，并再次形成“教学要求画、证据门禁止画”的矛盾合同。
+2. 同时发现 HarmonyOS 语言不对称：ArkTS 通过 TypeScript grammar 已有 unary guard feature；Cangjie 的
+   lexer 路径此前只发布 return/call feature，`if/else/match/case` 连 unary guard feature 都缺。该缺口会让同一
+   架构在不同语言中得到不同图层，不能用面向某工具名或某语言的 prompt 补丁处理。
+3. 第一施工批新增独立 `FileInfo.ControlFlowBranches`，没有复用通用 `Relation`。每条载体由 parser 持有
+   selector、condition/pattern、arm、精确 body 行界和 call/return/assignment/exit effects；tree-sitter walker
+   从 AST 分支体采集 effect 并排除嵌套 callable，禁止 line adjacency 铸权。Cangjie 用 comment/string-aware
+   lexer + 平衡花括号实现同一载体，并补齐 exact guard line feature。
+4. 统一矩阵覆盖 Go/Python/JavaScript/TypeScript/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/ArkTS 的
+   if/else；另覆盖各语言具备的 switch/match/when/case/default；Cangjie 具备独立正形。Proto 没有可执行
+   branch，保持空载体而不是伪造。嵌套 lambda/function 的内部调用不得被外层 guard 认领。
+5. 载体是持久 schema，`cacheSchemaVersion 4→5`；所有发生语义变化的可执行语言 extractor generation
+   均 bump。warm-cache round trip 与 scoped projection 深拷贝均有 pin，避免只在冷扫生效或投影修改反向污染
+   base graph。`go test ./internal/tool/repomap/... -count=1` 全绿。
+6. 本批刻意不改变 ClaimForm、diagram relation、finalizer 合同或答案。下一批才把 parser carrier 投影为新的
+   typed branch-effect claim/relation，并让 copy-ready relation capsule 与严格 validator 消费同一单源端点；
+   既有 unary guard 不改义。系统仍不画边、不写结论，只向模型提供可引用的精确关系。
+7. Read/Trace 路径零改动：显式时间窗、Trace 因果投影、系统自动补齐、链上-only 根因与实际占用/业务线索 +
+   规则计价可消除量双轴保持；邻近/背景不能晋升主因。没有用户输入、模型输出或最终答案关键词硬门，活跃流
+   也没有 4ms 固定年龄降级。
+
+状态：
+
+`B914-GUARDEFFECTRELATIONCARRIER1=batch1-parser-carrier+cache+scope-pins-pass/batch2-evidence-projection-next`；
+`CANGJIE-UNARY-GUARD-FEATURE=implemented`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：

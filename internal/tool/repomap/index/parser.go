@@ -323,12 +323,13 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// and the build log surfaces degradations (red line L-Fallback-1).
 	switch entry.Language {
 	case types.LangArkTS:
-		pkg, syms, imps, rels, lineFeatures, tier := extractArkTSWithLineFeatures(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, branches, tier := extractArkTSWithStructuralFeatures(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
 		fi.Relations = rels
 		fi.LineFeatures = lineFeatures
+		fi.ControlFlowBranches = branches
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "arkts extractor downgraded")
 		} else {
@@ -336,12 +337,13 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		}
 		return fi
 	case types.LangCangjie:
-		pkg, syms, imps, rels, lineFeatures, tier := extractCangjieWithLineFeatures(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, branches, tier := extractCangjieWithStructuralFeatures(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
 		fi.Relations = rels
 		fi.LineFeatures = lineFeatures
+		fi.ControlFlowBranches = branches
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "cangjie extractor downgraded")
 		} else {
@@ -406,6 +408,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// different node names skip silently — callers treat absence
 	// as "no signal" rather than guessing via byte tokens.
 	fi.LineFeatures = extractLineFeatures(root, source)
+	fi.ControlFlowBranches = extractControlFlowBranches(root, source)
 
 	// Phase 6 stage 21 (2026-05-03) — populate Symbol.ReturnTypeNames
 	// for every function-like declaration across all languages.

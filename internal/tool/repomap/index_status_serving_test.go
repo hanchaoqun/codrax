@@ -75,7 +75,7 @@ func TestScopedProjectionStampsSource(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sub, "s.go"), []byte("package svc\nfunc S() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sub, "s.go"), []byte("package svc\nfunc S(ready bool) { if ready { run() } }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	base, err := BuildOrLoadGraph(repo, "")
@@ -95,5 +95,15 @@ func TestScopedProjectionStampsSource(t *testing.T) {
 	served := serveScopedProjection(projected, "S")
 	if got := served.Metadata.IndexStatus.Source; got != rmtypes.IndexSourceScopedProjection {
 		t.Fatalf("served projection clone lost the stamp: %q", got)
+	}
+	projectedFile := projected.FileIndex["s.go"]
+	baseFile := base.FileIndex["svc/s.go"]
+	if projectedFile == nil || baseFile == nil || len(projectedFile.ControlFlowBranches) != 1 ||
+		len(projectedFile.ControlFlowBranches[0].Effects) != 1 {
+		t.Fatalf("scoped projection lost control-flow carrier: projected=%+v base=%+v", projectedFile, baseFile)
+	}
+	projectedFile.ControlFlowBranches[0].Effects[0].Expression = "mutated()"
+	if baseFile.ControlFlowBranches[0].Effects[0].Expression != "run()" {
+		t.Fatalf("scoped projection aliased base control-flow effects: %+v", baseFile.ControlFlowBranches)
 	}
 }

@@ -269,18 +269,88 @@ type Relation struct {
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
+// ControlFlowBranch is a parser-owned description of one lexical branch and
+// the exact syntax effects contained by that arm.  It is deliberately kept
+// separate from Relation: lexical control ownership is neither a call edge nor
+// a data-flow edge, and adding it to Relation would let generic relation
+// consumers accidentally recast it as either.
+//
+// Selector is populated for switch/match/when/case families. Condition is the
+// exact condition/pattern for this arm; it is empty only for an alternative or
+// default arm.  Effects are collected from the branch AST while nested
+// callable declarations are excluded, so source-line adjacency never mints
+// control ownership.
+type ControlFlowBranch struct {
+	Selector      string               `json:"selector,omitempty"`
+	Condition     string               `json:"condition,omitempty"`
+	GuardLine     int                  `json:"guard_line"`
+	Arm           ControlFlowBranchArm `json:"arm"`
+	BodyLineStart int                  `json:"body_line_start"`
+	BodyLineEnd   int                  `json:"body_line_end"`
+	Effects       []ControlFlowEffect  `json:"effects,omitempty"`
+	Provenance    string               `json:"provenance"`
+	ResolvedBy    string               `json:"resolved_by"`
+}
+
+type ControlFlowBranchArm string
+
+const (
+	ControlFlowArmConsequence ControlFlowBranchArm = "consequence"
+	ControlFlowArmAlternative ControlFlowBranchArm = "alternative"
+	ControlFlowArmCase        ControlFlowBranchArm = "case"
+	ControlFlowArmDefault     ControlFlowBranchArm = "default"
+)
+
+func (a ControlFlowBranchArm) IsValid() bool {
+	switch a {
+	case ControlFlowArmConsequence, ControlFlowArmAlternative, ControlFlowArmCase, ControlFlowArmDefault:
+		return true
+	default:
+		return false
+	}
+}
+
+type ControlFlowEffectKind string
+
+const (
+	ControlFlowEffectCall       ControlFlowEffectKind = "call"
+	ControlFlowEffectReturn     ControlFlowEffectKind = "return"
+	ControlFlowEffectAssignment ControlFlowEffectKind = "assignment"
+	ControlFlowEffectExit       ControlFlowEffectKind = "exit"
+)
+
+func (k ControlFlowEffectKind) IsValid() bool {
+	switch k {
+	case ControlFlowEffectCall, ControlFlowEffectReturn, ControlFlowEffectAssignment, ControlFlowEffectExit:
+		return true
+	default:
+		return false
+	}
+}
+
+type ControlFlowEffect struct {
+	Kind       ControlFlowEffectKind `json:"kind"`
+	Expression string                `json:"expression"`
+	LineStart  int                   `json:"line_start"`
+	LineEnd    int                   `json:"line_end"`
+}
+
 // FileInfo holds all extracted data for a single source file.
 type FileInfo struct {
-	RelPath     string     `json:"rel_path"`
-	Language    string     `json:"language"`
-	Package     string     `json:"package,omitempty"`
-	Size        int64      `json:"size"`
-	Hash        string     `json:"hash"` // content hash for cache invalidation
-	Symbols     []Symbol   `json:"symbols,omitempty"`
-	Imports     []Import   `json:"imports,omitempty"`
-	Relations   []Relation `json:"relations,omitempty"`
-	IsSpecial   bool       `json:"is_special,omitempty"`
-	SpecialType string     `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
+	RelPath   string     `json:"rel_path"`
+	Language  string     `json:"language"`
+	Package   string     `json:"package,omitempty"`
+	Size      int64      `json:"size"`
+	Hash      string     `json:"hash"` // content hash for cache invalidation
+	Symbols   []Symbol   `json:"symbols,omitempty"`
+	Imports   []Import   `json:"imports,omitempty"`
+	Relations []Relation `json:"relations,omitempty"`
+	// ControlFlowBranches carries parser-proved condition/case -> effect
+	// ownership. It is absent when the parser cannot prove branch structure;
+	// consumers must not reconstruct it from line proximity or source words.
+	ControlFlowBranches []ControlFlowBranch `json:"control_flow_branches,omitempty"`
+	IsSpecial           bool                `json:"is_special,omitempty"`
+	SpecialType         string              `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
 
 	// ParseTier records which fallback tier produced this FileInfo's
 	// symbols. 1 = primary grammar (best; for ArkTS the TS grammar

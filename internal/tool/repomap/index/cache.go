@@ -214,7 +214,9 @@ const (
 	// confidence/provenance/resolved_by; legacy from/to string
 	// payloads are unsupported; the single-file fileinfos.json
 	// container is retired (chunked manifest only).
-	cacheSchemaVersion = 4
+	// v5: FileInfo persists parser-owned ControlFlowBranches so warm and cold
+	// scans expose identical condition/case -> effect ownership.
+	cacheSchemaVersion = 5
 )
 
 const cacheFileInfosChunkSize = 1024
@@ -227,21 +229,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         8,  // field symbols carry parser-owned declared types
-	types.LangJava:       8,  // field symbols carry parser-owned declared types
-	types.LangPython:     9,  // annotated class fields carry parser-owned declared types
-	types.LangJavaScript: 7,  // typed class fields carry parser-owned declared types when present
-	types.LangTypeScript: 9,  // field/property symbols carry parser-owned declared types
-	types.LangArkTS:      10, // Tier-1 specialized parser now persists shared per-line AST features
-	types.LangCangjie:    7,  // lexer/call parser now persists return/call line features
-	types.LangKotlin:     8,  // property symbols carry parser-owned declared types
-	types.LangRuby:       4,  // receiver-aware call identities
-	types.LangSwift:      7,  // property symbols carry parser-owned declared types
-	types.LangLua:        5,  // AST-bounded no-whitespace call-sugar identities
+	types.LangGo:         9,  // parser-owned lexical control branches
+	types.LangJava:       9,  // parser-owned lexical control branches
+	types.LangPython:     10, // parser-owned lexical control branches
+	types.LangJavaScript: 8,  // parser-owned lexical control branches
+	types.LangTypeScript: 10, // parser-owned lexical control branches
+	types.LangArkTS:      11, // TS-backed parser-owned lexical control branches
+	types.LangCangjie:    8,  // lexer-backed guard features and balanced control branches
+	types.LangKotlin:     9,  // parser-owned lexical control branches
+	types.LangRuby:       5,  // parser-owned lexical control branches
+	types.LangSwift:      8,  // parser-owned lexical control branches
+	types.LangLua:        6,  // parser-owned lexical control branches
 	types.LangProto:      3,  // message fields carry parser-owned declared types
-	types.LangRust:       8,  // struct fields carry parser-owned declared types
-	types.LangC:          6,  // struct fields carry parser-owned declared types
-	types.LangCpp:        7,  // class fields carry parser-owned declared types
+	types.LangRust:       9,  // parser-owned lexical control branches
+	types.LangC:          7,  // parser-owned lexical control branches
+	types.LangCpp:        8,  // parser-owned lexical control branches
 }
 
 type cacheFileInfosManifest struct {
@@ -655,7 +657,7 @@ func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded,
 	}
 }
 
-// validateCachedFileInfos enforces the schema-v4 payload contract on
+// validateCachedFileInfos enforces the current cache payload contract on
 // loaded records. PRESENCE checks only (precise signals): a relation
 // must carry Kind, Provenance, ResolvedBy and a non-zero Confidence
 // (encoding/json cannot distinguish a missing float64 from 0.0, and
@@ -679,6 +681,20 @@ func validateCachedFileInfos(files []*types.FileInfo) CacheRejectReason {
 		for i := range fi.Symbols {
 			if fi.Symbols[i].Name == "" || fi.Symbols[i].File == "" {
 				return CacheRejectSymbolFields
+			}
+		}
+		for i := range fi.ControlFlowBranches {
+			branch := &fi.ControlFlowBranches[i]
+			if branch.GuardLine <= 0 || !branch.Arm.IsValid() || branch.BodyLineStart <= 0 ||
+				branch.BodyLineEnd < branch.BodyLineStart || branch.Provenance == "" || branch.ResolvedBy == "" {
+				return CacheRejectCorrupt
+			}
+			for j := range branch.Effects {
+				effect := &branch.Effects[j]
+				if !effect.Kind.IsValid() || strings.TrimSpace(effect.Expression) == "" ||
+					effect.LineStart <= 0 || effect.LineEnd < effect.LineStart {
+					return CacheRejectCorrupt
+				}
 			}
 		}
 	}

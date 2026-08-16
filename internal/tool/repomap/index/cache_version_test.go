@@ -29,6 +29,12 @@ func TestCacheVersionRoundTrip(t *testing.T) {
 			Symbols: []types.Symbol{
 				{Name: "Foo", Kind: "type", File: "a.go", Line: 1, EndLine: 1},
 			},
+			ControlFlowBranches: []types.ControlFlowBranch{{
+				Condition: "ready", GuardLine: 2, Arm: types.ControlFlowArmConsequence,
+				BodyLineStart: 2, BodyLineEnd: 4,
+				Effects:    []types.ControlFlowEffect{{Kind: types.ControlFlowEffectCall, Expression: "run()", LineStart: 3, LineEnd: 3}},
+				Provenance: types.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch",
+			}},
 		},
 	}
 	if err := saveFileInfos(dir, "", files); err != nil {
@@ -40,6 +46,10 @@ func TestCacheVersionRoundTrip(t *testing.T) {
 	}
 	if got[0].RelPath != "a.go" || got[0].Symbols[0].Name != "Foo" {
 		t.Errorf("round-trip corrupted: %+v", got[0])
+	}
+	if len(got[0].ControlFlowBranches) != 1 || len(got[0].ControlFlowBranches[0].Effects) != 1 ||
+		got[0].ControlFlowBranches[0].Effects[0].Expression != "run()" {
+		t.Errorf("control-flow carrier did not survive warm-cache round trip: %+v", got[0].ControlFlowBranches)
 	}
 }
 
