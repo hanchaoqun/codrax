@@ -35649,6 +35649,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.949 r577：Trace 双轴与链上边界通过；跨语言注册错误分类逃逸（2026-08-16）
+
+1. 在 `main@33336dd21` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + mr_poly_binding_chain`。Runner `2 PASS / 2`；人工为
+   `1 pass / 1 partial`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_poly_r577_20260816_manual_audit.md`。
+2. H7 人工通过。模型主答案先列目标自身 running 原始 74.915ms、供给折算缺口 65.912ms，
+   再列 D-state 36.757ms / 11 次 `dma_fence_default_w`；后续“主要时间占用”和“窗内可消除量”
+   两账分开，既没有用规则计价覆盖真实墙钟，也没有把长 span 自动加冕。优先级反转、调度
+   供给/延迟、算力供给、D/IO、确定性语义与链上业务 span 线索均在。
+3. 邻近边界也正确：logd.writer 的全窗 49.656ms 被拆为有 typed 边锚定的 0.033ms 与无链上
+   凭证的背景 49.623ms；后者只出现在邻近/背景区，没有进入主因排序。投影明确发布
+   `enumeration_status=incomplete` 与 `未入榜 ⛓ 7 行`，没有把分页样本说成全部。显式时间窗、
+   Trace 因果投影和自动补齐完整存在，零成文拒绝；确定性补充过长及内部术语仍是展示债。
+4. Polyglot 机器通过但人工 partial。最终列表大体恢复 Python guard/native/fallback、`_fastlex`、
+   PyO3 wrapper、Rust core、`best_merge`；模型仍把 `_HAVE_NATIVE` 设置位置误写为 `__init__.py`
+   （实际是已读 `tokenizer.py:2-6`），并把已经读过的 `_tokenize_slow:24-36` 误称为超出范围。
+   这些属于 evidence→final 收缩/事实漂移，不可由系统扫描答案文本后改写。
+5. 图关系丢失不是纯模型波动。Explorer 已读 line 47 的
+   `m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?`，也提交了 registration row，但把
+   `anchor_kind` 写成 callback、subject/object 压成 `_fastlex`/`tokenize_bytes`。Grounder 正确将
+   该行降为 ungrounded；现有精确 registration repair 却只在“先 grounded、后因 object 缺席而
+   downgrade”的入口运行，错误 anchor 在初次 grounding 失败后直接绕过 repair。Completion 因而
+   把这条 load-bearing 绑定当作“可忽略的 1 条 ungrounded”，Finalizer 只收到两段断开的真实 call
+   component，validator 正确拒绝未证箭头，模型最终删图。
+6. 冻结 B919 最优根修：registration 修复发现从 endpoint-downgrade 私有分支提升为独立的
+   post-grounding 分类审计。只要 typed request 是跨组件 call-chain/register 轴，模型提交的是
+   registration，且已经读过的同文件窗口中只有一个结构化
+   `receiver.bindingCall(wrapper(endpoint))`，就返回 exact source/line/anchor/registry/object 的
+   completion-blocking 重发义务；模型原行不获权威，系统不铸边、不画图、不写结论。若原行已精确
+   匹配该 tuple 则不重复追债；零/多候选 fail-open。
+7. 该判据由既有语言无关结构解析共用，已有 Rust macro、ArkTS direct handler、Cangjie wrapper、
+   C++ receiver 四形基线；施工必须补“错误 callback 也触发”“精确 call 不触发”“歧义不触发”
+   三臂，而非为 PyO3 名称写特判。随后同案回放验证注册 handoff 以非调用 Note/typed binding 形
+   保留；没有源码调用边时仍禁止虚构执行箭头。
+8. 本批不改 Read/Trace 的查询、因果投影、自动补齐或模型结论。活跃字节流仍不得因 4ms、固定
+   总时长或“尚未形成完整 answer_document”降级；终止/恢复只读 caller cancel/deadline、无首字节、
+   byte stall、transport/decode failure 等精确信号。
+
+状态：
+
+`B919-REGISTRATIONANCHORREPAIRENTRY1=confirmed-r577/planned-next-batch`；
+`B672-PRINCIPALMEMBERSETEDGECOVERAGE1=call-components-positive/registration-handoff-missing-r577`；
+`POLY-evidence-to-final-location-drift=observed/model-owned/no-prose-rewrite`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r577`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.948 r576：typed 参与者接通阶段权威；开放作用域插入生产闭环（2026-08-16）
 
 1. 在 `main@93ecfb8ef` 重建后以相同案例严格并发恰好两个：
