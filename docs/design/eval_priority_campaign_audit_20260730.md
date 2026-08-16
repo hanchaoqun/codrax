@@ -35649,6 +35649,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.947 r575/B917：关系范围与空参与者合同漂移；结构化补丁误入开放作用域（2026-08-16）
+
+1. 在 `main@b333725d4` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_zod_prefault`。Runner `0 PASS / 2 FAIL`；人工为
+   `1 partial / 1 fail`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_qf_write_r575_20260816_manual_audit.md`。
+2. B915 获生产正证：同一个 flow completion 在历史回放中单次约 90 秒；本轮首次完整索引导航
+   为 `1106ms`，两次暖调用约 `12ms`。不可变派生索引已经把全表重复扫描从主热路径移除；本案
+   剩余 287 秒主要来自 19 轮模型调查和两次图关系拒绝，不再把关系不完整误记为索引性能问题。
+3. 代码图正文能解释 analyzer/explorer/extractor/finalizer 与 BusContext/Mutable，但必需架构图最终
+   只剩 `dispatchStage -> ag.Execute`、`dispatchStage -> applyStageOutput` 两条通用调用。第一稿为
+   六个组件自行铸造多条未证 call/data-flow 边，validator 正确 fail-closed；修补时模型只能删除
+   主体关系。因此 runner 的 `missing:finalizer` 有一部分是字面 oracle 不接受
+   `finalize/answerDocumentEvaluator`，但人工 partial 是真实 gap，不能只改 oracle 签绿。
+4. 根因是同一份 typed 分析合同内部漂移：`diagram_hint.relation_scope_quote` 已逐字承载六个参与者，
+   `entities` 也含六个精确身份，`participants` 却显式为空；既有一致性门只检查较短的
+   diagram-dimension quote，所以未拒绝该对象。下游 checkout-verified stage binding、三条相邻
+   precedence、stage-artifact grouping 与 state-carrier ownership authority 因缺 participant slate
+   没有进入最终成文上下文。
+5. B917 将既有门扩到 diagram 自身的 schema-validated relation-scope quote。触发仍严格要求：
+   非 Trace、required diagram、typed participants 显式为空、typed relation quote 同列至少两个
+   analyzer typed entities。门只要求分析模型自行补 participant rows 或收窄关系范围；系统不合成
+   participant、不铸边、不画图、不修改答案。它不扫描模型/最终答案，不从任意关键词推断关系，
+   Trace 因果投影合同完全旁路。真实 r575 payload 与 generic/single-scope/Trace 负形均已 pin。
+6. Zod 写案例的生产修复正确，但三个新 `test(...)` 被 `insert_after` 到既有 test 的开放 `{` 行后，
+   形成嵌套测试。全文件括号仍平衡，`make` 的 Python 静态检查也可通过；verifier 最终把两条生产
+   path 标为 `source_static` 并诚实降为 unverified，证明验证杆没有被降级，却也证明 ChangePlan
+   的 insertion placement 心智仍不足。
+7. 该写 gap 冻结为 B918：不得按 `test`/Jest/Zod 名称、用户请求或补丁正文关键词做硬门，也不把
+   缩进启发式冒充跨语言语义权威。先在所有 brace-language 的 structured-edit 教学中明确：
+   `insert_after` 开放作用域 header 会进入其 body；新增 sibling declaration/case 应锚在 header 前
+   或匹配 close 后。后续异构写回放验证；若仍复现，再设计 parser-owned scope-placement receipt，
+   而不是给单个测试框架造规则。
+8. 本批不改 Read/Trace 调度、查询、投影、自动补齐或答案正文。真正 causal-diagnosis 的主因仍
+   只能来自 typed on-chain 证据；优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义和
+   链上业务线索不丢，邻近/背景只作额外排查。活跃字节流不会因 4ms 或固定累计年龄降级；只有
+   cancel/deadline、无首字节、byte-stall、transport/decode failure 拥有终止/恢复权。
+
+状态：
+
+`B915-FLOWCOMPLETIONDERIVEDINDEX1=production-closed-r575/1106ms-cold+12ms-warm`；
+`B917-RELATIONSCOPEPARTICIPANTCONSISTENCY1=implemented/typed-fail-loud+pinned`；
+`B918-STRUCTUREDEDITSCOPEPLACEMENT1=confirmed/P1/soft-teaching-next`；
+`QF-finalizer-literal-oracle=secondary-false-negative/do-not-fit-product`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.941 r572 / B913：零边未证披露与 required-edge 外层合同冲突（2026-08-16）
 
 1. 在 `main@7bc5bd669` 重建后严格并发恰好两个案例：

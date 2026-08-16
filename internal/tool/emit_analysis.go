@@ -2430,9 +2430,9 @@ func emitAnalysisRuntimeArtifactOnlyObject(object map[string]json.RawMessage) bo
 // cross-field contradiction without deriving participants from prose.  An
 // explicitly empty participant slate is valid for a generic visual.  It is
 // not self-consistent, however, when a separately schema-validated required
-// diagram dimension copies a current-request quote that co-lists multiple
-// analyzer-declared entities. The source quote itself has already passed the
-// verbatim current-request provenance check.
+// diagram dimension or the diagram's own schema-validated relation-scope quote
+// co-lists multiple analyzer-declared entities. Both quote surfaces have
+// already passed the verbatim current-request provenance check.
 //
 // The threshold is deliberately two.  A single entity can be the enclosing
 // system or subject rather than an incident participant; rejecting that shape
@@ -2448,18 +2448,26 @@ func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel) string 
 		return ""
 	}
 
-	var coListed []string
-	seen := make(map[string]bool)
+	var typedRelationQuotes []string
+	if quote := strings.TrimSpace(rm.DiagramHint.RelationScopeQuote); quote != "" {
+		typedRelationQuotes = append(typedRelationQuotes, quote)
+	}
 	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
 		if !dimension.Required || dimension.Role != types.RequestedAnswerDimensionDiagram ||
 			strings.TrimSpace(dimension.SourceQuote) == "" {
 			continue
 		}
+		typedRelationQuotes = append(typedRelationQuotes, dimension.SourceQuote)
+	}
+
+	var coListed []string
+	seen := make(map[string]bool)
+	for _, quote := range typedRelationQuotes {
 		for _, rawEntity := range rm.AnalyzerHints.Entities {
 			entity := strings.TrimSpace(rawEntity)
 			key := diagramParticipantProvenanceKey(entity)
 			if entity == "" || key == "" || seen[key] ||
-				!sourceQuoteAnchoredInCurrentRequest(dimension.SourceQuote, entity) {
+				!sourceQuoteAnchoredInCurrentRequest(quote, entity) {
 				continue
 			}
 			seen[key] = true
@@ -2470,7 +2478,7 @@ func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel) string 
 		return ""
 	}
 	return fmt.Sprintf(
-		"diagram_hint.participants is explicitly empty, but a required diagram requested_answer_dimensions source_quote co-lists current-request typed entities %v; decide the relation surface yourself: emit one participant row per intended actor with a verbatim source_quote and role, or narrow the diagram dimension source_quote when those entities are only non-participant scope. Do not leave the slate empty and let later diagram repair erase the requested identities",
+		"diagram_hint.participants is explicitly empty, but a schema-validated required diagram relation quote co-lists current-request typed entities %v; decide the relation surface yourself: emit one participant row per intended actor with a verbatim source_quote and role, or narrow the typed relation quote when those entities are only non-participant scope. Do not leave the slate empty and let later diagram repair erase the requested identities",
 		coListed,
 	)
 }

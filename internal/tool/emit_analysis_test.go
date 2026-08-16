@@ -4445,6 +4445,40 @@ func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRequiredDiagramDim
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRelationScopeCoListsTypedEntities(t *testing.T) {
+	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["pipeline","diagram"],
+		"entities":["analyzer","explorer","extractor","finalizer","Mutable","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流","participants":[]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"架构图","role":"diagram","source_quote":"用 Mermaid 架构图画出","required":true},
+			{"index":2,"label":"组件责任","role":"function_or_purpose","source_quote":"简要说明各组件责任","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "participants is explicitly empty") ||
+		!strings.Contains(res.Summary, "[analyzer explorer extractor finalizer Mutable BusContext]") ||
+		!strings.Contains(res.Summary, "Do not leave the slate empty") {
+		t.Fatalf("typed relation scope with an empty participant slate must fail loudly: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected empty participant slate persisted a request model")
+	}
+}
+
 func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEnterTrace(t *testing.T) {
 	base := types.RequestModel{
 		Intent:        types.IntentExplain,
