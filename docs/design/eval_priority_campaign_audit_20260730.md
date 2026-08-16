@@ -36443,6 +36443,50 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.940 r571：请求关系真实性生产闭环；补证导航仍按任意邻点绕行（2026-08-16）
+
+1. 在 `main@f4e23885d` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工
+   均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_scope_trace_r571_20260816_manual_audit.md`。
+2. B908-N2b 获关键生产正证。Completion 不再把两个工具各自的 `Name() -> literal` return 当作二者关系，
+   而是明确报告缺少连接请求参与者的 typed operation component。Finalizer 首稿九条无凭证合成边全部被拒；
+   终稿只保留 `EmitAnswerDocumentPatch.Execute` 的三条真实局部 call，并将
+   `emit_answer_document / emit_answer_document_patch` 作为可见、断开的 `unproven` boundaries。系统没有
+   选择、补画或改写任何关系，错误绿灯已消失。
+3. 新确认 B912（P1 效率/证据发现）：三次 participant repair 依次导航
+   `mutation.Apply`、patch persist、patch state read，均是同一参与者分量内的局部操作；导航器当前只按
+   “任一 missing participant 的最高分 unread parser incident site”排序，不优先寻找能连接两个现有参与者
+   分量的 shared endpoint/operation，也不在已经读过但尚未 materialize 的桥接候选与新局部点之间区分。
+   结果 Explorer=21、completion=6、397s，虽最终诚实但没有尽力证明可验证的协议关系。最优方案是保持
+   evidence gate 不变，只升级 soft navigation：以 typed participant/evidence component 为输入，优先建议
+   能连接不同请求分量的 parser candidate；无桥时轮转不同未覆盖参与者/文件，完成一次有界探索后收敛
+   unproven。Parser candidate 永不直接成为证据或答案边。
+4. H4 核心人工正确：四态、CPU4/CPU12 同核矩阵、policy 与 target-effect 权限均稳定；B910 没有再串入
+   current-source completion，B911 没有再发布 41.203% 错分母异议。模型将精确 67.433% 写成 67.5%，系统
+   只发 advisory、不改正文，暂按模型算术波动；不为该数字建立 case 硬门。
+5. H4 runner FAIL 是 eval-only 大小写漏形：正文明示 `D-State ... 0.000`，旧 ERE 只接受小写 `state`。
+   oracle 改为 `[Ss]tate`，数值 0.000/0ms、D-state 同行约束及其他三态精确值均不放松。正文额外出现未请求
+   `blocked_reason` 背景块，记为 bounded typed breadth 展示债；它未进入主结论，但后续应按请求的 typed
+   fact families 控制附加块，而不是扫描答案词面删除。
+6. 显式时间窗不等于完整 causal diagnosis。本案是有限状态+单目标频率影响判定，不生成完整 Trace 因果
+   投影是正确 breadth；真正根因/丢帧诊断仍保留自动补齐、链上-only 主因、优先级反转/调度延迟/算力供给/
+   D/IO/确定性语义/业务线索与实际占用、规则计价双轴。邻近/背景仅 support，活跃流不因 4ms 降级。
+
+状态：
+
+`B908-FLOWRELATIONSCOPEDISCOVERY1=production-positive-truthfulness/answer-relation-partial-r571`；
+`B912-RELATIONFOCUSEDNAVIGATION1=confirmed/P1/pending`；
+`B909-FINITETRACESAMECPUCOGNITIVE1=production-positive-r570+r571`；
+`B910-RUNTIMEARTIFACTSOURCEENDPOINTLEAK1=production-positive-r571`；
+`B911-TRACEARITHMETICALTERNATEDENOMINATOR1=production-positive-r571`；
+`H4-DSTATE-ORACLE=false-negative-fixed/case-sensitive-S-only`；
+`bounded-runtime-unrequested-supplement=observed/P2`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
