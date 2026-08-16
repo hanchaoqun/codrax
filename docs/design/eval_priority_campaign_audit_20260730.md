@@ -37059,6 +37059,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.895 r543：B868/B869 生产输入正证；关系终稿仍有两类消费断层（2026-08-15）
+
+1. 在 `main@610fc6e54` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h11_cross_direction_overlap`。Runner `2 PASS / 2`，人工
+   `2 FAIL / 2`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_carrier_trace_r543_20260815_manual_audit.md`。两案分别
+   274s/152s 正常完成；read 案跨过 4 分钟仍继续活跃生成，没有 fixed-age 降级、空答案、畸形 JSON
+   salvage 或旧稿恢复。
+2. B868 获生产输入正证。Current-Source Authority 精确发布四 stage 为
+   `request_scoped_incident`、BusContext 为 `local_typed_incident_only`、Mutable 为
+   `no_incident_typed_relation`；BusContext 的 data_flow/argument_flow 两条 local binding 均保留 exact
+   endpoints，并明确 requested relation closure 仍 unproven。最终图没有再把 local operation 冒充完整
+   carrier 流，BusContext/Mutable 保持断开；成文拒绝从历史 4–14 次降为 2 次。
+3. read 案仍不能收账。Explorer 的早期 typed obligation 只有 extractor/BusContext 属于
+   source-operation-required，Mutable 因 analyzer provenance 未解析成唯一 symbol 而成为纯 display boundary；模型读取了
+   BusContext/Mutable 定义，却没有沿 parser-grounded member binding 取得 stage→carrier 的 producer/transfer/consumer
+   操作。终图因此只有 stage precedence 与局部 dispatch/BuildAgentContext 断片，正文却继续声称四阶段经
+   BusContext/Mutable 传递完整产物，并称 BusContext 不可变。确认
+   `B871-REQUESTEDCARRIERRELATIONCLOSURE1/P1`：只能由已读 parser/grounded declaration/binding 将 display
+   participant 升级为 source identity，再按 request-scoped relation closure 补 producer/transfer/consumer；禁止裸名、
+   相似度或答案文字造边。
+4. B869 同样获 production context 正证。详细与末尾 prompt 都发布同一 roster：唯一授权关系是 lock_priority
+   #2+#3 pairwise disjoint、可加到 12.115ms；所有未列 pair 的 independence/dependency/order/addition 均未授权。
+   模型首段正确转录 12.115ms，也正确声明跨方向关系 unresolved，Trace 显式窗、完整因果投影、链上-only
+   主因、实际占用/业务线索与规则可消除量双轴均完整。
+5. H11 中央关系问答仍失败。表格又把四个 lock 席写为
+   `7.405+4.710+3.429+3.309`，同时声称“其余候选独立”；IO 三席也被 `+` 串联。typed roster 只授权前两席
+   的 exact subtotal，因此这些是未列 pair 的无权关系，不是 runner 的 answer_contains 能捕获的质量。
+   新立案 `B870-TRACEDIRECTIONPRESENTATIONPLAN1/P0`：从同一 typed roster 给模型有界方向展示计划，逐方向
+   区分 headline exact subtotal/leader、subtotal member refs、必须单列的 unresolved refs 与禁止的算式；仍不扫描
+   或修改模型答案，不新增数值/关系/结论。
+6. r543 证明基础 typed 输入不是最终闭环。下一批先做 B870，因其直接影响 Trace 中央修向关系；B871 随后
+   作为 read 架构关系补证批。两批都必须保留最终 relation validator 的精确杆，不以系统代画图、代写正文、
+   关键词删除或放宽未证边来换 runner 绿。
+
+状态：
+
+`B868-REQUESTEDCARRIERRELATIONHANDOFF1=production-positive-r543/contract-aligned`；
+`B869-TRACEDIRECTIONRELATIONDECISIONROSTER1=production-context-positive-r543/final-consumption-failed`；
+`B870-TRACEDIRECTIONPRESENTATIONPLAN1=P0-next`；
+`B871-REQUESTEDCARRIERRELATIONCLOSURE1=P1-open`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden/production-positive-r543`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
