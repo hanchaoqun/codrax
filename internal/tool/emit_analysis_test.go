@@ -163,6 +163,9 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	if _, ok := obj["predicate_axis"]; !ok {
 		obj["predicate_axis"] = json.RawMessage(`""`)
 	}
+	if _, ok := obj["call_chain_endpoints"]; !ok {
+		obj["call_chain_endpoints"] = json.RawMessage(`{"source":"","sink":"","sink_mode":"exact","runtime_selection_required":false,"runtime_selection_source_quote":""}`)
+	}
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return payload
@@ -1695,6 +1698,37 @@ func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoi
 	profile := mu.RequestModel().CallChainEndpointProfile
 	if profile == nil || profile.Active() || !profile.RequiresRuntimeSelectionEvidence() {
 		t.Fatalf("mechanism/flow runtime-only carrier was dropped or promoted to endpoint authority: %+v", profile)
+	}
+}
+
+func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyForCurrentSource(t *testing.T) {
+	sourceFlow := json.RawMessage(`{
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"},
+		"current_source_explanation_profile":{"modes":["explain_current_mechanism"]}
+	}`)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceFlow, false); !slices.Contains(missing, "call_chain_endpoints") {
+		t.Fatalf("current-source flow must fail loud instead of silently losing runtime selection: %v", missing)
+	}
+
+	runtimeFlow := json.RawMessage(`{
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"runtime_artifact_scope_profile":{"requested_scope":"explicit_time_window"},
+		"external_observation_policy":{"current_source_mode":"exclude"}
+	}`)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(runtimeFlow, false); slices.Contains(missing, "call_chain_endpoints") {
+		t.Fatalf("runtime-artifact-only flow must retain the inert legacy-provider default: %v", missing)
+	}
+
+	definitionDiagram := json.RawMessage(`{
+		"question_kind":"mechanism",
+		"predicate_axis":"define",
+		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"}
+	}`)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(definitionDiagram, true); !slices.Contains(missing, "call_chain_endpoints") {
+		t.Fatalf("required current-source diagram must carry the explicit relation/selection discriminator: %v", missing)
 	}
 }
 

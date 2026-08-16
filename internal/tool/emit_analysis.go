@@ -2295,6 +2295,19 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 			missing = append(missing, field)
 		}
 	}
+	// call_chain_endpoints also owns the independent runtime-selection
+	// discriminator. Older/local providers may omit this otherwise inert object,
+	// so runtime-artifact-only requests retain the compatibility default. A
+	// current-source relation/mechanism surface cannot: omission would silently
+	// erase endpoint direction or initial/retry availability selection before
+	// the explorer sees it. This decision reads only typed JSON fields and the
+	// already-typed presentation contract; it never classifies request prose.
+	if emitAnalysisRelationCarrierRequired(object, requiredDiagram) {
+		raw, ok := object["call_chain_endpoints"]
+		if !ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			missing = append(missing, "call_chain_endpoints")
+		}
+	}
 	// A required diagram is an explicit typed presentation contract. Its edges
 	// need an equally explicit relation axis so downstream evidence ownership
 	// cannot silently fall back to the presentation-only lane. Empty is still a
@@ -2306,6 +2319,47 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 		}
 	}
 	return missing
+}
+
+func emitAnalysisRelationCarrierRequired(object map[string]json.RawMessage, requiredDiagram bool) bool {
+	if emitAnalysisRuntimeArtifactOnlyObject(object) {
+		return false
+	}
+	if requiredDiagram {
+		return true
+	}
+	var axis string
+	_ = json.Unmarshal(object["predicate_axis"], &axis)
+	var kind string
+	_ = json.Unmarshal(object["question_kind"], &kind)
+	return types.PredicateAxis(strings.TrimSpace(axis)) == types.AxisFlow ||
+		types.PredicateAxis(strings.TrimSpace(axis)) == types.AxisCall ||
+		types.NormalizeRequirementKind(kind) == types.ReqCallChain
+}
+
+func emitAnalysisRuntimeArtifactOnlyObject(object map[string]json.RawMessage) bool {
+	var currentSource struct {
+		Modes []string `json:"modes"`
+	}
+	_ = json.Unmarshal(object["current_source_explanation_profile"], &currentSource)
+	if len(currentSource.Modes) > 0 {
+		return false
+	}
+
+	var scope struct {
+		RequestedScope string `json:"requested_scope"`
+	}
+	_ = json.Unmarshal(object["runtime_artifact_scope_profile"], &scope)
+	requestedScope := strings.TrimSpace(scope.RequestedScope)
+	if requestedScope != "" && requestedScope != "not_applicable" {
+		return true
+	}
+
+	var policy struct {
+		CurrentSourceMode string `json:"current_source_mode"`
+	}
+	_ = json.Unmarshal(object["external_observation_policy"], &policy)
+	return strings.TrimSpace(policy.CurrentSourceMode) == "exclude"
 }
 
 // validateRequiredDiagramEmptyParticipantSlate catches one precise typed

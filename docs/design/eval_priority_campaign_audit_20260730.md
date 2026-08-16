@@ -35976,6 +35976,55 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.931 r563：身份边界获生产正证；schema-required 选择载体仍可整字段消失（2026-08-16）
+
+1. 在 `main@11ceec1d9` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工
+   两案均 fail；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_runtime_selection_r563_20260816_manual_audit.md`。
+2. B897 获生产正证：Analyzer 不再把 snake_case participant 与 CamelCase entity 拆成两个 actor，也不再
+   让短标识符命中长前缀；r562 的 6 次身份冲突降为 0。唯一 Analyzer reject 是 required diagram 的
+   `relation_scope_quote` 为空，模型下一轮用当前请求原句正确修复。
+3. B898 获确定性生产反证：上述第二次 accepted `emit_analysis` 仍完全省略 `call_chain_endpoints`。该字段
+   已在 provider schema required，旧 executor compatibility 却只强制 `question_kind`；因此 B896 的
+   independent runtime-selection lane 没有输入，Explorer 不知道应优先证明 initial/full 与
+   retry/error/patch availability selection。
+4. 后果不是纯展示缺口。Explorer 扩到 28 条证据、26 轮，详细证明 full emit 的 ReplaceAll mutation、
+   patch 的 Partial mutation 以及两路在 `ApplyAndPersistMutation` 汇合；这些是真实局部机制，却不能证明
+   每轮 schema refresh、patch-base availability、preference/force-full 如何选择工具。终稿仍把
+   “首次完整/重试 patch”写成工具固有适用时机，图也只呈现局部执行路径。Runner PASS 不能收账。
+5. B898 根修采用 typed selective fail-loud，而非题面扫描或全局加重试：当输入是当前源码的 required
+   diagram、`predicate_axis=flow|call` 或 `question_kind=call_chain`，缺少 `call_chain_endpoints` 就拒绝并
+   要求完整 schema object；当 typed runtime scope 生效且没有 current-source explanation，或
+   `external_observation_policy.current_source_mode=exclude` 时，缺省只代表 inert false/empty，继续兼容
+   旧/local provider。模型仍必须自己发 true/false 和 verbatim source quote，系统不从关键词推断。
+6. H4 Trace 的 same-key join 仍完整：CPU4 `35.960ms + 558MHz + policy 558..2100MHz`、CPU12
+   `96.081ms + 2075MHz + policy absent` 均在 prompt。模型第一稿写“不能直接证明受限”，终稿却升级成
+   “频率受限不成立”，并写 CPU12 2075MHz “未超出 CPU4 上限 2100MHz”。这是模型未一致消费精确
+   上下文；系统不得扫描/改写模型结论。继续异构回放，若重复则优先压缩/排序 typed same-key capsule，
+   仍不做答案关键词硬门。
+7. 新冻结 `B899-ARITHENUMERATIONCROSSQUERYTAINT1`：系统算术附注把全会话任一 trace_query 的
+   `EnumerationAuthority!=complete` 当成每个正文分子的 completeness。H4 完整
+   `target_window_states` 的 running/runnable/sleep 三个比例因此被无关 capped `event_search` 污染成
+   `completeness=incomplete`。最优方案必须做 relation-local typed numerator authority；无法唯一绑定时
+   只能报 unknown，禁止用 sibling query 的不完整性断言当前分子不完整。
+8. B898 专项覆盖源码 flow/required-diagram 正例、runtime-artifact-only 兼容负例及旧 fixture 显式空
+   discriminator；完整 `internal/tool` 回归通过。本批未改 Trace 查询、投影、自动补齐、答案正文或
+   active-stream 终止权。
+
+状态：
+
+`B897-DIAGRAMPARTICIPANTPREFIXIDENTITY1=production-positive-r563`；
+`B898-RUNTIMESELECTIONCARRIEROMISSION1=implemented/selective-typed-fail-loud/pending-r564-replay`；
+`B896-RUNTIMESELECTIONENDPOINTCOUPLING1=implemented/not-activated-r563`；
+`B899-ARITHENUMERATIONCROSSQUERYTAINT1=confirmed/open`；
+`B892-TARGETCPUFREQUENCYJOIN1=production-context-positive-r563/model-verdict-inconsistent`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-failed-r563/selection-carrier-absent`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
