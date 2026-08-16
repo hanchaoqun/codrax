@@ -37498,6 +37498,53 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.906 r548 / B877：多子题自动补齐与单块上限的 typed 所有权自冲突（2026-08-15）
+
+1. 在 `main@186af45e7` 重建后严格并发恰好两个案例：`mr_poly_binding_chain` runner/human PASS
+   （168s）与 `read_combo_loose_multi_question_units` runner/human FAIL（155s）。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_subtopic_concept_r548_20260815_manual_audit.md`。
+2. B875 获生产正证。跨 Python/PyO3/Rust 案的 Analyzer 从 r547 的 2 次降为 1 次；源码符号子题与
+   fallback 概念子题并存不再触发 resolver hit/miss 硬拒。终稿完整保留
+   `FastTokenizer.tokenize → _fastlex.tokenize_bytes → PyO3 wrapper → Rust core`、`best_merge` 与
+   `_tokenize_slow` 回退，Finalizer 0 reject/0 patch，系统没有代写关系、图或结论。
+3. 第二案确认 `B877-BLOCKFACETOWNERSHIP1=P0/red-line`。Analyzer 一次正确保留“配置加载/覆盖”与
+   “Mermaid 渲染失败降级”两个独立子题，模型首稿也同时给出配置优先级表和第二题说明。系统随后根据
+   两组 accepted principal aggregate facts 自动补出两个 `ordered_list`；配置合同要求一个
+   `table` 或 `ordered_list` 且 `MaxCount=1`，旧 cardinality 却只按显示 kind 全局计数，于是把
+   `1 个 config_precedence_role 表 + 2 个 enumeration_item 兄弟列表`误算为 3。
+4. 该错误形成系统自造的不可能修补环：模型连续 5 次删除两个自动列表，
+   `normalizeAggregateMemberSetCarriers` 又连续 5 次把 3/5 行补回；同一
+   `reduce kind=table/ordered_list ... currently emitted: 3` 拒绝累计 6 次，最终只能以
+   `answer_document_retry_state_recovered` 降级发上一版草稿。模型已经识别自动补回事实，因此这不是
+   模型波动，也不能通过增加重试次数、删除第二子题、关闭自动补齐或抬高 `MaxCount` 解决。
+5. 根修将 `BlockRequirement` 的 Min/Max 计数从全局 kind 改为 typed carrier domain：先匹配 canonical/
+   alternative kind；当 requirement 带 `FacetIDs` 时，还必须与 block 的 `facet_ids` 或
+   `claim_uses[].facet_id` 精确相交。独立问题维度即使
+   共用 table/list 显示形也不再互相消费上限；同一 `config_precedence_role` 下再发一个 table/list 仍精确
+   over-max。无 facet 的 summary 等通用合同保持历史 kind-only 行为。
+6. Trace 模型主内容最低保障有意保留独立的 `CountAnswerBlocksForRequirementKinds` 宽口径。该门询问的是
+   “模型是否发出任一 principal-shaped payload”，发生在 facet 元数据可能尚未完整的时点；不能被本次
+   cardinality 修复顺带收窄。required block 的 pre-emit 与 post-emit 校验则共同消费唯一 facet-aware helper，
+   防止两端再次漂移。
+7. 新增 types/pre-emit/post-emit 三层 pin：兄弟 facet 的共享 kind 不占上限、同 facet alternative 仍超限、
+   facetless 合同保持旧语义、Trace ownership floor 显式走 kind-only seam。定向
+   `go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 与全仓
+   `go test ./... -count=1` 均通过。
+8. 本批不读取用户请求、模型 thinking、草稿或终稿 prose，不修改 JSON/Mermaid 恢复、答案正文或关系。
+   Trace 显式时间窗、完整 causal-diagnosis 因果投影与自动补齐、链上-only 主因、优先级反转/调度延迟/
+   算力供给/D/IO/确定性语义/业务线索、实际占用与规则计价可消除量双轴均保持；邻近/背景仍仅作支持。
+
+状态：
+
+`B875-SUBTOPICCONCEPTRESOLUTION1=production-pass/closed-r548`；
+`B877-BLOCKFACETOWNERSHIP1=implemented/full-repo-suite-pass/production-replay-next`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/queued-after-B877-replay`；
+`B876-TYPERELATIONSEMANTICS1=confirmed/P2/queued`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

@@ -51,23 +51,70 @@ func (br BlockRequirement) AcceptedKindsLabel() string {
 	return strings.Join(parts, "/")
 }
 
-// CountAnswerBlocksForRequirement counts all blocks whose kind is a
-// canonical or alternative carrier for the same requirement. The
-// result is what MinCount / MaxCount should be compared against.
+// AnswerBlockCountsForRequirement reports whether block belongs to the
+// requirement's carrier domain. Kind is necessary but not sufficient when the
+// requirement declares FacetIDs: another independently-answerable dimension
+// may legitimately use the same table/list/section kind. Counting that sibling
+// block against this requirement can make one contract demand the block while
+// another caps it, producing an impossible repair loop.
+//
+// Facet matching is any-overlap across block.facet_ids and
+// block.claim_uses[].facet_id, consistent with the existing typed principal,
+// coverage, and allowed-claim-form ownership checks. A requirement with
+// several facets describes one carrier family; separate facet completeness
+// validation still proves every required facet. Empty FacetIDs preserves the
+// historical kind-only behavior for generic summary and presentation
+// requirements.
+func AnswerBlockCountsForRequirement(block AnswerBlock, br BlockRequirement) bool {
+	if !br.AcceptsKind(block.Kind) {
+		return false
+	}
+	if len(br.FacetIDs) == 0 {
+		return true
+	}
+	for _, requiredFacet := range br.FacetIDs {
+		requiredFacet = strings.TrimSpace(requiredFacet)
+		if requiredFacet == "" {
+			continue
+		}
+		for _, blockFacet := range block.FacetIDs {
+			if strings.TrimSpace(blockFacet) == requiredFacet {
+				return true
+			}
+		}
+		for _, claim := range block.ClaimUses {
+			if strings.TrimSpace(claim.FacetID) == requiredFacet {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CountAnswerBlocksForRequirement counts blocks in the requirement's typed
+// carrier domain. The result is what MinCount / MaxCount are compared against.
 func CountAnswerBlocksForRequirement(blocks []AnswerBlock, br BlockRequirement) int {
 	if len(blocks) == 0 {
 		return 0
 	}
-	accepted := make(map[AnswerBlockKind]bool, 1+len(br.AlternativeKinds))
-	for _, kind := range br.AcceptedKinds() {
-		accepted[kind] = true
-	}
-	if len(accepted) == 0 {
-		return 0
-	}
 	count := 0
 	for _, block := range blocks {
-		if accepted[block.Kind] {
+		if AnswerBlockCountsForRequirement(block, br) {
+			count++
+		}
+	}
+	return count
+}
+
+// CountAnswerBlocksForRequirementKinds retains the deliberately broader
+// kind-only question used by ownership floors such as Trace model-authorship:
+// those checks ask whether the model emitted any principal-shaped payload at
+// all, before facet metadata is complete. It must not be used for a
+// BlockRequirement's MinCount / MaxCount validation.
+func CountAnswerBlocksForRequirementKinds(blocks []AnswerBlock, br BlockRequirement) int {
+	count := 0
+	for _, block := range blocks {
+		if br.AcceptsKind(block.Kind) {
 			count++
 		}
 	}

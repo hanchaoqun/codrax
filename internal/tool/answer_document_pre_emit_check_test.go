@@ -7155,6 +7155,44 @@ func TestPreCheckRequiredBlocks_MaxCount(t *testing.T) {
 	}
 }
 
+func TestPreCheckRequiredBlocks_MaxCountIsScopedToTypedFacetOwner(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{
+				Kind:             types.BlockTable,
+				AlternativeKinds: []types.AnswerBlockKind{types.BlockOrderedList},
+				Required:         true,
+				MinCount:         1,
+				MaxCount:         1,
+				FacetIDs:         []string{string(types.FacetConfigPrecedenceRole)},
+				Rationale:        "configuration precedence",
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "precedence", Kind: types.BlockTable, FacetIDs: []string{string(types.FacetConfigPrecedenceRole)}},
+		{ID: "topic-a", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetEnumerationItem)}},
+		{ID: "topic-b", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetCurrentCodePath)}},
+	}}
+
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("independent typed list carriers must not consume the precedence cap: %+v", hints)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:       "precedence-duplicate",
+		Kind:     types.BlockOrderedList,
+		FacetIDs: []string{string(types.FacetConfigPrecedenceRole)},
+	})
+	hints := preCheckRequiredBlocks(doc, view)
+	if len(hints) != 1 || hints[0].BlockCardinalityRelation != preEmitBlockCardinalityOverMax {
+		t.Fatalf("a second same-owner alternative carrier must still exceed the cap: %+v", hints)
+	}
+	if got := hints[0].OffendingBlockKinds; len(got) != 2 || got[0] != types.BlockTable || got[1] != types.BlockOrderedList {
+		t.Fatalf("same-owner over-cap diagnostic kinds=%v, want table and ordered_list", got)
+	}
+}
+
 // TestPreCheckRequiredBlocks_HappyPath — exact match returns no hints.
 func TestPreCheckRequiredBlocks_HappyPath(t *testing.T) {
 	view := &types.AnswerSemanticView{

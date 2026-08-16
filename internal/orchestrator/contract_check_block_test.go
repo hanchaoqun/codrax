@@ -105,6 +105,40 @@ func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
 	}
 }
 
+func TestRequiredBlockCoverage_MaxCountIsScopedToTypedFacetOwner(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFConfigPrecedence,
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:             types.BlockTable,
+			AlternativeKinds: []types.AnswerBlockKind{types.BlockOrderedList},
+			MinCount:         1,
+			MaxCount:         1,
+			Required:         true,
+			FacetIDs:         []string{string(types.FacetConfigPrecedenceRole)},
+			Rationale:        "configuration precedence",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "precedence", Kind: types.BlockTable, FacetIDs: []string{string(types.FacetConfigPrecedenceRole)}},
+		{ID: "topic-a", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetEnumerationItem)}},
+		{ID: "topic-b", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetCurrentCodePath)}},
+	}}
+
+	if vs := validateRequiredBlockCoverage(doc, view); len(vs) != 0 {
+		t.Fatalf("independent typed list carriers must not consume the precedence cap: %+v", vs)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:       "precedence-duplicate",
+		Kind:     types.BlockOrderedList,
+		FacetIDs: []string{string(types.FacetConfigPrecedenceRole)},
+	})
+	vs := validateRequiredBlockCoverage(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolBlockCoverageMissing || vs[0].MissingBlockKind != "" {
+		t.Fatalf("a second same-owner alternative carrier must still be rejected as over-emitted: %+v", vs)
+	}
+}
+
 func TestRequiredBlockCoverage_NilGuards(t *testing.T) {
 	if vs := validateRequiredBlockCoverage(nil, minimalSummaryView()); vs != nil {
 		t.Errorf("nil doc → nil violations; got %+v", vs)

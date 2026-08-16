@@ -12681,7 +12681,7 @@ func answerBlockKindsPresentForRequirement(blocks []types.AnswerBlock, req types
 	seen := map[types.AnswerBlockKind]bool{}
 	var out []types.AnswerBlockKind
 	for _, block := range blocks {
-		if !req.AcceptsKind(block.Kind) || seen[block.Kind] {
+		if !types.AnswerBlockCountsForRequirement(block, req) || seen[block.Kind] {
 			continue
 		}
 		seen[block.Kind] = true
@@ -12718,7 +12718,7 @@ func preCheckRuntimeTraceModelPrincipalFloor(doc *types.AnswerDocumentV2, view *
 		return nil
 	}
 	for _, req := range principalRequirements {
-		if types.CountAnswerBlocksForRequirement(doc.Blocks, req) > 0 {
+		if types.CountAnswerBlocksForRequirementKinds(doc.Blocks, req) > 0 {
 			return nil
 		}
 	}
