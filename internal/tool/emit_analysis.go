@@ -830,7 +830,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). source_attribute means a user-visible per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields; never label one of those language-scope attributes as source_location. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. runtime_selection means the user visibly asks which implementation/tool/path is used or available under different runtime conditions; it must agree with call_chain_endpoints.runtime_selection_required. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). source_attribute means a user-visible per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields; never label one of those language-scope attributes as source_location. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -2014,6 +2014,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if requestedAnswerDimensionsRequireRuntimeSelection(requestedAnswerDimensions) &&
+		(callChainEndpointProfile == nil || !callChainEndpointProfile.RequiresRuntimeSelectionEvidence()) {
+		return types.ToolResult{
+			ToolName: t.Name(), Success: false,
+			Summary:   "emit_analysis rejected: requested_answer_dimensions role=runtime_selection requires call_chain_endpoints.runtime_selection_required=true with its contiguous verbatim CURRENT-request source quote. Preserve the requested dimension and repair the independent typed selection carrier; do not relabel the dimension or default the carrier to false",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -5428,6 +5436,18 @@ func requiredDiagramRequestedDimension(profile *types.RequestedAnswerDimensionPr
 	}
 	for _, dimension := range profile.Dimensions {
 		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionDiagram {
+			return true
+		}
+	}
+	return false
+}
+
+func requestedAnswerDimensionsRequireRuntimeSelection(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionRuntimeSelection {
 			return true
 		}
 	}

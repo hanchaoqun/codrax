@@ -1685,6 +1685,17 @@ func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoi
 		"entities":["emit_answer_document","emit_answer_document_patch"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[{
+				"index":1,
+				"label":"首次完整输出 vs retry patch",
+				"role":"runtime_selection",
+				"source_quote":"首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch",
+				"required":true
+			}]
+		},
 		"call_chain_endpoints":{
 			"source":"","sink":"","sink_mode":"exact",
 			"runtime_selection_required":true,
@@ -1698,6 +1709,46 @@ func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoi
 	profile := mu.RequestModel().CallChainEndpointProfile
 	if profile == nil || profile.Active() || !profile.RequiresRuntimeSelectionEvidence() {
 		t.Fatalf("mechanism/flow runtime-only carrier was dropped or promoted to endpoint authority: %+v", profile)
+	}
+}
+
+func TestEmitAnalysis_RuntimeSelectionDimensionRejectsFalseSelectionCarrierWithoutRequestScan(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "first full versus patch retry"
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["tools"],
+		"entities":["tool_a","tool_b"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[{
+				"index":1,
+				"label":"selection",
+				"role":"runtime_selection",
+				"source_quote":"first full versus patch retry",
+				"required":true
+			}]
+		},
+		"call_chain_endpoints":{
+			"source":"","sink":"","sink_mode":"exact",
+			"runtime_selection_required":false,
+			"runtime_selection_source_quote":""
+		}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, "role=runtime_selection requires call_chain_endpoints.runtime_selection_required=true") {
+		t.Fatalf("typed selection contradiction must fail loud: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("contradictory typed selection carrier must not persist: %+v", mu.RequestModel())
 	}
 }
 

@@ -36103,6 +36103,46 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.934 r565：typed 选择值仍可自相矛盾；写模式重规划污染 durable batch goal（2026-08-16）
+
+1. 在 `main@46f7057cb` 加 B900 软教学后重建，严格并发恰好两个案例：
+   `read_combo_answer_document_tools + github_issue_libgit2_foreach_worktree`。Runner `1 PASS / 1 FAIL`；
+   人工 Combo partial、write fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_selection_cwrite_r565_20260816_manual_audit.md`。
+2. Combo 的 runner PASS 是宽正则假阳性。终稿正确给出两个工具 Name literal，也能局部说明 full 与 patch，
+   但图只画 Name 与 patch recovery，没有呈现 finalizer 的真实选择关系；表格还把 evaluator 对 full emission
+   写成“不干预”，与源码和正文冲突。Analyzer 已补齐 `call_chain_endpoints`，却把
+   `runtime_selection_required=false`；B900 的 missing-field 教学因此只闭合 presence，没有闭合 typed value。
+3. 确认并施工 B900-v2：新增闭集回答维度 `runtime_selection`，表示用户要求解释“不同运行条件下选择哪个
+   实现/工具/路径”。Analyzer 仅在 schema-validated typed IR 内做 cross-field coherence：required
+   `runtime_selection` 必须对应 `call_chain_endpoints.runtime_selection_required=true`，并继续通过既有
+   verbatim source quote 锚定。它不扫描用户原文、模型答案或终稿，不替模型生成关系、图或结论；generic
+   purpose 继续用 `function_or_purpose`。
+4. write 案中，plan 1 修 line 12 后 verify 失败；同 batch 的 plan 2 正确修 line 16 且测试通过。系统却把
+   replan 产物的 line-16 摘要写回 durable batch goal，controller 又将 context-pack artifact `Goal`
+   显示为剩余工作权威，于是错误 append 第二批。planner 明知 line 16 已正确，空 changes 被 schema 拒绝后
+   虚构无意义括号改动，最终三次 apply、预算耗尽且未终验。该失败是确定性状态权威污染，不是模型波动。
+5. 确认并施工 B902：同一 BatchID 的 replan 强制保留既有 durable batch goal；可更新计划、探测、编辑
+   摘要，但只有 append/split 新 batch 能铸造新 goal。controller prompt 从 active workflow 读取
+   `durable_batch_goal`，并明确 artifact summary 只是 evidence，append/finish 必须依据 typed 状态、验证结果
+   与 outstanding obligations。决策水合与 controller apply 两层均设防，避免调用路径遗漏。
+6. targeted tests 覆盖：replan goal 不变；普通 batch metadata refinement 不回归；controller 不再把陈腐
+   artifact goal 伪装为 `- goal`；runtime-selection dimension 与 false carrier 的 typed 冲突先红后绿。
+7. 本批不改 Trace 查询、时间窗、因果投影、系统补齐或根因排序。主因仍只来自 typed on-chain 证据；
+   优先级反转、调度/算力供给、D/IO、确定性语义、链上业务线索及实际占用/规则计价双轴不丢失；邻近/背景
+   只能作 support。活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B900-RUNTIMESELECTIONMISSINGFIELDREPAIR1=presence-closed/value-gap-confirmed-r565`；
+`B900v2-RUNTIMESELECTIONTYPEDCOHERENCE1=implemented/pending-replay`；
+`B902-WRITEREPLANBATCHGOALAUTHORITY1=implemented/pending-replay`；
+`runner-pass-human-partial=read_combo_answer_document_tools`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
