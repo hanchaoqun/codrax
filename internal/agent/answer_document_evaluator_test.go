@@ -505,6 +505,122 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPre
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveStopsWhenSingleMemberSetDimensionUsesStructuredRelationList(t *testing.T) {
+	mut := types.NewMutableState("explain the cross-language route")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:       "中间原生模块名",
+						SourceQuote: "包括中间的原生模块名",
+						Role:        types.RequestedAnswerDimensionMemberSet,
+						Required:    true,
+						Index:       2,
+					}},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "native-path",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:    "native-module",
+				Label: "_fastlex.tokenize_bytes",
+				Text:  "registered export",
+			}},
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("a single typed member-set dimension should accept one structured relation list without an enumerate intent, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveDoesNotLetOneUnboundListCoverTwoMemberSetDimensions(t *testing.T) {
+	mut := types.NewMutableState("show service members and storage members")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "服务成员", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 1},
+						{Label: "存储成员", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 2},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "one-list",
+			Kind:  types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "api", Label: "API"}},
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+		t.Fatalf("one generic list must not satisfy two independent member-set dimensions, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveStopsWhenMultipleMemberSetDimensionsHaveExplicitSlots(t *testing.T) {
+	mut := types.NewMutableState("show service members and storage members")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "服务成员", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 1},
+						{Label: "存储成员", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 2},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:       "services",
+				Kind:     types.BlockOrderedList,
+				FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+				Items:    []types.AnswerBlockItem{{ID: "api", Label: "API"}},
+			},
+			{
+				ID:       "stores",
+				Kind:     types.BlockTable,
+				FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+				Items:    []types.AnswerBlockItem{{ID: "db", Cells: []string{"DB"}}},
+			},
+		},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("two explicit member-set slots should satisfy two typed dimensions, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveStopsWhenBoundaryDimensionHasTypedBoundaryCarrier(t *testing.T) {
 	mut := types.NewMutableState("说明窗口统计和平台时基")
 	ctx := &types.AgentContext{

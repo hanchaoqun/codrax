@@ -35686,6 +35686,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    规则可消除量仍分账。人工 partial 的唯一重要语义项是模型从“频率/策略供给候选，不能单独证明热机制”
    外推到“改善散热”建议。后续只可收紧 typed evidence boundary 的软教学与上下文措辞，不能由系统删改
    答案、凭正文关键词硬拒，或把邻近/背景升级为主因。
+9. B925 已按结构化角色槽位根修。旧逻辑只有 `IntentEnumerate || IsCategoryEnumeration` 才承认
+   list/table 是 `member_set` 展示载体，导致调用链、架构解释、比较和运行时场景的合法成员列表被系统
+   误判缺失。新逻辑直接消费 provenance-validated `RequestedAnswerDimensionMemberSet`：当本轮只有一个
+   required member-set 维度时，一个非空 ordered-list/bullet-list/table 即为无歧义结构槽；当同轮有多个
+   member-set 维度时，必须有不少于维度数的非空块显式携带 `facet_id=member_set`，一张通用关系表不能
+   冒充多个独立 roster。该判断不读取 raw request、reasoning、block prose、成员名字或最终渲染文本。
+10. 新增单一非枚举调用链正臂、两个成员集共用一张无绑定列表负臂、两个显式 facet 槽正臂；既有
+    enumerate count+member-set 正臂保持。`go test ./internal/agent ./internal/orchestrator ./internal/types
+    ./internal/tool -count=1` 全绿（agent 9.136s、orchestrator 12.092s、types 20.695s、tool 166.920s）。
 
 状态：
 
@@ -35693,7 +35702,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/no-recurrence-r579/pending-direct-production-trigger`；
 `B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=implemented/production-positive-r580`；
 `B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=implemented/production-positive-r580`；
-`B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=confirmed-r579+r580/pending-root-fix`；
+`B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=implemented/shape-only-role-slots+pinned/pending-production-replay`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r580`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `actual-occupancy/existing-rule-eliminable=separate-ledgers`；

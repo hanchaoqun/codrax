@@ -13868,16 +13868,14 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 }
 
 func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim types.RequestedAnswerDimension, doc *types.AnswerDocumentV2) bool {
-	if ctx == nil || ctx.AnalysisIR == nil || doc == nil {
+	if ctx == nil || doc == nil {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
 	switch dim.Role {
 	case types.RequestedAnswerDimensionCount:
 		return answerDocumentHasScalarPayload(doc)
 	case types.RequestedAnswerDimensionMemberSet:
-		return (rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration) &&
-			answerDocumentHasMemberSetPayload(doc)
+		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
@@ -14114,22 +14112,67 @@ func answerDocumentHasScalarPayload(doc *types.AnswerDocumentV2) bool {
 }
 
 func answerDocumentHasMemberSetPayload(doc *types.AnswerDocumentV2) bool {
-	if doc == nil {
+	return answerDocumentMemberSetPayloadBlockCount(doc, false) > 0
+}
+
+// answerDocumentCoversRequestedMemberSetDimensions treats the analyzer's
+// schema-validated member_set role as the presentation authority. A relation,
+// architecture, runtime, or comparison answer can legitimately request one
+// visible member set without also being an IntentEnumerate turn; coupling the
+// shape receipt to that unrelated intent caused an already-present structured
+// list to trigger a redundant patch round.
+//
+// One requested member-set dimension is unambiguous and may consume one
+// ordinary list/table payload. Multiple member-set dimensions need at least
+// the same number of blocks explicitly carrying facet_id=member_set, so one
+// generic relation list cannot silently satisfy several independent rosters.
+// This is deliberately shape-only: it does not inspect the raw request, block
+// prose, model reasoning, member names, or final rendered text.
+func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
 		return false
 	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return false
+	}
+	requested := 0
+	for _, dimension := range requestedDimensionsToCover(view.Presentation.RequestedDimensions) {
+		if dimension.Role == types.RequestedAnswerDimensionMemberSet {
+			requested++
+		}
+	}
+	if requested == 0 {
+		return false
+	}
+	if requested == 1 {
+		return answerDocumentHasMemberSetPayload(doc)
+	}
+	return answerDocumentMemberSetPayloadBlockCount(doc, true) >= requested
+}
+
+func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requireExplicitFacet bool) int {
+	if doc == nil {
+		return 0
+	}
+	count := 0
 	for _, block := range doc.Blocks {
+		if requireExplicitFacet && !answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) {
+			continue
+		}
 		switch block.Kind {
 		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 			for _, item := range block.Items {
 				if strings.TrimSpace(item.Label) != "" ||
 					strings.TrimSpace(item.Text) != "" ||
 					len(item.Cells) > 0 {
-					return true
+					count++
+					break
 				}
 			}
 		}
 	}
-	return false
+	return count
 }
 
 func answerDocumentHasBoundaryPayload(doc *types.AnswerDocumentV2) bool {
