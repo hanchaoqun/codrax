@@ -109,7 +109,8 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 					string(FacetComponentRelation),
 				},
 				Rationale: "The typed request requires one principal per-member table with no list or section escape. " +
-					"Use one row per requested member and keep that member's bucket identity visible in the row. " +
+					"Use one row per requested member and keep that member's exact bucket identity visible in a separate row cell. " +
+					"The row identity field is the member (item.label, or cells[0] for a cells-only row); never spend it on the bucket. " +
 					"Use columns for the requested comparison attributes or axes, and keep grounded member identity, " +
 					"attributes, and citations together rather than duplicating the roster across bucket sections.",
 				SurfaceRoleHint: SurfacePrincipal,

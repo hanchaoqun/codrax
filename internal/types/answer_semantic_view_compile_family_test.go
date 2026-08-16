@@ -1327,6 +1327,10 @@ func TestCompileComparison_PerMemberTableIsSingleRequiredPrincipalCarrier(t *tes
 		len(table.AlternativeKinds) != 0 || table.SurfaceRoleHint != SurfacePrincipal {
 		t.Fatalf("typed per-member comparison table contract drifted: %+v", table)
 	}
+	if !strings.Contains(table.Rationale, "exact bucket identity visible in a separate row cell") ||
+		!strings.Contains(table.Rationale, "row identity field is the member") {
+		t.Fatalf("typed per-member comparison rationale must keep member and bucket as independent row axes: %q", table.Rationale)
+	}
 	for _, facet := range []AnswerFacetKind{FacetEnumerationItem, FacetBucketLabel, FacetComponentRelation} {
 		if !containsString(table.FacetIDs, string(facet)) {
 			t.Fatalf("typed per-member comparison table missing facet %s: %+v", facet, table)

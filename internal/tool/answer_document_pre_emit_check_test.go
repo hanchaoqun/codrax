@@ -1838,7 +1838,7 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 		!strings.Contains(hints[0].ExpectedShape, `facet_ids includes "enumeration_item"`) ||
 		!strings.Contains(hints[0].ExpectedShape, "claim_uses contains a contract-allowed claim_form") ||
 		!strings.Contains(hints[0].ExpectedShape, "item.text and later cells do not select row identity") ||
-		!strings.Contains(hints[0].ExpectedShape, "roster set_label is only the aggregate/category key") ||
+		!strings.Contains(hints[0].ExpectedShape, "roster set_label is the row's visible aggregate/category value") ||
 		!strings.Contains(hints[0].ExpectedShape, "citation_ref to the same member's compatible citation") ||
 		!strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="Kind constants" member="KindA"`) {
 		t.Fatalf("repair must name the structured carrier contract, got %+v", hints[0])
@@ -1913,7 +1913,8 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrin
 		"claim_uses contains a contract-allowed claim_form",
 		"only when label is omitted may cells[0] carry that member identity",
 		"category-first row must keep the member in label",
-		"set_label is only the aggregate/category key",
+		"set_label is the row's visible aggregate/category value",
+		"copy it to a separate cells entry with a matching column",
 		"citation_ref to the same member's compatible citation",
 		`[✗ MISSING] set_label="opaque category" member="Alpha"`,
 	} {
@@ -6165,6 +6166,104 @@ func TestPreCheckAggregateMemberSetCoverage_MarkdownCategoryFirstExactTypedSidec
 	doc.Blocks[0].Text = "| category | member | location |\n|---|---|---|\n| extend | Other | cart/Cart.cj:30 |\n| public class | Cart | cart/Cart.cj:14 |"
 	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
 		t.Fatal("a typed sidecar must not invent a member absent from its exact visible Markdown row")
+	}
+}
+
+func sourceInventoryPerMemberBucketTableTestContext(t *testing.T) (*types.BusContext, string, string) {
+	t.Helper()
+	mu := types.NewMutableState("compare extend and public class declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "ExtendCart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 30, Language: "cangjie", SurfaceTerms: []string{"extend", "extend ExtendCart"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "PublicCart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 14, Language: "cangjie", SurfaceTerms: []string{"public class", "public class PublicCart"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{Kind: types.AnswerAggregateMemberSet, Label: "extend block", Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"ExtendCart @ cart/Cart.cj:30"}, SupportRefs: []string{"ExtendCart @ cart/Cart.cj:30"}},
+		{Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"PublicCart @ cart/Cart.cj:14"}, SupportRefs: []string{"PublicCart @ cart/Cart.cj:14"}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		Buckets: []types.QuestionBucket{{Label: "extend block", Index: 1}, {Label: "public class", Index: 2}},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"extend", "public class"},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+			Confidence:        0.95,
+		},
+	}}}
+	var extendID, classID string
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		for _, row := range set.Rows {
+			switch set.Label {
+			case "extend block":
+				extendID = row.RowID
+			case "public class":
+				classID = row.RowID
+			}
+		}
+	}
+	if extendID == "" || classID == "" || extendID == classID {
+		t.Fatalf("typed bucket rows did not compile distinct ids: extend=%q class=%q sets=%+v", extendID, classID, preEmitSourceInventoryTypedPrincipalSets(ctx))
+	}
+	return ctx, extendID, classID
+}
+
+func TestPreCheckSourceInventoryPerMemberBucketCells_RequiresIndependentVisibleBucketAxis(t *testing.T) {
+	ctx, extendID, classID := sourceInventoryPerMemberBucketTableTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "comparison", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem), string(types.FacetBucketLabel), string(types.FacetComponentRelation)},
+		Items: []types.AnswerBlockItem{
+			{ID: "extend", Label: "ExtendCart", Cells: []string{"extend block", "cart/Cart.cj:30"}, SourceInventoryRowID: extendID},
+			{ID: "class", Label: "PublicCart", Cells: []string{"public class", "cart/Cart.cj:14"}, SourceInventoryRowID: classID},
+		},
+	}}}
+
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact member identities must remain valid: %+v", hints)
+	}
+	if hints := preCheckSourceInventoryPerMemberBucketCells(doc, ctx); len(hints) != 0 {
+		t.Fatalf("independent exact bucket cells must satisfy the typed comparison: %+v", hints)
+	}
+
+	doc.Blocks[0].Items[0].Cells = []string{"cart/Cart.cj:30"}
+	hints := preCheckSourceInventoryPerMemberBucketCells(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID ||
+		!strings.Contains(hints[0].ExpectedShape, `bucket="extend block"`) ||
+		!strings.Contains(hints[0].ExpectedShape, "separate visible cells value") {
+		t.Fatalf("missing row-local bucket must produce one exact typed repair: %+v", hints)
+	}
+	wired := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	wiredBucket := false
+	for _, hint := range wired {
+		if hint.Field == "blocks[0].items[].cells" && hint.HardSignal == preEmitHardSignalTypedSourceInventoryRowID {
+			wiredBucket = true
+			break
+		}
+	}
+	if !wiredBucket {
+		t.Fatalf("production pre-emit wiring omitted the typed per-row bucket contract: %+v", wired)
+	}
+
+	doc.Blocks[0].Items[0] = types.AnswerBlockItem{
+		ID: "extend", Label: "extend block", Cells: []string{"cart/Cart.cj:30", "ExtendCart"}, SourceInventoryRowID: extendID,
+	}
+	identityHints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(identityHints) == 0 ||
+		!strings.Contains(identityHints[0].ExpectedShape, `bucket label "extend block" as a separate visible cells value`) ||
+		!strings.Contains(identityHints[0].ExpectedShape, "do not replace the bucket with the member or discard either field") {
+		t.Fatalf("bucket-as-identity repair must preserve both axes in one turn: %+v", identityHints)
 	}
 }
 

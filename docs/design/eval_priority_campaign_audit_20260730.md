@@ -35938,6 +35938,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.963 r590/S37br：row-id 收敛转正；逐成员表的 member/bucket 双轴合同闭环（2026-08-16）
+
+1. 在 `main@2b4165a21` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + cangjie_repomap`。Runner `1/2 PASS`、人工 `1/2 pass`；
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_trace_cangjie_replay_r590_20260816.md` 与同名
+   `_manual_audit.md`。
+2. B941 获得生产正见证：同一 Cangjie 请求从 r589 的 `4 rejects + degraded fallback` 收敛为
+   `1 reject + valid answer_document`；12 个声明、文件、符号、package 与引用均保持，没有 extractor 漏行。
+   但可见答案仍不合格，因此不能把案例整体记作闭环。
+3. 新确认 B942（P1/精确合同自冲突）：第一稿把 `item.label` 用作可见 bucket（extend/foreign func/public
+   class），`cells` 保存 file/member/package；row-id gate 又把 label 统一称为“first visible value”，要求替换成
+   exact member。模型逐字修复后，表内 member 出现两列，bucket 列完全消失。系统只检查 block 声明了
+   `bucket_label` facet，没有检查每条 row_id 的 bucket 是否仍在该行，故错误答案签绿；runner 对三个 bucket
+   各数到 12 行。member occurrence identity 与用户可见 partition identity 是两个独立轴，不能争用一个
+   label 字段。
+4. 根修仍以 typed 结构为唯一控制面：仅在 resolved `QFComparison + HasPerMemberTable=true + source
+   inventory principal + principal table + enumeration_item + bucket_label` 同时成立时，逐个 exact row ID 从
+   `EnumerationDisplayRow.SetLabel` 取得其 bucket。成员继续占 `item.label`（或 cells-only 的 `cells[0]`）；
+   bucket 必须作为**另一条精确 cells 值**并有匹配 column。摘要或 block-level facet 不能代替逐行成员归属。
+5. row-id 首轮 repair 同步消歧：若模型把 bucket 放进 label，提示必须在同一轮同时做两件事——把 exact
+   member 放回 identity 位，并把原 bucket 移到独立 cell；明确禁止“用 member 替掉 bucket”或丢弃任一轴。
+   finalizer Principal Enumeration Rows 教学、comparison compiler rationale 与 pre-emit repair recipe 使用相同
+   member/bucket 分权，不再让模型从三份相反语义中猜列布局。
+6. 新 gate 不扫描用户输入、模型 thinking、答案 prose、列标题词或语言关键字；只读取 Analyzer boolean、
+   resolved family、typed row/set、block facet、row ID 与 cells 精确值。它适用于 Go/Python/Java/Kotlin/C/C++/
+   Rust/JS/TS/ArkTS/Cangjie 等全部语言，也适用于任意概念成员比较。系统不生成或移动可见行，只给模型
+   精确修复合同。
+7. 回归覆盖完整 member+bucket 双轴通过、缺 bucket 必须 fail-loud、bucket 误占 label 时一次提示同时保留
+   两轴，以及 `runPreEmitChecks` 生产接线 pin；comparison compiler 与 finalizer prompt 也各有字节 pin。
+   B941 的类别首列 Markdown parity、重复同名精确位置与隐藏 sidecar 不得造行的正负臂保持。
+8. Trace 再次零回归：显式窗、Trace 因果投影、自动补齐、链上-only 主因、邻近/背景分权、JIT/业务线索
+   与实际占时/规则可消双轴均在；blocked_reason 12 条/Σ39.157ms 未替代 11 段/36.757ms D-state 墙钟。
+   模型有一句“设备端 fence 驱动”强于 typed 调用点证据，但同页正文与系统边界多次明确持有者、资源及
+   subsystem 未证；按模型措辞波动留观，不新增原文扫描硬门。
+9. 本批无 malformed JSON、Mermaid、空答案或 active-stream 固定年龄降级；4ms 内没有完整 answer 时仍以
+   流式原始字节 liveness 为准，禁止固定年龄触发旧稿/散文降级。
+
+状态：
+
+`B941-MARKDOWNSIDECARPRIMARYAXIS1=production-positive-r590`；
+`B942-PERMEMBERBUCKETAXIS1=implemented/typed-member+bucket-axis+wiring-pins-pass/pending-replay`；
+`Cangjie inventory=facts-complete/visible-bucket-fail-r590`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r590`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
