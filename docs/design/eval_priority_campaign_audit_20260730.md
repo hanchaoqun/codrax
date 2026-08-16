@@ -35747,6 +35747,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    唯一 stable item-id overlap 同时成立时，真正 omitted 的 `facet_ids/surface_role` 才从旧块继承；显式空值、
    歧义、无稳定 item 及其他所有字段均不继承。tool description/schema 已同步教学该窄例外，正向、显式清空、
    wholesale replacement 三臂与 `internal/tool` 全包测试通过。
+   B937 也已完成：已有完整 anchor 的 endpoint identity 仅在 relation 相同、两端分别与唯一 dispatch-scoped
+   recipe 等价，且至少一端只是多了一个“空格分隔的尾部展示括注”时回填 recipe exact pair。该逻辑统一覆盖
+   diagram 与 standalone structured relation carrier；`foo(arg)` 签名、歧义 recipe、partial identity 均 fail-close，
+   不改 visible label/item、node、diagram body、方向或 relation。生产 pre-emit 接线与修复计数已单独 pin，
+   `internal/tool` 全包测试通过。
 8. Trace 供给折算与优先级候选求和的模型措辞仍有误差，先作为 B933 回放同批人工观察，不用答案算式
    regex 硬门。Poly 引用错位另记 typed citation identity 债，不以当前 label 文本拟合。
 
@@ -35756,7 +35761,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r585`；
 `B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=production-closed-r585`；
 `B936-STRUCTUREDPATCHCARRIERPRESERVATION1=implemented/structural-pins-pass/pending-r586`；
-`B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=confirmed/P1/planned`；
+`B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=implemented/production-wiring-pins-pass/pending-r586`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r585`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

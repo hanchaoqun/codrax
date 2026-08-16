@@ -144,7 +144,11 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 //
 // This repair never reads visible labels and never creates an edge, anchor, or
 // relation. Business-facing labels therefore cannot overwrite typed identity,
-// while an unproved model-authored relation gains no authority.
+// while an unproved model-authored relation gains no authority. Its final pass
+// also removes one display-only, whitespace-separated parenthetical qualifier
+// from an already-complete identity pair, but only when that pair resolves to
+// exactly one dispatch-scoped typed recipe. That pass applies to diagram and
+// standalone structured relation carriers alike.
 func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocumentV2, recipes []types.DiagramEdgeAnchor) int {
 	if doc == nil || len(recipes) == 0 {
 		return 0
@@ -194,7 +198,100 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 		}
 	}
 	fixed += normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc, recipes)
+	fixed += normalizeDisplayQualifiedEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes)
 	return fixed
+}
+
+// normalizeDisplayQualifiedEdgeAnchorIdentitiesFromTypedRecipes repairs a
+// presentation suffix that the model copied from a visible business label into
+// exact endpoint identity metadata (for example `worker (core)`). It consumes
+// only existing complete typed anchors and dispatch-scoped recipes. The
+// relation kind and both endpoints must resolve to exactly one recipe pair;
+// otherwise it fails closed. Nodes, labels, item text, diagram source,
+// direction, and relation kind remain byte-preserved.
+func normalizeDisplayQualifiedEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocumentV2, recipes []types.DiagramEdgeAnchor) int {
+	if doc == nil || len(recipes) == 0 {
+		return 0
+	}
+	type pair struct{ from, to string }
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ai := range doc.Blocks[bi].EdgeAnchors {
+			anchor := &doc.Blocks[bi].EdgeAnchors[ai]
+			if !anchor.RelationKind.IsValid() || !anchor.HasEndpointIdentityPair() {
+				continue
+			}
+			candidates := make(map[pair]bool)
+			usedQualifier := false
+			for _, recipe := range recipes {
+				if recipe.RelationKind != anchor.RelationKind || !recipe.HasEndpointIdentityPair() {
+					continue
+				}
+				fromMatch, fromUsedQualifier := answerDisplayQualifiedIdentityRecipeMatch(anchor.FromIdentity, recipe.FromIdentity)
+				toMatch, toUsedQualifier := answerDisplayQualifiedIdentityRecipeMatch(anchor.ToIdentity, recipe.ToIdentity)
+				if !fromMatch || !toMatch {
+					continue
+				}
+				candidate := pair{from: strings.TrimSpace(recipe.FromIdentity), to: strings.TrimSpace(recipe.ToIdentity)}
+				candidates[candidate] = true
+				usedQualifier = usedQualifier || fromUsedQualifier || toUsedQualifier
+			}
+			if !usedQualifier || len(candidates) != 1 {
+				continue
+			}
+			for candidate := range candidates {
+				anchor.FromIdentity = candidate.from
+				anchor.ToIdentity = candidate.to
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func answerDisplayQualifiedIdentityRecipeMatch(surface, recipe string) (matched, usedQualifier bool) {
+	surface = strings.TrimSpace(surface)
+	recipe = strings.TrimSpace(recipe)
+	if surface == "" || recipe == "" {
+		return false, false
+	}
+	if types.AnswerCodeIdentitySurfacesEquivalent(surface, recipe) {
+		return true, false
+	}
+	base, ok := answerDisplayQualifiedIdentityBase(surface)
+	if !ok || !types.AnswerCodeIdentitySurfacesEquivalent(base, recipe) {
+		return false, false
+	}
+	return true, true
+}
+
+func answerDisplayQualifiedIdentityBase(surface string) (string, bool) {
+	surface = strings.TrimSpace(surface)
+	if len(surface) < 4 || !strings.HasSuffix(surface, ")") {
+		return "", false
+	}
+	open := strings.LastIndexByte(surface, '(')
+	if open <= 0 || open >= len(surface)-2 || !isASCIISpace(surface[open-1]) {
+		return "", false
+	}
+	qualifier := surface[open+1 : len(surface)-1]
+	if strings.TrimSpace(qualifier) == "" || strings.ContainsAny(qualifier, "()\r\n") {
+		return "", false
+	}
+	base := strings.TrimSpace(surface[:open])
+	if base == "" {
+		return "", false
+	}
+	return base, true
+}
+
+func isASCIISpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r':
+		return true
+	default:
+		return false
+	}
 }
 
 type diagramTypedRecipeEdge struct {

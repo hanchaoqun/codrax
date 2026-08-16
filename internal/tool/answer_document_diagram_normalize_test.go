@@ -154,6 +154,80 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPreservesBusinessLa
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesRemovesUniqueDisplayQualifierFromStructuredCarrier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{ID: "hop-1", Label: "tokenize_bytes (core)", Text: "business-facing copy"}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{
+				FromNode: "wrapper", ToNode: "core",
+				FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes (core)",
+				RelationKind: types.DiagramRelCall,
+			},
+			{
+				FromNode: "core", ToNode: "merge",
+				FromIdentity: "tokenize_bytes (core)", ToIdentity: "best_merge",
+				RelationKind: types.DiagramRelCall,
+			},
+		},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes", RelationKind: types.DiagramRelCall},
+		{FromIdentity: "tokenize_bytes", ToIdentity: "best_merge", RelationKind: types.DiagramRelCall},
+	}
+	originalItems := append([]types.AnswerBlockItem(nil), doc.Blocks[0].Items...)
+	originalNodes := [][2]string{{"wrapper", "core"}, {"core", "merge"}}
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 2 {
+		t.Fatalf("fixed=%d, want two unique display-qualifier receipts", fixed)
+	}
+	for i, anchor := range doc.Blocks[0].EdgeAnchors {
+		if anchor.FromIdentity != recipes[i].FromIdentity || anchor.ToIdentity != recipes[i].ToIdentity {
+			t.Fatalf("anchor[%d]=%+v, want exact recipe identities", i, anchor)
+		}
+		if anchor.FromNode != originalNodes[i][0] || anchor.ToNode != originalNodes[i][1] {
+			t.Fatalf("typed receipt changed business nodes: %+v", anchor)
+		}
+	}
+	if doc.Blocks[0].Items[0].ID != originalItems[0].ID ||
+		doc.Blocks[0].Items[0].Label != originalItems[0].Label ||
+		doc.Blocks[0].Items[0].Text != originalItems[0].Text {
+		t.Fatalf("typed receipt changed visible item copy: before=%+v after=%+v", originalItems[0], doc.Blocks[0].Items[0])
+	}
+}
+
+func TestNormalizeDisplayQualifiedEdgeAnchorIdentitiesFailsClosedOnRecipeAmbiguity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromIdentity: "pkg.foo (role)", ToIdentity: "pkg.bar (target)", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromIdentity: "pkg.foo", ToIdentity: "pkg.bar", RelationKind: types.DiagramRelCall},
+		{FromIdentity: "pkg::foo", ToIdentity: "pkg::bar", RelationKind: types.DiagramRelCall},
+	}
+	before := doc.Blocks[0].EdgeAnchors[0]
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 || doc.Blocks[0].EdgeAnchors[0] != before {
+		t.Fatalf("multiple exact recipe surfaces must remain fail-closed: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
+func TestNormalizeDisplayQualifiedEdgeAnchorIdentitiesDoesNotStripFunctionSignature(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromIdentity: "foo(arg)", ToIdentity: "bar", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{{
+		FromIdentity: "foo", ToIdentity: "bar", RelationKind: types.DiagramRelCall,
+	}}
+	before := doc.Blocks[0].EdgeAnchors[0]
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 || doc.Blocks[0].EdgeAnchors[0] != before {
+		t.Fatalf("function signatures are code identity, not display qualifiers: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesMapsUniqueBusinessTopology(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "business-topology", Kind: types.BlockDiagram,
@@ -329,6 +403,38 @@ func TestNormalizeAnswerDocumentForPreEmitWiresTypedRecipeIdentityRepair(t *test
 	}
 	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 1 {
 		t.Fatalf("production repair accounting missing: %+v", pctx.repairCounts)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmitWiresDisplayQualifierReceiptOnStructuredCarrier(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("render the verified path")}
+	recipe := types.DiagramEdgeAnchor{
+		FromIdentity: "tokenize_bytes", ToIdentity: "best_merge", RelationKind: types.DiagramRelCall,
+	}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{recipe})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items:     []types.AnswerBlockItem{{ID: "hop", Label: "tokenize_bytes (core)"}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "core", ToNode: "merge",
+			FromIdentity: "tokenize_bytes (core)", ToIdentity: "best_merge",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	pctx := newPreEmitCheckContext(bus)
+	normalizeAnswerDocumentForPreEmit("emit_answer_document_patch", doc,
+		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}, bus, pctx)
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromIdentity != recipe.FromIdentity || got.ToIdentity != recipe.ToIdentity {
+		t.Fatalf("production normalizer did not consume the unique display qualifier receipt: %+v", got)
+	}
+	if doc.Blocks[0].Items[0].Label != "tokenize_bytes (core)" || got.FromNode != "core" || got.ToNode != "merge" {
+		t.Fatalf("production receipt changed visible business surface: item=%+v anchor=%+v", doc.Blocks[0].Items[0], got)
+	}
+	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 1 {
+		t.Fatalf("production display-qualifier repair accounting missing: %+v", pctx.repairCounts)
 	}
 }
 
