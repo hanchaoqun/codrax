@@ -4491,14 +4491,14 @@ func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEn
 			}},
 		},
 	}
-	if got := validateRequiredDiagramEmptyParticipantSlate(base); got != "" {
+	if got := validateRequiredDiagramEmptyParticipantSlate(base, true); got != "" {
 		t.Fatalf("one possible enclosing scope must not become a participant hard gate: %q", got)
 	}
 	trace := base
 	trace.Intent = types.IntentTrace
 	trace.AnalyzerHints.Entities = []string{"threadA", "threadB"}
 	trace.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "draw threadA and threadB"
-	if got := validateRequiredDiagramEmptyParticipantSlate(trace); got != "" {
+	if got := validateRequiredDiagramEmptyParticipantSlate(trace, true); got != "" {
 		t.Fatalf("Trace must stay on causal-projection contracts: %q", got)
 	}
 }

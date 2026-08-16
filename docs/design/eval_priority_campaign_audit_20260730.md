@@ -35687,10 +35687,26 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. 本批不改 Read/Trace 的查询、因果投影、自动补齐或模型结论。活跃字节流仍不得因 4ms、固定
    总时长或“尚未形成完整 answer_document”降级；终止/恢复只读 caller cancel/deadline、无首字节、
    byte stall、transport/decode failure 等精确信号。
+9. B919 已按上述方案施工。修复入口移到所有 registration 候选共用的 post-grounding seam；只在
+   原模型行最终不可引用且唯一结构绑定存在时发 exact model re-emit debt。r577 的
+   registration+callback 形现会得到 line 47 / call / add_function / m /
+   `wrap_pyfunction!(tokenize_bytes, m)` 五元组并阻止提前 completion；原 ungrounded 行保持原样，
+   系统零证据晋升。精确 registration 正形不追债，零/多候选继续 fail-open。
+10. 完整 tool 套件同时抓到 B920 合同冲突：B917 新门把一个原本 optional 的
+    `diagram_hint.relation_scope_quote`，随着兄弟 required diagram dimension 将“图可见性”升为 required，
+    也错误升成了参与者硬权威；于是 required dimension 只写 `Mermaid sequenceDiagram` 的合法对象
+    被 sibling scope 中 analyze/finalizer 误拒。根修保留 requiredness provenance：required dimension
+    只授权必须有图；只有原始已 required 的 diagram scope 才能参与空 slate 矛盾门。原 B917 六主体
+    拒绝正臂、optional→required 接受正臂、single-scope 与 Trace 旁路全部通过。这是 schema typed
+    authority 隔离，不读取任何答案/推理文本。
+11. `go test ./internal/tool ./internal/agent ./internal/types -count=1` 全绿（tool 161.769s、agent
+    10.605s、types 22.578s）。B919 仍需下一轮 polyglot 生产回放确认模型按义务重发并保留非调用
+    binding handoff；B920 已有原失败测试与 B917 对偶正臂，可先记 deterministic closure。
 
 状态：
 
-`B919-REGISTRATIONANCHORREPAIRENTRY1=confirmed-r577/planned-next-batch`；
+`B919-REGISTRATIONANCHORREPAIRENTRY1=implemented/typed-pins+full-suite-pass/pending-production-replay`；
+`B920-DIAGRAMREQUIREDNESSAUTHORITYPROVENANCE1=implemented/deterministic-closed`；
 `B672-PRINCIPALMEMBERSETEDGECOVERAGE1=call-components-positive/registration-handoff-missing-r577`；
 `POLY-evidence-to-final-location-drift=observed/model-owned/no-prose-rewrite`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r577`；

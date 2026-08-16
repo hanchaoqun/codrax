@@ -905,15 +905,26 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			registrationAlignmentRejected = true
 		}
 		registrationBeforeEndpointAudit := built[i]
-		if !registrationAlignmentRejected && stabilizeRegistrationEndpointAuthority(&built[i], gc) {
-			if repair, ok := emitEvidenceRequiredRegistrationBindingRepair(
-				ctx, registrationBeforeEndpointAudit, builtParamIndexes[i], gc,
-			); ok {
-				registrationBindingRepairs = append(registrationBindingRepairs, repair)
+		if !registrationAlignmentRejected {
+			if stabilizeRegistrationEndpointAuthority(&built[i], gc) {
+				r.Status = built[i].GroundingStatus
+				r.Tier = built[i].GroundingTier
+				r.Note = built[i].GroundingNote
 			}
-			r.Status = built[i].GroundingStatus
-			r.Tier = built[i].GroundingTier
-			r.Note = built[i].GroundingNote
+			// A wrong source-shape anchor (for example registration+callback on
+			// a receiver registration call) can fail initial grounding before
+			// the endpoint stabilizer above runs.  Audit every non-citable typed
+			// registration candidate at this common seam, not only rows that
+			// became non-citable during endpoint stabilization.  The repair is
+			// still only an exact model re-emit obligation: the system does not
+			// promote the original row or mint a binding edge.
+			if !built[i].IsCitable() {
+				if repair, ok := emitEvidenceRequiredRegistrationBindingRepair(
+					ctx, registrationBeforeEndpointAudit, builtParamIndexes[i], gc,
+				); ok {
+					registrationBindingRepairs = append(registrationBindingRepairs, repair)
+				}
+			}
 		}
 		requestedDiagramRole := built[i].DiagramRole
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)

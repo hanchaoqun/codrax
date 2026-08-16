@@ -1624,6 +1624,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	diagramRelationScopeWasRequired := diagramHint != nil && diagramHint.Required
 	if reconciled, warning := reconcileDiagramHintRequiredWithRequestedDimensions(diagramHint, requestedAnswerDimensions); warning != "" {
 		diagramHint = reconciled
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2193,7 +2194,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
-	if conflict := validateRequiredDiagramEmptyParticipantSlate(rm); conflict != "" {
+	if conflict := validateRequiredDiagramEmptyParticipantSlate(rm, diagramRelationScopeWasRequired); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -2441,7 +2442,7 @@ func emitAnalysisRuntimeArtifactOnlyObject(object map[string]json.RawMessage) bo
 // participant rows (and choose their roles) or narrow the dimension quote.
 // The system does neither, and it never creates a relation or diagram node.
 // Runtime Trace stays on its independent causal-projection contracts.
-func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel) string {
+func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel, relationScopeWasRequired bool) string {
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) != 0 ||
 		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
@@ -2449,7 +2450,12 @@ func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel) string 
 	}
 
 	var typedRelationQuotes []string
-	if quote := strings.TrimSpace(rm.DiagramHint.RelationScopeQuote); quote != "" {
+	// A sibling requested dimension may promote an optional diagram's visible
+	// presence to required.  That promotion does not also promote the optional
+	// hint's relation_scope_quote into required participant authority.  Only a
+	// scope emitted on an already-required diagram can drive this hard
+	// consistency check; required dimension quotes keep their own authority.
+	if quote := strings.TrimSpace(rm.DiagramHint.RelationScopeQuote); relationScopeWasRequired && quote != "" {
 		typedRelationQuotes = append(typedRelationQuotes, quote)
 	}
 	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {

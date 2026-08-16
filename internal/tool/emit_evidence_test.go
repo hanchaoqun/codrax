@@ -7122,6 +7122,64 @@ func TestEmitEvidence_CrossComponentRegistrationDefinitionPublishesDurableBindin
 	}
 }
 
+func TestEmitEvidence_CrossComponentRegistrationWrongCallbackAnchorPublishesDurableBindingRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+	const source = "core-rs/src/lib.rs"
+	seedReadFileHistory(ctx, source, 45,
+		"#[pymodule]",
+		"fn _fastlex(m: &Bound<'_, PyModule>) -> PyResult<()> {",
+		"m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;",
+		"Ok(())",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "_fastlex", Kind: "function", Line: 46, EndLine: 49}},
+		},
+	}})
+
+	// Production witness r577: the model recognized a registration but used
+	// callback semantics and compressed the syntax-owned endpoints.  Initial
+	// grounding rejects that shape; the common post-grounding audit must still
+	// return the unique exact registration tuple instead of allowing completion
+	// with two disconnected call components.
+	wrong := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"_fastlex","predicate":"binds","object":"tokenize_bytes","source":"core-rs/src/lib.rs","line_start":47,"summary":"exports the wrapper","anchor_kind":"callback","anchor_symbol":"wrap_pyfunction!(tokenize_bytes, m)"}]}`)
+	res, err := tool.Execute(ctx, wrong)
+	if err != nil || !res.Success {
+		t.Fatalf("wrong source-shape row should return typed repair, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "registration_binding_expression" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("wrong callback anchor escaped durable binding repair: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		`source="core-rs/src/lib.rs"`, `line_start=47`, `anchor_kind="call"`,
+		`anchor_symbol="add_function"`, `subject="m"`,
+		`object="wrap_pyfunction!(tokenize_bytes, m)"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("binding repair missing %q: %+v", want, res.Repair)
+		}
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].IsCitable() || got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("system must preserve the rejected model row without minting authority: %+v", got)
+	}
+
+	ctx.Mutable.AppendDispatchToolResult(res)
+	if pending := pendingBlockingEmitEvidenceItemValidationRepair(ctx); pending == nil ||
+		pending.Metadata["repair_scope"] != "registration_binding_expression" {
+		t.Fatalf("wrong anchor repair did not remain completion-blocking: %+v", pending)
+	}
+}
+
 func TestEmitEvidence_FactoryGuardAndReturnRemainSeparateAuthoritativeRows(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
