@@ -3534,6 +3534,9 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.Evi
 		return files, keywords
 	}
 	rationale := flowOperationRepairHint(types.FlowOperationEvidenceEmissionGuide, files, keywords)
+	queueFlowOperationNavigationRead(ctx, nil,
+		"Read this bounded parser-owned operation occurrence, then emit only the exact verified operation or keep the transfer unproven; the navigation row itself is not relation evidence.",
+		"carrier", types.DowngradeLaneFlowOperationCarrier)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
@@ -3612,6 +3615,9 @@ func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string,
 		return files, keywords
 	}
 	rationale := flowParticipantCoverageRepairHint(missing, files, keywords)
+	queueFlowOperationNavigationRead(ctx, missing,
+		fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then emit only the exact verified operation or keep the requested relation unproven; the navigation row itself is not relation evidence.", missing),
+		"participant", types.DowngradeLaneFlowParticipantCoverage)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
@@ -3624,6 +3630,32 @@ func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string,
 		Stage:         string(types.StageExplore),
 	})
 	return files, keywords
+}
+
+// queueFlowOperationNavigationRead turns one precise parser occurrence from
+// the SOFT flow-repair plan into a bounded lazy read. The read is explicitly
+// advisory and cannot establish a relation: only a later model-authored,
+// grounded emit_evidence row can do that. This closes the scheduler gap where
+// the tool named the right file/line but the same LLM dispatch repeatedly
+// retried completion without ever opening it.
+func queueFlowOperationNavigationRead(ctx *types.BusContext, missing []string, rationale, suffix string, lane types.DowngradeLane) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return
+	}
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
+	if !ok {
+		return
+	}
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:          types.RepairReadFile,
+		Files:         []string{target.file},
+		LineRanges:    []types.LineRange{target.lineRange},
+		Rationale:     rationale,
+		Origin:        "emit_investigation_complete.flow_navigation." + strings.TrimSpace(suffix),
+		DowngradeLane: lane,
+		Stage:         string(types.StageExplore),
+		Advisory:      true,
+	})
 }
 
 // flowOperationRepairHint exposes the bounded navigation plan in the same

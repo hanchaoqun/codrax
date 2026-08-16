@@ -35649,6 +35649,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
+
+1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + sr_java_call_chain`。Runner `1 PASS / 1 FAIL`，人工两案均不能按
+   runner 字面签绿；完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_b880_b882_java_r557_20260816_manual_audit.md`。
+2. B882 获 production 正证：两个答案都不再发布被拒第一稿，当前“系统补充：输出维度核对”只出现一次。
+   accepted structured document 后的 typed attachment boundary 生效；系统附件/Trace supplement 的独立保留面未丢。
+   因此 `B882-RECOVEREDATTACHMENTDEDUP1` 收为 production-closed。
+3. B880 只完成一半：Analyzer 已保留跨句命名的 `emit_answer_document`、
+   `emit_answer_document_patch` 两个 incident-required participant；completion 也不再静默签绿，并正确把
+   `cmd/root.go`（真实全局注册点）排在 soft navigation candidate 首位。但 Explorer 24 轮、4 次 completion、
+   17 次 read 中始终绕开该文件，停在 Name()/Description、`ParametersFor` 和 evaluator 局部状态；终稿虽满足
+   literal/table 的 runner oracle，关系图只是多个断开的局部片段，正文仍把工具选择/注册归给错误主体。人工为 fail。
+4. 新确认 `B884-FLOWREPAIRREADSCHED1=P1`：typed repair 已算出精确候选，scheduler 却只把它写进 prose/repair hint，
+   没有进入现有 `PendingRead -> runForcedReads` 执行面。同一 dispatch 因此可反复 completion，而系统要等 dispatch
+   自然耗尽才有机会动作；本案耗时 330s。该 gap 是“结构化修复计划没有驱动下一步动作”，不是关系词汇不足，也
+   不能靠放松 validator、让系统选边/画边或硬编码工具名修复。
+5. B884 根修从 request-scoped repomap graph 的 `call/reference/type_usage` parser occurrence 中，每次只选择一个
+   尚未读取的 exact file+line，生成约 25 行 surgical read。候选对齐继续使用 B880 的 planning-only identity seam；
+   读取结果绝不生成 EvidenceItem、不满足 participant/关系门、不进入 diagram/正文/结论。Explorer 仍须读取源码后
+   自己发 exact registration/call/guard/assignment/return；若第一处只是声明邻接引用，下一次同 lane downgrade 自动
+   推进到下一个未读 parser 位点，不批量灌入文件。
+6. 该读取 origin 为独立 `emit_investigation_complete.flow_navigation.*` advisory 类：探索活跃时可由现有 lazy
+   auto-read 消费，也会在同 dispatch 的 closure-repair hint 中明确显示；一旦 typed closure 已成立，它不会重开答案。
+   既有 `primary_anchor/multi_path_anchor` 仍是 load-bearing。首次实现曾误复用宽泛 generic 分类，定向 tripwire 立即
+   抓到精确锚被降格；代码已收窄为仅新 prefix advisory，并重跑相关 types/agent/orchestrator 正负 pin 全绿。
+7. 全语言 pin 遍历 `SupportedReadLanguages()`，要求每种 parser incident 都生成同一 bounded read target；另钉
+   `cmd/root.go:4315` 读完后推进到 `internal/agent/agent.go:3788`、pending read 为 advisory、EvidenceItem 数量不变。
+   `go test ./... -count=1` 全仓全绿（tool 184.706s、hitraceconv 97.868s、tracequery 78.890s、
+   orchestrator 21.313s、types 31.214s）。需重放 B880 才能确认 24 轮/330s 是否生产收敛，当前不提前收账。
+8. Java 案的系统上下文其实已精确给出 `AuditLog.record -> System.out.println`，最终尾部还明确要求未有独立证据时
+   保持 database/durability 未证；模型仍写“输出到标准输出，完成审计落库”。这次是模型指令服从失败，并伴随把
+   五个方法称为“5 跳”的路径/节点计数含混，不是 evidence/context 缺口。记为异构/跨模型观察项，暂不增加
+   `println`/“落库”关键词硬门、系统判决句或答案重写；若后续不同语言/模型重复，再考虑从 typed terminal operation
+   category 提供更低心智的中性对照，而非接管结论。
+9. 本批不改 JSON/Mermaid 自愈、Trace query/投影/自动补齐或答案所有权。显式时间窗与完整 causal-diagnosis 保持；
+   Trace 主因只来自 typed on-chain 证据，优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与链上业务线索
+   不丢，实际占用与规则计价可消除量双轴不变，邻近/背景仅作 support。活跃字节流不因 4ms/固定总龄降级。
+
+状态：
+
+`B882-RECOVEREDATTACHMENTDEDUP1=production-closed-r557`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r557/participant-retained+completion-safe`；
+`B884-FLOWREPAIRREADSCHED1=implemented/all-language+surgical+advisory/pending-production-replay`；
+`B885-CONCEPTUALTERMINALMODELDRIFT1=observed-once/context-accurate/no-hard-fit`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

@@ -204,7 +204,8 @@ func IsGenericForcedReadOrigin(origin string) bool {
 		"pre_complete.multi_path_anchor":
 		return true
 	default:
-		return strings.HasPrefix(origin, "chain_promotion.")
+		return strings.HasPrefix(origin, "chain_promotion.") ||
+			strings.HasPrefix(origin, "emit_investigation_complete.flow_navigation.")
 	}
 }
 
@@ -226,7 +227,8 @@ func PendingReadBlocksAcceptedClosure(p PendingRead) bool {
 	case "pre_complete.phase1_unread":
 		return false
 	}
-	if strings.HasPrefix(origin, "chain_promotion.") {
+	if strings.HasPrefix(origin, "chain_promotion.") ||
+		strings.HasPrefix(origin, "emit_investigation_complete.flow_navigation.") {
 		return false
 	}
 	return true

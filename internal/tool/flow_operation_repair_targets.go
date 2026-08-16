@@ -12,7 +12,13 @@ import (
 const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
+	flowOperationRepairReadRadius  = 12
 )
+
+type flowOperationRepairReadTarget struct {
+	file      string
+	lineRange types.LineRange
+}
 
 // flowResolvedParticipantIdentity is a parser-owned navigation projection for
 // one request-visible participant. Surfaces may close a hard *search*
@@ -206,6 +212,98 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	files = appendUniqueBounded(files, other, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, completionMaterializationReadFiles(ctx.Mutable.EvidenceClosure()), maxFlowOperationRepairFiles)
 	return files, keywords
+}
+
+// flowOperationRepairReadTargetForMissing returns one bounded, parser-owned
+// operation occurrence that has not yet been read. It is a navigation target
+// only: callers may put the range on the lazy-read queue, but the occurrence
+// never becomes EvidenceItem authority and never closes a participant or
+// relation gate by itself. The explorer must still inspect the source and emit
+// the exact syntax-owned operation through emit_evidence.
+//
+// Selecting one target at a time keeps the repair cross-language and cheap.
+// If the first occurrence is only a declaration-adjacent reference, the next
+// identical completion downgrade advances to the next unread parser site
+// rather than bulk-reading every fuzzy candidate.
+func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []string) (flowOperationRepairReadTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return flowOperationRepairReadTarget{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	wanted := make(map[string]bool, len(missing))
+	for _, identity := range missing {
+		if key := strings.ToLower(strings.TrimSpace(identity)); key != "" {
+			wanted[key] = true
+		}
+	}
+	var surfaces []string
+	if rm.DiagramHint != nil {
+		for _, participant := range rm.DiagramHint.Participants {
+			if participant.Role != types.DiagramParticipantIncidentRequired {
+				continue
+			}
+			if len(wanted) > 0 && !wanted[strings.ToLower(strings.TrimSpace(participant.Identity))] {
+				continue
+			}
+			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+			surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
+		}
+	}
+	if len(surfaces) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	paths := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	closure := ctx.Mutable.EvidenceClosure()
+	for _, path := range paths {
+		if !relationSourceInRequestedScope(path, rm) {
+			continue
+		}
+		fi := graph.FileIndex[path]
+		if fi == nil {
+			continue
+		}
+		for _, relation := range fi.Relations {
+			switch relation.Kind {
+			case "call", "reference", "type_usage":
+			default:
+				continue
+			}
+			from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+			to := flowRepairRelationEndpointSurfaces(relation.ToEP)
+			if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
+				!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {
+				continue
+			}
+			file := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, fi.RelPath, path))
+			line := relation.Line
+			if line <= 0 {
+				line = relation.FromEP.Line
+			}
+			if line <= 0 {
+				line = relation.ToEP.Line
+			}
+			if file == "" || line <= 0 || closure.HasReadLine(file, line) {
+				continue
+			}
+			start := line - flowOperationRepairReadRadius
+			if start < 1 {
+				start = 1
+			}
+			return flowOperationRepairReadTarget{
+				file:      file,
+				lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+			}, true
+		}
+	}
+	return flowOperationRepairReadTarget{}, false
 }
 
 // flowRepairParserRelationTargets adds exact parser-observed incident sites to

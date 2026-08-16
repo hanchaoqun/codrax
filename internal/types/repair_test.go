@@ -340,3 +340,16 @@ func TestMergeRepairs_DoesNotConflateDifferentSourceInventoryDebt(t *testing.T) 
 		t.Fatalf("MergeRepairs conflated distinct source-inventory cursors: %+v", got)
 	}
 }
+
+func TestFlowNavigationPendingReadRemainsAdvisoryAfterAcceptedClosure(t *testing.T) {
+	pending := PendingRead{File: "src/tool_binding.go", Origin: "auto_bridge.emit_investigation_complete.flow_navigation.participant"}
+	if !IsGenericForcedReadOrigin(pending.Origin) {
+		t.Fatalf("flow navigation origin must be recognized as generic planning work: %+v", pending)
+	}
+	if PendingReadBlocksAcceptedClosure(pending) {
+		t.Fatalf("soft parser-navigation read must not reopen an accepted typed closure: %+v", pending)
+	}
+	if got := ClassifyPendingReadRepair(pending); got != RepairDebtAdvisory {
+		t.Fatalf("flow navigation pending read class=%q, want advisory", got)
+	}
+}

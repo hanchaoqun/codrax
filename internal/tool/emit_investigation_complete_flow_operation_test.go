@@ -654,7 +654,70 @@ func TestFlowOperationRepairTargetsCarryParserIncidentSitesAcrossSupportedLangua
 					t.Fatalf("%s parser endpoint %q missing from soft navigation: files=%v keywords=%v", language, want, files, keywords)
 				}
 			}
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
+			if !ok || target.file != path || target.lineRange.Start != 5 || target.lineRange.End != 29 {
+				t.Fatalf("%s parser incident must yield one bounded navigation read, got ok=%t target=%+v", language, ok, target)
+			}
 		})
+	}
+}
+
+func TestFlowOperationNavigationReadIsAdvisoryAndAdvancesAcrossUnreadParserSites(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"emit_answer_document"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "emit_answer_document", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"cmd/root.go": {
+			RelPath: "cmd/root.go", Language: "go",
+			Relations: []repotypes.Relation{{
+				Kind: "type_usage", File: "cmd/root.go", Line: 4315,
+				FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: "cmd/root.go", Line: 4315},
+				ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "cmd/root.go", Line: 4315},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_type_usage",
+			}},
+		},
+		"internal/agent/agent.go": {
+			RelPath: "internal/agent/agent.go", Language: "go",
+			Relations: []repotypes.Relation{{
+				Kind: "type_usage", File: "internal/agent/agent.go", Line: 3788,
+				FromEP:     repotypes.RelationEndpoint{Name: "buildToolSchemas", File: "internal/agent/agent.go", Line: 3788},
+				ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "internal/agent/agent.go", Line: 3788},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_type_usage",
+			}},
+		},
+	}})
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
+	if !ok || target.file != "cmd/root.go" || target.lineRange != (types.LineRange{Start: 4303, End: 4327}) {
+		t.Fatalf("first unread parser site should be selected deterministically: ok=%t target=%+v", ok, target)
+	}
+	beforeEvidence := len(ctx.Mutable.EmittedEvidence())
+	queueFlowOperationNavigationRead(ctx, []string{"emit_answer_document"}, "bounded navigation only", "participant", types.DowngradeLaneFlowParticipantCoverage)
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].File != "cmd/root.go" || len(pending[0].LineRanges) != 1 ||
+		pending[0].LineRanges[0] != target.lineRange {
+		t.Fatalf("navigation repair must queue exactly one surgical read: %+v", pending)
+	}
+	if types.ClassifyPendingReadRepair(pending[0]) != types.RepairDebtAdvisory ||
+		types.PendingReadBlocksAcceptedClosure(pending[0]) {
+		t.Fatalf("parser navigation read must remain soft after typed closure: %+v", pending[0])
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != beforeEvidence {
+		t.Fatalf("navigation scheduling must not manufacture evidence: before=%d after=%d", beforeEvidence, got)
+	}
+
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{"cmd/root.go": true})
+	ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+		"cmd/root.go": {{Start: 4303, End: 4327}},
+	})
+	next, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
+	if !ok || next.file != "internal/agent/agent.go" || next.lineRange != (types.LineRange{Start: 3776, End: 3800}) {
+		t.Fatalf("after the first site is read the repair must advance, got ok=%t target=%+v", ok, next)
 	}
 }
 
