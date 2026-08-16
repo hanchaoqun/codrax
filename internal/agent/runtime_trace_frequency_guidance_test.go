@@ -9,9 +9,15 @@ import (
 
 func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) {
 	mut := types.NewMutableState("分析显式窗口内 CPU 供给")
-	witness := types.TraceFrequencyLimitAuthority{
+	witness0 := types.TraceFrequencyLimitAuthority{
 		CPU: 0, MinFrequencyKHz: 418000, MaxFrequencyKHz: 1530000,
 		LimitRowCount: 16, WitnessLine: 8048, WitnessTs: 13762.861720,
+		WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
+		Authority: "direct_in_window_policy_limit",
+	}
+	witness4 := types.TraceFrequencyLimitAuthority{
+		CPU: 4, MinFrequencyKHz: 558000, MaxFrequencyKHz: 2100000,
+		LimitRowCount: 28, WitnessLine: 17113, WitnessTs: 13762.940114,
 		WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
 		Authority: "direct_in_window_policy_limit",
 	}
@@ -21,7 +27,24 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 			Success:  true,
 			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
 				View:                    "window_stats",
-				FrequencyLimitWitnesses: []types.TraceFrequencyLimitAuthority{witness},
+				FrequencyLimitWitnesses: []types.TraceFrequencyLimitAuthority{witness0, witness4},
+			},
+			Observations: []types.ObservationRecord{
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "target_cpu_running", Subject: "app-17267", Object: "cpu=4", Value: "35.960", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898", types.TraceNoteKeyTargetCPURunningCPU + "=4", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
+				},
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "target_cpu_running", Subject: "app-17267", Object: "cpu=12", Value: "96.081", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898", types.TraceNoteKeyTargetCPURunningCPU + "=12", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
+				},
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "target_cpu_running", Subject: "app-17267", Object: "cpu=7", Value: "999.000", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=1.000000..2.000000", types.TraceNoteKeyTargetCPURunningCPU + "=7", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
+				},
 			},
 		})
 	}
@@ -52,6 +75,10 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"Never call that CPU the target's only CPU",
 		"enumerate every available target-owned CPU row",
 		"A policy row for one CPU binds only to target running evidence on that same CPU",
+		"Runtime target/CPU policy join (typed identity alignment only; the model still owns the restriction verdict)",
+		"target=app-17267 window=13762.791708..13763.024898 cpu=0 target_running=absent_in_complete_roster same_cpu_policy=present:min=418000kHz,max=1530000kHz,rows=16 target_policy_binding=not_comparable_missing_same_cpu_pair cross_cpu_policy_reuse=forbidden",
+		"target=app-17267 window=13762.791708..13763.024898 cpu=4 target_running=35.960ms same_cpu_policy=present:min=558000kHz,max=2100000kHz,rows=28 target_policy_binding=unproven_without_same_cpu_slice_overlap cross_cpu_policy_reuse=forbidden",
+		"target=app-17267 window=13762.791708..13763.024898 cpu=12 target_running=96.081ms same_cpu_policy=absent target_policy_binding=not_comparable_missing_same_cpu_pair cross_cpu_policy_reuse=forbidden",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)
@@ -59,6 +86,9 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 	}
 	if strings.Count(got, "cpu=0 min=418000kHz max=1530000kHz") != 1 {
 		t.Fatalf("duplicate typed witness was not deduplicated:\n%s", got)
+	}
+	if strings.Contains(got, "target=app-17267 window=1.000000..2.000000") || strings.Contains(got, "target_running=999.000ms") {
+		t.Fatalf("target CPU rows from another exploratory window must not join this policy witness:\n%s", got)
 	}
 }
 

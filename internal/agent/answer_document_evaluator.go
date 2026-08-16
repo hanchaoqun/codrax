@@ -12074,6 +12074,7 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 				)
 				b.WriteByte('\n')
 			}
+			b.WriteString(renderAnswerDocRuntimeFrequencyCPUJoin(ctx, view.FrequencyLimitWitnesses))
 			b.WriteString("- Typed frequency conclusion axes: `policy_limit_status=present`; `target_binding_status=unproven_without_slice_overlap_or_binding_carrier`; `binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_binding_evidence`. Keep these as two separate verdict axes. If the question's subject is whether this target/workload was frequency-restricted, the direct yes/no conclusion is governed by `target_binding_status`, not by policy-ceiling presence: with the statuses above, say `policy ceiling present; target binding unproven`, and do not turn that pair into an affirmative `the target was frequency-restricted`. The policy ceiling existed in the window, while whether that ceiling bound this target's running slices remains unproven unless a separate typed overlap/binding carrier says otherwise. In each witness, `min_frequency_khz` is the lower policy bound and `max_frequency_khz` is the upper policy ceiling; an observed frequency equal to `min_frequency_khz` must not be described as equal to the maximum or as proving that the upper ceiling was reduced to the minimum. A direct limit row proves that the policy ceiling existed in the window; an actual/average/residency frequency below that ceiling does not negate the policy limit and must never be used to conclude `no policy limit`. Conversely, neither that lower observed frequency nor the limit row proves that the workload hit the ceiling or quantifies binding performance impact. A supply-fold deficit is separate frequency-relative compute headroom against its published ideal basis; it does not by itself identify the lower-frequency cause or prove governance binding. Normalize every frequency comparison to one unit before choosing `<`, `=`, or `>` (for example kHz to GHz by dividing by 1,000,000), and recompute the relation from the named typed fields rather than copying prose.\n")
 		}
 		b.WriteString("- Target CPU and state-time caliber hint: on a `thread_cpu_load` row, `running_scope=full_window_all_cpu` means `running` is the target thread's full-window running total across CPUs; `runnable_scope=full_window_off_cpu_wait` means `runnable` is queued off-CPU wait, never CPU execution or occupancy. Do not add runnable to running and call the sum CPU occupancy; the sum is only `value_scope=running_plus_runnable_state_time_not_cpu_occupancy`. `cpu=X` with `cpu_scope=dominant_state_slice_representative_not_exclusive` is one representative CPU chosen from that thread's largest running/runnable state slice, not the CPU that owns either full-window total. Never call that CPU the target's only CPU or use it to erase other target-owned `top_running`/scheduler rows. When the request asks where the target ran or whether per-CPU frequency policy bound it, enumerate every available target-owned CPU row with its own duration/frequency caliber, while stating that a capped roster is observed evidence rather than an exhaustive CPU census. A policy row for one CPU binds only to target running evidence on that same CPU; do not transfer it to the representative CPU or another core.\n")
@@ -12149,6 +12150,129 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	// must not lend rows between an early coarse probe and the final report.
 	b.WriteString(renderAnswerDocRuntimeTemporalDiagramCapsules(ctx))
 	b.WriteString("\n")
+	return b.String()
+}
+
+// renderAnswerDocRuntimeFrequencyCPUJoin gives the answer model one compact,
+// deterministic join of target-running CPUs and policy-limit CPUs. The source
+// facts already exist independently in trace_query's typed observation ledger
+// and TraceEvidenceAuthority; this function only aligns identical integer CPU
+// identities. It does not inspect answer prose, infer frequency overlap, or
+// decide whether a policy constrained the target.
+func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses []types.TraceFrequencyLimitAuthority) string {
+	if ctx == nil || len(witnesses) == 0 {
+		return ""
+	}
+	type targetCPURow struct {
+		running string
+		unit    string
+	}
+	type targetWindowKey struct {
+		subject string
+		window  string
+	}
+	policyByWindow := make(map[string]map[int]types.TraceFrequencyLimitAuthority)
+	for _, witness := range witnesses {
+		if witness.CPU < 0 {
+			continue
+		}
+		window := fmt.Sprintf("%.6f..%.6f", witness.WindowStartTs, witness.WindowEndTs)
+		if policyByWindow[window] == nil {
+			policyByWindow[window] = make(map[int]types.TraceFrequencyLimitAuthority)
+		}
+		if _, exists := policyByWindow[window][witness.CPU]; !exists {
+			policyByWindow[window][witness.CPU] = witness
+		}
+	}
+	targets := make(map[targetWindowKey]map[int]targetCPURow)
+	rosterByTargetWindow := make(map[targetWindowKey]string)
+	for _, record := range answerDocObservationLedger(ctx).Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			record.Predicate != "target_cpu_running" {
+			continue
+		}
+		subject := strings.TrimSpace(record.Subject)
+		if subject == "" {
+			continue
+		}
+		window := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeySelectedWindow))
+		if window == "" || policyByWindow[window] == nil {
+			// A target CPU row from another exploratory window must never be
+			// joined to this policy witness. Missing window identity fails open.
+			continue
+		}
+		cpuText := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningCPU))
+		if cpuText == "" && strings.HasPrefix(strings.TrimSpace(record.Object), "cpu=") {
+			cpuText = strings.TrimPrefix(strings.TrimSpace(record.Object), "cpu=")
+		}
+		cpu, err := strconv.Atoi(cpuText)
+		if err != nil || cpu < 0 {
+			continue
+		}
+		key := targetWindowKey{subject: subject, window: window}
+		if targets[key] == nil {
+			targets[key] = make(map[int]targetCPURow)
+		}
+		roster := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus))
+		targets[key][cpu] = targetCPURow{
+			running: strings.TrimSpace(record.Value),
+			unit:    strings.TrimSpace(record.Unit),
+		}
+		if roster != "" {
+			rosterByTargetWindow[key] = roster
+		}
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	keys := make([]targetWindowKey, 0, len(targets))
+	for key := range targets {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].subject != keys[j].subject {
+			return keys[i].subject < keys[j].subject
+		}
+		return keys[i].window < keys[j].window
+	})
+	var b strings.Builder
+	b.WriteString("- Runtime target/CPU policy join (typed identity alignment only; the model still owns the restriction verdict):\n")
+	for _, key := range keys {
+		policyByCPU := policyByWindow[key.window]
+		cpuSet := make(map[int]bool, len(targets[key])+len(policyByCPU))
+		for cpu := range targets[key] {
+			cpuSet[cpu] = true
+		}
+		for cpu := range policyByCPU {
+			cpuSet[cpu] = true
+		}
+		cpus := make([]int, 0, len(cpuSet))
+		for cpu := range cpuSet {
+			cpus = append(cpus, cpu)
+		}
+		sort.Ints(cpus)
+		for _, cpu := range cpus {
+			targetRow, targetObserved := targets[key][cpu]
+			policy, policyObserved := policyByCPU[cpu]
+			targetRunning := "not_observed_in_emitted_roster"
+			if !targetObserved && strings.EqualFold(rosterByTargetWindow[key], "complete") {
+				targetRunning = "absent_in_complete_roster"
+			} else if targetObserved {
+				targetRunning = targetRow.running + targetRow.unit
+			}
+			policyText := "absent"
+			if policyObserved {
+				policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
+			}
+			binding := "unproven_without_same_cpu_slice_overlap"
+			if !targetObserved || !policyObserved {
+				binding = "not_comparable_missing_same_cpu_pair"
+			}
+			fmt.Fprintf(&b, "  - `target=%s window=%s cpu=%d target_running=%s same_cpu_policy=%s target_policy_binding=%s cross_cpu_policy_reuse=forbidden`\n",
+				traceDecisionPromptScalar(key.subject), key.window, cpu, targetRunning, policyText, binding)
+		}
+	}
 	return b.String()
 }
 

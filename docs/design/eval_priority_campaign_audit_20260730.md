@@ -35782,10 +35782,12 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
    Sleeping 70.338ms、D-state 0ms，以及“策略上限存在、target binding 未证”。Runner 的句序正则是假阴性；
    但人工仍判 fail，因为模型把 CPU4=2100MHz 的 policy ceiling 与 CPU12=2075MHz 观测直接比较，并把
    CPU12 称为“主核”，违反 typed 上下文已经明确给出的 same-CPU binding 规则。
-8. 该 Trace 错误冻结为 `B888-TARGETCPUPOLICYJOINCONTEXT1=P2`：现有事实虽准确，却以 policy rows、target CPU
-   roster、caliber prose 三处分散交付，仍要求模型自行做负向 relational join。后续最优方向是由 trace_query
-   输出紧凑 typed per-CPU join roster（target running/frequency、same-CPU policy witness、binding status 各列），
-   Finalizer 只把表交给模型，不扫描/改写正文、不替模型作 yes/no 结论；先做异构回放确认泛化后施工。
+8. 该 Trace 错误冻结并施工为 `B888-TARGETCPUPOLICYJOINCONTEXT1=P2`：现有事实虽准确，却以 policy rows、
+   target CPU roster、caliber prose 三处分散交付，仍要求模型自行做负向 relational join。Finalizer 现从
+   typed observation ledger 与 `TraceEvidenceAuthority` 按 `target + exact selected_window + integer CPU` 生成紧凑
+   join roster：每行并置 target running、同 CPU policy witness 与 `target_policy_binding`；缺同 CPU 配对时明确
+   `not_comparable` 且禁止 cross-CPU policy reuse。不同探索窗、缺 window identity 的行 fail-open 不参与 join。
+   该表只是精确事实对齐，不读取/改写正文，也不替模型作 yes/no 结论；同窗有 policy 仍保持“切片绑定未证”。
 9. 本批不改 Trace 查询/投影、JSON 内容恢复、写模式或 active-stream 终止权。真正 causal diagnosis 仍自动
    补齐并生成 Trace 因果投影；主因只能来自 typed on-chain 证据，优先级反转、调度延迟/供给、算力供给、
    D/IO、确定性语义与链上业务线索不丢，实际占用和规则计价可消除量双轴保持；邻近/背景仅作 support。
@@ -35798,7 +35800,7 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `B886-FLOWREPAIRTARGETPRECISIONRANK1=implemented/all-language-ranked-soft-navigation`；
 `B887-PARTICIPANTFALSEJSONPLACEMENTDIAG1=implemented/actual-issue-first+no-false-placement`；
 `B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r559/requested-dispatch-edge-still-missing`；
-`B888-TARGETCPUPOLICYJOINCONTEXT1=confirmed/P2/pending-generalized-design`；
+`B888-TARGETCPUPOLICYJOINCONTEXT1=implemented/exact-window+same-cpu-typed-join/pending-replay`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden`；
