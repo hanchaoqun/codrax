@@ -37592,6 +37592,54 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.908 r550：B878 生产闭环；机制实现深度与聚合所有权关系载体缺口（2026-08-15）
+
+1. 在 `main@aeb30eea5` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_answer_document_tools`，runner `2 PASS / 2`，人工均为
+   partial。完整审计见
+   `eval/parallel_selected_summary_evalcampaign_generic_path_cap_r550_20260815_manual_audit.md`。
+2. B878 获直接生产正证。双子题案保留两个独立机制主题，Finalizer 从 r549 的 `1 reject/1 patch`
+   降为 `0 reject/0 patch`；不再出现“两个合法 ordered list 共用 mechanism facet 便违反 MaxCount=1”的
+   显示形重写。Generic view 现在只声明有 typed 根据的 `MinCount=1`，没有 path/group identity 时不虚构
+   全局上限，optional per-topic ordered-list 指导仍在。
+3. B879 本轮没有闭环。Explorer 比 r549 多读了 `internal/render/mermaid_render.go`，但只读文件头、
+   `TryRenderMermaidBlocks` 前半与 `RenderMermaidBlocks` 包装函数，没有继续到真正决定用户可见结果的
+   `maybeReplaceMermaidFence`/`mermaidFallbackFence` 分支。终稿因此一方面说
+   `OutcomeLibraryRejected` 是唯一可触发修补的类型，另一方面又把“库拒绝”举成静默保留源码的其他失败；
+   还遗漏 L7 的稳定可见形：失败或 unsupported 路径必须改写为 `text` fence、显示原因并保留原源码。
+   这证明“读过正确文件”不是机制证据完备，入口注释/包装调用也不能替代控制用户可见语义的实现分支。
+4. B879 的泛化根修应建立 source-derived producer/callee-depth obligation：只有 request-owned mechanism
+   member 已有定义/分支事实时才能完成；若当前证据只是调用点、wrapper、配置开关或摘要注释，系统应把
+   precise scoped callee/branch candidate 交给 Explorer 继续读取。不得按 Mermaid、fallback、函数名或用户/
+   模型/终稿文字特判，也不得由系统生成答案；所有支持语言（含 ArkTS/Cangjie）必须共享同一 typed symbol/
+   scope/definition 语义。
+5. 第二案确认 `B880-AGGREGATEOWNERSHIPRELATION1=P1`。源码中
+   `NewFinalizerAgent` 构造 `answerDocumentEvaluator`，而 evaluator 聚合 full-emit 与 patch 两个工具；这是
+   真实的 struct-literal/field ownership/registration 关系。当前 typed relation 载体没有该关系，模型首图
+   先把它猜成 call/return，第一次被拒；第二轮改成 precedence 又被拒；第三轮删除两个工具节点，只剩
+   `NewFinalizerAgent --> answerDocumentEvaluator`。最终图可渲染但已不再回答“两工具在 finalizer 中的关系”。
+6. B880 不能靠放松所有图边、把 containment 假装成 call/precedence、或系统代画来修。最优形是让 repomap/
+   evidence 层发出 source-derived aggregate ownership/field binding/registration typed edge，并由 diagram contract
+   消费；解析器无法证明时，关系图应软提示使用无箭头 grouping/subgraph 或只画已证子集，而不是连续硬拒后
+   鼓励删光主关系。Name() literal 与首次 full emit/失败后 patch 的正文在本轮均准确。
+7. 两项人工 partial 都是 runner oracle 覆盖不足：一个 answer_contains 只检查宽泛 fallback 词，另一个只检查
+   工具名、表格和 Mermaid 存在，无法识别实现分支错答或图关系缩水。先修 producer/typed carrier，后补
+   source-derived oracle；禁止用答案原文关键词硬拟合评测。
+8. 本批不改 Trace、JSON 自愈、Mermaid 输出正文或模型结论。显式时间窗、完整 causal-diagnosis 因果投影、
+   自动补齐、链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索、实际占用与规则计价
+   可消除量双轴均保持；邻近/背景仍仅作支持。活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B878-GENERICPATHGLOBALCAP1=production-pass/closed-r550`；
+`B879-MECHANISMCALLEEDEPTH1=production-failed-r550/P1/next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=confirmed/P1/queued-after-B879`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/scoped-endpoint-witness-r549`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
