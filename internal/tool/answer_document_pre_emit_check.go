@@ -7175,7 +7175,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			}
 			present := false
 			if structuredPrincipalCarrierRequired {
-				present = preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact, member, doc)
+				present = preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact, memberIdx, member, doc)
 			} else {
 				present = preEmitAggregateMemberAppearsInDocument(member, doc, surface) ||
 					preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) ||
@@ -7327,7 +7327,7 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 		"apply this exact structured source-inventory row recipe: "+
 			"(1) use a section/ordered_list/bullet_list/table carrying block with surface_role=%q; "+
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
-			"(3) copy each roster member exactly into items[].label (or one items[].cells entry); item.text and blocks[].text do not carry member identity; "+
+			"(3) copy each roster member exactly into items[].label; only when label is omitted may cells[0] carry that member identity, so a category-first row must keep the member in label even if the visible Markdown table places category before member; item.text and later cells do not select row identity; "+
 			"(4) roster set_label is only the aggregate/category key for the block title/id; when the roster exposes selection_family, that is the exact typed membership boundary, while display_group/set_label remains model-authored presentation only and cannot add exclusions, subtract rows, or change the typed count — if they conflict, preserve the roster and rewrite the display wording yourself; never copy a group label into item.label in place of member; "+
 			"(5) when rows expose one exact surface_family and this block is deliberately family-specific, copy it to blocks[].source_inventory_family; omit that field for a global/mixed-family block and never infer it from title/prose; "+
 			"(6) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
@@ -7341,7 +7341,7 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 // identity-bearing fields of model-authored principal rows. Item explanatory
 // text and block prose are deliberately excluded: they are not schema-stable
 // member identities and must not drive a hard source-inventory gate.
-func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.AnswerAggregateFact, member string, doc *types.AnswerDocumentV2) bool {
+func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.AnswerAggregateFact, memberIdx int, member string, doc *types.AnswerDocumentV2) bool {
 	if doc == nil {
 		return false
 	}
@@ -7375,6 +7375,25 @@ func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.Answe
 		blocks = labelled
 	}
 	for _, block := range blocks {
+		// A model-authored Markdown table renders block.Text and treats Items as
+		// hidden typed sidecars. Its visible column order is presentation: a
+		// category/bucket may legitimately precede the member column. When one
+		// sidecar carries an exact source_inventory_row_id, names this aggregate
+		// member in its structured identity, and its complete Cells tuple is
+		// byte-for-byte present as one visible Markdown row, count that row as
+		// visible coverage. The separate row-id gate validates the id against the
+		// typed registry, so an invented id or swapped member still fails loud.
+		// This is structural row parity, not a scan of request or answer prose.
+		if block.Kind == types.BlockTable && types.AnswerTextLooksLikeMarkdownTable(block.Text) {
+			for _, item := range block.Items {
+				if strings.TrimSpace(item.SourceInventoryRowID) == "" ||
+					!preEmitStructuredSidecarMatchesAggregateMember(fact, memberIdx, member, item) ||
+					!preEmitMarkdownTableHasExactStructuredSidecarRow(block.Text, item) {
+					continue
+				}
+				return true
+			}
+		}
 		memberVisibleOnMarkdownPrimaryAxis := types.AnswerBlockRendersStructuredItems(block) ||
 			preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, member)
 		if !memberVisibleOnMarkdownPrimaryAxis {
@@ -7382,12 +7401,72 @@ func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.Answe
 		}
 		for _, item := range block.Items {
 			identity := strings.TrimSpace(item.Label)
-			if len(item.Cells) > 0 {
-				identity = strings.TrimSpace(identity + "\n" + strings.Join(item.Cells, "\n"))
+			if identity == "" && len(item.Cells) > 0 {
+				identity = strings.TrimSpace(item.Cells[0])
 			}
 			if identity != "" && preEmitAggregateMemberAppearsInText(member, identity) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// preEmitStructuredSidecarMatchesAggregateMember binds a renderer-hidden
+// Markdown sidecar to one exact typed aggregate member. The member identity
+// must occupy the sidecar's schema-defined identity field (Label, or Cells[0]
+// for a cells-only row). When the aggregate carries an index-aligned source
+// location, that exact location must also occur in the structured row. This
+// prevents duplicate labels in different files/lines from borrowing one
+// another while still allowing presentation columns such as category/bucket
+// to precede the member in the visible Markdown table.
+func preEmitStructuredSidecarMatchesAggregateMember(fact types.AnswerAggregateFact, memberIdx int, member string, item types.AnswerBlockItem) bool {
+	identity := strings.TrimSpace(item.Label)
+	if identity == "" && len(item.Cells) > 0 {
+		identity = strings.TrimSpace(item.Cells[0])
+	}
+	if identity == "" || !preEmitAggregateMemberAppearsInText(member, identity) {
+		return false
+	}
+
+	_, location, hasLocation := types.ParseAnswerSupportRefMemberLocation(member)
+	if !hasLocation && memberIdx >= 0 && memberIdx < len(fact.SupportRefs) {
+		_, location, hasLocation = types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[memberIdx])
+	}
+	if !hasLocation || strings.TrimSpace(location.File) == "" || location.LineStart <= 0 {
+		return true
+	}
+	for _, cell := range item.Cells {
+		candidate, ok := types.ParseAnswerSourceLocationSurface(strings.TrimSpace(cell))
+		if !ok {
+			continue
+		}
+		if preEmitPathMatches(candidate.File, location.File) &&
+			candidate.LineStart == location.LineStart &&
+			candidate.LineEnd == location.LineEnd {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitMarkdownTableHasExactStructuredSidecarRow(markdown string, item types.AnswerBlockItem) bool {
+	if len(item.Cells) == 0 {
+		return false
+	}
+	for _, cells := range principalEnumerationMarkdownTableRows(markdown) {
+		if len(cells) != len(item.Cells) {
+			continue
+		}
+		equal := true
+		for i := range cells {
+			if strings.TrimSpace(cells[i]) != strings.TrimSpace(item.Cells[i]) {
+				equal = false
+				break
+			}
+		}
+		if equal {
+			return true
 		}
 	}
 	return false

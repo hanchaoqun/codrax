@@ -35891,6 +35891,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.962 r589/S37bq：逐成员表生产转正，类别首列与 typed sidecar 可见性合同根修（2026-08-16）
+
+1. 在 `main@51c48092a` 重建后继续严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + cangjie_repomap`。Runner `1/2 PASS`，人工逐行审计
+   `2/2 pass`；运行与人工记录分别见
+   `eval/parallel_selected_summary_evalcampaign_trace_cangjie_replay_r589_20260816.md`、
+   `eval/parallel_selected_summary_evalcampaign_trace_cangjie_replay_r589_20260816_manual_audit.md`。
+2. B940 已得到生产正见证：Cangjie family compiler 要求 `summary + exactly one principal table`，模型第一稿
+   确实生成一张按 `category | member | file | package` 排列的表，12 条 typed row 全部正确，无重复 bucket
+   section。自动 FAIL 不是 repomap/extractor 漏行，也不是 Cangjie 专有语法问题。
+3. 新确认 B941（P1/严重合同自冲突）：Markdown table 的完整 `block.text` 是 renderer 权威，`items[]` 只是
+   隐藏 row-id/citation sidecar；但 aggregate completeness gate 只允许**可见首列**作为成员 identity，且把
+   隐藏 sidecar 全部排除。模型合理地把 category 放首列、member 放第二列后，即使每个 sidecar 已携带精确
+   `source_inventory_row_id`、成员 label 和与可见行相同的完整 cells，校验器仍把 12 行全报 missing。
+   模型先修正错误的 mixed-family block partition，再连续两次提交完整精确 rowset，仍被同一 fingerprint 拒绝，
+   最终四次 reject 后降级展示上一版完整草稿。这是“成文校验未通过”过多的系统根因，不是 JSON 畸形或
+   模型波动。
+4. B941 以渲染/typed 结构同构的通用形修复：普通 Markdown 表首列仍是默认可见 identity；只有 sidecar
+   同时满足非空 exact row ID、schema identity 位匹配当前 typed member、该成员索引对应的精确源码位置在
+   structured row 中出现、且 `cells[]` 与一条可见 Markdown 行逐格完全一致时，才允许 category/bucket 位于
+   member 之前。独立 row-id gate 继续核对 id/member/family/location，错误或跨 partition row ID 仍 fail-loud。
+5. 为消除教学与实现的另一处潜在漂移，结构行 identity 单源为 `item.label`；仅 label 省略时可由
+   `cells[0]` 承载，`item.text` 与后续 cells 不得偷偷选择成员。初始 finalizer 教学与 repair recipe 共用这一
+   规则：类别首列表必须在隐藏 label 保留 exact member，并把完整可见行复制到 cells；mixed-family block
+   必须省略 `source_inventory_family`。系统没有生成表、成员、关系或结论，只判断模型所写可见行与 typed
+   sidecar 是否为同一行。
+6. 正负 pin 覆盖：重复同名成员位于不同源码行时可分别通过；把任一可见 member 改成别名/其他值必须失败；
+   只有隐藏 items、没有 exact row ID 或没有逐格可见 parity 时仍不得凭空创造成员。定向回归和
+   `go test ./internal/tool ./internal/agent -count=1` 通过后再提交本批。
+7. 同批 Trace 继续生产正见证：显式窗、Trace 因果投影、系统补齐和链上-only 排序均在；running
+   74.915ms/供给折算缺口 65.912ms、D-state 36.757ms/11 段、runnable 1.536ms 与 io_wait=0 分账，
+   `dma_fence_default_w` 只界定为内核调用点。邻近/背景不入主因，JIT 与业务 span 线索未丢，实际墙钟占时
+   与规则内可消除量双轴保留。没有系统替模型撰写结论或关系。
+8. 本批无 malformed JSON、Mermaid、空答案或 active-stream 固定年龄降级；Cangjie 的降级只发生在完整
+   答案之后的 deterministic contract retry exhaustion。活跃连接仍以原始字节 liveness 为准，4ms 内未形成
+   完整 answer 绝不允许触发降级。
+
+状态：
+
+`B940-COMPARISONPERMEMBERTABLEAUTHORITY1=production-positive-r589`；
+`B941-MARKDOWNSIDECARPRIMARYAXIS1=implemented/typed-parity+duplicate-location-pins-pass/pending-replay`；
+`Cangjie inventory=facts-complete/human-pass/process-fail-r589`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r589`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

@@ -1837,7 +1837,7 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 		!strings.Contains(hints[0].ExpectedShape, `surface_role="principal"`) ||
 		!strings.Contains(hints[0].ExpectedShape, `facet_ids includes "enumeration_item"`) ||
 		!strings.Contains(hints[0].ExpectedShape, "claim_uses contains a contract-allowed claim_form") ||
-		!strings.Contains(hints[0].ExpectedShape, "item.text and blocks[].text do not carry member identity") ||
+		!strings.Contains(hints[0].ExpectedShape, "item.text and later cells do not select row identity") ||
 		!strings.Contains(hints[0].ExpectedShape, "roster set_label is only the aggregate/category key") ||
 		!strings.Contains(hints[0].ExpectedShape, "citation_ref to the same member's compatible citation") ||
 		!strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="Kind constants" member="KindA"`) {
@@ -1911,7 +1911,8 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrin
 		`surface_role="principal"`,
 		`facet_ids includes "enumeration_item"`,
 		"claim_uses contains a contract-allowed claim_form",
-		"items[].label (or one items[].cells entry)",
+		"only when label is omitted may cells[0] carry that member identity",
+		"category-first row must keep the member in label",
 		"set_label is only the aggregate/category key",
 		"citation_ref to the same member's compatible citation",
 		`[✗ MISSING] set_label="opaque category" member="Alpha"`,
@@ -6136,6 +6137,34 @@ func TestPreCheckAggregateMemberSetCoverage_MarkdownTableHiddenItemsCannotInvent
 	doc.Blocks[0].Text = "| Member | Category |\n|---|---|\n| KindAlpha | type |\n| KindBeta | type |"
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
 		t.Fatalf("visible primary-axis rows with hidden citation sidecars should satisfy coverage, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_MarkdownCategoryFirstExactTypedSidecarsCountVisibleRows(t *testing.T) {
+	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{{
+			FacetID: string(types.FacetEnumerationItem), ClaimForm: types.ClaimDefinitionFact,
+		}},
+		Text: "| category | member | location |\n|---|---|---|\n| extend | Cart | cart/Cart.cj:30 |\n| public class | Cart | cart/Cart.cj:14 |",
+		Items: []types.AnswerBlockItem{
+			{ID: "extend", Label: "Cart", Cells: []string{"extend", "Cart", "cart/Cart.cj:30"}, SourceInventoryRowID: extendID},
+			{ID: "class", Label: "Cart", Cells: []string{"public class", "Cart", "cart/Cart.cj:14"}, SourceInventoryRowID: classID},
+		},
+	}}}
+
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact mixed-family row ids must remain valid: %+v", hints)
+	}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("category-first Markdown rows with exact typed sidecar parity must satisfy coverage: %+v", hints)
+	}
+
+	doc.Blocks[0].Text = "| category | member | location |\n|---|---|---|\n| extend | Other | cart/Cart.cj:30 |\n| public class | Cart | cart/Cart.cj:14 |"
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
+		t.Fatal("a typed sidecar must not invent a member absent from its exact visible Markdown row")
 	}
 }
 
