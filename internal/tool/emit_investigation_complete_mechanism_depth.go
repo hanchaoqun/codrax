@@ -30,8 +30,9 @@ type mechanismSemanticDescentNode struct {
 //
 // The descent is deliberately bounded and source-owned:
 //   - the request must already be a typed current-source mechanism/explanation;
-//   - the model must have emitted an index-aligned principal member_set with a
-//     non-empty responsibility note and grounded support ref for the member;
+//   - the model must have emitted an aligned current-source member_set and
+//     either a non-empty responsibility note or an exact Explorer-authored
+//     mechanism-definition row for the supported member;
 //   - every traversed edge must be on a parser-owned return+call line;
 //   - a direct callee must resolve through the repository graph; a callable
 //     argument must resolve to exactly one repository callable and be proved by
@@ -91,6 +92,15 @@ func raiseMechanismSemanticDescentPendingReads(
 			}
 			addSeed(mechanismSemanticDescentNode{file: file, fi: fi, sym: sym, root: strings.TrimSpace(member)})
 		}
+	}
+	// B879c: EvidenceKindMechanism + ClaimDefinitionFact is a stronger typed
+	// behavioral selection than an optional member note. When the Explorer's
+	// exact definition row and a member/support_ref resolve to the same local
+	// callable, use that callable as a seed even across non-flow predicate axes.
+	// Free-form evidence summaries and aggregate labels remain ignored.
+	for _, node := range mechanismSemanticDescentDefinitionSeeds(ctx, graph, aggregateFacts, evidence) {
+		behavioralRoster = true
+		addSeed(node)
 	}
 	// B879b: a mechanism roster may legitimately consist of enum outcomes or
 	// other non-callable identities. In that shape the earlier flow-operation
@@ -168,6 +178,83 @@ func raiseMechanismSemanticDescentPendingReads(
 		logging.Info("[emit_investigation_complete] queued %d bounded mechanism semantic-descent read(s)", demands)
 	}
 	return demands
+}
+
+func mechanismSemanticDescentDefinitionSeeds(
+	ctx *types.BusContext,
+	graph *repotypes.Graph,
+	aggregateFacts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) []mechanismSemanticDescentNode {
+	if graph == nil || len(aggregateFacts) == 0 || len(evidence) == 0 {
+		return nil
+	}
+	seeds := make([]mechanismSemanticDescentNode, 0, 4)
+	seen := make(map[string]bool)
+	for _, fact := range aggregateFacts {
+		if !mechanismDefinitionRosterCanSeed(ctx, fact) {
+			continue
+		}
+		for idx, member := range fact.Members {
+			file, fi, sym, ok := mechanismNarrativeMemberCallable(graph, member, fact.SupportRefs[idx])
+			if !ok || !mechanismDefinitionEvidenceSelectsCallable(evidence, file, fi, sym, member) {
+				continue
+			}
+			key := mechanismSemanticDescentSymbolKey(file, sym)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			seeds = append(seeds, mechanismSemanticDescentNode{
+				file: file, fi: fi, sym: sym, root: strings.TrimSpace(member),
+			})
+		}
+	}
+	return seeds
+}
+
+func mechanismDefinitionRosterCanSeed(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
+		len(fact.Members) != len(fact.SupportRefs) || !aggregateFactCanDefineModelOwnedCompletionBoundary(fact) {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			return true
+		}
+	}
+	return false
+}
+
+func mechanismDefinitionEvidenceSelectsCallable(
+	evidence []types.EvidenceItem,
+	file string,
+	fi *repotypes.FileInfo,
+	sym *repotypes.Symbol,
+	member string,
+) bool {
+	if fi == nil || !mechanismSemanticDescentCallable(sym) {
+		return false
+	}
+	end := sym.EndLine
+	if end < sym.Line {
+		end = sym.Line
+	}
+	qualified := qualifiedEvidenceSymbolNameInFile(fi, sym)
+	for _, item := range evidence {
+		if item.Producer != types.EvidenceProducerExplorerEmitEvidence ||
+			item.Kind != types.EvidenceMechanism || types.ClaimFormOf(item) != types.ClaimDefinitionFact ||
+			!item.IsCitable() || item.LineStart < sym.Line || item.LineStart > end ||
+			!callChainSourcePathEquivalent(canonicalRelationSourcePath(item.Source), canonicalRelationSourcePath(file)) {
+			continue
+		}
+		if mechanismSemanticDescentIdentityMatches(item.AnchorSymbol, sym.Name, qualified) &&
+			mechanismSemanticDescentIdentityMatches(member, sym.Name, qualified) {
+			return true
+		}
+	}
+	return false
 }
 
 // mechanismSemanticDescentOperationLeafSeeds projects only exact,
