@@ -36063,6 +36063,46 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.933 r564：状态账权限闭环；选择载体补字段时被模型机械置 false（2026-08-16）
+
+1. 在 `main@46f7057cb` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `0 PASS / 2 FAIL`；人工
+   Combo fail、Trace partial。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_runtime_selection_r564_20260816_manual_audit.md`。
+2. B899 获生产正证。H4 最终页不再出现 r563 三条错误的 `completeness=incomplete` 算术附注；同窗
+   `target_window_states` 的 running=157.248ms、runnable=5.604ms、sleep=70.338ms、total=233.190ms
+   保持完整，8 个 target_cpu_running 行累加也精确等于 157.248ms。系统没有改模型正文或结论。
+3. H4 同 CPU 供给 capsule 继续正确：CPU4 有 target_running=35.960ms、代表频点 558MHz、policy
+   558..2100MHz/28 rows，但缺 target-slice overlap/binding；CPU12 96.081ms/2075MHz 且 policy absent。
+   模型据此给出“窗口内策略记录存在、目标线程实际受限因果未证”，比 r563 的跨 CPU 比较恢复正确。
+4. Runner 两条 limit 正则因词距/同义形未命中，属于 oracle 假阴性候选；不能要求固定短语以换绿。人工仍
+   只判 partial：同页先列 Running=67.4%、Sleep=30.2%，随后却写“大部分时间处于 Sleep”，并重复 section
+   标题、泄漏 `state_partition_coverage=complete`。冻结 B901 为单轮模型波动观察，不通过终稿扫描、硬拒或
+   系统改写闭环；若跨模型重复，才优化 typed ordered-state capsule 的排序与语言内软教学。
+5. B898 的存在性门生产生效：Combo 第三次 emit 因缺 `call_chain_endpoints` 被精确拒绝。但通用 missing-field
+   提示只说“补完整对象”，模型第四轮机械补 `runtime_selection_required=false`，没有重新消费当前请求中
+   “首次完整输出 vs retry patch”的选择义务。Explorer 因此仍无 runtime-selection handoff，只证明两个
+   Name literal 与局部工具定义；Finalizer 的合成关系边被 validator 正确拒绝，模型随后删除 Mermaid。
+6. 新确认并施工 B900：缺字段 roster 含 `call_chain_endpoints` 时，retry 增加字段级软教学，明确要求从
+   CURRENT request 重判 true/false，禁止仅为满足 presence 默认 false；重申 initial/full versus
+   retry/error/patch 选择形与最短连续 verbatim quote。其他缺字段不增加该提示。它不读取或扫描答案，
+   不替模型把 false 改成 true，也不降低 relation evidence gate。
+7. 本批继续保持显式 Trace 窗、因果投影与自动补齐。完整 causal diagnosis 的主因只能来自 typed on-chain
+   证据；优先级反转、调度/算力供给、D/IO、确定性语义和链上业务线索，以及实际占用/规则计价双轴均不
+   丢失；邻近/背景仅作 support。活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B899-ARITHENUMERATIONCROSSQUERYTAINT1=production-closed-r564`；
+`B898-RUNTIMESELECTIONCARRIEROMISSION1=presence-production-positive/r564-value-not-closed`；
+`B900-RUNTIMESELECTIONMISSINGFIELDREPAIR1=implemented/soft-field-retry/pending-replay`；
+`B901-TRACESTATEDOMINANCEPROSECONTRADICTION1=observed-once/model-variance/no-system-rewrite`；
+`H4-LIMIT-SEMANTIC-ORACLE=false-negative-candidate/do-not-phrase-fit`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

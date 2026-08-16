@@ -1301,8 +1301,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if missing := missingEmitAnalysisRequiredTopLevelFields(params, false); len(missing) > 0 {
 		return types.ToolResult{
 			ToolName: t.Name(), Success: false,
-			Summary: "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
-				". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them.",
+			Summary:   emitAnalysisMissingTopLevelFieldsSummary(missing),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -1620,8 +1619,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if missing := missingEmitAnalysisRequiredTopLevelFields(params, diagramHint != nil && diagramHint.Required); len(missing) > 0 {
 		return types.ToolResult{
 			ToolName: t.Name(), Success: false,
-			Summary: "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
-				". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them.",
+			Summary:   emitAnalysisMissingTopLevelFieldsSummary(missing),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -2319,6 +2317,19 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 		}
 	}
 	return missing
+}
+
+func emitAnalysisMissingTopLevelFieldsSummary(missing []string) string {
+	summary := "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
+		". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them."
+	for _, field := range missing {
+		if field != "call_chain_endpoints" {
+			continue
+		}
+		summary += " For call_chain_endpoints, re-decide runtime_selection_required from the CURRENT request; do not default it to false merely to satisfy field presence. Set it true when the request asks how an implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, or which tool/path is available or used on an initial/full-output attempt versus a retry/error/patch attempt, and copy the shortest contiguous verbatim current-request phrase into runtime_selection_source_quote. Otherwise emit false with an empty quote."
+		break
+	}
+	return summary
 }
 
 func emitAnalysisRelationCarrierRequired(object map[string]json.RawMessage, requiredDiagram bool) bool {

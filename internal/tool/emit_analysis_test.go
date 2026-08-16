@@ -1732,6 +1732,24 @@ func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyFor
 	}
 }
 
+func TestEmitAnalysisMissingRelationCarrierRetryReTeachesSelectionDecision(t *testing.T) {
+	got := emitAnalysisMissingTopLevelFieldsSummary([]string{"call_chain_endpoints"})
+	for _, want := range []string{
+		"re-decide runtime_selection_required from the CURRENT request",
+		"do not default it to false merely to satisfy field presence",
+		"initial/full-output attempt versus a retry/error/patch attempt",
+		"runtime_selection_source_quote",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("selection-carrier retry lost %q: %s", want, got)
+		}
+	}
+	ordinary := emitAnalysisMissingTopLevelFieldsSummary([]string{"runtime_question_profile"})
+	if strings.Contains(ordinary, "runtime_selection_required") {
+		t.Fatalf("unrelated missing-field retry gained selection teaching: %s", ordinary)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainRejectsUnanchoredRuntimeSelectionDeclaration(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
