@@ -35700,6 +35700,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.926 r558 与 B884b：排队载体到达但同轮自相矛盾；精确 read target 接管下一工具面（2026-08-16）
+
+1. 在 `main@4786cd5e4` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + mr_poly_binding_chain`。Runner `2/2 PASS`；人工为 poly pass、
+   工具关系案 fail。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_b884_poly_r558_20260816_manual_audit.md`。
+2. Polyglot 的主问题已正确回答：`FastTokenizer.tokenize -> _fastlex.tokenize_bytes -> pyo3 wrapper ->
+   Rust core tokenize_bytes`，并保留 ImportError 下 `_tokenize_slow` 回退。第一稿 optional sequence 把
+   native binding/registration 边误画成直接 call，validator 正确拒绝；模型删图后文字链仍完整，而用户本轮
+   未显式要求图。因此本案人工 pass，不为 optional 图增加强制保留门，也不把跨语言 binding 硬冒充 call。
+3. r558 否证了 §123.925 对 B884 的“同 dispatch 可消费”预期。生产日志终态明确为
+   `pending_reads=2`，且没有 `[forced_read surgical]`：`runForcedReads` 只在 Explorer dispatch 边界运行，
+   completion downgrade 则发生在 BaseAgent 内部 ReAct 循环；两者时序断开。更直接的自冲突是系统已从
+   parser graph 解析出 `cmd/root.go:4315`，返回给模型的 hint 却仍要求“First use repo_map/grep”。模型依教
+   先 grep `internal/agent`、再 grep `cmd`，最后才 read 已知窗口；全程 24 轮、6 次 completion、330s。
+4. `B884b-FLOWNAVIGATIONNEXTTURNSURFACE1=P1` 根修不让系统读取后自铸边，而是把同一个 typed target
+   同时接到两处：repair summary/durable rationale 直接给出 `read_file path + zero-based line_offset + limit`
+   并明确不先做 broad grep；只要 closure 中存在
+   `emit_investigation_complete.flow_navigation.* + non-empty file/range`，下一 ReAct 轮工具 schema 只保留
+   `read_file + emit_evidence + emit_investigation_complete`。该判据只读 enum/origin/file/range，不扫用户、
+   模型或答案原文；普通探索、Trace、JSON、写模式和其他 pending-read lane 均不变。
+5. 权限仍严格分层：parser occurrence 只决定去哪里读，读行也不自动生成 EvidenceItem；模型必须查看源码并
+   发射 exact registration/call/guard/assignment/return 后，participant/关系门才可通过。若该窗口不能证明
+   请求关系，模型保留 disconnected/unproven boundary；系统不选边、不画图、不替换结论。全语言目标选择
+   继续复用 `SupportedReadLanguages()` 的既有 B884 pin，本批只修跨层时序/工具面，未增加语言特判。
+6. r558 的工具关系终稿虽正确列出 Name literal、全局注册、full/patch 写入差异和动态 schema 路由，但图中
+   `finalizer` 仍断开，不能把 runner PASS 当作关系闭环。B882 继续 production-positive：被拒草稿未泄漏，
+   输出维度补充恰好一次。该案待 B884b 重放；验收重点是 completion 后下一轮直接 bounded read、无先行
+   grep、pending 下降，以及模型从真实 operation 形成关系或诚实未证。
+7. 定向 types/tool/agent 正负 pin 与 `go test ./... -count=1` 全仓通过；其中 tool 182.474s、
+   hitraceconv 95.649s、tracequery 78.375s、orchestrator 22.955s、types 30.904s。测试同时钉住：普通探索
+   schema 不变、typed flow pending 时 broad grep/repo_map 不可见、精确提示采用 zero-based offset、durable
+   repair 与同轮 summary 不再互相矛盾。
+8. 本批未改 Trace query、显式窗、因果投影、自动补齐、JSON 修复或 active-stream 终止权。Trace 主因只来自
+   typed on-chain 证据；优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与链上业务线索不丢，实际
+   占用和规则计价可消除量双轴保持，邻近/背景仅作 support。持续字节流不因 4ms/固定总龄降级。
+
+状态：
+
+`B884-FLOWREPAIRREADSCHED1=production-failed-r558/queue-reached-but-dispatch-timing-disconnected`；
+`B884b-FLOWNAVIGATIONNEXTTURNSURFACE1=implemented/typed-exact-read+bounded-tool-surface/pending-replay`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r558/honest-unproven-finalizer-boundary`；
+`B882-RECOVEREDATTACHMENTDEDUP1=production-reconfirmed-r558`；
+`B672-POLYGLOTBINDINGCHAIN1=production-positive-r558/text-chain-complete/optional-diagram-honest-removal`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

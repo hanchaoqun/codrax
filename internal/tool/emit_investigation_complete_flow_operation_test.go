@@ -721,6 +721,49 @@ func TestFlowOperationNavigationReadIsAdvisoryAndAdvancesAcrossUnreadParserSites
 	}
 }
 
+func TestFlowOperationNavigationHintUsesExactQueuedReadInsteadOfBroadSearch(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"emit_answer_document"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "emit_answer_document", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"cmd/root.go": {
+			RelPath: "cmd/root.go", Language: "go",
+			Relations: []repotypes.Relation{{
+				Kind: "type_usage", File: "cmd/root.go", Line: 4315,
+				FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: "cmd/root.go", Line: 4315},
+				ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "cmd/root.go", Line: 4315},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+			}},
+		},
+	}})
+
+	got := flowOperationNavigationHintForMissing(ctx, []string{"emit_answer_document"}, []string{"cmd/root.go"}, []string{"EmitAnswerDocument"})
+	for _, want := range []string{`path="cmd/root.go"`, "line_offset=4302", "limit=25", "covers lines 4303-4327", "Do not run a broad repo_map/grep first"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("exact navigation hint missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "First use repo_map/grep") {
+		t.Fatalf("exact parser target must supersede broad-search teaching:\n%s", got)
+	}
+	queueFlowParticipantCoverageRepair(ctx, []string{"emit_answer_document"}, nil)
+	for _, repair := range ctx.Mutable.EvidenceClosure().ActiveRepairs() {
+		if repair.DowngradeLane != types.DowngradeLaneFlowParticipantCoverage {
+			continue
+		}
+		if !strings.Contains(repair.Rationale, `path="cmd/root.go"`) || strings.Contains(repair.Rationale, "First use repo_map/grep") {
+			t.Fatalf("durable repair must carry the same exact direct-read instruction:\n%s", repair.Rationale)
+		}
+		return
+	}
+	t.Fatal("missing durable flow participant repair")
+}
+
 func TestFlowParticipantCoverageLateResolvesUniqueStaticMemberUnderRequestedOwner(t *testing.T) {
 	busOperation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
 	busOperation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"

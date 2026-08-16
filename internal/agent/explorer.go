@@ -7217,6 +7217,14 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	if e == nil {
 		return nil
 	}
+	// A typed flow completion downgrade may already have selected one exact
+	// parser-owned operation window. Keep the next turn on the bounded
+	// read/materialize/close lane instead of exposing broad grep/repo_map again.
+	// This is driven solely by structured repair origin + file/range data; it
+	// never scans request or answer prose and never creates relation authority.
+	if explorerHasPendingFlowNavigationRead(ctx) {
+		return evidenceRepairToolNames
+	}
 	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
 		return sourceInventoryRequiredFileVerificationToolNames
 	}
@@ -7243,6 +7251,22 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 		return mergeRestrictedToolSurfaceWithActiveRepairs(completionProgressToolNames, ctx)
 	}
 	return nil
+}
+
+func explorerHasPendingFlowNavigationRead(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil {
+		return false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	for _, pending := range closure.PendingReads() {
+		if types.PendingReadIsFlowNavigation(pending) && strings.TrimSpace(pending.File) != "" && len(pending.LineRanges) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) mixedRuntimeCurrentSourceLandingSurfaceActive() bool {

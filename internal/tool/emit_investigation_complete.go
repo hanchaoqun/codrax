@@ -2200,8 +2200,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if flowOperationMissing {
 		files, keywords := queueFlowOperationCarrierRepair(ctx, evidenceSnapshot)
-		repairHint := flowOperationRepairHint(types.FlowOperationEvidenceEmissionGuide, files, keywords)
-		navigationHint := flowOperationNavigationHint(files, keywords)
+		repairHint := flowOperationRepairHintForMissing(ctx, nil, types.FlowOperationEvidenceEmissionGuide, files, keywords)
+		navigationHint := flowOperationNavigationHintForMissing(ctx, nil, files, keywords)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
@@ -2231,8 +2231,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
 		files, keywords := queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
-		repairHint := flowParticipantCoverageRepairHint(missingFlowParticipants, files, keywords)
-		navigationHint := flowOperationNavigationHint(files, keywords)
+		repairHint := flowOperationRepairHintForMissing(ctx, missingFlowParticipants,
+			flowParticipantCoverageRepairBase(missingFlowParticipants), files, keywords)
+		navigationHint := flowOperationNavigationHintForMissing(ctx, missingFlowParticipants, files, keywords)
 		participantBlockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
 			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
 		)
@@ -3533,7 +3534,7 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.Evi
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
 		return files, keywords
 	}
-	rationale := flowOperationRepairHint(types.FlowOperationEvidenceEmissionGuide, files, keywords)
+	rationale := flowOperationRepairHintForMissing(ctx, nil, types.FlowOperationEvidenceEmissionGuide, files, keywords)
 	queueFlowOperationNavigationRead(ctx, nil,
 		"Read this bounded parser-owned operation occurrence, then emit only the exact verified operation or keep the transfer unproven; the navigation row itself is not relation evidence.",
 		"carrier", types.DowngradeLaneFlowOperationCarrier)
@@ -3603,10 +3604,13 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 }
 
 func flowParticipantCoverageRepairHint(missing, files, keywords []string) string {
-	base := fmt.Sprintf(
+	return flowOperationRepairHint(flowParticipantCoverageRepairBase(missing), files, keywords)
+}
+
+func flowParticipantCoverageRepairBase(missing []string) string {
+	return fmt.Sprintf(
 		"The required source-flow participant slate still lacks incident operation evidence for %v. %s",
 		missing, types.FlowOperationEvidenceEmissionGuide)
-	return flowOperationRepairHint(base, files, keywords)
 }
 
 func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string, evidence []types.EvidenceItem) (files, keywords []string) {
@@ -3614,7 +3618,7 @@ func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string,
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil || len(missing) == 0 {
 		return files, keywords
 	}
-	rationale := flowParticipantCoverageRepairHint(missing, files, keywords)
+	rationale := flowOperationRepairHintForMissing(ctx, missing, flowParticipantCoverageRepairBase(missing), files, keywords)
 	queueFlowOperationNavigationRead(ctx, missing,
 		fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then emit only the exact verified operation or keep the requested relation unproven; the navigation row itself is not relation evidence.", missing),
 		"participant", types.DowngradeLaneFlowParticipantCoverage)
@@ -3651,7 +3655,7 @@ func queueFlowOperationNavigationRead(ctx *types.BusContext, missing []string, r
 		Files:         []string{target.file},
 		LineRanges:    []types.LineRange{target.lineRange},
 		Rationale:     rationale,
-		Origin:        "emit_investigation_complete.flow_navigation." + strings.TrimSpace(suffix),
+		Origin:        types.RepairOriginFlowNavigationPrefix + strings.TrimSpace(suffix),
 		DowngradeLane: lane,
 		Stage:         string(types.StageExplore),
 		Advisory:      true,
@@ -3676,6 +3680,18 @@ func flowOperationRepairHint(base string, files, keywords []string) string {
 	return base + navigation
 }
 
+func flowOperationRepairHintForMissing(ctx *types.BusContext, missing []string, base string, files, keywords []string) string {
+	base = strings.TrimSpace(base)
+	navigation := flowOperationNavigationHintForMissing(ctx, missing, files, keywords)
+	if navigation == "" {
+		return base
+	}
+	if base != "" {
+		base += " "
+	}
+	return base + navigation
+}
+
 func flowOperationNavigationHint(files, keywords []string) string {
 	var parts []string
 	if len(keywords) > 0 {
@@ -3688,6 +3704,28 @@ func flowOperationNavigationHint(files, keywords []string) string {
 		return ""
 	}
 	return "Soft navigation plan (not relation evidence): " + strings.Join(parts, "; ") + ". First use repo_map/grep with the typed stems to locate operation occurrences; candidate files are starting points, not an exhaustive scope. The stems may include a parser-owned field/parameter/property binding whose declared static type is the requested carrier; search that exact binding at calls, complete arguments, assignments, returns, setters and getters instead of stopping at the type declaration. If a starting file only contains a declaration, continue the typed-stem search instead of re-emitting that declaration. Then read the bounded operation line before emitting any directed row."
+}
+
+// flowOperationNavigationHintForMissing prefers the exact parser-owned line
+// window already queued for lazy read. The former generic wording told the
+// model to run repo_map/grep first even when the system had already resolved a
+// concrete operation occurrence; that contradiction wasted iterations and
+// left the queued read unconsumed until the dispatch boundary. This hint is
+// navigation only. The read still has to be inspected and emitted by the
+// model as syntax-owned evidence before any relation can be accepted.
+func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files, keywords []string) string {
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
+	if !ok {
+		return flowOperationNavigationHint(files, keywords)
+	}
+	limit := target.lineRange.End - target.lineRange.Start + 1
+	if limit <= 0 {
+		return flowOperationNavigationHint(files, keywords)
+	}
+	return fmt.Sprintf(
+		"Exact next navigation step (not relation evidence): call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d). Do not run a broad repo_map/grep first. Inspect that bounded source window, then emit only the exact syntax-owned operation you verify; if it proves no requested relation, keep the relation unproven.",
+		target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End,
+	)
 }
 
 func preCompleteDowngradeSummary(summary string) string {

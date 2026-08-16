@@ -4579,6 +4579,28 @@ func TestExplorer_FilterToolSchemas_NormalExploreUnchanged(t *testing.T) {
 	}
 }
 
+func TestExplorer_FilterToolSchemas_PendingFlowNavigationStaysOnBoundedMaterializationLane(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:       types.RepairReadFile,
+		Files:      []string{"cmd/root.go"},
+		LineRanges: []types.LineRange{{Start: 4303, End: 4327}},
+		Origin:     types.RepairOriginFlowNavigationPrefix + "participant",
+		Stage:      string(types.StageExplore),
+		Advisory:   true,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"}, {Name: "grep"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+
+	got := (&explorerEvaluator{}).FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("typed flow-navigation repair must hide broad navigation, got %v", gotNames)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_ReadWithoutEmitEscalatedMaterializationOnly(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,

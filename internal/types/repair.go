@@ -82,7 +82,21 @@ const (
 	// schema/aggregate handoff shape after evidence has already been collected;
 	// they must not be interpreted as a demand to reopen broad code exploration.
 	RepairOriginCompletionFormPrefix = "emit_investigation_complete.completion_form."
+
+	// RepairOriginFlowNavigationPrefix marks a bounded parser-owned navigation
+	// read selected after a typed source-flow completion downgrade. The target
+	// is precise enough to narrow the next tool surface, but remains advisory:
+	// reading the line never manufactures an EvidenceItem or relation edge.
+	RepairOriginFlowNavigationPrefix = "emit_investigation_complete.flow_navigation."
 )
+
+// PendingReadIsFlowNavigation reports whether p is the precise, advisory
+// source-flow navigation read emitted by emit_investigation_complete. Keep
+// this typed origin check centralized so agent/orchestrator consumers never
+// infer repair state from user text or model prose.
+func PendingReadIsFlowNavigation(p PendingRead) bool {
+	return strings.HasPrefix(NormalizePendingReadOrigin(p.Origin), RepairOriginFlowNavigationPrefix)
+}
 
 // AllRepairKinds returns every legal RepairKind in declaration order.
 // Used by tests that assert no enforcer raises an unknown kind.
