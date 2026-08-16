@@ -23,6 +23,7 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 	mut.SetWriteContextPack(&types.WriteContextPack{
 		PackID:  "pack-1",
 		BatchID: "batch-1",
+		Goal:    "stale plan summary that must not become remaining work",
 		Items: []types.WriteContextItem{{
 			Priority:  types.WriteContextP0,
 			Kind:      "constraint",
@@ -49,6 +50,8 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 		"## Workflow run state",
 		"wf-1",
 		"## Priority write context pack",
+		"durable_batch_goal: first batch",
+		"not proof of remaining work",
 		"emit_write_workflow_decision",
 		"typed action enum",
 		"## Available controller actions",
@@ -58,6 +61,9 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 		if !strings.Contains(got, want) {
 			t.Fatalf("controller prompt missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "- goal: stale plan summary") {
+		t.Fatalf("controller prompt exposed plan summary as remaining-work goal:\n%s", got)
 	}
 	for _, unavailable := range []string{"apply_plan", "verify_batch"} {
 		if strings.Contains(got, "action enum: "+unavailable) || strings.Contains(actionContractSection(got), unavailable) {

@@ -33,7 +33,12 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	if pack.BatchID != "" {
 		fmt.Fprintf(&b, "- batch_id: %s\n", pack.BatchID)
 	}
-	if pack.Goal != "" {
+	if consumer == types.WriteConsumerController {
+		if goal := activeWriteContextBatchGoal(ctx); goal != "" {
+			fmt.Fprintf(&b, "- durable_batch_goal: %s\n", goal)
+		}
+		b.WriteString("- authority_boundary: context-pack artifact summaries are evidence for the durable batch, not proof of remaining work; use typed batch status, verification results, and explicit outstanding obligations to choose append versus finish.\n")
+	} else if pack.Goal != "" {
 		fmt.Fprintf(&b, "- goal: %s\n", pack.Goal)
 	}
 	b.WriteString("- items:\n")
@@ -56,6 +61,23 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		fmt.Fprintf(&b, "  - ... +%d more context item(s)\n", view.DroppedItems)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func activeWriteContextBatchGoal(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	run := ctx.Mutable.WriteWorkflowRun()
+	if run == nil {
+		return ""
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			return strings.TrimSpace(batch.Goal)
+		}
+	}
+	return ""
 }
 
 func activeWriteContextScope(ctx *types.AgentContext) (string, string) {

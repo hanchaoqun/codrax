@@ -215,6 +215,45 @@ func TestApplyWorkflowDecisionToRunAllowsOrdinaryBatchMetadataRefinement(t *test
 	}
 }
 
+func TestApplyWorkflowDecisionToRunReplanPreservesDurableBatchGoal(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-replan-goal",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair every precedence defect in repository.c",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	got, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action: ActionReplanBatch,
+		Batch: &WriteBatchPlan{
+			ID:              "batch-1",
+			Goal:            "repair only line 16 after the failed verification",
+			ExpectedPaths:   []string{"repository.c"},
+			SuccessCriteria: []string{"make check passes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("replan decision failed: %v", err)
+	}
+	if got.Batches[0].Goal != "repair every precedence defect in repository.c" {
+		t.Fatalf("replan summary overwrote durable batch goal: %+v", got.Batches[0])
+	}
+	if len(got.Batches[0].ExpectedPaths) != 1 || got.Batches[0].ExpectedPaths[0] != "repository.c" {
+		t.Fatalf("replan metadata did not otherwise update: %+v", got.Batches[0])
+	}
+
+	hydrated := HydrateWriteWorkflowDecisionFromRun(WriteWorkflowDecision{
+		Action: ActionReplanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "stale repair summary"},
+	}, run)
+	if hydrated.Batch == nil || hydrated.Batch.Goal != "repair every precedence defect in repository.c" {
+		t.Fatalf("hydrated replan leaked stale plan goal: %+v", hydrated.Batch)
+	}
+}
+
 func TestApplyWorkflowDecisionToRunDoesNotTrustPurposeWithoutTypedAuthorization(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-unowned-purpose",

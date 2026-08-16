@@ -37,6 +37,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 	// change batch). Resolve this before batchIDAndGoalFromBatch and
 	// updateWorkflowBatch consume the echoed metadata.
 	decision.Batch = preserveControllerOwnedBatchPlan(run, decision.Batch)
+	decision.Batch = preserveExistingReplanBatchGoal(run, decision.Action, decision.Batch)
 
 	switch decision.Action {
 	case ActionExploreCode:
@@ -143,6 +144,27 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		}
 	}
 	return types.NormalizeWriteWorkflowRun(run), nil
+}
+
+// preserveExistingReplanBatchGoal keeps the durable batch objective stable
+// across replacement ChangePlans. A replan may change edits, probes, and the
+// plan's own summary, but changing the batch goal would turn plan narration
+// into remaining-work authority. Append/split actions still mint new goals.
+func preserveExistingReplanBatchGoal(run types.WriteWorkflowRun, action WorkflowAction, batch *WriteBatchPlan) *WriteBatchPlan {
+	if action != ActionReplanBatch || batch == nil {
+		return batch
+	}
+	id := strings.TrimSpace(batch.ID)
+	if id == "" {
+		id = strings.TrimSpace(run.ActiveBatchID)
+	}
+	existing, ok := workflowRunBatch(run, id)
+	if !ok || strings.TrimSpace(existing.Goal) == "" {
+		return batch
+	}
+	preserved := *batch
+	preserved.Goal = strings.TrimSpace(existing.Goal)
+	return &preserved
 }
 
 func batchIDAndGoalFromExploration(decision WriteWorkflowDecision, run types.WriteWorkflowRun) (string, string) {
