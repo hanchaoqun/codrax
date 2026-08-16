@@ -62,6 +62,29 @@ func TestRuntimeTraceArithmeticRelationCaveatRejectsCrossMetricSubjectJoin(t *te
 	}
 }
 
+func TestRuntimeTraceArithmeticRelationCaveatDoesNotForceWindowOverTypedSameWindowSubtotal(t *testing.T) {
+	ctx := runtimeTraceArithmeticSameWindowSubtotalContext()
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary,
+		Text: "CPU12 运行 96.081ms，占全窗口 running 的 61.1%。",
+	}}}
+	if materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatalf("typed same-window running subtotal was overridden by wall-clock window: %v", doc.Caveats)
+	}
+
+	wrong := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary,
+		Text: "CPU12 运行 96.081ms，占比 50.0%。",
+	}}}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(wrong, ctx) {
+		t.Fatal("a percentage inconsistent with both typed wall window and same-window subtotal must remain advisory-visible")
+	}
+	got := strings.Join(wrong.Caveats, "\n")
+	if !strings.Contains(got, "按 typed 窗长 233.190ms") {
+		t.Fatalf("unexpected mismatch advisory: %s", got)
+	}
+}
+
 func TestRuntimeTraceArithmeticRelationCaveatKeepsExplicitRelationConnectors(t *testing.T) {
 	for _, text := range []string{
 		"碎片合计 0.817ms，占总窗口的 0.44%。",
@@ -571,4 +594,36 @@ func runtimeTraceArithmeticTestContext(completeness string, includeWindow bool) 
 		}},
 	}
 	return &types.BusContext{ToolResults: []types.ToolResult{result}}
+}
+
+func runtimeTraceArithmeticSameWindowSubtotalContext() *types.BusContext {
+	const window = "selected_window=13762.791708..13763.024898"
+	return &types.BusContext{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		EnumerationAuthority: &types.ToolEnumerationAuthority{
+			Status: "complete",
+		},
+		Observations: []types.ObservationRecord{
+			{
+				ID: "trace_query:h4#target_window_states", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				Predicate: "target_window_states", Subject: "app-100", Object: "state_partition",
+				Value: "233.190", Unit: "ms",
+				RichNotes: []string{
+					types.TraceNoteKeyRunning + "=157.248",
+					types.TraceNoteKeyRunnable + "=5.604",
+					types.TraceNoteKeySleep + "=70.338",
+					types.TraceNoteKeyTotal + "=233.190",
+					window,
+				},
+			},
+			{
+				ID: "trace_query:h4#target_cpu_running:12", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				Predicate: "target_cpu_running", Subject: "app-100", Object: "cpu12",
+				Value: "96.081", Unit: "ms", RichNotes: []string{window},
+			},
+		},
+	}}}
 }

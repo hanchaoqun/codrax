@@ -127,6 +127,18 @@ func runtimeTraceArithmeticRelationGroupNote(
 	if len(group.candidates) == 0 {
 		return "", false
 	}
+	// A visible percentage is not necessarily relative to the selected wall
+	// clock window. It may be a share of another producer-typed duration in the
+	// same query window (for example one CPU's running time divided by the
+	// target's total running time). Before publishing any window-based
+	// contradiction, fail open when the typed ledger contains such an
+	// arithmetically consistent denominator alongside a typed occurrence of the
+	// displayed numerator in that same window. This does not claim that the
+	// alternative binding is semantically proven; it only prevents the system
+	// from accusing model prose using a denominator it cannot uniquely own.
+	if authority.hasConsistentSameWindowNonWindowDenominator(group, windows) {
+		return "", false
+	}
 	type consistentPair struct {
 		relation runtimeTraceArithmeticRelation
 		windowMS float64
@@ -221,6 +233,41 @@ func runtimeTraceArithmeticRelationGroupNote(
 			zh,
 		), true
 	}
+}
+
+func (resolver runtimeTraceArithmeticAuthorityResolver) hasConsistentSameWindowNonWindowDenominator(
+	group runtimeTraceArithmeticRelationGroup,
+	windows []float64,
+) bool {
+	for _, relation := range group.candidates {
+		tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+		for _, numerator := range resolver.numerators {
+			if math.Abs(numerator.durationMS-relation.durationMS) > runtimeTraceArithmeticWindowDedupeMS {
+				continue
+			}
+			for _, denominator := range resolver.numerators {
+				if denominator.durationMS <= 0 ||
+					math.Abs(denominator.windowMS-numerator.windowMS) > runtimeTraceArithmeticWindowDedupeMS ||
+					runtimeTraceArithmeticDurationMatchesAny(denominator.durationMS, windows) {
+					continue
+				}
+				computed := relation.durationMS / denominator.durationMS * 100
+				if math.Abs(computed-relation.claimedPercent) <= tolerance {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func runtimeTraceArithmeticDurationMatchesAny(durationMS float64, candidates []float64) bool {
+	for _, candidate := range candidates {
+		if math.Abs(durationMS-candidate) <= runtimeTraceArithmeticWindowDedupeMS {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeTraceModelArithmeticRelationGroups(doc *types.AnswerDocumentV2) []runtimeTraceArithmeticRelationGroup {

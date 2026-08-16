@@ -36414,13 +36414,19 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 7. 本批没有改变有限 Trace breadth 或因果能力。真正 causal_diagnosis 的显式时间窗、Trace 因果投影、
    自动补齐以及链上优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索与实际占用、规则计价双轴保持；
    邻近/背景继续只能 support。活跃流没有 4ms/固定年龄降级，系统不代写模型结论、关系或图。
+8. B911 N2 已施工：算术 checker 在任何 window-based caveat 之前，先要求正文 duration 本身能绑定到
+   producer-typed 同窗记录；再枚举同一 typed query window 内的其它 duration。若存在一个非窗长 duration
+   能与该百分比算术自洽，checker 静默退出：它既不声称该 subtotal 就是语义分母，也不再用 wall-clock
+   window 指责模型。只有所有同窗 typed duration 与 typed window 均不自洽时才保留原 advisory。H4
+   `96.081/157.248=61.1%` 正形与 `96.081/50.0%` 负形均有 pin；不读 metric 名、用户文字或答案关键词，
+   不改模型正文。
 
 状态：
 
 `B908-FLOWRELATIONSCOPEDISCOVERY1=production-partial/N2b-confirmed`；
 `B909-FINITETRACESAMECPUCOGNITIVE1=production-positive-r570`；
 `B910-RUNTIMEARTIFACTSOURCEENDPOINTLEAK1=implemented/explicit-false-typed-drop+pinned`；
-`B911-TRACEARITHMETICALTERNATEDENOMINATOR1=confirmed/P1/next-batch`；
+`B911-TRACEARITHMETICALTERNATEDENOMINATOR1=implemented/same-window-typed-duration-fail-open+pinned`；
 `H4-LIMIT-SEMANTIC-ORACLE=secondary-open/no-case-fit`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
