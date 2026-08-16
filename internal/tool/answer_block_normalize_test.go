@@ -222,6 +222,24 @@ func TestNormalizeEmitAnswerBlock_AcceptsBothStructuredTableRowConventions(t *te
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_PreservesTrailingBlankCellPosition(t *testing.T) {
+	raw := emitAnswerBlockV2{
+		ID:      "cpu-running",
+		Kind:    string(types.BlockTable),
+		Columns: []string{"CPU", "Running", "Segments", "Note"},
+		Items: []emitAnswerBlockItemV2{{
+			ID: "cpu1", Cells: []string{"CPU 1", "7.155 ms", "9", ""},
+		}},
+	}
+	got, err := NormalizeEmitAnswerBlock(raw, "blocks[0]")
+	if err != nil {
+		t.Fatalf("an exact-width row with an intentionally blank trailing cell was rejected: %v", err)
+	}
+	if len(got.Items) != 1 || len(got.Items[0].Cells) != 4 || got.Items[0].Cells[3] != "" {
+		t.Fatalf("trailing blank cell lost its positional column: %+v", got.Items)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_RejectsMixedStructuredTableRowConventions(t *testing.T) {
 	raw := emitAnswerBlockV2{
 		ID:      "mixed-label-width",

@@ -35859,6 +35859,61 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.929 r561：成员说明修复获生产正证；CPU 频点跨核借用、表格尾空合同与首次/重试选择义务根修（2026-08-16）
+
+1. 在 `main@1ecd60677` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工
+   两案均 fail；完整人工审计见
+   `eval/parallel_selected_summary_evalcampaign_b889_trace_r561_20260816_manual_audit.md`。自动 oracle 只证明
+   声明词面/结构出现，不能替代关系方向、CPU 身份和最终结论审计。
+2. B889 获生产正证：组合题四次 completion 均零拒绝，`CodeIdentity: explanation` 不再造成 support-ref
+   死循环。最终仍缺用户要求的“首次完整 emit 与失败后 retry patch 如何选择”主关系；图只保留
+   `ParametersFor/canonicalParameters/patch Execute/Name` 等局部旁支，并把 finalizer 诚实留为未证，故
+   runner PASS 不能收账。
+3. 该关系缺失不是单纯模型波动。Analyzer 第一次把 `finalizer` 正确标成 `context_only`，但 provenance
+   拒绝提示直接提供“改成 incident_required”的捷径，模型据此把外围 actor 升成必须连边节点；同时
+   `runtime_selection_required=false`，探索没有优先读取真正选择点：每轮工具 schema 刷新、patch base
+   availability 和首次/重试可见工具门。冻结 `B893-DIAGRAMCONTEXTROLEPROVENANCE1` 与
+   `B895-INITIALRETRYSELECTIONCLASSIFY1`。
+4. B893 删除角色升格捷径：错误提示只要求使用更宽的当前请求原句证明 surrounding context，并明确
+   不能仅为修 provenance 改角色；只有当前请求确实要求涉及该 participant 的关系时才可用
+   `incident_required`。角色仍由 Analyzer 依据请求语义给出，系统不自动降级/升格，也不造关系边。
+5. B895 在 `CallChainEndpointProfileTeaching` 单一教学源和公开 schema 同步加入 initial/full-output 与
+   retry/error/patch 工具或路径选择形。它仍是 Analyzer 输出的 typed boolean + verbatim quote；消费者不
+   扫描请求、推理或答案正文来硬触发。这样 explorer 得到真实 selection/availability 调查义务，关系和
+   结论仍由模型基于源码形成。
+6. Trace 侧 B890/B891 均获生产正证：`recorded_reason` 未再被误选，50 行无关 blocked-reason 块消失；
+   内部 binding enum 也未再泄漏。四态账和 per-CPU Running roster 正确。但模型把明确属于 CPU12 的
+   2075MHz representative frequency 与 CPU4 的 2100MHz policy ceiling 比较，并宣称 CPU4“未触发限制”。
+   这是上下文仍把 CPU-owned 频点与 same-key join 分开导致的可预防错配，不是 Trace 数据缺失。
+7. `B892-TARGETCPUFREQUENCYJOIN1` 仅消费 deterministic `running_time` observation 的 subject、
+   selected_window、整数 CPU 与 freq，并在完全相同的 target/window/CPU 行并置频点。另一窗口、另一
+   subject、另一 CPU 都不能借用；行内明确该值只是 CPU-owned running-bucket representative，不证明
+   target slice 与 policy overlap。系统只连接 typed 事实，不生成“受限/未受限”结论。
+8. 同轮两个成文重试中，第二次暴露 `B894-TABLETRAILINGBLANKPOSITION1`：模型对四列发出四个 `cells`，
+   最后一项为 `""`；normalizer 先裁掉尾空位置，validator 又以只剩三列拒绝，与公开“每列一个值”合同
+   自冲突。现将 `cells[]` 与 `columns[]` 都按位置对齐：正常解码和尽力 JSON 恢复均保留尾空 string，
+   宽度校验按原位置计数；全空行仍不可伪装成可见行，渲染层继续可以压缩整列全空的展示列。
+9. 本批所有 hard check 只读 schema-valid enum/boolean、typed observation key 与数组位置；未引入 request/
+   reasoning/final-prose 关键词门。未改 Trace query、显式时间窗、因果投影和自动补齐：真正根因仍只能从
+   typed on-chain 证据加冕，优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义和链上业务线索不丢，
+   实际占用与规则计价可消除量双轴保持；邻近/背景仅作 support。持续字节流不因 4ms 或固定总年龄降级。
+
+状态：
+
+`B889-INLINEMEMBERNOTEFORMS1=production-positive-r561`；
+`B890-RECORDEDREASONFAMILYTEACHING1=production-positive-r561`；
+`B891-FREQUENCYBINDINGREADERFACE1=production-partial-r561/internal-enum-gone+cross-cpu-frequency-mismatch-open`；
+`B892-TARGETCPUFREQUENCYJOIN1=implemented/exact-target+window+cpu/pending-replay`；
+`B893-DIAGRAMCONTEXTROLEPROVENANCE1=implemented/no-role-promotion-shortcut/pending-replay`；
+`B894-TABLETRAILINGBLANKPOSITION1=implemented/normal+recovery-position-pins-pass`；
+`B895-INITIALRETRYSELECTIONCLASSIFY1=implemented/single-source-soft-typed-teaching/pending-replay`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r561/requested-initial-vs-retry-relation-missing`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

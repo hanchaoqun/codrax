@@ -655,8 +655,8 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	}
 	for _, item := range block.Items {
 		candidateRole, _ := types.NormalizeAnswerCandidateRole(item.CandidateRole)
-		cells := normalizeTableStringSlice(item.Cells)
-		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" && len(cells) == 0 {
+		cells := normalizeTableCellStringSlice(item.Cells)
+		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" && !tableCellStringSliceHasVisibleValue(cells) {
 			continue
 		}
 		typedItem := types.AnswerBlockItem{

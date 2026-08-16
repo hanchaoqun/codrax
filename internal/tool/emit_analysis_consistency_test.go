@@ -262,6 +262,17 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if _, ok := prop.Properties["runtime_selection_source_quote"]; !ok {
 		t.Fatal("call_chain_endpoints is missing runtime_selection_source_quote")
 	}
+	var runtimeSelectionProperty struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(prop.Properties["runtime_selection_required"], &runtimeSelectionProperty); err != nil {
+		t.Fatalf("runtime_selection_required schema is invalid: %v", err)
+	}
+	for _, want := range []string{"initial/full-output attempt", "retry/error/patch attempt"} {
+		if !strings.Contains(runtimeSelectionProperty.Description, want) {
+			t.Fatalf("runtime_selection_required description must teach %q: %s", want, runtimeSelectionProperty.Description)
+		}
+	}
 	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered", "discover_path"} {
 		if !strings.Contains(prop.Description, want) {
 			t.Fatalf("call_chain_endpoints description must pin %q: %s", want, prop.Description)

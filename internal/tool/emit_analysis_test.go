@@ -4557,7 +4557,8 @@ func TestEmitAnalysis_Execute_RejectsRelationClauseAsContextOnlyProvenance(t *te
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.Success || !strings.Contains(res.Summary, "typed participant roster [Mutable BusContext]") ||
-		!strings.Contains(res.Summary, "use role=incident_required") {
+		!strings.Contains(res.Summary, "Do not change the semantic role merely to repair provenance") ||
+		!strings.Contains(res.Summary, "only when the CURRENT request explicitly requires a relation") {
 		t.Fatalf("a co-listed relation clause must not demote explicit relation members to context-only: %+v", res)
 	}
 	if mu.RequestModel() != nil {

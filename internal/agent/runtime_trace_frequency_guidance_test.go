@@ -32,6 +32,21 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 			Observations: []types.ObservationRecord{
 				{
 					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "running_time", Subject: "app-17267", Object: "running", Value: "35.960", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898", "cpu=4", "freq=558000"},
+				},
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "running_time", Subject: "app-17267", Object: "running", Value: "96.081", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898", "cpu=12", "freq=2075000"},
+				},
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+					Predicate: "running_time", Subject: "app-17267", Object: "running", Value: "999.000", Unit: "ms",
+					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=1.000000..2.000000", "cpu=4", "freq=9999999"},
+				},
+				{
+					Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 					Predicate: "target_cpu_running", Subject: "app-17267", Object: "cpu=4", Value: "35.960", Unit: "ms",
 					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898", types.TraceNoteKeyTargetCPURunningCPU + "=4", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
 				},
@@ -75,9 +90,9 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"enumerate every available target-owned CPU row",
 		"A policy row for one CPU binds only to target running evidence on that same CPU",
 		"Runtime target/CPU policy join (typed identity alignment only; the model still owns the restriction verdict)",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=0 target_running=absent_in_complete_roster same_cpu_policy=present:min=418000kHz,max=1530000kHz,rows=16`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=4 target_running=35.960ms same_cpu_policy=present:min=558000kHz,max=2100000kHz,rows=28`; target effect unproven: same-CPU target and policy rows exist, but no target-slice overlap/binding carrier.",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=12 target_running=96.081ms same_cpu_policy=absent`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
+		"`target=app-17267 window=13762.791708..13763.024898 cpu=0 target_running=absent_in_complete_roster same_cpu_target_running_frequency=absent same_cpu_policy=present:min=418000kHz,max=1530000kHz,rows=16`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
+		"`target=app-17267 window=13762.791708..13763.024898 cpu=4 target_running=35.960ms same_cpu_target_running_frequency=558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof) same_cpu_policy=present:min=558000kHz,max=2100000kHz,rows=28`; target effect unproven: same-CPU target and policy rows exist, but no target-slice overlap/binding carrier.",
+		"`target=app-17267 window=13762.791708..13763.024898 cpu=12 target_running=96.081ms same_cpu_target_running_frequency=2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof) same_cpu_policy=absent`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)
@@ -88,6 +103,9 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 	}
 	if strings.Contains(got, "target=app-17267 window=1.000000..2.000000") || strings.Contains(got, "target_running=999.000ms") {
 		t.Fatalf("target CPU rows from another exploratory window must not join this policy witness:\n%s", got)
+	}
+	if strings.Contains(got, "9999999kHz") {
+		t.Fatalf("a frequency from another exploratory window must not join this policy witness:\n%s", got)
 	}
 }
 

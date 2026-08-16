@@ -54,6 +54,26 @@ func TestRecoverAnswerDocumentV2FromText_ContentJSONDocument(t *testing.T) {
 	}
 }
 
+func TestRecoverAnswerDocumentV2FromText_PreservesTrailingBlankTableCellPosition(t *testing.T) {
+	content := `{
+  "blocks": [{
+    "id": "cpu-running",
+    "kind": "table",
+    "columns": ["CPU", "Running", "Segments", "Note"],
+    "items": [{"id": "cpu1", "cells": ["CPU 1", "7.155 ms", "9", ""]}]
+  }]
+}`
+
+	rec, ok := RecoverAnswerDocumentV2FromText(content)
+	if !ok || rec.Document == nil || len(rec.Document.Blocks) != 1 {
+		t.Fatalf("expected typed table recovery, got %+v", rec)
+	}
+	cells := rec.Document.Blocks[0].Items[0].Cells
+	if len(cells) != 4 || cells[3] != "" {
+		t.Fatalf("text recovery lost the trailing positional cell: %#v", cells)
+	}
+}
+
 func TestRecoverAnswerDocumentV2FromText_TrailingCommas(t *testing.T) {
 	content := `{
   "blocks": [

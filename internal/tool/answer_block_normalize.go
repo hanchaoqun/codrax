@@ -171,7 +171,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				ID:                   it.ID,
 				Label:                it.Label,
 				Text:                 it.Text,
-				Cells:                normalizeTableStringSlice(it.Cells),
+				Cells:                normalizeTableCellStringSlice(it.Cells),
 				CandidateRole:        candidateRole,
 				SourceInventoryRowID: strings.TrimSpace(it.SourceInventoryRowID),
 				CitationRef:          types.CitationRefUnset,
@@ -308,13 +308,13 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 			return nil
 		}
 		labelPresent := strings.TrimSpace(item.Label) != ""
-		rawCells := normalizeTableStringSlice(item.Cells)
+		rawCells := normalizeTableCellStringSlice(item.Cells)
 		cells := append([]string(nil), rawCells...)
 		textPresent := strings.TrimSpace(item.Text) != ""
 		if text := strings.TrimSpace(item.Text); text != "" && !tableRowCellsContain(cells, text) {
 			cells = append(cells, text)
 		}
-		if !labelPresent && len(cells) == 0 {
+		if !labelPresent && !textPresent && !tableCellStringSliceHasVisibleValue(cells) {
 			continue
 		}
 		visibleRows++
@@ -391,6 +391,33 @@ func normalizeTableStringSlice(in []string) []string {
 		return nil
 	}
 	return out
+}
+
+// normalizeTableCellStringSlice preserves positional trailing blanks. In a
+// structured table, cells[] is an index-aligned carrier: ["CPU 1", "7ms",
+// "9", ""] still supplies four model-authored column positions, with the
+// last value intentionally blank. Dropping that position before the width
+// validator made the public JSON shape and the validator contradict each
+// other. The renderer may later pad/compact an all-empty display column, but
+// the emit contract must first retain the exact row cardinality.
+func normalizeTableCellStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.TrimSpace(s)
+	}
+	return out
+}
+
+func tableCellStringSliceHasVisibleValue(in []string) bool {
+	for _, value := range in {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {

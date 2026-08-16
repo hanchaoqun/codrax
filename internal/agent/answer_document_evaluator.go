@@ -12171,6 +12171,7 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 		subject string
 		window  string
 	}
+	type targetCPUFrequencyRows map[int]map[int64]bool
 	policyByWindow := make(map[string]map[int]types.TraceFrequencyLimitAuthority)
 	for _, witness := range witnesses {
 		if witness.CPU < 0 {
@@ -12186,10 +12187,10 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 	}
 	targets := make(map[targetWindowKey]map[int]targetCPURow)
 	rosterByTargetWindow := make(map[targetWindowKey]string)
+	frequenciesByTargetWindow := make(map[targetWindowKey]targetCPUFrequencyRows)
 	for _, record := range answerDocObservationLedger(ctx).Records {
 		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
-			record.Predicate != "target_cpu_running" {
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
 		subject := strings.TrimSpace(record.Subject)
@@ -12202,15 +12203,43 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 			// joined to this policy witness. Missing window identity fails open.
 			continue
 		}
-		cpuText := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningCPU))
-		if cpuText == "" && strings.HasPrefix(strings.TrimSpace(record.Object), "cpu=") {
-			cpuText = strings.TrimPrefix(strings.TrimSpace(record.Object), "cpu=")
+		cpuText := ""
+		switch record.Predicate {
+		case "target_cpu_running":
+			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningCPU))
+			if cpuText == "" && strings.HasPrefix(strings.TrimSpace(record.Object), "cpu=") {
+				cpuText = strings.TrimPrefix(strings.TrimSpace(record.Object), "cpu=")
+			}
+		case "running_time":
+			// top_running is already a typed target+CPU running bucket. Its
+			// frequency is CPU-owned representative context, not a
+			// target-slice-to-policy overlap credential. Keeping it on the
+			// identical subject/window/CPU key prevents a representative from
+			// one CPU being compared with another CPU's policy row.
+			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "cpu"))
+		default:
+			continue
 		}
 		cpu, err := strconv.Atoi(cpuText)
 		if err != nil || cpu < 0 {
 			continue
 		}
 		key := targetWindowKey{subject: subject, window: window}
+		if record.Predicate == "running_time" {
+			freqText := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "freq"))
+			freq, err := strconv.ParseInt(freqText, 10, 64)
+			if err != nil || freq <= 0 {
+				continue
+			}
+			if frequenciesByTargetWindow[key] == nil {
+				frequenciesByTargetWindow[key] = make(targetCPUFrequencyRows)
+			}
+			if frequenciesByTargetWindow[key][cpu] == nil {
+				frequenciesByTargetWindow[key][cpu] = make(map[int64]bool)
+			}
+			frequenciesByTargetWindow[key][cpu][freq] = true
+			continue
+		}
 		if targets[key] == nil {
 			targets[key] = make(map[int]targetCPURow)
 		}
@@ -12269,11 +12298,33 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 			if !targetObserved || !policyObserved {
 				binding = "not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute"
 			}
-			fmt.Fprintf(&b, "  - `target=%s window=%s cpu=%d target_running=%s same_cpu_policy=%s`; %s.\n",
-				traceDecisionPromptScalar(key.subject), key.window, cpu, targetRunning, policyText, binding)
+			frequencyText := answerDocTargetCPUFrequencyText(frequenciesByTargetWindow[key][cpu])
+			fmt.Fprintf(&b, "  - `target=%s window=%s cpu=%d target_running=%s same_cpu_target_running_frequency=%s same_cpu_policy=%s`; %s.\n",
+				traceDecisionPromptScalar(key.subject), key.window, cpu, targetRunning, frequencyText, policyText, binding)
 		}
 	}
 	return b.String()
+}
+
+func answerDocTargetCPUFrequencyText(values map[int64]bool) string {
+	if len(values) == 0 {
+		return "absent"
+	}
+	freqs := make([]int64, 0, len(values))
+	for value := range values {
+		if value > 0 {
+			freqs = append(freqs, value)
+		}
+	}
+	if len(freqs) == 0 {
+		return "absent"
+	}
+	sort.Slice(freqs, func(i, j int) bool { return freqs[i] < freqs[j] })
+	parts := make([]string, 0, len(freqs))
+	for _, value := range freqs {
+		parts = append(parts, fmt.Sprintf("%dkHz", value))
+	}
+	return strings.Join(parts, ",") + "(CPU-owned running-bucket representative; not target-slice/policy overlap proof)"
 }
 
 // renderAnswerDocRuntimeFiniteTargetStateCaliberHint preserves the exact

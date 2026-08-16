@@ -514,7 +514,7 @@ func buildEmitAnalysisSchema() {
 					"source":                         map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover/discover_terminal; empty in discover_path and when not applicable."},
 					"sink":                           map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_terminal/discover_path and when not applicable."},
 					"sink_mode":                      map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime-selected destination to prove; discover_terminal=exact source with conceptual terminal destination to identify from grounded static calls; discover_path=both role-bound endpoint identities to find."},
-					"runtime_selection_required":     map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched. This is independent of endpoint identity mode."},
+					"runtime_selection_required":     map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, or which tool/path is available or used on an initial/full-output attempt versus a retry/error/patch attempt. This is independent of endpoint identity mode."},
 					"runtime_selection_source_quote": map[string]any{"type": "string", "description": "When runtime_selection_required=true, the shortest contiguous verbatim CURRENT-request phrase establishing that selection question; empty when false."},
 				},
 				"required":             []string{"source", "sink", "sink_mode", "runtime_selection_required", "runtime_selection_source_quote"},
@@ -2451,7 +2451,7 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 					provenanceShape = fmt.Sprintf("only the typed participant roster %v", rosterMembers)
 				}
 				conflicts = append(conflicts, fmt.Sprintf(
-					"diagram_hint.participants[%d] marks %q context_only but source_quote is %s; for a required source-flow visual, a participant roster does not prove surrounding context: copy a wider verbatim CURRENT-request phrase that explicitly scopes it as surrounding context, or use role=incident_required",
+					"diagram_hint.participants[%d] marks %q context_only but source_quote is %s; for a required source-flow visual, a participant roster does not prove surrounding context: copy a wider verbatim CURRENT-request phrase that explicitly scopes it as surrounding context. Do not change the semantic role merely to repair provenance; use role=incident_required only when the CURRENT request explicitly requires a relation involving this participant",
 					i, identity, provenanceShape,
 				))
 			}
