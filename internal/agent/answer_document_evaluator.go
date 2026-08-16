@@ -2927,9 +2927,14 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 		b.WriteString("- endpoint mode: `discover_path`; the request supplied conceptual path boundaries, not preselected code endpoints\n")
 		b.WriteString("- Select both endpoint identities and the relations that advance the requested boundary from grounded evidence. The typed rows below are composition aids only: they do not promote a parser candidate into an endpoint, required hop, or final conclusion.\n")
 	} else {
-		b.WriteString("## Call-chain runtime selection evidence\n\n")
-		fmt.Fprintf(&b, "- exact requested endpoints: `%s` -> `%s`\n", strings.TrimSpace(profile.Source), strings.TrimSpace(profile.Sink))
-		b.WriteString("- The request independently asks how the runtime implementation is selected. Preserve the grounded selection/binding facts alongside the exact endpoint path; endpoint identity alone does not prove that mechanism.\n")
+		b.WriteString("## Runtime selection evidence\n\n")
+		if profile.ExactActive() {
+			fmt.Fprintf(&b, "- exact requested endpoints: `%s` -> `%s`\n", strings.TrimSpace(profile.Source), strings.TrimSpace(profile.Sink))
+			b.WriteString("- Preserve the grounded selection/binding facts alongside the exact endpoint path; endpoint identity alone does not prove that mechanism.\n")
+		} else {
+			b.WriteString("- The request asks how an implementation, handler, backend, provider, or attempt-specific tool/path becomes available or selected; it does not declare a source-to-sink call-chain endpoint pair.\n")
+			b.WriteString("- Preserve the grounded selection/availability fact and its connected operation or owner. Do not invent endpoint identities merely to make a continuous path.\n")
+		}
 	}
 	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
 	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")

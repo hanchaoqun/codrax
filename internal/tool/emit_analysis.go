@@ -2020,10 +2020,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall || runtimeArtifactCarrier {
-		if callChainEndpointProfile != nil {
+		if callChainEndpointProfile != nil && !callChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
 			callChainEndpointWarning = "dropped call_chain_endpoints outside a source-code call_chain with predicate_axis=call"
+			callChainEndpointProfile = nil
 		}
-		callChainEndpointProfile = nil
 	}
 	if callChainEndpointWarning != "" {
 		val.Warnings = append(val.Warnings, callChainEndpointWarning)
@@ -2415,9 +2415,13 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 	}
 	var conflicts []string
 	participantKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
+	participantAliasKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
 	for _, participant := range rm.DiagramHint.Participants {
 		if key := diagramParticipantProvenanceKey(participant.Identity); key != "" {
 			participantKeys[key] = true
+		}
+		if key := diagramParticipantIdentityAliasKey(participant.Identity); key != "" {
+			participantAliasKeys[key] = true
 		}
 	}
 	for i, participant := range rm.DiagramHint.Participants {
@@ -2461,8 +2465,9 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		for _, rawEntity := range rm.AnalyzerHints.Entities {
 			entity := strings.TrimSpace(rawEntity)
 			key := diagramParticipantProvenanceKey(entity)
-			if entity == "" || key == "" || participantKeys[key] || seenCoListed[key] ||
-				!sourceQuoteAnchoredInCurrentRequest(participant.SourceQuote, entity) {
+			aliasKey := diagramParticipantIdentityAliasKey(entity)
+			if entity == "" || key == "" || participantKeys[key] || participantAliasKeys[aliasKey] ||
+				seenCoListed[key] || !sourceQuoteExplicitlyMentionsTypedEntity(participant.SourceQuote, entity) {
 				continue
 			}
 			seenCoListed[key] = true
@@ -2535,6 +2540,64 @@ func diagramParticipantProvenanceKey(raw string) string {
 			return -1
 		}
 	}, strings.TrimSpace(raw)))
+}
+
+// diagramParticipantIdentityAliasKey joins only one complete identifier
+// surface after case/separator normalization. It lets an analyzer entity such
+// as EmitAnswerDocument match the participant identity emit_answer_document,
+// but it does not make that shorter identity equal to
+// emit_answer_document_patch. The key is used only to compare typed identity
+// carriers; it never derives participants or relations from prose.
+func diagramParticipantIdentityAliasKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for _, r := range raw {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			continue
+		}
+		// Qualification/member/path punctuation carries identity semantics.
+		// Do not collapse A.B, A::B, or A/B into the unrelated flat name AB.
+		return "exact:" + diagramParticipantProvenanceKey(raw)
+	}
+	return "flat:" + normalizeForSourceQuoteMatch(raw)
+}
+
+// sourceQuoteExplicitlyMentionsTypedEntity checks complete lexical surfaces,
+// including the common snake_case/CamelCase spelling pair. The previous
+// punctuation-stripped substring check made `emit_answer_document` match the
+// longer `emit_answer_document_patch`, which turned a valid participant slate
+// into an impossible retry loop. Exact raw identity matching remains first so
+// file paths and qualified names retain their established boundary rules.
+func sourceQuoteExplicitlyMentionsTypedEntity(sourceQuote, entity string) bool {
+	if types.RawRequestExplicitlyMentionsEntity(sourceQuote, entity) {
+		return true
+	}
+	want := diagramParticipantIdentityAliasKey(entity)
+	if want == "" {
+		return false
+	}
+	for _, surface := range diagramParticipantIdentitySurfaces(sourceQuote) {
+		if diagramParticipantIdentityAliasKey(surface) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramParticipantIdentitySurfaces(raw string) []string {
+	return strings.FieldsFunc(raw, func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+		switch r {
+		case '_', '.', ':', '$', '#', '@', '-':
+			return false
+		default:
+			return true
+		}
+	})
 }
 
 // reconcileSourceCallChainKindFromEndpointProfile resolves one typed

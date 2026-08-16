@@ -109,6 +109,28 @@ func TestEmitInvestigationComplete_DiscoverPathExplicitSelectionRequestsTypedEvi
 	}
 }
 
+func TestEmitInvestigationComplete_RuntimeOnlyMechanismAcceptsConnectedAvailabilityGuard(t *testing.T) {
+	call := discoverySelectionTestEvidence(types.AnchorCall, "visibleSkillToolSuggestions", "skillToolSuggestionBlocked", 40)
+	guard := types.EvidenceItem{
+		Kind: types.EvidenceConditional, AnchorKind: types.AnchorCondition,
+		Subject: "answerDocumentPatchBaseAvailable", AnchorSymbol: "!answerDocumentPatchBaseAvailable",
+		OwnerSymbol: "skillToolSuggestionBlocked", Source: "internal/agent/agent.go", LineStart: 42,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}
+	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call, guard})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqMechanism)
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	ctx.AnalysisIR.RequestModel.CallChainEndpointProfile = &types.CallChainEndpointProfile{
+		SinkMode:                    types.CallChainSinkResolutionExact,
+		RuntimeSelectionRequired:    true,
+		RuntimeSelectionSourceQuote: "initial/full-output attempt versus retry/error/patch attempt",
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, discoverySelectionCompletionParams(t))
+	if err != nil || !res.Success || !ctx.Mutable.IsInvestigationComplete() {
+		t.Fatalf("connected runtime-only availability guard should close without a call-chain endpoint pair: err=%v result=%+v", err, res)
+	}
+}
+
 func TestEmitInvestigationComplete_DiscoverSinkSelectionFactClosesWithoutRetryStorm(t *testing.T) {
 	call := discoverySelectionTestEvidence(types.AnchorCall, "Logger.log", "sink_->write", 36)
 	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})
@@ -147,7 +169,7 @@ func TestEmitInvestigationComplete_DiscoverSinkNoProgressConvergesWithBoundary(t
 			found = true
 		}
 	}
-	if !found || !strings.Contains(res.Summary, "runtime target selection remains unproven") {
+	if !found || !strings.Contains(res.Summary, "runtime selection remains unproven") {
 		t.Fatalf("converged close must retain typed caveat and visible boundary: caveats=%+v note=%q",
 			ctx.Mutable.EvidenceClosure().CompletionCaveats(), res.Summary)
 	}

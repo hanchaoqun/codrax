@@ -189,6 +189,20 @@ func TestNormalizeCallChainEndpointProfile_DemotionPreservesIndependentRuntimeSe
 	}
 }
 
+func TestNormalizeCallChainEndpointProfile_RuntimeSelectionSurvivesWithoutEndpointAuthority(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(&CallChainEndpointProfile{
+		SinkMode:                    CallChainSinkResolutionExact,
+		RuntimeSelectionRequired:    true,
+		RuntimeSelectionSourceQuote: "initial/full-output attempt versus a retry/error/patch attempt",
+	}, nil)
+	if reason != "" || profile == nil {
+		t.Fatalf("runtime-only selection carrier should survive, reason=%q profile=%+v", reason, profile)
+	}
+	if profile.Active() || !profile.RequiresRuntimeSelectionEvidence() {
+		t.Fatalf("runtime selection must remain independent of endpoint authority: %+v", profile)
+	}
+}
+
 func TestNormalizeCallChainEndpointProfile_DiscoverSourceRequiresCurrentRequestProvenance(t *testing.T) {
 	profile, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Invented.entry", SinkMode: CallChainSinkResolutionDiscover},

@@ -1668,6 +1668,36 @@ func TestEmitAnalysis_SourceCallChainDiscoverPathCarriesExplicitRuntimeSelection
 	}
 }
 
+func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoints(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch"
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["emit_answer_document","emit_answer_document_patch","retry"],
+		"entities":["emit_answer_document","emit_answer_document_patch"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"call_chain_endpoints":{
+			"source":"","sink":"","sink_mode":"exact",
+			"runtime_selection_required":true,
+			"runtime_selection_source_quote":"首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch"
+		}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("runtime selection must remain reachable outside call_chain: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || profile.Active() || !profile.RequiresRuntimeSelectionEvidence() {
+		t.Fatalf("mechanism/flow runtime-only carrier was dropped or promoted to endpoint authority: %+v", profile)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainRejectsUnanchoredRuntimeSelectionDeclaration(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -4624,6 +4654,45 @@ func TestEmitAnalysis_Execute_RejectsOmittedEntityCoListedByParticipantSourceQuo
 	}
 	if mu.RequestModel() != nil {
 		t.Fatal("an incomplete co-listed participant slate must not publish a RequestModel")
+	}
+}
+
+func TestEmitAnalysis_RequiredFlowParticipantsTreatSnakeAndCamelAsSameWholeIdentity(t *testing.T) {
+	raw := "解释 emit_answer_document 和 emit_answer_document_patch 在首次完整输出与重试补丁时如何选择，并画出两者的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["emit_answer_document","emit_answer_document_patch"],
+		"entities":["EmitAnswerDocument","EmitAnswerDocumentPatch"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"emit_answer_document 和 emit_answer_document_patch 在首次完整输出与重试补丁时如何选择","participants":[
+			{"identity":"emit_answer_document","role":"incident_required","source_quote":"emit_answer_document"},
+			{"identity":"emit_answer_document_patch","role":"incident_required","source_quote":"emit_answer_document_patch"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid flowchart", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil || !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("whole-identity snake/camel aliases must not collide by prefix: err=%v result=%+v", err, res)
+	}
+	if got := mu.RequestModel().DiagramHint; got == nil || len(got.Participants) != 2 {
+		t.Fatalf("both exact participants must survive: %+v", got)
+	}
+}
+
+func TestDiagramParticipantIdentityAliasKeyPreservesQualifiedIdentitySemantics(t *testing.T) {
+	if diagramParticipantIdentityAliasKey("EmitAnswerDocument") != diagramParticipantIdentityAliasKey("emit_answer_document") {
+		t.Fatal("snake_case and CamelCase spellings of one flat identifier must share one alias key")
+	}
+	for _, pair := range [][2]string{{"A.B", "AB"}, {"A::B", "AB"}, {"A/B", "AB"}} {
+		if diagramParticipantIdentityAliasKey(pair[0]) == diagramParticipantIdentityAliasKey(pair[1]) {
+			t.Fatalf("qualified identity %q must not collapse into flat identity %q", pair[0], pair[1])
+		}
 	}
 }
 

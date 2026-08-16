@@ -7,18 +7,18 @@ import "strings"
 // schema remains the sole authority for field types/enums; this text only
 // chooses among schema-valid shapes and keeps mutually exclusive relation
 // forms from being combined.
-const CallChainDiscoverySelectionEmissionGuide = "Use exactly one matching selection form: registry/decorator/table binding uses evidence_kind=registration with exact subject/object and the anchor_kind of the actual binding surface; assignment or initializer uses evidence_kind=direct with anchor_kind=assignment or initializer, the assigned receiver/value in subject, and the selected concrete value/type in object; factory or constructor return uses evidence_kind=direct with anchor_kind=return, the enclosing returning function in subject, the returned concrete value/type in object, and source/line_start on the actual return statement. Emit a branch guard separately as evidence_kind=conditional with anchor_kind=condition. Never combine evidence_kind=registration with anchor_kind=return, and never relabel selection as a call."
+const CallChainDiscoverySelectionEmissionGuide = "Use exactly one matching selection form: registry/decorator/table binding uses evidence_kind=registration with exact subject/object and the anchor_kind of the actual binding surface; assignment or initializer uses evidence_kind=direct with anchor_kind=assignment or initializer, the assigned receiver/value in subject, and the selected concrete value/type in object; factory or constructor return uses evidence_kind=direct with anchor_kind=return, the enclosing returning function in subject, the returned concrete value/type in object, and source/line_start on the actual return statement; an availability/retry branch uses evidence_kind=conditional with anchor_kind=condition, exact condition in subject or anchor_symbol, and the enclosing selector operation in owner_symbol. A guard qualifies only when that owner/subject is connected to a citable call or registration endpoint in the same evidence pool. Never combine evidence_kind=registration with anchor_kind=return, and never relabel selection or a guard as a call."
 
 // CallChainDiscoverySelectionEvidence returns the citable typed facts that can
 // select a concrete destination for a discover-sink call-chain request.
 //
 // Registration is already a complete binding edge and is accepted directly.
-// Assignment/initializer and return facts must be connected to a citable call
-// endpoint (or to a registration endpoint) in the same evidence pool. This
-// prevents an unrelated return elsewhere in the repository from closing the
-// destination-discovery contract. The matcher consumes only typed evidence
-// fields; it never scans request prose, summaries, answer text, language names,
-// or repository-specific keywords.
+// Assignment/initializer, return, and availability-guard facts must be
+// connected to a citable call endpoint (or to a registration endpoint) in the
+// same evidence pool. This prevents an unrelated return/condition elsewhere
+// in the repository from closing the selection contract. The matcher consumes
+// only typed evidence fields; it never scans request prose, summaries, answer
+// text, language names, or repository-specific keywords.
 func CallChainDiscoverySelectionEvidence(evidence []EvidenceItem) []EvidenceItem {
 	if len(evidence) == 0 {
 		return nil
@@ -47,10 +47,20 @@ func CallChainDiscoverySelectionEvidence(evidence []EvidenceItem) []EvidenceItem
 
 	out := append([]EvidenceItem(nil), registrations...)
 	for _, item := range evidence {
-		if !item.IsCitable() || strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
+		if !item.IsCitable() {
 			continue
 		}
 		form := ClaimFormOf(item)
+		if form == ClaimGuardCondition {
+			if callChainDiscoveryEndpointConnected(item.OwnerSymbol, connectionEndpoints) ||
+				callChainDiscoveryEndpointConnected(item.Subject, connectionEndpoints) {
+				out = append(out, item)
+			}
+			continue
+		}
+		if strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
+			continue
+		}
 		if form != ClaimAssignmentFact && form != ClaimReturnFact {
 			continue
 		}

@@ -83,6 +83,23 @@ func TestCallChainDiscoverySelectionEvidence_RequiresCitableTypedFact(t *testing
 	}
 }
 
+func TestCallChainDiscoverySelectionEvidence_ConnectedAvailabilityGuardQualifies(t *testing.T) {
+	call := discoveryEvidence(EvidenceRelationship, AnchorCall, "visibleSkillToolSuggestions", "skillToolSuggestionBlocked")
+	guard := discoveryEvidence(EvidenceConditional, AnchorCondition, "answerDocumentPatchBaseAvailable", "")
+	guard.OwnerSymbol = "skillToolSuggestionBlocked"
+	guard.AnchorSymbol = "!answerDocumentPatchBaseAvailable"
+	if got := CallChainDiscoverySelectionEvidence([]EvidenceItem{call, guard}); len(got) != 1 || ClaimFormOf(got[0]) != ClaimGuardCondition {
+		t.Fatalf("guard connected to a typed selector call should prove availability selection: %+v", got)
+	}
+
+	unrelated := guard
+	unrelated.OwnerSymbol = "unrelatedFeatureGate"
+	unrelated.Subject = "unrelatedFlag"
+	if got := CallChainDiscoverySelectionEvidence([]EvidenceItem{call, unrelated}); len(got) != 0 {
+		t.Fatalf("unrelated guard must not close runtime selection: %+v", got)
+	}
+}
+
 func TestCallChainDiscoverySelectionEmissionGuideKeepsMinimalFormsExclusive(t *testing.T) {
 	for _, want := range []string{
 		"evidence_kind=registration",
@@ -90,6 +107,7 @@ func TestCallChainDiscoverySelectionEmissionGuideKeepsMinimalFormsExclusive(t *t
 		"evidence_kind=direct with anchor_kind=return",
 		"actual return statement",
 		"evidence_kind=conditional with anchor_kind=condition",
+		"connected to a citable call or registration endpoint",
 		"Never combine evidence_kind=registration with anchor_kind=return",
 	} {
 		if !strings.Contains(CallChainDiscoverySelectionEmissionGuide, want) {

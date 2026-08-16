@@ -12871,7 +12871,7 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 	}}}
 	discoverGuide := renderExplorerCallChainEdgeEvidenceGuide(discover)
 	for _, want := range []string{
-		"typed runtime-selection contract needs a separate selection fact",
+		"Runtime-selection Evidence Handoff",
 		"evidence_kind=registration",
 		"evidence_kind=direct with anchor_kind=assignment or initializer",
 		"evidence_kind=direct with anchor_kind=return",
@@ -12901,7 +12901,7 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 			t.Fatalf("discover-path edge handoff missing %q:\n%s", want, discoverPathGuide)
 		}
 	}
-	if strings.Contains(discoverPathGuide, "typed runtime-selection contract needs a separate selection fact") {
+	if strings.Contains(discoverPathGuide, "Runtime-selection Evidence Handoff") {
 		t.Fatalf("role-bound static path must not inherit runtime-selection teaching:\n%s", discoverPathGuide)
 	}
 	discoverTerminal := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -12923,7 +12923,7 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 			t.Fatalf("discover-terminal edge handoff missing %q:\n%s", want, discoverTerminalGuide)
 		}
 	}
-	if strings.Contains(discoverTerminalGuide, "typed runtime-selection contract needs a separate selection fact") {
+	if strings.Contains(discoverTerminalGuide, "Runtime-selection Evidence Handoff") {
 		t.Fatalf("static conceptual terminal must not inherit runtime-selection teaching:\n%s", discoverTerminalGuide)
 	}
 
@@ -13008,6 +13008,32 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		if !strings.Contains(callGuide, want) {
 			t.Fatalf("source call-chain participant obligation missing %q:\n%s", want, callGuide)
 		}
+	}
+}
+
+func TestRenderExplorerCallChainEdgeEvidenceGuide_RuntimeSelectionIsIndependentOfCallChainFamily(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			SinkMode:                    types.CallChainSinkResolutionExact,
+			RuntimeSelectionRequired:    true,
+			RuntimeSelectionSourceQuote: "initial/full-output attempt versus retry/error/patch attempt",
+		},
+	}}}
+	got := renderExplorerCallChainEdgeEvidenceGuide(ctx)
+	for _, want := range []string{
+		"Runtime-selection Evidence Handoff",
+		"independent of whether the question also asks for a source-to-sink call chain",
+		"connected to a citable call or registration endpoint",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime-only mechanism guide missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Call-edge Evidence Handoff") {
+		t.Fatalf("runtime-only mechanism must not inherit call-edge teaching:\n%s", got)
 	}
 }
 

@@ -2172,10 +2172,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(
-					"emit_investigation_complete rejected: the typed call-chain selection contract has no citable runtime-target selection fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, or factory return item with explicit subject/object; keep guards and calls as separate facts."),
+					"emit_investigation_complete rejected: the typed runtime-selection contract has no citable selection or availability fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, factory return, or connected branch guard item with explicit typed endpoints; keep guards and calls as separate facts."),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "call_chain_discovery_selection_evidence",
-					Hint:   "Emit one citable typed runtime-target selection fact from an already-read source line. " + types.CallChainDiscoverySelectionEmissionGuide,
+					Hint:   "Emit one citable typed runtime-selection fact from an already-read source line. " + types.CallChainDiscoverySelectionEmissionGuide,
 					Fields: []string{"items[].evidence_kind", "items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
 					Metadata: map[string]string{
 						"repair_origin": "emit_investigation_complete.call_chain_discovery_selection",
@@ -2187,7 +2187,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}, nil
 		}
 		earlyDowngradeConverged = true
-		ctx.Mutable.AppendCompletionGateNote("runtime target selection remains unproven: no citable registration, assignment/initializer, or factory-return fact connected the discovered destination to the typed call path; the model must keep the destination conditional and may still summarize the proven static calls")
+		ctx.Mutable.AppendCompletionGateNote("runtime selection remains unproven: no citable registration, assignment/initializer, factory-return, or connected branch-guard fact established the requested selection mechanism; the model must keep the selection conditional and may still summarize the proven static operations")
 	}
 	verifiedStagePrecedence := completionVerifiedReadModeStagePrecedence(ctx)
 	flowOperationMissing := resultKind == "resolved" && justification == "" &&
@@ -3445,8 +3445,8 @@ func queueCallChainDiscoverySelectionRepair(ctx *types.BusContext) {
 		Kind:          types.RepairEmitEvidence,
 		Files:         completionMaterializationReadFiles(closure),
 		Tools:         []string{"emit_evidence"},
-		Subject:       "call_chain_discovery_selection",
-		Rationale:     "a typed runtime-selection call-chain request needs one citable registration, assignment/initializer, or factory-return fact connected to the current call path before its selection mechanism can be stated as proven",
+		Subject:       "runtime_selection_evidence",
+		Rationale:     "a typed runtime-selection request needs one citable registration, assignment/initializer, factory-return, or connected branch-guard fact before its selection mechanism can be stated as proven",
 		Origin:        "emit_investigation_complete.call_chain_discovery_selection",
 		DowngradeLane: types.DowngradeLaneCallChainDiscoverySelection,
 		Stage:         string(types.StageExplore),

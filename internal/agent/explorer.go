@@ -1914,6 +1914,11 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 			"This is one cross-language carrier contract for Go, Java/Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and the other supported source languages.\n\n"
 		participantGuide = ""
 	}
+	if rm.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
+		guide += "### Runtime-selection Evidence Handoff\n\n" +
+			"The typed request independently asks how one implementation, handler, backend, provider, or attempt-specific tool/path becomes available or selected. " + types.CallChainDiscoverySelectionEmissionGuide + "\n" +
+			"This obligation is independent of whether the question also asks for a source-to-sink call chain. Preserve the selection fact and its connected operation/owner as separate typed rows; do not invent a call edge or a diagram relation.\n\n"
+	}
 	if types.ResolveQuestionFamily(rm) != types.QFCallChain {
 		return guide
 	}
@@ -1929,9 +1934,6 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 	guide += "- For a language/runtime boundary, keep three fact types separate: the caller-to-export invocation (`relationship/call`), the export/registry binding (`registration`), and any wrapper-to-core invocation (`relationship/call`). On the registration row use the exact exported slot/module in `subject` and the owner-qualified registered callable in `object` only when the already-read binding scope resolves that owner. When declaration owner and bound callable occur on adjacent lines, use the smallest already-read `line_range` containing both; do not squeeze an absent owner into a one-line citation. If only the exact receiver and registration expression are proved on one line, preserve those syntax endpoints—the system may use a unique typed enclosing-owner/reference join as advisory handoff, but it will not turn that join into a call. A registration proves binding, not execution; do not say a call bypasses a binding when its exact target is that registered export.\n" +
 		"- For availability switches and fallbacks, read the complete bounded initialization/try-catch/config block. Emit the guard as `conditional/condition`, each alternative call as its own `relationship/call`, and every simple write that determines the guard symbol as a separate `direct/assignment` item with exact LHS in `subject`, exact scalar RHS in `object`, and the source assignment in `snippet`. Two writes such as enabled/disabled are alternatives or updates, not one hard-coded constant. Do not infer which call belongs to which branch from line order; preserve that as unproven unless a typed branch carrier establishes it.\n" +
 		"- Keep each JSON evidence item semantically atomic: one `evidence_kind`, one matching `anchor_kind`, one source span, and only the fields established by that span. Do not combine registration, call, guard, assignment, or return into one object merely to shorten the payload.\n"
-	if rm.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
-		guide += "- The typed runtime-selection contract needs a separate selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
-	}
 	if rm.CallChainEndpointProfile.DiscoverPathActive() {
 		guide += "- Role-bound path discovery starts without code-identity authority. Use grounded definitions and call sites to identify the endpoints. After reading a principal method, inspect each direct downstream invocation that advances the requested boundary and emit every such invocation as its own grounded call-edge item; continue through wrappers, policy, retry, or transport helpers until grounded source reaches the requested role or an explicit evidence boundary. A branched graph can have several leaf callables: they are terminal candidates, not proof that every leaf implements the requested conceptual destination. Compare each candidate's exact body operations before selecting the destination, and keep the other leaves as sibling/background branches. Do not stop at the first grounded helper, and do not turn a conceptual role label into a code identity.\n"
 	}

@@ -45,7 +45,7 @@ type CallChainEndpointProfile struct {
 // verbatim-anchored boolean above. Consumers never infer this obligation from
 // request, tool, or answer prose.
 func (p *CallChainEndpointProfile) RequiresRuntimeSelectionEvidence() bool {
-	return p != nil && p.Active() && (p.DiscoverSinkActive() || p.RuntimeSelectionRequired)
+	return p != nil && (p.DiscoverSinkActive() || p.RuntimeSelectionRequired)
 }
 
 func (p *CallChainEndpointProfile) Active() bool {
@@ -121,6 +121,15 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		profile.SinkMode = CallChainSinkResolutionExact
 	}
 	if profile.Source == "" && profile.Sink == "" && profile.SinkMode != CallChainSinkResolutionDiscoverPath {
+		// Runtime selection is an answer obligation, not endpoint authority.  A
+		// mechanism/flow request may need to explain an availability or dispatch
+		// choice without asking for a source-to-sink call chain at all.  Preserve
+		// that explicitly declared carrier while keeping the endpoint profile
+		// inactive; downstream consumers must use
+		// RequiresRuntimeSelectionEvidence rather than Active for this lane.
+		if profile.RuntimeSelectionRequired {
+			return profile, ""
+		}
 		return nil, ""
 	}
 	if profile.SinkMode == CallChainSinkResolutionDiscoverPath {

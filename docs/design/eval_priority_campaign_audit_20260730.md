@@ -35914,6 +35914,68 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.930 r562：首次/重试关系缺失并非模型波动；选择义务被 endpoint active 门吞掉（2026-08-16）
+
+1. 在 `main@b8e3d2780` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `2/2 PASS`，人工两案均
+   fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_b892_relation_r562_20260816_manual_audit.md`。这再次证明
+   runner 的词面/结构 oracle 不能替代关系方向、typed 值一致性和最终结论审计。
+2. B892 获一半生产正证：Finalizer prompt 已按 exact target+window+CPU 并置 CPU12 的 2075MHz 与
+   `policy=absent`，不再借用 CPU4 ceiling，最终“频率限制直接影响无法确认”保持正确。但同一 prompt 也
+   明确发布 CPU4 `target_running=35.960ms + same_cpu_target_running_frequency=558000kHz +
+   policy=558000..2100000kHz`，模型正文却写“CPU4 无同核目标运行记录”。最大 Running 贡献 CPU12 又被
+   无 typed 角色依据称为“主核”；四态表生成 5 cells/4 columns，`coverage_status=complete` 等内部 enum
+   仍泄漏。该组先记模型消费/读者面生产 fail，不用正文关键词硬门或系统改写结论拟合。
+3. 组合题的主关系仍缺失且正文事实错误：`lastEmitFromPatch` 只是已发射结果谱系观测，不决定下一轮工具
+   可见性；真实选择由每轮 `buildToolSchemas` 刷新、patch-base availability、`preferPatchNext`、
+   `forceFullEmitNext` 与 full-emit failure streak 共同约束。终稿图只有两个 `ParametersFor` call 和两个
+   `Name()` return，没有“首次完整输出 -> rejected/base -> retry patch”的请求关系。
+4. 冻结 `B896-RUNTIMESELECTIONENDPOINTCOUPLING1`：教学虽称 `runtime_selection_required` 独立，旧
+   `RequiresRuntimeSelectionEvidence()` 先要求 endpoint profile `Active()`；normalizer 又删除
+   exact+empty endpoint profile，`emit_analysis` 最后还在非 `call_chain+call` 车道整对象清空。因此
+   mechanism/flow 即使发出正确 boolean，也无法把义务交给 Explorer/Completion/Finalizer。
+5. 根修保持兼容载体但拆开权威：endpoint `Active()` 继续只代表 call-chain endpoint authority；显式
+   `runtime_selection_required=true` 可在 source/sink 为空时独立存活。其 verbatim quote 校验不再依赖
+   kind/axis/Active；非 call-chain 只保留这一 runtime-only profile，不获得任何 endpoint、call 或 diagram
+   authority。Explorer 在 family 早退前发布统一 selection evidence handoff，Finalizer 显示中性 runtime
+   selection 边界而不打印空 endpoint pair。
+6. availability/retry 的 load-bearing 事实往往是分支 guard，而非 assignment/return。统一 selection
+   authority 现接受 registration、连接到 citable call/registration endpoint 的 assignment/initializer/
+   return，以及 owner/subject 同样连接的 conditional guard；孤立 guard、无引用行或只靠名字相似仍拒绝。
+   该规则跨 Go/Java/Kotlin/JS/TS/ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie，不按语言和 case 分叉。
+7. 冻结并关闭 `B897-DIAGRAMPARTICIPANTPREFIXIDENTITY1`：r562 Analyzer 连续六次失败的确定性根因是
+   participant 使用 snake_case、entities 使用 CamelCase 时被当成两个 actor；旧标点剥离 substring 又让
+   `emit_answer_document_patch` 同时命中较短的 `EmitAnswerDocument`。现只比较完整 typed identifier
+   surface：flat snake/Camel 可等价，短前缀不能命中长 identifier，`.`/`::`/`/` 等资格/成员/路径标点
+   保持身份语义，不能折成无标点平名。真实共同列出的 sibling 仍由既有 hard gate 拒绝。
+8. `call_chain_endpoints` 虽是 provider schema required，executor 为旧/local provider 仍只强制
+   `question_kind`；r562 最终 accepted payload 因而能整字段缺席。把所有 ordinary request 都改成缺字段
+   hard retry 会扩大 analyzer churn，且系统不能靠扫描请求猜出遗漏的 true。该残余记为
+   `B898-RUNTIMESELECTIONCARRIEROMISSION1=open/pending-r563-production-replay`：先验证消除六次身份冲突后，
+   模型是否稳定携带载体；若仍遗漏，再设计独立必填 typed discriminator，不用题面关键词或 silent default
+   伪造 false。
+9. 专项 `types/tool/agent` pins 覆盖：runtime-only profile 存活且 endpoint inactive；mechanism/flow 进入
+   selection handoff/completion/final context；connected guard 正例与 unrelated guard 负例；snake/Camel
+   等价、长短前缀隔离、qualified identity 不折平。全包回归保持旧 provider compatibility。
+10. 本批不改 Trace 查询、显式窗、因果投影、自动补齐、根因排序或答案正文。真正 causal diagnosis 仍只
+   允许 typed on-chain 证据加冕；优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与链上业务
+   线索保持，实际占用与规则计价可消除量双轴保持；邻近/背景仅作 support。系统不画关系、不生成或
+   替换模型结论，持续字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B892-TARGETCPUFREQUENCYJOIN1=production-partial-r562/cross-cpu-borrow-closed+same-CPU-row-model-misread`；
+`B896-RUNTIMESELECTIONENDPOINTCOUPLING1=implemented/typed-independent-lane+pinned`；
+`B897-DIAGRAMPARTICIPANTPREFIXIDENTITY1=implemented/whole-identity-boundary+pinned`；
+`B898-RUNTIMESELECTIONCARRIEROMISSION1=open/pending-r563-replay`；
+`B894-TABLETRAILINGBLANKPOSITION1=production-positive-r562/no-width-reject`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-failed-r562/runtime-selection-evidence-never-activated`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

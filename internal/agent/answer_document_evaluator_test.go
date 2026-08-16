@@ -1152,6 +1152,33 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetD
 	}
 }
 
+func TestAnswerDocumentEvaluator_RuntimeSelectionWithoutEndpointPairUsesNeutralBoundary(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			SinkMode:                    types.CallChainSinkResolutionExact,
+			RuntimeSelectionRequired:    true,
+			RuntimeSelectionSourceQuote: "initial/full-output attempt versus a retry/error/patch attempt",
+		},
+	}}}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Runtime selection evidence",
+		"does not declare a source-to-sink call-chain endpoint pair",
+		"Do not invent endpoint identities",
+		"model owns the final destination conclusion",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime-only answer boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "exact requested endpoints: `` -> ``") || strings.Contains(prompt, "## Call-chain runtime selection evidence") {
+		t.Fatalf("runtime-only selection must not render synthetic empty endpoints:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_DiscoverPathReceivesTypedRelationCompositionWithoutEndpointAuthority(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

@@ -163,13 +163,12 @@ func validateCallChainEndpointWireShape(
 // its provenance and mutually exclusive empty form.
 func validateCallChainRuntimeSelectionDeclaration(
 	raw string,
-	kind string,
-	axis types.PredicateAxis,
+	_ string,
+	_ types.PredicateAxis,
 	runtimeArtifactCarrier bool,
 	profile *types.CallChainEndpointProfile,
 ) string {
-	if runtimeArtifactCarrier || types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
-		axis != types.AxisCall || profile == nil || !profile.Active() {
+	if runtimeArtifactCarrier || profile == nil {
 		return ""
 	}
 	quote := strings.TrimSpace(profile.RuntimeSelectionSourceQuote)
