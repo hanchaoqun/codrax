@@ -142,6 +142,38 @@ func TestMechanismRelationAuthorityDoesNotTurnIndependentFactsIntoPathAA3(t *tes
 	}
 }
 
+func TestMechanismRelationAuthorityPublishesTypedUnprovenNodeOnlyExit(t *testing.T) {
+	mu := types.NewMutableState("required source-flow diagram")
+	mu.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane: types.DowngradeLaneFlowOperationCarrier,
+	})
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		Mutable: mu,
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "definition", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			Source: "src/tools.go", LineStart: 10, LineEnd: 10,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "FullTool",
+			Subject: "FullTool", GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=0",
+		"relation_surface_exit=`typed_unproven_node_only`",
+		"node/group inventory with zero structural arrows",
+		"Do not omit the requested diagram and do not invent an edge",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed-unproven relation authority missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestMechanismRelationAuthorityTypedFlowDoesNotOfferArbitraryWholeDiagram(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

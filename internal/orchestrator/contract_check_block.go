@@ -394,7 +394,7 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 	owned := tool.ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(bus, doc)
 	if len(owned) == 0 {
 		return assignRequiredDiagramEdgeRepairOwner(
-			validateDiagramEdgeSupport(doc, view), bus)
+			applyRequiredDiagramTypedUnprovenExit(validateDiagramEdgeSupport(doc, view), bus, doc, view), bus)
 	}
 	copyDoc := *doc
 	copyDoc.Blocks = make([]types.AnswerBlock, 0, len(doc.Blocks)-len(owned))
@@ -412,7 +412,56 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 		return nil
 	}
 	return assignRequiredDiagramEdgeRepairOwner(
-		validateDiagramEdgeSupport(&copyDoc, view), bus)
+		applyRequiredDiagramTypedUnprovenExit(validateDiagramEdgeSupport(&copyDoc, view), bus, &copyDoc, view), bus)
+}
+
+// applyRequiredDiagramTypedUnprovenExit reconciles two precise contracts after
+// Explore has already spent its bounded operation-evidence supplement:
+//
+//  1. the current-turn presentation contract still requires a diagram; and
+//  2. the typed flow-operation lane has converged with no citable relation.
+//
+// In that exact state, requiring a structural edge would force Finalizer to
+// invent one, while removing the diagram would violate the requested surface.
+// Keep the model-authored node/group diagram and suppress only the contradictory
+// zero-edge violation.  Missing diagrams, unsupported authored edges, call-
+// chain contracts, runtime Trace diagrams, and participant coverage all retain
+// their existing validators.  The signal is a typed completion caveat; no user,
+// model-thinking, or answer prose is scanned.
+func applyRequiredDiagramTypedUnprovenExit(
+	vs []types.Violation,
+	bus *types.BusContext,
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+) []types.Violation {
+	if len(vs) == 0 || bus == nil || bus.Mutable == nil || doc == nil || view == nil ||
+		view.Family == types.QFRootCauseTrace || view.RelationAxis != types.AxisFlow ||
+		view.DiagramPlan == nil || !view.DiagramPlan.Required ||
+		!bus.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) {
+		return vs
+	}
+	hasNodeOnlyDiagram := false
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil ||
+			strings.TrimSpace(block.Diagram.Body) == "" {
+			continue
+		}
+		if len(parseMermaidEdges(block.Diagram.Body)) == 0 {
+			hasNodeOnlyDiagram = true
+			break
+		}
+	}
+	if !hasNodeOnlyDiagram {
+		return vs
+	}
+	out := make([]types.Violation, 0, len(vs))
+	for _, violation := range vs {
+		if violation.Kind != types.ViolRequiredDiagramEdgeAbsent {
+			out = append(out, violation)
+		}
+	}
+	return out
 }
 
 // assignRequiredDiagramEdgeRepairOwner preserves the generic Explore fallback

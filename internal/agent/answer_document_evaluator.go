@@ -7479,6 +7479,10 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers: place the exact endpoint node inside that component's Mermaid subgraph/group, draw the copied typed relation only between the exact endpoint nodes, and use the component group/label only for responsibility. Do not retarget the relation to an abstract component node, and do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
 	if len(edges) == 0 {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
+		if ctx.Mutable != nil &&
+			ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) {
+			b.WriteString("- relation_surface_exit=`typed_unproven_node_only`: the bounded operation-evidence supplement already converged without a citable directed relation. Keep the explicitly requested diagram as a model-authored node/group inventory with zero structural arrows, and explain the unproven relation boundary in your own answer prose. Do not omit the requested diagram and do not invent an edge. The node-only exit changes presentation satisfiability only; it does not prove a relation or write the answer for you.\n")
+		}
 	}
 	if len(edges) > 0 || len(unaryAnnotations) > 0 {
 		recipeAnchors := renderAnswerDocMechanismRelationAuthoringCapsule(

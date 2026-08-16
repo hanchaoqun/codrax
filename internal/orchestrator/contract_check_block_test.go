@@ -441,6 +441,52 @@ func TestDiagramEdgeSupport_TypedRecipeAvailableKeepsZeroEdgeRepairInFinalizer(t
 	}
 }
 
+func TestDiagramEdgeSupport_TypedFlowUnprovenCaveatAllowsRequiredNodeOnlyExit(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family:       types.QFGeneric,
+		RelationAxis: types.AxisFlow,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind: types.DiagramRelDataFlow,
+				Min:  1,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "flow",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramFlow,
+			Language: "mermaid",
+			Body:     "flowchart LR\n  Full[\"Full document tool\"]\n  Patch[\"Patch tool\"]",
+		},
+	}}}
+	mut := types.NewMutableState("required source-flow diagram")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane: types.DowngradeLaneFlowOperationCarrier,
+	})
+	bus := &types.BusContext{Mutable: mut}
+
+	if vs := validateDiagramEdgeSupportWithRuntimeContext(doc, view, bus); len(vs) != 0 {
+		t.Fatalf("typed-unproven flow lane must allow the requested node-only diagram instead of demanding an invented edge: %+v", vs)
+	}
+
+	callView := *view
+	callView.RelationAxis = types.AxisCall
+	if vs := validateDiagramEdgeSupportWithRuntimeContext(doc, &callView, bus); len(vs) != 1 ||
+		vs[0].Kind != types.ViolRequiredDiagramEdgeAbsent {
+		t.Fatalf("flow caveat must not relax a call relation contract: %+v", vs)
+	}
+
+	missing := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{summaryBlock("summary")}}
+	if vs := validateDiagramEdgeSupportWithRuntimeContext(missing, view, bus); len(vs) != 1 ||
+		vs[0].Kind != types.ViolDiagramEdgeUnsupported {
+		t.Fatalf("typed-unproven exit must still require the explicitly requested diagram block: %+v", vs)
+	}
+}
+
 func TestDiagramEdgeSupport_OptionalOrRelationFreeDiagramDoesNotDemandAnEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "architecture",

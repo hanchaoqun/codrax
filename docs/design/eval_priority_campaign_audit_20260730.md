@@ -36235,13 +36235,21 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
     `accepted=1 / callsite=1 / directed edge=1`，方向保持
     `NewFinalizerAgent -> NewBaseAgent`。该修复只搬运模型已经发射且 ground 的 typed evidence，不造关系、
     不改答案，也不读取用户/模型/final 原文。
+11. B905-B 已施工：最终图合同现在消费与 completion 相同的 typed
+    `DowngradeLaneFlowOperationCarrier` caveat。仅当 Analyzer 要求 `AxisFlow` 图、一次有界 operation
+    supplement 已确认收敛、仍没有合法 directed relation，且模型自己提交了非空零箭头 Mermaid 时，系统
+    只撤销 `required_diagram_edge_absent` 这一条自冲突；缺图、任何模型画出的未证/反向边、participant
+    coverage、`AxisCall`/调用链以及 `QFRootCauseTrace` 仍按原合同 fail-closed。Finalizer 同时收到精确
+    `relation_surface_exit=typed_unproven_node_only` 教学，要求保留模型自写节点/分组图、用自己的正文披露
+    关系未证，禁止虚构箭头。专项 pin 覆盖 Flow 正出口、Call 负出口和缺图负出口；没有扫描用户、模型思考
+    或答案原文，也没有由系统生成图、关系或结论。
 
 状态：
 
 `B902-WRITEREPLANBATCHGOALAUTHORITY1=production-closed-r566/r567-stable`；
 `B903-CUMULATIVEPATHPROOFRECONCILIATION1=implemented/pinned/pending-multiplan-replay`；
 `B904-RUNTIMESELECTIONPROFILE1=production-value-miss-r567/soft-reteach-only`；
-`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-implemented-and-pinned/B-C-pending`；
+`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-B-implemented-and-pinned/C-pending`；
 `B906-WRITEORIGINALCONDITIONDOMAIN1=confirmed/P1/planned`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；

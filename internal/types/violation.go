@@ -422,6 +422,11 @@ const (
 	// a REQUIRED diagram contract whose typed EdgeRelations contain a positive
 	// minimum, but the emitted Mermaid body contains zero structural edges.
 	// A nodes-only flow/sequence/call-DAG cannot satisfy a relation contract.
+	// The one typed exception is a required AxisFlow diagram after the bounded
+	// flow-operation lane has converged with an explicit completion caveat: the
+	// requested visual remains model-authored as a node/group inventory while
+	// the relation stays unproven. Missing diagrams and authored edges retain
+	// their ordinary validators.
 	// This validator reads only typed diagram contracts, the typed question
 	// family, and parsed Mermaid structure; it never scans user or model prose.
 	// Recovery belongs to Explore because a model must not invent a relation

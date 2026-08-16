@@ -822,7 +822,7 @@ func init() {
 		Kind: ViolRequiredDiagramEdgeAbsent, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
-		SchemaDescriptionFragment: "A required non-runtime diagram whose typed edge-relation contract has a positive minimum MUST contain at least one structural Mermaid edge backed by citable directed relation evidence; nodes alone do not satisfy that contract, and an unproven edge must not be invented.",
+		SchemaDescriptionFragment: "A required non-runtime diagram whose typed edge-relation contract has a positive minimum MUST contain at least one structural Mermaid edge backed by citable directed relation evidence; nodes alone do not satisfy that contract, and an unproven edge must not be invented. After the precise AxisFlow operation-evidence lane has converged with a typed unproven caveat, the requested diagram may remain a model-authored node/group inventory with zero arrows; this exception never applies to a missing diagram or an authored unsupported edge.",
 		FixableByAgents:           []AgentName{AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
