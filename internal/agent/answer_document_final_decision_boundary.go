@@ -628,6 +628,7 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			sections[section.Direction] = section
 		}
 		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`exact_typed_subtotal_when_published_else_single_leader`; cross_direction_joint_total_authority=`not_provided`. Do not sum same-direction seats merely because their labels share a direction, and never add direction values across directions without a separate typed carrier.\n", label)
+		traceDecisionWriteRepairDirectionRelationRoster(&b, projection, label, 8)
 		for _, node := range leaders {
 			section, sectionOK := sections[strings.TrimSpace(node.FixDirection)]
 			if sectionOK && section.Leader.Rank > 0 {

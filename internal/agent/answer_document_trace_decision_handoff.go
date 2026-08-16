@@ -290,6 +290,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 			label = fmt.Sprintf("trace-%d", projectionIndex+1)
 		}
 		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_across_directions_or_unlisted_members`.\n", label)
+		traceDecisionWriteRepairDirectionRelationRoster(b, projection, label, 8)
 		for _, record := range records {
 			section, sectionOK := sectionByDirection[record.direction]
 			leader := record.leader
@@ -322,6 +323,177 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 			b.WriteString("\n")
 		}
 	}
+}
+
+// traceDecisionRepairDirectionRelation is one compact reasoning relation made
+// only from typed projection carriers. It is deliberately prompt-only: the
+// model remains responsible for deciding what the relation means for the
+// customer's workload and for writing the conclusion.
+type traceDecisionRepairDirectionRelation struct {
+	scope      string
+	directionA string
+	directionB string
+	memberRefs []string
+	physical   string
+	addition   string
+	valueMS    float64
+	valueRole  string
+	reasoning  string
+}
+
+// traceDecisionRepairDirectionRelations compacts the two exact relationship
+// carriers that are otherwise easy to miss in a long Trace handoff:
+//   - a same-direction section whose shared arithmetic predicate proved every
+//     published member pair disjoint and minted the exact subtotal; and
+//   - a reciprocal cross-direction overlap whose two ranked seats resolve by
+//     exact board, subject, line envelope and direction identity.
+//
+// Missing, one-sided, ambiguous, cross-board, or stale carriers mint no row.
+// No request text, model prose, similarity or label heuristic participates.
+func traceDecisionRepairDirectionRelations(projection types.TraceCausalProjection) []traceDecisionRepairDirectionRelation {
+	var out []traceDecisionRepairDirectionRelation
+	for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
+		if section.Arithmetic != types.TraceAnswerDirectionArithmeticSubtotal ||
+			section.SubtotalMS <= 0 || len(section.MemberRefs) < 2 ||
+			len(section.MemberRefs) != len(section.Members) {
+			continue
+		}
+		out = append(out, traceDecisionRepairDirectionRelation{
+			scope:      "same_direction",
+			directionA: strings.TrimSpace(section.Direction),
+			memberRefs: append([]string(nil), section.MemberRefs...),
+			physical:   types.AnswerPhysicalRelationMutuallyExclusive,
+			addition:   types.AnswerRelationAdditionAuthorized,
+			valueMS:    section.SubtotalMS,
+			valueRole:  "published_direction_subtotal",
+			reasoning:  "separate_nonoverlapping_contributions_not_overlap_or_competition",
+		})
+	}
+
+	seats := traceDecisionEliminableSeats(projection, 0)
+	type overlapCandidate struct {
+		left, right types.TraceCausalProjectionNode
+		overlapMS   float64
+	}
+	var overlaps []overlapCandidate
+	seenPairs := map[string]bool{}
+	for _, left := range seats {
+		leftRef := types.TraceAnswerRelationMemberRef(left)
+		if leftRef == "" || strings.TrimSpace(left.FixDirection) == "" {
+			continue
+		}
+		for _, wire := range left.CrossDirectionOverlaps {
+			if wire.OverlapMS <= 0 || wire.LineStart <= 0 || wire.LineEnd < wire.LineStart {
+				continue
+			}
+			var partner *types.TraceCausalProjectionNode
+			for index := range seats {
+				candidate := seats[index]
+				if traceDecisionNodeIdentity(candidate) == traceDecisionNodeIdentity(left) ||
+					candidate.LineStart != wire.LineStart || candidate.LineEnd != wire.LineEnd ||
+					!strings.EqualFold(strings.TrimSpace(candidate.Subject), strings.TrimSpace(left.Subject)) ||
+					strings.TrimSpace(candidate.FixDirection) != strings.TrimSpace(wire.Direction) ||
+					!traceDecisionSameRankBoard(left, candidate) ||
+					types.TraceAnswerRelationMemberRef(candidate) == "" {
+					continue
+				}
+				if partner != nil {
+					partner = nil // exact typed identity is ambiguous: fail closed
+					break
+				}
+				copy := candidate
+				partner = &copy
+			}
+			if partner == nil || strings.TrimSpace(partner.FixDirection) == strings.TrimSpace(left.FixDirection) ||
+				!traceDecisionHasReciprocalDirectionOverlap(*partner, left, wire.OverlapMS) {
+				continue
+			}
+			rightRef := types.TraceAnswerRelationMemberRef(*partner)
+			pairKey := leftRef + "\x00" + rightRef
+			if rightRef < leftRef {
+				pairKey = rightRef + "\x00" + leftRef
+			}
+			if seenPairs[pairKey] {
+				continue
+			}
+			seenPairs[pairKey] = true
+			overlaps = append(overlaps, overlapCandidate{left: left, right: *partner, overlapMS: wire.OverlapMS})
+		}
+	}
+	sort.SliceStable(overlaps, func(i, j int) bool {
+		if overlaps[i].left.Rank != overlaps[j].left.Rank {
+			return overlaps[i].left.Rank < overlaps[j].left.Rank
+		}
+		return overlaps[i].right.Rank < overlaps[j].right.Rank
+	})
+	for _, overlap := range overlaps {
+		leftRef := types.TraceAnswerRelationMemberRef(overlap.left)
+		rightRef := types.TraceAnswerRelationMemberRef(overlap.right)
+		out = append(out, traceDecisionRepairDirectionRelation{
+			scope:      "cross_direction",
+			directionA: strings.TrimSpace(overlap.left.FixDirection),
+			directionB: strings.TrimSpace(overlap.right.FixDirection),
+			memberRefs: []string{leftRef, rightRef},
+			physical:   types.AnswerPhysicalRelationOverlap,
+			addition:   types.AnswerRelationAdditionForbidden,
+			valueMS:    overlap.overlapMS,
+			valueRole:  "measured_physical_overlap",
+			reasoning:  "shared_physical_time_only_at_the_published_overlap",
+		})
+	}
+	return out
+}
+
+func traceDecisionSameRankBoard(left, right types.TraceCausalProjectionNode) bool {
+	leftStart, leftEnd, leftOK := traceDecisionNodeQueryWindow(left)
+	rightStart, rightEnd, rightOK := traceDecisionNodeQueryWindow(right)
+	if !leftOK || !rightOK || !traceDecisionSameWindow(leftStart, leftEnd, rightStart, rightEnd) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(left.RankBoardTarget), strings.TrimSpace(right.RankBoardTarget)) &&
+		strings.TrimSpace(left.RankBoardParamsFingerprint) == strings.TrimSpace(right.RankBoardParamsFingerprint)
+}
+
+func traceDecisionHasReciprocalDirectionOverlap(from, to types.TraceCausalProjectionNode, overlapMS float64) bool {
+	for _, wire := range from.CrossDirectionOverlaps {
+		if wire.LineStart == to.LineStart && wire.LineEnd == to.LineEnd &&
+			strings.TrimSpace(wire.Direction) == strings.TrimSpace(to.FixDirection) &&
+			math.Abs(wire.OverlapMS-overlapMS) <= 0.0005 {
+			return true
+		}
+	}
+	return false
+}
+
+// traceDecisionWriteRepairDirectionRelationRoster is shared by the detailed
+// decision handoff and the final compact boundary so those two prompt faces
+// cannot disagree. The cap controls context size; omitted rows remain in the
+// lossless typed projection and are explicitly counted.
+func traceDecisionWriteRepairDirectionRelationRoster(b *strings.Builder, projection types.TraceCausalProjection, artifact string, limit int) {
+	if b == nil {
+		return
+	}
+	relations := traceDecisionRepairDirectionRelations(projection)
+	total := len(relations)
+	emitted := total
+	if limit > 0 && emitted > limit {
+		emitted = limit
+	}
+	if len(traceDecisionEliminableSeats(projection, 0)) < 2 {
+		return
+	}
+	fmt.Fprintf(b, "  - repair_direction_relation_roster: artifact=`%s`; emitted=%d; total=%d; complete=`%t`; source=`typed_projection_relations_only`.\n",
+		artifact, emitted, total, emitted == total)
+	for _, relation := range relations[:emitted] {
+		fmt.Fprintf(b, "    - relation_scope=`%s`; direction_a=`%s`", relation.scope, relation.directionA)
+		if relation.directionB != "" {
+			fmt.Fprintf(b, "; direction_b=`%s`", relation.directionB)
+		}
+		fmt.Fprintf(b, "; member_refs=`%s`; physical_relation=`%s`; addition=`%s`; %s=%.3fms; reasoning_boundary=`%s`\n",
+			strings.Join(relation.memberRefs, ","), relation.physical, relation.addition,
+			relation.valueRole, relation.valueMS, relation.reasoning)
+	}
+	b.WriteString("    - relation_scope=`unlisted_pairs`; physical_relation=`unresolved`; addition=`forbidden_without_exact_typed_carrier`; independence=`not_authorized`; dependency=`not_authorized`; temporal_order=`not_authorized`.\n")
 }
 
 // renderTraceFrameEvidenceStatusSemantics is the single prompt source for the

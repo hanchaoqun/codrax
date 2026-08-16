@@ -394,10 +394,21 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		}
 	}
 	seats := []types.TraceCausalProjectionNode{
-		seat(1, "target-100", "frequency_thermal", 58.320, 10, 10.05),
+		seat(1, "target-100", "frequency_thermal", 58.320, 10, 10.055),
 		seat(2, "worker-a", "lock_priority", 7.405, 10.051, 10.06),
 		seat(3, "worker-b", "lock_priority", 4.710, 10.061, 10.07),
 	}
+	seats[0].Subject = "shared-thread"
+	seats[1].Subject = "shared-thread"
+	seats[0].LineStart, seats[0].LineEnd = 100, 110
+	seats[1].LineStart, seats[1].LineEnd = 200, 210
+	seats[2].LineStart, seats[2].LineEnd = 300, 310
+	seats[0].CrossDirectionOverlaps = []types.TraceCausalProjectionCrossDirectionOverlap{{
+		OverlapMS: 4, LineStart: 200, LineEnd: 210, Direction: "lock_priority", Basis: "interval_intersection",
+	}}
+	seats[1].CrossDirectionOverlaps = []types.TraceCausalProjectionCrossDirectionOverlap{{
+		OverlapMS: 4, LineStart: 100, LineEnd: 110, Direction: "frequency_thermal", Basis: "interval_intersection",
+	}}
 	projection := types.TraceCausalProjection{
 		ArtifactLabel: "customer.trace", WindowStartTs: 10, WindowEndTs: 10.1,
 		WakeupPath: []string{"worker-a", "target-100"}, RankedSeats: seats, OnChainCauses: seats,
@@ -410,6 +421,14 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2",
 		"same_direction_subtotal_authority=`typed_pairwise_disjoint_section`",
 		"published_direction_value=`exact_subtotal`; direction_subtotal=12.115ms; subtotal_member_count=2",
+		"repair_direction_relation_roster: artifact=`customer.trace`; emitted=2; total=2; complete=`true`",
+		"relation_scope=`same_direction`; direction_a=`lock_priority`",
+		"physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`; published_direction_subtotal=12.115ms",
+		"reasoning_boundary=`separate_nonoverlapping_contributions_not_overlap_or_competition`",
+		"relation_scope=`cross_direction`; direction_a=`frequency_thermal`; direction_b=`lock_priority`",
+		"physical_relation=`overlap`; addition=`forbidden`; measured_physical_overlap=4.000ms",
+		"reasoning_boundary=`shared_physical_time_only_at_the_published_overlap`",
+		"relation_scope=`unlisted_pairs`; physical_relation=`unresolved`; addition=`forbidden_without_exact_typed_carrier`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("exact direction subtotal authority missing %q:\n%s", want, got)
@@ -417,6 +436,59 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 	}
 	if strings.Contains(got, "joint_total_authority=`provided`") {
 		t.Fatalf("one direction subtotal must not mint a cross-direction total:\n%s", got)
+	}
+	compact := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{
+		Projections: []types.TraceCausalProjection{projection},
+	})
+	for _, want := range []string{
+		"repair_direction_relation_roster: artifact=`customer.trace`; emitted=2; total=2; complete=`true`",
+		"relation_scope=`same_direction`; direction_a=`lock_priority`",
+		"physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`; published_direction_subtotal=12.115ms",
+		"relation_scope=`cross_direction`; direction_a=`frequency_thermal`; direction_b=`lock_priority`",
+		"physical_relation=`overlap`; addition=`forbidden`; measured_physical_overlap=4.000ms",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("final compact boundary drifted from relation roster %q:\n%s", want, compact)
+		}
+	}
+}
+
+func TestTraceDecisionRepairDirectionRelationRosterRejectsOneSidedOrCrossBoardOverlap(t *testing.T) {
+	inside := true
+	seat := func(rank int, direction, board string, lineStart int) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("seat-%d", rank), Rank: rank, Subject: "shared-thread",
+			Object: "ranked_cause", TypeToken: "ranked_cause", FixDirection: direction,
+			EffectiveImpactMS: 4, EffectiveImpactPublished: true, ChainRelevance: "on_chain",
+			WithinRequestedWindow: &inside, StartTs: 10, EndTs: 10.004,
+			LineStart: lineStart, LineEnd: lineStart + 5, RankBoardTarget: "target-100",
+			RankBoardParamsFingerprint: board, RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+		}
+	}
+	left := seat(1, "frequency_thermal", "board-a", 100)
+	right := seat(2, "io_dependency", "board-a", 200)
+	left.CrossDirectionOverlaps = []types.TraceCausalProjectionCrossDirectionOverlap{{
+		OverlapMS: 3, LineStart: 200, LineEnd: 205, Direction: "io_dependency", Basis: "interval_intersection",
+	}}
+	projection := types.TraceCausalProjection{RankedSeats: []types.TraceCausalProjectionNode{left, right}}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, runtimeTraceGuidanceView{})
+	if strings.Contains(got, "measured_physical_overlap=3.000ms") {
+		t.Fatalf("one-sided overlap carrier must fail closed:\n%s", got)
+	}
+
+	right.CrossDirectionOverlaps = []types.TraceCausalProjectionCrossDirectionOverlap{{
+		OverlapMS: 3, LineStart: 100, LineEnd: 105, Direction: "frequency_thermal", Basis: "interval_intersection",
+	}}
+	right.RankBoardParamsFingerprint = "board-b"
+	projection.RankedSeats = []types.TraceCausalProjectionNode{left, right}
+	got = renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, runtimeTraceGuidanceView{})
+	if strings.Contains(got, "measured_physical_overlap=3.000ms") {
+		t.Fatalf("cross-board overlap carrier must fail closed:\n%s", got)
+	}
+	if !strings.Contains(got, "relation_scope=`unlisted_pairs`; physical_relation=`unresolved`") {
+		t.Fatalf("failed-closed pair must retain the explicit unresolved boundary:\n%s", got)
 	}
 }
 

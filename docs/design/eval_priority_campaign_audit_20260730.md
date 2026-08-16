@@ -36985,6 +36985,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed-r542`。
 
+### §123.893 B869：修向关系权威压缩交接，不再让模型从长上下文反推（2026-08-15）
+
+1. 基于 `main@6e29d1187` 落地 `B869-TRACEDIRECTIONRELATIONDECISIONROSTER1`。根因不是 Trace
+   缺数据，而是关系事实分散：同方向小计在 section authority、跨方向重叠在各席位 row note、未列关系
+   在通用 unknown boundary；r542 的 finalizer prompt 已约 131k 字符，模型把三者读反。修复只在既有
+   typed projection 上生成一份有界 `repair_direction_relation_roster`，不新增查询、排名、数值或因果。
+2. 同方向关系继续复用唯一 `TraceAnswerDecisionDirectionSections` 算术判据。仅当完整发布成员都有稳定
+   `relation_member_ref`，且共享判据已经证明 pairwise disjoint 并发布 exact subtotal 时，清单才给出
+   `physical_relation=mutually_exclusive + addition=authorized_to_published_subtotal`、成员 refs 与精确小计；
+   direction 名相同本身绝不建立关系。
+3. 跨方向关系只从 reciprocal typed overlap 构造：两席必须同一精确 rank board、同一规范 subject，wire
+   的 partner line envelope 与 fix direction 唯一匹配，双方反向条目和 overlap 值一致，且两席均有稳定
+   member ref。单边、歧义、跨板、陈旧 direction、缺 ref 任一情况均不发关系，不能凭时间接近或标签相似
+   猜造。已证 pair 只声明发布的物理重叠量及 `addition=forbidden`，不扩写依赖、先后、holder 或竞争机理。
+4. 清单末尾始终把所有未列 pair 定为 `physical_relation=unresolved`，并明确未授权相加、独立、依赖或时序。
+   清单最多发布 8 个精确关系并披露 emitted/total/complete；完整载体仍保留在 projection，不靠截断制造
+   “无关系”。详细 Trace Decision Inputs 与最终 compact boundary 调用同一 helper，避免两份关系规则漂移。
+5. 新增正负 pin：同方向两个不相交席位精确重建 12.115ms；frequency/lock 两席 reciprocal overlap 只发布
+   4.000ms shared time 且禁止相加；同一清单在详细面与末尾面字节语义一致；单边 overlap 与跨 board overlap
+   均 fail-closed，同时保留 unlisted=`unresolved` 边界。`go test ./internal/agent` 通过。
+6. 该批只提供模型推理所需的紧凑 typed 输入。没有扫描用户原始输入、模型思考/草稿/答案或 Mermaid；没有
+   校验答案措辞、生成/改写模型结论，也没有把邻近/背景提升为主因。显式窗、Trace 因果投影、自动补齐、
+   链上-only 根因、实际占时/业务线索和现有规则可消除量双轴全部保持。
+
+状态：
+
+`B869-TRACEDIRECTIONRELATIONDECISIONROSTER1=implemented/shared-two-prompt-surfaces+positive-negative-pins`；
+`B868-REQUESTEDCARRIERRELATIONHANDOFF1=P1-next`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
