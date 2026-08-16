@@ -7025,12 +7025,50 @@ func TestRegistrationBindingCallOnLine_CrossLanguageStructuralShapes(t *testing.
 			name: "cpp receiver", line: "registry->add(make_handler<RequestHandler>());",
 			endpoint: "RequestHandler", anchor: "add", registry: "registry", object: "make_handler<RequestHandler>()",
 		},
+		{
+			name: "go receiver", line: "registry.Add(NewHandler())",
+			endpoint: "NewHandler", anchor: "Add", registry: "registry", object: "NewHandler()",
+		},
+		{
+			name: "python receiver", line: "registry.add(make_handler())",
+			endpoint: "make_handler", anchor: "add", registry: "registry", object: "make_handler()",
+		},
+		{
+			name: "lua method receiver", line: "registry:add(make_handler())",
+			endpoint: "make_handler", anchor: "add", registry: "registry", object: "make_handler()",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			anchor, registry, object, _, ok := registrationBindingCallOnLine(tc.line, tc.endpoint)
 			if !ok || anchor != tc.anchor || registry != tc.registry || object != tc.object {
 				t.Fatalf("binding=(%q,%q,%q,%t), want (%q,%q,%q,true)", anchor, registry, object, ok, tc.anchor, tc.registry, tc.object)
+			}
+		})
+	}
+}
+
+func TestReceiverRegistrationBindingCallsOnLine_PolyglotReceiverSyntax(t *testing.T) {
+	tests := []struct {
+		name, line, anchor, registry, object string
+	}{
+		{"rust", "m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;", "add_function", "m", "wrap_pyfunction!(tokenize_bytes, m)"},
+		{"go", "registry.Add(NewHandler())", "Add", "registry", "NewHandler()"},
+		{"python", "registry.add(make_handler())", "add", "registry", "make_handler()"},
+		{"java", "registry.add(HandlerFactory.create())", "add", "registry", "HandlerFactory.create()"},
+		{"kotlin", "registry.add(makeHandler())", "add", "registry", "makeHandler()"},
+		{"swift", "registry.add(makeHandler())", "add", "registry", "makeHandler()"},
+		{"javascript", "registry.add(makeHandler())", "add", "registry", "makeHandler()"},
+		{"arkts", "registry.add(makeHandler())", "add", "registry", "makeHandler()"},
+		{"cangjie", "registry.bind(HandlerFactory.create(RequestHandler))", "bind", "registry", "HandlerFactory.create(RequestHandler)"},
+		{"cpp", "registry->add(make_handler<RequestHandler>());", "add", "registry", "make_handler<RequestHandler>()"},
+		{"lua", "registry:add(make_handler())", "add", "registry", "make_handler()"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := receiverRegistrationBindingCallsOnLine(tc.line)
+			if len(got) != 1 || got[0].anchor != tc.anchor || got[0].registry != tc.registry || got[0].object != tc.object {
+				t.Fatalf("binding calls=%+v, want one (%q,%q,%q)", got, tc.anchor, tc.registry, tc.object)
 			}
 		})
 	}
@@ -7119,6 +7157,97 @@ func TestEmitEvidence_CrossComponentRegistrationDefinitionPublishesDurableBindin
 	got := ctx.Mutable.EmittedEvidence()
 	if len(got) != 2 || !got[1].IsCitable() || types.ClaimFormOf(got[1]) != types.ClaimRegistrationEdge {
 		t.Fatalf("corrected model emit did not publish registration authority: %+v", got)
+	}
+}
+
+func TestEmitEvidence_CitableRegistrationContainerStillRequiresExactBindingExpression(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+	const source = "core-rs/src/lib.rs"
+	seedReadFileHistory(ctx, source, 45,
+		"#[pymodule]",
+		"fn _fastlex(m: &Bound<'_, PyModule>) -> PyResult<()> {",
+		"m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;",
+		"Ok(())",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "_fastlex", Kind: "function", Line: 46, EndLine: 49}},
+		},
+	}})
+
+	// Production witness r579: this declaration row is itself citable because
+	// it names the module container.  It still does not prove which wrapper is
+	// bound into that container; the unique parser-owned body call must remain
+	// an exact model re-emit obligation.
+	coarse := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"registration","subject":"pyo3 #[pymodule]","predicate":"exports","object":"_fastlex","source":"core-rs/src/lib.rs","line_start":45,"summary":"module declaration and registration container","anchor_kind":"definition","anchor_symbol":"_fastlex"}]}`)
+	res, err := tool.Execute(ctx, coarse)
+	if err != nil || !res.Success {
+		t.Fatalf("citable container should return typed repair, err=%v result=%+v", err, res)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || !got[0].IsCitable() || got[0].Kind != types.EvidenceRegistration {
+		t.Fatalf("coarse container observation should remain citable and unchanged: %+v", got)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "registration_binding_expression" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("citable container escaped exact binding debt: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		`source="core-rs/src/lib.rs"`, `line_start=47`, `anchor_kind="call"`,
+		`anchor_symbol="add_function"`, `subject="m"`,
+		`object="wrap_pyfunction!(tokenize_bytes, m)"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("binding repair missing %q: %+v", want, res.Repair)
+		}
+	}
+}
+
+func TestEmitEvidence_CitableRegistrationContainerAndExactBindingSameBatchNeedNoRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+	const source = "core-rs/src/lib.rs"
+	seedReadFileHistory(ctx, source, 45,
+		"#[pymodule]",
+		"fn _fastlex(m: &Bound<'_, PyModule>) -> PyResult<()> {",
+		"m.add_function(wrap_pyfunction!(tokenize_bytes, m)?)?;",
+		"Ok(())",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "_fastlex", Kind: "function", Line: 46, EndLine: 49}},
+		},
+	}})
+
+	params := json.RawMessage(`{"items":[
+		{"scope":"line","evidence_kind":"registration","subject":"pyo3 #[pymodule]","predicate":"exports","object":"_fastlex","source":"core-rs/src/lib.rs","line_start":45,"summary":"module declaration and registration container","anchor_kind":"definition","anchor_symbol":"_fastlex"},
+		{"scope":"line","evidence_kind":"registration","subject":"m","predicate":"registers","object":"wrap_pyfunction!(tokenize_bytes, m)","source":"core-rs/src/lib.rs","line_start":47,"summary":"module binds the exported wrapper","anchor_kind":"call","anchor_symbol":"add_function"}
+	]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("coarse plus exact registration should pass, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_scope"] == "registration_binding_expression" {
+		t.Fatalf("same-batch exact model row did not satisfy binding debt: %+v", res.Repair)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || !got[0].IsCitable() || !got[1].IsCitable() {
+		t.Fatalf("model-owned registration rows were not preserved: %+v", got)
 	}
 }
 

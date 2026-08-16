@@ -35684,12 +35684,22 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. 两案均无畸形 JSON、旧稿恢复、空答案或系统代写结论。本批不动 Trace 查询/呈现；显式时间窗、Trace
    因果投影、自动补齐、链上-only 主因、邻近/背景 support-only，以及真实占用/业务线索与规则计价可消除量
    双轴不变。活跃字节流不得因 4ms 或固定累计 answer age 降级。
+9. B923 已施工。post-grounding seam 现在审计全部 typed registration candidate，而不再用
+   `IsCitable()` 作为豁免：definition 型 container 只有在 anchor 唯一对齐 parser callable，且其已读函数体
+   内恰好存在一个 structural receiver binding call 时才产生 exact re-emit debt；多个 binding、多个同名
+   callable 或无 parser range 全部 fail-open。若同批/早批已有 exact source/line/call/registry/object row，
+   durable obligation matcher 会消除重复义务。实现不识别 PyO3/框架名，不读 snippet/summary/request/final
+   prose，并保留 coarse container 作为模型原始可引事实。
+10. 多语言结构 pin 覆盖 Rust macro wrapper、Go/Python/Java/Kotlin/Swift/JavaScript/ArkTS receiver、
+    Cangjie nested factory、C++ `->` 与 Lua `:` method call；原有 endpoint-known 歧义负臂、wrong callback、
+    普通 exact registration 均通过。`go test ./internal/tool ./internal/agent ./internal/types -count=1`
+    全绿（tool 165.818s、agent 9.892s、types 23.227s）。
 
 状态：
 
 `B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=implemented/not-triggered-r579`；
 `B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/no-recurrence-r579/pending-direct-production-trigger`；
-`B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=confirmed/high/next-batch`；
+`B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=implemented/typed-range+polyglot-pins-pass/pending-production-replay`；
 `B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=confirmed/design-audit-open`；
 `B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=observed/pending-heterogeneous-replay`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

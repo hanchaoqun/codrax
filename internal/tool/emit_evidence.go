@@ -911,19 +911,17 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				r.Tier = built[i].GroundingTier
 				r.Note = built[i].GroundingNote
 			}
-			// A wrong source-shape anchor (for example registration+callback on
-			// a receiver registration call) can fail initial grounding before
-			// the endpoint stabilizer above runs.  Audit every non-citable typed
-			// registration candidate at this common seam, not only rows that
-			// became non-citable during endpoint stabilization.  The repair is
-			// still only an exact model re-emit obligation: the system does not
-			// promote the original row or mint a binding edge.
-			if !built[i].IsCitable() {
-				if repair, ok := emitEvidenceRequiredRegistrationBindingRepair(
-					ctx, registrationBeforeEndpointAudit, builtParamIndexes[i], gc,
-				); ok {
-					registrationBindingRepairs = append(registrationBindingRepairs, repair)
-				}
+			// A wrong source-shape anchor can fail initial grounding before the
+			// endpoint stabilizer runs.  Conversely, a citable declaration can
+			// prove only a registration container while hiding the unique exact
+			// binding expression in its already-read body. Audit both shapes at
+			// this common seam, then remove the obligation below when the exact
+			// model-owned row already exists in this or an earlier batch. The
+			// system never promotes the coarse row or mints a binding edge.
+			if repair, ok := emitEvidenceRequiredRegistrationBindingRepair(
+				ctx, registrationBeforeEndpointAudit, builtParamIndexes[i], gc,
+			); ok {
+				registrationBindingRepairs = append(registrationBindingRepairs, repair)
 			}
 		}
 		requestedDiagramRole := built[i].DiagramRole
@@ -960,6 +958,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	repairEvidence = append(repairEvidence, built...)
 	callEndpointRepairs = filterSatisfiedCallbackReceiverCallRepairs(callEndpointRepairs, repairEvidence)
 	argumentFlowRepairs = filterSatisfiedArgumentFlowRepairs(argumentFlowRepairs, repairEvidence)
+	registrationBindingRepairs = filterSatisfiedRegistrationBindingRepairs(registrationBindingRepairs, repairEvidence)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
 	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
@@ -3789,10 +3788,133 @@ func uniqueNearbyRegistrationBindingCall(gc *ground.Context, item types.Evidence
 		}
 	}
 	if len(candidates) != 1 {
-		return 0, "", "", "", false
+		// A declaration-shaped registration row can accurately name the
+		// exported container without naming the body expression that binds an
+		// endpoint into it.  Only inspect the unique parser-owned callable
+		// selected by the structured definition anchor, and only accept one
+		// receiver call in that already-read body.  This is deliberately
+		// narrower than scanning nearby text or guessing from framework names.
+		if len(candidates) != 0 {
+			return 0, "", "", "", false
+		}
+		start, end, ok := registrationDefinitionCallableRange(fi, item)
+		if !ok {
+			return 0, "", "", "", false
+		}
+		for lineNo, text := range lines {
+			if lineNo < start || lineNo > end {
+				continue
+			}
+			for _, row := range receiverRegistrationBindingCallsOnLine(text) {
+				candidates = append(candidates, candidate{
+					line: lineNo, score: row.score,
+					anchor: row.anchor, registry: row.registry, object: row.object,
+				})
+			}
+		}
+		if len(candidates) != 1 {
+			return 0, "", "", "", false
+		}
 	}
 	best := candidates[0]
 	return best.line, best.anchor, best.registry, best.object, true
+}
+
+func registrationDefinitionCallableRange(fi *repomap.FileInfo, item types.EvidenceItem) (int, int, bool) {
+	if fi == nil || item.AnchorKind != types.AnchorDefinition || item.LineStart <= 0 {
+		return 0, 0, false
+	}
+	want := types.NormalizedSurfaceSymbolTail(item.AnchorSymbol)
+	if want == "" {
+		return 0, 0, false
+	}
+	var matched *repomap.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Kind != "function" && sym.Kind != "method" {
+			continue
+		}
+		if types.NormalizedSurfaceSymbolTail(sym.Name) != want || sym.Line <= 0 {
+			continue
+		}
+		end := sym.EndLine
+		if end < sym.Line {
+			end = sym.Line
+		}
+		// Permit a bounded decorator/attribute prefix immediately before the
+		// parser-owned declaration, but never a broad nearby-file search.
+		if item.LineStart < sym.Line-4 || item.LineStart > end {
+			continue
+		}
+		if matched != nil {
+			return 0, 0, false
+		}
+		matched = sym
+	}
+	if matched == nil {
+		return 0, 0, false
+	}
+	end := matched.EndLine
+	if end < matched.Line {
+		end = matched.Line
+	}
+	return matched.Line, end, true
+}
+
+type receiverRegistrationBindingCall struct {
+	anchor, registry, object string
+	score                    int
+}
+
+// receiverRegistrationBindingCallsOnLine discovers a structural
+// receiver.bindingCall(argument) tuple without assuming a framework or
+// endpoint spelling. Multiple distinct arguments remain ambiguous and fail
+// open at the caller. Quoted strings are masked, so display/config text cannot
+// become endpoint authority.
+func receiverRegistrationBindingCallsOnLine(line string) []receiverRegistrationBindingCall {
+	masked := maskQuotedSourceForBinding(strings.TrimSpace(line))
+	if masked == "" {
+		return nil
+	}
+	identifiers := sourceIdentifierTokens(masked)
+	seen := make(map[string]bool)
+	out := make([]receiverRegistrationBindingCall, 0, 1)
+	for _, endpoint := range identifiers {
+		anchor, registry, object, score, ok := registrationBindingCallOnLine(line, endpoint)
+		if !ok || registry == anchor {
+			continue
+		}
+		key := anchor + "\x00" + registry + "\x00" + object
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, receiverRegistrationBindingCall{
+			anchor: anchor, registry: registry, object: object, score: score,
+		})
+	}
+	return out
+}
+
+func sourceIdentifierTokens(masked string) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, 8)
+	for i := 0; i < len(masked); {
+		if !isIdentifierByte(masked[i]) || (masked[i] >= '0' && masked[i] <= '9') {
+			i++
+			continue
+		}
+		start := i
+		for i < len(masked) && isIdentifierByte(masked[i]) {
+			i++
+		}
+		token := masked[start:i]
+		if token != "" && !seen[token] {
+			seen[token] = true
+			out = append(out, token)
+		}
+	}
+	return out
 }
 
 func registrationBindingCallOnLine(line, endpoint string) (string, string, string, int, bool) {
@@ -3943,12 +4065,7 @@ func sourceCallArgumentContaining(original, masked string, start, end, endpointP
 }
 
 func sourceCallReceiver(target string) string {
-	idx := -1
-	for _, sep := range []string{"->", "::", "."} {
-		if candidate := strings.LastIndex(target, sep); candidate > idx {
-			idx = candidate
-		}
-	}
+	idx, _ := lastSourceCallSeparator(target)
 	if idx > 0 {
 		return strings.TrimSpace(target[:idx])
 	}
@@ -3956,16 +4073,32 @@ func sourceCallReceiver(target string) string {
 }
 
 func sourceCallLeaf(target string) string {
+	idx, sepLen := lastSourceCallSeparator(target)
+	if idx >= 0 {
+		return strings.TrimSpace(target[idx+sepLen:])
+	}
+	return strings.TrimSpace(target)
+}
+
+func lastSourceCallSeparator(target string) (int, int) {
 	idx, sepLen := -1, 0
 	for _, sep := range []string{"->", "::", "."} {
 		if candidate := strings.LastIndex(target, sep); candidate > idx {
 			idx, sepLen = candidate, len(sep)
 		}
 	}
-	if idx >= 0 {
-		return strings.TrimSpace(target[idx+sepLen:])
+	// Lua's method-call separator is a single ':'. Do not let either byte of
+	// a C++/Rust/Cangjie '::' qualifier override the typed two-byte separator.
+	for i := len(target) - 1; i >= 0; i-- {
+		if target[i] != ':' || (i > 0 && target[i-1] == ':') || (i+1 < len(target) && target[i+1] == ':') {
+			continue
+		}
+		if i > idx {
+			idx, sepLen = i, 1
+		}
+		break
 	}
-	return strings.TrimSpace(target)
+	return idx, sepLen
 }
 
 func evidenceEndpointVisibleOnGroundedSpan(gc *ground.Context, item types.EvidenceItem, endpoint string) bool {
@@ -5950,6 +6083,30 @@ func filterSatisfiedArgumentFlowRepairs(
 	for _, row := range in {
 		if emitEvidenceRelationRepairObligationsSatisfied(
 			argumentFlowRepairObligations([]emitEvidenceArgumentFlowRepair{row}), evidence,
+		) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// filterSatisfiedRegistrationBindingRepairs keeps a citable container row
+// separate from its exact binding expression while avoiding redundant debt
+// when the model already emitted that expression in the same or an earlier
+// batch. Satisfaction is the durable typed source/line/endpoint tuple, never
+// request, reasoning, summary, or final-answer prose.
+func filterSatisfiedRegistrationBindingRepairs(
+	in []emitEvidenceRegistrationBindingRepair,
+	evidence []types.EvidenceItem,
+) []emitEvidenceRegistrationBindingRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]emitEvidenceRegistrationBindingRepair, 0, len(in))
+	for _, row := range in {
+		if emitEvidenceRelationRepairObligationsSatisfied(
+			registrationBindingRepairObligations([]emitEvidenceRegistrationBindingRepair{row}), evidence,
 		) {
 			continue
 		}
