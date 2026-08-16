@@ -36151,6 +36151,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.968 r594：B944/B945 生产闭环；Java terminal 语义为模型波动（2026-08-16）
+
+1. 在 `main@cde11704b` 重建后严格并发恰好两个 relation 案例：`mr_poly_binding_chain` 与
+   `sr_java_call_chain`。Runner `1 PASS / 1 FAIL`，人工同为 Poly=pass、Java=fail；记录见
+   `eval/parallel_selected_summary_evalcampaign_bridge_java_r594_20260816.md` 与同名 `_manual_audit.md`。
+2. B944/B945 获生产闭环。Poly principal 结构 receipt 保留
+   `_fastlex.tokenize_bytes --register--> py.tokenize_bytes --call--> tokenize_bytes`，入口、wrapper、core、
+   best_merge 与 fallback 的普通 calls 同样逐条有同向 anchor。pre-emit 与 post-contract 对该注册桥一致，
+   strict contract violation=0；没有第二次 Finalizer、没有 `answer-contract validation exhausted`、没有图 caveat。
+3. 与 r593 相比，Poly 从 656s/两次 Finalizer/9 次 reject 降到 230s/一次 Finalizer/2 次 reject。剩余两次是同轮
+   typed 零锚与 requested exact label 修补；最终关系与引用完整，不是双验证器冲突。可选图未发，系统没有代画。
+4. Java 非目标回归面通过：`VisitController.create -> VisitService.schedule`、配置读取、容量查询、insert、
+   `AuditLog.record` 五条普通 call anchors 全部保留，post-contract 零违例。这证明 semantic receipt 过滤没有扩域
+   到 Java、普通 source calls 或无 receipt 的结构块。
+5. Java runner FAIL 的唯一 oracle 是终稿没有说明 `System.out.println` 不是审计持久化；模型反而写成“打印到
+   System.out 完成落库动作”。这不是上下文缺证：Finalizer prompt 已给
+   `caller=AuditLog.record; exact_operation=System.out.println; effect_scope=exact_call_only`，并明确要求 storage、
+   durability、flushing、completion 保持 unproven。模型仍越界，判为成文波动。
+6. 按用户红线，本批不扫描用户/模型/最终答案关键词，不新增 `System.out`×`落库` 组合硬门，不让系统替模型
+   写“未持久化”结论。只有后续异构 terminal-semantics 案例反复证明上下文虽精确但模型持续失守时，才评估基于
+   typed terminal-operation carrier 的通用软教学；当前单例留档，不阻塞更高优先 eval。
+7. 本批未改 Trace 或流式 lifecycle。显式窗因果投影、自动补采、链上-only 主因、邻近/background
+   support-only、实际占时/业务线索与规则可消双轴均保持；活跃字节流不按 4ms 或固定总年龄降级。
+
+状态：
+
+`B944-PRINCIPALPATHRELATIONCOVERAGE1=production-closed-r594`；
+`B945-SEMANICHANDOFFVALIDATORPARITY1=production-closed-r594`；
+`ordinary-call-authority=Java-production-positive/no-regression`；
+`Java terminal persistence wording=model-variance/context-sufficient/no-hard-fit`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
