@@ -1,10 +1,80 @@
 package tool
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func reconcileRuntimeSelectionProfile(
+	raw string,
+	selection *emitRuntimeSelectionProfileParam,
+	endpoints *types.CallChainEndpointProfile,
+) (*types.CallChainEndpointProfile, string, string) {
+	if selection == nil {
+		// Compatibility for persisted/local callers authored before the dedicated
+		// profile existed. Provider-facing schema requires the new profile.
+		return endpoints, "", ""
+	}
+	var missing []string
+	if selection.IsSelectionQuestion == nil {
+		missing = append(missing, "is_selection_question")
+	}
+	if selection.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return endpoints, "", "runtime_selection_profile missing required field(s): " + strings.Join(missing, ", ")
+	}
+	if *selection.Confidence < 0 || *selection.Confidence > 1 {
+		return endpoints, "", fmt.Sprintf("runtime_selection_profile.confidence %.2f out of [0,1]", *selection.Confidence)
+	}
+	quote := strings.TrimSpace(selection.SourceQuote)
+	if !*selection.IsSelectionQuestion {
+		if quote != "" {
+			return endpoints, "", "runtime_selection_profile.is_selection_question=false requires source_quote=\"\""
+		}
+	} else if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
+		return endpoints, "", "runtime_selection_profile.is_selection_question=true requires a contiguous verbatim CURRENT-request source_quote"
+	}
+	if endpoints != nil {
+		legacyQuote := strings.TrimSpace(endpoints.RuntimeSelectionSourceQuote)
+		if !*selection.IsSelectionQuestion && (endpoints.RuntimeSelectionRequired || legacyQuote != "") {
+			return endpoints, "", "runtime_selection_profile=false conflicts with the legacy internal runtime-selection carrier"
+		}
+		if *selection.IsSelectionQuestion && endpoints.RuntimeSelectionRequired && legacyQuote != "" && legacyQuote != quote {
+			return endpoints, "", "runtime_selection_profile source_quote conflicts with the legacy internal runtime-selection carrier"
+		}
+	}
+	if endpoints == nil {
+		endpoints = &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionExact}
+	}
+	normalized := *endpoints
+	legacyChanged := normalized.RuntimeSelectionRequired != *selection.IsSelectionQuestion ||
+		strings.TrimSpace(normalized.RuntimeSelectionSourceQuote) != quote
+	normalized.RuntimeSelectionRequired = *selection.IsSelectionQuestion
+	normalized.RuntimeSelectionSourceQuote = quote
+	warning := ""
+	if legacyChanged {
+		warning = "projected dedicated runtime_selection_profile onto the legacy internal selection carrier"
+	}
+	return &normalized, warning, ""
+}
+
+func legacyCallChainRuntimeSelectionFieldsPresent(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return false
+	}
+	_, hasRequired := object["runtime_selection_required"]
+	_, hasQuote := object["runtime_selection_source_quote"]
+	return hasRequired && hasQuote
+}
 
 // normalizeCallChainEndpointWireShape repairs endpoint-mode mismatches whose
 // intended schema shape is fully determined by the structured fields: both

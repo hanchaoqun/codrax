@@ -19,17 +19,10 @@ const (
 	RequestedAnswerDimensionDiffClue          RequestedAnswerDimensionRole = "diff_clue"
 	RequestedAnswerDimensionCurrentKeyCode    RequestedAnswerDimensionRole = "current_key_code"
 	RequestedAnswerDimensionFunctionOrPurpose RequestedAnswerDimensionRole = "function_or_purpose"
-	// RequestedAnswerDimensionRuntimeSelection identifies an explicitly
-	// requested visible explanation of which implementation/tool/path is used
-	// under different runtime conditions (for example initial output versus a
-	// retry). It is separate from generic function_or_purpose so the analyzer's
-	// independent CallChainEndpointProfile selection carrier can be checked for
-	// structural coherence without reading request or answer prose.
-	RequestedAnswerDimensionRuntimeSelection RequestedAnswerDimensionRole = "runtime_selection"
-	RequestedAnswerDimensionImpact           RequestedAnswerDimensionRole = "impact"
-	RequestedAnswerDimensionComparisonAxis   RequestedAnswerDimensionRole = "comparison_axis"
-	RequestedAnswerDimensionCount            RequestedAnswerDimensionRole = "count"
-	RequestedAnswerDimensionMemberSet        RequestedAnswerDimensionRole = "member_set"
+	RequestedAnswerDimensionImpact            RequestedAnswerDimensionRole = "impact"
+	RequestedAnswerDimensionComparisonAxis    RequestedAnswerDimensionRole = "comparison_axis"
+	RequestedAnswerDimensionCount             RequestedAnswerDimensionRole = "count"
+	RequestedAnswerDimensionMemberSet         RequestedAnswerDimensionRole = "member_set"
 	// RequestedAnswerDimensionSourceLocation identifies a user-visible,
 	// per-subject source/file location column. It is deliberately distinct
 	// from EvidenceSource: a citation can prove a row without making the file
@@ -78,7 +71,6 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionDiffClue,
 		RequestedAnswerDimensionCurrentKeyCode,
 		RequestedAnswerDimensionFunctionOrPurpose,
-		RequestedAnswerDimensionRuntimeSelection,
 		RequestedAnswerDimensionImpact,
 		RequestedAnswerDimensionComparisonAxis,
 		RequestedAnswerDimensionCount,

@@ -2,23 +2,6 @@ package types
 
 import "testing"
 
-func TestRequestedAnswerDimensionRuntimeSelectionIsClosedTypedRole(t *testing.T) {
-	role := NormalizeRequestedAnswerDimensionRole("runtime_selection")
-	if role != RequestedAnswerDimensionRuntimeSelection || !role.IsValid() {
-		t.Fatalf("runtime selection role not preserved: %q", role)
-	}
-	found := false
-	for _, declared := range AllRequestedAnswerDimensionRoles() {
-		if declared == RequestedAnswerDimensionRuntimeSelection {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("runtime selection role missing from schema enum source")
-	}
-}
-
 func TestNormalizeRequestedAnswerDimensionProfile_PreservesAnchoredDimensions(t *testing.T) {
 	raw := "请说明每次提交的 diff 线索、当前关键代码、作用和影响，不要只给 commit id。"
 	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{

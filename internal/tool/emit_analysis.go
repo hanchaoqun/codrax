@@ -51,20 +51,21 @@ type EmitAnalysis struct {
 }
 
 type emitAnalysisParams struct {
-	Intent             string                          `json:"intent"`
-	Scenario           string                          `json:"scenario"`
-	ChitchatReply      string                          `json:"chitchat_reply,omitempty"`
-	Complexity         string                          `json:"complexity"`
-	Keywords           []string                        `json:"keywords"`
-	Entities           []string                        `json:"entities"`
-	QuestionKind       string                          `json:"question_kind"`
-	Language           string                          `json:"language,omitempty"`
-	SubTopics          []emitAnalysisSubTopic          `json:"sub_topics,omitempty"`
-	AnswerSubject      *emitAnswerSubjectParam         `json:"answer_subject,omitempty"`
-	ExactTargets       []string                        `json:"exact_targets,omitempty"`
-	ExactContextTerms  []string                        `json:"exact_context_terms,omitempty"`
-	ExactContextRoles  []string                        `json:"exact_context_roles,omitempty"`
-	CallChainEndpoints *types.CallChainEndpointProfile `json:"call_chain_endpoints"`
+	Intent             string                            `json:"intent"`
+	Scenario           string                            `json:"scenario"`
+	ChitchatReply      string                            `json:"chitchat_reply,omitempty"`
+	Complexity         string                            `json:"complexity"`
+	Keywords           []string                          `json:"keywords"`
+	Entities           []string                          `json:"entities"`
+	QuestionKind       string                            `json:"question_kind"`
+	Language           string                            `json:"language,omitempty"`
+	SubTopics          []emitAnalysisSubTopic            `json:"sub_topics,omitempty"`
+	AnswerSubject      *emitAnswerSubjectParam           `json:"answer_subject,omitempty"`
+	ExactTargets       []string                          `json:"exact_targets,omitempty"`
+	ExactContextTerms  []string                          `json:"exact_context_terms,omitempty"`
+	ExactContextRoles  []string                          `json:"exact_context_roles,omitempty"`
+	CallChainEndpoints *types.CallChainEndpointProfile   `json:"call_chain_endpoints"`
+	RuntimeSelection   *emitRuntimeSelectionProfileParam `json:"runtime_selection_profile"`
 
 	// Schema v4 — confidence + alternatives + LLM semantic predicates +
 	// LLM-emitted predicate axis. These replace the historical prose-cue
@@ -124,7 +125,7 @@ var emitAnalysisSchemaRequiredTopLevelFields = []string{
 	"predicate_axis",
 	"intent_confidence", "complexity_confidence", "kind_confidence",
 	"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-	"requested_answer_dimensions",
+	"requested_answer_dimensions", "runtime_selection_profile",
 	"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile",
 	"history_selection_profile", "completeness_obligation", "call_chain_endpoints",
 }
@@ -150,6 +151,12 @@ type emitRequiredFileParam struct {
 type emitAnalysisSubTopic struct {
 	Summary  string   `json:"summary"`
 	Entities []string `json:"entities,omitempty"`
+}
+
+type emitRuntimeSelectionProfileParam struct {
+	IsSelectionQuestion *bool    `json:"is_selection_question"`
+	SourceQuote         string   `json:"source_quote"`
+	Confidence          *float64 `json:"confidence"`
 }
 
 func emitAnalysisSubTopics(in []emitAnalysisSubTopic) []types.SubTopic {
@@ -511,13 +518,22 @@ func buildEmitAnalysisSchema() {
 				"type":        "object",
 				"description": types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
 				"properties": map[string]any{
-					"source":                         map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover/discover_terminal; empty in discover_path and when not applicable."},
-					"sink":                           map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_terminal/discover_path and when not applicable."},
-					"sink_mode":                      map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime-selected destination to prove; discover_terminal=exact source with conceptual terminal destination to identify from grounded static calls; discover_path=both role-bound endpoint identities to find."},
-					"runtime_selection_required":     map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks how a runtime implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, or which tool/path is available or used on an initial/full-output attempt versus a retry/error/patch attempt. This is independent of endpoint identity mode."},
-					"runtime_selection_source_quote": map[string]any{"type": "string", "description": "When runtime_selection_required=true, the shortest contiguous verbatim CURRENT-request phrase establishing that selection question; empty when false."},
+					"source":    map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover/discover_terminal; empty in discover_path and when not applicable."},
+					"sink":      map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_terminal/discover_path and when not applicable."},
+					"sink_mode": map[string]any{"type": "string", "enum": types.CallChainSinkResolutionModeValues(), "description": "exact=both identities named; discover=exact source with runtime-selected destination to prove; discover_terminal=exact source with conceptual terminal destination to identify from grounded static calls; discover_path=both role-bound endpoint identities to find."},
 				},
-				"required":             []string{"source", "sink", "sink_mode", "runtime_selection_required", "runtime_selection_source_quote"},
+				"required":             []string{"source", "sink", "sink_mode"},
+				"additionalProperties": false,
+			},
+			"runtime_selection_profile": map[string]any{
+				"type":        "object",
+				"description": types.RuntimeSelectionProfileTeaching,
+				"properties": map[string]any{
+					"is_selection_question": map[string]any{"type": "boolean", "description": "True only for an explicit condition-dependent implementation/tool/path selection question."},
+					"source_quote":          map[string]any{"type": "string", "description": "Shortest contiguous verbatim CURRENT-request phrase when true; empty when false."},
+					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0},
+				},
+				"required":             []string{"is_selection_question", "source_quote", "confidence"},
 				"additionalProperties": false,
 			},
 			"exact_context_terms": map[string]any{
@@ -830,7 +846,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. runtime_selection means the user visibly asks which implementation/tool/path is used or available under different runtime conditions; it must agree with call_chain_endpoints.runtime_selection_required. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). source_attribute means a user-visible per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields; never label one of those language-scope attributes as source_location. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means a user-visible per-subject source/file path or file:line field (a citation alone does not display it). source_attribute means a user-visible per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields; never label one of those language-scope attributes as source_location. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisRuntimeCausalAttributionTeaching},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -1976,6 +1992,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		p.CallChainEndpoints = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if normalized, warning, issue := reconcileRuntimeSelectionProfile(raw, p.RuntimeSelection, p.CallChainEndpoints); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	} else {
+		p.CallChainEndpoints = normalized
+		if warning != "" {
+			val.Warnings = append(val.Warnings, warning)
+		}
+	}
 	if normalized, warning := normalizeCallChainEndpointWireShape(p.CallChainEndpoints); warning != "" {
 		p.CallChainEndpoints = normalized
 		val.Warnings = append(val.Warnings, warning)
@@ -2014,14 +2043,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + issue,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	if requestedAnswerDimensionsRequireRuntimeSelection(requestedAnswerDimensions) &&
-		(callChainEndpointProfile == nil || !callChainEndpointProfile.RequiresRuntimeSelectionEvidence()) {
-		return types.ToolResult{
-			ToolName: t.Name(), Success: false,
-			Summary:   "emit_analysis rejected: requested_answer_dimensions role=runtime_selection requires call_chain_endpoints.runtime_selection_required=true with its contiguous verbatim CURRENT-request source quote. Preserve the requested dimension and repair the independent typed selection carrier; do not relabel the dimension or default the carrier to false",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -2301,17 +2322,19 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 			missing = append(missing, field)
 		}
 	}
-	// call_chain_endpoints also owns the independent runtime-selection
-	// discriminator. Older/local providers may omit this otherwise inert object,
-	// so runtime-artifact-only requests retain the compatibility default. A
-	// current-source relation/mechanism surface cannot: omission would silently
-	// erase endpoint direction or initial/retry availability selection before
-	// the explorer sees it. This decision reads only typed JSON fields and the
-	// already-typed presentation contract; it never classifies request prose.
+	// Older/local providers may omit the otherwise inert endpoint object, so
+	// runtime-artifact-only requests retain the compatibility default. A
+	// current-source relation/mechanism surface cannot silently erase endpoint
+	// direction before the explorer sees it.
 	if emitAnalysisRelationCarrierRequired(object, requiredDiagram) {
 		raw, ok := object["call_chain_endpoints"]
 		if !ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			missing = append(missing, "call_chain_endpoints")
+		}
+		raw, ok = object["runtime_selection_profile"]
+		if (!ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))) &&
+			!legacyCallChainRuntimeSelectionFieldsPresent(object["call_chain_endpoints"]) {
+			missing = append(missing, "runtime_selection_profile")
 		}
 	}
 	// A required diagram is an explicit typed presentation contract. Its edges
@@ -2331,11 +2354,12 @@ func emitAnalysisMissingTopLevelFieldsSummary(missing []string) string {
 	summary := "emit_analysis rejected: missing required top-level field(s): " + strings.Join(missing, ", ") +
 		". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them."
 	for _, field := range missing {
-		if field != "call_chain_endpoints" {
-			continue
+		switch field {
+		case "call_chain_endpoints":
+			summary += " For call_chain_endpoints, emit only ordered endpoint identity: source, sink, and sink_mode."
+		case "runtime_selection_profile":
+			summary += " For runtime_selection_profile, independently decide whether the CURRENT request asks which implementation/tool/path is used under different conditions; do not default false merely to satisfy presence. When true, copy one shortest contiguous verbatim phrase into source_quote."
 		}
-		summary += " For call_chain_endpoints, re-decide runtime_selection_required from the CURRENT request; do not default it to false merely to satisfy field presence. Set it true when the request asks how an implementation/backend/plugin/provider/handler is selected, created, bound, registered, or dispatched, or which tool/path is available or used on an initial/full-output attempt versus a retry/error/patch attempt, and copy the shortest contiguous verbatim current-request phrase into runtime_selection_source_quote. Otherwise emit false with an empty quote."
-		break
 	}
 	return summary
 }
@@ -5436,18 +5460,6 @@ func requiredDiagramRequestedDimension(profile *types.RequestedAnswerDimensionPr
 	}
 	for _, dimension := range profile.Dimensions {
 		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionDiagram {
-			return true
-		}
-	}
-	return false
-}
-
-func requestedAnswerDimensionsRequireRuntimeSelection(profile *types.RequestedAnswerDimensionProfile) bool {
-	if profile == nil || !profile.Active() {
-		return false
-	}
-	for _, dimension := range profile.Dimensions {
-		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionRuntimeSelection {
 			return true
 		}
 	}

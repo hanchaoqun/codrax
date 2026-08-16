@@ -96,6 +96,15 @@ func withV4Required(partial string) string {
 		"runtime_selection_source_quote": ""
 	}`
 	}
+	if !strings.Contains(trimmed, `"runtime_selection_profile"`) &&
+		!strings.Contains(trimmed, `"runtime_selection_required":true`) {
+		defaults += `,
+	"runtime_selection_profile": {
+		"is_selection_question": false,
+		"source_quote": "",
+		"confidence": 0.7
+	}`
+	}
 	if !strings.Contains(trimmed, `"requested_answer_dimensions"`) {
 		defaults += `,
 	"requested_answer_dimensions": {
@@ -165,6 +174,17 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	}
 	if _, ok := obj["call_chain_endpoints"]; !ok {
 		obj["call_chain_endpoints"] = json.RawMessage(`{"source":"","sink":"","sink_mode":"exact","runtime_selection_required":false,"runtime_selection_source_quote":""}`)
+	}
+	if _, ok := obj["runtime_selection_profile"]; !ok {
+		profile := `{"is_selection_question":false,"source_quote":"","confidence":0.7}`
+		if rawEndpoints, exists := obj["call_chain_endpoints"]; exists {
+			var endpoints types.CallChainEndpointProfile
+			if json.Unmarshal(rawEndpoints, &endpoints) == nil && endpoints.RuntimeSelectionRequired {
+				encodedQuote, _ := json.Marshal(endpoints.RuntimeSelectionSourceQuote)
+				profile = `{"is_selection_question":true,"source_quote":` + string(encodedQuote) + `,"confidence":0.7}`
+			}
+		}
+		obj["runtime_selection_profile"] = json.RawMessage(profile)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -1691,15 +1711,20 @@ func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoi
 			"dimensions":[{
 				"index":1,
 				"label":"首次完整输出 vs retry patch",
-				"role":"runtime_selection",
+				"role":"function_or_purpose",
 				"source_quote":"首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch",
 				"required":true
 			}]
 		},
 		"call_chain_endpoints":{
 			"source":"","sink":"","sink_mode":"exact",
-			"runtime_selection_required":true,
-			"runtime_selection_source_quote":"首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch"
+			"runtime_selection_required":false,
+			"runtime_selection_source_quote":""
+		},
+		"runtime_selection_profile":{
+			"is_selection_question":true,
+			"source_quote":"首次完整输出为什么使用 emit_answer_document，而重试补丁什么时候改用 emit_answer_document_patch",
+			"confidence":0.95
 		}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
@@ -1712,7 +1737,7 @@ func TestEmitAnalysis_MechanismFlowCarriesRuntimeSelectionWithoutCallChainEndpoi
 	}
 }
 
-func TestEmitAnalysis_RuntimeSelectionDimensionRejectsFalseSelectionCarrierWithoutRequestScan(t *testing.T) {
+func TestEmitAnalysis_RuntimeSelectionProfileRejectsContradictoryFalseQuoteWithoutRequestScan(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -1726,25 +1751,19 @@ func TestEmitAnalysis_RuntimeSelectionDimensionRejectsFalseSelectionCarrierWitho
 		"entities":["tool_a","tool_b"],
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
-		"requested_answer_dimensions":{
-			"is_dimensioned_answer":true,
-			"confidence":0.95,
-			"dimensions":[{
-				"index":1,
-				"label":"selection",
-				"role":"runtime_selection",
-				"source_quote":"first full versus patch retry",
-				"required":true
-			}]
-		},
 		"call_chain_endpoints":{
 			"source":"","sink":"","sink_mode":"exact",
 			"runtime_selection_required":false,
 			"runtime_selection_source_quote":""
+		},
+		"runtime_selection_profile":{
+			"is_selection_question":false,
+			"source_quote":"first full versus patch retry",
+			"confidence":0.95
 		}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
-	if res.Success || !strings.Contains(res.Summary, "role=runtime_selection requires call_chain_endpoints.runtime_selection_required=true") {
+	if res.Success || !strings.Contains(res.Summary, `is_selection_question=false requires source_quote=""`) {
 		t.Fatalf("typed selection contradiction must fail loud: success=%t summary=%q", res.Success, res.Summary)
 	}
 	if mu.RequestModel() != nil {
@@ -1759,7 +1778,7 @@ func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyFor
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"},
 		"current_source_explanation_profile":{"modes":["explain_current_mechanism"]}
 	}`)
-	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceFlow, false); !slices.Contains(missing, "call_chain_endpoints") {
+	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceFlow, false); !slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
 		t.Fatalf("current-source flow must fail loud instead of silently losing runtime selection: %v", missing)
 	}
 
@@ -1778,25 +1797,25 @@ func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyFor
 		"predicate_axis":"define",
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"}
 	}`)
-	if missing := missingEmitAnalysisRequiredTopLevelFields(definitionDiagram, true); !slices.Contains(missing, "call_chain_endpoints") {
+	if missing := missingEmitAnalysisRequiredTopLevelFields(definitionDiagram, true); !slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
 		t.Fatalf("required current-source diagram must carry the explicit relation/selection discriminator: %v", missing)
 	}
 }
 
 func TestEmitAnalysisMissingRelationCarrierRetryReTeachesSelectionDecision(t *testing.T) {
-	got := emitAnalysisMissingTopLevelFieldsSummary([]string{"call_chain_endpoints"})
+	got := emitAnalysisMissingTopLevelFieldsSummary([]string{"call_chain_endpoints", "runtime_selection_profile"})
 	for _, want := range []string{
-		"re-decide runtime_selection_required from the CURRENT request",
-		"do not default it to false merely to satisfy field presence",
-		"initial/full-output attempt versus a retry/error/patch attempt",
-		"runtime_selection_source_quote",
+		"emit only ordered endpoint identity",
+		"runtime_selection_profile",
+		"do not default false merely to satisfy presence",
+		"source_quote",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("selection-carrier retry lost %q: %s", want, got)
 		}
 	}
 	ordinary := emitAnalysisMissingTopLevelFieldsSummary([]string{"runtime_question_profile"})
-	if strings.Contains(ordinary, "runtime_selection_required") {
+	if strings.Contains(ordinary, "runtime_selection_profile") {
 		t.Fatalf("unrelated missing-field retry gained selection teaching: %s", ordinary)
 	}
 }
@@ -1851,7 +1870,7 @@ func TestEmitAnalysis_SourceCallChainRejectsQuoteWhenRuntimeSelectionIsFalse(t *
 		}
 	}`
 	res, _ := runEmitAnalysisWithObjective(t, objective, payload)
-	if res.Success || !strings.Contains(res.Summary, `runtime_selection_required=false requires runtime_selection_source_quote=""`) {
+	if res.Success || !strings.Contains(res.Summary, "runtime_selection_profile=false conflicts with the legacy internal runtime-selection carrier") {
 		t.Fatalf("false selection declaration with a quote must fail loud: success=%t summary=%q", res.Success, res.Summary)
 	}
 }

@@ -118,7 +118,7 @@ func HydrateWriteWorkflowDecisionFromRun(decision WriteWorkflowDecision, run typ
 		batch, ok = workflowRunBatch(run, run.ActiveBatchID)
 	}
 	if ok {
-		if decision.Action == ActionReplanBatch {
+		if decision.Action == ActionReplanBatch && strings.TrimSpace(batch.Goal) != "" {
 			// Replanning replaces the implementation plan for the SAME durable
 			// batch; it does not mint a new remaining-work goal. Letting a model-
 			// authored repair summary overwrite this field makes an already

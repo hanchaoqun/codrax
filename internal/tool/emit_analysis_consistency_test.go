@@ -77,6 +77,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"answer_role_profile":            true,
 		"error_granularity_profile":      true,
 		"requested_answer_dimensions":    true,
+		"runtime_selection_profile":      true,
 		"runtime_artifact_scope_profile": true,
 		"runtime_target_profile":         true,
 		"runtime_question_profile":       true,
@@ -170,6 +171,9 @@ func TestEmitAnalysisExecutorRejectsProviderSchemaRequiredFieldOmission(t *testi
 			"source": "", "sink": "", "sink_mode": "exact",
 			"runtime_selection_required": false, "runtime_selection_source_quote": "",
 		},
+		"runtime_selection_profile": map[string]any{
+			"is_selection_question": false, "source_quote": "", "confidence": 0.9,
+		},
 	}
 	for _, missing := range []string{"question_kind", "predicate_axis"} {
 		t.Run(missing, func(t *testing.T) {
@@ -244,7 +248,7 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if err := json.Unmarshal(raw, &prop); err != nil {
 		t.Fatalf("call_chain_endpoints schema is invalid: %v", err)
 	}
-	if !slices.Equal(prop.Required, []string{"source", "sink", "sink_mode", "runtime_selection_required", "runtime_selection_source_quote"}) {
+	if !slices.Equal(prop.Required, []string{"source", "sink", "sink_mode"}) {
 		t.Fatalf("call_chain_endpoints.required=%v", prop.Required)
 	}
 	if _, ok := prop.Properties["source"]; !ok {
@@ -256,21 +260,9 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if _, ok := prop.Properties["sink_mode"]; !ok {
 		t.Fatal("call_chain_endpoints is missing sink_mode")
 	}
-	if _, ok := prop.Properties["runtime_selection_required"]; !ok {
-		t.Fatal("call_chain_endpoints is missing runtime_selection_required")
-	}
-	if _, ok := prop.Properties["runtime_selection_source_quote"]; !ok {
-		t.Fatal("call_chain_endpoints is missing runtime_selection_source_quote")
-	}
-	var runtimeSelectionProperty struct {
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal(prop.Properties["runtime_selection_required"], &runtimeSelectionProperty); err != nil {
-		t.Fatalf("runtime_selection_required schema is invalid: %v", err)
-	}
-	for _, want := range []string{"initial/full-output attempt", "retry/error/patch attempt"} {
-		if !strings.Contains(runtimeSelectionProperty.Description, want) {
-			t.Fatalf("runtime_selection_required description must teach %q: %s", want, runtimeSelectionProperty.Description)
+	for _, removed := range []string{"runtime_selection_required", "runtime_selection_source_quote"} {
+		if _, ok := prop.Properties[removed]; ok {
+			t.Fatalf("call_chain_endpoints must not retain independent selection field %q", removed)
 		}
 	}
 	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered", "discover_path"} {
@@ -280,6 +272,44 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	}
 	if !strings.Contains(prop.Description, types.CallChainEndpointProfileTeaching) {
 		t.Fatalf("call_chain_endpoints schema must consume the single teaching source: %s", prop.Description)
+	}
+}
+
+func TestEmitAnalysisSchemaDeclaresDedicatedRuntimeSelectionProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v", err)
+	}
+	if !slices.Contains(parsed.Required, "runtime_selection_profile") {
+		t.Fatalf("runtime_selection_profile is not provider-required: %v", parsed.Required)
+	}
+	raw, ok := parsed.Properties["runtime_selection_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing runtime_selection_profile")
+	}
+	var prop struct {
+		Description string                     `json:"description"`
+		Properties  map[string]json.RawMessage `json:"properties"`
+		Required    []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &prop); err != nil {
+		t.Fatalf("runtime_selection_profile schema is invalid: %v", err)
+	}
+	if !slices.Equal(prop.Required, []string{"is_selection_question", "source_quote", "confidence"}) {
+		t.Fatalf("runtime_selection_profile.required=%v", prop.Required)
+	}
+	for _, field := range prop.Required {
+		if _, ok := prop.Properties[field]; !ok {
+			t.Fatalf("runtime_selection_profile missing property %q", field)
+		}
+	}
+	for _, want := range []string{"initial/full output", "retry/error/patch", "independent of call-chain"} {
+		if !strings.Contains(prop.Description, want) {
+			t.Fatalf("runtime_selection_profile teaching missing %q: %s", want, prop.Description)
+		}
 	}
 }
 

@@ -36143,6 +36143,47 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.935 r566：B902 生产闭环；累计路径证明与选择 carrier 权属暴露新层（2026-08-16）
+
+1. 在 `main@226737848` 干净重建后严格并发恰好两个同案回放：
+   `read_combo_answer_document_tools + github_issue_libgit2_foreach_worktree`。Runner 仍为 `1 PASS / 1 FAIL`；
+   人工两案均 partial。详见
+   `eval/parallel_selected_summary_evalcampaign_selection_cwrite_r566_20260816_manual_audit.md`。
+2. B902 获生产正证。write 的 plan 1 修 line 12 后，验证发现 line 16；同 BatchID replan 的 plan 2 只修
+   line 16，测试通过后 controller 直接 `finish/all_verified`。没有 r565 的错误 append、第三个 plan 或虚构括号
+   修改，实际累计 diff 正确。
+3. 新确认 B903：终态报告仍显示 unverified。累计账本已把旧失败命令标为
+   `superseded_by_terminal_exact_command_pass`，且当前 report 对 `repository.c` 为 target-behavior covered，
+   但旧 plan 的两个 changed_file 义务仍为 unverified；`enforceTerminalCumulativeProofAuthority` 因此把同页
+   `loop.truth=covered / completion_verdict=verified` 再降为 unverified，形成 typed 权威自冲突。
+4. B903 根修只接受三重精确信号：当前 plan 的 controller-owned `CumulativeVerificationScope` 明确列出旧
+   PlanID；同一 scope 明确列出 exact path；终态 passed report 的 `ChangedPathCoverage` 对该 exact path 为
+   covered。满足时旧 changed_file 义务转 covered，并保留可审计 reason；同路径但未绑定的历史 plan 不得
+   消账。正臂与未绑定反臂均有 pin，既有“真实累计弱证明必须 unverified”测试继续通过。
+5. Combo runner PASS 仍是假阳性。Name literal 与两条执行路径大体正确，但 Analyzer 继续把“适用时机”合理
+   标成 `function_or_purpose`，埋在 `call_chain_endpoints` 内的 selection boolean 仍为 false。Explorer 因没有
+   选择 carrier，24+ 轮被错误推动去找两个替代工具间不存在的 direct call；终稿未画 finalizer 条件选择，末句
+   又把 patch 路径错误说成汇聚到 `executeAnswerDocumentV2`。
+6. r566 否证 B900-v2 的 presentation-role 抽象，予以退役；确认并施工 B904。provider schema 新增必答的
+   `runtime_selection_profile={is_selection_question,source_quote,confidence}`，它独立于 call-chain endpoint 与
+   generic purpose；`call_chain_endpoints` 恢复只承载 source/sink/sink_mode。接受后 profile 单向投影到既有内部
+   carrier，保持 explorer/evidence/evaluator 接线；旧持久化载体仍兼容。系统只校验 schema-typed 值、范围和
+   quote 的逐字来源，不做关键词语义扫描，不替模型判关系、画图或写结论。
+7. 本批不改 Trace 查询、显式窗、因果投影、系统补齐、根因排序或模型答案。主因仍只来自 typed on-chain
+   证据；优先级反转、调度/算力供给、D/IO、确定性语义、链上业务线索与实际占用/规则计价双轴不丢失；
+   off-chain 邻近/背景仅作 support。活跃流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B902-WRITEREPLANBATCHGOALAUTHORITY1=production-closed-r566`；
+`B903-CUMULATIVEPATHPROOFRECONCILIATION1=implemented/pinned/pending-replay`；
+`B900v2-RUNTIMESELECTIONDIMENSIONROLE1=production-disproven/retired-r566`；
+`B904-RUNTIMESELECTIONPROFILE1=implemented/schema-separated/pending-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
