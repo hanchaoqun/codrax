@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.941 r572 / B913：零边未证披露与 required-edge 外层合同冲突（2026-08-16）
+
+1. 在 `main@7bc5bd669` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + github_issue_zod_prefault`。Runner `0 PASS / 2 FAIL`；人工为
+   Read fail、Write 代码 pass 且验证边界诚实。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_write_r572_20260816_manual_audit.md`。
+2. B912 获生产部分正证：Explore 不再把两个工具各自的局部操作冒充二者关系，并诚实收敛为缺少共享
+   typed operation component；但 Finalizer/outer contract 的后置冲突又把已接受草稿打回 Explore，
+   因此还不能按时延收账。Read 共 37 个 Explorer iteration、17 个 Finalizer iteration、15 次成文拒绝、
+   978s，关系图最终只剩断开节点。
+3. B913 为确定性 P0：成文工具已经接受“零结构边 + 两个 exact visible participant + 各一个
+   `status=unproven` boundary”，外层 `required_diagram_edge_absent` 随即又要求至少一条边；补任何无证据
+   边则被 typed relation gate 拒绝。这是同一 structured declaration 在两个层级被同时允许/拒绝，
+   不是模型波动，也不能靠增加重试解决。
+4. 根修把两层统一到 participant parser 所有的精确 shape predicate。仅当 required flow 的全部
+   `incident_required` identity 在同一零边图中精确可见、boundary roster 与 obligation roster 一一相等、
+   status 全为 `unproven` 且无重复/额外 row 时，outer contract 才撤销通用零边 violation。少 row、未知
+   identity、不可见 identity、非 flow/call/Trace、已有可见边均不享受该出口。
+5. 该 shape 只证明“模型明确披露未证关系”，不证明关系不存在。后续 evidence-aware participant oracle
+   原样保留：若 request-scoped typed relation 实际可用，boundary 仍以 stale/typed-edge-missing 拒绝；
+   系统不选边、不画图、不写答案。没有读取用户原文、模型思考或最终 prose，也没有把完成次数、相似度
+   或 ranker 分数变成硬门。
+6. Write 案代码修复正确：存在性判断与 false/0/空串测试齐全，`make check` 通过；但本机 PATH 没有
+   Node，两个 changed path 只有 `source_static`。Normalizer 将模型的 `all_verified` 诚实改为
+   `accept_unverified` 是正确边界，不应为 eval 变绿而降杆。P2 展示债是最终披露未指出 exact unavailable
+   runtime；后续可从 typed verification suppression 增强说明，禁止扫描答案或用异语言脚本伪造验证。
+7. Read 另确认 B914（P1）：现有跨语言 evidence 能表达 unary guard，但不能表达 AST 已证的
+   guard/branch 到 append/drop/return/tool-selection effect，导致路由图只能在无权威业务边与零边之间摆动，
+   最终还把 `<2` 分支方向写反。下一批须审计所有支持语言（含 ArkTS/Cangjie）的 parser-owned
+   control-flow/guard-effect relation carrier；不能按本案例、工具名或答案句式拟合。
+8. 定向测试覆盖 exact boundary 正形及 missing/unknown/invisible 负形；现有 stale-boundary、typed relation
+   可用、单参与者/多参与者与 Trace 豁免测试继续承担证据权威。完整
+   `go test ./internal/tool ./internal/orchestrator -count=1` 通过（tool 164.785s、orchestrator 10.895s）。
+
+状态：
+
+`B912-RELATIONFOCUSEDNAVIGATION1=production-partial/explore-truthful/finalizer-conflict-dominated-r572`；
+`B913-REQUIREDEDGEUNPROVENCONTRACT1=implemented/exact-structured-boundary+pinned`；
+`B914-GUARDEFFECTRELATIONCARRIER1=confirmed/P1/cross-language-audit-next`；
+`WRITE-SOURCESTATIC-NODE-UNAVAILABLE=correct-unverified/P2-exact-disclosure-open`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：

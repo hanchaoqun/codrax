@@ -487,6 +487,74 @@ func TestDiagramEdgeSupport_TypedFlowUnprovenCaveatAllowsRequiredNodeOnlyExit(t 
 	}
 }
 
+func TestDiagramEdgeSupport_ExactParticipantBoundariesResolveZeroEdgeContractConflict(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "emit_answer_document", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "emit_answer_document_patch", Role: types.DiagramParticipantIncidentRequired},
+	}
+	view := &types.AnswerSemanticView{
+		Family:                        types.QFGeneric,
+		RelationAxis:                  types.AxisFlow,
+		DiagramParticipantObligations: participants,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind: types.DiagramRelDataFlow,
+				Min:  1,
+			}},
+		},
+	}
+	block := types.AnswerBlock{
+		ID:   "flow",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramFlow,
+			Language: "mermaid",
+			Body: "flowchart LR\n" +
+				"  emit_answer_document[\"完整答案工具\"]\n" +
+				"  emit_answer_document_patch[\"补丁答案工具\"]",
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "emit_answer_document", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "emit_answer_document_patch", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{block}}
+	bus := &types.BusContext{Mutable: types.NewMutableState("required source-flow diagram")}
+
+	if vs := validateDiagramEdgeSupportWithRuntimeContext(doc, view, bus); len(vs) != 0 {
+		t.Fatalf("exact visible disconnected boundaries must not be followed by a contradictory edge demand: %+v", vs)
+	}
+
+	cases := map[string]func(*types.AnswerDocumentV2){
+		"missing boundary": func(candidate *types.AnswerDocumentV2) {
+			candidate.Blocks[0].ParticipantBoundaries = candidate.Blocks[0].ParticipantBoundaries[:1]
+		},
+		"invisible participant": func(candidate *types.AnswerDocumentV2) {
+			candidate.Blocks[0].Diagram.Body = "flowchart LR\n  emit_answer_document[\"完整答案工具\"]\n  Other[\"其他工具\"]"
+		},
+		"unknown boundary": func(candidate *types.AnswerDocumentV2) {
+			candidate.Blocks[0].ParticipantBoundaries[1].Participant = "Other"
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			candidateBlock := block
+			candidateDiagram := *block.Diagram
+			candidateBlock.Diagram = &candidateDiagram
+			candidateBlock.ParticipantBoundaries = append(
+				[]types.DiagramParticipantBoundary(nil), block.ParticipantBoundaries...)
+			candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{candidateBlock}}
+			mutate(candidate)
+			vs := validateDiagramEdgeSupportWithRuntimeContext(candidate, view, bus)
+			if len(vs) != 1 || vs[0].Kind != types.ViolRequiredDiagramEdgeAbsent {
+				t.Fatalf("partial/invalid boundary shape must retain zero-edge violation: %+v", vs)
+			}
+		})
+	}
+}
+
 func TestDiagramEdgeSupport_OptionalOrRelationFreeDiagramDoesNotDemandAnEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "architecture",

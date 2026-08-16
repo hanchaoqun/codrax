@@ -795,6 +795,60 @@ func diagramIncidentParticipantObligations(view *types.AnswerSemanticView) []typ
 	return out
 }
 
+// DiagramParticipantUnprovenBoundaryShapeComplete reports whether one
+// model-authored node-only diagram has discharged every typed
+// incident_required participant with the exact explicit no-relation shape:
+//
+//   - the diagram contains no directed Mermaid edge;
+//   - every required participant is visibly present by its exact typed
+//     identity; and
+//   - every required participant has exactly one status=unproven boundary,
+//     with no extra boundary rows.
+//
+// This is presentation-shape authority only. It does not inspect or replace
+// evidence and cannot authorize a relation. The evidence-aware participant
+// validator still rejects the boundary as stale when a request-scoped typed
+// relation is available. Keeping this predicate beside the participant parser
+// ensures the emit-time and orchestrator contracts agree on the same exact
+// disconnected-boundary shape instead of demanding an invented edge after the
+// model has already disclosed that the requested relation is unproved.
+func DiagramParticipantUnprovenBoundaryShapeComplete(
+	block *types.AnswerBlock,
+	view *types.AnswerSemanticView,
+) bool {
+	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil ||
+		strings.TrimSpace(block.Diagram.Body) == "" ||
+		len(mermaidcompat.ParseEdges(block.Diagram.Body)) != 0 {
+		return false
+	}
+	obligations := diagramIncidentParticipantObligations(view)
+	if len(obligations) == 0 || len(block.ParticipantBoundaries) != len(obligations) {
+		return false
+	}
+
+	required := make(map[string]string, len(obligations))
+	for _, obligation := range obligations {
+		identity := strings.TrimSpace(obligation.Identity)
+		required[strings.ToLower(identity)] = identity
+	}
+	seen := make(map[string]bool, len(block.ParticipantBoundaries))
+	for _, boundary := range block.ParticipantBoundaries {
+		identity := strings.TrimSpace(boundary.Participant)
+		key := strings.ToLower(identity)
+		exact, ok := required[key]
+		if !ok || seen[key] || boundary.Status != types.DiagramParticipantBoundaryUnproven ||
+			!strings.EqualFold(identity, exact) {
+			return false
+		}
+		if !diagramParticipantBlockHasVisibleNode(*block, []string{exact}) &&
+			!diagramParticipantBlockHasVisibleSubgraph(*block, []string{exact}) {
+			return false
+		}
+		seen[key] = true
+	}
+	return len(seen) == len(required)
+}
+
 func answerDocumentContainsDiagramPayload(doc *types.AnswerDocumentV2) bool {
 	for _, block := range doc.Blocks {
 		if block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {

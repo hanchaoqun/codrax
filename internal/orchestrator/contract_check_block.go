@@ -415,19 +415,21 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 		applyRequiredDiagramTypedUnprovenExit(validateDiagramEdgeSupport(&copyDoc, view), bus, &copyDoc, view), bus)
 }
 
-// applyRequiredDiagramTypedUnprovenExit reconciles two precise contracts after
-// Explore has already spent its bounded operation-evidence supplement:
+// applyRequiredDiagramTypedUnprovenExit reconciles two precise contracts:
 //
 //  1. the current-turn presentation contract still requires a diagram; and
 //  2. the typed flow-operation lane has converged with no citable relation.
 //
-// In that exact state, requiring a structural edge would force Finalizer to
-// invent one, while removing the diagram would violate the requested surface.
-// Keep the model-authored node/group diagram and suppress only the contradictory
-// zero-edge violation.  Missing diagrams, unsupported authored edges, call-
-// chain contracts, runtime Trace diagrams, and participant coverage all retain
-// their existing validators.  The signal is a typed completion caveat; no user,
-// model-thinking, or answer prose is scanned.
+// For a request with typed incident participants, the exit is owned by the
+// model-authored exact disconnected-boundary shape: every participant remains
+// visible and carries one status=unproven row. This makes the emit-time and
+// outer orchestrator contracts agree. The later evidence-aware participant
+// oracle still rejects stale boundaries when a real typed relation exists.
+// Requests without a participant slate keep the older typed completion-caveat
+// exit because there is no identity roster on which to hang boundary rows.
+// Missing diagrams, unsupported authored edges, call-chain contracts, runtime
+// Trace diagrams, and participant coverage all retain their validators. No
+// user, model-thinking, or answer prose is scanned.
 func applyRequiredDiagramTypedUnprovenExit(
 	vs []types.Violation,
 	bus *types.BusContext,
@@ -436,11 +438,11 @@ func applyRequiredDiagramTypedUnprovenExit(
 ) []types.Violation {
 	if len(vs) == 0 || bus == nil || bus.Mutable == nil || doc == nil || view == nil ||
 		view.Family == types.QFRootCauseTrace || view.RelationAxis != types.AxisFlow ||
-		view.DiagramPlan == nil || !view.DiagramPlan.Required ||
-		!bus.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) {
+		view.DiagramPlan == nil || !view.DiagramPlan.Required {
 		return vs
 	}
 	hasNodeOnlyDiagram := false
+	hasCompleteParticipantBoundary := false
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
 		if block.Kind != types.BlockDiagram || block.Diagram == nil ||
@@ -449,10 +451,25 @@ func applyRequiredDiagramTypedUnprovenExit(
 		}
 		if len(parseMermaidEdges(block.Diagram.Body)) == 0 {
 			hasNodeOnlyDiagram = true
+			hasCompleteParticipantBoundary = tool.DiagramParticipantUnprovenBoundaryShapeComplete(block, view)
 			break
 		}
 	}
 	if !hasNodeOnlyDiagram {
+		return vs
+	}
+	hasIncidentParticipants := false
+	for _, participant := range view.DiagramParticipantObligations {
+		if participant.Role == types.DiagramParticipantIncidentRequired && strings.TrimSpace(participant.Identity) != "" {
+			hasIncidentParticipants = true
+			break
+		}
+	}
+	if hasIncidentParticipants {
+		if !hasCompleteParticipantBoundary {
+			return vs
+		}
+	} else if !bus.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) {
 		return vs
 	}
 	out := make([]types.Violation, 0, len(vs))
