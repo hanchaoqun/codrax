@@ -2036,7 +2036,7 @@ func completionAggregateFactsViolationList(violations []string) string {
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
-	runtimeTimings := make([]types.ToolRuntimeTiming, 0, 6)
+	runtimeTimings := make([]types.ToolRuntimeTiming, 0, 12)
 	defer func() {
 		attachToolRuntimeTimings(&result, runtimeTimings)
 	}()
@@ -2151,6 +2151,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "aggregate_fact_input_normalization", aggregateStart, len(aggregateFacts))
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
@@ -2189,7 +2190,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("runtime selection remains unproven: no citable registration, assignment/initializer, factory-return, or connected branch-guard fact established the requested selection mechanism; the model must keep the selection conditional and may still summarize the proven static operations")
 	}
+	stageAuthorityStart := time.Now()
 	verifiedStagePrecedence := completionVerifiedReadModeStagePrecedence(ctx)
+	recordToolRuntimeTiming(&runtimeTimings, "read_stage_authority", stageAuthorityStart, len(verifiedStagePrecedence))
 	flowOperationMissing := resultKind == "resolved" && justification == "" &&
 		flowOperationEvidenceRequired(ctx) &&
 		!types.HasFlowOperationEvidenceForRequest(evidenceSnapshot, ctx.AnalysisIR.RequestModel) &&
@@ -2199,7 +2202,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowOperationCarrier)
 	}
 	if flowOperationMissing {
+		flowNavigationStart := time.Now()
 		files, keywords := queueFlowOperationCarrierRepair(ctx, evidenceSnapshot)
+		recordToolRuntimeTiming(&runtimeTimings, "flow_operation_navigation", flowNavigationStart, len(files)+len(keywords))
 		repairHint := flowOperationRepairHintForMissing(ctx, nil, types.FlowOperationEvidenceEmissionGuide, files, keywords)
 		navigationHint := flowOperationNavigationHintForMissing(ctx, nil, files, keywords)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneFlowOperationCarrier) {
@@ -2224,12 +2229,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
 	}
+	participantCoverageStart := time.Now()
 	missingFlowParticipants := flowParticipantCoverageMissing(ctx, evidenceSnapshot, verifiedStagePrecedence...)
+	recordToolRuntimeTiming(&runtimeTimings, "flow_participant_coverage", participantCoverageStart, len(missingFlowParticipants))
 	if len(missingFlowParticipants) == 0 && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage)
 		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowParticipantCoverage)
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
+		participantRepairStart := time.Now()
 		files, keywords := queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
 		repairHint := flowParticipantCoverageRepairHintForMissing(ctx, missingFlowParticipants, evidenceSnapshot,
 			flowParticipantCoverageRepairBase(missingFlowParticipants), files, keywords)
@@ -2238,6 +2246,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
 		)
 		relationOnlyDeficit := flowMissingParticipantsHaveLocalOperations(ctx, evidenceSnapshot, missingFlowParticipants)
+		recordToolRuntimeTiming(&runtimeTimings, "flow_participant_repair_plan", participantRepairStart, len(files)+len(keywords))
 		var converged bool
 		if relationOnlyDeficit {
 			converged = preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(
@@ -2277,6 +2286,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil
 	}
+	decoratorAlignmentStart := time.Now()
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -2285,6 +2295,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "aggregate_decorator_alignment", decoratorAlignmentStart, len(aggregateFacts))
 	// Establish exact typed-relation principal ownership before the scope
 	// validator reads aggregate roles. Otherwise an omitted-role contextual
 	// sibling can be mistaken for a second principal slate and rejected before

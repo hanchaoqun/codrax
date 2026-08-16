@@ -13,11 +13,144 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v1"
 )
 
 type flowOperationRepairReadTarget struct {
 	file      string
 	lineRange types.LineRange
+}
+
+type flowParserRelationSite struct {
+	file     string
+	relation *repotypes.Relation
+}
+
+type flowParserSymbolSite struct {
+	file   string
+	symbol *repotypes.Symbol
+}
+
+// flowNavigationIndex is a graph-derived, navigation-only index. It replaces
+// repeated whole-repository symbol/relation scans during completion retries.
+// Candidate lookup is exact after language-neutral case/separator folding;
+// the existing typed compatibility checks still decide whether each candidate
+// is usable. Fuzzy substring matching remains available to ordinary SOFT
+// repo_map/grep guidance, but is intentionally not paid as an O(repository)
+// synchronous completion tax.
+type flowNavigationIndex struct {
+	symbolsByKey   map[string][]flowParserSymbolSite
+	relationsByKey map[string][]flowParserRelationSite
+}
+
+func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	if cached, ok := ctx.Mutable.SearchGraphDerived(flowNavigationIndexCacheKey).(*flowNavigationIndex); ok && cached != nil {
+		return cached
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return nil
+	}
+	index := &flowNavigationIndex{
+		symbolsByKey:   make(map[string][]flowParserSymbolSite),
+		relationsByKey: make(map[string][]flowParserRelationSite),
+	}
+	paths := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		file := graph.FileIndex[path]
+		if file == nil {
+			continue
+		}
+		for i := range file.Symbols {
+			symbol := &file.Symbols[i]
+			site := flowParserSymbolSite{
+				file:   canonicalRelationSourcePath(firstNonEmptyFlowRepairString(symbol.File, file.RelPath, path)),
+				symbol: symbol,
+			}
+			for _, key := range flowNavigationSurfaceKeys(symbol.Name, symbol.DeclaredType) {
+				index.symbolsByKey[key] = append(index.symbolsByKey[key], site)
+			}
+		}
+		for i := range file.Relations {
+			relation := &file.Relations[i]
+			switch relation.Kind {
+			case "call", "reference", "type_usage":
+			default:
+				continue
+			}
+			site := flowParserRelationSite{
+				file:     canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, file.RelPath, path)),
+				relation: relation,
+			}
+			seenKeys := make(map[string]bool)
+			for _, key := range flowNavigationSurfaceKeys(
+				append(flowRepairRelationEndpointSurfaces(relation.FromEP), flowRepairRelationEndpointSurfaces(relation.ToEP)...)...,
+			) {
+				if seenKeys[key] {
+					continue
+				}
+				seenKeys[key] = true
+				index.relationsByKey[key] = append(index.relationsByKey[key], site)
+			}
+		}
+	}
+	ctx.Mutable.SetSearchGraphDerived(flowNavigationIndexCacheKey, index)
+	return index
+}
+
+func flowNavigationSurfaceKeys(surfaces ...string) []string {
+	var keys []string
+	for _, surface := range surfaces {
+		for _, identity := range flowParticipantSymbolLookupKeys([]string{surface}) {
+			if key := flowRepairPlanningKey(identity); key != "" {
+				keys = appendUniqueBounded(keys, []string{key}, maxFlowOperationRepairKeywords)
+			}
+		}
+	}
+	return keys
+}
+
+func flowNavigationSymbols(index *flowNavigationIndex, surfaces []string) []flowParserSymbolSite {
+	if index == nil {
+		return nil
+	}
+	var out []flowParserSymbolSite
+	seen := make(map[*repotypes.Symbol]bool)
+	for _, key := range flowNavigationSurfaceKeys(surfaces...) {
+		for _, site := range index.symbolsByKey[key] {
+			if site.symbol == nil || seen[site.symbol] {
+				continue
+			}
+			seen[site.symbol] = true
+			out = append(out, site)
+		}
+	}
+	return out
+}
+
+func flowNavigationRelationSites(index *flowNavigationIndex, surfaces []string) []flowParserRelationSite {
+	if index == nil {
+		return nil
+	}
+	var out []flowParserRelationSite
+	seen := make(map[*repotypes.Relation]bool)
+	for _, key := range flowNavigationSurfaceKeys(surfaces...) {
+		for _, site := range index.relationsByKey[key] {
+			if site.relation == nil || seen[site.relation] {
+				continue
+			}
+			seen[site.relation] = true
+			out = append(out, site)
+		}
+	}
+	return out
 }
 
 // flowResolvedParticipantIdentity is a parser-owned navigation projection for
@@ -102,7 +235,7 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 		return flowResolvedParticipantIdentity{}
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if graph == nil || len(graph.FileIndex) == 0 {
+	if graph == nil || len(graph.SymbolDefs) == 0 {
 		return flowResolvedParticipantIdentity{}
 	}
 
@@ -127,31 +260,25 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 		declaredType string
 	}
 	var candidates []candidate
-	paths := make([]string, 0, len(graph.FileIndex))
-	for path := range graph.FileIndex {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		if !relationSourceInRequestedScope(path, rm) {
-			continue
-		}
-		fi := graph.FileIndex[path]
-		if fi == nil {
-			continue
-		}
-		for _, symbol := range fi.Symbols {
+	seenSymbols := make(map[*repotypes.Symbol]bool)
+	for _, key := range flowParticipantSymbolLookupKeys(surfaces) {
+		for _, symbol := range graph.SymbolDefs[key] {
+			if symbol == nil || seenSymbols[symbol] {
+				continue
+			}
+			seenSymbols[symbol] = true
+			path := canonicalRelationSourcePath(symbol.File)
 			name := strings.TrimSpace(symbol.Name)
 			parent := strings.TrimSpace(symbol.Parent)
 			declaredType := strings.TrimSpace(symbol.DeclaredType)
-			if name == "" || parent == "" || declaredType == "" ||
+			if path == "" || !relationSourceInRequestedScope(path, rm) ||
+				name == "" || parent == "" || declaredType == "" ||
 				!flowAnyIdentitySurfaceMatches(surfaces, name) ||
 				!flowAnyIdentitySurfaceMatches(ownerSurfaces, parent) {
 				continue
 			}
 			candidates = append(candidates, candidate{
-				file: canonicalRelationSourcePath(path), name: name,
-				parent: parent, declaredType: declaredType,
+				file: path, name: name, parent: parent, declaredType: declaredType,
 			})
 		}
 	}
@@ -166,6 +293,36 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 		surfaces: resolved,
 		files:    appendUniqueBounded(nil, []string{c.file}, maxFlowOperationRepairFiles),
 	}
+}
+
+// flowParticipantSymbolLookupKeys projects already-typed identity surfaces to
+// exact SymbolDefs keys. It is a lookup accelerator, not an identity resolver:
+// compatibility and owner checks still run on every returned parser symbol,
+// and a late upgrade still requires exactly one surviving declaration.
+//
+// Keeping the original case is intentional because SymbolDefs follows source
+// language spelling. Qualified identities across the supported languages use
+// one of these parser/display separators; only their final declaration segment
+// can be a name-keyed SymbolDefs key.
+func flowParticipantSymbolLookupKeys(surfaces []string) []string {
+	var keys []string
+	for _, surface := range surfaces {
+		raw := strings.Trim(strings.TrimSpace(surface), "`'\"")
+		raw = strings.TrimSuffix(raw, "()")
+		if raw == "" || strings.ContainsAny(raw, "\n\r\t ") {
+			continue
+		}
+		raw = strings.NewReplacer(
+			"::", ".", "->", ".", "#", ".", "/", ".", `\`, ".",
+		).Replace(raw)
+		parts := strings.Split(raw, ".")
+		key := strings.Trim(strings.TrimSpace(parts[len(parts)-1]), "*&( )")
+		if key == "" || !types.IsCodeIdentitySurface(key) {
+			continue
+		}
+		keys = appendUniqueBounded(keys, []string{key}, maxFlowOperationRepairKeywords)
+	}
+	return keys
 }
 
 func flowAnyIdentitySurfaceMatches(surfaces []string, identity string) bool {
@@ -316,15 +473,10 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	if len(surfaces) == 0 {
 		return flowOperationRepairReadTarget{}, false
 	}
-	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if graph == nil || len(graph.FileIndex) == 0 {
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
 		return flowOperationRepairReadTarget{}, false
 	}
-	paths := make([]string, 0, len(graph.FileIndex))
-	for path := range graph.FileIndex {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
 	type rankedTarget struct {
 		target    flowOperationRepairReadTarget
 		matchRank int
@@ -333,54 +485,45 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
-	for _, path := range paths {
-		if !relationSourceInRequestedScope(path, rm) {
+	for _, site := range flowNavigationRelationSites(index, surfaces) {
+		path := site.file
+		if path == "" || !relationSourceInRequestedScope(path, rm) || site.relation == nil {
 			continue
 		}
-		fi := graph.FileIndex[path]
-		if fi == nil {
+		relation := site.relation
+		from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+		to := flowRepairRelationEndpointSurfaces(relation.ToEP)
+		matchRank := max(
+			flowRepairPlanningSurfaceMatchRank(surfaces, from),
+			flowRepairPlanningSurfaceMatchRank(surfaces, to),
+		)
+		if matchRank == 0 {
 			continue
 		}
-		for _, relation := range fi.Relations {
-			switch relation.Kind {
-			case "call", "reference", "type_usage":
-			default:
-				continue
-			}
-			from := flowRepairRelationEndpointSurfaces(relation.FromEP)
-			to := flowRepairRelationEndpointSurfaces(relation.ToEP)
-			matchRank := max(
-				flowRepairPlanningSurfaceMatchRank(surfaces, from),
-				flowRepairPlanningSurfaceMatchRank(surfaces, to),
-			)
-			if matchRank == 0 {
-				continue
-			}
-			file := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, fi.RelPath, path))
-			line := relation.Line
-			if line <= 0 {
-				line = relation.FromEP.Line
-			}
-			if line <= 0 {
-				line = relation.ToEP.Line
-			}
-			if file == "" || line <= 0 || closure.HasReadLine(file, line) {
-				continue
-			}
-			start := line - flowOperationRepairReadRadius
-			if start < 1 {
-				start = 1
-			}
-			candidates = append(candidates, rankedTarget{
-				target: flowOperationRepairReadTarget{
-					file:      file,
-					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
-				},
-				matchRank: matchRank,
-				kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
-				line:      line,
-			})
+		file := path
+		line := relation.Line
+		if line <= 0 {
+			line = relation.FromEP.Line
 		}
+		if line <= 0 {
+			line = relation.ToEP.Line
+		}
+		if file == "" || line <= 0 || closure.HasReadLine(file, line) {
+			continue
+		}
+		start := line - flowOperationRepairReadRadius
+		if start < 1 {
+			start = 1
+		}
+		candidates = append(candidates, rankedTarget{
+			target: flowOperationRepairReadTarget{
+				file:      file,
+				lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+			},
+			matchRank: matchRank,
+			kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
+			line:      line,
+		})
 	}
 	if len(candidates) == 0 {
 		return flowOperationRepairReadTarget{}, false
@@ -460,42 +603,28 @@ func flowRepairParserRelationTargets(ctx *types.BusContext, rm types.RequestMode
 	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 {
 		return nil, nil
 	}
-	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if graph == nil || len(graph.FileIndex) == 0 {
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
 		return nil, nil
 	}
-	paths := make([]string, 0, len(graph.FileIndex))
-	for path := range graph.FileIndex {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
 	var files, aliases []string
-	for _, path := range paths {
-		if !relationSourceInRequestedScope(path, rm) {
+	for _, site := range flowNavigationRelationSites(index, surfaces) {
+		path := site.file
+		if path == "" || !relationSourceInRequestedScope(path, rm) || site.relation == nil {
 			continue
 		}
-		fi := graph.FileIndex[path]
-		if fi == nil {
+		relation := site.relation
+		from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+		to := flowRepairRelationEndpointSurfaces(relation.ToEP)
+		if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
+			!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {
 			continue
 		}
-		for _, relation := range fi.Relations {
-			switch relation.Kind {
-			case "call", "reference", "type_usage":
-			default:
-				continue
-			}
-			from := flowRepairRelationEndpointSurfaces(relation.FromEP)
-			to := flowRepairRelationEndpointSurfaces(relation.ToEP)
-			if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
-				!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {
-				continue
-			}
-			file := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, fi.RelPath, path))
-			files = appendUniqueBounded(files, []string{file}, maxFlowOperationRepairFiles)
-			aliases = appendUniqueBounded(aliases, append(from, to...), maxFlowOperationRepairKeywords)
-			if len(files) >= maxFlowOperationRepairFiles && len(aliases) >= maxFlowOperationRepairKeywords {
-				return files, aliases
-			}
+		file := path
+		files = appendUniqueBounded(files, []string{file}, maxFlowOperationRepairFiles)
+		aliases = appendUniqueBounded(aliases, append(from, to...), maxFlowOperationRepairKeywords)
+		if len(files) >= maxFlowOperationRepairFiles && len(aliases) >= maxFlowOperationRepairKeywords {
+			return files, aliases
 		}
 	}
 	return files, aliases
@@ -547,32 +676,23 @@ func flowRepairDeclaredBindingTargets(ctx *types.BusContext, rm types.RequestMod
 	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 {
 		return nil, nil
 	}
-	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if graph == nil || len(graph.FileIndex) == 0 {
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
 		return nil, nil
 	}
 	files := make([]string, 0, maxFlowOperationRepairFiles)
 	aliases := make([]string, 0, maxFlowOperationRepairKeywords)
-	paths := make([]string, 0, len(graph.FileIndex))
-	for path := range graph.FileIndex {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
+	for _, site := range flowNavigationSymbols(index, surfaces) {
+		symbol := site.symbol
+		path := site.file
 		if !relationSourceInRequestedScope(path, rm) {
 			continue
 		}
-		fi := graph.FileIndex[path]
-		if fi == nil {
+		if !flowRepairSymbolMatchesAnySurface(*symbol, surfaces) {
 			continue
 		}
-		for _, symbol := range fi.Symbols {
-			if !flowRepairSymbolMatchesAnySurface(symbol, surfaces) {
-				continue
-			}
-			files = appendUniqueBounded(files, []string{path}, maxFlowOperationRepairFiles)
-			aliases = appendUniqueBounded(aliases, []string{symbol.Name}, maxFlowOperationRepairKeywords)
-		}
+		files = appendUniqueBounded(files, []string{path}, maxFlowOperationRepairFiles)
+		aliases = appendUniqueBounded(aliases, []string{symbol.Name}, maxFlowOperationRepairKeywords)
 	}
 	return files, aliases
 }

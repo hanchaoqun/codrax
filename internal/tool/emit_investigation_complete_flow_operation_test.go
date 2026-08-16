@@ -52,6 +52,29 @@ func flowOperationCompletionParams(t *testing.T) json.RawMessage {
 	return raw
 }
 
+func flowTestIndexedGraph(files map[string]*repotypes.FileInfo) *repotypes.Graph {
+	graph := &repotypes.Graph{
+		FileIndex:  files,
+		SymbolDefs: make(map[string][]*repotypes.Symbol),
+	}
+	for path, file := range files {
+		if file == nil {
+			continue
+		}
+		if file.RelPath == "" {
+			file.RelPath = path
+		}
+		for i := range file.Symbols {
+			symbol := &file.Symbols[i]
+			if symbol.File == "" {
+				symbol.File = path
+			}
+			graph.SymbolDefs[symbol.Name] = append(graph.SymbolDefs[symbol.Name], symbol)
+		}
+	}
+	return graph
+}
+
 func TestEmitInvestigationComplete_FlowDefinitionsRequestOneOperationPass(t *testing.T) {
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})
@@ -879,7 +902,7 @@ func TestFlowParticipantCoverageDoesNotPromoteDisconnectedLocalOperationsIntoReq
 			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
 		},
 	}
-	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 		"internal/types/context.go": {
 			RelPath: "internal/types/context.go",
 			Symbols: []repotypes.Symbol{
@@ -887,7 +910,7 @@ func TestFlowParticipantCoverageDoesNotPromoteDisconnectedLocalOperationsIntoReq
 				{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "*MutableState"},
 			},
 		},
-	}})
+	}))
 
 	resolved := flowResolveParticipantIdentity(ctx, ctx.AnalysisIR.RequestModel,
 		ctx.AnalysisIR.RequestModel.DiagramHint.Participants[0])
@@ -1050,7 +1073,7 @@ func TestFlowParticipantCoverageLateResolvedMemberQueuesExactRepairCoordinates(t
 			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
 		},
 	}
-	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 		"internal/types/context.go": {
 			RelPath: "internal/types/context.go",
 			Symbols: []repotypes.Symbol{
@@ -1058,7 +1081,7 @@ func TestFlowParticipantCoverageLateResolvedMemberQueuesExactRepairCoordinates(t
 				{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "*MutableState"},
 			},
 		},
-	}})
+	}))
 
 	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
 	if !flowTestSliceContains(missing, "Mutable") {
@@ -1091,10 +1114,10 @@ func TestFlowParticipantCoverageLateResolutionFailsClosedOnRequestedOwnerAmbigui
 			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
 		},
 	}
-	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 		"src/a.go": {RelPath: "src/a.go", Symbols: []repotypes.Symbol{{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*StateA"}}},
 		"src/b.go": {RelPath: "src/b.go", Symbols: []repotypes.Symbol{{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*StateB"}}},
-	}})
+	}))
 
 	resolved := flowResolveParticipantIdentity(ctx, ctx.AnalysisIR.RequestModel,
 		ctx.AnalysisIR.RequestModel.DiagramHint.Participants[0])
@@ -1402,5 +1425,39 @@ func TestFlowParticipantCoverageExcludesRuntimeTraceAndContextOnlyParticipants(t
 	}}
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
 		t.Fatalf("runtime Trace participant must stay on causal/on-chain contracts: %v", got)
+	}
+}
+
+func TestFlowNavigationIndexIsReusedAndRebuiltWithSearchGraph(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"src/first.go": {
+			RelPath: "src/first.go",
+			Symbols: []repotypes.Symbol{{Name: "Carrier", DeclaredType: "*FirstType"}},
+		},
+	}))
+	first := flowNavigationIndexForContext(ctx)
+	if first == nil || flowNavigationIndexForContext(ctx) != first {
+		t.Fatal("one immutable search graph must reuse its derived navigation index")
+	}
+	if got := flowNavigationSymbols(first, []string{"FirstType"}); len(got) != 1 || got[0].file != "src/first.go" {
+		t.Fatalf("first derived symbol lookup mismatch: %+v", got)
+	}
+
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"src/second.go": {
+			RelPath: "src/second.go",
+			Symbols: []repotypes.Symbol{{Name: "Carrier", DeclaredType: "*SecondType"}},
+		},
+	}))
+	second := flowNavigationIndexForContext(ctx)
+	if second == nil || second == first {
+		t.Fatal("replacement search graph must rebuild its derived navigation index")
+	}
+	if got := flowNavigationSymbols(second, []string{"FirstType"}); len(got) != 0 {
+		t.Fatalf("stale first-graph symbol leaked into replacement index: %+v", got)
+	}
+	if got := flowNavigationSymbols(second, []string{"SecondType"}); len(got) != 1 || got[0].file != "src/second.go" {
+		t.Fatalf("replacement derived symbol lookup mismatch: %+v", got)
 	}
 }

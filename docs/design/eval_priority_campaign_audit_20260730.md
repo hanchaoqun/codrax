@@ -35748,6 +35748,56 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.943 r573 / B915：关系完成校验 90 秒全仓扫描；Trace 有限效果题再次扩域（2026-08-16）
+
+1. 在 `main@5551ba31d` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工均为
+   partial；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_b914_trace_r573_20260816_manual_audit.md`。
+2. B914 获生产正证但不能收账为图关系完备：最终答案保留 analyzer→explorer→extractor→finalizer
+   stage precedence，以及 Orchestrator、本轮 artifact 读写的 typed operation；模型首稿自造多条无证边被正确拒绝。
+   最终图把 `Mutable`、`BusContext` 画成断开节点并声明关系未证，而正文又称二者共同构成数据骨架，属于
+   evidence→diagram 保留 partial。系统不得为了补图自行选边、画边或改写模型结论。
+3. 同案确认 B915（P1 性能）：三个 `emit_investigation_complete` 调用分别约 89.9s、91.0s、91.4s，旧计时
+   全归入 `aggregate_normalization`。代码亲验发现 participant 晚绑定、declared binding、parser relation target
+   和 surgical read target 会在同一完成调用及重试间反复遍历全仓 `FileIndex/Symbols/Relations`；这些只是软导航，
+   却把一次结构化成文校验放大到分钟级。
+4. 根修新增与当前 search graph 同生命周期的 immutable derived index：符号按 exact declared/name identity、关系按
+   parser endpoint 的语言无关大小写/分隔符归一键建一次，后续 participant 只查询 bounded bucket，再执行原有 typed
+   compatibility、requested source scope、唯一声明和已读行检查。模糊 substring 不再触发同步全仓扫描；需要模糊探索时
+   仍由普通 SOFT `repo_map/grep` 承担，不能进入关系权威或硬答案门。
+5. `SetSearchGraph` 会同时清空 scoped graph 与 derived index；测试钉住同图复用、换图重建、旧符号不泄漏。
+   全语言 parser incident 测试（含 ArkTS/Cangjie）、unique/ambiguous member、跨文件 exact site、advisory pending-read
+   与不铸 EvidenceItem 的既有矩阵继续通过。`go test ./internal/types ./internal/tool -count=1` 全绿
+   （types 25.162s、tool 170.131s）。
+6. 完成工具的计时拆为 input aggregate normalization、read-stage authority、flow operation navigation、participant
+   coverage、participant repair plan、decorator alignment、preflight 等独立相位；不再只靠一个外层总桶判断性能。
+   B915 代码已完成，但加速比例须用同一对生产 case 回放后收账。
+7. Trace 案事实面正确：目标四态 `Running=157.248ms`、`Runnable=5.604ms`、`Sleep=70.338ms`、D/IO=0；
+   CPU4 有 558000/2100000 policy 行，CPU12 只有 2075000 当前频率且没有 limit row，因此不能证明 CPU12 被策略约束。
+   但 Analyzer 首次把限定字段误放 `observed_value` 被拒，第二次改成 `causal_attribution + scope=causal_diagnosis` 后通过，
+   最终把“某 limit row 是否约束某 target”的有限效果题扩成完整 Trace 因果投影。这是 analysis role/schema 歧义，
+   不是取消真正根因诊断的因果投影、自动补齐或链上-only 规则的理由；下一批应把 bounded target-effect verdict 与
+   cause discovery 分成独立 typed role，而非扫描用户/答案关键词或放宽模型任意组合。
+8. 同批审计 `repl_log.txt/repl_log2.txt`：长 Trace 请求在持续收到字节时没有 4ms/fixed-age 降级，符合红线；历史版本
+   在结构化 finalizer 耗尽后选择了最后一段模型 prose，错误声称未提供 Trace。当前主线已有 structured doc、prior doc、
+   model-surface 与 evidence-only 恢复载体，但“最后 raw prose 与更早有用 model surface 的 typed 优先级”仍需独立审计；
+   禁止按正文好坏/关键词选稿，也禁止系统据 evidence 自写结论。
+9. 本批不改 Trace query、根因排序、因果投影编译、自动补齐、答案正文或 Mermaid。链上根因的优先级反转、调度延迟/
+   供给不足、算力供给、D/IO、确定性语义事件和业务线索保持；邻近/背景只能支持额外排查。实际占用/聚类耗时与规则
+   可计价消除量仍为并列双轴，不能相互覆盖。
+
+状态：
+
+`B914-GUARDEFFECTRELATIONCARRIER1=production-positive/diagram-retention-partial-r573`；
+`B915-COMPLETIONFLOWFULLSCAN1=implemented/derived-exact-index+subphase-timing+pinned/pending-production-replay`；
+`TRACE-BOUNDEDTARGETEFFECTROLE1=confirmed/P1/typed-role-split-next`；
+`REPL-RAWLASTDRAFTPRIORITY1=historical-witness/current-recovery-audit-open`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：

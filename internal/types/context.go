@@ -257,6 +257,13 @@ type MutableState struct {
 	// this cache so a projection cannot outlive the base graph.
 	scopedSearchGraphs map[string]any
 
+	// searchGraphDerived stores immutable run-local indices derived from the
+	// current searchGraph. It is separate from scopedSearchGraphs because these
+	// values are not graphs and must never enter repo_map projection routing.
+	// SetSearchGraph clears both caches, so a derived index cannot outlive or be
+	// accidentally reused with a replacement repository graph.
+	searchGraphDerived map[string]any
+
 	// symbolOracle is the cached SymbolOracle the orchestrator
 	// builds once per Run from the same graph as searchGraph. Tools
 	// in internal/tool can't import internal/tool/repomap to
@@ -1653,6 +1660,7 @@ func (m *MutableState) SetSearchGraph(g any) {
 	defer m.mu.Unlock()
 	m.searchGraph = g
 	m.scopedSearchGraphs = nil
+	m.searchGraphDerived = nil
 	m.searchGraphRevision++
 }
 
@@ -1690,6 +1698,40 @@ func (m *MutableState) SetScopedSearchGraph(key string, g any) {
 		m.scopedSearchGraphs = map[string]any{}
 	}
 	m.scopedSearchGraphs[key] = g
+}
+
+// SearchGraphDerived returns one immutable run-local index derived from the
+// current search graph. The value is opaque so internal/types remains
+// decoupled from repomap and its consumers.
+func (m *MutableState) SearchGraphDerived(key string) any {
+	if m == nil || key == "" {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.searchGraphDerived == nil {
+		return nil
+	}
+	return m.searchGraphDerived[key]
+}
+
+// SetSearchGraphDerived stores one immutable index for the current search
+// graph. Passing nil clears the key. Callers build outside the lock and must
+// treat the stored value as read-only; duplicate first builds are harmless.
+func (m *MutableState) SetSearchGraphDerived(key string, value any) {
+	if m == nil || key == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if value == nil {
+		delete(m.searchGraphDerived, key)
+		return
+	}
+	if m.searchGraphDerived == nil {
+		m.searchGraphDerived = map[string]any{}
+	}
+	m.searchGraphDerived[key] = value
 }
 
 // SymbolOracle returns the orchestrator-wired SymbolOracle for the
