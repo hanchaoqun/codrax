@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
+
+1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + mr_poly_binding_chain`。Runner `2/2 PASS`，人工均为
+   partial；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_relation_r584_20260816_manual_audit.md`。
+2. B931 获生产闭环：Analyzer 第一次把 `causal_diagnosis` 与有限 `fact_families` 并置后 fail-loud，
+   第二次只修冲突字段并保留 required `causal_contributor_set`，稳定进入完整因果车道。全程仅 2 次
+   `trace_query`，最终仍形成 Trace 因果投影；65.912ms 运行供给、36.757ms D-state、链上优先级反转、
+   off-chain 49.623ms background、业务 span 原始占用与规则计价可消除量均保留。
+3. B932 同样获生产正证：Poly 第一份 principal structured list 声明 directed relation claim forms 却
+   没有 `edge_anchors`，被 typed presence gate 拒绝一次；模型自行从 capsule 复制 exact pair 后通过。
+   系统没有生成关系、强制 Mermaid 或改写模型结论。
+4. 新确认 B933（P1）：blocked_reason census 的 caller 身份口径在早期 guidance 与后置系统投影中是正确的，
+   但最终 `blocked_reason_state_relation` 只重放“记录/Σdelay 与 sched_switch 墙钟分域”，没有重放
+   `kernel_call_site_symbol_only`。模型于是把 `dma_fence_default_w` 写成实际等待对象/原因。根修应在最终
+   typed decision tail 增加 caller/object/owner/subsystem 权限字段；仅软指导模型，不扫答案、不替它改结论。
+5. 新确认 B934（P1、同类显著性）：`Runtime Enumeration Authority` 早期已披露
+   `status=incomplete`，但最终 decision tail 没有同源紧凑重放。模型仍声称“小贡献者已全部列入，无省略”。
+   根修复用同一个 typed authority，在最终尾部发布 incomplete scopes 与
+   `exhaustive_claim_permission=forbidden`；不增加 model JSON 心智，也不以成文关键词硬门。
+6. 新确认 B935（P1、跨语言）：Poly evidence 明确含 `py.tokenize_bytes -> tokenize_bytes`，但 direct
+   registered-export 分支保留 binding 短名 `tokenize_bytes`，没有利用同文件、同 owner、已证 wrapper caller
+   精化身份。紧凑优先级遂把五条 core helper fan-out 都当成 export incident edge，8 席 cap 挤掉真正
+   wrapper→core hop。最优根修是在 handoff 构造时对 unqualified callable 复用 exact owner/reference join；
+   多候选仍 fail-closed。该谓词对 PyO3、JNI/NAPI/FFI 及 ArkTS/Cangjie native binding 同构。
+7. Poly 终稿还有两条引用错位和 `_tokenize_slow` 已读却称未包含的消费缩水，先记观察项；不得用
+   fixture 名、surface 字符串或系统代写硬闭环。Trace 的 caller/object 与 incomplete 声称是确定性
+   上下文接线 GAP，优先于这些波动项。
+8. 两案均无畸形 JSON、空答案、旧稿降级或 active-stream 固定 4ms/累计年龄降级。后续施工只消费
+   typed census、typed enumeration authority、typed source owner/reference/edge；显式窗、因果投影、自动补齐、
+   链上-only 主因、背景 support-only 与模型结论权必须保持。
+
+状态：
+
+`B931-RUNTIMECAUSALBREADTHSSOT1=production-closed-r584`；
+`B932-STRUCTUREDRELATIONZEROANCHOR1=production-positive-r584`；
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=confirmed/pending`；
+`B934-RUNTIMEENUMERATIONFINALAUTHORITY1=confirmed/pending`；
+`B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=confirmed/pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r584`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
