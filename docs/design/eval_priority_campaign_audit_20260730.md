@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.948 r576：typed 参与者接通阶段权威；开放作用域插入生产闭环（2026-08-16）
+
+1. 在 `main@93ecfb8ef` 重建后以相同案例严格并发恰好两个：
+   `qf_logic_view_read_pipeline + github_issue_zod_prefault`。Runner `1 PASS / 1 FAIL`；人工两案均为
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_qf_write_r576_20260816_manual_audit.md`。
+2. B918 获直接生产正证。Planner 不再把三个新 `test(...)` 插在旧 test 的开放 `{` 之后，而是
+   使用 `insert_at_eof`；应用树中四个测试均为顶层 sibling，生产 guard 也保持最小正确修复。
+   Runner 仍 FAIL 是因为 fixture 只有 `source_static` 验证能力，controller 正确把模型的
+   `all_verified` 降为 `production_verification_source_static_only`。这条验证杆必须保留，不能为
+   eval 绿而把静态 token 检查冒充 TypeScript 行为执行。
+3. B917/既有 stageauthority 接线获生产正证。最终 accepted RequestModel 明确携带 analyzer、
+   explorer、extractor、finalizer、Mutable、BusContext 六个 incident participants；Finalizer 上下文
+   随后出现四条 checkout-verified stage_binding、三条 adjacent precedence、九条 carrier field 和
+   BusContext→Mutable no-arrow ownership recipe。r575 缺失的 authority 不再静默。
+4. 终稿图保留四阶段与三条已证顺序边；BusContext/Mutable 以可见 subgraph/节点保留包含事实，并
+   以 `unproven` boundary 披露当前证据没有证明用户请求的有向 incidence。第一稿曾尝试补多条
+   未证 reads/writes/renders 边，validator 正确拒绝；系统没有替模型造边或画图，模型经 patch
+   自行收敛到诚实子图。
+5. 本轮仍暴露两个非阻断观察项。其一，Analyzer 两次把“以及”改写为“与”，触发 verbatim quote
+   provenance 重试，第三次才提交精确 quote；这是 JSON/结构教学心智成本，尚无证据表明需要系统
+   从原请求抽取并代填。其二，Finalizer 用三次 patch 才把两个 unproven participant 做成首行可见
+   exact identity，且正文广义声称各阶段直接读写 Mutable，比图中的 directed-evidence ceiling 更强。
+   后续异构回放观察 typed boundary 的软提示是否需要压缩；禁止扫描最终 prose 做关系硬门。
+6. 自动“输出维度核对”补充仍使用系统/合同语气，内容未改变结论但降低答案自然度，沿用既有展示
+   债处理，不在本批按固定标题删除。Final answer 的组件责任和引用整体准确，机器 PASS 不等于
+   人工无债。
+7. 本批不改 Trace 查询、因果投影、自动补齐和答案结论。显式窗完整 causal-diagnosis 仍保留
+   typed on-chain-only 主因及优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与链上业务
+   线索双轴；邻近/背景只作额外排查。活跃流也不会因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B917-RELATIONSCOPEPARTICIPANTCONSISTENCY1=production-positive-r576/stage-authority-connected`；
+`B918-STRUCTUREDEDITSCOPEPLACEMENT1=production-closed-r576/top-level-siblings`；
+`QF-unproven-boundary-authoring-churn=observed/P2/heterogeneous-replay`；
+`QF-prose-vs-directed-evidence-ceiling=observed/soft-guidance-only/no-prose-gate`；
+`source-static-verification=honest-unverified/unchanged`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.947 r575/B917：关系范围与空参与者合同漂移；结构化补丁误入开放作用域（2026-08-16）
 
 1. 在 `main@b333725d4` 严格并发恰好两个案例：
