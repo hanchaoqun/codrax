@@ -35649,6 +35649,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.951 r579：端点自环未复发；粗定义载体吞掉精确关系（2026-08-16）
+
+1. 在 `main@32177f9e3` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + read_combo_pipeline_sequence_table`。Runner `2 PASS / 2`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_binding_dimension_r579_20260816_manual_audit.md`。
+2. Combo 的 r578 自环失真没有复发。模型第一次提交 17 条大量无凭证 assignment/call/return，validator
+   正确拒绝；修补后只保留三条 precedence 与两条 exact call，所有可见 endpoint 使用不同 alias。
+   第二次拒绝只是已连接 participant 仍携 stale `participant_boundaries`，删除后通过。B922 本轮没有直接
+   触发，故只能保持 deterministic pins，不能提前记为生产闭环。
+3. Combo 终图把两个 `inter_component_bridge_status=unproven_between_components` 的 component 放在同一
+   sequence diagram，视觉上下顺序仍可能被读成全局执行顺序。这不是假边，但属于关系呈现 partial；后续
+   只能用 typed component recipe/soft teaching 引导拆为局部图或明确无序，不能由系统删图、补桥或改模型
+   结论。
+4. Polyglot 暴露 B923。模型读全 `tokenizer.py/__init__.py/lib.rs/merge.rs`，却把 PyO3 module declaration
+   作为 citable registration，把多行 wrapper/core/helper body 作为 definition/mechanism；load-bearing
+   `m.add_function(wrap_pyfunction!(tokenize_bytes,m)?)?` 与 wrapper→core→helper 没有成为 typed relation。
+   旧 B919 只在 registration 行不可引用时启动，因此粗 declaration 一旦 grounded，就错误地抑制同一已读
+   范围内唯一 exact binding expression 的重发义务。Finalizer 首稿图被正确拒绝，模型随后删除 optional
+   diagram；终稿文字有用，但 citation caliber 与完整关系仍未闭环。
+5. B923 最优根修冻结为 post-grounding 精确义务而非 framework 特判：QFCallChain/跨组件 registration 轴上，
+   只要模型已提交 registration carrier 且 parser 在已读源码窗内找到唯一 structural
+   `receiver.bindingCall(wrapper(endpoint))`，就检查现有 evidence 是否已覆盖 exact tuple；未覆盖则要求模型
+   重发准确 line/anchor/registry/object。歧义 fail-open；系统不铸 evidence、不画箭头、不写答案，也不扫描
+   request、thinking 或 final prose。
+6. 同轮冻结 B924：模型选择的多行 definition/mechanism 载体可能把可执行调用藏在 snippet 内。长期方案应
+   复用 repomap parser-owned call relation，在“已读 source range + 模型已选择 callable + 唯一 typed
+   endpoint”边界内提供 bounded relation carrier；不得把所有函数体调用都硬性纳入答案，也不得按某个
+   Python/Rust case、函数名或答案词句拟合。该项先审计现有 terminal-body promotion 覆盖再施工。
+7. Poly 还出现 B925 次级观察：正文已经明确 `_fastlex`，requested-dimension checker 仍要求补“原生模块名”
+   标题。后置 deterministic supplement 没有改主结论，但说明 dimension coverage 仍可能按显示形而非 typed
+   block receipt 误判；禁止用答案关键词扩大硬门，待异构回放确认后从结构化 dimension ownership 根修。
+8. 两案均无畸形 JSON、旧稿恢复、空答案或系统代写结论。本批不动 Trace 查询/呈现；显式时间窗、Trace
+   因果投影、自动补齐、链上-only 主因、邻近/背景 support-only，以及真实占用/业务线索与规则计价可消除量
+   双轴不变。活跃字节流不得因 4ms 或固定累计 answer age 降级。
+
+状态：
+
+`B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=implemented/not-triggered-r579`；
+`B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/no-recurrence-r579/pending-direct-production-trigger`；
+`B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=confirmed/high/next-batch`；
+`B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=confirmed/design-audit-open`；
+`B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=observed/pending-heterogeneous-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.950 r578：注册接缝生效；组件权威自冲突与 typed 端点自环逃逸（2026-08-16）
 
 1. 在 `main@e9ed3efa6` 重建后严格并发恰好两个案例：
