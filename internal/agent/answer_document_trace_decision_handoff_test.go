@@ -381,8 +381,13 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 	inside := true
 	seat := func(rank int, subject, direction string, value, start, end float64) types.TraceCausalProjectionNode {
 		token := "priority_inversion_candidate"
-		if direction == "frequency_thermal" {
+		switch direction {
+		case "frequency_thermal":
 			token = "running"
+		case "scheduling_supply":
+			token = "runnable_wait"
+		case "io_dependency":
+			token = "io_latency"
 		}
 		return types.TraceCausalProjectionNode{
 			EvidenceID: fmt.Sprintf("seat-%d", rank), Rank: rank, Subject: subject,
@@ -397,6 +402,10 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		seat(1, "target-100", "frequency_thermal", 58.320, 10, 10.055),
 		seat(2, "worker-a", "lock_priority", 7.405, 10.051, 10.06),
 		seat(3, "worker-b", "lock_priority", 4.710, 10.061, 10.07),
+		seat(4, "target-100", "scheduling_supply", 3.956, 10.071, 10.075),
+		seat(5, "target-100", "io_dependency", 3.670, 10.076, 10.08),
+		seat(6, "worker-c", "lock_priority", 3.429, 10.081, 10.085),
+		seat(7, "worker-d", "lock_priority", 3.309, 10.086, 10.09),
 	}
 	seats[0].Subject = "shared-thread"
 	seats[1].Subject = "shared-thread"
@@ -418,7 +427,7 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"validation_direction=`priority_or_dependency_supply`; member_count=2; leader_rank=#2",
+		"validation_direction=`priority_or_dependency_supply`; member_count=4; leader_rank=#2",
 		"same_direction_subtotal_authority=`typed_pairwise_disjoint_section`",
 		"published_direction_value=`exact_subtotal`; direction_subtotal=12.115ms; subtotal_member_count=2",
 		"repair_direction_relation_roster: artifact=`customer.trace`; emitted=2; total=2; complete=`true`",
@@ -429,6 +438,11 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		"physical_relation=`overlap`; addition=`forbidden`; measured_physical_overlap=4.000ms",
 		"reasoning_boundary=`shared_physical_time_only_at_the_published_overlap`",
 		"relation_scope=`unlisted_pairs`; physical_relation=`unresolved`; addition=`forbidden_without_exact_typed_carrier`",
+		"repair_direction_presentation_plan: artifact=`customer.trace`; emitted=4; total=4; complete=`true`",
+		"direction=`lock_priority`; validation_direction=`priority_or_dependency_supply`; member_count=4; headline_value_role=`exact_typed_subtotal`; headline_value=12.115ms",
+		"additional_members_emitted=2; additional_members_total=2; additional_members_complete=`true`",
+		"display_contract=`headline_arithmetic_applies_only_to_headline_member_refs|list_additional_members_as_separate_values|never_plus_join_additional_members|pairwise_relation_unresolved_unless_relation_roster_lists_it|independence_not_authorized`",
+		"direction=`io_dependency`; fix_direction=`io_dependency`; member_count=1; headline_value_role=`single_leader`; headline_value=3.670ms",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("exact direction subtotal authority missing %q:\n%s", want, got)
@@ -446,6 +460,9 @@ func TestTraceDecisionHandoffPublishesExactDisjointDirectionSubtotal(t *testing.
 		"physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`; published_direction_subtotal=12.115ms",
 		"relation_scope=`cross_direction`; direction_a=`frequency_thermal`; direction_b=`lock_priority`",
 		"physical_relation=`overlap`; addition=`forbidden`; measured_physical_overlap=4.000ms",
+		"repair_direction_presentation_plan: artifact=`customer.trace`; emitted=4; total=4; complete=`true`",
+		"direction=`lock_priority`; validation_direction=`priority_or_dependency_supply`; member_count=4; headline_value_role=`exact_typed_subtotal`; headline_value=12.115ms",
+		"additional_members_emitted=2; additional_members_total=2; additional_members_complete=`true`",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("final compact boundary drifted from relation roster %q:\n%s", want, compact)
@@ -489,6 +506,45 @@ func TestTraceDecisionRepairDirectionRelationRosterRejectsOneSidedOrCrossBoardOv
 	}
 	if !strings.Contains(got, "relation_scope=`unlisted_pairs`; physical_relation=`unresolved`") {
 		t.Fatalf("failed-closed pair must retain the explicit unresolved boundary:\n%s", got)
+	}
+}
+
+func TestTraceDecisionDirectionPresentationPlanKeepsUnfoldedMembersSeparate(t *testing.T) {
+	inside := true
+	seat := func(rank int, subject string, value, start, end float64) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("seat-%d", rank), Rank: rank, Subject: subject,
+			Object: "io_latency", TypeToken: "io_latency", FixDirection: "io_dependency",
+			EffectiveImpactMS: value, EffectiveImpactPublished: true, ChainRelevance: "on_chain",
+			WithinRequestedWindow: &inside, StartTs: start, EndTs: end, LineStart: 100 * rank, LineEnd: 100*rank + 10,
+			RankBoardTarget: "target-100", RankBoardParamsFingerprint: "board-a",
+			RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+		}
+	}
+	// The two seats overlap, so sharing one direction label cannot mint a
+	// subtotal or an independence claim.
+	first := seat(1, "target-100", 3.670, 10, 10.006)
+	second := seat(2, "worker-200", 3.598, 10.004, 10.009)
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.trace", WindowStartTs: 10, WindowEndTs: 10.1,
+		RankedSeats:   []types.TraceCausalProjectionNode{first, second},
+		OnChainCauses: []types.TraceCausalProjectionNode{first, second},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, runtimeTraceGuidanceView{})
+	for _, want := range []string{
+		"direction=`io_dependency`; fix_direction=`io_dependency`; member_count=2; headline_value_role=`single_leader`; headline_value=3.670ms",
+		"additional_members_emitted=1; additional_members_total=1; additional_members_complete=`true`",
+		"never_plus_join_additional_members",
+		"pairwise_relation_unresolved_unless_relation_roster_lists_it",
+		"independence_not_authorized",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unfolded direction member boundary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "direction=`io_dependency`; fix_direction=`io_dependency`; member_count=2; headline_value_role=`exact_typed_subtotal`") {
+		t.Fatalf("overlapping same-label seats must not acquire a subtotal:\n%s", got)
 	}
 }
 

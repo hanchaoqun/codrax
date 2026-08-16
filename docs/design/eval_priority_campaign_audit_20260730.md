@@ -37106,6 +37106,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden/production-positive-r543`。
 
+### §123.896 B870：逐修向展示计划把获授权小计与其余席位彻底分开（2026-08-15）
+
+1. 基于 `main@4d48703b4` 落地 `B870-TRACEDIRECTIONPRESENTATIONPLAN1`。r543 已证明单独给出
+   pair relation roster 仍要求模型在完整 ranked-seat 列表中自行恢复“哪些席能进小计、哪些同方向席只是额外
+   候选”；当 overview 只发布 TOP5，而同方向还有榜外席时，模型容易把所有同标签数值重新用 `+` 串起。
+2. 新 `repair_direction_presentation_plan` 与 B869 roster 共用同一 compiled projection、
+   `TraceAnswerDecisionDirectionSections` 和稳定 `relation_member_ref`。逐方向只允许两种 headline：section 的
+   exact typed subtotal，或没有 exact fold 时的 single leader。它不重新计算数值，也不从方向标签推导关系。
+3. exact subtotal 只绑定 section 已授权的 `headline_member_refs`；全量 ranked seats 中不在这些 refs 内的同方向
+   席进入 `additional_unresolved_member_refs`。后者明确要求作为独立数值行展示，不得追加到小计算式、不得用
+   `+` 拼接，也不得宣称与 headline 或彼此独立；只有 B869 relation roster 另列的 exact pair 才能改变这条
+   unresolved 边界。无 subtotal 的方向同样只取 leader 作 headline，其余席全部单列。
+4. 方向与额外成员均有界：方向最多 8，额外 refs 最多 12，并披露 emitted/total/complete 与无稳定 ref 的成员
+   数。截断不会变成“没有其余成员”，完整投影和 Axis B ranked rows 仍保留。该 metadata 明确标注
+   `metadata_not_user_copy`，要求模型用业务语言解释，不把内部字段抄进客户答案。
+5. detailed Trace Decision Inputs 与 final compact boundary 调用同一 helper，防止两面漂移。正向 pin 覆盖 H11
+   同形：lock_priority 四席中只有 #2/#3 组成 12.115ms headline，#6/#7 必须单列；frequency/scheduling/IO
+   继续 leader-only。负向 pin 覆盖两个同方向 IO 席区间重叠：仍只能 3.670ms leader，第二席单列，不能因同标签
+   获得 subtotal/independence。`go test ./internal/agent` 与 `go test ./...` 全绿。
+6. 本批仍是 prompt-only 精确输入，没有答案 validator 扫描数值/`+`/措辞，没有系统删除、改写或替换模型
+   表格/正文/结论，也没有新增 Trace 查询、排名、关系或算术。显式时间窗、因果投影、自动补齐、链上-only
+   根因、邻近背景 support-only，以及实际占用/业务线索与规则可消除量双轴均不变。
+
+状态：
+
+`B870-TRACEDIRECTIONPRESENTATIONPLAN1=implemented/shared-detailed+tail/positive+negative-pins`；
+`B869-TRACEDIRECTIONRELATIONDECISIONROSTER1=retained/single-typed-source`；
+`B871-REQUESTEDCARRIERRELATIONCLOSURE1=P1-next`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

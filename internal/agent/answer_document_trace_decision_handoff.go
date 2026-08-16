@@ -291,6 +291,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 		}
 		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_across_directions_or_unlisted_members`.\n", label)
 		traceDecisionWriteRepairDirectionRelationRoster(b, projection, label, 8)
+		traceDecisionWriteRepairDirectionPresentationPlan(b, projection, label, 8, 12)
 		for _, record := range records {
 			section, sectionOK := sectionByDirection[record.direction]
 			leader := record.leader
@@ -494,6 +495,116 @@ func traceDecisionWriteRepairDirectionRelationRoster(b *strings.Builder, project
 			relation.valueRole, relation.valueMS, relation.reasoning)
 	}
 	b.WriteString("    - relation_scope=`unlisted_pairs`; physical_relation=`unresolved`; addition=`forbidden_without_exact_typed_carrier`; independence=`not_authorized`; dependency=`not_authorized`; temporal_order=`not_authorized`.\n")
+}
+
+// traceDecisionWriteRepairDirectionPresentationPlan turns the exact direction
+// arithmetic decision into a bounded authoring slate. It exists because a
+// relation roster and a much larger seat list are easy to recombine
+// incorrectly: only the section's exact member refs may participate in its
+// published subtotal, while every other member remains a useful standalone
+// value with unresolved pairwise arithmetic.
+//
+// The plan is prompt-only. It neither creates an answer row nor inspects or
+// repairs model prose. All identities and values come from the same projection
+// and direction-section compiler already used by the deterministic appendix.
+func traceDecisionWriteRepairDirectionPresentationPlan(b *strings.Builder, projection types.TraceCausalProjection, artifact string, directionLimit, memberLimit int) {
+	if b == nil {
+		return
+	}
+	type directionPlan struct {
+		direction string
+		key       string
+		value     string
+		leader    types.TraceCausalProjectionNode
+		members   []types.TraceCausalProjectionNode
+	}
+	byDirection := map[string]directionPlan{}
+	for _, node := range traceDecisionEliminableSeats(projection, 0) {
+		key, value, ok := traceDecisionModelFacingDirection(node)
+		direction := strings.TrimSpace(node.FixDirection)
+		if !ok || direction == "" {
+			continue
+		}
+		plan := byDirection[direction]
+		plan.direction, plan.key, plan.value = direction, key, value
+		plan.members = append(plan.members, node)
+		if plan.leader.Rank == 0 || node.EffectiveImpactMS > plan.leader.EffectiveImpactMS ||
+			(node.EffectiveImpactMS == plan.leader.EffectiveImpactMS && node.Rank < plan.leader.Rank) {
+			plan.leader = node
+		}
+		byDirection[direction] = plan
+	}
+	if len(byDirection) == 0 {
+		return
+	}
+	sections := map[string]types.TraceAnswerDirectionSection{}
+	for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
+		sections[strings.TrimSpace(section.Direction)] = section
+	}
+	plans := make([]directionPlan, 0, len(byDirection))
+	for _, plan := range byDirection {
+		sort.SliceStable(plan.members, func(i, j int) bool {
+			if plan.members[i].Rank != plan.members[j].Rank {
+				return plan.members[i].Rank < plan.members[j].Rank
+			}
+			return plan.members[i].EffectiveImpactMS > plan.members[j].EffectiveImpactMS
+		})
+		plans = append(plans, plan)
+	}
+	sort.SliceStable(plans, func(i, j int) bool {
+		if plans[i].leader.EffectiveImpactMS != plans[j].leader.EffectiveImpactMS {
+			return plans[i].leader.EffectiveImpactMS > plans[j].leader.EffectiveImpactMS
+		}
+		return plans[i].direction < plans[j].direction
+	})
+	total := len(plans)
+	emitted := total
+	if directionLimit > 0 && emitted > directionLimit {
+		emitted = directionLimit
+	}
+	fmt.Fprintf(b, "  - repair_direction_presentation_plan: artifact=`%s`; emitted=%d; total=%d; complete=`%t`; source=`same_typed_direction_sections_and_ranked_seats`; metadata_not_user_copy=true.\n",
+		artifact, emitted, total, emitted == total)
+	for _, plan := range plans[:emitted] {
+		section, sectionOK := sections[plan.direction]
+		headline := plan.leader
+		headlineRole := "single_leader"
+		headlineValue := headline.EffectiveImpactMS
+		var headlineRefs []string
+		if ref := types.TraceAnswerRelationMemberRef(headline); ref != "" {
+			headlineRefs = []string{ref}
+		}
+		if sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal &&
+			section.SubtotalMS > 0 && len(section.MemberRefs) >= 2 && len(section.MemberRefs) == len(section.Members) {
+			headlineRole = "exact_typed_subtotal"
+			headlineValue = section.SubtotalMS
+			headlineRefs = append([]string(nil), section.MemberRefs...)
+		}
+		headlineSet := make(map[string]bool, len(headlineRefs))
+		for _, ref := range headlineRefs {
+			headlineSet[ref] = true
+		}
+		var additionalRefs []string
+		membersWithoutRef := 0
+		for _, member := range plan.members {
+			ref := types.TraceAnswerRelationMemberRef(member)
+			if ref == "" {
+				membersWithoutRef++
+				continue
+			}
+			if !headlineSet[ref] {
+				additionalRefs = append(additionalRefs, ref)
+			}
+		}
+		additionalTotal := len(additionalRefs)
+		additionalEmitted := additionalTotal
+		if memberLimit > 0 && additionalEmitted > memberLimit {
+			additionalEmitted = memberLimit
+		}
+		fmt.Fprintf(b, "    - direction=`%s`; %s=`%s`; member_count=%d; headline_value_role=`%s`; headline_value=%.3fms; headline_member_refs=`%s`; additional_unresolved_member_refs=`%s`; additional_members_emitted=%d; additional_members_total=%d; additional_members_complete=`%t`; members_without_stable_ref=%d; display_contract=`headline_arithmetic_applies_only_to_headline_member_refs|list_additional_members_as_separate_values|never_plus_join_additional_members|pairwise_relation_unresolved_unless_relation_roster_lists_it|independence_not_authorized`.\n",
+			plan.direction, plan.key, plan.value, len(plan.members), headlineRole, headlineValue,
+			strings.Join(headlineRefs, ","), strings.Join(additionalRefs[:additionalEmitted], ","),
+			additionalEmitted, additionalTotal, additionalEmitted == additionalTotal, membersWithoutRef)
+	}
 }
 
 // renderTraceFrameEvidenceStatusSemantics is the single prompt source for the
