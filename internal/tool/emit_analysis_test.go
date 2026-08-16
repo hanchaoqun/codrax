@@ -608,27 +608,28 @@ func TestParseRequestedAnswerDimensionsRejectsActiveEmptyProfile(t *testing.T) {
 	})
 	if profile != nil || len(signals) != 0 || len(warnings) != 0 ||
 		!strings.Contains(errText, "requires at least one dimensions row") ||
+		!strings.Contains(errText, "role=target_effect_verdict") ||
 		!strings.Contains(errText, "role=causal_attribution") {
 		t.Fatalf("active empty answer-dimension profile must fail as one actionable typed contradiction: profile=%+v signals=%v err=%q warnings=%v", profile, signals, errText, warnings)
 	}
 }
 
-func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *testing.T) {
-	causalDimension := &types.RequestedAnswerDimensionProfile{
+func TestRuntimeQuestionBoundedFactsConflictWithRequiredTargetEffectVerdict(t *testing.T) {
+	verdictDimension := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
 		Dimensions: []types.RequestedAnswerDimension{{
-			Label: "ranked causes", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+			Label: "target effect", Role: types.RequestedAnswerDimensionTargetEffectVerdict, Required: true,
 		}},
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
-		causalDimension,
+		verdictDimension,
 		types.IntentExplain,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); !strings.Contains(issue, "bounded_fact_set conflicts") || !strings.Contains(issue, "role=causal_attribution") {
-		t.Fatalf("bounded causal attribution must fail loud for a complete analyzer retry: %q", issue)
+	); !strings.Contains(issue, "bounded_fact_set conflicts") || !strings.Contains(issue, "role=target_effect_verdict") {
+		t.Fatalf("bounded target-effect verdict must fail loud for a complete analyzer retry: %q", issue)
 	} else {
 		for _, want := range []string{
 			"Preserve that required user-facing dimension",
@@ -644,17 +645,17 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
-		causalDimension,
-		types.IntentExplain,
-		types.ScenarioGeneric,
-		types.SemanticPredicates{},
+		verdictDimension,
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
 		types.DiagnosticIntentProfile{IsDiagnostic: true},
-	); issue != "" {
-		t.Fatalf("the same required causal dimension plus a full diagnostic carrier must authorize causal scope: %q", issue)
+	); !strings.Contains(issue, "target_effect_verdict") || !strings.Contains(issue, "cannot authorize cause discovery") {
+		t.Fatalf("finite target-effect role must not authorize causal diagnosis: %q", issue)
 	}
 
-	optional := *causalDimension
-	optional.Dimensions = append([]types.RequestedAnswerDimension(nil), causalDimension.Dimensions...)
+	optional := *verdictDimension
+	optional.Dimensions = append([]types.RequestedAnswerDimension(nil), verdictDimension.Dimensions...)
 	optional.Dimensions[0].Required = false
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
@@ -685,29 +686,66 @@ func TestRuntimeQuestionBoundedFactsConflictWithRequiredCausalAttribution(t *tes
 	}
 }
 
-func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticRelabel(t *testing.T) {
-	causalVerdict := &types.RequestedAnswerDimensionProfile{
+func TestRuntimeQuestionCausalAttributionDoesNotAliasTargetEffectVerdict(t *testing.T) {
+	causalAttribution := &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "root cause", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+		}},
+	}
+	finite := &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedEffectVerdict,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency},
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		finite,
+		causalAttribution,
+		types.IntentExplain,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); !strings.Contains(issue, "causal_attribution owns a full discovered root-cause") ||
+		!strings.Contains(issue, "target_effect_verdict") ||
+		!strings.Contains(issue, "will not reinterpret") {
+		t.Fatalf("finite scope silently aliased causal attribution into a target verdict: %q", issue)
+	}
+
+	full := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		full,
+		causalAttribution,
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+	); issue != "" {
+		t.Fatalf("full causal attribution tuple rejected: %q", issue)
+	}
+}
+
+func TestRuntimeQuestionExplainTargetEffectVerdictUsesDistinctTypedDimension(t *testing.T) {
+	targetVerdict := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
 		Dimensions: []types.RequestedAnswerDimension{{
 			Label:       "是否受算力限制",
-			Role:        types.RequestedAnswerDimensionCausalAttribution,
+			Role:        types.RequestedAnswerDimensionTargetEffectVerdict,
 			SourceQuote: "是否受算力限制",
 			Required:    true,
 		}},
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); !strings.Contains(issue, "typed full-diagnosis carrier") {
-		t.Fatalf("one finite causal verdict must not widen into causal diagnosis without a broad diagnostic carrier: %q", issue)
+	); !strings.Contains(issue, "target_effect_verdict") || !strings.Contains(issue, "cannot authorize cause discovery") {
+		t.Fatalf("one finite target-effect verdict must not widen into causal diagnosis: %q", issue)
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioGeneric,
 		types.SemanticPredicates{},
@@ -721,7 +759,7 @@ func TestRuntimeQuestionExplainCausalVerdictUsesTypedDimensionWithoutDiagnosticR
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		boundedEffect,
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{},
@@ -804,10 +842,10 @@ func TestRuntimeQuestionCausalContributorSetCannotEnterFiniteScope(t *testing.T)
 }
 
 func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *testing.T) {
-	causalVerdict := &types.RequestedAnswerDimensionProfile{
+	targetVerdict := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
 		Dimensions: []types.RequestedAnswerDimension{{
-			Label: "target effect", Role: types.RequestedAnswerDimensionCausalAttribution, Required: true,
+			Label: "target effect", Role: types.RequestedAnswerDimensionTargetEffectVerdict, Required: true,
 		}},
 	}
 	profile := &types.RuntimeQuestionProfile{
@@ -820,7 +858,7 @@ func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *tes
 	}
 	issue := validateRuntimeQuestionProfileConsistency(
 		profile,
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{IsDiagnosticQuestion: true},
@@ -835,7 +873,7 @@ func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *tes
 		`"is_diagnostic_question":false`,
 		`"is_diagnostic":false`,
 		"next COMPLETE object",
-		"preserve the required causal_attribution dimension",
+		"preserve the required target_effect_verdict dimension",
 	} {
 		if !strings.Contains(issue, want) {
 			t.Fatalf("finite-verdict repair target missing %q: %s", want, issue)
@@ -847,7 +885,7 @@ func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *tes
 	profile.Scope = types.RuntimeQuestionScopeBoundedEffectVerdict
 	if got := validateRuntimeQuestionProfileConsistency(
 		profile,
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{},
@@ -860,7 +898,7 @@ func TestRuntimeQuestionFiniteVerdictRepairTargetConvergesWholeTypedTuple(t *tes
 	// points back to the same finite target instead of bouncing to causal.
 	if got := validateRuntimeQuestionProfileConsistency(
 		profile,
-		causalVerdict,
+		targetVerdict,
 		types.IntentExplain,
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{IsDiagnosticQuestion: true},
@@ -923,9 +961,20 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	boundedEffect = strings.Replace(
 		boundedEffect,
 		`"completeness_obligation":`,
-		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"是否限制了目标线程","role":"causal_attribution","source_quote":"是否限制了目标线程","required":true},{"index":2,"label":"证据是什么","role":"evidence_source","source_quote":"证据是什么","required":true}]},"completeness_obligation":`,
+		`"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"是否限制了目标线程","role":"target_effect_verdict","source_quote":"是否限制了目标线程","required":true},{"index":2,"label":"证据是什么","role":"evidence_source","source_quote":"证据是什么","required":true}]},"completeness_obligation":`,
 		1,
 	)
+	legacyAliasedEffect := strings.Replace(boundedEffect, `"role":"target_effect_verdict"`, `"role":"causal_attribution"`, 1)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(effectObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"cpu_frequency_limits"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(legacyAliasedEffect))
+	if err != nil {
+		t.Fatalf("legacy-aliased bounded-effect Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "causal_attribution owns a full discovered root-cause") ||
+		!strings.Contains(res.Summary, "target_effect_verdict") {
+		t.Fatalf("production emit silently aliased causal attribution into finite target effect: success=%t summary=%q", res.Success, res.Summary)
+	}
 	ctx = &types.BusContext{Mutable: types.NewMutableState(effectObjective)}
 	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"cpu_frequency_limits"}}})
 	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(boundedEffect))
@@ -1092,6 +1141,10 @@ func TestParseRequestedAnswerDimensionRoleSeparatesDisplayRoleFromRuntimeFactFam
 	role, warning, errText = parseRequestedAnswerDimensionRole("causal_attribution")
 	if errText != "" || warning != "" || role != types.RequestedAnswerDimensionCausalAttribution {
 		t.Fatalf("valid display role changed: role=%q warning=%q err=%q", role, warning, errText)
+	}
+	role, warning, errText = parseRequestedAnswerDimensionRole("target_effect_verdict")
+	if errText != "" || warning != "" || role != types.RequestedAnswerDimensionTargetEffectVerdict {
+		t.Fatalf("valid finite-verdict role changed: role=%q warning=%q err=%q", role, warning, errText)
 	}
 	if _, _, errText = parseRequestedAnswerDimensionRole("made_up_runtime_role"); !strings.Contains(errText, "is invalid") {
 		t.Fatalf("unknown role must fail loud instead of silently becoming other: %q", errText)

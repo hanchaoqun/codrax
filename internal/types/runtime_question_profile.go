@@ -108,7 +108,9 @@ func (p *RuntimeQuestionProfile) BoundedFactSet() bool {
 // The constraining mechanism may be named or may remain unresolved. Unlike a
 // causal diagnosis, this shape does not request a root-cause roster, wakeup
 // chain, or system-wide causal projection. It keeps the requested observed
-// fact families beside the model-owned yes/no/mixed/unproven verdict.
+// fact families beside the model-owned yes/no/mixed/unproven verdict. The
+// requested answer role paired with this scope is target_effect_verdict;
+// causal_attribution is reserved for full cause/mechanism discovery.
 func (p *RuntimeQuestionProfile) BoundedEffectVerdict() bool {
 	return p != nil && p.Scope == RuntimeQuestionScopeBoundedEffectVerdict
 }

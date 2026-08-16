@@ -35798,6 +35798,40 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.944 B916-P1：有限 target-effect 与完整 cause-discovery 角色拆分（2026-08-16）
+
+1. r573 的 H4 witness 证明现有合同虽然已有 `bounded_effect_verdict` scope，却让它与
+   `causal_diagnosis` 共用 `requested_answer_dimensions.role=causal_attribution`。模型第一次有限 tuple 被拒后，只需把
+   scope、fact families 和诊断 flags 一起改成另一组同样合法字段，就能把“某条 limit record 是否约束某 target”扩成
+   “发现该窗口根因”。系统无法从同一个 role 判断这是有限 verdict 还是 cause discovery。
+2. 根修新增 `target_effect_verdict` role：只表示“已指定 condition X 是否约束/影响已指定 target Y”的一项
+   yes/no/mixed/unproven 可见判定，并且只可与 `bounded_effect_verdict + non-empty fact_families + non-root intent +
+   non-diagnostic flags` 组合。它不授权根因发现、wakeup chain、根因 roster 或全量 Trace 因果投影。
+3. `causal_attribution` 现专指完整调查后的一项 root-cause/mechanism 结论；`causal_contributor_set` 继续专指多根因
+   roster/ranking。二者只可进入 `causal_diagnosis`，且该 scope 仍要求 fact families 为空、root-cause/diagnostic typed
+   carrier 完整。真实丢帧根因题因此不会被新有限车道收窄，显式时间窗也不单独决定宽度。
+4. 三类 role 在 emit-time 双向互斥：bounded effect 携 causal attribution/contributor 会 fail-loud；causal diagnosis
+   携 target-effect 也 fail-loud；bounded fact 携 target-effect 只引导完整切到 bounded effect，携 causal role 则引导
+   完整切到 causal diagnosis。系统不静默改 role/scope，不根据用户或答案 prose 猜意图，也不预判 verdict 值。
+5. Analyzer 单一 decision table 与 schema description 同步：observed fact、finite target effect、single cause discovery、
+   contributor roster、proof origin 五席一次分类，随后再单向选择 scope，避免同一短语被不同教学段二次分类。生产形测试
+   明确钉住旧组合 `bounded_effect_verdict + causal_attribution` 被拒、新组合 `+ target_effect_verdict` 通过，以及
+   `causal_diagnosis + causal_attribution` 保持通过。
+6. `go test ./internal/types ./internal/skill ./internal/tool ./internal/agent ./internal/orchestrator -count=1` 全绿
+   （types 24.688s、skill 0.258s、tool 171.295s、agent 10.665s、orchestrator 10.533s）。下一步用同一 H4 case 与
+   一个真实完整根因 Trace 严格并发 2 回放：前者应收敛有限 verdict，后者必须保留 Trace 因果投影和自动补齐。
+7. 本批只改分析 schema/教学/一致性验证，不改 trace_query、投影编译、答案或 Mermaid。链上-only 主因、实际占用/
+   业务线索与规则计价可消除量双轴、优先级反转/调度延迟/算力/D/IO/确定性语义事件均保持；邻近/背景不能晋升主因。
+
+状态：
+
+`B916-TARGETEFFECTCAUSEDISCOVERYROLESPLIT1=implemented/schema+single-teaching+bidirectional-pins/pending-production-replay`；
+`TRACE-BOUNDEDTARGETEFFECTROLE1=superseded-by-B916`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：

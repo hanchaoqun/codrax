@@ -4728,7 +4728,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			}
 		}
 	} else if len(p.FactFamilies) > 0 {
-		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required causal_attribution dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension plus a typed full-diagnosis carrier. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
+		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension plus a typed full-diagnosis carrier. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil
@@ -4776,8 +4776,13 @@ func validateRuntimeQuestionProfileConsistency(
 		return issue + ". " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
-		requestedAnswerDimensionsRequireCausalDimension(dimensions) {
-		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one finite target-effect verdict plus finite evidence; the constraining condition may be named or may remain an unresolved mechanism that evidence must not guess. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Re-emit the complete analysis object; do not delete or relabel the required causal_attribution dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
+		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
+		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. That role requests one discovered root-cause/mechanism conclusion, not a finite condition-to-target verdict. Preserve the role and use causal_diagnosis with fact_families omitted plus a coherent typed root-cause carrier; if the request is actually finite, the model must instead choose target_effect_verdict and bounded_effect_verdict together"
+		return issue + ". " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
+	}
+	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
+		requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) {
+		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=target_effect_verdict. Preserve that required user-facing dimension. Use bounded_effect_verdict and retain fact_families for one finite target-effect verdict plus finite evidence; the constraining condition may be named or may remain an unresolved mechanism that evidence must not guess. Both scopes declare investigation breadth, not a pre-decided conclusion: grounded analysis may conclude yes, no, mixed, or unproven. Re-emit the complete analysis object; do not delete or relabel the required target_effect_verdict dimension merely to pass validation, and the accepted typed scope is never widened implicitly"
 		if repair := runtimeQuestionFiniteVerdictRepairTarget(profile, intent, scenario); repair != "" {
 			issue += ". " + repair
 		}
@@ -4787,8 +4792,11 @@ func validateRuntimeQuestionProfileConsistency(
 		if requestedAnswerDimensionsRequireCausalContributorSet(dimensions) {
 			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_contributor_set. A bounded effect is one finite target-effect verdict and must not suppress a requested ranked/competing contributor roster. Preserve the causal contributor role and use causal_diagnosis with fact_families omitted plus a coherent typed root-cause carrier. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 		}
-		if !requestedAnswerDimensionsRequireCausalDimension(dimensions) {
-			return "runtime_question_profile.scope=bounded_effect_verdict requires a required requested_answer_dimensions role=causal_attribution; use bounded_fact_set for finite observations without a target-effect verdict, or preserve the verdict dimension"
+		if requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
+			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_attribution. causal_attribution owns a full discovered root-cause/mechanism conclusion; for this finite scope change that model-owned dimension role to target_effect_verdict, or deliberately choose the full causal_diagnosis tuple. The system will not reinterpret one role as the other"
+		}
+		if !requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) {
+			return "runtime_question_profile.scope=bounded_effect_verdict requires a required requested_answer_dimensions role=target_effect_verdict; use bounded_fact_set for finite observations without a target-effect verdict, or preserve the verdict dimension"
 		}
 		if intent == types.IntentRootCause || predicates.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause() || scenario == types.ScenarioRootCause {
 			// The dedicated runtime scope plus a non-root intent is the more
@@ -4806,8 +4814,11 @@ func validateRuntimeQuestionProfileConsistency(
 	if profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
 		return ""
 	}
+	if requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) {
+		return "runtime_question_profile.scope=causal_diagnosis conflicts with required requested_answer_dimensions role=target_effect_verdict. That role is a finite condition-to-target verdict and cannot authorize cause discovery or full Trace causal projection. Keep target_effect_verdict with bounded_effect_verdict plus fact_families, or deliberately change the model-owned role to causal_attribution/causal_contributor_set only when the current request asks for full root-cause diagnosis"
+	}
 	if !requestedAnswerDimensionsRequireCausalDimension(dimensions) {
-		return "runtime_question_profile.scope=causal_diagnosis requires a required requested_answer_dimensions causal role: causal_attribution for one conclusion or causal_contributor_set for a roster/ranking. Do not label a target-effect verdict as observed_value, and do not rely on intent/scenario labels to substitute for the user-visible causal dimension. Keep causal_diagnosis only for root-cause/ranking, competing contributors, or a broad mechanism diagnosis; otherwise use bounded_effect_verdict with fact_families for one finite target-effect verdict, or bounded_fact_set for observations without a verdict"
+		return "runtime_question_profile.scope=causal_diagnosis requires a required requested_answer_dimensions causal role: causal_attribution for one discovered root-cause/mechanism conclusion or causal_contributor_set for a roster/ranking. Do not label a target-effect verdict as observed_value, and do not rely on intent/scenario labels to substitute for the user-visible causal dimension. Keep causal_diagnosis only for root-cause/ranking, competing contributors, or a broad mechanism diagnosis; otherwise use target_effect_verdict with bounded_effect_verdict and fact_families for one finite target-effect verdict, or bounded_fact_set for observations without a verdict"
 	}
 	if intent == types.IntentRootCause ||
 		predicates.IsDiagnosticQuestion ||
@@ -4853,7 +4864,7 @@ func runtimeQuestionFiniteVerdictRepairTarget(
 	if err != nil {
 		return ""
 	}
-	return "canonical_field_target=" + string(payload) + "; apply these fields to the next COMPLETE object, preserve the required causal_attribution dimension and all unrelated required fields"
+	return "canonical_field_target=" + string(payload) + "; apply these fields to the next COMPLETE object, preserve the required target_effect_verdict dimension and all unrelated required fields"
 }
 
 func runtimeQuestionFullDiagnosisRepairTarget(scenario types.Scenario) string {
@@ -4883,6 +4894,30 @@ func requestedAnswerDimensionsRequireCausalDimension(profile *types.RequestedAns
 	for _, dimension := range profile.Dimensions {
 		if dimension.Required && (dimension.Role == types.RequestedAnswerDimensionCausalAttribution ||
 			dimension.Role == types.RequestedAnswerDimensionCausalContributorSet) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestedAnswerDimensionsRequireCausalAttribution(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionCausalAttribution {
+			return true
+		}
+	}
+	return false
+}
+
+func requestedAnswerDimensionsRequireTargetEffectVerdict(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionTargetEffectVerdict {
 			return true
 		}
 	}
@@ -5417,7 +5452,7 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 		return nil, nil, "", nil
 	}
 	if len(p.Dimensions) == 0 {
-		return nil, nil, "requested_answer_dimensions.is_dimensioned_answer=true requires at least one dimensions row. Emit every explicitly requested visible dimension once; one target-effect verdict uses role=causal_attribution, while a ranked/multi-contributor causal roster uses role=causal_contributor_set. Set is_dimensioned_answer=false only when the current request names no visible answer dimension", nil
+		return nil, nil, "requested_answer_dimensions.is_dimensioned_answer=true requires at least one dimensions row. Emit every explicitly requested visible dimension once; one finite condition-to-target verdict uses role=target_effect_verdict, one discovered root-cause/mechanism conclusion uses role=causal_attribution, and a ranked/multi-contributor causal roster uses role=causal_contributor_set. Set is_dimensioned_answer=false only when the current request names no visible answer dimension", nil
 	}
 	dimensions := make([]types.RequestedAnswerDimension, 0, len(p.Dimensions))
 	var roleWarnings []string

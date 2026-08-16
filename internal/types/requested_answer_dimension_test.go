@@ -36,7 +36,7 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesExactMixedScriptQuote
 		Confidence:          0.9,
 		Dimensions: []RequestedAnswerDimension{{
 			Label:       "CPU频率限制判定",
-			Role:        RequestedAnswerDimensionCausalAttribution,
+			Role:        RequestedAnswerDimensionTargetEffectVerdict,
 			SourceQuote: "它运行的CPU频率有没有受到限制，证据是什么",
 			Required:    true,
 			Index:       1,
@@ -45,7 +45,7 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesExactMixedScriptQuote
 	if profile == nil || !profile.Active() || len(profile.Dimensions) != 1 {
 		t.Fatalf("whitespace-only surface variance must preserve the dimension: profile=%+v warnings=%v", profile, warnings)
 	}
-	if profile.Dimensions[0].Role != RequestedAnswerDimensionCausalAttribution {
+	if profile.Dimensions[0].Role != RequestedAnswerDimensionTargetEffectVerdict {
 		t.Fatalf("typed role changed: %+v", profile.Dimensions[0])
 	}
 	if len(warnings) != 0 {
@@ -65,7 +65,7 @@ func TestNormalizeRequestedAnswerDimensionProfile_DoesNotAnchorParaphraseOrPunct
 			Confidence:          0.9,
 			Dimensions: []RequestedAnswerDimension{{
 				Label:       "invented dimension",
-				Role:        RequestedAnswerDimensionCausalAttribution,
+				Role:        RequestedAnswerDimensionTargetEffectVerdict,
 				SourceQuote: quote,
 				Required:    true,
 				Index:       1,
