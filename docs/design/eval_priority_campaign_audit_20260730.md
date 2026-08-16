@@ -37019,6 +37019,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.894 B868：请求级关系覆盖与局部技术 incidence 三态对齐（2026-08-15）
+
+1. 基于 `main@754c9af3b` 落地 `B868-REQUESTEDCARRIERRELATIONHANDOFF1`。r542 的源码读案例并非
+   单纯模型波动：初始 finalizer prompt 把任何碰到 `Mutable/BusContext` 的局部 setter/call 都标成
+   `incident`；最终 diagram validator 在 request-scoped stage precedence 只覆盖 stage、没有覆盖 carrier
+   时，却正确要求同一 carrier 保留 `unproven` requested-relation boundary。模型把精确技术调用直接重定向
+   到抽象 carrier 后，会被同轮合同拒绝。两侧各自局部合理，但合在同一 dispatch 中互相矛盾。
+2. 单一 participant coverage projection 现在直接消费既有 `requestScoped/requestSpine` typed edge 元数据，
+   在“request-scoped provider 只证明严格子集”时输出三态：`request_scoped_incident` 只表示请求级 provider
+   已覆盖；`local_typed_incident_only` 表示存在精确局部操作但未闭合请求图；
+   `no_incident_typed_relation` 表示两者均无。没有 request-scoped incomplete subset 的其他问法继续沿用
+   原二态，避免扩大语义变化。
+3. `local_typed_incident_only` 不再进入 `source_operation_missing`，因此系统不会让模型为已经找到的 setter/
+   assignment 重复搜索；但它仍进入 Diagram Contract 的 requested-relation `unproven` boundary。prompt 有界
+   携带最多两条现有 local operation binding，保持 exact from/to、relation kind 与 source，指导模型把精确
+   技术端点放进 participant group/subgraph，而不是把边重定向到抽象 participant。截断披露
+   emitted/total/complete；没有从名称、相似度或答案文字推导关系。
+4. Diagram Contract 与 Current-Source Authority 继续调用同一 projection。前者把 local-only 与完全未证席都
+   作为“请求关系未证”边界；后者明确 local fact 不证明 carrier transfer、requested graph 完整性或边界
+   消除。最终 hard validator 不降杆、不扩域，系统也不生成 node/edge/diagram/结论，只消除了自己的前后教学
+   矛盾。
+5. 新增泛化正向 pin：完整 read stage subset + `Mutable` 精确 member call 时，四 stage 为
+   request-scoped incident、Mutable 为 local-only；Mutable 不触发重复 source search，却恰好保留一个 boundary；
+   local call 的精确技术 endpoint/direction 留在 binding。既有“无 carrier 证据”“完整 requested spine”以及
+   无 request-scoped provider 的普通 owner/static-binding 正负形继续通过。`go test ./internal/agent` 与
+   `go test ./...` 全绿。
+6. 本批不读用户原始输入、模型草稿/答案或 Mermaid 文本做硬门，不新增关系或对图作系统修补。显式时间窗、
+   Trace 因果投影与自动补齐完全不在改动路径；链上-only 主因、实际占时/业务线索与规则可消除量双轴、
+   邻近背景 support-only 均保持。活跃字节流也没有固定 4ms/4s/4m 年龄降级。
+
+状态：
+
+`B868-REQUESTEDCARRIERRELATIONHANDOFF1=implemented/tri-state-single-projection+boundary-parity+pinned`；
+`B869-TRACEDIRECTIONRELATIONDECISIONROSTER1=implemented/pending-production-replay`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

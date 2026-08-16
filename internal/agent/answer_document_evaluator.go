@@ -4152,15 +4152,20 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 			coverageHint.Participants = dc.Participants
 			coverageRM.DiagramHint = &coverageHint
 			coverage := answerDocResolveFlowParticipantCoverage(coverageRM, edges, evidence)
-			if len(coverage.unproved) > 0 {
-				b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
-				for recipeIndex, identity := range coverage.unproved {
+			boundaryParticipants := coverage.boundaryParticipants()
+			if len(boundaryParticipants) > 0 {
+				if coverage.requestScopedSubsetIncomplete {
+					b.WriteString("- Typed unproven requested-relation recipes (a participant can retain this boundary even when an independently grounded local technical operation exists):\n")
+				} else {
+					b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
+				}
+				for recipeIndex, identity := range boundaryParticipants {
 					quotedIdentity := strconv.Quote(identity)
 					boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
 					fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
 						recipeIndex+1, quotedIdentity, quotedIdentity, boundaryRow)
 				}
-				b.WriteString("- For an uncovered recipe, choose any Mermaid-safe node ID, but make that standalone node's first label line exactly `visible_disconnected_node_first_line_identity`; copy `participant_identity` byte-for-byte into the block-level boundary row. Do not connect the node merely to satisfy coverage.\n")
+				b.WriteString("- For an unproven requested-relation recipe, choose any Mermaid-safe node ID, but make that standalone node's first label line exactly `visible_disconnected_node_first_line_identity`; copy `participant_identity` byte-for-byte into the block-level boundary row. Do not connect the node merely to satisfy coverage. An independently proved local operation may remain inside that participant's visible group with its exact technical endpoints; it does not close this boundary.\n")
 			}
 		}
 	}

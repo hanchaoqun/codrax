@@ -9470,7 +9470,7 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	authority := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
 		"explicit_typed_directed_relations=3",
-		"typed_named_participant_relation_coverage: incident=[Analyzer Explorer Extractor Finalizer]; no_incident_typed_relation=[BusContext]",
+		"typed_named_participant_relation_coverage: request_scoped_incident=[Analyzer Explorer Extractor Finalizer]; local_typed_incident_only=[]; no_incident_typed_relation=[BusContext]",
 		"verified_relation_component_count=1",
 		"inter_component_bridge_status=`not_applicable_single_component`",
 		"node_alias[n1]=`Analyzer`",
@@ -9627,7 +9627,7 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 		"Use concise repository/domain/business wording for visible labels",
 		"Preserve uncovered requested participants as visible disconnected nodes",
 		"the model still authors every visible label, node, edge, diagram, and conclusion",
-		"An `incident` row proves only that one local typed relation touches that participant",
+		"`request_scoped_incident` is covered by the exact request-scoped typed provider",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("strict-subset authority boundary missing %q:\n%s", want, got)
@@ -9643,6 +9643,75 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 	}
 	if gotCount := strings.Count(got, "answer_role=`supporting_grounded_segment`"); gotCount != 1 {
 		t.Fatalf("the truthful stage subset should remain one supporting component, got %d:\n%s", gotCount, got)
+	}
+}
+
+func TestVerifiedStageAuthorityKeepsLocalCarrierOperationAndRequestedBoundarySeparate(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqMechanism),
+				Entities: []string{"Analyzer", "Explorer", "Extractor", "Finalizer", "Mutable"},
+			},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "mutable-call", Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Kind: types.EvidenceRelationship, Subject: "analyzerEvaluator.BuildInitialInstruction", Predicate: "calls",
+			Object: "ctx.Mutable.ResetPrescanSummary", Source: "internal/agent/analyzer.go", LineStart: 89,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "ctx.Mutable.ResetPrescanSummary",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"request_scoped_incident=[Analyzer Explorer Extractor Finalizer]",
+		"local_typed_incident_only=[Mutable]",
+		"source_operation_missing=[]; request_visible_boundary_only=[]",
+		"local_operation_binding[Mutable][1]",
+		"to_identity=`ctx.Mutable.ResetPrescanSummary`",
+		"representation=`exact_technical_endpoint_inside_participant_group`",
+		"requested_relation_closure=`unproven`; retain_participant_boundary=true",
+		"do not retarget the operation directly to the abstract participant node",
+		"system supplies no visible node, edge, diagram, or conclusion",
+	} {
+		if !strings.Contains(authority, want) {
+			t.Fatalf("local carrier/requested-boundary split missing %q:\n%s", want, authority)
+		}
+	}
+	if strings.Contains(authority, "source_operation_missing=[Mutable]") {
+		t.Fatalf("an already grounded local operation must not trigger duplicate source search:\n%s", authority)
+	}
+
+	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramFlow, Participants: participants,
+	})
+	if !strings.Contains(contract, "Typed unproven requested-relation recipes") ||
+		!strings.Contains(contract, `participant_identity="Mutable"`) ||
+		strings.Count(contract, `participant_identity="Mutable"`) != 1 {
+		t.Fatalf("local carrier must retain exactly one requested-relation boundary:\n%s", contract)
+	}
+	for _, forbidden := range []string{
+		`participant_identity="Analyzer"`,
+		`participant_identity="Explorer"`,
+		`participant_identity="Extractor"`,
+		`participant_identity="Finalizer"`,
+	} {
+		if strings.Contains(contract, forbidden) {
+			t.Fatalf("request-scoped incident participant received false boundary %s:\n%s", forbidden, contract)
+		}
 	}
 }
 
