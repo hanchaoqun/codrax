@@ -15225,7 +15225,11 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// so the budget tracks parity per-fire, not per-dispatch.
 	e.rejectHintsUsed++
 	hint := "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. " + types.AnswerDocumentPatchOperationTeaching + " The patch tool rejects empty patches, unknown ids, and conflicting operations, so focus only on the actual fix."
-	hint = e.appendDiagramRelationRepeatGuidance(hint)
+	if compact, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, false); ok {
+		hint = compact
+	} else {
+		hint = e.appendDiagramRelationRepeatGuidance(hint)
+	}
 	hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
 	return LoopSignal{
 		HintRequested:  true,
@@ -15349,6 +15353,20 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// place the required diagram, while the system stops teaching two subtly
 	// different JSON/identity forms in one dispatch.
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
+		if hint, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "answer_doc.patch_required_diagram_typed_unproven_repeat",
+				Hint:           hint,
+				Progress:       true,
+				BypassThrottle: true,
+				BypassBudget:   true,
+			}
+		}
 		// The whole-diagram capsule is sufficient only for the sole call-edge
 		// failure. A mixed relation+participant rejection also needs the
 		// explicit disconnected-boundary teaching, so keep it on the typed
@@ -15641,6 +15659,43 @@ func (e *answerDocumentEvaluator) appendDiagramRelationRepeatGuidance(hint strin
 		return hint
 	}
 	return hint + " The same typed diagram endpoint pair has already failed relation authority earlier in this answer-writing pass. Renaming its relation_kind or changing only its anchor shape cannot create evidence. Keep that visible pair only if the currently accepted typed evidence already supports it; otherwise remove that pair and its anchor, or leave the participant disconnected and disclose the boundary as unproven. Preserve every unrelated grounded edge."
+}
+
+// repeatedTypedUnprovenFlowRepairHint is the bounded escalation for a model
+// that keeps relabelling or reconnecting the same unsupported endpoint pair
+// after Explore has already closed the typed flow-operation supplement.
+//
+// The pair repetition comes from producer-owned hashes over parsed endpoint
+// identities (relation_kind deliberately excluded).  The exit itself consumes
+// the same typed completion caveat and current relation projection used by the
+// initial Finalizer authority.  It never scans request/model/final prose and it
+// never supplies a Mermaid body, label, edge, or conclusion.
+func (e *answerDocumentEvaluator) repeatedTypedUnprovenFlowRepairHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
+	if e == nil || !e.diagramRequired || !e.diagramRelationFailureRepeated ||
+		ctx == nil || ctx.Mutable == nil ||
+		!ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier) {
+		return "", false
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	// diagramRequired is the evaluator's compiled current-dispatch contract.
+	// Some focused tests and compatibility contexts do not rebuild the full
+	// AnswerSemanticView diagram plan, so do not require a duplicate owner here.
+	if view == nil || view.Family == types.QFRootCauseTrace || view.RelationAxis != types.AxisFlow {
+		return "", false
+	}
+	_, allEdges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
+	if len(answerDocMechanismEndpointBoundaryEdges(ctx, allEdges)) != 0 {
+		return "", false
+	}
+	prefix := "The same typed diagram endpoint pair has now failed relation authority more than once. Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "The same typed diagram endpoint pair has now failed relation authority more than once. Keep using `emit_answer_document_patch`"
+	}
+	hint := prefix + "; replace only the required diagram block, retain every sibling block through `unchanged_block_ids`, and preserve the inherited citations. The bounded operation-evidence supplement has converged with zero citable directed relations: keep the model-authored requested participants as a nonempty node/group inventory, remove every structural arrow and its `edge_anchors`, and state the unproven relation boundary in your own answer prose. Do not omit the required diagram, rename relation kinds again, reopen files, or invent an edge. This is an executable typed boundary, not a system-authored diagram or conclusion. Do not write free-form prose outside the tool call."
+	if payload := answerDocDiagramParticipantBoundaryRepairPayload(ctx); payload != "" {
+		hint += " Preserve any still-uncovered requested participant with only these producer-owned no-edge rows:\n\n" + payload
+	}
+	return hint, true
 }
 
 // answerDocumentPatchRejectIsOptionalDiagramCallEdge narrows the shared
@@ -16016,7 +16071,13 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// instead of making the model hunt through the original long prompt and
 	// hand-recreate aliases/JSON.
 	if !diagramCallEdgePatchRecovery && hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
-		if answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
+		if compact, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, false); ok {
+			hint = compact
+			reasonKey = "required-diagram-typed-unproven-repeat"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
+		if !diagramCallEdgePatchRecovery && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
 			if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
 				hint = requiredHint
 				reasonKey = "required-diagram-call-edge"

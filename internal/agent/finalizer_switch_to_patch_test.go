@@ -1407,3 +1407,74 @@ func TestAnswerDocumentEvaluator_DiagramRelationRelabelRepeatGuidance(t *testing
 		t.Fatalf("successful structured emit must reset repeat state: repeated=%v strikes=%v", e.diagramRelationFailureRepeated, e.diagramRelationFailurePairStrikes)
 	}
 }
+
+func TestAnswerDocumentEvaluator_RepeatedTypedUnprovenFlowUsesCompactNodeOnlyExit(t *testing.T) {
+	mut := types.NewMutableState("required source-flow diagram")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane: types.DowngradeLaneFlowOperationCarrier,
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				PredicateAxis: types.AxisFlow,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{Required: true, RequiredKind: types.DiagramFlow},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "definition", Kind: types.EvidenceDirect,
+			Source: "src/tools.go", LineStart: 10, LineEnd: 10,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+			AnchorSymbol: "FullTool", Subject: "FullTool",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	e := &answerDocumentEvaluator{
+		diagramRequired:                true,
+		diagramRelationFailureRepeated: true,
+	}
+
+	hint, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, true)
+	if !ok {
+		view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+		_, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
+		t.Fatalf("repeated precise zero-relation flow must expose the compact typed exit: view=%+v edges=%+v caveat=%v",
+			view, edges, ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowOperationCarrier))
+	}
+	for _, want := range []string{
+		"Keep using `emit_answer_document_patch`",
+		"nonempty node/group inventory",
+		"remove every structural arrow and its `edge_anchors`",
+		"state the unproven relation boundary in your own answer prose",
+		"not a system-authored diagram or conclusion",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("compact typed-unproven repair missing %q:\n%s", want, hint)
+		}
+	}
+	for _, forbidden := range []string{
+		"Typed relation authoring capsule",
+		"Current-Source Mechanism Relation Authority",
+		"Preserve the following evidence skeleton's exact node IDs",
+	} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("repeat escalation re-injected a broad contract %q:\n%s", forbidden, hint)
+		}
+	}
+
+	ctx.EvidenceItems = append(ctx.EvidenceItems, types.EvidenceItem{
+		ID: "edge", Kind: types.EvidenceRelationship,
+		Subject: "FullTool", Predicate: "calls", Object: "PatchTool",
+		Source: "src/tools.go", LineStart: 20, LineEnd: 20,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorCall,
+		AnchorSymbol: "PatchTool", GroundingStatus: types.GroundingGrounded,
+	})
+	if hint, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, true); ok || hint != "" {
+		t.Fatalf("a real typed relation must retain exact-recipe repair, got ok=%v hint=%q", ok, hint)
+	}
+}

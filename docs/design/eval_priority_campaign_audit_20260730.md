@@ -36243,13 +36243,21 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
     `relation_surface_exit=typed_unproven_node_only` 教学，要求保留模型自写节点/分组图、用自己的正文披露
     关系未证，禁止虚构箭头。专项 pin 覆盖 Flow 正出口、Call 负出口和缺图负出口；没有扫描用户、模型思考
     或答案原文，也没有由系统生成图、关系或结论。
+12. B905-C 已施工并复用既有 endpoint-pair 指纹，而非再造按 case 的计数器。该指纹来自 producer 对
+    canonical endpoint identity / Mermaid alias 的稳定 hash，刻意排除 `relation_kind`，所以模型仅在
+    call/guard/precedence 等枚举间改名仍算同一零进展根。第二次相同 pair 且 B905-B 的 typed Flow
+    supplement caveat 已成立、当前 relation projection 仍为零时，full→patch、full reject 与 patch reject
+    三个入口统一改发短的 executable node-only 边界：只替换 diagram，保留 siblings/citations，删除全部
+    arrows/edge_anchors，模型自行保留节点/分组并披露未证。它不再重复数 KB generic relation contract；若
+    当前已有一条真实 typed edge、属于 Call/Trace、没有相同 pair，或还有其他失败类，则退出该窄臂并保留
+    原 exact-recipe/validator 路径。专项 pin 同时覆盖短提示内容、宽合同不回灌以及真实 edge 负形。
 
 状态：
 
 `B902-WRITEREPLANBATCHGOALAUTHORITY1=production-closed-r566/r567-stable`；
 `B903-CUMULATIVEPATHPROOFRECONCILIATION1=implemented/pinned/pending-multiplan-replay`；
 `B904-RUNTIMESELECTIONPROFILE1=production-value-miss-r567/soft-reteach-only`；
-`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-B-implemented-and-pinned/C-pending`；
+`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-B-C-implemented-and-pinned/pending-production-replay`；
 `B906-WRITEORIGINALCONDITIONDOMAIN1=confirmed/P1/planned`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
