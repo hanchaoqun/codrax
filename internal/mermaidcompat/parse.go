@@ -289,9 +289,9 @@ func splitFlowchartEdgeChainLine(line string) []flowchartEdgeTokens {
 	for from != "" && tail != "" {
 		label := ""
 		if strings.HasPrefix(tail, "|") {
-			if end := strings.Index(tail[1:], "|"); end >= 0 {
-				label = strings.TrimSpace(tail[1 : end+1])
-				tail = strings.TrimSpace(tail[end+2:])
+			if end := findUnescapedPipe(tail, 1); end >= 0 {
+				label = strings.TrimSpace(tail[1:end])
+				tail = strings.TrimSpace(tail[end+1:])
 			}
 		}
 		nextAt, nextOperator := findFlowchartEdgeOperator(tail, operators)
@@ -456,9 +456,9 @@ func SplitEdgeLine(line string) (string, string, string, string, bool) {
 		to := strings.TrimSpace(line[idx+len(op):])
 		pipeLabel := ""
 		if strings.HasPrefix(to, "|") {
-			if end := strings.Index(to[1:], "|"); end >= 0 {
-				pipeLabel = strings.TrimSpace(to[1 : end+1])
-				to = strings.TrimSpace(to[end+2:])
+			if end := findUnescapedPipe(to, 1); end >= 0 {
+				pipeLabel = strings.TrimSpace(to[1:end])
+				to = strings.TrimSpace(to[end+1:])
 			}
 		}
 		if from == "" || to == "" {

@@ -291,6 +291,17 @@ func TestRenderMermaidBlocks_HtmlEntitiesInLabel(t *testing.T) {
 	}
 }
 
+func TestRenderMermaidBlocks_QuotedPipeInsideEdgeLabelRenders(t *testing.T) {
+	in := "```mermaid\nflowchart TD\n    A -->|\"first|second\"| B\n```"
+	out := RenderMermaidBlocks(in)
+	if strings.Contains(out, "```mermaid") {
+		t.Fatalf("quoted display pipe must not corrupt the diagram or escape as Mermaid source:\n%s", out)
+	}
+	if !strings.Contains(out, "first|second") {
+		t.Fatalf("quoted display pipe was lost during rendering:\n%s", out)
+	}
+}
+
 func TestRenderMermaidBlocks_SequenceBareStopNormalizes(t *testing.T) {
 	in := strings.Join([]string{
 		"```mermaid",

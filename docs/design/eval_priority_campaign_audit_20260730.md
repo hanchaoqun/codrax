@@ -37919,6 +37919,43 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）
+
+1. 以 r554 的原始 model-authored body 建立先红 witness：
+   `NewFinalizerAgent -->|"返回 BaseAgent|注册为 Finalizer"| FinalizerAgent`。旧
+   `findUnescapedPipe` 只处理反斜线，不跟踪引号；它把引号内第一个 `|` 当作 edge-label 终止符。后续
+   split-label/unsafe-node normalizer 再把 `注册为 Finalizer` 解释成 endpoint，产出
+   `codraxNode[...]` 与不平衡 quote/bracket，最终破坏 Mermaid source 和 typed edge topology。
+2. 根修位于 `internal/mermaidcompat` 单一语法层：pipe delimiter scanner 现在只允许 label 开头（可带空白）的
+   quote/backtick 开启 quoted span，忽略 span 内的 raw pipe，并保留反斜线 escape。普通未引号 label 内的英文撇号
+   （如 `don't`）不会开启 quoted span，防止为修中文样例破坏其他语言文案。
+3. `splitFlowchartEdgeChainLine` 与 legacy `SplitEdgeLine` 同时改用同一 quote-aware delimiter；因此 Markdown source
+   normalizer、typed relation parser 和 downstream ownership gate 不再各自理解不同的 endpoint。修复只改变语法 token
+   边界，不改模型写出的节点、边方向、relation kind、label 或结论，也不创建任何新关系。
+4. 三镜头 pin：(a) `NormalizeSourceForMarkdown` 对两条 quoted-pipe 边 byte-identical，并解析出 exact 两跳；
+   (b) `NormalizeEmitAnswerBlock` 生产 JSON→typed block 路径不再出现 `codraxNode/&quot;` 污染；
+   (c) `RenderMermaidBlocks` 能渲染 `|"first|second"|` 且可见 label 不丢。另钉未引号 apostrophe 负形。
+5. 浏览器预览已有独立 Mermaid.js Promise rejection fallback：渲染失败会保留 raw source 并显示明确失败提示；终端
+   `render/mermaid` 的全部失败路径继续转换为 text fence。该批没有用更窄的 terminal-library subset 作为浏览器 Mermaid
+   合法性硬门，避免把有效 Mermaid.js 特性误降级；本次确定性系统自损在 source/typed parser 共用层消除。
+6. 验证：`go test ./internal/mermaidcompat ./internal/render ./internal/tool -count=1` 全绿（tool 166s）；
+   `go test ./... -count=1` 全绿（tool 185s、tracequery 80s、hitraceconv 96s）。下一批依次处理 B879f 多子题 typed mechanism boundary、B880 语言无关 ownership
+   relation carrier、B882 恢复附件去重。
+7. 本批不读取用户/模型/最终答案原文做硬门，不按 Java/Go/ArkTS/Cangjie 或具体业务词做分支。Trace 显式时间窗、
+   causal-diagnosis 因果投影、自动补齐、typed on-chain-only 根因和两类可优化维度均保持；活跃字节流不按 4ms 或固定
+   累计年龄降级。
+
+状态：
+
+`B881-STRUCTUREDDIAGRAMPOSTNORMALIZEFAILOPEN=implemented/quoted-delimiter-root-fixed/full-suite-pass`；
+`B879f-MULTITOPICMECHANISMBOUNDARY1=confirmed/P1/next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=confirmed/P1/queued`；
+`B882-RECOVEREDATTACHMENTDEDUP1=confirmed/P1/queued`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.916 r554：JSON 教学转正；executable-only 仍漏 callable definition；非法 Mermaid fail-open（2026-08-15）
 
 1. 在 `main@0c5d8c6f5` 重建后严格并发恰好两个案例；runner 2/2 PASS（167s/108s），人工 0/2。结果记录在

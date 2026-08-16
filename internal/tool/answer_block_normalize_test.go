@@ -636,6 +636,32 @@ func TestNormalizeEmitAnswerBlock_RepairsInlineRelationLabelsBeforeEndpointAlias
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_PreservesQuotedPipeEdgeLabels(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  NewFinalizerAgent -->|"返回 BaseAgent|注册为 Finalizer"| FinalizerAgent`,
+		`  FinalizerAgent -->|"完整输出|增量修补"| EmitAnswerDocument`,
+	}, "\n")
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "d1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind:     string(types.DiagramArchitecture),
+			Language: "mermaid",
+			Body:     body,
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil || got.Diagram.Body != body {
+		t.Fatalf("production normalization corrupted quoted pipe labels:\nwant:\n%s\ngot:\n%+v", body, got.Diagram)
+	}
+	if strings.Contains(got.Diagram.Body, "codraxNode") || strings.Contains(got.Diagram.Body, "&quot;") {
+		t.Fatalf("quoted pipe label was reinterpreted as endpoint syntax: %q", got.Diagram.Body)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSemanticKind(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "types",

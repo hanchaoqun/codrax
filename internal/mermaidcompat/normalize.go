@@ -2104,16 +2104,42 @@ func normalizeFlowchartPipeLabelsInLine(line string) (string, bool) {
 
 func findUnescapedPipe(s string, start int) int {
 	escaped := false
+	quote := byte(0)
+	quoteMayOpen := true
 	for i := start; i < len(s); i++ {
-		switch s[i] {
+		ch := s[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
 		case '\\':
 			escaped = !escaped
+		case '"', '\'', '`':
+			if !escaped && quoteMayOpen {
+				quote = ch
+			}
+			quoteMayOpen = false
+			escaped = false
 		case '|':
 			if !escaped {
 				return i
 			}
 			escaped = false
 		default:
+			if ch != ' ' && ch != '\t' {
+				quoteMayOpen = false
+			}
 			escaped = false
 		}
 	}

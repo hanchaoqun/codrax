@@ -573,6 +573,27 @@ func TestNormalizeSourceForMarkdown_DoesNotMergeChainedPipeLabels(t *testing.T) 
 	}
 }
 
+func TestNormalizeSourceForMarkdown_QuotedPipeInsideEdgeLabelIsNotDelimiter(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    NewFinalizerAgent -->|"返回 BaseAgent|注册为 Finalizer"| FinalizerAgent`,
+		`    FinalizerAgent -->|"完整输出|增量修补"| EmitAnswerDocument`,
+		`    EmitAnswerDocument -->|don't split apostrophes| Result`,
+	}, "\n")
+
+	got := NormalizeSourceForMarkdown(in)
+	if got != in {
+		t.Fatalf("quoted label pipes are display text, not edge-label delimiters:\nwant:\n%s\ngot:\n%s", in, got)
+	}
+	edges := ParseEdges(got)
+	if len(edges) != 3 ||
+		edges[0].From != "NewFinalizerAgent" || edges[0].To != "FinalizerAgent" ||
+		edges[1].From != "FinalizerAgent" || edges[1].To != "EmitAnswerDocument" ||
+		edges[2].From != "EmitAnswerDocument" || edges[2].To != "Result" {
+		t.Fatalf("quoted label pipes changed visible topology: %+v", edges)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_CanonicalizesInlineEdgeLabelsWithoutChangingTopology(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
