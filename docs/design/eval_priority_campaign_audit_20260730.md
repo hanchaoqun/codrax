@@ -36775,6 +36775,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.887 r538：AK3 生产回放闭环与 Rust 静态验证边界复核（2026-08-15）
+
+1. 本批严格并行 2 个异构 case：`real_trace_h7_self_seat_full_spectrum` 机器 PASS（157s），
+   `github_issue_chrono_duration_min_symptom` 机器 FAIL（277s）。人工判定分别为 partial 与 pass-with-caveat；后者的 FAIL 是
+   source-static 验证能力被确定性地标为 unverified，并非把未编译的 Rust 改动误签为成功。
+2. AK3 已在真实 Trace 生产链闭环：投影树、关键指标表、lossless detail 和图例均显示
+   `4组CPU汇总(组和3.774~16.064ms;单段2.197~3.853ms)`，同时完整 occurrence authority 仍明确为 11 个 D-state 区间、
+   合计 36.757ms。系统不再把 per-CPU aggregate bucket 伪装成发生次数。
+3. H7 的显式时间窗、`Trace 因果投影`、确定性补齐、链上根因范围、真实占用/业务线索轴及规则可消除轴均未回归；活动流没有按
+   4ms/4s/4m 或固定年龄降级。`EVAL-B13-AK3` 因此由 pending-production-replay 关闭为 production-replay-closed。
+4. 模型正文仍把四个组和误写成“四次等待”、把 kernel callsite 扩写成已证 fence 对象/机理，并跨方向相加可消除量；而 finalizer
+   上下文已明确提供 `occurrence_count=11`、caller caliber 及不可跨方向相加的精确信息。该残余判为模型不遵循/波动，沿既有
+   `B788/P2-observe/soft-guidance` 观察，不新增正文关键词硬门，也不允许系统删除或代写模型结论。
+5. Rust 写模式只运行了一次 `make check`，其 Python 脚本仅做源码结构检查；当前环境无 `rustc`，故 controller 的
+   `production_verification_source_static_only` fail-closed 是正确边界。B856 的重复 verify 未复现，B864 的 ChangePlan 错误片段亦未复现。
+
+`EVAL-B13-AK3=production-replay-closed`；
+`H7-model-caliber-residual=B788/P2-observe`；
+`Rust-source-static=honest-unverified`；
+`raw-request/model/final-prose-hard-gate=none`；
+`model-answer-ownership=preserved`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
