@@ -19,8 +19,9 @@ import (
 // relation. Multi-hop evidence remains valid: A -> helper -> B places both
 // participants in one component without requiring a direct edge.
 type flowParticipantRelationScope struct {
-	participantCovered []bool
-	operationRelevant  []bool
+	participantCovered        []bool
+	participantLocalOperation []bool
+	operationRelevant         []bool
 }
 
 type flowParticipantRelationEdge struct {
@@ -40,7 +41,8 @@ func buildFlowParticipantRelationScope(
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) flowParticipantRelationScope {
 	scope := flowParticipantRelationScope{
-		participantCovered: make([]bool, len(participants)),
+		participantCovered:        make([]bool, len(participants)),
+		participantLocalOperation: make([]bool, len(participants)),
 	}
 	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
 	scope.operationRelevant = make([]bool, len(operations))
@@ -162,6 +164,9 @@ func buildFlowParticipantRelationScope(
 			incidentParticipants[toMatches[0]] = true
 		}
 		for participantIndex := range incidentParticipants {
+			if edge.operation != nil {
+				scope.participantLocalOperation[participantIndex] = true
+			}
 			if componentParticipants[root] == nil {
 				componentParticipants[root] = make(map[int]bool)
 			}
@@ -194,4 +199,58 @@ func buildFlowParticipantRelationScope(
 		}
 	}
 	return scope
+}
+
+// flowMissingParticipantsHaveLocalOperations distinguishes a relation-only
+// deficit from an operation-discovery deficit. It is true only when every
+// currently missing, uniquely resolved participant already owns at least one
+// citable principal-source operation, while the caller has separately proved
+// that those operations do not share a requested relation component.
+//
+// This signal may shorten or redirect SOFT repair navigation. It never closes
+// participant coverage and never authorizes an answer edge.
+func flowMissingParticipantsHaveLocalOperations(
+	ctx *types.BusContext,
+	evidence []types.EvidenceItem,
+	missing []string,
+) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(missing) < 2 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	wanted := make(map[string]bool, len(missing))
+	for _, identity := range missing {
+		if key := strings.ToLower(strings.TrimSpace(identity)); key != "" {
+			wanted[key] = true
+		}
+	}
+	participants := make([]types.DiagramParticipantHint, 0, len(wanted))
+	participantSurfaces := make([][]string, 0, len(wanted))
+	seen := make(map[string]bool, len(wanted))
+	if rm.DiagramHint == nil {
+		return false
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		key := strings.ToLower(strings.TrimSpace(participant.Identity))
+		if !wanted[key] || seen[key] || participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		seen[key] = true
+		resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+		if len(resolved.surfaces) == 0 {
+			return false
+		}
+		participants = append(participants, participant)
+		participantSurfaces = append(participantSurfaces, resolved.surfaces)
+	}
+	if len(participants) != len(wanted) {
+		return false
+	}
+	scope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, nil)
+	for i := range participants {
+		if i >= len(scope.participantLocalOperation) || !scope.participantLocalOperation[i] {
+			return false
+		}
+	}
+	return true
 }

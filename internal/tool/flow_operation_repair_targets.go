@@ -208,6 +208,25 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 		surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
 		resolvedFiles = appendUniqueBounded(resolvedFiles, resolved.files, maxFlowOperationRepairFiles)
 	}
+	// A typed context-only participant is not an edge obligation. It becomes a
+	// useful SOFT search scope only after structured evidence proves that every
+	// missing incident participant already has a separate local operation and
+	// the remaining deficit is solely their relationship inside a named
+	// container/stage/subsystem. Initial operation discovery therefore remains
+	// tightly scoped to the missing incident participant. This context never
+	// enters the missing roster or relation authority.
+	if flowMissingParticipantsHaveLocalOperations(ctx, evidence, missing) {
+		for _, participant := range participants {
+			if participant.Role != types.DiagramParticipantContextOnly {
+				continue
+			}
+			contextSurfaces := []string{strings.TrimSpace(participant.Identity)}
+			contextSurfaces = append(contextSurfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+			surfaces = appendUniqueBounded(surfaces, contextSurfaces, maxFlowOperationRepairKeywords)
+			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+			resolvedFiles = appendUniqueBounded(resolvedFiles, resolved.files, maxFlowOperationRepairFiles)
+		}
+	}
 
 	keywords := append([]string(nil), surfaces...)
 	declaredFiles, declaredAliases := flowRepairDeclaredBindingTargets(ctx, rm, surfaces)

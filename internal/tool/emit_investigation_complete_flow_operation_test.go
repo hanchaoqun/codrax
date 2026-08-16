@@ -899,6 +899,9 @@ func TestFlowParticipantCoverageDoesNotPromoteDisconnectedLocalOperationsIntoReq
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); !flowTestSliceContains(got, "Mutable") || !flowTestSliceContains(got, "BusContext") {
 		t.Fatalf("disconnected local operations must not masquerade as the requested member/owner relation: %v", got)
 	}
+	if !flowMissingParticipantsHaveLocalOperations(ctx, ctx.Mutable.EmittedEvidence(), []string{"Mutable", "BusContext"}) {
+		t.Fatal("separate citable operations on every missing participant should classify the deficit as relation-only")
+	}
 
 	// A separately grounded operation that really joins the two requested
 	// identities closes the relation scope. The completion gate still does not
@@ -908,6 +911,108 @@ func TestFlowParticipantCoverageDoesNotPromoteDisconnectedLocalOperationsIntoReq
 	})
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
 		t.Fatalf("a typed cross-participant operation should close the requested relation scope: %v", got)
+	}
+}
+
+func TestFlowParticipantRelationOnlyRepairUsesContextWithoutMintingAuthority(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolA.Execute", "localA.Load", 40),
+		flowOperationEvidence(types.AnchorCall, "ToolB.Execute", "localB.Store", 41),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"ToolA", "ToolB", "Finalizer"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if !flowTestSliceContains(missing, "ToolA") || !flowTestSliceContains(missing, "ToolB") ||
+		flowTestSliceContains(missing, "Finalizer") {
+		t.Fatalf("only disconnected incident participants should remain missing: %v", missing)
+	}
+	if !flowMissingParticipantsHaveLocalOperations(ctx, ctx.Mutable.EmittedEvidence(), missing) {
+		t.Fatal("typed local operations on both incident participants should select relation-focused navigation")
+	}
+	files, keywords := flowOperationRepairTargets(ctx, missing, ctx.Mutable.EmittedEvidence())
+	if !flowTestSliceContains(keywords, "Finalizer") {
+		t.Fatalf("typed context-only identity should guide the bounded bridge search: files=%v keywords=%v", files, keywords)
+	}
+	hint := flowParticipantCoverageNavigationHint(ctx, missing, ctx.Mutable.EmittedEvidence(), files, keywords)
+	for _, want := range []string{"Relation-focused navigation", "do not collect another local member call/return", "direct or multi-hop component"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("relation-only navigation missing %q:\n%s", want, hint)
+		}
+	}
+	if strings.Contains(hint, "Exact next navigation") {
+		t.Fatalf("relation-only deficit must not send the model back to another isolated local occurrence:\n%s", hint)
+	}
+
+	queueFlowParticipantCoverageRepair(ctx, missing, ctx.Mutable.EmittedEvidence())
+	for _, repair := range ctx.Mutable.EvidenceClosure().ActiveRepairs() {
+		if repair.DowngradeLane != types.DowngradeLaneFlowParticipantCoverage {
+			continue
+		}
+		if repair.Kind == types.RepairReadFile {
+			t.Fatalf("relation-only repair must not queue another local direct read: %+v", repair)
+		}
+		if !flowTestSliceContains(repair.Keywords, "Finalizer") {
+			t.Fatalf("durable soft repair should preserve typed context scope: %+v", repair)
+		}
+	}
+}
+
+func TestFlowParticipantRelationOnlyClassificationFailsClosedWithoutEveryLocalOperation(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolA.Execute", "localA.Load", 40),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"ToolA", "ToolB"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if flowMissingParticipantsHaveLocalOperations(ctx, ctx.Mutable.EmittedEvidence(), missing) {
+		t.Fatalf("a participant without any typed operation must retain locate/read recovery room: %v", missing)
+	}
+}
+
+func TestEmitInvestigationComplete_RelationOnlyParticipantDeficitConvergesAfterFocusedPass(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolA.Execute", "localA.Load", 40),
+		flowOperationEvidence(types.AnchorCall, "ToolB.Execute", "localB.Store", 41),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"ToolA", "ToolB", "Finalizer"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantContextOnly},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	first, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	if ctx.Mutable.IsInvestigationComplete() || first.Repair == nil ||
+		!strings.Contains(first.Repair.Hint, "Relation-focused navigation") {
+		t.Fatalf("first relation-only attempt should receive exactly one bridge-focused pass: %+v", first)
+	}
+	second, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() ||
+		!ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage) ||
+		!strings.Contains(second.Summary, "participant relation remains unproven") {
+		t.Fatalf("second unchanged relation-only attempt should converge honestly: %+v", second)
 	}
 }
 

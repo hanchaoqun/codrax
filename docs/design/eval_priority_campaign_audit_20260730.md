@@ -36472,11 +36472,26 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 6. 显式时间窗不等于完整 causal diagnosis。本案是有限状态+单目标频率影响判定，不生成完整 Trace 因果
    投影是正确 breadth；真正根因/丢帧诊断仍保留自动补齐、链上-only 主因、优先级反转/调度延迟/算力供给/
    D/IO/确定性语义/业务线索与实际占用、规则计价双轴。邻近/背景仅 support，活跃流不因 4ms 降级。
+7. B912 已按 typed relation-only 状态施工。共享关系作用域除 `participantCovered` 外，新增只读
+   `participantLocalOperation`：仅当当前全部 missing incident participant 都各自拥有 principal-source
+   citable operation、但仍不在同一关系分量时，才把缺口判为“已有局部事实、唯缺桥接”。短名/限定名同时
+   命中继续 fail-closed；单参与者或任一参与者尚无操作时仍走原来的定位→读取两步恢复，不缩预算。
+8. relation-only 修复不再排队读取另一个最高分局部 occurrence，而是只发一次软定向：利用 typed
+   incident identities、现有 operation endpoints 与 context-only container/stage/subsystem 作为有界搜索
+   scope，寻找 direct 或 multi-hop shared component。context-only 只进入 navigation keywords/files，不进入
+   missing roster、coverage authority 或答案边；parser candidate 也必须经 `emit_evidence` 成为 citable row
+   才能关闭关系。系统不选边、不代画图、不改写结论。
+9. 若这一轮没有找到桥接，第二次相同 typed blocker 以现有 `participant relation remains unproven` caveat
+   收敛，避免继续收集第三、第四条同分量局部调用；初始 operation-discovery 与单参与者原 lane 仍在第三次
+   相同 blocker 才收敛。关系缺口与普通缺口使用互斥计数分支，同一次关闭不会被重复计数。
+10. 正负 pin 覆盖断开的双局部操作、缺少任一局部操作、context-only 只作搜索、禁止 relation-only 直接
+    读局部点、一次桥接探索后诚实收敛、原单参与者三次恢复、多跳真关系及短名歧义 fail-closed。定向套件
+    和完整 `go test ./internal/tool -count=1`（163.433s）通过；Trace 查询、投影、补采和成文路径零改动。
 
 状态：
 
 `B908-FLOWRELATIONSCOPEDISCOVERY1=production-positive-truthfulness/answer-relation-partial-r571`；
-`B912-RELATIONFOCUSEDNAVIGATION1=confirmed/P1/pending`；
+`B912-RELATIONFOCUSEDNAVIGATION1=implemented/typed-relation-only+one-bounded-bridge-pass+pinned/pending-production-replay`；
 `B909-FINITETRACESAMECPUCOGNITIVE1=production-positive-r570+r571`；
 `B910-RUNTIMEARTIFACTSOURCEENDPOINTLEAK1=production-positive-r571`；
 `B911-TRACEARITHMETICALTERNATEDENOMINATOR1=production-positive-r571`；

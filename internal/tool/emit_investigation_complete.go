@@ -2231,13 +2231,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if !flowOperationMissing && len(missingFlowParticipants) > 0 {
 		files, keywords := queueFlowParticipantCoverageRepair(ctx, missingFlowParticipants, evidenceSnapshot)
-		repairHint := flowOperationRepairHintForMissing(ctx, missingFlowParticipants,
+		repairHint := flowParticipantCoverageRepairHintForMissing(ctx, missingFlowParticipants, evidenceSnapshot,
 			flowParticipantCoverageRepairBase(missingFlowParticipants), files, keywords)
-		navigationHint := flowOperationNavigationHintForMissing(ctx, missingFlowParticipants, files, keywords)
+		navigationHint := flowParticipantCoverageNavigationHint(ctx, missingFlowParticipants, evidenceSnapshot, files, keywords)
 		participantBlockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
 			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
 		)
-		if !preCompleteDowngradeConvergesWithTypedBlockerKey(ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey) {
+		relationOnlyDeficit := flowMissingParticipantsHaveLocalOperations(ctx, evidenceSnapshot, missingFlowParticipants)
+		var converged bool
+		if relationOnlyDeficit {
+			converged = preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(
+				ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey, 2,
+			)
+		} else {
+			converged = preCompleteDowngradeConvergesWithTypedBlockerKey(
+				ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey,
+			)
+		}
+		if !converged {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			return types.ToolResult{
 				ToolName: t.Name(),
@@ -3378,7 +3389,40 @@ func preCompleteDowngradeConvergesWithTypedBlockerKey(ctx *types.BusContext, lan
 	return preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx, closure, lane, blockerKey)
 }
 
+// preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold is a narrow
+// typed-state override for a lane whose current blocker has a strictly smaller
+// recovery graph than the lane default. The override changes only bounded
+// retry room; it does not change coverage, relation authority, or the blocker
+// key. Callers must derive it from structured evidence, never prose.
+func preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(
+	ctx *types.BusContext,
+	lane types.DowngradeLane,
+	blockerKey uint32,
+	exactThreshold int,
+) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	return preCompleteDowngradeConvergesWithClosureAndBlockerKeyAtThreshold(
+		ctx, closure, lane, blockerKey, exactThreshold,
+	)
+}
+
 func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext, closure *types.EvidenceClosure, lane types.DowngradeLane, blockerKey uint32) bool {
+	return preCompleteDowngradeConvergesWithClosureAndBlockerKeyAtThreshold(ctx, closure, lane, blockerKey, 0)
+}
+
+func preCompleteDowngradeConvergesWithClosureAndBlockerKeyAtThreshold(
+	ctx *types.BusContext,
+	closure *types.EvidenceClosure,
+	lane types.DowngradeLane,
+	blockerKey uint32,
+	exactThresholdOverride int,
+) bool {
 	if ctx == nil || ctx.Mutable == nil || closure == nil {
 		return false
 	}
@@ -3416,6 +3460,9 @@ func preCompleteDowngradeConvergesWithClosureAndBlockerKey(ctx *types.BusContext
 	// the third identical close accepts the explicit unproven boundary.
 	if lane == types.DowngradeLaneFlowParticipantCoverage {
 		exactThreshold = 3
+	}
+	if exactThresholdOverride > 0 {
+		exactThreshold = exactThresholdOverride
 	}
 	if lane == types.DowngradeLaneCompletionForm {
 		if laneChurnThreshold < 3 {
@@ -3605,6 +3652,41 @@ func flowParticipantCoverageRepairHint(missing, files, keywords []string) string
 	return flowOperationRepairHint(flowParticipantCoverageRepairBase(missing), files, keywords)
 }
 
+func flowParticipantCoverageRepairHintForMissing(
+	ctx *types.BusContext,
+	missing []string,
+	evidence []types.EvidenceItem,
+	base string,
+	files, keywords []string,
+) string {
+	base = strings.TrimSpace(base)
+	navigation := flowParticipantCoverageNavigationHint(ctx, missing, evidence, files, keywords)
+	if navigation == "" {
+		return base
+	}
+	if base != "" {
+		base += " "
+	}
+	return base + navigation
+}
+
+func flowParticipantCoverageNavigationHint(
+	ctx *types.BusContext,
+	missing []string,
+	evidence []types.EvidenceItem,
+	files, keywords []string,
+) string {
+	if !flowMissingParticipantsHaveLocalOperations(ctx, evidence, missing) {
+		return flowOperationNavigationHintForMissing(ctx, missing, files, keywords)
+	}
+	base := flowOperationNavigationHint(files, keywords)
+	relationFocus := "Relation-focused navigation: every missing participant already has a separate typed local operation, so do not collect another local member call/return merely for coverage. Inspect the typed surrounding-context stems and shared exact operation endpoints for one direct or multi-hop component joining different requested participants; emit only a verified connecting operation. If no such bridge is proved in this bounded pass, keep the requested relation unproven."
+	if base == "" {
+		return relationFocus
+	}
+	return relationFocus + " " + base
+}
+
 func flowParticipantCoverageRepairBase(missing []string) string {
 	return fmt.Sprintf(
 		"The required source-flow participant slate still lacks a typed operation component connecting %v to another requested participant. Separate local operations remain useful facts but do not prove the requested relationship. %s",
@@ -3616,10 +3698,13 @@ func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string,
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil || len(missing) == 0 {
 		return files, keywords
 	}
-	rationale := flowOperationRepairHintForMissing(ctx, missing, flowParticipantCoverageRepairBase(missing), files, keywords)
-	queueFlowOperationNavigationRead(ctx, missing,
-		fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then emit only the exact verified operation or keep the requested relation unproven; the navigation row itself is not relation evidence.", missing),
-		"participant", types.DowngradeLaneFlowParticipantCoverage)
+	rationale := flowParticipantCoverageRepairHintForMissing(ctx, missing, evidence,
+		flowParticipantCoverageRepairBase(missing), files, keywords)
+	if !flowMissingParticipantsHaveLocalOperations(ctx, evidence, missing) {
+		queueFlowOperationNavigationRead(ctx, missing,
+			fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then emit only the exact verified operation or keep the requested relation unproven; the navigation row itself is not relation evidence.", missing),
+			"participant", types.DowngradeLaneFlowParticipantCoverage)
+	}
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
