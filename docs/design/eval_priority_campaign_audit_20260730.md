@@ -35985,6 +35985,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.964 r591/S37bs：member/bucket 双轴生产转正；Trace 显式窗零回归（2026-08-16）
+
+1. 在 `main@78050b570` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + cangjie_repomap`。Runner `2/2 PASS`，人工 `2/2 pass`；
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_trace_cangjie_replay_r591_20260816.md` 与同名
+   `_manual_audit.md`。
+2. B942 获生产正证。Cangjie 终稿把 12 条 typed row 恰好各显示一次，并按三个用户维度分组：extend=2、
+   foreign func=2、public class=8；每条同时保留成员身份、类别归属、精确 file:line、package 与逐行引用。
+   两个同名 `native_add` 由文件轴区分，`Cart` 的 class/extend 两行也没有互相吞并。首个
+   `answer_document` 直接被接受，`fin_reject=0`、`patch=0`、无旧稿/散文降级，证明修复不是靠重试碰巧收敛。
+3. 模型本轮选择“每个 bucket 一个 principal section”，而非单个 Markdown 表。这是合法的同义结构：bucket
+   由 block 分区，member 由 item identity 承载；系统没有强迫一种布局，也没有把 bucket 写进模型答案。
+   B942 的逐行 cells gate 只覆盖模型选择单表且同一 block 混合多个 bucket 的形态，因此既守住双轴，也不把
+   分区 section 错拒。
+4. Cangjie 用时 361s，但耗时来自探索阶段 `read=8, repo_map=2, source_lens=2`；成文仅一次调用且零拒绝。
+   这不是“成文校验未通过”重试风暴，本批不因墙钟时长降低证据杆或增加答案原文硬门；后续性能审计应看
+   typed exploration plan 的重复读取，而不能通过少读文件牺牲清单完备性。
+5. Trace 获同批非回归正证：显式窗 `13762.791708..13763.024898`、完整 Trace 因果投影和系统补采均在；
+   链上排序保留 running 74.915ms/折算 65.912ms、D-state 36.757ms/11 次、runnable 1.536ms、io_wait 精确零、
+   优先级反转候选与修向。blocked_reason 12 条/Σ39.157ms 仍作为独立内核报告账，未覆盖 D-state 墙钟。
+6. 实际占时/业务 span 与现规则可消除量继续双轴分账；链外 logd 等只在邻近/背景段出现，没有晋升根因。
+   Finalizer 首轮成文即通过，系统只 materialize typed Trace 工件，不删除、替换或代写模型的总结与修向。
+7. 两案均无 malformed JSON、非法 Mermaid、空答案、最终旧稿恢复或 active-stream 固定年龄降级。活跃字节流
+   即使 4ms 内尚无完整答案也继续按 first-byte/byte-stall/caller deadline 权威运行，禁止按累计年龄降级。
+
+状态：
+
+`B941-MARKDOWNSIDECARPRIMARYAXIS1=production-positive-r590/r591`；
+`B942-PERMEMBERBUCKETAXIS1=production-closed-r591`；
+`Cangjie inventory=facts+member+bucket+location+package+citation-complete/human-pass`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r591`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
