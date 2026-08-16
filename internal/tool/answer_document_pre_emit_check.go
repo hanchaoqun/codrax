@@ -4601,7 +4601,10 @@ func standaloneRelationBlockHasExactHandoff(block types.AnswerBlock, required ty
 }
 
 func standaloneSemanticHandoffAnchorMatches(anchor, required types.DiagramEdgeAnchor) bool {
-	return anchor.RelationKind == types.DiagramRelRegister &&
+	fromNode := strings.TrimSpace(anchor.FromNode)
+	toNode := strings.TrimSpace(anchor.ToNode)
+	return fromNode != "" && toNode != "" && fromNode != toNode &&
+		anchor.RelationKind == types.DiagramRelRegister &&
 		types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(required.FromIdentity)) &&
 		types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(anchor.ToIdentity), strings.TrimSpace(required.ToIdentity))
 }
@@ -4610,10 +4613,26 @@ func preEmitDocumentWithoutStandaloneSemanticHandoffAnchors(
 	doc *types.AnswerDocumentV2,
 	pctx *preEmitCheckContext,
 ) *types.AnswerDocumentV2 {
-	if doc == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+	if pctx == nil {
 		return doc
 	}
-	required := pctx.ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
+	return documentWithoutStandaloneSemanticHandoffAnchors(doc, pctx.ctx)
+}
+
+// documentWithoutStandaloneSemanticHandoffAnchors returns the common
+// validation view for exact model-authored registered-export bridges. Both
+// pre-emit and post-finalizer contract validation must consume this same view;
+// otherwise one validator accepts the dispatch receipt and the next rejects
+// the identical draft. It removes only a complete, distinct-node standalone
+// registration anchor that exactly matches the current dispatch receipt.
+func documentWithoutStandaloneSemanticHandoffAnchors(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+) *types.AnswerDocumentV2 {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return doc
+	}
+	required := ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
 	if len(required) == 0 {
 		return doc
 	}

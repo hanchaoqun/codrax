@@ -50,6 +50,12 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	view *types.AnswerSemanticView,
 	evidence []types.EvidenceItem,
 ) []DiagramCallEdgeEvidenceMismatch {
+	// B945: pre-emit and post-finalizer validation share the exact same
+	// dispatch-scoped registered-export receipt. Only a model-authored,
+	// distinct-node standalone registration anchor is removed from the ordinary
+	// physical source-edge view. Collapsed nodes, Mermaid arrows, partial pairs,
+	// and every ordinary call remain visible to the unchanged evidence matcher.
+	doc = documentWithoutStandaloneSemanticHandoffAnchors(doc, ctx)
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
 	owned := ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(ctx, doc)
 	if len(owned) == 0 {

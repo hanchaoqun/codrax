@@ -36113,6 +36113,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.967 r593/B945：注册桥 pre-emit 与 post-contract 同稿异判根修（2026-08-16）
+
+1. 在 `main@8858a3a37` 重建后严格并发恰好两个案例：`mr_poly_binding_chain` 与
+   `real_trace_h7_self_seat_full_spectrum`。Runner `2/2 PASS`，人工为 Trace=pass、Poly=fail；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_poly_trace_r593_20260816.md` 与同名 `_manual_audit.md`。
+2. Trace 获非回归正证：显式窗 `13762.791708..13763.024898`、3 次 typed query、完整 Trace 因果投影和
+   自动补采均在；链上主因保留 running 算力供给 65.912ms、D-state 36.757ms、优先级反转候选，实际占时/
+   业务 span 与规则可消双轴分账。邻近与背景没有晋升主因，首轮成文零拒绝、无固定年龄降级。
+3. Poly 的 runner PASS 是 regex 假阳性，人工不能签收。B944 的 gate 生产触发并让模型在第一个 accepted draft
+   提交两条 exact registered-export bridge；pre-emit 使用 dispatch receipt 接受。同一 document 几毫秒后进入
+   post-contract，后者未读取该 receipt，又把两条原样关系报成 `registration_edge_unproven`。这是确定性的
+   B945（P0）双验证器 authority 漂移，不是模型波动。
+4. 该矛盾触发第二次 Finalizer，额外消耗约 235s，并把第一稿劣化：一个 bridge 的两个 endpoint 被压到同一
+   `Rust` node，最终 strict relation retry budget 耗尽后带 caveat 放行；终稿缺 summary、Rust implementation 与
+   fallback 引用错绑，还在图已删除时写“图示中…”。这些是同一错误重试的级联，不拆成答案词硬门或单 case
+   引用特判。
+5. B945 根修让 pre-emit 与 post-finalizer `DiagramCallEdgeEvidenceMismatchesWithRuntimeContext` 共享唯一
+   `documentWithoutStandaloneSemanticHandoffAnchors` validation view。只对模型已经写出的 principal standalone
+   registration anchor，在 relation=register、两端 identity 精确匹配当前 dispatch receipt、两个 node 非空且
+   不同的条件下，从普通 physical source-edge 校验副本中过滤；原稿零修改。
+6. distinct-node 是必要拓扑不变量：typed receipt 证明语义 endpoint 和方向，不授权模型把两个 endpoint 压成
+   self-edge。coverage gate 与 post-contract 都新增负 pin；collapsed node、partial/ambiguous identity、Mermaid
+   arrow、普通 call 与未列出的注册边继续 fail-closed。合法 exact bridge 的 post-contract 生产接线 pin 已补。
+7. `go test ./internal/tool ./internal/orchestrator -count=1` 全绿（tool 163.446s、orchestrator 12.175s）。Runner
+   对 strict contract exhaustion 仍可能因 case 自身正则命中而报 PASS，列为 eval oracle 观察项；尚无跨 case
+   证据支持把所有 disclosed degradation 一律硬判失败，暂不按本例增加全局硬门。
+
+状态：
+
+`B944-PRINCIPALPATHRELATIONCOVERAGE1=production-trigger-positive-r593/closure-blocked-by-B945-replay`；
+`B945-SEMANICHANDOFFVALIDATORPARITY1=implemented/shared-validation-view+distinct-node/full-tests-pass/pending-replay`；
+`Poly r593=runner-pass/human-fail/contract-parity-cascade`；
+`Trace r593=human-pass/explicit-window+projection+auto-supplement`；
+`eval strict-exhaustion verdict=observation-open/no-single-case-hardening`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

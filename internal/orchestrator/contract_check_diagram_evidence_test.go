@@ -125,6 +125,34 @@ func TestRunV2BlockOracles_DiagramCallEdgeDirectionRequiresTypedEvidence(t *test
 	}
 }
 
+func TestValidateDiagramCallEdgeEvidenceAlignmentSharesStandaloneSemanticHandoffReceipt(t *testing.T) {
+	mut := types.NewMutableState("trace a registered export boundary")
+	receipt := types.DiagramEdgeAnchor{
+		FromNode: "n2", ToNode: "n4",
+		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "tokenize_bytes",
+		RelationKind: types.DiagramRelRegister,
+	}
+	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{receipt})
+	bus := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimRegistrationEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{receipt},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if got := validateDiagramCallEdgeEvidenceAlignment(doc, view, mut, bus); len(got) != 0 {
+		t.Fatalf("post-finalizer contract validator rejected the exact receipt accepted at pre-emit: %+v", got)
+	}
+
+	// The receipt proves identities and direction, not a self-edge invented by
+	// collapsing two semantic endpoints onto one model node.
+	doc.Blocks[0].EdgeAnchors[0].ToNode = doc.Blocks[0].EdgeAnchors[0].FromNode
+	got := validateDiagramCallEdgeEvidenceAlignment(doc, view, mut, bus)
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "typed_endpoints_collapsed_to_self_edge") {
+		t.Fatalf("post-finalizer receipt must keep collapsed topology fail-closed: %+v", got)
+	}
+}
+
 func TestRunV2BlockOracles_DiagramBodyEdgeCannotOmitTypedAnchor(t *testing.T) {
 	mut := types.NewMutableState("diagram anchor omission")
 	mut.AppendEvidence([]types.EvidenceItem{{

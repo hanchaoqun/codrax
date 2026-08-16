@@ -3167,6 +3167,14 @@ func TestPreCheckStandaloneCallChainSemanticHandoffPassesThroughSharedEvidenceGa
 	if len(doc.Blocks[0].EdgeAnchors) != 3 {
 		t.Fatalf("validator filtering must not mutate the model-authored document: %+v", doc.Blocks[0].EdgeAnchors)
 	}
+
+	// A typed bridge still needs two distinct model-authored topology nodes.
+	// Exact identities cannot turn a collapsed self-edge into a valid relation.
+	doc.Blocks[0].EdgeAnchors[1].ToNode = doc.Blocks[0].EdgeAnchors[1].FromNode
+	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, pctx); len(hints) != 1 ||
+		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneSemanticHandoffMissing}) {
+		t.Fatalf("collapsed endpoint nodes must not satisfy the exact handoff receipt: %+v", hints)
+	}
 }
 
 func TestDiagramCallEdgeEvidenceMismatches_DuplicateTypedParticipantIdentityIsDiagnosedFirst(t *testing.T) {
