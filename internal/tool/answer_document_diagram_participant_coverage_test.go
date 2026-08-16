@@ -52,6 +52,39 @@ func TestDiagramParticipantCoverageRequiresTypedBoundaryWithoutInventingEdge(t *
 	}
 }
 
+func TestPreCheckDiagramParticipantCoveragePreservesGroundedNoArrowGrouping(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"Analyzer\"] --> E[\"Explorer\"]\n subgraph B[\"BusContext\"]\n  M[\"MutableState\"]\n end"
+	mut := types.NewMutableState("preserve no-arrow ownership grouping")
+	mut.AppendEvidence(evidence)
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+		Mutable:    mut,
+	}}
+	bodyBefore := doc.Blocks[0].Diagram.Body
+	hints := preCheckDiagramParticipantCoverage(doc, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one missing-boundary hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		`participant=MutableState issue=missing_unproven_boundary`,
+		`identity_action:"ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping"`,
+		`boundary_action:"add_exactly_one_unproven_boundary"`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("no-arrow grouping repair hint missing %q:\n%s", want, hints[0].ExpectedShape)
+		}
+	}
+	for _, forbidden := range []string{"add_exact_visible_disconnected_participant", "remove_no_arrow_grouping", "flatten_grouping"} {
+		if strings.Contains(hints[0].ExpectedShape, forbidden) {
+			t.Fatalf("boundary repair must not instruct removal of grounded grouping; found %q in %s", forbidden, hints[0].ExpectedShape)
+		}
+	}
+	if doc.Blocks[0].Diagram.Body != bodyBefore {
+		t.Fatalf("precheck guidance must not rewrite the model's existing grouping: %q", doc.Blocks[0].Diagram.Body)
+	}
+}
+
 func TestDiagramParticipantCoverageUnprovenBoundaryMustBeActuallyDisconnected(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
@@ -549,14 +582,14 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		`repair_action["BusContext"]={issue:"available_typed_incident_edge_not_rendered",edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"omit_unproven_boundary"}`,
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
-		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any",identity_action:"add_exact_visible_disconnected_participant",boundary_action:"add_exactly_one_unproven_boundary"}`,
-		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_disconnected",identity_action:"retain_exact_visible_disconnected_participant_separately",boundary_action:"retain_exactly_one_unproven_boundary"}`,
+		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any",identity_action:"ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"add_exactly_one_unproven_boundary"}`,
+		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_out_of_that_directed_edge",identity_action:"retain_exact_visible_participant_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"retain_exactly_one_unproven_boundary"}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed participant repair actions missing %q:\n%s", want, got)
 		}
 	}
-	for _, forbidden := range []string{"add_edge_automatically", "retarget_to_participant", "infer_relation"} {
+	for _, forbidden := range []string{"add_edge_automatically", "retarget_to_participant", "infer_relation", "disconnected_participant"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("repair action must preserve model edge authorship; found %q in %s", forbidden, got)
 		}

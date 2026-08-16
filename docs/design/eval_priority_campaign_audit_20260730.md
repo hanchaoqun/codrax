@@ -36797,6 +36797,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `model-answer-ownership=preserved`。
 
+### §123.888 r539 / B865：未证有向关系边界不得抹除已证无箭头所有权分组（2026-08-15）
+
+1. 本批严格并发恰好两个异构案例：`qf_logic_view_read_pipeline` 与
+   `real_trace_h11_cross_direction_overlap`，机器均 PASS（359s/222s），人工均 fail。两案持续活动期间均未按
+   4ms/4s/4m 或固定累计年龄降级，也没有空答案或旧稿恢复。
+2. read 图案是 runner 假绿。最终图只保留 Analyzer→Explorer→Extractor→Finalizer 三条 precedence，
+   `BusContext` 与 `Mutable` 成为孤点；正文却继续声称二者承载跨阶段数据。首稿原本已经用合法 subgraph 表达
+   `BusContext` 包含 `Mutable`，且 Finalizer 上下文有 checkout-verified
+   `ownership_group_recipe(owner=BusContext,member=Mutable,type=*MutableState)`。关系门正确拒绝了额外的 contain 箭头，
+   但 participant repair 同轮又要求 `add_exact_visible_disconnected_participant`，弱模型因此连已证无箭头分组一起拆掉。
+3. 登记并实施 `B865-DIRECTEDBOUNDARYSTRUCTURALGROUP1/P0`。所有 missing/node-missing/duplicate/boundary-connected 修补动作不再使用
+   容易被解释为“从任何结构中拆出”的 disconnected participant 词形，改为：参与者不得充当未证有向边端点，但必须保留任何模型已画且
+   有 typed 所有权依据的 no-arrow subgraph/grouping。唯一 endpoint 冲突提示也明确“只与该有向边分离，不扁平化/删除已证分组”。
+4. 本修复不要求模型新增分组、不自动生成节点/箭头、不把字段声明升级为数据流；它只防止同一轮系统修补删除模型首稿已有的合法结构事实。
+   未证 call/argument/data-flow 仍 fail-closed，`participant_boundaries.status=unproven` 继续保留。
+5. H11 Trace 的显式窗、因果投影、确定性补齐、链上-only 主因、实际占时/业务线索和规则计价可消除双轴均在。模型却先称四方向
+   “物理独立”，再承认可能重叠/不可相加，最后给出 78.061ms 四方向算术和。B646 typed context 已明确
+   `physical_relation=unresolved` 与 `joint_total_authority=not_provided`；因此归为已给足精确信号后的模型波动/不遵循，保持软教学观察，
+   不新增答案关键词硬门，也不由系统删除、替换或代写结论。
+6. 回归新增 production-shape pin：已存在 `BusContext`/`MutableState` no-arrow subgraph 且只缺 unproven boundary 时，修补必须发布
+   preserve-grouping 动作，禁止再出现 `disconnected_participant`，且 precheck 不得改写模型 diagram body。定向测试与
+   `go test ./... -count=1` 全绿。
+
+`B865-DIRECTEDBOUNDARYSTRUCTURALGROUP1=implemented/full-suite-pass/pending-production-replay`；
+`B646-TRACEUNKNOWNRELATIONSUMMARY1=model-variance-recurred/context-sufficient/no-hard-gate`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r539`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

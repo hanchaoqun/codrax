@@ -71,7 +71,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	)
 	expected := "JSON placement: participant_boundaries is block-level, as a sibling of diagram and edge_anchors: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[...]}; never nest it inside diagram. For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge: " + strings.Join(parts, "; ")
 	if endpointConflicts != "" {
-		expected = "Resolve these exact endpoint-ID/label collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field. If that endpoint's visible label also equals the unproven participant, relabel the same technical node with concise technical wording derived from the already-published exact from_identity/to_identity; do not alter those anchor identities. Keep the exact participant as a separate disconnected visible node with its unproven boundary. The system is identifying an already model-authored unique edge/anchor pair and its parsed visible label, not creating or selecting a relation or choosing replacement wording: " + endpointConflicts + ". " + expected
+		expected = "Resolve these exact endpoint-ID/label collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field. If that endpoint's visible label also equals the unproven participant, relabel the same technical node with concise technical wording derived from the already-published exact from_identity/to_identity; do not alter those anchor identities. Keep the exact participant separate from that directed edge and retain its unproven boundary; an independently grounded, already-authored no-arrow subgraph/grouping remains valid and must not be flattened or removed. The system is identifying an already model-authored unique edge/anchor pair and its parsed visible label, not creating or selecting a relation or choosing replacement wording: " + endpointConflicts + ". " + expected
 	}
 	if actions != "" {
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
@@ -265,19 +265,19 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 			boundaryAction = "remove_stale_boundary"
 		case DiagramParticipantCoverageMissingBoundary:
 			edgeAction = "none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any"
-			identityAction = "add_exact_visible_disconnected_participant"
+			identityAction = "ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping"
 			boundaryAction = "add_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageNodeMissing:
 			edgeAction = "none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any"
-			identityAction = "add_exact_visible_disconnected_participant"
+			identityAction = "ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping"
 			boundaryAction = "retain_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageDuplicate:
 			edgeAction = "none"
-			identityAction = "retain_exact_visible_disconnected_participant"
+			identityAction = "retain_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping"
 			boundaryAction = "deduplicate_to_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageBoundaryConnected:
-			edgeAction = "move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_disconnected"
-			identityAction = "retain_exact_visible_disconnected_participant_separately"
+			edgeAction = "move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_out_of_that_directed_edge"
+			identityAction = "retain_exact_visible_participant_and_preserve_any_existing_grounded_no_arrow_grouping"
 			boundaryAction = "retain_exactly_one_unproven_boundary"
 		case DiagramParticipantCoverageUnknownBoundary:
 			edgeAction = "none"
