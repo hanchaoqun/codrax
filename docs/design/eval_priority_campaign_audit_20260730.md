@@ -36025,6 +36025,44 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.932 B899：算术分子权限由全会话 OR 收窄到同窗 typed 来源（2026-08-16）
+
+1. 以 `main@71291888c` 为基线复核 r563 H4 全链。`target_window_states` 已明确发布
+   running=157.248ms、runnable=5.604ms、sleep=70.338ms、total=233.190ms，且自身
+   `state_partition_coverage=complete`；同轮另一个 `event_search` 因 874 行只展示 60 行而携带
+   查询级 `EnumerationAuthority=incomplete`。旧 `runtimeTraceArithmeticEnumerationCompleteness`
+   对全会话结果做 ANY-incomplete，遂把三个完整状态比例都写成 `completeness=incomplete`。这是
+   跨 query、跨 product-face 的权限污染，不是 Trace 数据缺失，也不是模型算术错误。
+2. B899 根修不再向每个关系传入一个全局 completeness。每个已选算术分子与已选 typed 窗长组成
+   relation key，解析器只在同窗 deterministic-query typed observations 中寻找数值来源。普通观测只
+   继承它所在 ToolResult 的枚举权限；多个查询都找不到唯一数值来源时返回 `unknown`，禁止借用
+   sibling query 的 incomplete/complete 作断言。
+3. `target_window_states` 是专门的 principal numerator authority：running/runnable/sleep/D-state/
+   IO-wait/total 等值从 typed note 读取，权限由该状态账自己的 `total≈selected_window` 守恒判定。
+   因而即使同一个 window_stats ToolResult 的事件预览被压缩，完整状态账仍为 complete；若状态总账
+   小于窗口则诚实为 incomplete，无法确定窗口时为 unknown。数值碰巧同时出现在普通榜单时，principal
+   状态账优先，避免同值冲突把精确信号再次稀释。
+4. 保留单一 in-scope 查询的旧兼容 fallback；这是没有跨查询污染可能时的现有行为。存在多个查询时
+   fallback 关闭，必须有 relation-local match。关系无法唯一选分子/分母时继续只发 soft advisory，
+   不拒绝成文、不修改正文、不把任何系统复算写成模型结论。
+5. 新增三类回归：完整状态账 + sibling capped query 必须静默；只在 capped result 匹配的分子继续披露
+   incomplete；complete/incomplete 两个无关查询且分子无来源时只能披露 unknown。原有中英文、单窗/
+   多窗、关系歧义、分母选举与 persisted wiring 用例全部通过；完整 `internal/tool` 164.712s 通过，
+   `make` 通过。
+6. 本批不改 Trace 查询、显式窗、因果投影、系统补齐、根因排序或模型答案。主因仍只来自 typed
+   on-chain 证据；优先级反转、调度供给、算力供给、D/IO、确定性语义与链上业务线索不丢失，实际占用
+   与规则计价可消除量双轴不变；邻近/背景只能作 support。没有新增 request/model/final prose 硬门，
+   系统不生成、替换或确权模型结论；活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B899-ARITHENUMERATIONCROSSQUERYTAINT1=implemented/relation-local-window-bound+pinned`；
+`B898-RUNTIMESELECTIONCARRIEROMISSION1=implemented/pending-r564-production-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

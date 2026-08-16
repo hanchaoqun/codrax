@@ -37,6 +37,18 @@ type runtimeTraceArithmeticRelationGroup struct {
 	candidates []runtimeTraceArithmeticRelation
 }
 
+type runtimeTraceArithmeticNumeratorAuthority struct {
+	durationMS   float64
+	windowMS     float64
+	completeness string
+	principal    bool
+}
+
+type runtimeTraceArithmeticAuthorityResolver struct {
+	numerators           []runtimeTraceArithmeticNumeratorAuthority
+	singleResultFallback string
+}
+
 // materializeRuntimeTraceArithmeticRelationCaveat checks only model-authored
 // visible text against producer-typed trace windows. It never edits a block,
 // never rejects the answer, and never promotes a capped sample into a complete
@@ -60,7 +72,7 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 	if len(windows) == 1 {
 		windowMS, windowUnique = windows[0], true
 	}
-	completeness := runtimeTraceArithmeticEnumerationCompleteness(
+	authority := runtimeTraceArithmeticBuildAuthorityResolver(
 		append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...),
 	)
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
@@ -80,7 +92,7 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 			break
 		}
 		if note, publish := runtimeTraceArithmeticRelationGroupNote(
-			group, windows, windowMS, windowUnique, completeness, zh,
+			group, windows, windowMS, windowUnique, authority, zh,
 		); publish {
 			appendNote(note)
 		}
@@ -109,7 +121,7 @@ func runtimeTraceArithmeticRelationGroupNote(
 	windows []float64,
 	windowMS float64,
 	windowUnique bool,
-	completeness string,
+	authority runtimeTraceArithmeticAuthorityResolver,
 	zh bool,
 ) (string, bool) {
 	if len(group.candidates) == 0 {
@@ -134,6 +146,7 @@ func runtimeTraceArithmeticRelationGroupNote(
 	}
 	if len(consistent) == 1 {
 		pair := consistent[0]
+		completeness := authority.completenessFor(pair.relation.durationMS, pair.windowMS)
 		if completeness == "complete" {
 			return "", false
 		}
@@ -159,14 +172,14 @@ func runtimeTraceArithmeticRelationGroupNote(
 		), true
 	}
 	if len(consistent) > 1 {
-		return runtimeTraceArithmeticUnverifiedText(group.candidates[0], completeness, zh), true
+		return runtimeTraceArithmeticUnverifiedText(group.candidates[0], "unknown", zh), true
 	}
 	if len(group.candidates) > 1 {
 		return runtimeTraceArithmeticAmbiguousPairText(
 			group.candidates[0],
 			len(group.candidates),
 			len(windows),
-			completeness,
+			"unknown",
 			zh,
 		), true
 	}
@@ -174,7 +187,7 @@ func runtimeTraceArithmeticRelationGroupNote(
 	relation := group.candidates[0]
 	switch {
 	case !windowUnique && len(windows) < 2:
-		return runtimeTraceArithmeticUnverifiedText(relation, completeness, zh), true
+		return runtimeTraceArithmeticUnverifiedText(relation, "unknown", zh), true
 	case !windowUnique:
 		// ARITH-DENOM (2026-07-24, NW-WIN-TYPED 拆件): with one
 		// syntactically possible numerator and a multi-window census, the
@@ -190,12 +203,14 @@ func runtimeTraceArithmeticRelationGroupNote(
 				closest, closestDiff = w, diff
 			}
 		}
+		completeness := authority.completenessFor(relation.durationMS, closest)
 		return runtimeTraceArithmeticNoConsistentWindowText(
 			relation, closest, len(windows), tolerance, completeness, zh,
 		), true
 	default:
 		computed := relation.durationMS / windowMS * 100
 		tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+		completeness := authority.completenessFor(relation.durationMS, windowMS)
 		return runtimeTraceArithmeticCheckedText(
 			relation,
 			windowMS,
@@ -449,24 +464,152 @@ func runtimeTraceTypedWindowsMS(records []types.ObservationRecord) []float64 {
 	return windows
 }
 
-func runtimeTraceArithmeticEnumerationCompleteness(results []types.ToolResult) string {
-	seen := false
+// runtimeTraceArithmeticBuildAuthorityResolver binds an arithmetic numerator
+// to the deterministic query row that published that value in the elected
+// window. EnumerationAuthority is query/result scoped: it must never be ORed
+// across the session and then attributed to every model-visible duration.
+//
+// target_window_states is finer still. It is a self-balancing wall-clock
+// account whose state values remain complete even when another product in the
+// same trace_query result (for example a capped event_search preview) is
+// compacted. Its own total/window conservation therefore owns completeness.
+func runtimeTraceArithmeticBuildAuthorityResolver(results []types.ToolResult) runtimeTraceArithmeticAuthorityResolver {
+	resolver := runtimeTraceArithmeticAuthorityResolver{}
+	inScopeResults := 0
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
 		inScope := toolName == "trace_query" ||
 			(toolName == "read_file" && result.RuntimeArtifactRead != nil)
-		if !inScope || result.EnumerationAuthority == nil {
+		if !inScope {
 			continue
 		}
-		seen = true
-		if strings.TrimSpace(result.EnumerationAuthority.Status) != "complete" {
-			return "incomplete"
+		inScopeResults++
+		resultStatus := runtimeTraceArithmeticNormalizeCompleteness(result.EnumerationAuthority)
+		if inScopeResults == 1 {
+			resolver.singleResultFallback = resultStatus
+		} else {
+			resolver.singleResultFallback = ""
+		}
+		for _, record := range result.Observations {
+			if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+				continue
+			}
+			start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if !ok || end <= start {
+				continue
+			}
+			windowMS := (end - start) * 1000
+			if strings.TrimSpace(record.Predicate) == "target_window_states" {
+				resolver.numerators = append(resolver.numerators,
+					runtimeTraceArithmeticTargetStateAuthorities(record, windowMS)...,
+				)
+				continue
+			}
+			if strings.TrimSpace(record.Unit) != "ms" {
+				continue
+			}
+			value, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64)
+			if err != nil || value < 0 {
+				continue
+			}
+			resolver.numerators = append(resolver.numerators, runtimeTraceArithmeticNumeratorAuthority{
+				durationMS: value, windowMS: windowMS, completeness: resultStatus,
+			})
 		}
 	}
-	if !seen {
+	return resolver
+}
+
+func runtimeTraceArithmeticTargetStateAuthorities(
+	record types.ObservationRecord,
+	windowMS float64,
+) []runtimeTraceArithmeticNumeratorAuthority {
+	values := make([]float64, 0, 8)
+	for _, key := range []string{
+		types.TraceNoteKeyRunning,
+		types.TraceNoteKeyRunnable,
+		types.TraceNoteKeySleep,
+		types.TraceNoteKeyDState,
+		types.TraceNoteKeyIOWait,
+		types.TraceNoteKeySleepIOWait,
+		types.TraceNoteKeyTotal,
+		types.TraceNoteKeyDeterministicRunning,
+	} {
+		if value, ok := runtimeTraceArithmeticTypedNoteFloat(record.RichNotes, key); ok {
+			values = append(values, value)
+		}
+	}
+	if value, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64); err == nil && value >= 0 {
+		values = append(values, value)
+	}
+	totalMS, totalOK := runtimeTraceArithmeticTypedNoteFloat(record.RichNotes, types.TraceNoteKeyTotal)
+	status := "unknown"
+	if totalOK && windowMS > 0 {
+		switch {
+		case math.Abs(totalMS-windowMS) <= runtimeTraceArithmeticWindowDedupeMS:
+			status = "complete"
+		case totalMS >= 0 && totalMS < windowMS-runtimeTraceArithmeticWindowDedupeMS:
+			status = "incomplete"
+		}
+	}
+	out := make([]runtimeTraceArithmeticNumeratorAuthority, 0, len(values))
+	for _, value := range values {
+		out = append(out, runtimeTraceArithmeticNumeratorAuthority{
+			durationMS: value, windowMS: windowMS, completeness: status, principal: true,
+		})
+	}
+	return out
+}
+
+func runtimeTraceArithmeticTypedNoteFloat(notes []string, key string) (float64, bool) {
+	prefix := strings.TrimSpace(key) + "="
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if !strings.HasPrefix(note, prefix) {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimPrefix(note, prefix)), 64)
+		if err == nil && value >= 0 {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func runtimeTraceArithmeticNormalizeCompleteness(authority *types.ToolEnumerationAuthority) string {
+	if authority == nil {
 		return "unknown"
 	}
-	return "complete"
+	if strings.TrimSpace(authority.Status) == "complete" {
+		return "complete"
+	}
+	return "incomplete"
+}
+
+func (resolver runtimeTraceArithmeticAuthorityResolver) completenessFor(durationMS, windowMS float64) string {
+	for _, principalOnly := range []bool{true, false} {
+		statuses := map[string]bool{}
+		for _, candidate := range resolver.numerators {
+			if candidate.principal != principalOnly ||
+				math.Abs(candidate.durationMS-durationMS) > runtimeTraceArithmeticWindowDedupeMS ||
+				math.Abs(candidate.windowMS-windowMS) > runtimeTraceArithmeticWindowDedupeMS {
+				continue
+			}
+			statuses[candidate.completeness] = true
+		}
+		if len(statuses) == 1 {
+			for status := range statuses {
+				return status
+			}
+		}
+		if len(statuses) > 1 {
+			return "unknown"
+		}
+	}
+	if resolver.singleResultFallback != "" {
+		return resolver.singleResultFallback
+	}
+	return "unknown"
 }
 
 // The tolerance is half of the claimed percentage's last displayed decimal

@@ -104,6 +104,108 @@ func TestRuntimeTraceArithmeticRelationCaveatDisclosesIncompleteNumerator(t *tes
 	}
 }
 
+func TestRuntimeTraceArithmeticRelationCaveatDoesNotBorrowSiblingQueryCompaction(t *testing.T) {
+	window := types.TraceNoteKeySelectedWindow + "=10.000000..10.100000"
+	stateResult := types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		EnumerationAuthority: &types.ToolEnumerationAuthority{Status: "incomplete"},
+		Observations: []types.ObservationRecord{{
+			ID: "trace_query:states#target_window_states", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+			Predicate: "target_window_states", Subject: "app-7", Object: "state_partition",
+			Value: "100.000", Unit: "ms",
+			RichNotes: []string{
+				types.TraceNoteKeyRunning + "=40.000",
+				types.TraceNoteKeyRunnable + "=10.000",
+				types.TraceNoteKeySleep + "=50.000",
+				types.TraceNoteKeyDState + "=0.000",
+				types.TraceNoteKeyIOWait + "=0.000",
+				types.TraceNoteKeyTotal + "=100.000",
+				window,
+			},
+		}},
+	}
+	// A sibling cursor is compacted. That is authority for its event roster,
+	// not for the state account above (and the account's own result may also
+	// carry an unrelated compacted face).
+	cappedEvents := types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		EnumerationAuthority: &types.ToolEnumerationAuthority{Status: "incomplete"},
+		Observations: []types.ObservationRecord{{
+			ID: "trace_query:events#row", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+			Predicate: "trace_event", Subject: "other", Value: "1.000", Unit: "ms",
+			RichNotes: []string{window},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "running 40.000ms，占窗口 40.0%。",
+	}}}
+	ctx := &types.BusContext{ToolResults: []types.ToolResult{stateResult, cappedEvents}}
+	if materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatalf("unrelated compaction tainted a conserved target state numerator: %+v", doc.Caveats)
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatUsesMatchedResultAuthorityOnly(t *testing.T) {
+	window := types.TraceNoteKeySelectedWindow + "=10.000000..10.100000"
+	result := func(id, value, status string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "trace_query", Success: true,
+			EnumerationAuthority: &types.ToolEnumerationAuthority{Status: status},
+			Observations: []types.ObservationRecord{{
+				ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				Predicate: "root_cause_primary", Subject: id, Value: value, Unit: "ms",
+				RichNotes: []string{window},
+			}},
+		}
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "候选累计 30.000ms，占窗口 30.0%。",
+	}}}
+	ctx := &types.BusContext{ToolResults: []types.ToolResult{
+		result("complete-other", "20.000", "complete"),
+		result("matched-capped", "30.000", "incomplete"),
+	}}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatal("matched incomplete numerator must retain its local disclosure")
+	}
+	if got := strings.Join(doc.Caveats, "\n"); !strings.Contains(got, "completeness=incomplete") {
+		t.Fatalf("matched result authority was not used: %s", got)
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatDoesNotGuessAuthorityAcrossQueries(t *testing.T) {
+	window := types.TraceNoteKeySelectedWindow + "=10.000000..10.100000"
+	result := func(id, value, status string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "trace_query", Success: true,
+			EnumerationAuthority: &types.ToolEnumerationAuthority{Status: status},
+			Observations: []types.ObservationRecord{{
+				ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				Predicate: "root_cause_primary", Subject: id, Value: value, Unit: "ms",
+				RichNotes: []string{window},
+			}},
+		}
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "另一个总量 30.000ms，占窗口 30.0%。",
+	}}}
+	ctx := &types.BusContext{ToolResults: []types.ToolResult{
+		result("complete-other", "20.000", "complete"),
+		result("incomplete-other", "10.000", "incomplete"),
+	}}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatal("unbound mixed-query numerator must retain an unknown-authority caveat")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	if !strings.Contains(got, "completeness=unknown") || strings.Contains(got, "completeness=incomplete") {
+		t.Fatalf("unrelated query status was borrowed: %s", got)
+	}
+}
+
 func TestRuntimeTraceArithmeticRelationCaveatElectsUniqueNumeratorInOneClause(t *testing.T) {
 	const original = "总时长 0.635ms，占全窗 144.557ms 的约 0.44%。"
 	doc := &types.AnswerDocumentV2{
