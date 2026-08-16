@@ -6187,7 +6187,7 @@ func TestRenderAnswerDocSubmissionChecklist_EnumerationUsesMultiCitationCarrierW
 	for _, want := range []string{
 		"primary `citation_ref=N`",
 		"optional additional `citation_refs=[...]`",
-		"only when that same item states independently supported facts from several already-selected anchors",
+		"only when that same item states separately supported facts from several already-selected anchors",
 		"Never add an unselected anchor merely to fill the array",
 	} {
 		if !strings.Contains(got, want) {

@@ -77,7 +77,7 @@ func TestRNB5BNearPeakAbsoluteArmDropsNearClaim(t *testing.T) {
 	if !ok || strings.Contains(text, "接近") {
 		t.Fatalf("absolute-gate failure (1.2ms) must not wear 接近: %q ok=%v", text, ok)
 	}
-	if text != "供给折算缺口 1.200ms(运行频点非最高,独立口径,不计入有效归因)" {
+	if text != "供给折算缺口 1.200ms(运行频点非最高,单列口径,不计入有效归因)" {
 		t.Fatalf("uncounted gate-failed form drifted: %q", text)
 	}
 }

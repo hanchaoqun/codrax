@@ -221,7 +221,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 	}
 	if len(adjacent) > 0 {
-		b.WriteString("Adjacent-impact seats (time-adjacent to the chain, not on it — an independent ordinal space, never merged with the on-chain order):\n")
+		b.WriteString("Adjacent-impact seats (time-adjacent to the chain, not on it — a distinct ordinal space, never merged with the on-chain order):\n")
 		for i, row := range adjacent {
 			if i >= traceBoardAdjacentRowCap {
 				b.WriteString(fmt.Sprintf("- (+%d more adjacent rows; see the measured observations)\n", len(adjacent)-traceBoardAdjacentRowCap))

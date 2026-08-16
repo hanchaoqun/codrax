@@ -56,7 +56,7 @@ func truncObservationMutable(t *testing.T) *types.MutableState {
 const truncOrchTailSentinel = "尾部完整性哨兵TRUNCTAIL第一稿收束"
 
 func truncOrchDraftBody(n int) string {
-	line := "第一稿根因段:优先级反转候选,供给折算缺口按大核满频折算,下界,独立口径不计入有效归因。\n"
+	line := "第一稿根因段:优先级反转候选,供给折算缺口按大核满频折算,下界,单列口径不计入有效归因。\n"
 	var b strings.Builder
 	for len([]rune(b.String())) < n {
 		b.WriteString(line)

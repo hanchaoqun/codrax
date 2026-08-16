@@ -124,9 +124,9 @@ var wordingLaneRules = []wordingLaneRule{
 			// survived only as a buried English summary attribute). SAME
 			// lane, a quoting consumer, never a second clause/decision
 			// table: the feed states the value plus the seat-shape-invariant
-			// caliber facts only (运行频点非最高 / 独立折算口径,不计入四态
+			// caliber facts only (运行频点非最高 / 单列折算口径,不计入四态
 			// 合计) and deliberately does NOT reproduce the four-branch
-			// verdict wording (为主 / 已计入有效归因 / 独立口径,不计入有效
+			// verdict wording (为主 / 已计入有效归因 / 单列口径,不计入有效
 			// 归因) — runtimeTraceProjSupplyFoldClauseCore stays the only
 			// clause emitter (its verdict fork would be a lie for the
 			// eff==deficit seat shape anyway).

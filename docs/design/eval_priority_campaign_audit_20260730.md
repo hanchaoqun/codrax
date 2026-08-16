@@ -37305,6 +37305,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；
 邻近与背景=`support-only`；模型答案/结论/图=`system-does-not-author`。
 
+### §123.901 B873：物理关系判定与分别计量词汇分域，消除 Trace 上下文自冲突（2026-08-15）
+
+1. r544 完整 Finalizer prompt 冷读确认，B873 是确定性上下文 gap，不是单次模型波动。同一 dispatch
+   一方面正确声明：无 exact typed pair relation 时，物理关系只能是 unresolved，不能称为 independent、
+   no-overlap 或 additive；另一方面又在 background、wait seat、ordinal domain、semantic span channel、
+   frequency evidence、caliber 与 cross-board account 等“分别承载/分别计量”语义上反复使用
+   `independent/独立`。模型把记账词误当物理关系裁决有明确系统诱因。
+2. B873 建立词汇分域：`independence/独立性` 只保留在 exact 物理关系判断、否证与 typed pair authority
+   语境；“关系没有证据”统一写成 `supporting background whose physical relation remains unresolved`，
+   不再写 `independent background`。因此背景仍可作为排查方向，但不能因无 relation row 自动升级为
+   已证独立、无重叠或无竞争。
+3. 分别承载面统一改为无关系含义的词族：wait/cause row=`separately bound typed seat`，相邻榜=
+   `distinct ordinal domain`，semantic span=`separate evidence channel`，多个 typed count/evidence=
+   `separately reported/separate`；generic mechanism 标题从 `INDEPENDENT MECHANISM CONTRAST` 改为
+   `MECHANISM-SPECIFIC EVIDENCE CONTRAST`。这只减少模型心智，不改变证据人口或 validator 权限。
+4. 系统生成但不替模型下结论的精确展示同步同源：`独立折算口径`→`单列折算口径`，
+   `各口径独立`→`各口径分别计量`，`各板独立成账`→`各板分别记账`，实际占用/规则可消除量从
+   “两轴独立”改为“两轴分别成账”。数值、单位、排序、同尺可加/跨尺禁加、板间互指和全部 E# 均不变。
+5. 保留所有真正的关系语义：Trace Decision Handoff 仍明确
+   `relation_authority=typed_pair_only`、`absent_overlap_record_proves_independence=false`，并要求 unknown
+   pair 写 physical relationship unresolved；现有 exact overlap/disjoint/mutual-exclusion/addition carrier
+   继续可以授权相应关系。此次没有把 independent 一刀切删除，更没有降低关系证据门槛。
+6. 新结构 pin 覆盖 trace-gated skill 全面、wait evidence、adjacent ordinal、frequency authority、
+   actual-vs-eliminable 双轴和 zh/en 词面；旧 `independent background/typed seat/ordinal domain/两轴独立`
+   回流即失败。测试只审计系统自己的 prompt/typed display，不读取或扫描用户原文、模型 reasoning、
+   Mermaid、答案草稿或最终 prose。
+7. 定向回归、完整受影响包和 `go test ./... -count=1` 全仓回归通过；其中全仓重包
+   `internal/tool`（182.749s）、`internal/tracequery`（78.334s）、`internal/hitraceconv`（97.433s）全绿。下一步
+   exact-2 选 H11 Trace 关系复放和一个多语言源码关系图案例，核查 B873 是否让模型稳定保留 unresolved，
+   同时确认多语言关系表达没有缩水。
+8. 本批不修改 trace_query、窗口选举、投影编译、系统补采、根因排序、wakeup chain、窗内可消除量或
+   occupancy population；不生成/替换模型答案、结论或 Mermaid。显式时间窗完整 causal diagnosis 继续
+   自动补齐，主因仍只能来自 typed on-chain 证据，邻近/背景仅作支持。
+
+状态：
+
+`B873-TRACERELATIONVOCABULARY1=implemented/full-repo-suite-pass/production-replay-next`；
+`B870-TRACERELATIONPRESENTATION1=context-positive/awaiting-B873-replay`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/queued-after-B873-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

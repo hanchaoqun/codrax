@@ -37,7 +37,7 @@ func truncTestDoc() *types.AnswerDocumentV2 {
 // n runes whose LAST line is the unique tail sentinel — the assertion target
 // for "the tail must survive rendering".
 func truncBodyOfRunes(n int) string {
-	line := "根因说明:线程优先级反转候选,供给折算缺口按大核满频折算,下界,簇结构不可判,按纯频率比折算,独立口径不计入有效归因。\n"
+	line := "根因说明:线程优先级反转候选,供给折算缺口按大核满频折算,下界,簇结构不可判,按纯频率比折算,单列口径不计入有效归因。\n"
 	var b strings.Builder
 	for b.Len() < n*4 { // CJK ≈3 bytes/rune; overshoot then check runes
 		b.WriteString(line)

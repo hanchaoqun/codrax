@@ -37,7 +37,7 @@ func TestC4InversionFamilyTwoChannelTeaching(t *testing.T) {
 		"ONE priority-inversion family measured on two channels",
 		"marks the on-chain gated composite seat",
 		"marks the same-CPU runnable-overlap occurrence row",
-		"never as two independent competing causes",
+		"never as two separate competing causes",
 		"`tier` is `absorbed`",
 		"absorbed_by_rank_family=true",
 		"counts inside the family row its `absorbed_into` key names",

@@ -514,7 +514,7 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"preserve the frame-causality boundary",
 		"never one member's span name",
 		"MUST mention EVERY retained on-chain semantic family",
-		"Independently of root-cause TOP N",
+		"Regardless of root-cause TOP N",
 		"never omitted merely because their rank row was truncated or relation-only",
 		"raw share of its own query window",
 		"member_count",
@@ -536,7 +536,7 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"a rank observation note spelling projected_total_ms only echoes cumulative_impact_ms",
 		"ranking order lives on effective_impact_ms (before score)",
 		"temporal overlap, the same broad IO/CPU class, or a pressure score does NOT prove a shared device/inode/lock/core",
-		"independent background and at most a follow-up investigation direction",
+		"supporting background whose physical relation remains unresolved and at most a follow-up investigation direction",
 		"never add its duration to chain rows or invent a combined total",
 	} {
 		if !strings.Contains(traceTier, want) {

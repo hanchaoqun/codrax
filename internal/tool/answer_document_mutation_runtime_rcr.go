@@ -1787,7 +1787,7 @@ func runtimeTraceProjCauseEvidenceRef(row runtimeTraceProjTreeRow) string {
 // an inversion node's supply-fold deficit (the retired Triple mechanism
 // sentence's data half, §24 ②): the unified sub-row grammar with the
 // 供给折算缺口 phrasing folded into the caliber parenthesis (§24.1 单一子行
-// 文法), explicitly outside the effective attribution (independent caliber,
+// 文法), explicitly outside the effective attribution (separately accounted caliber,
 // never additive — 墙钟红线). "" when the fold never ran or found no deficit.
 func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProjectionNode, zh bool) string {
 	if !runtimeTraceCausalProjectionInversionRow(node) || !node.SupplyFoldComputed || node.SupplyFoldDeficitMS <= 0 {
@@ -1802,7 +1802,7 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	// token. R5 (§29.88.12 单基准, 2026-07-15) EVOLUTION RECORD: the basis
 	// word is the unified 全域最大核最高频 form and — on an inversion row —
 	// this deficit IS the counted running component (one fold, one number),
-	// so the former 「独立口径,不计入有效归因」 tail (true under the
+	// so the former 「单列口径,不计入有效归因」 tail (true under the
 	// two-algorithm split) is replaced by the explicit same-source identity
 	// (同源可互推); the R5b mention rides the deficit word.
 	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)

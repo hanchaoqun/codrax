@@ -131,7 +131,7 @@ func TestSupplyFoldClauseDemandBranchZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(运行频点非最高,按全域最大核最高频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)"
+	want := "机制构成(各口径分别计量、不可加和):供给折算缺口5.000ms(运行频点非最高,按全域最大核最高频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)"
 	if !strings.Contains(despaced, want) {
 		t.Fatalf("demand-branch clause missing:\n%s", md)
 	}

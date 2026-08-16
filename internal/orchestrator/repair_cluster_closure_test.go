@@ -275,7 +275,7 @@ func TestClassifyNextPlanAction_OneOfTwoFinalizerClustersClosed_StaysOnFinalizer
 // TestClassifyNextPlanAction_PrimaryResolvedDerivedPersists_TriggersRebuild —
 // when Primary cleared but Derived still present, the cooccurrence
 // theory was wrong. Action must be REBUILD (residual Derived is now
-// an independent root cause).
+// a standalone root cause).
 func TestClassifyNextPlanAction_PrimaryResolvedDerivedPersists_TriggersRebuild(t *testing.T) {
 	prev := RepairExecutionPlan{
 		ClusterStates: []RepairClusterExecutionState{

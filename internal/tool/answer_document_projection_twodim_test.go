@@ -134,7 +134,7 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 		joined += "\n" + strings.Join(item.Cells, " | ")
 	}
 	for _, want := range []string{
-		"两轴独立，不能相加或互相替代",
+		"两轴分别成账，不能相加或互相替代",
 		"本表自身不证明某个占用已经导致具体丢帧",
 		"running 60.000ms、runnable 30.000ms、sleep 80.000ms",
 		"非 IO D-state 10.000ms、io_wait 20.000ms",
@@ -156,6 +156,9 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 			t.Fatalf("occupancy matrix missing %q:\n%s", want, joined)
 		}
 	}
+	if strings.Contains(joined, "两轴独立") || strings.Contains(joined, "two axes are independent") {
+		t.Fatalf("decision-axis accounting reused physical-independence vocabulary:\n%s", joined)
+	}
 	if strings.Contains(joined, "120.000ms") {
 		t.Fatalf("cross-thread process CPU time must never be relabeled as wall clock:\n%s", joined)
 	}
@@ -173,7 +176,7 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 	en := runtimeTraceCausalProjectionOccupancyBlock(
 		projection, enModel, false, runtimeTraceCausalProjectionBlockIDBase, "", nil, nil,
 	)
-	if en == nil || !strings.Contains(en.Text, "The two axes are independent") ||
+	if en == nil || !strings.Contains(en.Text, "The two axes use separate accounting bases") ||
 		!strings.Contains(en.Text, "does not prove that an occupancy caused a specific dropped frame") {
 		t.Fatalf("english occupancy boundary missing: %+v", en)
 	}

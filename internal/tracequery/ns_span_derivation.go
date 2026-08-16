@@ -395,7 +395,7 @@ func applyNsSpanOwnerResolution(idx *Index, cand *CriticalBlockingCandidate, ns 
 		ceiling := counterpartNsSpanDerivationConfidence
 		switch {
 		case fb.OK && fb.Waker.PID == ns.Host.PID:
-			// §18.E.1 identity unification: two independent lanes name the
+			// §18.E.1 identity unification: two separate evidence lanes name the
 			// same host thread.
 			cand.HolderNsUnification = nsSpanUnificationValue(rawTid, ns.Host)
 			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanUnificationCaveat(rawTid, ns.Host))
@@ -522,7 +522,7 @@ func nsSpanProcessLevelCaveat(rawTid int, ns nsSpanOwnerResolution, hostTidColli
 }
 
 // nsSpanUnificationValue is the typed identity-unification declaration value
-// (§18.E.1): the unified host thread plus the two independent lanes that
+// (§18.E.1): the unified host thread plus the two separate evidence lanes that
 // derived it. System-produced, never model prose.
 func nsSpanUnificationValue(rawTid int, host ThreadRef) string {
 	return fmt.Sprintf("owner_ns_tid=%d host=%s lanes=%s+%s", rawTid, threadLabel(host), CounterpartSourceNsSpanDerivation, CounterpartSourceWakeupEdge)

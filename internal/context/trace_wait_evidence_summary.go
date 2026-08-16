@@ -669,8 +669,8 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			// 席位构成 arm above EXCLUSIVELY. On an inversion row the deficit
 			// IS the counted running component of the seat's effective
 			// attribution (同源同值, §29.88.12 R5 — which RETIRED the
-			// 「独立口径」 word face for that family), so this arm's
-			// 「独立折算口径,不与墙钟(全额)值相加」 face would re-mint the
+			// 「单列口径」 word face for that family), so this arm's
+			// 「单列折算口径,不与墙钟(全额)值相加」 face would re-mint the
 			// retired lie on any inversion seat that merely fails the
 			// dominance gate (deficit < 0.5×eff) or lacks the gated-split
 			// note. A sub-dominant inversion seat staying silent is the
@@ -905,10 +905,10 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	}
 
 	var b strings.Builder
-	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one independent typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
+	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one separately bound typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
 	if len(selectedSubjects) > 0 {
 		var unboundWindowRows []string
-		b.WriteString("Kernel-recorded wait evidence (independent typed seats):\n")
+		b.WriteString("Kernel-recorded wait evidence (separately bound typed seats):\n")
 		for _, subject := range selectedSubjects {
 			f := threads[subject]
 			hiddenFacts := 0
@@ -1108,7 +1108,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			if fact.typeToken != "" {
 				head += " " + fact.typeToken
 			}
-			b.WriteString(fmt.Sprintf("- 供给折算(%s): 供给折算缺口 %sms(%s)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导\n",
+			b.WriteString(fmt.Sprintf("- 供给折算(%s): 供给折算缺口 %sms(%s)——单列折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导\n",
 				head, fact.deficit, paren))
 		}
 	}
@@ -1184,7 +1184,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		if windowTotal {
 			// The SCOPE sentence stays: only the chain-thread wakees were
 			// counted (范围句保留 — wakees outside the set remain unmeasured).
-			b.WriteString("Measured wakeup counts per waker (window-total census: each count below is the total number of raw sched_wakeup rows waking that wakee across its query's whole analysis window — counted directly from the raw event inventory, independently of the causal-chain expansion, not just the edge rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. The counted wakee set is the chain's threads (analysis target and chain nodes) — wakees outside that set were not counted):\n")
+			b.WriteString("Measured wakeup counts per waker (window-total census: each count below is the total number of raw sched_wakeup rows waking that wakee across its query's whole analysis window — counted directly from the raw event inventory, separately from the causal-chain expansion, not just the edge rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. The counted wakee set is the chain's threads (analysis target and chain nodes) — wakees outside that set were not counted):\n")
 		} else {
 			b.WriteString("Measured wakeup-edge counts per waker (full-inventory census: each count below is the measured total of wakeup edges for that waker → wakee pair across its query's whole analysis window, counted over every measured edge — not just the rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. These counts cover measured wakeup edges only, so the raw trace may still hold wakeups outside the measured set):\n")
 		}

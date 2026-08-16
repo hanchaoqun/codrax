@@ -57,7 +57,7 @@ func TestRuntimeTraceGuidanceSeparatesFullArtifactScopeFromModelWindows(t *testi
 	for _, want := range []string{
 		"typed whole-artifact query coverage is present",
 		"Scope coverage alone does not prove",
-		"independent typed enumeration authority",
+		"separate typed enumeration authority",
 	} {
 		if !strings.Contains(withCensus, want) {
 			t.Fatalf("missing available whole-artifact guidance %q:\n%s", want, withCensus)

@@ -355,7 +355,7 @@ func currentOwnerClustersAllClosed(plan RepairExecutionPlan) bool {
 // any current-owner cluster has Primary resolved but Derived still
 // present. This signals the cooccurrence theory was wrong — fixing
 // Primary should have cleared Derived but didn't, so the residual
-// Derived is now an independent root cause and the plan should
+// Derived is now a standalone root cause and the plan should
 // rebuild from scratch.
 func currentOwnerHasPrimaryResolvedDerivedPersists(plan RepairExecutionPlan) bool {
 	if plan.CurrentOwner == "" {

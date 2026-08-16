@@ -71,7 +71,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	case hasActual:
 		b.WriteString("- Write a concise synthesis of the available actual time occupancy / critical-path work and the next optimization direction. No positive existing-rule eliminable seat is available here; do not invent one.\n")
 	case hasEliminable:
-		b.WriteString("- Write a concise synthesis of the available existing-rule eliminable seats and the first repair to validate. No independent typed actual-occupancy candidate is available here; do not invent one.\n")
+		b.WriteString("- Write a concise synthesis of the available existing-rule eliminable seats and the first repair to validate. No separately bound typed actual-occupancy candidate is available here; do not invent one.\n")
 	default:
 		b.WriteString("- Synthesize only the available target-state, wakeup-path, and evidence-boundary inputs. Do not invent an occupancy or eliminable ranking that is absent below.\n")
 	}

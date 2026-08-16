@@ -92,7 +92,7 @@ func TestIndependentMechanismContrastDirectiveSharedAndMechanismGated(t *testing
 		"index-aligned `member_notes[]`",
 		"index-aligned `support_refs[]`",
 		"ungrounded grouped_count dimensions",
-		"independently supported members",
+		"separately supported members",
 		"state that evidence boundary",
 	} {
 		if !strings.Contains(independentMechanismContrastDirective, required) {

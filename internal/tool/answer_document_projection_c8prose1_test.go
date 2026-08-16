@@ -170,7 +170,7 @@ func TestC8Prose1CompareOverviewAndNotesIntroRegime(t *testing.T) {
 		t.Fatalf("two projections must render the zh comparison overview")
 	}
 	lead := strings.Split(blocks[0].Text, "\n")[0]
-	if lead != "跨 trace 对比总览:数值来自各份 trace 独立的投影，跨线程累计值带单位标注，详情见各 trace 分段。" {
+	if lead != "跨 trace 对比总览:数值来自各份 trace 分别编译的投影，跨线程累计值带单位标注，详情见各 trace 分段。" {
 		t.Fatalf("face C: overview intro must speak the C8 regime: %q", lead)
 	}
 	if n := disphyg3DepthZeroHalfClauseMarks(lead); n != 0 {

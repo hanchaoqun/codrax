@@ -9349,7 +9349,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// the count is the raw sched_wakeup row total for this pair
 				// across the analysis window, counted independently of the
 				// chain expansion (D exits and off-path S exits included).
-				Summary: fmt.Sprintf("wakeup_edge_census %s -> %s count=%d (window-total: every raw sched_wakeup row waking this chain-thread wakee across the analysis window, counted independently of the causal-chain expansion)%s first=%.6f last=%.6f",
+				Summary: fmt.Sprintf("wakeup_edge_census %s -> %s count=%d (window-total: every raw sched_wakeup row waking this chain-thread wakee across the analysis window, counted separately from the causal-chain expansion)%s first=%.6f last=%.6f",
 					waker, wakee, pair.Count, traceQueryWakeupCensusSplitSummary(pair), pair.FirstTs, pair.LastTs),
 				RichNotes: traceQueryTypedKVNotes([][2]string{
 					{types.TraceNoteKeyWakeupEdgeCensusFirstTs, traceQueryTimestampValue(pair.FirstTs)},

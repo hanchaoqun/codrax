@@ -93,13 +93,13 @@ func TestRuler2SyntheticSentenceZHAndEN(t *testing.T) {
 // 2026-07-20 「图例加正交声明」): the 两把尺记账 legend entry closes with the
 // two-axis orthogonality declaration on BOTH language faces — 「墙钟席」-family
 // worn tag words = the seat's VALUE-caliber axis, the 尺 = the BOOKING-lane
-// axis, two independent axes, one seat may wear one of each, no contradiction
+// axis, two distinct axes, one seat may wear one of each, no contradiction
 // (the §29.158 P3 目标自身·墙钟席 ↔ 唤醒边锚尺 juxtaposition resolved as
 // orthogonal, both already-ruled faces untouched).
 func TestRuler2LegendOrthogonalAxesSentence(t *testing.T) {
 	wants := map[bool]string{
-		true:  "「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴独立,同席可各佩其一,非矛盾",
-		false: "worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two independent axes, one seat may wear one of each; no contradiction",
+		true:  "「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴彼此不同,同席可各佩其一,非矛盾",
+		false: "worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two distinct axes, one seat may wear one of each; no contradiction",
 	}
 	for _, zh := range []bool{true, false} {
 		proj := ruler2TwoRulerProjection()

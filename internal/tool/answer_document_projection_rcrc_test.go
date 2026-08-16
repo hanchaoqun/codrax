@@ -184,7 +184,7 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	independent := counted
 	independent.EffectiveImpactMS = 1.096
 	clause, _, ok = runtimeTraceProjSupplyFoldClause(independent, 120, false, true)
-	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,独立口径,不计入有效归因)" {
+	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,单列口径,不计入有效归因)" {
 		t.Fatalf("small-deficit independent fork drifted: %q", clause)
 	}
 	// Negative (§24.9 F3): the 无供给缺口 literal is banned beside ANY

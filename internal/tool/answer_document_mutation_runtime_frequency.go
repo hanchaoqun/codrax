@@ -71,9 +71,9 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 			frequencyRows, clockSetRateEvents,
 		)
 		if len(evidence) == 0 {
-			caveat += " 当前没有独立的频率供给证据，因此不能仅凭这些计数判断供给影响。"
+			caveat += " 当前没有单独的频率供给证据，因此不能仅凭这些计数判断供给影响。"
 		} else {
-			caveat += " 可用于供给判断的独立证据为：" + runtimeTraceFrequencyEvidenceRoster(evidence, true) +
+			caveat += " 可用于供给判断的单独证据为：" + runtimeTraceFrequencyEvidenceRoster(evidence, true) +
 				"；相关结论只能按这些证据各自的链路和排序口径解释，不能归因于上述事件计数。"
 		}
 		if len(limitWitnesses) > 0 {
@@ -86,9 +86,9 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 			frequencyRows, clockSetRateEvents,
 		)
 		if len(evidence) == 0 {
-			caveat += " No independent frequency-supply evidence is available, so the counts alone cannot establish a supply impact."
+			caveat += " No separate frequency-supply evidence is available, so the counts alone cannot establish a supply impact."
 		} else {
-			caveat += " Independent evidence available for supply analysis: " + runtimeTraceFrequencyEvidenceRoster(evidence, false) +
+			caveat += " Separate evidence available for supply analysis: " + runtimeTraceFrequencyEvidenceRoster(evidence, false) +
 				". Any supply conclusion must follow the chain and ranking scope of that evidence, not the event counts above."
 		}
 		if len(limitWitnesses) > 0 {

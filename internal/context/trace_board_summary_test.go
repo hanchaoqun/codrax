@@ -79,6 +79,9 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 	if !strings.Contains(summary, "never reorder silently") || !strings.Contains(summary, "never sum rows together") {
 		t.Fatalf("board summary preamble must carry the ordering/no-sum teaching:\n%s", summary)
 	}
+	if !strings.Contains(summary, "a distinct ordinal space") || strings.Contains(summary, "an independent ordinal space") {
+		t.Fatalf("adjacent ordering must use domain vocabulary, not physical-independence wording:\n%s", summary)
+	}
 }
 
 func TestTraceRootCauseBoardSummaryCollapsesExactCrossQuerySeat(t *testing.T) {

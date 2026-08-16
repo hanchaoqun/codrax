@@ -1604,7 +1604,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			tracefence.AuxColumnGlossaryMarker,
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
 			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
-			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项独立证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
+			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项单独证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
 			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
 			"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
 			"- 「—」 = 该列对此节点无值。",
@@ -1625,7 +1625,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 				"Column calibers:",
 				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
 				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
-				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the chain total the two are one measurement under two names (never two independent proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
+				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the chain total the two are one measurement under two names (never two separate proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
 				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
 				"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
 				"- “—” = no value in this column for this node.",
@@ -1968,11 +1968,11 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 	}
 	title := "主要时间占用 / 关键路径候选"
 	columns := []string{"维度", "主体 / 工作族", "累计占用", "单次最长", "次数", "发生窗 / 定位", "解读边界"}
-	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内可消除量」回答“按现有规则预计可回收多少”。两轴独立，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
+	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内可消除量」回答“按现有规则预计可回收多少”。两轴分别成账，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
 	if !zh {
 		title = "Major Time Occupancy / Critical-path Candidates"
 		columns = []string{"Dimension", "Subject / work family", "Cumulative occupancy", "Longest single", "Count", "Occurrence / location", "Interpretation boundary"}
-		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes are independent and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
+		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes use separate accounting bases and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
 	}
 	if stateAccount != "" {
 		text += "\n\n" + stateAccount
@@ -3022,10 +3022,10 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	title := tracefence.SectionProjectionZH + "对比总览"
 	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro under the C8
 	// regime — depth-0 commas full-width, half-width `:` stays.
-	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影，跨线程累计值带单位标注，详情见各 trace 分段。"
+	text := "跨 trace 对比总览:数值来自各份 trace 分别编译的投影，跨线程累计值带单位标注，详情见各 trace 分段。"
 	if !zh {
 		title = tracefence.SectionProjectionEN + " Comparison Overview"
-		text = "Cross-trace comparison overview: every value comes from an independent projection of each trace file; cross-thread cumulative values carry their unit annotation. Details live in the per-trace-file sections."
+		text = "Cross-trace comparison overview: every value comes from a separately compiled projection for each trace file; cross-thread cumulative values carry their unit annotation. Details live in the per-trace-file sections."
 	}
 	// PTV8-LAD L6: layer by importance (同类相邻), fold past the visible cap;
 	// the folded set rides the 对比注记明细 sibling whole.

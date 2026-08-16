@@ -60,7 +60,7 @@ func TestCR2F3CoverageSentenceNoFalseSubsetOverCarvedPacing(t *testing.T) {
 	if !strings.Contains(line, "关注线程睡眠 35.351ms(不含帧间空闲)") {
 		t.Fatalf("the sleep total must disclose the carve-out:\n%s", line)
 	}
-	if !strings.Contains(line, "链上解释的 15.758ms 为独立成行的帧间空闲段,不在上句睡眠合计内") {
+	if !strings.Contains(line, "链上解释的 15.758ms 为单列成行的帧间空闲段,不在上句睡眠合计内") {
 		t.Fatalf("the chain-explained mass must be named as the carved idle segment:\n%s", line)
 	}
 }

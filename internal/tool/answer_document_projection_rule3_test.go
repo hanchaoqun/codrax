@@ -75,7 +75,7 @@ func TestRule3CrossBoardShortMarkerAndLegendInvariant(t *testing.T) {
 	if !strings.Contains(fence, "⇄另板[") || !strings.Contains(fence, "(板锚 target.") {
 		t.Fatalf("件1(a): the ⇄ short marker with refs + 板锚 must render:\n%s", fence)
 	}
-	for _, banned := range []string{"同线程同状态族账另见另板席", "各板独立成账、口径各异,不可跨板相加)"} {
+	for _, banned := range []string{"同线程同状态族账另见另板席", "各板分别记账、口径各异,不可跨板相加)"} {
 		if strings.Contains(fence, banned) {
 			t.Fatalf("件1(a) 套话复活: the retired long sentence %q must not ride a row:\n%s", banned, fence)
 		}

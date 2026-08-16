@@ -659,7 +659,7 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"TOTALS MATCH THEIR PARTS:",
 		"WAKEUP CENSUS DIRECTION AND STATE:",
 		"MECHANICAL PRODUCER-CHAIN SEPARATION:",
-		"INDEPENDENT MECHANISM CONTRAST:",
+		"MECHANISM-SPECIFIC EVIDENCE CONTRAST:",
 		"RUNTIME RULE INSTANTIATION:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {

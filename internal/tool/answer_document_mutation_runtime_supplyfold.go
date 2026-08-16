@@ -28,7 +28,7 @@ package tool
 // §15.A) and their words never mix. Magnitudes always carry their own units and
 // their own caliber basis; the clause NEVER sums the mechanisms (S1 / 墙钟裁定:
 // different calibers do not add) — it joins them with "·" under an explicit
-// 「各口径独立、不可加和」 leader, never the summing "共同作用" tail (Q4-G,
+// 「各口径分别计量、不可加和」 leader, never the summing "共同作用" tail (Q4-G,
 // §12.3/§15.D landing-surface fix for §7.10 red line 2).
 
 import (
@@ -429,7 +429,7 @@ func runtimeTraceProjSupplyGapDominantSeat(node types.TraceCausalProjectionNode)
 		// precondition — the seat's EFFECTIVE composition must CONTAIN a
 		// running-折算 component (typed GatedRunningDeficitMS > 0, the same
 		// field the 行3 composition builder keys its running component on).
-		// The deficit is an independent caliber that never enters eff; a
+		// The deficit is a separately accounted caliber that never enters eff; a
 		// composition with ZERO supply component wearing 「供给缺口主导」 was
 		// a self-contradicting word face (witness 20260714-230952 E31:
 		// eff 0.423 = runnable(全额) only). The ≥50% ratio stays on top.
@@ -680,7 +680,7 @@ func runtimeTraceProjFamilyValueIsGatedComposite(node types.TraceCausalProjectio
 // "A + B + C … 共同作用" phrasing INVITED the summing misread (q6 E7: a reader
 // added 供给折算缺口 17.702 + runnable 20.713 + 优先级反转 37.410, three
 // different-divisor calibers). The clause now (a) leads with an explicit
-// 「各口径独立、不可加和」 disclaimer, (b) joins the perspectives with a neutral
+// 「各口径分别计量、不可加和」 disclaimer, (b) joins the perspectives with a neutral
 // middot instead of "+", never the summing "共同作用" tail, and (c) names each
 // number's OWN caliber inline — the §15.A two-divisor disclosure: the
 // supply-fold deficit folds at the big cluster's fmax while the inversion
@@ -864,10 +864,10 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 		fallthrough
 	case runtimeTraceProjSupplyFoldWithDemand:
 		if zh {
-			return fmt.Sprintf("机制构成(各口径独立、不可加和): 供给折算缺口 %.3fms(%s,按%s折算,下界%s)·%s runnable %.3fms(就绪排队积压口径)",
+			return fmt.Sprintf("机制构成(各口径分别计量、不可加和): 供给折算缺口 %.3fms(%s,按%s折算,下界%s)·%s runnable %.3fms(就绪排队积压口径)",
 				deficit, mention, basisWord, capSuffix, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS), "机制构成", true
 		}
-		return fmt.Sprintf("mechanism (each caliber is independent and not additive): supply-fold deficit %.3fms (%s, folded at %s, lower bound%s) · %s runnable %.3fms (ready-queue backlog caliber)",
+		return fmt.Sprintf("mechanism (calibers are accounted separately and are not additive): supply-fold deficit %.3fms (%s, folded at %s, lower bound%s) · %s runnable %.3fms (ready-queue backlog caliber)",
 			deficit, mention, basisWord, capSuffix, runtimeTraceSupplyPressureDisplayLabel(false), node.RunnableMS), "mechanism", true
 	case runtimeTraceProjSupplyFoldDominant:
 		// UXR-1 §29.36.4 ②: the 小核 class word in the slow-share tail is
@@ -913,22 +913,22 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 				case zh && counted:
 					return fmt.Sprintf("供给折算缺口 %.3fms(%s,已计入有效归因%s)", deficit, mention, capSuffix), "供给折算缺口", true
 				case zh:
-					return fmt.Sprintf("供给折算缺口 %.3fms(%s,独立口径,不计入有效归因%s)", deficit, mention, capSuffix), "供给折算缺口", true
+					return fmt.Sprintf("供给折算缺口 %.3fms(%s,单列口径,不计入有效归因%s)", deficit, mention, capSuffix), "供给折算缺口", true
 				case counted:
 					return fmt.Sprintf("supply-fold deficit %.3fms (%s, counted into the attribution%s)", deficit, mention, capSuffix), "supply-fold deficit", true
 				default:
-					return fmt.Sprintf("supply-fold deficit %.3fms (%s, independent caliber, not counted into attribution%s)", deficit, mention, capSuffix), "supply-fold deficit", true
+					return fmt.Sprintf("supply-fold deficit %.3fms (%s, separately accounted caliber, not counted into attribution%s)", deficit, mention, capSuffix), "supply-fold deficit", true
 				}
 			}
 			switch {
 			case zh && counted:
 				return fmt.Sprintf("接近%s,缺口仅 %.3fms(%s,已计入有效归因%s)", basisWord, deficit, mention, capSuffix), "接近" + basisWord, true
 			case zh:
-				return fmt.Sprintf("接近%s,缺口仅 %.3fms(%s,独立口径,不计入有效归因%s)", basisWord, deficit, mention, capSuffix), "接近" + basisWord, true
+				return fmt.Sprintf("接近%s,缺口仅 %.3fms(%s,单列口径,不计入有效归因%s)", basisWord, deficit, mention, capSuffix), "接近" + basisWord, true
 			case counted:
 				return fmt.Sprintf("near %s; the deficit is only %.3fms (%s, counted into the attribution%s)", basisWord, deficit, mention, capSuffix), "near " + basisWord, true
 			default:
-				return fmt.Sprintf("near %s; the deficit is only %.3fms (%s, independent caliber, not counted into attribution%s)", basisWord, deficit, mention, capSuffix), "near " + basisWord, true
+				return fmt.Sprintf("near %s; the deficit is only %.3fms (%s, separately accounted caliber, not counted into attribution%s)", basisWord, deficit, mention, capSuffix), "near " + basisWord, true
 			}
 		}
 		// UXR-1 §29.36.4 ① (推论链冗余判据, a4/2549 witness): the affirmative

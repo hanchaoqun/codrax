@@ -72,7 +72,7 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		t.Fatalf("blocked_reason typed notes must render a wait-evidence summary")
 	}
 	for _, want := range []string{
-		"Kernel-recorded wait evidence (independent typed seats):",
+		"Kernel-recorded wait evidence (separately bound typed seats):",
 		"Unbound thread-window inventory (separate context; never a ranked-seat attribute):",
 		"subject=CompThread_0-2955; seat_type=blocked_reason_callsite; caller=dma_fence_default_w",
 		"state=d_state_or_io_wait; value_ms=36.757; members=4",
@@ -93,7 +93,7 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	// The consumption preamble keeps the caller in its actual role: a kernel
 	// wait call-site, never an inferred resource object or holder identity.
 	for _, want := range []string{
-		"Each row below is one independent typed seat",
+		"Each row below is one separately bound typed seat",
 		"sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row",
 		"resource, lock, owner, holder, and root-cause identity require a separate typed relation",
 		"Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat",
@@ -104,6 +104,11 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 	}
 	if strings.Contains(summary, "Kernel-recorded wait objects") {
 		t.Fatalf("blocked_reason caller regressed to a resource-object role:\n%s", summary)
+	}
+	for _, banned := range []string{"independent typed seat", "独立折算口径"} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("wait evidence reused physical-independence vocabulary for accounting through %q:\n%s", banned, summary)
+		}
 	}
 	unboundAt := strings.Index(summary, "Unbound thread-window inventory (separate context; never a ranked-seat attribute):")
 	if unboundAt < 0 {
@@ -485,7 +490,7 @@ func TestTraceWaitEvidence_WakerCountCapOverflow(t *testing.T) {
 }
 
 // TestTraceWaitEvidence_UnprovenRemainderFact — the cause-unproven remainder
-// is an independent typed seat. Compact enum fields preserve the partition,
+// is a separately bound typed seat. Compact enum fields preserve the partition,
 // membership and arithmetic boundaries without co-locating sibling caller or
 // census facts on the same subject line.
 func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
@@ -661,7 +666,7 @@ func TestTraceWaitEvidence_WakeCensusWindowTotalCaliber(t *testing.T) {
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	for _, want := range []string{
 		"Measured wakeup counts per waker (window-total census:",
-		"counted directly from the raw event inventory, independently of the causal-chain expansion",
+		"counted directly from the raw event inventory, separately from the causal-chain expansion",
 		// The counted-scope sentence (范围句保留).
 		"The counted wakee set is the chain's threads (analysis target and chain nodes) — wakees outside that set were not counted",
 		// The donghu D-exit pair with its typed split (双加恒等式 12+0+0? no —
@@ -1237,7 +1242,7 @@ func TestTraceWaitEvidence_SupplyDeficitFact(t *testing.T) {
 	ledger.Records = append(ledger.Records, traceWaitFreqDirSeatRecord())
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	t.Logf("FREQDIR-1 件2 witness named-fact render:\n%s", summary)
-	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,具名热控轨上限记录 1.53GHz(不单独证明目标线程命中该上限或实际绑定影响))——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
+	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,具名热控轨上限记录 1.53GHz(不单独证明目标线程命中该上限或实际绑定影响))——单列折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("supply-fold deficit fact missing/mutated, want\n%q\nin:\n%s", want, summary)
 	}
@@ -1327,8 +1332,8 @@ func TestTraceWaitEvidence_SupplyDeficitFactSilence(t *testing.T) {
 	// 反转等待(全额)15 + running折算5, deficit 5 < 0.5×20 — fails the
 	// composition arm's dominance gate AND must stay OFF the deficit lane
 	// (!inversion): on an inversion row the deficit IS the counted running
-	// component (同源同值, §29.88.12 R5 retired the 独立口径 face there), so
-	// re-minting 「独立折算口径,不与墙钟(全额)值相加」 here would revive the
+	// component (同源同值, §29.88.12 R5 retired the 单列口径 face there), so
+	// re-minting 「单列折算口径,不与墙钟(全额)值相加」 here would revive the
 	// retired lie. Silence on BOTH lanes is the honest outcome.
 	subDominant := traceWaitTestRecord("trace_query:t#root_cause_rank:23", "InvProbe-1234", "priority_inversion_candidate", "root_cause_secondary", "20.000",
 		"rank=2", "chain_relevance=on_chain", "effective_impact_ms=20.000",

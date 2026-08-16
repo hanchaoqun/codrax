@@ -190,7 +190,7 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 		"323 条通用时钟变更事件",
 		"两类计数只表示观测活动",
 		"不能单独证明低频、降频、限频或计算供给不足",
-		"当前没有独立的频率供给证据",
+		"当前没有单独的频率供给证据",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency caveat missing %q:\n%s", want, got)
@@ -200,6 +200,9 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("internal authority protocol leaked through %q:\n%s", forbidden, got)
 		}
+	}
+	if strings.Contains(got, "独立的频率供给证据") || strings.Contains(got, "Independent evidence available") {
+		t.Fatalf("frequency accounting reused physical-independence vocabulary:\n%s", got)
 	}
 }
 

@@ -193,10 +193,10 @@ func TestSmall3FoldReasonTwinHealedTiebaWitness(t *testing.T) {
 		t.Fatalf("apply: %v %s", err, res.Summary)
 	}
 	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
-	if !strings.Contains(md, "独立口径,不计入有效归因,仅单簇有频点采样,按频率比") {
+	if !strings.Contains(md, "单列口径,不计入有效归因,仅单簇有频点采样,按频率比") {
 		t.Fatalf("件4: the healed fold-deficit clause must name the single-cluster arm")
 	}
-	if strings.Contains(md, "独立口径,不计入有效归因,簇结构不可判") {
+	if strings.Contains(md, "单列口径,不计入有效归因,簇结构不可判") {
 		t.Fatalf("件4: the generic fold clause must not survive beside a named gated twin (E19 分叉形)")
 	}
 }

@@ -448,10 +448,10 @@ func TestPTV5ComparisonOverviewLeadDropsTypedJargon(t *testing.T) {
 		t.Fatalf("comparison fixture must build the overview block")
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 数值全部来自
-	// 各工件独立投影的结构化字段 → 数值来自各份 trace 独立的投影 (对比总览
+	// 各工件独立投影的结构化字段 → 数值来自各份 trace 分别编译的投影 (对比总览
 	// 结构⑦; 工件→trace 文件族). C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION
 	// RECORD: depth-0 半角 , → 全角 ，(C8 prose regime).
-	if !strings.Contains(block.Text, "跨 trace 对比总览:数值来自各份 trace 独立的投影，跨线程累计值带单位标注，详情见各 trace 分段。") ||
+	if !strings.Contains(block.Text, "跨 trace 对比总览:数值来自各份 trace 分别编译的投影，跨线程累计值带单位标注，详情见各 trace 分段。") ||
 		strings.Contains(block.Text, "typed") {
 		t.Fatalf("zh overview lead must speak the structured-field wording without typed: %q", block.Text)
 	}

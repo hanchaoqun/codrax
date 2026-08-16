@@ -1811,7 +1811,7 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// face shrinks to the ⇄ short marker and the FULL invariant sentence
 		// lives here once (词条-图例双向; the row keeps refs + 板锚).
 		{runtimeTraceProjMarkCrossBoardFamilyNote, runtimeTraceProjLegendGroupCaliber,
-			"- `⇄另板[E#](板锚 X)` = 同线程同状态族账另见另板席:同一物理线程的同一状态族在多块查询板上各有席位(括注板锚=对方板);各板独立成账、口径各异,席位值不可跨板相加;`⇄另板互指·折叠成员` = 本折叠行内成员被另板席互指(同一语义)。",
+			"- `⇄另板[E#](板锚 X)` = 同线程同状态族账另见另板席:同一物理线程的同一状态族在多块查询板上各有席位(括注板锚=对方板);各板分别记账、口径各异,席位值不可跨板相加;`⇄另板互指·折叠成员` = 本折叠行内成员被另板席互指(同一语义)。",
 			"- `⇄ cross-board [E#] (board X)` = this thread's same state family also holds seats on another query board (the parenthetical names the peer board); each board keeps its own account and caliber — seat values never add across boards; `⇄ cross-board mutual-pointed · folded members` = members inside this fold are mutual-pointed by another board's seats (same semantics)."},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
 		// span disclosure — chip qualifier + ◎ transcription, one emitter.
@@ -2064,8 +2064,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// constitutive precondition (eff 构成含 running 折算分量) — the legend
 		// sentence moves in lockstep with the predicate (词条-图例双向同步).
 		{runtimeTraceProjMarkSupplyGapDominant, runtimeTraceProjLegendGroupCaliber,
-			fmt.Sprintf("- `供给缺口主导` = 类型词复合后缀:该席有效归因构成含 running(折算)分量,且已发布的供给折算缺口量 ≥ 有效归因×%.0f%%(两值均为已发布 typed 值,纯比较),席位影响以频点/算力供给缺口成分为主;缺口为独立口径,不与有效归因相加,构成拆解见该行行3与明细;构成中无供给分量的席位不佩此词。", types.TraceSupplyGapDominanceShare*100),
-			fmt.Sprintf("- `supply-gap dominant` = a compound type-word suffix: the seat's effective composition CONTAINS a folded running component, and its published supply-fold deficit is ≥ %.0f%% of its published effective attribution (both engine-published typed values, pure comparison) — the seat's impact is dominated by the frequency/compute-supply gap component; the deficit is an independent caliber and never adds to the attribution (the split lives on the row's line 3 and the detail block); a seat whose composition carries no supply component never wears the word.", types.TraceSupplyGapDominanceShare*100)},
+			fmt.Sprintf("- `供给缺口主导` = 类型词复合后缀:该席有效归因构成含 running(折算)分量,且已发布的供给折算缺口量 ≥ 有效归因×%.0f%%(两值均为已发布 typed 值,纯比较),席位影响以频点/算力供给缺口成分为主;缺口为单列口径,不与有效归因相加,构成拆解见该行行3与明细;构成中无供给分量的席位不佩此词。", types.TraceSupplyGapDominanceShare*100),
+			fmt.Sprintf("- `supply-gap dominant` = a compound type-word suffix: the seat's effective composition CONTAINS a folded running component, and its published supply-fold deficit is ≥ %.0f%% of its published effective attribution (both engine-published typed values, pure comparison) — the seat's impact is dominated by the frequency/compute-supply gap component; the deficit is a separately accounted caliber and never adds to the attribution (the split lives on the row's line 3 and the detail block); a seat whose composition carries no supply component never wears the word.", types.TraceSupplyGapDominanceShare*100)},
 		// INV-SUPPLY 件③ (§29.61.11, 2026-07-14): the ◎ leverage note's
 		// teaching entry — a transcription of the seat's OWN 行3 attribution
 		// split relabeled by leverage direction; a constituent display, never
@@ -2343,8 +2343,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 目标自身·墙钟席 while the sentence books it on the 唤醒边锚尺) is two
 		// independent axes speaking at once, not a contradiction.
 		{runtimeTraceProjMarkSelfRunnableTwoRuler, runtimeTraceProjLegendGroupMark,
-			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴独立,同席可各佩其一,非矛盾;句中参与席如其行未铸行2身份行(紧凑合并行),该行行尾佩 根因排序#N 对照记号(同一榜位序数,便于与「N 席」逐行对照)。",
-			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two independent axes, one seat may wear one of each; no contradiction; a participating seat whose row minted no 行2 identity line (a compact merged row) wears the 根因排序#N cross-reference chip on its row tail (the same board ordinal space, so the sentence's seat count is checkable row-by-row)."},
+			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴彼此不同,同席可各佩其一,非矛盾;句中参与席如其行未铸行2身份行(紧凑合并行),该行行尾佩 根因排序#N 对照记号(同一榜位序数,便于与「N 席」逐行对照)。",
+			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two distinct axes, one seat may wear one of each; no contradiction; a participating seat whose row minted no 行2 identity line (a compact merged row) wears the 根因排序#N cross-reference chip on its row tail (the same board ordinal space, so the sentence's seat count is checkable row-by-row)."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
@@ -2404,8 +2404,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge proves relation only. A deterministic semantic span keeps its raw pre-edge occupancy and business clue, but its current-rule eliminable attribution is zero without an exact wait/completion binding and it does not claim span completion triggered the wakeup; runnable/D-IO state seats still use their typed pre-edge state-segment sum. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
-			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
-			"- `occurrence segment` = independent occurrences of one (thread, state, counterpart) identity each keep a row: the note states this occurrence's wall-clock interval and cross-references the sibling [E#]s; the segments are provably disjoint (typed intervals), so the additive series total is stated."},
+			"- `发生段` = 同(线程,状态,对端)的多次分别发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
+			"- `occurrence segment` = distinct occurrences of one (thread, state, counterpart) identity each keep a row: the note states this occurrence's wall-clock interval and cross-references the sibling [E#]s; the segments are provably disjoint (typed intervals), so the additive series total is stated."},
 		// CR-2 组③ P7 (2026-07-12): the episode-scope actual word — inside the
 		// analysis window, so deliberately NOT the ⚠ glyph.
 		{runtimeTraceProjMarkActualBeyondEpisode, runtimeTraceProjLegendGroupMark,
@@ -2435,8 +2435,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// evidence-strength verdict and no basis for overturning seat order.
 		// Lane-constant convergence itself stays a deferred ruling (裁定③ 缓).
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
-			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被" + tracefence.SeatChannelChainZH + "与唤醒链两来源各发一行时已合并为一行," + tracefence.SeatChannelChainZH + "行的 E# 并入行尾 [E#+E#],数值不重复计入。置信档(高/中/低)=各证据来源数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。",
-			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published by both the ranking and the wakeup-chain sources is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted. The confidence tier (high/mid/low) = each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."},
+			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的单独排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被" + tracefence.SeatChannelChainZH + "与唤醒链两来源各发一行时已合并为一行," + tracefence.SeatChannelChainZH + "行的 E# 并入行尾 [E#+E#],数值不重复计入。置信档(高/中/低)=各证据来源数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。",
+			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN separate ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published by both the ranking and the wakeup-chain sources is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted. The confidence tier (high/mid/low) = each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."},
 		// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
@@ -6238,7 +6238,7 @@ type runtimeTraceProjSameSegMirrorPeer struct {
 	EvidenceTag string
 	StateWord   string
 	// Valueless marks a mirror copy that carried no display value of its own
-	// (修复轮 P4-c: the detail wording then says 同段(无独立值) instead of
+	// (修复轮 P4-c: the detail wording then says 同段(无单列值) instead of
 	// claiming 同值).
 	Valueless bool
 }
@@ -7229,7 +7229,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// same-state-family mutual pointer — the peer board's seats are named,
 	// values untouched, and the sentence forbids cross-board addition.
 	// RULE3-1 件1(a) (§29.181① 树面套话上收, 2026-07-21). EVOLUTION RECORD —
-	// the full 「同线程同状态族账另见另板席 …(板锚 X;各板独立成账、口径各异,
+	// the full 「同线程同状态族账另见另板席 …(板锚 X;各板分别记账、口径各异,
 	// 不可跨板相加)」 sentence repeated its invariant clause on every wearing
 	// row (runnable_2 witness ×11); the invariant moves ONCE into the ⇄
 	// legend entry and the row keeps the short ⇄ marker with its per-row
@@ -17016,7 +17016,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					// byte-identically.
 					if idleWord, ok := runtimeTraceProjTargetIdleCarveMatch(model, attributed, zh); ok {
 						if zh {
-							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(不含%s);链上解释的 %.3fms 为独立成行的%s段,不在上句睡眠合计内。",
+							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(不含%s);链上解释的 %.3fms 为单列成行的%s段,不在上句睡眠合计内。",
 								hopSleep, idleWord, attributed, idleWord)
 						} else {
 							fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms (excluding %s); the %.3fms explained on-chain is the separately rendered %s segment, outside the sleep total above.",
@@ -19648,10 +19648,10 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			if len(tags) > 0 {
 				// 修复轮 P4-c: a valueless mirror never claims 同值 — the
-				// wording says 同段(无独立值) instead.
+				// wording says 同段(无单列值) instead.
 				word, wordEN := "同段同值", "same-segment same-value"
 				if anyValueless {
-					word, wordEN = "同段(无独立值)", "same-segment (no independent value)"
+					word, wordEN = "同段(无单列值)", "same-segment (no separately accounted value)"
 				}
 				line := fmt.Sprintf("裸状态%s镜像 %s 已并入本行,数值不重复计入", word, strings.Join(tags, " "))
 				if !zh {
@@ -20405,7 +20405,7 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 				if entry.Window != "" {
 					locator = runtimeTraceCausalProjectionMarkdownSafe(entry.Window)
 				} else if zh {
-					locator = "无独立 trace 行(区间性推断观测,无单行坐标)"
+					locator = "无单列 trace 行(区间性推断观测,无单行坐标)"
 				} else {
 					locator = "no standalone trace line (interval-inferred observation, no single-line coordinate)"
 				}
