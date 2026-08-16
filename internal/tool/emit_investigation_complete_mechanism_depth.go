@@ -16,11 +16,12 @@ const (
 )
 
 type mechanismSemanticDescentNode struct {
-	file  string
-	fi    *repotypes.FileInfo
-	sym   *repotypes.Symbol
-	depth int
-	root  string
+	file           string
+	fi             *repotypes.FileInfo
+	sym            *repotypes.Symbol
+	depth          int
+	root           string
+	followAllCalls bool
 }
 
 // raiseMechanismSemanticDescentPendingReads closes a narrow but important
@@ -102,6 +103,16 @@ func raiseMechanismSemanticDescentPendingReads(
 		behavioralRoster = true
 		addSeed(node)
 	}
+	// B879d: an exact executable row selected by the Explorer is already a
+	// precise statement that this operation participates in the requested
+	// mechanism. Seed its enclosing callable even when the final aggregate is
+	// an enum/state roster rather than a callable roster. Unlike the older
+	// wrapper lane, this lane may follow any parser-owned local call in the
+	// selected callable; the shared depth/demand cap keeps that closure bounded.
+	// Definition/text-reference evidence cannot enter this lane.
+	for _, node := range mechanismSemanticDescentExecutionSeeds(ctx, graph, aggregateFacts, evidence) {
+		addSeed(node)
+	}
 	// B879b: a mechanism roster may legitimately consist of enum outcomes or
 	// other non-callable identities. In that shape the earlier flow-operation
 	// gate can still make the model select a parser-grounded call edge. Continue
@@ -139,7 +150,9 @@ func raiseMechanismSemanticDescentPendingReads(
 		}
 
 		for line := node.sym.Line; line <= end && demands < mechanismSemanticDescentMaxDemands; line++ {
-			if !mechanismReturnCallLine(node.fi, line) || !closure.HasReadLine(node.file, line) {
+			if !closure.HasReadLine(node.file, line) ||
+				(!node.followAllCalls && !mechanismReturnCallLine(node.fi, line)) ||
+				(node.followAllCalls && !mechanismCallLine(node.fi, line)) {
 				continue
 			}
 			for relIdx := range node.fi.Relations {
@@ -156,6 +169,7 @@ func raiseMechanismSemanticDescentPendingReads(
 					seen[key] = true
 					child.depth = node.depth + 1
 					child.root = node.root
+					child.followAllCalls = node.followAllCalls
 					childEnd := child.sym.EndLine
 					if childEnd < child.sym.Line {
 						childEnd = child.sym.Line
@@ -178,6 +192,85 @@ func raiseMechanismSemanticDescentPendingReads(
 		logging.Info("[emit_investigation_complete] queued %d bounded mechanism semantic-descent read(s)", demands)
 	}
 	return demands
+}
+
+func mechanismSemanticDescentExecutionSeeds(
+	ctx *types.BusContext,
+	graph *repotypes.Graph,
+	aggregateFacts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) []mechanismSemanticDescentNode {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 ||
+		!mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts) {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	principalScope := types.PrincipalSourceScope(rm.SourceScopeProfile)
+	seeds := make([]mechanismSemanticDescentNode, 0, 4)
+	seen := make(map[string]bool)
+	for _, item := range evidence {
+		if item.Producer != types.EvidenceProducerExplorerEmitEvidence || !item.IsCitable() ||
+			!mechanismSemanticDescentExecutableClaim(types.ClaimFormOf(item)) ||
+			types.RuntimeArtifactPathKind(item.Source) != "" ||
+			!types.SourceScopeAllowsPathRole(principalScope, types.ClassifySourcePathRole(item.Source)) {
+			continue
+		}
+		file, fi := mechanismSemanticDescentGraphFile(graph, item.Source)
+		if fi == nil || !mechanismSemanticDescentASTFile(fi) || item.LineStart <= 0 {
+			continue
+		}
+		sym := enclosingCallableSymbol(fi, item.LineStart)
+		if !mechanismSemanticDescentCallable(sym) {
+			continue
+		}
+		end := sym.EndLine
+		if end < sym.Line {
+			end = sym.Line
+		}
+		if item.LineStart < sym.Line || item.LineStart > end {
+			continue
+		}
+		key := mechanismSemanticDescentSymbolKey(file, sym)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		root := strings.TrimSpace(item.AnchorSymbol)
+		if root == "" {
+			root = strings.TrimSpace(sym.Name)
+		}
+		seeds = append(seeds, mechanismSemanticDescentNode{
+			file: file, fi: fi, sym: sym, root: root, followAllCalls: true,
+		})
+	}
+	return seeds
+}
+
+func mechanismCompletionHasCurrentSourcePrincipalFact(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	for _, fact := range facts {
+		if !aggregateFactCanDefineModelOwnedCompletionBoundary(fact) {
+			continue
+		}
+		for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+			if origin == types.AnswerEvidenceOriginCurrentSource {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mechanismSemanticDescentExecutableClaim(form types.ClaimForm) bool {
+	switch form {
+	case types.ClaimGuardCondition, types.ClaimReturnFact, types.ClaimAssignmentFact:
+		return true
+	default:
+		return false
+	}
 }
 
 func mechanismSemanticDescentDefinitionSeeds(
@@ -360,6 +453,18 @@ func mechanismReturnCallLine(fi *repotypes.FileInfo, line int) bool {
 		}
 	}
 	return hasReturn && hasCall
+}
+
+func mechanismCallLine(fi *repotypes.FileInfo, line int) bool {
+	if fi == nil || line <= 0 {
+		return false
+	}
+	for _, feature := range fi.LineFeatures[line] {
+		if feature == repotypes.LineFeatureCallExpression {
+			return true
+		}
+	}
+	return false
 }
 
 func mechanismSemanticDescentCallRelation(rel *repotypes.Relation, line int) bool {

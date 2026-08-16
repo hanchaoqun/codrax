@@ -59,8 +59,12 @@ func mechanismSemanticDescentContext(
 	features map[int][]repotypes.LineFeature,
 ) *types.BusContext {
 	t.Helper()
+	file := "src/pipeline.go"
+	if len(graph.Files) > 0 && graph.Files[0] != nil && strings.TrimSpace(graph.Files[0].RelPath) != "" {
+		file = graph.Files[0].RelPath
+	}
 	if features != nil {
-		graph.FileIndex["src/pipeline.go"].LineFeatures = features
+		graph.FileIndex[file].LineFeatures = features
 	}
 	mut := types.NewMutableState("explain render behavior")
 	mut.SetSearchGraph(graph)
@@ -91,13 +95,31 @@ func mechanismSemanticDescentContext(
 	if readEnd > len(lines) {
 		readEnd = len(lines)
 	}
-	seedReadFileHistory(ctx, "src/pipeline.go", 1, lines[:readEnd]...)
+	seedReadFileHistory(ctx, file, 1, lines[:readEnd]...)
 	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{"src/pipeline.go": true})
+	closure.SetReadSet(map[string]bool{file: true})
 	closure.SetReadRanges(map[string][]types.LineRange{
-		"src/pipeline.go": {{Start: 1, End: readEnd}},
+		file: {{Start: 1, End: readEnd}},
 	})
 	return ctx
+}
+
+func mechanismSemanticDescentRetargetFixture(graph *repotypes.Graph, file, language, provenance string) {
+	fi := graph.Files[0]
+	old := fi.RelPath
+	delete(graph.FileIndex, old)
+	fi.RelPath = file
+	fi.Language = language
+	graph.FileIndex[file] = fi
+	for idx := range fi.Symbols {
+		fi.Symbols[idx].File = file
+	}
+	for idx := range fi.Relations {
+		fi.Relations[idx].File = file
+		fi.Relations[idx].FromEP.File = file
+		fi.Relations[idx].ToEP.File = file
+		fi.Relations[idx].Provenance = provenance
+	}
 }
 
 func mechanismSemanticDescentFact() types.AnswerAggregateFact {
@@ -205,6 +227,148 @@ func TestMechanismSemanticDescent_MechanismDefinitionSeedsWithoutMemberNotes(t *
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
 	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
 		t.Fatalf("mechanism-definition pending=%+v, want rewrite body 6..8", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_ExecutableGuardSeedsOwnerAndFollowsNonReturnLocalCalls(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	fact := mechanismSemanticDescentFact()
+	fact.Members = []string{"OutcomeRendered"}
+	fact.MemberNotes = nil
+	fact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+	evidence := []types.EvidenceItem{{
+		ID: "E-guard", Kind: types.EvidenceConditional,
+		Condition: "input != empty", AnchorSymbol: "input",
+		Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCondition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}}
+
+	ctx := mechanismSemanticDescentContext(t, graph, 4, map[int][]repotypes.LineFeature{
+		3: {repotypes.LineFeatureCallExpression},
+		7: {repotypes.LineFeatureCallExpression},
+	})
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("executable-guard descent demands=%d, want unread callback body", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
+		t.Fatalf("executable-guard pending=%+v, want rewrite body 6..8", pending)
+	}
+
+	ctx = mechanismSemanticDescentContext(t, graph, 8, map[int][]repotypes.LineFeature{
+		3: {repotypes.LineFeatureCallExpression},
+		7: {repotypes.LineFeatureCallExpression},
+	})
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("executable-guard second descent demands=%d, want fallback body", got)
+	}
+	pending = ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 10, End: 12}) {
+		t.Fatalf("executable-guard second pending=%+v, want fallback body 10..12", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_ExecutableSeedIsLanguageNeutralIncludingArkTSAndCangjie(t *testing.T) {
+	tests := []struct {
+		name, file, language string
+		provenance           string
+	}{
+		{"go", "src/pipeline.go", repotypes.LangGo, repotypes.ProvenanceTreeSitter},
+		{"java", "src/Pipeline.java", repotypes.LangJava, repotypes.ProvenanceTreeSitter},
+		{"c", "src/pipeline.c", repotypes.LangC, repotypes.ProvenanceTreeSitter},
+		{"cpp", "src/pipeline.cpp", repotypes.LangCpp, repotypes.ProvenanceTreeSitter},
+		{"rust", "src/pipeline.rs", repotypes.LangRust, repotypes.ProvenanceTreeSitter},
+		{"python", "src/pipeline.py", repotypes.LangPython, repotypes.ProvenanceTreeSitter},
+		{"arkts", "src/pipeline.ets", repotypes.LangArkTS, repotypes.ProvenanceTreeSitter},
+		{"cangjie", "src/pipeline.cj", repotypes.LangCangjie, repotypes.ProvenanceCangjieParser},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, _ := mechanismSemanticDescentFixture()
+			mechanismSemanticDescentRetargetFixture(graph, tc.file, tc.language, tc.provenance)
+			ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
+			fact := mechanismSemanticDescentFact()
+			fact.Members = []string{"OutcomeRendered"}
+			fact.MemberNotes = nil
+			fact.SupportRefs = []string{"OutcomeRendered @ " + tc.file + ":1"}
+			evidence := []types.EvidenceItem{{
+				Kind: types.EvidenceConditional, Condition: "input != empty", AnchorSymbol: "input",
+				Source: tc.file, LineStart: 3, Scope: types.ScopeLine,
+				AnchorKind: types.AnchorCondition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+				GroundingStatus: types.GroundingGrounded,
+			}}
+			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+				t.Fatalf("%s executable seed demands=%d, want owner body", tc.language, got)
+			}
+			pending := ctx.Mutable.EvidenceClosure().PendingReads()
+			if len(pending) != 1 || pending[0].File != tc.file ||
+				pending[0].LineRanges[0] != (types.LineRange{Start: 2, End: 4}) {
+				t.Fatalf("%s pending=%+v, want %s:2..4", tc.language, pending, tc.file)
+			}
+		})
+	}
+}
+
+func TestMechanismSemanticDescent_ExecutableEvidencePreciseNoTriggerBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*types.BusContext, *types.AnswerAggregateFact, *types.EvidenceItem)
+	}{
+		{
+			name: "definition fact is not executable",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.Kind = types.EvidenceMechanism
+				item.AnchorKind = types.AnchorDefinition
+			},
+		},
+		{
+			name: "non explorer row cannot expand model scope",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.Producer = types.EvidenceProducerRepoMapStructuralRelation
+			},
+		},
+		{
+			name: "support fact is not a principal completion boundary",
+			mutate: func(_ *types.BusContext, fact *types.AnswerAggregateFact, _ *types.EvidenceItem) {
+				fact.Role = types.AnswerAggregateRoleSupportingCoverage
+				fact.Provenance = ""
+			},
+		},
+		{
+			name: "evidence outside a callable fails open",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.LineStart = 1
+			},
+		},
+		{
+			name: "trace request remains isolated",
+			mutate: func(ctx *types.BusContext, _ *types.AnswerAggregateFact, _ *types.EvidenceItem) {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, _ := mechanismSemanticDescentFixture()
+			ctx := mechanismSemanticDescentContext(t, graph, 4, map[int][]repotypes.LineFeature{
+				3: {repotypes.LineFeatureCallExpression},
+			})
+			fact := mechanismSemanticDescentFact()
+			fact.Members = []string{"OutcomeRendered"}
+			fact.MemberNotes = nil
+			fact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+			item := types.EvidenceItem{
+				Kind: types.EvidenceConditional, Condition: "input != empty", AnchorSymbol: "input",
+				Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+				AnchorKind: types.AnchorCondition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+				GroundingStatus: types.GroundingGrounded,
+			}
+			tc.mutate(ctx, &fact, &item)
+			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, []types.EvidenceItem{item}); got != 0 {
+				t.Fatalf("no-trigger executable row queued %d read(s): %+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+			}
+		})
 	}
 }
 
@@ -466,5 +630,36 @@ func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedMechanismDefinit
 	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
 		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
 		t.Fatalf("typed mechanism definition pending read lost its exact citation-class contract: %+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedExecutableOwner(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, map[int][]repotypes.LineFeature{
+		3: {repotypes.LineFeatureCallExpression},
+	})
+	fact := mechanismSemanticDescentFact()
+	fact.Members = []string{"OutcomeRendered"}
+	fact.MemberNotes = nil
+	fact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+	evidence := []types.EvidenceItem{{
+		ID: "E-guard", Kind: types.EvidenceConditional,
+		Condition: "input != empty", AnchorSymbol: "input",
+		Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCondition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}}
+
+	downgrade := preCompleteContractCheckWithPreflight(ctx, "", completionPreflightView{
+		Evidence: evidence, EffectiveAggregateFacts: []types.AnswerAggregateFact{fact},
+	})
+	if !strings.Contains(downgrade, "pending forced reads block the closure") ||
+		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "rewrite") {
+		t.Fatalf("pre-complete executable owner was not wired as a blocking read: %s", downgrade)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
+		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
+		t.Fatalf("typed executable owner pending read lost its exact citation-class contract: %+v", pending)
 	}
 }

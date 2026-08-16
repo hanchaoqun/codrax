@@ -67,6 +67,29 @@ func TestExploreSkillKeepsDefinitionAndObservedCallAsSeparateTypedFacts(t *testi
 	}
 }
 
+func TestExploreSkillRoleDescriptionJSONKeepsEvidenceAndAnchorAxesDistinct(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	workflow := allWorkflowBodies(sk)
+	for _, want := range []string{
+		`"evidence_kind":"mechanism","anchor_kind":"definition"`,
+		"`mechanism` is never an anchor_kind",
+		"`registration` is never an anchor_kind",
+		"an actual binding operation is a separate `evidence_kind=registration` row",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("role-description JSON teaching missing %q", want)
+		}
+	}
+	if strings.Contains(workflow, "anchor_kind=definition / registration") {
+		t.Fatal("role-description teaching still presents registration as an anchor_kind")
+	}
+}
+
 func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

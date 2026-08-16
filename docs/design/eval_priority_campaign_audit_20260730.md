@@ -37819,10 +37819,11 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
    `OutcomeUnsupportedKind` 与 rendering-disabled 早退混同；把 library rejection 泛化成“依赖缺失或配置错误”。真实普通
    显式 Mermaid 路径是 `RenderMermaidBlocks -> maybeReplaceMermaidFence -> replaceMermaidFence/mermaidFallbackFence`，
    失败或不支持时统一降为带可见原因的 text fence 并保留源码；degraded sanitizer 是独立交付守卫。
-5. B879d 最优候选不是扫描用户问题、evidence summary 或最终答案，而是让 Explorer-authored、citable grounded、
-   exact-source/span、parser-resolved 的 `EvidenceMechanism + ClaimDefinitionFact` 本身成为有界 declaration seed；仍需绑定
-   当前 requested sub-topic/当前源码消费面、共享 depth=2/max=4/去重预算，并只排 citation-class PendingRead。实现前须用
-   正负测试证明 direct evidence、非 Explorer、跨文件错配、非 callable 与 Trace 均不触发，避免把所有定义事实扩大读取。
+5. 冷读 emitted rows 后修正 B879d 设计：本轮最强信号不是 role-description definition，而是
+   `mermaidRenderingEnabled` 在 `TryRenderMermaidBlocks` 内的 Explorer-authored、citable grounded、typed guard 行；后者已
+   精确选择一个可执行 operation owner。最优候选应从 guard/return/assignment 的 exact source/span 反查 parser callable，
+   再沿 parser-owned 仓内调用有界下钻；definition/text-reference 不能进入该车道。模型还多次把 `mechanism` 错填到
+   `anchor_kind`，说明 ROLE-DESCRIPTION JSON 教学本身也须把 evidence_kind/anchor_kind 两轴写成一个最小合法对象。
 6. B880 第三次稳定复现：首稿关系门拒绝后，typed candidate 只提供两个 `Name() -> string literal` return 边，模型据此
    修补出可渲染但业务语义错误的图；真实 registration/ownership/selection/retry 关系仍丢失。正文又无证据地声称
    LoopPolicy 直接派遣两工具，最终附注仍写主路径关系未完整呈现。下一主批应建设语言无关的 aggregate
@@ -37831,12 +37832,47 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 状态：
 
 `B879c-MECHANISMDEFINITIONDEPTH1=implemented/boundary-confirmed/not-sufficient-for-enum-roster`；
-`B879d-TYPEDMECHANISMEVIDENCESEED=confirmed/P1/design-next`；
+`B879d-TYPEDEXECUTABLEOWNERSEED=confirmed/P1/design-next`；
 `B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r553/P1/after-B879d`；
 `runner-pass=2/2`；`human-pass=0/2`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
+### §123.915 B879d：typed executable owner 闭包与 JSON 双轴教学纠错（2026-08-15）
+
+1. 新增语言无关的 executable-owner seed。仅当请求已通过 generic mechanism/explanation typed boundary、completion 含
+   model-owned current-source principal fact，且证据是 Explorer-authored、citable grounded 的
+   `ClaimGuardCondition/ClaimReturnFact/ClaimAssignmentFact` 时，才从 exact source:line 反查 enclosing parser callable。
+   definition/text-reference、非 Explorer、runtime artifact、principal source scope 外路径和 callable 外行均 fail-open。
+2. 该 seed 不读取 evidence summary、aggregate label/member note、用户输入或最终答案；只消费 ClaimForm、Producer、
+   grounding、source/line、principal origin/scope 与 repomap AST/Cangjie graph。它表达的是“模型已经选择这个可执行点参与
+   当前机制”，不是系统依据名字猜主链。
+3. executable-owner 与 B879/B879b/B879c 共享 exact file:line:symbol 去重、depth=2、每轮 max=4 和 citation-class
+   PendingRead。差别只在遍历边界：旧 wrapper seed 仍仅沿 parser-owned return+call；新 executable seed 可沿所选 callable
+   内任意 parser-owned 仓内 call，再将同一有界能力传给子节点。系统不创建 EvidenceItem、关系、图、答案或结论。
+4. 正形钉住 enum roster + typed guard：即便成员不是 callable，也先补 owner body，再沿非-return 本地调用补 callback 与
+   helper；pre-complete release seam 同样被 pin。负形钉住 definition、非 Explorer、非 principal completion、callable 外
+   evidence 与 Trace 均零读取。语言矩阵覆盖 Go/Java/C/C++/Rust/Python/ArkTS/Cangjie；Cangjie 使用其独立 parser
+   provenance，其余消费 tree-sitter provenance，共用同一生产谓词。
+5. 同批修正 explore-skill 的 ROLE-DESCRIPTION 教学。旧文本把 `anchor_kind=definition / registration` 并列，实际
+   registration 并非 AnchorKind，且未给 mechanism item 的 anchor_kind，生产模型已多次发出非法
+   `anchor_kind=mechanism`。新文本给出最小 JSON：`evidence_kind=mechanism + anchor_kind=definition`，明确 mechanism/
+   registration 都不属于 anchor_kind；真实绑定操作必须另发 registration + syntax-matching call/assignment/initializer。
+   新 pin 同时禁止旧错误短语回归。
+6. 验证：专项 mechanism + JSON teaching 测试绿；`go test ./internal/skill ./internal/tool -count=1` 绿（tool 164s）；
+   `go test ./... -count=1` 全绿（tool 179s、tracequery 79s）。下一步必须用生产 r554 验证是否真正补读
+   `TryRenderMermaidBlocks -> maybeReplaceMermaidFence -> mermaidFallbackFence`；回放前状态仍为 implemented，不能标 closed。
+
+状态：
+
+`B879d-TYPEDEXECUTABLEOWNERSEED=implemented/full-suite-pass/production-replay-next`；
+`JSON-ROLE-DESCRIPTION-ENUM-AXIS=corrected/pinned`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r553/P1/after-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
 ### §123.913 B879c：typed mechanism definition 成为跨轴语义下钻起点（2026-08-15）
