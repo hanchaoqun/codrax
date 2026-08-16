@@ -37872,6 +37872,53 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.918 r555：selected definition 信号到达但被场景总门截断；图关系重试放大（2026-08-15）
+
+1. 在 `main@1da2efe97` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_answer_document_tools`。Runner `1 PASS / 1 FAIL`
+   （679s/198s），人工 `0/2`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_selected_definition_r555_20260815.md` 与对应 manual audit。
+2. B879e 的生产 typed 选择已经出现：Explorer 发出
+   `EvidenceMechanism + AnchorDefinition + ClaimDefinitionFact` 的 `RenderMermaidBlocks`，grounder 把错误的 line 39
+   精确恢复到 declaration line 235，模型随后按正确 line 再发且获 `grounded/symbol_table`。但 completion 前没有产生任何
+   `bounded mechanism semantic-descent read`。
+3. 原因不是证据不精确，而是更上层的 `genericForcedReadBoundaryCanUseModelPrincipalSet` 只允许 architecture narrative、
+   single-topic mechanism，或 `ReqMechanism` 且 scenario 为空/architecture。该请求是两个独立 mechanism sub-topic，整体
+   `scenario=config_trace`，所以在 B879e seed 消费前整条 forced-read 车道被挡住。最终只读
+   `mermaid_render.go:1..120`，未读取 declaration body 235 或 `maybeReplaceMermaidFence/mermaidFallbackFence`，仍把旧文件头
+   “失败原样保留”注释、普通 REPL fallback、degraded-draft sanitizer 与 emit gate 混为一条机制。这是
+   `B879f-MULTITOPICMECHANISMBOUNDARY1`，应按 typed intent/requirement/sub-topic 结构放行，而不能针对 config/Mermaid 词面。
+4. 第一案还保留一个已经用新行替换的旧 ungrounded `MergeSettings` item。Evidence buffer 明确报告
+   `11 grounded / 1 ungrounded`，模型却把它解释成“不影响”并以 high confidence completion。最优修向不是删除模型文字，
+   而是让同一 source/claim identity 的 grounded replacement 在 typed ledger 中 supersede 旧行，或让 unresolved principal
+   ungrounded 行继续阻塞；不得让模型用 reason prose 自行豁免。
+5. 第二案 Runner PASS 但人工 fail。系统给 finalizer 的 typed recipe 只有六条互不连通的真实实现边；它们能约束局部图，
+   不能证明“谁选择首次完整 emit 与 retry patch”。模型经历 5 次成文拒绝、7 次 patch、35 次 read、679s 后退成六个孤立
+   边，正文仍无证据声称 `NewFinalizerAgent` 统一注册两个工具、`answerDocumentEvaluator` 决定选择。B880 因而再次确认；
+   正确修复是语言无关的 typed ownership/field-binding/registration/selection relation carrier，不是放宽 validator 或系统代画。
+6. 终稿还重复附带被拒第一稿和两份相同“输出维度核对”。这些系统恢复块不应在已有 accepted structured answer 时重复扩张
+   正文；应按 typed attachment hash/role 去重，并严格保持“保留模型草稿而非系统改写结论”的边界。该项记为
+   `B882-RECOVEREDATTACHMENTDEDUP1=P1`，排在 Mermaid P0 与 B880 后。
+7. B881 仍为当前 P0：r554 的 quoted pipe edge label 经 source normalizer 后成为非法 Mermaid，却仍在单次 Markdown/HTML
+   输出中以 mermaid fence 发射。下一批先修 quote-aware pipe delimiter 与 post-normalize 可渲染性 fail-safe；只可做语法保真
+   修复或 `text + # ⚠` 降级，绝不增删关系语义。
+8. 本轮无 JSON 畸形/空答案/active-stream fixed-age 降级。任何持续到达的响应字节都刷新 liveness；4ms 内尚无完整 JSON、
+   SSE 或 answer_document 不触发降级。Trace 显式时间窗、完整 causal-diagnosis 的因果投影与自动补齐、typed on-chain-only
+   主因、实际占用/业务线索和规则计价可消除量双轴均未修改；邻近/背景仍只能作 support。
+
+状态：
+
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=production-signal-positive/gated-before-consumption-r555`；
+`B879f-MULTITOPICMECHANISMBOUNDARY1=confirmed/P1/after-B881`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r555/P1`；
+`B881-STRUCTUREDDIAGRAMPOSTNORMALIZEFAILOPEN=confirmed/P0/next`；
+`B882-RECOVEREDATTACHMENTDEDUP1=confirmed/P1/queued`；
+`runner-pass=1/2`；`human-pass=0/2`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.916 r554：JSON 教学转正；executable-only 仍漏 callable definition；非法 Mermaid fail-open（2026-08-15）
 
 1. 在 `main@0c5d8c6f5` 重建后严格并发恰好两个案例；runner 2/2 PASS（167s/108s），人工 0/2。结果记录在
