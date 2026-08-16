@@ -2046,6 +2046,27 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// call_chain_endpoints is a source-code relation carrier. A runtime
+	// artifact turn may still contain a stale discover profile copied from an
+	// analyzer candidate. Discover normally implies implementation-selection
+	// evidence, but the dedicated runtime_selection_profile is the newer,
+	// precise authority for that independent obligation. When it explicitly
+	// says false, discard the entire source-code endpoint carrier before any
+	// completion consumer can reinterpret discover as a selection task.
+	//
+	// Keep an explicitly true selection profile intact: a runtime artifact may
+	// legitimately ask which runtime provider/handler was selected, and that
+	// lane needs a separate evidence-authority audit rather than being erased
+	// here. This branch reads typed fields only; it does not classify request or
+	// answer prose.
+	if runtimeArtifactCarrier &&
+		p.RuntimeSelection != nil &&
+		p.RuntimeSelection.IsSelectionQuestion != nil &&
+		!*p.RuntimeSelection.IsSelectionQuestion &&
+		callChainEndpointProfile != nil {
+		callChainEndpointWarning = "dropped stale source-code call_chain_endpoints for runtime artifact because runtime_selection_profile explicitly declares false"
+		callChainEndpointProfile = nil
+	}
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall || runtimeArtifactCarrier {
 		if callChainEndpointProfile != nil && !callChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
 			callChainEndpointWarning = "dropped call_chain_endpoints outside a source-code call_chain with predicate_axis=call"

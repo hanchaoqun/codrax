@@ -1771,6 +1771,72 @@ func TestEmitAnalysis_RuntimeSelectionProfileRejectsContradictoryFalseQuoteWitho
 	}
 }
 
+func TestEmitAnalysis_RuntimeArtifactDropsStaleDiscoverWhenDedicatedSelectionIsFalse(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "分析 trace 中 app-100 的线程状态和 CPU 频率"
+	payload := `{
+		"intent":"trace",
+		"scenario":"performance_bottleneck",
+		"complexity":"moderate",
+		"keywords":["trace","app-100","state","frequency"],
+		"entities":["app-100"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"call_chain_endpoints":{
+			"source":"app-100","sink":"","sink_mode":"discover",
+			"runtime_selection_required":false,
+			"runtime_selection_source_quote":""
+		},
+		"runtime_selection_profile":{
+			"is_selection_question":false,
+			"source_quote":"",
+			"confidence":1.0
+		},
+		"runtime_artifact_scope_profile":{
+			"requested_scope":"unspecified",
+			"confidence":0.9
+		},
+		"runtime_target_profile":{
+			"declaration":"named_target",
+			"source_quote":"app-100",
+			"confidence":1.0
+		},
+		"runtime_targets":[{
+			"kind":"thread","thread":"app-100",
+			"source":"user_explicit","confidence":1.0
+		}],
+		"runtime_question_profile":{
+			"scope":"bounded_fact_set",
+			"fact_families":["target_scheduler_state","frequency_residency"],
+			"confidence":0.95
+		}
+	}`
+	mu := types.NewMutableState(objective)
+	res, err := (&EmitAnalysis{}).Execute(
+		&types.BusContext{Mutable: mu, AttachedHitrace: "inline trace"},
+		json.RawMessage(withV4Required(payload)),
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("runtime artifact analysis should converge: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if got := mu.RequestModel().CallChainEndpointProfile; got != nil {
+		t.Fatalf("stale source-code endpoint carrier survived explicit false selection profile: %+v", got)
+	}
+	if !strings.Contains(res.Summary, "dropped stale source-code call_chain_endpoints for runtime artifact") {
+		t.Fatalf("authority removal must remain auditable: %q", res.Summary)
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: *mu.RequestModel()}}
+	if callChainDiscoverySelectionRequired(ctx) {
+		t.Fatal("finite runtime facts must not inherit source-code selection evidence completion gates")
+	}
+}
+
 func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyForCurrentSource(t *testing.T) {
 	sourceFlow := json.RawMessage(`{
 		"question_kind":"mechanism",

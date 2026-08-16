@@ -36381,6 +36381,52 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.939 r570：作用域教学半正证；Trace 源码合同串线与错误分母异议（2026-08-16）
+
+1. 在 `main@080353e81` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，
+   人工均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_scoped_flow_trace_r570_20260816_manual_audit.md`。
+2. B909 获生产正证：Finalizer 的逐 CPU 矩阵逐行给出 CPU4
+   `35.960ms + 558000kHz + 558000..2100000kHz/28 rows + target-effect unproven`，CPU12
+   `96.081ms + 2075000kHz + policy absent + not-comparable`。模型没有再跨 CPU 拼 policy/frequency，
+   四态与“没有证据证明目标受 policy 上限约束”的结论也正确。Runner FAIL 只来自旧正则不接受现有
+   “无 policy / binding 未证”表达，暂不扩词拟合。
+3. 新确认 B910：Analyzer 发 `runtime_selection_profile=false`，但同时残留
+   `call_chain_endpoints={source:app-100,sink_mode:discover}`。旧 admission 因 discover 自带 selection 语义而
+   保留该 source-code carrier，导致有限 Trace completion 错要 registration/assignment/factory-return/guard，
+   两次无关补证后才 force-complete。N1 以 dedicated typed boolean 为权威：runtime artifact + explicit false
+   时直接丢弃整个 stale source-code endpoint carrier并留 audit warning；explicit true 保持，另行审计其
+   runtime selection 权限。无 request/model/final prose 扫描。
+4. 新确认 B911，且优先级高于 oracle：模型写“CPU12 运行 96.081ms，占全窗口 running
+   157.248ms 的 61.1%”，算术正确；系统附注却无条件用窗长 233.190ms 重算为 41.203%，公开宣称模型差
+   19.897 个百分点。现有 checker 只有 typed window denominator，无法表达同窗 typed subtotal。最优根修是
+   在宣称不一致前枚举 producer-typed duration denominator；只要存在一个非窗 typed duration 可与关系算术
+   自洽，就 fail-open 不发布异议。该 suppression 不证明语义绑定，只防系统以错误分母评价模型；仍不改正文。
+5. B908 N2a 只获半正证：`finalizer` 已正确成为 context_only，guard JSON 教学也不再要求 schema 外
+   `owner_symbol`。但参与者门把两个工具各自任意一条 `Name() -> literal` return 当作 incidence，最终图是四条
+   无关内部边，没有回答“两工具在 finalizer 内的关系”。记 B908-N2b：candidate 必须证明 requested relation
+   scope，而不是任意邻边；继续从 typed relation recipe/作用域 carrier 根修，禁止按工具名或 case 特判，系统
+   不代画关系。
+6. H4 正文复制 `coverage_status=complete`、`dominant_state_slice` 等 raw enum 是次级客户语言债；先用已有
+   软教学继续异构观察，不建立输出字符串删除门。Combo 369s、两次成文拒绝则由 B908-N2b 的错误 repair
+   candidate 放大，不能靠放松证据门减少轮次。
+7. 本批没有改变有限 Trace breadth 或因果能力。真正 causal_diagnosis 的显式时间窗、Trace 因果投影、
+   自动补齐以及链上优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索与实际占用、规则计价双轴保持；
+   邻近/背景继续只能 support。活跃流没有 4ms/固定年龄降级，系统不代写模型结论、关系或图。
+
+状态：
+
+`B908-FLOWRELATIONSCOPEDISCOVERY1=production-partial/N2b-confirmed`；
+`B909-FINITETRACESAMECPUCOGNITIVE1=production-positive-r570`；
+`B910-RUNTIMEARTIFACTSOURCEENDPOINTLEAK1=implemented/explicit-false-typed-drop+pinned`；
+`B911-TRACEARITHMETICALTERNATEDENOMINATOR1=confirmed/P1/next-batch`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/no-case-fit`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
