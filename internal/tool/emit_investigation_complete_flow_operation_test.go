@@ -620,6 +620,44 @@ func TestFlowOperationRepairTargetsCarryParserOwnedCarrierBindingAliases(t *test
 	}
 }
 
+func TestFlowOperationRepairTargetsCarryParserIncidentSitesAcrossSupportedLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			ctx := flowOperationCompletionContext(nil)
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"emit_answer_document"}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{{
+					Identity: "emit_answer_document", Role: types.DiagramParticipantIncidentRequired,
+				}},
+			}
+			path := "src/" + language + "/tool_binding.src"
+			ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+				path: {
+					RelPath: path, Language: language,
+					Relations: []repotypes.Relation{{
+						Kind: "type_usage", File: path, Line: 17,
+						FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: path, Line: 17},
+						ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: path, Line: 17},
+						Confidence: repotypes.ConfidenceAST,
+						Provenance: "tree_sitter", ResolvedBy: language + "_type_usage",
+					}},
+				},
+			}})
+
+			files, keywords := flowOperationRepairTargets(ctx, []string{"emit_answer_document"}, nil)
+			if !flowTestSliceContains(files, path) {
+				t.Fatalf("%s parser incident site missing from soft navigation: files=%v keywords=%v", language, files, keywords)
+			}
+			for _, want := range []string{"EmitAnswerDocument", "registerTools"} {
+				if !flowTestSliceContains(keywords, want) {
+					t.Fatalf("%s parser endpoint %q missing from soft navigation: files=%v keywords=%v", language, want, files, keywords)
+				}
+			}
+		})
+	}
+}
+
 func TestFlowParticipantCoverageLateResolvesUniqueStaticMemberUnderRequestedOwner(t *testing.T) {
 	busOperation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
 	busOperation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"

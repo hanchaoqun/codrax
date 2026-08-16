@@ -4298,7 +4298,7 @@ func TestReconcileDiagramHintRequiredWithRequestedDimensionsKeepsOptionalAndMiss
 	}
 }
 
-func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsContextOnlyParticipantOutsideTypedDiagramRelationScope(t *testing.T) {
 	raw := "解释 read mode 从 analyze 到 finalizer 的时序，必须给 sequenceDiagram，并再给表格列出输入、输出和状态载体，例如 BusContext"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -4312,7 +4312,7 @@ func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t
 		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"从 analyze 到 finalizer 的时序，必须给 sequenceDiagram","participants":[
 			{"identity":"analyze","role":"incident_required","source_quote":"analyze"},
 			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"},
-			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+			{"identity":"BusContext","role":"context_only","source_quote":"BusContext"}
 		]},
 		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
 			{"index":1,"label":"时序","role":"stage_or_workflow","source_quote":"从 analyze 到 finalizer 的时序","required":true},
@@ -4342,6 +4342,49 @@ func TestEmitAnalysis_Execute_DropsParticipantOutsideTypedDiagramRelationScope(t
 	}
 	if got := mu.RequestModel().AnalyzerHints.Entities; !slices.Contains(got, "BusContext") {
 		t.Fatalf("named state carrier must remain available in typed request carriers: %v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_PreservesSplitClauseIncidentParticipants(t *testing.T) {
+	raw := "对比 emit_answer_document 和 emit_answer_document_patch 的失败恢复能力、输入结构和适用时机，并用 Mermaid 小流程图说明它们在 finalizer 里的关系"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["emit_answer_document","emit_answer_document_patch","finalizer"],
+		"entities":["emit_answer_document","emit_answer_document_patch","finalizer"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"flow","required":true,"relation_scope_quote":"并用 Mermaid 小流程图说明它们在 finalizer 里的关系","participants":[
+			{"identity":"emit_answer_document","role":"incident_required","source_quote":"emit_answer_document"},
+			{"identity":"emit_answer_document_patch","role":"incident_required","source_quote":"emit_answer_document_patch"},
+			{"identity":"finalizer","role":"context_only","source_quote":"finalizer 里的关系"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid flow", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("split-clause relation contract rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	if hint == nil || len(hint.Participants) != 3 {
+		t.Fatalf("split-clause incident participants were lost: %+v", hint)
+	}
+	for _, want := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		if !slices.ContainsFunc(hint.Participants, func(got types.DiagramParticipantHint) bool {
+			return got.Identity == want && got.Role == types.DiagramParticipantIncidentRequired
+		}) {
+			t.Fatalf("missing independently grounded incident participant %q: %+v", want, hint.Participants)
+		}
+	}
+	if !slices.ContainsFunc(hint.Participants, func(got types.DiagramParticipantHint) bool {
+		return got.Identity == "finalizer" && got.Role == types.DiagramParticipantContextOnly
+	}) {
+		t.Fatalf("relation-local surrounding context was not preserved: %+v", hint.Participants)
 	}
 }
 
@@ -4646,7 +4689,7 @@ func TestEmitAnalysis_Execute_RejectsAllParticipantsOutsideRelationScope(t *test
 		"question_kind":"mechanism",
 		"predicate_axis":"flow",
 		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"从 analyze 到 finalizer 的时序，必须给 sequenceDiagram","participants":[
-			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+			{"identity":"BusContext","role":"context_only","source_quote":"BusContext"}
 		]},
 		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
 			{"index":1,"label":"阶段","role":"stage_or_workflow","source_quote":"阶段","required":true},
@@ -4660,7 +4703,7 @@ func TestEmitAnalysis_Execute_RejectsAllParticipantsOutsideRelationScope(t *test
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "relation_scope_quote contains none") {
+	if res.Success || !strings.Contains(res.Summary, "contains none of the proposed context_only") {
 		t.Fatalf("all-outside scope must force one analyzer correction instead of silently emptying the requested slate: %+v", res)
 	}
 	if mu.RequestModel() != nil {

@@ -161,6 +161,8 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	keywords := append([]string(nil), surfaces...)
 	declaredFiles, declaredAliases := flowRepairDeclaredBindingTargets(ctx, rm, surfaces)
 	keywords = appendUniqueBounded(keywords, declaredAliases, maxFlowOperationRepairKeywords)
+	relationFiles, relationAliases := flowRepairParserRelationTargets(ctx, rm, surfaces)
+	keywords = appendUniqueBounded(keywords, relationAliases, maxFlowOperationRepairKeywords)
 	// A request identity may name a field or conceptual carrier (`Mutable`)
 	// while grounded current-source evidence exposes its declared type or
 	// operation identity (`MutableState`, `applyStageOutput`). Carry those exact
@@ -199,10 +201,100 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	sort.Strings(other)
 	files := appendUniqueBounded(nil, resolvedFiles, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, declaredFiles, maxFlowOperationRepairFiles)
+	files = appendUniqueBounded(files, relationFiles, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, related, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, other, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, completionMaterializationReadFiles(ctx.Mutable.EvidenceClosure()), maxFlowOperationRepairFiles)
 	return files, keywords
+}
+
+// flowRepairParserRelationTargets adds exact parser-observed incident sites to
+// the SOFT navigation plan. A declaration often answers only "what is this
+// actor?", while the registration, allowlist, callback, or selection operation
+// lives at a reference/type-usage/call site in another file. Those sites are
+// useful places for Explorer to read next, but they are not relation evidence:
+// the model must still read the operation and emit its exact syntax-owned
+// endpoints through emit_evidence before completion or diagram validation can
+// treat any edge as proved.
+//
+// Endpoint matching deliberately reuses the existing planning-only normalized
+// matcher, so display identities such as snake_case tool names can navigate to
+// parser identities such as CamelCase types. This fuzzy bridge never enters a
+// hard gate, EvidenceItem, diagram recipe, answer, or conclusion.
+func flowRepairParserRelationTargets(ctx *types.BusContext, rm types.RequestModel, surfaces []string) ([]string, []string) {
+	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 {
+		return nil, nil
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return nil, nil
+	}
+	paths := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	var files, aliases []string
+	for _, path := range paths {
+		if !relationSourceInRequestedScope(path, rm) {
+			continue
+		}
+		fi := graph.FileIndex[path]
+		if fi == nil {
+			continue
+		}
+		for _, relation := range fi.Relations {
+			switch relation.Kind {
+			case "call", "reference", "type_usage":
+			default:
+				continue
+			}
+			from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+			to := flowRepairRelationEndpointSurfaces(relation.ToEP)
+			if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
+				!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {
+				continue
+			}
+			file := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, fi.RelPath, path))
+			files = appendUniqueBounded(files, []string{file}, maxFlowOperationRepairFiles)
+			aliases = appendUniqueBounded(aliases, append(from, to...), maxFlowOperationRepairKeywords)
+			if len(files) >= maxFlowOperationRepairFiles && len(aliases) >= maxFlowOperationRepairKeywords {
+				return files, aliases
+			}
+		}
+	}
+	return files, aliases
+}
+
+func flowRepairRelationEndpointSurfaces(endpoint repotypes.RelationEndpoint) []string {
+	name := strings.TrimSpace(endpoint.Name)
+	receiver := strings.TrimSpace(endpoint.Receiver)
+	out := appendUniqueBounded(nil, []string{name, receiver}, maxFlowOperationRepairKeywords)
+	if name != "" && receiver != "" {
+		out = appendUniqueBounded(out, []string{receiver + "." + name}, maxFlowOperationRepairKeywords)
+	}
+	return out
+}
+
+func flowRepairAnyPlanningSurfaceMatches(wanted, candidates []string) bool {
+	for _, left := range wanted {
+		for _, right := range candidates {
+			if types.AnswerCodeIdentitySurfacesCompatible(left, right) ||
+				flowRepairPlanningSurfaceMatches(left, right) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func firstNonEmptyFlowRepairString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // flowRepairDeclaredBindingTargets projects exact parser-owned declaration

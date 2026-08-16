@@ -894,7 +894,7 @@ func buildEmitAnalysisSchema() {
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request independently confirmed by the out-of-band typed requires_diagram signal; without that carrier, true is normalized to false and remains optional structural guidance."},
 					"relation_scope_quote": map[string]any{
 						"type":        "string",
-						"description": "When required=true, copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and its actor scope. Exclude names that belong only to a sibling table, list, prose section, or example. Every participant source_quote must be contained inside this relation-surface quote. Use an empty string when required=false and no current-request relation surface authorizes participants.",
+						"description": "When required=true, copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface. Exclude sibling table, list, prose-section, and example-only surfaces. A named incident_required participant may have been introduced in an earlier clause and referred to here anaphorically (for example `their relationship`), so its independently exact source_quote need not be textually contained here. A context_only participant remains inside this quote. Use an empty string when required=false and no current-request relation surface authorizes participants.",
 					},
 					"participants": map[string]any{
 						"type":        "array",
@@ -6358,20 +6358,28 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 			}
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote does not contain identity %q", i, identity), warnings
 		}
-		if required && !sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
-			relationScopeExcluded++
-			warnings = append(warnings, fmt.Sprintf(
-				"dropped diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
-				identity, kind, required,
-			))
-			continue
-		}
 		role := types.DiagramParticipantRole(strings.TrimSpace(raw.Role))
 		if !role.IsValid() {
 			return nil, fmt.Sprintf(
 				"diagram_hint.participants[%d].role = %q is not recognised — use incident_required or context_only",
 				i, raw.Role,
 			), warnings
+		}
+		// The identity quote and relation quote are independent exact
+		// authorities. Ordinary requests often name A/B in one clause and
+		// then ask for "their relationship" in a later clause. Requiring one
+		// contiguous quote to contain both would make that valid shape
+		// impossible and silently erase the principal actors. Context-only
+		// nodes stay stricter so a name from a sibling table/example cannot
+		// leak into the requested diagram.
+		if required && role == types.DiagramParticipantContextOnly &&
+			!sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
+			relationScopeExcluded++
+			warnings = append(warnings, fmt.Sprintf(
+				"dropped context-only diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
+				identity, kind, required,
+			))
+			continue
 		}
 		key := strings.ToLower(identity)
 		if seen[key] {
@@ -6381,7 +6389,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		participants = append(participants, types.DiagramParticipantHint{Identity: identity, Role: role, SourceQuote: sourceQuote})
 	}
 	if required && len(rawParticipants) > 0 && len(participants) == 0 && relationScopeExcluded > 0 {
-		return nil, "diagram_hint.relation_scope_quote contains none of the current-request-authorized participant source_quote rows — expand it to the shortest diagram relation clause containing the intended participants, or emit participants=[] only when that relation surface names no participant identities", warnings
+		return nil, "diagram_hint.relation_scope_quote contains none of the proposed context_only participant source_quote rows — keep only context nodes explicitly scoped by that diagram relation clause, or emit participants=[] when no named diagram actors remain", warnings
 	}
 	return &types.DiagramHint{Kind: kind, Required: required, RelationScopeQuote: relationScopeQuote, Participants: participants}, "", warnings
 }

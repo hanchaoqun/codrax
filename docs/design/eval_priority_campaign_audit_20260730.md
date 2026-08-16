@@ -38023,6 +38023,61 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.923 B880 冷读纠错与根修：跨句参与者保权 + parser incident 导航复用既有 registration 载体（2026-08-16）
+
+1. 对 r550-r556 的源码与逐轮日志重新冷读后，纠正 §123.908/910/918/921 中一条事实描述：
+   `answerDocumentEvaluator` 并不以 struct 字段“聚合/持有” `emit_answer_document` 与
+   `emit_answer_document_patch`。真实链路分为四层：`cmd/root.go` 把两个 tool type 注册到全局
+   registry；`answer-document-skill.ToolSuggestions` 声明 finalizer 的允许集合；
+   `BaseAgent.buildToolSchemas` 将 skill allowlist 映射为本轮 schema；
+   `answerDocumentEvaluator.FilterToolSchemas` 只依据首发/失败/patch-base 状态筛选 full 或 patch。
+   因而不能为符合旧审计文字而新铸“evaluator owns both tools”边；正确答案应由模型基于 registration、
+   allowlist membership、schema exposure 与 selection guard 分层形成。
+2. B880 也不是底层缺少所有权/注册词汇。现有 `EvidenceRegistration`、跨语言 binding grounder、
+   `ClaimRegistrationEdge -> DiagramRelRegister`、Finalizer relation capsule 与 validator 已经闭环；
+   `Symbol.Parent/DeclaredType` 也已覆盖全部 supported read languages，并只授权 no-arrow grouping/identity join。
+   真正断点在上游：(a) 自然语言常先命名 A/B，后以“它们的关系”引用；旧合同要求每个 participant quote
+   必须被同一 contiguous relation quote 包含，Analyzer 为满足合同把两个主工具静默删除；
+   (b) flow repair 只给声明/字段坐标，没有把 parser 已知的 call/reference/type-usage incident site 交给 Explorer，
+   模型反复停在 `Name()` 定义与无关局部边，始终没去真实 registration/allowlist/selection 操作点。
+3. 根修一保持双重 exact provenance，但拆开职责：`relation_scope_quote` 证明当前轮确实请求关系面；每个
+   `incident_required.source_quote` 独立证明命名主体，允许前文 A/B + 后文“它们的关系”的跨句形。该权限只保留
+   planning obligation，不证明任何边。`context_only` 继续要求完整 quote 位于 relation scope 内，防止旁边表格、
+   列表、示例或说明段中的名字污染图上下文。回归直接复刻两个工具前置、finalizer 后置的请求，要求两工具
+   incident rows 保留而 finalizer surrounding context 仍走 context-only。
+4. 根修二在既有 soft repair seam 增加 parser incident 导航：只从 request-scoped repomap graph 的
+   `call/reference/type_usage` endpoint 取候选 source file 与 exact endpoint alias；snake_case/CamelCase 对齐复用
+   既有 planning-only normalizer。该结果只进入 `read_file/grep/repo_map/emit_evidence` 搜索计划，不生成
+   EvidenceItem、relation recipe、diagram、正文或结论，不能满足 completion/validator。Explorer 读到真实操作后，
+   仍须自己发 exact `registration/guard/call/assignment/return` 行，既有 grounder 与硬门再决定其权限。
+5. 单源 `FlowOperationEvidenceEmissionGuide` 补齐通用语义：registry/allowlist/plugin table/callback set/tool list
+   必须在 exact binding call 或 value-bearing initializer 上发 `evidence_kind=registration`；它只证明可用性/成员关系，
+   runtime selection/use 必须由独立 guard/call/assignment/return 行证明。该规则面向语言结构而非 Go、工具名或本案
+   关键词。新增矩阵逐一遍历 `SupportedReadLanguages()`（Go、Python、JS/TS、Java/Kotlin、Rust、C/C++、Ruby、
+   Swift、Lua、Proto、ArkTS、Cangjie），确认同一 parser incident 导航合同；既有 registration grounder 的 Rust、
+   ArkTS、Cangjie、C++ 结构正臂继续保留。
+6. 验证：定向 B880/跨句/全语言矩阵全绿；
+   `go test ./internal/types ./internal/tool ./internal/skill ./internal/agent -count=1` 全绿
+   （types 22.617s、tool 166.004s、skill 0.502s、agent 9.643s）；
+   `go test ./... -count=1` 全仓全绿，含 `hitraceconv`/`orchestrator`/`render`/`repl`/
+   `tool`/repomap 全层/`tracequery`/`tracediag`/`writeflow`。本批提交推送后，随后严格并行恰好
+   两个生产 eval，验收 Analyzer 保留两主参与者、Explorer 抵达真实 binding/selection source、模型自行给出
+   可证关系且不再靠删除 anchors/节点收敛。未回放前不宣称 production closed。
+7. 本批不修改 JSON/Mermaid 自愈、Trace 查询、显式窗、因果投影、自动补齐、链上-only 主因或答案所有权。
+   优先级反转、调度延迟/调度供给、算力供给、D/IO、确定性语义工作与链上业务线索继续保留；实际占用与
+   规则计价可消除量双轴不变，邻近/背景仍只能作 support。活跃响应字节持续到达时，不因 4ms 或固定总龄降级。
+
+状态：
+
+`B880-AGGREGATEOWNERSHIPRELATION1=implemented/reclassified-as-participant+discovery-seam/pending-production-replay`；
+`B880-old-evaluator-owns-tools-claim=corrected/withdrawn`；
+`registration/selection authority=model-authored+grounded-only`；
+`all-supported-languages=parser-incident-navigation-matrix-pass`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）
 
 1. 以 r554 的原始 model-authored body 建立先红 witness：
