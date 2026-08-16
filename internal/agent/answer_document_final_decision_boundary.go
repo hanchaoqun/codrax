@@ -170,6 +170,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
 	b.WriteString(renderTraceFinalTimeRoleAuthority(set))
 	b.WriteString(renderTraceFinalBlockedReasonStateRelation(set, ledger))
+	b.WriteString(renderTraceFinalRuntimeEnumerationAuthority(ctx))
 	if types.RuntimeTraceTargetWaitMaterializationAllowed(requestModel, set) {
 		b.WriteString(renderTraceFinalTargetWaitEnumerationAuthority(ledger, requestModel))
 	}
@@ -450,10 +451,45 @@ func renderTraceFinalBlockedReasonStateRelation(set types.TraceCausalProjectionS
 				continue
 			}
 			seen[key] = true
-			fmt.Fprintf(&b, "- blocked_reason_state_relation subject=`%s`; selected_window=`%.6f..%.6f`; scheduler_state_caliber=`sched_switch_interval_wall_clock`; d_state=%.3fms; io_wait=%.3fms; blocked_reason_records=%d; blocked_reason_census=`%s`; blocked_reason_caliber=`kernel_record_count_and_vendor_reported_delay_sum`; relation=`unjoined_distinct_observation_domains`; record_to_state_occurrence_mapping=`not_provided`; count_or_delay_difference_interpretation=`forbidden`; arithmetic_recomposition=`forbidden`. Report both observations under their own rulers. Do not pair records with state segments, substitute the census delay sum for state wall clock, or explain a count/duration difference as missing, extra, omitted, or mismatched events unless a separate typed interval join provides that mapping.\n",
+			fmt.Fprintf(&b, "- blocked_reason_state_relation subject=`%s`; selected_window=`%.6f..%.6f`; scheduler_state_caliber=`sched_switch_interval_wall_clock`; d_state=%.3fms; io_wait=%.3fms; blocked_reason_records=%d; blocked_reason_census=`%s`; blocked_reason_caliber=`kernel_record_count_and_vendor_reported_delay_sum`; blocked_reason_caller_identity_role=`kernel_call_site_symbol_only`; waited_object_identity=`not_provided_by_census_alone`; resource_holder_identity=`not_provided_by_census_alone`; subsystem_mechanism=`not_provided_by_census_alone`; caller_to_wait_cause_relation=`unproven_without_separate_typed_identity_or_dependency`; relation=`unjoined_distinct_observation_domains`; record_to_state_occurrence_mapping=`not_provided`; count_or_delay_difference_interpretation=`forbidden`; arithmetic_recomposition=`forbidden`. Report the caller only as the kernel call site unless separate typed identity/dependency evidence establishes the waited object, resource holder, subsystem mechanism, or causal relation. Report both observation domains under their own rulers. Do not pair records with state segments, substitute the census delay sum for state wall clock, or explain a count/duration difference as missing, extra, omitted, or mismatched events unless a separate typed interval join provides that mapping.\n",
 				traceDecisionPromptScalar(account.Subject), start, end, account.DStateMS, account.IOWaitMS,
 				count, traceDecisionPromptScalar(callers))
 		}
+	}
+	return b.String()
+}
+
+// renderTraceFinalRuntimeEnumerationAuthority repeats the exact runtime
+// enumeration permission at the final synthesis seam. The earlier authority
+// section can be separated from generation by a large ledger; repeating the
+// same typed value here changes salience only. It never inspects or validates
+// model prose and never creates a diagnosis. A separately proved complete
+// rowset (for example target_wait_enumeration_authority) keeps its local exact
+// permission without widening any incomplete sibling scope.
+func renderTraceFinalRuntimeEnumerationAuthority(ctx *types.AgentContext) string {
+	authority := answerDocRuntimeEnumerationAuthorityForAnswer(ctx)
+	if !authority.Incomplete || len(authority.Boundaries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- runtime_enumeration_final_authority status=`incomplete`; affected_scopes=`%s`; emitted_rows_role=`bounded_sample_or_lower_bound`; exhaustive_claim_permission=`forbidden`; exact_total_count_extrema_absence_permission=`requires_separate_complete_typed_authority`; scope_local_complete_rowset_permission=`preserved_only_for_the_exact_separately_named_rowset`. Do not describe the affected scopes as all, only, exhaustive, complete, or without omissions. You still own the conclusion and wording.\n",
+		strings.Join(authority.Scopes, ","))
+	limit := len(authority.Boundaries)
+	if limit > answerDocRuntimeEnumerationBoundaryLimit {
+		limit = answerDocRuntimeEnumerationBoundaryLimit
+	}
+	for _, boundary := range authority.Boundaries[:limit] {
+		total := "unknown"
+		if boundary.TotalKnown {
+			total = strconv.Itoa(boundary.Total)
+		}
+		fmt.Fprintf(&b, "  - incomplete_boundary scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`.\n",
+			firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown"),
+			firstNonEmptyString(strings.TrimSpace(boundary.Dimension), "rows"),
+			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason))
+	}
+	if omitted := len(authority.Boundaries) - limit; omitted > 0 {
+		fmt.Fprintf(&b, "  - omitted_exact_boundaries=%d; status remains incomplete.\n", omitted)
 	}
 	return b.String()
 }

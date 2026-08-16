@@ -957,32 +957,11 @@ const answerDocRuntimeEnumerationBoundaryLimit = 16
 // appendix. It is guidance only: no request/answer prose is inspected and no
 // model-authored conclusion is rejected, removed, or rewritten here.
 func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string {
-	if ctx == nil {
-		return ""
-	}
-	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
-	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
-	results = append(results, input.ToolResults...)
-	results = append(results, input.SystemTraceSupplementResults...)
-	authority := types.BuildRuntimeArtifactEnumerationAuthority(results)
+	authority := answerDocRuntimeEnumerationAuthorityForAnswer(ctx)
 	if !authority.Incomplete {
 		return ""
 	}
 	boundaries := authority.Boundaries
-	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
-		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
-		projected := make([]types.ToolEnumerationBoundary, 0, len(boundaries))
-		for _, boundary := range boundaries {
-			if strings.EqualFold(strings.TrimSpace(boundary.Scope), "root_cause_rank") {
-				continue
-			}
-			projected = append(projected, boundary)
-		}
-		boundaries = projected
-	}
-	if len(boundaries) == 0 {
-		return ""
-	}
 	scopes := make([]string, 0, len(boundaries))
 	seenScopes := make(map[string]bool, len(boundaries))
 	for _, boundary := range boundaries {
@@ -1016,6 +995,45 @@ func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string 
 	}
 	b.WriteString("- These emitted rows are bounded samples or lower bounds, not an exhaustive census. Keep totals/counts/extrema/absence claims within the typed boundaries above and state the incomplete scope when it matters. You still own the diagnosis, prioritization, summary, and recommendations; this handoff supplies no conclusion and never replaces yours.\n\n")
 	return b.String()
+}
+
+// answerDocRuntimeEnumerationAuthorityForAnswer is the single answer-scope
+// projection of deterministic runtime enumeration coverage. Both the early
+// handoff and the final trace decision tail consume this exact value so a
+// large intervening prompt cannot make one surface appear complete while the
+// other remains incomplete. It reads typed tool receipts only.
+func answerDocRuntimeEnumerationAuthorityForAnswer(ctx *types.AgentContext) types.RuntimeArtifactEnumerationAuthority {
+	if ctx == nil {
+		return types.RuntimeArtifactEnumerationAuthority{}
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
+	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
+	results = append(results, input.ToolResults...)
+	results = append(results, input.SystemTraceSupplementResults...)
+	authority := types.BuildRuntimeArtifactEnumerationAuthority(results)
+	if !authority.Incomplete || ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
+		return authority
+	}
+	projected := make([]types.ToolEnumerationBoundary, 0, len(authority.Boundaries))
+	seenScopes := make(map[string]bool, len(authority.Scopes))
+	var scopes []string
+	for _, boundary := range authority.Boundaries {
+		if strings.EqualFold(strings.TrimSpace(boundary.Scope), "root_cause_rank") {
+			continue
+		}
+		projected = append(projected, boundary)
+		scope := strings.TrimSpace(boundary.Scope)
+		if scope != "" && !seenScopes[scope] {
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
+	authority.Boundaries = projected
+	authority.Scopes = scopes
+	authority.Incomplete = len(projected) > 0
+	return authority
 }
 
 func answerDocKeyAnchorsTitle(lang string) string {

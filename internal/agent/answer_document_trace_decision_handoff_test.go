@@ -1028,6 +1028,20 @@ func TestFinalizerInitialInstructionWiresRuntimeEnumerationAuthorityBeforeAnswer
 	if strings.Index(prompt, "## Runtime Enumeration Authority") > strings.Index(prompt, "## Observation Ledger") {
 		t.Fatalf("runtime enumeration authority must precede the larger observation ledger:\n%s", prompt)
 	}
+	for _, want := range []string{
+		"runtime_enumeration_final_authority status=`incomplete`",
+		"affected_scopes=`root_cause_rank,span_window`",
+		"exhaustive_claim_permission=`forbidden`",
+		"exact_total_count_extrema_absence_permission=`requires_separate_complete_typed_authority`",
+		"incomplete_boundary scope=`root_cause_rank`; dimension=`candidates`; emitted=12; total=61",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("final trace decision tail missed runtime enumeration authority %q:\n%s", want, prompt)
+		}
+	}
+	if strings.LastIndex(prompt, "runtime_enumeration_final_authority") < strings.LastIndex(prompt, "## Submission Checklist") {
+		t.Fatalf("runtime enumeration authority must be replayed at the final trace decision tail:\n%s", prompt)
+	}
 }
 
 func TestFinalizerInitialInstructionOmitsCompleteRuntimeEnumerationAuthority(t *testing.T) {

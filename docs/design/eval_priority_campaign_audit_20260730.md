@@ -35681,13 +35681,21 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. 两案均无畸形 JSON、空答案、旧稿降级或 active-stream 固定 4ms/累计年龄降级。后续施工只消费
    typed census、typed enumeration authority、typed source owner/reference/edge；显式窗、因果投影、自动补齐、
    链上-only 主因、背景 support-only 与模型结论权必须保持。
+9. B933/B934 已按上述形状完成第一施工批。早期 `Runtime Enumeration Authority` 与最终 tail 现共用
+   `answerDocRuntimeEnumerationAuthorityForAnswer`，bounded fact 对 `root_cause_rank` 的既有收窄也只在这一处
+   投影；最终尾部只在 typed incomplete 时重放 scopes、逐 boundary emitted/total、exhaustive 权限和局部
+   complete-rowset 例外。blocked_reason 同一尾部新增 call-site-only、waited-object/holder/subsystem 未提供与
+   causal relation 未证字段。两者都是 prompt-only typed 事实，不读取或拒绝成文，不生成结论。
+10. 专项 `internal/agent` 全套 8.886s 通过；`go test ./internal/types ./internal/skill ./internal/tool
+    -count=1` 全绿（tool 166.251s）。生产回放仍需下一批 exact-2 验证模型是否消费，但接线、完整/不完整
+    正负臂、最终 tail 顺序和 blocked_reason 分域均已钉。
 
 状态：
 
 `B931-RUNTIMECAUSALBREADTHSSOT1=production-closed-r584`；
 `B932-STRUCTUREDRELATIONZEROANCHOR1=production-positive-r584`；
-`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=confirmed/pending`；
-`B934-RUNTIMEENUMERATIONFINALAUTHORITY1=confirmed/pending`；
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=implemented/final-tail+production-wiring-pins-pass/pending-replay`；
+`B934-RUNTIMEENUMERATIONFINALAUTHORITY1=implemented/shared-authority+final-tail-pins-pass/pending-replay`；
 `B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=confirmed/pending`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r584`；

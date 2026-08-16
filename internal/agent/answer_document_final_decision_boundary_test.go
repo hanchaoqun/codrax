@@ -532,10 +532,16 @@ func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateI
 		"blocked_reason_records=12",
 		"blocked_reason_census=`dma_fence_default_w×12(Σ39.157ms)`",
 		"blocked_reason_caliber=`kernel_record_count_and_vendor_reported_delay_sum`",
+		"blocked_reason_caller_identity_role=`kernel_call_site_symbol_only`",
+		"waited_object_identity=`not_provided_by_census_alone`",
+		"resource_holder_identity=`not_provided_by_census_alone`",
+		"subsystem_mechanism=`not_provided_by_census_alone`",
+		"caller_to_wait_cause_relation=`unproven_without_separate_typed_identity_or_dependency`",
 		"relation=`unjoined_distinct_observation_domains`",
 		"record_to_state_occurrence_mapping=`not_provided`",
 		"count_or_delay_difference_interpretation=`forbidden`",
 		"Do not pair records with state segments",
+		"Report the caller only as the kernel call site",
 		"unless a separate typed interval join provides that mapping",
 	} {
 		if !strings.Contains(got, want) {
