@@ -35806,6 +35806,59 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.928 r560：同窗 CPU-policy 对齐获生产正证；typed 成员说明错位与非请求阻塞维度根修（2026-08-16）
+
+1. 在 `main@f12436766` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   两案均 fail。逐轮人工记录见
+   `eval/parallel_selected_summary_evalcampaign_b884_trace_r560_20260816_manual_audit.md`。Runner 只判声明的
+   oracle，不替代对日志、上下文、工具过程和终稿的人工验收。
+2. B888 获得生产正证：最终上下文把同一显式窗、同一 target、同一 CPU 的 Running 与 policy ceiling
+   逐行并置；CPU4 的 target-running 与 2.1GHz 上限可比较，CPU12 不再借用 CPU4 上限。四态账为
+   Running 157.248ms、Runnable 5.604ms、Sleeping 70.338ms、D/IO 0ms，占窗 67.4%；模型结论保持
+   “policy ceiling 存在，但 target-slice binding 未证”。Runner FAIL 是限定语句序正则造成的假阴性。
+   67 条 `cpu_frequency` 是该次 exact `event_search` 的完整 matched census，日志同时披露仅显示前 40 条，
+   因而不是把 capped preview 误称为全量。
+3. 工具关系案确认 B884c/B887 均在生产生效：首次读取命中 `FilterToolSchemas`，后续补读范围向前推进，
+   没有再重复同一窗口；虚假 “JSON placement” 诊断为零。新根因冻结为
+   `B889-INLINEMEMBERNOTEFORMS1=P1`：模型把成员身份与说明写成
+   `emit_answer_document: 首次完整输出 / 完整重写`，而 positional support ref 已正确指向该标识符；校验器
+   却把整段叙述当代码身份解析，连续三次给出无法通过的同类 completion，模型只能反复改 support ref。
+4. B889 根修不读用户问题、推理或答案正文，也不放宽错误证据。仅当 typed 当前源码 `member_set` 同时具备
+   对齐的非空 `member_notes` 和能解析到 grounded evidence 的逐成员 support ref 时，才把
+   `CodeIdentity: prose` / 全角冒号形拆成裸身份，并把说明无损合并到相同下标的 note；前缀必须通过
+   `IsCodeIdentitySurface`，代码身份/源码位置/路径形后缀以及真实 `Producer: Consumer` 关系均不修复。
+   错误 support ref 继续 fail-loud。公开 JSON schema 同步明确 members 只放身份、说明只放 aligned notes，
+   以降低模型心智而不改变证据门。
+5. Trace 人工审计另确认 `B890-RECORDEDREASONFAMILYTEACHING1=P2`：用户仅要求线程状态/频率，Analyzer
+   却同时选出 `recorded_reason`；确定性 materializer 因 typed profile 为真而追加了 50 条 blocked_reason
+   口径块。根因在分类过宽，不在 materializer。分析 schema 与 skill 现软性、结构化地区分：
+   `recorded_reason` 只在用户明确询问 recorded reason/caller 时选择，不能仅因状态桶含 D/io_wait 就选出。
+   未增加基于原始请求关键词的硬门，待生产回放验证分类器是否遵循。
+6. 同案冻结 `B891-FREQUENCYBINDINGREADERFACE1=P2`：typed same-CPU join 正确，但 finalizer 直接复述
+   `target_policy_binding=unproven_without_slice_overlap_or_binding_carrier` 等内部枚举。现将提示改为读者语言：
+   “同 CPU 证据可比；缺目标切片重叠或绑定载体，所以对目标的影响未证”，并明确另一 CPU 的 policy 不可替代。
+   typed 字段仍留在系统证据层，模型继续拥有 yes/no、根因与优化结论，不由系统改写正文。
+7. 工具关系终稿仍未展示 finalizer 对 full-vs-patch 的选择关系，只显示 Name literal 与
+   `canonicalParameters` 旁支；故 runner PASS 不能收账。B889 修复只清除不可能收敛的结构错位，不制造关系边；
+   r561 将验证模型能否在证据不变时完成关系表达，若仍缺失，再沿 typed relation handoff 做泛化根修。
+8. 本批未改 Trace query、显式窗、因果投影、自动补齐、链上根因规则、JSON 内容恢复、写模式或
+   active-stream 终止权。真正 causal diagnosis 仍只允许 typed on-chain 证据加冕；优先级反转、调度延迟/
+   供给、算力供给、D/IO、确定性语义与链上业务线索保持，实际占用和规则计价可消除量双轴保持；邻近/
+   背景仅作 support。持续字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B888-TARGETCPUPOLICYJOINCONTEXT1=production-positive-r560`；
+`B889-INLINEMEMBERNOTEFORMS1=implemented/typed-current-source+aligned-note+resolved-support-only`；
+`B890-RECORDEDREASONFAMILYTEACHING1=implemented/soft-typed-family-guidance/pending-replay`；
+`B891-FREQUENCYBINDINGREADERFACE1=implemented/model-verdict-owned/pending-replay`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r560/finalizer-selection-diagram-still-missing`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

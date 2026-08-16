@@ -1187,6 +1187,7 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",
 		"Do not relabel a recorded `reason` or direct relation as causal by itself",
+		"A request for running/runnable/sleep/D-state/io_wait totals does not request `recorded_reason`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)

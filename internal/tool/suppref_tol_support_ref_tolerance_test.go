@@ -21,6 +21,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -727,6 +728,91 @@ func TestSupprefTol_ShadowedFactJunkRefRepairsSameAsNoRef(t *testing.T) {
 	if junkRef[0].Members[0] != noRef[0].Members[0] ||
 		strings.Join(junkRef[0].MemberNotes, "\n") != strings.Join(noRef[0].MemberNotes, "\n") {
 		t.Fatalf("junk-ref variant must repair identically to the refs-absent variant: %+v vs %+v", junkRef[0], noRef[0])
+	}
+}
+
+func TestSupprefTol_InlineNarrativeMemberUsesGroundedIdentityAndKeepsNote(t *testing.T) {
+	mut := types.NewMutableState("inline narrative member")
+	evidence := []types.EvidenceItem{
+		{
+			ID: "emit-full-description", Kind: types.EvidenceMechanism,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "Description",
+			Subject: "emit_answer_document", Source: "internal/tool/emit_answer_document.go",
+			LineStart: 50, LineEnd: 53, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "emit-patch-description", Kind: types.EvidenceMechanism,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "Description",
+			Subject: "emit_answer_document_patch", Source: "internal/tool/emit_answer_document_patch.go",
+			LineStart: 49, LineEnd: 52, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{
+		RepoRoot: ".", Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "tool timing", Value: "2",
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"emit_answer_document: first dispatch / complete rewrite",
+			"emit_answer_document_patch：retry path only",
+		},
+		MemberNotes: []string{
+			"verified by the full-emission description",
+			"verified by the patch-emission description",
+		},
+		SupportRefs: []string{
+			"internal/tool/emit_answer_document.go:50",
+			"internal/tool/emit_answer_document_patch.go:49",
+		},
+	}
+
+	got, notes := normalizeDecoratedMemberSetFormDebt(bus, "resolved", []types.AnswerAggregateFact{fact}, evidence)
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Members, []string{"emit_answer_document", "emit_answer_document_patch"}) {
+		t.Fatalf("inline prose must move out of grounded member identities: %+v", got)
+	}
+	if len(got[0].MemberNotes) != 2 ||
+		!strings.Contains(got[0].MemberNotes[0], "first dispatch / complete rewrite") ||
+		!strings.Contains(got[0].MemberNotes[0], "verified by the full-emission description") ||
+		!strings.Contains(got[0].MemberNotes[1], "retry path only") {
+		t.Fatalf("inline explanation was not preserved in aligned notes: %+v", got[0].MemberNotes)
+	}
+	if !strings.Contains(got[0].Provenance, "form_repair:inline_member_note") ||
+		len(notes) == 0 {
+		t.Fatalf("typed repair provenance/notice missing: fact=%+v notes=%v", got[0], notes)
+	}
+}
+
+func TestSupprefTol_InlineNarrativeMemberDoesNotRelaxWrongRefOrCodeRelation(t *testing.T) {
+	mut := types.NewMutableState("inline narrative negative")
+	evidence := []types.EvidenceItem{{
+		ID: "other", Kind: types.EvidenceMechanism,
+		AnchorKind: types.AnchorDefinition, Subject: "OtherTool",
+		Source: "internal/tool/other.go", LineStart: 10, LineEnd: 10,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{
+		RepoRoot: ".", Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "relations", Value: "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"WantedTool: prose note", "Producer: Consumer"},
+		MemberNotes: []string{"note", "typed relation"},
+		SupportRefs: []string{"internal/tool/other.go:10", "internal/tool/other.go:10"},
+	}
+
+	got, _ := normalizeDecoratedMemberSetFormDebt(bus, "resolved", []types.AnswerAggregateFact{fact}, evidence)
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Members, fact.Members) {
+		t.Fatalf("wrong refs and code-to-code relations must remain fail-loud/unmodified: %+v", got)
 	}
 }
 

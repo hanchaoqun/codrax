@@ -155,7 +155,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"member_notes": {
 							"type": "array",
-							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. For a current-source architecture/mechanism roster used to close the investigation, either omit member_notes entirely or provide exactly one non-empty note AND one grounded support_ref for every members[] entry, all in the same order; partial responsibility rosters are rejected instead of being presented as proved. When the typed request contract requires a current-source per-member attribute table, omission is not an exit: provide one verified non-empty member_note and one same-member grounded support_ref for every row so the requested row attributes reach the final answer instead of being inferred from identity alone.",
+							"description": "Optional per-member explanatory notes aligned by index with members[]. Keep members[] identity-only: write Foo in members[i] and put first-dispatch / complete-rewrite or any other explanation only in member_notes[i]; do not duplicate the explanation into a Foo: description member label. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. For a current-source architecture/mechanism roster used to close the investigation, either omit member_notes entirely or provide exactly one non-empty note AND one grounded support_ref for every members[] entry, all in the same order; partial responsibility rosters are rejected instead of being presented as proved. When the typed request contract requires a current-source per-member attribute table, omission is not an exit: provide one verified non-empty member_note and one same-member grounded support_ref for every row so the requested row attributes reach the final answer instead of being inferred from identity alone.",
 							"items": {"type": "string"}
 						},
 						"excluded": {
@@ -16423,6 +16423,42 @@ func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind strin
 			len(fact.Members) == 0 {
 			continue
 		}
+		// member_notes is the typed explanatory carrier. Models sometimes
+		// duplicate that prose into members[] as "CodeIdentity: explanation";
+		// the exact source-support gate then tries to resolve the whole sentence
+		// as a symbol and can never accept the already-correct positional ref.
+		//
+		// This repair is intentionally narrower than a text heuristic: it runs
+		// only for a typed current-source narrative set with a populated aligned
+		// note, and only when the existing ref resolves against grounded evidence
+		// after replacing this one member with its code-identity prefix. The
+		// explanation moves losslessly to member_notes; unresolved or mislabeled
+		// refs remain fail-loud.
+		inlineChanged := false
+		if aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx, *fact) &&
+			len(fact.MemberNotes) == len(fact.Members) {
+			idx := supportIndex()
+			for j, member := range fact.Members {
+				base, qualifier, ok := aggregateInlineNarrativeMemberParts(member)
+				if !ok || strings.TrimSpace(fact.MemberNotes[j]) == "" {
+					continue
+				}
+				candidate := *fact
+				candidate.Members = append([]string(nil), fact.Members...)
+				candidate.Members[j] = base
+				if !aggregateMemberSetSupportRefsResolveMember(candidate, base, idx) {
+					continue
+				}
+				fact.Members[j] = base
+				fact.MemberNotes[j] = types.MergeEvidenceSummaries(qualifier, fact.MemberNotes[j])
+				inlineChanged = true
+			}
+		}
+		if inlineChanged {
+			fact.Provenance = appendCompletionAggregateProvenance(fact.Provenance, "form_repair:inline_member_note")
+			notes = append(notes, fmt.Sprintf("normalized member_set %q inline explanatory labels into bare member identities with member_notes", completionFirstNonEmptyString(fact.Label, "(unlabeled)")))
+			changedAny = true
+		}
 		// SUPPREF-TOL (§29.104.13): support_refs used to block this repair
 		// lane by mere PRESENCE. The h9 witness fact carried exactly one
 		// decorated prose ref ("attached_trace.txt: wakeup_chain path") that
@@ -16479,6 +16515,33 @@ func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind strin
 		return facts, notes
 	}
 	return normalized, notes
+}
+
+func aggregateInlineNarrativeMemberParts(member string) (base string, qualifier string, ok bool) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return "", "", false
+	}
+	for _, sep := range []string{": ", "："} {
+		idx := strings.Index(member, sep)
+		if idx <= 0 || idx+len(sep) >= len(member) {
+			continue
+		}
+		base = strings.TrimSpace(member[:idx])
+		qualifier = strings.TrimSpace(member[idx+len(sep):])
+		if base == "" || qualifier == "" || !types.IsCodeIdentitySurface(base) ||
+			types.IsCodeIdentitySurface(qualifier) {
+			continue
+		}
+		if _, parsed := types.ParseAnswerSourceLocationSurface(qualifier); parsed {
+			continue
+		}
+		if _, parsed := types.ParseAnswerFilePathSurface(qualifier); parsed {
+			continue
+		}
+		return base, qualifier, true
+	}
+	return "", "", false
 }
 
 func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind string, fact types.AnswerAggregateFact) bool {
