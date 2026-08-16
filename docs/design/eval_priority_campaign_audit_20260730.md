@@ -37683,6 +37683,53 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.910 r551：B879 生产只闭一层；typed operation leaf 与聚合 ownership 仍缺载体（2026-08-15）
+
+1. 在 `main@14aad377f` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_answer_document_tools`。Runner `2 PASS / 2`，人工均为
+   partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_mechanism_depth_r551_20260815_manual_audit.md`。
+2. B879 的接线与有界性获得生产正证。双子题第一次 completion 被
+   `flow_operation_carrier_evidence` 驳回，模型继续取得
+   `TryRenderMermaidBlocks -> maybeReplaceMermaidFence` 的 parser-owned call edge；最终没有 finalize reject/patch，
+   Trace/JSON/答案正文均未被系统接管。这证明 precise source-derived pending-work 能推动下钻且正常收敛。
+3. 但 B879 尚不能收账。模型最终把 `OutcomeRendered/OutcomeUnsupportedKind/OutcomeLibraryRejected` 三个 enum
+   放进 principal member_set；新门只从“member/support_ref 自身能定位 callable”的形态起步，因此这组合法 enum
+   成员绕过了 callee-depth。Explorer 用 repo_map 的调用点满足 operation carrier 后，没有读取
+   `maybeReplaceMermaidFence` 784-867 与 `mermaidFallbackFence` 881-891 的函数体。
+4. 结果仍是内容错答：终稿讲清 library rejection 可触发重提示，却没有回答最终用户可见降级——explicit
+   Mermaid 解析失败及 unsupported 均进入 `text` fence、显示原因、保留原始源码；还声称四种 outcome 却漏列
+   `OutcomeFallbackRune`。这是 `B879b-MECHANISMOPERATIONLEAFDEPTH1`，不是模型随机波动，也不能通过针对
+   Mermaid/fallback 字符串加门修复。
+5. B879b 的最窄泛化根修：在已有 completion repair 形成的 accepted typed operation carrier/call edge 中，若
+   request 为 current-source mechanism/explanation，沿模型已经选择且 parser 证明的局部 operation leaf 再执行同一
+   depth=2/max=4 body-read closure。只消费 typed edge endpoint、symbol graph、AST line feature 与 read closure；不读
+   aggregate note/用户问题/模型推理/终稿原文，不新增关系或证据，更不替模型写降级结论。原 member-callable 入口
+   保留，两入口共享去重/深度/预算；外部、动态、歧义、非源码与 Trace 均 fail-open。
+6. B880 在第二案确定性复现：3 次 Explorer dispatch、22 次 read、5 次 Finalizer reject、6 次 patch、395s。
+   正文和表格正确，但 guard/precedence/dispatch 图边因没有 matching typed carrier 被拒，最终只剩
+   `NewFinalizerAgent -> NewBaseAgent -> answerDocumentEvaluator`；两个输出工具节点完全断开。随后页面又发布
+   “未证关系边界”、系统保留第一稿和补充说明，信息噪声进一步放大。
+7. B880 的根因仍是 source expressivity，而非 validator 应放宽。`answerDocumentEvaluator` 的构造/字段聚合以及
+   full/patch 工具注册是源码可证明的 ownership/field-binding/registration；repomap/evidence 尚无统一 carrier。
+   下一批必须先让所有支持语言（含 ArkTS/Cangjie）的 parser-owned declaration/field/constructor relation 进入 typed
+   图，再由 diagram contract 消费；无法证明时只可软建议无箭头 grouping，不得把 ownership 假装成 call/precedence，
+   也不得由系统代画或删改模型结论。
+8. 两案 runner oracle 都是假绿：一个只命中宽泛 fallback 词，另一个只确认工具名、表格和 Mermaid 外形。后续
+   oracle 应消费 source-derived typed coverage/edge receipt，不扫描答案原文关键词。活跃流未因 4ms/固定年龄降级；
+   本批不改 Trace 显式窗、因果投影、自动补齐、链上-only 根因与实际占用/规则计价双轴。
+
+状态：
+
+`B879-MECHANISMCALLEEDEPTH1=production-partial-r551`；
+`B879b-MECHANISMOPERATIONLEAFDEPTH1=confirmed/P1/next`；
+`B879-HARMONYLINEFEATUREPARITY1=implemented/pinned`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r551/P1/after-B879b`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
