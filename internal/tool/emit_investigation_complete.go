@@ -3944,7 +3944,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		// and demand cap. This queues reads only; it never authors evidence or
 		// conclusions and is intentionally outside the generic breadth origins
 		// that a model-owned boundary may demote.
-		raiseMechanismSemanticDescentPendingReads(ctx, closure, aggregateFacts)
+		raiseMechanismSemanticDescentPendingReads(ctx, closure, aggregateFacts, evidence)
 		if genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence) {
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {

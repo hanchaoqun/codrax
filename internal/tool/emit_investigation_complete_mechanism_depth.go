@@ -46,6 +46,7 @@ func raiseMechanismSemanticDescentPendingReads(
 	ctx *types.BusContext,
 	closure *types.EvidenceClosure,
 	aggregateFacts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
 ) int {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil || len(aggregateFacts) == 0 {
 		return 0
@@ -65,6 +66,15 @@ func raiseMechanismSemanticDescentPendingReads(
 
 	frontier := make([]mechanismSemanticDescentNode, 0, 4)
 	seen := make(map[string]bool)
+	behavioralRoster := false
+	addSeed := func(node mechanismSemanticDescentNode) {
+		key := mechanismSemanticDescentSymbolKey(node.file, node.sym)
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		frontier = append(frontier, node)
+	}
 	for _, fact := range aggregateFacts {
 		if !aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx, fact) ||
 			len(fact.Members) != len(fact.MemberNotes) || len(fact.Members) != len(fact.SupportRefs) {
@@ -74,16 +84,23 @@ func raiseMechanismSemanticDescentPendingReads(
 			if strings.TrimSpace(fact.MemberNotes[idx]) == "" {
 				continue
 			}
+			behavioralRoster = true
 			file, fi, sym, ok := mechanismNarrativeMemberCallable(graph, member, fact.SupportRefs[idx])
 			if !ok {
 				continue
 			}
-			key := mechanismSemanticDescentSymbolKey(file, sym)
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			frontier = append(frontier, mechanismSemanticDescentNode{file: file, fi: fi, sym: sym, root: strings.TrimSpace(member)})
+			addSeed(mechanismSemanticDescentNode{file: file, fi: fi, sym: sym, root: strings.TrimSpace(member)})
+		}
+	}
+	// B879b: a mechanism roster may legitimately consist of enum outcomes or
+	// other non-callable identities. In that shape the earlier flow-operation
+	// gate can still make the model select a parser-grounded call edge. Continue
+	// from the target of that exact Explorer-authored edge rather than requiring
+	// the roster member itself to be a callable. This consumes typed endpoints
+	// only; Summary/member-note/reason prose never participates.
+	if behavioralRoster && len(evidence) > 0 {
+		for _, node := range mechanismSemanticDescentOperationLeafSeeds(graph, rm, evidence) {
+			addSeed(node)
 		}
 	}
 	if len(frontier) == 0 {
@@ -151,6 +168,67 @@ func raiseMechanismSemanticDescentPendingReads(
 		logging.Info("[emit_investigation_complete] queued %d bounded mechanism semantic-descent read(s)", demands)
 	}
 	return demands
+}
+
+// mechanismSemanticDescentOperationLeafSeeds projects only exact,
+// Explorer-selected current-source call operations onto their parser-resolved
+// repository target. It is intentionally narrower than a call-graph walk:
+// unrelated parser expansions and system-synthesised relation rows cannot
+// create a completion obligation, and a mismatched/ambiguous endpoint fails
+// open.
+func mechanismSemanticDescentOperationLeafSeeds(
+	graph *repotypes.Graph,
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+) []mechanismSemanticDescentNode {
+	if graph == nil || len(evidence) == 0 {
+		return nil
+	}
+	operations := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	seeds := make([]mechanismSemanticDescentNode, 0, len(operations))
+	seen := make(map[string]bool)
+	for _, item := range operations {
+		if types.ClaimFormOf(item) != types.ClaimCallEdge || item.LineStart <= 0 {
+			continue
+		}
+		_, fi := mechanismSemanticDescentGraphFile(graph, item.Source)
+		if fi == nil || !mechanismSemanticDescentASTFile(fi) {
+			continue
+		}
+		owner := enclosingCallableSymbol(fi, item.LineStart)
+		if !mechanismSemanticDescentCallable(owner) {
+			continue
+		}
+		for relIdx := range fi.Relations {
+			rel := &fi.Relations[relIdx]
+			if !mechanismSemanticDescentCallRelation(rel, item.LineStart) {
+				continue
+			}
+			target := graph.ResolveCallTarget(fi, *rel)
+			if !mechanismSemanticDescentCallable(target) || target == owner {
+				continue
+			}
+			targetFile, targetFI := mechanismSemanticDescentGraphFile(graph, target.File)
+			if targetFI == nil || !mechanismSemanticDescentASTFile(targetFI) {
+				continue
+			}
+			qualified := qualifiedEvidenceSymbolNameInFile(targetFI, target)
+			if !mechanismSemanticDescentIdentityMatches(item.AnchorSymbol, target.Name, qualified) &&
+				!mechanismSemanticDescentIdentityMatches(item.Object, target.Name, qualified) {
+				continue
+			}
+			key := mechanismSemanticDescentSymbolKey(targetFile, target)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			seeds = append(seeds, mechanismSemanticDescentNode{
+				file: targetFile, fi: targetFI, sym: target, depth: 1,
+				root: strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(target.Name),
+			})
+		}
+	}
+	return seeds
 }
 
 func mechanismNarrativeMemberCallable(

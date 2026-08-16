@@ -37730,6 +37730,40 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.911 B879b：从模型已选 operation leaf 继续有界读取（2026-08-15）
+
+1. r551 证明仅以 principal member 本身是否为 callable 作为 semantic-descent 起点仍不完备：合法的 enum/
+   outcome roster 可以承担机制分类，而真正行为入口只存在于 Explorer 随后提交的 typed call edge。B879b 保留
+   原 callable-member 入口，并增加第二个同源入口：只消费
+   `ExplorerAuthoredFlowOperationEvidenceForRequest` 中 citable/current-source 的 `ClaimCallEdge`。
+2. 新入口不相信模型对关系的自由描述。它按 evidence 的 exact source/line 回到 repomap，要求同一行存在
+   `ProvenanceTreeSitter` 或 `ProvenanceCangjieParser` 的 call relation，再由 graph 解析仓内 callable target；target
+   还必须与 grounded `AnchorSymbol` 或 typed Object endpoint 身份一致。非 Explorer 行、definition/assignment、
+   endpoint 不匹配、外部目标、解析歧义与低阶文件全部 fail-open。
+3. 只有 completion 已携 current-source narrative member_set、成员/责任 note/support_ref 逐项对齐且至少一个 note
+   非空时，operation leaf 才能成为 seed；note 内容完全不读，只把字段存在视为模型声明“此 roster 承担行为解释”。
+   因而 broad repo-map/system relation 不能自行扩张问题范围。
+4. operation target 以 depth=1 进入与 B879 相同的闭包；未读先请求 exact declaration body，读完后最多再沿一层
+   parser-owned return+call/helper handoff，仍共享 depth=2、max=4、file:line:symbol 去重。它只排 PendingRead，
+   不生成 EvidenceItem、关系、图、JSON、答案或结论。
+5. 新专项覆盖 enum roster→Explorer call leaf→local body、再到 returned helper；负形覆盖非 Explorer producer、
+   definition、端点不匹配与 Trace。另有 pre-complete 发布接线 pin，确认该 read 为 citation-class，不能被
+   generic model-owned boundary 降 advisory。`go test ./internal/tool -run TestMechanismSemanticDescent -count=1`、
+   `go test ./internal/tool -count=1`、`go test ./... -count=1` 全绿。
+6. 本批不处理 B880 ownership carrier，下一批继续。Trace 显式时间窗、完整因果投影、自动补齐、链上-only
+   根因以及实际占用/业务线索与规则计价可消除量双轴均未改；邻近/背景继续只作支持，活跃流不因 4ms 或固定
+   年龄降级。
+
+状态：
+
+`B879-MECHANISMCALLEEDEPTH1=implemented`；
+`B879b-MECHANISMOPERATIONLEAFDEPTH1=implemented/full-suite-pass/production-replay-next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r551/P1/next`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

@@ -118,7 +118,7 @@ func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelp
 	fact := mechanismSemanticDescentFact()
 
 	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}); got != 1 {
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 1 {
 		t.Fatalf("first descent demands=%d, want unread callback body", got)
 	}
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
@@ -128,7 +128,7 @@ func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelp
 	}
 
 	ctx = mechanismSemanticDescentContext(t, graph, 8, nil)
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}); got != 1 {
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 1 {
 		t.Fatalf("second descent demands=%d, want unread direct helper body", got)
 	}
 	pending = ctx.Mutable.EvidenceClosure().PendingReads()
@@ -137,11 +137,110 @@ func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelp
 	}
 
 	ctx = mechanismSemanticDescentContext(t, graph, 12, nil)
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}); got != 0 {
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 0 {
 		t.Fatalf("fully read bounded frontier demands=%d, want 0", got)
 	}
 	if pending = ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
 		t.Fatalf("fully read bounded frontier left pending=%+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_EnumRosterContinuesFromExplorerAuthoredOperationLeaf(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	// Add a parser-owned direct call next to the callback-bearing Transform
+	// relation. The accepted operation row selects only this exact target.
+	fi.Relations = append(fi.Relations, repotypes.Relation{
+		Kind: "call", File: "src/pipeline.go", Line: 3,
+		FromEP:     repotypes.RelationEndpoint{Name: "Render", File: "src/pipeline.go", Line: 3},
+		ToEP:       repotypes.RelationEndpoint{Name: "rewrite", File: "src/pipeline.go", Line: 3},
+		Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
+	})
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	fact := mechanismSemanticDescentFact()
+	fact.Members = []string{"OutcomeRendered"}
+	fact.MemberNotes = []string{"one typed outcome in the explained mechanism"}
+	fact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+	evidence := []types.EvidenceItem{{
+		ID: "E-operation", Kind: types.EvidenceRelationship,
+		Subject: "Render", Object: "rewrite", AnchorSymbol: "rewrite",
+		Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}}
+
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("operation-leaf descent demands=%d, want unread rewrite body", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
+		t.Fatalf("operation-leaf pending=%+v, want rewrite body 6..8", pending)
+	}
+
+	ctx = mechanismSemanticDescentContext(t, graph, 8, nil)
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("operation-leaf second depth demands=%d, want fallback body", got)
+	}
+	pending = ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 10, End: 12}) {
+		t.Fatalf("operation-leaf second-depth pending=%+v, want fallback body 10..12", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_OperationLeafPreciseNoTriggerBoundaries(t *testing.T) {
+	baseFact := mechanismSemanticDescentFact()
+	baseFact.Members = []string{"OutcomeRendered"}
+	baseFact.MemberNotes = []string{"one typed outcome in the explained mechanism"}
+	baseFact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+	tests := []struct {
+		name   string
+		mutate func(*types.BusContext, *types.EvidenceItem)
+	}{
+		{
+			name: "non explorer operation cannot expand model scope",
+			mutate: func(_ *types.BusContext, item *types.EvidenceItem) {
+				item.Producer = "repomap"
+			},
+		},
+		{
+			name: "definition row is not an operation leaf",
+			mutate: func(_ *types.BusContext, item *types.EvidenceItem) {
+				item.AnchorKind = types.AnchorDefinition
+			},
+		},
+		{
+			name: "mismatched endpoint fails open",
+			mutate: func(_ *types.BusContext, item *types.EvidenceItem) {
+				item.AnchorSymbol = "different"
+				item.Object = "different"
+			},
+		},
+		{
+			name: "trace request stays isolated",
+			mutate: func(ctx *types.BusContext, _ *types.EvidenceItem) {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, fi := mechanismSemanticDescentFixture()
+			fi.Relations = append(fi.Relations, repotypes.Relation{
+				Kind: "call", File: "src/pipeline.go", Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "Render", File: "src/pipeline.go", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "rewrite", File: "src/pipeline.go", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+			})
+			ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+			item := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Subject: "Render", Object: "rewrite", AnchorSymbol: "rewrite",
+				Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine, AnchorKind: types.AnchorCall,
+				Producer: types.EvidenceProducerExplorerEmitEvidence, GroundingStatus: types.GroundingGrounded,
+			}
+			tc.mutate(ctx, &item)
+			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{baseFact}, []types.EvidenceItem{item}); got != 0 {
+				t.Fatalf("no-trigger operation leaf queued %d read(s): %+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+			}
+		})
 	}
 }
 
@@ -194,7 +293,7 @@ func TestMechanismSemanticDescent_PreciseNoTriggerBoundaries(t *testing.T) {
 			ctx := mechanismSemanticDescentContext(t, graph, 4, features)
 			fact := mechanismSemanticDescentFact()
 			tc.mutate(ctx, &fact, graph)
-			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}); got != 0 {
+			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 0 {
 				t.Fatalf("no-trigger boundary queued %d read(s): %+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
 			}
 		})
@@ -233,5 +332,40 @@ func TestMechanismSemanticDescent_PreCompleteWiringKeepsReadBlockingAfterModelBo
 	if len(pending) != 1 || !types.PendingReadBlocksAcceptedClosure(pending[0]) ||
 		types.IsGenericForcedReadOrigin(pending[0].Origin) {
 		t.Fatalf("semantic-descent read must remain citation-class after model boundary: %+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_PreCompleteWiringConsumesExplorerOperationLeaf(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	fi.Relations = append(fi.Relations, repotypes.Relation{
+		Kind: "call", File: "src/pipeline.go", Line: 3,
+		FromEP:     repotypes.RelationEndpoint{Name: "Render", File: "src/pipeline.go", Line: 3},
+		ToEP:       repotypes.RelationEndpoint{Name: "rewrite", File: "src/pipeline.go", Line: 3},
+		Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+	})
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	fact := mechanismSemanticDescentFact()
+	fact.Members = []string{"OutcomeRendered"}
+	fact.MemberNotes = []string{"one typed outcome in the explained mechanism"}
+	fact.SupportRefs = []string{"OutcomeRendered @ src/pipeline.go:1"}
+	evidence := []types.EvidenceItem{{
+		ID: "E-operation", Kind: types.EvidenceRelationship,
+		Subject: "Render", Object: "rewrite", AnchorSymbol: "rewrite",
+		Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}}
+
+	downgrade := preCompleteContractCheckWithPreflight(ctx, "", completionPreflightView{
+		Evidence: evidence, EffectiveAggregateFacts: []types.AnswerAggregateFact{fact},
+	})
+	if !strings.Contains(downgrade, "pending forced reads block the closure") ||
+		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "rewrite") {
+		t.Fatalf("pre-complete operation leaf was not wired as a blocking read: %s", downgrade)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
+		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
+		t.Fatalf("operation-leaf pending read lost its exact citation-class contract: %+v", pending)
 	}
 }
