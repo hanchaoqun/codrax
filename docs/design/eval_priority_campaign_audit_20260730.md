@@ -35649,6 +35649,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.950 r578：注册接缝生效；组件权威自冲突与 typed 端点自环逃逸（2026-08-16）
+
+1. 在 `main@e9ed3efa6` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + read_combo_pipeline_sequence_table`。Runner `2 PASS / 2`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_binding_dimension_r578_20260816_manual_audit.md`。
+2. B919 获生产正证。Explorer 初次仍把 PyO3 line 47 注册写成错误的 callback row；新的共用
+   post-grounding 审计没有晋升它，而是发出 exact line/anchor/registry/object 重发义务。模型重读后
+   以 `call/add_function/wrap_pyfunction!(tokenize_bytes,m)` 重发，grounding 成功；Finalizer 收到
+   `registered_export_handoff`，并把 Python native target 与 Rust wrapper 接通。说明 B919 已闭环，
+   且系统没有铸造证据、箭头或结论。
+3. Polyglot 终稿仍删掉了可选图，并错误声称已读的 `_tokenize_slow` 实现没有核到。前者不只是模型
+   波动：同一 Finalizer 上下文先发布 `verified_relation_component_count=3`、
+   `inter_component_bridge_status=unproven_between_components` 和“fragments are disconnected”，后面又
+   发布 exact `registered_export_handoff` 与 downstream-call proof。粗组件拓扑没有消费后铸的精确
+   handoff，向模型同时下发“不可连接”和“已精确绑定”两份相反合同。
+4. 冻结 B921 最优方案：组件边界与 semantic handoff 必须从同一 bounded typed recipe/alias 集合一次
+   构造。注册/导出绑定只作为非调用 Note/typed handoff，不伪装源码调用；但当它唯一连接两个调用
+   component 时，粗状态不得再宣称所有 invocation fragments 互不相连。上下文提供 handoff-aware
+   结构配方（已有 alias、两侧调用 edge、非调用 Note 位置与原 anchors），降低模型拼装心智；模型仍
+   自己决定是否画图并撰写所有可见业务文字。零/多义绑定继续 fail-closed，不用 request/final prose
+   关键词补边。
+5. Combo 终稿正文/表格基本正确，但最终 Mermaid 把两个不同 typed endpoint 分别压成一个可见 alias：
+   `out.AnalysisIR -> o.busCtx.AnalysisIR` 被画成 `IRflow->>IRflow`，
+   `o.busCtx.EvidenceItems -> agent.MergeEvidenceItemsIfChanged` 被画成 `EIflow->>EIflow`。anchor 本身方向和
+   证据均正确，旧 validator 因而放行；读者看到的却是两个自循环，关系表达已经失真。
+6. 冻结 B922 根修：在非 Trace source diagram 的 anchor 校验中，以 schema-valid `from_node/to_node`
+   与 `from_identity/to_identity` 做精确一致性检查。若可见 node 相同、typed identities 不等价，且关系
+   是 data/argument/assignment/return/registration/type/logical 等非 invocation 关系，拒绝为
+   `typed_endpoints_collapsed_to_self_edge`，要求用两个 alias 保留方向。合法 actor self-call / callback /
+   return 的时序消息仍由既有 occurrence+operation identity 合同处理，不误杀。该门不读取 edge label、
+   request、thinking 或 final prose，也不生成/重写图。
+7. 两案均未触碰 Trace 查询或呈现面。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因、
+   邻近/背景 support-only、真实墙钟与规则可消除双账合同保持不变。活跃字节流仍不得因 4ms 或固定
+   answer age 降级。
+
+状态：
+
+`B919-REGISTRATIONANCHORREPAIRENTRY1=production-positive-r578/closed`；
+`B920-DIAGRAMREQUIREDNESSAUTHORITYPROVENANCE1=deterministic-closed`；
+`B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=confirmed/frozen-next`；
+`B922-TYPEDENDPOINTSELFCOLLAPSE1=confirmed/frozen-next`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.949 r577：Trace 双轴与链上边界通过；跨语言注册错误分类逃逸（2026-08-16）
 
 1. 在 `main@33336dd21` 重建后严格并发恰好两个案例：
