@@ -7061,6 +7061,82 @@ func TestProofFollowupWouldRepeatStableStaticVerificationRequiresClosedTypedShap
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSuppressesStableStaticProofReplay(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	plan := &types.ChangePlan{
+		ID:           "plan-ts-static-normalize",
+		Status:       types.PlanStatusApplied,
+		WorktreePath: t.TempDir(),
+		TargetPaths:  []string{"src/client.ts"},
+		BehaviorContracts: types.NormalizeWriteBehaviorContracts([]types.WriteBehaviorContract{{
+			ID:       "falsy-prefault-values",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "false, zero, and empty defaults remain observable",
+			Required: true,
+			Source:   "write_analyzer",
+		}}, nil),
+		PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
+			Code:           "behavior_contract_without_verify_coverage",
+			Severity:       types.PatchReviewSeverityWarning,
+			Category:       types.PatchReviewCategorySemanticCoverage,
+			ImpactKind:     types.PatchReviewImpactKindBehaviorContract,
+			Path:           "src/client.ts",
+			CoverageStatus: types.PatchReviewCoverageUnverified,
+			EvidenceRef:    "falsy-prefault-values",
+		}}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "make", Source: "declared_coverage_test_surface", Outcome: "executed", ExitCode: 0,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/client.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationDeclaredProjectCheck, Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu := types.NewMutableState("stable TypeScript static-only normalization")
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-ts-static-normalize", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, ReasonCode: "all_verified",
+	}, run)
+	if got.Action != writeflow.ActionFinish ||
+		got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified ||
+		got.ReasonCode != "production_verification_source_static_only" {
+		t.Fatalf("stable static-only proof should finish honestly without an identical verify batch: %+v", got)
+	}
+	if got.Batch != nil {
+		t.Fatalf("stable static-only proof unexpectedly appended a batch: %+v", got.Batch)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_static_without_runtime") {
+		t.Fatalf("normalization-path suppression was not recorded: %+v", run.ProgressLedger)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("suppressed normalization path still requested a proof replay: %+v", run.ProgressLedger)
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{

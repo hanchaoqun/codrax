@@ -36827,6 +36827,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed-r539`。
 
+### §123.889 r540 / B866：静态补证抑制必须覆盖全部 controller 入口（2026-08-15）
+
+1. 本批严格并发恰好两个异构案例：`qf_logic_view_read_pipeline` 机器 PASS（215s）、人工 partial；
+   `github_issue_zod_prefault_symptom` 机器 FAIL（191s）、人工 pass-with-caveat。两案均有完整用户可见交付，活动字节流未按
+   4ms/4s/4m 或固定累计年龄降级。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_group_tswrite_r540_20260815_manual_audit.md`。
+2. B865 获生产正证：关系门只拒绝未证的 Explorer→EvidenceItems 有向边，修补版仍保留
+   `subgraph BusContext` 内的 `MutableState/AnalysisIR/AnswerSymbols/StageReports` 无箭头分组，没有再把 typed ownership
+   拆成孤点。最终图还缺 Explorer 证据流与 Finalizer 消费，因此人工只判 partial；这不能靠系统造边或把局部赋值硬升级为组件级数据流。
+3. TypeScript patch 本身正确：属性存在性代替 truthy 判断，`??=` 保留既有 default，新增 false/0/空串及 output-mode 四个回归形。
+   但 fixture 的 `make check` 只是 Python 源码结构校验，没有执行 TypeScript 行为；最终 unverified 是诚实能力边界，不能降杆签绿。
+4. 新确认 `B866-STABLESTATICNORMALIZATIONREPLAY1/P0`：第一次 verify 后，累计审查已记录
+   `verification_proof_followup_suppressed_stable_static_without_runtime`；模型随后选择 finish，普通
+   `normalizeControllerTypedStateDecision` 却从同一 typed obligation 再造 `verification_proof_followup` verify-only 批，导致相同
+   `make check` 第二次执行后仍只能 unverified。它是两个生产入口接线漂移，不是模型波动。
+5. 根修让普通归一化入口复用既有精确判据：必须是同 PlanID 的 post-apply passed report、至少一条成功执行回执、每个生产目标仅有
+   source-static/syntax coverage、纯 verification-proof verify-only 批且对应语言没有直接 runtime，才抑制重复批并落同一 typed
+   progress stamp；随后由既有弱证明终态输出 `accept_unverified`。可用 runtime、target-execution/behavior、混合 impact 修复、过期/缺失
+   coverage、可修改批和真实 verify failure 全部 fail-open，仍会规划或重验。
+6. 新增生产接线 pin 直接穿过 `normalizeControllerTypedStateDecision`，证明 TypeScript 静态形不再 append batch、不再发布
+   `verification_proof_followup_requested`，并诚实以 `production_verification_source_static_only` 结束。本批不读取用户、模型、计划正文、
+   命令字符串或最终答案作硬门。
+7. Read/Trace 数据与投影编译零改动。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因、背景 support-only，以及实际占时/
+   业务线索与规则计价可消除量双轴均保持；系统没有删除、替换、代画或代写模型答案与结论。
+
+`B865-DIRECTEDBOUNDARYSTRUCTURALGROUP1=production-positive-r540`；
+`B866-STABLESTATICNORMALIZATIONREPLAY1=implemented/targeted-pass/pending-production-replay`；
+`TypeScript-source-static=honest-unverified`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r540`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

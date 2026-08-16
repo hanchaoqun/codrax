@@ -6389,6 +6389,16 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	if proofFollowupSuppressed {
 		appendStableUnavailableProofFollowupSuppressed(run, batchID)
 	}
+	if repairBatch != nil && proofFollowupWouldRepeatStableStaticVerification(plan, report, repairBatch, func(language string) bool {
+		return tool.VerificationProbeRuntimeAvailable(language, plan.WorktreePath)
+	}) {
+		// The ordinary post-verify normalization path and the later cumulative
+		// review path must share one proof-generation authority. Otherwise an
+		// already completed source-static check can be suppressed by cumulative
+		// review and then recreated here as an identical verify-only batch.
+		appendStableStaticProofFollowupSuppressed(run, batchID)
+		repairBatch = nil
+	}
 	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
 		repairBatch != nil &&
