@@ -4229,10 +4229,12 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	typeRelationParts := make([]string, 0, len(mismatches))
 	valueFlowParts := make([]string, 0, len(mismatches))
 	logicalRelationParts := make([]string, 0, len(mismatches))
+	collapsedEndpointParts := make([]string, 0, len(mismatches))
 	otherParts := make([]string, 0, len(mismatches))
 	typeRelationMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	valueFlowMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	logicalRelationMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
+	collapsedEndpointMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	otherMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		part := fmt.Sprintf(
@@ -4242,7 +4244,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			mismatch.FromNode, mismatch.FromSymbol,
 			mismatch.ToNode, mismatch.ToSymbol,
 		)
-		if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
+		if mismatch.Issue == diagramTypedEndpointsCollapsedToSelfEdge {
+			collapsedEndpointParts = append(collapsedEndpointParts, part+" relation_kind="+string(mismatch.Relation))
+			collapsedEndpointMismatches = append(collapsedEndpointMismatches, mismatch)
+		} else if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
 			typeRelationParts = append(typeRelationParts, part)
 			typeRelationMismatches = append(typeRelationMismatches, mismatch)
 		} else if mismatch.Issue == diagramAssignmentEdgeIssueNoEvidence || mismatch.Issue == diagramDataFlowEdgeIssueNoEvidence || mismatch.Issue == diagramReturnEdgeIssueNoEvidence || mismatch.Issue == diagramArgumentFlowEdgeIssueNoEvidence {
@@ -4256,7 +4261,17 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			otherMismatches = append(otherMismatches, mismatch)
 		}
 	}
-	hints := make([]emitFixHint, 0, 4)
+	hints := make([]emitFixHint, 0, 5)
+	if len(collapsedEndpointParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:                       "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node",
+			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, collapsedEndpointMismatches),
+			ExpectedShape:               "preserve each distinct typed endpoint identity under a distinct Mermaid node/participant alias, then draw the existing evidence-backed relation in its declared direction and keep edge_anchors[].from_node/to_node aligned to those two body aliases. Do not render a cross-object value, binding, type, or logical relation as a self-loop: " + strings.Join(collapsedEndpointParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                      "the structured anchor proves two non-equivalent endpoints while the model-authored body collapses both onto one visible alias. That changes a typed A-to-B relation into a reader-visible A-to-A loop. Invocation actor self-messages retain their separate ordered-operation contract; this check reads no diagram message, request text, reasoning, or answer prose.",
+			DiagramRelationFailurePairs: failurePairs,
+		})
+	}
 	if len(typeRelationParts) > 0 {
 		hints = append(hints, emitFixHint{
 			Field:                       "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",

@@ -7827,7 +7827,8 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
-	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes)
+	handoffRows := answerDocMechanismSemanticHandoffRows(aliases, semanticHandoffs)
+	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes, handoffRows)
 	unaryRows := make([]answerDocMechanismUnaryAnnotationRow, 0, len(unaryAnnotations))
 	for _, annotation := range unaryAnnotations {
 		participantAlias := aliasFor(annotation.participant)
@@ -7836,7 +7837,6 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			participant: participantAlias,
 		})
 	}
-	handoffRows := answerDocMechanismSemanticHandoffRows(aliases, semanticHandoffs)
 	if copyReadyKind == types.DiagramNone {
 		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias as the node/participant ID; `from_node` and `to_node` must be these body identifiers. The identity below is endpoint authority, not mandatory primary display copy: author the visible label in the user's domain and keep the exact identity only as a secondary label when useful.\n")
 		for _, row := range aliases {
@@ -7850,7 +7850,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
-		renderAnswerDocMechanismCopyReadyComponentFragments(b, aliases, recipes, requestedKind)
+		renderAnswerDocMechanismCopyReadyComponentFragments(b, aliases, recipes, handoffRows, requestedKind)
 		for i, row := range unaryRows {
 			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
 				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
@@ -7899,6 +7899,7 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 	b *strings.Builder,
 	aliases []answerDocMechanismAliasRow,
 	recipes []answerDocMechanismRecipeRow,
+	semanticHandoffs []answerDocMechanismSemanticHandoffRow,
 	kind types.DiagramKind,
 ) {
 	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
@@ -7958,7 +7959,12 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 	if len(fragments) == 0 {
 		return
 	}
-	b.WriteString("- Copy-ready verified component fragments follow. Each fence and its sibling anchor array are one self-consistent local carrier: copy node IDs, arrows, and anchors together, then replace only visible labels/messages with business wording. Fragments are mutually unordered and disconnected; selecting several never authorizes an inter-fragment edge or a complete-flow conclusion.\n")
+	b.WriteString("- Copy-ready verified component fragments follow. Each fence and its sibling anchor array are one self-consistent local carrier: copy node IDs, arrows, and anchors together, then replace only visible labels/messages with business wording. ")
+	if len(semanticHandoffs) == 0 {
+		b.WriteString("Fragments are mutually unordered and disconnected; selecting several never authorizes an inter-fragment edge or a complete-flow conclusion.\n")
+	} else {
+		b.WriteString("Source-level arrows remain local to their fragments. Only the exact registered-export handoff recipes below may relate their named aliases, and only as non-call Notes; every other inter-fragment edge and all execution order remain unproven.\n")
+	}
 	for i, part := range fragments {
 		fmt.Fprintf(b, "\n#### Verified component fragment %d (not a complete flow)\n\n", i+1)
 		b.WriteString("```mermaid\n")
@@ -7988,6 +7994,10 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 		if err == nil {
 			fmt.Fprintf(b, "- component_edge_anchors_json[%d]=`%s`\n", i+1, anchorJSON)
 		}
+	}
+	for i, row := range semanticHandoffs {
+		fmt.Fprintf(b, "- handoff_aware_composition_recipe[%d]=`%s,%s`; if both source-edge fragments are selected in one sequence diagram, preserve their existing aliases/arrows/anchors and add one unanchored Note over these aliases with model-authored business wording for the exact registered-export binding. This Note is not a call, callback, value-flow edge, or execution-order claim.\n",
+			i+1, row.from, row.to)
 	}
 }
 
@@ -8273,6 +8283,7 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	b *strings.Builder,
 	aliases []answerDocMechanismAliasRow,
 	recipes []answerDocMechanismRecipeRow,
+	semanticHandoffs []answerDocMechanismSemanticHandoffRow,
 ) {
 	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
 		return
@@ -8281,9 +8292,26 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	if len(components) == 0 {
 		return
 	}
+	componentForAlias := make(map[string]int, len(aliases))
+	for i, component := range components {
+		for _, row := range component {
+			componentForAlias[row.alias] = i
+		}
+	}
+	crossComponentHandoffs := make([]answerDocMechanismSemanticHandoffRow, 0, len(semanticHandoffs))
+	for _, row := range semanticHandoffs {
+		fromComponent, fromOK := componentForAlias[row.from]
+		toComponent, toOK := componentForAlias[row.to]
+		if fromOK && toOK && fromComponent != toComponent {
+			crossComponentHandoffs = append(crossComponentHandoffs, row)
+		}
+	}
 	bridgeStatus := "not_applicable_single_component"
 	if len(components) > 1 {
 		bridgeStatus = "unproven_between_components"
+		if len(crossComponentHandoffs) > 0 {
+			bridgeStatus = "registered_export_binding_between_components"
+		}
 	}
 	requestSpineComponents := 0
 	requestScopedRelations := 0
@@ -8322,8 +8350,19 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	}
 	if len(components) > 1 {
 		b.WriteString("- cross_component_execution_order_status=`unproven`; cross_component_value_handoff_status=`unproven`; component indices are stable identifiers, not execution/phase order.\n")
+		if len(crossComponentHandoffs) > 0 {
+			fmt.Fprintf(b, "- cross_component_registered_export_handoff_count=%d; each row is an exact non-call binding between the named aliases. It may join invocation fragments at the export/callable boundary, but does not create a source call, callback, value transfer, or execution order.\n", len(crossComponentHandoffs))
+			for i, row := range crossComponentHandoffs {
+				fmt.Fprintf(b, "- cross_component_registered_export_handoff[%d]=`%s,%s`; call_target=`%s`; registered_callable=`%s`.\n",
+					i+1, row.from, row.to, answerDocCallChainInline(row.handoff.callTarget), answerDocCallChainInline(row.handoff.registeredCallable))
+			}
+		}
 		b.WriteString("- Reader-facing language boundary: `verified_component`, component indices, `relation_segment_class`, `answer_role`, and bridge/status tokens in this authority block are internal validation metadata. Do not copy those tokens into Mermaid labels/Notes, titles, tables, or answer prose. Express each proved segment with the repository's domain participants and operations; if no useful domain annotation exists, omit the visible Note. This does not authorize a cross-component edge.\n")
-		b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments in sibling sections/bullets, disclose the missing bridge, or investigate a citable bridge. Do not place the components as consecutive numbered hops. Do not narrate them as one continuous end-to-end path.\n")
+		if len(crossComponentHandoffs) == 0 {
+			b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments in sibling sections/bullets, disclose the missing bridge, or investigate a citable bridge. Do not place the components as consecutive numbered hops. Do not narrate them as one continuous end-to-end path.\n")
+		} else {
+			b.WriteString("- Source-level relation components remain separate because a registered-export binding is not a source call edge. The exact handoff rows above are nevertheless proved semantic bridges between only their named aliases. Preserve them as non-call Notes when composing those invocation fragments; keep every unlisted component pair disconnected, and do not turn component indices or Note placement into execution order.\n")
+		}
 		if requestSpineComponents > 0 {
 			b.WriteString("- Required-diagram selection: make the `requested_relation_spine` component the principal visual when it already covers the requested relation axis. A disconnected `supporting_grounded_segment` is additional evidence, not a missing hop and not a requirement to place both components in one diagram; keep it in prose or a separate clearly bounded visual when useful. Never add an inter-component arrow merely to make one picture. The model still authors the visible diagram and may select less only when it preserves every explicitly requested participant/dimension.\n")
 		}
@@ -8580,7 +8619,12 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 
 	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, Notes, and fact-node text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, Notes, and fact-node text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. ")
+	if len(semanticHandoffs) == 0 {
+		b.WriteString("Keep disconnected components disconnected; do not invent story/actor bridges.\n")
+	} else {
+		b.WriteString("An exact registered-export handoff may appear only as the supplied unanchored Note between its named aliases; it is not a call, callback, value-flow edge, or execution-order claim. Keep every other disconnected component pair disconnected and do not invent story/actor bridges.\n")
+	}
 	if kind == types.DiagramSequence && sequenceOrderGrounded {
 		b.WriteString("- Sequence display order is normalized only from the typed graph: zero-indegree entrypoints come first, then same-caller call sites use grounded source-line order. This improves reading order but does not prove that every branch executes, that siblings are concurrent, or that a static cycle has runtime order.\n")
 	}
@@ -8945,9 +8989,19 @@ func answerDocMechanismSemanticHandoffsConnectAllComponents(
 		}
 	}
 	for _, edge := range edges {
+		// A registered-export handoff is defined to join invocation fragments.
+		// Registration, guard, type, and value evidence remain sibling support
+		// components and must not make an otherwise complete invocation topology
+		// look disconnected merely because they are not source call edges.
+		if edge.relation != types.DiagramRelCall {
+			continue
+		}
 		a, b := addNode(edge.from), addNode(edge.to)
 		ensureParent()
 		union(a, b)
+	}
+	if len(nodes) == 0 {
+		return false
 	}
 	resolveUnique := func(identity string) (int, bool) {
 		match := -1

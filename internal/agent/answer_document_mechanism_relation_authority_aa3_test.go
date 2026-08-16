@@ -886,6 +886,20 @@ func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
 		}
 	}
 
+	var fragmented strings.Builder
+	renderAnswerDocMechanismRelationAuthoringCapsule(&fragmented, []answerDocMechanismRelationEdge{
+		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
+		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
+	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramNone, types.DiagramSequence)
+	for _, want := range []string{
+		"Source-level arrows remain local to their fragments",
+		"handoff_aware_composition_recipe[1]=`n2,n3`",
+	} {
+		if !strings.Contains(fragmented.String(), want) {
+			t.Fatalf("withheld whole skeleton lost exact handoff-aware composition recipe %q:\n%s", want, fragmented.String())
+		}
+	}
+
 	// Two compatible aliases would make the target ambiguous and must not
 	// create even a non-edge Note.
 	aliases = append(aliases, answerDocMechanismAliasRow{alias: "n5", identity: "py::tokenize_bytes"})
@@ -945,9 +959,21 @@ func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testi
 		"registered_callable=`py::tokenize_bytes`",
 		"binding_endpoint_status=`exact_owner_reference_join`",
 		"semantic_handoff_note[1]=`n2,n5`",
+		"inter_component_bridge_status=`registered_export_binding_between_components`",
+		"cross_component_registered_export_handoff_count=1",
+		"cross_component_registered_export_handoff[1]=`n2,n5`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finalizer prompt lost exact registration handoff %q:\n%s", want, got)
+		}
+	}
+	for _, contradicted := range []string{
+		"inter_component_bridge_status=`unproven_between_components`",
+		"Fragments are mutually unordered and disconnected",
+		"the current typed carrier has no proved bridge between them",
+	} {
+		if strings.Contains(got, contradicted) {
+			t.Fatalf("exact registered-export handoff retained contradictory component guidance %q:\n%s", contradicted, got)
 		}
 	}
 }

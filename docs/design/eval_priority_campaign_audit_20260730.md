@@ -35684,13 +35684,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 两案均未触碰 Trace 查询或呈现面。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因、
    邻近/背景 support-only、真实墙钟与规则可消除双账合同保持不变。活跃字节流仍不得因 4ms 或固定
    answer age 降级。
+8. B922 已施工。`DiagramCallEdgeEvidenceMismatches` 在既有非 Trace source relation anchor 循环中新增
+   `typed_endpoints_collapsed_to_self_edge`：只读取同一 anchor 的 node IDs、endpoint identities 与 typed
+   relation enum。两个 identity 不等价却共用一个可见 alias 时，data/argument/assignment、binding、type
+   和 logical relation 必须拆成两个 alias；call/callback/return 的 actor self-message 继续走既有按 occurrence
+   对齐 exact operation 的合同。修补提示只要求保留已有关系方向并拆 alias，不改证据或模型结论。
+9. B921 已施工。component boundary 现在与 semantic handoff 使用同一份 bounded alias/recipe：精确跨组件
+   binding 发布 `registered_export_binding_between_components` 及两端 alias，不再同时发布
+   `unproven_between_components`/“当前无任何 bridge”。源码调用、value handoff 与 execution order 仍明确
+   unproven；registration 支撑 component 不再被误算为 invocation 断链。整图骨架不可安全提供时，系统只给
+   handoff-aware composition recipe：复用各片段原 alias/arrow/anchor，并以无 anchor 的非调用 Note 表达 exact
+   binding；所有可见业务词与最终取舍仍由模型撰写。
+10. `go test ./internal/tool ./internal/agent ./internal/types -count=1` 全绿（tool 167.507s、agent 9.553s、
+    types 22.912s）。针对性正负臂覆盖实际 data-flow 自环、拆 alias 正形、既有多 operation actor self-call、
+    exact registered-export 接缝、无接缝 component 原边界和歧义 fail-closed。
 
 状态：
 
 `B919-REGISTRATIONANCHORREPAIRENTRY1=production-positive-r578/closed`；
 `B920-DIAGRAMREQUIREDNESSAUTHORITYPROVENANCE1=deterministic-closed`；
-`B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=confirmed/frozen-next`；
-`B922-TYPEDENDPOINTSELFCOLLAPSE1=confirmed/frozen-next`；
+`B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=implemented/typed-context-pins+full-suite-pass/pending-production-replay`；
+`B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/typed-structure-pins+full-suite-pass/pending-production-replay`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

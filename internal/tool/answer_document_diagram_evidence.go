@@ -52,6 +52,7 @@ const (
 	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
 	diagramArgumentFlowEdgeIssueNoEvidence    = "argument_flow_unproven"
+	diagramTypedEndpointsCollapsedToSelfEdge  = "typed_endpoints_collapsed_to_self_edge"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 )
@@ -330,6 +331,23 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
+			// One Mermaid participant may intentionally host several exact
+			// invocation operations, so actor self-messages remain legal for
+			// call/callback/return. A value, binding, type, or logical relation is
+			// different: collapsing two distinct typed endpoints onto the same
+			// visible alias turns a proved A -> B direction into a reader-visible
+			// A -> A self-loop. Reject only that schema-carried contradiction.
+			// Message text, display labels, request prose, and answer prose never
+			// participate in this decision.
+			if diagramTypedEndpointsCollapseToNonInvocationSelfEdge(anchor, relation) {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramTypedEndpointsCollapsedToSelfEdge,
+					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					Relation: relation,
+				})
+				continue
+			}
 			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if relation == types.DiagramRelCallback {
 				if !diagramCallbackEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
@@ -427,6 +445,20 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramTypedEndpointsCollapseToNonInvocationSelfEdge(anchor types.DiagramEdgeAnchor, relation types.DiagramRelationKind) bool {
+	if !anchor.HasEndpointIdentityPair() ||
+		!strings.EqualFold(strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode)) ||
+		types.AnswerCodeIdentitySurfacesEquivalent(anchor.FromIdentity, anchor.ToIdentity) {
+		return false
+	}
+	switch relation {
+	case types.DiagramRelCall, types.DiagramRelCallback, types.DiagramRelReturn:
+		return false
+	default:
+		return relation.IsValid()
+	}
 }
 
 // diagramSequenceReplyOperatorRelationConflict is the closed semantic matrix

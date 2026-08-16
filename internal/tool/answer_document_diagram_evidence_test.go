@@ -2733,6 +2733,41 @@ func TestDiagramCallEdgeEvidenceMismatches_DataFlowUsesExactRHSIntoLHSDirection(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_DistinctTypedDataEndpointsCannotCollapseToOneVisibleAlias(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "data-flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant IRflow as Analysis IR flow\n  IRflow->>IRflow: data transfer\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "IRflow", ToNode: "IRflow",
+			FromIdentity: "output.AnalysisIR", ToIdentity: "busCtx.AnalysisIR",
+			RelationKind: types.DiagramRelDataFlow,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorAssignment, Subject: "busCtx.AnalysisIR", Object: "output.AnalysisIR",
+		Source: "internal/orchestrator/orchestrator.go", LineStart: 2520,
+		GroundingStatus: types.GroundingGrounded,
+		Snippet:         "o.busCtx.AnalysisIR = output.AnalysisIR",
+	}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(got) != 1 || got[0].Issue != diagramTypedEndpointsCollapsedToSelfEdge ||
+		got[0].FromSymbol != "output.AnalysisIR" || got[0].ToSymbol != "busCtx.AnalysisIR" {
+		t.Fatalf("two distinct typed value endpoints need two visible aliases, got %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n  participant Out as output.AnalysisIR\n  participant Bus as busCtx.AnalysisIR\n  Out->>Bus: data transfer\n"
+	doc.Blocks[0].EdgeAnchors[0].FromNode = "Out"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "Bus"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("the same typed data flow with distinct visible aliases must pass: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypeRelationRequiresSameDirectionParserEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "type-hierarchy", Kind: types.BlockDiagram,
