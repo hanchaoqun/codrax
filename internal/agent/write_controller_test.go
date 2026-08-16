@@ -363,6 +363,36 @@ func TestWriteControllerPromptDisclosesChangedPathCapabilityBoundary(t *testing.
 	}
 }
 
+func TestWriteControllerPromptCarriesExecutedCommandWithoutUpgradingCapability(t *testing.T) {
+	mut := types.NewMutableState("aggregate verification command")
+	mut.SetChangePlan(&types.ChangePlan{ID: "plan-command", Status: types.PlanStatusApplied})
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID: "plan-command", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-test", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "make", WorkingDir: ".", Suite: "check", Command: "make check", ExitCode: 0,
+			Outcome: "executed", Source: "declared_coverage_test_surface",
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "src/widget.ts", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	})
+
+	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	for _, want := range []string{
+		`verification_command: runner=make cwd=. suite=check outcome=executed exit_code=0 source=declared_coverage_test_surface command="make check"`,
+		"total_results counts top-level runner results, not nested Make/Gradle/npm subcommands",
+		"do not infer that a declared sub-check was skipped solely because total_results is smaller",
+		"source_static/syntax_only coverage proves source shape only",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("controller prompt lost typed command accounting boundary %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderWriteControllerRunSection_CanonicalAttemptState(t *testing.T) {
 	mu := types.NewMutableState("canonical state")
 	run := types.WriteWorkflowRun{

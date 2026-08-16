@@ -312,6 +312,24 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		passedResults, failedResults := writeControllerVerificationResultCounts(report)
 		fmt.Fprintf(&b, "- verification_evidence: status=%s passed_results=%d failed_results=%d total_results=%d\n",
 			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
+		for i, cmd := range report.ExecutedCommands {
+			if i >= 8 {
+				fmt.Fprintf(&b, "- verification_command: ... +%d more\n", len(report.ExecutedCommands)-i)
+				break
+			}
+			fmt.Fprintf(&b, "- verification_command: runner=%s cwd=%s suite=%s outcome=%s exit_code=%d source=%s command=%q\n",
+				strings.TrimSpace(cmd.Runner),
+				strings.TrimSpace(cmd.WorkingDir),
+				strings.TrimSpace(cmd.Suite),
+				strings.TrimSpace(cmd.Outcome),
+				cmd.ExitCode,
+				strings.TrimSpace(cmd.Source),
+				limitWriteControllerText(cmd.Command, 240),
+			)
+		}
+		if len(report.ExecutedCommands) > 0 {
+			b.WriteString("- verification_result_accounting_boundary: total_results counts top-level runner results, not nested Make/Gradle/npm subcommands; retain the exact verification_command evidence and do not infer that a declared sub-check was skipped solely because total_results is smaller than the number of acceptance criteria\n")
+		}
 		for _, row := range writeControllerChangedPathCoverageRows(report.ChangedPathCoverage, 8) {
 			fmt.Fprintf(&b, "- changed_path_verification: path=%s status=%s caliber=%s capability=%s\n",
 				row.Path, row.Status, row.Caliber, row.Capability)

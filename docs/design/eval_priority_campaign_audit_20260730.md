@@ -35807,6 +35807,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.960 r587：ArkTS 清单正证；写验证命令账与能力等级分层（2026-08-16）
+
+1. 在 `main@c27982e6d` 重建后严格并发恰好两个案例：
+   `harmony/arkts_repomap + github_issue_napi_force_wasi_env_symptom`；runner `1/2 PASS`，人工为
+   `1 pass / 1 uncertain`。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_arkts_write_r587_20260816_manual_audit.md`。
+2. ArkTS 最终准确列出四个 `@Entry` 与两个 `@Builder` 及其文件归属，和 typed source inventory
+   闭合。Analyzer 早期“可能没有 .ets”的猜测被 Explorer 权威 rowset 纠正，没有进入最终事实；无
+   finalizer reject、JSON 修复或系统答案接管。这为多语言 inventory/ArkTS reader 提供一份生产正证。
+3. Write 的一行补丁正确：raw truthiness 改为只接受字符串 `true/error`，既有测试未被修改。
+   `make check` 顶层命令成功，Makefile 中两个 Python source oracle 也在运行日志中通过；但 checker
+   只是读取 TypeScript 实现与测试源码，并没有用 Node 执行 `tests/js-binding.test.ts`。因此 changed path
+   仍只能拥有 `source_static`，最终 `accept_unverified/production_verification_source_static_only`
+   是正确安全边界。自动 FAIL 不能靠升级 capability 或把静态 checker 称为运行时行为来消除。
+4. 新确认 B939（P1）：`ChangeReport.ExecutedCommands` 已保存 `make check`、exit=0、runner/suite/source，
+   controller artifact section 却只投影 `verification_evidence ... total_results=1`。模型把顶层 runner 结果数
+   误当子命令数，进而错误声称“无法确认 check_force_wasi.py 是否执行”。这不是验证等级 GAP，而是 typed
+   命令账末公里丢失。
+5. B939 按通用形修复：controller 有界投影最多八条 exact executed-command identity（runner、cwd、suite、
+   outcome、exit、source、command），并显式说明 `total_results` 统计顶层 runner，不统计 Make/Gradle/npm
+   内部子命令；不得仅因结果数小于验收项数量就推断某项未运行。命令账只改善模型说明精度，
+   `source_static/syntax_only` 不是 target execution/behavior 的原有边界同时保留，调度硬门也仍只读 typed
+   capability。该修复不持久化/扫描任意 stdout，不从命令词面升级验证权威，不替模型写最终结论。
+6. 定向 controller prompt 回归覆盖：exact `make check` identity 必须出现、顶层聚合边界必须出现、
+   source-static 限定必须同时出现。Trace、JSON、Mermaid、答案 materializer 和流式 Reader 均未改动；
+   显式时间窗、因果投影、系统补齐、链上-only 根因以及实际占时/规则可消双轴保持。
+
+状态：
+
+`B938-ZEROBUCKETMECHANISMEXCLUSION1=implemented/pending-trace-replay`；
+`B939-WRITECOMMANDACCOUNTINGCONTEXT1=implemented/targeted-pins-pass`；
+`ArkTS inventory=production-positive-r587`；
+`write patch=correct/source-static-honest-unverified-r587`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
