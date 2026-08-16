@@ -8170,7 +8170,7 @@ func proofFollowupWouldRepeatStableUnavailableProbe(run *types.WriteWorkflowRun,
 	planID := strings.TrimSpace(plan.ID)
 	if planID == "" || strings.TrimSpace(report.PlanID) != planID ||
 		report.Channel != types.ChangeReportChannelPostApplyVerify ||
-		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		!reportOutcomeSupportsStableUnavailableProbeSuppression(report) ||
 		!workflowHasSingleAppliedPlanAttempt(run, planID) ||
 		!reportHasTypedUnavailableProbeRunnerMissing(report) {
 		return false
@@ -8210,6 +8210,27 @@ func proofFollowupWouldRepeatStableUnavailableProbe(run *types.WriteWorkflowRun,
 		}
 	}
 	return true
+}
+
+// reportOutcomeSupportsStableUnavailableProbeSuppression accepts the two
+// report-level shapes that can carry the exact same typed missing-runner probe:
+// a successful project suite with an unavailable auxiliary probe, or an
+// overall unavailable report whose terminal failure is runner_missing.  The
+// latter is not a weaker verification verdict; it only prevents executing the
+// identical probe again in an unchanged worktree.  Every code/test failure and
+// every unknown unavailable reason fails open to the normal follow-up path.
+func reportOutcomeSupportsStableUnavailableProbeSuppression(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	status := report.NormalizeVerificationStatus()
+	if report.Passed && status == types.VerificationStatusPassed {
+		return true
+	}
+	return !report.Passed &&
+		status == types.VerificationStatusUnavailable &&
+		report.FailureKind == types.FailureKindRunnerMissing &&
+		types.FailureReasonCodeIndicatesVerificationUnavailable(report.FailureReasonCode)
 }
 
 func workflowHasSingleAppliedPlanAttempt(run *types.WriteWorkflowRun, planID string) bool {

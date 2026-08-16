@@ -5297,6 +5297,89 @@ func TestNormalizeControllerTypedStateDecisionStableUnavailableProbeDoesNotRepea
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionOverallUnavailableRunnerMissingDoesNotRepeatProofBatch(t *testing.T) {
+	mu := types.NewMutableState("overall unavailable stable verification probe")
+	plan := &types.ChangePlan{
+		ID:     "plan-java-unavailable",
+		Status: types.PlanStatusUnverified,
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value-semantics-probe",
+			Language:          "java",
+			Code:              "class ValueSemanticsProbe {}",
+			ContractRefs:      []string{"map-key-lookup"},
+			ChangedSymbolRefs: []string{"LazilyParsedNumber"},
+		}},
+		PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
+			Code:           "behavior_contract_without_verify_coverage",
+			Severity:       types.PatchReviewSeverityWarning,
+			Category:       types.PatchReviewCategorySemanticCoverage,
+			ImpactKind:     "behavior_contract",
+			CoverageStatus: types.PatchReviewCoverageUnavailable,
+			EvidenceRef:    "map-key-lookup",
+		}}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusUnavailable,
+		FailureKind:        types.FailureKindRunnerMissing,
+		FailureReasonCode:  "verification_probe_runner_missing",
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source: "pre_suite_verification_probe", Category: "probe_execution",
+			Status: "unavailable", Severity: "warning", ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Source: "pre_suite_verification_probe",
+			Outcome: "runner_missing", ReasonCode: "verification_probe_runner_missing",
+		}, {
+			Runner: "make", Source: "declared_coverage_test_surface", Outcome: "executed", ExitCode: 0,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-java-unavailable", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("overall unavailable missing-runner report should finish without an identical proof batch, got %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("overall unavailable report unexpectedly requested proof follow-up: %+v", run.ProgressLedger)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_unavailable") {
+		t.Fatalf("typed stable-unavailable suppression was not recorded: %+v", run.ProgressLedger)
+	}
+
+	// A real code/test failure is not an environment-stability receipt.
+	report.VerificationStatus = types.VerificationStatusFailed
+	report.FailureKind = types.FailureKindTestsFailed
+	report.FailureReasonCode = "tests_failed"
+	mu.SetChangeReport(report)
+	run.ProgressLedger = nil
+	got = o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch {
+		t.Fatalf("a code/test failure must retain the proof follow-up path, got %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithoutProbeFinishesUnverified(t *testing.T) {
 	mu := types.NewMutableState("source-static verification cannot prove production execution")
 	plan := &types.ChangePlan{

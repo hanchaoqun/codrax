@@ -35678,13 +35678,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    fail-open；展示层只组合一次局部通过+未验证说明。
 7. 本批无 Trace 案例，不外推 Trace 状态；未改显式窗、因果投影、自动补齐、链上-only 主因、实际
    占用/业务线索与规则可消除量双轴。活跃字节流也不得因 4ms 或固定累计年龄降级。
+8. B928 已根修。稳定不可用收据现在接受两种同权 typed 外形：project suite 通过但唯一 probe
+   unavailable，或总报告本身为 `verification_status=unavailable + failure_kind=runner_missing`。两者仍
+   必须同一 plan、单一 applied plan、唯一 probe、精确 pre-suite confidence/command 对、且所有待补
+   behavior/symbol 义务均绑定该 probe；因此只阻止原工作树上必然重复的执行，不把局部静态绿提升成
+   行为绿。tests_failed、未知 unavailable、多计划、未绑定义务继续 fail-open。生产同形和负臂均已 pin。
 
 状态：
 
 `B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=implemented/pending-stable-role-production-replay`；
 `B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=confirmed/P1`；
 `B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=confirmed/P1`；
-`B928-STABLEUNAVAILABLEPROOFREPEAT1=confirmed/P1`；
+`B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/overall-unavailable+mixed-pass-typed-pins`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
