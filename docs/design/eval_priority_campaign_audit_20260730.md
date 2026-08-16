@@ -37261,6 +37261,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`。
 
+### §123.900 r545：value-transfer 修补债生产闭环；载体数据流仍缺完整 typed operation chain（2026-08-15）
+
+1. 在 `main@9bc638a03` 重建后严格并发恰好两个异构案例：
+   `qf_logic_view_read_pipeline + data_json_strict_ids`。Runner `2 PASS / 0 FAIL`；人工为
+   `1 pass / 1 fail`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_repair_json_r545_20260815_manual_audit.md`。
+2. B872 获生产闭环正证。r544 同一 read case 在 exact assignment 行已接受后仍五次重放旧 initializer
+   修补债；r545 的 investigation completion 为 2 次调用、0 次拒绝，日志不再出现陈旧 schema-invalid
+   repair，总耗时从 402s 降至 248s。说明 assignment/initializer 仅在同源同线、exact LHS/RHS 的
+   value-transfer 语义内等价，不相关 call 或部分端点仍不能错误销债。
+3. 严格 JSON 案一次完成并精确输出 `{"ids":["u1","u3"]}`；`data_repair_rounds=0`，strict decode、
+   blocks-string recovery 与降级均为 0。当前 schema-near JSON 教学没有在该异构车道制造额外重试。
+4. Read Explorer 本轮取得三条 stage precedence、
+   `Orchestrator.applyStageOutput -> appendStageOutputEvidenceToMutable` call 和
+   `o.busCtx.Mutable -> appendStageOutputEvidenceToMutable` argument_flow。第一稿额外画出的未证
+   stage↔carrier 边被正确拒绝；patch 保留上述 typed 局部子图，并将 BusContext 显式保留为未证边界。
+5. 人工仍判 fail：最终正文把“各阶段通过 BusContext 传递数据”“StageOutput 写入 Mutable”和
+   “Explorer 经 Mutable 写共享区”写成完整既成事实。现有 exact argument handoff 只证明某一调用点
+   的入参，不证明 callee 内存储，更没有覆盖每个 stage 的产物→merge→下游消费链。自动最小边数
+   oracle 不能识别中心关系未回答与正文越界。
+6. 新立 `B871b-CARRIEROPERATIONCHAIN1/P1`。根修方向是从生产代码收集 StageOutput 生产、
+   apply/merge、BusContext/Mutable 更新和下游消费的 source-owned typed operation chain，分层交付
+   “已证局部关系/未证高层 participant”；模型继续决定图、正文和结论。禁止系统造桥、补画、替换
+   答案，禁止从用户原文、模型 reasoning 或最终 prose 做关键词硬门。
+7. 对 r544 Trace prompt 冷读同时确认 B873 不是纯模型波动：同一 Finalizer 上下文既要求“无 exact
+   relation 就是 unresolved，不得宣称 independent”，又用 `independent background` 表示“单列背景”，
+   并在多个机制、席位、序数域与证据通道中用 independent 表示“分别计量”。同一个词同时承担物理
+   关系判定与记账方式，足以诱发模型把 unknown 写成已证独立。下一小批只做模型可见上下文的词义
+   分离：物理独立保留给 exact relation authority；分别记账改为 supporting background / separately
+   bound / distinct ordinal domain / separate evidence channel。不得扫描或改写最终答案。
+8. 两案均未发生 active byte stream 的固定年龄降级。只要原始字节持续到达，4ms、4s、4m 或任意
+   固定累计年龄都不能授权空答案/旧稿降级；终止与恢复权仍只属于 caller cancel/deadline、无首字节、
+   byte-stall、transport/decode failure。
+
+状态：
+
+`B872-EVIDENCEVALIDATIONREPAIRSTALE1=production-closed-r545`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/next-after-trace-context`；
+`B873-TRACERELATIONVOCABULARY1=confirmed/P1/context-contradiction/next`；
+`JSON strict output=production-pass/no-repair/no-degrade`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；
+邻近与背景=`support-only`；模型答案/结论/图=`system-does-not-author`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
