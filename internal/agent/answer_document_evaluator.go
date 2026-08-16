@@ -9891,22 +9891,31 @@ func answerDocTypedEnrichmentEvidencePool(ctx *types.AgentContext, limit int) []
 	if ctx == nil || limit <= 0 {
 		return nil
 	}
-	seen := make(map[string]struct{}, limit)
+	// A later emit_evidence correction deliberately keeps the durable ID of
+	// the row it amends.  The orchestrator truth set can therefore carry the
+	// earlier carrier while Mutable's append-tail already has the corrected
+	// call/guard/assignment shape under that same ID.  First-ID-wins loses the
+	// correction and can make the finalizer report zero typed relations even
+	// though Explorer just grounded one.  Reconcile same-ID rows through the
+	// canonical coherent-carrier merger instead.  This only transports model-
+	// authored evidence; it does not infer or synthesize a relation.
+	seen := make(map[string]int, limit)
 	out := make([]types.EvidenceItem, 0, extractorMinInt(len(ctx.EvidenceItems), limit))
 	addGroup := func(items []types.EvidenceItem) {
 		for _, item := range items {
-			if len(out) >= limit {
-				return
-			}
 			id := strings.TrimSpace(item.ID)
 			if id == "" {
 				id = types.StableEvidenceID(item)
 				item.ID = id
 			}
-			if _, ok := seen[id]; ok {
+			if idx, ok := seen[id]; ok {
+				out[idx] = types.MergeEvidenceItemByStableID(out[idx], item)
 				continue
 			}
-			seen[id] = struct{}{}
+			if len(out) >= limit {
+				continue
+			}
+			seen[id] = len(out)
 			out = append(out, item)
 		}
 	}

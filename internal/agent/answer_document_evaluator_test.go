@@ -2039,6 +2039,51 @@ func TestAnswerDocTypedEnrichmentEvidencePoolBoundsLargeContext(t *testing.T) {
 	}
 }
 
+func TestAnswerDocTypedEnrichmentEvidencePoolKeepsLaterTypedCarrierCorrection(t *testing.T) {
+	const durableID = "ev-finalizer-line-30"
+	prior := types.EvidenceItem{
+		ID: durableID, Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Source: "internal/agent/finalizer.go", LineStart: 30, LineEnd: 30,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "NewBaseAgent",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        types.EvidenceProducerExplorerEmitEvidence,
+	}
+	corrected := types.EvidenceItem{
+		ID: durableID, Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "internal/agent/finalizer.go", LineStart: 30, LineEnd: 30,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "NewBaseAgent",
+		Subject: "NewFinalizerAgent", Predicate: "calls", Object: "NewBaseAgent",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        types.EvidenceProducerExplorerEmitEvidence,
+	}
+	mu := types.NewMutableState("")
+	mu.AppendEvidence([]types.EvidenceItem{corrected})
+	ctx := &types.AgentContext{
+		AnalysisIR:    &types.AnalysisIR{RequestModel: types.RequestModel{PredicateAxis: types.AxisFlow}},
+		EvidenceItems: []types.EvidenceItem{prior},
+		Mutable:       mu,
+	}
+
+	got := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	if len(got) != 1 {
+		t.Fatalf("same-ID correction should remain one answer-grade row, got %d: %+v", len(got), got)
+	}
+	if got[0].Kind != types.EvidenceRelationship ||
+		types.ClaimFormOf(got[0]) != types.ClaimCallEdge ||
+		got[0].Subject != "NewFinalizerAgent" || got[0].Object != "NewBaseAgent" {
+		t.Fatalf("later grounded call carrier was lost behind stale first-ID row: %+v", got[0])
+	}
+	_, edges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
+	if acceptedFacts != 1 || callsiteFacts != 1 || len(edges) != 1 {
+		t.Fatalf("corrected call must reach finalizer relation authority, facts=%d calls=%d edges=%+v",
+			acceptedFacts, callsiteFacts, edges)
+	}
+	if edges[0].relation != types.DiagramRelCall ||
+		edges[0].from != "NewFinalizerAgent" || edges[0].to != "NewBaseAgent" {
+		t.Fatalf("corrected call authority direction changed: %+v", edges[0])
+	}
+}
+
 func TestSelectAnswerDocTypedEnrichmentFactsTruncatesLargeSurface(t *testing.T) {
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}}}
 	longSnippet := strings.Repeat("x", answerDocMaxEnrichmentSurfaceBytes+200)

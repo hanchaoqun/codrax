@@ -36184,6 +36184,70 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.936 r567：必选关系图与零关系权威形成不可满足合同；写修复缩窄既有非零语义（2026-08-16）
+
+1. 在 `main@ea7ae285c` 干净重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + github_issue_libgit2_foreach_worktree`。Runner `0 PASS / 2 FAIL`，
+   人工两案均 fail。详见
+   `eval/parallel_selected_summary_evalcampaign_selection_cwrite_r567_20260816_manual_audit.md`。
+2. B902 保持生产闭环。write 仅生成一个计划、只改 `repository.c`、测试通过后 controller 直接
+   `finish/all_verified`，没有错误 append、第三计划或 durable batch goal 污染。本轮单计划形没有覆盖
+   B903 的多计划累计路径证明，因此 B903 仍待专门 production replay。
+3. write runner 失败不是正则假阴性。第二处从 `error = (lookup_result < 0)` 修为
+   `(error = lookup_result) < 0` 正确；第一处却从 `error = (cb_result != 0)` 修为
+   `(error = cb_result) < 0`，把 callback 原有“任意非零值均终止并原样返回”的语义缩成仅负值。
+   fixture 的三个测试只覆盖 callback 负值、lookup 负值和零值，漏掉 callback 正非零状态，所以测试绿
+   不能证明语义保持。确认 B906：写计划/验证需要保留被修改条件原有的判定域，并为未覆盖分支生成或
+   要求行为证明；不得把“客户示例是负值”推成“所有非零只需保留负值”，也不得为 runner 放宽 oracle。
+4. Combo 确认 B905（P0 红线）：Analyzer 把显式 diagram dimension 规范化为
+   `diagram_hint.required=true + predicate_axis=flow`，Finalizer 因此硬要求流程图至少一条边，且每条边
+   必须具有同向 typed relation owner。第一次 Explorer completion 已因零 operation transfer 被正确降级
+   补采；第二轮权威载体仍明确写出 `explicit_typed_directed_relations=0`、
+   `grounded_callsite_facts=0`，仅提供两个 unary guard note。此时“必须至少一条边”和“没有任何可合法
+   发射的边”同时成立，形成确定性不可满足合同。
+5. 该冲突造成 25 次 finalizer reject、24 次 patch、15 次 mid-loop 注入、一次不可用 full-emit 工具调用、
+   5 次 Mermaid repair 和 1223s 墙钟。模型先画未证控制边，后删图触发 required-diagram 缺失，再反复把
+   guard/precedence/call 互换仍被同一 typed gate 拒绝；最终只能降级展示旧稿，图退化为两个无关系
+   subgraph。这不是 JSON 畸形或普通模型波动，继续增加泛化教学也无法满足相反合同。
+6. B905 还有证据接线子因：Explorer 已成功 emit 并 ground
+   `NewFinalizerAgent -> NewBaseAgent` 的真实 `call_edge`，但 finalizer enrichment pool 对
+   `ctx.EvidenceItems + TurnAArtifacts + Mutable.EmittedEvidence` 使用 `first-ID-wins`。同 durable ID 的早期
+   `definition_fact` 先占位后，Mutable append-tail 中已经修正的完整 `call_edge` 被直接跳过，权威计数继续
+   为零。项目既有教学明确“一行可同时承载 call/assignment/argument 等独立 operation shape”；证据合并、
+   amendment 或 branch handoff 不能让弱形覆盖强修正。施工需按 canonical coherent-carrier merger 合并同 ID
+   修正，并让 completion 与 finalizer validator 消费同一 directed-relation provider。
+7. 最优分批冻结：B905-A 先修证据多形共存和 handoff；B905-B 把 required source-relation diagram 的
+   completion 门与 final validator 对齐，零合法边时优先一次 targeted operation supplement，补采后仍为零
+   则进入明确的 typed-unproven/node-only 诚实出口，绝不继续相反合同重试，也不由系统造边或代画图；
+   B905-C 给相同 relation failure fingerprint 设置有界升级，重复失败只重发可执行 exact recipe/边界，不再
+   重复数 KB 通用合同。B906 独立小批补原条件域/正非零行为覆盖。
+8. B904 本轮没有获得生产闭环：provider-required `runtime_selection_profile` 存在，但模型仍发 false；系统
+   不能扫描“首次/重试”等原文关键词再硬改 true。它属于 Analyzer typed value 波动，本轮关系失败已由
+   axis=flow 精确信号暴露；后续通过更短的 JSON 教学和异构 replay 评估，不恢复 presentation-role 拟合。
+9. 本批不改 Trace。显式时间窗、完整 causal-diagnosis 的 Trace 因果投影和自动补齐继续保留；主因只来自
+   typed on-chain，优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与链上业务线索以及实际耗时/
+   规则计价双轴不丢失；off-chain 邻近/背景只能 support。系统不得替模型选择关系、画图、写根因或结论。
+   活跃流只要持续交付字节，4ms 或固定累计年龄均不授权降级。
+10. B905-A 已施工：`answerDocTypedEnrichmentEvidencePool` 不再 first-ID-wins；遇到同 durable ID 时通过
+    `MergeEvidenceItemByStableID` 原子选择更完整、同等或更高 grounding 的 coherent carrier，达到预算后仍
+    扫描后续组中的同 ID 修正，但不接纳新的超预算行。新增 pin 同时证明 stale `definition_fact` + Mutable
+    corrected `call_edge` 最终只有一个 answer-grade row，并且进入 finalizer relation authority 后得到
+    `accepted=1 / callsite=1 / directed edge=1`，方向保持
+    `NewFinalizerAgent -> NewBaseAgent`。该修复只搬运模型已经发射且 ground 的 typed evidence，不造关系、
+    不改答案，也不读取用户/模型/final 原文。
+
+状态：
+
+`B902-WRITEREPLANBATCHGOALAUTHORITY1=production-closed-r566/r567-stable`；
+`B903-CUMULATIVEPATHPROOFRECONCILIATION1=implemented/pinned/pending-multiplan-replay`；
+`B904-RUNTIMESELECTIONPROFILE1=production-value-miss-r567/soft-reteach-only`；
+`B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-implemented-and-pinned/B-C-pending`；
+`B906-WRITEORIGINALCONDITIONDOMAIN1=confirmed/P1/planned`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
