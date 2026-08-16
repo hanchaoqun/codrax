@@ -2058,6 +2058,7 @@ func TestDiagramCallEdgeEvidenceMismatches_SupportingCitationDoesNotExpandPrinci
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGRejectsUnprovedLogicalRelationRelabels(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,
+		types.DiagramRelControlFlow,
 		types.DiagramRelImport,
 		types.DiagramRelPrecedence,
 		types.DiagramRelContain,
@@ -2089,6 +2090,13 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAcceptsSameDirectionTypedLogic
 		evidence types.EvidenceItem
 	}{
 		{types.DiagramRelGuard, types.EvidenceItem{Kind: types.EvidenceConditional, AnchorKind: types.AnchorCondition, Subject: "Service.run", OwnerSymbol: "Service.run", AnchorSymbol: "enabled", Source: "service.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+		{types.DiagramRelControlFlow, types.EvidenceItem{
+			Kind: types.EvidenceControlFlow, AnchorKind: types.AnchorCall,
+			Subject: "if enabled", Predicate: types.ControlFlowPredicateConsequence,
+			Object: "Worker.run()", AnchorSymbol: "Worker.run", OwnerSymbol: "Service.run",
+			Source: "service.go", LineStart: 10, LineEnd: 12, Scope: types.ScopeLineRange,
+			Producer: types.EvidenceProducerDataflowLowererPrefix + "go", GroundingStatus: types.GroundingGrounded,
+		}},
 		{types.DiagramRelImport, types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorImport, Subject: "service", Object: "storage", AnchorSymbol: "storage", Source: "service.go", LineStart: 3, GroundingStatus: types.GroundingGrounded}},
 		{types.DiagramRelPrecedence, types.EvidenceItem{Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride, Subject: "cli", Object: "config", AnchorSymbol: "config", Source: "config.go", LineStart: 12, GroundingStatus: types.GroundingGrounded}},
 		{types.DiagramRelObserve, types.EvidenceItem{Kind: types.EvidenceDirect, Origin: types.ClaimOriginLog, Subject: "worker", Object: "timeout", AnchorSymbol: "timeout", Source: "runtime.log", LineStart: 1, GroundingStatus: types.GroundingGrounded}},
@@ -2108,6 +2116,40 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAcceptsSameDirectionTypedLogic
 				t.Fatalf("same-direction typed %s evidence must authorize its exact edge: %+v", tc.relation, got)
 			}
 		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ControlFlowRejectsUnaryGuardAndReverseDirection(t *testing.T) {
+	branch := types.EvidenceItem{
+		Kind: types.EvidenceControlFlow, AnchorKind: types.AnchorCall,
+		Subject: "if enabled", Predicate: types.ControlFlowPredicateConsequence,
+		Object: "Worker.run()", AnchorSymbol: "Worker.run", OwnerSymbol: "Service.run",
+		Source: "service.go", LineStart: 10, LineEnd: 12, Scope: types.ScopeLineRange,
+		Producer: types.EvidenceProducerDataflowLowererPrefix + "go", GroundingStatus: types.GroundingGrounded,
+	}
+	makeDoc := func(from, to string) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "branch", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  A[\"" + from + "\"] --> B[\"" + to + "\"]\n"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelControlFlow}},
+		}}}
+	}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	if got := DiagramCallEdgeEvidenceMismatches(makeDoc(branch.Subject, branch.Object), view, []types.EvidenceItem{branch}); len(got) != 0 {
+		t.Fatalf("exact parser-proved branch effect must authorize its direction: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(makeDoc(branch.Object, branch.Subject), view, []types.EvidenceItem{branch}); len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence {
+		t.Fatalf("reverse branch effect must fail closed: %+v", got)
+	}
+	guardOnly := types.EvidenceItem{
+		Kind: types.EvidenceConditional, AnchorKind: types.AnchorCondition,
+		Subject: "Service.run", OwnerSymbol: "Service.run", AnchorSymbol: "enabled",
+		Source: "service.go", LineStart: 10, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(makeDoc(branch.Subject, branch.Object), view, []types.EvidenceItem{guardOnly}); len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence {
+		t.Fatalf("unary guard must not be promoted into branch-to-effect authority: %+v", got)
 	}
 }
 
@@ -3061,6 +3103,7 @@ func TestDiagramCallEdgeEvidenceMismatches_ActivatedReplyKeepsStructuralRole(t *
 func TestDiagramCallEdgeEvidenceMismatches_GenericLogicalRelationEnumsDoNotSelfAuthorize(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,
+		types.DiagramRelControlFlow,
 		types.DiagramRelImport,
 		types.DiagramRelPrecedence,
 		types.DiagramRelContain,

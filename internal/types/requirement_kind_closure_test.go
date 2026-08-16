@@ -92,6 +92,7 @@ func TestEvidenceKind_IsLLMEmittable_Partition(t *testing.T) {
 		EvidenceAbsent:       true,
 		EvidenceConcrete:     false,
 		EvidenceDataflowPath: false,
+		EvidenceControlFlow:  false,
 		EvidenceConflict:     false,
 		EvidenceUnresolved:   false,
 		EvidenceTruncated:    false,

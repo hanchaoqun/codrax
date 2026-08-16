@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -389,7 +390,124 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 		))
 	}
 
+	for _, branch := range file.ControlFlowBranches {
+		if branch.GuardLine < sym.Line || branch.GuardLine > sym.EndLine {
+			continue
+		}
+		for _, effect := range branch.Effects {
+			if effect.LineStart < sym.Line || effect.LineEnd > sym.EndLine {
+				continue
+			}
+			if item, ok := controlFlowEvidenceItem(file, symbolKey, branch, effect); ok {
+				summary.ProducerEvidence = append(summary.ProducerEvidence, item)
+			}
+		}
+	}
+
 	return summary
+}
+
+func controlFlowEvidenceItem(file *repomap.FileInfo, owner string, branch rmtypes.ControlFlowBranch, effect rmtypes.ControlFlowEffect) (types.EvidenceItem, bool) {
+	if file == nil || strings.TrimSpace(owner) == "" || strings.TrimSpace(effect.Expression) == "" {
+		return types.EvidenceItem{}, false
+	}
+	if strings.TrimSpace(branch.ResolvedBy) == "" ||
+		(branch.Provenance != rmtypes.ProvenanceTreeSitter && branch.Provenance != rmtypes.ProvenanceCangjieParser) {
+		return types.EvidenceItem{}, false
+	}
+	predicate := ""
+	switch branch.Arm {
+	case rmtypes.ControlFlowArmConsequence:
+		predicate = types.ControlFlowPredicateConsequence
+	case rmtypes.ControlFlowArmAlternative:
+		predicate = types.ControlFlowPredicateAlternative
+	case rmtypes.ControlFlowArmCase:
+		predicate = types.ControlFlowPredicateCase
+	case rmtypes.ControlFlowArmDefault:
+		predicate = types.ControlFlowPredicateDefault
+	default:
+		return types.EvidenceItem{}, false
+	}
+	subject := controlFlowBranchSubject(branch)
+	if subject == "" {
+		return types.EvidenceItem{}, false
+	}
+	anchorKind := types.AnchorTextReference
+	switch effect.Kind {
+	case rmtypes.ControlFlowEffectCall:
+		anchorKind = types.AnchorCall
+	case rmtypes.ControlFlowEffectReturn:
+		anchorKind = types.AnchorReturn
+	case rmtypes.ControlFlowEffectAssignment:
+		anchorKind = types.AnchorAssignment
+	case rmtypes.ControlFlowEffectExit:
+		anchorKind = types.AnchorTextReference
+	default:
+		return types.EvidenceItem{}, false
+	}
+	lineStart := branch.GuardLine
+	if effect.LineStart < lineStart {
+		lineStart = effect.LineStart
+	}
+	lineEnd := effect.LineEnd
+	if branch.GuardLine > lineEnd {
+		lineEnd = branch.GuardLine
+	}
+	item := newEvidenceItem(
+		types.EvidenceControlFlow,
+		subject,
+		predicate,
+		effect.Expression,
+		branch.Condition,
+		file.RelPath,
+		"",
+		lineStart,
+		lineEnd,
+		1.0,
+		types.EvidenceProducerDataflowLowererPrefix+file.Language,
+		fmt.Sprintf("`%s` owns `%s` in %s", subject, effect.Expression, owner),
+		anchorKind,
+		firstIdentifier(effect.Expression),
+	)
+	if lineEnd > lineStart {
+		item.Scope = types.ScopeLineRange
+	} else {
+		item.Scope = types.ScopeLine
+	}
+	item.OwnerSymbol = owner
+	item.ID = types.StableEvidenceID(item)
+	return item, types.IsDeterministicControlFlowEvidence(item)
+}
+
+func controlFlowBranchSubject(branch rmtypes.ControlFlowBranch) string {
+	condition := strings.TrimSpace(branch.Condition)
+	selector := strings.TrimSpace(branch.Selector)
+	switch branch.Arm {
+	case rmtypes.ControlFlowArmConsequence:
+		if condition != "" {
+			return "if " + condition
+		}
+	case rmtypes.ControlFlowArmAlternative:
+		if condition != "" {
+			return "else of " + condition
+		}
+	case rmtypes.ControlFlowArmCase:
+		if condition != "" && selector != "" {
+			return "case " + condition + " of " + selector
+		}
+		if condition != "" {
+			return "case " + condition
+		}
+	case rmtypes.ControlFlowArmDefault:
+		if selector != "" {
+			return "default of " + selector
+		}
+		if condition != "" {
+			return "else of " + condition
+		}
+		return "default branch"
+	}
+	return ""
 }
 
 func newLowererRegistry() map[string]Lowerer {

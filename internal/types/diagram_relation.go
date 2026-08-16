@@ -88,10 +88,16 @@ const (
 	// argument expression.
 	DiagramRelArgumentFlow DiagramRelationKind = "argument_flow"
 
-	// DiagramRelGuard denotes a conditional branch edge in a flow
-	// diagram (e.g., `A -->|if x>0| B`). Maps to
-	// ClaimGuardCondition.
+	// DiagramRelGuard denotes the unary enclosing-callable -> condition
+	// relation. It does not prove that a later operation belongs to that
+	// condition's branch body. Maps to ClaimGuardCondition.
 	DiagramRelGuard DiagramRelationKind = "guard"
+
+	// DiagramRelControlFlow is an exact lexical branch-arm -> effect edge.
+	// Unlike DiagramRelGuard (enclosing callable -> condition), it requires a
+	// deterministic parser-owned ClaimBranchEffect row and is typed-only:
+	// labels/prose cannot mint this authority.
+	DiagramRelControlFlow DiagramRelationKind = "control_flow"
 
 	// DiagramRelImport denotes a static dependency edge between
 	// modules / packages / files. Maps to ClaimImportEdge. Note: a
@@ -164,6 +170,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelCallback,
 	DiagramRelArgumentFlow,
 	DiagramRelGuard,
+	DiagramRelControlFlow,
 	DiagramRelImport,
 	DiagramRelPrecedence,
 	DiagramRelContain,
@@ -209,6 +216,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimArgumentFlow
 	case DiagramRelGuard:
 		return ClaimGuardCondition
+	case DiagramRelControlFlow:
+		return ClaimBranchEffect
 	case DiagramRelImport:
 		return ClaimImportEdge
 	case DiagramRelPrecedence:
@@ -246,6 +255,8 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 		return DiagramRelArgumentFlow
 	case ClaimGuardCondition:
 		return DiagramRelGuard
+	case ClaimBranchEffect:
+		return DiagramRelControlFlow
 	case ClaimImportEdge:
 		return DiagramRelImport
 	case ClaimPrecedenceRole:

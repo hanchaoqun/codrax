@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const lowererVersion = "v1"
+const lowererVersion = "v2"
 
 // Analyze builds bounded, cross-language dataflow evidence from the
 // existing repo_map graph plus direct file/config scans.

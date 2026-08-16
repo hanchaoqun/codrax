@@ -50,7 +50,7 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 		ClaimExternalObservation,
 	}
 	if ir != nil && ir.RequestModel.ChangeImpactProfile != nil && ir.RequestModel.ChangeImpactProfile.Active() {
-		acceptableClaimForms = append(acceptableClaimForms, ClaimGuardCondition)
+		acceptableClaimForms = append(acceptableClaimForms, ClaimGuardCondition, ClaimBranchEffect)
 		if ir.RequestModel.ChangeImpactProfile.AllowsTextReferencePrincipal() {
 			acceptableClaimForms = append(acceptableClaimForms, ClaimTextReferenceFact)
 		}

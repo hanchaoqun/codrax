@@ -21,10 +21,46 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 	// declared constant. Adding a new ClaimForm constant requires
 	// updating the allClaimForms slice; this guard catches that
 	// drift via length comparison against the known constant count
-	// (14 as of 2026-08-13 argument-flow surface; bump this assertion if you add
+	// (15 as of 2026-08-16 branch-effect surface; bump this assertion if you add
 	// a new ClaimForm).
-	if len(AllClaimForms()) != 14 {
-		t.Errorf("AllClaimForms length %d != 14 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
+	if len(AllClaimForms()) != 15 {
+		t.Errorf("AllClaimForms length %d != 15 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
+	}
+}
+
+func TestClaimFormOfBranchEffectRequiresDeterministicTypedAuthority(t *testing.T) {
+	base := EvidenceItem{
+		Kind:            EvidenceControlFlow,
+		Subject:         "if ready",
+		Predicate:       ControlFlowPredicateConsequence,
+		Object:          "dispatch(job)",
+		Source:          "src/pipeline.go",
+		LineStart:       10,
+		LineEnd:         12,
+		Scope:           ScopeLineRange,
+		Producer:        EvidenceProducerDataflowLowererPrefix + "go",
+		AnchorKind:      AnchorCall,
+		GroundingStatus: GroundingGrounded,
+	}
+	if got := ClaimFormOf(base); got != ClaimBranchEffect {
+		t.Fatalf("deterministic branch effect form=%q, want %q", got, ClaimBranchEffect)
+	}
+
+	modelLike := base
+	modelLike.Producer = EvidenceProducerExplorerEmitEvidence
+	if got := ClaimFormOf(modelLike); got == ClaimBranchEffect {
+		t.Fatalf("model-produced row must not mint branch-effect authority")
+	}
+	prefixOnly := base
+	prefixOnly.Producer = EvidenceProducerDataflowLowererPrefix
+	if got := ClaimFormOf(prefixOnly); got == ClaimBranchEffect {
+		t.Fatalf("producer prefix without a concrete lowerer must not mint branch-effect authority")
+	}
+
+	invalidPredicate := base
+	invalidPredicate.Predicate = "controls_something"
+	if got := ClaimFormOf(invalidPredicate); got == ClaimBranchEffect {
+		t.Fatalf("unknown predicate must not mint branch-effect authority")
 	}
 }
 
@@ -54,7 +90,7 @@ func TestClaimFormOfPrecedenceUsesDedicatedAnchor(t *testing.T) {
 }
 
 func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
-	for _, c := range []ClaimForm{ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimBranchEffect, ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
 		if !c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
 		}
@@ -84,7 +120,7 @@ func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
 		}
 	}
-	for _, c := range []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimBranchEffect, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
 		if !c.SupportsCitationRoleAlignment() {
 			t.Fatalf("claim form %q should support typed citation-role alignment", c)
 		}

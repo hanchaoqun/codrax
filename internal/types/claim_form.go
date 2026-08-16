@@ -39,7 +39,7 @@ import "strings"
 // Without ClaimForm, validator gates trying to enforce "this
 // evidence cannot be promoted to that claim shape" must inspect
 // 4-5 fields each call. ClaimForm collapses the cross-product into
-// a 9-state enum that downstream gates can pattern-match cheaply.
+// a closed enum that downstream gates can pattern-match cheaply.
 //
 // Red lines held:
 //   - LLM-emitted ClaimForm flows through RenderedClaimUse only
@@ -92,11 +92,18 @@ const (
 	ClaimArgumentFlow ClaimForm = "argument_flow"
 
 	// ClaimGuardCondition: evidence cites an `if` / `switch` /
-	// `select case` / equivalent branching guard. Supports "Y runs
-	// only when condition C" claims. Distinct from
+	// `select case` / equivalent branching guard. It proves the enclosing
+	// callable has condition C, but not which later operation belongs to the
+	// branch body. Distinct from
 	// ClaimAssignmentFact: an assignment whose RHS happens to be a
 	// boolean is NOT a guard — only the branch line itself is.
 	ClaimGuardCondition ClaimForm = "guard_condition"
+
+	// ClaimBranchEffect is deterministic parser evidence for one exact lexical
+	// branch arm controlling one exact call/return/assignment/exit effect. It is
+	// separate from ClaimGuardCondition so a unary condition row cannot be
+	// promoted into condition -> effect ownership.
+	ClaimBranchEffect ClaimForm = "branch_effect"
 
 	// ClaimAssignmentFact: evidence cites a variable / field
 	// assignment. Supports "X is set to Y" claims. Cannot be
@@ -166,6 +173,7 @@ var allClaimForms = []ClaimForm{
 	ClaimCallbackHandoff,
 	ClaimArgumentFlow,
 	ClaimGuardCondition,
+	ClaimBranchEffect,
 	ClaimAssignmentFact,
 	ClaimReturnFact,
 	ClaimAbsenceFact,
@@ -231,7 +239,7 @@ func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	case ClaimDefinitionFact, ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimRegistrationEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
-	case ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole,
+	case ClaimBranchEffect, ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole,
 		ClaimExternalObservation, ClaimTextReferenceFact:
 		return ClaimLabelSurfaceDisplayLabel
 	default:
@@ -314,6 +322,13 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 	if item.DiagramRole != EvidenceDiagramRoleUnknown &&
 		item.DiagramRole != EvidenceDiagramRoleDefault {
 		return ClaimPrecedenceRole
+	}
+
+	// Deterministic parser-owned branch-effect evidence has a stronger binary
+	// sentence shape than its effect-side AnchorKind. It is not model-emittable
+	// and must be recognized before the generic anchor dispatch.
+	if IsDeterministicControlFlowEvidence(item) {
+		return ClaimBranchEffect
 	}
 
 	// A registration becomes an edge only when both typed endpoints are

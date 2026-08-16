@@ -21,9 +21,13 @@ const (
 	EvidenceAbsent       EvidenceKind = "absent"
 	EvidenceConcrete     EvidenceKind = "concrete_value"
 	EvidenceDataflowPath EvidenceKind = "dataflow_path"
-	EvidenceConflict     EvidenceKind = "conflict"
-	EvidenceUnresolved   EvidenceKind = "unresolved"
-	EvidenceTruncated    EvidenceKind = "analysis_truncated"
+	// EvidenceControlFlow is deterministic-only parser evidence proving that
+	// one exact lexical branch arm owns one exact effect. The LLM cannot emit
+	// this kind; dataflow lowerers derive it from FileInfo.ControlFlowBranches.
+	EvidenceControlFlow EvidenceKind = "control_flow"
+	EvidenceConflict    EvidenceKind = "conflict"
+	EvidenceUnresolved  EvidenceKind = "unresolved"
+	EvidenceTruncated   EvidenceKind = "analysis_truncated"
 )
 
 // Deterministic evidence producers that are allowed to authorize structural
@@ -94,7 +98,7 @@ func IsRepoMapTypeRelationEvidence(item EvidenceItem) bool {
 
 // allEvidenceKinds is the canonical, ordered list of every
 // EvidenceKind value. The first six are LLM-emittable via
-// emit_evidence; the last five are deterministic-only (written by
+// emit_evidence; the last six are deterministic-only (written by
 // mechanism_scan, dataflow/lower, the concrete-values extractor, and
 // the analysis-truncation reporter) and are intentionally rejected
 // if the LLM tries to emit them — see IsLLMEmittable below.
@@ -107,6 +111,7 @@ var allEvidenceKinds = []EvidenceKind{
 	EvidenceAbsent,
 	EvidenceConcrete,
 	EvidenceDataflowPath,
+	EvidenceControlFlow,
 	EvidenceConflict,
 	EvidenceUnresolved,
 	EvidenceTruncated,
@@ -138,7 +143,7 @@ func AllEvidenceKinds() []EvidenceKind {
 //     scope=negative; emitting absent with any other scope is
 //     rejected.
 //
-//  3. Deterministic-only: concrete_value / dataflow_path / conflict /
+//  3. Deterministic-only: concrete_value / dataflow_path / control_flow / conflict /
 //     unresolved / analysis_truncated are written exclusively by Go
 //     code (mechanism_scan, dataflow/lower, concrete-values
 //     extractor, analysis-truncation reporter). Allowing the LLM to
@@ -156,6 +161,37 @@ func (k EvidenceKind) IsLLMEmittable() bool {
 		return true
 	}
 	return false
+}
+
+const EvidenceProducerDataflowLowererPrefix = "dataflow.lowerer."
+
+const (
+	ControlFlowPredicateConsequence = "controls_consequence"
+	ControlFlowPredicateAlternative = "controls_alternative"
+	ControlFlowPredicateCase        = "controls_case"
+	ControlFlowPredicateDefault     = "controls_default"
+)
+
+// IsDeterministicControlFlowEvidence is the sole authority predicate for a
+// branch-effect claim. Every input is a typed/system-authored field; request,
+// reasoning, answer prose, Mermaid labels, and source keyword scans do not
+// participate.
+func IsDeterministicControlFlowEvidence(item EvidenceItem) bool {
+	producer := strings.TrimSpace(item.Producer)
+	if item.Kind != EvidenceControlFlow || !strings.HasPrefix(producer, EvidenceProducerDataflowLowererPrefix) ||
+		strings.TrimSpace(strings.TrimPrefix(producer, EvidenceProducerDataflowLowererPrefix)) == "" ||
+		strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" ||
+		strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 || item.LineEnd < item.LineStart ||
+		!item.Scope.IsLineShaped() {
+		return false
+	}
+	switch strings.TrimSpace(item.Predicate) {
+	case ControlFlowPredicateConsequence, ControlFlowPredicateAlternative,
+		ControlFlowPredicateCase, ControlFlowPredicateDefault:
+		return true
+	default:
+		return false
+	}
 }
 
 // LLMEmittableEvidenceKinds returns the subset of AllEvidenceKinds

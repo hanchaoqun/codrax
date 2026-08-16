@@ -1885,6 +1885,40 @@ func TestMechanismRelationAuthorityPublishesSchemaNativeTypedRecipesAA3(t *testi
 	}
 }
 
+func TestMechanismRelationAuthorityPublishesParserOwnedBranchEffectAA3(t *testing.T) {
+	branch := types.EvidenceItem{
+		ID: "branch-effect", Kind: types.EvidenceControlFlow,
+		Source: "src/pipeline.go", LineStart: 10, LineEnd: 12,
+		Scope: types.ScopeLineRange, AnchorKind: types.AnchorCall,
+		Subject: "if ready", Predicate: types.ControlFlowPredicateConsequence,
+		Object: "dispatch(job)", AnchorSymbol: "dispatch", OwnerSymbol: "Pipeline.run",
+		Producer:        types.EvidenceProducerDataflowLowererPrefix + "go",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow},
+		}},
+		EvidenceItems: []types.EvidenceItem{branch},
+	}
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"explicit_typed_directed_relations=1",
+		"node_alias[n1]=`if ready`",
+		"node_alias[n2]=`dispatch(job)`",
+		"relation_kind=`control_flow`",
+		`"from_identity":"if ready","to_identity":"dispatch(job)","relation_kind":"control_flow"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("branch-effect authoring capsule missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "relation_kind=`guard`") {
+		t.Fatalf("binary branch effect was downgraded to unary guard authority:\n%s", got)
+	}
+}
+
 func TestTypedMechanismAuthoritySuppressesFalseClosureRoleSynthesisAA3(t *testing.T) {
 	const falseRole = "MarkerPID 为 B/E span 配对标识键"
 	item := types.EvidenceItem{

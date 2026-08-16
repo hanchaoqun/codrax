@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	basetypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestNewLowererRegistry_CoversAllSupportedReadLanguages(t *testing.T) {
@@ -12,6 +14,97 @@ func TestNewLowererRegistry_CoversAllSupportedReadLanguages(t *testing.T) {
 		if _, ok := registry[lang]; !ok {
 			t.Fatalf("language %q missing from lowerer registry", lang)
 		}
+	}
+}
+
+func TestGenericLowerer_ControlFlowBranchEffect_AllExecutableLanguages(t *testing.T) {
+	languages := []string{
+		repomap.LangGo, repomap.LangPython, repomap.LangJavaScript,
+		repomap.LangTypeScript, repomap.LangArkTS, repomap.LangCangjie,
+		repomap.LangKotlin, repomap.LangRuby, repomap.LangSwift,
+		repomap.LangLua, repomap.LangJava, repomap.LangRust,
+		repomap.LangC, repomap.LangCpp,
+	}
+	for _, lang := range languages {
+		t.Run(lang, func(t *testing.T) {
+			file := &repomap.FileInfo{
+				RelPath:  "src/sample." + lang,
+				Language: lang,
+				Hash:     "fixture",
+				Symbols: []repomap.Symbol{{
+					Name: "run", Kind: "function", File: "src/sample." + lang,
+					Line: 1, EndLine: 5,
+				}},
+				ControlFlowBranches: []rmtypes.ControlFlowBranch{{
+					Condition: "ready", GuardLine: 2,
+					Arm:           rmtypes.ControlFlowArmConsequence,
+					BodyLineStart: 2, BodyLineEnd: 4,
+					Provenance: repomap.ProvenanceTreeSitter,
+					ResolvedBy: "fixture_parser",
+					Effects: []rmtypes.ControlFlowEffect{{
+						Kind: rmtypes.ControlFlowEffectCall, Expression: "dispatch(job)",
+						LineStart: 3, LineEnd: 3,
+					}},
+				}},
+			}
+			if lang == repomap.LangCangjie {
+				file.ControlFlowBranches[0].Provenance = repomap.ProvenanceCangjieParser
+			}
+			lowered := (genericLowerer{lang: lang}).LowerFile("", file,
+				[]string{"fn run() {", "if ready {", "dispatch(job)", "}", "}"},
+				Options{MaxNodesPerFunc: 100})
+
+			var got *basetypes.EvidenceItem
+			for i := range lowered.Evidence {
+				if lowered.Evidence[i].Kind == basetypes.EvidenceControlFlow {
+					got = &lowered.Evidence[i]
+					break
+				}
+			}
+			if got == nil {
+				t.Fatalf("language %s: no deterministic control-flow evidence: %+v", lang, lowered.Evidence)
+			}
+			if !basetypes.IsDeterministicControlFlowEvidence(*got) {
+				t.Fatalf("language %s: invalid deterministic carrier: %+v", lang, *got)
+			}
+			if form := basetypes.ClaimFormOf(*got); form != basetypes.ClaimBranchEffect {
+				t.Fatalf("language %s: claim form=%q, want %q", lang, form, basetypes.ClaimBranchEffect)
+			}
+			if got.Subject != "if ready" || got.Object != "dispatch(job)" ||
+				got.Predicate != basetypes.ControlFlowPredicateConsequence || got.LineStart != 2 || got.LineEnd != 3 {
+				t.Fatalf("language %s: wrong exact endpoints/range: %+v", lang, *got)
+			}
+		})
+	}
+}
+
+func TestControlFlowEvidenceItem_SameLineUsesValidLineScope(t *testing.T) {
+	branch := rmtypes.ControlFlowBranch{
+		Condition: "ready", GuardLine: 4, Arm: rmtypes.ControlFlowArmConsequence,
+		Provenance: rmtypes.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch",
+	}
+	effect := rmtypes.ControlFlowEffect{Kind: rmtypes.ControlFlowEffectReturn, Expression: "return cached", LineStart: 4, LineEnd: 4}
+	item, ok := controlFlowEvidenceItem(
+		&repomap.FileInfo{RelPath: "src/compact.go", Language: repomap.LangGo},
+		"compact",
+		branch,
+		effect,
+	)
+	if !ok {
+		t.Fatal("same-line parser branch effect was dropped")
+	}
+	if item.Scope != basetypes.ScopeLine || item.LineStart != 4 || item.LineEnd != 4 {
+		t.Fatalf("same-line effect must use line scope: %+v", item)
+	}
+	if err := item.ValidateScope(); err != nil {
+		t.Fatalf("same-line deterministic evidence must satisfy shared scope contract: %v", err)
+	}
+	branch.Provenance = rmtypes.ProvenanceRegexFallback
+	if _, ok := controlFlowEvidenceItem(
+		&repomap.FileInfo{RelPath: "src/compact.go", Language: repomap.LangGo},
+		"compact", branch, effect,
+	); ok {
+		t.Fatal("regex/proximity branch carrier must not mint branch-effect authority")
 	}
 }
 

@@ -422,6 +422,7 @@ When a non-decision block's ` + "`surface_role=principal`" + ` AND the user-sect
 - ` + "`call_edge`" + ` — the cited line is a function call site (caller→callee edge)
 - ` + "`callback_handoff`" + ` — the cited line passes a callable value to a receiving API; this proves handoff, not later execution
 - ` + "`guard_condition`" + ` — the cited line is the condition / branch that gates the answer
+- ` + "`branch_effect`" + ` — deterministic parser evidence proves one exact branch arm controls one exact call/return/assignment/exit effect; do not derive it from source words or adjacency
 - ` + "`assignment_fact`" + ` — the cited line is a config / variable / field assignment that establishes a value
 - ` + "`return_fact`" + ` — the cited line is a return statement / function output that yields the answer
 - ` + "`absence_fact`" + ` — the cited evidence carries a Negative scope (a search confirmed the thing is absent)
@@ -434,7 +435,7 @@ When a non-decision block's ` + "`surface_role=principal`" + ` AND the user-sect
 
 ` + "`claim_uses[]`" + ` is a plural array at block level — single-form blocks emit a one-element array like ` + "`claim_uses=[{claim_form=definition_fact}]`" + `; when items inside the block contribute distinct claim forms (e.g. some hops are ` + "`call_edge`" + `, others are ` + "`guard_condition`" + `), list one entry per form.
 
-For ` + "`call_edge`" + `, ` + "`callback_handoff`" + `, ` + "`registration_edge`" + `, and ` + "`import_edge`" + ` items, render the main directed relation with an explicit edge surface such as ` + "`` `caller` -> `callee` ``" + ` or ` + "`` `file` -> `package` ``" + `. Boundary / comparison / exclusion prose that merely names both endpoints should NOT use an arrow; otherwise it is declaring the edge as an answer fact.
+For ` + "`call_edge`" + `, ` + "`callback_handoff`" + `, ` + "`branch_effect`" + `, ` + "`registration_edge`" + `, and ` + "`import_edge`" + ` items, render the main directed relation with an explicit edge surface such as ` + "`` `caller` -> `callee` ``" + ` or ` + "`` `file` -> `package` ``" + `. Boundary / comparison / exclusion prose that merely names both endpoints should NOT use an arrow; otherwise it is declaring the edge as an answer fact.
 
 Each annotation object is ` + "`{claim_form, facet_id?, evidence_id?}`" + ` — it carries neither ` + "`citation_ref`" + ` nor ` + "`citation_refs`" + `, and it does NOT carry plural ` + "`facet_ids`" + ` (plural ` + "`facet_ids`" + ` belongs on the block; claim annotations use singular ` + "`facet_id`" + `). Item citations follow the Workflow's canonical ITEM CITATION CARRIER rule. For scalar / decision blocks where the literal / verdict sits in block ` + "`text`" + `, attach a single-element ` + "`items=[{id:\"x\", citation_ref: N}]`" + ` to anchor one citation. Putting either citation field inside a ` + "`claim_uses`" + ` object is rejected. The validator rejects non-decision principal blocks lacking the required claim annotation, and rejects any emitted ` + "`claim_form`" + ` outside the user-section's allowed list for that block.
 

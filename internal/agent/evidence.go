@@ -821,6 +821,8 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 		kindWeight = 0.75
 	case types.EvidenceDataflowPath:
 		kindWeight = 0.60
+	case types.EvidenceControlFlow:
+		kindWeight = 0.92
 	case types.EvidenceConcrete:
 		kindWeight = 0.50
 	case types.EvidenceUnresolved:

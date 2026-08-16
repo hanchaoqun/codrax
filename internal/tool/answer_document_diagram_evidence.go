@@ -766,6 +766,7 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 func diagramStrictLogicalRelationNeedsEvidence(relation types.DiagramRelationKind) bool {
 	switch relation {
 	case types.DiagramRelGuard,
+		types.DiagramRelControlFlow,
 		types.DiagramRelImport,
 		types.DiagramRelPrecedence,
 		types.DiagramRelContain,

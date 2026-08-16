@@ -35720,10 +35720,28 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 7. Read/Trace 路径零改动：显式时间窗、Trace 因果投影、系统自动补齐、链上-only 根因与实际占用/业务线索 +
    规则计价可消除量双轴保持；邻近/背景不能晋升主因。没有用户输入、模型输出或最终答案关键词硬门，活跃流
    也没有 4ms 固定年龄降级。
+8. 第二施工批完成单源投影。新增 deterministic-only `EvidenceControlFlow`、`ClaimBranchEffect` 与 typed-only
+   `DiagramRelControlFlow`；唯一方向为 exact branch arm→call/return/assignment/exit effect。旧
+   `ClaimGuardCondition/DiagramRelGuard` 明确定义为 unary enclosing callable→condition，不能再借普通 guard
+   行、相邻源码、答案 prose 或 Mermaid label 晋升为分支效果。`control_flow` 不进入 label inference，LLM 也
+   不能通过 `emit_evidence` 自铸该 EvidenceKind。
+9. dataflow lowerer 只接收带 `tree_sitter` 或 `cangjie_parser` provenance 且 `resolved_by` 非空的 carrier，
+   再发布带 concrete lowerer language 后缀的 typed evidence；regex fallback、空 producer 后缀、未知 predicate、
+   反向端点均 fail-closed。单行 `if { effect }` 使用 `scope=line`，跨行载体使用 `scope=line_range`，避免合法
+   单行 AST 事实被通用 scope 合同自拒。lowerer cache generation `v1→v2`，防止旧缓存静默缺失新关系。
+10. Finalizer 的 relation handoff、mechanism relation capsule、copy-ready flow/architecture skeleton 与严格 diagram
+    validator 现在消费同一 EvidenceItem。Sequence 只把 branch-effect 作为 Note 提示，不伪装成消息；call_dag
+    仍仅自动承载 call；flow/architecture 可复制 exact `control_flow` anchor。所有可见业务措辞、是否采用图、
+    关系取舍和最终结论继续由模型决定，系统只提供 typed endpoint/evidence recipe，不修改 AnswerDocument。
+11. 测试覆盖 14 种可执行语言（Go/Python/JavaScript/TypeScript/ArkTS/Cangjie/Kotlin/Ruby/Swift/Lua/Java/
+    Rust/C/C++）的 carrier→evidence→claim 闭包、same-line scope、regex provenance 拒绝、LLM/prefix-only 伪造
+    拒绝、label 不铸权、strict validator 正向/反向/普通 guard 冒充负形，以及 finalizer 原生
+    `edge_anchors_json`。`go test ./internal/types ./internal/analysis/dataflow ./internal/skill ./internal/agent
+    ./internal/tool -count=1` 全绿（tool 165.295s）。
 
 状态：
 
-`B914-GUARDEFFECTRELATIONCARRIER1=batch1-parser-carrier+cache+scope-pins-pass/batch2-evidence-projection-next`；
+`B914-GUARDEFFECTRELATIONCARRIER1=batch2-typed-projection+shared-context-validator-pins-pass/pending-production-eval`；
 `CANGJIE-UNARY-GUARD-FEATURE=implemented`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；

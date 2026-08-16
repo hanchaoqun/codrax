@@ -17,6 +17,10 @@ func prependEvidenceKind(includeKind bool, item EvidenceItem, text string) strin
 }
 
 func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string {
+	if IsDeterministicControlFlowEvidence(item) {
+		return prependEvidenceKind(includeKind, item,
+			fmt.Sprintf("%s controls %s", strings.TrimSpace(item.Subject), strings.TrimSpace(item.Object)))
+	}
 	snippet := strings.TrimSpace(item.Snippet)
 	locationName := strings.TrimSpace(firstNonEmptySurfaceString(item.OwnerSymbol, item.AnchorSymbol, item.Subject))
 	switch item.AnchorKind {

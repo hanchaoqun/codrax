@@ -61,6 +61,7 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 				ClaimDefinitionFact,
 				ClaimCallEdge,
 				ClaimGuardCondition,
+				ClaimBranchEffect,
 				ClaimAbsenceFact,
 			},
 			Rationale: "Set current_status_verdict to still_present when current cited code still exposes the comparable risk, fixed when current cited code blocks it, or not_enough_evidence only when current evidence cannot decide. " +
@@ -195,6 +196,7 @@ func rootCauseTracePrincipalListRequirement(ir *AnalysisIR, plan *AnswerSurfaceP
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
 				ClaimGuardCondition,
+				ClaimBranchEffect,
 				ClaimAssignmentFact,
 				ClaimReturnFact,
 				ClaimAbsenceFact,

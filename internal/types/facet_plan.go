@@ -138,7 +138,8 @@ const (
 
 	// FacetCurrentCodePath: "the current code does X at file:line".
 	// Acceptable forms: ClaimDefinitionFact, ClaimCallEdge,
-	// ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact.
+	// ClaimGuardCondition, ClaimBranchEffect, ClaimAssignmentFact,
+	// ClaimReturnFact.
 	FacetCurrentCodePath AnswerFacetKind = "current_code_path"
 
 	// FacetNearestMechanism: "the closest existing mechanism that
@@ -174,8 +175,9 @@ const (
 	// Acceptable forms: ClaimCallEdge.
 	FacetPrincipalPathEdge AnswerFacetKind = "principal_path_edge"
 
-	// FacetBranchGuard: "X runs only when condition C".
-	// Acceptable forms: ClaimGuardCondition.
+	// FacetBranchGuard: "X runs only when condition C" or one exact parser-
+	// proved branch arm controls effect E. Acceptable forms:
+	// ClaimGuardCondition, ClaimBranchEffect.
 	FacetBranchGuard AnswerFacetKind = "branch_guard"
 
 	// FacetComponentRelation: "X depends on Y" / "X imports Y".
@@ -1092,7 +1094,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		currentCodeRequired := FacetHardRequired
 		nearestRequired := FacetSoftRequired
 		diagramRequired := FacetOptional
-		diagramForms := []ClaimForm{ClaimCallEdge, ClaimGuardCondition}
+		diagramForms := []ClaimForm{ClaimCallEdge, ClaimGuardCondition, ClaimBranchEffect}
 		if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 			// Runtime artifacts are answer-grade for observed frames /
 			// events when current source is not required. Keep
@@ -1107,7 +1109,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			artifactFacet,
 			{Kind: FacetCurrentCodePath, Required: currentCodeRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
+					ClaimGuardCondition, ClaimBranchEffect, ClaimAssignmentFact, ClaimReturnFact}},
 			{Kind: FacetNearestMechanism, Required: nearestRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			uncertaintyBoundaryFacet(FacetSoftRequired),
@@ -1146,12 +1148,12 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetPrincipalPathEdge, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			{Kind: FacetBranchGuard, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimGuardCondition}},
+				AcceptableForms: []ClaimForm{ClaimGuardCondition, ClaimBranchEffect}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimArgumentFlow, ClaimRegistrationEdge}},
 		}
 		facets = append(facets, diagramFacetRequirements(rm,
-			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimRegistrationEdge)...)
+			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimBranchEffect, ClaimRegistrationEdge)...)
 		return append(facets, common...)
 	case QFEnumeration:
 		forms := []ClaimForm{
@@ -1165,6 +1167,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 			forms = append(forms,
 				ClaimGuardCondition,
+				ClaimBranchEffect,
 				ClaimCallEdge,
 			)
 			if rm.ChangeImpactProfile.AllowsTextReferencePrincipal() {
@@ -1181,11 +1184,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetComponentRelation, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
+				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimRegistrationEdge, ClaimGuardCondition, ClaimBranchEffect, ClaimPrecedenceRole}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}
 		facets = append(facets, diagramFacetRequirements(rm,
-			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole)...)
+			ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimBranchEffect, ClaimPrecedenceRole)...)
 		return append(facets, common...)
 	case QFComparison:
 		// R4.4 (post_shape_residual_audit.md, 2026-05-04): the
@@ -1210,11 +1213,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
+					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimBranchEffect, ClaimAssignmentFact, ClaimReturnFact,
 					ClaimImportEdge, ClaimRegistrationEdge}},
 			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
-					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
+					ClaimCallbackHandoff, ClaimArgumentFlow, ClaimGuardCondition, ClaimBranchEffect, ClaimAssignmentFact, ClaimReturnFact}},
 			{Kind: FacetPrincipalPathEdge, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimCallbackHandoff}},
 			uncertaintyBoundaryFacet(FacetOptional),

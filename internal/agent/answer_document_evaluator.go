@@ -1716,6 +1716,7 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 	types.ClaimRegistrationEdge:    "registration / binding-edge citation",
 	types.ClaimLiteralValueFact:    "source literal-value citation",
 	types.ClaimGuardCondition:      "guard / branch-condition citation",
+	types.ClaimBranchEffect:        "parser-proved branch-to-effect citation",
 	types.ClaimPrecedenceRole:      "precedence-role citation",
 	types.ClaimExternalObservation: "log / perf observation",
 	types.ClaimAbsenceFact:         "grounded absence (negative scope)",
@@ -2985,7 +2986,7 @@ func renderAnswerDocLocalFactOrderCapsuleWithScope(ctx *types.AgentContext, supp
 	for _, item := range pool {
 		claim := types.ClaimFormOf(item)
 		switch claim {
-		case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimArgumentFlow, types.ClaimGuardCondition,
+		case types.ClaimCallEdge, types.ClaimCallbackHandoff, types.ClaimArgumentFlow, types.ClaimGuardCondition, types.ClaimBranchEffect,
 			types.ClaimAssignmentFact, types.ClaimReturnFact:
 		default:
 			continue
@@ -3133,6 +3134,8 @@ func answerDocLocalFactOrderDescription(item types.EvidenceItem) string {
 		return firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject) + " -> " + strings.TrimSpace(item.Object)
 	case types.ClaimGuardCondition:
 		return firstNonEmptyAnswerDocString(item.Condition, item.Object, item.AnchorSymbol, item.Subject)
+	case types.ClaimBranchEffect:
+		return strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(item.Object)
 	case types.ClaimAssignmentFact, types.ClaimReturnFact:
 		return strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(item.Object)
 	default:
@@ -4178,7 +4181,7 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
 		fmt.Fprintf(&b, "- The required kind is authoritative: set `diagram.kind=%s` and use the matching Mermaid body syntax for that semantic family.\n", requiredKind)
 	}
-	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition`; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `callback/callback_handoff`, `argument_flow/argument_flow`, `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, `data_flow/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. argument_flow is an exact complete non-callable argument -> receiving API and proves no callee-side use. Assignment is LHS -> RHS binding view, while data_flow is the same exact tuple in RHS -> LHS execution direction. These value/factory relations are not calls, and a flowchart arrow is not automatically a call.\n")
+	b.WriteString("- EDGE DECISION FIRST: choose the semantic relation before drawing the arrow. A stage/process/workflow order is `precedence/precedence_role`; a conditional trigger is `guard/guard_condition` (only enclosing callable -> condition); `control_flow/branch_effect` is exact parser-proved branch arm -> effect; `call/call_edge` is only a direct invocation backed by a same-direction typed call-site. Other exact pairs are `callback/callback_handoff`, `argument_flow/argument_flow`, `import/import_edge`, `observe/external_observation`, `register/registration_edge`, `assignment/assignment_fact`, `data_flow/assignment_fact`, and `return/return_fact`; `contain` has no edge-level claim_form. argument_flow is an exact complete non-callable argument -> receiving API and proves no callee-side use. control_flow is typed-only and cannot be inferred from source words, adjacency, prose, or labels. Assignment is LHS -> RHS binding view, while data_flow is the same exact tuple in RHS -> LHS execution direction. These relations are not calls, and a flowchart arrow is not automatically a call.\n")
 	b.WriteString("- USER-FACING DISPLAY LAYER: `relation_kind`, `claim_form`, recipe indexes, validator names, and words such as `precedence_role` are structured evidence metadata, not visible diagram copy. Keep Mermaid node IDs stable and preserve producer-supplied exact source/stage endpoint selectors in `edge_anchors`; use concise domain/business actions for visible node labels and edge messages, with the exact technical identity as a secondary label only when useful. In surrounding reader-facing prose, explain the semantic relationship in domain terms such as implements, calls, hands off, or precedes; do not explain literal Mermaid operator tokens or arrow glyphs, because the compatibility renderer may normalize an equivalent syntax family before display. A display alias never proves an endpoint or relation, and changing display wording must not change edge direction or typed authority. This guidance supplies no labels, nodes, or edges; you remain their author.\n")
 	b.WriteString("- " + types.GroundedSourceDiagramRelationEvidenceContract + "\n")
 	b.WriteString("- For architecture component nodes, use the canonical identity grounded by topology/stage binding, constructor/registration, interface implementation, or execution dispatch. A repair/validation/helper function that only contains the stage name is not itself the component boundary.\n")
@@ -8422,7 +8425,7 @@ func answerDocMechanismComponentRelationClass(
 			class = "binding"
 		case types.DiagramRelAssignment, types.DiagramRelDataFlow, types.DiagramRelReturn:
 			class = "value_flow"
-		case types.DiagramRelGuard, types.DiagramRelPrecedence:
+		case types.DiagramRelGuard, types.DiagramRelControlFlow, types.DiagramRelPrecedence:
 			class = "control_or_order"
 		case types.DiagramRelImport, types.DiagramRelContain, types.DiagramRelTypeRelation:
 			class = "structural"
@@ -8745,6 +8748,8 @@ func answerDocMechanismSequenceNotePlaceholder(relation types.DiagramRelationKin
 		return "Argument handoff is verified; describe the business value handoff"
 	case types.DiagramRelGuard:
 		return "Selection condition is verified; describe the business condition"
+	case types.DiagramRelControlFlow:
+		return "Branch effect is verified; describe the business decision and resulting action"
 	case types.DiagramRelRegister:
 		return "Runtime binding is verified; describe the selected implementation"
 	case types.DiagramRelAssignment, types.DiagramRelDataFlow:
@@ -8799,6 +8804,7 @@ func answerDocMechanismRelationSafeForCopyReadyDiagram(kind types.DiagramKind, r
 			types.DiagramRelCallback,
 			types.DiagramRelArgumentFlow,
 			types.DiagramRelGuard,
+			types.DiagramRelControlFlow,
 			types.DiagramRelImport,
 			types.DiagramRelPrecedence,
 			types.DiagramRelTypeRelation,
@@ -9287,7 +9293,7 @@ func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem, incl
 	hasEndpoint := strings.TrimSpace(item.Subject) != "" &&
 		(strings.TrimSpace(item.Object) != "" || strings.TrimSpace(item.AnchorSymbol) != "")
 	switch item.Kind {
-	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceDataflowPath:
+	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceDataflowPath, types.EvidenceControlFlow:
 		if item.Kind == types.EvidenceDataflowPath &&
 			answerDocStructuredRelationChainProducer(item.Producer) &&
 			(strings.TrimSpace(item.Subject) != "" || strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false)) != "") {
@@ -9353,6 +9359,8 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 		return "registration_or_binding"
 	case types.EvidenceDataflowPath:
 		return "flow_or_handoff"
+	case types.EvidenceControlFlow:
+		return "branch_to_effect"
 	case types.EvidenceDirect, types.EvidenceMechanism:
 		if item.AnchorKind == types.AnchorDefinition {
 			return "definition_or_boundary"
@@ -9399,6 +9407,8 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 		score += 20
 	case types.EvidenceDataflowPath:
 		score += 18
+	case types.EvidenceControlFlow:
+		score += 22
 	case types.EvidenceDirect, types.EvidenceMechanism:
 		score += 12
 	default:
@@ -10081,6 +10091,8 @@ func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
 	case types.EvidenceConcrete:
 		return "value_fact"
 	case types.EvidenceDataflowPath:
+		return "flow_fact"
+	case types.EvidenceControlFlow:
 		return "flow_fact"
 	case types.EvidenceAbsent, types.EvidenceConflict, types.EvidenceUnresolved, types.EvidenceTruncated:
 		return "boundary_or_exclusion_fact"
@@ -11107,6 +11119,8 @@ func answerDocCallChainSupportEntryRole(entry types.AnswerSupportEntry) string {
 		return "callback_handoff"
 	case types.ClaimGuardCondition:
 		return "guard_condition_fact"
+	case types.ClaimBranchEffect:
+		return "branch_effect_fact"
 	case types.ClaimRegistrationEdge:
 		return "registration_binding_fact"
 	case types.ClaimAssignmentFact:

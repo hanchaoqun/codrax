@@ -25,6 +25,7 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		{DiagramRelCallback, ClaimCallbackHandoff},
 		{DiagramRelArgumentFlow, ClaimArgumentFlow},
 		{DiagramRelGuard, ClaimGuardCondition},
+		{DiagramRelControlFlow, ClaimBranchEffect},
 		{DiagramRelImport, ClaimImportEdge},
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
 		{DiagramRelObserve, ClaimExternalObservation},
@@ -53,6 +54,7 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 		{ClaimCallbackHandoff, DiagramRelCallback},
 		{ClaimArgumentFlow, DiagramRelArgumentFlow},
 		{ClaimGuardCondition, DiagramRelGuard},
+		{ClaimBranchEffect, DiagramRelControlFlow},
 		{ClaimImportEdge, DiagramRelImport},
 		{ClaimPrecedenceRole, DiagramRelPrecedence},
 		{ClaimExternalObservation, DiagramRelObserve},
@@ -66,6 +68,14 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 	for _, c := range cases {
 		if got := RelationForClaimForm(c.cf); got != c.want {
 			t.Errorf("RelationForClaimForm(%q) = %q, want %q", c.cf, got, c.want)
+		}
+	}
+}
+
+func TestInferRelationFromLabel_ControlFlowIsTypedOnly(t *testing.T) {
+	for _, label := range []string{"control_flow", "branch effect", "if ready controls dispatch"} {
+		if got := InferRelationFromLabel(label); got == DiagramRelControlFlow {
+			t.Fatalf("label %q minted typed-only control-flow authority", label)
 		}
 	}
 }
