@@ -255,6 +255,29 @@ func (p *RequestedAnswerDimensionProfile) Active() bool {
 	return p != nil && p.IsDimensionedAnswer && len(p.Dimensions) > 0
 }
 
+// RequiresRuntimeCausalDiagnosis reports whether the model explicitly chose a
+// user-visible full causal answer surface. This is a typed schema decision:
+// labels, source quotes, request prose, and answer prose are deliberately not
+// inspected. Paired with RuntimeQuestionScopeCausalDiagnosis, it is sufficient
+// breadth authority without duplicating the same decision across legacy
+// intent/scenario/diagnostic flags.
+func (p *RequestedAnswerDimensionProfile) RequiresRuntimeCausalDiagnosis() bool {
+	if p == nil || !p.Active() {
+		return false
+	}
+	for _, dimension := range p.Dimensions {
+		if !dimension.Required {
+			continue
+		}
+		switch dimension.Role {
+		case RequestedAnswerDimensionCausalAttribution,
+			RequestedAnswerDimensionCausalContributorSet:
+			return true
+		}
+	}
+	return false
+}
+
 // NormalizeRequestedAnswerDimensionProfile validates user provenance and
 // dedupes dimensions. A dimension survives when either source_quote or label is
 // anchored in the current request; this keeps the profile useful when the label

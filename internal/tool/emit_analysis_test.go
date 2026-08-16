@@ -513,7 +513,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	}
 }
 
-func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.T) {
+func TestRuntimeQuestionCausalDiagnosisUsesScopeAndRequiredCausalDimensionAsBreadthAuthority(t *testing.T) {
 	profile := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
 	causalDimension := &types.RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
@@ -548,8 +548,8 @@ func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.
 		types.ScenarioPerformanceBottleneck,
 		types.SemanticPredicates{},
 		types.DiagnosticIntentProfile{},
-	); !strings.Contains(issue, "scenario=performance_bottleneck alone") {
-		t.Fatalf("a performance scenario label alone must not widen one causal dimension into a full report: %q", issue)
+	); issue != "" {
+		t.Fatalf("causal scope plus required causal dimension must be sufficient without duplicate legacy flags: %q", issue)
 	}
 	if issue := validateRuntimeQuestionProfileConsistency(
 		profile,
@@ -818,8 +818,7 @@ func TestRuntimeQuestionCausalContributorSetCannotEnterFiniteScope(t *testing.T)
 		for _, want := range []string{
 			"causal_contributor_set",
 			"causal_diagnosis",
-			"full_diagnosis_canonical_field_target=",
-			`"intent":"root_cause"`,
+			"causal_diagnosis_canonical_field_target=",
 			`"scope":"causal_diagnosis"`,
 		} {
 			if !strings.Contains(issue, want) {
@@ -1004,7 +1003,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	}
 	if res.Success || !strings.Contains(res.Summary, "bounded_fact_set conflicts") ||
 		!strings.Contains(res.Summary, "causal_contributor_set") ||
-		!strings.Contains(res.Summary, "full_diagnosis_canonical_field_target=") {
+		!strings.Contains(res.Summary, "causal_diagnosis_canonical_field_target=") {
 		t.Fatalf("production entry must reject a bounded scope that cannot satisfy a required causal roster: success=%t summary=%q", res.Success, res.Summary)
 	}
 
@@ -1014,10 +1013,6 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		`"scope":"causal_diagnosis"`,
 		1,
 	)
-	causalRoster = strings.Replace(causalRoster, `"intent":"trace"`, `"intent":"root_cause"`, 1)
-	causalRoster = strings.Replace(causalRoster, `"scenario":"generic"`, `"scenario":"root_cause"`, 1)
-	causalRoster = strings.Replace(causalRoster, `"is_diagnostic_question":false`, `"is_diagnostic_question":true`, 1)
-	causalRoster = strings.Replace(causalRoster, `"is_diagnostic":false`, `"is_diagnostic":true`, 1)
 	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
 	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
 	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalRoster))
@@ -1025,7 +1020,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		t.Fatalf("causal roster Execute: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("coherent causal roster tuple must be accepted: %q", res.Summary)
+		t.Fatalf("typed causal scope/roster must be accepted without redundant legacy mirrors: %q", res.Summary)
 	}
 	gotRM := ctx.Mutable.RequestModel()
 	if gotRM == nil || gotRM.RuntimeQuestionProfile == nil ||

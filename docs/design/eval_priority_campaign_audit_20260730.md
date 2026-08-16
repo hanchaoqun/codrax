@@ -35649,6 +35649,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.955 r583：Trace 因果广度重试漂移；结构化关系零锚绕过（2026-08-16）
+
+1. 在 `main@1c01de410` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`；人工判定
+   Poly=partial、Trace=fail，逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_trace_relation_r583_20260816_manual_audit.md`。
+2. Trace FAIL 不是数据缺失。七次 `trace_query` 已取得 target timeline、11 段 D-state/36.757ms、wakeup
+   chain 等精确事实。Analyzer 第一次已经提交 required `causal_contributor_set` + `causal_diagnosis`，仅因
+   non-bounded scope 夹带 `fact_families` 被拒；第二次保留因果形但没有补齐 legacy root-cause companion
+   flags；第三次把“根因排序”改成 `stage_or_workflow` 并降为 `bounded_fact_set`。成功后的 typed prompt
+   随即明确禁止 root-cause roster，最终丢失 65.912ms 供给折算、49.623/0.033ms 同源二分、
+   `enumeration_status=incomplete` 和整个 Trace 因果投影。
+3. 新确认 B931（P0）：同一 runtime 因果广度重复要求 scope、dimension、intent、scenario、predicate、
+   diagnostic 多面一致，局部结构修复会诱发模型把已经声明的因果维度整体降级。这不是模型结论波动，
+   而是系统 JSON 合同给同一决定设置多份权威。最优方案不得扫描“根因”等问句词，也不得由系统改答案；
+   应以 `causal_diagnosis + required causal_attribution|causal_contributor_set` 为 typed 单一广度权威。
+4. B931 已施工：validation 仍拒绝 causal scope 夹带 `fact_families`、仍拒绝缺少 required causal
+   dimension、仍保持 bounded fact/effect 的严格边界；但不再要求 legacy intent/scenario/diagnostic 重复
+   同一广度决定。`ResolveQuestionFamily` 同样消费该 typed conjunction，稳定进入 QFRootCauseTrace。
+   JSON 教学改为“修冲突字段、保留 causal scope/role”，不再教模型为兼容 legacy label 摘掉因果维度。
+5. B931 回归包含 r583 精确形：`intent=trace + scenario=generic + diagnostics=false` 在 causal scope +
+   required causal roster 下可达；optional causal 元数据不授权；无 causal dimension fail-loud；bounded
+   effect 未知条件、`target_effect_verdict` 隔离和 finite fact 不扩域均保持。完整
+   `go test ./internal/tool`（165.714s）、`./internal/types` 全绿，修正教学后 `./internal/skill` 全绿。
+6. Poly runner PASS 但人工 partial。B930 首次取得生产上下文正证：typed authoring capsule 明确出现
+   `inter_component_bridge_status=registered_export_binding_between_components`、
+   `_fastlex.tokenize_bytes ↔ py.tokenize_bytes` 精确 handoff，以及 wrapper→core、core→best_merge 调用。
+   说明 parser-owned selected-body join 与 compact priority 生效；但最终模型未结构化消费该 bridge。
+7. 新确认 B932（P1）：最终 principal ordered-list 的 `claim_uses` 显式声明 call/registration relation，
+   却提交零 `edge_anchors`。B929 只能验证“已提交的 typed relation”，零 anchor 使列表再次绕开 endpoint
+   authority。根修应只读 `QFCallChain + surface_role=principal + structured kind + relation claim_uses`，要求
+   至少一条完整 typed endpoint pair 后复用 B929 核；禁止扫描列表文字、用户原文、模型 prose 或终稿，
+   不强制 Mermaid，也不允许系统补边。
+8. Trace 最终答案另有两个级联症状：把 raw S/Running 状态按数值自行排成“根因”，且将
+   `dma_fence_default_w` blocked-reason callsite 扩写为 GPU/显示硬件等待机理。现有 typed prompt 已明确
+   禁止这两种越权；它们发生在错误 bounded scope 挡掉真正因果板之后，先以 B931 复放判断是否自然消失，
+   未经异构复现不另做词面硬门。
+9. 本批没有改变 Trace 查询、根因算法、窗内可消除量、因果投影构造或系统补齐，也没有系统代写答案。
+   活跃流全程正常，不存在 4ms/fixed-age 降级。
+
+状态：
+
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=implemented/pinned/production-not-triggered-r583/pending-replay`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=implemented/production-context-positive-r583/pending-structured-consumption`；
+`B931-RUNTIMECAUSALBREADTHSSOT1=implemented/scope+required-causal-dimension/pinned/pending-production-replay`；
+`B932-STRUCTUREDRELATIONZEROANCHOR1=confirmed/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=implementation-unchanged/replay-required-after-B931`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.954 r582：稳定不可用生产闭环；列表关系绕过统一图边权威（2026-08-16）
 
 1. 在 `main@eea4c7665` 重建后严格并发恰好两个案例：

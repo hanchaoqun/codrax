@@ -4742,7 +4742,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			}
 		}
 	} else if len(p.FactFamilies) > 0 {
-		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension plus a typed full-diagnosis carrier. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
+		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil
@@ -4782,16 +4782,16 @@ func validateRuntimeQuestionProfileConsistency(
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		(intent == types.IntentRootCause || scenario == types.ScenarioRootCause) {
-		return "runtime_question_profile.scope=bounded_fact_set conflicts with intent=root_cause or scenario=root_cause. A finite observed-fact lookup may remain inside a diagnostic context, but an explicit root-cause classifier requests causal breadth and must not suppress the chain/ranking evidence needed to answer it. Re-emit one coherent tuple: use causal_diagnosis, omit fact_families, retain intent=root_cause plus the typed diagnostic carrier, and emit at least one required requested_answer_dimensions causal role (causal_attribution for one conclusion or causal_contributor_set for a roster/ranking); if the current request truly asks only for finite observations, keep bounded_fact_set and choose a non-root-cause intent/scenario. The system will not widen or rewrite the model-owned classification"
+		return "runtime_question_profile.scope=bounded_fact_set conflicts with intent=root_cause or scenario=root_cause. A finite observed-fact lookup may remain inside a diagnostic context, but an explicit root-cause classifier requests causal breadth and must not suppress the chain/ranking evidence needed to answer it. Re-emit one coherent tuple: use causal_diagnosis, omit fact_families, and emit at least one required requested_answer_dimensions causal role (causal_attribution for one conclusion or causal_contributor_set for a roster/ranking); if the current request truly asks only for finite observations, keep bounded_fact_set and choose a non-root-cause intent/scenario. The system will not widen or rewrite the model-owned classification"
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		requestedAnswerDimensionsRequireCausalContributorSet(dimensions) {
-		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_contributor_set. That exact role requests a visible multi-contributor causal roster/ranking, which a finite fact scope would suppress. Preserve the role and re-emit the full causal tuple: use causal_diagnosis, omit fact_families, set intent=root_cause plus a coherent typed diagnostic carrier, and keep the model-owned finding open until evidence proves it"
+		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_contributor_set. That exact role requests a visible multi-contributor causal roster/ranking, which a finite fact scope would suppress. Preserve the role and re-emit the full causal tuple: use causal_diagnosis, omit fact_families, and keep the model-owned finding open until evidence proves it"
 		return issue + ". " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
 		requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
-		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. That role requests one discovered root-cause/mechanism conclusion, not a finite condition-to-target verdict. Preserve the role and use causal_diagnosis with fact_families omitted plus a coherent typed root-cause carrier; if the request is actually finite, the model must instead choose target_effect_verdict and bounded_effect_verdict together"
+		issue := "runtime_question_profile.scope=bounded_fact_set conflicts with required requested_answer_dimensions role=causal_attribution. That role requests one discovered root-cause/mechanism conclusion, not a finite condition-to-target verdict. Preserve the role and use causal_diagnosis with fact_families omitted; if the request is actually finite, the model must instead choose target_effect_verdict and bounded_effect_verdict together"
 		return issue + ". " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedFactSet &&
@@ -4804,7 +4804,7 @@ func validateRuntimeQuestionProfileConsistency(
 	}
 	if profile.Scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
 		if requestedAnswerDimensionsRequireCausalContributorSet(dimensions) {
-			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_contributor_set. A bounded effect is one finite target-effect verdict and must not suppress a requested ranked/competing contributor roster. Preserve the causal contributor role and use causal_diagnosis with fact_families omitted plus a coherent typed root-cause carrier. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
+			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_contributor_set. A bounded effect is one finite target-effect verdict and must not suppress a requested ranked/competing contributor roster. Preserve the causal contributor role and use causal_diagnosis with fact_families omitted. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 		}
 		if requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
 			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_attribution. causal_attribution owns a full discovered root-cause/mechanism conclusion; for this finite scope change that model-owned dimension role to target_effect_verdict, or deliberately choose the full causal_diagnosis tuple. The system will not reinterpret one role as the other"
@@ -4834,13 +4834,12 @@ func validateRuntimeQuestionProfileConsistency(
 	if !requestedAnswerDimensionsRequireCausalDimension(dimensions) {
 		return "runtime_question_profile.scope=causal_diagnosis requires a required requested_answer_dimensions causal role: causal_attribution for one discovered root-cause/mechanism conclusion or causal_contributor_set for a roster/ranking. Do not label a target-effect verdict as observed_value, and do not rely on intent/scenario labels to substitute for the user-visible causal dimension. Keep causal_diagnosis only for root-cause/ranking, competing contributors, or a broad mechanism diagnosis; otherwise use target_effect_verdict with bounded_effect_verdict and fact_families for one finite target-effect verdict, or bounded_fact_set for observations without a verdict"
 	}
-	if intent == types.IntentRootCause ||
-		predicates.IsDiagnosticQuestion ||
-		diagnostic.RequiresDiagnosticRootCause() ||
-		scenario == types.ScenarioRootCause {
-		return ""
-	}
-	return "runtime_question_profile.scope=causal_diagnosis requires a typed full-diagnosis carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause) in addition to a required causal_attribution or causal_contributor_set dimension. scenario=performance_bottleneck alone does not prove full answer breadth. If full diagnosis is intended, align the whole companion tuple at once; otherwise use bounded_effect_verdict with non-empty fact_families and clear every full-diagnosis flag. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
+	// The scope and required user-visible causal dimension are the canonical
+	// runtime breadth authority. Intent/scenario/diagnostic fields remain useful
+	// classifiers, but requiring the model to repeat the same choice in four
+	// places created contradictory retry contracts and let a local repair erase
+	// Trace causal projection. This branch consumes only validated typed fields.
+	return ""
 }
 
 // runtimeQuestionFiniteVerdictRepairTarget renders a deterministic PARTIAL
@@ -4881,15 +4880,8 @@ func runtimeQuestionFiniteVerdictRepairTarget(
 	return "canonical_field_target=" + string(payload) + "; apply these fields to the next COMPLETE object, preserve the required target_effect_verdict dimension and all unrelated required fields"
 }
 
-func runtimeQuestionFullDiagnosisRepairTarget(scenario types.Scenario) string {
-	if scenario != types.ScenarioRootCause && scenario != types.ScenarioPerformanceBottleneck {
-		scenario = types.ScenarioRootCause
-	}
+func runtimeQuestionFullDiagnosisRepairTarget(_ types.Scenario) string {
 	target := map[string]any{
-		"diagnostic_profile": map[string]bool{"is_diagnostic": true},
-		"intent":             types.IntentRootCause,
-		"scenario":           scenario,
-		"predicates":         map[string]bool{"is_diagnostic_question": true},
 		"runtime_question_profile": map[string]any{
 			"scope": types.RuntimeQuestionScopeCausalDiagnosis,
 		},
@@ -4898,7 +4890,7 @@ func runtimeQuestionFullDiagnosisRepairTarget(scenario types.Scenario) string {
 	if err != nil {
 		return ""
 	}
-	return "full_diagnosis_canonical_field_target=" + string(payload) + "; fact_families must be omitted and every required causal_attribution/causal_contributor_set dimension preserved; apply only if the current request truly asks for full diagnosis"
+	return "causal_diagnosis_canonical_field_target=" + string(payload) + "; fact_families must be omitted and every required causal_attribution/causal_contributor_set dimension preserved. Intent/scenario/diagnostic fields do not need to duplicate this breadth choice; do not demote the causal role merely to satisfy legacy labels"
 }
 
 func requestedAnswerDimensionsRequireCausalDimension(profile *types.RequestedAnswerDimensionProfile) bool {

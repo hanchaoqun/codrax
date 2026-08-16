@@ -190,6 +190,23 @@ func TestCompileRootCauseTrace_RuntimeOnlyCausalDiagnosisAcceptsLayeredCarriers(
 	}
 }
 
+func TestResolveQuestionFamily_RuntimeCausalScopeAndRequiredDimensionDoNotNeedLegacyIntentMirrors(t *testing.T) {
+	rm := RequestModel{
+		Intent:                 IntentExplain,
+		Scenario:               ScenarioGeneric,
+		RuntimeQuestionProfile: &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeCausalDiagnosis},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Role: RequestedAnswerDimensionCausalContributorSet, Required: true,
+			}},
+		},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
+		t.Fatalf("typed runtime causal breadth resolved to %s, want %s", got, QFRootCauseTrace)
+	}
+}
+
 func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *testing.T) {
 	ir := irForRootCauseTrace()
 	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{

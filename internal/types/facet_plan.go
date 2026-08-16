@@ -708,9 +708,16 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	}
 
 	// Rule 2: root-cause diagnostics always need the diagnostic answer
-	// family. Attached log/perf traces also route trace-shaped requests
-	// here because artifact/current-code drift is part of the answer.
-	if rm.Intent == IntentRootCause || ((hasLog || hasPerf) && rm.Intent == IntentTrace) {
+	// family. For runtime artifacts, causal_diagnosis plus one required typed
+	// causal dimension is the canonical breadth declaration; do not require
+	// the model to repeat that same choice through legacy intent/scenario and
+	// diagnostic mirrors. Attached log/perf traces also route trace-shaped
+	// requests here because artifact/current-code drift is part of the answer.
+	// No request or answer prose participates in this routing.
+	typedRuntimeCausalDiagnosis := rm.RuntimeQuestionProfile != nil &&
+		rm.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeCausalDiagnosis &&
+		rm.RequestedAnswerDimensions.RequiresRuntimeCausalDiagnosis()
+	if typedRuntimeCausalDiagnosis || rm.Intent == IntentRootCause || ((hasLog || hasPerf) && rm.Intent == IntentTrace) {
 		return QFRootCauseTrace
 	}
 

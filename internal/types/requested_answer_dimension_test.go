@@ -99,6 +99,23 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesCausalContributorSet(
 	}
 }
 
+func TestRequestedAnswerDimensionProfileRequiresRuntimeCausalDiagnosisFromRequiredTypedRoleOnly(t *testing.T) {
+	profile := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{
+			{Role: RequestedAnswerDimensionObservedValue, Required: true},
+			{Role: RequestedAnswerDimensionCausalContributorSet, Required: true},
+		},
+	}
+	if !profile.RequiresRuntimeCausalDiagnosis() {
+		t.Fatal("required causal contributor set must authorize runtime causal breadth")
+	}
+	profile.Dimensions[1].Required = false
+	if profile.RequiresRuntimeCausalDiagnosis() {
+		t.Fatal("optional causal presentation metadata must not authorize runtime causal breadth")
+	}
+}
+
 func TestReconcileSourceInventoryAttributeDimensionRoles_SeparatesFileAndPackageSeats(t *testing.T) {
 	profile := &RequestedAnswerDimensionProfile{
 		IsDimensionedAnswer: true,
