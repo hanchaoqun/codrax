@@ -89,10 +89,11 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"Never call that CPU the target's only CPU",
 		"enumerate every available target-owned CPU row",
 		"A policy row for one CPU binds only to target running evidence on that same CPU",
-		"Runtime target/CPU policy join (typed identity alignment only; the model still owns the restriction verdict)",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=0 target_running=absent_in_complete_roster same_cpu_target_running_frequency=absent same_cpu_policy=present:min=418000kHz,max=1530000kHz,rows=16`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=4 target_running=35.960ms same_cpu_target_running_frequency=558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof) same_cpu_policy=present:min=558000kHz,max=2100000kHz,rows=28`; target effect unproven: same-CPU target and policy rows exist, but no target-slice overlap/binding carrier.",
-		"`target=app-17267 window=13762.791708..13763.024898 cpu=12 target_running=96.081ms same_cpu_target_running_frequency=2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof) same_cpu_policy=absent`; not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute.",
+		"Runtime target/CPU policy comparison matrix (typed identity alignment only; the model still owns the restriction verdict)",
+		"Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows",
+		"| `app-17267` | `13762.791708..13763.024898` | `0` | `absent_in_complete_roster` | `absent` | `present:min=418000kHz,max=1530000kHz,rows=16` | `not_comparable_missing_same_cpu_pair` |",
+		"| `app-17267` | `13762.791708..13763.024898` | `4` | `35.960ms` | `558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `present:min=558000kHz,max=2100000kHz,rows=28` | `target_effect_unproven_no_slice_binding` |",
+		"| `app-17267` | `13762.791708..13763.024898` | `12` | `96.081ms` | `2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `absent` | `not_comparable_missing_same_cpu_pair` |",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)
@@ -106,6 +107,28 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 	}
 	if strings.Contains(got, "9999999kHz") {
 		t.Fatalf("a frequency from another exploratory window must not join this policy witness:\n%s", got)
+	}
+}
+
+func TestRuntimeTraceFrequencyCPUJoinEscapesMarkdownCellSeparators(t *testing.T) {
+	mut := types.NewMutableState("bounded runtime frequency")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{FrequencyLimitWitnesses: []types.TraceFrequencyLimitAuthority{{
+			CPU: 4, MinFrequencyKHz: 500000, MaxFrequencyKHz: 2000000, LimitRowCount: 1,
+			WindowStartTs: 1, WindowEndTs: 2, Authority: "direct_in_window_policy_limit",
+		}}},
+		Observations: []types.ObservationRecord{
+			{
+				Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				Predicate: "target_cpu_running", Subject: "app|worker", Object: "cpu=4", Value: "1.000", Unit: "ms",
+				RichNotes: []string{types.TraceNoteKeySelectedWindow + "=1.000000..2.000000", types.TraceNoteKeyTargetCPURunningCPU + "=4", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
+			},
+		},
+	})
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(&types.AgentContext{Mutable: mut})
+	if !strings.Contains(got, "`app¦worker`") || strings.Contains(got, "`app|worker`") {
+		t.Fatalf("matrix cell did not escape markdown separator:\n%s", got)
 	}
 }
 

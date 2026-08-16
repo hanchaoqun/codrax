@@ -12284,7 +12284,12 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 		return keys[i].window < keys[j].window
 	})
 	var b strings.Builder
-	b.WriteString("- Runtime target/CPU policy join (typed identity alignment only; the model still owns the restriction verdict):\n")
+	b.WriteString("- Runtime target/CPU policy comparison matrix (typed identity alignment only; the model still owns the restriction verdict):\n")
+	b.WriteString("  - Read one row at a time. Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows.\n")
+	b.WriteString("  - `target_effect_unproven_no_slice_binding` means the same CPU has both target-running and policy evidence, but no target-slice binding proves performance impact. `not_comparable_missing_same_cpu_pair` means that CPU lacks one side of the pair.\n")
+	b.WriteString("\n")
+	b.WriteString("  | target | window | CPU | target running | same-CPU representative frequency | same-CPU policy | comparison authority |\n")
+	b.WriteString("  |---|---|---:|---:|---:|---|---|\n")
 	for _, key := range keys {
 		policyByCPU := policyByWindow[key.window]
 		cpuSet := make(map[int]bool, len(targets[key])+len(policyByCPU))
@@ -12312,16 +12317,22 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 			if policyObserved {
 				policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
 			}
-			binding := "target effect unproven: same-CPU target and policy rows exist, but no target-slice overlap/binding carrier"
+			binding := "target_effect_unproven_no_slice_binding"
 			if !targetObserved || !policyObserved {
-				binding = "not comparable: same-CPU target/policy pair is incomplete; another CPU's policy cannot substitute"
+				binding = "not_comparable_missing_same_cpu_pair"
 			}
 			frequencyText := answerDocTargetCPUFrequencyText(frequenciesByTargetWindow[key][cpu])
-			fmt.Fprintf(&b, "  - `target=%s window=%s cpu=%d target_running=%s same_cpu_target_running_frequency=%s same_cpu_policy=%s`; %s.\n",
-				traceDecisionPromptScalar(key.subject), key.window, cpu, targetRunning, frequencyText, policyText, binding)
+			fmt.Fprintf(&b, "  | `%s` | `%s` | `%d` | `%s` | `%s` | `%s` | `%s` |\n",
+				answerDocRuntimeFrequencyJoinCell(key.subject), answerDocRuntimeFrequencyJoinCell(key.window),
+				cpu, targetRunning, frequencyText, policyText, binding)
 		}
 	}
+	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocRuntimeFrequencyJoinCell(value string) string {
+	return strings.ReplaceAll(traceDecisionPromptScalar(value), "|", "¦")
 }
 
 func answerDocTargetCPUFrequencyText(values map[int64]bool) string {

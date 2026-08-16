@@ -36320,6 +36320,54 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.938 r569：空表补采取得真边但错在关系作用域；有限 Trace 同 CPU 对照仍可被跨行拼接（2026-08-16）
+
+1. 在 `main@b3ecca512` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，
+   人工均 partial；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_flow_trace_r569_20260816_manual_audit.md`。
+2. B907 获生产正证：空 participant 的 resolver-symbol 软导航把 Explorer 带到
+   `cmd/root.go:4315/4319`，两条真实 tool registration 被读取并发射；r568 的一次错 grep 后立即
+   node-only 不再复现。系统仍没有制造 edge，未证 guard/precedence 被 validator 正确拒绝。
+3. 但 Combo 暴露 B908。请求要“两工具在 finalizer 里的关系”，最终图只有 app 初始化 registration 与
+   `Name()` return，`finalizer` 是孤立节点。Analyzer 把 surrounding scope `finalizer` 标成
+   `incident_required` 且无唯一 parser identity；Explorer 虽读到 `FilterToolSchemas` 三个选择分支，
+   conditional evidence 没有 typed subject/object/predicate，不能生成 selection/guard recipe；completion 又因
+   任意真实 operation 已存在而签收。这里是“真实关系证据与请求作用域错位”，不是模型波动或 validator 错删。
+4. Combo 同时出现 Explorer 22 轮和 Finalizer 5 次拒绝：bounded semantic-descent 串行追两层 helper；两次
+   patch 将 native array 发成畸形 JSON，三次漏关系/identity。先保留 fail-closed，不为降轮次跳过函数体或
+   猜修 JSON；作为 B908 后续 P2 效率/教学件观察。
+5. H4 的 breadth 正确：有限事实/单一影响问法只跑 timeline/resource，零 root-cause/wakeup、零完整因果投影。
+   四态 `157.248/5.604/70.338/0ms` 和总窗 `233.190ms` 正确，binding-unproven 方向也正确。
+6. 新确认 B909：Finalizer 已收到精确 same-CPU join——CPU4 `35.960ms + 558000kHz +
+   558000..2100000kHz/28 rows`，CPU12 `96.081ms + 2075000kHz + policy absent`——模型仍把 CPU12
+   频点和 CPU4 上限拼成“CPU4=2075000kHz”，又把只针对 CPU12 的零结果查询扩大为全窗零 policy row。
+   同页 typed 附注已正确列出 CPU4 `558/640MHz`，因此 Runner FAIL 不能仅归为 oracle 词面。
+7. N1 先将既有 target/CPU/policy join 改成低认知负担的逐 CPU 独立矩阵，保留 target effect verdict 的
+   模型所有权；不扫描正文、不系统改答案。N2 再统一 surrounding-context participant 角色教学和
+   conditional selection endpoint 教学；只有 typed context identity 可精确解析时才讨论 scope coverage 硬门，
+   不解析 `relation_scope_quote` 猜代码作用域。N3 再处理 semantic-descent/JSON patch 效率。
+8. 本轮无 active-stream 4ms/固定累计年龄降级、空答案或旧稿恢复。真正 causal-diagnosis 的显式时间窗、
+   Trace 因果投影、自动补齐、链上-only 主因及优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索和
+   实际占用、规则计价双轴保持；off-chain 邻近/背景仍只作 support，系统不接管关系、根因或结论。
+9. B909 N1 已施工：`renderAnswerDocRuntimeFrequencyCPUJoin` 不再发一组容易视觉串行的长 key-value 句，
+   改发逐 CPU 独立矩阵，列固定为 target/window/CPU/running/same-CPU representative frequency/
+   same-CPU policy/comparison authority；同一行才允许比较。`target_effect_unproven_no_slice_binding` 与
+   `not_comparable_missing_same_cpu_pair` 分开，前者仍把最终影响 verdict 留给模型，后者明确禁止借另一 CPU
+   的 policy。矩阵 cell 同时转义 `|`，不会被线程/目标身份破坏 Markdown 列边界。未新增答案扫描、重写或
+   系统结论；`internal/agent` 全包通过。待 H4 production replay。
+
+状态：
+
+`B907-FLOWEMPTYSLATENAVIGATION1=production-positive-r569`；
+`B908-FLOWRELATIONSCOPEDISCOVERY1=confirmed-P1/true-operation-wrong-request-scope`；
+`B909-FINITETRACESAMECPUCOGNITIVE1=implemented/same-cpu-matrix+cross-row-negative-pin/pending-replay`；
+`H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-expand-before-fact-correct-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：
