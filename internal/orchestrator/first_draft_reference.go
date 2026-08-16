@@ -7,9 +7,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// attachFirstDraftReference is the only final-answer path that may show a full
-// first-draft reference. It is reserved for a rejected draft that caused a
-// later finalizer rewrite; soft concerns on an accepted draft use caveats.
+// attachFirstDraftReference preserves model-authored fallback content only
+// when no accepted structured carrier supersedes it. The shared post-finalize
+// attachment boundary drops rejected markdown/text once a later structured
+// answer is accepted; soft or residual concerns use system-owned appendices.
 func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDraft string, concerns []types.Violation, rejectedForRewrite bool, firstDraftCarrierSnapshot []byte) {
 	if o == nil || out == nil || !rejectedForRewrite {
 		return

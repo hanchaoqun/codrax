@@ -88,14 +88,15 @@ func TestCAVSTRDisclosureSurvivesFirstDraftAttachment(t *testing.T) {
 		t.Fatalf("seed failed:\n%s", out.FinalAnswer)
 	}
 
-	// Flagship overwrite: rejected first draft attaches, FinalAnswer is
-	// re-rendered from the doc.
+	// Flagship overwrite: the rejected first draft is filtered behind an
+	// accepted structured doc, while FinalAnswer is still re-rendered from
+	// that doc and must replay registered disclosures.
 	o.attachFirstDraftReference(out, "第一稿正文（内容不同）。", []types.Violation{{
 		Kind: types.ViolBlockCoverageMissing, Detail: "x",
 	}}, true, nil)
 
-	if !strings.Contains(out.FinalAnswer, "第一稿答案") {
-		t.Fatalf("attachment must have re-rendered (test premise):\n%s", out.FinalAnswer)
+	if strings.Contains(out.FinalAnswer, "第一稿答案") || strings.Contains(out.FinalAnswer, "第一稿正文") {
+		t.Fatalf("accepted structured doc must suppress rejected first-draft telemetry:\n%s", out.FinalAnswer)
 	}
 	for _, disclosure := range []string{"质量审阅仍有 1 项未完全解决", "以下数值未能定位于证据面：46.821ms。"} {
 		if got := strings.Count(out.FinalAnswer, disclosure); got != 1 {
@@ -107,7 +108,7 @@ func TestCAVSTRDisclosureSurvivesFirstDraftAttachment(t *testing.T) {
 	// Idempotency across a SECOND overwrite: still exactly once.
 	o.appendAnswerDisplayAttachment(out, types.AnswerDisplayAttachment{
 		Kind: types.AnswerDisplayAttachmentMarkdown, Title: "附加参考", Body: "参考体",
-		Source: "test.second_rerender",
+		Source: types.AnswerDisplayAttachmentSourceSystemCrossCheck,
 	})
 	for _, disclosure := range []string{"质量审阅仍有 1 项未完全解决", "以下数值未能定位于证据面：46.821ms。"} {
 		if got := strings.Count(out.FinalAnswer, disclosure); got != 1 {

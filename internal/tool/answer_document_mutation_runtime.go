@@ -846,7 +846,11 @@ func answerDisplayAttachmentSurvivesAcceptedDoc(doc *types.AnswerDocumentV2, att
 		}
 		return att.SystemAuthored() || !answerDocumentHasVisibleDiagram(doc)
 	case types.AnswerDisplayAttachmentMarkdown, types.AnswerDisplayAttachmentText:
-		return false
+		// Accepted structured model prose is the sole model answer carrier;
+		// rejected-draft prose is retry telemetry. Independently authored
+		// deterministic system appendices remain visible on their typed
+		// source lane and are deduplicated by hash in the caller.
+		return att.SystemAuthored() && strings.TrimSpace(att.Body) != ""
 	default:
 		return strings.TrimSpace(att.Body) != "" && doc == nil
 	}

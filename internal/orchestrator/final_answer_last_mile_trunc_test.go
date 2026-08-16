@@ -66,10 +66,9 @@ func truncOrchDraftBody(n int) string {
 }
 
 // TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements is the
-// huadong_792 witness-shape repro: oracle 拒稿→重写→attachFirstDraftReference
-// 重渲染后,FinalAnswer 必须仍含系统补充块,且 huadong 量级第一稿(4 万 rune)
-// 完整落地(尾哨兵在,无裸 "..." 截形)。修前双红:系统补充被覆写蒸发 +
-// 保留段 16000 rune 裸切。
+// huadong_792/B882 witness-shape repro: oracle 拒稿→重写后，accepted
+// structured answer 必须仍含系统补充块，但 rejected 第一稿已降为
+// retry telemetry，不得再以整页附件重复发布。
 func TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements(t *testing.T) {
 	mut := truncObservationMutable(t)
 	doc := &types.AnswerDocumentV2{
@@ -96,14 +95,14 @@ func TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements(t *testing.T
 	if got := strings.Count(out.FinalAnswer, truncSupplementTitle); got != 1 {
 		t.Fatalf("last-mile trace_query supplement must appear EXACTLY once after first-draft re-render, got %d (0 = huadong_792 loss #2; >1 = text-append duplication)", got)
 	}
-	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 1 {
-		t.Fatalf("first-draft panel title must appear EXACTLY once, got %d:\n%.400s", got, out.FinalAnswer)
+	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 0 {
+		t.Fatalf("accepted structured answer must not repeat rejected first-draft telemetry, got %d:\n%.400s", got, out.FinalAnswer)
 	}
 	if !strings.Contains(out.FinalAnswer, "最终稿主体。") {
 		t.Fatalf("structured body missing:\n%.400s", out.FinalAnswer)
 	}
-	if !strings.Contains(out.FinalAnswer, truncOrchTailSentinel) {
-		t.Fatalf("huadong-scale first draft lost its tail after re-render (huadong_792 loss #1): %d bytes rendered", len(out.FinalAnswer))
+	if strings.Contains(out.FinalAnswer, truncOrchTailSentinel) {
+		t.Fatalf("rejected draft body escaped behind the accepted structured answer")
 	}
 	if strings.Contains(out.FinalAnswer, "\n...\n") {
 		t.Fatalf("bare \"...\" truncation marker resurfaced in final answer")
@@ -140,16 +139,12 @@ func truncSupplementSegment(t *testing.T, answer string) string {
 }
 
 // TestTRUNCFourRoundOverwriteSupplementStable(P3-1 收编复核 4 轮覆写形):
-// attach第一稿→评审注→两轮 finalizer auto-repair 共 4 次 FinalAnswer 覆写,
+// attach被拒第一稿→系统评审注→两轮 finalizer auto-repair 共 4 次 FinalAnswer 覆写,
 // 系统补充块每轮恰一次且内容跨轮逐字节零漂移——咽喉若退化为文本追加形
 // (在旧 FinalAnswer 上叠加渲染),Count==1 立即咬红。
 //
-// 面板计数按既有 accepted-doc 附件边界断言:轮1/轮2(appendAnswerDisplay-
-// Attachment 不过滤)面板标题恰一次;轮3/轮4(auto-repair 走
-// FilterAcceptedAnswerDisplayAttachments,accepted 结构化稿在场时
-// markdown/text 附件=retry telemetry,按设计滤除)面板消失(恰零次)——
-// 生产序(auto-repair 在 finalize 环内,attachFirstDraftReference 在环后)
-// 不会出现轮3/4 形,此处 pin 的是"覆写不叠加、不复制"的类不变量。
+// typed accepted-doc 边界下，被拒模型第一稿始终为零；独立系统评审注
+// 从轮2开始始终恰一份。此处 pin "覆写不叠加、不复制，且 source role 不混淆"。
 func TestTRUNCFourRoundOverwriteSupplementStable(t *testing.T) {
 	mut := truncObservationMutable(t)
 	doc := &types.AnswerDocumentV2{
@@ -173,15 +168,18 @@ func TestTRUNCFourRoundOverwriteSupplementStable(t *testing.T) {
 	// Round 1: first-draft attachment (the huadong_792 witness path).
 	o.attachFirstDraftReference(out, truncOrchDraftBody(20000), []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
 	seg1 := truncSupplementSegment(t, out.FinalAnswer)
-	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 1 {
-		t.Fatalf("round 1: draft panel title count = %d, want 1", got)
+	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 0 {
+		t.Fatalf("round 1: rejected draft panel title count = %d, want 0", got)
 	}
 
 	// Round 2: draft review note (second attachment, same overwrite path).
 	o.attachDraftReviewNote(out, "", []types.Violation{{Kind: types.ViolCitation}})
 	seg2 := truncSupplementSegment(t, out.FinalAnswer)
-	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 1 {
-		t.Fatalf("round 2: draft panel title count = %d, want 1", got)
+	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 0 {
+		t.Fatalf("round 2: rejected draft panel title count = %d, want 0", got)
+	}
+	if got := strings.Count(out.FinalAnswer, draftReviewNoteTitle("zh")); got != 1 {
+		t.Fatalf("round 2: system review attachment count = %d, want 1", got)
 	}
 
 	// Rounds 3+4: two deterministic auto-repair overwrites (facet metadata
@@ -198,11 +196,11 @@ func TestTRUNCFourRoundOverwriteSupplementStable(t *testing.T) {
 		if seg != seg1 {
 			t.Fatalf("round %d: supplement block drifted byte-wise across overwrites:\nfirst: %q\nnow:   %q", round+3, seg1, seg)
 		}
-		// Accepted-doc attachment boundary: markdown/text attachments are
-		// retry telemetry once a structured doc is accepted — the filter
-		// drops them, so the panel is GONE (never duplicated).
 		if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 0 {
-			t.Fatalf("round %d: draft panel title count = %d, want 0 (accepted-doc attachment boundary)", round+3, got)
+			t.Fatalf("round %d: rejected draft panel title count = %d, want 0", round+3, got)
+		}
+		if got := strings.Count(out.FinalAnswer, draftReviewNoteTitle("zh")); got != 1 {
+			t.Fatalf("round %d: system review attachment count = %d, want 1", round+3, got)
 		}
 	}
 	if seg2 != seg1 {

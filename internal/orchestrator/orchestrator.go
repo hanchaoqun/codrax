@@ -7885,10 +7885,12 @@ func (o *Orchestrator) appendAnswerDisplayAttachment(out *agent.StageOutput, att
 	if strings.TrimSpace(att.Body) == "" {
 		return
 	}
-	attachments := o.busCtx.Mutable.AnswerDisplayAttachments()
-	attachments = append(attachments, att)
-	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
+	attachments := append(o.busCtx.Mutable.AnswerDisplayAttachments(), att)
 	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
+		// B882: post-finalize producers share the emit path's typed accepted-
+		// document attachment boundary; rejected model prose stays telemetry.
+		attachments = tool.FilterAcceptedAnswerDisplayAttachments(doc, attachments)
+		o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 		// TRUNC 批 (§29.10-1): this overwrite used to call
 		// render.RenderAnswerDocumentWithAttachments directly — dropping
 		// both the finalizer's authority hedging AND every last-mile
@@ -7900,10 +7902,11 @@ func (o *Orchestrator) appendAnswerDisplayAttachment(out *agent.StageOutput, att
 		render.ApplyAuthorityHedging(doc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
 		out.FinalAnswer = o.renderFinalAnswerWithLastMileSupplements(
 			doc,
-			o.busCtx.Mutable.AnswerDisplayAttachments(),
+			attachments,
 		)
 		return
 	}
+	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	out.FinalAnswer = strings.TrimRight(out.FinalAnswer, "\n") + "\n\n---\n\n**" +
 		strings.TrimSpace(att.Title) + "**\n\n" + strings.TrimSpace(att.Body) + "\n\n---\n"
 }

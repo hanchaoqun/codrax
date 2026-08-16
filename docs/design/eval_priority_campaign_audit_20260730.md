@@ -38078,6 +38078,48 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.924 B882 根修：accepted document 后统一 typed attachment boundary，禁止被拒第一稿与末端补充重复发布（2026-08-16）
+
+1. 以 r555 `read_combo_answer_document_tools` 最终产物和日志为 production witness 冷读：第 3 轮
+   `emit_answer_document_patch` 已 `ok=true`，当前 `AnswerDocumentV2` 是 accepted structured carrier；但 ship 后仍
+   出现整份“第一稿答案（校验前参考）”，其中自带一份旧“输出维度核对”；当前 accepted doc 又经
+   last-mile chokepoint 发布一份新核对，因而最终同页变成两份。这是确定性系统级联缺，不是模型波动。
+2. 根因是 attachment 权限分叉。emit/mutation 接受路径已有
+   `FilterAcceptedAnswerDisplayAttachments`：accepted 文档后，rejected model markdown/text 是 retry telemetry，不再作
+   第二答案载体；系统 cross-check/review attachment 和必要的独立图仍按 typed source/kind 保留，并用
+   hash 去重。但 orchestrator 后置 `appendAnswerDisplayAttachment` 原先直接 append + persist，绕过了这个
+   共享边界；`attachFirstDraftReference` 正好走该绕行口。
+3. 根修不做任何原文相似度、关键词或最终 prose 扫描。唯一后置追加口在存在 accepted
+   `AnswerDocumentV2` 时，先调用同一 typed filter，再写回 MutableState 并经统一 last-mile chokepoint 重渲染。
+   因此：
+   - rejected 第一稿 markdown/text 始终留在 retry telemetry，不再重复发布；
+   - 当前 typed 维度/Trace/read-audit supplement 仍由 accepted doc 的 last-mile 链生成，恰一份；
+   - `orchestrator.system_crosscheck_appendix` / `orchestrator.strict_review_disabled` 等系统 source 仍独立保留；
+   - 完全没有 accepted structured carrier 的真降级路径，仍保留模型已有可见草稿，不把恢复能力误删。
+4. 定向 pin 覆盖五个方向：accepted doc + rejected first draft 不发布；无 accepted doc 时草稿仍可恢复；
+   r555 同形的“旧稿自带维度补充 + 当前 last-mile”最终标题恰一次；系统 attachment 连续追加两次后
+   只保留一份且 `Hash` 非空；Trace supplement/caveat replay/auto-repair 四轮覆写不丢失、不叠加。
+5. 验证：B882 定向组合全绿；
+   `go test ./internal/orchestrator ./internal/tool ./internal/render ./internal/agent -count=1` 全绿
+   （orchestrator 11.937s、tool 162.398s、render 1.853s、agent 10.083s）。`orchestrator.go` 热文件行数 ratchet
+   同时通过，未用本批扩大调度主文件；`go test ./... -count=1` 全仓全绿，含
+   `hitraceconv`/Mermaid/`orchestrator`/`repl`/`tool`/repomap 全层/`tracequery`/`tracediag`/`writeflow`。
+6. 本批只处理客户可见 carrier 去重/权限，不修改、重写或裁定模型的正文、图、关系或结论；没有原始请求/模型输出/
+   最终 prose 硬门。Trace 显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消双轴均不变；
+   邻近/背景仍只能支撑额外排查方向。活跃响应字节持续到达时，4ms/固定总龄仍不能触发降级。
+
+状态：
+
+`B882-RECOVEREDATTACHMENTDEDUP1=implemented/pending-production-replay`；
+`accepted-model-answer-carrier=single`；
+`rejected-first-draft=retry-telemetry-only-after-accept`；
+`system-attachments=typed-source-preserved+hash-deduped`；
+`requested-dimension-supplement=single-last-mile-render`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）
 
 1. 以 r554 的原始 model-authored body 建立先红 witness：
