@@ -37424,6 +37424,44 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.904 r547：B874 生产闭环；子题符号解析硬门与类型关系语义过宽（2026-08-15）
+
+1. 在 `main@f320ee166` 重建后严格并发恰好两个案例：`mr_poly_binding_chain` runner PASS
+   （133s，human PASS）与 `qf_type_relation_loop_controller` runner PASS（156s，human FAIL）；两案无
+   timeout、unavailable、固定时龄降级、finalizer reject 或 patch。
+2. B874 生产闭环。跨语言案不再收到 disconnected whole skeleton，模型自行选择 ordered list，完整保留
+   `FastTokenizer.tokenize → _fastlex.tokenize_bytes → pyo3 wrapper → Rust core` 和无原生模块时
+   `_tokenize_slow` 二选一回退。r546 的 163s/1 reject/1 patch 降为 133s/0/0；可选图省略没有造成答案、
+   关系、native module 或 fallback 信息流失，且没有系统代写。
+3. 新确认 `B875-SUBTOPICCONCEPTRESOLUTION1=P1/red-line`。同一案 analyzer 连续两次被
+   `subtopic_coherence R1.5 entity_unresolvable` 硬拒：用户明确要求的“无原生模块时回退”子题携带
+   `fallback/py_ext/lazy/Optional` 等概念实体，repo symbol resolver 命中为 0，而 sibling 调用链子题有
+   命中；现门据此把该子题判为疑似 hallucination。实体可解析率是 noisy retrieval signal，无法否证
+   配置状态、失败分支、fallback、语义维度或用户业务概念，不能驱动 hard retry。
+4. B875 最优方案：保留 R1.5 的观测与提示，但当 subtopic 的 principal subject/axis/answer dimension 已由
+   typed analysis contract 承载时，zero resolver hits 只作 advisory；只有精确矛盾（例如声明 exact code
+   identity 且 symbol oracle 明确否证、或结构 schema 自相矛盾）才 hard fail。不得通过扫描用户原文补
+   “fallback”特例，必须按 typed entity role / source-identity claim 分类。加入概念子题+代码子题混合、
+   multi-repo、日志/Trace、读/写模式正负 pin。
+5. 新确认 `B876-TYPERELATIONSEMANTICS1=P2`。LoopController 图和表的 12 个生产 implementer、文件与
+   implementer→interface 箭头均正确，但模型 lead 误说每个 Go struct “嵌入 LoopController 字段”。源码
+   显示它们通过 `Observe` method set 隐式满足接口，没有 embedding 字段。typed predicate 已是
+   `implements`，但上下文没有充分隔离 implements/conformance、extends/inheritance、embeds/containment。
+6. B876 方案为语言无关 typed 词汇指导：每条 relation row 保留 extractor 原始 subtype 和 language
+   conformance mode；`implements` 只授权契约满足，绝不授权字段嵌入/继承；`extends` 与 `embeds` 同理。
+   仅作 evidence/prompt 指导和结构 pin，不扫描、不改写模型答案；Go/Java/ArkTS/Cangjie/Rust/C++ 共同覆盖。
+
+状态：
+
+`B874-RELATIONREPAIRSKELETONTOPOLOGY1=production-pass/closed`；
+`B875-SUBTOPICCONCEPTRESOLUTION1=confirmed/P1/next`；
+`B876-TYPERELATIONSEMANTICS1=confirmed/P2/queued`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/queued-after-B875`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
