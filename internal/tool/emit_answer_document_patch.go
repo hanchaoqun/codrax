@@ -50,7 +50,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit.\n" +
-		"- `replace_blocks`: FULL block payloads, not field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. Block payload shape matches the canonical block contract — see below.\n" +
+		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
@@ -73,7 +73,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     },
     "replace_blocks": {
       "type": "array",
-      "description": "FULL replacement payloads, not field merges. Copy all previous display and typed fields not named by the repair (especially title/text/columns/diagram/facet_ids/claim_uses/surface_role), then change only the requested field. Each entry has the full block shape and the same id as an existing block.",
+      "description": "FULL replacement payloads, not general field merges. Copy all previous display and typed fields not named by the repair (especially title/text/columns/diagram/facet_ids/claim_uses/surface_role), then change only the requested field. Narrow retry safety: for the exact same block id/kind with a unique stable item-id overlap, truly omitted facet_ids/surface_role retain their prior carrier values; explicit empty/value is never inherited. Each entry has the full block shape and the same id as an existing block.",
       "items": {"type": "object"}
     },
     "add_blocks": {
@@ -264,6 +264,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] inherited omitted replacement block kind from exact previous block id: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := inheritMissingPatchReplacementCarrierMetadata(prev, params, p.ReplaceBlocks); changed {
+		logging.Warning("[emit_answer_document_patch] inherited omitted stable replacement carrier metadata: %s",
+			strings.Join(fields, ", "))
+	}
 
 	// Fused-block split runs on the raw lists BEFORE typed
 	// conversion (the normalize loop's discriminator repair destroys
@@ -426,6 +430,79 @@ func inheritMissingPatchReplacementKinds(prev *types.AnswerDocumentV2, blocks []
 		fields = append(fields, fmt.Sprintf("replace_blocks[%d].kind=%s", i, kind))
 	}
 	return len(fields) > 0, fields
+}
+
+// inheritMissingPatchReplacementCarrierMetadata protects two structural
+// carrier fields from retry-only omission without turning replace_blocks into
+// a general merge operation. The previous block must be uniquely selected by
+// its exact id, retain the same typed kind, and share at least one item id that
+// is unique in both block versions. Raw JSON field presence distinguishes an
+// omitted field from an explicit empty/value, so clearing or changing either
+// field remains model-owned. No visible content, evidence claim, relation,
+// diagram, citation, or answer conclusion is inherited here.
+func inheritMissingPatchReplacementCarrierMetadata(prev *types.AnswerDocumentV2, raw json.RawMessage, blocks []emitAnswerBlockV2) (bool, []string) {
+	if prev == nil || len(blocks) == 0 || len(raw) == 0 {
+		return false, nil
+	}
+	var envelope struct {
+		ReplaceBlocks []map[string]json.RawMessage `json:"replace_blocks"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil || len(envelope.ReplaceBlocks) != len(blocks) {
+		return false, nil
+	}
+	previous := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	ambiguous := make(map[string]bool)
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := previous[id]; exists {
+			ambiguous[id] = true
+			continue
+		}
+		previous[id] = block
+	}
+	var fields []string
+	for i := range blocks {
+		id := strings.TrimSpace(blocks[i].ID)
+		old, ok := previous[id]
+		if !ok || id == "" || ambiguous[id] || string(old.Kind) != strings.TrimSpace(blocks[i].Kind) ||
+			!patchReplacementHasUniqueStableItemOverlap(old.Items, blocks[i].Items) {
+			continue
+		}
+		declared := envelope.ReplaceBlocks[i]
+		if _, present := declared["facet_ids"]; !present {
+			blocks[i].FacetIDs = append([]string(nil), old.FacetIDs...)
+			fields = append(fields, fmt.Sprintf("replace_blocks[%d].facet_ids", i))
+		}
+		if _, present := declared["surface_role"]; !present {
+			blocks[i].SurfaceRole = string(old.SurfaceRole)
+			fields = append(fields, fmt.Sprintf("replace_blocks[%d].surface_role", i))
+		}
+	}
+	return len(fields) > 0, fields
+}
+
+func patchReplacementHasUniqueStableItemOverlap(previous []types.AnswerBlockItem, replacement []emitAnswerBlockItemV2) bool {
+	previousCounts := make(map[string]int, len(previous))
+	replacementCounts := make(map[string]int, len(replacement))
+	for _, item := range previous {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			previousCounts[id]++
+		}
+	}
+	for _, item := range replacement {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			replacementCounts[id]++
+		}
+	}
+	for id, count := range previousCounts {
+		if count == 1 && replacementCounts[id] == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // unchanged_block_ids is deliberately a block-level preservation surface.

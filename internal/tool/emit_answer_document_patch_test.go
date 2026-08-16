@@ -425,6 +425,81 @@ func TestEmitAnswerDocumentPatch_InheritsMissingKindForExactReplacementID(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentPatch_InheritsOmittedCarrierMetadataForStableReplacement(t *testing.T) {
+	bus := &types.BusContext{Mutable: &types.MutableState{}}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "path", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{"current_code_path", "principal_path_edge"},
+			Items:       []types.AnswerBlockItem{{ID: "hop-1", Text: "old"}},
+		}},
+	})
+	params := json.RawMessage(`{
+		"replace_blocks":[{
+			"id":"path",
+			"kind":"ordered_list",
+			"items":[{"id":"hop-1","text":"repaired"}]
+		}]
+	}`)
+	res, _ := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("stable replacement should inherit omitted carrier metadata: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("missing patched document: %+v", doc)
+	}
+	got := doc.Blocks[0]
+	if got.SurfaceRole != types.SurfacePrincipal || len(got.FacetIDs) != 2 ||
+		got.FacetIDs[0] != "current_code_path" || got.FacetIDs[1] != "principal_path_edge" {
+		t.Fatalf("omitted stable carrier metadata was lost: %+v", got)
+	}
+	if len(got.Items) != 1 || got.Items[0].Text != "repaired" {
+		t.Fatalf("replacement content must remain model-authored: %+v", got.Items)
+	}
+}
+
+func TestInheritMissingPatchReplacementCarrierMetadataHonorsExplicitClear(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{"principal_path_edge"},
+		Items:       []types.AnswerBlockItem{{ID: "hop-1"}},
+	}}}
+	blocks := []emitAnswerBlockV2{{
+		ID: "path", Kind: string(types.BlockOrderedList),
+		Items: []emitAnswerBlockItemV2{{ID: "hop-1"}},
+	}}
+	raw := json.RawMessage(`{"replace_blocks":[{"id":"path","kind":"ordered_list","facet_ids":[],"surface_role":"","items":[{"id":"hop-1"}]}]}`)
+	changed, fields := inheritMissingPatchReplacementCarrierMetadata(prev, raw, blocks)
+	if changed || len(fields) != 0 {
+		t.Fatalf("explicit carrier values must remain model-owned: changed=%t fields=%v", changed, fields)
+	}
+	if blocks[0].FacetIDs != nil || blocks[0].SurfaceRole != "" {
+		t.Fatalf("explicit clear/value was overwritten: %+v", blocks[0])
+	}
+}
+
+func TestInheritMissingPatchReplacementCarrierMetadataRequiresStableItemOverlap(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{"principal_path_edge"},
+		Items:       []types.AnswerBlockItem{{ID: "hop-1"}},
+	}}}
+	blocks := []emitAnswerBlockV2{{
+		ID: "path", Kind: string(types.BlockOrderedList),
+		Items: []emitAnswerBlockItemV2{{ID: "new-hop"}},
+	}}
+	raw := json.RawMessage(`{"replace_blocks":[{"id":"path","kind":"ordered_list","items":[{"id":"new-hop"}]}]}`)
+	changed, fields := inheritMissingPatchReplacementCarrierMetadata(prev, raw, blocks)
+	if changed || len(fields) != 0 || blocks[0].SurfaceRole != "" || blocks[0].FacetIDs != nil {
+		t.Fatalf("wholesale content replacement must not inherit carriers: changed=%t fields=%v block=%+v", changed, fields, blocks[0])
+	}
+}
+
 func TestEmitAnswerDocumentPatch_MissingKindDoesNotAuthorizeUnknownReplacementOrAdd(t *testing.T) {
 	for _, params := range []json.RawMessage{
 		json.RawMessage(`{"replace_blocks":[{"id":"unknown","text":"new"}]}`),

@@ -35743,6 +35743,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 两个修复均不读用户原文、模型 thinking、item 文案或终稿，不按 Python/Rust/type 名拟合。它们分别消费
    typed repair-family/state caliber、dispatch-scoped relation recipe、patch block/item identity 与 JSON field
    presence；系统不生成边、图、根因或结论。
+   B936 已按冻结范围完成：`replace_blocks` 仍是整块替换，仅当 exact previous block id、same kind 与两侧
+   唯一 stable item-id overlap 同时成立时，真正 omitted 的 `facet_ids/surface_role` 才从旧块继承；显式空值、
+   歧义、无稳定 item 及其他所有字段均不继承。tool description/schema 已同步教学该窄例外，正向、显式清空、
+   wholesale replacement 三臂与 `internal/tool` 全包测试通过。
 8. Trace 供给折算与优先级候选求和的模型措辞仍有误差，先作为 B933 回放同批人工观察，不用答案算式
    regex 硬门。Poly 引用错位另记 typed citation identity 债，不以当前 label 文本拟合。
 
@@ -35751,7 +35755,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B933-BLOCKEDREASONCALLSITEFINALCALIBER1=implemented/coarse-direction-caliber-pins-pass/pending-r586`；
 `B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r585`；
 `B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=production-closed-r585`；
-`B936-STRUCTUREDPATCHCARRIERPRESERVATION1=confirmed/P1/planned`；
+`B936-STRUCTUREDPATCHCARRIERPRESERVATION1=implemented/structural-pins-pass/pending-r586`；
 `B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=confirmed/P1/planned`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r585`；
