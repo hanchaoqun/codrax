@@ -2469,6 +2469,85 @@ func TestEmitAnalysis_RequiredDiagramDimensionProvidesPreciseVisualAuthority(t *
 	}
 }
 
+func TestReconcileRequiredDiagramRelationAxis_UsesOnlyTypedCurrentTurnContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		intent types.Intent
+		hint   *types.DiagramHint
+		axis   types.PredicateAxis
+		want   types.PredicateAxis
+		warn   bool
+	}{
+		{name: "required flow closes define escape", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true}, axis: types.AxisDefine, want: types.AxisFlow, warn: true},
+		{name: "required sequence closes unknown escape", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true}, axis: types.AxisUnknown, want: types.AxisFlow, warn: true},
+		{name: "required call dag owns call edges", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramCallDAG, Required: true}, axis: types.AxisDefine, want: types.AxisCall, warn: true},
+		{name: "optional visual remains guidance", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramFlow, Required: false}, axis: types.AxisDefine, want: types.AxisDefine},
+		{name: "architecture grouping remains presentation", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true}, axis: types.AxisDefine, want: types.AxisDefine},
+		{name: "trace keeps independent causal authority", intent: types.IntentTrace, hint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true}, axis: types.AxisDefine, want: types.AxisDefine},
+		{name: "root cause keeps independent causal authority", intent: types.IntentRootCause, hint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true}, axis: types.AxisDefine, want: types.AxisDefine},
+		{name: "precise register axis is preserved", intent: types.IntentExplain, hint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true}, axis: types.AxisRegister, want: types.AxisRegister},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotHint, gotAxis, warning := reconcileRequiredDiagramRelationAxis(tt.intent, tt.hint, tt.axis)
+			if gotHint != tt.hint {
+				t.Fatalf("hint identity changed: got=%p want=%p", gotHint, tt.hint)
+			}
+			if gotAxis != tt.want {
+				t.Fatalf("axis=%q want %q", gotAxis, tt.want)
+			}
+			if (warning != "") != tt.warn {
+				t.Fatalf("warning=%q wantPresent=%t", warning, tt.warn)
+			}
+		})
+	}
+}
+
+func TestEmitAnalysis_RequiredFlowRelationCannotLoseEdgeOwnershipAfterPatch(t *testing.T) {
+	const objective = "对比 emit_answer_document 和 emit_answer_document_patch，并用 Mermaid 小流程图说明它们在 finalizer 里的关系。"
+	payload := withV4Required(`{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["emit_answer_document","emit_answer_document_patch","finalizer"],
+		"entities":["emit_answer_document","emit_answer_document_patch","finalizer"],
+		"question_kind":"mechanism",
+		"predicate_axis":"define",
+		"diagram_hint":{"kind":"flow","required":true,"relation_scope_quote":"emit_answer_document 和 emit_answer_document_patch，并用 Mermaid 小流程图说明它们在 finalizer 里的关系","participants":[
+			{"identity":"emit_answer_document","role":"incident_required","source_quote":"emit_answer_document"},
+			{"identity":"emit_answer_document_patch","role":"incident_required","source_quote":"emit_answer_document_patch"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"finalizer"}
+		]}
+	}`)
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success {
+		t.Fatalf("typed relation contract rejected: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.PredicateAxis != types.AxisFlow {
+		t.Fatalf("required flow relation axis was not preserved: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, `normalized predicate_axis from "define" to flow`) {
+		t.Fatalf("typed reconciliation must remain auditable: %s", res.Summary)
+	}
+
+	view := types.BuildAnswerSemanticView(&types.AnalysisIR{RequestModel: *rm}, nil)
+	if view == nil || view.RelationAxis != types.AxisFlow {
+		t.Fatalf("semantic view lost reconciled relation axis: %+v", view)
+	}
+	patched := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "relation", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n  Full[emit_answer_document] --> Patch[emit_answer_document_patch]\n",
+		},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(patched, view, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("metadata-free patched arrow escaped typed relation ownership: %+v", got)
+	}
+}
+
 func TestRequiredDiagramRequestedDimension_DoesNotAuthorizeOtherOrOptionalRoles(t *testing.T) {
 	for _, profile := range []*types.RequestedAnswerDimensionProfile{
 		nil,

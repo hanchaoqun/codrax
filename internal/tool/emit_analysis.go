@@ -884,7 +884,7 @@ func buildEmitAnalysisSchema() {
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
-				"description": "Required action-direction axis of the question (call / register / define / return / configure / condition / implement / flow). Use flow for ordered movement of value, state, or control across producers, transfer or merge boundaries, and consumers. For a source-code question_kind=call_chain emit call; the tool repairs an empty axis from that typed kind but rejects an explicitly conflicting axis. Empty only when no clear action relation exists. Used by the evidence ranker to bias items whose anchor matches the axis.",
+				"description": "Required action-direction axis of the question (call / register / define / return / configure / condition / implement / flow). Use flow for ordered movement of value, state, or control across producers, transfer or merge boundaries, and consumers. A required diagram_hint.kind=flow or sequence must use flow; a required call_dag must use call. Define is only for declarations or architecture grouping without a requested transfer path. For a source-code question_kind=call_chain emit call; the tool repairs an empty axis from that typed kind but rejects an explicitly conflicting axis. Empty only when no clear action relation exists. Used by the evidence ranker to bias items whose anchor matches the axis.",
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
@@ -1627,6 +1627,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	if len(diagramHintWarnings) > 0 {
 		val.Warnings = append(val.Warnings, diagramHintWarnings...)
+	}
+	if reconciledHint, reconciledAxis, warning := reconcileRequiredDiagramRelationAxis(
+		intent,
+		diagramHint,
+		axis,
+	); warning != "" {
+		diagramHint = reconciledHint
+		axis = reconciledAxis
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	if reconciled, warning := reconcileDiagramHintKindWithPredicateAxis(diagramHint, axis); warning != "" {
 		diagramHint = reconciled
@@ -5314,6 +5324,43 @@ func reconcileDiagramHintRequiredWithRequestedDimensions(
 	copyHint := *hint
 	copyHint.Required = true
 	return &copyHint, "normalized diagram_hint.required from false to true because the schema-validated requested_answer_dimensions contains a required current-turn diagram surface"
+}
+
+// reconcileRequiredDiagramRelationAxis closes one schema-internal authority
+// gap without inspecting request or answer prose. A required flow/sequence
+// diagram is already a current-turn-authorized relation surface, while a
+// call_dag is already a current-turn-authorized call-edge surface. Leaving
+// either paired with AxisUnknown/AxisDefine lets a later answer patch delete
+// edge_anchors while retaining visible factual arrows, because downstream
+// validators then mistake the arrows for presentation-only decoration.
+//
+// The reconciliation only joins schema-validated fields that the analyzer
+// emitted in the same object. It does not invent participants, endpoints,
+// edges, evidence, or conclusions. Optional diagrams retain the legacy soft
+// lane, architecture diagrams retain the definition/presentation lane, and
+// runtime Trace/root-cause analysis remains on its independent causal
+// authority rather than inheriting a source-diagram axis.
+func reconcileRequiredDiagramRelationAxis(
+	intent types.Intent,
+	hint *types.DiagramHint,
+	axis types.PredicateAxis,
+) (*types.DiagramHint, types.PredicateAxis, string) {
+	if hint == nil || !hint.Required ||
+		intent == types.IntentTrace || intent == types.IntentRootCause ||
+		(axis != types.AxisUnknown && axis != types.AxisDefine) {
+		return hint, axis, ""
+	}
+
+	switch hint.Kind {
+	case types.DiagramCallDAG:
+		return hint, types.AxisCall,
+			fmt.Sprintf("normalized predicate_axis from %q to call because the schema-validated current-turn contract requires a call_dag; visible call edges must retain typed ownership across answer patches", axis)
+	case types.DiagramFlow, types.DiagramSequence:
+		return hint, types.AxisFlow,
+			fmt.Sprintf("normalized predicate_axis from %q to flow because the schema-validated current-turn contract requires a %s relation surface; visible flow edges must retain typed ownership across answer patches", axis, hint.Kind)
+	default:
+		return hint, axis, ""
+	}
 }
 
 func reconcileDiagramHintKindWithPredicateAxis(hint *types.DiagramHint, axis types.PredicateAxis) (*types.DiagramHint, string) {

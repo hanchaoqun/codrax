@@ -37990,6 +37990,39 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.922 B883：required flow/sequence/call_dag 的 typed 关系轴跨 patch 保权（2026-08-16）
+
+1. r556 的失败不能通过扩大 `predicates.is_relational_lookup` 修。该布尔量当前明确表示“按与目标 Y 的关系筛选/计数集合 X”，
+   并参与枚举、call-chain、运行时窄问路由；把任意“两对象关系说明”塞入该位会制造更广的错路由。根修改为协调同一份
+   schema-valid Analyzer 对象中的两个精确信号：当前轮明确 required 的 diagram kind 与 predicate axis。
+2. 新单源 `reconcileRequiredDiagramRelationAxis` 只在非 Trace/root-cause 源码解释车道工作：required `flow/sequence` 与
+   `AxisUnknown/AxisDefine` 协调成 `AxisFlow`；required `call_dag` 协调成 `AxisCall`。已有 `register/return/configure/condition/
+   implement/flow/call` 精确轴全部原样保留；optional 图、required `architecture` 分组也原样保留。
+3. 该协调不读用户/模型/答案原文，不从 diagram label 猜关系，不创建 participant/endpoint/edge/evidence/结论。它只防止
+   Analyzer 一边声明“当前轮硬要求关系图”，一边把同一图轴标成 presentation-only 的结构矛盾。系统仍不补画、不改写模型
+   的图；证据不足时由模型删错边、改无箭头 grouping 或披露未证边界。
+4. Analyzer JSON schema 与 analysis-skill 使用同一教学：required flow/sequence 配 flow，required call_dag 配 call，纯
+   architecture grouping 才可保留 define。这样优先减少模型第一次 emit 的心智冲突；生产协调则为既有/波动输出提供 typed
+   防线，不依赖教学必然命中。
+5. 新 e2e pin 复刻 r556：Analyzer 发 `required flow + define` 后，持久 RequestModel 与最终 `AnswerSemanticView` 都必须是
+   `RelationAxis=flow`；模拟 patch 清空所有 `edge_anchors` 但保留 Mermaid 箭头，现有 validator 必须返回
+   `missing_relation_anchor`。另有表驱动负 pin 覆盖 optional、architecture、Trace、root-cause 和精确 register 轴。
+6. 本批不改变 Trace 因果投影、显式时间窗、自动补齐、链上-only 根因及实际占用/业务线索与规则计价可消除量双轴。它也不
+   引入 active-stream 固定总龄降级。B880 仍是下一高 ROI：B883 只堵住“删 metadata 逃逸”，B880 才负责给所有支持语言
+   提供 ownership/field-binding/registration/selection 的可表达证据载体。
+7. `go test ./... -count=1` 全绿（tool 182s、tracequery 79s、hitraceconv 96s）；Analyzer prompt 的既有
+   “define for declarations without requested transfer path” 字节 pin 保留并通过，未以重钉掩盖原合同。
+
+状态：
+
+`B883-TYPEDRELATIONAXISPRESERVATION1=implemented/full-green`；
+`B880-AGGREGATEOWNERSHIPRELATION1=confirmed/P1/next`；
+`B882-RECOVEREDATTACHMENTDEDUP1=confirmed/P1/queued-after-B880`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）
 
 1. 以 r554 的原始 model-authored body 建立先红 witness：
