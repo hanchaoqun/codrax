@@ -35787,6 +35787,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `zero_bucket_inference_scope=accounting_bucket_only` 与
    `underlying_mechanism_exclusion_permission=forbidden_without_separate_typed_evidence`，作为软引导；不扫、
    不拒、不改写答案原文。
+   后续小批已落地为同一 final typed relation 的
+   `zero_io_wait_inference_scope=accounting_bucket_only` 与
+   `underlying_storage_or_dependency_mechanism_exclusion_permission=forbidden_without_separate_typed_evidence`；
+   同时明确零值只描述 scheduler accounting bucket，排除 storage/device/dependency 机理必须另有 typed evidence。
+   `internal/agent` 全包测试通过。
 5. 两案例均未观察到 malformed-JSON 恢复、stale draft fallback、空答案、活跃流按年龄或固定 4ms 降级，
    也没有系统生成模型结论/关系/图。Trace 的系统投影仍只发布 typed 精确信息与既有确定性板。
 
@@ -35796,7 +35801,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r586`；
 `B936-STRUCTUREDPATCHCARRIERPRESERVATION1=implemented/pins-pass/not-triggered-r586`；
 `B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=implemented/wiring-pins-pass/not-triggered-r586`；
-`B938-ZEROBUCKETMECHANISMEXCLUSION1=confirmed/P1/planned`；
+`B938-ZEROBUCKETMECHANISMEXCLUSION1=implemented/typed-guidance-pins-pass/pending-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r586`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
