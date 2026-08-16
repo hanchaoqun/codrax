@@ -1042,6 +1042,7 @@ func TestWithheldWholeFlowComponentFragmentsStayMermaidParseableAA3(t *testing.T
 
 func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testing.T) {
 	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("trace the native binding"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
 			DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence},
@@ -1062,6 +1063,9 @@ func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testi
 		"inter_component_bridge_status=`registered_export_binding_between_components`",
 		"cross_component_registered_export_handoff_count=1",
 		"cross_component_registered_export_handoff[1]=`n2,n5`",
+		"semantic_handoff_relation[1]=`n2 -> n5`",
+		`standalone_edge_anchor_json=` + "`" + `{"from_node":"n2","to_node":"n5","from_identity":"_fastlex.tokenize_bytes","to_identity":"py::tokenize_bytes","relation_kind":"register"}` + "`",
+		"never draw it as a Mermaid arrow",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finalizer prompt lost exact registration handoff %q:\n%s", want, got)
@@ -1075,6 +1079,11 @@ func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testi
 		if strings.Contains(got, contradicted) {
 			t.Fatalf("exact registered-export handoff retained contradictory component guidance %q:\n%s", contradicted, got)
 		}
+	}
+	receipt := ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
+	if len(receipt) != 1 || receipt[0].FromIdentity != "_fastlex.tokenize_bytes" ||
+		receipt[0].ToIdentity != "py::tokenize_bytes" || receipt[0].RelationKind != types.DiagramRelRegister {
+		t.Fatalf("finalizer lost the exact standalone semantic handoff receipt: %+v", receipt)
 	}
 }
 

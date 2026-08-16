@@ -171,12 +171,22 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 	fixed := 0
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
-		if block.Kind != types.BlockDiagram || block.Diagram == nil {
-			continue
-		}
 		visible := make(map[string]bool)
-		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
-			visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		switch {
+		case block.Kind == types.BlockDiagram && block.Diagram != nil:
+			for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+				visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+			}
+		case answerBlockCarriesStandaloneTypedRelations(*block):
+			// A principal structured carrier has no Mermaid body. Its
+			// model-authored anchor plus matching relation claim is the visible
+			// relation surface; an exact typed receipt may restore only the two
+			// omitted identities below. It must not create topology or a claim.
+			for _, anchor := range block.EdgeAnchors {
+				visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] = true
+			}
+		default:
+			continue
 		}
 		for j := range block.EdgeAnchors {
 			anchor := &block.EdgeAnchors[j]

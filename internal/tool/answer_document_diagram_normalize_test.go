@@ -438,6 +438,34 @@ func TestNormalizeAnswerDocumentForPreEmitWiresDisplayQualifierReceiptOnStructur
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmitWiresStandaloneSemanticHandoffIdentityRepair(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("render the selected cross-language path")}
+	recipe := types.DiagramEdgeAnchor{
+		FromNode: "native", ToNode: "wrapper",
+		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "py::tokenize_bytes",
+		RelationKind: types.DiagramRelRegister,
+	}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{recipe})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimRegistrationEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "native", ToNode: "wrapper", RelationKind: types.DiagramRelRegister,
+		}},
+	}}}
+	pctx := newPreEmitCheckContext(bus)
+	normalizeAnswerDocumentForPreEmit("emit_answer_document_patch", doc,
+		&types.AnswerSemanticView{Family: types.QFCallChain}, bus, pctx)
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromIdentity != recipe.FromIdentity || got.ToIdentity != recipe.ToIdentity {
+		t.Fatalf("production normalizer did not consume the exact semantic handoff receipt: %+v", got)
+	}
+	if got.FromNode != "native" || got.ToNode != "wrapper" || got.RelationKind != types.DiagramRelRegister {
+		t.Fatalf("identity repair changed model-authored topology or relation: %+v", got)
+	}
+}
+
 func TestNormalizeAnswerDocumentForPreEmitWiresUniqueTopologyAfterMermaidAliasRepair(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("render a business-facing architecture diagram")}
 	recipes := []types.DiagramEdgeAnchor{

@@ -3104,6 +3104,71 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresenceKeepsNonClaimsAndOther
 	}
 }
 
+func TestPreCheckStandaloneCallChainSemanticHandoffRequiresSelectedExactBridge(t *testing.T) {
+	mut := types.NewMutableState("trace a cross-language binding")
+	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{{
+		FromNode: "n2", ToNode: "n3",
+		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "py::tokenize_bytes",
+		RelationKind: types.DiagramRelRegister,
+	}})
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut})
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "entry", ToNode: "native", FromIdentity: "FastTokenizer.tokenize", ToIdentity: "_fastlex.tokenize_bytes", RelationKind: types.DiagramRelCall},
+			{FromNode: "wrapper", ToNode: "core", FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+
+	hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, view, pctx)
+	if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedCallEdgeEvidence ||
+		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneSemanticHandoffMissing}) ||
+		!strings.Contains(hints[0].ExpectedShape, "registration_edge") ||
+		!strings.Contains(hints[0].ExpectedShape, "no Mermaid block or arrow is required") {
+		t.Fatalf("selected principal endpoints did not require their exact typed handoff: %+v", hints)
+	}
+
+	// The exact same receipt stays advisory when the model selected only one
+	// side or kept the other component outside this principal relation block.
+	doc.Blocks[0].EdgeAnchors = doc.Blocks[0].EdgeAnchors[:1]
+	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, view, pctx); len(hints) != 0 {
+		t.Fatalf("an unselected endpoint must not create relation completeness pressure: %+v", hints)
+	}
+}
+
+func TestPreCheckStandaloneCallChainSemanticHandoffPassesThroughSharedEvidenceGate(t *testing.T) {
+	mut := types.NewMutableState("trace a cross-language binding")
+	handoff := types.DiagramEdgeAnchor{
+		FromNode: "native", ToNode: "wrapper",
+		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "py::tokenize_bytes",
+		RelationKind: types.DiagramRelRegister,
+	}
+	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{handoff})
+	mut.AppendEvidence([]types.EvidenceItem{
+		diagramEvidenceTestCall("FastTokenizer.tokenize", "_fastlex.tokenize_bytes"),
+		diagramEvidenceTestCall("py.tokenize_bytes", "tokenize_bytes"),
+	})
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}, {ClaimForm: types.ClaimRegistrationEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "entry", ToNode: "native", FromIdentity: "FastTokenizer.tokenize", ToIdentity: "_fastlex.tokenize_bytes", RelationKind: types.DiagramRelCall},
+			handoff,
+			{FromNode: "wrapper", ToNode: "core", FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, pctx); len(hints) != 0 {
+		t.Fatalf("exact standalone semantic handoff should use its typed receipt while ordinary calls retain evidence checks: %+v", hints)
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 3 {
+		t.Fatalf("validator filtering must not mutate the model-authored document: %+v", doc.Blocks[0].EdgeAnchors)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DuplicateTypedParticipantIdentityIsDiagnosedFirst(t *testing.T) {
 	for _, endpoint := range []string{"gate.RunWith", "gate::RunWith", "Gate#runWith", "run_with"} {
 		for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture} {

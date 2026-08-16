@@ -4233,6 +4233,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if pctx == nil {
 		return nil
 	}
+	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, view, pctx); len(hints) > 0 {
+		return hints
+	}
 	// Runtime temporal frame diagrams and source-code relation diagrams may
 	// coexist in one answer. Route only the blocks whose visible endpoint
 	// multiset is proved by one complete report-local trace result to the
@@ -4256,6 +4259,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if hints := preCheckRuntimeTraceTemporalDiagramAuthority(doc, view, pctx); len(hints) > 0 {
 		return hints
 	}
+	// Exact registered-export handoffs are non-call semantic bindings. When the
+	// model copies one into a standalone principal relation carrier, the typed
+	// dispatch receipt is its authority. Remove only those exact rows from the
+	// ordinary source-edge pass so it does not incorrectly demand that a
+	// cross-file semantic join appear as one physical registration statement.
+	// Mermaid blocks never enter this exception.
+	doc = preEmitDocumentWithoutStandaloneSemanticHandoffAnchors(doc, pctx)
 	evidence := pctx.evidenceItems()
 	if view != nil && view.RelationAxis == types.AxisFlow {
 		if pctx.groundCtx == nil && pctx.ctx != nil {
@@ -4443,7 +4453,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	return hints
 }
 
-const diagramStandaloneRelationClaimHasNoAnchor = "standalone_relation_claim_has_no_anchor"
+const (
+	diagramStandaloneRelationClaimHasNoAnchor = "standalone_relation_claim_has_no_anchor"
+	diagramStandaloneSemanticHandoffMissing   = "standalone_semantic_handoff_missing"
+)
 
 // preCheckStandaloneCallChainRelationAnchorPresence closes the empty-set
 // escape in the shared relation authority. B929 validates every submitted
@@ -4490,6 +4503,152 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 		})
 	}
 	return hints
+}
+
+// preCheckStandaloneCallChainSemanticHandoffCoverage closes a selected-graph
+// bridge gap without asking the system to choose the graph. It fires only when
+// one model-authored principal structured relation block already selected both
+// exact endpoints of a registered-export handoff delivered in this finalizer
+// dispatch. The model may keep real disconnected components in separate
+// blocks, omit an optional diagram, or select a smaller grounded graph. No
+// request/final prose, item label, Mermaid text, or language name participates.
+func preCheckStandaloneCallChainSemanticHandoffCoverage(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	pctx *preEmitCheckContext,
+) []emitFixHint {
+	if doc == nil || view == nil || view.Family != types.QFCallChain || pctx == nil ||
+		pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return nil
+	}
+	required := pctx.ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
+	if len(required) == 0 {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal || block.Diagram != nil {
+			continue
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		hasRelationClaim := false
+		for _, use := range block.ClaimUses {
+			if types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
+				hasRelationClaim = true
+				break
+			}
+		}
+		if !hasRelationClaim || len(block.EdgeAnchors) == 0 {
+			continue
+		}
+		var missing []types.DiagramEdgeAnchor
+		for _, handoff := range required {
+			if !standaloneRelationBlockSelectsIdentity(block, handoff.FromIdentity) ||
+				!standaloneRelationBlockSelectsIdentity(block, handoff.ToIdentity) ||
+				standaloneRelationBlockHasExactHandoff(block, handoff) {
+				continue
+			}
+			missing = append(missing, handoff)
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		parts := make([]string, 0, len(missing))
+		for _, handoff := range missing {
+			parts = append(parts, fmt.Sprintf("%s -> %s", handoff.FromIdentity, handoff.ToIdentity))
+		}
+		hints = append(hints, emitFixHint{
+			Field:               fmt.Sprintf("blocks[id=%q].claim_uses AND blocks[id=%q].edge_anchors", block.ID, block.ID),
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
+			ExpectedShape: fmt.Sprintf(
+				"block=%q already selects both endpoints of exact registered-export handoff(s) [%s]. Keep the selected principal relation graph honest by adding claim_form=registration_edge and copying each matching standalone_edge_anchor_json from the typed authoring capsule. This is a non-call binding row on the existing ordered_list/bullet_list/table; no Mermaid block or arrow is required. Alternatively, keep genuinely disconnected components in separate bounded supporting carriers instead of presenting both endpoint components as one principal relation graph",
+				block.ID, strings.Join(parts, "; "),
+			),
+			Reason:                       "the model selected both exact endpoint identities in one principal structured relation graph, and the current dispatch supplied their exact typed registered-export handoff. Requiring that already-selected bridge prevents a silent hole between two chosen components without reading or rewriting answer prose, forcing a diagram, or creating an edge on the model's behalf.",
+			DiagramRelationFailureIssues: []string{diagramStandaloneSemanticHandoffMissing},
+		})
+	}
+	return hints
+}
+
+func standaloneRelationBlockSelectsIdentity(block types.AnswerBlock, identity string) bool {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return false
+	}
+	for _, anchor := range block.EdgeAnchors {
+		for _, candidate := range []string{anchor.FromIdentity, anchor.ToIdentity} {
+			if types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(candidate), identity) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func standaloneRelationBlockHasExactHandoff(block types.AnswerBlock, required types.DiagramEdgeAnchor) bool {
+	for _, anchor := range block.EdgeAnchors {
+		if standaloneSemanticHandoffAnchorMatches(anchor, required) {
+			return true
+		}
+	}
+	return false
+}
+
+func standaloneSemanticHandoffAnchorMatches(anchor, required types.DiagramEdgeAnchor) bool {
+	return anchor.RelationKind == types.DiagramRelRegister &&
+		types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(required.FromIdentity)) &&
+		types.AnswerCodeIdentitySurfacesEquivalent(strings.TrimSpace(anchor.ToIdentity), strings.TrimSpace(required.ToIdentity))
+}
+
+func preEmitDocumentWithoutStandaloneSemanticHandoffAnchors(
+	doc *types.AnswerDocumentV2,
+	pctx *preEmitCheckContext,
+) *types.AnswerDocumentV2 {
+	if doc == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return doc
+	}
+	required := pctx.ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
+	if len(required) == 0 {
+		return doc
+	}
+	copyDoc := *doc
+	copyDoc.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	changed := false
+	for i := range copyDoc.Blocks {
+		block := &copyDoc.Blocks[i]
+		if block.Diagram != nil || block.Kind == types.BlockDiagram || len(block.EdgeAnchors) == 0 ||
+			!answerBlockCarriesStandaloneTypedRelations(*block) {
+			continue
+		}
+		kept := make([]types.DiagramEdgeAnchor, 0, len(block.EdgeAnchors))
+		for _, anchor := range block.EdgeAnchors {
+			matched := false
+			for _, handoff := range required {
+				if standaloneSemanticHandoffAnchorMatches(anchor, handoff) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				changed = true
+				continue
+			}
+			kept = append(kept, anchor)
+		}
+		if len(kept) != len(block.EdgeAnchors) {
+			block.EdgeAnchors = kept
+		}
+	}
+	if !changed {
+		return doc
+	}
+	return &copyDoc
 }
 
 func preEmitPartitionStandaloneStructuredRelationMismatches(

@@ -9988,6 +9988,9 @@ func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmit
 	mut.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{{
 		FromNode: "n1", ToNode: "n2", FromIdentity: "A", ToIdentity: "B", RelationKind: types.DiagramRelCall,
 	}})
+	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{{
+		FromNode: "n2", ToNode: "n3", FromIdentity: "B", ToIdentity: "C", RelationKind: types.DiagramRelRegister,
+	}})
 	ctx := &types.AgentContext{Mutable: mut}
 	_ = (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if mut.FinalizerTypedRelationRecipeAvailable() {
@@ -9995,6 +9998,9 @@ func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmit
 	}
 	if got := mut.FinalizerTypedRelationRecipeAnchors(); len(got) != 0 {
 		t.Fatalf("a fresh prompt without recipes must clear stale exact anchors: %+v", got)
+	}
+	if got := mut.FinalizerTypedRelationSemanticHandoffAnchors(); len(got) != 0 {
+		t.Fatalf("a fresh prompt without recipes must clear stale semantic handoffs: %+v", got)
 	}
 }
 

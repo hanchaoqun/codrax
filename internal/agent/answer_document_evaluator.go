@@ -7442,6 +7442,11 @@ type answerDocMechanismRecipeRow struct {
 	typed  types.DiagramEdgeAnchor
 }
 
+type answerDocMechanismAuthoringReceipts struct {
+	relationAnchors        []types.DiagramEdgeAnchor
+	semanticHandoffAnchors []types.DiagramEdgeAnchor
+}
+
 type answerDocMechanismRelationTopology struct {
 	uniqueEdges       int
 	nodes             int
@@ -7506,7 +7511,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 	}
 	if len(edges) > 0 || len(unaryAnnotations) > 0 {
-		recipeAnchors := renderAnswerDocMechanismRelationAuthoringCapsule(
+		receipts := renderAnswerDocMechanismRelationAuthoringCapsule(
 			&b,
 			edges,
 			unaryAnnotations,
@@ -7516,7 +7521,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			answerDocMechanismRequestedDiagramKind(ctx, edges),
 		)
 		if ctx.Mutable != nil {
-			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(recipeAnchors)
+			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(receipts.relationAnchors)
+			ctx.Mutable.SetFinalizerTypedRelationSemanticHandoffAnchors(receipts.semanticHandoffAnchors)
 		}
 	}
 	for i, path := range typedPaths {
@@ -7786,9 +7792,9 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	limit int,
 	copyReadyKind types.DiagramKind,
 	requestedKind types.DiagramKind,
-) []types.DiagramEdgeAnchor {
+) answerDocMechanismAuthoringReceipts {
 	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
-		return nil
+		return answerDocMechanismAuthoringReceipts{}
 	}
 	// Source authority and visual authority have different cardinalities. Two
 	// grounded call sites may prove the same directed endpoint relation; they
@@ -7849,12 +7855,21 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 		})
 	}
 	if len(recipes) == 0 && len(unaryAnnotations) == 0 {
-		return nil
+		return answerDocMechanismAuthoringReceipts{}
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
 	handoffRows := answerDocMechanismSemanticHandoffRows(aliases, semanticHandoffs)
+	handoffAnchors := answerDocMechanismSemanticHandoffAnchors(handoffRows)
 	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes, handoffRows)
+	for i, anchor := range handoffAnchors {
+		payload, err := json.Marshal(anchor)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(b, "- semantic_handoff_relation[%d]=`%s -> %s`; relation_kind=`register`; standalone_edge_anchor_json=`%s`. If one principal ordered_list/bullet_list/table selects both endpoint identities as part of its relation graph, copy this row there and include claim_form=registration_edge. This is exact non-call binding metadata for that model-authored standalone carrier; never draw it as a Mermaid arrow and never treat it as execution order or value flow.\n",
+			i+1, anchor.FromNode, anchor.ToNode, payload)
+	}
 	unaryRows := make([]answerDocMechanismUnaryAnnotationRow, 0, len(unaryAnnotations))
 	for _, annotation := range unaryAnnotations {
 		participantAlias := aliasFor(annotation.participant)
@@ -7911,7 +7926,28 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	for _, recipe := range recipes {
 		anchors = append(anchors, recipe.typed)
 	}
-	return anchors
+	return answerDocMechanismAuthoringReceipts{
+		relationAnchors:        anchors,
+		semanticHandoffAnchors: handoffAnchors,
+	}
+}
+
+func answerDocMechanismSemanticHandoffAnchors(rows []answerDocMechanismSemanticHandoffRow) []types.DiagramEdgeAnchor {
+	out := make([]types.DiagramEdgeAnchor, 0, len(rows))
+	for _, row := range rows {
+		fromIdentity := strings.TrimSpace(row.handoff.callTarget)
+		toIdentity := strings.TrimSpace(row.handoff.registeredCallable)
+		if strings.TrimSpace(row.from) == "" || strings.TrimSpace(row.to) == "" ||
+			fromIdentity == "" || toIdentity == "" {
+			continue
+		}
+		out = append(out, types.DiagramEdgeAnchor{
+			FromNode: row.from, ToNode: row.to,
+			FromIdentity: fromIdentity, ToIdentity: toIdentity,
+			RelationKind: types.DiagramRelRegister,
+		})
+	}
+	return out
 }
 
 func answerDocMechanismPrioritizeRegisteredExportEdges(

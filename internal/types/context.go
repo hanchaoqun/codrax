@@ -397,6 +397,13 @@ type MutableState struct {
 	// model-authored anchor with the same node IDs, direction, and relation kind.
 	// It never creates a body edge, an edge anchor, or a relation kind.
 	finalizerTypedRelationRecipeAnchors []DiagramEdgeAnchor
+	// finalizerTypedRelationSemanticHandoffAnchors is the dispatch-scoped exact
+	// registered-export bridge subset from the same authoring capsule. These
+	// rows are eligible only as model-authored standalone structured relations;
+	// they are never Mermaid arrows, source-call edges, or system-authored answer
+	// content. Keeping them separate prevents an exact FFI/binding handoff from
+	// being confused with the ordinary source-edge recipe pool.
+	finalizerTypedRelationSemanticHandoffAnchors []DiagramEdgeAnchor
 
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
@@ -3455,6 +3462,7 @@ func (m *MutableState) SetFinalizerTypedRelationRecipeAvailable(available bool) 
 	m.finalizerTypedRelationRecipeAvailable = available
 	if !available {
 		m.finalizerTypedRelationRecipeAnchors = nil
+		m.finalizerTypedRelationSemanticHandoffAnchors = nil
 	}
 }
 
@@ -3492,6 +3500,29 @@ func (m *MutableState) FinalizerTypedRelationRecipeAnchors() []DiagramEdgeAnchor
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]DiagramEdgeAnchor(nil), m.finalizerTypedRelationRecipeAnchors...)
+}
+
+// SetFinalizerTypedRelationSemanticHandoffAnchors stores exact non-call
+// registered-export handoffs delivered in the current finalizer prompt. The
+// producer must already have joined both endpoints from typed support rows.
+func (m *MutableState) SetFinalizerTypedRelationSemanticHandoffAnchors(in []DiagramEdgeAnchor) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalizerTypedRelationSemanticHandoffAnchors = append([]DiagramEdgeAnchor(nil), in...)
+}
+
+// FinalizerTypedRelationSemanticHandoffAnchors returns a defensive copy of
+// the exact standalone handoff receipt for the current finalizer dispatch.
+func (m *MutableState) FinalizerTypedRelationSemanticHandoffAnchors() []DiagramEdgeAnchor {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]DiagramEdgeAnchor(nil), m.finalizerTypedRelationSemanticHandoffAnchors...)
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -3631,6 +3662,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.lastRejectedAnswerDocumentV2 = nil
 	m.finalizerTypedRelationRecipeAvailable = false
 	m.finalizerTypedRelationRecipeAnchors = nil
+	m.finalizerTypedRelationSemanticHandoffAnchors = nil
 }
 
 // ResetActiveAnswerDocumentV2ForFinalizeDispatch clears only the active

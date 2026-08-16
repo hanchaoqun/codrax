@@ -36077,6 +36077,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.966 B944：模型已选关系图的 registered-export 桥覆盖闭环（2026-08-16）
+
+1. r592 的缺口不能用“强制完整链”、语言名或终稿措辞做硬门。真正可用的精确信号是：Finalizer 当前
+   dispatch 已持有 parser-owned registered-export handoff，且模型自己在同一个 principal
+   `ordered_list|bullet_list|table` 关系块中，通过现有完整 identity anchors 同时选择了该 handoff 的两个
+   endpoint。只有这时，缺少两端之间的 exact registration bridge 才是已选关系图内部的结构洞。
+2. B944 将 authoring capsule 中既有的 `_fastlex.tokenize_bytes -> py.tokenize_bytes` 一类 handoff 铸为独立
+   dispatch receipt：`relation_kind=register + exact endpoint identities`。它与普通物理 call recipe 分池；教学
+   明确要求，模型若把两端选入同一 principal 结构化关系图，可复制 `standalone_edge_anchor_json` 并声明
+   `claim_form=registration_edge`。注册绑定不是执行顺序、value flow 或物理 call，禁止画成 Mermaid 箭头。
+3. 新 coverage gate 只消费 `QFCallChain`、block kind/surface role、canonical claim form、模型已提交的 endpoint
+   identity 与当前 dispatch exact receipt。不读取用户问题、item label/text/cells、Mermaid body、thinking、最终
+   答案或语言名。若模型只选择一端、把真实断开的 component 保持分离、撤回 principal relation graph，或不画
+   optional diagram，均不施压；因此它不是 Python/C++ 单例拟合，也不会强迫系统选择展示范围。
+4. 模型提交 exact registration anchor 后，该行由独立 receipt 授权，并在普通 source-edge evidence pass 前仅从
+   校验副本中过滤；相邻普通 calls 仍逐条走 B929 同向证据核。原 document 不变。若模型已写 anchor、direction
+   与 relation kind，但复制 JSON 时漏掉两端 identity，normalizer 只能在 node pair + relation 对当前 receipt
+   唯一时补回 identity；它不新增 anchor、claim、节点、拓扑、图或结论，partial/ambiguous pair 继续 fail-closed。
+5. 回归覆盖：同一 principal 块选中两端但漏桥时精确拒绝；只选一端不拒；exact bridge 与两条普通 call 共存时
+   全证据核通过且不修改原稿；生产 normalizer 只补唯一 identity pair；新 finalizer dispatch 与 reset 均清除旧
+   handoff receipt。`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 166.704s）。
+6. 本批不改 Read/Trace 查询、投影、成文结论或流式 lifecycle。显式时间窗、Trace 因果投影与自动补采保持；
+   主因仍只能来自 typed 链，邻近/背景仍仅 support-only；优先级反转、调度/算力供给、D-state、IO wait、确定性
+   语义停顿、实际占时与业务线索/规则可消除量双轴均不删。活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B944-PRINCIPALPATHRELATIONCOVERAGE1=implemented/selected-endpoints+exact-dispatch-receipt/full-tests-pass/pending-production-replay`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=context+standalone-authoring-receipt-wired/pending-production-replay`；
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=ordinary-call-evidence-preserved`；
+`optional-diagram=preserved/not-required`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=untouched`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
