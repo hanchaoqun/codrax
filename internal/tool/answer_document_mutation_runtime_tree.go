@@ -1841,8 +1841,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
 			"- Bars: no window captured — full scale = this report's largest duration (no window percentages); multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
 		{runtimeTraceProjMarkMergedSum, runtimeTraceProjLegendGroupCaliber,
-			"- `N次(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。",
-			"- `n=N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."},
+			"- `N次(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围;`N组CPU汇总(组和a~b;单段c~d)` = 同一线程按 CPU 分组后的 N 个组和,不是 N 次发生,a~b 为组和范围,c~d 为真实单段范围。",
+			"- `n=N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range; `N per-CPU aggregate groups (group sums a~b; segments c~d)` = N per-CPU group sums for one thread, not N occurrences, with a~b the group-sum range and c~d the true segment range."},
 		// PTV6-B (聚合幻影修复, 2026-07-06): the entry discloses the near-lane
 		// boundary-resampling drift and the max caliber (verbatim pin
 		// TestPTV6LegendWordingVerbatimPins; the row tag token ×N同值 未动).
@@ -10603,7 +10603,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 					row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
 				}
 			}
-			demoted = append(demoted, runtimeTraceProjMergedSumTagText(node, zh))
+			demoted = append(demoted, runtimeTraceProjMergedSumRowTagText(row, zh))
 		}
 	}
 	// 裁定4 applies to the target's own status rows too (lock_001 customer
@@ -11374,6 +11374,29 @@ func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode, zh b
 		return fmt.Sprintf("%d次(%.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
 	return fmt.Sprintf("n=%d(%.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedSumRowTagText is the row-calibrated SUM token. Most
+// merged rows count physical instances and keep the generic N次/n=N form.
+// FamilyMirrorRef is a precise typed exception: the merged members are
+// per-CPU aggregate buckets mirroring one family's segment inventory, so
+// MergedCount counts CPU groups rather than occurrences and MergedMin/Max are
+// group sums rather than single-segment extrema. Keep both ranges visible and
+// never relabel the group count as an occurrence count. Display only: values,
+// election, lane placement, and evidence ownership are untouched.
+func runtimeTraceProjMergedSumRowTagText(row runtimeTraceProjTreeRow, zh bool) string {
+	node := row.Node
+	if row.FamilyMirrorRef == "" {
+		return runtimeTraceProjMergedSumTagText(node, zh)
+	}
+	if zh {
+		return fmt.Sprintf("%d组CPU汇总(组和%.3f~%.3fms;单段%.3f~%.3fms)",
+			node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
+			row.FamilyMirrorSegMin, row.FamilyMirrorSegMax)
+	}
+	return fmt.Sprintf("%d per-CPU aggregate groups (group sums %.3f~%.3fms; segments %.3f~%.3fms)",
+		node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
+		row.FamilyMirrorSegMin, row.FamilyMirrorSegMax)
 }
 
 // runtimeTraceProjMergedUnionTagText is the §11-N2 cross-query-window union
@@ -14436,7 +14459,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 					row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
 				}
 			}
-			text = runtimeTraceProjMergedSumTagText(node, zh)
+			text = runtimeTraceProjMergedSumRowTagText(row, zh)
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 30})
 	}
@@ -18671,7 +18694,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			} else if node.MergedCrossWindowMax {
 				name += " " + runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
 			} else {
-				name += " " + runtimeTraceProjMergedSumTagText(node, zh)
+				name += " " + runtimeTraceProjMergedSumRowTagText(row, zh)
 			}
 		}
 		if node.DuplicatePublications > 1 {
@@ -19530,11 +19553,11 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				// The range keeps its own values under the group-sum caliber
 				// word, and the family's true single-segment extrema ride in
 				// (段 inventory 传播).
-				form = fmt.Sprintf("同一线程 %d 次实例合并求和,各成员 %.3f~%.3fms(按CPU分组合计,非单段;单段真值 %.3f~%.3fms 见家族行[%s]明细)",
+				form = fmt.Sprintf("同一线程按 CPU 汇总为 %d 组后求和,各组 %.3f~%.3fms(非单段;单段真值 %.3f~%.3fms 见家族行[%s]明细)",
 					node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
 					row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
 				if !zh {
-					form = fmt.Sprintf("%d instances of one thread merged as a SUM, members %.3f~%.3fms each (per-CPU group sums, not single segments; true single-segment range %.3f~%.3fms — see family row [%s])",
+					form = fmt.Sprintf("one thread aggregated into %d per-CPU groups and then summed, group sums %.3f~%.3fms (not single segments; true single-segment range %.3f~%.3fms — see family row [%s])",
 						node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
 						row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
 				}

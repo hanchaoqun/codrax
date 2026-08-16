@@ -36749,6 +36749,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `raw-request/model/final-prose-hard-gate=none`。
 
+### §123.886 AK3：按 CPU 汇总组与发生次数分离（2026-08-15）
+
+1. `EVAL-B13-AK3` 已按精确信号闭环。没有新增对用户输入、模型正文或最终答案 prose 的扫描；renderer 只读取模型构造期已存在的
+   typed `FamilyMirrorRef + FamilyMirrorSegMin/MaxMS`。这组字段只有在 merged `critical_blocking` 行与唯一 family 行满足同线程、同成员数、
+   µs 等值总量、同查询窗且 family 提供真实单段 extrema 时才铸造；零候选、多候选、成员数/总量/窗不符均 fail-open。
+2. 三个显示面共用 `runtimeTraceProjMergedSumRowTagText`：普通同线程实例仍显示 `N次(a~b)`；精确 family mirror 改为
+   `N组CPU汇总(组和a~b;单段c~d)`（英文同义）。H7 的错误形因此从
+   `4次(3.774~16.064ms)` 改为 `4组CPU汇总(组和3.774~16.064ms;单段2.197~3.853ms)`；`4` 明确是 CPU 桶数，
+   不再冒充真实发生次数。
+3. 无损明细同步从“同一线程 4 次实例”改成“同一线程按 CPU 汇总为 4 组后求和”，并继续指向 family 行的真实单段范围；动态图例同时解释
+   普通实例和 CPU 聚合组两种 typed 形，树、关键指标表、无损明细不再互相矛盾。真实 11 个 D-state 区间的 occurrence authority 仍由
+   `target_wait_occurrences`/family 明细持有，本批不复制、猜造或改写它。
+4. 正负 pin 覆盖中英文 tree/detail、H7 真实 donghu fixture 的 rank-family donor、stats-only 无 donor 的 fail-open、成员数不匹配的普通
+   occurrence form。`go test ./internal/tool -count=1` 与 `go test ./... -count=1` 全绿。
+5. 本批纯显示口径修复：Trace 数值、根因选举、链上/邻近/背景车道、实际占时/业务线索与规则计价可消除量双轴、显式窗补齐均未改变；
+   系统没有删除、替换或代写模型答案/结论。
+
+状态：
+
+`EVAL-B13-AK3=implemented/full-suite-pass/pending-production-replay`；
+`FamilyMirrorRef=typed-display-gate/fail-open-without-donor`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

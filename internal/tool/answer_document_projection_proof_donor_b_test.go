@@ -75,6 +75,9 @@ func TestProofDonorStatsOnlyDispatchRefined(t *testing.T) {
 	if !strings.Contains(fence, "自身·D-state(对端未解析) 36.757ms 4次(3.774~16.064ms)") {
 		t.Fatalf("stats-only dispatch must refine the ×4 fold row:\n%s", fence)
 	}
+	if strings.Contains(fence, "组CPU汇总") {
+		t.Fatalf("without a typed family donor, stats-only dispatch must not infer a CPU-group caliber:\n%s", fence)
+	}
 	if strings.Contains(fence, "自身·D-state/iowait") {
 		t.Fatalf("the banned merged word must not survive a proven shape:\n%s", fence)
 	}
@@ -97,6 +100,12 @@ func TestProofDonorWithRankDispatchRefined(t *testing.T) {
 	}
 	if !strings.Contains(fence, "自身·D-state") || !strings.Contains(fence, "36.757") {
 		t.Fatalf("the refined seat must render with the rank donor present:\n%s", fence)
+	}
+	if !strings.Contains(fence, "4组CPU汇总(组和3.774~16.064ms;单段2.197~3.853ms)") {
+		t.Fatalf("the rank-family donor must calibrate the mirror count as CPU groups:\n%s", fence)
+	}
+	if strings.Contains(fence, "4次(3.774~16.064ms)") {
+		t.Fatalf("a typed family mirror must not render its CPU-group count as occurrences:\n%s", fence)
 	}
 	if !strings.Contains(fence, "内核调用点 dma_fence_default_w") {
 		t.Fatalf("the kernel wait call-site must ride with the rank donor present:\n%s", fence)

@@ -230,15 +230,32 @@ func TestCR2P5FamilyMirrorTwinRangeHonesty(t *testing.T) {
 	if strings.Contains(detail, "单次 3.774~16.064ms") {
 		t.Fatalf("the twin's per-instance claim is per-CPU group sums, not single segments — 「单次」 must not render:\n%s", detail)
 	}
-	if !strings.Contains(detail, "各成员 3.774~16.064ms(按CPU分组合计,非单段") {
+	if !strings.Contains(detail, "按 CPU 汇总为 4 组后求和,各组 3.774~16.064ms(非单段") {
 		t.Fatalf("the twin must disclose the group-sum caliber of its member range:\n%s", detail)
 	}
 	if !strings.Contains(detail, "单段真值 2.197~3.853ms") {
 		t.Fatalf("the family row's segment truth must propagate to the twin lane:\n%s", detail)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
+	if !strings.Contains(fence, "4组CPU汇总(组和3.774~16.064ms;单段2.197~3.853ms)") {
+		t.Fatalf("the fence must label per-CPU groups instead of occurrences:\n%s", fence)
+	}
+	if strings.Contains(fence, "4次(3.774~16.064ms)") {
+		t.Fatalf("a per-CPU aggregate group count must never render as an occurrence count:\n%s", fence)
+	}
 	if !strings.Contains(fence, "同段镜像·与家族行同源") {
 		t.Fatalf("the twin's 行2 must wear the family-mirror tag:\n%s", fence)
+	}
+
+	modelEN := buildRuntimeTraceProjTreeModel(cr2P5FamilyMirrorProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	fenceEN := runtimeTraceProjTreeFence(modelEN, false)
+	if !strings.Contains(fenceEN, "4 per-CPU aggregate groups (group sums 3.774~16.064ms; segments 2.197~3.853ms)") {
+		t.Fatalf("the English fence must carry the same group and segment calibers:\n%s", fenceEN)
+	}
+	detailEN := runtimeTraceProjDetailFullText(modelEN, false)
+	if !strings.Contains(detailEN, "aggregated into 4 per-CPU groups and then summed") ||
+		strings.Contains(detailEN, "4 instances of one thread") {
+		t.Fatalf("the English detail must not relabel per-CPU groups as occurrences:\n%s", detailEN)
 	}
 }
 
@@ -255,6 +272,9 @@ func TestCR2P5FamilyMirrorFailsOpenOnCountMismatch(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	if strings.Contains(fence, "同段镜像") {
 		t.Fatalf("count-mismatched rows must not wear the mirror tag:\n%s", fence)
+	}
+	if !strings.Contains(fence, "3次(3.774~16.064ms)") {
+		t.Fatalf("a non-mirror occurrence sum must keep the generic occurrence form:\n%s", fence)
 	}
 }
 
