@@ -35649,6 +35649,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.953 r581：维度角色漂移、注册载体漏债与稳定不可用重复补证（2026-08-16）
+
+1. 在 `main@3ea64d11e` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + github_issue_gson_lazy_number_symptom`。Runner `1 PASS / 1 FAIL`，人工均为
+   partial；完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_poly_write_r581_20260816_manual_audit.md`。
+2. B925 未取得生产正证，不是实现未接线，而是上游 typed role 在相同问题上漂移：r580 把“原生模块名”
+   标为 `member_set`，r581 改成 `source_location`。第一稿 summary/ordered-list 已给出 `_fastlex` 和源码
+   引用，checker 仍追加“第 2 维”第三轮；补块借用 `core-rs/src/lib.rs:23` 的无关 citation，使展示比
+   原稿更差。新立 B926：普通单值 source-location 缺结构化 citation 收据；最优方案必须读 typed
+   block/item/citation 结构，不扫描 request/answer prose，也不能掩盖 exact per-member inventory 对账。
+3. Poly 首稿构造 Native→Wrapper、Wrapper/Core 自环等未证边，validator 正确拒绝；修补后图只保留
+   Python component，文字 ordered-list 仍覆盖 Rust wrapper/core/helper。图标题继续称“完整调用序列”
+   属模型成文 partial，系统不得代画或重写结论。
+4. 新立 B927：B923 的精确 binding 债只在模型把载体标成 `EvidenceRegistration` 时启动。本轮模型已
+   选择 `#[pymodule] fn _fastlex` 的完整 definition range，但 evidence_kind 为 `mechanism`；B924
+   正确补出 `py._fastlex -> Bound.add_function/Ok` 普通 body calls，`m.add_function(...)` 的 exact
+   registration handoff 却没有进入 verified component。根修应由 parser-resolved selected definition
+   与唯一结构注册表达式铸债，不能依赖模型先自报 registration，也不能把任意单调用定义误当注册。
+5. Java 写案例的 equals/hashCode patch、Map key 回归面和 `make check` 均正确；本机缺 Java runtime，
+   `javac` probe 与 direct-main typed outcome 均为 `runner_missing`。保持 `unverified` 是正确杆位，禁止
+   把 source-static pass 冒充 target behavior pass。
+6. 新立 B928：现有 stable-unavailable suppression 要求 report-level `passed=true/status=passed`，而真实
+   report 是 `passed=false/status=unavailable`，即使同一 plan、唯一 probe、typed confidence/command
+   都已精确证明 runner missing，仍追加 `batch-1-proof-repair` 并重跑相同 Java probe。最终输出还重复
+   两个字节等价的“未完全验证”块。应扩大到精确 unavailable 形并保持多计划、未绑定义务、其他失败
+   fail-open；展示层只组合一次局部通过+未验证说明。
+7. 本批无 Trace 案例，不外推 Trace 状态；未改显式窗、因果投影、自动补齐、链上-only 主因、实际
+   占用/业务线索与规则可消除量双轴。活跃字节流也不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=implemented/pending-stable-role-production-replay`；
+`B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=confirmed/P1`；
+`B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=confirmed/P1`；
+`B928-STABLEUNAVAILABLEPROOFREPEAT1=confirmed/P1`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.952 r580：精确注册与定义体关系生产生效；Trace 显式窗保持完整（2026-08-16）
 
 1. 在 `main@b8ef2f1b1` 重建后严格并发恰好两个案例：
