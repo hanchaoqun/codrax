@@ -37545,6 +37545,53 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.907 r549 / B878：P0 死循环生产闭环；无 path identity 的 generic 全局单列表上限退役（2026-08-15）
+
+1. 在 `main@bb18bea59` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + mr_poly_binding_chain`，runner `2 PASS / 2`，人工均为 partial。
+   逐轮记录见 `eval/parallel_selected_summary_evalcampaign_block_facet_r549_20260815_manual_audit.md`。
+2. B877 获直接生产正证。双子题案不再出现 `table/ordered_list currently emitted: 3`，也没有模型删除
+   aggregate list 后 normalizer 补回的循环；Finalizer 从 r548 的 `6 reject/5 patch + degraded old-draft`
+   降为 `1 reject/1 patch`，无 `answer_document_retry_state_recovered`。配置表与两个独立主题都保留，证明
+   facet-aware carrier domain 修的是合同所有权而非删除答案内容。
+3. r549 又暴露同类残余 `B878-GENERICPATHGLOBALCAP1=P1`。Generic mechanism view 对
+   `current_code_path + nearest_mechanism` 的 ordered-list carrier 仍声明 `MaxCount=1`；两个独立子题各自拥有
+   一条合法 mechanism path 且都携同一 facet family，因此新的 facet-aware 计数诚实得到 2，仍触发一次硬拒。
+   模型只能把第二题从 ordered list 改为 bullet list；内容未丢，但这是无业务语义的显示形改写和额外 LLM 轮。
+4. 该 view 只有“至少存在两条 mechanism evidence candidates”的 typed 信号，没有 path/group identity，也就
+   无法证明整个答案最多一个 path。B878 将此 requirement 改为 `MinCount=1, MaxCount=0`，并恢复原有
+   optional ordered-list per-topic 指导；多子题可以各自保留顺序语义。真正有精确上限的 summary、显式单图、
+   scalar 等合同以及同 facet duplicate cap 测试均不变。修复不靠 request/subtopic/答案文字识别“多题”。
+5. 人工审计不能因 runner PASS 忽略两个证据链 gap。其一，Mermaid 题的 Explorer 只打开
+   `internal/render/renderer.go` 的 `RenderMermaidBlocks` 调用点和 `runtime.go` 的提交前
+   `PipelineMermaidRenderabilityGate` 注释，没有打开真正定义 `internal/render/mermaid_render.go`；终稿于是把
+   off/soft/strict 的“是否拒绝模型提交”答成“REPL 渲染失败如何降级显示”，没有说明 L7 要求的失败 fence
+   重写为 `text` 与可见原因。这是 `B879-MECHANISMCALLEEDEPTH1=P1`：调用点/配置策略不能替代被问行为的
+   callee body，forced-read completion 需要消费 producer/callee definition coverage，而不是关键词或摘要相似度。
+6. 其二，跨语言案的 typed call edge 已证明 line 42 的 `py.tokenize_bytes` 调用另一个 `tokenize_bytes`，但
+   Finalizer 只收到 line 40 wrapper definition，没有 line 10 core definition identity，于是把 wrapper 错写为
+   Rust core，并写死 `.so`。该项并入既有 `B871b-CARRIEROPERATIONCHAIN1`：同名跨 scope/language 的 operation
+   chain 必须携带 scoped endpoint definition 与平台中性的 native carrier；不能靠裸符号名合并，也不能由系统
+   替模型改正文。
+7. B878 专测钉住“generic mechanism 至少一条、无全局上限、optional per-topic list 保留”；B877 的 types/
+   pre/post validator pin 与全仓套件继续通过。B879/B871b 进入下一高 ROI 批，方案必须泛化到所有支持语言，
+   用 typed caller/callee/definition/relation identity 补上下文，不扫描或重写模型/答案 prose。
+8. 本批不改 JSON/Mermaid 自愈、答案结论或 Trace。显式时间窗、完整 causal-diagnosis 因果投影与自动补齐、
+   链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索、实际占用与规则计价可消除量
+   双轴均保持；邻近/背景仍仅作支持。活跃字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B877-BLOCKFACETOWNERSHIP1=production-pass/closed-r549`；
+`B878-GENERICPATHGLOBALCAP1=implemented/full-repo-suite-pass/production-replay-next`；
+`B879-MECHANISMCALLEEDEPTH1=confirmed/P1/next`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/scoped-endpoint-witness-r549`；
+`B875-SUBTOPICCONCEPTRESOLUTION1=production-stable-r549`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

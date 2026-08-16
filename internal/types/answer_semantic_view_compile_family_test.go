@@ -1063,21 +1063,30 @@ func TestCompileGeneric_MechanismEvidenceRequiresPathCarrier(t *testing.T) {
 	if view == nil || view.Family != QFGeneric {
 		t.Fatalf("single-topic mechanism should stay QFGeneric, got %+v", view)
 	}
-	hasPathCarrier := false
+	var pathCarrier *BlockRequirement
 	for _, block := range view.RequiredBlocks {
 		if block.Kind == BlockOrderedList &&
 			containsString(block.FacetIDs, string(FacetNearestMechanism)) {
-			hasPathCarrier = true
+			blockCopy := block
+			pathCarrier = &blockCopy
 			break
 		}
 	}
-	if !hasPathCarrier {
+	if pathCarrier == nil {
 		t.Fatalf("typed multi-hop mechanism evidence should require a structured carrier: %+v", view.RequiredBlocks)
 	}
+	if pathCarrier.MinCount != 1 || pathCarrier.MaxCount != 0 {
+		t.Fatalf("generic mechanism path needs a minimum but no unproved global upper bound: %+v", *pathCarrier)
+	}
+	hasOptionalPathCarrier := false
 	for _, block := range view.OptionalBlocks {
 		if block.AcceptsKind(BlockOrderedList) {
-			t.Fatalf("capped required ordered_list must be the only count authority; optional=%+v", view.OptionalBlocks)
+			hasOptionalPathCarrier = true
+			break
 		}
+	}
+	if !hasOptionalPathCarrier {
+		t.Fatalf("unbounded required path must retain optional per-topic list guidance: %+v", view.OptionalBlocks)
 	}
 }
 

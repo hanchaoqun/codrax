@@ -57,7 +57,13 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
 			Kind:     BlockOrderedList,
 			MinCount: 1,
-			MaxCount: 1,
+			// A generic answer may contain several independent mechanism paths
+			// (for example one per explicitly separated sub-topic). The view has
+			// no typed path/group identity with which to prove a global upper
+			// bound, so only the minimum is authoritative. A MaxCount of one
+			// makes a valid sibling path consume the first path's cap and forces
+			// a presentation-only rewrite from ordered_list to bullet_list.
+			MaxCount: 0,
 			Required: true,
 			FacetIDs: []string{
 				string(FacetCurrentCodePath),
@@ -73,8 +79,8 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 				ClaimAssignmentFact,
 				ClaimReturnFact,
 			},
-			Rationale: "The typed investigation evidence contains a multi-hop mechanism or dispatch path. " +
-				"Preserve that path as a compact ordered list before broader prose; each item should name " +
+			Rationale: "The typed investigation evidence contains one or more multi-hop mechanism or dispatch paths. " +
+				"Preserve each independent path as a compact ordered list before broader prose; each item should name " +
 				"one grounded hop/anchor and cite the file:line that proves it.",
 			SurfaceRoleHint: SurfacePrincipal,
 		})
