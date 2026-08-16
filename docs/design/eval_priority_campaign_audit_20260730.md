@@ -37840,6 +37840,41 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.916 r554：JSON 教学转正；executable-only 仍漏 callable definition；非法 Mermaid fail-open（2026-08-15）
+
+1. 在 `main@0c5d8c6f5` 重建后严格并发恰好两个案例；runner 2/2 PASS（167s/108s），人工 0/2。结果记录在
+   `eval/parallel_selected_summary_evalcampaign_executable_owner_r554_20260815.md` 与对应 manual audit。
+2. JSON 教学纠错已产生正向生产信号：本轮所有 role/mechanism 行均使用合法
+   `evidence_kind=mechanism + anchor_kind=definition`，不再出现 r553 的 `anchor_kind=mechanism` 兼容修复形；该子项可保留。
+3. B879d 没有误触发，但仍不足：本轮 Explorer 没有提交 guard/return/assignment，只精确选择了
+   `RenderMermaidBlocks`/`SanitizeDegradedMermaidBlocks`/`mermaidStats` callable definitions；最终 member_set 又省略显式 role。
+   executable-only predicate 与 explicit-role-only principal 判断因此都返回 false，零 semantic-descent read。最终答案仍把
+   rejected/text-recovered draft sanitizer 当普通 REPL failure 主链，未掌握 784 行后的 maybeReplace/fallback 实现。
+4. B879e 最窄扩臂冻结为两个 typed 修正：(a) principal 判断使用既有
+   `AnswerAggregateFactRoleForRequest` 的 typed role inference，不能要求模型重复显式 role；(b) 当前源码 principal completion
+   下，Explorer-authored、citable grounded、exact source:line、`EvidenceMechanism + ClaimDefinitionFact` 且
+   AnchorSymbol 精确匹配 parser callable 的行可成为 follow-all-local-calls seed。每个 source file 只取最早一个，先消费
+   executable seeds，再消费 definition seeds；auto-pair/system producer、text-reference、identity mismatch 与 Trace 均禁入。
+5. B880 仍确认且正文事实更差：模型无证据声称 NewFinalizerAgent 注册/决定两个工具、patch 无公开 Execute；真实工具
+   选择关系没有进入证据池，图只能由模型猜造。
+6. 新立 B881（P0 render red line）：模型提交的 diagram body 含带 `|`/quote 的高风险 edge label，兼容/渲染路径产出
+   `NewFinalizerAgent -->|"返回 BaseAgent|codraxNode1[...]` 等明显非法 source，但最终仍保留 ` ```mermaid` fence，未按 L7
+   改成 ` ```text` + `# ⚠ reason`。finalizer 零 reject、runner PASS，说明 structured diagram 的 post-normalization
+   renderability/fallback 接线存在 fail-open。应先以实际 renderer parse 结果定位 seam，不能靠关键词替换该样例。
+
+状态：
+
+`JSON-ROLE-DESCRIPTION-ENUM-AXIS=production-confirmed-r554`；
+`B879d-TYPEDEXECUTABLEOWNERSEED=implemented/boundary-confirmed/not-sufficient`；
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=confirmed/P1/next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r554/P1`；
+`B881-STRUCTUREDDIAGRAMPOSTNORMALIZEFAILOPEN=confirmed/P0/after-B879e`；
+`runner-pass=2/2`；`human-pass=0/2`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.915 B879d：typed executable owner 闭包与 JSON 双轴教学纠错（2026-08-15）
 
 1. 新增语言无关的 executable-owner seed。仅当请求已通过 generic mechanism/explanation typed boundary、completion 含
