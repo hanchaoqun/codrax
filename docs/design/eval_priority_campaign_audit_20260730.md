@@ -37349,6 +37349,49 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.902 r546：B873 生产闭环；跨语言修补骨架丢失关系拓扑（2026-08-15）
+
+1. 在 `main@b1dc8d7c7` 重建后严格并发恰好两个案例：
+   `real_trace_h11_cross_direction_overlap` runner PASS（178s，human PASS）与
+   `mr_poly_binding_chain` runner PASS（163s，human FAIL）。两案无超时、无 unavailable、无固定时龄降级。
+2. B873 生产闭环。H11 保留显式 13762.791708..13763.024898 窗、`Trace 因果投影`、系统补采、
+   typed on-chain 根因榜、实际占用/业务 span 与规则可消除量双轴。`12.115ms` 只由已证
+   mutually-exclusive 的 #2 `7.405ms` + #3 `4.710ms` 组成；keva 同方向额外席和跨方向组合均写
+   unresolved/未建立且禁加。系统上下文不再因“分别记账”一词诱导无证据的 physical independence。
+3. 新确认 `B874-RELATIONREPAIRSKELETONTOPOLOGY1=P1`。多语言调查已经产生完整 typed 证据：
+   `FastTokenizer.tokenize → _fastlex.tokenize_bytes`、fallback call、pyo3 wrapper → Rust core call，
+   以及 `_fastlex` import/availability 和 `m.add_function(wrap_pyfunction!(...))` registration。首稿把若干
+   非 call 关系画成 call，被 validator 正确拒绝；但系统 retry hint 提供的 copy-ready skeleton 只剩三条
+   互不连通 call pair，模块/注册只变成 Note。模型逐字采用后，Mermaid 合法且每条边 individually
+   grounded，却不再表达用户要看的 Python→原生模块→pyo3→Rust 跨语言链。
+4. 机制不是模型波动，也不是“validator 太严格”：错误位于修补骨架选择目标。当前 selector 只追求
+   relation-kind 可表达、endpoint pair 无歧义和逐边可验证，没有 request-scoped participant/path topology
+   coverage。于是 disconnected safe subset 可被包装成 principal mechanism repair。runner 只钉正文 regex，
+   因而脚本 PASS 与图层 human FAIL 并存。
+5. 最优方案冻结为 typed carrier 根修：
+   - 先把 import/registration/guard/assignment/call 等调查事实正规化为可组合的 request-scoped relation
+     graph；不同关系类型保持原方向，不把 registration/guard 强铸为 call；
+   - skeleton 只有在其连通分量覆盖请求的 typed source/sink 或 principal participant spine 时，才可称为
+     whole-diagram repair；否则只发布 bounded component recipes，并明确 whole skeleton unavailable；
+   - 对跨语言/跨模块桥，允许由同一 exact registration/import carrier表达模块绑定，但不跨语句猜造
+     “native call”；缺桥时让模型继续调查或保留可见未证边界，不由系统连边；
+   - pin 覆盖 Python↔Rust、ArkTS/Cangjie/Java/C/C++ 等语言无关关系族，验证 call/import/register/
+     type/guard/data-flow 的组合拓扑；测试只读 typed IR/evidence/diagram metadata，不扫描用户原文、模型
+     reasoning、草稿或最终答案词句。
+6. B874 不允许系统生成或替换可见图、答案、关系与结论；系统只提供 typed relation graph、覆盖状态和
+   修补建议，图仍由模型选择与撰写。Trace 查询/窗口/投影/补齐/根因排序/唤醒链/可消除量完全不进入本批。
+
+状态：
+
+`B873-TRACERELATIONVOCABULARY1=production-pass/closed`；
+`B870-TRACERELATIONPRESENTATION1=production-pass/closed`；
+`B874-RELATIONREPAIRSKELETONTOPOLOGY1=confirmed/P1/next`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/queued-after-B874`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
