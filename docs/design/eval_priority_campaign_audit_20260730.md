@@ -37872,7 +37872,7 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
-### §123.918 r555：selected definition 信号到达但被场景总门截断；图关系重试放大（2026-08-15）
+### §123.918 r555：selected definition 信号到达但未形成实现体补读；图关系重试放大（2026-08-15，2026-08-16 纠错）
 
 1. 在 `main@1da2efe97` 重建后严格并发恰好两个案例：
    `read_combo_loose_multi_question_units + read_combo_answer_document_tools`。Runner `1 PASS / 1 FAIL`
@@ -37882,12 +37882,12 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
    `EvidenceMechanism + AnchorDefinition + ClaimDefinitionFact` 的 `RenderMermaidBlocks`，grounder 把错误的 line 39
    精确恢复到 declaration line 235，模型随后按正确 line 再发且获 `grounded/symbol_table`。但 completion 前没有产生任何
    `bounded mechanism semantic-descent read`。
-3. 原因不是证据不精确，而是更上层的 `genericForcedReadBoundaryCanUseModelPrincipalSet` 只允许 architecture narrative、
-   single-topic mechanism，或 `ReqMechanism` 且 scenario 为空/architecture。该请求是两个独立 mechanism sub-topic，整体
-   `scenario=config_trace`，所以在 B879e seed 消费前整条 forced-read 车道被挡住。最终只读
-   `mermaid_render.go:1..120`，未读取 declaration body 235 或 `maybeReplaceMermaidFence/mermaidFallbackFence`，仍把旧文件头
-   “失败原样保留”注释、普通 REPL fallback、degraded-draft sanitizer 与 emit gate 混为一条机制。这是
-   `B879f-MULTITOPICMECHANISMBOUNDARY1`，应按 typed intent/requirement/sub-topic 结构放行，而不能针对 config/Mermaid 词面。
+3. 2026-08-16 冷读精确生产日志后纠正原误诊：`genericForcedReadBoundaryCanUseModelPrincipalSet` 没有截断，日志明确发出
+   `generic forced-read gates bypassed by grounded model-owned completion boundary`。真正断点是两个 narrative
+   `member_set` 在 completion normalize 后均为 `role=supporting_coverage`，且 members/support_refs 分别为 3/5、4/5；
+   B879e 的 selected-definition helper 又要求存在 current-source `principal_answer`，因此精确的 Explorer selection 在 seed
+   消费处被静默清空。最终只读 `mermaid_render.go:2..121`，未读取 declaration body 235；旧“场景总门”结论与
+   `B879f-MULTITOPICMECHANISMBOUNDARY1` 工单撤销，不据此扩宽 request boundary。
 4. 第一案还保留一个已经用新行替换的旧 ungrounded `MergeSettings` item。Evidence buffer 明确报告
    `11 grounded / 1 ungrounded`，模型却把它解释成“不影响”并以 high confidence completion。最优修向不是删除模型文字，
    而是让同一 source/claim identity 的 grounded replacement 在 typed ledger 中 supersede 旧行，或让 unresolved principal
@@ -37908,8 +37908,8 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 
 状态：
 
-`B879e-SELECTEDCALLABLEDEFINITIONSEED=production-signal-positive/gated-before-consumption-r555`；
-`B879f-MULTITOPICMECHANISMBOUNDARY1=confirmed/P1/after-B881`；
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=production-signal-positive/supporting-role-veto-confirmed-r555`；
+`B879f-MULTITOPICMECHANISMBOUNDARY1=withdrawn/misdiagnosis-corrected-20260816`；
 `B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r555/P1`；
 `B881-STRUCTUREDDIAGRAMPOSTNORMALIZEFAILOPEN=confirmed/P0/next`；
 `B882-RECOVEREDATTACHMENTDEDUP1=confirmed/P1/queued`；
@@ -37917,6 +37917,37 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
+### §123.920 B879f 纠错：精确 selected definition 的自身实现体读取不得被展示 role 擦除（2026-08-16）
+
+1. r555 的 typed 请求本来已通过既有 model-owned completion boundary；缺失的是 seed 内第二重权限。Explorer 已提交
+   grounded、citable、current-source 的 `EvidenceMechanism + AnchorDefinition + ClaimDefinitionFact`，且 source:line 与
+   parser callable identity 精确一致。这个信号足以要求读取“被模型明确选中的函数自身”，但不等于 principal roster，也
+   不足以授权向子调用扩张。
+2. B879e 现在把两种权限拆开：`principal_answer + current-source witness` 继续允许 depth=2/max=4 的 parser-owned local-call
+   下钻；只有 `supporting_coverage` 时仍把 exact selected callable 放入 frontier，但初始 depth 直接设为上限，因此未读时只
+   请求该函数 declaration body，读完即停止。系统不生成 EvidenceItem、关系、图、结论或答案文字，也不会把 supporting
+   roster 晋升为 principal。
+3. 同批关闭一个独立缓存/解析器通用 gap：精确 parser symbol 的自身范围只需要 `ParseTier<=2 + Symbols`；旧代码还要求
+   `LineFeatures` 非空，导致暖缓存旧图或合法叶函数在已有精确 symbol/extent 时也静默不读。现在仅子调用遍历继续要求
+   line-local call/return features；索引缺失时读完当前函数后诚实停止，不猜造下一跳。
+4. 回归覆盖两档权限：(a) r555 同形的 supporting roster（含非对齐 members/support_refs）仍补读 exact selected body；
+   已读 body 不得扩进 child；(b) 无 LineFeatures 时补读 own body、随后零 invented child。原负形继续钉住 direct definition、
+   system role-description、text reference、identity mismatch 与 Trace 隔离。
+5. 该修复只消费 typed request/evidence role、parser symbol/extent 与 read coverage，不扫描用户原文、模型草稿或最终答案，
+   不硬化模型结论。显式 Trace 时间窗、因果投影/自动补齐、typed on-chain-only 主因、实际占用/业务线索与规则计价可消除量
+   双轴不变；邻近/背景仍只能作 support；活跃字节流不按 4ms 或累计年龄降级。
+
+状态：
+
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=implemented/supporting-own-body+principal-bounded-descent`；
+`B879f-MULTITOPICMECHANISMBOUNDARY1=withdrawn`；
+`B879g-MECHANISMSYMBOLWITHOUTLINEFEATURE1=implemented/own-body-only/fail-open-children`；
+`production-replay=next/exactly-two-cases`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
 ### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）

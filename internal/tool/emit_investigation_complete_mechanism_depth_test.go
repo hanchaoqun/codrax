@@ -343,6 +343,79 @@ func TestMechanismSemanticDescent_SelectedCallableDefinitionSeedsEnumRosterWitho
 	}
 }
 
+func TestMechanismSemanticDescent_SelectedDefinitionQueuesOwnBodyWithoutLineFeatureIndex(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	fi.LineFeatures = nil
+	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioConfigTrace
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "runtime configuration", Entities: []string{"RuntimeSettings"}},
+		{Summary: "render fallback", Entities: []string{"Render"}},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"OutcomeRendered"},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceMechanism, AnchorSymbol: "Render",
+		Source: "src/pipeline.go", LineStart: 2, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+
+	if !genericForcedReadBoundaryCanUseModelPrincipalSet(ctx.AnalysisIR.RequestModel) {
+		t.Fatal("typed multi-topic mechanism request unexpectedly failed the existing generic boundary")
+	}
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("selected definition without line-feature index demands=%d, want its own unread body", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 2, End: 4}) {
+		t.Fatalf("selected definition pending=%+v, want exact Render body 2..4", pending)
+	}
+
+	// Without the optional line-shape index, reading the selected body is the
+	// honest stopping point: no child relation is inferred or authored.
+	ctx = mechanismSemanticDescentContext(t, graph, 4, nil)
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioConfigTrace
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{{Summary: "a"}, {Summary: "b"}}
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 0 {
+		t.Fatalf("missing line-feature index must not invent child reads, got=%d pending=%+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+	}
+}
+
+func TestMechanismSemanticDescent_SelectedDefinitionSurvivesSupportingRosterDemotion(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioConfigTrace
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "runtime configuration", Entities: []string{"RuntimeSettings"}},
+		{Summary: "render fallback", Entities: []string{"Render"}},
+	}
+	// A narrative roster may be honestly demoted to supporting coverage when
+	// it lacks an index-aligned behavioral note for every member. That display
+	// role must not erase a separate, exact Explorer selection of a callable.
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Value: "4", Role: types.AnswerAggregateRoleSupportingCoverage,
+		Members:     []string{"OutcomeRendered", "OutcomeFallbackRune", "OutcomeUnsupportedKind", "OutcomeLibraryRejected"},
+		SupportRefs: []string{"src/pipeline.go:1", "src/pipeline.go:2", "src/pipeline.go:3", "src/pipeline.go:4", "src/pipeline.go:5"},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceMechanism, AnchorSymbol: "Render",
+		Source: "src/pipeline.go", LineStart: 2, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("exact selected definition behind supporting roster demands=%d, want own unread body", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 2, End: 4}) {
+		t.Fatalf("supporting-roster selected definition pending=%+v, want exact Render body 2..4", pending)
+	}
+}
+
 func TestMechanismSemanticDescent_SelectedCallableDefinitionPreciseNoTriggerBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string

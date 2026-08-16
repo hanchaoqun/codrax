@@ -118,7 +118,9 @@ func raiseMechanismSemanticDescentPendingReads(
 	// whose evidence shape contains no executable guard/return/assignment yet.
 	// Keep only the first exact callable per source file so role-description
 	// rosters cannot crowd out the bounded closure. System auto-pairs and plain
-	// direct definitions are excluded by producer/kind below.
+	// direct definitions are excluded by producer/kind below. A supporting-only
+	// roster may authorize the selected callable's own body read, but cannot
+	// expand the closure into child callables.
 	for _, node := range mechanismSemanticDescentSelectedDefinitionSeeds(ctx, graph, aggregateFacts, evidence) {
 		addSeed(node)
 	}
@@ -261,10 +263,10 @@ func mechanismSemanticDescentSelectedDefinitionSeeds(
 	aggregateFacts []types.AnswerAggregateFact,
 	evidence []types.EvidenceItem,
 ) []mechanismSemanticDescentNode {
-	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 ||
-		!mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts, evidence) {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 {
 		return nil
 	}
+	principalScopeSelected := mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts, evidence)
 	principalScope := types.PrincipalSourceScope(ctx.AnalysisIR.RequestModel.SourceScopeProfile)
 	seeds := make([]mechanismSemanticDescentNode, 0, mechanismSemanticDescentMaxDemands)
 	seenFiles := make(map[string]bool)
@@ -294,9 +296,16 @@ func mechanismSemanticDescentSelectedDefinitionSeeds(
 			continue
 		}
 		seenFiles[fileKey] = true
-		seeds = append(seeds, mechanismSemanticDescentNode{
+		node := mechanismSemanticDescentNode{
 			file: file, fi: fi, sym: sym, root: strings.TrimSpace(item.AnchorSymbol), followAllCalls: true,
-		})
+		}
+		if !principalScopeSelected {
+			// A supporting roster cannot authorize traversal into additional
+			// callables, but it also must not erase the model's exact selection
+			// of this definition. Read the selected body and stop there.
+			node.depth = mechanismSemanticDescentMaxDepth
+		}
+		seeds = append(seeds, node)
 		if len(seeds) >= mechanismSemanticDescentMaxDemands {
 			break
 		}
@@ -654,7 +663,14 @@ func mechanismSemanticDescentCallable(sym *repotypes.Symbol) bool {
 }
 
 func mechanismSemanticDescentASTFile(fi *repotypes.FileInfo) bool {
-	return fi != nil && fi.ParseTier <= 2 && len(fi.LineFeatures) > 0
+	// A precise parser-owned symbol is sufficient authority to demand that
+	// symbol's own body. LineFeatures are needed only when following a body
+	// line into another callable; mechanismReturnCallLine/mechanismCallLine
+	// already fail closed when that optional index is absent. Requiring a
+	// non-empty feature map here made cached graphs and legitimate leaf bodies
+	// silently suppress the initial semantic read even though the definition
+	// identity and extent were exact.
+	return fi != nil && fi.ParseTier <= 2 && len(fi.Symbols) > 0
 }
 
 func mechanismSemanticDescentGraphFile(graph *repotypes.Graph, source string) (string, *repotypes.FileInfo) {
