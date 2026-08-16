@@ -36420,10 +36420,20 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
    window 指责模型。只有所有同窗 typed duration 与 typed window 均不自洽时才保留原 advisory。H4
    `96.081/157.248=61.1%` 正形与 `96.081/50.0%` 负形均有 pin；不读 metric 名、用户文字或答案关键词，
    不改模型正文。
+9. B908 N2b 已按关系作用域根修。Explorer completion 与 Finalizer participant precheck 现在共用一个
+   typed 弱连通域：输入只包括 principal-source `FlowOperationEvidenceForRequest` 与 checkout-verified
+   stage precedence；两个及以上请求参与者只有落在同一操作连通分量时才获得 relation-candidate 权限。
+   `A -> helper -> B` 等真实多跳链保留，`A.Name -> literalA` 与 `B.Name -> literalB` 等各自局部事实不再
+   冒充 A/B 关系，也不再作为错误 repair candidate 诱导模型画桥。局部事实仍可照实展示；证据不足时模型
+   只需保留可见的独立参与者和 typed `unproven` boundary，系统不选边、不画图、不写结论。
+10. 连通域对 endpoint 间只接受完整 identity equivalence，不用短尾 compatibility 拼接中间节点；参与者到
+    endpoint 的映射若同时命中短名与限定名则 fail-closed。单参与者 operation 请求保留原 incidence 语义，
+    多参与者、多跳、断开局部事实、限定名碰撞、late-resolved member/owner 与 read-mode stage authority 均有
+    正负 pin。定向 flow/participant 套件及完整 `go test ./internal/tool -count=1`（164.183s）通过。
 
 状态：
 
-`B908-FLOWRELATIONSCOPEDISCOVERY1=production-partial/N2b-confirmed`；
+`B908-FLOWRELATIONSCOPEDISCOVERY1=implemented-N2b/typed-component+multi-hop+pinned/pending-production-replay`；
 `B909-FINITETRACESAMECPUCOGNITIVE1=production-positive-r570`；
 `B910-RUNTIMEARTIFACTSOURCEENDPOINTLEAK1=implemented/explicit-false-typed-drop+pinned`；
 `B911-TRACEARITHMETICALTERNATEDENOMINATOR1=implemented/same-window-typed-duration-fail-open+pinned`；

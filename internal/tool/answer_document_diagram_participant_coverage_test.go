@@ -323,6 +323,92 @@ func TestDiagramParticipantCoverageDoesNotPromoteLocalCarrierCallIntoRequestedSt
 	}
 }
 
+func TestDiagramParticipantCoverageDoesNotPromotePerParticipantLocalFactsIntoRequestedRelation(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"ToolA", "ToolB"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n A[\"ToolA\"]\n B[\"ToolB\"]\n AN[\"ToolA.Name\"] --> AL[\"tool-a\"]\n BN[\"ToolB.Name\"] --> BL[\"tool-b\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "AN", ToNode: "AL", FromIdentity: "ToolA.Name", ToIdentity: "tool-a", RelationKind: types.DiagramRelReturn},
+			{FromNode: "BN", ToNode: "BL", FromIdentity: "ToolB.Name", ToIdentity: "tool-b", RelationKind: types.DiagramRelReturn},
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "ToolA", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "ToolB", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	toolAReturn := diagramEvidenceTestCall("ToolA.Name", "tool-a")
+	toolAReturn.AnchorKind, toolAReturn.Predicate = types.AnchorReturn, "returns"
+	toolBReturn := diagramEvidenceTestCall("ToolB.Name", "tool-b")
+	toolBReturn.AnchorKind, toolBReturn.Predicate = types.AnchorReturn, "returns"
+	evidence := []types.EvidenceItem{toolAReturn, toolBReturn}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("separate local facts must coexist with honest unproven requested-relation boundaries: %+v", got)
+	}
+	if got := diagramParticipantTypedIncidentCandidates(rm, rm.DiagramHint.Participants[0], evidence, nil, 3); len(got) != 0 {
+		t.Fatalf("a disconnected local fact must not be offered as a requested-relation repair candidate: %v", got)
+	}
+
+	doc.Blocks[0].ParticipantBoundaries = nil
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 2 || got[0].Issue != DiagramParticipantCoverageMissingBoundary || got[1].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("both disconnected requested participants need explicit unproven boundaries: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageAcceptsMultiHopTypedRequestedRelation(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"ToolA", "ToolB"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("ToolA.Execute", "shared.Dispatch"),
+		diagramEvidenceTestCall("shared.Dispatch", "ToolB.Execute"),
+	}
+	for _, participant := range rm.DiagramHint.Participants {
+		if got := diagramParticipantTypedIncidentCandidates(rm, participant, evidence, nil, 3); len(got) != 1 {
+			t.Fatalf("the incident edge from a complete typed multi-hop component should be available without requiring a direct edge for %s: %v", participant.Identity, got)
+		}
+	}
+}
+
+func TestFlowParticipantRelationScopeFailsClosedOnAmbiguousParticipantEndpoint(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"Foo", "pkg.Foo"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Foo", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "pkg.Foo", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	surfaces := [][]string{{"Foo"}, {"pkg.Foo"}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("pkg.Foo.Run", "Sink.Accept")}
+	scope := buildFlowParticipantRelationScope(rm, rm.DiagramHint.Participants, surfaces, evidence, nil)
+	if scope.participantCovered[0] || scope.participantCovered[1] || scope.operationRelevant[0] {
+		t.Fatalf("one ambiguous endpoint must not prove a relation between short and qualified participant identities: %+v", scope)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"

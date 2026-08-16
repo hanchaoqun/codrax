@@ -323,11 +323,9 @@ func DiagramParticipantCoverageMismatches(
 		visibleCovered               bool
 		identityVisible              bool
 		typedEdgeAvailable           bool
-		requestScopedEdgeAvailable   bool
 		localEvidenceBoundaryAllowed bool
 		bounded                      bool
 	}
-	requestScopedSubset := diagramParticipantHasIncompleteRequestScopedPrecedence(rm, obligations, stagePrecedence)
 	states := make([]state, 0, len(obligations))
 	allSurfaces := make([][]string, 0, len(obligations))
 	for _, obligation := range obligations {
@@ -342,21 +340,20 @@ func DiagramParticipantCoverageMismatches(
 			}
 		}
 		allSurfaces = append(allSurfaces, surfaces)
-		requestScopedEdgeAvailable := stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence)
 		states = append(states, state{
-			obligation:                   obligation,
-			surfaces:                     surfaces,
-			visibleCovered:               diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
-			identityVisible:              diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
-			typedEdgeAvailable:           diagramParticipantHasAvailableTypedIncident(rm, obligation, surfaces, evidence, stagePrecedence),
-			requestScopedEdgeAvailable:   requestScopedEdgeAvailable,
-			localEvidenceBoundaryAllowed: requestScopedSubset && !requestScopedEdgeAvailable,
+			obligation:      obligation,
+			surfaces:        surfaces,
+			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
+			identityVisible: diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
 		})
 	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
 	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence)
 	for i := range states {
-		states[i].localEvidenceBoundaryAllowed = requestScopedSubset &&
-			!requestedParticipantGraphComplete && !states[i].requestScopedEdgeAvailable
+		requestScopedEdgeAvailable := i < len(relationScope.participantCovered) && relationScope.participantCovered[i]
+		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
+		states[i].localEvidenceBoundaryAllowed = len(obligations) > 1 &&
+			!requestedParticipantGraphComplete && !requestScopedEdgeAvailable
 	}
 
 	var out []DiagramParticipantCoverageMismatch
@@ -471,30 +468,6 @@ func DiagramParticipantCoverageMismatches(
 		return out[i].Issue < out[j].Issue
 	})
 	return out
-}
-
-// diagramParticipantHasIncompleteRequestScopedPrecedence distinguishes one
-// checkout-verified requested stage relation from unrelated local operation
-// incidence on extra carriers. The signal is precise and typed: at least two
-// incident participants are covered by the selected precedence provider, while
-// at least one other incident participant is not. In that shape a local call
-// on an uncovered carrier remains useful evidence, but it cannot force the
-// model to pretend the complete requested flow is proved.
-func diagramParticipantHasIncompleteRequestScopedPrecedence(
-	rm types.RequestModel,
-	obligations []types.DiagramParticipantHint,
-	stagePrecedence []stageauthority.PrecedenceRelation,
-) bool {
-	if len(stagePrecedence) == 0 || len(obligations) < 3 {
-		return false
-	}
-	covered := 0
-	for _, obligation := range obligations {
-		if stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence) {
-			covered++
-		}
-	}
-	return covered >= 2 && covered < len(obligations)
 }
 
 // diagramParticipantRequestedGraphConnected checks only model-authored visible
@@ -699,6 +672,30 @@ func diagramParticipantTypedIncidentCandidates(
 	if limit <= 0 {
 		return nil
 	}
+	obligations := make([]types.DiagramParticipantHint, 0)
+	allSurfaces := make([][]string, 0)
+	obligationIndex := -1
+	if rm.DiagramHint != nil {
+		for _, participant := range rm.DiagramHint.Participants {
+			if participant.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(participant.Identity) == "" {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(participant.Identity), strings.TrimSpace(obligation.Identity)) {
+				obligationIndex = len(obligations)
+			}
+			obligations = append(obligations, participant)
+			participantIdentitySurfaces := []string{strings.TrimSpace(participant.Identity)}
+			participantIdentitySurfaces = append(participantIdentitySurfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+			allSurfaces = append(allSurfaces, participantIdentitySurfaces)
+		}
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	if len(obligations) > 1 && (obligationIndex < 0 ||
+		obligationIndex >= len(relationScope.participantCovered) || !relationScope.participantCovered[obligationIndex]) {
+		// Local operations remain valid evidence, but are not repair candidates
+		// for a relationship that no typed component currently proves.
+		return nil
+	}
 	surfaces := []string{strings.TrimSpace(obligation.Identity)}
 	surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
 	seen := make(map[string]bool)
@@ -727,7 +724,11 @@ func diagramParticipantTypedIncidentCandidates(
 				diagramParticipantCandidateEndpointSide(fromIncident, toIncident))
 		}
 	}
-	for _, operation := range types.FlowOperationEvidence(evidence) {
+	for operationIndex, operation := range types.FlowOperationEvidenceForRequest(evidence, rm) {
+		if len(obligations) > 1 && (operationIndex >= len(relationScope.operationRelevant) ||
+			!relationScope.operationRelevant[operationIndex]) {
+			continue
+		}
 		from, to := strings.TrimSpace(operation.Subject), strings.TrimSpace(operation.Object)
 		relation := types.RelationForClaimForm(types.ClaimFormOf(operation))
 		if operation.AnchorKind == types.AnchorAssignment || operation.AnchorKind == types.AnchorInitializer {
@@ -774,24 +775,6 @@ func diagramParticipantCandidateEndpointSide(fromIncident, toIncident bool) stri
 	default:
 		return ""
 	}
-}
-
-func diagramParticipantHasAvailableTypedIncident(
-	rm types.RequestModel,
-	obligation types.DiagramParticipantHint,
-	surfaces []string,
-	evidence []types.EvidenceItem,
-	stagePrecedence []stageauthority.PrecedenceRelation,
-) bool {
-	if stageauthority.ParticipantHasIncidentPrecedence(rm, obligation, stagePrecedence) {
-		return true
-	}
-	for _, surface := range surfaces {
-		if types.AnswerCodeParticipantHasFlowOperation(surface, evidence) {
-			return true
-		}
-	}
-	return false
 }
 
 func diagramIncidentParticipantObligations(view *types.AnswerSemanticView) []types.DiagramParticipantHint {

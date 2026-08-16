@@ -856,7 +856,7 @@ func TestFlowOperationNavigationHintUsesExactQueuedReadInsteadOfBroadSearch(t *t
 	t.Fatal("missing durable flow participant repair")
 }
 
-func TestFlowParticipantCoverageLateResolvesUniqueStaticMemberUnderRequestedOwner(t *testing.T) {
+func TestFlowParticipantCoverageDoesNotPromoteDisconnectedLocalOperationsIntoRequestedRelation(t *testing.T) {
 	busOperation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
 	busOperation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"
 	busOperation.OwnerIdentity = "Orchestrator.applyStageOutput"
@@ -896,8 +896,36 @@ func TestFlowParticipantCoverageLateResolvesUniqueStaticMemberUnderRequestedOwne
 			t.Fatalf("unique requested-owner binding should late-resolve %q: %+v", want, resolved)
 		}
 	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); !flowTestSliceContains(got, "Mutable") || !flowTestSliceContains(got, "BusContext") {
+		t.Fatalf("disconnected local operations must not masquerade as the requested member/owner relation: %v", got)
+	}
+
+	// A separately grounded operation that really joins the two requested
+	// identities closes the relation scope. The completion gate still does not
+	// choose whether or how the model renders that operation.
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "BusContext.SetMutable", "Mutable.Load", 96),
+	})
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
-		t.Fatalf("independently grounded operations should cover both late-resolved member and owner: %v", got)
+		t.Fatalf("a typed cross-participant operation should close the requested relation scope: %v", got)
+	}
+}
+
+func TestFlowParticipantCoverageAcceptsTypedMultiHopRelationComponent(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolA.Execute", "shared.Dispatch", 40),
+		flowOperationEvidence(types.AnchorCall, "shared.Dispatch", "ToolB.Execute", 41),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"ToolA", "ToolB"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("a typed multi-hop component connecting the requested participants should close coverage: %v", got)
 	}
 }
 

@@ -2242,7 +2242,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: preCompleteDowngradeSummary(fmt.Sprintf(
-					"emit_investigation_complete rejected: the required source-flow diagram still has no citable operation incident to typed participant(s) %v. The current operation rows may describe real auxiliary edges, but they do not cover the requested participant slate. Do one focused pass over the corresponding source operations and emit the verified directed rows; when source cannot prove a participant relation, keep that participant explicitly unproven instead of inventing a bridge. %s",
+					"emit_investigation_complete rejected: the required source-flow diagram still has no citable relation component connecting typed participant(s) %v to another requested participant. The current operation rows may describe real local or auxiliary edges, but separate local facts do not prove the requested relationship. Do one focused pass over the corresponding source operations and emit the verified directed rows; when source cannot prove a participant relation, keep that participant explicitly unproven instead of inventing a bridge. %s",
 					missingFlowParticipants, navigationHint)),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "flow_participant_operation_evidence",
@@ -2259,7 +2259,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}
 		earlyDowngradeConverged = true
 		ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
-			"required source-flow participant relation remains unproven for %v: existing grounded operation rows may still be summarized, but the model must not connect these participants or claim a complete requested flow without incident typed evidence",
+			"required source-flow participant relation remains unproven for %v: existing grounded local operation rows may still be summarized, but the model must not connect these participants or claim a complete requested flow without a typed operation component joining the requested identities",
 			missingFlowParticipants))
 	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
@@ -3569,9 +3569,9 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 	if rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) == 0 {
 		return nil
 	}
-	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
 	seen := make(map[string]bool)
-	missing := make([]string, 0, len(rm.DiagramHint.Participants))
+	participants := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
+	participantSurfaces := make([][]string, 0, len(rm.DiagramHint.Participants))
 	for _, participant := range rm.DiagramHint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
 		key := strings.ToLower(identity)
@@ -3588,25 +3588,14 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			// boundary; this gate simply avoids an impossible hunt.
 			continue
 		}
-		covered := stageauthority.ParticipantHasIncidentPrecedence(rm, participant, stagePrecedence)
-		for _, operation := range operations {
-			for _, surface := range resolved.surfaces {
-				if types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Subject) ||
-					types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Object) ||
-					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Subject) ||
-					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Object) ||
-					types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, operation.Subject, operation, evidence) ||
-					types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, operation.Object, operation, evidence) {
-					covered = true
-					break
-				}
-			}
-			if covered {
-				break
-			}
-		}
-		if !covered {
-			missing = append(missing, identity)
+		participants = append(participants, participant)
+		participantSurfaces = append(participantSurfaces, resolved.surfaces)
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, stagePrecedence)
+	missing := make([]string, 0, len(participants))
+	for i, participant := range participants {
+		if i >= len(relationScope.participantCovered) || !relationScope.participantCovered[i] {
+			missing = append(missing, strings.TrimSpace(participant.Identity))
 		}
 	}
 	return missing
@@ -3618,7 +3607,7 @@ func flowParticipantCoverageRepairHint(missing, files, keywords []string) string
 
 func flowParticipantCoverageRepairBase(missing []string) string {
 	return fmt.Sprintf(
-		"The required source-flow participant slate still lacks incident operation evidence for %v. %s",
+		"The required source-flow participant slate still lacks a typed operation component connecting %v to another requested participant. Separate local operations remain useful facts but do not prove the requested relationship. %s",
 		missing, types.FlowOperationEvidenceEmissionGuide)
 }
 
