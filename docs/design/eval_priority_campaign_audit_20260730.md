@@ -35749,6 +35749,61 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.927 r559：精确补读首次生产命中；同轮 read receipt、目标排序与 JSON 假诊断根修（2026-08-16）
+
+1. 在 `main@5b191acd2` 重建后严格并发恰好两个案例：
+   `read_combo_answer_document_tools + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工
+   两案均 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_b884_trace_r559_20260816_manual_audit.md`。
+2. B884b 获第一段生产正证。工具关系案第一次 completion downgrade 明确返回
+   `read_file path="cmd/root.go" line_offset=4302 limit=25` 并禁止先做 broad grep；下一轮实际工具调用正是
+   该 bounded read，说明 typed target→下一工具面的接线已经生效，没有由系统制造 EvidenceItem 或关系边。
+3. 同案暴露 `B884c-FLOWMIDLOOPREADRECEIPT1=P1`：read_file 的 typed `ToolReadCoverage` 只在 dispatch
+   末尾 ParseOutput 才汇入 EvidenceClosure。ReAct 同轮内 pending debt 因此一直看不到已读事实，模型连续读取
+   `internal/agent/agent.go:1151-1175/1200`，下一次 completion 又返回同一窗口。根修在每个
+   `PhaseMidLoop` 仅消费当前批 typed read coverage 并做幂等汇入；若存在 flow-navigation debt，完整覆盖即
+   drain，部分覆盖继续保留。它不读用户/模型原文，不生成证据，也不关闭 relation gate。
+4. 新确认 `B886-FLOWREPAIRTARGETPRECISIONRANK1=P1`：旧 selector 按 path/relation 枚举顺序取第一个
+   planning-compatible occurrence，导致弱前缀/包含匹配可抢在 exact participant/type endpoint 之前。
+   新排序为完整 identity 等价 > snake/camel 归一等价 > owner > typed short-tail compatibility > planning-only
+   包含，并在同精度内按 relation kind/path/line 保持确定性；该 rank 只决定软导航坐标，不进入硬门或答案。
+   `SupportedReadLanguages()` 全语言矩阵（含 ArkTS/Cangjie）现同时钉住“较早弱匹配不能压过较晚精确端点”。
+5. 新确认 `B887-PARTICIPANTFALSEJSONPLACEMENTDIAG1=P1`：participant coverage precheck 只能在 JSON 已成功
+   解码且 `ParticipantBoundaries` 已落到 block 字段后运行，却无条件把每个关系/身份 mismatch 解释为
+   “JSON placement 错误”。r559 的字段位置一直正确，模型仍被假提示带偏，发生 9 次 finalizer reject、总耗时
+   501s。根修删除该不具事实依据的前缀，让提示先给 exact `participant + issue + repair_action`；真实 schema/
+   decoder 错位仍由其所有者教学。校验强度、候选证据和模型对 node/edge/label 的所有权均不变。
+6. 工具关系终稿的 Name 字面量、注册点、full/patch 表格有用，但请求的 finalizer full-vs-patch dispatch
+   关系仍未进入图；图转而展示注册、Name return 和流预览等旁支，因此不能以 runner PASS 收账。B884c/B886/
+   B887 修后需重放，验收为：每个精确窗口只读一次、目标优先落到 exact operation、成文错误首句与真实 issue
+   一致、无假 JSON 指令、关系缺证时诚实 boundary 而非系统造边。
+7. Trace 案是显式窗内四态+一次“是否受限”的有限 effect verdict，不是根因榜/竞争贡献者/调用链请求，因而
+   不应强制完整 `Trace 因果投影`。终稿正确保留 233.190ms 窗、Running 157.248ms、Runnable 5.604ms、
+   Sleeping 70.338ms、D-state 0ms，以及“策略上限存在、target binding 未证”。Runner 的句序正则是假阴性；
+   但人工仍判 fail，因为模型把 CPU4=2100MHz 的 policy ceiling 与 CPU12=2075MHz 观测直接比较，并把
+   CPU12 称为“主核”，违反 typed 上下文已经明确给出的 same-CPU binding 规则。
+8. 该 Trace 错误冻结为 `B888-TARGETCPUPOLICYJOINCONTEXT1=P2`：现有事实虽准确，却以 policy rows、target CPU
+   roster、caliber prose 三处分散交付，仍要求模型自行做负向 relational join。后续最优方向是由 trace_query
+   输出紧凑 typed per-CPU join roster（target running/frequency、same-CPU policy witness、binding status 各列），
+   Finalizer 只把表交给模型，不扫描/改写正文、不替模型作 yes/no 结论；先做异构回放确认泛化后施工。
+9. 本批不改 Trace 查询/投影、JSON 内容恢复、写模式或 active-stream 终止权。真正 causal diagnosis 仍自动
+   补齐并生成 Trace 因果投影；主因只能来自 typed on-chain 证据，优先级反转、调度延迟/供给、算力供给、
+   D/IO、确定性语义与链上业务线索不丢，实际占用和规则计价可消除量双轴保持；邻近/背景仅作 support。
+   持续字节流不因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B884b-FLOWNAVIGATIONNEXTTURNSURFACE1=production-positive-r559`；
+`B884c-FLOWMIDLOOPREADRECEIPT1=implemented/typed-current-batch+partial-range-pins`；
+`B886-FLOWREPAIRTARGETPRECISIONRANK1=implemented/all-language-ranked-soft-navigation`；
+`B887-PARTICIPANTFALSEJSONPLACEMENTDIAG1=implemented/actual-issue-first+no-false-placement`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-partial-r559/requested-dispatch-edge-still-missing`；
+`B888-TARGETCPUPOLICYJOINCONTEXT1=confirmed/P2/pending-generalized-design`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.848 r514：源码调用链参与者闭包误入 Trace 豁免；JSON 条件合同无冲突（2026-08-15）
 
 1. 在 `main@ec1b8d96e` 重建后严格并发恰好两个案例：

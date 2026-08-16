@@ -13003,6 +13003,7 @@ func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	switch obs.Phase {
 	case PhaseMidLoop:
+		e.refreshMidLoopReadCoverage(ctx, obs)
 		e.refreshMidLoopStructuredEvidence(ctx)
 		e.observeSourceInventoryFollowupRouteMismatch(ctx, obs)
 		e.observeSourceInventoryLensSurfaceProgress(ctx, obs)
@@ -13012,6 +13013,37 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		return e.observeSoftStop(obs)
 	}
 	return LoopSignal{}
+}
+
+// refreshMidLoopReadCoverage makes successful read_file coverage visible to
+// the run-level closure before the next ReAct turn. ParseOutput already
+// performs the same monotonic ingestion at dispatch end, but a typed flow
+// completion repair can enqueue a bounded PendingRead while the dispatch is
+// still active. Without this mid-loop bridge the next successful read remains
+// invisible until ParseOutput, so the restricted tool surface keeps offering
+// the same already-read range and the parser target selector cannot advance.
+//
+// This consumes only ToolReadCoverage emitted by read_file. It does not inspect
+// request/model prose, manufacture evidence, or satisfy a relation gate. A
+// fully covered typed flow-navigation debt is merely removed from the pending
+// navigation queue; relation authority still requires emit_evidence.
+func (e *explorerEvaluator) refreshMidLoopReadCoverage(ctx *types.AgentContext, obs LoopObservation) {
+	if e == nil || ctx == nil || ctx.Mutable == nil || len(obs.CurrentToolResults) == 0 {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	hadFlowNavigationDebt := explorerHasPendingFlowNavigationRead(ctx)
+	readSet, readRanges, totals, _ := extractFileCoverageWithTotals(obs.CurrentToolResults, e.repoRoot)
+	if len(readSet) == 0 {
+		return
+	}
+	ingestExplorerReadCoverage(closure, e.repoRoot, readSet, readRanges, totals)
+	if hadFlowNavigationDebt {
+		closure.DrainSatisfiedPendingReads()
+	}
 }
 
 func (e *explorerEvaluator) observeSourceInventoryFollowupRouteMismatch(ctx *types.AgentContext, obs LoopObservation) {

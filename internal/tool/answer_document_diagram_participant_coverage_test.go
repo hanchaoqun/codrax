@@ -75,10 +75,16 @@ func TestPreCheckDiagramParticipantCoveragePreservesGroundedNoArrowGrouping(t *t
 			t.Fatalf("no-arrow grouping repair hint missing %q:\n%s", want, hints[0].ExpectedShape)
 		}
 	}
-	for _, forbidden := range []string{"add_exact_visible_disconnected_participant", "remove_no_arrow_grouping", "flatten_grouping"} {
+	for _, forbidden := range []string{
+		"add_exact_visible_disconnected_participant", "remove_no_arrow_grouping", "flatten_grouping",
+		"JSON placement:", "participant_boundaries is block-level", "never nest it inside diagram",
+	} {
 		if strings.Contains(hints[0].ExpectedShape, forbidden) {
-			t.Fatalf("boundary repair must not instruct removal of grounded grouping; found %q in %s", forbidden, hints[0].ExpectedShape)
+			t.Fatalf("typed participant repair must not emit unrelated or false guidance; found %q in %s", forbidden, hints[0].ExpectedShape)
 		}
+	}
+	if !strings.HasPrefix(hints[0].ExpectedShape, "Typed participant coverage mismatch: participant=MutableState issue=missing_unproven_boundary") {
+		t.Fatalf("repair must lead with the actual typed mismatch, got: %s", hints[0].ExpectedShape)
 	}
 	if doc.Blocks[0].Diagram.Body != bodyBefore {
 		t.Fatalf("precheck guidance must not rewrite the model's existing grouping: %q", doc.Blocks[0].Diagram.Body)

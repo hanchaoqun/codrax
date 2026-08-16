@@ -261,6 +261,13 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
+	type rankedTarget struct {
+		target    flowOperationRepairReadTarget
+		matchRank int
+		kindRank  int
+		line      int
+	}
+	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
 	for _, path := range paths {
 		if !relationSourceInRequestedScope(path, rm) {
@@ -278,8 +285,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			from := flowRepairRelationEndpointSurfaces(relation.FromEP)
 			to := flowRepairRelationEndpointSurfaces(relation.ToEP)
-			if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
-				!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {
+			matchRank := max(
+				flowRepairPlanningSurfaceMatchRank(surfaces, from),
+				flowRepairPlanningSurfaceMatchRank(surfaces, to),
+			)
+			if matchRank == 0 {
 				continue
 			}
 			file := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, fi.RelPath, path))
@@ -297,13 +307,76 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			if start < 1 {
 				start = 1
 			}
-			return flowOperationRepairReadTarget{
-				file:      file,
-				lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
-			}, true
+			candidates = append(candidates, rankedTarget{
+				target: flowOperationRepairReadTarget{
+					file:      file,
+					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+				},
+				matchRank: matchRank,
+				kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
+				line:      line,
+			})
 		}
 	}
-	return flowOperationRepairReadTarget{}, false
+	if len(candidates) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].matchRank != candidates[j].matchRank {
+			return candidates[i].matchRank > candidates[j].matchRank
+		}
+		if candidates[i].kindRank != candidates[j].kindRank {
+			return candidates[i].kindRank > candidates[j].kindRank
+		}
+		if candidates[i].target.file != candidates[j].target.file {
+			return candidates[i].target.file < candidates[j].target.file
+		}
+		return candidates[i].line < candidates[j].line
+	})
+	return candidates[0].target, true
+}
+
+// flowRepairPlanningSurfaceMatchRank orders parser-owned navigation sites by
+// identity precision. Presentation-equivalent and snake/camel-equivalent
+// endpoints outrank owner and short-tail compatibility; substring-like
+// planning matches remain a last-resort soft navigation signal. The rank never
+// becomes relation evidence or a hard answer gate.
+func flowRepairPlanningSurfaceMatchRank(wanted, candidates []string) int {
+	best := 0
+	for _, left := range wanted {
+		for _, right := range candidates {
+			rank := 0
+			switch {
+			case types.AnswerCodeIdentitySurfacesEquivalent(left, right):
+				rank = 5
+			case flowRepairPlanningKey(left) != "" && flowRepairPlanningKey(left) == flowRepairPlanningKey(right):
+				rank = 4
+			case types.AnswerCodeIdentityOwnsEndpoint(left, right):
+				rank = 3
+			case types.AnswerCodeIdentitySurfacesCompatible(left, right):
+				rank = 2
+			case flowRepairPlanningSurfaceMatches(left, right):
+				rank = 1
+			}
+			if rank > best {
+				best = rank
+			}
+		}
+	}
+	return best
+}
+
+func flowOperationRepairRelationKindRank(kind string) int {
+	switch strings.TrimSpace(kind) {
+	case "call":
+		return 3
+	case "type_usage":
+		return 2
+	case "reference":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // flowRepairParserRelationTargets adds exact parser-observed incident sites to

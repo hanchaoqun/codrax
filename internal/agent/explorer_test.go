@@ -4601,6 +4601,66 @@ func TestExplorer_FilterToolSchemas_PendingFlowNavigationStaysOnBoundedMateriali
 	}
 }
 
+func TestExplorer_MidLoopReadCoverageDrainsSatisfiedFlowNavigationDebt(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:       types.RepairReadFile,
+		Files:      []string{"cmd/root.go"},
+		LineRanges: []types.LineRange{{Start: 4303, End: 4327}},
+		Origin:     types.RepairOriginFlowNavigationPrefix + "participant",
+		Stage:      string(types.StageExplore),
+		Advisory:   true,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	read := types.ToolResult{
+		ToolName: "read_file", Success: true,
+		ReadCoverage: &types.ToolReadCoverage{
+			Path: "cmd/root.go", LineStart: 4303, LineEnd: 4327, TotalLines: 5000,
+		},
+	}
+	eval := &explorerEvaluator{}
+	eval.refreshMidLoopReadCoverage(ctx, LoopObservation{
+		Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{read},
+	})
+
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("fully covered typed flow-navigation read must drain in the same ReAct dispatch: %+v", pending)
+	}
+	if !mut.EvidenceClosure().HasReadLine("cmd/root.go", 4315) {
+		t.Fatal("mid-loop typed read coverage was not ingested")
+	}
+}
+
+func TestExplorer_MidLoopReadCoverageKeepsPartiallyCoveredFlowNavigationDebt(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:       types.RepairReadFile,
+		Files:      []string{"cmd/root.go"},
+		LineRanges: []types.LineRange{{Start: 4303, End: 4327}},
+		Origin:     types.RepairOriginFlowNavigationPrefix + "participant",
+		Stage:      string(types.StageExplore),
+		Advisory:   true,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	read := types.ToolResult{
+		ToolName: "read_file", Success: true,
+		ReadCoverage: &types.ToolReadCoverage{
+			Path: "cmd/root.go", LineStart: 4303, LineEnd: 4310, TotalLines: 5000,
+		},
+	}
+	eval := &explorerEvaluator{}
+	eval.refreshMidLoopReadCoverage(ctx, LoopObservation{
+		Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{read},
+	})
+
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 1 {
+		t.Fatalf("partial read must preserve the remaining surgical debt: %+v", pending)
+	}
+	if !explorerHasPendingFlowNavigationRead(ctx) {
+		t.Fatal("partial read must keep the bounded flow-navigation surface active")
+	}
+}
+
 func TestExplorer_FilterToolSchemas_ReadWithoutEmitEscalatedMaterializationOnly(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,

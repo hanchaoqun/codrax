@@ -635,13 +635,22 @@ func TestFlowOperationRepairTargetsCarryParserIncidentSitesAcrossSupportedLangua
 			ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
 				path: {
 					RelPath: path, Language: language,
-					Relations: []repotypes.Relation{{
-						Kind: "type_usage", File: path, Line: 17,
-						FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: path, Line: 17},
-						ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: path, Line: 17},
-						Confidence: repotypes.ConfidenceAST,
-						Provenance: "tree_sitter", ResolvedBy: language + "_type_usage",
-					}},
+					Relations: []repotypes.Relation{
+						{
+							Kind: "call", File: path, Line: 3,
+							FromEP:     repotypes.RelationEndpoint{Name: "preview", File: path, Line: 3},
+							ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocumentPreview", File: path, Line: 3},
+							Confidence: repotypes.ConfidenceAST,
+							Provenance: "tree_sitter", ResolvedBy: language + "_call",
+						},
+						{
+							Kind: "type_usage", File: path, Line: 17,
+							FromEP:     repotypes.RelationEndpoint{Name: "registerTools", File: path, Line: 17},
+							ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: path, Line: 17},
+							Confidence: repotypes.ConfidenceAST,
+							Provenance: "tree_sitter", ResolvedBy: language + "_type_usage",
+						},
+					},
 				},
 			}})
 
@@ -656,7 +665,7 @@ func TestFlowOperationRepairTargetsCarryParserIncidentSitesAcrossSupportedLangua
 			}
 			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
 			if !ok || target.file != path || target.lineRange.Start != 5 || target.lineRange.End != 29 {
-				t.Fatalf("%s parser incident must yield one bounded navigation read, got ok=%t target=%+v", language, ok, target)
+				t.Fatalf("%s parser incident must prefer the exact cross-language identity over an earlier lexical match, got ok=%t target=%+v", language, ok, target)
 			}
 		})
 	}
@@ -683,12 +692,22 @@ func TestFlowOperationNavigationReadIsAdvisoryAndAdvancesAcrossUnreadParserSites
 		},
 		"internal/agent/agent.go": {
 			RelPath: "internal/agent/agent.go", Language: "go",
-			Relations: []repotypes.Relation{{
-				Kind: "type_usage", File: "internal/agent/agent.go", Line: 3788,
-				FromEP:     repotypes.RelationEndpoint{Name: "buildToolSchemas", File: "internal/agent/agent.go", Line: 3788},
-				ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "internal/agent/agent.go", Line: 3788},
-				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_type_usage",
-			}},
+			Relations: []repotypes.Relation{
+				{
+					// A lexical/substring-compatible site may occur earlier in the
+					// same file. It is useful only after exact identities are exhausted.
+					Kind: "call", File: "internal/agent/agent.go", Line: 1152,
+					FromEP:     repotypes.RelationEndpoint{Name: "streamPreviewBuffer.emitPreview", File: "internal/agent/agent.go", Line: 1152},
+					ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocumentPreview", File: "internal/agent/agent.go", Line: 1152},
+					Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+				},
+				{
+					Kind: "type_usage", File: "internal/agent/agent.go", Line: 3788,
+					FromEP:     repotypes.RelationEndpoint{Name: "buildToolSchemas", File: "internal/agent/agent.go", Line: 3788},
+					ToEP:       repotypes.RelationEndpoint{Name: "EmitAnswerDocument", File: "internal/agent/agent.go", Line: 3788},
+					Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_type_usage",
+				},
+			},
 		},
 	}})
 
@@ -717,7 +736,7 @@ func TestFlowOperationNavigationReadIsAdvisoryAndAdvancesAcrossUnreadParserSites
 	})
 	next, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
 	if !ok || next.file != "internal/agent/agent.go" || next.lineRange != (types.LineRange{Start: 3776, End: 3800}) {
-		t.Fatalf("after the first site is read the repair must advance, got ok=%t target=%+v", ok, next)
+		t.Fatalf("after the first site is read the repair must prefer the exact identity over an earlier lexical match, got ok=%t target=%+v", ok, next)
 	}
 }
 
