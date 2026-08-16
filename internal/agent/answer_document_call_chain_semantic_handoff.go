@@ -95,7 +95,21 @@ func answerDocRegisteredExportHandoffs(entries []types.AnswerSupportEntry) []ans
 			callableSurface := strings.TrimSpace(binding.Object)
 			bindingStatus := "explicit_registration_endpoints"
 			export := slot + "." + answerDocChainIdentityTail(callable)
-			if callTarget != export {
+			if callTarget == export && !strings.Contains(callable, ".") {
+				// A direct export spelling can still carry an unqualified
+				// registered callable. When the same exact owner/reference join
+				// used by expression-style registrations identifies one unique
+				// same-file wrapper, retain that qualified identity. Otherwise
+				// leave the short callable unresolved; tail similarity alone is
+				// never enough to choose among wrappers/core functions.
+				if refinedSlot, refinedCallable, ok := answerDocOwnerReferenceRegistrationEndpoints(callTarget, binding, entries); ok {
+					slot = refinedSlot
+					callable = answerDocExactChainIdentity(refinedCallable)
+					callableSurface = refinedCallable
+					export = slot + "." + answerDocChainIdentityTail(callable)
+					bindingStatus = "exact_export_plus_owner_reference_join"
+				}
+			} else if callTarget != export {
 				var ok bool
 				slot, callable, ok = answerDocOwnerReferenceRegistrationEndpoints(callTarget, binding, entries)
 				if !ok {

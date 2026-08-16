@@ -35689,6 +35689,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 10. 专项 `internal/agent` 全套 8.886s 通过；`go test ./internal/types ./internal/skill ./internal/tool
     -count=1` 全绿（tool 166.251s）。生产回放仍需下一批 exact-2 验证模型是否消费，但接线、完整/不完整
     正负臂、最终 tail 顺序和 blocked_reason 分域均已钉。
+11. B935 已作为第二独立批施工。`answerDocRegisteredExportHandoffs` 在 direct export 已精确匹配、但
+    registered callable 仍是短名时，复用既有 owner/reference join：只在 binding 的 parser-stamped owner、
+    同文件唯一 wrapper caller、命名空间与 binding 表达式四者一致时升级为 qualified callable；否则继续
+    `unresolved_from_unqualified_registered_callable`。紧凑关系优先级因而优先保留 entry→export、binding、
+    wrapper→core 三个接缝，而不再让 core helper fan-out 冒充 export incident。
+12. 该实现没有语言分支。Python/PyO3、Java/JNI、ArkTS/NAPI、Cangjie/FFI、C、C++、Rust 七组
+    typed identity 矩阵均通过；原 short-name coincidence、owner/namespace/source/producer 歧义负臂保持。
+    `go test ./internal/agent ./internal/types ./internal/skill -count=1` 全绿（10.331s/22.274s/0.532s）。
+    它只修 prompt evidence identity，不生成边、图或答案，B932 的模型自写 anchor 权责不变。
 
 状态：
 
@@ -35696,7 +35705,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B932-STRUCTUREDRELATIONZEROANCHOR1=production-positive-r584`；
 `B933-BLOCKEDREASONCALLSITEFINALCALIBER1=implemented/final-tail+production-wiring-pins-pass/pending-replay`；
 `B934-RUNTIMEENUMERATIONFINALAUTHORITY1=implemented/shared-authority+final-tail-pins-pass/pending-replay`；
-`B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=confirmed/pending`；
+`B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=implemented/exact-owner-reference+language-matrix-pins-pass/pending-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r584`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

@@ -792,6 +792,39 @@ func TestCallChainTypedBridgeAndBranchHandoffUsesExactTypedJoinsOnlyAA3(t *testi
 		t.Fatalf("short-name coincidence must not close downstream execution:\n%s", got)
 	}
 
+	// A short direct-export binding may be refined only when its parser-owned
+	// enclosing owner and one unique same-file wrapper call agree. This is the
+	// production PyO3 shape, and the same typed join applies to JNI/NAPI/FFI
+	// bindings without inspecting a language name or request prose.
+	plan.Lanes[0].Entries = []types.AnswerSupportEntry{
+		{EvidenceID: "py-call", ClaimForm: types.ClaimCallEdge, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py", Location: "tokenizer.py:21"},
+		{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: "_fastlex", Object: "tokenize_bytes", OwnerSymbol: "py::_fastlex", AnchorKind: types.AnchorCall, Source: "lib.rs", Location: "lib.rs:47", Producer: types.EvidenceProducerExplorerEmitEvidence},
+		{EvidenceID: "wrapper-call", ClaimForm: types.ClaimCallEdge, Subject: "py::tokenize_bytes", Object: "core::tokenize_bytes", Source: "lib.rs", Location: "lib.rs:42", Producer: types.EvidenceProducerExplorerEmitEvidence},
+	}
+	got = renderAnswerDocCallChainSemanticHandoffs(plan)
+	for _, want := range []string{
+		"registered_export=`_fastlex.tokenize_bytes`",
+		"registered_callable=`py::tokenize_bytes`",
+		"binding_endpoint_status=`exact_export_plus_owner_reference_join`",
+		"downstream_execution_status=`proved_by_exact_registered_callable_call`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("direct export did not retain its uniquely proved wrapper identity %q:\n%s", want, got)
+		}
+	}
+	handoffs := answerDocRegisteredExportHandoffs(plan.Lanes[0].Entries)
+	edges := []answerDocMechanismRelationEdge{
+		{from: "core::tokenize_bytes", to: "helperA", relation: types.DiagramRelCall},
+		{from: "core::tokenize_bytes", to: "helperB", relation: types.DiagramRelCall},
+		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
+		{from: "py::tokenize_bytes", to: "core::tokenize_bytes", relation: types.DiagramRelCall},
+	}
+	prioritized := answerDocMechanismPrioritizeRegisteredExportEdges(edges, handoffs)
+	if len(prioritized) != len(edges) || prioritized[0].to != "_fastlex.tokenize_bytes" ||
+		prioritized[1].from != "py::tokenize_bytes" || prioritized[1].to != "core::tokenize_bytes" {
+		t.Fatalf("qualified wrapper/core edge was not kept ahead of unrelated core fan-out: %+v", prioritized)
+	}
+
 	plan.Lanes[0].Entries = []types.AnswerSupportEntry{
 		{EvidenceID: "py-call", ClaimForm: types.ClaimCallEdge, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", Source: "tokenizer.py", Location: "tokenizer.py:21"},
 		{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: "m", Object: "wrap_pyfunction!(tokenize_bytes, m)", OwnerSymbol: "py::_fastlex", AnchorKind: types.AnchorCall, Source: "lib.rs", Location: "lib.rs:47", Producer: types.EvidenceProducerExplorerEmitEvidence},
@@ -845,6 +878,35 @@ func TestMechanismCompactCapsulePrioritizesRegisteredExportIncidentEdgesAA3(t *t
 	}
 	if got[3].from != "Fallback.run" || got[3].to != "list" {
 		t.Fatalf("non-priority edge order drifted: %+v", got)
+	}
+}
+
+func TestDirectRegisteredExportQualifiedCallableJoinIsLanguageNeutralAA3(t *testing.T) {
+	tests := []struct {
+		name, callTarget, slot, member, bindingOwner, wrapper, core string
+	}{
+		{"python_pyo3", "_fastlex.tokenize_bytes", "_fastlex", "tokenize_bytes", "py::_fastlex", "py::tokenize_bytes", "core::tokenize_bytes"},
+		{"java_jni", "NativeApi.dispatch", "NativeApi", "dispatch", "jni::NativeApi", "jni::dispatch", "core::dispatch"},
+		{"arkts_napi", "NativeApi.invoke", "NativeApi", "invoke", "napi::NativeApi", "napi::invoke", "native::invoke"},
+		{"cangjie_ffi", "NativeApi.run", "NativeApi", "run", "ffi::NativeApi", "ffi::run", "core::run"},
+		{"c_ffi", "native.encode", "native", "encode", "c::native", "c::encode", "codec::encode"},
+		{"cpp_binding", "Native.decode", "Native", "decode", "cpp::Native", "cpp::decode", "codec::decode"},
+		{"rust_export", "Native.merge", "Native", "merge", "rust::Native", "rust::merge", "core::merge"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := []types.AnswerSupportEntry{
+				{EvidenceID: "entry", ClaimForm: types.ClaimCallEdge, Subject: "Entry.run", Object: tt.callTarget, Source: "entry.src"},
+				{EvidenceID: "binding", ClaimForm: types.ClaimRegistrationEdge, Subject: tt.slot, Object: tt.member, OwnerSymbol: tt.bindingOwner, AnchorKind: types.AnchorCall, Source: "binding.src", Producer: types.EvidenceProducerExplorerEmitEvidence},
+				{EvidenceID: "wrapper", ClaimForm: types.ClaimCallEdge, Subject: tt.wrapper, Object: tt.core, Source: "binding.src", Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall},
+			}
+			handoffs := answerDocRegisteredExportHandoffs(entries)
+			if len(handoffs) != 1 || handoffs[0].registeredCallable != tt.wrapper ||
+				handoffs[0].bindingEndpointStatus != "exact_export_plus_owner_reference_join" ||
+				handoffs[0].downstreamCallStatus != "proved_by_exact_registered_callable_call" {
+				t.Fatalf("qualified callable join drifted for %s: %+v", tt.name, handoffs)
+			}
+		})
 	}
 }
 
