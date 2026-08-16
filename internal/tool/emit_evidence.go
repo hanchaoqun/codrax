@@ -1011,6 +1011,32 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		built[i].DriftReason = proj.DriftReason
 	}
 
+	// A model-selected definition can carry exact parser-authored calls in its
+	// already-read body even when the model emitted only definition/mechanism
+	// evidence. Publish those calls as separate deterministic source facts so
+	// downstream reasoning is not forced to infer relations from a multiline
+	// snippet. This never changes the model row and never selects an answer
+	// path, bridge, edge, or conclusion.
+	selectedBodyCalls := autoPairSelectedDefinitionBodyCallEvidence(ctx, built, gc)
+	if len(selectedBodyCalls) > 0 {
+		for i := range selectedBodyCalls {
+			proj := authority.ComputeForEvidence(selectedBodyCalls[i], ctx)
+			selectedBodyCalls[i].Origin = proj.Origin
+			selectedBodyCalls[i].Authority = proj.Authority
+			selectedBodyCalls[i].AuthorityReason = proj.Reason
+			selectedBodyCalls[i].DriftReason = proj.DriftReason
+		}
+		built = append(built, selectedBodyCalls...)
+		for _, call := range selectedBodyCalls {
+			reports = append(reports, ground.Report{
+				ItemID: call.ID, Status: call.GroundingStatus, Tier: call.GroundingTier,
+				OriginalLine: call.LineStart, AdjustedLine: call.LineStart,
+				Note: call.GroundingNote,
+			})
+		}
+		logging.Debug("[emit_evidence] auto-paired %d parser-owned selected-definition body call evidence item(s)", len(selectedBodyCalls))
+	}
+
 	// Plan 2 v2 (2026-05-05) — deterministic role-description pairing.
 	// For every grounded definition-anchor item, attempt to extract the
 	// leading doc comment from the same source's read_file gutter and
@@ -3821,12 +3847,27 @@ func uniqueNearbyRegistrationBindingCall(gc *ground.Context, item types.Evidence
 }
 
 func registrationDefinitionCallableRange(fi *repomap.FileInfo, item types.EvidenceItem) (int, int, bool) {
-	if fi == nil || item.AnchorKind != types.AnchorDefinition || item.LineStart <= 0 {
+	matched := selectedDefinitionCallable(fi, item)
+	if matched == nil {
 		return 0, 0, false
+	}
+	end := matched.EndLine
+	if end < matched.Line {
+		end = matched.Line
+	}
+	return matched.Line, end, true
+}
+
+func selectedDefinitionCallable(fi *repomap.FileInfo, item types.EvidenceItem) *repomap.Symbol {
+	if fi == nil || item.AnchorKind != types.AnchorDefinition || item.LineStart <= 0 {
+		return nil
 	}
 	want := types.NormalizedSurfaceSymbolTail(item.AnchorSymbol)
 	if want == "" {
-		return 0, 0, false
+		want = types.NormalizedSurfaceSymbolTail(item.Subject)
+	}
+	if want == "" {
+		return nil
 	}
 	var matched *repomap.Symbol
 	for i := range fi.Symbols {
@@ -3847,18 +3888,11 @@ func registrationDefinitionCallableRange(fi *repomap.FileInfo, item types.Eviden
 			continue
 		}
 		if matched != nil {
-			return 0, 0, false
+			return nil
 		}
 		matched = sym
 	}
-	if matched == nil {
-		return 0, 0, false
-	}
-	end := matched.EndLine
-	if end < matched.Line {
-		end = matched.Line
-	}
-	return matched.Line, end, true
+	return matched
 }
 
 type receiverRegistrationBindingCall struct {
@@ -3912,6 +3946,114 @@ func sourceIdentifierTokens(masked string) []string {
 		if token != "" && !seen[token] {
 			seen[token] = true
 			out = append(out, token)
+		}
+	}
+	return out
+}
+
+const autoPairedSelectedDefinitionBodyCallLimit = 24
+
+// autoPairSelectedDefinitionBodyCallEvidence projects exact parser relations
+// out of model-selected callable definitions. Admission is entirely typed:
+// QFCallChain + active endpoint profile, a citable definition row, a unique
+// parser callable at that source location, parser provenance, and exact
+// read-line coverage. It never reads request/reasoning/summary/final prose and
+// does not require the model to include a diagram.
+func autoPairSelectedDefinitionBodyCallEvidence(
+	ctx *types.BusContext,
+	built []types.EvidenceItem,
+	gc *ground.Context,
+) []types.EvidenceItem {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || gc == nil || len(built) == 0 ||
+		types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFCallChain ||
+		!ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Active() {
+		return nil
+	}
+	seenCallable := make(map[string]bool)
+	seenCall := make(map[string]bool)
+	existingEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
+	existingEvidence = append(existingEvidence, built...)
+	out := make([]types.EvidenceItem, 0, 4)
+	for _, selected := range built {
+		if selected.AnchorKind != types.AnchorDefinition || !selected.IsCitable() ||
+			(selected.Scope != types.ScopeLine && selected.Scope != types.ScopeLineRange) {
+			continue
+		}
+		graph, fi, _, visibleSource, ok := ground.ResolveSourceGraphFile(gc, selected.Source)
+		if !ok || graph == nil || fi == nil {
+			continue
+		}
+		callable := selectedDefinitionCallable(fi, selected)
+		if callable == nil {
+			continue
+		}
+		callableKey := canonicalRelationSourcePath(visibleSource) + "\x00" + strconv.Itoa(callable.Line) + "\x00" + strings.TrimSpace(callable.Name)
+		if seenCallable[callableKey] {
+			continue
+		}
+		seenCallable[callableKey] = true
+		caller := qualifiedEvidenceSymbolNameInFile(fi, callable)
+		if caller == "" {
+			continue
+		}
+		end := callable.EndLine
+		if end < callable.Line {
+			end = callable.Line
+		}
+		for i := range fi.Relations {
+			rel := &fi.Relations[i]
+			if rel.Kind != "call" || rel.Line < callable.Line || rel.Line > end ||
+				(rel.Provenance != repomap.ProvenanceTreeSitter && rel.Provenance != repomap.ProvenanceCangjieParser) ||
+				strings.TrimSpace(evidenceVisibleLineText(gc, visibleSource, rel.Line)) == "" {
+				continue
+			}
+			callee := callRelationTargetName(graph, fi, rel)
+			if callee == "" || strings.EqualFold(caller, callee) {
+				continue
+			}
+			obligation := emitEvidenceRelationRepairObligation{
+				EvidenceKind: types.EvidenceRelationship,
+				AnchorKind:   types.AnchorCall,
+				Source:       visibleSource,
+				Line:         rel.Line,
+				Subject:      caller,
+				Object:       callee,
+			}
+			if emitEvidenceRelationRepairObligationsSatisfied(
+				[]emitEvidenceRelationRepairObligation{obligation}, existingEvidence,
+			) {
+				continue
+			}
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s:%s:%s", visibleSource, rel.Line, caller, callee, rel.ResolvedBy))
+			if seenCall[key] {
+				continue
+			}
+			seenCall[key] = true
+			item := types.EvidenceItem{
+				Kind:            types.EvidenceRelationship,
+				Subject:         caller,
+				Predicate:       "calls",
+				Object:          callee,
+				Source:          visibleSource,
+				LineStart:       rel.Line,
+				LineEnd:         rel.Line,
+				Confidence:      rel.Confidence,
+				Producer:        types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+				Summary:         fmt.Sprintf("parser-authored call in model-selected callable: `%s` calls `%s` (extractor=%s)", caller, callee, rel.ResolvedBy),
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    strings.TrimSpace(rel.ToEP.Name),
+				OwnerSymbol:     caller,
+				DerivedFrom:     []string{selected.ID},
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+				GroundingNote:   "parser-owned call from an already-read model-selected callable body",
+			}
+			item.ID = types.StableEvidenceID(item)
+			out = append(out, item)
+			if len(out) >= autoPairedSelectedDefinitionBodyCallLimit {
+				return out
+			}
 		}
 	}
 	return out

@@ -35694,13 +35694,26 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     Cangjie nested factory、C++ `->` 与 Lua `:` method call；原有 endpoint-known 歧义负臂、wrong callback、
     普通 exact registration 均通过。`go test ./internal/tool ./internal/agent ./internal/types -count=1`
     全绿（tool 165.818s、agent 9.892s、types 23.227s）。
+11. B924 现有生产者覆盖的断层已核实：terminal-body lane 只从现有 typed call graph 的叶子选 owner；跨语言
+    module surface 与 Rust wrapper 即便操作同名，qualifier 不同且尚需 registration handoff，wrapper/core
+    definition 不会成为叶子。因此模型把多行 definition 发成 mechanism/direct 后，里面的 parser call 会在
+    Finalizer 前消失；这是生产者选择域 gap，不应归为纯模型波动。
+12. B924 已施工为独立非阻塞 evidence producer。对 QFCallChain + active endpoint profile，只有模型本轮明确
+    选择、已 grounded 的 definition row，且 source/anchor 唯一解析到 parser callable 时，系统才枚举该
+    callable 已读行上的 Tree-sitter/Cangjie-parser call relation，生成独立
+    `repomap_selected_callable_body_call` source fact。它不选 terminal/path/bridge，不要求答案必须使用关系，
+    不画图、不写正文；已有同 source/line/caller/callee 的模型 call row 会抑制 deterministic duplicate。
+13. 新 producer 采用 24 行全局上限；同名 definition 歧义、unread call line、regex fallback、self-call 和
+    非 call-chain 均不发射。15 种 supported read-language（含 ArkTS/Cangjie）共享一个 typed graph consumer
+    矩阵 pin，另有真实 `EmitEvidence` append seam 与 exact model-row 去重 pin；没有语言/框架/function-name
+    分支，也不读取 snippet/summary/request/final prose。
 
 状态：
 
 `B921-SEMANTICHANDOFFCOMPONENTCONTRADICTION1=implemented/not-triggered-r579`；
 `B922-TYPEDENDPOINTSELFCOLLAPSE1=implemented/no-recurrence-r579/pending-direct-production-trigger`；
 `B923-COARSEREGISTRATIONEXACTBINDINGDEBT1=implemented/typed-range+polyglot-pins-pass/pending-production-replay`；
-`B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=confirmed/design-audit-open`；
+`B924-MULTILINEDEFINITIONRELATIONDECOMPOSITION1=implemented/parser-owned+language-matrix-pins/pending-production-replay`；
 `B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=observed/pending-heterogeneous-replay`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

@@ -66,8 +66,14 @@ const (
 	// the conceptual destination. Selection and admission consume typed endpoints,
 	// parser provenance and read coverage only; request/answer prose never
 	// participates.
-	EvidenceProducerRepoMapTerminalBodyCall     = "repomap_terminal_body_call"
-	EvidenceProducerRepoMapDecoratorApplication = "repomap_decorator_application"
+	EvidenceProducerRepoMapTerminalBodyCall = "repomap_terminal_body_call"
+	// EvidenceProducerRepoMapSelectedCallableBodyCall marks an exact
+	// AST/Cangjie-parser invocation inside a callable definition that the
+	// Explorer model explicitly selected and whose invocation line was already
+	// read. It enriches the typed relation pool but never chooses a path,
+	// bridge, diagram edge, runtime target, or answer conclusion.
+	EvidenceProducerRepoMapSelectedCallableBodyCall = "repomap_selected_callable_body_call"
+	EvidenceProducerRepoMapDecoratorApplication     = "repomap_decorator_application"
 	// EvidenceProducerAutoPairRoleDescription marks a doc-comment companion
 	// emitted beside one grounded definition. It carries role/WHAT context but
 	// is not a second declaration identity and must not make a unique-definition

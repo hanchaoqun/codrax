@@ -7074,6 +7074,182 @@ func TestReceiverRegistrationBindingCallsOnLine_PolyglotReceiverSyntax(t *testin
 	}
 }
 
+func TestAutoPairSelectedDefinitionBodyCallEvidence_PolyglotParserMatrix(t *testing.T) {
+	extensions := map[string]string{
+		repomap.LangGo: ".go", repomap.LangPython: ".py", repomap.LangJavaScript: ".js",
+		repomap.LangTypeScript: ".ts", repomap.LangJava: ".java", repomap.LangKotlin: ".kt",
+		repomap.LangRust: ".rs", repomap.LangC: ".c", repomap.LangCpp: ".cpp",
+		repomap.LangRuby: ".rb", repomap.LangSwift: ".swift", repomap.LangLua: ".lua",
+		repomap.LangProto: ".proto", repomap.LangArkTS: ".ets", repomap.LangCangjie: ".cj",
+	}
+	for _, language := range repomap.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			ext := extensions[language]
+			if ext == "" {
+				t.Fatalf("supported language %q lacks matrix extension", language)
+			}
+			source := "src/chain" + ext
+			provenance := repomap.ProvenanceTreeSitter
+			if language == repomap.LangCangjie {
+				provenance = repomap.ProvenanceCangjieParser
+			}
+			fi := &repomap.FileInfo{
+				RelPath: source, Language: language,
+				Symbols: []repomap.Symbol{{Name: "Caller", Kind: "function", File: source, Line: 5, EndLine: 10}},
+				Relations: []repomap.Relation{{
+					Kind: "call", File: source, Line: 7,
+					FromEP:     repomap.RelationEndpoint{Name: "Caller"},
+					ToEP:       repomap.RelationEndpoint{Name: "Helper"},
+					Confidence: repomap.ConfidenceAST, Provenance: provenance,
+					ResolvedBy: language + "_parser_call",
+				}},
+			}
+			graph := &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}}
+			gc := &ground.Context{
+				Graph: graph,
+				LineIndex: map[string]map[int]string{source: {
+					5: "callable Caller definition", 7: "Helper()",
+				}},
+			}
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+				AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+				CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+			}}
+			selected := types.EvidenceItem{
+				ID: "selected", Kind: types.EvidenceMechanism, Subject: "Caller",
+				Source: source, LineStart: 5, Scope: types.ScopeLine,
+				AnchorKind: types.AnchorDefinition, AnchorSymbol: "Caller",
+				GroundingStatus: types.GroundingGrounded,
+			}
+			got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc)
+			if len(got) != 1 || got[0].Subject != "Caller" || got[0].Object != "Helper" ||
+				got[0].LineStart != 7 || got[0].Producer != types.EvidenceProducerRepoMapSelectedCallableBodyCall ||
+				types.ClaimFormOf(got[0]) != types.ClaimCallEdge || !got[0].IsCitable() {
+				t.Fatalf("language-neutral selected-body call missing for %s: %+v", language, got)
+			}
+		})
+	}
+}
+
+func TestEmitEvidence_SelectedDefinitionAutoPairsExactParserBodyCall(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	const source = "src/chain.go"
+	seedReadFileHistory(ctx, source, 5,
+		"func Caller() {",
+		"prepare()",
+		"Helper()",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangGo,
+			Symbols: []repomap.Symbol{{Name: "Caller", Kind: "function", File: source, Line: 5, EndLine: 8}},
+			Relations: []repomap.Relation{{
+				Kind: "call", File: source, Line: 7,
+				FromEP: repomap.RelationEndpoint{Name: "Caller"}, ToEP: repomap.RelationEndpoint{Name: "Helper"},
+				Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"mechanism","subject":"Caller","predicate":"implements","object":"call chain step","source":"src/chain.go","line_start":5,"summary":"selected callable body","anchor_kind":"definition","anchor_symbol":"Caller"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("selected definition should accept and pair parser call, err=%v result=%+v", err, res)
+	}
+	var paired *types.EvidenceItem
+	for _, item := range ctx.Mutable.EmittedEvidence() {
+		if item.Producer == types.EvidenceProducerRepoMapSelectedCallableBodyCall {
+			copy := item
+			paired = &copy
+			break
+		}
+	}
+	if paired == nil || paired.Subject != "Caller" || paired.Object != "Helper" || paired.LineStart != 7 ||
+		!paired.IsCitable() || types.ClaimFormOf(*paired) != types.ClaimCallEdge {
+		t.Fatalf("exact parser body call did not reach typed evidence pool: %+v", ctx.Mutable.EmittedEvidence())
+	}
+}
+
+func TestAutoPairSelectedDefinitionBodyCallEvidence_DoesNotDuplicateExactModelCall(t *testing.T) {
+	const source = "src/chain.go"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{{Name: "Caller", Kind: "function", File: source, Line: 5, EndLine: 8}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 7,
+			ToEP: repomap.RelationEndpoint{Name: "Helper"}, Confidence: repomap.ConfidenceAST,
+			Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
+		}},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	selected := types.EvidenceItem{
+		ID: "selected", Kind: types.EvidenceMechanism, Subject: "Caller", Source: source, LineStart: 5,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Caller",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	exact := types.EvidenceItem{
+		ID: "exact", Kind: types.EvidenceRelationship, Subject: "Caller", Predicate: "calls", Object: "Helper",
+		Source: source, LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, AnchorSymbol: "Helper",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	gc := &ground.Context{
+		Graph:     &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}},
+		LineIndex: map[string]map[int]string{source: {5: "func Caller()", 7: "Helper()"}},
+	}
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected, exact}, gc); len(got) != 0 {
+		t.Fatalf("exact model-owned call must suppress deterministic duplicate: %+v", got)
+	}
+}
+
+func TestAutoPairSelectedDefinitionBodyCallEvidence_RejectsUnreadAndAmbiguousDefinitions(t *testing.T) {
+	const source = "src/chain.rs"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangRust,
+		Symbols: []repomap.Symbol{
+			{Name: "Caller", Kind: "function", File: source, Line: 5, EndLine: 10},
+			{Name: "Caller", Kind: "function", File: source, Line: 6, EndLine: 11},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 8,
+			ToEP: repomap.RelationEndpoint{Name: "Helper"}, Confidence: repomap.ConfidenceAST,
+			Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "rust_ast_identifier_call",
+		}},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	selected := types.EvidenceItem{
+		ID: "selected", Kind: types.EvidenceMechanism, Subject: "Caller", Source: source, LineStart: 5,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Caller",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	gc := &ground.Context{Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}}, LineIndex: map[string]map[int]string{source: {8: "Helper()"}}}
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("ambiguous definition identity must fail open: %+v", got)
+	}
+	fi.Symbols = fi.Symbols[:1]
+	gc.LineIndex[source] = map[int]string{5: "fn Caller()"}
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("unread relation line must not become evidence: %+v", got)
+	}
+}
+
 func TestUniqueNearbyRegistrationBindingCallFailsOpenWhenMoreThanOneLineBindsEndpoint(t *testing.T) {
 	const source = "src/registry.ets"
 	gc := &ground.Context{LineIndex: map[string]map[int]string{
