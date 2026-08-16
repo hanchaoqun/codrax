@@ -36936,6 +36936,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.892 r542：混合操作证据回放未命中；Trace 关系权威仍被模型错读（2026-08-15）
+
+1. 在 `main@e8844c1a0` 重建不可变二进制后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h11_cross_direction_overlap`。Runner `2/2 PASS`，人工
+   `1 partial / 1 fail`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_mixedflow_trace_r542_20260815_manual_audit.md`。
+2. 代码图保留四阶段顺序、职责说明与 `BusContext` 内 `Mutable` 的无箭头包含，但用户要求的阶段与
+   `Mutable/BusContext` 数据流仍未画出。B867 的四条 `stage_artifact_group_recipe` 已进入 finalizer prompt，
+   证明生产接线生效；模型没有采用。更关键的是本轮 Explorer 没有读到/提交 B867 所针对的
+   “多返回赋值 + 唯一调用 + 参数流”源码行，所以 assignment/call/argument companion 修复没有真实触发，
+   不能用机器 PASS 伪称 B867 生产闭环。终稿正文继续声称 Explorer/Extractor 写 Mutable，而图把该关系列为
+   未证，人工只判 partial。
+3. 新立案 `B868-REQUESTEDCARRIERRELATIONHANDOFF1/P1`：请求显式点名 stage 与 state carrier 的数据流时，
+   typed participant planner 本轮只把 `extractor/BusContext` 列为 source-operation-required，其余 stage/carrier
+   降成 visible-boundary；后续虽然获得 `buildAnalysisIR -> SetRequestModel` 等局部 call，request-scoped
+   candidate map 仍不允许对应 stage/carrier 端点，造成 5 次 finalizer reject、3 次 Mermaid repair，最终删边。
+   下一步需审计“精确技术端点 → 已解析 stage/carrier participant”的 typed binding 与 side 约束；不得按请求词、
+   Mermaid node/label 或最终正文硬匹配，也不得由系统代画关系。
+4. Trace 案的确定性能力本身完整：显式窗、Trace 因果投影、自动补齐、链上-only 排序、邻近/背景分层、
+   实际占时/业务 span 与规则可消除双轴均在；de-minimis overlap 检测/降噪也获正证。人工 fail 来自模型对
+   typed 关系的反向解释：`#2+#3` 的 `typed_pairwise_disjoint_section` 明确授权“不相交可加至 12.115ms”，
+   模型却说成“物理重叠竞争”；`sched_blocked_reason.caller=dma_fence_default_w` 明确不证明资源/holder，模型却
+   生成“IO 完成→fence 释放→反转解除→目标获调度”的顺序因果；另把无 pair authority 的 3.670ms 与
+   3.598ms 相加。runner 只验证主值、投影与 overlap 机制，不能替代人工结论审计。
+5. 新立案 `B869-TRACEDIRECTIONRELATIONDECISIONROSTER1/P0`。当前正确关系事实散落在 131k 字符 finalizer
+   上下文的 direction authority、Axis A/B row notes 与 relation claims 三处，并混用
+   `typed_pairwise_disjoint_section` 等内部 token。泛化根修是在现有 Trace Decision Inputs 的高显著位置发布
+   一份短小、copy-ready 的 typed 关系清单：同方向 exact disjoint subtotal、跨方向 exact physical-overlap
+   pair、以及未列 pair=`unresolved/addition forbidden`；同一 helper 同时供末尾 compact boundary 使用。
+   它只消费 projection/typed claim，不扫描 request、模型推理或答案散文，不拒绝/改写答案，不生成根因。
+6. 同批复核客户 `repl_log.txt/repl_log2.txt`：客户 `v0.1.20260813` 在探索期已有 on-chain Trace 排名，
+   finalizer 连续未调用 `emit_answer_document` 后 isolated prose 却声称“未提供 systrace”。当前主线已由
+   B779/B800 把 ObservationLedger 送入降级 prompt，并在 raw prose 后追加确定性 Trace 板块；该历史 P0
+   当前代码面已覆盖、仍待客户新版本回放。至少 13m30s 的请求持续有上游字节，系统正确没有按 4m 总年龄
+   降级；不得新增 4ms/4s/4m/累计年龄 cutoff。
+
+状态：
+
+`B867-MULTIRESULTASSIGNMENTAUTHORITY1=unit-closed/production-witness-not-hit-r542`；
+`B867-STAGEARTIFACTGROUPRECIPE1=production-context-positive/model-adoption-partial`；
+`B868-REQUESTEDCARRIERRELATIONHANDOFF1=P1-open`；
+`B869-TRACEDIRECTIONRELATIONDECISIONROSTER1=P0-open/next-batch`；
+`RLOG1-FINALRUNTIMEFACTBLACKOUT=historical-P0/current-main-covered/customer-replay-pending`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r542`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
