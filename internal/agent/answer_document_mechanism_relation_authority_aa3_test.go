@@ -952,6 +952,139 @@ func TestMechanismRelationComponentBoundaryIsWiredIntoFinalizerPromptAA3(t *test
 	}
 }
 
+func TestDisconnectedCallChainConcreteDiagramContractWithholdsWholeSkeletonAcrossLanguagesAA3(t *testing.T) {
+	tests := []struct {
+		name    string
+		sourceA string
+		fromA   string
+		toA     string
+		sourceB string
+		fromB   string
+		toB     string
+	}{
+		{"python_rust", "bindings/tokenizer.py", "FastTokenizer.tokenize", "_fastlex.tokenize_bytes", "core/src/lib.rs", "py.tokenize_bytes", "core.tokenize_bytes"},
+		{"arkts", "entry/src/main/ets/Bridge.ets", "Bridge.invoke", "NativeApi.dispatch", "entry/src/main/ets/Fallback.ets", "Fallback.run", "Codec.decode"},
+		{"cangjie", "src/bridge.cj", "Bridge.invoke", "NativeApi.dispatch", "src/fallback.cj", "Fallback.run", "Codec.decode"},
+		{"java", "src/main/java/Bridge.java", "Bridge.invoke", "NativeApi.dispatch", "src/main/java/Fallback.java", "Fallback.run", "Codec.decode"},
+		{"c", "src/bridge.c", "bridge_invoke", "native_dispatch", "src/fallback.c", "fallback_run", "codec_decode"},
+		{"cpp", "src/bridge.cpp", "Bridge::invoke", "NativeApi::dispatch", "src/fallback.cpp", "Fallback::run", "Codec::decode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &types.AgentContext{
+				AnalysisIR: &types.AnalysisIR{
+					RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+					AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+						PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+					}},
+				},
+				EvidenceItems: []types.EvidenceItem{
+					{ID: "edge-a", Kind: types.EvidenceRelationship, Source: tt.sourceA, LineStart: 10, AnchorKind: types.AnchorCall, Subject: tt.fromA, Object: tt.toA, GroundingStatus: types.GroundingGrounded},
+					{ID: "edge-b", Kind: types.EvidenceRelationship, Source: tt.sourceB, LineStart: 20, AnchorKind: types.AnchorCall, Subject: tt.fromB, Object: tt.toB, GroundingStatus: types.GroundingGrounded},
+				},
+			}
+
+			got := renderAnswerDocMechanismRelationAuthority(ctx)
+			for _, want := range []string{
+				"verified_relation_component_count=2",
+				"inter_component_bridge_status=`unproven_between_components`",
+				"Copy-ready verified component fragments follow",
+				"Verified component fragment 1 (not a complete flow)",
+				"Verified component fragment 2 (not a complete flow)",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("disconnected %s call-chain boundary missing %q:\n%s", tt.name, want, got)
+				}
+			}
+			if strings.Contains(got, "#### Copy-ready optional typed diagram") ||
+				strings.Contains(got, "- edge_anchors_json=`") {
+				t.Fatalf("disconnected %s call chain must not receive a whole copy-ready skeleton:\n%s", tt.name, got)
+			}
+		})
+	}
+}
+
+func TestConnectedCallChainConcreteDiagramContractKeepsWholeSkeletonAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "edge-a", Kind: types.EvidenceRelationship, Source: "tokenizer.py", LineStart: 10, AnchorKind: types.AnchorCall, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", GroundingStatus: types.GroundingGrounded},
+			{ID: "edge-b", Kind: types.EvidenceRelationship, Source: "lib.rs", LineStart: 20, AnchorKind: types.AnchorCall, Subject: "_fastlex.tokenize_bytes", Object: "core.tokenize_bytes", GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"#### Copy-ready optional typed diagram",
+		"n1->>n2: call",
+		"n2->>n3: call",
+		"- edge_anchors_json=`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("connected call chain lost whole skeleton %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDisconnectedCallChainOptionalRepairUsesBoundaryInsteadOfWholeSkeletonAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "python-call", Kind: types.EvidenceRelationship, Source: "tokenizer.py", LineStart: 21, AnchorKind: types.AnchorCall, Subject: "FastTokenizer.tokenize", Object: "_fastlex.tokenize_bytes", GroundingStatus: types.GroundingGrounded},
+			{ID: "rust-call", Kind: types.EvidenceRelationship, Source: "lib.rs", LineStart: 42, AnchorKind: types.AnchorCall, Subject: "py.tokenize_bytes", Object: "core.tokenize_bytes", GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
+	for _, want := range []string{
+		"whole-diagram skeleton is intentionally unavailable",
+		"bounded exact relation boundary",
+		"keep separate components disconnected",
+		"Copy-ready verified component fragments follow",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("disconnected call-chain repair lost boundary guidance %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "copy-ready optional typed diagram skeleton is available") ||
+		strings.Contains(got, "- edge_anchors_json=`") {
+		t.Fatalf("disconnected call-chain repair exposed a whole skeleton:\n%s", got)
+	}
+}
+
+func TestExactRegisteredExportHandoffMayJoinAllCallChainComponentsAA3(t *testing.T) {
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	edges := []answerDocMechanismRelationEdge{
+		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
+		{from: "py.tokenize_bytes", to: "core.tokenize_bytes", relation: types.DiagramRelCall},
+	}
+	if !answerDocMechanismDisconnectedCallChainWithoutRequestSpine(view, edges, nil) {
+		t.Fatal("disconnected call pairs without an exact handoff must withhold the whole skeleton")
+	}
+	handoffs := []answerDocRegisteredExportHandoff{{
+		callTarget: "_fastlex.tokenize_bytes", registeredCallable: "py::tokenize_bytes",
+	}}
+	if answerDocMechanismDisconnectedCallChainWithoutRequestSpine(view, edges, handoffs) {
+		t.Fatal("exact registered-export handoff should join both invocation components as one evidenced binding topology")
+	}
+	edges = append(edges, answerDocMechanismRelationEdge{
+		from: "Fallback.run", to: "Codec.decode", relation: types.DiagramRelCall,
+	})
+	if !answerDocMechanismDisconnectedCallChainWithoutRequestSpine(view, edges, handoffs) {
+		t.Fatal("a handoff joining only two of three components must still fail closed")
+	}
+}
+
 func TestDisconnectedTypedComponentsDoNotPromoteSoftExplorerPathToRequiredAnswerAA3(t *testing.T) {
 	mu := types.NewMutableState("explain the end-to-end call chain")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -1439,9 +1572,10 @@ func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA
 		"Note over n3,n4: Runtime binding is verified; describe the selected implementation",
 		"Note over n3,n4: Selection condition is verified; describe the business condition",
 		"Note over n3,n4: Factory result is verified; describe the created implementation",
-		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Logger.log","to_identity":"Sink.write","relation_kind":"call"}]` + "`",
-		"visual_annotation_relation_count=3",
-		"annotation_relation_kinds=`guard,register,return`",
+		`component_edge_anchors_json[1]=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Logger.log","to_identity":"Sink.write","relation_kind":"call"}]` + "`",
+		`component_edge_anchors_json[2]=` + "`[]`",
+		"Verified component fragment 1 (not a complete flow)",
+		"Verified component fragment 2 (not a complete flow)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("sequence visual subset missing %q:\n%s", want, got)
@@ -1451,11 +1585,8 @@ func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA
 		"n3->>n4: register",
 		"n3->>n4: guard",
 		"n3->>n4: return",
-		`"relation_kind":"register"`,
-		`"relation_kind":"guard"`,
-		`"relation_kind":"return"`,
 	} {
-		if strings.Contains(got[strings.Index(got, "#### Copy-ready optional typed diagram"):], forbidden) {
+		if strings.Contains(got[strings.Index(got, "### Typed relation authoring capsule"):], forbidden) {
 			t.Fatalf("copy-ready sequence converted a non-message Note into edge authority %q:\n%s", forbidden, got)
 		}
 	}

@@ -37392,6 +37392,38 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.903 B874：整图修补资格改为 typed 拓扑覆盖，语言无关收敛（2026-08-15）
+
+1. 根修落在 finalizer 的单一 typed relation authority producer。`QFCallChain` 的有界关系图若存在多个
+   weak component，且没有 request-scoped complete spine，也没有精确 registered-export handoff 把全部
+   分量连接起来，系统不再发布 `Copy-ready optional typed diagram` 整图骨架。该判定只读
+   `AnswerSemanticView.Family`、typed endpoints、relation graph connectivity、`requestSpine` 与精确 handoff；
+   不读取用户原文、模型 reasoning、草稿/最终 prose 或 Mermaid label。
+2. 收窄只影响系统给模型的“整图可复制”资格，不删除任何证据或模型内容。全部 citable edge recipe、
+   endpoint alias、component boundary 与逐分量 Mermaid fragment 仍在；可表达的 call/callback 保持箭头，
+   sequence 不适合承载的 register/guard/return 保持同分量 Note，且 Note 分量发布空 anchor 数组，绝不
+   把非调用关系伪造成 call。模型仍可选择分量、继续调查 bridge、保留未证边界或删除可选图。
+3. 精确桥保留正臂：owner/reference join 已证的 registered-export handoff 若唯一解析到两个调用分量并
+   最终连接全部节点，可继续发布整体载体；只连接部分分量、端点缺失或多解时 fail-closed。该 handoff
+   在 sequence 中仍是 non-call Note，不铸 invocation edge；连通资格不改变其关系类型。
+4. 新 pin 覆盖 Python↔Rust、ArkTS、Cangjie、Java、C、C++ 六类 source/identity，同一断图全部收窄；
+   连通 call chain 保持 whole skeleton；optional repair 接线确认走 bounded relation boundary 而非旧整图；
+   mixed call/register/guard/return 的逐分量信息不丢失；精确 handoff 全连通与部分连通双臂均已固定。
+5. `go test ./... -count=1` 全仓通过：`internal/agent` 13.201s、`internal/tool` 181.016s、
+   `internal/tracequery` 78.562s、`internal/hitraceconv` 95.738s；Mermaid compatibility、repomap 全语言、
+   render、orchestrator、REPL 与 types 均绿。
+6. 本批不修改 AnswerDocument、答案草稿或最终答案，不创建/改写任何可见 relation/diagram/conclusion；
+   不改变 JSON schema/repair、Trace 窗口/查询/因果投影/自动补齐/链上根因/可消除量，也不引入时龄降级。
+
+状态：
+
+`B874-RELATIONREPAIRSKELETONTOPOLOGY1=implemented/full-repo-suite-pass/production-replay-next`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/queued-after-B874-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

@@ -7482,7 +7482,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			unaryAnnotations,
 			semanticHandoffs,
 			answerDocMechanismCopyReadyRelationLimit(ctx),
-			answerDocMechanismCopyReadyDiagramKind(ctx, edges),
+			answerDocMechanismCopyReadyDiagramKind(ctx, edges, semanticHandoffs),
 			answerDocMechanismRequestedDiagramKind(ctx, edges),
 		)
 		if ctx.Mutable != nil {
@@ -7900,9 +7900,10 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 		return
 	}
 	type fragment struct {
-		aliases []answerDocMechanismAliasRow
-		recipes []answerDocMechanismRecipeRow
-		anchors []types.DiagramEdgeAnchor
+		aliases     []answerDocMechanismAliasRow
+		recipes     []answerDocMechanismRecipeRow
+		annotations []answerDocMechanismRecipeRow
+		anchors     []types.DiagramEdgeAnchor
 	}
 	fragments := make([]fragment, 0, len(components))
 	for _, component := range components {
@@ -7916,16 +7917,20 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 				componentRecipes = append(componentRecipes, recipe)
 			}
 		}
-		diagramRecipes, _, _ := answerDocMechanismCopyReadyRecipes(componentRecipes, kind)
-		if len(diagramRecipes) == 0 {
+		diagramRecipes, annotationRecipes, _ := answerDocMechanismCopyReadyRecipes(componentRecipes, kind)
+		if len(diagramRecipes)+len(annotationRecipes) == 0 {
 			continue
 		}
-		used := make(map[string]bool, len(diagramRecipes)*2)
+		used := make(map[string]bool, (len(diagramRecipes)+len(annotationRecipes))*2)
 		anchors := make([]types.DiagramEdgeAnchor, 0, len(diagramRecipes))
 		for _, recipe := range diagramRecipes {
 			used[recipe.from] = true
 			used[recipe.to] = true
 			anchors = append(anchors, recipe.typed)
+		}
+		for _, recipe := range annotationRecipes {
+			used[recipe.from] = true
+			used[recipe.to] = true
 		}
 		componentAliases := make([]answerDocMechanismAliasRow, 0, len(used))
 		for _, row := range component {
@@ -7933,7 +7938,10 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 				componentAliases = append(componentAliases, row)
 			}
 		}
-		fragments = append(fragments, fragment{aliases: componentAliases, recipes: diagramRecipes, anchors: anchors})
+		fragments = append(fragments, fragment{
+			aliases: componentAliases, recipes: diagramRecipes,
+			annotations: annotationRecipes, anchors: anchors,
+		})
 	}
 	if len(fragments) == 0 {
 		return
@@ -7949,6 +7957,10 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 			}
 			for _, recipe := range part.recipes {
 				fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+			}
+			for _, recipe := range part.annotations {
+				fmt.Fprintf(b, "  Note over %s,%s: %s\n", recipe.from, recipe.to,
+					answerDocMechanismSequenceNotePlaceholder(recipe.edge.relation))
 			}
 		} else {
 			b.WriteString("flowchart TD\n")
@@ -8806,7 +8818,11 @@ func answerDocMechanismMermaidLabel(identity string) string {
 // renders Required Answer Blocks. Reading the analyzer's earlier hint or raw
 // contract here created two competing tutorials (for example, flowchart here
 // while the effective call-chain contract taught sequenceDiagram).
-func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) types.DiagramKind {
+func answerDocMechanismCopyReadyDiagramKind(
+	ctx *types.AgentContext,
+	edges []answerDocMechanismRelationEdge,
+	semanticHandoffs []answerDocRegisteredExportHandoff,
+) types.DiagramKind {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	// A typed flow answer asks the model to select the principal transfer
 	// topology. A bounded arbitrary source relation (for example one helper
@@ -8817,6 +8833,21 @@ func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext, edges []ans
 	if view != nil && view.RelationAxis == types.AxisFlow {
 		return types.DiagramNone
 	}
+	// A call-chain answer promises a relation path, not merely a bag of
+	// individually valid local edges.  When the bounded typed graph has more
+	// than one weak component and no request-scoped provider has identified a
+	// complete principal spine, a whole copy-ready body would optimize per-edge
+	// validity while silently losing the requested topology.  Withhold only the
+	// system-provided whole skeleton in that shape.  The exact edge recipes and
+	// per-component Mermaid fragments remain available, and the model may keep
+	// them separate, investigate a typed bridge, or omit an optional diagram.
+	//
+	// This reads the normalized semantic family and typed graph metadata only;
+	// it does not inspect request prose, model reasoning, draft/final text, or
+	// Mermaid labels, and it never creates or removes a model-authored edge.
+	if answerDocMechanismDisconnectedCallChainWithoutRequestSpine(view, edges, semanticHandoffs) {
+		return types.DiagramNone
+	}
 	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
 		if answerDocMechanismOptionalSequenceTopologyOnly(ctx, view, edges) {
 			return types.DiagramNone
@@ -8824,6 +8855,110 @@ func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext, edges []ans
 		return view.DiagramPlan.Kind
 	}
 	return types.DiagramNone
+}
+
+func answerDocMechanismDisconnectedCallChainWithoutRequestSpine(
+	view *types.AnswerSemanticView,
+	edges []answerDocMechanismRelationEdge,
+	semanticHandoffs []answerDocRegisteredExportHandoff,
+) bool {
+	if view == nil || view.Family != types.QFCallChain {
+		return false
+	}
+	topology, ok := answerDocMechanismRelationGraphTopology(edges)
+	if !ok || !topology.disconnected {
+		return false
+	}
+	for _, edge := range edges {
+		if edge.requestSpine {
+			return false
+		}
+	}
+	if answerDocMechanismSemanticHandoffsConnectAllComponents(edges, semanticHandoffs) {
+		return false
+	}
+	return true
+}
+
+// answerDocMechanismSemanticHandoffsConnectAllComponents recognizes only the
+// exact registered-export handoffs already produced by the typed owner/reference
+// join.  They remain non-call Notes in a sequence diagram, but may establish
+// that its otherwise separate invocation components belong to one evidenced
+// cross-language binding topology.  Ambiguous or partial joins fail closed.
+func answerDocMechanismSemanticHandoffsConnectAllComponents(
+	edges []answerDocMechanismRelationEdge,
+	handoffs []answerDocRegisteredExportHandoff,
+) bool {
+	if len(edges) == 0 || len(handoffs) == 0 {
+		return false
+	}
+	nodes := make([]string, 0, len(edges)*2)
+	index := make(map[string]int, len(edges)*2)
+	addNode := func(identity string) int {
+		identity = strings.TrimSpace(identity)
+		if identity == "" {
+			return -1
+		}
+		if at, ok := index[identity]; ok {
+			return at
+		}
+		at := len(nodes)
+		nodes = append(nodes, identity)
+		index[identity] = at
+		return at
+	}
+	parent := make([]int, 0, len(edges)*2)
+	ensureParent := func() {
+		for len(parent) < len(nodes) {
+			parent = append(parent, len(parent))
+		}
+	}
+	var find func(int) int
+	find = func(x int) int {
+		if parent[x] != x {
+			parent[x] = find(parent[x])
+		}
+		return parent[x]
+	}
+	union := func(a, b int) {
+		if a < 0 || b < 0 {
+			return
+		}
+		ra, rb := find(a), find(b)
+		if ra != rb {
+			parent[rb] = ra
+		}
+	}
+	for _, edge := range edges {
+		a, b := addNode(edge.from), addNode(edge.to)
+		ensureParent()
+		union(a, b)
+	}
+	resolveUnique := func(identity string) (int, bool) {
+		match := -1
+		for i, node := range nodes {
+			if !types.AnswerCodeIdentitySurfacesEquivalent(node, identity) {
+				continue
+			}
+			if match >= 0 && match != i {
+				return -1, false
+			}
+			match = i
+		}
+		return match, match >= 0
+	}
+	for _, handoff := range handoffs {
+		from, fromOK := resolveUnique(handoff.callTarget)
+		to, toOK := resolveUnique(handoff.registeredCallable)
+		if fromOK && toOK && from != to {
+			union(from, to)
+		}
+	}
+	roots := make(map[int]bool)
+	for i := range nodes {
+		roots[find(i)] = true
+	}
+	return len(roots) == 1
 }
 
 func answerDocMechanismRequestedDiagramKind(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) types.DiagramKind {
