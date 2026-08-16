@@ -521,6 +521,72 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	}
 }
 
+func TestBuildVerificationProofLedgerResolvesRetainedSamePathWithTerminalCumulativeCoverage(t *testing.T) {
+	oldPlan := &ChangePlan{
+		ID: "plan-old",
+		ImpactAnalysis: &ImpactAnalysisResult{VerificationTargets: []ImpactVerificationTarget{{
+			ID: "old-path", Kind: "changed_file", Path: "repository.c", CoverageStatus: "unverified",
+		}}},
+	}
+	newPlan := &ChangePlan{
+		ID: "plan-new",
+		CumulativeVerificationScope: &CumulativeVerificationScope{
+			SourcePlanIDs: []string{"plan-old"},
+			TargetPaths:   []string{"repository.c"},
+		},
+	}
+	oldReport := &ChangeReport{
+		PlanID: "plan-old", VerificationStatus: VerificationStatusFailed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "check", Command: "make check", Outcome: "failed", ExitCode: 1}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "repository.c", Status: ChangedPathVerificationUncovered,
+		}},
+	}
+	newReport := &ChangeReport{
+		PlanID: "plan-new", Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "check", Command: "make check", Outcome: "executed"}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "repository.c", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+	}
+
+	got := BuildVerificationProofLedger(newPlan, newReport, []VerificationProofArtifact{
+		{Plan: oldPlan, Report: oldReport},
+		{Plan: newPlan, Report: newReport},
+	})
+	if got.State != VerificationProofLedgerVerified || got.UncoveredCount != 0 {
+		t.Fatalf("terminal cumulative same-path proof did not close retained obligations: %+v", got)
+	}
+	if !verificationProofLedgerHasItem(got, "changed_file", VerificationProofLedgerItemCovered, "resolved_by_terminal_cumulative_changed_path") {
+		t.Fatalf("retained changed-file obligation was not audibly resolved: %+v", got.Obligations)
+	}
+}
+
+func TestBuildVerificationProofLedgerDoesNotResolveUnboundHistoricalSamePath(t *testing.T) {
+	oldPlan := &ChangePlan{
+		ID: "plan-old",
+		ImpactAnalysis: &ImpactAnalysisResult{VerificationTargets: []ImpactVerificationTarget{{
+			ID: "old-path", Kind: "changed_file", Path: "repository.c", CoverageStatus: "unverified",
+		}}},
+	}
+	newPlan := &ChangePlan{ID: "plan-new"}
+	newReport := &ChangeReport{
+		PlanID: "plan-new", Passed: true, VerificationStatus: VerificationStatusPassed,
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "repository.c", Status: ChangedPathVerificationCovered,
+		}},
+	}
+
+	got := BuildVerificationProofLedger(newPlan, newReport, []VerificationProofArtifact{
+		{Plan: oldPlan, Report: &ChangeReport{PlanID: "plan-old", VerificationStatus: VerificationStatusFailed}},
+		{Plan: newPlan, Report: newReport},
+	})
+	if got.State == VerificationProofLedgerVerified || got.UncoveredCount == 0 {
+		t.Fatalf("unbound same-path history was incorrectly erased: %+v", got)
+	}
+}
+
 func TestBuildVerificationProofLedgerProjectsRenderedTextPlacementObligations(t *testing.T) {
 	report := &ChangeReport{
 		PlanID:             "plan-placement-ledger",

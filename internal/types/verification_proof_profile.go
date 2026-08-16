@@ -395,6 +395,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		}
 	}
 	out.resolveHistoricalVerificationFailures(primaryReport)
+	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
 }
@@ -578,6 +579,67 @@ func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(pri
 			item.Status = VerificationProofLedgerItemAdvisory
 			item.ReasonCode = "superseded_by_terminal_exact_command_pass"
 		}
+	}
+}
+
+// resolveCumulativeChangedPathObligations lets a terminal verification report
+// cover earlier still-applied edits only when the controller explicitly bound
+// those source plans and exact paths into the active plan's cumulative verify
+// scope. This is deliberately stricter than a same-path heuristic: a passing
+// report alone cannot erase an unrelated historical obligation, and neither
+// command text nor plan/report prose participates.
+func (ledger *VerificationProofLedger) resolveCumulativeChangedPathObligations(primaryPlan *ChangePlan, primaryReport *ChangeReport) {
+	if ledger == nil || primaryPlan == nil || primaryReport == nil ||
+		primaryReport.NormalizeVerificationStatus() != VerificationStatusPassed ||
+		primaryPlan.CumulativeVerificationScope == nil ||
+		strings.TrimSpace(primaryPlan.ID) == "" ||
+		strings.TrimSpace(primaryReport.PlanID) != strings.TrimSpace(primaryPlan.ID) {
+		return
+	}
+	sourcePlans := map[string]bool{}
+	for _, id := range primaryPlan.CumulativeVerificationScope.SourcePlanIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			sourcePlans[id] = true
+		}
+	}
+	scopedPaths := map[string]bool{}
+	for _, path := range primaryPlan.CumulativeVerificationScope.TargetPaths {
+		if path = strings.TrimSpace(path); path != "" {
+			scopedPaths[path] = true
+		}
+	}
+	coveredPaths := map[string]bool{}
+	for _, row := range primaryReport.ChangedPathCoverage {
+		path := strings.TrimSpace(row.Path)
+		if path != "" && row.Status == ChangedPathVerificationCovered && scopedPaths[path] {
+			coveredPaths[path] = true
+		}
+	}
+	if len(sourcePlans) == 0 || len(coveredPaths) == 0 {
+		return
+	}
+	for i := range ledger.Obligations {
+		item := &ledger.Obligations[i]
+		if item.Status != VerificationProofLedgerItemUnverified && item.Status != VerificationProofLedgerItemMissing {
+			continue
+		}
+		if item.Kind != "changed_file" || !sourcePlans[strings.TrimSpace(item.PlanID)] ||
+			!coveredPaths[strings.TrimSpace(item.Path)] {
+			continue
+		}
+		item.Status = VerificationProofLedgerItemCovered
+		item.ReasonCode = "resolved_by_terminal_cumulative_changed_path"
+		item.Detail = "covered by the terminal report through controller-owned cumulative verification scope"
+	}
+	for i := range ledger.Capabilities {
+		item := &ledger.Capabilities[i]
+		if item.Kind != "changed_path_verification" || item.Status != VerificationProofLedgerItemUnverified ||
+			!sourcePlans[strings.TrimSpace(item.ReportPlanID)] || !coveredPaths[strings.TrimSpace(item.Path)] {
+			continue
+		}
+		item.Status = VerificationProofLedgerItemAdvisory
+		item.ReasonCode = "superseded_by_terminal_cumulative_changed_path"
+		item.Detail = "the terminal cumulative verification report covered this exact retained path"
 	}
 }
 
