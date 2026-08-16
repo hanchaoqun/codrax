@@ -310,6 +310,102 @@ func TestMechanismSemanticDescent_ExecutableSeedIsLanguageNeutralIncludingArkTSA
 	}
 }
 
+func TestMechanismSemanticDescent_SelectedCallableDefinitionSeedsEnumRosterWithoutExplicitRole(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Value: "4",
+		Members: []string{"OutcomeRendered", "OutcomeFallbackRune", "OutcomeUnsupportedKind", "OutcomeLibraryRejected"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, AnchorSymbol: "Render",
+			Source: "src/pipeline.go", LineStart: 2, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			// Same-file secondary role description must not consume a second
+			// unbound definition seed.
+			Kind: types.EvidenceMechanism, AnchorSymbol: "rewrite",
+			Source: "src/pipeline.go", LineStart: 6, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
+		t.Fatalf("selected callable definition demands=%d, want rewrite body", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
+		t.Fatalf("selected callable definition pending=%+v, want rewrite body 6..8", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_SelectedCallableDefinitionPreciseNoTriggerBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*types.BusContext, *types.AnswerAggregateFact, *types.EvidenceItem)
+	}{
+		{
+			name: "direct definition is not a mechanism selection",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.Kind = types.EvidenceDirect
+			},
+		},
+		{
+			name: "system role description cannot expand scope",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.Producer = types.EvidenceProducerAutoPairRoleDescription
+			},
+		},
+		{
+			name: "text reference has no callable definition authority",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.AnchorKind = types.AnchorTextReference
+			},
+		},
+		{
+			name: "anchor identity must match parser callable",
+			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, item *types.EvidenceItem) {
+				item.AnchorSymbol = "different"
+			},
+		},
+		{
+			name: "supporting completion cannot expand principal scope",
+			mutate: func(_ *types.BusContext, fact *types.AnswerAggregateFact, _ *types.EvidenceItem) {
+				fact.Role = types.AnswerAggregateRoleSupportingCoverage
+			},
+		},
+		{
+			name: "trace request remains isolated",
+			mutate: func(ctx *types.BusContext, _ *types.AnswerAggregateFact, _ *types.EvidenceItem) {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, _ := mechanismSemanticDescentFixture()
+			ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+			fact := types.AnswerAggregateFact{
+				Kind: types.AnswerAggregateMemberSet, Value: "1", Members: []string{"OutcomeRendered"},
+			}
+			item := types.EvidenceItem{
+				Kind: types.EvidenceMechanism, AnchorSymbol: "Render",
+				Source: "src/pipeline.go", LineStart: 2, Scope: types.ScopeLine,
+				AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+				GroundingStatus: types.GroundingGrounded,
+			}
+			tc.mutate(ctx, &fact, &item)
+			if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, []types.EvidenceItem{item}); got != 0 {
+				t.Fatalf("no-trigger selected definition queued %d read(s): %+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+			}
+		})
+	}
+}
+
 func TestMechanismSemanticDescent_ExecutableEvidencePreciseNoTriggerBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -390,12 +486,6 @@ func TestMechanismSemanticDescent_MechanismDefinitionPreciseNoTriggerBoundaries(
 			},
 		},
 		{
-			name: "support and evidence source must agree",
-			mutate: func(_ *types.BusContext, fact *types.AnswerAggregateFact, _ *types.EvidenceItem) {
-				fact.SupportRefs = []string{"Render @ src/other.go:2"}
-			},
-		},
-		{
 			name: "trace request remains isolated",
 			mutate: func(ctx *types.BusContext, _ *types.AnswerAggregateFact, _ *types.EvidenceItem) {
 				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
@@ -419,6 +509,23 @@ func TestMechanismSemanticDescent_MechanismDefinitionPreciseNoTriggerBoundaries(
 				t.Fatalf("no-trigger mechanism definition queued %d read(s): %+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
 			}
 		})
+	}
+}
+
+func TestMechanismSemanticDescent_RosterBoundDefinitionRejectsSupportSourceMismatch(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	fact := mechanismSemanticDescentFact()
+	fact.MemberNotes = nil
+	fact.SupportRefs = []string{"Render @ src/other.go:2"}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceMechanism, Subject: "Render", AnchorSymbol: "Render",
+		Source: "src/pipeline.go", LineStart: 2, LineEnd: 4, Scope: types.ScopeLineRange,
+		AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := mechanismSemanticDescentDefinitionSeeds(ctx, graph, []types.AnswerAggregateFact{fact}, evidence); len(got) != 0 {
+		t.Fatalf("roster-bound definition accepted mismatched support source: %+v", got)
 	}
 }
 
@@ -661,5 +768,32 @@ func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedExecutableOwner(
 	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
 		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
 		t.Fatalf("typed executable owner pending read lost its exact citation-class contract: %+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_PreCompleteWiringConsumesSelectedCallableDefinition(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	fact := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Value: "1", Members: []string{"OutcomeRendered"},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceMechanism, AnchorSymbol: "Render",
+		Source: "src/pipeline.go", LineStart: 2, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+
+	downgrade := preCompleteContractCheckWithPreflight(ctx, "", completionPreflightView{
+		Evidence: evidence, EffectiveAggregateFacts: []types.AnswerAggregateFact{fact},
+	})
+	if !strings.Contains(downgrade, "pending forced reads block the closure") ||
+		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "rewrite") {
+		t.Fatalf("pre-complete selected callable definition was not wired as a blocking read: %s", downgrade)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
+		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
+		t.Fatalf("selected callable definition pending read lost its exact citation-class contract: %+v", pending)
 	}
 }

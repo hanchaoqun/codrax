@@ -37840,6 +37840,38 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.917 B879e：Explorer-selected callable definition seed（2026-08-15）
+
+1. principal boundary 改为消费 `AnswerAggregateFactRoleForRequest` 的 typed role inference；member_set 即使省略显式 role，
+   仍可按既有 schema 语义识别为 principal。这个变化不把纯模型 aggregate 当 current-source 证明：还必须存在同轮
+   Explorer-authored、citable、非 runtime、principal source scope 内的 exact source:line evidence；显式 external-only 直接
+   fail-open。该证据只授权补读，不改变 aggregate 的 origin/authority。
+2. 新增 unbound selected-definition seed：仅接受 Explorer-authored、citable grounded、
+   `EvidenceMechanism + AnchorDefinition + ClaimDefinitionFact`，source:line 必须落在 parse tier 1/2 callable declaration 内，
+   AnchorSymbol 必须与 parser symbol/qualified identity 精确兼容。普通 EvidenceDirect definition、text-reference、system
+   auto-pair role description、identity mismatch、runtime artifact、supporting-only completion 与 Trace 均不能触发。
+3. 每个 source file 只取 evidence 顺序中的首个合格 callable definition，最多四文件；executable-owner seeds 先进入 frontier，
+   selected definitions 后进入。命中后复用 follow-all-local-calls、depth=2/max=4、exact symbol 去重和 citation-class
+   PendingRead。这样 r554 的 Render 优先于同文件 Sanitize，避免角色描述 roster 挤占主闭包预算。
+4. 旧 B879c 的 roster/support 严格绑定保持不变；单测改为直接钉住 support/evidence source mismatch 在该 helper 内仍零 seed，
+   不因新 unbound lane 的独立合法选择而产生伪回归。新增正形覆盖 enum roster、空 explicit role/support refs、同文件多
+   mechanism definitions 只消费首个；新增 pre-complete 接线 pin 与全部负形。
+5. 验证：`go test ./internal/tool -run TestMechanismSemanticDescent -count=1` 绿；
+   `go test ./internal/tool -count=1` 绿（163s）；`go test ./... -count=1` 全绿（tool 180s、tracequery 79s）。下一步 r555
+   生产回放必须看到 Render owner 下钻并人工确认普通 fallback 与 degraded-draft sanitizer 分离；未回放前不标 closed。
+6. B881 P0 未在本批修改，仍排在 r555 后立即施工；B880 关系载体在 B881 后。Trace 显式时间窗、因果投影、自动补齐、
+   链上-only 主因与实际占用/业务线索 + 规则计价双轴均保持，活跃流不按 4ms/固定年龄降级。
+
+状态：
+
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=implemented/full-suite-pass/production-replay-next`；
+`B881-STRUCTUREDDIAGRAMPOSTNORMALIZEFAILOPEN=confirmed/P0/after-replay`；
+`B880-AGGREGATEOWNERSHIPRELATION1=confirmed/P1/after-B881`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.916 r554：JSON 教学转正；executable-only 仍漏 callable definition；非法 Mermaid fail-open（2026-08-15）
 
 1. 在 `main@0c5d8c6f5` 重建后严格并发恰好两个案例；runner 2/2 PASS（167s/108s），人工 0/2。结果记录在

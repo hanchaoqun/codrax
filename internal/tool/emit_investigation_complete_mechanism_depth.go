@@ -113,6 +113,15 @@ func raiseMechanismSemanticDescentPendingReads(
 	for _, node := range mechanismSemanticDescentExecutionSeeds(ctx, graph, aggregateFacts, evidence) {
 		addSeed(node)
 	}
+	// B879e: a callable definition explicitly classified by the Explorer as
+	// mechanism evidence is also a precise model selection. This covers runs
+	// whose evidence shape contains no executable guard/return/assignment yet.
+	// Keep only the first exact callable per source file so role-description
+	// rosters cannot crowd out the bounded closure. System auto-pairs and plain
+	// direct definitions are excluded by producer/kind below.
+	for _, node := range mechanismSemanticDescentSelectedDefinitionSeeds(ctx, graph, aggregateFacts, evidence) {
+		addSeed(node)
+	}
 	// B879b: a mechanism roster may legitimately consist of enum outcomes or
 	// other non-callable identities. In that shape the earlier flow-operation
 	// gate can still make the model select a parser-grounded call edge. Continue
@@ -201,7 +210,7 @@ func mechanismSemanticDescentExecutionSeeds(
 	evidence []types.EvidenceItem,
 ) []mechanismSemanticDescentNode {
 	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 ||
-		!mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts) {
+		!mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts, evidence) {
 		return nil
 	}
 	rm := ctx.AnalysisIR.RequestModel
@@ -246,19 +255,89 @@ func mechanismSemanticDescentExecutionSeeds(
 	return seeds
 }
 
-func mechanismCompletionHasCurrentSourcePrincipalFact(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+func mechanismSemanticDescentSelectedDefinitionSeeds(
+	ctx *types.BusContext,
+	graph *repotypes.Graph,
+	aggregateFacts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) []mechanismSemanticDescentNode {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 ||
+		!mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts, evidence) {
+		return nil
+	}
+	principalScope := types.PrincipalSourceScope(ctx.AnalysisIR.RequestModel.SourceScopeProfile)
+	seeds := make([]mechanismSemanticDescentNode, 0, mechanismSemanticDescentMaxDemands)
+	seenFiles := make(map[string]bool)
+	for _, item := range evidence {
+		if item.Producer != types.EvidenceProducerExplorerEmitEvidence || item.Kind != types.EvidenceMechanism ||
+			item.AnchorKind != types.AnchorDefinition || types.ClaimFormOf(item) != types.ClaimDefinitionFact ||
+			!item.IsCitable() || item.LineStart <= 0 || types.RuntimeArtifactPathKind(item.Source) != "" ||
+			!types.SourceScopeAllowsPathRole(principalScope, types.ClassifySourcePathRole(item.Source)) {
+			continue
+		}
+		file, fi := mechanismSemanticDescentGraphFile(graph, item.Source)
+		fileKey := strings.ToLower(canonicalRelationSourcePath(file))
+		if fi == nil || fileKey == "" || seenFiles[fileKey] || !mechanismSemanticDescentASTFile(fi) {
+			continue
+		}
+		sym := enclosingCallableSymbol(fi, item.LineStart)
+		if !mechanismSemanticDescentCallable(sym) {
+			continue
+		}
+		end := sym.EndLine
+		if end < sym.Line {
+			end = sym.Line
+		}
+		qualified := qualifiedEvidenceSymbolNameInFile(fi, sym)
+		if item.LineStart < sym.Line || item.LineStart > end ||
+			!mechanismSemanticDescentIdentityMatches(item.AnchorSymbol, sym.Name, qualified) {
+			continue
+		}
+		seenFiles[fileKey] = true
+		seeds = append(seeds, mechanismSemanticDescentNode{
+			file: file, fi: fi, sym: sym, root: strings.TrimSpace(item.AnchorSymbol), followAllCalls: true,
+		})
+		if len(seeds) >= mechanismSemanticDescentMaxDemands {
+			break
+		}
+	}
+	return seeds
+}
+
+func mechanismCompletionHasCurrentSourcePrincipalFact(
+	ctx *types.BusContext,
+	facts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
+	if rm == nil || rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	hasPrincipal := false
 	for _, fact := range facts {
-		if !aggregateFactCanDefineModelOwnedCompletionBoundary(fact) {
+		if types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer {
 			continue
 		}
+		hasPrincipal = true
 		for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
 			if origin == types.AnswerEvidenceOriginCurrentSource {
 				return true
 			}
+		}
+	}
+	if !hasPrincipal {
+		return false
+	}
+	principalScope := types.PrincipalSourceScope(rm.SourceScopeProfile)
+	for _, item := range evidence {
+		if item.Producer == types.EvidenceProducerExplorerEmitEvidence && item.IsCitable() &&
+			strings.TrimSpace(item.Source) != "" && item.LineStart > 0 &&
+			types.RuntimeArtifactPathKind(item.Source) == "" &&
+			types.SourceScopeAllowsPathRole(principalScope, types.ClassifySourcePathRole(item.Source)) {
+			return true
 		}
 	}
 	return false
