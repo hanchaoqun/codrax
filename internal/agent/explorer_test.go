@@ -1208,6 +1208,8 @@ func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *tes
 		"does not override the typed repo_map route above",
 		"Call-edge Evidence Handoff",
 		"every distinct operation",
+		"actual binding expression as a separate `registration` row in the same evidence batch",
+		"a definition row never substitutes for the binding row",
 		"does not authorize any answer conclusion",
 		"ArkTS",
 		"Cangjie",

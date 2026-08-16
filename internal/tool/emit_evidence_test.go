@@ -1872,6 +1872,24 @@ func TestEmitEvidence_ParametersUsesOnlyCanonicalSchema(t *testing.T) {
 	}
 }
 
+func TestEmitEvidenceSchema_SelectedContainerDefinitionDoesNotReplaceBindingRow(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal((&EmitEvidence{}).Parameters(), &schema); err != nil {
+		t.Fatalf("decode emit_evidence schema: %v", err)
+	}
+	props := schema["properties"].(map[string]any)["items"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	description, _ := props["evidence_kind"].(map[string]any)["description"].(string)
+	for _, want := range []string{
+		"selected module/factory/container definition",
+		"separate registration row in the same batch",
+		"definition row never substitutes",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("evidence_kind schema missing atomic registration teaching %q: %q", want, description)
+		}
+	}
+}
+
 func TestEmitEvidenceToolDescription_NoSalienceInternalLeakage(t *testing.T) {
 	desc := (&EmitEvidence{}).Description()
 	for _, forbidden := range []string{"tier1_floor", "extractor", "finalizer", "producer rank", "display cap"} {

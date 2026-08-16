@@ -35689,12 +35689,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    location 维度可由 principal structured item 上的有效 citation 签收，因为 renderer 会在该项上
    显示 exact file:line；多 location 槽位、typed relation member set 和 source inventory 仍要求每个
    成员自己的可见路径。实现只读 enum/role/index/citation fields，不扫描 request、模型推理或答案文字。
+10. B927 完成安全施工裁定并补齐统一教学，但不扩大硬修复域。现有 receiver-call 解析只能证明
+    `receiver.method(argument)` 语法，不能精确区分注册与普通调用；把任意 model-selected definition 的
+    唯一 receiver call 强制解释为 registration 会系统造边，方案否决。EmitEvidence 总说明、JSON
+    `evidence_kind` schema 和 call-chain Explorer 现统一要求：定义载体可作为 direct/mechanism 保留，
+    actual binding expression 必须在同一 evidence batch 另发 atomic registration row，定义行绝不替代
+    binding 行。系统仍只对模型已经 typed 为 registration 的行做 exact tuple repair，不扫描 summary、
+    request 或答案，也不从启发式方法名做 completion-blocking gate；需异构生产回放确认教学收敛率。
 
 状态：
 
 `B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=implemented/pending-stable-role-production-replay`；
 `B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=implemented/schema-teaching+principal-citation-receipt+pinned`；
-`B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=confirmed/P1`；
+`B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=implemented/soft-atomic-teaching/pending-production-replay`；
 `B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/overall-unavailable+mixed-pass-typed-pins`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
