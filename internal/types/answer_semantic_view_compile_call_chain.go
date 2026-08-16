@@ -1,5 +1,32 @@
 package types
 
+// CallChainPrincipalClaimForms is the single claim-form roster for the
+// principal structured call-chain carrier. Keep the compiler and emit-time
+// relation-presence gate on this one typed source so a newly supported
+// language or relation shape cannot update one side while leaving the other
+// stale.
+func CallChainPrincipalClaimForms() []ClaimForm {
+	return []ClaimForm{
+		ClaimDefinitionFact,
+		ClaimCallEdge,
+		ClaimCallbackHandoff,
+		ClaimRegistrationEdge,
+	}
+}
+
+// IsCallChainPrincipalRelationClaimForm reports whether a principal
+// call-chain claim form asserts a directed relation and therefore needs a
+// model-authored endpoint anchor. Definition facts remain descriptive and do
+// not enter this relation contract.
+func IsCallChainPrincipalRelationClaimForm(form ClaimForm) bool {
+	for _, candidate := range CallChainPrincipalClaimForms() {
+		if candidate == form {
+			return RelationForClaimForm(form).IsValid()
+		}
+	}
+	return false
+}
+
 // compileCallChain builds the AnswerSemanticView for QFCallChain.
 // Question shape: "trace from X to Y" / "how does control flow from
 // A to B" — answer is an ordered sequence of call/dispatch hops.
@@ -42,12 +69,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				string(FacetCurrentCodePath),
 				string(FacetPrincipalPathEdge),
 			},
-			AcceptableClaimForms: []ClaimForm{
-				ClaimDefinitionFact,
-				ClaimCallEdge,
-				ClaimCallbackHandoff,
-				ClaimRegistrationEdge,
-			},
+			AcceptableClaimForms: CallChainPrincipalClaimForms(),
 			Rationale: "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line in the list citation. " +
 				"When evidence forms disconnected segments, keep them visibly separate and do not imply an execution order, value handoff, or bridge between them.",
 			SurfaceRoleHint: SurfacePrincipal,

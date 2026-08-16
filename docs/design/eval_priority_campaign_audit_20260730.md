@@ -35649,6 +35649,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
+
+1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
+   standalone `edge_anchors`，但 principal structured block 若显式提交 `claim_uses=call_edge|callback_handoff|
+   registration_edge` 后把 `edge_anchors` 整体省略，旧核收到空集合便无 pair 可查。r583 的 Poly 答案正由此
+   把“完整链”写进主列表，却没有任何结构化 endpoint authority。
+2. 本批新增 typed presence gate，仅消费 `QFCallChain + surface_role=principal + ordered_list|bullet_list|table +
+   canonical relation claim form + len(edge_anchors)==0`。它不读用户原文、item label/text/cells、thinking、
+   final prose 或语言名；description/definition block、supporting block、非结构 block、Generic 与
+   `QFRootCauseTrace` 全部旁路，因此不会把邻近/背景关系提升成主因，也不会干扰 Trace 链上-only 权威。
+3. 命中时只要求模型保留自己选择的关系并从 typed recipe 复制至少一条完整
+   `from_node/to_node/relation_kind/from_identity/to_identity`；若原块其实是描述性内容，则由模型撤回 relation
+   claim。系统不生成、选择、补写或改向任何边，也不要求 Mermaid。提交后的所有 rows 继续进入 B929 的
+   同向 evidence kernel，定义事实仍不能证明调用。
+4. 为防 compiler 与 gate 再漂移，`CallChainPrincipalClaimForms()` 成为 call-chain 主载体允许形与关系 presence
+   判定的共同 roster；`definition_fact` 保持非关系，call/callback/registration 自动由 relation registry
+   判定。它与源码语言无关，Go/Java/C/C++/Rust/Python/ArkTS/Cangjie 等共享一条合同。
+5. JSON 教学同步为单一条件：call-chain principal structured block 选择 directed relation claim form 时至少有
+   一条 anchor，standalone row 必须携带完整 identity pair；描述性 block 才能零 anchor。保留
+   `edge_anchors` 字段整体 optional 的 schema 兼容，同时消除“关系 claim 已选但 anchors 仍可省略”的心智冲突。
+6. 回归覆盖三种关系形、完整 anchor 下放 B929、definition/support/non-structured/Generic/Trace 负臂、可选图
+   忠实子集、不强迫 Mermaid、patch 车道与 schema/skill 单源 pin。`go test ./internal/tool -count=1`
+   162.620s 全绿；`go test ./internal/skill ./internal/types -count=1` 全绿。
+
+状态：
+
+`B932-STRUCTUREDRELATIONZEROANCHOR1=implemented/typed-presence+shared-authority/full-tests-pass/pending-production-replay`；
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=implementation-unchanged/downstream-kernel`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=production-context-positive/pending-structured-consumption-replay`；
+`B931-RUNTIMECAUSALBREADTHSSOT1=implemented/pending-production-replay`；
+`Trace explicit-window/causal projection/auto-supplement=untouched`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden`。
+
 ### §123.955 r583：Trace 因果广度重试漂移；结构化关系零锚绕过（2026-08-16）
 
 1. 在 `main@1c01de410` 重建后严格并发恰好两个案例：

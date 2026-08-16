@@ -32,6 +32,13 @@ type DiagramSyntaxProfile struct {
 // without maintaining a second escaped copy.
 const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a semantic call_dag, or in any diagram whose typed source relation axis is call, register, return, configure, condition, implement, or flow (flow, architecture, sequence, or call_dag), requires one same-direction edge_anchors entry with its honest relation_kind; only a dashed sequence reply structurally paired with its forward invocation is metadata-free."
 
+// GroundedStandaloneCallChainRelationOwnershipContract is the matching
+// ownership boundary for a principal structured call-chain carrier that does
+// not need a Mermaid block. Applicability comes only from typed family, block,
+// surface-role, and claim-form fields; validators must never infer it from
+// list labels, prose, or the request text.
+const GroundedStandaloneCallChainRelationOwnershipContract = "In a grounded call-chain answer, a principal ordered_list, bullet_list, or table that selects a directed relation claim form must include at least one model-authored edge_anchors row. Every standalone row must preserve both exact from_identity and to_identity values from one typed recipe; no Mermaid block is required. A descriptive block can omit edge_anchors only when it does not declare a directed relation claim form."
+
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
 // rule for explicit logical non-call edges in every non-runtime diagram family.
 // Keep this separate from the body-ownership sentence: relation_kind records

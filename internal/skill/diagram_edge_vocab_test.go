@@ -71,6 +71,7 @@ func TestBuildDiagramRelationContractDoc_UsesRelationKindAsSoleTypedAuthority(t 
 		"requires `{from_node, to_node, relation_kind}`",
 		"`from_identity` / `to_identity` are optional exact endpoint selectors",
 		"`relation_kind`: the sole typed relation authority",
+		types.GroundedStandaloneCallChainRelationOwnershipContract,
 		`{"edge_anchors":[{"from_node":"Auth","to_node":"Worker","relation_kind":"call"}]}`,
 	} {
 		if !strings.Contains(got, want) {

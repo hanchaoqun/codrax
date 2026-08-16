@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -3015,6 +3016,94 @@ func TestDiagramCallEdgeEvidenceMismatches_StandaloneStructuredListUsesSameAutho
 	}
 }
 
+func TestPreCheckStandaloneCallChainRelationAnchorPresenceFailsLoudWithoutReadingProse(t *testing.T) {
+	for _, form := range []types.ClaimForm{
+		types.ClaimCallEdge,
+		types.ClaimCallbackHandoff,
+		types.ClaimRegistrationEdge,
+	} {
+		t.Run(string(form), func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "principal-path", Kind: types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: form}},
+				Items: []types.AnswerBlockItem{{
+					Label: "display words are deliberately irrelevant",
+					Text:  "changing this prose cannot affect the typed gate",
+				}},
+			}}}
+			hints := preCheckDiagramCallEdgeEvidenceAlignment(
+				doc,
+				&types.AnswerSemanticView{Family: types.QFCallChain},
+				newPreEmitCheckContext(),
+			)
+			if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedCallEdgeEvidence ||
+				hints[0].Field != `blocks[id="principal-path"].edge_anchors` ||
+				!strings.Contains(hints[0].ExpectedShape, "no Mermaid block is required") ||
+				!strings.Contains(hints[0].ExpectedShape, string(form)) ||
+				!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneRelationClaimHasNoAnchor}) {
+				t.Fatalf("zero-anchor relation claim must fail through the wired typed lane: %+v", hints)
+			}
+		})
+	}
+}
+
+func TestEmitAnswerDocumentSchemaProjectsStandaloneCallChainRelationOwnership(t *testing.T) {
+	schema := string((&EmitAnswerDocument{}).canonicalParameters())
+	if !strings.Contains(schema, types.GroundedStandaloneCallChainRelationOwnershipContract) {
+		t.Fatalf("tool schema lost canonical standalone relation ownership teaching: %s", schema)
+	}
+	if strings.Contains(schema, "__GROUNDED_STANDALONE_CALL_CHAIN_RELATION_OWNERSHIP__") {
+		t.Fatalf("tool schema leaked its compile-time placeholder: %s", schema)
+	}
+}
+
+func TestPreCheckStandaloneCallChainRelationAnchorPresenceKeepsNonClaimsAndOtherFamiliesOutside(t *testing.T) {
+	base := types.AnswerBlock{
+		ID: "path", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+	}
+	if hints := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	); len(hints) != 0 {
+		t.Fatalf("descriptive definition block must not be forced to author a relation: %+v", hints)
+	}
+
+	base.ClaimUses[0].ClaimForm = types.ClaimCallEdge
+	for _, tc := range []struct {
+		name   string
+		block  types.AnswerBlock
+		family types.QuestionFamily
+	}{
+		{name: "supporting block", block: func() types.AnswerBlock { b := base; b.SurfaceRole = ""; return b }(), family: types.QFCallChain},
+		{name: "non-structured block", block: func() types.AnswerBlock { b := base; b.Kind = types.BlockSummary; return b }(), family: types.QFCallChain},
+		{name: "generic family", block: base, family: types.QFGeneric},
+		{name: "runtime trace family", block: base, family: types.QFRootCauseTrace},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if hints := preCheckStandaloneCallChainRelationAnchorPresence(
+				&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{tc.block}},
+				&types.AnswerSemanticView{Family: tc.family},
+			); len(hints) != 0 {
+				t.Fatalf("typed non-applicable surface must remain outside the gate: %+v", hints)
+			}
+		})
+	}
+
+	base.EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "entry", ToNode: "worker",
+		FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+		RelationKind: types.DiagramRelCall,
+	}}
+	if hints := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	); len(hints) != 0 {
+		t.Fatalf("a submitted endpoint pair belongs to the shared evidence validator, not the presence gate: %+v", hints)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DuplicateTypedParticipantIdentityIsDiagnosedFirst(t *testing.T) {
 	for _, endpoint := range []string{"gate.RunWith", "gate::RunWith", "Gate#runWith", "run_with"} {
 		for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture} {
@@ -3310,6 +3399,11 @@ func TestRunPreEmitChecks_OptionalDiagramSubsetDoesNotCreateHardCompletenessGate
 			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
 			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
 			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "service", ToNode: "repository",
+				FromIdentity: "Service.handle", ToIdentity: "Repository.insert",
+				RelationKind: types.DiagramRelCall,
+			}},
 			Items: []types.AnswerBlockItem{{
 				Label: "Service.handle → Repository.insert", CitationRef: 0,
 			}},

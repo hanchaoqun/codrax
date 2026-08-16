@@ -1297,6 +1297,11 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 				SurfaceRole: types.SurfacePrincipal,
 				FacetIDs:    []string{"current_code_path", "principal_path_edge"},
 				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: "principal_path_edge"}},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "slowpath", ToNode: "freelist",
+					FromIdentity: "__alloc_pages_slowpath", ToIdentity: "get_page_from_freelist",
+					RelationKind: types.DiagramRelCall,
+				}},
 				Items: []types.AnswerBlockItem{
 					{ID: "fast", Label: "get_page_from_freelist (快速路径)", Text: "快速路径核心函数。", CitationRef: 2},
 					{ID: "slow", Label: "__alloc_pages_slowpath (慢速路径)", Text: "慢速路径主入口。", CitationRef: 0},
@@ -1317,6 +1322,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			"surface_role": "principal",
 			"facet_ids": ["current_code_path", "principal_path_edge"],
 			"claim_uses": [{"claim_form": "call_edge", "facet_id": "principal_path_edge"}],
+			"edge_anchors": [{"from_node":"slowpath", "to_node":"freelist", "from_identity":"__alloc_pages_slowpath", "to_identity":"get_page_from_freelist", "relation_kind":"call"}],
 			"items": [
 				{"id":"fast", "label":"get_page_from_freelist (快速路径)", "text":"快速路径核心函数。", "citation_ref":3},
 				{"id":"slow", "label":"__alloc_pages_slowpath (慢速路径)", "text":"慢速路径主入口。", "citation_ref":0},

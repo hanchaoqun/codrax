@@ -4140,6 +4140,9 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 const diagramRelationSurgicalRepairInstruction = " Only edge pairs listed by the relation-gate hints for this draft failed this relation gate; preserve every visible edge and anchor not listed by any of those hints. Correct or remove only the listed edge pairs."
 
 func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if hints := preCheckStandaloneCallChainRelationAnchorPresence(doc, view); len(hints) > 0 {
+		return hints
+	}
 	if pctx == nil {
 		return nil
 	}
@@ -4348,6 +4351,55 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationFailureIssues:   failureIssues,
 			DiagramGroundedAnchorPatchJSON: groundedAnchorPatchJSON,
+		})
+	}
+	return hints
+}
+
+const diagramStandaloneRelationClaimHasNoAnchor = "standalone_relation_claim_has_no_anchor"
+
+// preCheckStandaloneCallChainRelationAnchorPresence closes the empty-set
+// escape in the shared relation authority. B929 validates every submitted
+// standalone anchor, but an explicitly relational principal list with zero
+// anchors previously supplied no pair for that validator to inspect. This
+// gate consumes only schema-validated family/block/role/claim-form fields. It
+// never reads request text, list labels/items, model prose, or rendered output,
+// and it never synthesizes a relation on the model's behalf.
+func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || view.Family != types.QFCallChain {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal || len(block.EdgeAnchors) > 0 {
+			continue
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		var relationForms []string
+		for _, use := range block.ClaimUses {
+			if types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
+				relationForms = append(relationForms, string(use.ClaimForm))
+			}
+		}
+		if len(relationForms) == 0 {
+			continue
+		}
+		sort.Strings(relationForms)
+		relationForms = dedupPreEmitStringCandidates(relationForms)
+		hints = append(hints, emitFixHint{
+			Field:               fmt.Sprintf("blocks[id=%q].edge_anchors", block.ID),
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
+			ExpectedShape: fmt.Sprintf(
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				block.ID, strings.Join(relationForms, ", "),
+			),
+			Reason:                       types.GroundedStandaloneCallChainRelationOwnershipContract + " The check reads no item text, label, request text, reasoning, or final prose. No relation is created or chosen on the model's behalf.",
+			DiagramRelationFailureIssues: []string{diagramStandaloneRelationClaimHasNoAnchor},
 		})
 	}
 	return hints

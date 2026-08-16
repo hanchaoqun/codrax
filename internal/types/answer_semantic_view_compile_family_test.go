@@ -1,6 +1,7 @@
 package types
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -661,6 +662,31 @@ func TestCompileCallChain_HasOrderedListRequiredAndDiagramOptionalByDefault(t *t
 	}
 	if hasRequiredDiagram {
 		t.Error("call chain must not require diagram unless the user requested one")
+	}
+}
+
+func TestCallChainPrincipalClaimFormsKeepCompilerAndRelationPresenceGateOnOneRoster(t *testing.T) {
+	view := BuildAnswerSemanticView(irForCallChain(), nil)
+	var got []ClaimForm
+	for _, requirement := range view.RequiredBlocks {
+		if requirement.Kind == BlockOrderedList && requirement.SurfaceRoleHint == SurfacePrincipal {
+			got = requirement.AcceptableClaimForms
+			break
+		}
+	}
+	want := CallChainPrincipalClaimForms()
+	if !slices.Equal(got, want) {
+		t.Fatalf("compiler roster=%v, canonical roster=%v", got, want)
+	}
+	for _, form := range want {
+		gotRelation := IsCallChainPrincipalRelationClaimForm(form)
+		wantRelation := RelationForClaimForm(form).IsValid()
+		if gotRelation != wantRelation {
+			t.Fatalf("form=%s relation=%t, want %t", form, gotRelation, wantRelation)
+		}
+	}
+	if IsCallChainPrincipalRelationClaimForm(ClaimExternalObservation) {
+		t.Fatal("an unsupported observation claim must not gain call-chain relation authority")
 	}
 }
 
