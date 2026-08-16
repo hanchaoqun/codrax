@@ -35683,11 +35683,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    必须同一 plan、单一 applied plan、唯一 probe、精确 pre-suite confidence/command 对、且所有待补
    behavior/symbol 义务均绑定该 probe；因此只阻止原工作树上必然重复的执行，不把局部静态绿提升成
    行为绿。tests_failed、未知 unavailable、多计划、未绑定义务继续 fail-open。生产同形和负臂均已 pin。
+9. B926 已按“教学纠偏 + 结构收据”根修。Analyzer schema 明确 `source_location` 只表示真实
+   file/path/file:line，绝不表示 package/module/namespace/native-library/logical-component name；名称集合、
+   单值和源码声明属性分别走 `member_set`、`observed_value`、`source_attribute`。单一非 inventory 的
+   location 维度可由 principal structured item 上的有效 citation 签收，因为 renderer 会在该项上
+   显示 exact file:line；多 location 槽位、typed relation member set 和 source inventory 仍要求每个
+   成员自己的可见路径。实现只读 enum/role/index/citation fields，不扫描 request、模型推理或答案文字。
 
 状态：
 
 `B925-REQUESTEDDIMENSIONSTRUCTUREDRECEIPT1=implemented/pending-stable-role-production-replay`；
-`B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=confirmed/P1`；
+`B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=implemented/schema-teaching+principal-citation-receipt+pinned`；
 `B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=confirmed/P1`；
 `B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/overall-unavailable+mixed-pass-typed-pins`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

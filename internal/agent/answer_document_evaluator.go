@@ -13877,7 +13877,7 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	case types.RequestedAnswerDimensionMemberSet:
 		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceLocation:
-		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
+		return answerDocumentCoversRequestedSourceLocationDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
 		return answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc)
 	case types.RequestedAnswerDimensionBoundary:
@@ -13889,6 +13889,84 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	default:
 		return false
 	}
+}
+
+// answerDocumentCoversRequestedSourceLocationDimensions keeps two different
+// typed presentation contracts separate. Exact relation/source inventories
+// still require a visible location on every member row. A single ordinary
+// source-location dimension, however, is already visible when a principal
+// structured item owns a valid citation: the renderer appends that exact
+// file:line to the item. Requiring an extra dimension block in that shape
+// created a redundant patch and encouraged unrelated citation reuse.
+//
+// This receipt reads only schema roles, block roles, citation indexes and
+// citation fields. It never scans request text, model prose, labels, filenames
+// or answer wording. Multiple location dimensions remain explicit/fail-open.
+func answerDocumentCoversRequestedSourceLocationDimensions(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	if answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc) {
+		return true
+	}
+	if answerDocumentRequiresTypedPerMemberSourceLocations(ctx) ||
+		requestedAnswerDimensionRoleCount(ctx, types.RequestedAnswerDimensionSourceLocation) != 1 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal || !types.AnswerBlockRendersStructuredItems(block) {
+			continue
+		}
+		for _, item := range block.Items {
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
+				}
+				citation := doc.Citations[ref]
+				if strings.TrimSpace(citation.File) != "" && citation.Line > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func requestedAnswerDimensionRoleCount(ctx *types.AgentContext, role types.RequestedAnswerDimensionRole) int {
+	if ctx == nil {
+		return 0
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		return 0
+	}
+	count := 0
+	for _, dim := range requestedDimensionsToCover(view.Presentation.RequestedDimensions) {
+		if dim.Role == role {
+			count++
+		}
+	}
+	return count
+}
+
+func answerDocumentRequiresTypedPerMemberSourceLocations(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil {
+		profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+		if profile.Active() && profile.RequestsField(types.SourceInventoryFieldLocation) {
+			return true
+		}
+	}
+	for _, fact := range answerDocStableAggregateFacts(ctx) {
+		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 &&
+			types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) &&
+			len(fact.SupportRefs) == len(fact.Members) {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocumentHasDiagramPayload(doc *types.AnswerDocumentV2) bool {

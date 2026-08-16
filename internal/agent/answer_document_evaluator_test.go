@@ -300,6 +300,83 @@ func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows
 	}
 }
 
+func TestRequestedSingleSourceLocationUsesPrincipalStructuredCitationReceipt(t *testing.T) {
+	ctxFor := func(dimensions []types.RequestedAnswerDimension) *types.AgentContext {
+		return &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions:          dimensions,
+			},
+		}}}
+	}
+	single := ctxFor([]types.RequestedAnswerDimension{{
+		Index: 1, Label: "location", Role: types.RequestedAnswerDimensionSourceLocation, Required: true,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{Label: "entry", CitationRef: 0}},
+		}},
+		Citations: []types.Citation{{File: "src/entry.go", Line: 12}},
+	}
+	if !requestedDimensionCoveredByTypedDocumentShape(single,
+		single.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0], doc) {
+		t.Fatal("a principal structured item citation renders the single requested file:line")
+	}
+
+	doc.Blocks[0].SurfaceRole = ""
+	if requestedDimensionCoveredByTypedDocumentShape(single,
+		single.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0], doc) {
+		t.Fatal("a supporting/non-principal citation must not consume the principal location dimension")
+	}
+	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	doc.Blocks[0].Items[0].CitationRef = 3
+	if requestedDimensionCoveredByTypedDocumentShape(single,
+		single.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0], doc) {
+		t.Fatal("an invalid citation index is not a location receipt")
+	}
+
+	doc.Blocks[0].Items[0].CitationRef = 0
+	two := ctxFor([]types.RequestedAnswerDimension{
+		{Index: 1, Label: "declaration location", Role: types.RequestedAnswerDimensionSourceLocation, Required: true},
+		{Index: 2, Label: "binding location", Role: types.RequestedAnswerDimensionSourceLocation, Required: true},
+	})
+	if requestedDimensionCoveredByTypedDocumentShape(two,
+		two.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0], doc) {
+		t.Fatal("one generic citation must not consume two independent location dimensions")
+	}
+}
+
+func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
+	mut := types.NewMutableState("typed member location authority")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Role: types.AnswerAggregateRolePrincipalAnswer,
+		Provenance:  types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:     []string{"Alpha", "Beta"},
+		SupportRefs: []string{"Alpha @ src/a.go:1", "Beta @ src/b.go:2"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Index: 1, Label: "locations", Role: types.RequestedAnswerDimensionSourceLocation, Required: true,
+			}},
+		},
+	}}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{Label: "Alpha", CitationRef: 0}, {Label: "Beta", CitationRef: 0}},
+		}},
+		Citations: []types.Citation{{File: "src/a.go", Line: 1}},
+	}
+	dim := ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0]
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dim, doc) {
+		t.Fatal("exact per-member location authority still requires every member's visible path")
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveStopsWhenPresentationOnlyDimensionMissing(t *testing.T) {
 	mut := types.NewMutableState("说明影响")
 	ctx := &types.AgentContext{
