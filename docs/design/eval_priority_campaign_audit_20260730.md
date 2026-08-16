@@ -35691,7 +35691,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B915-FLOWCOMPLETIONDERIVEDINDEX1=production-closed-r575/1106ms-cold+12ms-warm`；
 `B917-RELATIONSCOPEPARTICIPANTCONSISTENCY1=implemented/typed-fail-loud+pinned`；
-`B918-STRUCTUREDEDITSCOPEPLACEMENT1=confirmed/P1/soft-teaching-next`；
+`B918-STRUCTUREDEDITSCOPEPLACEMENT1=implemented/language-neutral-soft-teaching+pinned/replay-pending`；
 `QF-finalizer-literal-oracle=secondary-false-negative/do-not-fit-product`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

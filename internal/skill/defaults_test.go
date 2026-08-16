@@ -1370,6 +1370,31 @@ func TestChangePlanSkill_BatchLocalPlanningWorkflow(t *testing.T) {
 	}
 }
 
+func TestChangePlanSkillStructuredInsertionPlacementKeepsParentAndSiblingDistinct(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	wf := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"STRUCTURED INSERTION PLACEMENT",
+		"relative to the exact anchor line, not to the enclosing declaration",
+		"places the new bytes inside that open body",
+		"anchor insert_before on the existing sibling header",
+		"insert_after on the matching closing boundary",
+		"intended lexical parent",
+		"do not infer placement from task prose or identifier names",
+		"do not treat indentation alone as hard semantic authority",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Fatalf("structured insertion placement guidance missing %q:\n%s", want, wf)
+		}
+	}
+}
+
 func TestChangePlanSkillGeneratedArtifactVerificationUsesArtifactBoundary(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
