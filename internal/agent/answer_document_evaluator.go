@@ -20369,6 +20369,24 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 			i+1, row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill,
 			row.Responsibility, strings.Join(artifacts, ", "), row.File, row.Line)
 	}
+	if answerDocStageArtifactGroupingRequested(ctx) {
+		b.WriteString("\n### Verified stage-artifact grouping recipes\n\n")
+		b.WriteString("- Each row below authorizes only a no-arrow visual grouping: the listed primary artifact identities may be nested under that exact stage/agent boundary. This preserves stage ownership/provenance without inventing a runtime producer-to-consumer edge. A directed read, write, call, or transfer still requires its own typed operation recipe.\n")
+		for i, row := range main {
+			artifacts := make([]string, 0, len(row.PrimaryArtifacts))
+			for _, artifact := range row.PrimaryArtifacts {
+				if artifact = strings.TrimSpace(artifact); artifact != "" {
+					artifacts = append(artifacts, artifact)
+				}
+			}
+			if len(artifacts) == 0 {
+				continue
+			}
+			fmt.Fprintf(&b, "- stage_artifact_group_recipe[%d]: owner_stage=`%s` (`%s`); owner_agent=`%s` (`%s`); members=`%s`; representation=`mermaid_subgraph_or_group_no_arrow`; source=`%s:%d`.\n",
+				i+1, row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue,
+				strings.Join(artifacts, ", "), row.File, row.Line)
+		}
+	}
 	if carriers, ok := stageauthority.LoadReadModeStateCarriers(ctx.RepoRoot); ok && len(carriers) > 0 {
 		b.WriteString("\n### Verified shared state-carrier fields\n\n")
 		b.WriteString("- These are checkout-verified field-ownership facts, not stage edges or per-stage read/write claims. The shared context carrier accumulates cross-stage state, and its mutable pointer identifies the tool-writable region. A row authorizes only its exact owner/field/type containment: when useful, place the field/type node or subgroup inside the owner subgraph with no arrow and no edge_anchor. Keep all directed calls, reads, writes, transfers, and stage edges unproven unless independent typed operation evidence supplies them. If the owner has no directed incident operation, retain its `unproven` participant boundary; that boundary limits direct-flow claims and does not erase the proved containment.\n")
@@ -20404,6 +20422,15 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocStageArtifactGroupingRequested(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.Intent != types.IntentTrace && types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&
+		rm.PredicateAxis == types.AxisFlow && rm.DiagramHint != nil && rm.DiagramHint.Required
 }
 
 func answerDocStateCarrierLinksRequestedParticipants(rm types.RequestModel, carrier stageauthority.StateCarrierField) bool {

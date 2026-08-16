@@ -72,6 +72,50 @@ func TestAssignmentEvidenceEndpointsAcceptsExactFullRHSExpressionButKeepsCanonic
 	}
 }
 
+func TestAssignmentEvidenceEndpointsSelectsExactReceiverFromMultiResultAssignment(t *testing.T) {
+	tests := []struct {
+		name, snippet, subject, anchor, object, wantReceiver, wantValue string
+	}{
+		{
+			name:    "go_multi_result",
+			snippet: `o.busCtx.EvidenceItems, evidenceChanged = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)`,
+			subject: "o.busCtx.EvidenceItems", anchor: "o.busCtx.EvidenceItems",
+			object: "agent.MergeEvidenceItemsIfChanged", wantReceiver: "o.busCtx.EvidenceItems", wantValue: "agent.MergeEvidenceItemsIfChanged",
+		},
+		{
+			name:    "python_tuple_unpack",
+			snippet: `(result, changed) = merge(current, incoming)`,
+			subject: "result", anchor: "result", object: "merge(current, incoming)",
+			wantReceiver: "result", wantValue: "merge",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			item := EvidenceItem{AnchorKind: AnchorAssignment, Subject: tc.subject, AnchorSymbol: tc.anchor, Object: tc.object, Snippet: tc.snippet}
+			if !AssignmentEvidenceEndpointsMatch(item) {
+				t.Fatalf("exact selected multi-result receiver did not match: %+v", item)
+			}
+			receiver, value, ok := AssignmentEvidenceEndpoints(item)
+			if !ok || receiver != tc.wantReceiver || value != tc.wantValue {
+				t.Fatalf("endpoints=(%q,%q,%t), want (%q,%q,true)", receiver, value, ok, tc.wantReceiver, tc.wantValue)
+			}
+		})
+	}
+}
+
+func TestAssignmentEvidenceEndpointsMultiResultFailsClosedOnBroadOrConflictingSelection(t *testing.T) {
+	line := `o.busCtx.EvidenceItems, evidenceChanged = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)`
+	for _, item := range []EvidenceItem{
+		{AnchorKind: AnchorAssignment, Subject: "o.busCtx", Object: "output.EvidenceItems", Snippet: line},
+		{AnchorKind: AnchorAssignment, Subject: "o.busCtx.EvidenceItems", AnchorSymbol: "evidenceChanged", Object: "agent.MergeEvidenceItemsIfChanged", Snippet: line},
+		{AnchorKind: AnchorAssignment, Subject: "o.busCtx.EvidenceItems", Object: "output.EvidenceItems", Snippet: line},
+	} {
+		if AssignmentEvidenceEndpointsMatch(item) {
+			t.Fatalf("broad, conflicting, or wrong-source multi-result row gained authority: %+v", item)
+		}
+	}
+}
+
 func TestAssignmentEvidenceEndpointsRejectsFalseOrAmbiguousAuthority(t *testing.T) {
 	tests := []EvidenceItem{
 		{AnchorKind: AnchorAssignment, Subject: "applyStageOutput", Object: "output.AnalysisIR", Snippet: `o.busCtx.AnalysisIR = output.AnalysisIR`},

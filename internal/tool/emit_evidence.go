@@ -836,6 +836,15 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		if repair, ok := emitEvidenceRequiredFlowAssignmentEndpointRepair(ctx, built[i], builtParamIndexes[i]); ok {
 			assignmentEndpointRepairs = append(assignmentEndpointRepairs, repair)
 		}
+		// An assignment/initializer line may also contain the only exact call
+		// operation that receives a requested carrier.  Do not make argument
+		// evidence depend on whether the model happened to classify that same
+		// line as AnchorCall: when the parser owns exactly one call, expose its
+		// complete incident argument tuple as model re-emit debt.  This closes
+		// the anchor-entrypoint asymmetry without minting an edge or reading
+		// request/answer prose.
+		argumentFlowRepairs = append(argumentFlowRepairs,
+			emitEvidenceRequiredAssignmentCallArgumentFlowRepairs(ctx, built[i], builtParamIndexes[i], gc)...)
 		if compatNote := stabilizeAssignmentEndpointAuthority(&built[i]); compatNote != "" {
 			r = ground.GroundItemScoped(&built[i], gc)
 			if appendGroundingNoteOnce(&built[i], compatNote) {
@@ -3014,6 +3023,42 @@ func exactCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) (str
 		return "", "", false
 	}
 	return caller, callee, true
+}
+
+// exactUniqueCallEvidenceDirectionAtLine resolves a call tuple without using
+// the submitted anchor kind or prose endpoints.  It is intentionally stricter
+// than findCallRelationAtLine's historical first-match behavior: a line with
+// two parser-owned calls has no unique operation and cannot drive a hard
+// companion repair.
+func exactUniqueCallEvidenceDirectionAtLine(it types.EvidenceItem, gc *ground.Context) (string, string, bool) {
+	if gc == nil || it.LineStart <= 0 {
+		return "", "", false
+	}
+	_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+	if !ok || fi == nil {
+		return "", "", false
+	}
+	var only *repomap.Relation
+	for i := range fi.Relations {
+		rel := &fi.Relations[i]
+		if rel.Kind != "call" || rel.Line != it.LineStart {
+			continue
+		}
+		if only != nil {
+			return "", "", false
+		}
+		only = rel
+	}
+	if only == nil || strings.TrimSpace(only.ToEP.Name) == "" {
+		return "", "", false
+	}
+	call := it
+	call.AnchorKind = types.AnchorCall
+	call.AnchorSymbol = strings.TrimSpace(only.ToEP.Name)
+	call.Subject = ""
+	call.Predicate = "calls"
+	call.Object = call.AnchorSymbol
+	return exactCallEvidenceDirection(&call, gc)
 }
 
 // realignExplicitCallEvidenceLine repairs a bounded line-number error only
@@ -5260,6 +5305,10 @@ type emitEvidenceArgumentFlowRepair struct {
 	receiver  string
 	source    string
 	line      int
+	// assignmentCallCompanion records that the exact argument was recovered
+	// from a unique call nested in an accepted assignment/initializer row,
+	// rather than from a separately submitted AnchorCall row.
+	assignmentCallCompanion bool
 }
 
 const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obligations_v1"
@@ -5780,6 +5829,51 @@ func emitEvidenceRequiredCallArgumentFlowRepairs(
 	if !exact || strings.TrimSpace(callee) == "" {
 		return nil
 	}
+	return emitEvidenceArgumentFlowRepairsForExactCall(ctx, item, itemIndex, gc, callee, false)
+}
+
+// emitEvidenceRequiredAssignmentCallArgumentFlowRepairs provides the same
+// exact argument-flow repair for a line submitted as assignment/initializer.
+// A source line can legitimately carry both shapes; requiring the model to
+// guess AnchorCall first made the available relation evidence depend on a
+// schema-label choice.  The unique-call requirement is fail closed when a
+// line contains nested/sibling calls.
+func emitEvidenceRequiredAssignmentCallArgumentFlowRepairs(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+) []emitEvidenceArgumentFlowRepair {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || item.Scope != types.ScopeLine ||
+		(item.AnchorKind != types.AnchorAssignment && item.AnchorKind != types.AnchorInitializer) ||
+		item.LineStart <= 0 ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return nil
+	}
+	_, callee, exact := exactUniqueCallEvidenceDirectionAtLine(item, gc)
+	if !exact || strings.TrimSpace(callee) == "" {
+		return nil
+	}
+	return emitEvidenceArgumentFlowRepairsForExactCall(ctx, item, itemIndex, gc, callee, true)
+}
+
+func emitEvidenceArgumentFlowRepairsForExactCall(
+	ctx *types.BusContext,
+	item types.EvidenceItem,
+	itemIndex int,
+	gc *ground.Context,
+	callee string,
+	assignmentCallCompanion bool,
+) []emitEvidenceArgumentFlowRepair {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
 	flows := ground.DetectArgumentFlowsAtLine(gc, item.Source, item.LineStart, callee)
 	if len(flows) == 0 {
 		return nil
@@ -5802,11 +5896,12 @@ func emitEvidenceRequiredCallArgumentFlowRepairs(
 			continue
 		}
 		out = append(out, emitEvidenceArgumentFlowRepair{
-			itemIndex: itemIndex,
-			argument:  flow.Argument,
-			receiver:  flow.Receiver,
-			source:    item.Source,
-			line:      item.LineStart,
+			itemIndex:               itemIndex,
+			argument:                flow.Argument,
+			receiver:                flow.Receiver,
+			source:                  item.Source,
+			line:                    item.LineStart,
+			assignmentCallCompanion: assignmentCallCompanion,
 		})
 	}
 	return out
@@ -5858,25 +5953,37 @@ func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *t
 	}
 	fields := make([]string, 0, len(in))
 	rows := make([]string, 0, len(in))
+	assignmentCompanionCount := 0
 	for _, row := range in {
 		fields = append(fields, "items")
 		loc := row.source
 		if row.line > 0 {
 			loc = fmt.Sprintf("%s:%d", row.source, row.line)
 		}
+		origin := fmt.Sprintf("the direct call from items[%d] @ %s is accepted", row.itemIndex, loc)
+		if row.assignmentCallCompanion {
+			assignmentCompanionCount++
+			origin = fmt.Sprintf("the assignment/initializer from items[%d] @ %s contains one unique parser-owned call", row.itemIndex, loc)
+		}
 		rows = append(rows, fmt.Sprintf(
-			"the direct call from items[%d] @ %s is accepted; emit one additional item with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
-			row.itemIndex, loc, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
+			"%s; emit one additional item with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
+			origin, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
 			string(types.AnchorArgument), row.argument, row.argument, "passes argument", row.receiver,
 		))
 	}
+	scope := "call_argument_flow_pair"
+	if assignmentCompanionCount == len(in) {
+		scope = "assignment_call_argument_flow_pair"
+	} else if assignmentCompanionCount > 0 {
+		scope += "+assignment_call_argument_flow_pair"
+	}
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "An exact call site contains a complete data argument whose parser-owned static type matches an incident-required carrier participant. The direct-call row proves only caller -> callee; preserve the separate argument -> receiver handoff by emitting only the additional row(s) below. The accepted call stays unchanged, and the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
+		Hint:   "An exact operation site contains a complete data argument whose parser-owned static type matches an incident-required carrier participant. Preserve the separate argument -> receiving-API handoff by emitting only the additional row(s) below. The accepted source observation stays unchanged, and the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
 		Fields: uniqueEmitEvidenceRepairFields(fields),
 		Metadata: map[string]string{
 			"repair_status":       types.ToolRepairStatusActionRequired,
-			"repair_scope":        "call_argument_flow_pair",
+			"repair_scope":        scope,
 			"repair_stage":        "explorer",
 			"completion_blocking": "true",
 			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(

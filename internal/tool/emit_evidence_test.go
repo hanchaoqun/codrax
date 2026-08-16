@@ -4390,6 +4390,130 @@ func TestRequiredCallArgumentFlowRepairIsTypedParticipantAndTraceIsolated(t *tes
 	}
 }
 
+func TestRequiredAssignmentCallArgumentFlowRepairUsesUniqueParserCall(t *testing.T) {
+	const source = "pipeline.go"
+	line := "o.busCtx.EvidenceItems, changed = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "apply", Kind: "method", Parent: "Orchestrator", Line: 10, EndLine: 30},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 20,
+			FromEP:     repomap.RelationEndpoint{Name: "apply", Receiver: "Orchestrator", Line: 20},
+			ToEP:       repomap.RelationEndpoint{Name: "MergeEvidenceItemsIfChanged", Receiver: "agent", Line: 20},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call",
+		}},
+	}
+	gc := &ground.Context{
+		Graph:     callTargetTestGraph(fi),
+		LineIndex: map[string]map[int]string{source: {20: line}},
+	}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 20,
+		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems",
+		Subject: "o.busCtx", Predicate: "merges", Object: "output.EvidenceItems", Snippet: line,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	got := emitEvidenceRequiredAssignmentCallArgumentFlowRepairs(ctx, item, 0, gc)
+	if len(got) != 1 || got[0].argument != "o.busCtx.EvidenceItems" ||
+		got[0].receiver != "agent.MergeEvidenceItemsIfChanged" || !got[0].assignmentCallCompanion {
+		t.Fatalf("assignment companion repairs=%+v", got)
+	}
+	repair := buildEmitEvidenceArgumentFlowRepair(got)
+	if repair == nil || repair.Metadata["repair_scope"] != "assignment_call_argument_flow_pair" ||
+		!strings.Contains(repair.Hint, "contains one unique parser-owned call") {
+		t.Fatalf("assignment companion repair contract=%+v", repair)
+	}
+
+	fi.Relations = append(fi.Relations, repomap.Relation{
+		Kind: "call", File: source, Line: 20,
+		FromEP: repomap.RelationEndpoint{Name: "apply", Receiver: "Orchestrator", Line: 20},
+		ToEP:   repomap.RelationEndpoint{Name: "Other", Receiver: "agent", Line: 20},
+	})
+	if got := emitEvidenceRequiredAssignmentCallArgumentFlowRepairs(ctx, item, 0, gc); len(got) != 0 {
+		t.Fatalf("multiple same-line calls must fail open, got %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel = types.RequestModel{Intent: types.IntentTrace, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Required: true}}
+	fi.Relations = fi.Relations[:1]
+	if got := emitEvidenceRequiredAssignmentCallArgumentFlowRepairs(ctx, item, 0, gc); len(got) != 0 {
+		t.Fatalf("Trace causal lane must remain isolated: %+v", got)
+	}
+}
+
+func TestEmitEvidence_RequiredFlowRepairsMultiResultAssignmentAndNestedArgumentTogether(t *testing.T) {
+	const source = "pipeline.go"
+	line := "o.busCtx.EvidenceItems, changed = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 5, EndLine: 5},
+			{Name: "apply", Kind: "method", Parent: "Orchestrator", Line: 10, EndLine: 30},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 20,
+			FromEP:     repomap.RelationEndpoint{Name: "apply", Receiver: "Orchestrator", Line: 20},
+			ToEP:       repomap.RelationEndpoint{Name: "MergeEvidenceItemsIfChanged", Receiver: "agent", Line: 20},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call",
+		}},
+	}
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(fi))
+	seedReadFileHistory(ctx, source, 20, line)
+
+	res, err := tool.Execute(ctx, json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"o.busCtx","predicate":"merges","object":"output.EvidenceItems","source":%q,"line_start":20,"summary":"merge evidence into shared state","anchor_kind":"assignment","anchor_symbol":"o.busCtx.EvidenceItems","snippet":%q}]}`, source, line)))
+	if err != nil || !res.Success {
+		t.Fatalf("broad multi-result row failed unexpectedly, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "assignment_endpoint_identity+assignment_call_argument_flow_pair" ||
+		res.Repair.Metadata["completion_blocking"] != "true" {
+		t.Fatalf("multi-shape line must return both exact obligations: %+v", res.Repair)
+	}
+	for _, want := range []string{
+		`subject="o.busCtx.EvidenceItems" (exact LHS receiver)`,
+		`object="agent.MergeEvidenceItemsIfChanged" (exact RHS value/source)`,
+		`anchor_kind="argument"`,
+		`subject="o.busCtx.EvidenceItems"`,
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("combined repair missing %q: %s", want, res.Repair.Hint)
+		}
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("system must not mint either directed edge before model re-emit: %+v", got)
+	}
+
+	corrected := json.RawMessage(fmt.Sprintf(`{"items":[
+		{"scope":"line","evidence_kind":"relationship","subject":"o.busCtx.EvidenceItems","predicate":"assigns","object":"agent.MergeEvidenceItemsIfChanged","source":%q,"line_start":20,"summary":"merge result enters shared state","anchor_kind":"assignment","anchor_symbol":"o.busCtx.EvidenceItems","snippet":%q},
+		{"scope":"line","evidence_kind":"relationship","subject":"o.busCtx.EvidenceItems","predicate":"passes argument","object":"agent.MergeEvidenceItemsIfChanged","source":%q,"line_start":20,"summary":"existing evidence enters merge operation","anchor_kind":"argument","anchor_symbol":"o.busCtx.EvidenceItems","snippet":%q}
+	]}`, source, line, source, line))
+	res, err = tool.Execute(ctx, corrected)
+	if err != nil || !res.Success {
+		t.Fatalf("corrected companion rows rejected, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("model-authored exact siblings must close combined debt: %+v", res.Repair)
+	}
+}
+
 func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

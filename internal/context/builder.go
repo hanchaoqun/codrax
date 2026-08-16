@@ -2218,6 +2218,14 @@ func formatRelationDossierEvidence(items []types.EvidenceItem) string {
 		if written >= relationDossierMaxEvidenceItems {
 			break
 		}
+		if (item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer) &&
+			!types.AssignmentEvidenceEndpointsMatch(item) {
+			// The source row can remain useful evidence, but without an exact
+			// syntax-owned receiver/value tuple it is not a directed relation
+			// observation.  Omitting it here prevents the advisory dossier from
+			// labelling a merely citable broad endpoint pair as "verified".
+			continue
+		}
 		subject := relationDossierCleanText(item.Subject)
 		object := relationDossierCleanText(item.Object)
 		if types.ClaimFormOf(item) == types.ClaimGuardCondition {

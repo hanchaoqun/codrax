@@ -21,15 +21,159 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 	if !ok {
 		return "", "", false
 	}
-	receiver, ok = assignmentReceiverSurface(lhs)
-	if !ok {
-		return "", "", false
-	}
 	value, ok = assignmentPrimaryValueSurface(rhs)
 	if !ok {
 		return "", "", false
 	}
+	receiver, ok = assignmentReceiverSurface(lhs)
+	if !ok {
+		// A single call/result expression may feed more than one explicit
+		// receiver (for example Go's `value, changed = merge(...)` or a
+		// Python tuple unpack).  There is no globally unique LHS, so accept
+		// only the one exact receiver selected by the row's structured
+		// subject/anchor identity.  A broad owner or conflicting selectors
+		// fail closed; the RHS still has to be one unambiguous value surface.
+		receiver, ok = assignmentSelectedTupleReceiver(item, lhs)
+		if !ok {
+			return "", "", false
+		}
+	}
 	return receiver, value, true
+}
+
+func assignmentSelectedTupleReceiver(item EvidenceItem, lhs string) (string, bool) {
+	lhs = assignmentUnwrapOuterTuple(strings.TrimSpace(lhs))
+	parts, ok := assignmentSplitTopLevelComma(lhs)
+	if !ok || len(parts) < 2 {
+		return "", false
+	}
+	candidates := make([]string, 0, len(parts))
+	for _, part := range parts {
+		receiver, parsed := assignmentReceiverSurface(part)
+		if !parsed {
+			return "", false
+		}
+		candidates = append(candidates, receiver)
+	}
+
+	selected := ""
+	for _, selector := range []string{item.Subject, item.AnchorSymbol} {
+		selector = strings.TrimSpace(selector)
+		if selector == "" {
+			continue
+		}
+		match := ""
+		for _, candidate := range candidates {
+			if !assignmentEvidenceEndpointCompatible(selector, candidate) {
+				continue
+			}
+			if match != "" && match != candidate {
+				return "", false
+			}
+			match = candidate
+		}
+		if match == "" {
+			continue
+		}
+		if selected != "" && selected != match {
+			return "", false
+		}
+		selected = match
+	}
+	return selected, selected != ""
+}
+
+func assignmentUnwrapOuterTuple(raw string) string {
+	if len(raw) < 2 {
+		return raw
+	}
+	open, close := raw[0], raw[len(raw)-1]
+	if open != '(' || close != ')' {
+		return raw
+	}
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i != len(raw)-1 {
+				return raw
+			}
+			if depth < 0 {
+				return raw
+			}
+		}
+	}
+	if depth != 0 || quote != 0 {
+		return raw
+	}
+	return strings.TrimSpace(raw[1 : len(raw)-1])
+}
+
+func assignmentSplitTopLevelComma(raw string) ([]string, bool) {
+	var out []string
+	start, depth := 0, 0
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth == 0 {
+				return nil, false
+			}
+			depth--
+		case ',':
+			if depth != 0 {
+				continue
+			}
+			part := strings.TrimSpace(raw[start:i])
+			if part == "" {
+				return nil, false
+			}
+			out = append(out, part)
+			start = i + 1
+		}
+	}
+	if quote != 0 || depth != 0 {
+		return nil, false
+	}
+	part := strings.TrimSpace(raw[start:])
+	if part == "" || len(out) == 0 {
+		return nil, false
+	}
+	return append(out, part), true
 }
 
 func assignmentEvidenceSourceSides(item EvidenceItem) (lhs, rhs string, ok bool) {

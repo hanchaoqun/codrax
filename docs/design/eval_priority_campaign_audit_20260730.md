@@ -36888,6 +36888,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed-r541`。
 
+### §123.891 B867：同一源码行的赋值/调用/参数证据不得被 anchor_kind 分流截断（2026-08-15）
+
+1. 对 r540 `qf_logic_view_read_pipeline` 做逐轮反查后，确认最终图缺 Explorer 证据流不只是模型删边。源码
+   `a, changed = Merge(a, output)` 同时包含多返回值赋值、唯一调用与两个完整参数，但旧 `emit_evidence`
+   只按模型提交的一个 `anchor_kind` 进入 repair：提交 assignment 时，单 LHS 解析器拒绝该行；只有提交 call
+   时才会启用 argument-flow sibling。模型据真实源码提交的 `Explorer -> EvidenceItems` 高层边被 validator
+   正确拒绝，系统却没有交付可替代的精确 operation recipes。这是通用 anchor-entrypoint asymmetry，非单次
+   模型波动。
+2. 同轮确认一个独立上下文精度 gap：Relation Dossier 会把任意 `IsCitable()` 的 assignment 行渲染成
+   `verified A -> B`，即使 `AssignmentEvidenceEndpointsMatch=false`。r540 因而同时收到“verified
+   `o.busCtx -> output.EvidenceItems`”的 advisory 与 finalizer 严格 relation capsule 的拒绝，两个表面各自按
+   旧实现工作却形成矛盾教学。现在无精确 receiver/value 的赋值行仍保留为普通证据，但不再进入有向关系
+   dossier。
+3. `B867-MULTIRESULTASSIGNMENTAUTHORITY1` 以结构化选择补齐多返回值/元组赋值：RHS 仍必须是唯一可解析
+   value surface；LHS 必须可按顶层逗号完整拆分；只有 evidence 的 typed `subject/anchor_symbol` 唯一选中
+   同一个真实 receiver 时才获得 assignment authority。宽 owner、冲突选择器、多个 RHS、表达式和无法解析
+   形全部 fail-closed。它不从 summary/request/final prose 猜接收方，也不把整个 tuple 或函数名当业务组件。
+4. `B867-ASSIGNMENTCALLARGUMENTPARITY1` 让 required source-flow 调查在 assignment/initializer 行上也检查
+   “精确同一行且 parser 仅有一个 call”的结构事实，再复用既有跨语言完整参数检测与静态声明绑定。只对命中
+   incident-required participant 的非 callable 参数发布 model re-emit obligation；系统不创建 EvidenceItem、
+   不画边、不替换已接受行。同行多个 call、可选图、非 flow、Trace/root-cause 全部退出，因此不会把噪声
+   候选升级为硬门。
+5. 为减少模型心智但不制造流向，checkout-verified `StageBinding.PrimaryArtifacts` 新增每阶段一条
+   `stage_artifact_group_recipe`。它只允许把 exact artifacts 以 Mermaid subgraph/group **无箭头**嵌入阶段/
+   agent 边界；任何 read/write/call/transfer 仍需独立 typed operation recipe。这样 Explorer 的
+   `EvidenceItems`、Finalizer 的 `AnswerDocumentV2` 可以完整表达职责层级，而不会伪造 Explorer→BusContext 或
+   BusContext→Finalizer。
+6. 专项 pin 覆盖：Go 多返回值与 Python tuple 正形、宽/冲突/错 RHS 负形；assignment 内唯一 call 的
+   argument companion、同行多 call fail-open、Trace 隔离；一次真实 `EmitEvidence.Execute` 同时返回 exact
+   assignment + argument 两项债且待模型重发后清债；stage-artifact no-arrow recipe 到真实 finalizer prompt；
+   ambiguous assignment 不再被 dossier 标 verified。argument parser 本身继续复用既有 Go/Python/ArkTS/
+   Cangjie/C++/Rust 矩阵，不新增语言或函数名特判。
+7. 本批不扫描用户原始输入、模型推理/草稿/终稿或 Mermaid label，不对具体 case/type/function 做关键词门；
+   不生成、删除或替换模型图与结论。Trace 查询、显式时间窗、因果投影、自动补齐、链上-only 主因、邻近/
+   背景 support-only、实际占时/业务线索与规则可消除量双轴均未修改。
+
+状态：
+
+`B867-MULTIRESULTASSIGNMENTAUTHORITY1=implemented/full-suite-pass/pending-production-replay`；
+`B867-ASSIGNMENTCALLARGUMENTPARITY1=implemented/model-reemit-only/pending-production-replay`；
+`B867-STAGEARTIFACTGROUPRECIPE1=implemented/no-arrow-only/pending-production-replay`；
+`B867-RELATIONDOSSIERASSIGNMENTCALIBER1=implemented/invalid-direction-omitted`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

@@ -32,3 +32,30 @@ func TestFormatRelationDossierEvidenceConditionDoesNotBecomeBodyRelation(t *test
 		t.Fatalf("condition dossier leaked body relation: %q", got)
 	}
 }
+
+func TestFormatRelationDossierEvidenceOmitsAmbiguousAssignmentDirection(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Subject:         "o.busCtx",
+		Predicate:       "merges",
+		Object:          "output.EvidenceItems",
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       8473,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "o.busCtx.EvidenceItems",
+		Snippet:         "o.busCtx.EvidenceItems, evidenceChanged = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}
+	if got := formatRelationDossierEvidence([]types.EvidenceItem{item}); got != "" {
+		t.Fatalf("ambiguous model endpoints must remain ordinary evidence, not a verified relation dossier row: %q", got)
+	}
+
+	item.Subject = "o.busCtx.EvidenceItems"
+	item.Object = "agent.MergeEvidenceItemsIfChanged"
+	got := formatRelationDossierEvidence([]types.EvidenceItem{item})
+	if !strings.Contains(got, "verified o.busCtx.EvidenceItems -> agent.MergeEvidenceItemsIfChanged") {
+		t.Fatalf("exact selected multi-result tuple must remain available: %q", got)
+	}
+}

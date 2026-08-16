@@ -9419,6 +9419,11 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesTypedRequiredStagePartic
 		t.Fatalf("typed full stage participant slate must activate current-run authority:\n%s", got)
 	}
 	for _, want := range []string{
+		"### Verified stage-artifact grouping recipes",
+		"stage_artifact_group_recipe[1]: owner_stage=`StageAnalyze` (`analyze`); owner_agent=`AgentAnalyzer` (`analyzer`); members=`AnalysisIR, TaskGraph, EvidencePlan, AnswerContract, HypothesisSet, QualityGate`",
+		"stage_artifact_group_recipe[2]: owner_stage=`StageExplore` (`explore`); owner_agent=`AgentExplorer` (`explorer`); members=`EvidenceItems, AnswerChains, StageReport, aggregate facts`",
+		"stage_artifact_group_recipe[4]: owner_stage=`StageFinalize` (`finalize`); owner_agent=`AgentFinalizer` (`finalizer`); members=`AnswerDocumentV2, FinalAnswer, Citations, AnswerContract validation`",
+		"authorizes only a no-arrow visual grouping",
 		"ownership_group_recipe[1]: owner=`BusContext`; member=`Mutable`; type=`*MutableState`",
 		"representation=`mermaid_subgraph_or_group_no_arrow`",
 		"not a system-authored diagram and not a directed-flow claim",
