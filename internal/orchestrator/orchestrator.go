@@ -2613,8 +2613,8 @@ func r22AutoCorrectShapeSubject(ir *types.AnalysisIR) bool {
 	// check may be failed in the same report. The post-correction
 	// re-run uses a nil resolver (the orchestrator can't easily
 	// reconstruct the symbol resolver), and resolver-backed
-	// coherence rules (R1.4 / R1.5 in subtopic_coherence) are
-	// no-ops under nil resolver. Without this guard, an R2.2 fix
+	// resolver-backed coherence checks are no-ops under nil resolver.
+	// Without this guard, an R2.2 fix
 	// would silently bypass a co-firing coherence failure when
 	// the re-run "passes" against an unrun resolver.
 	hasR22 := false

@@ -437,7 +437,7 @@ func TestSubtopicCoherence_R1_3_MultiScopeFacetDecompositionIsAdvisory(t *testin
 
 // ── R1.5 entity_unresolvable ──────────────────────────────────────
 
-func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
+func TestSubtopicCoherence_R1_5_MixedResolutionIsAdvisory(t *testing.T) {
 	// 3 sub-topics; sub-topic 3's entities all return 0 resolver hits
 	// (the canonical "PlanMode / mode_dispatch hallucination" pattern).
 	// Sub-topics 1 and 2 each have at least one resolvable entity so
@@ -463,10 +463,10 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 	}
 	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, resolver, "")
-	if check.Passed {
-		t.Fatalf("R1.5 must fail when a sub-topic has zero resolvable entities; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("resolver asymmetry alone cannot hard-fail a conceptual or exact-identity-ambiguous sub-topic; got %+v", check)
 	}
-	if !strings.Contains(check.Detail, "R1.5") {
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
 		t.Errorf("detail must cite R1.5; got %q", check.Detail)
 	}
 	if !strings.Contains(check.Detail, "sub-topic 3") {
@@ -509,6 +509,51 @@ func TestSubtopicCoherence_R1_5_MixedRuntimeAndCurrentSourceIsAdvisory(t *testin
 	}
 	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
 		t.Fatalf("mixed evidence-lane resolver asymmetry should remain visible as advisory telemetry: %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_CodeAndConceptualBranchIsAdvisoryWithoutProseScan(t *testing.T) {
+	resolver := &fakeSymbolResolver{byEntity: map[string][]normalizer.SymbolHit{
+		"Tokenizer": {{Canonical: "Tokenizer", Domain: "tokenizer"}},
+	}}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			Dimensions: []types.RequestedAnswerDimension{{
+				Role:     types.RequestedAnswerDimensionStageWorkflow,
+				Required: true,
+			}},
+		},
+		SubTopics: []types.SubTopic{
+			{
+				Summary:  "concrete implementation path",
+				Entities: []string{"Tokenizer"},
+				EntityProvenance: []types.EntityProvenance{{
+					Surface: "Tokenizer", Resolution: types.EntityResolutionSymbol, Resolved: true,
+				}},
+			},
+			{
+				Summary:  "alternative configuration and failure branch",
+				Entities: []string{"native_extension_availability", "alternative_execution_policy"},
+				EntityProvenance: []types.EntityProvenance{
+					{Surface: "native_extension_availability", Resolution: types.EntityResolutionInferredConcept},
+					{Surface: "alternative_execution_policy", Resolution: types.EntityResolutionInferredConcept},
+				},
+			},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
+	if !check.Passed {
+		t.Fatalf("a typed conceptual branch beside a concrete code path must reach exploration: %+v", check)
+	}
+	if IsHardRejectingCheck(check) {
+		t.Fatalf("advisory resolver telemetry must not enter the analyzer retry path: %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("resolver asymmetry should remain visible as advisory telemetry, got %q", check.Detail)
 	}
 }
 
@@ -611,7 +656,7 @@ func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixResolves(t *te
 	}
 }
 
-func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixIsScoped(t *testing.T) {
+func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixOutsideScopeIsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byRepoSurface: map[string][]normalizer.SymbolHit{
 			"internal/analysis/aggregator": {{Canonical: "internal/analysis/aggregator", Domain: "analysis"}},
@@ -636,8 +681,11 @@ func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixIsScoped(t *te
 		},
 	}
 	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
-	if check.Passed {
-		t.Fatalf("decorated role suffix must not bless members outside the source-inventory scope aliases; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("resolver miss outside source-inventory aliases is telemetry; downstream inventory evidence must decide membership: %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("outside-scope miss should remain visible as advisory telemetry, got %q", check.Detail)
 	}
 }
 
@@ -799,7 +847,7 @@ func TestSubtopicCoherence_R1_5_DiagramPresentationAxisAdvisoryOnly(t *testing.T
 	}
 }
 
-func TestSubtopicCoherence_R1_5_CategoryEnumerationStaysHardDespiteDiagram(t *testing.T) {
+func TestSubtopicCoherence_R1_4_CategoryEnumerationRemainsStructuralWhileR1_5IsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byEntity: map[string][]normalizer.SymbolHit{
 			"KnownKind": {{Canonical: "KnownKind", Domain: "types"}},
@@ -818,10 +866,11 @@ func TestSubtopicCoherence_R1_5_CategoryEnumerationStaysHardDespiteDiagram(t *te
 	}
 	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if check.Passed {
-		t.Fatalf("enumeration entity asymmetry should remain hard despite diagram hint, got %+v", check)
+		t.Fatalf("the independent R1.4 enumeration axis contradiction should remain hard, got %+v", check)
 	}
-	if !strings.Contains(check.Detail, "R1.5") {
-		t.Fatalf("expected R1.5 hard failure, got %q", check.Detail)
+	if !strings.Contains(check.Detail, "R1.4 axis_collapse") ||
+		!strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("expected hard R1.4 plus advisory R1.5 telemetry, got %q", check.Detail)
 	}
 }
 
@@ -899,7 +948,7 @@ func TestSubtopicCoherence_R1_5_UserMentionedFieldAndLocalSurfacesPass(t *testin
 	}
 }
 
-func TestSubtopicCoherence_R1_5_RawRequestOnlyDoesNotSatisfyHardCoherence(t *testing.T) {
+func TestSubtopicCoherence_R1_5_RawRequestOnlyDoesNotResolveButRemainsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byEntity: map[string][]normalizer.SymbolHit{
 			"canonicalCallChainSource": {{Canonical: "canonicalCallChainSource", Domain: "tool"}},
@@ -916,11 +965,14 @@ func TestSubtopicCoherence_R1_5_RawRequestOnlyDoesNotSatisfyHardCoherence(t *tes
 		},
 	}
 	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
-	if check.Passed {
-		t.Fatalf("RawRequest-only mention must not satisfy hard R1.5 coherence without typed mentioned_entities; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("RawRequest-only mention must not be scanned or converted into a hard resolver verdict; got %+v", check)
 	}
-	if !strings.Contains(check.Detail, "R1.5") {
-		t.Fatalf("expected R1.5 detail for unresolved typed carrier, got %q", check.Detail)
+	if subTopicEntityResolvedForCoherence("EvidenceItem.Source", rm, resolver) {
+		t.Fatal("RawRequest prose must not make an unresolved surface resolve")
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("expected advisory R1.5 telemetry for unresolved typed carrier, got %q", check.Detail)
 	}
 }
 
@@ -1141,7 +1193,7 @@ func TestSubtopicCoherence_R1_5_AnchoredRuntimeScopeWithSourceAllow_IsAdvisory(t
 	}
 }
 
-func TestSubtopicCoherence_R1_5_SourceOnlyAsymmetry_RemainsHard(t *testing.T) {
+func TestSubtopicCoherence_R1_5_SourceOnlyAsymmetryNeedsExactIdentityClaimToBeHard(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byEntity: map[string][]normalizer.SymbolHit{
 			"KnownService": {{Canonical: "KnownService", Domain: "fixture"}},
@@ -1159,8 +1211,8 @@ func TestSubtopicCoherence_R1_5_SourceOnlyAsymmetry_RemainsHard(t *testing.T) {
 		},
 	}
 	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
-	if check.Passed || !strings.Contains(check.Detail, "R1.5 entity_unresolvable") {
-		t.Fatalf("ordinary source-only resolver asymmetry must remain a hard R1.5 failure, got %+v", check)
+	if !check.Passed || !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("resolver asymmetry without a typed exact-identity claim must remain advisory, got %+v", check)
 	}
 }
 

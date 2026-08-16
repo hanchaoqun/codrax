@@ -89,6 +89,12 @@ func TestAllHardGates_ExplicitCarveOutDeclaration(t *testing.T) {
 	}
 }
 
+func TestResolverAsymmetryIsNotRegisteredAsHardGate(t *testing.T) {
+	if got := HardGateByName("R1.5"); got != nil {
+		t.Fatalf("resolver hit/miss asymmetry is noisy retrieval telemetry and must not be registered as a hard gate: %+v", got)
+	}
+}
+
 // TestSkillPromptIncludesAllCarveOutPredicates_LLMNaturalGuidance
 // pins that every typed-predicate carve-out declared in the
 // HardGate registry has a corresponding LLM-natural guidance

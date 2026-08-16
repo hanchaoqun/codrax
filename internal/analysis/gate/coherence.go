@@ -121,9 +121,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	//   - "analyze stage retry 怎么决定" → spans dataflow+tool+orch
 	//     but single mechanism question
 	// Per R3 red line ("noisy signals only as soft guidance"), R1.1
-	// produces an advisory, not a hard fail. R1.2 (precise predicate
-	// contradiction), single-scope R1.3, R1.4, and R1.5 remain hard
-	// rules — they are typed-precise. Multi-scope R1.3 is advisory
+	// produces an advisory, not a hard fail. Single-scope R1.3 and R1.4
+	// retain their existing structural handling; R1.5 resolver
+	// asymmetry is advisory because hit/miss cannot establish an exact
+	// identity contradiction. Multi-scope R1.3 is advisory
 	// because facet/file decomposition is a valid comparison shape.
 	if len(domains) >= 2 && nSub <= 1 {
 		softAdvisories = append(softAdvisories, fmt.Sprintf(
@@ -186,8 +187,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		}
 	}
 
-	// R1.5 — Sub-topic entity asymmetry (resolver-backed precision of
-	// R1.3). The signal we're catching is INTRA-IR asymmetry: the
+	// R1.5 — Sub-topic entity asymmetry (resolver-backed telemetry for
+	// R1.3). The signal being observed is INTRA-IR asymmetry: the
 	// original 2026-05-02 failure had nSub=3 where two sub-topics had
 	// concrete entities (PipelineMode, analyze, plan) but one had a
 	// hallucinated `mode_dispatch` token the repo never defined. The
@@ -202,25 +203,27 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// even though the underlying components are real. Audit run
 	// 2026-05-02 07:06 surfaced exactly this regression.
 	//
-	// Refined rule: fire only when resolved/unresolved is MIXED —
+	// Refined rule: observe only when resolved/unresolved is MIXED —
 	// some sub-topics resolve, some don't. A single uniformly-
 	// unresolved IR is treated as "concept-only question, gate not
 	// applicable here" and passes. R1.4 (axis_collapse) and R1.3
 	// still cover their respective failure modes.
 	//
-	// Evaluates BEFORE R1.4 because the unresolvable-entity repair
-	// (drop / rename) is more specific than the axis-collapse repair
-	// (collapse to list_of_symbols). Disabled when resolver is nil.
+	// Disabled when resolver is nil.
 	//
-	// Runtime artifacts that do not require current-source evidence are
-	// also excluded. Their typed
-	// LogBundle/PerfBundle entities are answer-bearing observation
-	// surfaces, not current-repo symbols. Running them through the repo
-	// resolver turns accidental name overlap into a false asymmetry
-	// signal (for example one Java class name happens to match a local
-	// symbol while java.io.IOException does not). That violates the
-	// precise-signals-for-hard-gates rule: artifact/source provenance is
-	// precise; repo resolution of external observations is not.
+	// B875 (2026-08-15): resolver hit/miss asymmetry is retrieval
+	// telemetry, not a precise contradiction. A zero-hit sub-topic may
+	// legitimately name a failure branch, configuration state, runtime
+	// dimension, business concept, or independently answerable semantic
+	// axis while its sibling names a concrete source symbol. Conversely,
+	// the same zero-hit shape may be a hallucinated code identity. Neither
+	// EntityProvenance nor resolver cardinality carries a typed
+	// exact-code-identity assertion that can distinguish those cases.
+	// Therefore R1.5 is advisory for every request family. Downstream
+	// origin-specific evidence gates still decide whether the axis is
+	// answerable, and exact structural contradictions remain hard under
+	// their own rules. Do not add request/model/final-prose keyword
+	// carve-outs here.
 	if resolver != nil && nSub >= 2 && !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() &&
 		!diagnosticFacetSubTopicsBypassResolverAsymmetry(rm) {
 		type subTopicState struct {
@@ -282,21 +285,23 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 					formatStringList(s.topic.Entities)))
 			}
 			msg := "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
-				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling"
+				" — these sub-topics' entities don't resolve to a unique repo symbol while sibling sub-topics did; treat this only as exploration telemetry, not proof that a sub-topic is invalid"
+			advisory := strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)
 			if markerInventorySubtopicsSupportedByFiles(rm) {
-				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+				softAdvisories = append(softAdvisories, advisory+
 					" — marker/decorator inventory questions may carry file or function buckets that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each marker exists")
 			} else if sourceInventoryCategorySubtopicsShouldBeAdvisory(rm) {
-				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+				softAdvisories = append(softAdvisories, advisory+
 					" — source-inventory category labels are candidate-universe axes, not necessarily declared repo symbols; downstream source-inventory evidence gates decide whether each category exists")
 			} else if sourceInventorySubtopicsWithinPrimaryScope(rm) {
-				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+				softAdvisories = append(softAdvisories, advisory+
 					" — source-inventory questions may carry directory/file planning anchors that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each anchor exists")
 			} else if subtopicResolverAsymmetryShouldBeAdvisory(rm) {
-				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
-					" — broad architecture/design-document questions often use module, directory, subsystem, or conceptual axes that are valid search leads even when they are not declared symbols; let exploration verify or discard the axis before forcing an analyzer rewrite")
+				softAdvisories = append(softAdvisories, advisory+
+					" — broad architecture/design-document questions often use module, directory, subsystem, or conceptual axes that are valid search leads even when they are not declared symbols; let exploration verify or discard the axis before treating it as answer evidence")
 			} else {
-				details = append(details, msg)
+				softAdvisories = append(softAdvisories, advisory+
+					" — resolver asymmetry cannot distinguish a conceptual/configuration/runtime axis from an invented code identity; preserve the axis as an exploration lead and require downstream evidence before it reaches the answer")
 			}
 		}
 	}
@@ -468,8 +473,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		// signals (R1.1 domain_divergence is system-inferred from
 		// TermGraph package distribution, not an LLM self-
 		// contradiction) only steer with soft hints; hard gates
-		// stay reserved for precise typed contradictions (R1.2 +
-		// single-scope R1.3 + R1.4 + R1.5).
+		// stay reserved for precise typed contradictions.
 		return types.GateCheck{
 			Name:   "subtopic_coherence",
 			Passed: true,

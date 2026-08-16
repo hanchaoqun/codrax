@@ -153,9 +153,10 @@ func TestR1_5_MixedScopeSymbol_HitsResolver(t *testing.T) {
 	}
 }
 
-// TestR1_5_LegacyPath_SymbolsOnly_StillFires — no scopes, symbol-only
-// asymmetry. Legacy R1.5 behaviour preserved.
-func TestR1_5_LegacyPath_SymbolsOnly_StillFires(t *testing.T) {
+// TestR1_5_SymbolOnlyAsymmetryIsAdvisory — no scopes, symbol-only
+// asymmetry. Resolver cardinality cannot prove that FakeSymbol is an exact
+// source-identity claim rather than a conceptual search lead.
+func TestR1_5_SymbolOnlyAsymmetryIsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byEntity: map[string][]normalizer.SymbolHit{
 			"RealSymbol": {{Canonical: "RealSymbol", Domain: "agent"}},
@@ -170,11 +171,11 @@ func TestR1_5_LegacyPath_SymbolsOnly_StillFires(t *testing.T) {
 		},
 	}
 	check := checkSubtopicCoherence(makeScopeIR(rm), resolver, "")
-	if check.Passed {
-		t.Errorf("R1.5 should fire on symbol-only asymmetry; got %+v", check)
+	if !check.Passed {
+		t.Errorf("R1.5 resolver asymmetry must not hard-fail by itself; got %+v", check)
 	}
-	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable") {
-		t.Errorf("expected R1.5 entity_unresolvable; got %q", check.Detail)
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Errorf("expected advisory R1.5 telemetry; got %q", check.Detail)
 	}
 }
 

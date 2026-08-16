@@ -140,9 +140,9 @@ func TestR22AutoCorrect_R22ButPassedCheck_NoOp(t *testing.T) {
 
 func TestR22AutoCorrect_R22PlusSubtopicFail_NoOp(t *testing.T) {
 	// CRITICAL safety: when R2.2 fires alongside a resolver-backed
-	// coherence failure (R1.4 / R1.5 in subtopic_coherence), the
+	// coherence failure (R1.4 in subtopic_coherence), the
 	// auto-correct must REFUSE. The post-correction re-run uses a
-	// nil resolver, which makes R1.4/R1.5 no-ops — without this
+	// nil resolver, which makes resolver-backed checks no-ops — without this
 	// guard, the coherence failure would be silently bypassed.
 	ir := &types.AnalysisIR{}
 	ir.RequestModel.AnswerSubject = types.AnswerSubject{Kind: types.SubjectStringLiteral, Confidence: 0.9}

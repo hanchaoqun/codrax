@@ -160,13 +160,6 @@ var RegisteredHardGates = []HardGate{
 		CarveOuts:       nil, // structural inconsistency check
 		LLMAdvisoryHint: "",
 	},
-	{
-		Name:            "R1.5",
-		SourceFile:      "internal/analysis/gate/coherence.go",
-		TriggerSummary:  "Sub-topic entity resolution is inconsistent — at least one sub-topic mixes resolver-verified and unresolved entities or shares an entity with another sub-topic.",
-		CarveOuts:       nil, // structural check
-		LLMAdvisoryHint: "",
-	},
 }
 
 // HardGateByName returns the registered HardGate with the given

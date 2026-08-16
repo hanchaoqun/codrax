@@ -31,8 +31,8 @@ import (
 // RunOptions carries optional, non-Threshold inputs to the quality
 // gate. Resolver, when non-nil, lets coherence checks query the
 // repomap symbol table directly so sub-topic entity claims can be
-// validated against repo ground truth (R1.4 axis_collapse + R1.5
-// entity_unresolvable). Nil resolver is always safe — checks that
+// validated against repo ground truth (R1.4 axis_collapse plus R1.5
+// entity-resolution telemetry). Nil resolver is always safe — checks that
 // require it become no-ops, preserving pre-RunOptions behaviour for
 // tests / write mode / any caller without a graph.
 type RunOptions struct {
@@ -167,9 +167,9 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 		// layers historically had to clean up after the fact. Both
 		// purely structural (no keyword tables) — they compare LLM-
 		// emitted IR fields against each other and against the
-		// repomap-verified TermGraph domains. R1.4 / R1.5 additionally
-		// query the resolver in opts.Resolver to validate sub-topic
-		// entity claims against repo ground truth; nil resolver makes
+		// repomap-verified TermGraph domains. R1.4 queries resolver-backed
+		// domains for a structural axis check; R1.5 records resolver
+		// hit/miss asymmetry as advisory telemetry only. Nil resolver makes
 		// those sub-rules no-op (test mode / no graph).
 		checks = append(checks, checkSubtopicCoherence(ir, opts.Resolver, opts.RepoRoot))
 		checks = append(checks, checkShapeSubjectCoherence(ir))

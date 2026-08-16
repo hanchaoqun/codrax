@@ -37462,6 +37462,42 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.905 B875：子题 resolver 命中不对称退出硬门，保留证据期否证（2026-08-15）
+
+1. 冷读确认 §123.904 的核心判断成立，但需要把最优方案进一步收窄到当前 schema 真正能证明的边界。
+   `projectEntityProvenance` 已在 gate 前把实体分类为 `symbol/file/scope/prescan_anchor/
+   ambiguous_symbol/inferred_concept`；一个 zero-hit surface 无论写得像配置状态、失败分支、业务概念还是
+   伪造代码名，当前 typed carrier 都只能落到 `inferred_concept`。因此不存在可泛化的“只放过 fallback”
+   carve-out，也不存在仅凭 resolver cardinality 能铸造的 exact-code-identity 否证。
+2. 根修将 R1.5 全域降为 `Passed=true, Score=0.7` 的结构化 advisory，并从
+   `RegisteredHardGates` 移除。mixed hit/miss 仍在 QualityGate detail 中保留具体子题索引、summary 与 entity
+   集，供探索阶段核实；它不再设置 `Rejected/Retryable`，不会因为合法概念轴与源码轴并存而烧 analyzer retry。
+   下游仍必须用 source inventory、runtime、Trace、VCS 或 current-source 等 origin-specific evidence gate
+   证明该轴后才能进入答案。
+3. 没有增加 request/模型 thinking/草稿/终稿关键词扫描，也没有按 `fallback`、语言、case 名做豁免。新增
+   code-symbol + conceptual configuration/failure branch 正证，明确钉住 `IsHardRejectingCheck=false`；原先
+   symbol-only、raw-request-only、source-inventory outside-scope 等误称“hard precision”的 fixture 改为 advisory
+   观测，同时保留 raw request 不能让实体变成 resolved 的负钉。
+4. 精确结构合同没有随之放松。R1.4 axis-collapse 等独立 typed 矛盾仍可 hard reject；同一 fixture 若同时触发
+   R1.4 与 R1.5，报告保持“hard R1.4 + advisory R1.5”。历史 rejection fingerprint 解析仍兼容旧日志，但生产
+   不再铸造新的 R1.5 hard failure。
+5. 已有混合 runtime/source、锚定 Trace scope、多仓 scope、source inventory、marker/decorator、跨语言 package
+   member 与 history/diagram fixtures 一并通过。Write mode 本就不运行 read-only subtopic coherence，本批没有改变
+   write controller、计划、apply、verify 或 replan 合同。
+6. 本批只改变 analyze 阶段的噪声拒绝权，不触碰 final answer、diagram、Trace 投影或模型结论所有权。显式时间窗、
+   因果投影、系统自动补齐、链上-only 主因、实际占时/业务线索与规则计价可消除量双轴保持；邻近/背景仍仅为支持。
+
+状态：
+
+`B875-SUBTOPICCONCEPTRESOLUTION1=implemented/full-repo-suite-pass/production-replay-next`；
+`R1.5=advisory-telemetry/not-hard-registered`；
+`B871b-CARRIEROPERATIONCHAIN1=confirmed/P1/next-after-production-replay`；
+`B876-TYPERELATIONSEMANTICS1=confirmed/P2/queued`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

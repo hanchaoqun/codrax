@@ -554,8 +554,9 @@ func r22RetryAdvice() string {
 // no internal documentation context.
 //
 // B.5 audit followup (2026-05-02): the gate may now emit multi-rule
-// details joined by " | " when ≥2 rules fire (e.g. R1.4 + R1.5 on
-// the same IR). Strip the prefix from EACH segment independently and
+// details joined by " | " when a hard rule and advisory telemetry are
+// reported together (e.g. R1.4 + advisory R1.5 on the same IR). Strip
+// the prefix from EACH segment independently and
 // rejoin so the LLM sees plain prose for every diagnostic.
 func plainCoherenceDetail(detail string) string {
 	d := strings.TrimSpace(detail)
@@ -2305,11 +2306,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// regression-free fallback with the same signature as before.
 	//
 	// The resolver is hoisted into a local so the same instance flows
-	// to gate.RunWith below, where R1.4 (axis_collapse) and R1.5
-	// (entity_unresolvable) query it to validate sub-topic entity
-	// claims against repo ground truth.
+	// to gate.RunWith below, where R1.4 (axis_collapse) consumes
+	// resolver-backed domains and R1.5 records entity-resolution
+	// asymmetry as non-blocking telemetry.
 	// B2 (2026-05-10): in multi-repo posture, wrap the multigraph
-	// fan-out resolver so R1.4/R1.5 in the coherence gate (and the
+	// fan-out resolver so R1.4/R1.5 in the coherence check (and the
 	// normalizer's kindEnWord → TermSymbol promotion gate) see every
 	// active sub-repo's SymbolDefs, not just the primary collapsed
 	// from pickPrimarySubRepo. Single-repo / nil-multigraph keeps the
