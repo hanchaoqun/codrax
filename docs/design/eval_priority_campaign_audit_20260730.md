@@ -37950,6 +37950,46 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.921 r556：B879 无回归但未形成直接激活见证；关系轴丢失允许 patch 清空 anchor 后保留箭头（2026-08-16）
+
+1. 在 `main@4cda1db1a` 重建后严格并发恰好两个原案：
+   `read_combo_loose_multi_question_units + read_combo_answer_document_tools`。Runner `2 PASS / 2`
+   （232s/199s），人工为 `1 partial / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_selected_definition_r556_20260816_manual_audit.md`。
+2. 第一案模型本轮主动读取 `mermaid_render.go:101..300` 与 `901..1050`，在 completion 前已覆盖
+   `RenderMermaidBlocks` 自身和 `replaceMermaidFence/renderMermaidFenceBody/mermaidFallbackFence`，因此 B879 没有再排
+   PendingRead。终稿已能说明失败转 text fence、显示原因并保留源码，证明新权限分层无回归；但它不是 supporting-own-body
+   修复的直接生产激活见证，不能据 runner PASS 把该分支标成 production-closed。
+3. 第一案仍有一条事实 gap：答案声称 `/mermaid` 命令入口 `handleMermaidCmd` 调用 Try/Render；源码该函数只分发
+   stats/help，实际答案渲染入口在另一消费面。模型把同文件/同主题定义并置成调用关系，说明 B880 不只影响工具对比，
+   普通机制回答也需要 source-derived relation carrier；不得用最终文字关键词门删除该句。
+4. 第二案确认新的 `B883-TYPEDRELATIONAXISPRESERVATION1=P0`。当前请求明确要求“两工具在 finalizer 里的关系”，但 Analyzer
+   最终发 `predicate_axis=define + is_relational_lookup=false`；显式 required diagram 只保留展示义务，没有保留 source-relation
+   权限。首稿带 anchors 的伪 call/return/precedence 边被正确拒绝；patch 随后清空 `edge_anchors`，却保留并改写 5 条可见
+   箭头。因为 semantic view 已丢 relation axis，validator 把同一 factual topology 当 presentation-only 接受。
+5. 终稿遂同时出现“共享 evaluator/注入/完整发射/差量修补”的肯定箭头，以及系统附注“主路径上的关系未完整呈现”。这是
+   typed Analyzer→validator 合同断裂，不是 Mermaid 语法或模型 JSON 波动。最优批次应先让 schema-valid relationship
+   request 保留语言无关 relation scope/axis；无法精确分类具体 relation kind 时也要保留 `is_relational_lookup`，并让 required
+   relation diagram 的 visible edge ownership 在 patch 后继续生效。硬门只消费 typed analyzer fields + parsed diagram AST，
+   不扫描用户/模型/答案原文。
+6. B880 与 B883 分层：B883 防止模型通过删 metadata 把事实箭头降为装饰；B880 给模型足够的 parser/source-derived
+   ownership、field binding、registration、selection 候选，使其能画对而不是不断删边。B880 必须复用语言中立 Symbol/
+   Relation/Evidence 载体并覆盖 Go、Java、Kotlin、C/C++、Rust、Python、JS/TS/ArkTS、Cangjie、Swift、Ruby、Lua 等现有
+   语言；无 exact parser authority 时只建议无箭头 grouping 或 unproven boundary，系统不代画。
+7. 两案均无空答案、畸形 JSON 降级或 active-stream fixed-age 降级。Trace 显式窗、完整 causal-diagnosis 因果投影、自动补齐、
+   typed on-chain-only 主因、实际占用/业务线索与规则计价可消除量双轴未修改；邻近/背景继续只作 support。
+
+状态：
+
+`B879e-SELECTEDCALLABLEDEFINITIONSEED=no-regression-r556/direct-production-activation-pending`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r556/P1`；
+`B883-TYPEDRELATIONAXISPRESERVATION1=confirmed/P0/next`；
+`runner-pass=2/2`；`human-pass=0/2`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.919 B881：Mermaid 引号内 pipe 不再被系统铸成节点（2026-08-15）
 
 1. 以 r554 的原始 model-authored body 建立先红 witness：
