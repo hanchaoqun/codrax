@@ -107,12 +107,18 @@ func TestCallChainDiscoverySelectionEmissionGuideKeepsMinimalFormsExclusive(t *t
 		"evidence_kind=direct with anchor_kind=return",
 		"actual return statement",
 		"evidence_kind=conditional with anchor_kind=condition",
+		"exact enclosing selector callable in subject",
+		"Do not emit owner_symbol",
+		"guard is unary and does not prove which branch body ran",
 		"connected to a citable call or registration endpoint",
 		"Never combine evidence_kind=registration with anchor_kind=return",
 	} {
 		if !strings.Contains(CallChainDiscoverySelectionEmissionGuide, want) {
 			t.Fatalf("single-source selection guide missing %q: %s", want, CallChainDiscoverySelectionEmissionGuide)
 		}
+	}
+	if strings.Contains(CallChainDiscoverySelectionEmissionGuide, "operation in owner_symbol") {
+		t.Fatalf("selection teaching must not ask the model to emit a non-schema field: %s", CallChainDiscoverySelectionEmissionGuide)
 	}
 }
 

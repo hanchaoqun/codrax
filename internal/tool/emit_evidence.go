@@ -361,7 +361,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"subject": map[string]any{
 							"type":        "string",
-							"description": "Primary semantic symbol the item is about (function name, type, key). For anchor_kind='call', subject MUST be the caller / containing function at that line. For anchor_kind='callback', subject MUST be the receiving call/API expression on that line. For anchor_kind='argument', subject MUST be the byte-exact complete non-callable argument expression. For anchor_kind='precedence', subject MUST be the earlier endpoint in the cited bounded source range. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
+							"description": "Primary semantic symbol the item is about (function name, type, key). For anchor_kind='call', subject MUST be the caller / containing function at that line. For anchor_kind='callback', subject MUST be the receiving call/API expression on that line. For anchor_kind='argument', subject MUST be the byte-exact complete non-callable argument expression. For anchor_kind='condition', subject should be the exact enclosing callable when known; grounding derives owner identity independently, so do not invent or attempt to emit an owner_symbol field. For anchor_kind='precedence', subject MUST be the earlier endpoint in the cited bounded source range. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
 						},
 						"predicate": map[string]any{
 							"type":        "string",
@@ -369,7 +369,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"object": map[string]any{
 							"type":        "string",
-							"description": "Secondary symbol or value. Required for relationship and registration. For anchor_kind='call', object MUST be the callee symbol on that line. For anchor_kind='callback', object MUST be the non-invoked callable value passed to subject on that line. For anchor_kind='argument', object MUST be the receiving call/API expression. For anchor_kind='precedence', object MUST be the later endpoint in the same cited bounded source range. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
+							"description": "Secondary symbol or value. Required for relationship and registration. For anchor_kind='call', object MUST be the callee symbol on that line. For anchor_kind='callback', object MUST be the non-invoked callable value passed to subject on that line. For anchor_kind='argument', object MUST be the receiving call/API expression. For anchor_kind='condition', object is optional and may only repeat the exact condition identity/expression when an explicit guard endpoint is needed; it must not name a selected branch-body operation that the guard line does not itself contain. For anchor_kind='precedence', object MUST be the later endpoint in the same cited bounded source range. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
 						},
 						"source": map[string]any{
 							"type":        "string",
@@ -385,7 +385,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"condition": map[string]any{
 							"type":        "string",
-							"description": "For conditional items: REQUIRED exact IF clause from the guard line. A guarded call is two evidence rows: one conditional/condition row on the guard and one relationship/call row on the invocation. Do not put a body call in a conditional row.",
+							"description": "For conditional items: REQUIRED exact IF clause from the guard line. A guard is a unary decision fact: use the exact enclosing callable in subject when known and a visible guard token in anchor_symbol; owner identity is populated after grounding and is not a model input. A guarded call is two evidence rows: one conditional/condition row on the guard and one relationship/call row on the invocation. Do not put a selected tool/handler or body call in object unless the guard expression itself contains that identity.",
 						},
 						"summary": map[string]any{
 							"type":        "string",

@@ -36356,11 +36356,24 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
    `not_comparable_missing_same_cpu_pair` 分开，前者仍把最终影响 verdict 留给模型，后者明确禁止借另一 CPU
    的 policy。矩阵 cell 同时转义 `|`，不会被线程/目标身份破坏 Markdown 列边界。未新增答案扫描、重写或
    系统结论；`internal/agent` 全包通过。待 H4 production replay。
+10. B908 N2a 已施工并发现一条比单案更明确的 JSON 教学自冲突：选择证据 SSOT 要求模型填写
+    `owner_symbol`，但 `emit_evidence` schema 根本没有该可写字段；owner 实际由 grounding 从源码 callable
+    独立铸造。现统一改为模型只填写 schema 内字段：guard 使用 exact `condition`、已知时用 enclosing
+    callable 作 `subject`、用可见条件 identity 作 `anchor_symbol`；显式 guard endpoint 可在 `object` 重复
+    精确条件，但绝不能把 guard 行未包含的 selected tool/handler/body operation 填进去。branch body 的
+    call/assignment/return/registration 继续独立取证，guard 仍是 unary decision，不升级为 transfer。
+11. Analyzer participant SSOT 同批补齐跨语言/跨图族角色边界：`A/B inside/within M` 形默认 A/B 为
+    `incident_required`，M 是 surrounding stage/module/function/subsystem/process/container；只在图需要显示
+    该边界时将 M 标 `context_only` 并复制完整关系从句，用户另行要求 M 的入/出边时才可标
+    `incident_required`。这是 prompt/schema 共用的软规划教学，不扫描答案、不自动改 Analyzer payload、
+    不制造关系。现有 precise participant hard gate 与不可解析 concept 的 honest-unproven 出口均未放宽。
+    `skill/types/tool/agent` 受影响测试通过；待 Combo production replay 后判断是否还需 N2b 的 typed
+    scope-coverage 门，禁止依据 `relation_scope_quote` 或自然语言猜 owner。
 
 状态：
 
 `B907-FLOWEMPTYSLATENAVIGATION1=production-positive-r569`；
-`B908-FLOWRELATIONSCOPEDISCOVERY1=confirmed-P1/true-operation-wrong-request-scope`；
+`B908-FLOWRELATIONSCOPEDISCOVERY1=implemented-N2a/participant-scope+schema-valid-unary-guard-teaching/pending-replay`；
 `B909-FINITETRACESAMECPUCOGNITIVE1=implemented/same-cpu-matrix+cross-row-negative-pin/pending-replay`；
 `H4-LIMIT-SEMANTIC-ORACLE=secondary-open/do-not-expand-before-fact-correct-replay`；
 `raw-request/model/final-prose-hard-gate=none`；
