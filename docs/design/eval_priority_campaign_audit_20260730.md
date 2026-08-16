@@ -35728,6 +35728,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    竞争信号来自 `d_state_or_io_wait -> fix_direction=io_dependency`：该内部枚举实际覆盖“IO/内核/依赖”
    粗验证族，而该席同时明确 `io_wait=0`。因此 B933 后续必须发布“粗修向不证明对象/子系统/IO机理”
    caliber，并禁止从标识符词义铸造资源身份；只做 prompt typed guidance，不扫/拒/替换答案文字。
+   后续批已落地：最终 typed relation 现同时发布 `fix_direction_caliber=coarse_validation_family_only`、
+   `specific_io_mechanism_authority=not_provided_by_fix_direction`、标识符词法无语义权限，以及按该席
+   `io_wait` 数值铸造的 measured-IO authority。`io_wait=0` 只禁止把该席写成“实测 IO wait”，仍由模型
+   自主组织 D-state、kernel call-site 与对象/holder/subsystem 未知边界；没有新增终稿扫描、判词或改写。
 5. B935 获生产正证并闭环。compact handoff 保留 exact
    `py.tokenize_bytes -> tokenize_bytes`，最终图也出现 wrapper→core 真边；PyO3 只是首个 witness，
    owner/reference 谓词和既有语言矩阵对 JNI/NAPI/FFI、ArkTS/Cangjie 等同构。
@@ -35744,7 +35748,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=production-partial/r585/coarse-direction-caliber-open`；
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=implemented/coarse-direction-caliber-pins-pass/pending-r586`；
 `B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r585`；
 `B935-REGISTEREDCALLABLEQUALIFIEDIDENTITY1=production-closed-r585`；
 `B936-STRUCTUREDPATCHCARRIERPRESERVATION1=confirmed/P1/planned`；
