@@ -16,6 +16,7 @@ int main(void)
     int failed = 0;
 
     failed |= expect_eq("callback negative status", git_repository_foreach_worktree(-42, 0), -42);
+    failed |= expect_eq("callback positive status", git_repository_foreach_worktree(17, 0), 17);
     failed |= expect_eq("lookup negative status", git_repository_foreach_worktree(0, -7), -7);
     failed |= expect_eq("success path", git_repository_foreach_worktree(0, 0), 0);
 

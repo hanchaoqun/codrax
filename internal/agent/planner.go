@@ -210,6 +210,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if framing := e.buildTaskFramingSection(ctx); framing != "" {
 		sections = append(sections, framing)
 	}
+	if boundary := e.buildBehaviorDomainPreservationSection(ctx); boundary != "" {
+		sections = append(sections, boundary)
+	}
 	if compatibility := e.buildCompatibilityRiskGuidanceSection(ctx); compatibility != "" {
 		sections = append(sections, compatibility)
 	}
@@ -466,6 +469,24 @@ func (e *plannerEvaluator) buildCompatibilityRiskGuidanceSection(ctx *types.Agen
 	b.WriteString("- If compatibility exploration finds an existing option/default registration, prefer extending that typed surface instead of replacing default behavior outright; include the touched config/default path in the ChangePlan.\n")
 	b.WriteString("- When the plan intentionally changes default behavior, state that in the ChangePlan rationale and include a verification surface for the compatibility boundary.\n")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// buildBehaviorDomainPreservationSection turns the presence of typed behavior
+// contracts into one language-neutral planning reminder. It deliberately does
+// not inspect the user's request, source text, patch text, model rationale, or
+// final answer. Existing tests are witnesses, not a proof that unrepresented
+// truth partitions may be discarded; the planner still owns the proposed edit
+// and verifier artifacts, and all hard verdicts remain parser/tool driven.
+func (e *plannerEvaluator) buildBehaviorDomainPreservationSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil || len(ir.Request.BehaviorContracts) == 0 {
+		return ""
+	}
+	return "## Existing behavior-domain preservation\n\n" +
+		"Soft planning guidance activated by typed behavior contracts; this is not a hard gate and does not infer intent from prose. When an edit changes an existing guard, comparison, status check, selector, or lifecycle condition, first preserve the pre-edit true/false partition except for the exact partition a typed contract explicitly changes. Treat current tests as sampled witnesses rather than the complete domain. Cover the applicable boundary classes in project tests or verification evidence—for example negative/zero/positive status values, false/true, null/non-null, empty/non-empty, sentinel/ordinary values, enum variants, and pre/post lifecycle states. Do not narrow or widen an adjacent condition merely because the currently visible failing example exercises only one class. The same rule applies across every supported source language; validation and verifier results remain the authority."
 }
 
 // buildWriteExplorationRequestSection renders a typed request for targeted

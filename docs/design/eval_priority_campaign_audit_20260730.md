@@ -36251,6 +36251,15 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
     arrows/edge_anchors，模型自行保留节点/分组并披露未证。它不再重复数 KB generic relation contract；若
     当前已有一条真实 typed edge、属于 Call/Trace、没有相同 pair，或还有其他失败类，则退出该窄臂并保留
     原 exact-recipe/validator 路径。专项 pin 同时覆盖短提示内容、宽合同不回灌以及真实 edge 负形。
+13. B906 已按“信息与验证面补强、拒绝伪精确硬门”施工。Write Analyzer 的通用教学要求：轻量源码/测试
+    检查若见到 guard/comparison/status/selector/lifecycle 边界，应把有证据的既有分区分别带入 typed
+    behavior contracts；Planner 仅在该 typed contract 列表非空时发布一次 language-neutral
+    behavior-domain preservation section，明确现有测试只是 sampled witnesses，改动前 true/false 域除明确
+    合同目标外必须保持，并按适用类型覆盖 negative/zero/positive、bool、null、empty、sentinel、enum 与
+    lifecycle 分区。所有支持语言共用，不读取 request/summary/rationale/patch/final 原文，也不凭正则猜用户
+    是否有意收窄，因此保持 soft guidance，执行测试和 typed verifier 继续确权。两份 libgit2 基准 fixture
+    同时补上 callback 正非零 `17 -> 17` 突变测试：正确的 `!= 0` 修法四类测试全绿，而错误的 `< 0` 收窄
+    确定性变红。这样 replay 能真实验收语义域，不再由仅含负数/零的弱套件签绿。
 
 状态：
 
@@ -36258,7 +36267,7 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `B903-CUMULATIVEPATHPROOFRECONCILIATION1=implemented/pinned/pending-multiplan-replay`；
 `B904-RUNTIMESELECTIONPROFILE1=production-value-miss-r567/soft-reteach-only`；
 `B905-REQUIREDDIAGRAMZERORELATIONCONTRACT1=A-B-C-implemented-and-pinned/pending-production-replay`；
-`B906-WRITEORIGINALCONDITIONDOMAIN1=confirmed/P1/planned`；
+`B906-WRITEORIGINALCONDITIONDOMAIN1=implemented/typed-soft-guidance+positive-domain-fixture/pending-production-replay`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed`；

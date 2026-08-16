@@ -121,6 +121,47 @@ func TestPlannerCompatibilityRiskGuidance_RendersFromTypedRiskFlags(t *testing.T
 	}
 }
 
+func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *testing.T) {
+	mu := types.NewMutableState("fix a status boundary")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "status-preserved", Kind: types.WriteBehaviorInvariant,
+			Operator: types.WriteBehaviorOpSatisfies, Expected: "preserve status",
+		}},
+	}})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Existing behavior-domain preservation",
+		"typed behavior contracts",
+		"current tests as sampled witnesses",
+		"pre-edit true/false partition",
+		"negative/zero/positive",
+		"null/non-null",
+		"enum variants",
+		"across every supported source language",
+		"not a hard gate",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("behavior-domain guidance missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"if the user says", "summary contains", "parse prose", "scan the patch"} {
+		if strings.Contains(strings.ToLower(got), banned) {
+			t.Fatalf("behavior-domain guidance contains prose-routing smell %q:\n%s", banned, got)
+		}
+	}
+
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskDocs, Scope: types.ScopeMicro},
+	}})
+	if got := eval.BuildInitialInstruction(ctx, nil); strings.Contains(got, "Existing behavior-domain preservation") {
+		t.Fatalf("no typed behavior contract must keep the generic domain guidance silent:\n%s", got)
+	}
+}
+
 // TestPlannerTaskFraming_NoIRReturnsEmpty pins the degraded path:
 // when WriteAnalysisIR is absent (write_analyzer didn't run or
 // degraded), the planner falls through with no task-framing
