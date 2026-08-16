@@ -35767,6 +35767,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.959 r586：三批回放与零值外推边界（2026-08-16）
+
+1. 在 `main@61db77617` 重建后严格并发恰好两个案例：
+   `real_trace_h7_self_seat_full_spectrum + mr_poly_binding_chain`；runner `2/2 PASS`。逐轮人工审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_relation_r586_20260816_manual_audit.md`。
+2. Poly 只发生一次合理的 finalizer reject：首稿声明 directed claim forms 却没有任何 anchor。第二轮 patch
+   一次成功，显式保留 `current_code_path/principal_path_edge` 并提交五条同向 typed relation；最终没有
+   identity qualifier 拒绝、“主路径关系缺失”附注、图降级或空答案。因本次模型主动带全 carrier 与 exact
+   identities，B936/B937 的异常臂未在生产触发；结构 pin 与 production-wiring pin 是当前闭环证据，r586
+   作为非回归正证。一个 item citation 被安全解绑并披露，另记 citation identity 债。
+3. Trace 零 finalizer reject。显式窗、完整五态账、11 段 exact target-wait roster、链上根因排序、实际占时与
+   规则可消量分账、背景席隔离、`Trace 因果投影` 和自动补齐均在。root-rank / critical-blocking 的 incomplete
+   边界继续被披露，没有把 capped view 写成全量；没有邻近/背景席抢占主因。
+4. B933 得到正向改进证据：最终模型只把 `dma_fence_default_w` 作为 kernel call-site，明确资源 holder 未知，
+   不再外推 GPU fence 对象、GPU 子系统或已证机理。但发现新的同根 P1 B938：模型把 `io_wait=0.000ms`
+   写成“证明此次等待不含存储 IO 成分”。该值只证明目标 state account 的 scheduler `io_wait` bucket 为零，
+   不能排除 underlying storage/dependency mechanism。最优方案是在同一 typed relation 增加
+   `zero_bucket_inference_scope=accounting_bucket_only` 与
+   `underlying_mechanism_exclusion_permission=forbidden_without_separate_typed_evidence`，作为软引导；不扫、
+   不拒、不改写答案原文。
+5. 两案例均未观察到 malformed-JSON 恢复、stale draft fallback、空答案、活跃流按年龄或固定 4ms 降级，
+   也没有系统生成模型结论/关系/图。Trace 的系统投影仍只发布 typed 精确信息与既有确定性板。
+
+状态：
+
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=production-improved-r586/object-mechanism-invention-closed`；
+`B934-RUNTIMEENUMERATIONFINALAUTHORITY1=production-closed-r586`；
+`B936-STRUCTUREDPATCHCARRIERPRESERVATION1=implemented/pins-pass/not-triggered-r586`；
+`B937-DISPLAYQUALIFIERIDENTITYRECEIPT1=implemented/wiring-pins-pass/not-triggered-r586`；
+`B938-ZEROBUCKETMECHANISMEXCLUSION1=confirmed/P1/planned`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r586`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
