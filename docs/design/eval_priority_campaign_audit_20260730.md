@@ -35832,6 +35832,54 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`preserved`；邻近/背景=`support-only`。
 
+### §123.945 r574：有限效果车道安全收窄；完整 Trace 因果诊断保持，role 生产采用仍待证（2026-08-16）
+
+1. 在 `main@f2758b4e8` 重建后严格并发恰好两个真实 Trace 案例：
+   `real_trace_h4_supply_thermal_witness + real_trace_h7_self_seat_full_spectrum`。Runner `1 PASS / 1 FAIL`，
+   人工两案均为 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_effect_causal_r574_20260816_manual_audit.md`。
+2. H4 没有再次扩成完整根因榜或 Trace 因果投影。模型正文一次成文，正确保留目标四态
+   `running=157.248ms/runnable=5.604ms/sleep=70.338ms/D=0/io_wait=0`、CPU4 同核 policy
+   `558000..2100000kHz`、CPU12 频点但无同核 policy 行，并把“策略上限存在”与“目标实际受限未证”分开。
+   现有 typed comparison matrix 已按 exact target/window/CPU 对齐两侧事实；缺的是目标 running slice 与生效频率/
+   policy interval 的时间重叠凭证，因此不能从同核聚合行继续推成性能绑定。
+3. H4 的 runner FAIL 是语序型 oracle 假阴性：正文已说 `policy 记录 ... 缺乏 target-slice 级别的绑定证据，无法证明`，
+   旧 regex 却要求“无法/未证”之后再次出现“影响/binding”等词。本轮不为一个模型句式扩产品硬门，也不把正则命中
+   当产品正确性。人工仍不能签 pass：模型先列 CPU1=7.155ms，又把包含 CPU1 的 25.207ms 称作“其余
+   CPU2/3/7/8/13”小计；typed roster 中这五核实际合计 18.052ms。它是模型对完整 roster 的集合差/算术表达错误，
+   系统不得改写答案；后续只允许用 typed additive/partition relation 给模型低心智负担的软提示。
+4. B916 获得“安全边界”生产正证但尚未获得新 role 的正采用：Analyzer 先拒绝了
+   `causal_diagnosis + fact_families`，随后选择 `bounded_fact_set + observed_value`，而不是
+   `bounded_effect_verdict + target_effect_verdict`。旧 B755 breadth 分流已足以阻止扩域，说明新角色没有破坏有限题；
+   但不能据此宣称 B916 教学已生产闭环，应继续用异构的 target-effect 问法回放观察，禁止以原文关键词强制分类。
+5. H7 是完整因果诊断的负回归正证。Analyzer 发出 `causal_diagnosis + required causal_contributor_set`，
+   Finalizer 一稿通过；最终保留 `Trace 因果投影`、链上席位根因榜、邻近/背景隔离、实际状态账、优先级反转候选、
+   调度供给与算力供给、D/IO、JIT 确定性语义 span、业务 span 线索以及规则计价可消除量。邻近/背景明确不参与根因
+   排序，系统没有把它们升格，也没有替模型生成结论。
+6. H7 的人工 partial 来自模型展示与集合运算，不是投影缺失：主摘要夹带 `fix_direction/frequency_thermal/
+   io_dependency/lock_priority/scheduling_supply` 等内部枚举，并把两个锁/优先级席位写成 5.106ms 方向合计，未展示
+   exact typed additive carrier。确定性投影仍按席位发布、没有作该合计。后续应优先压缩 Finalizer 的内部 metadata
+   心智负担，并让只有 exact typed additive/partition relation 才进入“可相加”软教学；不能扫描或重写模型正文。
+7. B915 本轮没有 QF flow-completion 案，故不能用 H4/H7 的 141s/183s 对其 90 秒扫描修复签生产加速；状态继续
+   `pending-production-replay`。两案均未出现畸形 JSON、成文重试、旧稿恢复、空答案或 active-stream 4ms/fixed-age
+   降级。
+8. 下一顺序保持：先审计历史 `repl_log/repl_log2` 的 typed 恢复载体优先级；若确认 raw-last 覆盖更早结构化模型稿，
+   只按载体类型/阶段/接受状态排序，不按正文好坏或关键词选稿。随后再严格双并发运行一组高优先 Read/Write 或
+   QF completion 案，给 B915 生产计时并继续审计 JSON 教学、关系/时序/逻辑图和全语言上下文精度。
+
+状态：
+
+`B916-TARGETEFFECTCAUSEDISCOVERYROLESPLIT1=production-safe-bounded-r574/new-role-adoption-open`；
+`H4-LIMIT-SEMANTIC-ORACLE=word-order-false-negative/no-product-fit`；
+`H4-ROSTERSUBTOTAL=production-model-arithmetic-partial/typed-additivity-guidance-audit`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r574`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`B915-COMPLETIONFLOWFULLSCAN1=pending-QF-production-replay`；
+`REPL-RAWLASTDRAFTPRIORITY1=audit-next`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`。
+
 ### §123.925 r557 与 B884：B882 生产闭环；typed flow 修复计划从“给坐标”接到单点 surgical read（2026-08-16）
 
 1. 在 `main@7c5a6a2e8` 重建后严格并发恰好两个案例：
