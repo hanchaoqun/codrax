@@ -44,8 +44,18 @@ import (
 // extractArkTS is called from parser.go::parseOneFile when
 // FileEntry.Language == LangArkTS.
 func extractArkTS(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, tier int) {
+	pkg, syms, imps, rels, _, tier = extractArkTSWithLineFeatures(src, file)
+	return
+}
+
+// extractArkTSWithLineFeatures is the FileInfo-producing entry used by
+// parser.go. The compatibility wrapper above preserves focused extractor
+// tests, while the production path also receives the typed per-line AST
+// features that ordinary TypeScript files publish. Previously the ArkTS
+// early-return discarded these features even after a Tier-1 TS parse.
+func extractArkTSWithLineFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, tier int) {
 	// Phase 1: try TS grammar.
-	tsSyms, tsImps, tsRels, tsOK := tryTSGrammarForArkTS(src, file)
+	tsSyms, tsImps, tsRels, tsFeatures, tsOK := tryTSGrammarForArkTS(src, file)
 
 	// Phase 2: ArkTS regex post-pass — ALWAYS runs (Tier 1 augments,
 	// Tier 2 stands alone). The post-pass is responsible for the
@@ -57,6 +67,7 @@ func extractArkTS(src []byte, file string) (pkg string, syms []types.Symbol, imp
 		syms = mergeArkTSSymbols(tsSyms, akSyms)
 		imps = mergeArkTSImports(tsImps, akImps)
 		rels = tsRels
+		lineFeatures = tsFeatures
 		tier = 1
 		return
 	}
@@ -77,15 +88,15 @@ func extractArkTS(src []byte, file string) (pkg string, syms []types.Symbol, imp
 // tryTSGrammarForArkTS calls extractJS with the TS parser. Returns
 // (symbols, imports, relations, ok). ok=false when the TS grammar
 // fails to produce a usable root, signalling fallback to Tier 2.
-func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Import, []types.Relation, bool) {
+func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Import, []types.Relation, map[int][]types.LineFeature, bool) {
 	root, ok := parseTreeSitterIfPossible(types.LangTypeScript, src)
 	if !ok {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	// extractJS owns its own walk; we throw away `pkg` (ArkTS has
 	// no package keyword) and pass isTS=true.
 	_, syms, imps, rels := extractJS(root, src, file, true)
-	return syms, imps, rels, true
+	return syms, imps, rels, extractLineFeatures(root, src), true
 }
 
 // ArkTS strict-mode decorator whitelist. 21 decorators total —

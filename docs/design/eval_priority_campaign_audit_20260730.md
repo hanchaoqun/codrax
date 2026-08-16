@@ -37640,6 +37640,49 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.909 B879：机制入口的有界语义下钻；ArkTS/Cangjie 行特征断层补齐（2026-08-15）
+
+1. 对 r550 冷读确认：`RenderMermaidBlocks` 的完整入口体虽已读取，但其返回表达式把真正逐 fence 决策以
+   函数值交给 `ReplaceAllStringFunc`；旧 completion boundary 只验证 principal member/member_note/support_ref
+   对齐，不追踪该局部 callable handoff。于是包装器定义与入口注释足以放行，而决定失败/unsupported 可见形的
+   `maybeReplaceMermaidFence`、下一层 `mermaidFallbackFence` 仍未读。Runner PASS 与实现语义错答可以同时发生。
+2. B879 新增唯一 `mechanism semantic descent` 读取闭包：只在 typed current-source mechanism/explanation、
+   模型已提交 load-bearing principal member_set、members/member_notes/support_refs 严格逐项对齐且责任 note 非空时
+   激活。它不读取 note 内容；只把该结构字段的存在视为“此成员承担行为解释”的 schema 信号。
+3. 从每个同成员 grounded support_ref 定位 parser-owned callable 声明。入口体未完整进入 read closure 时先精确
+   读取该声明 span；入口已完整读取后，只检查同时带 `LineFeatureReturnStmt + LineFeatureCallExpression` 的行。
+   直接返回调用必须由 AST/Cangjie relation 唯一解析到仓内目标；函数值参数必须由已有 line-local callback parser
+   证明 receiver→callable handoff，且 callable 在 graph 中唯一解析。外部、动态、同名歧义、低阶 fallback 或非
+   return 调用全部 fail-open，不拿猜测阻断完成。
+4. 下钻固定最多 2 层、每次完成最多 4 个声明体；循环按 exact file:line:symbol 去重。该约束覆盖 wrapper→local
+   callback→returned helper 这一类机制实现深度，但不会扩成全调用图。新 PendingRead 是 citation-class，不能被
+   generic breadth boundary 静默降 advisory；目标 body 读完即由范围闭包自动排空，避免重复“成文校验未通过”。
+5. 系统只追加 `read_file` 范围与普通语言的原因提示：不生成 EvidenceItem、不铸 call/relation、不选择 principal、
+   不修改 JSON/Mermaid/答案正文，也不替模型回答 fallback 行为。读取后仍由 Explorer 选择哪些事实进入证据，
+   由模型形成总结、关系图和结论。
+6. 同批发现专用解析路径的跨语言断层：普通 tree-sitter 语言会填 `FileInfo.LineFeatures`，但 ArkTS/Cangjie 在
+   `parseOneFile` 提前返回，历史上始终为空。ArkTS Tier-1 现复用同一次 TypeScript AST 产出共享 line features；
+   Cangjie 用其 comment/string-aware lexer 的 exact `return` token 与 `ProvenanceCangjieParser` call relation 产出
+   同一 closed enum。comments/strings 不会铸 return。其他支持语言继续消费原有 shared feature contract。
+7. 因 FileInfo 持久化语义变化，缓存代次同步从 ArkTS `9→10`、Cangjie `6→7`，并有显式 pin 防止“代码更新但
+   warm cache 继续缺字段”。专项测试覆盖 callback 首层、direct helper 次层、全读排空、pre-complete 接线、
+   identity-only/non-return/Trace/歧义四个负形，以及 ArkTS/Cangjie 专用解析器的 return+call 正形和注释/字符串
+   负形。`go test ./internal/tool -count=1`、`go test ./internal/tool/repomap/index -count=1` 与
+   `go test ./... -count=1` 全绿。
+8. 本批不修改 Trace 查询、因果投影、自动补齐或 active stream。Trace intent 明确不进入该源码机制门；显式
+   时间窗、完整 causal-diagnosis、链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索、
+   实际占用与规则计价可消除量双轴保持。邻近/背景仍只能支持额外排查；活跃字节流不因 4ms 或固定年龄降级。
+
+状态：
+
+`B879-MECHANISMCALLEEDEPTH1=implemented/bounded-return-call-descent/full-suite-pass/production-replay-next`；
+`B879-HARMONYLINEFEATUREPARITY1=implemented/ArkTS+Cangjie/cache-bumped+pinned`；
+`B880-AGGREGATEOWNERSHIPRELATION1=confirmed/P1/next-after-B879-commit`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

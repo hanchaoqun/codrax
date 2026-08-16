@@ -82,3 +82,53 @@ func lineFeatureSetContains(features []types.LineFeature, want types.LineFeature
 	}
 	return false
 }
+
+func TestHarmonySpecializedExtractorsPublishReturnCallLineFeatures(t *testing.T) {
+	if extractorVersions[types.LangArkTS] < 10 || extractorVersions[types.LangCangjie] < 7 {
+		t.Fatalf("Harmony LineFeatures output changed without cache generation bumps: ArkTS=%d Cangjie=%d",
+			extractorVersions[types.LangArkTS], extractorVersions[types.LangCangjie])
+	}
+	t.Run("arkts tier1 typescript grammar", func(t *testing.T) {
+		src := []byte(`function render(input: string): string {
+  return transform(input, rewrite)
+}
+
+function rewrite(input: string): string {
+  return input
+}
+`)
+		_, _, _, _, features, tier := extractArkTSWithLineFeatures(src, "pages/Index.ets")
+		if tier != 1 {
+			t.Fatalf("ArkTS tier=%d, want 1", tier)
+		}
+		if !lineFeatureSetContains(features[2], types.LineFeatureReturnStmt) ||
+			!lineFeatureSetContains(features[2], types.LineFeatureCallExpression) {
+			t.Fatalf("ArkTS line 2 features=%v, want return+call", features[2])
+		}
+	})
+
+	t.Run("cangjie lexer and call parser", func(t *testing.T) {
+		src := []byte(`package demo
+func render(input: String): String {
+  // return ignored(input)
+  let note = "return hidden(input)"
+  return transform(input, rewrite)
+}
+func rewrite(input: String): String {
+  return input
+}
+`)
+		_, _, _, _, features, tier := extractCangjieWithLineFeatures(src, "src/render.cj")
+		if tier != 1 {
+			t.Fatalf("Cangjie tier=%d, want 1", tier)
+		}
+		if !lineFeatureSetContains(features[5], types.LineFeatureReturnStmt) ||
+			!lineFeatureSetContains(features[5], types.LineFeatureCallExpression) {
+			t.Fatalf("Cangjie line 5 features=%v, want return+call", features[5])
+		}
+		if lineFeatureSetContains(features[3], types.LineFeatureReturnStmt) ||
+			lineFeatureSetContains(features[4], types.LineFeatureReturnStmt) {
+			t.Fatalf("Cangjie comments/strings must not mint return features: line3=%v line4=%v", features[3], features[4])
+		}
+	})
+}

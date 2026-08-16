@@ -23,9 +23,19 @@ import (
 // Red line L-Cangjie-1: callers must not feed .cjo compiled
 // artefacts here — scanner.go excludes them at discovery time.
 func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, tier int) {
+	pkg, syms, imps, rels, _, tier = extractCangjieWithLineFeatures(src, file)
+	return
+}
+
+// extractCangjieWithLineFeatures is the FileInfo-producing entry. Cangjie has
+// no tree-sitter grammar, so its lexer and AST-grade call extractor own the
+// equivalent typed line features. The compatibility wrapper above preserves
+// the existing focused extractor API.
+func extractCangjieWithLineFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, tier int) {
 	// Phase 1: tokeniser + recursive-descent parser (D5/M1 upgrade).
 	pkg, syms, imps, rels = parseCangjie(src, file)
 	rels = append(rels, cangjieExtractCalls(src, file)...)
+	lineFeatures = cangjieExtractLineFeatures(src, rels)
 	if len(syms) > 0 || pkg != "" {
 		tier = 1
 		return
@@ -40,6 +50,7 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 	imps = scanCangjieImports(cleaned, file)
 	rels = scanCangjieExtendRelations(cleaned, file)
 	rels = append(rels, cangjieExtractCalls(src, file)...)
+	lineFeatures = cangjieExtractLineFeatures(src, rels)
 
 	if len(syms) > 0 || pkg != "" {
 		tier = 2
@@ -57,6 +68,40 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 	imps = salvageImps
 	tier = 2
 	return
+}
+
+// cangjieExtractLineFeatures maps the hand-written parser's exact tokens and
+// call relations onto the shared LineFeature vocabulary. `return` is an exact
+// lexer token outside comments and strings; calls are accepted only from the
+// Cangjie parser provenance. This mirrors the closed tree-sitter node switch
+// instead of guessing from arbitrary source substrings.
+func cangjieExtractLineFeatures(src []byte, rels []types.Relation) map[int][]types.LineFeature {
+	out := make(map[int][]types.LineFeature)
+	add := func(line int, feature types.LineFeature) {
+		if line <= 0 {
+			return
+		}
+		for _, existing := range out[line] {
+			if existing == feature {
+				return
+			}
+		}
+		out[line] = append(out[line], feature)
+	}
+	for _, token := range lexCangjie(src) {
+		if token.Text == "return" && (token.Kind == cjTokIdent || token.Kind == cjTokKeyword) {
+			add(token.Line, types.LineFeatureReturnStmt)
+		}
+	}
+	for _, rel := range rels {
+		if rel.Kind == "call" && rel.Provenance == types.ProvenanceCangjieParser {
+			add(rel.Line, types.LineFeatureCallExpression)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // cangjieExtractCalls performs an expression-level pass over the same

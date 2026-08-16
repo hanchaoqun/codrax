@@ -3937,6 +3937,14 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	// README + manifest + entry-point already cover the answer space.
 	if justification == "" {
 		raiseRequiredFileHintPendingReads(ctx, closure, evidence)
+		// A grounded principal member roster can prove WHICH entry the model
+		// selected without proving that the implementation behind a thin
+		// returned wrapper was inspected. Follow only parser-owned return-call
+		// handoffs into unique repository callables, with a small fixed depth
+		// and demand cap. This queues reads only; it never authors evidence or
+		// conclusions and is intentionally outside the generic breadth origins
+		// that a model-owned boundary may demote.
+		raiseMechanismSemanticDescentPendingReads(ctx, closure, aggregateFacts)
 		if genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence) {
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {

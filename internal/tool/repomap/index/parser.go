@@ -323,11 +323,12 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// and the build log surfaces degradations (red line L-Fallback-1).
 	switch entry.Language {
 	case types.LangArkTS:
-		pkg, syms, imps, rels, tier := extractArkTS(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, tier := extractArkTSWithLineFeatures(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
 		fi.Relations = rels
+		fi.LineFeatures = lineFeatures
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "arkts extractor downgraded")
 		} else {
@@ -335,11 +336,12 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		}
 		return fi
 	case types.LangCangjie:
-		pkg, syms, imps, rels, tier := extractCangjie(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, tier := extractCangjieWithLineFeatures(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
 		fi.Relations = rels
+		fi.LineFeatures = lineFeatures
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "cangjie extractor downgraded")
 		} else {
