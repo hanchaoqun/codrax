@@ -35698,13 +35698,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    删除、反向或改名任何关系，也不产生答案；它只避免大量 fallback/helper sibling calls 把跨语言边界
    的两侧挤出同一上下文。parser-owned wrapper 正臂、未知 producer 既有 fail-closed 矩阵、cap 稳定顺序
    均有 pin；`go test ./internal/agent ./internal/types -count=1` 全绿。
+10. B929 已按“同一 typed 声明、同一证据权限”施工。无 Mermaid 时，只有
+    `surface_role=principal` 的 ordered-list/bullet-list/table、其 `claim_uses` 与每条
+    `edge_anchors[].relation_kind` 一致，才可保留 standalone relation payload；描述块、错误 block kind、
+    claim-form 不匹配和 Trace 家族仍删除孤儿图元数据。每条 standalone row 还必须显式携带完整
+    `from_identity + to_identity`，不能依靠展示 id、标签或自然语言反推技术端点。
+11. 保留下来的 standalone relation 复用现有 `DiagramCallEdgeEvidenceMismatches` 权限核：call、register、
+    callback、argument-flow、type、assignment/data-flow/return 和严格逻辑关系均按既有 typed evidence
+    校验；修复提示明确“不需要画图”，只要求纠正/删除未证结构化行。系统不扫描用户请求、模型正文、
+    list item 文字或最终输出，不会因为文字写了“调用/依赖”而制造硬门，更不会替模型补关系或结论。
+12. 回归覆盖：正向已证 standalone call、反向边拒绝、缺失/半缺失 endpoint identity 拒绝、非 principal/
+    错 kind/错 claim-form 清理、Trace 隔离，以及既有动态 schema 字节钉。完整
+    `go test ./internal/tool -count=1`（161.211s）、`go test ./internal/skill ./internal/types -count=1`
+    均全绿。实现已闭合，仍需下一轮异构生产 eval 证明模型能消费新 JSON 教学并保留已证关系；未将单测
+    绿外推成生产正证。
 
 状态：
 
 `B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=implemented/pinned/pending-production-trigger`；
 `B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=soft-atomic-teaching/production-positive-r582`；
 `B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/production-positive-r582/closed`；
-`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=confirmed/high/open`；
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=implemented/shared-typed-authority+complete-endpoint-identity/pinned/pending-production-replay`；
 `B930-REGISTEREDEXPORTIDENTITYBRIDGE1=implemented/parser-owned-selected-body-join+compact-priority/pinned/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

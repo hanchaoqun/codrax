@@ -9,16 +9,16 @@ import (
 
 // normalizeOrphanDiagramEdgeAnchors removes diagram-only metadata after the
 // model intentionally removes every typed diagram block. Edge anchors may live
-// on a sibling prose/list block while they own endpoints in another diagram,
-// but with no diagram anywhere in the document there is no body alias or
-// visible relation left to own. Keeping those orphan anchors would turn a
-// successful optional-diagram removal into a second, invisible relation claim
-// and an avoidable hard retry.
+// on a sibling prose/list block while they own endpoints in another diagram.
+// A principal structured list/table may also intentionally carry its own exact
+// typed relation assertions without a visual; that carrier survives only when
+// its claim_uses contains the same relation form. Everything else is stale
+// diagram metadata and remains safely removable.
 //
 // This is a structural JSON repair only: it never edits answer prose, diagram
 // source, citations, conclusions, or relation metadata while any typed diagram
 // remains present.
-func normalizeOrphanDiagramEdgeAnchors(doc *types.AnswerDocumentV2) int {
+func normalizeOrphanDiagramEdgeAnchors(doc *types.AnswerDocumentV2, viewOpt ...*types.AnswerSemanticView) int {
 	if doc == nil {
 		return 0
 	}
@@ -27,12 +27,43 @@ func normalizeOrphanDiagramEdgeAnchors(doc *types.AnswerDocumentV2) int {
 			return 0
 		}
 	}
+	preserveStandalone := len(viewOpt) > 0 && viewOpt[0] != nil && viewOpt[0].Family != types.QFRootCauseTrace
+	// Runtime/Trace relation authority has its own diagram-local typed
+	// projection. A source relation carrier must never be inferred from a
+	// non-diagram Trace list.
 	removed := 0
 	for i := range doc.Blocks {
+		if preserveStandalone && answerBlockCarriesStandaloneTypedRelations(doc.Blocks[i]) {
+			continue
+		}
 		removed += len(doc.Blocks[i].EdgeAnchors)
 		doc.Blocks[i].EdgeAnchors = nil
 	}
 	return removed
+}
+
+func answerBlockCarriesStandaloneTypedRelations(block types.AnswerBlock) bool {
+	if block.SurfaceRole != types.SurfacePrincipal || len(block.EdgeAnchors) == 0 {
+		return false
+	}
+	switch block.Kind {
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+	default:
+		return false
+	}
+	forms := make(map[types.ClaimForm]bool, len(block.ClaimUses))
+	for _, use := range block.ClaimUses {
+		if use.ClaimForm != types.ClaimUnknown {
+			forms[use.ClaimForm] = true
+		}
+	}
+	for _, anchor := range block.EdgeAnchors {
+		form := types.ClaimFormForRelation(anchor.RelationKind)
+		if form == types.ClaimUnknown || !forms[form] {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {

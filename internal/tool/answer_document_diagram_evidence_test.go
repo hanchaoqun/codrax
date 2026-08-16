@@ -2980,6 +2980,41 @@ func TestDiagramCallEdgeEvidenceMismatches_ExplicitCallAuthorityIsFamilyIndepend
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_StandaloneStructuredListUsesSameAuthority(t *testing.T) {
+	call := types.EvidenceItem{
+		ID: "call", Kind: types.EvidenceRelationship,
+		Subject: "Entry.run", Object: "Worker.handle", Predicate: "calls",
+		Source: "src/entry.go", LineStart: 12, LineEnd: 12,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "entry", ToNode: "worker",
+			FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("grounded standalone list relation rejected: %+v", got)
+	}
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "Worker.handle"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "Entry.run"
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("reverse standalone list relation must fail the shared authority: %+v", got)
+	}
+
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "Entry.run"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = ""
+	got = DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call})
+	if len(got) != 1 || got[0].Issue != diagramStandaloneRelationIdentityMissing {
+		t.Fatalf("standalone relation must preserve both exact endpoint identities: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DuplicateTypedParticipantIdentityIsDiagnosedFirst(t *testing.T) {
 	for _, endpoint := range []string{"gate.RunWith", "gate::RunWith", "Gate#runWith", "run_with"} {
 		for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture} {

@@ -4226,6 +4226,31 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramRelationFailurePairs: failurePairs,
 		}}
 	}
+	standaloneMismatches, diagramMismatches := preEmitPartitionStandaloneStructuredRelationMismatches(doc, mismatches)
+	hints := make([]emitFixHint, 0, 6)
+	if len(standaloneMismatches) > 0 {
+		parts := make([]string, 0, len(standaloneMismatches))
+		for _, mismatch := range standaloneMismatches {
+			parts = append(parts, fmt.Sprintf(
+				"block=%q issue=%s relation_kind=%s identity=%s -> %s",
+				mismatch.BlockID, mismatch.Issue, mismatch.Relation,
+				mismatch.FromSymbol, mismatch.ToSymbol,
+			))
+		}
+		hints = append(hints, emitFixHint{
+			Field:                        "blocks[kind=ordered_list|bullet_list|table].edge_anchors[]",
+			HardSignal:                   preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:          preEmitDiagramMismatchBlockKinds(doc, standaloneMismatches),
+			ExpectedShape:                "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; "),
+			Reason:                       "the model explicitly attached schema-valid typed relations to a principal structured carrier. Those assertions must use the same source authority as a diagram; silently dropping their metadata would let block kind change relation truth. This check reads only claim_uses, edge_anchors, and citable typed evidence, never list prose, labels, request text, or rendered output.",
+			DiagramRelationFailurePairs:  diagramRelationFailurePairFingerprints(standaloneMismatches),
+			DiagramRelationFailureIssues: diagramRelationFailureIssueValues(standaloneMismatches),
+		})
+	}
+	mismatches = diagramMismatches
+	if len(mismatches) == 0 {
+		return hints
+	}
 	typeRelationParts := make([]string, 0, len(mismatches))
 	valueFlowParts := make([]string, 0, len(mismatches))
 	logicalRelationParts := make([]string, 0, len(mismatches))
@@ -4261,7 +4286,6 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			otherMismatches = append(otherMismatches, mismatch)
 		}
 	}
-	hints := make([]emitFixHint, 0, 5)
 	if len(collapsedEndpointParts) > 0 {
 		hints = append(hints, emitFixHint{
 			Field:                       "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node",
@@ -4327,6 +4351,29 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return hints
+}
+
+func preEmitPartitionStandaloneStructuredRelationMismatches(
+	doc *types.AnswerDocumentV2,
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+) (standalone, diagram []DiagramCallEdgeEvidenceMismatch) {
+	if doc == nil {
+		return nil, mismatches
+	}
+	standaloneBlocks := make(map[string]bool)
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram && block.Diagram == nil && answerBlockCarriesStandaloneTypedRelations(block) {
+			standaloneBlocks[strings.TrimSpace(block.ID)] = true
+		}
+	}
+	for _, mismatch := range mismatches {
+		if standaloneBlocks[strings.TrimSpace(mismatch.BlockID)] {
+			standalone = append(standalone, mismatch)
+		} else {
+			diagram = append(diagram, mismatch)
+		}
+	}
+	return standalone, diagram
 }
 
 // preEmitEvidenceWithExactTypedDiagramRelations bridges the shared exact

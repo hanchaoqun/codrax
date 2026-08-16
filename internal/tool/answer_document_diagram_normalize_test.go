@@ -413,6 +413,57 @@ func TestNormalizeOrphanDiagramEdgeAnchors_PreservesSiblingCarrierForExistingDia
 	}
 }
 
+func TestNormalizeOrphanDiagramEdgeAnchors_PreservesStandalonePrincipalRelationCarrier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items:     []types.AnswerBlockItem{{ID: "hop", Label: "业务调用"}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "entry", ToNode: "worker",
+			FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, view); removed != 0 {
+		t.Fatalf("standalone typed relation removed=%d: %+v", removed, doc.Blocks)
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("standalone principal relation carrier was dropped: %+v", doc.Blocks[0])
+	}
+
+	trace := &types.AnswerSemanticView{Family: types.QFRootCauseTrace}
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, trace); removed != 1 {
+		t.Fatalf("Trace non-diagram source relation removed=%d, want 1", removed)
+	}
+}
+
+func TestNormalizeOrphanDiagramEdgeAnchors_StandaloneCarrierNeedsMatchingTypedClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind types.AnswerBlockKind
+		role types.SurfaceRole
+		form types.ClaimForm
+	}{
+		{name: "not principal", kind: types.BlockOrderedList, form: types.ClaimCallEdge},
+		{name: "not structured", kind: types.BlockSummary, role: types.SurfacePrincipal, form: types.ClaimCallEdge},
+		{name: "wrong relation form", kind: types.BlockTable, role: types.SurfacePrincipal, form: types.ClaimDefinitionFact},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "carrier", Kind: tc.kind, SurfaceRole: tc.role,
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: tc.form}},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+				}},
+			}}}
+			if removed := normalizeOrphanDiagramEdgeAnchors(doc, &types.AnswerSemanticView{Family: types.QFCallChain}); removed != 1 {
+				t.Fatalf("removed=%d, want 1: %+v", removed, doc.Blocks)
+			}
+		})
+	}
+}
+
 func TestNormalizeAnswerDocumentForPreEmit_RecordsOrphanAnchorRepair(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "path", Kind: types.BlockOrderedList,

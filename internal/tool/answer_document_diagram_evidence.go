@@ -41,6 +41,7 @@ const (
 	diagramCallEdgeIssueMissingGroundedAnchor = types.DiagramRelationFailureMissingGroundedCallAnchor
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
 	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
+	diagramStandaloneRelationIdentityMissing  = "standalone_relation_endpoint_identity_missing"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
 	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
 	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
@@ -312,6 +313,17 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 		for _, anchor := range block.EdgeAnchors {
 			fromSymbol, toSymbol := diagramEvidenceAnchorEndpointSymbols(anchor, labels, evidence)
+			if block.Kind != types.BlockDiagram && block.Diagram == nil &&
+				answerBlockCarriesStandaloneTypedRelations(*block) && !anchor.HasEndpointIdentityPair() {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramStandaloneRelationIdentityMissing,
+					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					FromSymbol: strings.TrimSpace(anchor.FromIdentity),
+					ToSymbol:   strings.TrimSpace(anchor.ToIdentity),
+					Relation:   diagramAnchorRelation(anchor),
+				})
+				continue
+			}
 			// Diagram-local edge metadata describes the visible body, not a
 			// hidden replacement graph. Keep optional visuals free to show any
 			// faithful subset of the evidence, including a node-only subset with
@@ -441,6 +453,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				ToNode:     strings.TrimSpace(anchor.ToNode),
 				FromSymbol: fromSymbol,
 				ToSymbol:   toSymbol,
+				Relation:   relation,
 			})
 		}
 	}
