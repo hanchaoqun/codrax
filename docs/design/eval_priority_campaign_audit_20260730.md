@@ -36859,6 +36859,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/diagram/relation/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden/not-observed-r540`。
 
+### §123.890 r541：B866 生产闭环；Trace 双轴与跨方向不可加回放（2026-08-15）
+
+1. 在 `main@73bb136ec` 重建并冻结二进制后，严格并发恰好两个异构案例：
+   `github_issue_zod_prefault_symptom` 机器 FAIL（198s）、人工 pass-with-caveat；
+   `real_trace_h11_cross_direction_overlap` 机器 PASS（194s）、人工 pass-with-caveat。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_staticreplay_trace_r541_20260815_manual_audit.md`。
+2. B866 获生产正证。本轮确有两次 `make check`，但第一轮明确 exit=2：模型首稿测试没有满足 fixture 的直接
+   `_prefault:false/0/""` 合同；typed verify-failure handoff 授权 replan，改正测试后第二轮 exit=0。这是“真实失败→修复→重验”，
+   不是 r540 的“同一成功静态观察→无改动重复验证”。第二轮成功后没有创建 `batch-*-proof-repair`、没有发布
+   `verification_proof_followup_requested`，controller 直接将模型的 all_verified 收窄为
+   `production_verification_source_static_only/accept_unverified`。
+3. 因 fixture 仍只用 Python 检查 TypeScript 源码和测试形状，未执行 TypeScript 行为，机器 FAIL/最终 unverified 继续是正确证明边界。
+   修复和 falsy 回归均保留；系统没有把静态绿冒充 target execution，也没有因追求 eval PASS 重复相同验证。
+4. H11 的显式时间窗、`Trace 因果投影`、确定性补齐、链上-only 主因全部在场。答案同时给出真实占时/业务 span 轴与按既有规则计价的
+   可消除量轴；优先级反转、调度供给、算力供给、D/IO 与确定性语义 span 均未丢失，邻近/背景没有进入主因排序。
+5. 相比 r539，本轮不再发布 78.061ms 跨方向算术和，并多处明确
+   `cross_direction_physical_relation=unresolved`、无 joint total、方向间不可相加。开头“四个独立候选”仍可能被读成物理互斥，
+   但同段立即以精确信号限定为关系未决；记入既有 B646 模型措辞观察，不新增 request/final-prose 关键词硬门，也不由系统改写结论。
+6. 两案均有完整交付；活动流没有按 4ms/4s/4m 或固定累计年龄降级。Read/Trace 证据值、投影编译和自动补齐未因 B866 修改。
+
+`B866-STABLESTATICNORMALIZATIONREPLAY1=production-replay-closed-r541`；
+`B646-TRACEUNKNOWNRELATIONSUMMARY1=improved/no-total/model-wording-observe`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`occupancy+business-clue axis=present`；`rule-based-eliminable axis=present`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed-r541`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
