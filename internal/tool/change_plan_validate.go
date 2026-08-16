@@ -3512,13 +3512,16 @@ func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan)
 	}
 	contracts := append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
 	// A failed verifier attempt is precise evidence that the next plan is a
-	// newer contract generation. Preserve explicit analyzer contracts, but
-	// rebuild soft expected_outcome_fallback rows from this generation's typed
-	// acceptance_tests. Keeping the original fallback snapshot here can make
-	// the active plan require both an old, disproven expectation and its repair.
-	// No prose is parsed or compared: the typed handoff selects the generation.
-	if ctx.Mutable.VerifyFailureHandoff() != nil && len(plan.AcceptanceTests) > 0 {
-		contracts = types.RebaseExpectedOutcomeFallbackWriteBehaviorContracts(contracts, plan.AcceptanceTests)
+	// newer contract generation. Rebuild the soft layer even when the planner
+	// emits no acceptance_tests: otherwise a retry that merely removes an
+	// invalid probe can resurrect the old analyzer snapshot. Hard and grounded
+	// contracts survive; ungrounded soft expectations become typed tombstones so
+	// cumulative verification scope cannot add them back. No request, plan,
+	// failure-output, or source prose is parsed or compared.
+	if ctx.Mutable.VerifyFailureHandoff() != nil {
+		var retired []string
+		contracts, retired = types.RebaseVerifyFailureWriteBehaviorContracts(contracts, plan.AcceptanceTests)
+		plan.SupersededBehaviorContractIDs = retired
 		plan.BehaviorContractGeneration = types.WriteBehaviorContractGenerationPlanAcceptanceRebase
 	}
 	plan.BehaviorContracts = contracts

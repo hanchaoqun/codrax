@@ -33,3 +33,18 @@ func TestChangePlanVerificationScopeKeepsApplyAndVerifyScopesSeparate(t *testing
 		t.Fatalf("verification probes = %+v", got)
 	}
 }
+
+func TestChangePlanVerificationBehaviorContractsDoesNotResurrectSupersededCumulativeContract(t *testing.T) {
+	plan := &ChangePlan{
+		BehaviorContracts:             []WriteBehaviorContract{{ID: "current"}},
+		SupersededBehaviorContractIDs: []string{"stale", "stale"},
+		CumulativeVerificationScope: &CumulativeVerificationScope{
+			BehaviorContracts: []WriteBehaviorContract{{ID: "stale"}, {ID: "retained-old"}},
+		},
+	}
+
+	got := ChangePlanVerificationBehaviorContracts(plan)
+	if len(got) != 2 || got[0].ID != "current" || got[1].ID != "retained-old" {
+		t.Fatalf("verification contracts resurrected a superseded id: %+v", got)
+	}
+}

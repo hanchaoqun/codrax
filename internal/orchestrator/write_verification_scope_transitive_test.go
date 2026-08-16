@@ -158,6 +158,7 @@ func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRo
 		BehaviorContracts: []types.WriteBehaviorContract{
 			{ID: "outcome-2", Expected: "line 16 remains unchanged"},
 			{ID: "retained-only", Expected: "line 12 remains repaired"},
+			{ID: "retired-soft", Expected: "the failed implementation shape"},
 			{ID: "stale-fallback", Expected: "only one expression changes", Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback},
 		},
 		VerificationProbes: []types.VerificationProbe{
@@ -172,7 +173,8 @@ func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRo
 		BehaviorContracts: []types.WriteBehaviorContract{
 			{ID: "outcome-2", Expected: "line 16 returns the negative lookup error"},
 		},
-		BehaviorContractGeneration: types.WriteBehaviorContractGenerationPlanAcceptanceRebase,
+		BehaviorContractGeneration:    types.WriteBehaviorContractGenerationPlanAcceptanceRebase,
+		SupersededBehaviorContractIDs: []string{"retired-soft"},
 		VerificationProbes: []types.VerificationProbe{
 			{ID: "behavior-probe", Code: "current generation"},
 		},

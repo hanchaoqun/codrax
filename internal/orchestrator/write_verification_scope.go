@@ -57,6 +57,14 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			contractIDs[id] = true
 		}
 	}
+	// Typed verify-failure rebase tombstones have the same precedence as an
+	// active row. Seed them before collecting restored/retained plans so the
+	// raw cumulative snapshot cannot resurrect a superseded soft contract.
+	for _, raw := range plan.SupersededBehaviorContractIDs {
+		if id := strings.TrimSpace(raw); id != "" {
+			contractIDs[id] = true
+		}
+	}
 	for _, probe := range plan.VerificationProbes {
 		if id := strings.TrimSpace(probe.ID); id != "" {
 			probeIDs[id] = true

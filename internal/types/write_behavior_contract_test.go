@@ -286,6 +286,70 @@ func TestRebaseExpectedOutcomeFallbackWriteBehaviorContractsPreservesExplicitAnd
 	}
 }
 
+func TestRebaseVerifyFailureWriteBehaviorContractsRetiresUngroundedSoftGeneration(t *testing.T) {
+	got, retired := RebaseVerifyFailureWriteBehaviorContracts([]WriteBehaviorContract{
+		{
+			ID:       "hard-user-contract",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpEquals,
+			Expected: "public API remains compatible",
+			Required: true,
+			Source:   "write_analyzer",
+		},
+		{
+			ID:       "stale-soft-shape",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "MIN calls the constructor that reads MIN",
+			Required: true,
+			Source:   "write_analyzer",
+		},
+		{
+			ID:          "grounded-soft-invariant",
+			Kind:        WriteBehaviorInvariant,
+			Polarity:    WriteBehaviorPolarityExpected,
+			Operator:    WriteBehaviorOpSatisfies,
+			Expected:    "wire layout remains compatible",
+			EvidenceRef: "file:protocol.rs:42",
+			Required:    true,
+			Source:      "write_analyzer",
+		},
+		{
+			ID:       "observed-failure",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityObserved,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "the original check failed",
+			Source:   "write_analyzer",
+		},
+		{
+			ID:       "outcome-1",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "the stale plan shape passes",
+			Required: true,
+			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+		},
+	}, []string{"the repaired direct constant passes"})
+
+	if len(got) != 4 {
+		t.Fatalf("contracts = %+v, want hard + grounded + observed + current fallback", got)
+	}
+	if got[0].ID != "hard-user-contract" || got[1].ID != "grounded-soft-invariant" || got[2].ID != "observed-failure" {
+		t.Fatalf("stable contracts were not retained in order: %+v", got)
+	}
+	if got[3].Expected != "the repaired direct constant passes" || got[3].Source != WriteBehaviorContractSourcePlanAcceptanceFallback {
+		t.Fatalf("current acceptance generation missing: %+v", got)
+	}
+	wantRetired := []string{"outcome-1", "stale-soft-shape"}
+	if len(retired) != len(wantRetired) || retired[0] != wantRetired[0] || retired[1] != wantRetired[1] {
+		t.Fatalf("retired ids = %+v, want %+v", retired, wantRetired)
+	}
+}
+
 func TestHardRequiredWriteBehaviorContractIDs_ExcludesSatisfiesAndFallback(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
 		{

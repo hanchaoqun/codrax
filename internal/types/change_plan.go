@@ -417,6 +417,12 @@ type ChangePlan struct {
 	// against an explicit analyzer contract and no fallback row remains.
 	BehaviorContractGeneration WriteBehaviorContractGeneration `json:"behavior_contract_generation,omitempty"`
 
+	// SupersededBehaviorContractIDs is a controller-owned tombstone set for a
+	// typed verify-failure replan. It prevents contracts retired by the current
+	// generation from being reintroduced through cumulative verification scope.
+	// The planner wire schema cannot author this field.
+	SupersededBehaviorContractIDs []string `json:"superseded_behavior_contract_ids,omitempty"`
+
 	// CumulativeVerificationScope is a controller-owned snapshot of earlier
 	// plans whose bytes are still present in the worktree after a replan. It is
 	// deliberately separate from TargetPaths: apply must remain scoped to this

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -324,9 +325,10 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 
 // RebaseExpectedOutcomeFallbackWriteBehaviorContracts preserves explicit
 // analyzer-authored contracts while replacing only the soft fallback layer
-// with the current plan generation's acceptance tests. Callers must select
-// the replan generation from typed workflow state; this helper never compares
-// or interprets contract prose.
+// with the current plan generation's acceptance tests. It is retained for
+// ordinary callers that have not received a typed verification counterexample.
+// Callers must select the generation from typed workflow state; this helper
+// never compares or interprets contract prose.
 func RebaseExpectedOutcomeFallbackWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) []WriteBehaviorContract {
 	explicit := make([]WriteBehaviorContract, 0, len(in))
 	for _, contract := range in {
@@ -342,6 +344,81 @@ func RebaseExpectedOutcomeFallbackWriteBehaviorContracts(in []WriteBehaviorContr
 		}
 	}
 	return rebased
+}
+
+// RebaseVerifyFailureWriteBehaviorContracts builds the active behavior
+// contract generation after a typed post-apply verification failure.
+//
+// A satisfies-only expected contract without typed grounding is soft analyzer
+// guidance, not an immutable user or source fact. Once a real verifier has
+// rejected the applied generation, carrying that guidance into every replan can
+// require both the disproven implementation shape and its repair. Preserve hard
+// contracts and typed-grounded/observed facts; retire ungrounded soft expected
+// contracts and both fallback generations, then project the current plan's
+// acceptance tests as the new soft generation. The decision uses only typed
+// contract fields and verify-failure workflow state selected by the caller; it
+// never scans the request, plan prose, test output, or source bytes.
+//
+// The returned retired IDs are controller-owned tombstones. They prevent an
+// earlier still-applied plan in cumulative verification scope from silently
+// reintroducing a superseded contract with the same ID.
+func RebaseVerifyFailureWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) ([]WriteBehaviorContract, []string) {
+	retained := make([]WriteBehaviorContract, 0, len(in))
+	retired := make([]string, 0, len(in))
+	for _, contract := range in {
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(contract) || isUngroundedSoftExpectedWriteBehaviorContract(contract) {
+			if id := strings.TrimSpace(contract.ID); id != "" {
+				retired = append(retired, id)
+			}
+			continue
+		}
+		retained = append(retained, contract)
+	}
+	rebased := NormalizeWriteBehaviorContracts(retained, expectedOutcomes)
+	for i := range rebased {
+		if rebased[i].Source == WriteBehaviorContractSourceExpectedOutcomeFallback {
+			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback
+		}
+	}
+	return rebased, dedupSortedWriteBehaviorContractIDs(retired)
+}
+
+func isUngroundedSoftExpectedWriteBehaviorContract(contract WriteBehaviorContract) bool {
+	if !contract.Required || contract.Polarity == WriteBehaviorPolarityObserved || IsHardRequiredWriteBehaviorContract(contract) {
+		return false
+	}
+	if strings.TrimSpace(contract.EvidenceRef) != "" {
+		return false
+	}
+	if contract.Comparator != nil && strings.TrimSpace(contract.Comparator.EvidenceRef) != "" {
+		return false
+	}
+	if contract.Transition != nil {
+		for _, step := range contract.Transition.Steps {
+			if strings.TrimSpace(step.EvidenceRef) != "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func dedupSortedWriteBehaviorContractIDs(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func IsExpectedOutcomeFallbackWriteBehaviorContract(c WriteBehaviorContract) bool {

@@ -998,6 +998,52 @@ func TestAttachWriteBehaviorContractsRebasesFallbacksOnlyForTypedVerifyFailureRe
 	}
 }
 
+func TestAttachWriteBehaviorContractsVerifyFailureWithoutAcceptanceTestsStillRetiresSoftSnapshot(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			BehaviorContracts: []types.WriteBehaviorContract{
+				{
+					ID:       "stale-soft-shape",
+					Kind:     types.WriteBehaviorInvariant,
+					Polarity: types.WriteBehaviorPolarityExpected,
+					Operator: types.WriteBehaviorOpSatisfies,
+					Expected: "the rejected implementation shape",
+					Required: true,
+					Source:   "write_analyzer",
+				},
+				{
+					ID:       "hard-api",
+					Kind:     types.WriteBehaviorInvariant,
+					Polarity: types.WriteBehaviorPolarityExpected,
+					Operator: types.WriteBehaviorOpEquals,
+					Expected: "public API remains compatible",
+					Required: true,
+					Source:   "write_analyzer",
+				},
+			},
+		},
+	})
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "failed-plan",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	plan := &types.ChangePlan{}
+
+	attachWriteBehaviorContracts(ctx, plan)
+
+	if plan.BehaviorContractGeneration != types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
+		t.Fatalf("verify-failure generation marker missing: %q", plan.BehaviorContractGeneration)
+	}
+	if len(plan.BehaviorContracts) != 1 || plan.BehaviorContracts[0].ID != "hard-api" {
+		t.Fatalf("stale soft snapshot survived no-acceptance replan: %+v", plan.BehaviorContracts)
+	}
+	if len(plan.SupersededBehaviorContractIDs) != 1 || plan.SupersededBehaviorContractIDs[0] != "stale-soft-shape" {
+		t.Fatalf("typed tombstone missing: %+v", plan.SupersededBehaviorContractIDs)
+	}
+}
+
 func TestEmitChangePlan_DoesNotGuessProbeRefsWhenMultipleRequiredContracts(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

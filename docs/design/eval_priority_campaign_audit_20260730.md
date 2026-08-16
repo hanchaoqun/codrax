@@ -36020,6 +36020,63 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.965 r592/S37bt：关系零锚门正证但完整链仍漏桥；写 replan 旧合同复活根修（2026-08-16）
+
+1. 在 `main@4dc10cfdb` 重建后严格并发恰好两个异构案例：
+   `mr_poly_binding_chain`（read/cross-language relation）与
+   `github_issue_chrono_duration_min_symptom`（Rust write）。Runner `1 PASS / 1 FAIL`，人工为
+   `1 partial / 1 fail`；完整记录见 `eval/parallel_selected_summary_evalcampaign_poly_rustwrite_r592_20260816.md`
+   与同名 `_manual_audit.md`。
+2. B932 获生产正证：Poly 第一稿 principal ordered-list 声明 call/register 关系但无 anchors，已不能直接
+   落地；第二稿补齐 8 条 `from_identity/to_identity/relation_kind` 后逐条进入 B929 权限核。可选 sequence
+   图两次因未证或可见箭头/metadata 拓扑不一致而被拒，模型最终主动删图；系统没有补边、代画或改答案。
+3. 但 Poly 只能判 partial。终稿仍称“完整跨语言调用链”，结构锚覆盖 Python guard/fallback、wrapper 内普通
+   calls 与 `m -> wrap_pyfunction!` registration，却没有把已在 typed authoring capsule 中存在的
+   `_fastlex.tokenize_bytes ↔ py.tokenize_bytes` registered-export bridge 作为 principal hop 结构化消费。
+   B932 只证明“关系块至少一锚”，B929 只验证“提交的每条锚为真”；二者都不证明 requested principal path
+   的每一条关键 hop 已被结构 receipt 覆盖。新立 B944（P1）：以 typed call-chain principal roster +
+   parser-owned relation recipe 做 endpoint-incidence/bridge coverage；允许真实断开分量和 optional diagram，
+   禁止读“完整链”等答案词、禁止系统补边或强迫画图。
+4. Rust runner FAIL 的终态是正确 fail-closed：第二批 `make check` 实际只运行 Python 源码形状 oracle，报告
+   精确标为 `capability=source_static`，所以 controller 把模型请求的 `all_verified` 降为
+   `unverified:production_verification_source_static_only`。本机也无 `rustc`；系统没有用 Python 静态绿冒充
+   Rust 编译/行为绿。
+5. 留存补丁本身不能交付：新增测试调用 fixture 中不存在的 `checked_add`，并把模块级 `MIN/MAX` 当作
+   `Duration::MIN/MAX`；`const fn` 兼容性同样未经编译证明。因缺 Rust runner 不能断言完整错误清单，但至少
+   上述源码引用已足够否决 merge。此类环境应诚实 unverified，不能为了 eval PASS 降验证杆。
+6. 新确认 B943（P0）：WriteAnalyzer 在现象请求上生成 ungrounded soft contracts，要求
+   `MIN = Duration::milliseconds(-i64::MAX)`；第一批真实 verifier 明确拒绝该递归形。replan 的前一稿已改为
+   direct constant 并带 8 条 acceptance tests，但因 Python probe 与 Rust target 语言不匹配被正确拒绝；
+   模型下一稿只保留单文件修复、遗漏 acceptance tests。旧 `attachWriteBehaviorContracts` 只有
+   `verify_failure && len(acceptance_tests)>0` 才切新 generation，故最终又把全部旧 analyzer contracts 与
+   fallback 复活，controller 随后错误自述“所有行为合同已满足”。后置 capability gate 虽挡住签绿，合同
+   上下文仍已自相矛盾并浪费 672s。
+7. B943 根修只消费 typed contract/workflow fields：任何 typed verify-failure replan 都建立新 generation，
+   不再依赖 planner 是否再次填写 acceptance_tests。hard required、有 `evidence_ref` 的 soft contract、带
+   typed evidence 的 transition/comparator 及 observed facts保留；ungrounded `satisfies` expected 假设与旧
+   expected/plan fallback 退役，当前 acceptance tests（可为空）成为新 soft generation。全程不扫描用户
+   输入、失败 stderr、计划 summary、补丁或最终答案，也不比较语义相似度。
+8. 为防累计验证域把旧 plan 合同带回，新计划写 controller-owned
+   `superseded_behavior_contract_ids` tombstone；planner schema 无该字段。verify 合并当前/历史 contracts 时
+   先应用 tombstone，再按 ID 去重。专项测试覆盖：hard/grounded/observed 保留、soft/fallback 退役、空
+   acceptance replan 仍切代、累计 scope 不复活旧 ID；既有普通 rebase 兼容面保持。
+9. Poly 终稿还有“系统补充：输出维度核对”内部展示块，只重复用户维度、不改变事实；继续列为展示债，
+   不用答案关键词删除门处理。本批不改 Read/Trace 查询与投影；显式时间窗、自动补采、链上-only 根因、
+   实际占时/业务线索与规则可消双轴均保持。两案没有 malformed JSON、空答案或 active-stream 固定年龄降级。
+
+状态：
+
+`B932-STRUCTUREDRELATIONZEROANCHOR1=production-positive-r592`；
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=production-positive-for-submitted-anchors-r592`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=context-positive/structured-consumption-partial-r592`；
+`B944-PRINCIPALPATHRELATIONCOVERAGE1=confirmed/P1/next-batch`；
+`B943-VERIFYFAILSOFTCONTRACTGENERATION1=implemented/typed-retirement+tombstone/orchestrator+types+tool+agent+writeflow-full-pass`；
+`Rust write final=honest-unverified/source-static-only/patch-not-mergeable`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=untouched`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
