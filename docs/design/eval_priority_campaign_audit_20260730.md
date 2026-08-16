@@ -35649,6 +35649,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.954 r582：稳定不可用生产闭环；列表关系绕过统一图边权威（2026-08-16）
+
+1. 在 `main@eea4c7665` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + github_issue_gson_lazy_number_symptom`。Runner `1 PASS / 1 FAIL`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_poly_write_r582_20260816_manual_audit.md`。Java 的 FAIL 是
+   eval oracle 对 `unverified:runner_missing` 的如实计数，不是确认的代码失败。
+2. B928 获生产正证并闭环。Java patch 只给 `LazilyParsedNumber` 增加基于保存字符串的
+   `equals/hashCode`，原有 Number 转换路径未改；静态检查通过，本机缺 Java runtime，唯一动态 probe
+   精确落为 `verification_status=unavailable + failure_kind=runner_missing`。最终 workflow 只有
+   `batch-1`，没有 `batch-1-proof-repair`，没有第二次执行同一 unavailable probe。展示只保留一次局部
+   未验证解释和一次不同职责的最终交付状态，不再重复两个等价说明；全程没有把静态绿提升为行为绿。
+3. B927 的软原子教学获得生产正证，但只证明教学收敛，不等于完整桥接闭环。模型第一批主动把
+   `core-rs/src/lib.rs:47` 发为 registration，初始 tuple 粗写成 `_fastlex registers tokenize_bytes`；工具
+   基于已读源码给出结构修复后，模型只重发
+   `m registers wrap_pyfunction!(tokenize_bytes, m)`、`anchor=call/add_function`，该行 grounded。说明“定义
+   载体与 actual binding expression 同批分开发送”的语言无关教学能被模型消费，且没有系统自铸边。
+4. 新确认 B929（高）：关系权威合同未覆盖所有结构展示。本轮 finalizer 的 typed recipe 只有三个断开
+   component：Python 入口 fan-out、`m -> wrap_pyfunction!(...)` registration、Rust core 的内部调用；没有
+   `_fastlex.tokenize_bytes -> py.tokenize_bytes`、wrapper→core、core→`best_merge` 三条 recipe。模型却在
+   `ordered_list.edge_anchors` 中提交这些边，pre-emit 零 reject，最终把它们作为“完整调用链”发出。
+   Mermaid/图表已有精确 edge-authority 看护，非图的 ordered-list/table relation payload 没有复用同一
+   typed authority，形成“换一种 block kind 即绕过关系证据门”的通用合同缺口。最优方案是让所有声明
+   有向关系的 structured payload 共用同一 edge-authority kernel，并按 block kind 只变渲染，不扫描用户
+   请求、模型 prose 或最终文字；未证边应返回 typed repair 或保留为断开分量，系统绝不能补画/猜造。
+5. 新确认 B930（高）：精确 registration tuple 与对外模块身份本轮仍断开。证据证明 receiver `m` 调用
+   `add_function(wrap_pyfunction!(tokenize_bytes,m))`，module declaration 又证明函数名 `_fastlex`，但下游
+   未产出 `registered_export_binding_between_components`；精确注册行也未进入最终可见引用。根修必须从
+   parser-owned module declaration 参数绑定与 exact registration tuple 形成可审计的 non-call identity
+   handoff，明确区分 module identity、receiver 参数、wrapped callable 和 Python-visible export；若语言
+   extractor 不具备这种精确结构，则 fail-open 为断开分量，不能凭 `add_function` 名称或答案词面造桥。
+   该抽象需覆盖 PyO3、JNI/FFI、N-API、ArkTS/Cangjie 等注册/导出边界，不能按 Python/Rust case 拟合。
+6. Poly 终稿的普通事实、入口、原生模块名、Rust 算法与 Python fallback 均有引用；但上述未证关系使
+   人工只能判 partial，regex PASS 不等于语义关系全证。Analyzer 本轮发出 `requested_dimensions=0`，所以
+   B926 没有生产触发；不得把“无第三轮补块”误记成 B926 已回放。
+7. 本批无 Trace 案例，不外推 Trace 状态；未改显式窗、因果投影、自动补齐、链上-only 主因、实际
+   占用/规则可消除量双轴、确定性语义及链上业务线索。活跃流不得因 4ms 或固定 answer-age 降级。
+
+状态：
+
+`B926-SINGLELOCATIONSTRUCTUREDCITATIONRECEIPT1=implemented/pinned/pending-production-trigger`；
+`B927-SELECTEDDEFINITIONREGISTRATIONDEBT1=soft-atomic-teaching/production-positive-r582`；
+`B928-STABLEUNAVAILABLEPROOFREPEAT1=implemented/production-positive-r582/closed`；
+`B929-STRUCTUREDRELATIONAUTHORITYPARITY1=confirmed/high/open`；
+`B930-REGISTEREDEXPORTIDENTITYBRIDGE1=confirmed/high/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.953 r581：维度角色漂移、注册载体漏债与稳定不可用重复补证（2026-08-16）
 
 1. 在 `main@3ea64d11e` 重建后严格并发恰好两个案例：
