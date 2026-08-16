@@ -12879,6 +12879,8 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_TypedFlowGetsBoundedPrecedence
 		"context_only=[cj::Pipeline]",
 		"planning only, never edge evidence",
 		"keep it independent/unproven",
+		"statically typed member of a separately resolved requested owner",
+		"The declaration itself never authorizes an arrow",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed flow guide missing %q:\n%s", want, got)

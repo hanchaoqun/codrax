@@ -620,6 +620,123 @@ func TestFlowOperationRepairTargetsCarryParserOwnedCarrierBindingAliases(t *test
 	}
 }
 
+func TestFlowParticipantCoverageLateResolvesUniqueStaticMemberUnderRequestedOwner(t *testing.T) {
+	busOperation := flowOperationEvidence(types.AnchorAssignment, "o.busCtx.EvidenceItems", "output.EvidenceItems", 20)
+	busOperation.Snippet = "o.busCtx.EvidenceItems = output.EvidenceItems"
+	busOperation.OwnerIdentity = "Orchestrator.applyStageOutput"
+	busOperation.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+	}}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		busOperation,
+		flowOperationEvidence(types.AnchorCall, "explorerEvaluator.BuildInitialInstruction", "ctx.Mutable.ResetPrescanSummary", 89),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Mutable", "BusContext"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Mutable", Resolution: types.EntityResolutionPrescanAnchor, Resolved: true, UseForSearch: true},
+		{Surface: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"internal/types/context.go": {
+			RelPath: "internal/types/context.go",
+			Symbols: []repotypes.Symbol{
+				{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*MutableState"},
+				{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "*MutableState"},
+			},
+		},
+	}})
+
+	resolved := flowResolveParticipantIdentity(ctx, ctx.AnalysisIR.RequestModel,
+		ctx.AnalysisIR.RequestModel.DiagramHint.Participants[0])
+	for _, want := range []string{"Mutable", "BusContext.Mutable", "*MutableState"} {
+		if !flowTestSliceContains(resolved.surfaces, want) {
+			t.Fatalf("unique requested-owner binding should late-resolve %q: %+v", want, resolved)
+		}
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("independently grounded operations should cover both late-resolved member and owner: %v", got)
+	}
+}
+
+func TestFlowParticipantCoverageLateResolvedMemberQueuesExactRepairCoordinates(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Mutable", "BusContext"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Mutable", Resolution: types.EntityResolutionPrescanAnchor, Resolved: true, UseForSearch: true},
+		{Surface: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"internal/types/context.go": {
+			RelPath: "internal/types/context.go",
+			Symbols: []repotypes.Symbol{
+				{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*MutableState"},
+				{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "*MutableState"},
+			},
+		},
+	}})
+
+	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if !flowTestSliceContains(missing, "Mutable") {
+		t.Fatalf("unique requested-owner member must no longer be skipped by completion: %v", missing)
+	}
+	files, keywords := flowOperationRepairTargets(ctx, []string{"Mutable"}, ctx.Mutable.EmittedEvidence())
+	if !flowTestSliceContains(files, "internal/types/context.go") {
+		t.Fatalf("late-resolved declaration file missing from bounded repair: files=%v keywords=%v", files, keywords)
+	}
+	for _, want := range []string{"Mutable", "BusContext.Mutable", "*MutableState"} {
+		if !flowTestSliceContains(keywords, want) {
+			t.Fatalf("late-resolved repair coordinate %q missing: files=%v keywords=%v", want, files, keywords)
+		}
+	}
+}
+
+func TestFlowParticipantCoverageLateResolutionFailsClosedOnRequestedOwnerAmbiguity(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Mutable", "BusContext"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Mutable", Resolution: types.EntityResolutionPrescanAnchor, Resolved: true, UseForSearch: true},
+		{Surface: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: map[string]*repotypes.FileInfo{
+		"src/a.go": {RelPath: "src/a.go", Symbols: []repotypes.Symbol{{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*StateA"}}},
+		"src/b.go": {RelPath: "src/b.go", Symbols: []repotypes.Symbol{{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*StateB"}}},
+	}})
+
+	resolved := flowResolveParticipantIdentity(ctx, ctx.AnalysisIR.RequestModel,
+		ctx.AnalysisIR.RequestModel.DiagramHint.Participants[0])
+	if len(resolved.surfaces) != 0 || len(resolved.files) != 0 {
+		t.Fatalf("ambiguous parser bindings must fail closed, not force a homonym search: %+v", resolved)
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); flowTestSliceContains(got, "Mutable") {
+		t.Fatalf("ambiguous member must remain visible/unproven instead of becoming a hard repair: %v", got)
+	}
+}
+
 func flowTestSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

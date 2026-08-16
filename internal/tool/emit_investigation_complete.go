@@ -3541,16 +3541,18 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			continue
 		}
 		seen[key] = true
-		if !types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, participant) {
+		resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+		if len(resolved.surfaces) == 0 {
 			// The participant remains a request-visible coverage obligation,
-			// but a scope/concept/ambiguous symbol cannot drive a hard source
-			// endpoint repair. Final answer coverage still preserves an honest
-			// disconnected boundary; this gate simply avoids an impossible hunt.
+			// but a scope/concept/ambiguous symbol with no unique parser-owned
+			// requested-owner binding cannot drive a hard source endpoint repair.
+			// Final answer coverage still preserves an honest disconnected
+			// boundary; this gate simply avoids an impossible hunt.
 			continue
 		}
 		covered := stageauthority.ParticipantHasIncidentPrecedence(rm, participant, stagePrecedence)
 		for _, operation := range operations {
-			for _, surface := range types.DiagramParticipantIdentitySurfaces(rm, participant) {
+			for _, surface := range resolved.surfaces {
 				if types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Subject) ||
 					types.AnswerCodeIdentitySurfacesCompatible(surface, operation.Object) ||
 					types.AnswerCodeIdentityOwnsEndpoint(surface, operation.Subject) ||

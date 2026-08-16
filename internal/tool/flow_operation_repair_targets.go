@@ -14,6 +14,116 @@ const (
 	maxFlowOperationRepairKeywords = 8
 )
 
+// flowResolvedParticipantIdentity is a parser-owned navigation projection for
+// one request-visible participant. Surfaces may close a hard *search*
+// obligation, but never create relation authority; only a separately grounded
+// operation can do that.
+type flowResolvedParticipantIdentity struct {
+	surfaces []string
+	files    []string
+}
+
+// flowResolveParticipantIdentity keeps the analyzer's unique-symbol lane as
+// the first authority, then permits one narrow late upgrade from the complete
+// parser graph. The upgrade exists for request labels that name a static member
+// (for example a carrier field) while the analyzer prescan resolved only its
+// owner/type.
+//
+// A member upgrade is accepted only when:
+//   - the member name is an exact identity match;
+//   - its parser-owned static type is present;
+//   - its owner is another uniquely resolved participant in the same requested
+//     diagram; and
+//   - exactly one principal-source declaration survives.
+//
+// This is deliberately stricter than soft navigation. It cannot upgrade a
+// homonym, a concept label, an untyped/dynamic binding, or a member under an
+// unrequested/ambiguous owner.
+func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel, participant types.DiagramParticipantHint) flowResolvedParticipantIdentity {
+	surfaces := types.DiagramParticipantIdentitySurfaces(rm, participant)
+	if types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, participant) {
+		return flowResolvedParticipantIdentity{surfaces: appendUniqueBounded(nil, surfaces, maxFlowOperationRepairKeywords)}
+	}
+	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 || rm.DiagramHint == nil {
+		return flowResolvedParticipantIdentity{}
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return flowResolvedParticipantIdentity{}
+	}
+
+	var ownerSurfaces []string
+	for _, owner := range rm.DiagramHint.Participants {
+		if strings.EqualFold(strings.TrimSpace(owner.Identity), strings.TrimSpace(participant.Identity)) ||
+			!owner.Role.IsValid() ||
+			!types.DiagramParticipantHasPreciseSourceOperationIdentity(rm, owner) {
+			continue
+		}
+		ownerSurfaces = appendUniqueBounded(ownerSurfaces,
+			types.DiagramParticipantIdentitySurfaces(rm, owner), maxFlowOperationRepairKeywords)
+	}
+	if len(ownerSurfaces) == 0 {
+		return flowResolvedParticipantIdentity{}
+	}
+
+	type candidate struct {
+		file         string
+		name         string
+		parent       string
+		declaredType string
+	}
+	var candidates []candidate
+	paths := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		if !relationSourceInRequestedScope(path, rm) {
+			continue
+		}
+		fi := graph.FileIndex[path]
+		if fi == nil {
+			continue
+		}
+		for _, symbol := range fi.Symbols {
+			name := strings.TrimSpace(symbol.Name)
+			parent := strings.TrimSpace(symbol.Parent)
+			declaredType := strings.TrimSpace(symbol.DeclaredType)
+			if name == "" || parent == "" || declaredType == "" ||
+				!flowAnyIdentitySurfaceMatches(surfaces, name) ||
+				!flowAnyIdentitySurfaceMatches(ownerSurfaces, parent) {
+				continue
+			}
+			candidates = append(candidates, candidate{
+				file: canonicalRelationSourcePath(path), name: name,
+				parent: parent, declaredType: declaredType,
+			})
+		}
+	}
+	if len(candidates) != 1 {
+		return flowResolvedParticipantIdentity{}
+	}
+	c := candidates[0]
+	resolved := appendUniqueBounded(nil, surfaces, maxFlowOperationRepairKeywords)
+	resolved = appendUniqueBounded(resolved,
+		[]string{c.parent + "." + c.name, c.declaredType}, maxFlowOperationRepairKeywords)
+	return flowResolvedParticipantIdentity{
+		surfaces: resolved,
+		files:    appendUniqueBounded(nil, []string{c.file}, maxFlowOperationRepairFiles),
+	}
+}
+
+func flowAnyIdentitySurfaceMatches(surfaces []string, identity string) bool {
+	for _, surface := range surfaces {
+		if types.AnswerCodeIdentitySurfacesCompatible(surface, identity) ||
+			types.AnswerCodeIdentitySurfacesEquivalent(surface, identity) {
+			return true
+		}
+	}
+	return false
+}
+
 // flowOperationRepairTargets builds a bounded navigation plan exclusively
 // from typed analyzer participants, citable evidence, and the read closure.
 // Its fuzzy compatibility is intentionally planning-only: these targets may
@@ -31,6 +141,7 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	}
 
 	var surfaces []string
+	var resolvedFiles []string
 	var participants []types.DiagramParticipantHint
 	if rm.DiagramHint != nil {
 		participants = rm.DiagramHint.Participants
@@ -42,7 +153,9 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 		if len(wanted) > 0 && !wanted[strings.ToLower(strings.TrimSpace(participant.Identity))] {
 			continue
 		}
-		surfaces = appendUniqueBounded(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant), maxFlowOperationRepairKeywords)
+		resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+		surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
+		resolvedFiles = appendUniqueBounded(resolvedFiles, resolved.files, maxFlowOperationRepairFiles)
 	}
 
 	keywords := append([]string(nil), surfaces...)
@@ -84,7 +197,8 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 	}
 	sort.Strings(related)
 	sort.Strings(other)
-	files := appendUniqueBounded(nil, declaredFiles, maxFlowOperationRepairFiles)
+	files := appendUniqueBounded(nil, resolvedFiles, maxFlowOperationRepairFiles)
+	files = appendUniqueBounded(files, declaredFiles, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, related, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, other, maxFlowOperationRepairFiles)
 	files = appendUniqueBounded(files, completionMaterializationReadFiles(ctx.Mutable.EvidenceClosure()), maxFlowOperationRepairFiles)

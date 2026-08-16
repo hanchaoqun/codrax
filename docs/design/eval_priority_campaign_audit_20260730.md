@@ -37140,6 +37140,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.897 B871a：请求载体身份不再冻结在 Analyzer 初扫结果（2026-08-15）
+
+1. 基于 `main@4a685648b` 施工 `B871-REQUESTEDCARRIERRELATIONCLOSURE1` 的第一阶段。r543 的
+   `Mutable` 不是源码中不存在：完整 parser graph 同时知道 `BusContext.Mutable *MutableState` 与
+   `AgentContext.Mutable *MutableState`，用户又明确把 `BusContext` 与 `Mutable` 放在同一个关系图请求中；但
+   Analyzer 初扫只把 `BusContext` 解析成唯一 symbol，`Mutable` 停在 prescan/display lane。Explorer 教学和
+   completion gate 都永久消费这个初始分类，后续 parser 权威无法提升，导致真实 producer/transfer/consumer
+   操作永远不进入补证闭包。
+2. 新增统一的 late participant identity resolver。Analyzer 已证明唯一 symbol 时行为完全不变；否则只接受
+   一种窄升级：请求 participant 与 parser 成员名精确匹配、成员有静态 `DeclaredType`、成员 owner 是同一
+   requested diagram 中另一个已唯一解析的 participant、principal source 全图恰好只剩一个这样的声明。
+   它输出原 participant、owner-qualified binding、declared type 和精确声明文件，供完成修复的 bounded
+   files/keywords 使用。任一同 owner 多声明、未请求/未解析 owner、动态/无类型成员、非 principal source
+   都 fail-closed，继续保持 display boundary。
+3. `flowParticipantCoverageMissing` 与 `flowOperationRepairTargets` 共用该 resolver，消除“规划能找到声明、完成门
+   却跳过载体”的两套身份权威。唯一静态成员现在必须取得一条独立 grounded operation 才能关闭 incident
+   coverage；已有 exact member call/assignment 仍由原 relation authority 判方向与端点。声明只升级搜索身份，
+   不生成 evidence、edge、direction、flow completeness 或结论。
+4. Explorer 软教学同步说明 late-binding 车道：初始 `request_visible_boundary_only` 不得因同名直接搜/连；只有
+   已选中/已读 principal source 的唯一静态成员声明才能导航到真实 producer/transfer/consumer，找不到 operation
+   就退回 independent/unproven。这里不强迫模型使用特定图、不扫描 request/answer/Mermaid 字符串，也不把声明
+   本身当箭头。
+5. 新增三类回归：`BusContext.Mutable` 与同名 `AgentContext.Mutable` 共存时，请求中已解析 BusContext owner
+   只升级前者并让 `ctx.Mutable.Reset...` 的真实 operation 关闭 coverage；无 operation 时补证目标必须包含
+   `internal/types/context.go + Mutable + BusContext.Mutable + *MutableState`；同一 requested owner 下两个静态
+   候选必须 fail-closed，不能启动同名硬搜索。Explorer 另有 canonical late-binding/声明非箭头 prompt pin。
+6. 该批修复的是 B871 的“身份冻结导致无法补证”前半段，不预宣称 r543 的完整 stage→carrier 关系已经生产
+   闭环。下一次 exact-2 回放要核查 Explorer 是否实际补到 writer/reader/merge operation，以及 Finalizer 是否
+   基于这些新证据形成模型自己的完整/有界结论；若仍只有一个局部 operation，则再从 typed operation graph
+   设计第二阶段 relation closure，不能用答案词面硬门或系统代画补齐。
+7. Trace 路径零改动：显式时间窗、因果投影、系统自动补齐、链上-only 主因、邻近/背景 support-only，以及
+   实际占时/业务线索与规则可消除量双轴全部保持。活跃流也没有 4ms/4s/4m 或累计年龄降级。
+
+状态：
+
+`B871-REQUESTEDCARRIERRELATIONCLOSURE1=phase-a-implemented/late-static-member-to-operation-repair+pinned/production-replay-next`；
+`B870-TRACEDIRECTIONPRESENTATIONPLAN1=implemented/pending-production-replay`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：

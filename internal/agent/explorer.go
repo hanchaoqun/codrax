@@ -1969,7 +1969,7 @@ func renderExplorerFlowParticipantObligations(rm types.RequestModel) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"Typed participant obligations (planning only, never edge evidence): source_operation_required=%v; request_visible_boundary_only=%v; context_only=%v. Inspect a real operation only for each uniquely resolved source_operation_required participant. A request_visible_boundary_only label has no unique typed source identity: keep it independent/unproven when useful, and do not search for or connect a homonymous operation merely for visual completeness. Never connect context_only participants merely for visual completeness.\n",
+		"Typed participant obligations (planning only, never edge evidence): source_operation_required=%v; request_visible_boundary_only=%v; context_only=%v. Inspect a real operation for each uniquely resolved source_operation_required participant. A request_visible_boundary_only label has no unique typed source identity yet: keep it independent/unproven, and do not search for or connect a homonymous operation merely for visual completeness. If an already selected/read principal-source declaration uniquely proves that label is a statically typed member of a separately resolved requested owner, use that parser-owned binding only to navigate to its exact producer/transfer/consumer operations; emit the independently verified operation rows, and return to the independent/unproven boundary if no such operation is proved. The declaration itself never authorizes an arrow. Never connect context_only participants merely for visual completeness.\n",
 		sourceOperationRequired, requestVisibleBoundary, context,
 	)
 }
