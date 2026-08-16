@@ -37183,6 +37183,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.898 r544：载体身份补强被陈旧修补债阻塞；Trace 关系判定仍把 unknown 写成 independent（2026-08-15）
+
+1. 在 `main@22b1fd405` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h11_cross_direction_overlap`。
+   Runner `2 PASS / 0 FAIL`，人工 `0 PASS / 2 FAIL`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_carrier_trace_replay_r544_20260815_manual_audit.md`。
+2. Read 例确认 P0 `B872-EVIDENCEVALIDATIONREPAIRSTALE1`。Explorer 首批四条
+   `StageBinding` initializer 虽可引用但缺 exact endpoints，producer 正确发布 typed repair；
+   后批已接受同源同线、`subject=Stage`、`object=StageAnalyze/Explore/Extract/Finalize`
+   的四条 `assignment_fact`，并明确显示 `Current actionable repair targets: none`。然而
+   completion 仍五次重放旧 repair。根因不是模型没改字段，而是 durable obligation 暗中保留
+   原 `initializer` anchor，repair 可见文本却只要求改 `subject/object`；后续 assignment 形既被
+   evidence 接受、又永远不能解除旧债，形成系统自身 typed 合同矛盾并耗尽 Explorer 轮次。
+3. B872 根修必须是通用 typed 语义：assignment/initializer 在同源同线且 exact LHS/RHS 已由
+   `AssignmentEvidenceEndpointsMatch` 证明时可解除同一 value-transfer obligation；call、argument、
+   registration 等其他 relation kind 不扩域。多项债只修部分仍阻塞，无关成功 emit 仍不能清债，
+   exact duplicate 也能据当前 evidence pool 清债。repair 教学同时必须自包含所有保持字段，不能再让
+   “copy previous row”承担隐藏合同。全程不读请求/推理/答案 prose，不替模型铸关系或成文。
+4. 由于 B872 从 Explorer 第 7 轮持续阻塞至末轮，B871a 本轮不能作生产否证：模型虽读到
+   `BusContext.Mutable *MutableState`，但关系调查被旧债饿死；Finalizer 两次拒绝宽泛无证图后，
+   最终删掉 `BusContext/Mutable`，只保留 Analyzer→Explorer→Extractor→Finalizer 三条 precedence。
+   状态改为 `B871a=implemented/production-blocked-by-B872`，先修 B872 再回放，不用系统代画图闭环。
+5. Trace 例确认 B870 只是 context-positive，尚未 production-close。typed plan 已明确：锁方向仅
+   #2=7.405ms 与 #3=4.710ms 构成 12.115ms 精确小计；#7/#8 与其他同向/跨向关系均 unresolved，
+   不授权 independent/overlap/dependency/additive。终稿仍写“四方向各自独立消除、互不吸收”、
+   “四个反转候选合计 12.115ms”，并把无 published 关系改写为各自独立。这是
+   `B873-TRACERELATIONDECISIONCONSUMPTION1/P1`，不是 Trace 证据缺失或模型 JSON 波动。
+6. B873 施工前先审计完整 Finalizer prompt 是否存在相反教学或重复长上下文。最优形仍由模型作答：
+   系统只提供有界 typed decision rows（exact relation 与 unresolved pair 分列），不得关键词扫描答案、
+   不得系统替换结论；若最终采用 structured model-authored decision carrier，也只能按精确枚举校验，
+   且要评估重试成本，不能重演 contradictory contract。
+7. 两例均为正常活跃字节流并完成，无 4ms、4s、4m 或绝对年龄降级。Trace 显式时间窗、因果投影、
+   自动补齐、链上-only 主因，以及实际耗时/业务线索与规则计价可消除量双轴均保留；邻近/背景没有
+   被系统晋升主因，系统也没有删除或代写模型结论。
+
+状态：
+
+`B872-EVIDENCEVALIDATIONREPAIRSTALE1=confirmed/P0/next`；
+`B871a-CARRIERIDENTITY1=implemented/production-blocked-by-B872`；
+`B873-TRACERELATIONDECISIONCONSUMPTION1=confirmed/P1/context-audit-next`；
+`B870-TRACERELATIONPRESENTATION1=context-positive/production-fail-r544`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
