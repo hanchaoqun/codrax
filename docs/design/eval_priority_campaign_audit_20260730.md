@@ -37764,6 +37764,44 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.912 r552：operation leaf 无回归；typed mechanism definition 跨轴未接线（2026-08-15）
+
+1. 在 `main@05bfbc2a2` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_answer_document_tools`。Runner `2 PASS / 2`，人工均为
+   partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_operation_leaf_r552_20260815_manual_audit.md`。
+2. B879b 没有发生误触发或循环，但本轮并非其正向生产 witness。Analyzer 将双题主轴归为 `configure`，没有
+   启动 flow-operation carrier；因此不存在 Explorer-authored call edge 供 operation-leaf seam 消费。该路径按设计
+   fail-open，不能据此回滚 B879b。
+3. r552 给出更强的泛化信号：Explorer 已主动提交
+   `evidence_kind=mechanism + anchor_kind=definition` 的 `RenderMermaidBlocks`、
+   `SanitizeDegradedMermaidBlocks`、`BuildDegradationLedgerView`，并在 member_set 中用 exact support_ref 选择这些成员；
+   但 member_notes 为空。旧门把“无 note”当 identity-only，忽略 EvidenceKindMechanism 已经是更强的 typed 行为声明，
+   因而未读取 callable body。
+4. 终稿遂把三个各自真实但不同车道的组件拼成假主链：声称 `RenderMermaidBlocks` 返回 Outcome、普通失败由
+   `SanitizeDegradedMermaidBlocks` 处理，并把通用 DegradationLedger 当作 Mermaid 失败路径组成。源码真实边界是：
+   普通 REPL explicit Mermaid 由 `RenderMermaidBlocks -> maybeReplaceMermaidFence/replaceMermaidFence ->
+   mermaidFallbackFence` 处理；`SanitizeDegradedMermaidBlocks` 仅是 rejected/text-recovered draft 交付守卫。
+5. 新建 `B879c-MECHANISMDEFINITIONDEPTH1`。最窄方案不是扫描 mechanism/fallback 文字，而是要求同一 member/
+   support_ref 同时命中 Explorer-authored、citable current-source `EvidenceMechanism + ClaimDefinitionFact`，再从 parser
+   定位的 callable 进入既有 depth=2/max=4 closure。Evidence 的 Summary、fact label、member note、completion reason
+   均不参与；非 callable、support 不同源/不同行、system relation、Trace 与外部输入全部 fail-open。
+6. B880 再次稳定复现：首稿关系边正确被拒后，终稿只剩 `NewFinalizerAgent -> NewBaseAgent`，两个工具为断开孤点。
+   1 reject/1 patch/152s 比 r551 更快，但用户要求的 finalizer ownership/dispatch 关系仍缺；typed carrier 根修优先级
+   不变。
+7. 两个 runner PASS 仍是假绿，不能用答案关键词扩 oracle。后续应以 typed body-read receipt 与 ownership edge
+   receipt 验收。活跃流没有 4ms/fixed-age 降级；Trace 显式窗、因果投影、自动补齐与链上-only 根因未改。
+
+状态：
+
+`B879b-MECHANISMOPERATIONLEAFDEPTH1=implemented/no-regression-r552/positive-replay-pending`；
+`B879c-MECHANISMDEFINITIONDEPTH1=confirmed/P1/next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r552/P1/after-B879c`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.877 r533：B858 生产转正；request spine 与 generic relation floor 争权（2026-08-15）
 
 1. 在 `main@22e6e5eb4` 重建后严格并发恰好两个案例：
