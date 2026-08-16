@@ -37802,6 +37802,43 @@ Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`�
 `active-stream-fixed-age-degrade=forbidden/not-observed`；
 Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
 
+### §123.914 r553：B879c 精确无误触，但 enum roster 暴露 typed definition 未进入闭包；B880 再确认（2026-08-15）
+
+1. 在 `main@a6b38b015` 重建后严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units` 与 `read_combo_answer_document_tools`。runner 2/2 PASS，分别 222s/141s；
+   人工审计均 fail。结果记录在
+   `eval/parallel_selected_summary_evalcampaign_mechanism_definition_r553_20260815.md` 与对应 manual audit。
+2. B879c 的边界行为正确：本轮最终 Mermaid roster 是四个 outcome enum，而非 callable；member/support 不能解析到
+   local callable，因此 B879c 没有仅凭 mechanism/fallback 文本误触发，也没有跨入 Trace。实现的精确信号边界保留。
+3. 但产生了新的可复现闭包形 B879d：Explorer 已在同一 requested sub-topic 上显式提交 citable grounded 的
+   `EvidenceMechanism + ClaimDefinitionFact`，选择了 Render/Sanitize 等 callable 定义；早期整文件读取只交付截断首段，
+   未覆盖 784 行后的 `maybeReplaceMermaidFence` 与 881 行后的 `mermaidFallbackFence`。由于最终 aggregate roster 改用
+   enum outcome，B879c 要求 callable member 的绑定无法表达该 typed 选择，completion 直接放行。
+4. 结果不是轻微措辞波动：答案把仅用于 rejected/text-recovered draft 的 `SanitizeDegradedMermaidBlocks` 接到普通 REPL
+   渲染失败主链；把 `OutcomeFallbackRune` 说成“不支持图类型时替换 Unicode 装饰字符”；把
+   `OutcomeUnsupportedKind` 与 rendering-disabled 早退混同；把 library rejection 泛化成“依赖缺失或配置错误”。真实普通
+   显式 Mermaid 路径是 `RenderMermaidBlocks -> maybeReplaceMermaidFence -> replaceMermaidFence/mermaidFallbackFence`，
+   失败或不支持时统一降为带可见原因的 text fence 并保留源码；degraded sanitizer 是独立交付守卫。
+5. B879d 最优候选不是扫描用户问题、evidence summary 或最终答案，而是让 Explorer-authored、citable grounded、
+   exact-source/span、parser-resolved 的 `EvidenceMechanism + ClaimDefinitionFact` 本身成为有界 declaration seed；仍需绑定
+   当前 requested sub-topic/当前源码消费面、共享 depth=2/max=4/去重预算，并只排 citation-class PendingRead。实现前须用
+   正负测试证明 direct evidence、非 Explorer、跨文件错配、非 callable 与 Trace 均不触发，避免把所有定义事实扩大读取。
+6. B880 第三次稳定复现：首稿关系门拒绝后，typed candidate 只提供两个 `Name() -> string literal` return 边，模型据此
+   修补出可渲染但业务语义错误的图；真实 registration/ownership/selection/retry 关系仍丢失。正文又无证据地声称
+   LoopPolicy 直接派遣两工具，最终附注仍写主路径关系未完整呈现。下一主批应建设语言无关的 aggregate
+   ownership/field-binding/registration relation carrier，而不是再给该 Go case 增加图关键词或专用边。
+
+状态：
+
+`B879c-MECHANISMDEFINITIONDEPTH1=implemented/boundary-confirmed/not-sufficient-for-enum-roster`；
+`B879d-TYPEDMECHANISMEVIDENCESEED=confirmed/P1/design-next`；
+`B880-AGGREGATEOWNERSHIPRELATION1=production-reconfirmed-r553/P1/after-B879d`；
+`runner-pass=2/2`；`human-pass=0/2`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`active-stream-fixed-age-degrade=forbidden/not-observed`；
+Trace 显式时间窗/因果投影/自动补齐/链上-only 主因=`unchanged`；邻近/背景=`support-only`。
+
 ### §123.913 B879c：typed mechanism definition 成为跨轴语义下钻起点（2026-08-15）
 
 1. B879c 增加第三个、也是最强的 model-selection seed：member_set 必须是 model-owned completion boundary，
