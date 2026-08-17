@@ -278,11 +278,66 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 					}
 					seen[key] = true
 					fmt.Fprintf(&b, "  - permitted_reader_cause_label=%q; raw_parenthetical_forbidden=true. Use only this reader label in model-authored prose; the wire identity stays in typed/audit fields and is intentionally omitted from this reader-facing handoff.\n", label)
+					if permitted, unproved := traceFinalReaderMechanismScope(token, zh); permitted != "" || unproved != "" {
+						fmt.Fprintf(&b, "    permitted_reader_mechanism_scope=%q; not_proven_reader_mechanisms=%q. These are evidence boundaries for this exact typed cause family, not a system-authored diagnosis.\n", permitted, unproved)
+					}
 				}
 			}
 		}
 	}
 	return b.String()
+}
+
+// traceFinalReaderMechanismScope keeps the final reader-facing cause label and
+// its mechanism ceiling adjacent. The switch consumes exact typed tokens only:
+// it never classifies request/answer prose, chooses a cause, or rewrites the
+// model's conclusion. Unmapped families retain the existing generic typed
+// relation boundary.
+func traceFinalReaderMechanismScope(token string, zh bool) (permitted, unproved string) {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		if zh {
+			return "只陈述证据行实际计入的链上低优先级依赖方贡献：被唤醒后处于 runnable 的调度等待，和/或 running 期间明确计入的算力供给提升空间；二者不得互换", "候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源，不证明目标当时已 runnable 却被抢占，也不证明同步阻塞、等待其工作完成或直接因果"
+		}
+		return "state only the contribution actually carried by the evidence row for the lower-priority on-chain dependency: runnable scheduling delay after wakeup and/or an explicitly accounted compute-supply opportunity while running; do not interchange them", "the candidate label or wakeup order alone does not prove CPU occupation, lock/resource ownership, target post-wakeup preemption, synchronous blocking, waiting for work completion, or direct causality"
+	case "runnable_wait", "fragmented_runnable_wait", "scheduler_latency":
+		if zh {
+			return "陈述线程已经可运行但尚未获得调度的已测延迟，以及证据行明确给出的同核竞争或调度供给信息", "runnable 不等于正在 CPU 上执行；仅凭该行不证明锁、IO、同步阻塞或具体竞争者"
+		}
+		return "state the measured delay while the thread was ready to run but not scheduled, plus only same-CPU contention or scheduling-supply facts explicitly carried by the evidence row", "runnable is not CPU execution; this row alone does not prove a lock, IO, synchronous blocking, or a particular competitor"
+	case "compute_supply", "low_frequency", "cpu_frequency_limit", "running", "fragmented_running":
+		if zh {
+			return "陈述 running 区间内证据行测得的算力供给、频率或可折算提升空间", "算力供给项不等于 runnable 调度等待，也不证明锁、直接阻塞或线程持有 CPU 之外的业务依赖"
+		}
+		return "state the compute capacity, frequency, or explicitly quantified improvement opportunity measured while running", "a compute-supply row is not runnable scheduling delay and does not prove a lock, direct blocking, or a business dependency beyond the measured execution"
+	case "d_state_or_io_wait", "io_wait", "io_latency", "fragmented_d_state_or_io_wait", "io_burst_episode":
+		if zh {
+			return "只陈述证据行明确覆盖的 D-state、iowait 或 IO 发起到完成区间，并保持状态占用与设备延迟口径分离", "裸状态或时长不证明具体设备、文件、请求、资源持有者或唤醒者；这些身份和关联必须由独立证据给出"
+		}
+		return "state only the D-state, iowait, or IO issue-to-completion interval explicitly covered by the evidence row, keeping state occupancy separate from device latency", "a bare state or duration does not prove a particular device, file, request, resource holder, or waker; those identities and joins require their own structured evidence"
+	case "sleep_wait", "fragmented_sleep_wait", "pacing_idle", "periodic_idle":
+		if zh {
+			return "陈述已测 sleep 区间及精确唤醒记录明确给出的前后关系", "sleep 本身不证明等待谁、等待工作完成、属于正常协作，或构成根因；必须另有结构化依赖证据"
+		}
+		return "state the measured sleep interval and only the before/after relation provided by an exact structured wakeup edge", "sleep alone does not prove whom the thread awaited, work completion, normal coordination, or root-cause status; that requires separate structured dependency evidence"
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause", "trace_span":
+		if zh {
+			return "陈述 trace 中已观测到的链上语义工作及其已测占用，并据业务含义提出验证或优化方向", "语义标签或时间邻近本身不证明该工作完成后才唤醒下游，也不自动证明掉帧、截止期或同步阻塞因果"
+		}
+		return "state the observed on-chain semantic work and its measured occupancy, then use its business meaning to propose a validation or optimization direction", "the semantic label or temporal proximity alone does not prove downstream wakeup on completion, dropped-frame/deadline causality, or synchronous blocking"
+	case "binder_wait", "blocking_span":
+		if zh {
+			return "只陈述结构化证据中实际存在的阻塞、对端、持有者/等待者或请求语义", "类别标签本身不补齐缺失的对端、锁、持有者/等待者、同步性、回复或直接因果"
+		}
+		return "state only the blocking, peer, holder/waiter, or request-semantics facts actually present in structured evidence", "the category label alone does not fill a missing peer, lock, holder/waiter relation, synchronicity, reply, or direct causality"
+	case "cpu_pressure", "io_pressure", "supply_pressure", "irq_burst", "irq_activity", "ipi_activity", "workqueue_activity", "dma_fence_activity", "page_cache_churn", "block_io_by_inode", "file_io_hot_inode", "state_churn":
+		if zh {
+			return "按已标注的链路位置使用：只有明确在链上的已测席位可参与根因；其余压力、活动和聚合只作背景与额外排查方向", "窗口邻近、总量较大或代表线程重合都不把背景聚合升级为链上根因，也不证明它阻塞了目标"
+		}
+		return "follow the declared chain position: only an explicitly on-chain measured seat may enter root-cause reasoning; other pressure, activity, and aggregate rows remain background or follow-up directions", "window proximity, a large aggregate, or a shared representative thread does not promote background context into an on-chain cause or prove that it blocked the target"
+	default:
+		return "", ""
+	}
 }
 
 // renderTraceFinalPrincipalRankPopulation repeats the exact selected-window

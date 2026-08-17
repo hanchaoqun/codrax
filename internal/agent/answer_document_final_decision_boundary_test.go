@@ -64,11 +64,45 @@ func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse
 		"结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因",
 		"permitted_reader_cause_label=\"优先级反转候选\"",
 		"raw_parenthetical_forbidden=true",
+		"permitted_reader_mechanism_scope=\"只陈述证据行实际计入的链上低优先级依赖方贡献",
+		"not_proven_reader_mechanisms=\"候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源",
+		"不证明同步阻塞、等待其工作完成或直接因果",
+		"not a system-authored diagnosis",
 		"no model-authored prose is scanned, rejected, deleted, translated, or rewritten",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("reader-facing control-metadata boundary missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestTraceFinalReaderMechanismScopeSeparatesCauseFamilies(t *testing.T) {
+	tests := []struct {
+		token     string
+		want      string
+		forbidden string
+	}{
+		{token: "runnable_wait", want: "runnable 不等于正在 CPU 上执行", forbidden: "等待工作完成"},
+		{token: "compute_supply", want: "算力供给项不等于 runnable 调度等待", forbidden: "正常协作"},
+		{token: "d_state_or_io_wait", want: "保持状态占用与设备延迟口径分离", forbidden: "正常协作"},
+		{token: "sleep_wait", want: "sleep 本身不证明等待谁、等待工作完成", forbidden: "持有 CPU"},
+		{token: "jit_compile", want: "不自动证明掉帧、截止期或同步阻塞因果", forbidden: "具体设备"},
+		{token: "cpu_pressure", want: "其余压力、活动和聚合只作背景", forbidden: "等待工作完成"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.token, func(t *testing.T) {
+			permitted, unproved := traceFinalReaderMechanismScope(tc.token, true)
+			got := permitted + "；" + unproved
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("scope for %s missing %q: %s", tc.token, tc.want, got)
+			}
+			if strings.Contains(got, tc.forbidden) {
+				t.Fatalf("scope for %s borrowed unrelated family language %q: %s", tc.token, tc.forbidden, got)
+			}
+		})
+	}
+	if permitted, unproved := traceFinalReaderMechanismScope("future_exact_family", true); permitted != "" || unproved != "" {
+		t.Fatalf("unmapped typed family must fail open to the generic relation boundary, got %q / %q", permitted, unproved)
 	}
 }
 
