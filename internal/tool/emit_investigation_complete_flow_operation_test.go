@@ -1051,6 +1051,93 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 	}
 }
 
+func TestFlowOperationNavigationKeepsHigherQualityAlreadyReadJoinAheadOfUnreadLocalUse(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"internal/orchestrator/helper.go": strings.Join([]string{
+			"package orchestrator",
+			"func helper(busCtx *BusContext) {",
+			"busCtx.Context()",
+			"}",
+		}, "\n"),
+		"internal/agent/extractor.go": strings.Join([]string{
+			"package agent",
+			"func (e *extractorEvaluator) run(ctx *BusContext) {",
+			"ctx.Mutable.TurnAArtifacts()",
+			"}",
+		}, "\n"),
+	}
+	for path, body := range files {
+		absolute := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx := flowOperationCompletionContext(nil)
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "extractor", ResolvedAs: "extractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"internal/orchestrator/helper.go": {
+			RelPath: "internal/orchestrator/helper.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "busCtx", Kind: "parameter", Parent: "helper", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/orchestrator/helper.go", Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "helper", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "Context", Receiver: "busCtx", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+			}},
+		},
+		"internal/agent/extractor.go": {
+			RelPath: "internal/agent/extractor.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "ctx", Kind: "parameter", Parent: "extractorEvaluator.run", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/agent/extractor.go", Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "extractorEvaluator", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "TurnAArtifacts", Receiver: "ctx.Mutable", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+			}},
+		},
+	}))
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{"internal/agent/extractor.go": true})
+	ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+		"internal/agent/extractor.go": {{Start: 1, End: 15}},
+	})
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"extractor", "Mutable", "BusContext"})
+	if !ok || target.file != "internal/agent/extractor.go" || !target.alreadyRead {
+		t.Fatalf("already-read direct join must outrank unread unrelated local use: ok=%t target=%+v", ok, target)
+	}
+	queueFlowOperationNavigationRead(ctx, []string{"extractor", "Mutable", "BusContext"}, "navigation only", "participant", types.DowngradeLaneFlowParticipantCoverage)
+	if pending := ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("already-read operation must not queue a duplicate source read: %+v", pending)
+	}
+	hint := flowOperationNavigationHintForMissing(ctx, []string{"extractor", "Mutable", "BusContext"}, nil, nil)
+	for _, want := range []string{"already present in the read closure", "without another read_file/repo_map/grep call", "internal/agent/extractor.go"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("already-read extraction guidance missing %q:\n%s", want, hint)
+		}
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Fatal("already-read navigation must not manufacture relation evidence")
+	}
+}
+
 func TestFlowOperationNavigationDoesNotTreatQuotedCarrierAsArgumentBinding(t *testing.T) {
 	repo := t.TempDir()
 	const path = "src/pipeline.go"

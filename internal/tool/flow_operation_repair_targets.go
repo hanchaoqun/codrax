@@ -23,6 +23,11 @@ const (
 type flowOperationRepairReadTarget struct {
 	file      string
 	lineRange types.LineRange
+	// alreadyRead distinguishes "open this source" from "extract the typed
+	// operation from source that is already present in the read closure". A
+	// high-quality already-read cross-participant site must not disappear from
+	// navigation merely because the model has not emitted its relation row yet.
+	alreadyRead bool
 }
 
 type flowParserRelationSite struct {
@@ -522,11 +527,12 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 }
 
 // flowOperationRepairReadTargetForMissing returns one bounded, parser-owned
-// operation occurrence that has not yet been read. It is a navigation target
-// only: callers may put the range on the lazy-read queue, but the occurrence
-// never becomes EvidenceItem authority and never closes a participant or
-// relation gate by itself. The explorer must still inspect the source and emit
-// the exact syntax-owned operation through emit_evidence.
+// operation occurrence. It is a navigation target only: an unread occurrence
+// may be put on the lazy-read queue, while an already-read occurrence asks the
+// model to extract the exact operation from its existing source context. The
+// occurrence never becomes EvidenceItem authority and never closes a
+// participant or relation gate by itself. The explorer must still inspect the
+// source and emit the exact syntax-owned operation through emit_evidence.
 //
 // Selecting one target at a time keeps the repair cross-language and cheap.
 // If the first occurrence is only a declaration-adjacent reference, the next
@@ -605,7 +611,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		if line <= 0 {
 			line = relation.ToEP.Line
 		}
-		if file == "" || line <= 0 || closure.HasReadLine(file, line) {
+		if file == "" || line <= 0 {
 			continue
 		}
 		start := line - flowOperationRepairReadRadius
@@ -614,8 +620,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		candidates = append(candidates, rankedTarget{
 			target: flowOperationRepairReadTarget{
-				file:      file,
-				lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+				file:        file,
+				lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+				alreadyRead: closure.HasReadLine(file, line),
 			},
 			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 				relation, flowDeclaredBindingSite{}, participantSurfaceGroups,
@@ -653,7 +660,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			if line <= 0 {
 				line = relation.ToEP.Line
 			}
-			if line <= 0 || closure.HasReadLine(binding.file, line) {
+			if line <= 0 {
 				continue
 			}
 			argumentRank := 0
@@ -673,8 +680,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			candidates = append(candidates, rankedTarget{
 				target: flowOperationRepairReadTarget{
-					file:      binding.file,
-					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+					file:        binding.file,
+					lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+					alreadyRead: closure.HasReadLine(binding.file, line),
 				},
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 					relation, binding, participantSurfaceGroups,
@@ -705,6 +713,13 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		if candidates[i].kindRank != candidates[j].kindRank {
 			return candidates[i].kindRank > candidates[j].kindRank
+		}
+		// When two coordinates are equally useful, spend the repair on fresh
+		// source. Crucially, read state is below semantic quality: a direct
+		// cross-participant operation already in context still outranks an
+		// unrelated unread carrier use.
+		if candidates[i].target.alreadyRead != candidates[j].target.alreadyRead {
+			return !candidates[i].target.alreadyRead
 		}
 		if candidates[i].target.file != candidates[j].target.file {
 			return candidates[i].target.file < candidates[j].target.file

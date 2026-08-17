@@ -35887,6 +35887,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.987 r611/B968：控制枚举生产闭环；“源码已读”被误当成“关系已提取”（2026-08-17）
+
+1. 在 `main@47f269e66` 严格并发恰好两个案例：`qf_logic_view_read_pipeline` 与显式窗
+   `trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工均为 partial；详见
+   `eval/parallel_selected_summary_evalcampaign_touchrank_metadata_r611_20260817.md` 及 `_manual_audit.md`。
+2. `B967` 获生产闭环。Trace 最终 JSON 仍按合同携带
+   `trace_causal_claim_caliber=bounded_window_candidate`，但用户可见中文正文不再复制 raw enum，而是披露
+   “仅作为窗口内验证方向”。这由共享 JSON 控制元数据软教学产生；系统没有扫描、翻译、删除或改写模型正文。
+3. Trace 显式窗、三次 typed 查询、因果投影、自动补齐、链上/邻近/背景权限和可消除量均稳定，成文零拒绝。
+   `B965` 仍存在：模型把未证明 holder/waiter 的依赖供给候选称为“主要阻塞原因/典型优先级反转候选”，虽同页也
+   明确“仅作为窗口内验证方向”。上下文已给精确禁宣称边界，继续归模型服从观察，不为期望词面加硬门。
+4. `B966` 的 operation-level participant touch 排序显著提效：QF 相比 r610 从 590s、24 reads、6 repo_map、
+   2 次成文拒绝降为 319s、13 reads、3 repo_map、1 次拒绝；模型最终读到并发射
+   `explorerEvaluator.ParseOutput -> ctx.Mutable.SetTurnAArtifacts` 与
+   `extractorEvaluator.BuildInitialInstruction -> ctx.Mutable.TurnAArtifacts` 真交接操作。
+5. 但首次 completion repair 仍错误指向 `cgec_enforcers.go::forcedReadCancelled(busCtx)`。深审确认不是多参与者
+   rank 再次失效，而是新状态 gap `B968-READCLOSUREEXTRACTION1/P1`：真实 extractor operation 已在此前 read
+   range 中，却尚未形成 model-authored EvidenceItem；导航器用 `HasReadLine` 直接排除它，等价于把“源码已读”误作
+   “关系已提取”，随后只能从未读的低质量局部 carrier use 中选点。
+6. 通用根修让导航候选显式携带 `alreadyRead`，先按 participant touch/carrier handoff/identity precision 等语义质量
+   排序，仅在质量完全相同时偏好未读位置。若最优 operation 已读，repair 明确要求从现有 read closure 提取 exact
+   syntax-owned row，不再重复 read，也不降级去读无关 helper；若模型仍不能证明，既有 convergence 让它诚实保留
+   unproven。候选永不自动铸 EvidenceItem、边、图或结论。
+7. 新 pin 同时构造“已读的双 participant 真 join”和“未读的单 participant 局部 use”，要求前者获选且不新增
+   pending read；既有“同质量时推进下一未读 exact site”行为保留。该判据只读 parser endpoint、typed participant
+   group 与 read closure，跨语言共用，不读取用户/模型 prose。
+8. 本批不修改 Trace 查询、投影、补齐或成文正文。链上-only 主因、实际占时/业务线索与规则可消除量双轴保持；
+   邻近/背景不能晋升主因，活跃字节流不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`r611 runner=2/2-pass/human=2-partial`；
+`B967-CONTROLMETADATALEAK1=production-closed-r611`；
+`B966-TYPEDCARRIERNAVIGATIONOWNER1=production-improved-r611`；
+`B968-READCLOSUREEXTRACTION1=implemented/typed-state-separation/pins-pass/pending-replay`；
+`B965-MODELBOUNDARYADHERENCE1=watch/context-sufficient/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r611`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

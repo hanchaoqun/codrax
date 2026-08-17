@@ -3741,7 +3741,7 @@ func queueFlowOperationNavigationRead(ctx *types.BusContext, missing []string, r
 		return
 	}
 	target, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
-	if !ok {
+	if !ok || target.alreadyRead {
 		return
 	}
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
@@ -3815,6 +3815,12 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 	limit := target.lineRange.End - target.lineRange.Start + 1
 	if limit <= 0 {
 		return flowOperationNavigationHint(files, keywords)
+	}
+	if target.alreadyRead {
+		return fmt.Sprintf(
+			"Exact operation extraction step (not relation evidence): the bounded source window path=%q lines=%d-%d is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call, then emit only the exact syntax-owned operation you verify; if it proves no requested relation, keep the relation unproven.",
+			target.file, target.lineRange.Start, target.lineRange.End,
+		)
 	}
 	return fmt.Sprintf(
 		"Exact next navigation step (not relation evidence): call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d). Do not run a broad repo_map/grep first. Inspect that bounded source window, then emit only the exact syntax-owned operation you verify; if it proves no requested relation, keep the relation unproven.",
