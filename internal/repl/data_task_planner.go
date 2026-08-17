@@ -1411,7 +1411,35 @@ type dataTaskStructuredToolRepairRequest struct {
 	PreviousParams json.RawMessage
 }
 
-const maxDataTaskStructuredToolRepairPasses = 2
+// maxDataTaskStructuredToolRepairPasses is a safety ceiling, not the normal
+// repair budget.  A repair may continue only while both the model-authored
+// parameter object and the validator's precise failure advance.  This lets a
+// fail-closed validator expose several independent defects serially without
+// turning a repeated/non-progressing repair into an open-ended LLM loop.
+const maxDataTaskStructuredToolRepairPasses = 6
+
+func canonicalDataTaskStructuredToolParams(raw []byte) string {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return string(canonical)
+}
+
+func dataTaskStructuredToolRepairErrorFingerprint(err error) string {
+	var paramErr *replStructuredToolParamError
+	if errors.As(err, &paramErr) && paramErr != nil && paramErr.Err != nil {
+		return paramErr.Err.Error()
+	}
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
 
 // repairDataTaskStructuredToolParamsUntilParsed handles a short chain of
 // independent structural defects without relaxing the schema. Validators are
@@ -1430,17 +1458,31 @@ func repairDataTaskStructuredToolParamsUntilParsed[T any](
 	current := append(json.RawMessage(nil), req.PreviousParams...)
 	parseErr := initialErr
 	firstErr := initialErr
+	seenParams := map[string]bool{canonicalDataTaskStructuredToolParams(current): true}
+	seenFailures := map[string]bool{dataTaskStructuredToolRepairErrorFingerprint(initialErr): true}
 	for pass := 1; pass <= maxDataTaskStructuredToolRepairPasses; pass++ {
 		req.PreviousParams = current
 		repaired, err := planner.repairDataTaskStructuredToolParams(ctx, tool, parseErr, req)
 		if err != nil {
 			return zero, err
 		}
+		repairedFingerprint := canonicalDataTaskStructuredToolParams(repaired)
+		if seenParams[repairedFingerprint] {
+			return zero, fmt.Errorf("%w; compact tool-param repair made no structural progress at pass %d/%d; last error: %v",
+				firstErr, pass, maxDataTaskStructuredToolRepairPasses, parseErr)
+		}
+		seenParams[repairedFingerprint] = true
 		current = append(json.RawMessage(nil), repaired...)
 		parsed, err := parse(current)
 		if err == nil {
 			return parsed, nil
 		}
+		failureFingerprint := dataTaskStructuredToolRepairErrorFingerprint(err)
+		if seenFailures[failureFingerprint] {
+			return zero, fmt.Errorf("%w; compact tool-param repair repeated a typed failure at pass %d/%d; last error: %v",
+				firstErr, pass, maxDataTaskStructuredToolRepairPasses, err)
+		}
+		seenFailures[failureFingerprint] = true
 		parseErr = err
 		logging.Warning("[repl/data] compact structured repair exposed another typed error tool=%s scope=%s pass=%d/%d: %v",
 			tool.Name, firstNonEmptyString(strings.TrimSpace(req.Scope), "data structured tool"), pass, maxDataTaskStructuredToolRepairPasses, err)

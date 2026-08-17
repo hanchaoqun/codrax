@@ -35649,6 +35649,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.982 r606/B959：Data 修补按 typed 进展收敛；Trace 核心通过但源码可选权威仍漂移（2026-08-17）
+
+1. 在 `main@30cbcc26e` 严格并行恰好两个异构案例：Data/JSON 的
+   `data_multifile_reference_projection` 与显式窗 Trace 的
+   `trace_query_wakeup_causal_runnable`。Runner 为 `1 PASS / 1 FAIL`；人工为 Trace
+   `pass-core/context-partial`、Data fail。原始汇总和逐轮人工审计冻结在
+   `eval/parallel_selected_summary_evalcampaign_data_trace_r606_20260817.md` 与对应
+   `_manual_audit.md`。
+2. Data 再次在执行前失败，但不是同一错误重复。首稿缺 `actions[0].input_paths`；第一修补保留修正后
+   暴露 `complete_reference=true` 对应的 `reference_path` 缺失；第二修补继续前进后，才暴露
+   `join_records` 的 `left_fields/join_fields` alias 冲突。旧 B958 把一次预算改成固定两次，仍会在第三个
+   独立 typed locus 前终止；无 terminal ledger、contribution、reconcile 或答案。
+3. 新确认并实现 `B959-DATASTRUCTPROGRESS1/P1`：结构修补不再把“正常预算”定义为恰好两次，而以
+   model-authored 参数对象与 fail-closed validator 的精确错误是否持续前进为续跑条件。参数对象按 canonical
+   JSON 去空白/键序比较；同一对象再次出现立即 fail-loud。同一 typed failure 指纹再次出现也立即
+   fail-loud。只有两者都前进才允许下一轮，并保留独立 6-pass 安全天花板，防止开放式 LLM 循环。系统不填
+   业务字段、不猜 alias、不放宽 schema，也不执行半合法计划。
+4. JSON 修补教学仍只要求“修最新 typed locus、保留此前修正、alias 是替代拼法”。本批不读取用户原文、
+   thinking 或最终答案来决定修补，不把某个 CSV 文件名、action kind 或样例错误写成硬规则。新增三段串行
+   typed failure 正向 pin，以及参数未变化立即停止的负 pin；既有两段修补与 narrowed-rank schema pin 保留。
+5. Trace 核心正向回归通过：两次查询都带 `1.000..1.010s` 精确窗口；链上
+   `worker-200 priority_inversion_candidate` 有效归因 `8.300ms`、链上累计 `9.000ms`，目标 sleep
+   `10.000ms`；`3.500ms` 调度压力保持背景。Trace 因果投影、系统补采、实际占时/规则可消除量双轴都在，
+   未发生 4ms/固定年龄降级，系统没有生成或替换模型结论。
+6. r606 同时证明 B957 尚未生产闭环并新立 `B960-UNBACKEDALLOW1/P1`：typed route 已给
+   `current_source_evidence_mode=optional`，当前请求也没有 current-source explanation/scope/dimension；Analyzer
+   却自行发出 `external_observation_policy.current_source_mode=allow`。旧实现把这个孤立 enum 当成 required，
+   在 emit 后构建 4,187 文件源码图。B957 只覆盖“无锚 exclude 回落 default”，没有覆盖“无独立 current-source
+   obligation 的 allow”。最优根修是把 allow 收窄为带独立 typed source 权威的组合信号；孤立 allow 回落
+   default，route=required 或经 quote/provenance 校验的 current-source profile 仍可重开。不得扫描用户/模型
+   prose 作硬门。
+7. 另立 `B961-RUNNABLEINTERVALCONTEXT1/P2-watch`：模型把 `8.300ms runnable` 口头写成
+   `1.009500..1.010000`，而 typed 事件表和投影正确显示 runnable 为唤醒到切入运行的区间，后者
+   `1.009500..1.010000` 实为 running `0.500ms`。这是模型对上下文的绑定波动；先审计并压缩 typed
+   interval/state 教学，让每个时长与自己的 start/end/state 同行，不增加终稿关键词/数字扫描硬拒，也不由
+   系统改写模型正文。
+
+状态：
+
+`r606 runner=1/2-pass/human=1-core-pass+1-fail`；
+`B959-DATASTRUCTPROGRESS1=implemented/progress+cycle-stop+ceiling/pins-pass/pending-replay`；
+`B960-UNBACKEDALLOW1=confirmed/pending-fix`；
+`B961-RUNNABLEINTERVALCONTEXT1=context-audit-pending/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r606`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

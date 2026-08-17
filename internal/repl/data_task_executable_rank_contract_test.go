@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -447,6 +448,78 @@ func TestDataTaskInitialPlannerConvergesTwoIndependentStructuredErrors(t *testin
 		if !strings.Contains(secondPrompt, want) {
 			t.Fatalf("second repair prompt lost prior correction or latest typed locus %q:\n%s", want, secondPrompt)
 		}
+	}
+}
+
+func TestDataTaskStructuredRepairContinuesAcrossThreeAdvancingTypedFailures(t *testing.T) {
+	type repairShape struct {
+		A bool `json:"a"`
+		B bool `json:"b"`
+		C bool `json:"c"`
+	}
+	parse := func(raw []byte) (repairShape, error) {
+		var got repairShape
+		if err := json.Unmarshal(raw, &got); err != nil {
+			return repairShape{}, &replStructuredToolParamError{ToolName: dataTaskPlanTool.Name, Scope: "progress repair test", Err: err}
+		}
+		for _, check := range []struct {
+			ok    bool
+			locus string
+		}{{got.A, "$.a missing"}, {got.B, "$.b missing"}, {got.C, "$.c missing"}} {
+			if !check.ok {
+				return repairShape{}, &replStructuredToolParamError{ToolName: dataTaskPlanTool.Name, Scope: "progress repair test", Err: errors.New(check.locus)}
+			}
+		}
+		return got, nil
+	}
+	initial := json.RawMessage(`{}`)
+	_, initialErr := parse(initial)
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"a":true}`),
+		dataTaskPlanResp(`{"a":true,"b":true}`),
+		dataTaskPlanResp(`{"a":true,"b":true,"c":true}`),
+	}}
+	planner := &llmDataTaskPlanner{adapter: adapter}
+	got, err := repairDataTaskStructuredToolParamsUntilParsed(
+		context.Background(), planner, dataTaskPlanTool,
+		dataTaskStructuredToolRepairRequest{Scope: "progress repair test", PreviousParams: initial},
+		initialErr, parse,
+	)
+	if err != nil {
+		t.Fatalf("repairDataTaskStructuredToolParamsUntilParsed: %v", err)
+	}
+	if !got.A || !got.B || !got.C {
+		t.Fatalf("repair did not preserve all advancing corrections: %+v", got)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("calls=%d, want one call per newly exposed typed failure", len(adapter.calls))
+	}
+}
+
+func TestDataTaskStructuredRepairStopsWhenParamsDoNotAdvance(t *testing.T) {
+	parse := func(raw []byte) (bool, error) {
+		return false, &replStructuredToolParamError{
+			ToolName: dataTaskPlanTool.Name,
+			Scope:    "stalled repair test",
+			Err:      errors.New("$.actions[0].script missing"),
+		}
+	}
+	initial := json.RawMessage(`{"status":"ready"}`)
+	_, initialErr := parse(initial)
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(`{"status":"ready"}`),
+	}}
+	planner := &llmDataTaskPlanner{adapter: adapter}
+	_, err := repairDataTaskStructuredToolParamsUntilParsed(
+		context.Background(), planner, dataTaskPlanTool,
+		dataTaskStructuredToolRepairRequest{Scope: "stalled repair test", PreviousParams: initial},
+		initialErr, parse,
+	)
+	if err == nil || !strings.Contains(err.Error(), "made no structural progress") {
+		t.Fatalf("stalled repair err=%v, want precise no-progress failure", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("stalled repair calls=%d, want immediate bounded stop", len(adapter.calls))
 	}
 }
 
