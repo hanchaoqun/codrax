@@ -75,7 +75,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	// move a correctly placed field and hides the actual typed coverage issue.
 	// Schema/decoder failures own malformed-placement teaching; this lane names
 	// only the participant mismatch it actually observed.
-	expected := "Typed participant coverage mismatch: " + strings.Join(parts, "; ") + ". For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to the exact participant identity; keep the candidate's technical from_identity/to_identity unchanged. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge."
+	expected := "Typed participant coverage mismatch: " + strings.Join(parts, "; ") + ". For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to plus participant_node_id and participant_node_side. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to participant_node_id; keep the candidate's technical from_identity/to_identity unchanged in edge_anchor_identity_fields. technical_endpoint_identity_stays_in_edge_anchor=true means the broader reader-facing participant node replaces that side only in diagram.body and edge_anchors[].from_node/to_node, never in from_identity/to_identity. visible_arrow_label is safe reader wording for the immutable relation_kind; use it instead of displaying the raw relation enum. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That participant must not be a visible directed-edge endpoint, but independently proved local technical facts or no-arrow containment/grouping may coexist. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge."
 	if endpointConflicts != "" {
 		expected = "Resolve these exact endpoint-ID/label collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field. If that endpoint's visible label also equals the unproven participant, relabel the same technical node with concise technical wording derived from the already-published exact from_identity/to_identity; do not alter those anchor identities. Keep the exact participant separate from that directed edge and retain its unproven boundary; an independently grounded, already-authored no-arrow subgraph/grouping remains valid and must not be flattened or removed. The system is identifying an already model-authored unique edge/anchor pair and its parsed visible label, not creating or selecting a relation or choosing replacement wording: " + endpointConflicts + ". " + expected
 	}
@@ -711,8 +711,8 @@ func diagramParticipantTypedIncidentCandidates(
 			return
 		}
 		seen[key] = true
-		rows = append(rows, fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-			strconv.Quote(string(relation)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(participantEndpointSide), strconv.Quote(location),
+		rows = append(rows, fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			strconv.Quote(string(relation)), strconv.Quote(diagramParticipantReaderArrowLabel(relation, rm.Language)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(participantEndpointSide), strconv.Quote(strings.TrimSpace(obligation.Identity)), strconv.Quote(participantEndpointSide), strconv.Quote(location),
 			strconv.Quote(from), strconv.Quote(to), strconv.Quote(string(relation))))
 	}
 	for _, relation := range stagePrecedence {
@@ -746,6 +746,79 @@ func diagramParticipantTypedIncidentCandidates(
 		}
 	}
 	return rows
+}
+
+// diagramParticipantReaderArrowLabel supplies reader wording for an already
+// typed immutable relation. It does not infer a relation from prose and it is
+// never called to mint, select, reverse, or connect an edge. Containment is a
+// no-arrow grouping facet, so it deliberately has no arrow label here.
+func diagramParticipantReaderArrowLabel(relation types.DiagramRelationKind, lang string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	if zh {
+		switch relation {
+		case types.DiagramRelCall:
+			return "调用"
+		case types.DiagramRelCallback:
+			return "传递回调函数（未证明已执行）"
+		case types.DiagramRelArgumentFlow:
+			return "作为参数传递"
+		case types.DiagramRelGuard:
+			return "受此条件约束"
+		case types.DiagramRelControlFlow:
+			return "条件成立时执行"
+		case types.DiagramRelImport:
+			return "依赖"
+		case types.DiagramRelPrecedence:
+			return "随后进入"
+		case types.DiagramRelTypeRelation:
+			return "具有声明的类型关系"
+		case types.DiagramRelObserve:
+			return "由此观测到"
+		case types.DiagramRelRegister:
+			return "注册或绑定"
+		case types.DiagramRelAssignment:
+			return "赋值给"
+		case types.DiagramRelDataFlow:
+			return "数据写入"
+		case types.DiagramRelReturn:
+			return "返回"
+		case types.DiagramRelTemporal:
+			return "随后发生（未证明因果）"
+		}
+		return ""
+	}
+	switch relation {
+	case types.DiagramRelCall:
+		return "call"
+	case types.DiagramRelCallback:
+		return "pass callback (execution not proven)"
+	case types.DiagramRelArgumentFlow:
+		return "pass as an argument"
+	case types.DiagramRelGuard:
+		return "governed by this condition"
+	case types.DiagramRelControlFlow:
+		return "execute when the condition holds"
+	case types.DiagramRelImport:
+		return "depend on"
+	case types.DiagramRelPrecedence:
+		return "then continue to"
+	case types.DiagramRelTypeRelation:
+		return "have a declared type relation to"
+	case types.DiagramRelObserve:
+		return "observe from"
+	case types.DiagramRelRegister:
+		return "register or bind"
+	case types.DiagramRelAssignment:
+		return "assign to"
+	case types.DiagramRelDataFlow:
+		return "write data to"
+	case types.DiagramRelReturn:
+		return "return"
+	case types.DiagramRelTemporal:
+		return "occur before (causality unproven)"
+	default:
+		return ""
+	}
 }
 
 func diagramParticipantCandidateEndpointMatches(

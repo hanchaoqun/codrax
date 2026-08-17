@@ -618,6 +618,7 @@ func TestDiagramParticipantCoverageDoesNotJoinDisconnectedBusinessNodeToTechnica
 
 func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticipant(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.Language = "zh-CN"
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
 		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
 	}}
@@ -644,9 +645,13 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 	for _, want := range []string{
 		"typed_candidate[BusContext][1]",
 		`relation_kind:"data_flow"`,
+		`visible_arrow_label:"数据写入"`,
 		`from_identity:"output.EvidenceItems"`,
 		`to_identity:"o.busCtx.EvidenceItems"`,
 		`participant_endpoint_side:"to"`,
+		`participant_node_id:"BusContext"`,
+		`participant_node_side:"to"`,
+		`technical_endpoint_identity_stays_in_edge_anchor:true`,
 		`edge_anchor_identity_fields:{from_identity:"output.EvidenceItems",to_identity:"o.busCtx.EvidenceItems",relation_kind:"data_flow"}`,
 		`edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`identity_action:"use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"`,
@@ -658,6 +663,28 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		if !strings.Contains(hints[0].ExpectedShape, want) {
 			t.Fatalf("candidate-map hint missing %q: %s", want, hints[0].ExpectedShape)
 		}
+	}
+}
+
+func TestDiagramParticipantReaderArrowLabelCoversEveryEdgeRelationWithoutRawEnums(t *testing.T) {
+	for _, relation := range types.AllDiagramRelationKinds() {
+		zh := diagramParticipantReaderArrowLabel(relation, "zh-CN")
+		en := diagramParticipantReaderArrowLabel(relation, "en")
+		if relation == types.DiagramRelContain {
+			if zh != "" || en != "" {
+				t.Fatalf("containment is a no-arrow grouping facet, got zh=%q en=%q", zh, en)
+			}
+			continue
+		}
+		if zh == "" || en == "" {
+			t.Fatalf("edge relation %q lacks reader labels: zh=%q en=%q", relation, zh, en)
+		}
+		if strings.Contains(zh, "_") || strings.Contains(en, "_") {
+			t.Fatalf("reader label for %q leaked a snake_case control token: zh=%q en=%q", relation, zh, en)
+		}
+	}
+	if got := diagramParticipantReaderArrowLabel(types.DiagramRelUnknown, "zh-CN"); got != "" {
+		t.Fatalf("unknown relation must not gain reader wording: %q", got)
 	}
 }
 
