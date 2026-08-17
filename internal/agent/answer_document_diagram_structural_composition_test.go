@@ -104,6 +104,8 @@ func TestRequiredDiagramRepairPreservesVerifiedNoArrowOwnership(t *testing.T) {
 		"owner=`BusContext`; member=`Mutable`; type=`*MutableState`",
 		"directed_relation_authority=`none`",
 		"does not close any `unproven` directed-relation boundary",
+		"raw relation kinds such as `precedence`/`call`",
+		"`@ file:line` suffixes belong in citations or typed anchors",
 	} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("required repair lost exact no-arrow ownership guidance %q:\n%s", want, hint)

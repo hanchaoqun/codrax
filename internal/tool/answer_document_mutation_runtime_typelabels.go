@@ -267,6 +267,17 @@ func TraceRootCauseTypeZHLabel(token string) string {
 	return runtimeTraceRootCauseTypeZHLabel(token)
 }
 
+// TraceRootCauseTypeDisplayLabel exposes the same complete reader-facing
+// lexicon to prompt consumers. The raw token remains the wire/audit identity;
+// callers use this label only to reduce model reconstruction work when
+// authoring visible prose. Unmapped values fail closed with an empty label.
+func TraceRootCauseTypeDisplayLabel(token string, zh bool) string {
+	if zh {
+		return runtimeTraceRootCauseTypeZHLabel(token)
+	}
+	return runtimeTraceRootCauseTypeENLabel(token)
+}
+
 // runtimeTraceSupplyPressureDisplayLabel is THE display-side label for the
 // supply_pressure wire token (CMP-10 §7.4, user adjudication): the metric is
 // Σ runnable backlog — DEMAND-side scheduling pressure, PSI-stall family —

@@ -124,3 +124,15 @@ func TestAggregatePressureDisplayNamesAreActionable(t *testing.T) {
 		t.Fatalf("EN supply aggregate label drifted: %q", got)
 	}
 }
+
+func TestTraceRootCauseTypeDisplayLabelUsesOneBilingualLexicon(t *testing.T) {
+	if got := TraceRootCauseTypeDisplayLabel("priority_inversion_candidate", true); got != "优先级反转候选" {
+		t.Fatalf("zh exported display label = %q", got)
+	}
+	if got := TraceRootCauseTypeDisplayLabel("priority_inversion_candidate", false); got != "priority inversion (candidate)" {
+		t.Fatalf("en exported display label = %q", got)
+	}
+	if got := TraceRootCauseTypeDisplayLabel("unregistered_future_token", true); got != "" {
+		t.Fatalf("unmapped token must fail closed, got %q", got)
+	}
+}

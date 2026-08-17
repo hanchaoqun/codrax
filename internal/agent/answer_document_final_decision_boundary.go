@@ -196,7 +196,87 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
 	b.WriteString(renderTraceFinalPrincipalRankPopulation(set))
+	var causalClaimContract *types.TraceCausalClaimContract
+	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil {
+		causalClaimContract = view.TraceCausalClaimContract
+	}
+	b.WriteString(renderTraceFinalReaderFacingLanguageHandoff(set, causalClaimContract, extractAnswerDocLang(ctx)))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	return b.String()
+}
+
+// renderTraceFinalReaderFacingLanguageHandoff maps active typed wire values to
+// their reader wording at the last synthesis seam. It is prompt-only: raw
+// enum fields remain intact for schema validation and audit, while the model
+// retains complete ownership of the visible conclusion. No request or answer
+// prose is scanned, rejected, translated, or rewritten.
+func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string) string {
+	if len(set.Projections) == 0 {
+		return ""
+	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	var b strings.Builder
+	b.WriteString("- reader_facing_control_metadata_policy=`json_only_never_visible`: raw JSON field names, enum literals, authority/status keys, and their snake_case values belong only in structured fields and audit carriers. Never repeat them in the model-authored lead, headings, parenthetical explanations, lists, tables, caveats, or diagrams. Express the same evidence boundary naturally; this changes no measurement, rank, causal ceiling, or conclusion. This is authoring guidance only; no model-authored prose is scanned, rejected, deleted, translated, or rewritten.\n")
+	if contract != nil && contract.Active() {
+		for _, caliber := range contract.Allowed {
+			meaning := ""
+			if zh {
+				switch caliber {
+				case types.TraceCausalClaimNoConclusion:
+					meaning = "本轮只报告观测，不选择原因或候选方向"
+				case types.TraceCausalClaimBoundedWindow:
+					meaning = "结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因"
+				case types.TraceCausalClaimTypedChain:
+					meaning = "结论由已证链上关系支撑，但不自动等同于已证掉帧因果"
+				case types.TraceCausalClaimTypedFrame:
+					meaning = "结论已有帧或截止期因果证据支撑"
+				}
+			} else {
+				switch caliber {
+				case types.TraceCausalClaimNoConclusion:
+					meaning = "report observations without selecting a cause or candidate direction"
+				case types.TraceCausalClaimBoundedWindow:
+					meaning = "limit the conclusion to the selected window and present a first validation candidate, not a proven frame/deadline cause"
+				case types.TraceCausalClaimTypedChain:
+					meaning = "the conclusion is supported by a proved on-chain relation but is not automatically proved frame causality"
+				case types.TraceCausalClaimTypedFrame:
+					meaning = "the conclusion is supported by typed frame/deadline causal evidence"
+				}
+			}
+			if meaning != "" {
+				fmt.Fprintf(&b, "  - causal_caliber_reader_wording control_value=`%s`; json_field_only=true; visible_meaning=%q. Choose the caliber in JSON, then write this meaning in your own natural conclusion without naming the control value.\n", caliber, meaning)
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, projection := range set.Projections {
+		pools := [][]types.TraceCausalProjectionNode{
+			projection.PrimaryRootCauses,
+			projection.RankedSeats,
+			projection.OnChainCauses,
+			projection.AdjacentCauses,
+			projection.BackgroundCauses,
+			projection.SemanticSpans,
+		}
+		for _, pool := range pools {
+			for _, node := range pool {
+				for _, raw := range []string{node.TypeToken, node.SemanticClass, node.Object, node.StateKind} {
+					token := strings.TrimSpace(raw)
+					key := strings.ToLower(token)
+					if key == "" || seen[key] {
+						continue
+					}
+					label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(token, zh))
+					if label == "" || strings.EqualFold(label, token) {
+						continue
+					}
+					seen[key] = true
+					fmt.Fprintf(&b, "  - cause_kind_reader_wording control_value=`%s`; visible_label=%q; raw_parenthetical_forbidden=true. Use the visible label in model-authored prose and keep the control value only in typed/audit fields.\n", token, label)
+				}
+			}
+		}
+	}
 	return b.String()
 }
 

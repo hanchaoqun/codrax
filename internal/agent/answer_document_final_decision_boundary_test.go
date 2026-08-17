@@ -36,6 +36,56 @@ func TestFinalCallChainEvidenceBoundaryIsLanguageAgnosticAndLast(t *testing.T) {
 	}
 }
 
+func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse(t *testing.T) {
+	inWindow := true
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 1, WindowEndTs: 1.010,
+		RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "principal", Subject: "worker-1", TypeToken: "priority_inversion_candidate",
+			Rank: 1, EffectiveImpactMS: 8.3, ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		}},
+	}
+	contract := &types.TraceCausalClaimContract{
+		Allowed: []types.TraceCausalClaimCaliber{
+			types.TraceCausalClaimNoConclusion,
+			types.TraceCausalClaimBoundedWindow,
+		},
+		Ceiling: types.TraceCausalClaimBoundedWindow,
+	}
+	got := renderTraceFinalReaderFacingLanguageHandoff(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		contract,
+		"zh-CN",
+	)
+	for _, want := range []string{
+		"reader_facing_control_metadata_policy=`json_only_never_visible`",
+		"raw JSON field names, enum literals, authority/status keys",
+		"control_value=`bounded_window_candidate`; json_field_only=true",
+		"结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因",
+		"without naming the control value",
+		"control_value=`priority_inversion_candidate`; visible_label=\"优先级反转候选\"",
+		"raw_parenthetical_forbidden=true",
+		"no model-authored prose is scanned, rejected, deleted, translated, or rewritten",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reader-facing control-metadata boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceFinalReaderFacingLanguageHandoffUsesEnglishDisplayLexicon(t *testing.T) {
+	projection := types.TraceCausalProjection{RankedSeats: []types.TraceCausalProjectionNode{{
+		EvidenceID: "principal", Subject: "worker-1", TypeToken: "page_cache_churn",
+		Rank: 1, EffectiveImpactMS: 4.2, ChainRelevance: "on_chain",
+	}}}
+	got := renderTraceFinalReaderFacingLanguageHandoff(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, nil, "en",
+	)
+	if !strings.Contains(got, "control_value=`page_cache_churn`; visible_label=\"page-cache churn\"") {
+		t.Fatalf("English reader lexicon was not reused:\n%s", got)
+	}
+}
+
 func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutUpgradingItsSemantics(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState("opaque"),
