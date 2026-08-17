@@ -43,6 +43,8 @@ This scaffold is for human review. The runner records typed metrics and declared
    与同页证据边界冲突。这不是模型结论，属于确定性补充的措辞过权。
 3. 最优修复：保留 frequency_thermal 方向、subject、58.320ms 与升频/迁核动作，但改成“按既定理想基准折算的可提升空间”；禁用
    “解除限制 / lifting limits”。不改排序、数值、席位、因果投影或模型正文。
+4. 已施工：中英文模板分别改为“提升运行算力供给 / improving running compute supply”与“相对既定理想基准的 modeled headroom”；
+   回归逐字钉住 subject、58.320ms、升频/迁核动作，并负钉 `解除/限制/lifting/limits/eliminable`。相关 A2 套件全绿。
 
 ### T599-3（P1，待后批）：追加 citation 的文件/行/quote 未形成同源闭包
 

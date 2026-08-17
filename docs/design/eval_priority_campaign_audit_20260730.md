@@ -36360,7 +36360,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 状态：
 
 `B948-PRINCIPALPATHFACETOWNER1=implemented/full-tool+types+skill-tests-pass/pending-production-replay`；
-`B949-FREQUENCYNEXTSTEPCALIBER1=confirmed/pending-next-batch`；
+`B949-FREQUENCYNEXTSTEPCALIBER1=implemented/zh+en-focused-tests-pass/pending-production-replay`；
 `B950-PATCHCITATIONROWCLOSURE1=confirmed/pending-later-batch`；
 `Trace explicit-window/causal projection/auto-supplement=preserved-r599`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

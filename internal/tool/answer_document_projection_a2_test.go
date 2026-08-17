@@ -308,6 +308,43 @@ func TestA2NextStepDirectionActionsFromSections(t *testing.T) {
 	}
 }
 
+// TestA2FrequencyNextStepDoesNotClaimUnprovedLimit — B949: the
+// frequency_thermal seat proves a modeled supply-fold opportunity against an
+// ideal basis. It does not, by itself, prove that a policy/thermal limit bound
+// the target slice. Keep the subject, action and value, but never turn that
+// typed headroom into a deterministic "lift the limit" claim.
+func TestA2FrequencyNextStepDoesNotClaimUnprovedLimit(t *testing.T) {
+	section := runtimeTraceProjElimSection{
+		direction: "frequency_thermal",
+		maxEff:    58.320,
+		entries: []runtimeTraceProjElimEntry{{row: runtimeTraceProjTreeRow{
+			Node: types.TraceCausalProjectionNode{
+				Subject:           ".ugc.aweme.lite-17267",
+				EffectiveImpactMS: 58.320,
+			},
+		}}},
+	}
+	zh, ok := runtimeTraceNextStepDirectionActionFor(section, true)
+	if !ok || zh.text != "频率与热治理→评估提升 .ugc.aweme.lite-17267 的运行算力供给(升频/迁核)(按既定理想基准折算的可提升空间 58.320ms)" {
+		t.Fatalf("B949 zh calibrated action drifted: ok=%t text=%q", ok, zh.text)
+	}
+	for _, banned := range []string{"解除", "运行频点限制"} {
+		if strings.Contains(zh.text, banned) {
+			t.Fatalf("B949 zh action overclaimed an unproved target limit via %q: %q", banned, zh.text)
+		}
+	}
+
+	en, ok := runtimeTraceNextStepDirectionActionFor(section, false)
+	if !ok || en.text != "frequency & thermal → evaluate improving .ugc.aweme.lite-17267's running compute supply (boost / migrate) (modeled headroom 58.320ms versus the stated ideal basis)" {
+		t.Fatalf("B949 en calibrated action drifted: ok=%t text=%q", ok, en.text)
+	}
+	for _, banned := range []string{"lifting", "running-frequency limits", "eliminable"} {
+		if strings.Contains(en.text, banned) {
+			t.Fatalf("B949 en action overclaimed an unproved target limit via %q: %q", banned, en.text)
+		}
+	}
+}
+
 // TestA2BadgeGlyphGeometry — 件10 (§29.191 BADGEVIS) pins:
 // (a) 格宽断言 — every badge glyph measures EXACTLY one cell under BOTH
 //
