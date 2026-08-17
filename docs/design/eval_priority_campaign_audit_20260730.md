@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
+
+1. 在 `main@933e66a91` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工
+   `QF fail / Trace fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_receiptonce_trace_r631_20260817_manual_audit.md`。
+2. B991 获生产闭环：QF 本轮不再出现“一个 typed component receipt 被两个断开匿名组件重复消费”及
+   随后的系统自冲突拒绝。模型/系统仍未得到完整 BusContext→Mutable 交接，但病因已移动到导航读取，
+   不是 receipt 分配器再次回归。
+3. 新确认 B992：completion 只缺 `BusContext` 时，旧参数导航仅接受 binding 是完整实参最后一段；真实
+   交接 `o.busCtx.Mutable` 中 `busCtx` 是外层 exact typed carrier segment，因而无法命中，候选排序再次
+   回落到无关 checker。`2bade8851` 允许完整 parser identity 的任一 exact segment 命中 typed binding，
+   仍拒绝引号字面量、调用表达式和模糊名字；该信号只选下一个读取坐标，不铸 evidence、边、图或答案。
+   全部支持语言的生产形与完整 `internal/tool` 套件通过（175.528s），待 r632 生产回放。
+4. Trace 暴露更高危的 B993。用户主窗、`principal_state` 与 selected-window authority 都是
+   `1.000000..1.010000`，精确榜 #1 是 worker-200 8.300ms；但一次
+   `1.000000..1.011000` 探索板把窗后 `1.010000..1.010020` 的 app-100 runnable 0.020ms 作为 #2 主席，
+   系统又把它加入“锁与优先级”小计得 8.320ms，并在因果树佩 ➋、代表窗发布。即“窗外仅导航”与
+   “窗外可加冕/可求和”同时存在，属于确定性 typed 合同矛盾，不是模型波动；模型随后据此误写同 CPU、
+   worker 持续运行与正常协作睡眠。
+5. `5fc054249` 建立共享的 principal-window rank 判定：历史 ±1ms 仍只服务探索分组；主席数值使用 2µs
+   精确窗。为避免按当前 case 过拟合，隔离门还要求独立 typed 目标状态账或已选唤醒链窗精确确认主窗；
+   因此普通多板与跨 trace 报告不受影响。已知异窗席位从根因名册、方向算术、可消除榜、树徽章和代表窗
+   退出，但转入背景层保留证据。新正负 pin 覆盖 1ms 扩窗、legacy 无窗兼容与多板旧能力；
+   `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 184.059s）。
+6. 本轮再次出现 `priority_inversion_candidate`、`bounded_window_candidate`、`coverage=complete` 等客户
+   不理解的内部枚举。继续按 P2 客户语言面处理：控制 JSON 保持稳定 enum，模型得到自然语言 alias/解释；
+   不扫描 raw request/final prose 做硬门，不由 renderer 翻译或覆盖模型结论。
+7. 两案流式响应均持续超过 30 秒并正常完成，未见固定 4ms/固定总年龄降级。本批不削弱显式窗 Trace
+   因果投影或自动补齐；根因仍只来自选中窗 typed 链，邻近/背景只作支撑和额外排查方向。
+
+状态：
+
+`r631=runner-2/2/human=qf-fail+trace-fail`；
+`B991-DIAGRAMTYPEDRECEIPTSINGLECONSUMER1=production-closed-r631`；
+`B992-OUTERTYPEDCARRIERSEGMENTNAV1=implemented/all-language+full-tool-suite-pass/pending-r632`；
+`B993-SELECTEDWINDOWRANKBOARDISOLATION1=implemented/typed-independent-authority+legacy-multiboard-pins+full-suite-pass/pending-r632`；
+`Trace customer-language-enum=confirmed/P2/repeated-witness/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.999 r630/B991：跨 owner 导航闭环；typed receipt 跨断开组件重复消费（2026-08-17）
 
 1. 在 `main@5a76dcff7` 严格并发恰好两个案例：
