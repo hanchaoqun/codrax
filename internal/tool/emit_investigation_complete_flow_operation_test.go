@@ -1096,7 +1096,7 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 			outerLines := make([]string, 10)
 			outerLines[0] = "orchestrator owns typed bus context"
 			handoffLines := make([]string, 40)
-			handoffLines[29] = "sink.append(this.busContext.Mutable, AgentExtractor)"
+			handoffLines[29] = "appendStageOutputEvidenceToMutable(o.busCtx.Mutable, output.EvidenceItems)"
 			for path, body := range map[string]string{
 				statePath: strings.Join(stateLines, "\n"), outerPath: strings.Join(outerLines, "\n"),
 				handoffPath: strings.Join(handoffLines, "\n"),
@@ -1114,7 +1114,7 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 			ctx.RepoRoot = repo
 			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
 				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
-				{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
 				{Surface: "extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
 			}
 			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
@@ -1127,9 +1127,9 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 			}
 			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 				statePath: {
-					RelPath: statePath, Language: language, Package: "state",
+					RelPath: statePath, Language: language, Package: "types",
 					Symbols: []repotypes.Symbol{
-						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 1},
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*MutableState", Line: 1},
 						{Name: "inspect", Kind: "method", Receiver: "BusContext", Line: 1, EndLine: 25},
 					},
 					Relations: []repotypes.Relation{{
@@ -1141,7 +1141,7 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 				outerPath: {
 					RelPath: outerPath, Language: language, Package: "pipeline",
 					Symbols: []repotypes.Symbol{{
-						Name: "busContext", Kind: "field", Parent: "Orchestrator", DeclaredType: "BusContext", Line: 1,
+						Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 1,
 					}},
 				},
 				handoffPath: {
@@ -1153,7 +1153,7 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 					// production Go parser, so owner recovery must use the method span.
 					Relations: []repotypes.Relation{{
 						Kind: "call", File: handoffPath, Line: 30,
-						ToEP:       repotypes.RelationEndpoint{Name: "append", Receiver: "sink", Line: 30},
+						ToEP:       repotypes.RelationEndpoint{Name: "appendStageOutputEvidenceToMutable", Line: 30},
 						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
 					}},
 				},

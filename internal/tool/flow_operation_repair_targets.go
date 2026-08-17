@@ -34,6 +34,12 @@ type flowParserRelationSite struct {
 	file          string
 	relation      *repotypes.Relation
 	ownerSurfaces []string
+	// carrierOwnerBridgeRank is set only on a binding-scoped copy returned by
+	// flowNavigationBindingRelationSites. A positive value means the parser
+	// proved that the original member's declaring owner is itself carried by a
+	// statically typed binding on this relation owner's type. It is a SOFT
+	// navigation preference, never relation or answer authority.
+	carrierOwnerBridgeRank int
 }
 
 type flowParserSymbolSite struct {
@@ -746,12 +752,13 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		// touched by this one parser-owned operation coordinate. It ranks a
 		// real cross-participant receiver/caller site ahead of a ubiquitous
 		// context argument used by an unrelated helper.
-		participantTouchRank int
-		carrierRank          int
-		handoffRank          int
-		matchRank            int
-		kindRank             int
-		line                 int
+		participantTouchRank   int
+		carrierOwnerBridgeRank int
+		carrierRank            int
+		handoffRank            int
+		matchRank              int
+		kindRank               int
+		line                   int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -860,11 +867,12 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					append(append(append([]string(nil), site.ownerSurfaces...), binding.owner), argumentSurfaces...),
 					participantSurfaceGroups,
 				),
-				carrierRank: 1,
-				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
-				matchRank:   argumentRank,
-				kindRank:    flowOperationRepairRelationKindRank(relation.Kind),
-				line:        line,
+				carrierOwnerBridgeRank: site.carrierOwnerBridgeRank,
+				carrierRank:            1,
+				handoffRank:            flowNavigationCarrierHandoffRank(relation, binding.alias),
+				matchRank:              argumentRank,
+				kindRank:               flowOperationRepairRelationKindRank(relation.Kind),
+				line:                   line,
 			})
 		}
 	}
@@ -874,6 +882,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
+		}
+		if candidates[i].carrierOwnerBridgeRank != candidates[j].carrierOwnerBridgeRank {
+			return candidates[i].carrierOwnerBridgeRank > candidates[j].carrierOwnerBridgeRank
 		}
 		if candidates[i].carrierRank != candidates[j].carrierRank {
 			return candidates[i].carrierRank > candidates[j].carrierRank
@@ -931,16 +942,23 @@ func flowNavigationBindingRelationSites(
 		return nil
 	}
 	var out []flowParserRelationSite
-	seen := make(map[*repotypes.Relation]bool)
-	appendSite := func(site flowParserRelationSite) {
-		if site.relation == nil || seen[site.relation] {
+	seen := make(map[*repotypes.Relation]int)
+	appendSite := func(site flowParserRelationSite, carrierOwnerBridgeRank int) {
+		if site.relation == nil {
 			return
 		}
-		seen[site.relation] = true
+		site.carrierOwnerBridgeRank = carrierOwnerBridgeRank
+		if idx, ok := seen[site.relation]; ok {
+			if out[idx].carrierOwnerBridgeRank < carrierOwnerBridgeRank {
+				out[idx].carrierOwnerBridgeRank = carrierOwnerBridgeRank
+			}
+			return
+		}
+		seen[site.relation] = len(out)
 		out = append(out, site)
 	}
 	for _, site := range index.relationsByFile[binding.file] {
-		appendSite(site)
+		appendSite(site, 0)
 	}
 	owner := strings.TrimSpace(binding.owner)
 	if owner == "" || graph == nil {
@@ -950,7 +968,7 @@ func flowNavigationBindingRelationSites(
 	if declFile == nil {
 		return out
 	}
-	appendOwnerSites := func(staticOwner, ownerFile string) {
+	appendOwnerSites := func(staticOwner, ownerFile string, carrierOwnerBridgeRank int) {
 		ownerInfo := graph.FileIndex[ownerFile]
 		if ownerInfo == nil {
 			return
@@ -967,12 +985,12 @@ func flowNavigationBindingRelationSites(
 				sameDirectory := filepath.ToSlash(filepath.Dir(ownerFile)) ==
 					filepath.ToSlash(filepath.Dir(site.file))
 				if samePackage || sameDirectory {
-					appendSite(site)
+					appendSite(site, carrierOwnerBridgeRank)
 				}
 			}
 		}
 	}
-	appendOwnerSites(owner, binding.file)
+	appendOwnerSites(owner, binding.file, 0)
 
 	// A nested state member is often consumed through another typed field:
 	// Mutable belongs to BusContext, while an Orchestrator field of static type
@@ -994,7 +1012,7 @@ func flowNavigationBindingRelationSites(
 			continue
 		}
 		seenBridge[key] = true
-		appendOwnerSites(bridgeOwner, bridgeFile)
+		appendOwnerSites(bridgeOwner, bridgeFile, 1)
 	}
 	return out
 }
