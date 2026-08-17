@@ -35692,6 +35692,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1010 r641/B1010/B1011/B1012：精确窗附录闭环；跨组件载体投影仍未进入关系图（2026-08-17）
+
+1. 在 `main@1486e1cba` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_io_chain + qf_logic_view_read_pipeline`。Runner `2/2 PASS`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r641_20260817_manual_audit.md`。
+2. Trace 为 B1010 提供生产闭环正证。模型正文与确定性事实附录都选择用户指定的
+   `2.000000..2.020000s`：五态合计和窗长同为 20ms，不再借用探索期 `0..2.02s` 宽窗。四个
+   `trace_query` 视图、五类诊断维度、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   typed 链、11ms IO 首席及“目标直接阻塞未证”边界均保留。显式窗、因果投影、自动补齐和
+   链上-only 主因没有回退。
+3. Trace 人工仍记 partial，只因模型把跨 CPU 迁移延伸成无 typed 证据的“跨 NUMA”建议；三个互不重叠
+   的 1ms runnable 席可形成去重方向量，但仍应和单席 `max-only` 量清楚分开。二者均属软成文/教学
+   观察，不扫描最终答案做硬门，也不由系统改写模型结论。
+4. QF 证明 B1011 只解决了“同一 callable 结果消费者续读”的一层。最终图保留 Analyzer→Explorer→
+   Extractor→Finalizer 阶段先后，语法合法；但 BusContext/Mutable 没有连向任一阶段的有向边，请求的
+   数据流关系仍缺失。Finalizer 删除无 typed 锚的 stage→carrier 边是正确 fail-closed，不应降低门槛。
+5. 新确认 B1012：关系修复导航把“触及一个载体”误当成高价值候选，先后选中
+   `forcedReadCancelled` 内的 `busCtx.Context()` 与 `EmittedAnswerSymbols()`，均只是局部 getter；真实
+   交接位于 `dispatchStage -> BuildAgentContext(o.busCtx, ...)`、`BuildAgentContext` 内
+   `Mutable: bus.Mutable` 的字段投影、`agent.Execute(agentCtx)` 及 `applyStageOutput(output)`。现有索引
+   擅长 call/result 续读，却没有把 parser-owned 字段初始化/载体投影作为跨组件 join 导航信号。
+6. 最优方案冻结为语言无关的结构导航：优先选择能触及多个请求参与者，或把已解析载体交给不同
+   owner/callee 的 exact operation；从调用方精确实参进入唯一 callee 后，继续读取字段初始化、成员赋值、
+   返回值和后续 consumer。所有信号只选择源码读取坐标；模型读源码并逐条发射后才拥有关系权威。不得按
+   BusContext、Mutable、Go 文件名或本案例文字硬编码，不得自动生成图边或替模型写结论。
+7. 本轮 QF 使用 21 个探索回合、12 次 read、7 次中途提示和 1 次正确成文拒绝，说明 B1012 同时是
+   正确性与效率的高 ROI 项。施工应以 15 种支持语言共享的 call/argument/result/member-initializer
+   结构矩阵覆盖，并保留歧义 fail-close。
+8. 两案均无畸形 JSON、空答案、旧稿替代或活跃流固定 4ms 降级。活跃字节流仍只受 caller
+   cancel/deadline、无首字节、byte-stall、transport/decode failure 控制；系统不得按累计 4ms/4s
+   降级回答。
+
+状态：
+
+`r641=runner-2/2/human=trace-partial+qf-partial`；
+`B1010-APPENDIXEXPLORATIONWINDOWLEAK1=production-closed-r641`；
+`B1011-ENCLOSINGCALLABLERELATIONNAV1=production-partial/local-consumer-positive`；
+`B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=confirmed/P1/pending-implementation`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r641`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
