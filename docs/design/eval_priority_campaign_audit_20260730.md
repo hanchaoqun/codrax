@@ -35649,6 +35649,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.994 r625/B984：缺失集合误兼任关系对端全集；Trace 正对照稳定（2026-08-17）
+
+1. 在 `main@d65e19480` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工
+   `read fail / Trace pass`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_carriernav_trace_r625_20260817_manual_audit.md`。
+2. Trace 正对照通过。三次查询均绑定用户窗 `1.000..1.010s` 与 app-100；因果投影、自动补齐、链上
+   worker-200、8.300ms 规则可消除量、目标 sleep=10.000ms 和背景 3.500 cpu·ms 全部保留，背景没有
+   晋升主因。Analyzer 先后收到两次 schema-valid 跨字段拒绝（root_cause+bounded_fact_set，随后缺诊断
+   boolean），模型自行重发 `causal_diagnosis`；系统没有代选 breadth。171s 活跃流未因 4ms 降级。
+3. QF 的 runner 继续是假阳性。B983 首版虽能读取同一调用的 sibling arguments，但
+   `flowOperationRepairReadTargetForMissing` 同时用 missing 集合构造“搜索哪个 participant”和“候选触达
+   哪些请求 participant”两份列表。到 completion 时 Analyzer/Explorer/Extractor/Finalizer 已由 precedence
+   边覆盖，missing 只剩 Mutable/BusContext；因此 `AgentExtractor` 等已经覆盖却正是载体对端的身份被排除，
+   真 handoff 仍与无关 helper 同分。
+4. 生产症状与根因吻合：repair 先导航到 `cgec_enforcers.go`，再到
+   `emit_investigation_complete.go`；模型第 16 轮才手工找到 dispatchStage，整案 24 read、34 explorer
+   iterations、6 completion、2 finalizer rejects、510s。终稿仍将 BusContext/Mutable 标为未证，图缺少用户
+   请求的阶段—共享载体数据流，却因阶段名和边数满足弱 oracle 被判 PASS。
+5. 新立并施工 `B984-FULLREQUESTPARTICIPANTQUALITY1`（`895cc1952`）：候选 discovery surfaces 继续只取
+   missing participant，避免扩大补采；participant quality groups 改取全部 incident-required typed 请求参与者。
+   已被其他关系覆盖的组件因此只作为排序对端，不会重新打开完成义务。两集合均来自 Analyzer schema-valid
+   participant carrier 和 parser-owned symbols/arguments，不读用户/模型 prose。
+6. 测试改成真实状态：DiagramHint 同时含 BusContext+Extractor，但传给 repair 的 missing 只有 BusContext；
+   两处都传 carrier，只有一处 sibling argument 是 AgentExtractor。全部 `SupportedReadLanguages()` 必须选中真
+   handoff，evidence 集合必须仍为空。完整 `go test ./internal/tool -count=1` 通过（176.990s）。
+7. B984 仍只影响 bounded soft read coordinate，不生成 EvidenceItem、关系、图或答案，不降低硬门。本批未修改
+   Trace 查询/投影/补齐/结论。显式窗、链上-only 主因、实际占用/业务线索与规则可消除量双轴保持；邻近/背景
+   仅作支持，无原文关键词硬门或 4ms 活跃流降级。
+
+状态：
+
+`r625=runner-2/2/human=read-fail+trace-pass`；
+`B983-CROSSPARTICIPANTCARRIERARGNAV1=production-failed-r625/superseded-by-B984`；
+`B984-FULLREQUESTPARTICIPANTQUALITY1=implemented/all-language-matrix+full-tool-suite-pass/pending-r626`；
+`active-stream-4ms-degrade=forbidden/171s+510s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r625`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.993 r624/B983：载体交接被无关同类型调用稀释；写验证保持诚实未证（2026-08-17）
 
 1. 在 `main@bf515e333` 严格并发恰好两个案例：
