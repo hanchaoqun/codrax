@@ -3157,6 +3157,55 @@ func TraceCausalProjectionPrincipalValueSameWindow(aStart, aEnd, bStart, bEnd fl
 		math.Abs(aEnd-bEnd) <= TraceCausalProjectionPrincipalValueWindowToleranceS
 }
 
+// TraceCausalProjectionNodeMatchesPrincipalWindow reports whether a ranked
+// node may participate in the selected-window principal rank/value surfaces.
+// A typed rank-board window is authoritative when present and must match the
+// elected window under the narrow principal-value tolerance. Older nodes that
+// carry no query-window identity remain compatible: absence cannot prove that
+// they belong to a different window and therefore does not manufacture a
+// rejection. Consumers use this one predicate for rank rosters, direction
+// arithmetic and visible projection seats so those faces cannot disagree.
+func TraceCausalProjectionNodeMatchesPrincipalWindow(
+	node TraceCausalProjectionNode,
+	windowStart, windowEnd float64,
+) bool {
+	if !TraceCausalProjectionWindowPresent(windowStart, windowEnd) {
+		return true
+	}
+	start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+	if !TraceCausalProjectionWindowPresent(start, end) {
+		start, end = node.QueryWindowStartTs, node.QueryWindowEndTs
+	}
+	if !TraceCausalProjectionWindowPresent(start, end) {
+		return true
+	}
+	return TraceCausalProjectionPrincipalValueSameWindow(start, end, windowStart, windowEnd)
+}
+
+// TraceCausalProjectionPrincipalWindowAuthoritative distinguishes an elected
+// customer window from a projection that merely uses WindowStart/End as the
+// display ruler for several legitimate query boards. Principal-window
+// isolation is enabled only when an independent typed carrier corroborates
+// the same exact scope: the target state partition or the elected wakeup path.
+// This preserves intentional multi-board/cross-trace reports while preventing
+// an exploratory expanded board from entering a selected-window root roster.
+func TraceCausalProjectionPrincipalWindowAuthoritative(projection TraceCausalProjection) bool {
+	if !TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+		return false
+	}
+	if account := projection.TargetStateAccount; account != nil &&
+		TraceCausalProjectionPrincipalValueSameWindow(
+			account.WindowStartTs, account.WindowEndTs,
+			projection.WindowStartTs, projection.WindowEndTs,
+		) {
+		return true
+	}
+	return TraceCausalProjectionPrincipalValueSameWindow(
+		projection.WakeupPathQueryWindowStartTs, projection.WakeupPathQueryWindowEndTs,
+		projection.WindowStartTs, projection.WindowEndTs,
+	)
+}
+
 // traceCausalProjectionAttachFullWindowStateTotals copies the RN-12 typed
 // cross-reference onto CHAIN-UNIVERSE nodes only (primary / on-chain /
 // supporting-hop buckets — the rows the tree renders as chain or flat rows;

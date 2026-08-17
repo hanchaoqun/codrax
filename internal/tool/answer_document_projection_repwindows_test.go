@@ -107,3 +107,30 @@ func TestRuntimeTraceCausalProjectionRepresentativeWindowsBlockOmitsInvalidInter
 		t.Fatalf("invalid or zero intervals must not manufacture representative windows: %+v", got)
 	}
 }
+
+func TestRuntimeTraceCausalProjectionRepresentativeWindowsExcludeExpandedQueryBoard(t *testing.T) {
+	exact := types.TraceCausalProjectionNode{
+		EvidenceID: "exact", Subject: "worker", Rank: 1,
+		StartTs: 1.001, EndTs: 1.009,
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
+	}
+	expanded := types.TraceCausalProjectionNode{
+		EvidenceID: "expanded", Subject: "target", Rank: 2,
+		StartTs: 1.010, EndTs: 1.010020,
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.011,
+	}
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 1, WindowEndTs: 1.010,
+		RankedSeats: []types.TraceCausalProjectionNode{exact, expanded},
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "target", WindowStartTs: 1, WindowEndTs: 1.010, TotalMS: 10,
+		},
+	}
+	block := runtimeTraceCausalProjectionRepresentativeWindowsBlock(
+		projection, true, runtimeTraceCausalProjectionBlockIDBase, "", nil, nil,
+	)
+	if block == nil || len(block.Items) != 1 || block.Items[0].Cells[0] != "#1" ||
+		strings.Contains(block.Items[0].Cells[1], "target") {
+		t.Fatalf("expanded query board leaked into selected-window representative rows: %+v", block)
+	}
+}

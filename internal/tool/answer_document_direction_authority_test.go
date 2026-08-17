@@ -46,3 +46,62 @@ func TestTraceAnswerDecisionDirectionSectionsSharesRenderedSubtotalPopulation(t 
 		t.Fatalf("overlapping section must forbid the subtotal: %+v", sections)
 	}
 }
+
+func TestTraceAnswerDecisionDirectionSectionsKeepsExpandedBoardOutOfPrincipalSubtotal(t *testing.T) {
+	inside := true
+	exact := types.TraceCausalProjectionNode{
+		EvidenceID: "exact", Subject: "worker-200", Object: "priority_inversion_candidate",
+		TypeToken: "priority_inversion_candidate", Rank: 1,
+		EffectiveImpactMS: 8.300, EffectiveImpactPublished: true,
+		FixDirection: "lock_priority", ChainRelevance: "on_chain",
+		WithinRequestedWindow: &inside, StartTs: 1.0012, EndTs: 1.0095,
+		RankBoardTarget: "app-100", RankBoardParamsFingerprint: "board-a",
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
+	}
+	expanded := exact
+	expanded.EvidenceID = "expanded"
+	expanded.Subject = "app-100"
+	expanded.Object = "priority_inversion_runnable_wait"
+	expanded.TypeToken = expanded.Object
+	expanded.Rank = 2
+	expanded.EffectiveImpactMS = 0.020
+	expanded.StartTs, expanded.EndTs = 1.010, 1.010020
+	expanded.RankQueryWindowEndTs = 1.011
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 1, WindowEndTs: 1.010,
+		WakeupPath:  []string{"worker-200", "app-100"},
+		RankedSeats: []types.TraceCausalProjectionNode{exact, expanded},
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "app-100", WindowStartTs: 1, WindowEndTs: 1.010, TotalMS: 10,
+		},
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			exact, expanded,
+		},
+	}
+
+	sections := TraceAnswerDecisionDirectionSections(projection)
+	if len(sections) != 1 || len(sections[0].Members) != 1 ||
+		sections[0].Leader.EvidenceID != "exact" || sections[0].SubtotalMS != 0 {
+		t.Fatalf("expanded-window seat entered selected-window direction arithmetic: %+v", sections)
+	}
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for _, row := range rows {
+			if row.Node.EvidenceID == "expanded" {
+				t.Fatalf("expanded-window seat retained a principal tree lane: %+v", row.Node)
+			}
+		}
+	}
+	foundBackground := false
+	for _, row := range model.Background {
+		if row.Node.EvidenceID == "expanded" {
+			foundBackground = true
+			if row.Node.Rank != 0 || row.Node.ChainRelevance != "background" {
+				t.Fatalf("expanded-window context copy retained principal authority: %+v", row.Node)
+			}
+		}
+	}
+	if !foundBackground {
+		t.Fatal("expanded-window evidence disappeared instead of moving to context")
+	}
+}

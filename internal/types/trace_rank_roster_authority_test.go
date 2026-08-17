@@ -89,3 +89,36 @@ func TestBuildTraceRankRosterAuthoritiesSeparatesOnChainAndAdjacentBoards(t *tes
 		}
 	}
 }
+
+func TestBuildTraceRankRosterAuthoritiesExcludesKnownExpandedWindowFromPrincipalRoster(t *testing.T) {
+	exact := traceRankRosterTestNode("exact", "target", "params", 1, 1.010, 1, "runnable", "worker", 8.3)
+	expanded := traceRankRosterTestNode("expanded", "target", "params", 1, 1.011, 2, "runnable_wait", "target", 0.020)
+	legacy := traceRankRosterTestNode("legacy", "target", "legacy", 0, 0, 1, "io_wait", "legacy-worker", 2)
+	projection := TraceCausalProjection{
+		ArtifactLabel: "trace.systrace",
+		WindowStartTs: 1,
+		WindowEndTs:   1.010,
+		RankedSeats:   []TraceCausalProjectionNode{expanded, exact, legacy},
+		TargetStateAccount: &TraceCausalProjectionTargetStateAccount{
+			Subject: "target", WindowStartTs: 1, WindowEndTs: 1.010, TotalMS: 10,
+		},
+	}
+
+	got := BuildTraceRankRosterAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{projection}})
+	if len(got) != 2 {
+		t.Fatalf("exact and legacy boards should remain while expanded board is contextual only: %+v", got)
+	}
+	for _, board := range got {
+		for _, seat := range board.Seats {
+			if seat.EvidenceID == "expanded" || seat.Subject == "target" {
+				t.Fatalf("known expanded-window seat leaked into principal rank authority: %+v", got)
+			}
+		}
+	}
+	if TraceCausalProjectionNodeMatchesPrincipalWindow(expanded, 1, 1.010) {
+		t.Fatal("one-millisecond expansion must not pass the principal-value window ruler")
+	}
+	if !TraceCausalProjectionNodeMatchesPrincipalWindow(legacy, 1, 1.010) {
+		t.Fatal("missing legacy window identity must not manufacture a rejection")
+	}
+}

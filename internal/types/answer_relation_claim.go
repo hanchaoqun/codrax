@@ -210,10 +210,12 @@ func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit 
 	}
 	seats := make([]TraceCausalProjectionNode, 0, len(pool))
 	seen := map[string]bool{}
+	principalWindowAuthoritative := TraceCausalProjectionPrincipalWindowAuthoritative(projection)
 	for _, node := range pool {
 		if strings.TrimSpace(node.ChainRelevance) != "on_chain" ||
 			node.Rank <= 0 || node.EffectiveImpactMS <= 0 ||
 			node.IsTargetSelfStateRow() || node.IsAggregateMetric() || node.OnChainOverflowFold ||
+			(principalWindowAuthoritative && !TraceCausalProjectionNodeMatchesPrincipalWindow(node, projection.WindowStartTs, projection.WindowEndTs)) ||
 			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 			continue
 		}
@@ -223,23 +225,6 @@ func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit 
 		}
 		seen[identity] = true
 		seats = append(seats, node)
-	}
-	if TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
-		matching := make([]TraceCausalProjectionNode, 0, len(seats))
-		for _, node := range seats {
-			start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
-			if !TraceCausalProjectionWindowPresent(start, end) {
-				start, end = node.QueryWindowStartTs, node.QueryWindowEndTs
-			}
-			if TraceCausalProjectionWindowPresent(start, end) &&
-				math.Abs(start-projection.WindowStartTs) <= TraceCausalProjectionSameWindowToleranceS &&
-				math.Abs(end-projection.WindowEndTs) <= TraceCausalProjectionSameWindowToleranceS {
-				matching = append(matching, node)
-			}
-		}
-		if len(matching) > 0 {
-			seats = matching
-		}
 	}
 	sort.SliceStable(seats, func(i, j int) bool {
 		if seats[i].Rank != seats[j].Rank {

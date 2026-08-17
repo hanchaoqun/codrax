@@ -46,8 +46,12 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 			)
 		}
 		byKey := map[string]int{}
+		principalWindowAuthoritative := TraceCausalProjectionPrincipalWindowAuthoritative(projection)
 		for _, node := range nodes {
-			if node.Rank <= 0 {
+			if node.Rank <= 0 || (principalWindowAuthoritative &&
+				!TraceCausalProjectionNodeMatchesPrincipalWindow(
+					node, projection.WindowStartTs, projection.WindowEndTs,
+				)) {
 				continue
 			}
 			boardChannel := traceRankRosterBoardChannel(node)

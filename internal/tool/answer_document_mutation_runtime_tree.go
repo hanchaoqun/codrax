@@ -779,7 +779,12 @@ type runtimeTraceProjTreeModel struct {
 	// sub-window. Zero in fallback mode (no window claim, no ⚠ — RN-2b).
 	WindowStartTs float64
 	WindowEndTs   float64
-	BarMaxMS      float64
+	// PrincipalWindowAuthoritative is true only when an independent typed
+	// target-state or elected-wakeup carrier corroborates the display window.
+	// It prevents an expanded exploration board from taking a principal seat
+	// without hiding intentional multi-board reports.
+	PrincipalWindowAuthoritative bool
+	BarMaxMS                     float64
 	// BarScaleWallClockAnchored (DISPHYG-3 件3, §29.155 P2 残形, 2026-07-20):
 	// true when BarMaxMS was anchored by a wall-clock row (the normal shape);
 	// false = the fail-open lane (every valued row cross-thread-aggregate or
@@ -3081,6 +3086,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		WindowMS:                     projection.WindowDurationMS(),
 		WindowStartTs:                projection.WindowStartTs,
 		WindowEndTs:                  projection.WindowEndTs,
+		PrincipalWindowAuthoritative: types.TraceCausalProjectionPrincipalWindowAuthoritative(projection),
 		WakeupChainRecommendedNotRun: projection.WakeupChainRecommendedNotRun,
 		Marks:                        &runtimeTraceProjMarkSet{},
 		// SPANVIS-1: the advisory mention side channel travels verbatim (the
@@ -3132,6 +3138,30 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 				projection.SupportingHops...)))
 	adjacentCauses := append([]types.TraceCausalProjectionNode(nil), projection.AdjacentCauses...)
 	backgroundCauses := append([]types.TraceCausalProjectionNode(nil), projection.BackgroundCauses...)
+	// A rank produced by a neighboring/expanded query board remains useful
+	// evidence, but it is not a principal seat for the elected window. Move
+	// the known-mismatched copy to the context lane before any tree/badge/
+	// overview election. The original observation ledger remains untouched;
+	// this only aligns every rendered principal face with the same typed
+	// selected-window authority used by the answer handoff.
+	principalChain := chainUniverse[:0]
+	for _, node := range chainUniverse {
+		if model.PrincipalWindowAuthoritative && node.Rank > 0 && !types.TraceCausalProjectionNodeMatchesPrincipalWindow(
+			node, projection.WindowStartTs, projection.WindowEndTs,
+		) {
+			outside := node
+			outside.Rank = 0
+			outside.Tier = types.TraceCausalTierContextOnly
+			outside.Role = types.TraceCausalRoleRootCauseContext
+			outside.ChainRelevance = "background"
+			within := false
+			outside.WithinRequestedWindow = &within
+			backgroundCauses = append(backgroundCauses, outside)
+			continue
+		}
+		principalChain = append(principalChain, node)
+	}
+	chainUniverse = principalChain
 	// SEM-LEAD/B9: build the ✦ 语义 lane node list first, then fold rank-lane
 	// twins across ALL relevance buckets before any tree/stanza bucketing. A
 	// precisely matched on-chain, adjacent, or background rank twin therefore

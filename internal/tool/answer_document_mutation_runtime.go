@@ -2587,7 +2587,13 @@ func runtimeTraceCausalProjectionRepresentativeWindowNodes(
 	})
 	seen := map[string]bool{}
 	out := make([]types.TraceCausalProjectionNode, 0, runtimeTraceCausalProjectionRepresentativeWindowLimit)
+	principalWindowAuthoritative := types.TraceCausalProjectionPrincipalWindowAuthoritative(projection)
 	for _, node := range candidates {
+		if principalWindowAuthoritative && !types.TraceCausalProjectionNodeMatchesPrincipalWindow(
+			node, projection.WindowStartTs, projection.WindowEndTs,
+		) {
+			continue
+		}
 		if !(node.EndTs > node.StartTs) || node.StartTs < 0 {
 			continue
 		}

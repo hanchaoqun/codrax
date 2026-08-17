@@ -298,6 +298,14 @@ func runtimeTraceProjElimBoard(model runtimeTraceProjTreeModel) []runtimeTracePr
 			if !runtimeTraceProjElimEligible(row) {
 				continue
 			}
+			// The overview is a selected-window principal value surface. A
+			// neighboring drilldown board may remain visible as context, but it
+			// cannot keep a rank seat or enter a direction subtotal here.
+			if model.PrincipalWindowAuthoritative && !types.TraceCausalProjectionNodeMatchesPrincipalWindow(
+				row.Node, model.WindowStartTs, model.WindowEndTs,
+			) {
+				continue
+			}
 			channelRank := 0
 			if runtimeTraceProjRowOrdinalChannel(row) == runtimeTraceProjOrdinalChannelAdjacent {
 				channelRank = 1
