@@ -36620,6 +36620,63 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-introduced`。
 
+### §123.980 r604/B957：纯 Trace 的无锚排除不得反向强制源码扫描（2026-08-16）
+
+1. 在 `main@3196626ed` 严格并行恰好两个异构案例：
+   `trace_query_wakeup_causal_runnable` 与 `github_issue_fmt_tm_year_overflow`。runner 为 `2/2 PASS`，人工亦
+   均通过；原始汇总与人工审计分别冻结在
+   `eval/parallel_selected_summary_evalcampaign_longspan_write_r604_20260816.md` 和
+   `eval/parallel_selected_summary_evalcampaign_longspan_write_r604_20260816_manual_audit.md`。
+2. Trace 正向回归保持完整：显式 `1.000..1.010s` 窗内，`worker-200` 是 typed 链上
+   `priority_inversion_candidate`，有效归因 `8.300ms`、链上累计 `9.000ms`；目标 sleep `10.000ms`，
+   `3.500ms` 跨线程调度压力只在背景区。Trace 因果投影、系统 typed 补采、实际状态占时与规则可消除量
+   双轴都在，背景未加冕。模型把 pre-wakeup dependency 进一步写成“必须等 worker 完成”、并提出
+   PI-mutex，超过当前 trace 的 lock/holder-waiter authority；但同一答案末尾已披露该关系未证，现有
+   explorer/finalizer 教学也已明确“pre-wakeup 不证明完成等待、PI candidate 不证明锁所有权”。因此该项
+   按模型措辞波动观察，不新增 final prose 扫描、硬拒或系统代写。
+3. C++ write 首版计划错误地认为只把接收变量改为 `long long` 即可让 `int+int` 在加法前拓宽；真实
+   `make check` 返回 `got -2147481749 want 2147485547`，typed verify→replan 随即改为
+   `static_cast<long long>(tm.tm_year) + 1900`，第二次验证通过且只改授权头文件。该结果证明语言无关的
+   执行验证/失败证据/replan 合同在工作；不为单个 C++ type 或上游 issue 加专用规则。
+4. r604 同时确认 B957/P1：纯 Trace 请求的 route 已精确给出
+   `current_source_evidence_mode=optional`，但 Analyzer 幻觉出当前请求中不存在的
+   `“只分析 trace，不分析代码”` 排除 quote。`parseExternalObservationPolicy` 正确丢弃无锚 quote；旧
+   `promoteInvalidExternalObservationExcludeToAllow` 随后却把无效 exclude 改成 `allow`。在现有 typed
+   语义里，runtime artifact 上的 `allow` 表示当前源码必须保持为 required，最终触发 Codrax 仓 4187 文件
+   repomap 统计/读缓存/建图。也就是说，“无效信号不能关闭源码车道”的安全修复反向变成了“无效信号强制
+   打开源码车道”；这是 policy normalize 的系统 gap，不是 Trace 工具或模型速度波动。
+5. B957 根修把该 normalize 改为中性 `default`：无锚 exclude 既无权关闭源码，也无权强制打开源码；
+   attached/resolved runtime artifact 因而保持 `allowed_optional`，Analyzer 后处理不构建 source graph。
+   独立 typed 权威不受影响：`TurnRouteHint.current_source_evidence_mode=required` 仍在下一步合成为 `allow`；
+   `CurrentSourceExplanationProfile`、精确 current-source scope/dimension/obligation 也仍会令
+   `CurrentSourceLaneDecision=required` 并打开图。实现不读 request/thinking/final prose，不按 Trace 名称、
+   case 或语言拟合。
+6. 两层回归分别钉住生产故障链：`emit_analysis` 以真实 r604 形收到“optional route + 幻觉 exclude quote”
+   后必须落到 `default/allowed_optional`；`analyzerGraphForNormalize` 收到 attached trace + neutral policy 时
+   必须返回 nil 且不得向 Mutable 发布 SearchGraph。原有“typed current-source dimension 重开图”pin 保留。
+7. Analyzer 在本例另有一次 `causal_diagnosis + fact_families` 重试。schema 与工具错误对这一互斥关系一致：
+   causal scope 使用 required `causal_attribution/causal_contributor_set` dimension，不能再携状态查询用的
+   `fact_families`；模型第二轮已精确修正，未形成相反合同，暂不增加 JSON 字段或特判。系统只降低无效
+   source policy 的副作用，不改变 causal JSON、Trace 查询、根因权限或答案所有权。
+8. 本批不以 4ms、4s、4m 或流总年龄改变回答车道；活跃输出仍只由 typed completion/cancel/stall/failure
+   判定。系统不生成或替换模型结论、关系、图或建议。
+
+验证：
+
+- `go test ./internal/tool -run 'TestEmitAnalysis_(ExternalObservationPolicyExcludeRequiresTypedExclusionKind|ArtifactCitationCompatibilityQuotesCannotMintSourceExclusion|RouteBackedRuntimeOnlyRepairsMissingExclusionKind|RuntimeArtifactInvalidExcludeFallsBackToOptionalDefault|TraceOnlyHallucinatedExcludeDoesNotForceSourceLane)'`；
+- `go test ./internal/agent -run TestAnalyzerGraphForNormalize`；
+- 完整相关包与构建见本批提交记录。
+
+状态：
+
+`B956 causal-regression=pass-r604/long-span-customer-replay-still-pending`；
+`B957-INVALIDEXCLUDESOURCELANE1=implemented/neutral-default+typed-reopen/pins-pass`；
+`r604=2/2-runner-pass+2/2-human-pass`；
+`analyzer causal JSON retry=precise-contract/model-adherence-watch`；
+`Trace explicit-window causal projection/auto-supplement=pass-r604`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

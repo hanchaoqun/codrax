@@ -203,6 +203,34 @@ func TestAnalyzerGraphForNormalize_SkipsEagerLoadForRuntimeArtifactOptionalSourc
 	}
 }
 
+func TestAnalyzerGraphForNormalize_InvalidExcludeNeutralFallbackDoesNotEagerLoadSource(t *testing.T) {
+	repo := t.TempDir()
+	writeAnalyzerGraphFixture(t, repo)
+	ctx := &types.AgentContext{
+		Stage:           types.StageAnalyze,
+		RepoRoot:        repo,
+		AttachedHitrace: "sched_switch prev=app next=worker",
+		Mutable:         types.NewMutableState("analyze the attached trace window"),
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceDefault,
+			Rationale:         "invalid unanchored source exclusion fell back to neutral default",
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Widget"},
+		},
+	}
+	if got := analyzerGraphForNormalize(ctx, rm); got != nil {
+		t.Fatalf("neutral runtime-artifact source posture must not eager-load analyzer source graph, got %+v", got.Metadata)
+	}
+	if ctx.Mutable.SearchGraph() != nil {
+		t.Fatal("neutral runtime-artifact source posture must not publish a search graph during analyze post-processing")
+	}
+}
+
 func TestAnalyzerGraphForNormalize_SkipsEagerLoadForResolvedRuntimeArtifactPathWithoutPolicy(t *testing.T) {
 	repo := t.TempDir()
 	writeAnalyzerGraphFixture(t, repo)

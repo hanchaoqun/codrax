@@ -1498,8 +1498,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if promoted, warning := promoteInvalidExternalObservationExcludeToAllow(ctx, p.ExternalObservationPolicy, externalObservationPolicy); warning != "" {
-		externalObservationPolicy = promoted
+	if normalized, warning := normalizeInvalidExternalObservationExcludeToDefault(ctx, p.ExternalObservationPolicy, externalObservationPolicy); warning != "" {
+		externalObservationPolicy = normalized
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -3853,7 +3853,7 @@ func repairMissingExternalObservationExclusionKindFromRouteHint(
 	return &normalized, "external_observation_policy missing exclusion_kind repaired from typed route metadata (current checkout evidence optional)"
 }
 
-func promoteInvalidExternalObservationExcludeToAllow(
+func normalizeInvalidExternalObservationExcludeToDefault(
 	ctx *types.BusContext,
 	raw *emitExternalObservationPolicyParam,
 	policy *types.ExternalObservationPolicy,
@@ -3872,7 +3872,13 @@ func promoteInvalidExternalObservationExcludeToAllow(
 	if policy != nil {
 		normalized = *policy
 	}
-	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceAllow
+	// An unanchored exclude is not authority to close the source lane, but it is
+	// equally not authority to FORCE that lane open.  Return to the neutral
+	// default posture: current source remains permitted when useful and becomes
+	// required only through an independent typed current-source profile or route
+	// carrier.  synthesizeExternalObservationPolicyFromRouteHint runs next and
+	// still promotes a precise route=required signal to allow.
+	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceDefault
 	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
 	if normalized.Confidence <= 0 {
 		normalized.Confidence = 0.75
@@ -3880,7 +3886,7 @@ func promoteInvalidExternalObservationExcludeToAllow(
 	if strings.TrimSpace(normalized.Rationale) == "" {
 		normalized.Rationale = "invalid runtime-artifact source exclusion lacked precise current-request provenance"
 	}
-	return &normalized, "external_observation_policy invalid current_source_mode=exclude auto-softened to allow for runtime artifact: only anchored explicit user exclusions may close the current-source lane"
+	return &normalized, "external_observation_policy invalid current_source_mode=exclude fell back to default for runtime artifact: only anchored explicit user exclusions may close the current-source lane, and an invalid exclusion cannot force a source scan without an independent typed current-source requirement"
 }
 
 func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam) (*types.ConversationReferenceProfile, string) {

@@ -8693,20 +8693,20 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind
 	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		t.Fatalf("exclude without typed exclusion_kind must not suppress current source: %+v", rm.ExternalObservationPolicy)
 	}
-	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
-		t.Fatalf("CurrentSourceMode=%q, want allow after runtime-artifact invalid exclude repair", got)
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("CurrentSourceMode=%q, want neutral default after runtime-artifact invalid exclude repair", got)
 	}
 	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
 		t.Fatalf("artifact citation mode should survive, got %q", got)
 	}
-	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
-		t.Fatalf("invalid runtime-artifact exclude should fail open to required source lane, got %s", got)
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("invalid runtime-artifact exclude should keep source allowed but optional without an independent typed obligation, got %s", got)
 	}
 	if !strings.Contains(res.Summary, "exclusion_kind") {
 		t.Fatalf("summary should explain ignored exclusion_kind, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude auto-softened to allow") {
-		t.Fatalf("summary should expose invalid-exclude promotion, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude fell back to default") {
+		t.Fatalf("summary should expose invalid-exclude neutral fallback, got %q", res.Summary)
 	}
 }
 
@@ -8784,7 +8784,8 @@ func TestEmitAnalysis_ArtifactCitationCompatibilityQuotesCannotMintSourceExclusi
 	}
 	for _, want := range []string{
 		"no current_source_exclusion_quote",
-		"invalid current_source_mode=exclude auto-softened to allow",
+		"invalid current_source_mode=exclude fell back to default",
+		"current_source_mode synthesized as allow from typed route metadata",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary should expose role-split normalization %q, got %q", want, res.Summary)
@@ -8897,12 +8898,12 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 	if !strings.Contains(res.Summary, "missing exclusion_kind repaired from typed route metadata") {
 		t.Fatalf("summary should expose typed route-backed enum repair, got %q", res.Summary)
 	}
-	if strings.Contains(res.Summary, "invalid current_source_mode=exclude auto-softened to allow") {
-		t.Fatalf("route-backed repair must happen before invalid-exclude allow promotion, got %q", res.Summary)
+	if strings.Contains(res.Summary, "invalid current_source_mode=exclude fell back to default") {
+		t.Fatalf("route-backed repair must happen before invalid-exclude neutral fallback, got %q", res.Summary)
 	}
 }
 
-func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
+func TestEmitAnalysis_RuntimeArtifactInvalidExcludeFallsBackToOptionalDefault(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{
@@ -8946,10 +8947,10 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
 	}
 	rm := mu.RequestModel()
 	if rm == nil || rm.ExternalObservationPolicy == nil {
-		t.Fatalf("policy should survive as allow/artifact-only citation: %+v", rm)
+		t.Fatalf("policy should survive as default/artifact-only citation: %+v", rm)
 	}
-	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
-		t.Fatalf("CurrentSourceMode=%q, want allow", got)
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("CurrentSourceMode=%q, want default", got)
 	}
 	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		t.Fatalf("invalid exclude must not suppress current source: %+v", rm.ExternalObservationPolicy)
@@ -8957,20 +8958,80 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
 	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
 		t.Fatalf("ArtifactCitationMode=%q, want external_only", got)
 	}
-	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
-		t.Fatalf("CurrentSourceLaneDecision=%s, want required", got)
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want allowed_optional", got)
 	}
-	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
-		t.Fatalf("invalid exclude promotion must clear runtime-only completion: %+v", rm)
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatalf("invalid exclude fallback must not force a runtime-only turn into broad source scanning: %+v", rm)
 	}
 	for _, want := range []string{
 		"current_source_exclusion_quote ignored",
-		"invalid current_source_mode=exclude auto-softened to allow",
-		"external_observation_policy=allow",
+		"invalid current_source_mode=exclude fell back to default",
+		"external_observation_policy=default",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary should contain %q, got %q", want, res.Summary)
 		}
+	}
+}
+
+func TestEmitAnalysis_TraceOnlyHallucinatedExcludeDoesNotForceSourceLane(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	raw := "请使用 trace_query 分析 1.000s 到 1.010s 的窗口，目标线程是 app-100，并判断主要阻塞原因。"
+	mu := types.NewMutableState(raw)
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"sched_switch"}},
+		Observations: []types.PerfObservation{{
+			Kind: "sched_switch", Subject: "app-100", Summary: "app-100 switched out", Confidence: 0.95,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "trace",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["trace_query", "app-100", "blocking"],
+		"entities": ["app-100", "trace_query"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"current_source_exclusion_quote": "只分析 trace，不分析代码",
+			"confidence": 0.95
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable:         mu,
+		AttachedHitrace: "sched_switch: prev_comm=app prev_pid=100",
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "artifact", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("trace-only analysis should accept neutral source fallback, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("normalized policy missing: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("hallucinated source exclusion forced mode=%q, want default", got)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("hallucinated source exclusion forced current-source lane=%s: %+v", got, rm)
+	}
+	if !types.RuntimeArtifactRequestSourceNavigationNotRequired(*rm, true) {
+		t.Fatalf("trace-only source navigation should remain optional: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude fell back to default") {
+		t.Fatalf("neutral fallback not disclosed: %q", res.Summary)
 	}
 }
 
