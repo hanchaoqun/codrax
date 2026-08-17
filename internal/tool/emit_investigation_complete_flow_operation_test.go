@@ -1002,6 +1002,88 @@ func TestFlowOperationNavigationPrefersCarrierHandoffWithRequestedSiblingArgumen
 	}
 }
 
+func TestFlowOperationNavigationFindsOwnedCarrierHandoffAcrossSourceFilesAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			ownerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline_owner.src"))
+			handoffPath := filepath.ToSlash(filepath.Join("src", language, "pipeline_stage.src"))
+			ownerLines := make([]string, 30)
+			ownerLines[0] = "pipeline owns bus context"
+			ownerLines[9] = "inspect(this.busContext)"
+			handoffLines := make([]string, 40)
+			handoffLines[0] = "run pipeline stage"
+			handoffLines[29] = "builder.build(this.busContext, AgentExtractor)"
+			for path, body := range map[string]string{
+				ownerPath:   strings.Join(ownerLines, "\n"),
+				handoffPath: strings.Join(handoffLines, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				ownerPath: {
+					RelPath: ownerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+						{Name: "inspectCarrier", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 30},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: ownerPath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Name: "inspectCarrier", Receiver: "Pipeline", Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "inspect", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+						ResolvedBy: language + "_call",
+					}},
+				},
+				handoffPath: {
+					RelPath: handoffPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{
+						Name: "run", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 40,
+					}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: handoffPath, Line: 30,
+						FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 30},
+						ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 30},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+						ResolvedBy: language + "_call",
+					}},
+				},
+			}))
+
+			// extractor is already covered elsewhere; only the carrier remains
+			// missing. Its exact owner spans both files, so the sibling method's
+			// two-participant handoff must outrank the local one-participant use.
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s owned cross-file carrier handoff must win: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("cross-file owner navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {

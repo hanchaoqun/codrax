@@ -17,7 +17,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v3"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v4"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -45,6 +45,7 @@ type flowDeclaredBindingSite struct {
 	file         string
 	alias        string
 	declaredType string
+	owner        string
 }
 
 type flowNavigationCallableOwner struct {
@@ -67,6 +68,7 @@ type flowNavigationIndex struct {
 	relationsByKey       map[string][]flowParserRelationSite
 	relationsByToken     map[string][]flowParserRelationSite
 	relationsByFile      map[string][]flowParserRelationSite
+	relationsByOwnerKey  map[string][]flowParserRelationSite
 	sourceLinesMu        sync.Mutex
 	sourceLinesByFile    map[string]map[int]string
 	sourceLinesAttempted map[string]bool
@@ -88,6 +90,7 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 		relationsByKey:       make(map[string][]flowParserRelationSite),
 		relationsByToken:     make(map[string][]flowParserRelationSite),
 		relationsByFile:      make(map[string][]flowParserRelationSite),
+		relationsByOwnerKey:  make(map[string][]flowParserRelationSite),
 		sourceLinesByFile:    make(map[string]map[int]string),
 		sourceLinesAttempted: make(map[string]bool),
 	}
@@ -130,6 +133,9 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 			}
 			if site.file != "" {
 				index.relationsByFile[site.file] = append(index.relationsByFile[site.file], site)
+			}
+			for _, key := range flowNavigationSurfaceKeys(site.ownerSurfaces...) {
+				index.relationsByOwnerKey[key] = append(index.relationsByOwnerKey[key], site)
 			}
 			seenKeys := make(map[string]bool)
 			operationSurfaces := append(
@@ -806,16 +812,16 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	// coordinate: DetectArgumentFlowsAtLine does not create evidence, and the
 	// explorer must still submit the source-owned argument row.
 	for _, binding := range flowRepairDeclaredBindingSites(index, rm, surfaces) {
-		lines := flowNavigationSourceLines(ctx, index, binding.file)
-		if len(lines) == 0 {
-			continue
-		}
 		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-		gc := &ground.Context{
-			Graph: graph, RepoRoot: ctx.RepoRoot,
-			LineIndex: map[string]map[int]string{binding.file: lines},
-		}
-		for _, site := range index.relationsByFile[binding.file] {
+		for _, site := range flowNavigationBindingRelationSites(index, graph, binding) {
+			lines := flowNavigationSourceLines(ctx, index, site.file)
+			if len(lines) == 0 {
+				continue
+			}
+			gc := &ground.Context{
+				Graph: graph, RepoRoot: ctx.RepoRoot,
+				LineIndex: map[string]map[int]string{site.file: lines},
+			}
 			relation := site.relation
 			callee := flowNavigationCallReceiver(relation)
 			if relation == nil || callee == "" {
@@ -830,7 +836,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			argumentRank := 0
 			var argumentSurfaces []string
-			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, binding.file, line, callee) {
+			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, site.file, line, callee) {
 				argumentSurfaces = append(argumentSurfaces, flow.Argument)
 				if flowNavigationArgumentMatchesBinding(flow.Argument, binding.alias) {
 					argumentRank = max(argumentRank, flowRepairPlanningSurfaceMatchRank(
@@ -847,9 +853,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			candidates = append(candidates, rankedTarget{
 				target: flowOperationRepairReadTarget{
-					file:        binding.file,
+					file:        site.file,
 					lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
-					alreadyRead: closure.HasReadLine(binding.file, line),
+					alreadyRead: closure.HasReadLine(site.file, line),
 				},
 				relation: relation,
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
@@ -905,6 +911,66 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	return selected.target, true
+}
+
+// flowNavigationBindingRelationSites keeps complete-argument discovery on the
+// declaration file, then extends it to parser-proved methods of the same
+// owning type. Fields commonly live in one source file while methods that hand
+// them to another component live in sibling files (Go receiver methods,
+// partial types, header/implementation splits). Restricting argument scans to
+// the declaration file made those real handoffs invisible and repeatedly sent
+// completion repair to unrelated local helpers.
+//
+// The extension is navigation-only and deliberately precise: the parser must
+// publish a non-empty static owner for the binding, an exact owner identity on
+// the enclosing callable, the same language, and either the same package or
+// the same source directory. It never creates evidence or relation authority.
+func flowNavigationBindingRelationSites(
+	index *flowNavigationIndex,
+	graph *repotypes.Graph,
+	binding flowDeclaredBindingSite,
+) []flowParserRelationSite {
+	if index == nil {
+		return nil
+	}
+	var out []flowParserRelationSite
+	seen := make(map[*repotypes.Relation]bool)
+	appendSite := func(site flowParserRelationSite) {
+		if site.relation == nil || seen[site.relation] {
+			return
+		}
+		seen[site.relation] = true
+		out = append(out, site)
+	}
+	for _, site := range index.relationsByFile[binding.file] {
+		appendSite(site)
+	}
+	owner := strings.TrimSpace(binding.owner)
+	if owner == "" || graph == nil {
+		return out
+	}
+	declFile := graph.FileIndex[binding.file]
+	if declFile == nil {
+		return out
+	}
+	for _, key := range flowNavigationSurfaceKeys(owner) {
+		for _, site := range index.relationsByOwnerKey[key] {
+			candidateFile := graph.FileIndex[site.file]
+			if candidateFile == nil || candidateFile.Language != declFile.Language ||
+				!flowAnyIdentitySurfaceMatches(site.ownerSurfaces, owner) {
+				continue
+			}
+			samePackage := strings.TrimSpace(declFile.Package) != "" &&
+				strings.TrimSpace(declFile.Package) == strings.TrimSpace(candidateFile.Package)
+			sameDirectory := filepath.ToSlash(filepath.Dir(binding.file)) ==
+				filepath.ToSlash(filepath.Dir(site.file))
+			if !samePackage && !sameDirectory {
+				continue
+			}
+			appendSite(site)
+		}
+	}
+	return out
 }
 
 // flowNavigationCalleeMutationReadTarget follows one already-read carrier
@@ -1256,6 +1322,7 @@ func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.Request
 		seen[key] = true
 		out = append(out, flowDeclaredBindingSite{
 			file: path, alias: alias, declaredType: strings.TrimSpace(symbol.DeclaredType),
+			owner: strings.TrimSpace(firstNonEmptyFlowRepairString(symbol.Parent, symbol.Receiver)),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
