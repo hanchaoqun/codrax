@@ -50,8 +50,8 @@ func TestRuler2Donghu17267WitnessRecord(t *testing.T) {
 		}
 		return out
 	}
-	if got := fmtSeats(record.WallSeats); got != "#6=3.956;#15=1.193;" {
-		t.Fatalf("self wall-clock ruler seats drifted (want 3.956 #6 + 1.193 #15 after the full causal IO seat): %s", got)
+	if got := fmtSeats(record.WallSeats); got != "#6=3.956;#14=1.193;" {
+		t.Fatalf("self wall-clock ruler seats drifted (want 3.956 #6 + 1.193 #14 after the unproven inode/block row leaves the chain roster): %s", got)
 	}
 	if got := fmtSeats(record.EdgeSeats); got != "#13=1.648;" {
 		t.Fatalf("wakeup-edge ruler seat drifted (want 1.648 #13 after the full causal IO seat): %s", got)

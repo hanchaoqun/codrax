@@ -214,8 +214,8 @@ func TestSelfAllOverlapProvenSeatStaysASeparateSeat(t *testing.T) {
 // RNB-5B 件② §29.96.2 终判② 2026-07-15: its wire ChainRelevance is now the
 // NON-CHANNEL self_caliber_side token — the former "adjacent" proximity
 // verdict violated R8 自身恒为链上 while the count caliber keeps it off the
-// wall-clock chain lanes); the on-chain composite block_io row keeps its
-// legacy caliber-side seat with no basis.
+// wall-clock chain lanes). A block_io composite may remain as background
+// inventory, but target identity can no longer authorize its chain relation.
 func TestSelfAllNonWallClockCalibersStayOnSideRail(t *testing.T) {
 	rank := BuildRootCauseRank(selfAllDonghuIndex(t), selfAllDonghuQuery())
 	rows := append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...)
@@ -236,17 +236,13 @@ func TestSelfAllNonWallClockCalibersStayOnSideRail(t *testing.T) {
 				continue
 			}
 			sawComposite = true
-			// RNB-5B 修复轮 P2-3: the composite-score self row's LANE is pinned
-			// too — the 件② token is COUNT-class-only by ruling, so an
-			// engine-level widening (Mut-D) must red here, not pass silently.
-			if item.OnChainBasis != "" || item.Tier != RootCauseTierCaliberSide ||
-				item.ChainRelevance != "on_chain" {
-				t.Fatalf("composite-score self row must keep its ⌗ side seat with no basis and its legacy on_chain lane: %+v", item)
+			if item.OnChainBasis != "" || item.ChainRelevance == "on_chain" {
+				t.Fatalf("composite-score self row must not inherit chain authority from target identity: %+v", item)
 			}
 		}
 	}
-	if !sawCount || !sawComposite {
-		t.Fatalf("fixture drifted: count=%v composite=%v rows missing", sawCount, sawComposite)
+	if !sawCount {
+		t.Fatalf("fixture drifted: count=%v composite=%v", sawCount, sawComposite)
 	}
 }
 
@@ -657,10 +653,9 @@ func TestSelfAllPartitionSeatsPromoteWithoutRemerge(t *testing.T) {
 	}
 }
 
-// TestSelfAllIOBurstFaceMirrorsTheVerdict: the io_burst episode context
-// enrich promotes the target's own adjacent episode on the same shared
-// predicate (three consumers, one implementation); non-target episodes keep
-// their lanes byte-identically.
+// TestSelfAllIOBurstFaceMirrorsTheVerdict: target identity alone must not
+// promote a derived IO burst. Only producer-owned exact storage/inode work
+// may obtain the self wall-clock basis; generic bursts stay adjacent context.
 func TestSelfAllIOBurstFaceMirrorsTheVerdict(t *testing.T) {
 	target := ThreadRef{Comm: "app", PID: 100}
 	chain := ChainResult{
@@ -673,14 +668,15 @@ func TestSelfAllIOBurstFaceMirrorsTheVerdict(t *testing.T) {
 		{Thread: ThreadRef{Comm: "peer", PID: 200}, StartTs: 5.01, EndTs: 5.02, DurationMs: 20},
 	})
 	for _, ep := range episodes {
-		if ep.Thread.PID == 100 {
-			if ep.ChainRelevance != "on_chain" || ep.OnChainBasis != RootCauseOnChainBasisSelfWallClockInterval {
-				t.Fatalf("target self episode must promote on the self basis: %+v", ep)
-			}
-			continue
+		if ep.OnChainBasis != "" || ep.ChainRelevance == "on_chain" || ep.RootCauseEligibility != ioBurstRootCauseContextOnly {
+			t.Fatalf("generic burst must remain context-only regardless of target identity: %+v", ep)
 		}
-		if ep.OnChainBasis != "" || ep.ChainRelevance == "on_chain" {
-			t.Fatalf("non-target episode keeps its lane (§23.1): %+v", ep)
-		}
+	}
+	exact := enrichIOBurstEpisodesWithChainContext(chain, []IOBurstEpisodeSummary{{
+		Thread: target, StartTs: 5.01, EndTs: 5.02, DurationMs: 10,
+		RootCauseEligibility: ioBurstRootCauseExactChainHostWork,
+	}})
+	if len(exact) != 1 || exact[0].ChainRelevance != "on_chain" || exact[0].OnChainBasis != RootCauseOnChainBasisSelfWallClockInterval {
+		t.Fatalf("producer-owned exact target work should retain the self basis: %+v", exact)
 	}
 }

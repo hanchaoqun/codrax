@@ -13266,6 +13266,13 @@ type blockInodeAcc struct {
 	item BlockIOByInodeSummary
 }
 
+const (
+	blockIOInodeRelationLocalActivity        = "inode_local_activity_only"
+	blockIOInodeRelationExactStorageIdentity = "exact_storage_inode_identity"
+	ioBurstRootCauseContextOnly              = "context_only_derived_projection"
+	ioBurstRootCauseExactChainHostWork       = "eligible_exact_chain_host_work"
+)
+
 func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 	accs := map[string]*blockInodeAcc{}
 	ensure := func(dev, inode, entry string, thread ThreadRef, op string, lineStart, lineEnd int, startTs, endTs float64) *blockInodeAcc {
@@ -13281,13 +13288,14 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		acc := accs[key]
 		if acc == nil {
 			acc = &blockInodeAcc{item: BlockIOByInodeSummary{
-				Dev:       firstNonEmpty(dev, "unknown"),
-				Inode:     inode,
-				EntryName: entry,
-				Thread:    thread,
-				Operation: op,
-				LineStart: lineStart,
-				LineEnd:   lineEnd,
+				Dev:            firstNonEmpty(dev, "unknown"),
+				Inode:          inode,
+				EntryName:      entry,
+				Thread:         thread,
+				Operation:      op,
+				RelationStatus: blockIOInodeRelationLocalActivity,
+				LineStart:      lineStart,
+				LineEnd:        lineEnd,
 			}}
 			accs[key] = acc
 		}
@@ -13325,13 +13333,18 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		acc.item.PageCacheChurn += cache.Churn
 	}
 	for _, storage := range stats.StorageLatencyByLayer {
-		acc := ensure(storage.Dev, storage.Inode, storage.EntryName, storage.Thread, storage.Operation, storage.LineStart, storage.LineEnd, storage.StartTs, storage.EndTs)
-		if acc == nil {
-			acc = nearestBlockInodeForThread(accs, storage.Thread, storage.StartTs, storage.EndTs)
+		// A storage row without its own inode/entry identity cannot be joined to
+		// a file row by same-thread temporal proximity. Keep it in the independent
+		// storage_latency_by_layer carrier instead of laundering adjacency into
+		// an exact cross-layer transaction.
+		if strings.TrimSpace(storage.Inode) == "" && strings.TrimSpace(storage.EntryName) == "" {
+			continue
 		}
+		acc := ensure(storage.Dev, storage.Inode, storage.EntryName, storage.Thread, storage.Operation, storage.LineStart, storage.LineEnd, storage.StartTs, storage.EndTs)
 		if acc == nil {
 			continue
 		}
+		acc.item.RelationStatus = blockIOInodeRelationExactStorageIdentity
 		if acc.item.BlockDev == "" {
 			acc.item.BlockDev = storage.Dev
 		}
@@ -13339,28 +13352,11 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 			acc.item.StorageMaxLatencyMs = storage.MaxLatencyMs
 		}
 	}
-	for _, io := range ioLatencyAccounting(stats) {
-		acc := nearestBlockInodeForThread(accs, io.IssueThread, io.IssueTs, io.CompleteTs)
-		if acc == nil {
-			continue
-		}
-		if acc.item.BlockDev == "" {
-			acc.item.BlockDev = io.Dev
-		}
-		if io.DurationMs > acc.item.BlockMaxLatencyMs {
-			acc.item.BlockMaxLatencyMs = io.DurationMs
-			acc.item.NearestBlockThread = firstNonEmptyThread(io.IssueThread, io.CompleteThread)
-			acc.item.NearestBlockTs = io.IssueTs
-		}
-		if acc.item.StartTs == 0 || (io.IssueTs > 0 && io.IssueTs < acc.item.StartTs) {
-			acc.item.StartTs = io.IssueTs
-		}
-		if io.CompleteTs > acc.item.EndTs {
-			acc.item.EndTs = io.CompleteTs
-		}
-		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.IssueLine)
-		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.CompleteLine)
-	}
+	// Block request residence is intentionally NOT attached here. Its exact
+	// identity is (source, endpoint family, dev, sector, len, issue/complete)
+	// and does not contain a filesystem inode. The request stays losslessly in
+	// IOLatencies; only ioLatencyCausalAccounting may price its independently
+	// proven completion-closed issuer wait.
 	// DET-1: the output walk is sorted-key too (a map-order walk fed the
 	// stable sort a random tie order), and the sort's tie chain ends on the
 	// typed constant (dev,inode) identity — never map order.
@@ -13379,8 +13375,8 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		} else {
 			item.Confidence = 0.50
 		}
-		item.Summary = fmt.Sprintf("inode=%s dev=%s block_dev=%s op=%s file_bytes=%d page_cache_churn=%d block_max=%.3fms storage_max=%.3fms thread=%s",
-			firstNonEmpty(item.Inode, "unknown"), item.Dev, item.BlockDev, item.Operation, item.FileIOBytes, item.PageCacheChurn, item.BlockMaxLatencyMs, item.StorageMaxLatencyMs, threadLabel(item.Thread))
+		item.Summary = fmt.Sprintf("inode=%s dev=%s block_dev=%s op=%s relation_status=%s file_bytes=%d page_cache_churn=%d block_max=%.3fms storage_max=%.3fms thread=%s",
+			firstNonEmpty(item.Inode, "unknown"), item.Dev, item.BlockDev, item.Operation, item.RelationStatus, item.FileIOBytes, item.PageCacheChurn, item.BlockMaxLatencyMs, item.StorageMaxLatencyMs, threadLabel(item.Thread))
 		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -13403,47 +13399,12 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 	return out
 }
 
-func nearestBlockInodeForThread(accs map[string]*blockInodeAcc, thread ThreadRef, start, end float64) *blockInodeAcc {
-	// DET-1 (v5 P1 批 追加件, 2026-07-13; 噪音从源头消除): the election walks
-	// the accumulator map in SORTED-KEY order, so a distance TIE lands on the
-	// same typed constant key (dev+inode) every run — the former map-order
-	// walk flipped the storage_max/block_max attribution between inodes
-	// run-to-run (donghu 0x14088d↔0x25a01 witness) and the caliber_side
-	// member election / io_burst top-8 census / a rank tertiary subject
-	// flipped with it. 帽/选举前确定性次序; tie-break = the sorted walk itself
-	// (first key wins under strict `<`), never map order.
-	keys := make([]string, 0, len(accs))
-	for key := range accs {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	var best *blockInodeAcc
-	bestDistance := 0.0
-	found := false
-	for _, key := range keys {
-		acc := accs[key]
-		if thread.PID > 0 && acc.item.Thread.PID > 0 && thread.PID != acc.item.Thread.PID {
-			continue
-		}
-		if thread.PID == 0 && !sameThreadRef(thread, acc.item.Thread) {
-			continue
-		}
-		distance := 0.0
-		if acc.item.NearestBlockTs > 0 {
-			distance = windowDistanceMs(start, end, acc.item.NearestBlockTs, acc.item.NearestBlockTs+0.000001)
-		}
-		if !found || distance < bestDistance {
-			best = acc
-			bestDistance = distance
-			found = true
-		}
-	}
-	return best
-}
-
 func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary {
 	var out []IOBurstEpisodeSummary
 	add := func(item IOBurstEpisodeSummary) {
+		if item.RootCauseEligibility == "" {
+			item.RootCauseEligibility = ioBurstRootCauseContextOnly
+		}
 		if item.DurationMs <= 0 {
 			item.DurationMs = item.DStateMs + item.IOWaitMs + firstPositiveFloat(item.BlockMaxLatencyMs, item.StorageMaxLatencyMs)
 		}
@@ -13509,7 +13470,13 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 			continue
 		}
 		add(IOBurstEpisodeSummary{
-			Thread:              inode.Thread,
+			Thread: inode.Thread,
+			RootCauseEligibility: func() string {
+				if inode.RelationStatus == blockIOInodeRelationExactStorageIdentity {
+					return ioBurstRootCauseExactChainHostWork
+				}
+				return ioBurstRootCauseContextOnly
+			}(),
 			DominantSignal:      "inode_storage_latency",
 			DurationMs:          firstPositiveFloat(inode.BlockMaxLatencyMs, inode.StorageMaxLatencyMs),
 			BlockMaxLatencyMs:   inode.BlockMaxLatencyMs,
@@ -15965,29 +15932,31 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		items = append(items, item)
 	}
 	for _, episode := range stats.IOBurstEpisodes {
-		if episode.DominantSignal == "d_state_or_io_wait" || episode.DominantSignal == "scheduler_iowait" {
-			// Scheduler-derived episodes are a diagnostic projection of the
-			// formal mutually-exclusive D/IO state account above. They remain in
-			// WindowStats/typed observations and never mint a second rank seat.
+		// Scheduler mirrors and unproven cross-layer adjacency cannot mint a
+		// second causal seat. A producer-owned, exactly paired storage/inode
+		// interval may represent chain-host work when the ordinary typed host
+		// interval/wakeup-edge gates also admit it.
+		if episode.RootCauseEligibility != ioBurstRootCauseExactChainHostWork {
 			continue
 		}
 		onChain := threadInSet(chainThreads, episode.Thread)
-		impact := firstPositiveFloat(episode.DurationMs, episode.DStateMs+episode.IOWaitMs, episode.BlockMaxLatencyMs, episode.StorageMaxLatencyMs)
+		impact := firstPositiveFloat(episode.DurationMs, episode.StorageMaxLatencyMs)
 		if impact <= 0 {
 			continue
 		}
 		item := rootCauseItem("io_burst_episode", episode.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), episode.Confidence, episode.LineStart, episode.LineEnd, "window_stats.io_burst_episodes", episode.Summary)
+		item.resourceExactChainHostWork = true
 		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = episode.StartTs
 		item.EndTs = episode.EndTs
-		item.DominantState = ioBurstDominantState(episode)
-		item.DStateMs = episode.DStateMs
-		item.IOWaitMs = episode.IOWaitMs
 		items = append(items, item)
 	}
 	for _, inode := range stats.BlockIOByInode {
-		onChain := threadInSet(chainThreads, inode.Thread)
+		// This is a mixed-unit inode activity/storage roster, not proof that the
+		// chain thread waited for the named device. Keep it as background even
+		// when the inode-owning thread is a dependency-chain member.
+		onChain := false
 		// Composite score over an inode envelope (latency maxima + MiB) — the
 		// registry composite marker (causalTokenCompositeScoreRows) routes the
 		// row to the ⌗ caliber side, and RANKDIS-M18 (§29.104.17 裁定②) re-keys
@@ -15998,7 +15967,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		item := rootCauseItem("block_io_by_inode", inode.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), inode.Confidence, inode.LineStart, inode.LineEnd, "window_stats.block_io_by_inode", inode.Summary)
 		item.CumulativeImpactMs = impact
-		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.Causality = "background"
 		item.StartTs = inode.StartTs
 		item.EndTs = inode.EndTs
 		// RCM §24.7.1/§24.9-B F3 (opendir_78 gap③): inode/dev were carried by
@@ -19879,6 +19848,9 @@ func rootCauseItemCanBeDirectOnChain(item RootCauseRankItem) bool {
 	if item.Type == "blocking_span" {
 		return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 	}
+	if item.Type == "io_burst_episode" && !item.resourceExactChainHostWork {
+		return false
+	}
 	if !rootCauseTypeCanBeDirectOnChain(item.Type) {
 		return false
 	}
@@ -19897,7 +19869,7 @@ func rootCauseTypeCanBeDirectOnChain(typ string) bool {
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
 		"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause",
-		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
+		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
 		"workqueue_activity", "dma_fence_activity",
 		"priority_inversion_candidate", "binder_wait":
 		return true
@@ -21403,11 +21375,18 @@ func safeResolveThread(idx *Index, q Query) ThreadRef {
 func enrichIOBurstEpisodesWithChainContext(chain ChainResult, items []IOBurstEpisodeSummary) []IOBurstEpisodeSummary {
 	for i := range items {
 		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
-		// SELF-ALL (§29.61.2): the target's own io_burst episode is a
-		// wall-clock IO facet seat — same self-basis verdict as the rank/
-		// critical faces (one 道别 predicate, three consumers).
-		if ctx.relevance == "adjacent" && selfWallClockSeatTokenIsSeatFamily("io_burst_episode") &&
-			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
+		// IO burst is a diagnostic projection over source facts, not a directed
+		// dependency unless its producer owns an exactly paired inode/storage
+		// interval. Preserve all other overlap as adjacent context.
+		if items[i].RootCauseEligibility != ioBurstRootCauseExactChainHostWork && ctx.relevance == "on_chain" {
+			ctx.relevance = "adjacent"
+		}
+		items[i].OnChainBasis = ""
+		if items[i].RootCauseEligibility == "" {
+			items[i].RootCauseEligibility = ioBurstRootCauseContextOnly
+		}
+		if items[i].RootCauseEligibility == ioBurstRootCauseExactChainHostWork && ctx.relevance == "adjacent" &&
+			selfWallClockSeatTokenIsSeatFamily("io_burst_episode") && selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
 			ctx.relevance = "on_chain"
 			ctx.overlapMs = 0
 			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval

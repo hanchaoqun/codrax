@@ -276,17 +276,18 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 	if candidates != 7 || waits != 6 {
 		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 7/6)", candidates, waits)
 	}
-	comp := evalcaseDHMFindItem(rank.Items, "block_io_by_inode", 17267)
-	if comp == nil {
-		t.Fatal("DHM-A5a: composite block_io_by_inode row missing")
+	for _, item := range rank.Items {
+		if item.Type == "block_io_by_inode" && item.Thread.PID == 17267 && rootCauseItemIsOnChain(item) {
+			t.Fatalf("DHM-A5a: target identity must not authorize inode/block relation: %+v", item)
+		}
 	}
 	if !CausalTokenCompositeValueWire("block_io_by_inode") {
 		t.Fatal("DHM-A5a: registry lost the composite wire arm for block_io_by_inode")
 	}
-	if !near(comp.ImpactMs, 2.694, 0.001) {
-		t.Fatalf("DHM-A5a: composite magnitude drifted: %.3f", comp.ImpactMs)
-	}
-	blob, err := json.Marshal(*comp)
+	// Keep the generic wire contract independently pinned. The live trace is
+	// no longer used to fixture a relation that its producer cannot prove.
+	comp := RootCauseRankItem{Type: "block_io_by_inode", Thread: ThreadRef{PID: 17267}, ImpactMs: 2.694, CumulativeImpactMs: 2.694}
+	blob, err := json.Marshal(comp)
 	if err != nil {
 		t.Fatal(err)
 	}

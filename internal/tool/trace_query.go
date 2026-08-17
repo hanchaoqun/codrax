@@ -5162,13 +5162,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			writeTraceIOPressure(&b, *result.WindowStats.IOPressureSummary)
 		}
 		for _, episode := range result.WindowStats.IOBurstEpisodes {
-			fmt.Fprintf(&b, "- io_burst_episode %s chain_relevance=%s signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms block_max=%.3fms storage_max=%.3fms inode=%s dev=%s name=%s file_bytes=%d page_cache_churn=%d overlap=%.3fms nearest_chain=%s lines=%d-%d confidence=%.2f — %s\n",
-				traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, episode.DStateMs, episode.IOWaitMs, episode.BlockMaxLatencyMs, episode.StorageMaxLatencyMs,
+			fmt.Fprintf(&b, "- io_burst_episode %s chain_relevance=%s root_cause_eligibility=%s signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms block_max=%.3fms storage_max=%.3fms inode=%s dev=%s name=%s file_bytes=%d page_cache_churn=%d overlap=%.3fms nearest_chain=%s lines=%d-%d confidence=%.2f — %s\n",
+				traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.RootCauseEligibility), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, episode.DStateMs, episode.IOWaitMs, episode.BlockMaxLatencyMs, episode.StorageMaxLatencyMs,
 				sanitizeForBanner(episode.TopInode), sanitizeForBanner(episode.TopDev), sanitizeForBanner(episode.TopEntryName), episode.FileIOBytes, episode.PageCacheChurn, episode.OverlapMs, traceThreadLabel(episode.NearestChainThread), episode.LineStart, episode.LineEnd, episode.Confidence, sanitizeForBanner(episode.Summary))
 		}
 		for _, inode := range result.WindowStats.BlockIOByInode {
-			fmt.Fprintf(&b, "- block_io_by_inode inode=%s dev=%s name=%s thread=%s block_dev=%s op=%s file_bytes=%d page_cache_churn=%d block_max=%.3fms storage_max=%.3fms nearest_block_thread=%s line=%d-%d confidence=%.2f — %s\n",
-				sanitizeForBanner(inode.Inode), sanitizeForBanner(inode.Dev), sanitizeForBanner(inode.EntryName), traceThreadLabel(inode.Thread), sanitizeForBanner(inode.BlockDev), sanitizeForBanner(inode.Operation), inode.FileIOBytes, inode.PageCacheChurn, inode.BlockMaxLatencyMs, inode.StorageMaxLatencyMs, traceThreadLabel(inode.NearestBlockThread), inode.LineStart, inode.LineEnd, inode.Confidence, sanitizeForBanner(inode.Summary))
+			fmt.Fprintf(&b, "- block_io_by_inode inode=%s dev=%s name=%s thread=%s block_dev=%s op=%s relation_status=%s file_bytes=%d page_cache_churn=%d block_max=%.3fms storage_max=%.3fms nearest_block_thread=%s line=%d-%d confidence=%.2f — %s\n",
+				sanitizeForBanner(inode.Inode), sanitizeForBanner(inode.Dev), sanitizeForBanner(inode.EntryName), traceThreadLabel(inode.Thread), sanitizeForBanner(inode.BlockDev), sanitizeForBanner(inode.Operation), sanitizeForBanner(inode.RelationStatus), inode.FileIOBytes, inode.PageCacheChurn, inode.BlockMaxLatencyMs, inode.StorageMaxLatencyMs, traceThreadLabel(inode.NearestBlockThread), inode.LineStart, inode.LineEnd, inode.Confidence, sanitizeForBanner(inode.Summary))
 		}
 		for _, irq := range result.WindowStats.IRQActivity {
 			fmt.Fprintf(&b, "- irq_activity kind=%s cpu=%d core_class=%s vector=%d name=%s count=%d paired=%d active=%.3fms max=%.3fms source=%s lines=%d-%d — %s\n",
@@ -13350,6 +13350,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Summary:         episode.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyChainRelevance, episode.ChainRelevance},
+				{"root_cause_eligibility", episode.RootCauseEligibility},
 				// SELF-ALL (§29.61.2): typed on-chain proof basis — a self-basis
 				// verdict must never read as a chain-window overlap claim.
 				{types.TraceNoteKeyOnChainBasis, episode.OnChainBasis},
@@ -13402,6 +13403,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"thread", traceThreadLabel(inode.Thread)},
 				{"block_dev", inode.BlockDev},
 				{"op", inode.Operation},
+				{"relation_status", inode.RelationStatus},
 				{"file_bytes", traceQueryTypedInt64(inode.FileIOBytes)},
 				{"page_cache_churn", traceQueryTypedCount(inode.PageCacheChurn)},
 				{"block_max", traceQueryObservationMSValue(inode.BlockMaxLatencyMs)},

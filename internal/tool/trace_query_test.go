@@ -1936,7 +1936,6 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 		"bundle_top_cause",
 		"chain_relevance=on_chain",
 		"bundle_io_burst",
-		"io_burst_episode",
 		"supply_pressure",
 		"dma_fence=1",
 		"trace_mark_category",

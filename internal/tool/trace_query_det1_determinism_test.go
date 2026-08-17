@@ -2,21 +2,15 @@ package tool
 
 // trace_query_det1_determinism_test.go — DET-1 determinism pin (v5 P1 批
 // 追加件, 2026-07-13): identical input must produce identical typed
-// observations across passes. The witness (donghu golden trace, aweme main
-// thread window): the block_io_by_inode 0x14088d/0x25a01 storage_max
-// attribution, the caliber_side member election (2.405↔2.694,
-// member_fold_caliber=max_overlap_fallback), the io_burst_episode top-8
-// census and an evidence_fact:root_cause_tertiary subject all flipped
-// run-to-run — root cause: nearestBlockInodeForThread elected over a Go map
-// in iteration order, so distance ties landed on a random inode (噪音从源头
-// 消除; 帽/选举前确定性次序). This pin re-runs the SAME query set over one
+// observations across passes. The original witness was a nondeterministic
+// nearest-thread/time inode↔block election; that unproven join is now removed
+// entirely. This pin still re-runs the SAME query set over one
 // index several times in one process (each pass re-iterates the maps) and
 // requires the sorted record stream byte-identical — it guards every future
 // same-family regression, not just the witness.
 //
-// MUTATION self-check: restoring the map-order election (dropping the
-// sorted-key iteration in nearestBlockInodeForThread) reds this pin with
-// high probability per pass pair.
+// MUTATION self-check: any future map-order leak in the remaining typed
+// carriers still diverges this byte stream across passes.
 
 import (
 	"context"

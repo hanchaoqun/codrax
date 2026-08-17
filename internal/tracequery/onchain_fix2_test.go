@@ -537,7 +537,7 @@ func TestONCHAINFIX2EnvelopeTierStamp(t *testing.T) {
 	items := []RootCauseRankItem{
 		{Type: "io_burst_episode", Thread: ThreadRef{Comm: "worker", PID: 200},
 			StartTs: 1.0, EndTs: 1.04, ImpactMs: 2.0, CumulativeImpactMs: 2.0,
-			Source: "window_stats.io_burst"},
+			Source: "window_stats.io_burst", resourceExactChainHostWork: true},
 		{Type: "io_latency", Thread: ThreadRef{Comm: "worker", PID: 200},
 			StartTs: 1.0, EndTs: 1.01, ImpactMs: 10.0, CumulativeImpactMs: 10.0,
 			Source: "window_stats.io_latency"},

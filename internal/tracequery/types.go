@@ -3010,6 +3010,11 @@ type IOPressureSummary struct {
 type IOBurstEpisodeSummary struct {
 	Thread         ThreadRef `json:"thread,omitempty"`
 	ChainRelevance string    `json:"chain_relevance,omitempty"`
+	// RootCauseEligibility is a typed publication disposition. IO burst rows
+	// are diagnostic projections over already-published scheduler/request
+	// facts; they must not mint a second causal seat merely because their
+	// envelope overlaps a dependency thread.
+	RootCauseEligibility string `json:"root_cause_eligibility,omitempty"`
 	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
 	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when the
 	// episode's on-chain relevance was granted by the typed self wall-clock
@@ -3038,12 +3043,18 @@ type IOBurstEpisodeSummary struct {
 }
 
 type BlockIOByInodeSummary struct {
-	Dev                 string    `json:"dev,omitempty"`
-	Inode               string    `json:"inode,omitempty"`
-	EntryName           string    `json:"entry_name,omitempty"`
-	Thread              ThreadRef `json:"thread,omitempty"`
-	BlockDev            string    `json:"block_dev,omitempty"`
-	Operation           string    `json:"operation,omitempty"`
+	Dev       string    `json:"dev,omitempty"`
+	Inode     string    `json:"inode,omitempty"`
+	EntryName string    `json:"entry_name,omitempty"`
+	Thread    ThreadRef `json:"thread,omitempty"`
+	BlockDev  string    `json:"block_dev,omitempty"`
+	Operation string    `json:"operation,omitempty"`
+	// RelationStatus states what the row actually proves. File/page-cache
+	// activity is inode-local only. A storage latency may join only when that
+	// producer itself carries the same typed inode (or entry) identity;
+	// same-thread/time-nearest block requests are never promoted to an inode
+	// relation.
+	RelationStatus      string    `json:"relation_status,omitempty"`
 	FileIOBytes         int64     `json:"file_io_bytes,omitempty"`
 	PageCacheChurn      int       `json:"page_cache_churn,omitempty"`
 	BlockMaxLatencyMs   float64   `json:"block_max_latency_ms,omitempty"`
@@ -4377,6 +4388,11 @@ type RootCauseRankItem struct {
 	// any partition term). Anchor-less builds keep the legacy overlap lane.
 	resourceHostContainmentEvaluated bool
 	resourceHostWindowContained      bool
+	// resourceExactChainHostWork is the producer-owned relation authority for
+	// an io_burst_episode root row. It is stamped only from a storage event
+	// whose own typed identity contains the paired inode/entry interval; a
+	// generic burst or nearest-time association cannot set it.
+	resourceExactChainHostWork bool
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

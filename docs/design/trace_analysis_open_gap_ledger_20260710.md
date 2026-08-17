@@ -1603,6 +1603,63 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
 - `git diff --check`：通过。
 
+## 2026-08-17 追加：IO-XGRAPH-1a 跨层关系权限收窄（inode/块请求去邻近洗白）
+
+### 新确认的系统 GAP
+
+- `computeBlockIOByInode` 原来把文件/inode、page-cache、storage 和块请求汇入同一行；当
+  storage 或 RQ/BIO 本身不带 inode 时，会用 `nearestBlockInodeForThread` 按“同 PID + 时间最近”
+  选一个 inode。这个 join 没有 sector→文件块映射、请求 cookie、bio lineage 或 producer-owned
+  inode identity，却把 `block_max/storage_max` 写进 `block_io_by_inode`。
+- 该复合行随后又生成 `io_burst_episode(signal=inode_storage_latency)`。后者被登记成每线程墙钟，
+  只要宿主线程在唤醒链且包络落在链窗内，就能进入链上候选。于是“邻近活动”经过
+  inode composite→burst 两次包装，被洗成了看似精确的链上 IO 时长。
+- 这不是单个 trace 的数值误差：旧 Donghu `2.694`/Tieba `4.262` 钉正是对该猜测结果的固定。
+  确定性排序只能让猜测稳定，不能让关系变真。
+
+### 本批统一裁定与实现
+
+1. 块请求的精确 identity 继续是 `(physical source, endpoint family, dev, sector, len,
+   issue/complete)`，完整保留在 `IOLatencies`；因为该 identity 不含 inode，禁止再凭线程/时间把
+   request residence 回填到 inode 行。
+2. inode-less storage 行继续完整保留在 `StorageLatencyByLayer`，不再找“最近 inode”。只有 storage
+   producer 自身携带 inode/entry，且 canonical dev、inode、PID 与文件行一致时，才铸
+   `relation_status=exact_storage_inode_identity`；普通文件/page-cache 行标
+   `inode_local_activity_only`。
+3. `IOBurstEpisodeSummary` 新增 typed `root_cause_eligibility`：scheduler D/IO 镜像与普通 inode
+   activity 为 `context_only_derived_projection`，绝不铸第二个根因席；只有 producer-owned、严格
+   配对的 storage/inode 时间段为 `eligible_exact_chain_host_work`，再通过既有宿主区间/typed 唤醒边
+   资格后，才可作为链上业务工作候选。
+4. `block_io_by_inode` 继续作为混合单位 roster/综合评分背景，但从 direct-on-chain 闭集删除；
+   target 身份、同线程、包络包含都不能替代跨层关系凭证。模型仍可看到 inode、文件名、字节、
+   page-cache 与精确 storage 行作为业务排查方向，但不能把它当 completion-closed IO 响应根因。
+5. 真正影响响应的块 IO 仍只由 IO-CAL-1 的
+   `completion_closed_issuer_blocked` 标尺进入 `io_latency` 链上席；request residence、精确宿主文件
+   IO 工作和 scheduler D/IO 是三种 typed 口径，不直接相加。
+
+### 回归与剩余边界
+
+- 新增正负钉：同线程/时间邻近的 inode-less storage 与 block request 不得附着；原始 inode/request
+  inventory 必须仍在；producer 自带 inode 的配对 storage 可保留精确宿主工作资格；target identity
+  不得自铸关系。
+- 旧 Donghu/Tieba 固定钉由“必须出现猜测出的 2.694/4.262”改为“原始事实仍在、猜测关系与伪链席
+  不得出现”；复合值 wire 格式改用显式构造的通用单测继续保护，避免拿生产假关系当 schema
+  fixture。
+- **IO-XGRAPH-1a：已修（本提交）。** 完整文件系统→BIO→RQ transaction graph 仍为
+  **IO-XGRAPH-1b（开放）**：只有 trace producer 提供可验证的 request/bio lineage 或文件块映射时
+  才能扩层，缺字段必须 fail-close，不能恢复最近邻。
+- **IO-STATE-UNIFY / IO-CENSUS-1 / IO-EBPF-1 / HCONV-IO-VIS 继续开放。** 本批只收窄跨层关系权限，
+  不宣称所有 IO 事件族、转换文本泳道和跨层 lineage 已齐全。
+
+### 验证回执
+
+- targeted relation/root/projection 回归通过；新增邻近拒绝、producer-owned exact identity、target
+  identity 负臂与 explicit-window system supplement 钉。
+- `go test ./internal/tracequery -count=1`：通过（`78.568s`）。
+- 同一代码基线的 `internal/tool`、`internal/tracediag`、`cmd` 全包分别通过（`190.694s / 6.413s /
+  10.713s`）；key-first/schema tripwire 未因新增 typed 字段失配。
+- `git diff --check`：通过。
+
 ## 2026-08-17 追加：IO-CAL-1 请求驻留与响应阻塞双标尺校准
 
 ### 对 BIO-WAKE-1 的重要勘正

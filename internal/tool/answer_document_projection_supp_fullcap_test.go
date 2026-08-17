@@ -394,10 +394,10 @@ func TestSupplementH3WindowMintsIOFacetEndToEndWord(t *testing.T) {
 	if !strings.Contains(corpus, "完成端到端·IO延迟（io_latency）") {
 		t.Fatalf("the supplement arm must mint the 完成端到端 io-facet member word:\n%s", corpus)
 	}
-	// The composite caliber stays disclosed with its measuring-layer word and
-	// the 非墙钟 mark (DET-1: the 2.694 member election is deterministic).
-	if !strings.Contains(corpus, "块设备层·块设备IO(inode)（block_io_by_inode） 2.694(综合评分,非墙钟)") {
-		t.Fatalf("the composite caliber sidebar must render with the deterministic 2.694 member:\n%s", corpus)
+	// Same-thread/time-nearest inode↔request attribution is unproven and must
+	// no longer manufacture the historical 2.694 composite sidebar member.
+	if strings.Contains(corpus, "块设备层·块设备IO(inode)（block_io_by_inode） 2.694(综合评分,非墙钟)") {
+		t.Fatalf("unproven inode/block temporal adjacency must not render as a relation:\n%s", corpus)
 	}
 	// IO-CAL-1: this seat spends the completion-closed issuer-blocked ruler,
 	// not request residence. The trace-exact maximum response wait is 0.782ms;

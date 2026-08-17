@@ -37,7 +37,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -114,9 +113,9 @@ func TestRSPAHygSingleSweepChainlessRankRun(t *testing.T) {
 
 // --- 件③ io facet host-form containment --------------------------------------
 
-// Unit arm (mirrors TestRSPAResourceLaneClosureArm): a partially contained
-// non-target io_burst/block_io row demotes to ◇; contained rows, target self
-// rows and anchor-less (unevaluated) rows keep the chain lane.
+// Unit arm (mirrors TestRSPAResourceLaneClosureArm): derived io_burst and
+// block/inode composite rows can never hold a direct chain credential;
+// containment remains relevant only to exact host-work resource families.
 //
 // 如实注: io_burst_episode has no on-chain partial-overlap production instance
 // in the in-repo traces — this synthetic fixture is its arm coverage; the
@@ -131,8 +130,7 @@ func TestRSPAHygIOFacetContainmentArmUnit(t *testing.T) {
 	// 如实注: none of the three has an on-chain production instance in the
 	// flagship windows (donghu 17267 / tieba 59566 probes, 2026-07-14) — this
 	// synthetic loop is their arm coverage.
-	for _, typ := range []string{"io_burst_episode", "block_io_by_inode",
-		"file_io_hot_inode", "workqueue_activity", "dma_fence_activity"} {
+	for _, typ := range []string{"file_io_hot_inode", "workqueue_activity", "dma_fence_activity"} {
 		base := RootCauseRankItem{Type: typ, Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2}
 
 		partial := base
@@ -152,6 +150,17 @@ func TestRSPAHygIOFacetContainmentArmUnit(t *testing.T) {
 		}
 		if got := rootCauseChainContextForItem(base, ctx, target); got.relevance != "on_chain" {
 			t.Fatalf("%s: anchor-less (unevaluated) rows keep the legacy overlap lane: %+v", typ, got)
+		}
+	}
+	for _, typ := range []string{"io_burst_episode", "block_io_by_inode"} {
+		for _, item := range []RootCauseRankItem{
+			{Type: typ, Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2, resourceHostContainmentEvaluated: true, resourceHostWindowContained: true},
+			{Type: typ, Thread: target, StartTs: 1, EndTs: 2},
+			{Type: typ, Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2},
+		} {
+			if got := rootCauseChainContextForItem(item, ctx, target); got.relevance != "adjacent" {
+				t.Fatalf("%s derived/composite row must never acquire direct chain authority: %+v", typ, got)
+			}
 		}
 	}
 	// page_cache_churn — 应豁免 (§29.83 残余③ per-edge audit): structurally
@@ -232,58 +241,51 @@ func TestRSPAHygIOFacetContainmentStamp(t *testing.T) {
 	}
 }
 
-// Production witness (tieba 59566 window): the ThreadPoolForeg-60555
-// block_io_by_inode envelope (61.540ms, 24.568ms inside its dependency
-// windows) demotes to the ◇ adjacent lane with its composite value untouched.
-func TestRSPAHygTiebaBlockIOPartialOverlapDemotes(t *testing.T) {
+// Production witness: the historical ThreadPoolForeg-60555 row was created
+// by nearest-thread/time attachment. The exact request and inode inventories
+// remain, but no block_io_by_inode causal row may survive that unproven join.
+func TestRSPAHygTiebaBlockIONearestJoinNotPublished(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
 	if err != nil {
 		t.Fatal(err)
 	}
 	rank := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.472865, TimeEnd: 34579.587805,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	found := false
 	for _, item := range append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...) {
-		if item.Thread.PID != 60555 || item.Type != "block_io_by_inode" {
-			continue
-		}
-		found = true
-		if item.ChainRelevance != "adjacent" || rootCauseItemIsOnChain(item) {
-			t.Fatalf("partial-overlap block_io must ride the ◇ adjacent lane: %+v", item)
-		}
-		if math.Abs(item.CumulativeImpactMs-4.262) > 0.002 {
-			t.Fatalf("the demotion must never touch the published value: %+v", item)
+		if item.Thread.PID == 60555 && item.Type == "block_io_by_inode" {
+			t.Fatalf("nearest-thread/time inode/block join must not publish a causal row: %+v", item)
 		}
 	}
-	if !found {
-		t.Fatalf("tieba witness row missing: %+v", rank.Items)
+	stats := Run(idx, Query{View: "window_stats", PID: 59566, TimeStart: 34579.472865, TimeEnd: 34579.587805,
+		TraceFlavorHint: TraceFlavorHarmonyHitrace}).WindowStats
+	if stats == nil || (len(stats.FileIOByInode) == 0 && len(stats.PageCacheByInode) == 0) {
+		t.Fatalf("source inode activity must remain visible after rejecting the cross-layer guess: %+v", stats)
 	}
 }
 
-// Production negative witness (donghu 17267 window): the analysis TARGET's own
-// block_io_by_inode row is self-causality exempt and keeps the chain lane.
-func TestRSPAHygDonghuTargetSelfBlockIOKeepsChainLane(t *testing.T) {
+// Target identity is not a relation credential either: a target-local inode
+// row must not inherit block latency from a nearby request or a chain lane.
+func TestRSPAHygDonghuTargetSelfDoesNotAuthorizeBlockIOJoin(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu.ftrace")
 	if err != nil {
 		t.Fatal(err)
 	}
 	rank := BuildRootCauseRank(idx, Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	found := false
 	for _, item := range append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...) {
-		if item.Thread.PID != 17267 || item.Type != "block_io_by_inode" {
-			continue
-		}
-		found = true
-		if !rootCauseItemIsOnChain(item) {
-			t.Fatalf("target-self block_io must keep the chain lane (self exemption): %+v", item)
-		}
-		if math.Abs(item.CumulativeImpactMs-2.694) > 0.002 {
-			t.Fatalf("target-self block_io value drifted: %+v", item)
+		if item.Thread.PID == 17267 && item.Type == "block_io_by_inode" && rootCauseItemIsOnChain(item) {
+			t.Fatalf("target identity must not promote inode/storage context to a causal chain row: %+v", item)
 		}
 	}
-	if !found {
-		t.Fatalf("donghu target-self witness row missing")
+	stats := Run(idx, Query{View: "window_stats", PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
+		TraceFlavorHint: TraceFlavorHarmonyHitrace}).WindowStats
+	if stats == nil || len(stats.IOLatencies) == 0 {
+		t.Fatalf("exact block request inventory must remain available: %+v", stats)
+	}
+	for _, inode := range stats.BlockIOByInode {
+		if inode.BlockMaxLatencyMs > 0 || inode.NearestBlockThread.PID > 0 {
+			t.Fatalf("inode row must not carry nearest block-request attribution: %+v", inode)
+		}
 	}
 }
 
