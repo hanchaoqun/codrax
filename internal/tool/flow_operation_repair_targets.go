@@ -821,7 +821,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				continue
 			}
 			argumentRank := 0
+			var argumentSurfaces []string
 			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, binding.file, line, callee) {
+				argumentSurfaces = append(argumentSurfaces, flow.Argument)
 				if flowNavigationArgumentMatchesBinding(flow.Argument, binding.alias) {
 					argumentRank = max(argumentRank, flowRepairPlanningSurfaceMatchRank(
 						[]string{binding.alias}, []string{flow.Argument},
@@ -843,7 +845,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				},
 				relation: relation,
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
-					relation, binding, site.ownerSurfaces, participantSurfaceGroups,
+					relation, binding,
+					append(append([]string(nil), site.ownerSurfaces...), argumentSurfaces...),
+					participantSurfaceGroups,
 				),
 				carrierRank: 1,
 				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
@@ -1000,8 +1004,11 @@ func flowNavigationCalleeMutationReadTarget(
 // flowNavigationRequestedParticipantTouchRank prefers one parser operation
 // that touches multiple independently requested participant groups. For a
 // typed carrier-argument candidate, the exact declaration contributes its
-// participant group; caller/callee endpoints may contribute other groups. For
-// an ordinary relation candidate, only parser endpoints contribute.
+// participant group; caller/callee endpoints and the parser-split complete
+// argument roster may contribute other groups. Including sibling arguments is
+// important for generic dispatch APIs whose component identity is passed as a
+// typed enum/constant rather than appearing in the callable name. For an
+// ordinary relation candidate, only parser endpoints contribute.
 //
 // The rank remains only a SOFT read coordinate: it neither proves that a
 // callee consumes a carrier nor creates evidence, an answer relation, or a

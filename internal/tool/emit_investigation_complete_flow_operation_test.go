@@ -932,6 +932,73 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 	}
 }
 
+func TestFlowOperationNavigationPrefersCarrierHandoffWithRequestedSiblingArgumentAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			path := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			absolute := filepath.Join(repo, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			lines := make([]string, 30)
+			lines[0] = "run pipeline"
+			// Both calls hand off the same typed carrier. Only the later call
+			// also carries another independently requested participant as a
+			// complete argument; that makes it the higher-value read coordinate.
+			lines[9] = "builder.build(this.busContext, backgroundStage)"
+			lines[29] = "builder.build(this.busContext, AgentExtractor)"
+			if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				path: {
+					RelPath: path, Language: language,
+					Symbols: []repotypes.Symbol{{
+						Name: "busContext", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1,
+					}},
+					Relations: []repotypes.Relation{
+						{
+							Kind: "call", File: path, Line: 10,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 10},
+							ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 10},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+						{
+							Kind: "call", File: path, Line: 30,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 30},
+							ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 30},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+					},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext", "extractor"})
+			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s requested sibling argument must prioritize the cross-participant carrier handoff: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("sibling-argument navigation rank must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {
