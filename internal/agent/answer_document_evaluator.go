@@ -1365,9 +1365,15 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 					}
 					claimUse = fmt.Sprintf("Attach block-level `claim_uses[]` using one of these exact allowed forms: %s.", renderQuotedList(forms))
 				}
-				items = append(items,
-					"Emit one `section` block per layer / component / topic, each with a grounded `title` and concise prose `text`. "+claimUse+" A section may also carry structured `items[]`; each item can use label/text/cells plus primary citation_ref and optional additional citation_refs under the canonical item-citation rule. When Principal Enumeration Rows belong to that section, put those rows once in the section's items[] instead of duplicating the roster in a separate global list or table. If there are no typed row obligations, section items are optional.",
-				)
+				if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable {
+					items = append(items,
+						"Emit an optional `section` only when a layer / component / topic still needs a grounded heading and concise explanatory prose. "+claimUse+" The required per-member `table` is the single structured principal-member carrier: keep bucket/category identity in its visible category column, and do not copy Principal Enumeration Rows, `source_inventory_row_id` values, or duplicate member items into `section.items[]`. Omit the optional section when the table already carries the bucket without additional explanation.",
+					)
+				} else {
+					items = append(items,
+						"Emit one `section` block per layer / component / topic, each with a grounded `title` and concise prose `text`. "+claimUse+" A section may also carry structured `items[]`; each item can use label/text/cells plus primary citation_ref and optional additional citation_refs under the canonical item-citation rule. When Principal Enumeration Rows belong to that section, put those rows once in the section's items[] instead of duplicating the roster in a separate global list or table. If there are no typed row obligations, section items are optional.",
+					)
+				}
 			case types.BlockTable:
 				items = append(items,
 					"Emit the principal `table` block as one canonical visible table. If you already authored a markdown table, put that complete table in block `text` and do not convert it. For a structured multi-column table, choose one row shape and keep it for every row: (A) omit `items[].label` and put one `cells[]` value per `columns[]` header; or (B) use `label` as the first visible value and put every remaining value in `cells[]`/`text` (then `columns[]` may include that first header or omit only it for a neutral Item/项目 header). Do not declare headers whose row values are absent. Use label/text without columns only when a two-column fallback is genuinely enough. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
@@ -9638,7 +9644,11 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 		b.WriteString("Every `row.member` there MUST appear verbatim in the visible answer, including decorators in parentheses, arrows, separators, and source-location text. ")
 	}
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
-		b.WriteString("Carry those rows as structured items in a principal `section`, `ordered_list`, `bullet_list`, or `table`; for `section`, use `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the member carrier; ")
+		if rm.Predicates.HasPerMemberTable {
+			b.WriteString("Carry those rows exactly once as structured items in the required principal `table`; it is the sole principal member carrier. Optional sections may frame buckets in their title/text but must not repeat the rows in `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the table carrier; ")
+		} else {
+			b.WriteString("Carry those rows as structured items in a principal `section`, `ordered_list`, `bullet_list`, or `table`; for `section`, use `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the member carrier; ")
+		}
 		if sourceInventory {
 			b.WriteString("do not drop, merge, or invent rows, and use only the exact display alternatives stated above.\n\n")
 		} else {
@@ -9760,7 +9770,11 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- When a set exposes `selection_family`, that exact typed value is the membership boundary because every row independently carries it. A model-authored `display_group` is presentation only: it must not add exclusions, subtract rows, or change the typed row count. If the display wording conflicts, keep the typed roster and rewrite the display wording yourself.\n")
 	b.WriteString("- When the required principal table carries `bucket_label`, preserve every row's `display_group`/set label as a separate visible category cell and matching column. Keep the exact member in item `label` (or cells[0] for a cells-only row); never put the bucket in `label`, and never drop the bucket while repairing member identity.\n")
 	b.WriteString("- For EVERY structured source-inventory item, copy that row's exact `row_id` to `source_inventory_row_id` and copy its exact `member`/`display_label` to item `label`; only a cells-only row may put the member in `cells[0]`. If a visible Markdown table puts category before member, keep the exact member in the hidden item `label` and copy the complete visible row to `cells`; do not use the category as row identity. The system binds the row-local citation, so omit manual `citation_ref` arithmetic. This keeps member, family, location, and citation on one typed identity even when labels are unique, decorated for display, or repeated across files. When rows expose `surface_family`, use that exact row-local key for grouping. A principal block intentionally carrying exactly one family should copy it to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row.\n")
-	b.WriteString("- Render these rows once as structured items in the answer's principal carrier: use a required bucket `section`'s `items[]` when the row belongs to that bucket, or use an `ordered_list`, `bullet_list`, or `table` when no such section is required. Prose-only mentions in block `text` do not carry row identity; do not add a second global list/table merely to repeat rows already carried by sections.\n")
+	if ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable {
+		b.WriteString("- Render these rows exactly once in the required per-member `table`; that table is the single structured principal-member carrier. Preserve each set/bucket in a visible category column. Optional bucket `section` blocks may keep headings and concise framing prose, but MUST NOT repeat the principal rows in `section.items[]` or another list/table. Copy each `source_inventory_row_id` only to its table row.\n")
+	} else {
+		b.WriteString("- Render these rows once as structured items in the answer's principal carrier: use a required bucket `section`'s `items[]` when the row belongs to that bucket, or use an `ordered_list`, `bullet_list`, or `table` when no such section is required. Prose-only mentions in block `text` do not carry row identity; do not add a second global list/table merely to repeat rows already carried by sections.\n")
+	}
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
 	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
 		b.WriteString(guidance)
@@ -11175,7 +11189,11 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
 	b.WriteString("- In principal blocks, put inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry, a lane `typed_surface` / `surface_terms` value, a structured aggregate fact value/dimension, an exact target, or the cited source line. Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background: use plain prose for them or omit them.\n")
 	b.WriteString("- If the user's scalar / count question also asks for concrete members, files, paths, or line numbers, the scalar conclusion is not enough: add an `ordered_list` or `table` drawn from the principal lane entries. If the user asked only for the scalar value, do not invent a member list.\n\n")
-	if obligations := renderAnswerDocPrincipalMemberObligations(plan, enumerationCoverage); obligations != "" {
+	perMemberTable := ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable
+	if perMemberTable {
+		b.WriteString("- For this dispatch, lane `Allowed block kinds` describe where the evidence is compatible; they do not authorize duplicate principal rosters. The required per-member `table` is the one structured principal-member carrier. Sections may use the same evidence only for headings or concise explanatory prose, without member `items[]`.\n\n")
+	}
+	if obligations := renderAnswerDocPrincipalMemberObligations(plan, enumerationCoverage, perMemberTable); obligations != "" {
 		b.WriteString(obligations)
 	}
 	switch plan.Family {
@@ -11496,7 +11514,7 @@ func answerDocSplitEntriesCoveredByPrincipalEnumerationRows(entries []types.Answ
 	return rendered, remaining
 }
 
-func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, coverage answerDocPrincipalEnumerationRowCoverage) string {
+func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, coverage answerDocPrincipalEnumerationRowCoverage, perMemberTable bool) string {
 	obligations := types.PrincipalSupportMemberObligations(plan)
 	if len(obligations) == 0 {
 		return ""
@@ -11524,10 +11542,18 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, co
 		b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Anchors are equivalent only for the visible claims they both actually prove: if the row also displays a related attribute, condition, owner, route, default, or selection rule, prefer one grounded proof anchor that carries both the member endpoint and that visible second axis; a definition-only line is not equivalent for that two-axis row. Do not churn `citation_ref` between anchors that prove the same visible claims; mention the other only as same-row enrichment when it helps the user.\n")
 	}
 	if len(obligations) == 0 {
-		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`; prose-only mentions in block `text` do not satisfy the member carrier.\n\n", totalObligations)
+		if perMemberTable {
+			fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` once as a structured row in the required principal `table`, with a citation to the listed location or one of its equivalent typed anchors. Do not duplicate those members in section/list items; prose-only mentions do not satisfy the table carrier.\n\n", totalObligations)
+		} else {
+			fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`; prose-only mentions in block `text` do not satisfy the member carrier.\n\n", totalObligations)
+		}
 		return b.String()
 	}
-	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in block `text`.\n", totalObligations, len(obligations))
+	if perMemberTable {
+		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member once as a structured row in the required principal `table`, with a citation to the listed location or one of its equivalent typed anchors. Do not duplicate those members in section/list items. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in block `text`.\n", totalObligations, len(obligations))
+	} else {
+		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in block `text`.\n", totalObligations, len(obligations))
+	}
 	b.WriteString("Use the shown `item_id` for the row id when possible, and use `citation_key` as the stable file:line target when building `citations[]`; after you build the citation pool, `citation_ref` is simply the zero-based index whose citation matches that key. Do not count indexes from memory when a key is shown.\n")
 	b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Anchors are equivalent only for the visible claims they both actually prove: if the row also displays a related attribute, condition, owner, route, default, or selection rule, prefer one grounded proof anchor that carries both the member endpoint and that visible second axis; a definition-only line is not equivalent for that two-axis row. Do not churn `citation_ref` between anchors that prove the same visible claims; mention the other only as same-row enrichment when it helps the user.\n")
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&

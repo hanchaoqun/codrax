@@ -109,6 +109,22 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 			string(FacetUncertaintyBoundary),
 		),
 	}
+	if ir != nil && ir.RequestModel.Predicates.HasPerMemberTable {
+		// A typed per-member table already owns the one visible principal
+		// roster. Leaving the generic bucket-section hint unchanged gives the
+		// model two apparently valid structured member carriers: section.items
+		// and table rows. Keep sections available as reader-facing bucket
+		// headings/explanations, but make their non-owner role explicit. This is
+		// prompt guidance only; it neither rewrites the answer nor adds a
+		// prose-sensitive gate.
+		for i := range view.OptionalBlocks {
+			if view.OptionalBlocks[i].Kind != BlockSection {
+				continue
+			}
+			view.OptionalBlocks[i].Rationale = "When the user partitioned the question into named buckets, an optional section may preserve each bucket header and short explanation. " +
+				"The required per-member table is the single structured principal-member carrier: keep every member row there exactly once, and do not repeat those rows in section.items."
+		}
+	}
 	view.UncertaintyRules = []UncertaintyRule{
 		{
 			TriggerFacet:      string(FacetUncertaintyBoundary),

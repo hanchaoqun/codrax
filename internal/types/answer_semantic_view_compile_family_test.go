@@ -858,6 +858,20 @@ func TestCompileEnumeration_PerMemberTableHasNoDeleteToListEscape(t *testing.T) 
 	if carrier.Kind != BlockTable || len(carrier.AlternativeKinds) != 0 || !carrier.Required || carrier.SurfaceRoleHint != SurfacePrincipal {
 		t.Fatalf("has_per_member_table must require one principal table with no list/section escape: %+v", carrier)
 	}
+	var bucketSection *BlockRequirement
+	for i := range view.OptionalBlocks {
+		if view.OptionalBlocks[i].Kind == BlockSection {
+			bucketSection = &view.OptionalBlocks[i]
+			break
+		}
+	}
+	if bucketSection == nil {
+		t.Fatalf("per-member table enumeration should retain an optional explanatory section: %+v", view.OptionalBlocks)
+	}
+	if !strings.Contains(bucketSection.Rationale, "single structured principal-member carrier") ||
+		!strings.Contains(bucketSection.Rationale, "do not repeat those rows in section.items") {
+		t.Fatalf("optional section must explicitly defer structured member ownership to the required table: %q", bucketSection.Rationale)
+	}
 }
 
 func containsClaimForm(items []ClaimForm, want ClaimForm) bool {

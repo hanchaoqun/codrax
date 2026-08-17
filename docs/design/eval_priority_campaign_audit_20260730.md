@@ -36224,6 +36224,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.970 r596/B947：逐成员表双载体教学冲突；Trace 因果分类单轮波动（2026-08-16）
+
+1. 在同一重建产物上严格并发恰好两个异构 case：读模式 `arkts_repomap` 与显式窗
+   `real_trace_h7_self_seat_full_spectrum`。Runner `0 PASS / 2 FAIL`；人工为 ArkTS partial、Trace fail。
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_arkts_trace_r596_20260816.md` 与同名
+   `_manual_audit.md`。
+2. ArkTS 的事实面正确：source inventory、探索 handoff 与最终答案均保留 4 个 `@Entry`、2 个
+   `@Builder` 及对应路径，首轮成文零拒绝。B946 获生产正证：requested member dimension 没有再把合法
+   section items 判成缺失。Runner 的 `entry_page:got8:want4` 不是假红；最终把同一 roster 同时写进两个
+   bucket `section.items[]` 和 required per-member table，用户可见内容确实重复。
+3. 新确认 `B947-PRINCIPALMEMBERSINGLECARRIER1/P1`。根因是同一 typed 请求的三处教学冲突：
+   `HasPerMemberTable=true` 已要求 table，但 optional section rationale、Principal Enumeration Rows handoff、
+   typed support-lane obligation 仍允许或推荐 section/list/table 任一承载成员。模型逐条照做，正确成员被复制。
+4. 根修只读 typed `Predicates.HasPerMemberTable`：required table 成为唯一结构化 principal-member carrier；
+   optional section 仍可保留业务/类别标题和简短说明，bucket identity 留在表格可见类别列，但 section 不再携带
+   member items。support lane 的 allowed kinds 被明确为证据兼容范围，不授权重复 roster。普通枚举仍保留原来的
+   section/list/table 自由。
+5. 该实现只是模型上下文教学和 semantic-view rationale，不扫描用户原文、thinking、答案文本或语言名，不增加
+   emit 拒绝，不删除/改写模型 block，也不由系统补成员或写答案。ArkTS/Cangjie/Go/Java/C/C++/Rust/Python 等
+   所有语言共享同一 typed 规则；compile 与 finalizer prompt 正负 pin 已通过。
+6. Trace 失败的直接因是 Analyzer 单轮把明确要求“按重要程度给出根因排序/全部主要和小贡献来源”的请求铸成
+   `intent=explain + scenario=generic + scope=bounded_fact_set`，requested dimensions 只有 finite observed/member
+   roles；因此虽执行 6 次显式窗 query 并保留 running 74.915ms、D-state 36.757ms/11 段、
+   `dma_fence_default_w`、供给折算 65.912ms，`trace_query_final_projection_blocks=0`，49.623/0.033 同源分账、
+   compaction authority 与未计价业务方向均未进入最终投影。
+7. 现有 analyzer 教学已逐字规定 ranked/competing/all-major-minor cause roster 必须用
+   `causal_contributor_set + causal_diagnosis`，而 r577/r580/r584/r593 等同案异构回放均成功。工具只能验证已发
+   typed tuple 内部一致性；在不重扫原始文本的前提下无法证明模型漏铸的 causal dimension。因此本轮记为模型
+   语义波动/context sufficient，不新增请求关键词硬门、不把所有 trace 自动扩成全量诊断、不由系统代写结论。
+   只有异构样本持续复现时才评估独立 typed classifier/reviewer。
+8. ArkTS 的一次 `blocks` 字符串恢复为全损保真，非重复根因；Trace 零 JSON 恢复、零成文拒绝。两案均无空答案，
+   活跃字节流未因 4ms、4s 或固定总年龄降级。显式窗、因果投影与自动补齐能力本身未改；根因继续仅来自 typed
+   链上席，邻近/background 仅作支持，实际占时/业务线索与规则可消双轴保持。
+
+状态：
+
+`B946-SECTIONITEMMEMBERDIMENSION1=production-closed-r596`；
+`B947-PRINCIPALMEMBERSINGLECARRIER1=implemented/typed-soft-guidance+pinned/pending-production-replay`；
+`Trace r596 analyzer scope=model-variance/context-sufficient/no-hard-fit`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

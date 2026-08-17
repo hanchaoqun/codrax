@@ -4025,7 +4025,7 @@ func TestRenderAnswerDocPrincipalMemberObligations_DedupesEnumerationRowsByLocat
 		}},
 	}
 
-	got := renderAnswerDocPrincipalMemberObligations(plan, coverage)
+	got := renderAnswerDocPrincipalMemberObligations(plan, coverage, false)
 	for _, want := range []string{
 		"1 answer-grade member obligation(s) are already rendered once in `Principal Enumeration Rows` above",
 		"The typed principal lane contains 1 answer-grade member(s). Render each member from `Principal Enumeration Rows`",
@@ -4290,6 +4290,66 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 	}
 	if strings.Contains(prompt, "Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks") {
 		t.Fatalf("principal row teaching retained the carrier list that excludes section.items[]:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_PerMemberTableIsSingleStructuredMemberCarrier(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Entry pages",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "page",
+		Members:     []string{"Index"},
+		SupportRefs: []string{"Index @ src/main/ets/pages/Index.ets:5"},
+	}})
+	mut.SetInvestigationComplete("enumeration complete")
+	mut.SetInvestigationResultKind("resolved")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "enumerate all Entry pages",
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				HasPerMemberTable:     true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all Entry pages",
+			},
+		}},
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-index",
+			Kind:            types.EvidenceDirect,
+			Subject:         "Index",
+			AnchorSymbol:    "Index",
+			AnchorKind:      types.AnchorDefinition,
+			Source:          "src/main/ets/pages/Index.ets",
+			LineStart:       5,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "ArkTS Entry page",
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"required per-member `table`",
+		"single structured principal-member carrier",
+		"MUST NOT repeat the principal rows in `section.items[]`",
+		"Optional sections may frame buckets in their title/text but must not repeat the rows in `items[]`",
+		"lane `Allowed block kinds` describe where the evidence is compatible; they do not authorize duplicate principal rosters",
+		"Do not duplicate those members in section/list items",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("per-member table prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "use a required bucket `section`'s `items[]` when the row belongs to that bucket") {
+		t.Fatalf("per-member table prompt retained the conflicting section-row carrier instruction:\n%s", prompt)
 	}
 }
 
