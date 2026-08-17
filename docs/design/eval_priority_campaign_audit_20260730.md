@@ -35692,6 +35692,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1001 r632/B994/B995：扩窗系统面闭环后模型仍复制旧 rank；call 修补输入合同自冲突（2026-08-17）
+
+1. 在 `main@169f0ca56` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工仍为
+   `QF fail / Trace fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_principalboard_carrier_r632_20260817_manual_audit.md`。
+2. B992 获生产正证：Explorer 已精确读到并发出
+   `o.busCtx.Mutable -> appendStageOutputEvidenceToMutable` 的 `argument_flow`，说明外层 typed carrier
+   segment 导航根修生效。它没有铸 evidence 或系统代画关系，红线保持。
+3. 新确认并关闭 B994：call repair 一边要求完整 canonical callee 作为 durable obligation，一边又要求
+   模型把 dotted callee 原样提交到只接受 parser call token 的 `anchor_symbol`；模型逐字照做仍降成
+   `text_reference`，重发后又被 dedupe。`4e3bfa59a` 只把模型输入提示改成 exact tail token，parser
+   验证后恢复完整 canonical endpoint，清账仍按完整 caller/callee，未降低关系证据杆。
+4. B993 的系统确定性面已生产闭环：主窗 `1.000000..1.010000` 的根因名册、方向小计、可消除榜、树徽章
+   与代表窗均只剩 worker-200 `#1=8.300ms`；扩窗 `1.000000..1.011000` 的 app-100 0.020ms 只出现在
+   背景层。但模型正文仍称其为“根因排名 #2/次要候选”，并继续臆述同 CPU 竞争。这不是投影再算错，
+   而是较早/raw rank 行仍在大上下文里压过最终 typed authority。
+5. B995 已施工：`b6388664e` 在最终合成尾部用同一
+   `TraceCausalProjectionNodeMatchesPrincipalWindow` 谓词发布紧凑的主窗 ordinal roster 与异窗排除
+   名单。只有选中窗 on-chain 可消除席位可在本次结论使用 `#N`；异窗本地 rank 保留为 supporting
+   context，selected-window ordinal 明确 forbidden。实现不读 request/final prose、不删证据、不改写
+   模型结论，也不影响 trace query、投影、自动补齐；`agent/types/tool` 全套通过。
+6. QF 仍有 B996：stage precedence、Extractor/Finalizer 对 Mutable 的真 call、外层参数交接与
+   `BusContext.Mutable : *MutableState` ownership 均已存在，但 typed relation component 不能把业务
+   stage participant、实现 callable owner 和嵌套 carrier grouping 对齐。继续读更多局部调用的 ROI
+   已为负；后续应做 parser-owned owner/group bridge，且必须保留“两个断开 local operation 不能伪装
+   成 requested relation”的既有负 pin。
+7. `bounded_window_candidate` / `priority_inversion_candidate` 等控制枚举仍会被模型抄入客户正文，列为
+   P2 客户语言面重复 witness。控制 JSON enum 保持稳定；只缩短/后置 JSON 教学并提供自然语言语义，
+   禁止 request/output 字符串硬门或 renderer 替写。两案活跃流均超过 4ms 正常完成，未发生固定年龄降级。
+
+状态：
+
+`r632=runner-2/2/human=qf-fail+trace-fail`；
+`B992-OUTERTYPEDCARRIERSEGMENTNAV1=production-positive-r632`；
+`B993-SELECTEDWINDOWRANKBOARDISOLATION1=production-system-closed-r632/model-synthesis-salience-gap-superseded-by-B995`；
+`B994-CALLREPAIRINPUTGRAMMAR1=implemented+pushed+typed-canonical-debt-preserved`；
+`B995-SELECTEDWINDOWPRINCIPALORDINALTAIL1=implemented+pushed+full-relevant-suite-pass/pending-production-replay`；
+`B996-PARTICIPANTIMPLEMENTATIONCARRIERCOMPONENT1=confirmed/open/no-edge-invention`；
+`Trace customer-language-enum=confirmed/P2/repeated-witness/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.999 r630/B991：跨 owner 导航闭环；typed receipt 跨断开组件重复消费（2026-08-17）
 
 1. 在 `main@5a76dcff7` 严格并发恰好两个案例：
