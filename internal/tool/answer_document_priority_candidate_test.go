@@ -328,6 +328,31 @@ func TestPriorityInversionImpactLegendKeepsCandidateCaliber(t *testing.T) {
 		strings.Contains(spec.SemanticsEN, "priority inversion (a low-priority holder blocks") {
 		t.Fatalf("legend retained the retired confirmed-inversion semantics: %+v", spec)
 	}
+	for _, want := range []string{"runnable 调度等待", "running 算力供给提升空间", "持有资源、等待完成或直接阻塞须另有关系证据"} {
+		if !strings.Contains(spec.SemanticsZH, want) {
+			t.Fatalf("inversion legend missing separated mechanism boundary %q: %+v", want, spec)
+		}
+	}
+}
+
+func TestTraceProjectionDrillLegendDoesNotMintDirectBlockingMechanism(t *testing.T) {
+	var drill runtimeTraceProjLegendEntry
+	for _, entry := range runtimeTraceProjLegendCatalog() {
+		if entry.Mark == runtimeTraceProjMarkEdgeDrill {
+			drill = entry
+			break
+		}
+	}
+	for _, want := range []string{"沿已发布链向上游展开", "链上依赖/影响席", "只有另有精确的等待-完成", "direct-blocking relation"} {
+		if !strings.Contains(drill.ZH+drill.EN, want) {
+			t.Fatalf("drill legend missing mechanism ceiling %q: zh=%q en=%q", want, drill.ZH, drill.EN)
+		}
+	}
+	for _, forbidden := range []string{"该子行就是父行等待的直接原因", "this child row IS the direct cause"} {
+		if strings.Contains(drill.ZH, forbidden) || strings.Contains(drill.EN, forbidden) {
+			t.Fatalf("drill legend still mints direct blocking from chain position %q: zh=%q en=%q", forbidden, drill.ZH, drill.EN)
+		}
+	}
 }
 
 func TestPriorityInversionCandidateTypedPublicationKeepsOnChainMainOffChainBackground(t *testing.T) {

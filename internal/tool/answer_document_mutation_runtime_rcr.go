@@ -221,7 +221,7 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 			Mark: runtimeTraceProjMarkIconSpanEnvelope, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormInversion, Glyph: tracefence.GlyphInversion,
 			CategoryZH: tracefence.InversionCandidateWordZH, CategoryEN: "priority-inversion candidate",
-			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
+			SemanticsZH: "优先级反转候选(链上低优先级依赖的 runnable 调度等待和/或 running 算力供给提升空间;持有资源、等待完成或直接阻塞须另有关系证据)", SemanticsEN: "a priority-inversion candidate (runnable scheduling delay and/or running compute-supply opportunity of a lower-priority on-chain dependency; resource ownership, awaiting completion, and direct blocking require separate relation evidence)",
 			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: tracefence.GlyphOptimization,
 			CategoryZH: "语义优化候选", CategoryEN: "semantic-optimization candidate",

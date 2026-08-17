@@ -1589,8 +1589,9 @@ type runtimeTraceProjLegendEntry struct {
 //   - the └─唤醒─ entry keeps the NEW-1 direction wording VERBATIM (客户点名
 //     "谁唤醒谁" — one direction, stated twice consistently; PTV4 T7 re-ruled:
 //     严禁改动);
-//   - PTV4 T7: the drill/cause edges use the same parent-child explicit style
-//     (下钻 verbatim per ruling: 父行在等什么);
+//   - B1003: the drill edge names the published upstream chain position only;
+//     a wait-for-completion, holder/waiter, or direct-blocking mechanism still
+//     requires its own exact typed relation;
 //   - PTV4 T4: parenthesized in-row explanations moved here — the row keeps
 //     only the mark + data (防回潮 pin scans the fence for regressions).
 func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
@@ -1605,8 +1606,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `" + runtimeTraceProjRootGlyph + "` = 树根:本次分析锚定的关注线程。",
 			"- `" + runtimeTraceProjRootGlyph + "` = tree root: the focused thread this analysis anchors on."},
 		{runtimeTraceProjMarkEdgeDrill, runtimeTraceProjLegendGroupEdge,
-			"- `├─下钻─` = 父行在等什么:该子行就是父行等待的直接原因。",
-			"- `├─drill─` = what the parent row is waiting on: this child row IS the direct cause of the parent's wait."},
+			"- `├─下钻─` = 沿已发布链向上游展开:子行是父行的链上依赖/影响席;只有另有精确的等待-完成、持有者/等待者或直接阻塞关系时,才能说父行在等它完成或被它直接阻塞。",
+			"- `├─drill─` = expand upstream along the published chain: the child is an on-chain dependency/impact seat of the parent; say the parent awaited its completion or was directly blocked by it only when a separate exact wait-completion, holder/waiter, or direct-blocking relation proves that mechanism."},
 		{runtimeTraceProjMarkEdgeWake, runtimeTraceProjLegendGroupEdge,
 			"- `└─唤醒─` = 该行唤醒其父行(父行的等待由该行结束;父行依赖该行)。",
 			"- `└─wakes─` = this row WAKES its parent row (the parent's wait ends on this row; the parent depends on it)."},
@@ -1649,8 +1650,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// PTV8-RCR-B (UXA 域A #9, 2026-07-08). EVOLUTION RECORD: 「其唤醒子行即
 		// 下钻结果」倒装+内部动词连用 → 直陈「根因看子行」(客户化令 §24 ④).
 		{runtimeTraceProjMarkIconSleep, runtimeTraceProjLegendGroupMark,
-			"- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
-			"- `☾/sleep` = a sleep wait (waiting on an event/wake); sleep is the symptom, not the root cause — look at its drill/wake child rows."},
+			"- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,沿下钻/唤醒子行继续排查链上原因,具体等待内容与阻塞机理以独立关系证据为准。",
+			"- `☾/sleep` = a sleep wait (waiting on an event/wake); sleep is the symptom, not the root cause — follow drill/wake child rows for on-chain causes, while the exact awaited work and blocking mechanism still require separate relation evidence."},
 		{runtimeTraceProjMarkIconRunnable, runtimeTraceProjLegendGroupMark,
 			"- `⧖/runnable` = 就绪等待(有资格运行但未获得 CPU)。",
 			"- `⧖/runnable` = ready to run, waiting for a CPU."},

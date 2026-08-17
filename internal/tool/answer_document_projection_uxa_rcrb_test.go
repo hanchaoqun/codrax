@@ -80,7 +80,7 @@ func TestUXARetiredWordsNeverShipZH(t *testing.T) {
 // bites here).
 func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 	want := map[runtimeTraceProjMark]string{
-		runtimeTraceProjMarkIconSleep:   "- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
+		runtimeTraceProjMarkIconSleep:   "- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,沿下钻/唤醒子行继续排查链上原因,具体等待内容与阻塞机理以独立关系证据为准。",
 		runtimeTraceProjMarkIconTransit: "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
 		// EVOLUTION RECORD (UXR-1 §29.36.1): ◦ 只留真正无类型词的行 — the
 		// entry states both halves symmetrically.
