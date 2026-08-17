@@ -3960,6 +3960,64 @@ func TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative(t *testing.T
 	}
 }
 
+// Once exploration has published hard-grounded deterministic trace rows, the
+// finalizer must not receive the wider raw trace as a competing value source.
+// Explorer keeps the same raw attachment: discovery and unsupported/incomplete
+// query fallback happen there, before the answer-authoring boundary.
+func TestShouldSuppressAttachedRuntimeTrace_FinalizerAfterDeterministicQueryOnly(t *testing.T) {
+	mu := types.NewMutableState("summarize the selected trace window")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:window#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+			Subject:         "worker-200",
+			Predicate:       "root_cause_primary",
+			Object:          "runnable",
+		}},
+	})
+	raw := "app-100 [001] .... 2.020020: sched_switch: prev_comm=idle next_comm=app\n"
+
+	finalizer := &types.AgentContext{
+		AgentName:       types.AgentFinalizer,
+		Stage:           types.StageFinalize,
+		Mutable:         mu,
+		AttachedHitrace: raw,
+	}
+	finalPrompt := BuildPromptContext(finalizer, finalizerSkill())
+	if sec := findSectionTitle(finalPrompt, SectionAttachedPerfTrace); sec != nil {
+		t.Fatalf("finalizer must not receive raw trace after deterministic query authority: %q", sec.Content)
+	}
+
+	explorer := &types.AgentContext{
+		AgentName:       types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Mutable:         mu,
+		AttachedHitrace: raw,
+	}
+	explorePrompt := BuildPromptContext(explorer, &skill.Config{Name: "test"})
+	if sec := findSectionTitle(explorePrompt, SectionAttachedPerfTrace); sec == nil {
+		t.Fatal("explorer must retain raw trace for discovery and query fallback")
+	}
+}
+
+func TestShouldSuppressAttachedRuntimeTrace_FinalizerWithoutDeterministicQueryKeepsRawFallback(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:       types.AgentFinalizer,
+		Stage:           types.StageFinalize,
+		Mutable:         types.NewMutableState("summarize an unqueried trace"),
+		AttachedHitrace: "app-100 [001] .... 2.000000: tracing_mark_write: B|100|frame\n",
+	}
+	pc := BuildPromptContext(ac, finalizerSkill())
+	if sec := findSectionTitle(pc, SectionAttachedPerfTrace); sec == nil {
+		t.Fatal("finalizer must retain raw trace when no deterministic query authority exists")
+	}
+}
+
 func TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery(t *testing.T) {
 	mu := types.NewMutableState("summarize the trace window")
 	mu.SetPerfTrace(&types.PerfBundle{

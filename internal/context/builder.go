@@ -1330,8 +1330,15 @@ func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
 // shouldSuppressAttachedRuntimeTrace mirrors
 // shouldSuppressAttachedRuntimeLog for the perf-trace channel.
 // perf_triager always sees the raw trace (it is the producer);
-// finalizers running typed-answer-support mode always suppress it
-// (typed support lanes carry the authoritative summary). For all
+// finalizers running typed-answer-support mode or holding at least one
+// hard-grounded deterministic trace_query observation always suppress it
+// (typed support/query lanes carry the authoritative summary). The raw body
+// remains available to perf_triage and exploration, where it is needed to
+// discover and query the right window. Replaying it after a deterministic
+// query gives the finalizer a weaker, wider source from which it can
+// accidentally recompute a selected-window value using an out-of-window row.
+// This gate is stage/provenance based; it never scans the request or model
+// prose and it never edits the model's answer. For all
 // other agents the gate is "typed PerfBundle is non-nil + carries a
 // performance IntentHint + has at least one resolved file" — at that
 // point the structured Frames / Janks / Stalls / Startup view is
@@ -1346,6 +1353,10 @@ func shouldSuppressAttachedRuntimeTrace(ac *types.AgentContext) bool {
 		return false
 	}
 	if finalizerUsesTypedAnswerSupport(ac) {
+		return true
+	}
+	if ac.AgentName == types.AgentFinalizer && ac.Stage == types.StageFinalize &&
+		finalizerHasDeterministicRuntimeQuery(ac) {
 		return true
 	}
 	bundle := ac.PerfTrace

@@ -35717,8 +35717,11 @@ Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-
    deterministic trace-query observations，就只消费 typed 查询、投影、账本与精确 support refs，不再收到
    整份 raw body。查询未发生时仍保留 raw 降级路径。该门只读 agent/stage 与 typed observation count，
    不扫描用户原文或模型答案，不替模型形成结论。
-6. 本批没有增加 20.020、四跳、caller 名称或任何答案词面的硬门，也不由系统修正文案。下一批先实现
-   B1006 的 finalizer-only 权威收敛并加正负 pin，再用 IO/真实 Trace 与 JSON/图案例严格并发两个回放。
+6. B1006 已按 stage/provenance 实现：`shouldSuppressAttachedRuntimeTrace` 在 Finalizer 已持有至少一条
+   hard-grounded deterministic `trace_query` runtime observation 时抑制完整 raw body。Explorer 对同一状态
+   仍保留原始 trace，完全没有 deterministic query 时 Finalizer 也保留 raw 降级。正负 pin 同时覆盖三条
+   车道；`internal/context + internal/agent + internal/types` 全绿。本批没有增加 20.020、四跳、caller 名称
+   或任何答案词面的硬门，也不由系统修正文案。下一批用 IO/真实 Trace 与 JSON/图案例严格并发两个回放；
    若机制越界在无冲突上下文仍稳定复现，再审计 typed caller/edge 载体与软教学，而不做 case 拟合。
 7. 两案活跃字节流都远超 4ms 并正常结束，无固定 4ms/总年龄降级。显式时间窗、完整 causal-diagnosis
    的 Trace 因果投影与自动补齐、链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务
@@ -35729,7 +35732,7 @@ Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-
 `r638=runner-2/2/human=trace-fail+write-pass`；
 `B1004-EVALWRITEEQUIVALENTSOURCEORACLE1=production-closed-r638`；
 `B1005-TRACECAUSALSCOPEOPTIONCONJUNCTION1=production-positive-r638`；
-`B1006-FINALIZERRAWTRACEAUTHORITYCONFLICT1=confirmed/P1/pending-implementation`；
+`B1006-FINALIZERRAWTRACEAUTHORITYCONFLICT1=implemented/finalizer-only+explore/raw-fallback-pins-pass/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=preserved`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
