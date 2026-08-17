@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.999 r630/B991：跨 owner 导航闭环；typed receipt 跨断开组件重复消费（2026-08-17）
+
+1. 在 `main@5a76dcff7` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `QF fail / Trace partial`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_ownerbridge_window_r630_20260817_manual_audit.md`。
+2. B990 生产闭环：QF completion 第一次就进入 `applyStageOutput:8442-8479` 和
+   `stage_output_evidence_ingest.go`，Explorer 发出 line 8479 的 exact call 与完整
+   `o.busCtx.Mutable` argument-flow；Finalizer capsule 也发布正确的 component 4、两条 edge recipe 与
+   copy-ready fragment。由此排除“模型没找源码/系统没给关系”，问题已转移到成文 normalizer。
+3. 新确认 B991：模型修掉未证 stage→apply 边后，图内有两个断开的单边 call 组件。旧 topology
+   identity repair 对每个组件独立求同构，把唯一 single-call receipt
+   `runReadSchedulerLoop -> executeStageRequest` 同时贴给 `runScheduler->executeStage` 和
+   `applyOut->appendFn`；随后 occurrence validator 正确拒绝第二次消费。模型从错误信息看到
+   `applyOut(Orchestrator.runReadSchedulerLoop) -> appendFn(Orchestrator.executeStageRequest)`，最终删除
+   本来已有正确 typed recipe 的真实交接。系统先铸错 metadata 再硬拒，属于精确信号红线问题。
+4. B991（`e4a86bb82`）将 typed component 消费改为 AnswerDocument 全局一次性。每个 recipe component
+   先统计所有断开模型组件的竞争需求；竞争大于一时 alias repair 全部 fail-closed。已有完整 identity
+   的组件通过 identity+relation 多重集预占资源，匿名组件不能再借用；宽对称完整图不跑阶乘同构。
+   两个匿名单边零修复、稳定 recipe node 只修一次的正负 pin，以及相关图矩阵和完整
+   `go test ./internal/tool -count=1` 均通过（180.227s）。系统不改正文、节点、边或结论，只撤销无权
+   identity 猜配。
+5. Trace 核心保持稳定：显式 10ms 窗、链上 worker-200 8.300ms、跨核唤醒、邻近/背景 support-only、
+   因果投影和自动补齐全部在；模型也明确锁 holder/waiter 与同步阻塞未证，优先级风险只是链上低
+   优先级依赖方调度供给候选。但正文重复泄漏 `priority_inversion_candidate`、
+   `bounded_window_candidate`、`lower_priority_dependency`、`typed`，表头还有“列2…列6”。这与用户
+   指出的 `bounded_window_candidate` 属同一重复 witness，记为 customer-language/semantic-table
+   P2；不得扫描答案关键词硬删或由系统重写模型结论，后续统一审计 schema 教学与有界显示 alias。
+6. 两案均有持续超过 30 秒的活跃语义字节，未触发 4ms/固定年龄降级。本批没有修改 Trace 查询、
+   投影、自动补齐、链上根因权限或读写模式所有权。
+
+状态：
+
+`r630=runner-2/2/human=qf-fail+trace-partial`；
+`B990-TYPEDOWNERBRIDGECANDIDATERANK1=production-closed-r630`；
+`B991-DIAGRAMTYPEDRECEIPTSINGLECONSUMER1=implemented/global-demand+full-tool-suite-pass/pending-r631`；
+`Trace customer-language-enum/table=confirmed/P2/repeated-witness/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.998 r629/B990：显式窗主值生产闭环；跨 owner 候选同分误选（2026-08-17）
 
 1. 在 `main@088d9d656` 严格并发恰好两个案例：
