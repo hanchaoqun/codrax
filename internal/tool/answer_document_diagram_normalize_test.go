@@ -299,6 +299,45 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPartialTopologyFail
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesDoesNotReuseOneTypedComponentAcrossDisconnectedAliases(t *testing.T) {
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "Pipeline.run", ToIdentity: "Pipeline.dispatch", RelationKind: types.DiagramRelCall},
+		{FromNode: "n3", ToNode: "n4", FromIdentity: "Pipeline.apply", ToIdentity: "appendState", RelationKind: types.DiagramRelCall},
+		{FromNode: "n5", ToNode: "n4", FromIdentity: "ctx.Mutable", ToIdentity: "appendState", RelationKind: types.DiagramRelArgumentFlow},
+	}
+	newDoc := func(firstFrom, firstTo string) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "disconnected-call-aliases", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+				"flowchart TD",
+				"  " + firstFrom + " -->|call| " + firstTo,
+				"  applyAlias -->|call| appendAlias",
+			}, "\n")},
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				{FromNode: firstFrom, ToNode: firstTo, RelationKind: types.DiagramRelCall},
+				{FromNode: "applyAlias", ToNode: "appendAlias", RelationKind: types.DiagramRelCall},
+			},
+		}}}
+	}
+
+	t.Run("two aliases remain unowned", func(t *testing.T) {
+		doc := newDoc("dispatchAlias", "workerAlias")
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 {
+			t.Fatalf("one typed call receipt must not be replayed onto disconnected aliases: fixed=%d anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
+		}
+	})
+
+	t.Run("exact node receipt is reserved from alias repair", func(t *testing.T) {
+		doc := newDoc("n1", "n2")
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 1 {
+			t.Fatalf("exact recipe nodes should repair once while the disconnected alias stays empty: fixed=%d anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
+		}
+		if !doc.Blocks[0].EdgeAnchors[0].HasEndpointIdentityPair() || doc.Blocks[0].EdgeAnchors[1].HasEndpointIdentityPair() {
+			t.Fatalf("typed receipt was not consumed injectively: anchors=%+v", doc.Blocks[0].EdgeAnchors)
+		}
+	})
+}
+
 func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesSkipsFullyIdentifiedWideSymmetricComponent(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "identified-wide-star", Kind: types.BlockDiagram,

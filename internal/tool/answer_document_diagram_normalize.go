@@ -341,6 +341,7 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 		return 0
 	}
 	recipeComponents := diagramTypedRecipeComponents(recipeEdges)
+	recipeDemand := diagramTypedRecipeComponentDemand(doc, recipeComponents, recipeEdges)
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
@@ -387,7 +388,15 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 			candidates := make(map[int]map[diagramIdentityPair]bool)
 			mappingCount := 0
 			exhaustive := true
-			for _, recipeComponent := range recipeComponents {
+			for recipeIndex, recipeComponent := range recipeComponents {
+				// One typed component is one receipt. When two disconnected
+				// model components are both structurally eligible for it, neither
+				// may borrow it through alias topology. The model can still copy
+				// an exact recipe node pair, but this normalizer must not stamp the
+				// same evidence identity onto several unrelated visible edges.
+				if recipeDemand[recipeIndex] > 1 {
+					continue
+				}
 				if len(component.nodes) != len(recipeComponent.nodes) || len(component.edgeIndex) != len(recipeComponent.edgeIndex) {
 					continue
 				}
@@ -428,6 +437,115 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+// diagramTypedRecipeComponentDemand counts how many disconnected model
+// components could consume each typed recipe component. Topology repair is
+// intentionally document-global: processing each component independently can
+// replay one single-edge receipt onto several unrelated aliases and make the
+// downstream occurrence gate reject metadata that the system itself minted.
+//
+// Fully identified components are counted by their exact identity/relation
+// multiset, avoiding factorial graph matching for wide symmetric diagrams.
+// Omitted-identity components use the same bounded isomorphism routine as the
+// repair path. One-sided model metadata is a conflict and consumes nothing.
+func diagramTypedRecipeComponentDemand(
+	doc *types.AnswerDocumentV2,
+	recipeComponents []diagramRelationComponent,
+	recipeEdges []diagramTypedRecipeEdge,
+) map[int]int {
+	demand := make(map[int]int)
+	if doc == nil {
+		return demand
+	}
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil || len(block.EdgeAnchors) == 0 {
+			continue
+		}
+		visible := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
+		modelEdges := make([]diagramModelAnchorEdge, 0, len(block.EdgeAnchors))
+		for ai := range block.EdgeAnchors {
+			anchor := &block.EdgeAnchors[ai]
+			if !anchor.RelationKind.IsValid() || !visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				continue
+			}
+			modelEdges = append(modelEdges, diagramModelAnchorEdge{
+				from: strings.TrimSpace(anchor.FromNode), to: strings.TrimSpace(anchor.ToNode),
+				relation: anchor.RelationKind, anchor: anchor,
+			})
+		}
+		for _, component := range diagramModelAnchorComponents(modelEdges) {
+			partial := false
+			fullyIdentified := true
+			for _, edgeIndex := range component.edgeIndex {
+				anchor := modelEdges[edgeIndex].anchor
+				fromSet := strings.TrimSpace(anchor.FromIdentity) != ""
+				toSet := strings.TrimSpace(anchor.ToIdentity) != ""
+				if fromSet != toSet {
+					partial = true
+					break
+				}
+				if !fromSet {
+					fullyIdentified = false
+				}
+			}
+			if partial {
+				continue
+			}
+			for recipeIndex, recipeComponent := range recipeComponents {
+				if len(component.nodes) != len(recipeComponent.nodes) || len(component.edgeIndex) != len(recipeComponent.edgeIndex) {
+					continue
+				}
+				if fullyIdentified {
+					if diagramIdentifiedComponentMatchesRecipe(component, modelEdges, recipeComponent, recipeEdges) {
+						demand[recipeIndex]++
+					}
+					continue
+				}
+				mappings, exhaustive := diagramComponentIsomorphisms(component, modelEdges, recipeComponent, recipeEdges)
+				if exhaustive && len(mappings) > 0 {
+					demand[recipeIndex]++
+				}
+			}
+		}
+	}
+	return demand
+}
+
+func diagramIdentifiedComponentMatchesRecipe(
+	model diagramRelationComponent,
+	modelEdges []diagramModelAnchorEdge,
+	recipe diagramRelationComponent,
+	recipeEdges []diagramTypedRecipeEdge,
+) bool {
+	modelCounts := make(map[string]int)
+	for _, index := range model.edgeIndex {
+		anchor := modelEdges[index].anchor
+		if anchor == nil || !anchor.HasEndpointIdentityPair() {
+			return false
+		}
+		key := strings.TrimSpace(anchor.FromIdentity) + "\x00" + strings.TrimSpace(anchor.ToIdentity) + "\x00" + string(anchor.RelationKind)
+		modelCounts[key]++
+	}
+	recipeCounts := make(map[string]int)
+	for _, index := range recipe.edgeIndex {
+		edge := recipeEdges[index]
+		key := edge.fromIdentity + "\x00" + edge.toIdentity + "\x00" + string(edge.relation)
+		recipeCounts[key]++
+	}
+	if len(modelCounts) != len(recipeCounts) {
+		return false
+	}
+	for key, count := range modelCounts {
+		if recipeCounts[key] != count {
+			return false
+		}
+	}
+	return true
 }
 
 func diagramTypedRecipeEdges(recipes []types.DiagramEdgeAnchor) []diagramTypedRecipeEdge {
