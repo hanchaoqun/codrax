@@ -36268,6 +36268,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.971 r597：Trace 分类波动复证；B947 回放未命中 typed 分支（2026-08-16）
+
+1. 在 `main@f6d5376e8` 同一 binary snapshot 上严格并发恰好两个 case：`arkts_repomap` 与
+   `real_trace_h7_self_seat_full_spectrum`。Runner `2 PASS / 2`；人工为 ArkTS pass/B947 not-exercised、
+   Trace partial。记录见 `eval/parallel_selected_summary_evalcampaign_arkts_trace_replay_r597_20260816.md`
+   与同名 `_manual_audit.md`。
+2. ArkTS 最终只有一份成员 roster：4 个 `@Entry`、2 个 `@Builder` 及路径/行号/说明均正确，每项只出现一次，
+   零成文拒绝。一次 JSON-encoded `blocks` string 被全损保真恢复，未改变内容。但本轮 Analyzer 发出
+   `has_per_member_table=false`，选择普通 bucket section 单载体；因此它证明 B946 与普通枚举无回归，却没有命中
+   B947 的 typed per-member-table 分支，B947 不能据此收账，下一轮改用稳定逐成员表案例。
+3. Trace 本轮从第一稿即选择 `intent/scenario=root_cause`、required `causal_contributor_set`、
+   `scope=causal_diagnosis`、named target 与精确窗。唯一结构错误是 causal scope 仍携 finite `fact_families`；既有
+   precise validator 明确拒绝该 cross-field contradiction，模型第二稿只清空 families，没有为过门降级 causal breadth。
+4. 五次显式窗 query 后 `trace_query_final_projection_blocks=1`。模型正文与系统投影保留 65.912ms running
+   供给折算、36.757ms/11 段非 IO D-state、49.623/0.033ms 同源分账、incomplete compaction、优先级反转/
+   调度/算力/D/IO、业务 spans、实际占时与规则可消双轴；链外 log/CPU pressure 只在邻近/background，不加冕。
+   这与 r596 的 `bounded_fact_set + projection_blocks=0` 形成同案反证，确认 r596 属模型分类波动，不是缺少系统规则。
+5. 人工仍记一处模型措辞 partial：导语先说“大部分 sleep 是上游同步等待”，后文又正确承认 state partition
+   无法直接分类 sleep 原因；typed context 不授权“大部分”。系统不据答案词面建硬门、不删除句子、不替模型重写
+   结论，继续异构观察。
+6. 两案均零空答案、零 finalizer reject、零固定时长降级。Trace 显式窗、因果投影、自动补齐、链上-only 主因、
+   实际占时/业务线索与规则可消双轴均保持；邻近/background 仍只作支持。
+
+状态：
+
+`B946-SECTIONITEMMEMBERDIMENSION1=production-closed-r596/r597-no-regression`；
+`B947-PRINCIPALMEMBERSINGLECARRIER1=implemented/pins-pass/not-exercised-r597/pending-typed-production-replay`；
+`Trace r596 analyzer scope=model-variance-confirmed-by-r597`；
+`Trace r597=projection-positive/model-sleep-wording-partial`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
