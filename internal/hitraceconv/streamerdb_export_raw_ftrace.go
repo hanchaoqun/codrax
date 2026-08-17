@@ -148,6 +148,15 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.FieldSources["block_source_precedence"] =
 			"complete exact official source raw block family supersedes normalized SQLite raw block rows before publication"
 	}
+	sourceExactSupersedesDB := map[string]string{}
+	for _, family := range traceDBRawExactRecoveryFamilies {
+		class := traceDBRawExactRecoveryDBClass(family)
+		if class != "" && traceDBRawExactFamilyAuthorityEligible(tdb.sourceNameInventory, family) {
+			sourceExactSupersedesDB[class] = family
+			schemaCoverage.FieldSources[family+"_source_precedence"] =
+				"complete exact official source raw family supersedes normalized SQLite raw rows before publication"
+		}
+	}
 	globalStageBudget := ""
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -280,6 +289,8 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		switch {
 		case sourceBlockSupersedesDB && class == "block_storage":
 			rowReason = "superseded_complete_source_raw_block_family"
+		case sourceExactSupersedesDB[class] != "":
+			rowReason = "superseded_complete_source_raw_" + sourceExactSupersedesDB[class] + "_family"
 		case argsetReason != "":
 			rowReason = argsetReason
 		case !requiredArgsKnown:
@@ -312,7 +323,8 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		}
 
 		observationVerdict, observationLaneKey := verdict, laneKey
-		if sourceBlockSupersedesDB && class == "block_storage" {
+		if (sourceBlockSupersedesDB && class == "block_storage") ||
+			sourceExactSupersedesDB[class] != "" {
 			// The complete source family owns these physical block events. Keep
 			// the DB row in bounded physical accounting, but do not let a
 			// deliberately non-publishable duplicate poison the independent DB

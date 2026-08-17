@@ -51,6 +51,7 @@ func probeTraceDBSourceRawProfile(
 	inventoryIncomplete string,
 ) (TraceDBCoverage, TraceDBCoverage, []traceDBRawBlockedRecord,
 	[]traceDBRawBlockRecord,
+	[]traceDBRawExactRecord,
 	[]traceDBRawDMAWaitRecord, []traceDBRawDMALifecycleRecord, []traceDBRawMarkerRecord,
 	[]traceDBRawSchedSwitchLiteRecord, []traceDBRawSchedWakeupLiteRecord,
 	[]traceDBRawSchedWakeupNewNameRecord, error,
@@ -61,7 +62,7 @@ func probeTraceDBSourceRawProfile(
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	if header.Magic != traceStreamerRawTraceMagic || header.Version != harmonyRMQVersion ||
 		(header.FileType != 0 && header.FileType != harmonyRMQFileType) {
@@ -70,7 +71,7 @@ func probeTraceDBSourceRawProfile(
 		coverage.Skipped = "official raw page probe not applicable to this envelope"
 		decode.setUnavailable("not_applicable_non_official_profile",
 			"official raw record decode ledger not applicable to this envelope", false)
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	coverage.Found = true
 	decode.coverage.Found = true
@@ -80,21 +81,21 @@ func probeTraceDBSourceRawProfile(
 		coverage.Skipped = "raw page probe withheld: segment_inventory_incomplete"
 		decode.setUnavailable("withheld_segment_inventory_incomplete",
 			"raw record decode ledger withheld: segment_inventory_incomplete", true)
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 
 	catalog, formatState := probeTraceDBSourceEventFormats(ctx, input, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	coverage.Metadata["event_format_probe_state"] = formatState
 	probeTraceDBSourceUnknownSegments(ctx, input, header, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	probeTraceDBSourceRawPages(ctx, input, header, segments, catalog, &coverage, &decode)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	decodeCoverage := decode.finalize(catalog, coverage)
 	markerCarrierRecords := decodeCoverage.Metrics["target_marker_carrier_records"]
@@ -115,7 +116,7 @@ func probeTraceDBSourceRawProfile(
 	markerCarrierRejectedRetained :=
 		decodeCoverage.Metrics["target_marker_carrier_rejections_retained"]
 	if !traceDBRawDecodeCensusComplete(decodeCoverage) {
-		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	markerComplete := traceDBRawDecodeFamilyComplete(
 		decodeCoverage, traceDBRawRetentionMarker) &&
@@ -155,6 +156,40 @@ func probeTraceDBSourceRawProfile(
 		decodeCoverage.Metadata["retention_"+traceDBRawRetentionBlock+"_state"] =
 			"incomplete_capture_or_census"
 		decode.blockRecords = nil
+	}
+	for _, family := range []string{
+		traceDBRawRetentionWorkqueue,
+		traceDBRawRetentionFilemap,
+		traceDBRawRetentionF2FS,
+	} {
+		physical, admitted, retained := int64(0), int64(0), int64(0)
+		for _, name := range traceDBRawExactRecoveryTargetNames() {
+			if traceDBRawExactRecoveryFamily(name) != family {
+				continue
+			}
+			metric := traceDBRawDecodeMetricName(name)
+			physical += decodeCoverage.Metrics["target_"+metric+"_records"]
+			admitted += decodeCoverage.Metrics["target_"+metric+"_body_admitted"]
+		}
+		for _, record := range decode.exactRecords {
+			if record.Family == family {
+				retained++
+			}
+		}
+		if !traceDBRawDecodeFamilyComplete(decodeCoverage, family) ||
+			physical != admitted || admitted != retained ||
+			decodeCoverage.Metrics["target_"+family+"_record_capture_failed"] != 0 ||
+			decodeCoverage.Metrics["target_"+family+"_records_retained"] != retained {
+			decodeCoverage.Metadata["retention_"+family+"_state"] =
+				"incomplete_capture_or_census"
+			kept := decode.exactRecords[:0]
+			for _, record := range decode.exactRecords {
+				if record.Family != family {
+					kept = append(kept, record)
+				}
+			}
+			decode.exactRecords = kept
+		}
 	}
 	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionDMAWait) ||
 		decodeCoverage.Metrics["target_dma_fence_wait_record_capture_failed"] > 0 ||
@@ -201,6 +236,7 @@ func probeTraceDBSourceRawProfile(
 		decode.wakeupNewNames = nil
 	}
 	return coverage, decodeCoverage, decode.blockedRecords, decode.blockRecords,
+		decode.exactRecords,
 		decode.dmaWaitRecords, decode.dmaLifecycle, decode.markerRecords,
 		decode.switchLiteRecords, decode.wakeupLiteRecords, decode.wakeupNewNames, nil
 }
@@ -301,7 +337,7 @@ func traceDBRawProbeCommonTypeExact(format eventFormat) bool {
 }
 
 func traceDBRawProbeTargetFormat(name string) bool {
-	if directBlockNameGoverned(name) {
+	if directBlockNameGoverned(name) || traceDBRawExactRecoveryFamily(name) != "" {
 		return true
 	}
 	switch name {

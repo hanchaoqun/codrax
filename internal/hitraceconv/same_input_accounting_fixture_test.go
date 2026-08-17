@@ -218,7 +218,7 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 37140
 		wantOutputSHA   = "427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752"
-		wantReceiptSHA  = "c28bb8a7d9b1344260c0aed9a31a22de9da7ab11af08fb85bc214ad3ecd4e05a"
+		wantReceiptSHA  = "30219d8f655fb024cab56a83c3ecf44fc61029c98d3c635d5950e041ebf2c54e"
 		wantEvents      = 35
 		wantAuthority   = 18
 		wantAdvisory    = 17
@@ -240,6 +240,9 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	rawAuthority := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_authority", "__source_segments__", "diagnostic_inventory")
 	rawBlockedKey := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_blocked_key", "__raw_vs_db_blocked_key__", "diagnostic_deduplication")
 	rawBlockedRecovery := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_blocked_recovery", "__raw_only_blocked_reason__", "query_ready_export")
+	rawWorkqueue := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_workqueue", "__raw_workqueue__", "query_ready_export")
+	rawFilemap := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_filemap", "__raw_filemap__", "query_ready_export")
+	rawF2FS := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_f2fs", "__raw_f2fs__", "query_ready_export")
 	frameRoster := sameInputCoverageByKey(receipt.Coverage, "resolver.frame", "frame_slice", "resolver_index")
 	frameCallstack := sameInputCoverageByKey(receipt.Coverage, "relation", "frame_slice_callstack", "query_ready_export")
 	frameGPU := sameInputCoverageByKey(receipt.Coverage, "resource.relation", "gpu_slice", "query_ready_export")
@@ -253,6 +256,9 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		rawAuthority == nil || rawAuthority.RowsRead != 4 || rawAuthority.RowsEmitted != 4 ||
 		rawBlockedKey == nil || rawBlockedKey.RowsEmitted != 0 ||
 		rawBlockedRecovery == nil || rawBlockedRecovery.RowsEmitted != 0 ||
+		rawWorkqueue == nil || rawWorkqueue.Found || rawWorkqueue.RowsEmitted != 0 ||
+		rawFilemap == nil || rawFilemap.Found || rawFilemap.RowsEmitted != 0 ||
+		rawF2FS == nil || rawF2FS.Found || rawF2FS.RowsEmitted != 0 ||
 		frameRoster == nil || frameCallstack == nil || frameGPU == nil || perfNAPI == nil ||
 		ebpfCallstack == nil || ebpfFilesystem == nil || ebpfPagedMemory == nil || ebpfBIO == nil ||
 		rawAuthority.Metrics["event_format_segments"] != 1 ||

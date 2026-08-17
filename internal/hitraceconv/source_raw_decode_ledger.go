@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strconv"
@@ -31,11 +32,14 @@ const (
 	traceDBRawRetentionDMAWait        = "dma_wait"
 	traceDBRawRetentionDMALifecycle   = "dma_lifecycle"
 	traceDBRawRetentionBlock          = "block_storage"
+	traceDBRawRetentionWorkqueue      = "workqueue"
+	traceDBRawRetentionFilemap        = "filemap"
+	traceDBRawRetentionF2FS           = "f2fs"
 	traceDBRawRetentionFamilyComplete = "complete"
 )
 
 var traceDBRawRetentionFamilyBudgets = map[string]int64{
-	traceDBRawRetentionMarker:       464 << 20,
+	traceDBRawRetentionMarker:       408 << 20,
 	traceDBRawRetentionBlocked:      56 << 20,
 	traceDBRawRetentionSwitchLite:   128 << 20,
 	traceDBRawRetentionWakeupLite:   72 << 20,
@@ -43,6 +47,9 @@ var traceDBRawRetentionFamilyBudgets = map[string]int64{
 	traceDBRawRetentionDMAWait:      8 << 20,
 	traceDBRawRetentionDMALifecycle: 8 << 20,
 	traceDBRawRetentionBlock:        16 << 20,
+	traceDBRawRetentionWorkqueue:    8 << 20,
+	traceDBRawRetentionFilemap:      32 << 20,
+	traceDBRawRetentionF2FS:         16 << 20,
 }
 
 type traceDBRawDecodeFormatStats struct {
@@ -93,6 +100,21 @@ type traceDBRawBlockRecord struct {
 	HeaderPID       int64
 	Flags           int64
 	PreemptCount    int64
+	Name            string
+	Body            string
+}
+
+// traceDBRawExactRecord is one canonical point or endpoint produced by an
+// existing strict descriptor decoder. Family is a closed typed identity, not
+// an event-name prefix inferred at publication time.
+type traceDBRawExactRecord struct {
+	PhysicalOrdinal int64
+	TimestampNS     uint64
+	CPU             int
+	HeaderPID       int64
+	Flags           int64
+	PreemptCount    int64
+	Family          string
 	Name            string
 	Body            string
 }
@@ -150,6 +172,7 @@ type traceDBSourceRawDecodeAccumulator struct {
 	dmaWaitRecords    []traceDBRawDMAWaitRecord
 	dmaLifecycle      []traceDBRawDMALifecycleRecord
 	blockRecords      []traceDBRawBlockRecord
+	exactRecords      []traceDBRawExactRecord
 	markerRecords     []traceDBRawMarkerRecord
 	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
 	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
@@ -175,7 +198,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		Role:   "diagnostic_ledger",
 		FieldSources: map[string]string{
 			"authority":      "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
-			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, exact block request/BIO events, DMA wait endpoints, and official DMA lifecycle point events; generic/legacy fallback renderers never gain RPD authority",
+			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, exact block request/BIO, workqueue, filemap/page-cache, F2FS, DMA wait endpoints, and official DMA lifecycle point events; generic/legacy fallback renderers never gain RPD authority",
 			"geometry":       "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
 			"effect":         "this ledger is bounded independent raw-record accounting and RowsEmitted is always zero; retained typed records remain inert unless a separate family-specific census/deduplication/wire gate publishes them",
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
@@ -276,6 +299,12 @@ func traceDBRawRetentionFamily(name string) string {
 		return traceDBRawRetentionDMALifecycle
 	case directBlockNameGoverned(name):
 		return traceDBRawRetentionBlock
+	case directPairNameGoverned(name) && name != "dma_fence_wait_start" && name != "dma_fence_wait_end":
+		return traceDBRawRetentionWorkqueue
+	case directFilemapNameGoverned(name):
+		return traceDBRawRetentionFilemap
+	case directF2FSNameGoverned(name):
+		return traceDBRawRetentionF2FS
 	default:
 		return traceDBRawDecodeReasonMetric(name)
 	}
@@ -490,6 +519,30 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			a.blockRecords = append(a.blockRecords, record)
 			traceDBAddCoverageMetric(&a.coverage,
 				"target_block_storage_records_retained", 1)
+		} else if family := traceDBRawExactRecoveryFamily(format.Name); family != "" {
+			if traceDBRawExactRecoveryPairEndpoint(format.Name) {
+				verdict := tracequery.DecodePairingEndpoint(
+					format.Name, body, int64(headerPID))
+				if !traceDBRawExactRecoveryVerdictMatches(
+					family, format.Name, body, int64(headerPID), verdict) {
+					traceDBAddCoverageMetric(&a.coverage,
+						"target_"+family+"_record_capture_failed", 1)
+					return
+				}
+			}
+			record := traceDBRawExactRecord{
+				PhysicalOrdinal: int64(a.coverage.RowsRead),
+				TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+				Flags: flags, PreemptCount: preemptCount,
+				Family: family, Name: format.Name, Body: body,
+			}
+			if !a.reserveRetained(format.Name, 128,
+				record.Family, record.Name, record.Body) {
+				return
+			}
+			a.exactRecords = append(a.exactRecords, record)
+			traceDBAddCoverageMetric(&a.coverage,
+				"target_"+family+"_records_retained", 1)
 		} else if format.Name == "sched_switch_lite" {
 			lite, liteReason := decodeTraceDBRawSchedSwitchLite(event)
 			if liteReason != "" {
@@ -736,6 +789,16 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 		a.coverage.Metadata["blocked_reason_format_geometry_witnesses"] =
 			strings.Join(blockedGeometry, ",")
 	}
+	hmfsGeometry, hmfsFieldOmitted :=
+		traceDBRawDecodeTypedGeometryWitnesses(catalog, traceDBRawHMFSFormat)
+	if len(hmfsGeometry) > 0 {
+		a.coverage.Metadata["hmfs_format_geometry_witnesses"] =
+			strings.Join(hmfsGeometry, ",")
+	}
+	if hmfsPrint := traceDBRawHMFSPrintFormatWitnesses(catalog); len(hmfsPrint) > 0 {
+		a.coverage.Metadata["hmfs_print_format_base64_witnesses"] =
+			strings.Join(hmfsPrint, ",")
+	}
 	if fieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "target_format_geometry_fields_omitted", int64(fieldOmitted))
 	}
@@ -753,6 +816,10 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if blockedFieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage,
 			"blocked_reason_format_geometry_fields_omitted", int64(blockedFieldOmitted))
+	}
+	if hmfsFieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage,
+			"hmfs_format_geometry_fields_omitted", int64(hmfsFieldOmitted))
 	}
 	if omitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "format_record_witnesses_omitted", int64(omitted))
@@ -796,8 +863,46 @@ func traceDBRawDecodeStrictTarget(name string) bool {
 	if directBlockNameGoverned(name) {
 		return true
 	}
+	if traceDBRawExactRecoveryFamily(name) != "" {
+		return true
+	}
 	return name == "dma_fence_wait_start" || name == "dma_fence_wait_end" ||
 		traceDBRawDMALifecycleName(name)
+}
+
+func traceDBRawExactRecoveryFamily(name string) string {
+	switch {
+	case name == "workqueue_execute_start" || name == "workqueue_execute_end":
+		return traceDBRawRetentionWorkqueue
+	case directFilemapNameGoverned(name):
+		return traceDBRawRetentionFilemap
+	case directF2FSNameGoverned(name):
+		return traceDBRawRetentionF2FS
+	default:
+		return ""
+	}
+}
+
+func traceDBRawExactRecoveryPairEndpoint(name string) bool {
+	return name == "workqueue_execute_start" || name == "workqueue_execute_end" ||
+		directF2FSNameGoverned(name)
+}
+
+func traceDBRawExactRecoveryTargetNames() []string {
+	return []string{
+		"file_check_and_advance_wb_err",
+		"filemap_set_wb_err",
+		"f2fs_direct_IO_enter",
+		"f2fs_direct_IO_exit",
+		"f2fs_sync_file_enter",
+		"f2fs_sync_file_exit",
+		"f2fs_write_begin",
+		"f2fs_write_end",
+		"mm_filemap_add_to_page_cache",
+		"mm_filemap_delete_from_page_cache",
+		"workqueue_execute_end",
+		"workqueue_execute_start",
+	}
 }
 
 func traceDBRawDMALifecycleName(name string) bool {
@@ -829,6 +934,12 @@ func traceDBRawDecodeMetricName(name string) string {
 		"sched_wakeup", "sched_wakeup_new", "sched_waking",
 		"block_bio_complete", "block_bio_queue", "block_bio_remap",
 		"block_rq_complete", "block_rq_insert", "block_rq_issue", "block_rq_remap",
+		"file_check_and_advance_wb_err", "filemap_set_wb_err",
+		"f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
+		"f2fs_sync_file_enter", "f2fs_sync_file_exit",
+		"f2fs_write_begin", "f2fs_write_end",
+		"mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache",
+		"workqueue_execute_end", "workqueue_execute_start",
 		"dma_fence_destroy", "dma_fence_emit", "dma_fence_enable_signal",
 		"dma_fence_init", "dma_fence_signaled", "dma_fence_wait_start", "dma_fence_wait_end":
 		return name
@@ -860,7 +971,9 @@ func traceDBRawDecodeReasonMetric(reason string) string {
 }
 
 func traceDBRawDecodeTargetNames() []string {
-	return append(traceDBRawBlockTargetNames(),
+	names := append([]string{}, traceDBRawBlockTargetNames()...)
+	names = append(names, traceDBRawExactRecoveryTargetNames()...)
+	return append(names,
 		"dma_fence_destroy",
 		"dma_fence_emit",
 		"dma_fence_enable_signal",
@@ -947,6 +1060,43 @@ func traceDBRawSchedulerLiteFormat(name string) bool {
 
 func traceDBRawSchedulerWakeupFormat(name string) bool {
 	return name == "sched_wakeup_lite" || name == "sched_wakeup_new"
+}
+
+func traceDBRawHMFSFormat(name string) bool {
+	switch name {
+	case "hmfs_readpage", "hmfs_readpages", "hmfs_sync", "hmfs_sync_exit",
+		"hmfs_sync_file_enter", "hmfs_sync_file_exit", "hmfs_writepage",
+		"hmfs_writepages":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceDBRawHMFSPrintFormatWitnesses(catalog eventFormatCatalog) []string {
+	formats := make([]eventFormat, 0, 8)
+	for _, format := range catalog.Formats {
+		if traceDBRawHMFSFormat(format.Name) {
+			formats = append(formats, format)
+		}
+	}
+	sort.Slice(formats, func(i, j int) bool {
+		if formats[i].Name != formats[j].Name {
+			return formats[i].Name < formats[j].Name
+		}
+		return formats[i].ID < formats[j].ID
+	})
+	out := make([]string, 0, len(formats))
+	for _, format := range formats {
+		value := format.PrintFmt
+		if len(value) > 4096 {
+			value = ""
+		}
+		out = append(out, fmt.Sprintf("%s#%d/bytes=%d/base64=%s",
+			traceDBRawDecodeFormatWitnessName(format.Name), format.ID,
+			len(format.PrintFmt), base64.RawStdEncoding.EncodeToString([]byte(value))))
+	}
+	return out
 }
 
 func traceDBRawDecodeAbsentTargets(catalog eventFormatCatalog) []string {

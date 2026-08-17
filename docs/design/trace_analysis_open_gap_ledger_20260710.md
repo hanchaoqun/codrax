@@ -1603,6 +1603,66 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
 - `git diff --check`：通过。
 
+## 2026-08-17 追加：HCONV-IO-VIS-R2a 严格源 workqueue/filemap/F2FS 文本恢复
+
+### 审计结论与权限边界
+
+- R1 只恢复了块层 RQ/BIO。客户样本的 immutable official raw page 还包含 workqueue、
+  filemap/page-cache、F2FS/HMFS 等事件；当 trace_streamer SQLite 没有保留可安全渲染的 raw
+  payload 时，旧转换会继续漏掉这些标准文本行。
+- 本批没有建立“任意事件名 + 通用字段猜测”的发布器，而是复用已经存在且按 descriptor
+  geometry 严格解码的三类闭集：
+  - `workqueue_execute_start/end`；
+  - `mm_filemap_add_to_page_cache`、`mm_filemap_delete_from_page_cache`、
+    `filemap_set_wb_err`、`file_check_and_advance_wb_err`；
+  - `f2fs_sync_file_enter/exit`、`f2fs_direct_IO_enter/exit`、
+    `f2fs_write_begin/end`。
+- HMFS 是厂商文件系统族，不能因为名称或概念相近就套 F2FS descriptor。当前 OpenHarmony
+  可查内核源没有给出客户版本 HMFS tracepoint schema，因此本批只采集 exact HMFS event-format
+  geometry 与有界 print-fmt witness，不解码、不发布、不配对，也不授予链上根因权限。
+
+### 单一恢复框架
+
+1. `traceDBRawExactRecord` 保存 physical ordinal、精确纳秒时间、CPU、`common_pid`、flags、
+   preempt count、typed family、exact event name 和严格 decoder 产生的 canonical body；namespace
+   PID 原样保留，禁止猜 host PID/TGID/comm/incarnation。
+2. 每个 family 必须满足完整 raw census：`physical == body_admitted == retained`、零 capture failure、
+   family retention 完整。任一条失败则整族 fail-close，不能用部分成功行制造看似完整的泳道。
+3. workqueue 与 F2FS 的 start/end 还必须通过 tracequery 的 source-neutral typed endpoint decoder
+   和 wire parity；filemap 只发布 point observation，绝不因 start/end 字样外观自生 duration。
+4. source/DB 优先级在 DB raw 发布前确定：完整 source workqueue 覆盖 DB `workqueue`，完整 source
+   filemap 覆盖 DB `page_cache`。被覆盖的 DB 行仍计入物理审计，但不再进入 endpoint verdict/lane，
+   因而不会把故意抑制的重复行误记成 pairing poison。F2FS 当前没有对应 DB raw class，不虚构映射。
+5. 转换输出仍是标准 ftrace 文本行，通用 systrace 查看器与 tracequery 都可消费；typed coverage
+   明示 `published / complete_no_family_event / not_applicable / withheld`，不存在静默空白。
+
+### 预算、安全性与回归
+
+- 总 raw retained 上限仍固定为 768 MiB：从 marker 预算中划出 workqueue 8 MiB、filemap 32 MiB、
+  F2FS 16 MiB，marker 相应从 464 MiB 调为 408 MiB；不以简单增大总内存换保真。
+- 合成 official binary 覆盖三族五行端到端转换；验证时间、CPU、namespace `common_pid` 和 canonical
+  payload 恰好发布一次。另有 family census、重复 source/DB precedence、pair-poison=0、预算及
+  非官方输入 typed-not-applicable 回归。
+- deterministic accounting receipt 的输出 bytes/SHA、事件数及 authority/advisory 数均保持不变；
+  receipt 只因新增三条显式 typed coverage 更新，并对三条记录本身增加结构断言。
+- `go test ./internal/hitraceconv -count=1`：通过（`71.302s`）；随后全仓并行回归中的同包
+  再次通过（`82.389s`）。
+- `go test ./... -p 4 -count=1`：通过；其中 `internal/tracequery=78.622s`、
+  `internal/tool=186.617s`、`internal/tracediag=5.164s`、`internal/repl=33.475s`，Trace 因果
+  投影、JSON/成文、Mermaid 自愈、流式答案与 read/write 回归未被本批转换修复破坏。
+- `git diff --check`：通过。
+
+### 状态与后续
+
+- **HCONV-IO-VIS-R2a：已修（本提交）。** workqueue/filemap/F2FS 严格已知族不再依赖
+  trace_streamer 是否保留 raw payload。
+- **HCONV-IO-VIS-R2b（P1，开放）**：用客户下一次诊断回传的 HMFS exact descriptor geometry / print
+  schema 建立独立版本化 decoder；必须逐 profile 识别，未知字段或将来扩展版本 fail-close，不能
+  把 HMFS 重命名成 F2FS。
+- **HCONV-IO-VIS-R3 / EBPF-VIS / VIEWER-PARITY 仍开放。** 其余 admitted raw 可见性与官方
+  DB-native 专属泳道继续按“标准通用行 + 可忽略 typed extension”设计；没有真实 CPU 的 eBPF
+  interval 不得伪造 CPU0，也不得因此获得调度/因果权限。
+
 ## 2026-08-17 追加：HCONV-IO-VIS-R1 官方 raw page 块请求文本恢复
 
 ### 深审结论：丢失发生在 DB 之前，不能只补 SQL renderer

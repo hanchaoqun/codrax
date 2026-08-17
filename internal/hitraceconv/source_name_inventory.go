@@ -48,6 +48,7 @@ type traceDBSourceNameInventory struct {
 	RawDecode       TraceDBCoverage
 	RawBlocked      []traceDBRawBlockedRecord
 	RawBlock        []traceDBRawBlockRecord
+	RawExact        []traceDBRawExactRecord
 	RawDMAWait      []traceDBRawDMAWaitRecord
 	RawDMALifecycle []traceDBRawDMALifecycleRecord
 	RawMarkers      []traceDBRawMarkerRecord
@@ -302,6 +303,7 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
 	rawDecodeStarted := time.Now()
 	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked, inventory.RawBlock,
+		inventory.RawExact,
 		inventory.RawDMAWait,
 		inventory.RawDMALifecycle, inventory.RawMarkers, inventory.RawSwitchLite,
 		inventory.RawWakeupLite, inventory.RawWakeupNames, err =
