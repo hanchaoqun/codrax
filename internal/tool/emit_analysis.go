@@ -2318,6 +2318,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, &val); added > 0 {
 		logging.Warning("[emit_analysis] projected %d required_file hint(s) from deterministic analyzer prescan", added)
 	}
+	if warning := normalizeUnbackedExternalObservationAllowToDefault(ctx, &rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
@@ -6072,6 +6076,42 @@ func synthesizeExternalObservationPolicyFromRouteHint(ctx *types.BusContext, pol
 		Confidence:        0.75,
 		Rationale:         "typed route metadata requires current checkout evidence for this external-observation turn",
 	}, "external_observation_policy current_source_mode synthesized as allow from typed route metadata"
+}
+
+// normalizeUnbackedExternalObservationAllowToDefault prevents a lone
+// analyzer-authored enum from upgrading an optional runtime-artifact turn into
+// a mandatory current-source scan.  The enum is retained when an independent
+// typed carrier still requires current source (validated current-source
+// explanation/scope/dimension, exact source target, required source file,
+// diagnostic bridge, or obligation signal), or when typed route metadata says
+// the lane is required.  No request/model prose is classified here.
+func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, rm *types.RequestModel) string {
+	if rm == nil || rm.ExternalObservationPolicy == nil ||
+		rm.ExternalObservationPolicy.CurrentSourceMode != types.ExternalObservationCurrentSourceAllow ||
+		!emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		return ""
+	}
+	if ctx != nil && ctx.TurnRouteHint.RequiresCurrentSourceEvidence() {
+		return ""
+	}
+
+	probe := *rm
+	probePolicy := *rm.ExternalObservationPolicy
+	probePolicy.CurrentSourceMode = types.ExternalObservationCurrentSourceDefault
+	probePolicy.ExclusionKind = types.ExternalObservationSourceExclusionNone
+	probe.ExternalObservationPolicy = &probePolicy
+	if probe.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return ""
+	}
+
+	normalized := *rm.ExternalObservationPolicy
+	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceDefault
+	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
+	if strings.TrimSpace(normalized.Rationale) == "" {
+		normalized.Rationale = "current checkout evidence remains optional because no independent typed current-source obligation is active"
+	}
+	rm.ExternalObservationPolicy = &normalized
+	return "external_observation_policy unbacked current_source_mode=allow fell back to default for runtime artifact: an isolated analyzer enum cannot upgrade an optional source lane without independent typed current-source authority"
 }
 
 func emitAnalysisHasRuntimeArtifactCarrier(ctx *types.BusContext) bool {

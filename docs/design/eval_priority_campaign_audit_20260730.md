@@ -35680,7 +35680,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    obligation 的 allow”。最优根修是把 allow 收窄为带独立 typed source 权威的组合信号；孤立 allow 回落
    default，route=required 或经 quote/provenance 校验的 current-source profile 仍可重开。不得扫描用户/模型
    prose 作硬门。
-7. 另立 `B961-RUNNABLEINTERVALCONTEXT1/P2-watch`：模型把 `8.300ms runnable` 口头写成
+7. B960 已按该裁定施工：在 emit 的全部 typed profile、required-file 与 obligation reconcile 完成后，复制
+   RequestModel 并把 policy 临时降为 default，再用唯一 `CurrentSourceLaneDecision` 检查是否仍有独立 source
+   权威。若没有且 route=optional，正式 policy 回落 default；若 route=required，或 validated current-source
+   explanation/scope/dimension、精确源码 target/file、diagnostic bridge、obligation signal 任一仍要求源码，则
+   allow 原样保留。该检查只读结构化字段，不分类 request/thinking/final 文本。
+8. 另立 `B961-RUNNABLEINTERVALCONTEXT1/P2-watch`：模型把 `8.300ms runnable` 口头写成
    `1.009500..1.010000`，而 typed 事件表和投影正确显示 runnable 为唤醒到切入运行的区间，后者
    `1.009500..1.010000` 实为 running `0.500ms`。这是模型对上下文的绑定波动；先审计并压缩 typed
    interval/state 教学，让每个时长与自己的 start/end/state 同行，不增加终稿关键词/数字扫描硬拒，也不由
@@ -35690,7 +35695,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `r606 runner=1/2-pass/human=1-core-pass+1-fail`；
 `B959-DATASTRUCTPROGRESS1=implemented/progress+cycle-stop+ceiling/pins-pass/pending-replay`；
-`B960-UNBACKEDALLOW1=confirmed/pending-fix`；
+`B960-UNBACKEDALLOW1=implemented/independent-typed-authority/pins-pass/pending-replay`；
 `B961-RUNNABLEINTERVALCONTEXT1=context-audit-pending/no-prose-hard-gate`；
 `Trace explicit-window causal projection/auto-supplement=pass-r606`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

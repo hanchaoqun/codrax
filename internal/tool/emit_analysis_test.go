@@ -8578,7 +8578,14 @@ func TestEmitAnalysis_CurrentSourceExplanationSoftensConflictingExternalExclude(
 			"confidence": 0.9
 		}
 	}`)
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "artifact", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.9,
+		},
+	}, json.RawMessage(payload))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -9031,6 +9038,69 @@ func TestEmitAnalysis_TraceOnlyHallucinatedExcludeDoesNotForceSourceLane(t *test
 		t.Fatalf("trace-only source navigation should remain optional: %+v", rm)
 	}
 	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude fell back to default") {
+		t.Fatalf("neutral fallback not disclosed: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_TraceOnlyUnbackedAllowDoesNotForceSourceLane(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	raw := "请使用 trace_query 分析 1.000s 到 1.010s 的窗口，目标线程是 app-100，并判断主要阻塞原因。"
+	mu := types.NewMutableState(raw)
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"sched_switch"}},
+		Observations: []types.PerfObservation{{
+			Kind: "sched_switch", Subject: "app-100", Summary: "app-100 switched out", Confidence: 0.95,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "trace",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["trace_query", "app-100", "blocking"],
+		"entities": ["app-100", "trace_query"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "allow",
+			"artifact_citation_mode": "external_only",
+			"confidence": 0.95
+		},
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": false,
+			"confidence": 0.95
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable:         mu,
+		AttachedHitrace: "sched_switch: prev_comm=app prev_pid=100",
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "artifact", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("trace-only unbacked allow should normalize without a retry, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("normalized policy missing: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("unbacked allow forced mode=%q, want default", got)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("unbacked allow forced current-source lane=%s: %+v", got, rm)
+	}
+	if !types.RuntimeArtifactRequestSourceNavigationNotRequired(*rm, true) {
+		t.Fatalf("trace-only source navigation should remain optional: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "unbacked current_source_mode=allow fell back to default") {
 		t.Fatalf("neutral fallback not disclosed: %q", res.Summary)
 	}
 }
