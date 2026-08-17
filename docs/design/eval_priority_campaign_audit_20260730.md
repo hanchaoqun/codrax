@@ -35779,15 +35779,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `PrincipalWindowAuthoritative + TraceCausalProjectionNodeMatchesPrincipalWindow` 判据。新增 r642
    同形回归先红证明 2.021s 宽窗席会被错误重冠，修后头行/比较单元与树榜共同返回“精确窗无主席”；
    缺失窗口身份继续 fail-open。`go test ./internal/types ./internal/tool -count=1` 全绿，其中 tool
-   185.375s。第二层 exact-window supplement 仍独立待施工。
+   185.375s。
+10. B1013 第二层已施工：显式用户窗的“家族是否已经齐全”判定不再使用用于披露分组的历史 ±1ms
+    容差，而是复用 principal-value 的 2µs typed 同窗谓词。新增 0.5ms 邻窗反例先红：旧实现认为
+    critical 家族已齐、只补一个视图；修后 root-cause 与 critical 两个核心视图都在用户精确窗重跑。
+    精确同窗完整家族仍为零执行 no-op；显著异窗覆盖和全部 TraceSupplement 回归均绿。窗口推导、
+    多板展示及 F-2 分组的 1ms 语义没有改变。
 
 状态：
 
 `r642=runner-2/2/human=trace-fail+qf-partial`；
 `B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=production-positive-r642`；
-`B1013-EXACTWINDOWRANKSURFACEDRIFT1=layer1-implemented+tested/pending-exact-window-supplement`；
+`B1013-EXACTWINDOWRANKSURFACEDRIFT1=two-layers-implemented+tested/pending-production-replay`；
 `B1014-RELATIONRECIPECOMPOSITIONLOAD1=observed-r642/not-yet-contract-conflict`；
-`Trace explicit-window/causal projection/auto-supplement=projection-present/supplement-gap-confirmed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved+exact-window-supplement-restored/pending-replay`；
 Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。

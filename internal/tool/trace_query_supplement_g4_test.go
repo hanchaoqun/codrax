@@ -247,6 +247,35 @@ func TestTraceSupplementExplicitUserWindowOverridesModelQueryWindow(t *testing.T
 	}
 }
 
+func TestTraceSupplementExplicitUserWindowRejectsNearButNonExactFamilySet(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4NarrowDStateShape(ctx)
+	start, end := 3.0, 3.08
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "3.0..3.08",
+		Confidence:     1,
+	}
+	// A neighboring board differs by only 0.5ms: historically that falls
+	// inside the 1ms disclosure/grouping tolerance, but it is not the user's
+	// exact principal value window and must not suppress supplementation.
+	suppCoreModelCall(t, ctx, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.0805}`)
+	suppCoreModelCall(t, ctx, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.0805}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 2 ||
+		out.Executed[0] != "root_cause_rank" ||
+		out.Executed[1] != "critical_blocking_calls" {
+		t.Fatalf("nearby-but-non-exact families must trigger the exact-window supplement: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || meta.WindowStart != start || meta.WindowEnd != end ||
+		meta.RequestedArtifactScope != types.RuntimeArtifactScopeExplicitWindow {
+		t.Fatalf("supplement must execute on the typed user window, got %+v", meta)
+	}
+}
+
 func TestTraceSupplementExplicitUserWindowKeepsExactFamilyNoOp(t *testing.T) {
 	ctx := suppCoreContext(t)
 	suppG4NarrowDStateShape(ctx)

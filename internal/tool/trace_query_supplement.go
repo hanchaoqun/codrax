@@ -41,7 +41,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -211,9 +210,16 @@ func traceSupplementFamiliesForRequestedScope(
 		}
 		if explicit {
 			recordStart, recordEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
-			if !ok ||
-				math.Abs(recordStart-start) > types.TraceCausalProjectionSameWindowToleranceS ||
-				math.Abs(recordEnd-end) > types.TraceCausalProjectionSameWindowToleranceS {
+			// B1013 (r642): the historical 1ms F-2 tolerance groups
+			// observations for disclosure, but it must not let a neighboring
+			// exploratory board satisfy the user's explicit principal-value
+			// scope. Use the same narrow typed predicate as rank/tree/value
+			// publication so a 2.000..2.021 query cannot suppress the exact
+			// 2.000..2.020 supplement. Window derivation and multi-board
+			// grouping retain their existing 1ms semantics elsewhere.
+			if !ok || !types.TraceCausalProjectionPrincipalValueSameWindow(
+				recordStart, recordEnd, start, end,
+			) {
 				continue
 			}
 		}
