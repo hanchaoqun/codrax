@@ -346,6 +346,13 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	}
 	stats.Records++
 	if !traceDBRawProbeTargetFormat(format.Name) {
+		traceDBAddCoverageMetric(&a.coverage, "visibility_candidate_records", 1)
+		event := decodeEvent(format, content)
+		if _, _, _, ok := decodeDirectFtraceCommonEnvelope(event); !ok {
+			traceDBAddCoverageMetric(&a.coverage, "visibility_envelope_rejected", 1)
+			return
+		}
+		traceDBAddCoverageMetric(&a.coverage, "visibility_envelope_admitted", 1)
 		return
 	}
 

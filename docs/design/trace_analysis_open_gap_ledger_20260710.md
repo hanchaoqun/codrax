@@ -1603,6 +1603,69 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
 - `git diff --check`：通过。
 
+## 2026-08-17 追加：HCONV-IO-VIS-R3 其余 source raw 记录无损可见载体
+
+### GAP 与边界
+
+- R1/R2a 已恢复 block、workqueue、filemap、F2FS 等有严格 decoder 的 source raw 族，但官方二进制
+  仍可携带客户内核新增事件（例如当前未知版本的 HMFS tracepoint）。这些事件即使 descriptor 与
+  raw page 完整，也可能根本不进入 trace_streamer SQLite；仅保存 SQL 全表无法恢复，最终文本仍会
+  显得“事件大量缺失”。
+- 未知 schema 不能走旧 `genericFields` 后获得文件系统、span、pair 或 duration 权限。字段名、
+  `print fmt` 外观和事件名前缀都不是语义证明；将 HMFS 猜成 F2FS 或把 `*_start/*_end` 猜成区间会
+  直接污染唤醒链和根因排序。
+- 本批目标是**字节与查看器可见性保真**，不是为未知族补语义。HMFS 进入根因仍需 R2b 的真实版本
+  descriptor/print schema；官方 DB-native eBPF 泳道仍属于 EBPF-VIS/VIEWER-PARITY。
+
+### 实现：精确载体与三层权限隔离
+
+1. 首次 source raw 全页 census 对每个“无严格 semantic decoder”的 admitted format 统计物理候选，
+   并逐条验证 `common_type/common_flags/common_preempt_count/common_pid` 精确 envelope；任一候选失败，
+   整个 visibility family 在写入 sorter 前撤销，禁止部分成功制造完整假象。
+2. 只有官方 raw envelope、完整 segment inventory 和完整 decode census 才保留同一不可变输入句柄，
+   发布阶段做一次有界二次扫描。每条输出保留原始纳秒时间、CPU、namespace `common_pid`、flags、
+   preempt count、原始 event name，以及 byte-exact raw content。
+3. 标准 ftrace 行携带版本化 `codrax_source_raw_visibility/v1`：raw content 用 base64url；canonical JSON
+   schema 保存 event id/name、字段顺序、type/name/offset/size/signed 与原始 print-fmt；首行携 schema，
+   每行携 schema SHA-256。载体明确 `semantic_authority=none`，普通查看器可显示事件及完整 payload，
+   不理解扩展的查看器仍可安全忽略。
+4. tracequery 新增专用 `source_raw_visibility` advisory 类型，并将 parser cache 升至 v40。识别读取完整
+   canonical token grammar（固定字段次序、canonical base64url、schema SHA）；畸形 reserved carrier
+   fail-close 为 `Unknown`，不能因 `hmfs_*`/`f2fs_*` 名字再获文件系统语义。
+5. 普通 BuildIndex、窗口扫描和线程状态流在 MaxEvents、platform、pair/duration、关系与根因消费前
+   丢弃该 advisory，避免几十万保真行挤掉真实调度证据；显式流式 `event_search` 仍可把它作为背景
+   记录展示。它没有 subsystem、span、pair、duration、wake-edge、CPU-supply 或 root authority。
+6. SQL owned-output postvalidation 从 producer-owned typed coverage 取得预期 carrier 数，并与解析后的
+   专用 event type 逐数闭账；这些行计入 artifact advisory、从 authoritative-known 中扣除。不能继续
+   伪装 `EventUnknown` 绕过 `tracequery_postvalidation_unknown_owned_row` tripwire。
+7. 二次扫描直接流入现有 spill-backed authenticated sorter，不建立全量 event slice；schema 每 format
+   只生成一次。格式清册中某个不相关 poisoned descriptor 不再使全部 admitted format 失败，但任何
+   本 family common-envelope/census 漂移仍整体 fail-close。
+
+### 回归与状态
+
+- 合成 HMFS-like official binary 验证两条 raw payload、canonical schema、纳秒/CPU/namespace PID 完整
+  round-trip；threshold=1 强制 spill 后权限不变；损坏 common envelope 在 sink 前整族撤销。
+- 端到端 trace_streamer 转换验证文本恰有两条标准行、owned postvalidation 通过、普通 tracequery
+  index 零载体驻留；另有合法/畸形 carrier、schema SHA、额外 token、错误 authority 的权限负钉。
+- deterministic receipt 因新增显式 `source_rawtrace_visibility` coverage 记录重钉；无 raw replay 的既有
+  fixture 输出 bytes、事件数和 authority/advisory 数不变。
+- **HCONV-IO-VIS-R3：已修（本批）。** 关闭“已 admitted、无严格 decoder 的 source raw 记录从文本
+  完全消失”；不宣称已把未知 payload 翻译成人类字段或官方专属泳道。
+- **HCONV-IO-VIS-R2b（开放）**：取得客户 HMFS 真实多版本 schema 后增加版本化严格 decoder，使
+  人类可读字段和成对语义在精确 profile 内生效；未知/未来版本继续只走 R3 advisory。
+- **EBPF-VIS / VIEWER-PARITY（开放）**：官方 SQLite 专表及无真实 CPU 的 eBPF interval 需独立标准
+  viewer carrier，禁止伪造 CPU0 或借可见性载体获得调度/因果权限。
+- 验证：focused parser/converter/owned-output/receipt 回归通过；完整
+  `GOMAXPROCS=4 go test ./internal/tracequery -count=1` 与
+  `GOMAXPROCS=4 go test ./internal/hitraceconv -count=1` 分别通过（`73.896s / 86.109s`）。初轮并发
+  双包运行曾触发 perf allocation 与 profiler resource 护栏；定位到 carrier claim 对所有事件调用
+  `strings.Fields` 的热路分配后改为零分配精确首 token 判定，perf tripwire `×3` 与两个完整包复跑均绿；
+  profiler resource 护栏独立 `×2` 通过。
+- `GOMAXPROCS=4 go test ./... -p 4 -count=1`：全仓通过（`hitraceconv=74.731s`、
+  `tracequery=78.884s`、`tool=185.029s`、`tracediag=5.215s`、`repl=33.312s`）；显式时间窗
+  Trace 因果投影、系统补齐、JSON/成文、Mermaid、流式回答及 read/write 模式回归保持全绿。
+
 ## 2026-08-17 追加：HCONV-IO-VIS-R2a 严格源 workqueue/filemap/F2FS 文本恢复
 
 ### 审计结论与权限边界

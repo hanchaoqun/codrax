@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v39"
+const ParserVersion = "tracequery-v40"
 
 type EventType string
 
@@ -66,9 +66,16 @@ const (
 	// record. It is known syntax but advisory-only: indexed builds count and
 	// discard it before relation pruning and MaxEvents admission.
 	EventTraceDBRecord EventType = "trace_db_record"
-	EventPerfSample    EventType = "perf_sample"
-	EventPerfNAPIAsync EventType = "perf_napi_async"
-	EventEBPFInterval  EventType = "ebpf_interval"
+	// EventSourceRawVisibility is a converter-authored, exact source-record
+	// carrier for event formats which do not yet have a strict semantic adapter.
+	// It is known syntax but advisory-only: ordinary indexed/state/causal views
+	// discard it before admission, while explicit streaming event search may
+	// surface the exact occurrence to a human. It never grants subsystem,
+	// scheduler, span, relation, duration, wake-chain, or root-cause authority.
+	EventSourceRawVisibility EventType = "source_raw_visibility"
+	EventPerfSample          EventType = "perf_sample"
+	EventPerfNAPIAsync       EventType = "perf_napi_async"
+	EventEBPFInterval        EventType = "ebpf_interval"
 )
 
 const (

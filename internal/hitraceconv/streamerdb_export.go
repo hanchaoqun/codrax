@@ -202,6 +202,11 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		coverage = append(coverage, lifecycleCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
+	expectedSourceRawVisibility, err := traceDBSourceRawVisibilityPublishedRows(extendedCoverage)
+	if err != nil {
+		coverage = append(coverage, lifecycleCoverage...)
+		return traceDBSystraceExport{Coverage: coverage}, err
+	}
 	metadataCoverage, err := inspectTraceDBDiagnosticMetadata(ctx, tdb)
 	coverage = append(coverage, metadataCoverage...)
 	if err != nil {
@@ -375,6 +380,7 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		target.finalBindingPath,
 		stats.RowsWritten,
 		textFidelity.RecordLines,
+		expectedSourceRawVisibility,
 		expectedWire,
 	)
 	if validationErr != nil {

@@ -1929,7 +1929,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				// preservation-only. Count them before every query admission
 				// gate, then discard so they cannot consume MaxEvents or gain
 				// scheduler/span/causal authority merely by being present.
-				if countTraceDBTextRecord(idx, ev) {
+				if countTraceDBTextRecord(idx, ev) || sourceRawVisibilityAdvisory(ev) {
 					goto nextLine
 				}
 				flavor.observeEvent(ev)
@@ -4398,6 +4398,23 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		Type:      classifyEventType(comm, rawType, classificationFields),
 		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
+	}
+	if sourceRawVisibilityPayloadClaimed(fields) {
+		// This exact converter-owned wire preserves a physical source record for
+		// generic-viewer visibility. Its original event name is deliberately
+		// retained above, but the opaque payload/schema carrier grants no typed
+		// semantics: in particular it cannot enter prefix-based filesystem,
+		// frequency, Binder, pairing, duration, wake-chain or root-cause lanes.
+		if sourceRawVisibilityOnlyPayload(fields) {
+			ev.Type = EventSourceRawVisibility
+		} else {
+			// A malformed claim cannot fall through to raw event-name classifiers:
+			// doing so would turn invalid converter-owned bytes into filesystem or
+			// other semantic authority. Keep it parsed-but-untrusted so owned output
+			// postvalidation fails closed on the unexpected Unknown row.
+			ev.Type = EventUnknown
+		}
+		return ev, true
 	}
 	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, classificationFields, ev.Type))
 	kv := s.keyValues()

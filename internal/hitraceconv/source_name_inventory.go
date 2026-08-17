@@ -55,6 +55,17 @@ type traceDBSourceNameInventory struct {
 	RawSwitchLite   []traceDBRawSchedSwitchLiteRecord
 	RawWakeupLite   []traceDBRawSchedWakeupLiteRecord
 	RawWakeupNames  []traceDBRawSchedWakeupNewNameRecord
+	// rawReplay is the still-held immutable generation used for one bounded
+	// second pass during visibility-only publication. It carries no authority
+	// by itself; RawProfile/RawDecode must first prove the complete source
+	// geometry and every visibility candidate's common envelope.
+	rawReplay *traceDBSourceRawReplay
+}
+
+type traceDBSourceRawReplay struct {
+	input    conversionInputView
+	header   fileHeader
+	segments []segmentMeta
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -313,6 +324,13 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		"source event-format profile, raw-page structural scan, strict target decode and retained-family census"
 	if err != nil {
 		return inventory, err
+	}
+	if header.Magic == traceStreamerRawTraceMagic && incomplete == "" &&
+		traceDBRawDecodeCensusComplete(inventory.RawDecode) {
+		inventory.rawReplay = &traceDBSourceRawReplay{
+			input: input, header: header,
+			segments: append([]segmentMeta(nil), rawAudit.segments...),
+		}
 	}
 	reconcileTraceDBSourceRawDecoderAuthority(
 		&inventory.RawAuthority, inventory.RawProfile, inventory.RawDecode)

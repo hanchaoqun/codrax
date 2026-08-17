@@ -205,27 +205,28 @@ func ownedTraceWireDigestEqual(expected, observed ownedTraceWireDigest) bool {
 }
 
 type ownedTraceValidationProfile struct {
-	Kind                      ownedTraceValidationKind
-	PerfProfile               ownedTracePerfProfile
-	CoverageTable             string
-	ExpectedRows              int
-	ExpectedKnown             int
-	ExpectedTypedPreserved    int
-	ExpectedAdvisory          ownedTraceRowDigest
-	ExpectedUnknown           ownedTraceRowDigest
-	ExpectedUnparsed          ownedTraceRowDigest
-	ExpectedWire              ownedTraceWireDigest
-	RequiredEventType         tracequery.EventType
-	RequiredPerfSource        string
-	RequiredPerfClock         string
-	RequirePerfIntegrity      bool
-	AllowZeroRows             bool
-	RawCaptureCompleteness    RawPerfCaptureCompleteness
-	HasRawCaptureCompleteness bool
-	RawCaptureResidual        RawPerfCaptureResidual
-	HasRawCaptureResidual     bool
-	RawSampleAdmission        RawPerfSampleAdmission
-	HasRawSampleAdmission     bool
+	Kind                        ownedTraceValidationKind
+	PerfProfile                 ownedTracePerfProfile
+	CoverageTable               string
+	ExpectedRows                int
+	ExpectedKnown               int
+	ExpectedTypedPreserved      int
+	ExpectedSourceRawVisibility int
+	ExpectedAdvisory            ownedTraceRowDigest
+	ExpectedUnknown             ownedTraceRowDigest
+	ExpectedUnparsed            ownedTraceRowDigest
+	ExpectedWire                ownedTraceWireDigest
+	RequiredEventType           tracequery.EventType
+	RequiredPerfSource          string
+	RequiredPerfClock           string
+	RequirePerfIntegrity        bool
+	AllowZeroRows               bool
+	RawCaptureCompleteness      RawPerfCaptureCompleteness
+	HasRawCaptureCompleteness   bool
+	RawCaptureResidual          RawPerfCaptureResidual
+	HasRawCaptureResidual       bool
+	RawSampleAdmission          RawPerfSampleAdmission
+	HasRawSampleAdmission       bool
 }
 
 // ownedTraceDBTextRecordSequence closes the integrity that a single-line
@@ -383,7 +384,7 @@ func (sequence *ownedTraceDBTextRecordSequence) complete(expectedLines int) bool
 
 func (profile ownedTraceValidationProfile) validate() string {
 	if !profile.Kind.valid() || profile.ExpectedRows < 0 || profile.ExpectedKnown < 0 ||
-		profile.ExpectedTypedPreserved < 0 ||
+		profile.ExpectedTypedPreserved < 0 || profile.ExpectedSourceRawVisibility < 0 ||
 		profile.ExpectedAdvisory.Rows < 0 ||
 		profile.ExpectedUnknown.Rows < 0 || profile.ExpectedUnparsed.Rows < 0 {
 		return traceDBPostvalidationCountMismatch
@@ -405,6 +406,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 	case ownedTraceValidationSQL:
 		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
 			profile.ExpectedTypedPreserved > profile.ExpectedKnown ||
+			profile.ExpectedSourceRawVisibility > profile.ExpectedKnown-profile.ExpectedTypedPreserved ||
 			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			profile.HasRawCaptureCompleteness || profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) ||
@@ -415,7 +417,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 		}
 	case ownedTraceValidationBuiltin:
 		advisoryKnown := profile.ExpectedAdvisory.Rows - profile.ExpectedUnknown.Rows
-		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedTypedPreserved != 0 ||
+		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedTypedPreserved != 0 || profile.ExpectedSourceRawVisibility != 0 ||
 			profile.ExpectedAdvisory.Rows < profile.ExpectedUnknown.Rows ||
 			advisoryKnown < 0 || advisoryKnown > profile.ExpectedKnown || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
@@ -426,7 +428,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationProfiler:
-		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedTypedPreserved != 0 ||
+		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedTypedPreserved != 0 || profile.ExpectedSourceRawVisibility != 0 ||
 			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != "" || profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" ||
 			profile.RequiredPerfClock != "" || profile.HasRawCaptureCompleteness ||
@@ -440,7 +442,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 		requiredSource, requiredClock, validPerfProfile := profile.PerfProfile.sourceClock()
 		expectedTable, validCoverageTable := profile.PerfProfile.coverageTable()
 		if !validPerfProfile || !validCoverageTable || profile.ExpectedKnown != profile.ExpectedRows ||
-			profile.ExpectedTypedPreserved != 0 ||
+			profile.ExpectedTypedPreserved != 0 || profile.ExpectedSourceRawVisibility != 0 ||
 			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != tracequery.EventPerfSample || !profile.RequirePerfIntegrity ||
 			profile.RequiredPerfSource != requiredSource || profile.RequiredPerfClock != requiredClock || !profile.ExpectedWire.Valid ||
@@ -634,6 +636,7 @@ func validateSealedSystraceWithTraceQueryReceiptAndWire(
 	displayPath string,
 	expectedRows int,
 	expectedTypedPreserved int,
+	expectedSourceRawVisibility int,
 	expectedWire ownedTraceWireDigest,
 ) (receipt ownedTraceValidationReceipt, coverage TraceDBCoverage, resultErr error) {
 	if !expectedWire.Valid {
@@ -642,12 +645,13 @@ func validateSealedSystraceWithTraceQueryReceiptAndWire(
 		return receipt, coverage, &traceDBOutputInvariantError{Reason: traceDBPostvalidationWireMismatch}
 	}
 	profile := ownedTraceValidationProfile{
-		Kind:                   ownedTraceValidationSQL,
-		CoverageTable:          traceDBPostvalidationCoverageTable,
-		ExpectedRows:           expectedRows,
-		ExpectedKnown:          expectedRows,
-		ExpectedTypedPreserved: expectedTypedPreserved,
-		ExpectedWire:           expectedWire,
+		Kind:                        ownedTraceValidationSQL,
+		CoverageTable:               traceDBPostvalidationCoverageTable,
+		ExpectedRows:                expectedRows,
+		ExpectedKnown:               expectedRows,
+		ExpectedTypedPreserved:      expectedTypedPreserved,
+		ExpectedSourceRawVisibility: expectedSourceRawVisibility,
+		ExpectedWire:                expectedWire,
 	}
 	receipt, coverage, err := validateOwnedTraceOutput(ctx, source, displayPath, profile)
 	if err == nil {
@@ -718,6 +722,7 @@ func validateOwnedTraceOutput(
 	knownCount := 0
 	unknownCount := 0
 	typedPreservedCount := 0
+	sourceRawVisibilityCount := 0
 	callbackOverflow := false
 	parsedHeaderRow := false
 	eventTypeMismatch := false
@@ -786,6 +791,9 @@ func validateOwnedTraceOutput(
 				}
 				if event.Type == tracequery.EventTraceDBRecord {
 					typedPreservedCount++
+				}
+				if event.Type == tracequery.EventSourceRawVisibility {
+					sourceRawVisibilityCount++
 				}
 				if !typedSequence.observe(event) {
 					eventInvalid = true
@@ -875,11 +883,13 @@ func validateOwnedTraceOutput(
 		fmt.Sprintf("expected_rows=%d", profile.ExpectedRows),
 		fmt.Sprintf("expected_known=%d", profile.ExpectedKnown),
 		fmt.Sprintf("expected_typed_preserved=%d", profile.ExpectedTypedPreserved),
+		fmt.Sprintf("expected_source_raw_visibility=%d", profile.ExpectedSourceRawVisibility),
 		fmt.Sprintf("expected_advisory=%d", profile.ExpectedAdvisory.Rows),
 		fmt.Sprintf("expected_unknown=%d", profile.ExpectedUnknown.Rows),
 		fmt.Sprintf("expected_unparsed=%d", profile.ExpectedUnparsed.Rows),
 		fmt.Sprintf("parsed_known=%d", idx.ParsedKnown),
 		fmt.Sprintf("parsed_typed_preserved=%d", typedPreservedCount),
+		fmt.Sprintf("parsed_source_raw_visibility=%d", sourceRawVisibilityCount),
 		fmt.Sprintf("callback_count=%d", callbackCount),
 	)
 	if idx.FirstTs != 0 || idx.LastTs != 0 {
@@ -939,6 +949,7 @@ func validateOwnedTraceOutput(
 	if idx.Size != source.Size() || len(idx.Events) != 0 || idx.LineCount != expectedLines ||
 		idx.ScannedLineCount != expectedLines || idx.ParsedKnown != profile.ExpectedKnown || knownCount != profile.ExpectedKnown ||
 		typedPreservedCount != profile.ExpectedTypedPreserved ||
+		sourceRawVisibilityCount != profile.ExpectedSourceRawVisibility ||
 		idx.TraceDBTextCarrierRows != profile.ExpectedTypedPreserved ||
 		callbackCount != profile.ExpectedKnown+profile.ExpectedUnknown.Rows {
 		return receipt, coverage, fail(traceDBPostvalidationCountMismatch)
@@ -952,11 +963,11 @@ func validateOwnedTraceOutput(
 	if profile.Kind == ownedTraceValidationBuiltin {
 		authoritativeKnown -= profile.ExpectedAdvisory.Rows - profile.ExpectedUnknown.Rows
 	} else if profile.Kind == ownedTraceValidationSQL {
-		authoritativeKnown -= profile.ExpectedTypedPreserved
+		authoritativeKnown -= profile.ExpectedTypedPreserved + profile.ExpectedSourceRawVisibility
 	}
 	advisory := profile.ExpectedAdvisory.Rows
 	if profile.Kind == ownedTraceValidationSQL {
-		advisory = profile.ExpectedTypedPreserved
+		advisory = profile.ExpectedTypedPreserved + profile.ExpectedSourceRawVisibility
 	}
 	receipt = ownedTraceValidationReceipt{
 		kind: profile.Kind, perfProfile: profile.PerfProfile, perfSource: profile.RequiredPerfSource, perfClock: profile.RequiredPerfClock,
