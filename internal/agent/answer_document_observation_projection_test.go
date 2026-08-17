@@ -129,6 +129,44 @@ func TestAnswerDocBoundedNamedTargetPromptProjectsUnrelatedRuntimeRows(t *testin
 	}
 }
 
+func TestAnswerDocBoundedNamedTargetIOLatencyUsesDedicatedTypedFamily(t *testing.T) {
+	record := func(id, subject, predicate string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Subject: subject, Predicate: predicate,
+		}
+	}
+	records := []types.ObservationRecord{
+		record("target-io", ".ugc.aweme.lite-17267", "io_latency"),
+		record("io-coverage", "block_request_pairs", "io_latency_coverage"),
+		record("storage", "block", "storage_latency_by_layer"),
+		record("inode", "inode=123", "block_io_by_inode"),
+		record("target-state", ".ugc.aweme.lite-17267", "target_window_states"),
+		record("pressure", "cpu=4", "io_pressure"),
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 17267, Thread: ".ugc.aweme.lite-17267", Source: "user_explicit",
+		}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactIOLatency},
+		},
+	}}}
+
+	got := answerDocScopeProjectedObservationRecords(ctx, records)
+	if ids := strings.Join(answerDocObservationRecordIDs(got), ","); ids != "target-io,io-coverage,storage,inode,target-state" {
+		t.Fatalf("typed IO latency projection drifted: %s", ids)
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies = []types.RuntimeQuestionFactFamily{
+		types.RuntimeQuestionFactTargetSchedulerState,
+	}
+	got = answerDocScopeProjectedObservationRecords(ctx, records)
+	if ids := strings.Join(answerDocObservationRecordIDs(got), ","); ids != "target-state" {
+		t.Fatalf("target ownership leaked unrequested IO latency rows: %s", ids)
+	}
+}
+
 func TestAnswerDocBoundedNamedTargetPromptAcceptsTypedDiagnosticPIDSuffix(t *testing.T) {
 	record := func(id, subject, predicate string) types.ObservationRecord {
 		return types.ObservationRecord{

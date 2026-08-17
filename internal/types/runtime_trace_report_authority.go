@@ -143,6 +143,18 @@ func RuntimeTraceBlockedReasonCensusMaterializationAllowed(rm *RequestModel, set
 		(rm != nil && rm.RuntimeQuestionProfile.RequestsBlockedReasonCensus())
 }
 
+// RuntimeTraceIOLatencyMaterializationAllowed authorizes the finite storage
+// latency-caliber lane without widening the answer into a root-cause report.
+// Consumers must keep request residence, completion-closed issuer blocking,
+// and aggregate pressure as distinct typed rulers.
+func RuntimeTraceIOLatencyMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return runtimeTraceBoundedFactFamilyMaterializationAllowed(
+		rm,
+		set,
+		RuntimeQuestionFactIOLatency,
+	)
+}
+
 // RuntimeTracePrincipalValueMaterializationAllowed is the compatibility union
 // for consumers that render both principal lanes. New consumers should prefer
 // the state/wait-specific predicates and filter their rows independently.

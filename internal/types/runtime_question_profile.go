@@ -49,9 +49,16 @@ const (
 	RuntimeQuestionFactRelationPeer          RuntimeQuestionFactFamily = "relation_peer"
 	RuntimeQuestionFactTransactionID         RuntimeQuestionFactFamily = "transaction_id"
 	RuntimeQuestionFactDirectWaker           RuntimeQuestionFactFamily = "direct_waker"
-	RuntimeQuestionFactResourcePressure      RuntimeQuestionFactFamily = "resource_pressure"
-	RuntimeQuestionFactFrequencyResidency    RuntimeQuestionFactFamily = "frequency_residency"
-	RuntimeQuestionFactOtherObservedValue    RuntimeQuestionFactFamily = "other_observed_value"
+	// RuntimeQuestionFactIOLatency is the finite latency-caliber lane for
+	// storage requests/operations. It covers exact issue-to-complete request
+	// residence and, when the completion-to-issuer wake closure is proven, the
+	// issuer's completion-closed blocked wall clock. The two rulers remain
+	// separate and non-additive. This is intentionally distinct from generic
+	// scheduler wait occurrences and from aggregate resource pressure.
+	RuntimeQuestionFactIOLatency          RuntimeQuestionFactFamily = "io_latency"
+	RuntimeQuestionFactResourcePressure   RuntimeQuestionFactFamily = "resource_pressure"
+	RuntimeQuestionFactFrequencyResidency RuntimeQuestionFactFamily = "frequency_residency"
+	RuntimeQuestionFactOtherObservedValue RuntimeQuestionFactFamily = "other_observed_value"
 )
 
 func AllRuntimeQuestionFactFamilies() []RuntimeQuestionFactFamily {
@@ -64,6 +71,7 @@ func AllRuntimeQuestionFactFamilies() []RuntimeQuestionFactFamily {
 		RuntimeQuestionFactRelationPeer,
 		RuntimeQuestionFactTransactionID,
 		RuntimeQuestionFactDirectWaker,
+		RuntimeQuestionFactIOLatency,
 		RuntimeQuestionFactResourcePressure,
 		RuntimeQuestionFactFrequencyResidency,
 		RuntimeQuestionFactOtherObservedValue,
@@ -188,7 +196,8 @@ func (p *RuntimeQuestionProfile) RequestsTraceWaitEvidencePrompt() bool {
 				RuntimeQuestionFactOccurrenceTime,
 				RuntimeQuestionFactRelationPeer,
 				RuntimeQuestionFactTransactionID,
-				RuntimeQuestionFactDirectWaker:
+				RuntimeQuestionFactDirectWaker,
+				RuntimeQuestionFactIOLatency:
 				return true
 			}
 		}

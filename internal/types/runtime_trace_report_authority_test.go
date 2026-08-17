@@ -118,6 +118,21 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedWaitClosure, withRoot) {
 		t.Fatal("recorded reason + count/duration must retain the exact blocked-reason census")
 	}
+	boundedIOLatency := boundedState
+	boundedIOLatency.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope:        RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{RuntimeQuestionFactIOLatency},
+	}
+	if RuntimeTraceReportMaterializationAllowed(&boundedIOLatency, withRoot) {
+		t.Fatal("a finite IO latency lookup must not widen into a causal report")
+	}
+	if !RuntimeTraceIOLatencyMaterializationAllowed(&boundedIOLatency, withRoot) {
+		t.Fatal("the typed IO latency family must retain its finite latency-caliber lane")
+	}
+	if RuntimeTraceTargetStateMaterializationAllowed(&boundedIOLatency, withRoot) ||
+		RuntimeTraceTargetWaitMaterializationAllowed(&boundedIOLatency, withRoot) {
+		t.Fatal("IO request latency must not invent a scheduler-state or target-wait card")
+	}
 	if RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedStateAndCount, TraceCausalProjectionSet{}) {
 		t.Fatal("count/duration without recorded_reason must not publish a blocked-reason census")
 	}

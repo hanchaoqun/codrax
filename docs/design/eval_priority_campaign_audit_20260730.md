@@ -36079,6 +36079,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.991 r615/B973：精确 block IO 已配对但有限事实投影失语（2026-08-17）
+
+1. 在 `main@abcf0ab056` 严格并发恰好两个案例：`qf_logic_view_read_pipeline` 与
+   `real_trace_h3_iofam_one_seat`。Runner 为 `1 PASS / 1 FAIL`，人工为 QF major-partial、H3 fail；完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_carrier_blockio_r615_20260817_manual_audit.md`。
+2. B971 获生产正证：四阶段 verified precedence 不再被同名 source symbol 拆散，completion 的缺席参与者稳定收窄为
+   `Mutable/BusContext`。B972 的共享语义教学也生效，模型没有再把 getter/call 单独写成数据写入；但真实仓的宽同名
+   候选仍稀释第一跳导航，没有命中 `BuildAgentContext` 等交接点，导致 36 reads、53 Explorer iterations、5 次 completion
+   和 4 次成文拒绝。新立 B974，下一独立批修目标排序而不放宽关系证据门。
+3. H3 的转换与引擎并未丢 IO：同一 `window_stats` 精确给出目标 issuer 的 `block_rq_issue→block_rq_complete` 配对，最大
+   request residence 1.347ms；同一完成端严格唤醒 issuer 后，目标 response-blocked 为 1.337ms；块设备层 85/85 配对、
+   max 1.347ms、avg 0.343ms，展示帽外另有 190 对、41.329 request·ms。Explorer 也读取并向 completion 发出这些值。
+4. 真正缺口 `B973-BOUNDEDIOLATENCYFACTFAMILY1/P1` 在 typed handoff：Analyzer 的有限 fact enum 没有 IO latency，
+   只能发 `count_or_duration/target_scheduler_state/recorded_reason`；逐请求 IO 行又只存在 trace_query 文本、不在
+   ObservationLedger。Finalizer 的有限投影于是只留下状态、零 wait occurrence 和 blocked reason，完整遗漏用户主问。
+5. 根修新增 `io_latency` schema enum，明确它拥有两把分离且不可相加的尺：单请求 issue→complete residence 是请求
+   墙钟、不是线程等待；只有 typed completion→issuer wake 闭合才发布 issuer-blocked 响应墙钟。跨请求 overflow
+   `request·ms` 可重叠，继续明确为非墙钟/不可相加；综合压力仍由独立 `resource_pressure` family 授权。
+6. `window_stats` 现在把 exact pair、issuer/completer、dev/op/sector/len、两个时间区间、closure 与覆盖收据发布为 typed
+   observation；有限投影只在 `io_latency` family 下开放 `io_latency/io_latency_coverage/storage_latency_by_layer/
+   block_io_by_inode`。目标同名本身不能让 IO 行泄漏到纯状态/关系查询。
+7. 自动补齐对该有限 family 最多补 `window_stats`，不调用 root-cause rank、critical blocking 或完整因果 bundle；已有 IO
+   typed row 时零补采。完整 `causal_diagnosis` 仍走原全部链上候选与双轴投影，不受该有限权限影响。
+8. 全部决定只读 analyzer schema enum、trace_query producer predicate 与 typed pair fields，不扫描请求/模型/答案 prose，
+   不把系统事实变成系统结论。活跃流 r615 连续生成 564s 未降级，4ms/固定年龄继续没有结束权限。
+
+状态：
+
+`r615 runner=1/2-pass/human=qf-major-partial+trace-fail`；
+`B971-STAGEAUTHORITYADMISSION1=production-positive-r615`；
+`B972-CALLOPERATIONDIRECTION1=soft-teaching-production-positive/navigation-production-negative`；
+`B973-BOUNDEDIOLATENCYFACTFAMILY1=implemented/typed-enum+pair-ledger+bounded-projection+window-stats-supplement/pending-replay`；
+`B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-batch`；
+`block_rq issue-complete pairing=production-positive-r615`；
+`Trace bounded fact/full causal breadth=separate`；Trace root=`typed-on-chain-only`；
+adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

@@ -12674,6 +12674,127 @@ func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats
 	return out
 }
 
+// traceQueryTypedIOLatencyObservations publishes the exact block request
+// endpoint pairs that already exist on WindowStats. Before this typed lane,
+// the human-readable trace_query result showed request_residence and the
+// completion-closed issuer wait, but the finalizer's structured observation
+// projection could not see either value. Keep both rulers on one source-owned
+// record and explicitly forbid addition: request residence describes the
+// physical request; issuer_blocked describes target response impact only when
+// the completion→wakeup closure is proven.
+func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	var out []types.ObservationRecord
+	for i, io := range stats.IOLatencies {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
+			break
+		}
+		issuer := traceThreadLabel(io.IssueThread)
+		if strings.TrimSpace(issuer) == "" || io.DurationMs <= 0 || io.CompleteTs < io.IssueTs {
+			continue
+		}
+		caliber := firstNonEmptyTraceString(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)
+		notes := [][2]string{
+			{"endpoint_family", io.EndpointFamily},
+			{"dev", io.Dev},
+			{"op", io.Op},
+			{"sector", traceQueryTypedInt64(io.Sector)},
+			{"len", traceQueryTypedInt64(io.Len)},
+			{"issue_thread", issuer},
+			{"complete_thread", traceThreadLabel(io.CompleteThread)},
+			{"issue_ts", traceQueryTimestampValue(io.IssueTs)},
+			{"complete_ts", traceQueryTimestampValue(io.CompleteTs)},
+			{"request_residence", traceQueryObservationMSValue(io.DurationMs)},
+			{"request_residence_caliber", caliber},
+			{"completion_woke_issuer", strconv.FormatBool(io.CompletionWokeIssuer)},
+			{"non_additive_with_issuer_blocked", "true"},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
+		}
+		summary := fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s)=%.3fms; issue=%s; complete=%s",
+			io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, caliber, io.DurationMs,
+			issuer, traceThreadLabel(io.CompleteThread))
+		if io.CompletionWokeIssuer && io.IssuerBlockedMs > 0 && io.WakeupTs >= io.IssuerBlockedStartTs {
+			notes = append(notes,
+				[2]string{"issuer_blocked_state", io.IssuerBlockedState},
+				[2]string{"issuer_blocked_start", traceQueryTimestampValue(io.IssuerBlockedStartTs)},
+				[2]string{"issuer_blocked_end", traceQueryTimestampValue(io.IssuerBlockedEndTs)},
+				[2]string{"issuer_blocked", traceQueryObservationMSValue(io.IssuerBlockedMs)},
+				[2]string{"causal_wait_caliber", io.CausalWaitCaliber},
+				[2]string{"wakeup_ts", traceQueryTimestampValue(io.WakeupTs)},
+				[2]string{"wakeup_line", traceQueryTypedCount(io.WakeupLine)},
+			)
+			summary += fmt.Sprintf("; completion_woke_issuer=true; response_blocked(%s,%s)=%.3fms; request_residence is mechanism evidence and is not additive",
+				io.IssuerBlockedState, io.CausalWaitCaliber, io.IssuerBlockedMs)
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#io_latency:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: io.IssueLine,
+				LineEnd:   io.CompleteLine,
+				StartTs:   io.IssueTs,
+				EndTs:     io.CompleteTs,
+			},
+			ClaimKey:    fmt.Sprintf("io_latency:%s:%s:%s:%d:%d", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len),
+			Subject:     issuer,
+			Predicate:   "io_latency",
+			Object:      io.EndpointFamily,
+			Value:       traceQueryObservationMSValue(io.DurationMs),
+			Unit:        "ms",
+			Summary:     summary,
+			RichNotes:   traceQueryTypedKVNotes(notes),
+			SupportRefs: traceQueryObservationSupportRefs(ref, io.IssueLine, io.CompleteLine),
+			ObservedAt:  at,
+			Confidence:  0.86,
+		})
+	}
+
+	total := len(stats.IOLatencies) + stats.IOLatencyOverflowCount
+	if total > 0 {
+		complete := stats.IOLatencyOverflowCount == 0
+		status := "complete"
+		if !complete {
+			status = "capacity_truncated"
+		}
+		count := total
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#io_latency_coverage", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			ClaimKey:        "io_latency_coverage",
+			Subject:         "block_request_pairs",
+			Predicate:       "io_latency_coverage",
+			Object:          status,
+			Value:           strconv.Itoa(total),
+			Unit:            "requests",
+			ResultCount:     &count,
+			Summary: fmt.Sprintf("io latency exact-pair coverage emitted=%d total=%d status=%s; overflow request residence sum=%.3f request·ms is non-wall-clock and non-additive because requests may overlap",
+				len(stats.IOLatencies), total, status, stats.IOLatencyOverflowRequestMs),
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{"emitted", strconv.Itoa(len(stats.IOLatencies))},
+				{"total", strconv.Itoa(total)},
+				{"complete", strconv.FormatBool(complete)},
+				{"coverage_status", status},
+				{"overflow_pairs", traceQueryTypedCount(stats.IOLatencyOverflowCount)},
+				{"overflow_request_ms", traceQueryObservationMSValue(stats.IOLatencyOverflowRequestMs)},
+				{"overflow_sum_caliber", "request_ms_non_wall_clock_non_additive"},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
+			}),
+			ObservedAt: at,
+			Confidence: 1,
+		})
+	}
+	return out
+}
+
 // traceQueryTypedVsyncGeneratorCensusObservations mints one typed record per
 // generator thread of the SA-F2 census (DISPATCH-IND 批4, 2026-07-14). Value
 // carries the authoritative period (the generator's own period print) when
@@ -12767,6 +12888,11 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	// ledger so the model evidence feed never re-derives it from truncated
 	// display faces (复核实锤: top-8 view + blob preview truncation).
 	out = append(out, traceQueryTypedBlockedReasonCensusObservations(stats, ref, scope, at)...)
+	// The exact endpoint pairs and their two non-additive latency calibers are
+	// finite principal facts when the analyzer requests io_latency. Publishing
+	// them here keeps the ledger lossless; request-scoped projection decides
+	// whether they enter the model prompt.
+	out = append(out, traceQueryTypedIOLatencyObservations(stats, ref, scope, at)...)
 	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the window_population generator
 	// census — the generator-side account (thread + authoritative period
 	// print) reaches the ledger so the answer never re-derives a "period"

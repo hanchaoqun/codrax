@@ -231,6 +231,23 @@ func TestTraceSupplementTypedBoundedDStateFallbackDoesNotNeedKeywords(t *testing
 	}
 }
 
+func TestTraceSupplementTypedBoundedIOLatencyUsesWindowStatsOnly(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactIOLatency},
+		},
+	}}}
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("finite IO latency must request only window_stats, got %v", got)
+	}
+	present := traceSupplementFamilyPresence{IOLatency: true}
+	if got := traceSupplementViewsForRequest(ctx, present, false, false); len(got) != 0 {
+		t.Fatalf("present IO latency facts must not trigger causal supplementation: %v", got)
+	}
+}
+
 func TestTraceSupplementExplicitWindowDStateFactRunsCoreFamiliesEndToEnd(t *testing.T) {
 	ctx := suppCoreContext(t)
 	start, end := 3.0, 3.2

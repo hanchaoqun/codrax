@@ -148,6 +148,7 @@ type traceSupplementFamilyPresence struct {
 	Critical            bool // critical_blocking predicate
 	BlockedReasonCensus bool // blocked_reason_census predicate (wait-object faces)
 	WakeupEdgeCensus    bool // wakeup_edge_census predicate (waker faces)
+	IOLatency           bool // exact request/storage latency predicates
 }
 
 func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFamilyPresence {
@@ -167,6 +168,8 @@ func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFami
 			f.BlockedReasonCensus = true
 		case "wakeup_edge_census":
 			f.WakeupEdgeCensus = true
+		case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode":
+			f.IOLatency = true
 		}
 	}
 	return f
@@ -340,6 +343,12 @@ func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvi
 // never choose which answer family runs.
 func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
 	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided && !allowed {
+		if traceSupplementNarrowIOLatencyQuestion(ctx) {
+			if !f.IOLatency {
+				return []string{"window_stats"}
+			}
+			return nil
+		}
 		if traceSupplementNarrowDStateQuestion(ctx) {
 			// A local model window cannot satisfy a full-artifact bounded census;
 			// re-run the same narrow view without promoting to causal families.
@@ -377,6 +386,22 @@ func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFami
 		return nil
 	}
 	return traceSupplementViews(f, false, frameEvidencePresent)
+}
+
+func traceSupplementNarrowIOLatencyQuestion(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	var profile *types.RuntimeQuestionProfile
+	if ctx.AnalysisIR != nil {
+		profile = ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
+	} else if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			profile = rm.RuntimeQuestionProfile
+		}
+	}
+	return profile != nil && profile.CarriesBoundedFactFamilies() &&
+		profile.RequestsFactFamily(types.RuntimeQuestionFactIOLatency)
 }
 
 func traceSupplementRequestedArtifactScope(ctx *types.BusContext) *types.RuntimeArtifactScopeProfile {

@@ -6521,11 +6521,27 @@ func answerDocBoundedRuntimeObservationPromptRecordAllowed(
 		return true
 	}
 	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+		// Target ownership alone does not authorize an IO-latency card for an
+		// unrelated finite state/relation lookup. The dedicated typed family is
+		// the only narrow-lane authority; causal diagnosis bypasses this
+		// projector entirely.
+		if answerDocBoundedRuntimeIOLatencyPredicate(predicate) {
+			return profile.RequestsFactFamily(types.RuntimeQuestionFactIOLatency)
+		}
 		// A count/duration request does not authorize a kernel caller census.
 		// The profile's existing two-axis contract owns this exceptional row.
 		return predicate != "blocked_reason_census" || profile.RequestsBlockedReasonCensus()
 	}
 	return answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate, profile)
+}
+
+func answerDocBoundedRuntimeIOLatencyPredicate(predicate string) bool {
+	switch predicate {
+	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode":
+		return true
+	default:
+		return false
+	}
 }
 
 func answerDocBoundedRuntimeTargetDiagnosticPredicate(predicate string) bool {
@@ -6546,6 +6562,9 @@ func answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate string, profile
 		case "cpu_frequency_limit", "frequency_tier_census":
 			return true
 		}
+	}
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactIOLatency) && answerDocBoundedRuntimeIOLatencyPredicate(predicate) {
+		return true
 	}
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactResourcePressure) {
 		switch predicate {
