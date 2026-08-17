@@ -265,6 +265,52 @@ func TestBuildExactResolutionContract_MultipleMentionedSymbolsRemainAmbiguous(t 
 	}
 }
 
+func TestBuildExactResolutionContract_MultiKeyConfigTableDoesNotLoseExactTargetsToCategoryPredicate(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "比较 pipeline_max_steps 和 pipeline_max_retries_per_stage",
+		Intent:     IntentConfigQuery,
+		Scenario:   ScenarioConfigTrace,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqConfigMapping),
+			PrimaryEntities:   []string{"pipeline_max_steps", "pipeline_max_retries_per_stage", "PipelineMaxSteps"},
+			MentionedEntities: []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("finite named config table must retain exact-resolution")
+	}
+	want := []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"}
+	if !reflect.DeepEqual(got.Targets, want) {
+		t.Fatalf("Targets = %v, want %v", got.Targets, want)
+	}
+}
+
+func TestBuildExactResolutionContract_BroadConfigCategoryTermDoesNotBecomeExactTarget(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "列出 pipeline 配置类别",
+		Intent:     IntentEnumerate,
+		Scenario:   ScenarioConfigTrace,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqConfigMapping),
+			PrimaryEntities:   []string{"pipeline"},
+			MentionedEntities: []string{"pipeline"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("broad category term must stay outside exact-resolution, got %+v", got)
+	}
+}
+
 func TestBuildExactResolutionContract_ConfigTraceFiltersPathLikeExactTargetsEvenWhenAnswerSubjectDrifts(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",

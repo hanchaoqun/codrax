@@ -744,6 +744,17 @@ func exactResolutionEnabled(rm RequestModel) bool {
 }
 
 func exactResolutionDisabledForSetValuedRelation(rm RequestModel) bool {
+	// A finite set of explicitly named config keys is still an exact lookup:
+	// the user may reasonably request one row per key or compare those rows,
+	// which can make an analyzer set category/table predicates.  Do not let
+	// that display shape disable per-key source completion.  The carve-out is
+	// deliberately provenance/structure based: explicit exact_targets were
+	// validated against the current request by emit_analysis; the fallback
+	// accepts only current-request MentionedEntities with a concrete config-key
+	// spelling.  Broad category terms and derived entities remain excluded.
+	if exactResolutionHasFiniteNamedConfigTargets(rm) {
+		return false
+	}
 	if rm.Predicates.IsScalarAnswer {
 		return false
 	}
@@ -751,6 +762,24 @@ func exactResolutionDisabledForSetValuedRelation(rm RequestModel) bool {
 		return true
 	}
 	return rm.Predicates.IsRelationalLookup || rm.Predicates.IsCategoryEnumeration
+}
+
+func exactResolutionHasFiniteNamedConfigTargets(rm RequestModel) bool {
+	if !strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") &&
+		rm.Scenario != ScenarioConfigTrace {
+		return false
+	}
+	if explicit := exactResolutionSubjectCompatibleCandidates(rm, rm.AnalyzerHints.ExactTargets); len(explicit) > 0 {
+		return true
+	}
+	mentioned := exactResolutionSubjectCompatibleCandidates(rm, exactResolutionMentionedCandidates(rm))
+	for _, candidate := range mentioned {
+		candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
+		if looksLikeConfigKeyToken(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func changeImpactDisablesExactResolution(rm RequestModel) bool {

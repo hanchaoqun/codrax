@@ -36061,6 +36061,47 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1018 r649：有限命名配置表被广义枚举前门误关；Trace 反向保护通过（2026-08-17）
+
+1. 在 `main@648a825d7` 严格并发恰好两个案例：
+   `read_combo_config_two_knobs_precedence + trace_query_wakeup_causal_io_chain`。Runner 与人工均为
+   `1 PASS / 1 FAIL`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_config_trace_r649_20260817_manual_audit.md`。
+2. r649 精确否证 B1021 第一批生产闭环。Analyzer 这次明确给出 `scenario=config_trace`、
+   `question_kind=config_mapping`、两个用户 bucket 与逐成员表，但同时把有限两项比较标成
+   `is_category_enumeration=true`。`exactResolutionDisabledForSetValuedRelation` 比新的多候选分支更早
+   返回，semantic view 仍是 `exact_resolution_present=false`；因此不是多候选保留实现错误，而是
+   “有限已命名集合”和“开放式类别枚举”共用一个总闸。
+3. 缺失 exact carrier 直接造成工具机会错位：Explorer 已明确意识到默认值来自
+   `PipelineSettings` 初始化，并请求搜索 `PipelineSettings\\s*\\{|MaxRetriesPerStage:\\s*[0-9]`；但
+   此时动态工具面只剩 evidence/completion，grep 被拒。最终错误把 CLI 注册 sentinel 0 当代码默认，
+   还把已读示例注释 50/2 写成 100/3。两次成文拒绝只因表格列数不齐，是 validator 正常工作，不能
+   解释数值错误。
+4. 第二批根修在唯一 set-valued 禁用权威中增加窄 carve-out：只要 typed family 为
+   `config_mapping/config_trace`，并存在 emit_analysis 已做当前请求来源验证的 explicit exact target，
+   或 `MentionedEntities` 中至少一个具有具体 config-key 结构的目标，就保留 exact lookup。宽泛裸类别词
+   （例如只问 `pipeline` 配置类别）、derived entity、普通多 symbol 关系与真正开放式 enumeration
+   继续关闭 exact-resolution。
+5. 该方案不读取请求/答案关键词，不根据模型推理或最终数字裁决，也不要求每个 config 表必有某个
+   固定层。它只将“哪些具体目标需要逐个补证”从已存在的 typed provenance 恢复出来；默认值、示例值、
+   CLI sentinel 和最终覆盖结论仍须由模型读取生产源码并形成。
+6. 新增正负 pin：`category_enumeration + per-member table + 两个当前请求命名 snake-case key` 必须保留
+   两个 exact targets；只有宽泛 `pipeline` 类别词时合同仍为 nil。第一批的 alias 去重、普通多符号
+   歧义和 context-role 时序 pin 均继续通过。
+7. Trace 对照人工通过：用户窗 20ms、threadpool→network→cookie→app 唤醒链、链上 IO 11ms 首席、
+   三段互斥 runnable 各 1ms、目标 S 态 20ms 与 frame/deadline 未证边界都保留。系统没有把邻近/背景
+   晋升主因，没有替模型写结论，因果投影与自动补齐正常，也没有活跃流固定 4ms 降级。
+
+状态：
+
+`r649=runner-1/2+human-1/2`；
+`B1021-CONFIGMULTITARGETEXACTRESOLUTION1=batch1-production-failed/category-front-gate-rooted`；
+`B1024-FINITENAMEDCONFIGSET1=implemented/typed-carveout-positive+negative-pins/pending-production-replay`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r649`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
