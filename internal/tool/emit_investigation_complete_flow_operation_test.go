@@ -1572,6 +1572,106 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 	}
 }
 
+func TestFlowOperationNavigationBalancesBindingBudgetAcrossMissingParticipantsAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			files := make(map[string]*repotypes.FileInfo)
+			// More than the legacy global file budget of one carrier. These
+			// legitimate Mutable bindings must not starve the independently
+			// requested BusContext carrier before candidate quality is scored.
+			for i := 0; i < maxFlowOperationRepairFiles+2; i++ {
+				path := filepath.ToSlash(filepath.Join("src", language, "a_state_"+string(rune('a'+i))+".src"))
+				lines := make([]string, 12)
+				lines[9] = "mutable.Read()"
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				files[path] = &repotypes.FileInfo{
+					RelPath: path, Language: language,
+					Symbols: []repotypes.Symbol{{
+						Name: "mutable", Kind: "field", Parent: "StateOwner", DeclaredType: "MutableState", Line: 1,
+					}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: path, Line: 10,
+						ToEP: repotypes.RelationEndpoint{Name: "Read", Receiver: "mutable", Line: 10},
+					}},
+				}
+			}
+
+			localPath := filepath.ToSlash(filepath.Join("src", language, "b_local.src"))
+			dispatchPath := filepath.ToSlash(filepath.Join("src", language, "z_dispatch.src"))
+			localLines := make([]string, 12)
+			localLines[9] = "busContext.Context()"
+			dispatchLines := make([]string, 40)
+			dispatchLines[9] = "renderer.Render(this.busContext.Language)"
+			dispatchLines[29] = "agentContext := builder.BuildAgentContext(this.busContext, AgentFinalizer, stage)"
+			for path, body := range map[string]string{
+				localPath: strings.Join(localLines, "\n"), dispatchPath: strings.Join(dispatchLines, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			files[localPath] = &repotypes.FileInfo{
+				RelPath: localPath, Language: language,
+				Relations: []repotypes.Relation{{
+					Kind: "call", File: localPath, Line: 10,
+					ToEP: repotypes.RelationEndpoint{Name: "Context", Receiver: "BusContext", Line: 10},
+				}},
+			}
+			files[dispatchPath] = &repotypes.FileInfo{
+				RelPath: dispatchPath, Language: language,
+				Symbols: []repotypes.Symbol{
+					{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+					{Name: "dispatch", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 40},
+				},
+				Relations: []repotypes.Relation{
+					{Kind: "call", File: dispatchPath, Line: 10,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 10},
+						ToEP:   repotypes.RelationEndpoint{Name: "Render", Receiver: "renderer", Line: 10}},
+					{Kind: "call", File: dispatchPath, Line: 30,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 30},
+						ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30}},
+				},
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "Finalizer", ResolvedAs: "AgentFinalizer", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(files))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable", "BusContext"})
+			if !ok || target.file != dispatchPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s per-participant binding budget must retain the whole-carrier cross-component handoff: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("balanced navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationUsesCanonicalTypedParticipantResolution(t *testing.T) {
 	ctx := flowOperationCompletionContext(nil)
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Extractor", "Mutable", "BusContext"}

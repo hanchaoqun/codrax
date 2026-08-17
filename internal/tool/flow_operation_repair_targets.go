@@ -719,6 +719,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	}
 	var surfaces []string
 	var participantSurfaceGroups [][]string
+	var missingParticipantSurfaceGroups [][]string
 	if rm.DiagramHint != nil {
 		for _, participant := range flowOperationPlanningParticipants(rm) {
 			if participant.Role != types.DiagramParticipantIncidentRequired {
@@ -740,6 +741,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			if len(wanted) > 0 && !wanted[strings.ToLower(strings.TrimSpace(participant.Identity))] {
 				continue
 			}
+			missingParticipantSurfaceGroups = append(missingParticipantSurfaceGroups, planningSurfaces)
 			surfaces = appendUniqueBounded(surfaces, planningSurfaces, maxFlowOperationRepairKeywords)
 		}
 	}
@@ -760,11 +762,15 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		// context argument used by an unrelated helper.
 		participantTouchRank   int
 		carrierOwnerBridgeRank int
-		carrierRank            int
-		handoffRank            int
-		matchRank              int
-		kindRank               int
-		line                   int
+		// carrierValueRank distinguishes handing off the carrier itself from
+		// handing off one derived member. Both are useful navigation, but an
+		// exact whole-carrier transfer is the stronger next place to inspect.
+		carrierValueRank int
+		carrierRank      int
+		handoffRank      int
+		matchRank        int
+		kindRank         int
+		line             int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -822,7 +828,26 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	// argument occurrence ahead of those local sites. This remains a read
 	// coordinate: DetectArgumentFlowsAtLine does not create evidence, and the
 	// explorer must still submit the source-owned argument row.
-	for _, binding := range flowRepairDeclaredBindingSites(index, rm, surfaces) {
+	// Allocate the declared-binding search budget per missing participant.
+	// Flattening every identity into one globally bounded list allowed a
+	// high-frequency carrier (for example Mutable) to consume every file slot
+	// before another independently requested carrier (for example BusContext)
+	// reached candidate scoring. That made lexical graph order, rather than
+	// operation quality, choose the repair. Per-participant quotas stay bounded
+	// while preventing cross-participant starvation.
+	var bindingSites []flowDeclaredBindingSite
+	seenBindingSites := make(map[string]bool)
+	for _, group := range missingParticipantSurfaceGroups {
+		for _, binding := range flowRepairDeclaredBindingSites(index, rm, group) {
+			key := strings.ToLower(binding.file + "\x00" + binding.alias + "\x00" + binding.owner)
+			if seenBindingSites[key] {
+				continue
+			}
+			seenBindingSites[key] = true
+			bindingSites = append(bindingSites, binding)
+		}
+	}
+	for _, binding := range bindingSites {
 		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 		for _, site := range flowNavigationBindingRelationSites(index, graph, binding) {
 			lines := flowNavigationSourceLines(ctx, index, site.file)
@@ -876,6 +901,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					participantSurfaceGroups,
 				),
 				carrierOwnerBridgeRank: site.carrierOwnerBridgeRank,
+				carrierValueRank:       flowNavigationCarrierArgumentValueRank(argumentSurfaces, binding.alias),
 				carrierRank:            1,
 				handoffRank:            flowNavigationCarrierHandoffRank(relation, binding.alias),
 				matchRank:              argumentRank,
@@ -890,6 +916,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
+		}
+		if candidates[i].carrierValueRank != candidates[j].carrierValueRank {
+			return candidates[i].carrierValueRank > candidates[j].carrierValueRank
 		}
 		if candidates[i].carrierOwnerBridgeRank != candidates[j].carrierOwnerBridgeRank {
 			return candidates[i].carrierOwnerBridgeRank > candidates[j].carrierOwnerBridgeRank
@@ -937,6 +966,28 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	return selected.target, true
+}
+
+// flowNavigationCarrierArgumentValueRank is a SOFT preference among already
+// parser-owned complete arguments. A binding used as the whole value
+// (`owner.busCtx`) is a more direct carrier handoff than a value derived from
+// it (`owner.busCtx.Language`). The latter remains eligible because nested
+// member projection is a real and common flow shape. This rank selects only a
+// read coordinate and never proves either transfer.
+func flowNavigationCarrierArgumentValueRank(arguments []string, binding string) int {
+	best := 0
+	for _, argument := range arguments {
+		argument = strings.TrimSpace(argument)
+		if !flowNavigationArgumentMatchesBinding(argument, binding) {
+			continue
+		}
+		if types.AnswerCodeIdentitySurfacesCompatible(binding, argument) {
+			best = max(best, 2)
+			continue
+		}
+		best = max(best, 1)
+	}
+	return best
 }
 
 const flowNavigationCallResultContinuationMaxHops = 4

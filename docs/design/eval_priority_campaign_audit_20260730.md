@@ -35724,13 +35724,21 @@ Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-
 8. 两案均无畸形 JSON、空答案、旧稿替代或活跃流固定 4ms 降级。活跃字节流仍只受 caller
    cancel/deadline、无首字节、byte-stall、transport/decode failure 控制；系统不得按累计 4ms/4s
    降级回答。
+9. B1012 已按结构根修。旧实现先把所有缺失参与者的 binding surface 压平，再共享“最多 6 个文件/
+   8 个别名”的预算；高频 `Mutable` binding 会在候选评分前耗尽名额，使独立的 `BusContext` 精确
+   binding 永远不能参选。新实现给每个缺失参与者独立的有界声明配额，去重后才进入同一
+   participant-touch/carrier-handoff 排序，因此词法文件顺序不再造成跨参与者饥饿。
+10. 同批增加完整载体值偏好：`owner.busCtx` 高于 `owner.busCtx.Language`，但后者仍保留为合法的嵌套
+    投影导航候选。15 种支持语言的矩阵同时放入超过旧配额的另一载体、无关局部 getter、派生成员实参
+    与真正跨组件 handoff，固定只能选择后者；所有断言同时确认零 evidence/edge/answer 铸造。
+    `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿，其中 tool 185.482s。
 
 状态：
 
 `r641=runner-2/2/human=trace-partial+qf-partial`；
 `B1010-APPENDIXEXPLORATIONWINDOWLEAK1=production-closed-r641`；
 `B1011-ENCLOSINGCALLABLERELATIONNAV1=production-partial/local-consumer-positive`；
-`B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=confirmed/P1/pending-implementation`；
+`B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=implemented/per-participant-quota+whole-carrier-rank+15-language-pins/pending-production-replay`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r641`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；
