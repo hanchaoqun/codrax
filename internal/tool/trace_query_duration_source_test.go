@@ -22,7 +22,13 @@ func TestTraceQuerySummaryPublishesDurationSourceBasenames(t *testing.T) {
 		}},
 		WindowStats: &tracequery.WindowStats{
 			IOLatencies: []tracequery.IOLatencySummary{{
-				SourcePath: source, Dev: "8,0", Op: "R", Sector: 1, Len: 8, DurationMs: 1, IssueLine: 3, CompleteLine: 4,
+				SourcePath: source, EndpointFamily: "block_rq", Dev: "8,0", Op: "R", Sector: 1, Len: 8,
+				DurationMs: 1, WaitCaliber: tracequery.BlockIOWaitCaliberIssueToComplete,
+				CompletionWokeIssuer: true, WakeupTs: 1.0011, WakeupLine: 6,
+				IssuerBlockedStartTs: 1.0002, IssuerBlockedEndTs: 1.0011, IssuerBlockedMs: 0.9,
+				IssuerBlockedLine: 4, IssuerBlockedState: "s_sleep",
+				CausalWaitCaliber: tracequery.BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked,
+				IssueLine:         3, CompleteLine: 5,
 			}},
 			TraceSpans: []tracequery.TraceSpanSummary{{
 				SourcePath: source, Thread: tracequery.ThreadRef{Comm: "app", PID: 10}, Name: "jit", Kind: "sync", DurationMs: 1, StartLine: 5, EndLine: 6,
@@ -47,8 +53,18 @@ func TestTraceQuerySummaryPublishesDurationSourceBasenames(t *testing.T) {
 			}},
 		},
 	}
-
 	got := traceQuerySummary(result, traceQueryParams{}, "runtime_artifact:test", "")
+	ioLine := traceQuerySummaryLineWithPrefix(got, "- io_latency ")
+	for _, want := range []string{
+		"family=block_rq", "request_residence=1.000ms", "wait_caliber=block_rq_issue_to_complete",
+		"issuer_blocked_state=s_sleep", "issuer_blocked=0.900ms",
+		"causal_wait_caliber=completion_closed_issuer_blocked", "non_additive_with_request_residence=true",
+	} {
+		if !strings.Contains(ioLine, want) {
+			t.Fatalf("io latency dual-ruler row omitted %q: %q", want, ioLine)
+		}
+	}
+
 	for _, prefix := range []string{
 		"- rank=",
 		"- span ",

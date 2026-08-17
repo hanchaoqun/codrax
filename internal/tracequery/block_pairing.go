@@ -21,8 +21,29 @@ const (
 	// BlockIOWaitCaliberIssueToComplete is the physical request-residence
 	// ruler.  It deliberately does not claim that the issuing task stayed
 	// scheduler-blocked for the whole interval.
-	BlockIOWaitCaliberIssueToComplete = "block_rq_issue_to_complete"
+	BlockIOWaitCaliberIssueToComplete    = "block_rq_issue_to_complete"
+	BlockIOWaitCaliberBIOQueueToComplete = "block_bio_queue_to_complete"
+	// BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked is the response-
+	// impact ruler. It is minted only by an exact request completion which
+	// directly wakes the issuing thread after a proven S/D switch-out.
+	BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked = "completion_closed_issuer_blocked"
 )
+
+func blockIORequestResidenceCaliber(family string) string {
+	if family == blockEndpointFamilyBIO {
+		return BlockIOWaitCaliberBIOQueueToComplete
+	}
+	return BlockIOWaitCaliberIssueToComplete
+}
+
+func blockIOIssuerWaitState(state ThreadState) bool {
+	switch state {
+	case StateSSleep, StateDSleep:
+		return true
+	default:
+		return false
+	}
+}
 
 // blockLatencyEndpoint is the single closed-set admission gate for elapsed
 // block latency. EventType intentionally stays wire-compatible and therefore
@@ -365,6 +386,7 @@ func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pid
 	}
 	wakeups := make(map[directedKey][]Event)
 	blockedSwitches := make(map[issuerKey][]Event)
+	issuerTimelines := make(map[issuerKey][]Event)
 	for _, ev := range idx.Events {
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
@@ -375,12 +397,21 @@ func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pid
 			if pidAllowed == nil || (pidAllowed(ev.PID) && pidAllowed(ev.WakeePID)) {
 				key := directedKey{source: source, wakerPID: ev.PID, wakeePID: ev.WakeePID}
 				wakeups[key] = append(wakeups[key], ev)
+				issuerTimelines[issuerKey{source: source, pid: ev.WakeePID}] = append(issuerTimelines[issuerKey{source: source, pid: ev.WakeePID}], ev)
 			}
 		case EventSchedSwitch:
-			if ev.PrevPID > 0 && stateFromPrevState(ev.PrevState) != StateRunnable &&
-				(pidAllowed == nil || pidAllowed(ev.PrevPID)) {
+			state := stateFromPrevState(ev.PrevState)
+			if ev.PrevPID > 0 && blockIOIssuerWaitState(state) && (pidAllowed == nil || pidAllowed(ev.PrevPID)) {
 				key := issuerKey{source: source, pid: ev.PrevPID}
 				blockedSwitches[key] = append(blockedSwitches[key], ev)
+			}
+			if ev.PrevPID > 0 && (pidAllowed == nil || pidAllowed(ev.PrevPID)) {
+				key := issuerKey{source: source, pid: ev.PrevPID}
+				issuerTimelines[key] = append(issuerTimelines[key], ev)
+			}
+			if ev.NextPID > 0 && ev.NextPID != ev.PrevPID && (pidAllowed == nil || pidAllowed(ev.NextPID)) {
+				key := issuerKey{source: source, pid: ev.NextPID}
+				issuerTimelines[key] = append(issuerTimelines[key], ev)
 			}
 		}
 	}
@@ -392,10 +423,48 @@ func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pid
 			return blockedSwitches[key][i].Ts < blockedSwitches[key][j].Ts
 		})
 	}
-	issuerBlockedForRequest := func(io IOLatencySummary) bool {
+	for key := range issuerTimelines {
+		sort.SliceStable(issuerTimelines[key], func(i, j int) bool {
+			if issuerTimelines[key][i].Line != issuerTimelines[key][j].Line {
+				return issuerTimelines[key][i].Line < issuerTimelines[key][j].Line
+			}
+			return issuerTimelines[key][i].Ts < issuerTimelines[key][j].Ts
+		})
+	}
+	issuerBlockForRequest := func(io IOLatencySummary, wake Event) (Event, bool) {
 		rows := blockedSwitches[issuerKey{source: io.SourcePath, pid: io.IssueThread.PID}]
 		start := sort.Search(len(rows), func(i int) bool { return rows[i].Line > io.IssueLine })
-		return start < len(rows) && rows[start].Line < io.CompleteLine && rows[start].Ts >= io.IssueTs && rows[start].Ts <= io.CompleteTs
+		end := sort.Search(len(rows), func(i int) bool { return rows[i].Line >= io.CompleteLine })
+		if start >= end {
+			return Event{}, false
+		}
+		// blockedSwitches already contains only S/D exits, so the last row in
+		// the request's line interval is the only candidate that can still be
+		// open at completion. Binary-searching both bounds avoids rescanning a
+		// busy issuer's full scheduler history for every request.
+		blocked := rows[end-1]
+		if blocked.Ts < io.IssueTs || blocked.Ts > io.CompleteTs {
+			return Event{}, false
+		}
+		// The selected switch-out must still be the open wait closed by this
+		// completion wake. A prior wake or a switch back into the issuer means
+		// the request only overlaps a different wait and cannot own its wall time.
+		timeline := issuerTimelines[issuerKey{source: io.SourcePath, pid: io.IssueThread.PID}]
+		at := sort.Search(len(timeline), func(i int) bool { return timeline[i].Line > blocked.Line })
+		for ; at < len(timeline) && timeline[at].Line < wake.Line; at++ {
+			ev := timeline[at]
+			switch ev.Type {
+			case EventSchedWakeup, EventSchedWaking:
+				if ev.WakeePID == io.IssueThread.PID {
+					return Event{}, false
+				}
+			case EventSchedSwitch:
+				if ev.NextPID == io.IssueThread.PID {
+					return Event{}, false
+				}
+			}
+		}
+		return blocked, true
 	}
 	for key, rows := range wakeups {
 		sort.SliceStable(rows, func(i, j int) bool {
@@ -409,6 +478,7 @@ func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pid
 		previousWakeLine := 0
 		for _, wake := range rows {
 			eligible := -1
+			var eligibleBlocked Event
 			for cursor < len(candidateRows) && latencies[candidateRows[cursor]].CompleteLine <= previousWakeLine {
 				cursor++
 			}
@@ -417,13 +487,22 @@ func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pid
 				if io.CompleteLine >= wake.Line {
 					break
 				}
-				if wake.Ts >= io.CompleteTs && wake.Ts <= io.CompleteTs+rspaIOCompletionClosureTolS && issuerBlockedForRequest(io) {
-					eligible = candidateRows[j]
+				if wake.Ts >= io.CompleteTs && wake.Ts <= io.CompleteTs+rspaIOCompletionClosureTolS {
+					if blocked, ok := issuerBlockForRequest(io, wake); ok {
+						eligible = candidateRows[j]
+						eligibleBlocked = blocked
+					}
 				}
 			}
 			if eligible >= 0 {
 				io := &latencies[eligible]
 				io.CompletionWokeIssuer = true
+				io.IssuerBlockedStartTs = eligibleBlocked.Ts
+				io.IssuerBlockedEndTs = wake.Ts
+				io.IssuerBlockedMs = (wake.Ts - eligibleBlocked.Ts) * 1000
+				io.IssuerBlockedLine = eligibleBlocked.Line
+				io.IssuerBlockedState = string(stateFromPrevState(eligibleBlocked.PrevState))
+				io.CausalWaitCaliber = BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked
 				io.WakeupTs = wake.Ts
 				io.WakeupLine = wake.Line
 			}
@@ -684,6 +763,7 @@ func accountBlockPairingTransition(out *blockPairingResult, accs map[string]*blo
 	}
 	out.latencies = append(out.latencies, IOLatencySummary{
 		SourcePath:     lane.source,
+		EndpointFamily: lane.family,
 		Dev:            startBlk.Dev,
 		Op:             startBlk.Op,
 		Sector:         startBlk.Sector,
@@ -693,7 +773,7 @@ func accountBlockPairingTransition(out *blockPairingResult, accs map[string]*blo
 		IssueTs:        start.Ts,
 		CompleteTs:     done.Ts,
 		DurationMs:     durationMs,
-		WaitCaliber:    BlockIOWaitCaliberIssueToComplete,
+		WaitCaliber:    blockIORequestResidenceCaliber(lane.family),
 		IssueLine:      start.Line,
 		CompleteLine:   done.Line,
 	})

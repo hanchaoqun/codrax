@@ -8,12 +8,11 @@ package tool
 //
 //   - donghu 17267 flagship board (this harness's query shape: wakeup_chain +
 //     root_cause_rank, MinDurationMs 0.5, Limit 12): BIO-WAKE-1 recovers the
-//     complete strict completion→issuer-wake request census. The formerly
-//     visible 0.230/0.043ms pairs remain below the relative de-minimis floor,
-//     while the recovered 45-member request family has a real 1.440ms overlap
-//     with the running-supply seat and therefore publishes the mutual
-//     sentences, ·∩ chips and ◎ ∩ footnote. The gate remains disclosure-only;
-//     both published values are untouched.
+//     complete strict completion→issuer-wake request census. IO-CAL-1 prices
+//     that family on issuer switch-out→wake response time, which is disjoint
+//     from the same thread's running seat. The former request-residence
+//     1.440ms overlap and every related sentence/chip/footnote must disappear;
+//     the two published values remain untouched.
 //   - tieba 61839 W-A board: the nested full-containment pair (0.705ms = 100%
 //     of the smaller seat) sits far above the floor and must KEEP the full
 //     mutual sentence face, and the ∩ legend entry must teach the floor
@@ -46,15 +45,14 @@ func TestIntersectFixMutualClauseDonghuFlagship(t *testing.T) {
 			t.Fatalf("de-minimis 降道: %q must not render on the flagship board:\n%s", banned, md)
 		}
 	}
-	// BIO-WAKE-1 positive arm: full-census exact recovery makes this larger
-	// typed pair significant. Both sides and the overview carry one source.
-	if got := strings.Count(md, "同段重叠 1.440ms"); got < 2 ||
-		!strings.Contains(md, "·∩[E5]") ||
-		!strings.Contains(md, "∩ 重叠对    [E1]∩[E5] 1.440ms") {
-		t.Fatalf("full-census significant overlap must publish the mutual typed pair, got=%d:\n%s", got, md)
+	// IO-CAL-1: a task cannot be response-blocked and running at once. The
+	// old 1.440ms pair came from the device request-residence ruler.
+	if got := strings.Count(md, "同段重叠 1.440ms"); got != 0 ||
+		strings.Contains(md, "∩ 重叠对    [E1]∩[E5] 1.440ms") {
+		t.Fatalf("request-residence overlap must not survive on the response-impact face, got=%d:\n%s", got, md)
 	}
 	// 值面零动: overlap disclosure does not subtract or rewrite either seat.
-	if !strings.Contains(md, "58.320ms") || !strings.Contains(md, "12.208ms") {
+	if !strings.Contains(md, "58.320ms") || !strings.Contains(md, "11.141ms") {
 		t.Fatalf("published values must stay untouched by the disclosure gate:\n%s", md)
 	}
 }

@@ -6662,6 +6662,31 @@ func ioLatencyAccounting(stats WindowStats) []IOLatencySummary {
 	return stats.IOLatencies
 }
 
+// ioLatencyIssuerBlockedInterval returns the response-impact ruler minted by
+// the strict block-completion closure. Request residence is deliberately not a
+// fallback here: callers deciding causal admission must fail closed rather
+// than silently substitute a different physical measure.
+func ioLatencyIssuerBlockedInterval(io IOLatencySummary) (startTs, endTs, durationMs float64, ok bool) {
+	if !io.CompletionWokeIssuer || io.CausalWaitCaliber != BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked ||
+		!blockIOIssuerWaitState(ThreadState(io.IssuerBlockedState)) ||
+		io.IssuerBlockedLine <= io.IssueLine || io.IssuerBlockedLine >= io.CompleteLine || io.WakeupLine <= io.CompleteLine ||
+		io.IssuerBlockedStartTs < io.IssueTs || io.IssuerBlockedEndTs < io.CompleteTs || io.IssuerBlockedEndTs <= io.IssuerBlockedStartTs {
+		return 0, 0, 0, false
+	}
+	durationMs = (io.IssuerBlockedEndTs - io.IssuerBlockedStartTs) * 1000
+	if durationMs <= 0 || io.IssuerBlockedMs <= 0 || math.Abs(durationMs-io.IssuerBlockedMs) > 0.001 {
+		return 0, 0, 0, false
+	}
+	return io.IssuerBlockedStartTs, io.IssuerBlockedEndTs, durationMs, true
+}
+
+func ioLatencyRequestResidenceCaliber(io IOLatencySummary) string {
+	if strings.TrimSpace(io.WaitCaliber) != "" {
+		return io.WaitCaliber
+	}
+	return blockIORequestResidenceCaliber(io.EndpointFamily)
+}
+
 // ioLatencyCausalAccounting preserves the bounded display population and adds
 // only full-census requests whose issuer is an allowed target/chain member AND
 // whose completion carries the strict completion→issuer wake proof. This
@@ -6683,7 +6708,7 @@ func ioLatencyCausalAccounting(stats WindowStats, allowedIssuerPIDs map[int]bool
 		seen[key(io)] = true
 	}
 	for _, io := range stats.ioLatencyCensus {
-		if !io.CompletionWokeIssuer || !allowedIssuerPIDs[io.IssueThread.PID] || seen[key(io)] {
+		if _, _, _, closed := ioLatencyIssuerBlockedInterval(io); !closed || !allowedIssuerPIDs[io.IssueThread.PID] || seen[key(io)] {
 			continue
 		}
 		out = append(out, io)
@@ -15808,10 +15833,20 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		items = append(items, item)
 	}
 	for _, io := range ioLatencyCausalAccounting(stats, chainThreads) {
-		projectedStart, projectedEnd := io.IssueTs, io.CompleteTs
-		projectedMs := io.DurationMs
-		if q.TimeEnd > q.TimeStart && io.CompleteTs > io.IssueTs {
-			if start, end, ok := overlapTimeWindow(io.IssueTs, io.CompleteTs, q.TimeStart, q.TimeEnd); ok {
+		impactStart, impactEnd, impactMs := io.IssueTs, io.CompleteTs, io.DurationMs
+		blockedStart, blockedEnd, blockedMs, completionClosed := ioLatencyIssuerBlockedInterval(io)
+		// Only a dependency-chain issuer may spend the response-impact ruler.
+		// Exact off-chain closures remain useful mechanism evidence, but their
+		// request row stays on the request-residence ruler and cannot perturb
+		// scheduler-state/root accounting for another thread.
+		onChain := threadInSet(chainThreads, io.IssueThread) && completionClosed
+		if onChain {
+			impactStart, impactEnd, impactMs = blockedStart, blockedEnd, blockedMs
+		}
+		projectedStart, projectedEnd := impactStart, impactEnd
+		projectedMs := impactMs
+		if q.TimeEnd > q.TimeStart && impactEnd > impactStart {
+			if start, end, ok := overlapTimeWindow(impactStart, impactEnd, q.TimeStart, q.TimeEnd); ok {
 				projectedStart, projectedEnd = start, end
 				projectedMs = (end - start) * 1000
 			} else {
@@ -15823,12 +15858,18 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		// The request belongs to the issuing business thread.  An IRQ completer
 		// being present elsewhere on the chain never makes this request causal.
-		onChain := threadInSet(chainThreads, io.IssueThread) && io.CompletionWokeIssuer
-		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d request_wait(issue_to_complete) projected %.3fms inside the selected window (physical %.3fms)", io.Dev, io.Op, io.Sector, io.Len, projectedMs, io.DurationMs))
+		residenceCaliber := ioLatencyRequestResidenceCaliber(io)
+		summary := fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s) projected %.3fms inside the selected window (physical %.3fms)", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, residenceCaliber, projectedMs, io.DurationMs)
+		lineStart, lineEnd := io.IssueLine, io.CompleteLine
+		if onChain {
+			lineStart, lineEnd = io.IssuerBlockedLine, io.WakeupLine
+			summary = fmt.Sprintf("block IO %s %s %s sector=%d len=%d response_blocked(%s, completion_closed) projected %.3fms inside the selected window (physical %.3fms); request_residence=%.3fms is mechanism evidence and is not additive", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, io.IssuerBlockedState, projectedMs, blockedMs, io.DurationMs)
+		}
+		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, lineStart, lineEnd, "window_stats", summary)
 		// RSPA M-IO (§29.61.10c): the per-IO completion-closure credential —
 		// computable only with the anchor basis; the enrich resource arm then
 		// requires it for the on-chain lane (pure overlap demotes to ◇).
-		item.ResourceCompletionClosure = io.CompletionWokeIssuer
+		item.ResourceCompletionClosure = completionClosed
 		if stats.chainAnchorsByPID != nil {
 			item.resourceClosureEvaluated = true
 		}
@@ -15841,15 +15882,15 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = projectedStart
 		item.EndTs = projectedEnd
-		if io.CompleteTs > io.IssueTs && (projectedStart != io.IssueTs || projectedEnd != io.CompleteTs) {
-			item.ActualStartTs = io.IssueTs
-			item.ActualEndTs = io.CompleteTs
-			item.ActualImpactMs = io.DurationMs
-			item.ActualTotalMs = io.DurationMs
+		if impactEnd > impactStart && (projectedStart != impactStart || projectedEnd != impactEnd) {
+			item.ActualStartTs = impactStart
+			item.ActualEndTs = impactEnd
+			item.ActualImpactMs = impactMs
+			item.ActualTotalMs = impactMs
 		}
 		// RCM §24.7.1 typed member identity (never a Summary re-parse).
 		item.Dev = io.Dev
-		item.MemberKey = fmt.Sprintf("dev=%s op=%s sector=%d len=%d", io.Dev, io.Op, io.Sector, io.Len)
+		item.MemberKey = fmt.Sprintf("family=%s dev=%s op=%s sector=%d len=%d", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len)
 		items = append(items, item)
 	}
 	for _, file := range stats.FileIOByInode {
@@ -22667,21 +22708,25 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	for _, io := range ioLatencyCausalAccounting(stats, allowedIOIssuers) {
 		wakeDetail := ""
-		if io.CompletionWokeIssuer {
-			wakeDetail = fmt.Sprintf("; completion directly woke issuer at %.6f line %d", io.WakeupTs, io.WakeupLine)
+		startTs, endTs, durationMs := io.IssueTs, io.CompleteTs, io.DurationMs
+		lineStart, lineEnd := io.IssueLine, io.CompleteLine
+		if blockedStart, blockedEnd, blockedMs, closed := ioLatencyIssuerBlockedInterval(io); closed {
+			startTs, endTs, durationMs = blockedStart, blockedEnd, blockedMs
+			lineStart, lineEnd = io.IssuerBlockedLine, io.WakeupLine
+			wakeDetail = fmt.Sprintf("; response_blocked(%s, completion_closed)=%.3fms; request_residence=%.3fms is not additive", io.IssuerBlockedState, blockedMs, io.DurationMs)
 		}
 		add(CriticalBlockingCandidate{
 			Type:                      "io_latency",
 			Thread:                    io.IssueThread,
 			Peer:                      io.CompleteThread,
-			DurationMs:                io.DurationMs,
-			StartTs:                   io.IssueTs,
-			EndTs:                     io.CompleteTs,
-			LineStart:                 io.IssueLine,
-			LineEnd:                   io.CompleteLine,
+			DurationMs:                durationMs,
+			StartTs:                   startTs,
+			EndTs:                     endTs,
+			LineStart:                 lineStart,
+			LineEnd:                   lineEnd,
 			Confidence:                0.86,
-			ResourceCompletionClosure: io.CompletionWokeIssuer,
-			Summary:                   fmt.Sprintf("block IO %s %s sector=%d len=%d request_wait(issue_to_complete)=%.3fms%s", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, wakeDetail),
+			ResourceCompletionClosure: io.CompletionWokeIssuer && io.CausalWaitCaliber == BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked,
+			Summary:                   fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s)=%.3fms%s", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, ioLatencyRequestResidenceCaliber(io), io.DurationMs, wakeDetail),
 		})
 	}
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
@@ -26452,14 +26497,14 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 	}
 	for _, io := range ioLatencyAccounting(stats) {
 		wakeDetail := ""
-		if io.CompletionWokeIssuer {
-			wakeDetail = fmt.Sprintf("; completion directly woke issuer at %.6f line %d", io.WakeupTs, io.WakeupLine)
+		if _, _, blockedMs, closed := ioLatencyIssuerBlockedInterval(io); closed {
+			wakeDetail = fmt.Sprintf("; completion directly woke issuer at %.6f line %d; response blocked state=%s duration=%.3f ms caliber=%s; request residence and response-blocked interval are not additive", io.WakeupTs, io.WakeupLine, io.IssuerBlockedState, blockedMs, io.CausalWaitCaliber)
 		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(io.IssueThread),
 			Predicate:  "io_latency",
 			Object:     threadLabel(io.CompleteThread),
-			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d request wait (issue→complete) %.3f ms%s", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, wakeDetail),
+			Summary:    fmt.Sprintf("block IO %s %s %s sector=%d len=%d request residence (%s) %.3f ms%s", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, ioLatencyRequestResidenceCaliber(io), io.DurationMs, wakeDetail),
 			LineStart:  io.IssueLine,
 			LineEnd:    io.CompleteLine,
 			StartTs:    io.IssueTs,

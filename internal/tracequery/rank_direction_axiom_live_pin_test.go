@@ -8,26 +8,17 @@ package tracequery
 // INTERSECT-REG history: the §29.136 CHAIN-BUDGET regression folded the
 // flagship 17267 board's io_latency single-segment row into its same-thread
 // family and the 偏离④ familyMemberIntervals exclusion refused the family's
-// exact member segments wholesale — basis="" → the seat silently left the
-// AXIOM-V2 direction population and the board lost its ∩ disclosure for six
-// commits (h11 caught it). INTERSECT-FIX re-admitted the exact-inventory
-// family shape (family_member_segment_intervals, µs-identity gated); the
-// recovered live pair was running × io_latency family = 0.114ms.
+// exact member segments wholesale. IO-CAL-1 subsequently corrected those
+// member intervals from request residence to issuer switch-out→completion
+// wake. On one thread that response-blocked ruler is scheduler-disjoint from
+// running by construction; a running×IO overlap would now prove that the old
+// mechanism ruler leaked back into response-impact accounting.
 //
-// INTERFLOOR-1 re-base: 0.114ms is 3.1% of the smaller seat's published eff
-// (3.670ms) — one of the very live forms the user judged 「极小…算作噪音」 —
-// so the pair now DEMOTES to the cross_direction_overlap_undisclosed typed
-// token lane (negative arm: no roster entry, sentence face dead). The
-// mechanism guard does NOT weaken: the population/basis machinery must still
-// resolve the family inventory (INTERSECT-REG would still be caught — a
-// basis-arm regression erases the typed undisclosed record too), and the
-// SAME board's second live pair (running × the 2-member io family 0.941ms,
-// overlap 0.116ms = 12.3% of the smaller seat) stays ABOVE the floor and
-// must keep disclosing (significant-keep arm — an over-eager floor turns
-// this red). 突变职责: stripping the family_member_segment_intervals basis
-// arm kills the undisclosed record AND the kept pair (regression
-// reproduces); flipping the de-minimis comparison kills the kept pair;
-// dropping the demote branch resurrects the 0.114 roster entry.
+// The pin therefore keeps both obligations: the family must retain its exact
+// typed member inventory, and neither side may publish a cross-direction
+// overlap against the target's own running seat. This is a caliber correction,
+// not a weakened de-minimis floor; the separate synthetic floor tests retain
+// the positive/demoted AXIOM-V2 arms.
 
 import (
 	"context"
@@ -59,9 +50,9 @@ func TestAXIOMV2IntersectLivePinDonghuFlagship(t *testing.T) {
 		}
 		// IO-WAKE re-base: the exact completion→issuer census replaces the
 		// accidental public Top-8 families. This no-override query carries 47
-		// self-ruler release-point request waits totalling 13.830ms.
+		// self-ruler release-point issuer-blocked waits totalling 12.658ms.
 		if item.Type == "io_latency" && item.ResourceCompletionClosure &&
-			item.MemberCount == 47 && approx(item.ImpactMs, 13.830) {
+			item.MemberCount == 47 && approx(item.ImpactMs, 12.658) {
 			ioFamily = item
 		}
 	}
@@ -88,30 +79,21 @@ func TestAXIOMV2IntersectLivePinDonghuFlagship(t *testing.T) {
 		t.Fatalf("the family seat must enter through the family-segments basis, got %q", ioFamily.directionSupportBasis)
 	}
 
-	// The 1.571ms running×IO overlap is significant relative to the causal
-	// family and must be published symmetrically on both typed seats.
-	foundOnRunning := false
+	// A completion-closed issuer-blocked interval is S/D wall clock. It cannot
+	// overlap the same thread's running wall clock; the former 1.571ms pair was
+	// an artifact of using request residence as response impact.
 	for _, entry := range running.CrossDirectionOverlaps {
-		if entry.Basis == RootCauseDirectionBasisFamilySegments && entry.Direction == "io_dependency" &&
-			approx(entry.OverlapMs, 1.571) {
-			foundOnRunning = true
+		if entry.Basis == RootCauseDirectionBasisFamilySegments && entry.Direction == "io_dependency" {
+			t.Fatalf("request-residence overlap leaked into the response-impact direction account: %+v", running.CrossDirectionOverlaps)
 		}
 	}
-	if !foundOnRunning {
-		t.Fatalf("significant-keep 正臂: the running seat must disclose the 1.571ms causal IO pair: %+v", running.CrossDirectionOverlaps)
-	}
-	foundOnFamily := false
 	for _, entry := range ioFamily.CrossDirectionOverlaps {
-		if entry.Basis == RootCauseDirectionBasisSelfRunning && entry.Direction == "frequency_thermal" &&
-			approx(entry.OverlapMs, 1.571) {
-			foundOnFamily = true
+		if entry.Basis == RootCauseDirectionBasisSelfRunning && entry.Direction == "frequency_thermal" {
+			t.Fatalf("response-blocked IO family must not mirror an impossible same-thread running overlap: %+v", ioFamily.CrossDirectionOverlaps)
 		}
-	}
-	if !foundOnFamily {
-		t.Fatalf("互指成对: the causal family must mirror the kept pair: %+v", ioFamily.CrossDirectionOverlaps)
 	}
 
-	if !approx(running.EffectiveImpactMs, 58.320) || !approx(ioFamily.EffectiveImpactMs, 13.830) {
+	if !approx(running.EffectiveImpactMs, 58.320) || !approx(ioFamily.EffectiveImpactMs, 12.658) {
 		t.Fatalf("value channels drifted: running eff %.6f causal IO eff %.6f",
 			running.EffectiveImpactMs, ioFamily.EffectiveImpactMs)
 	}

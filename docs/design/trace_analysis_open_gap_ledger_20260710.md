@@ -1602,3 +1602,91 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
   自动成文全链均在完整包内复核。
 - `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
 - `git diff --check`：通过。
+
+## 2026-08-17 追加：IO-CAL-1 请求驻留与响应阻塞双标尺校准
+
+### 对 BIO-WAKE-1 的重要勘正
+
+- BIO-WAKE-1 已经解决“精确请求配对、completion→issuer 唤醒关系、Top-N 因果请求不丢”三个
+  基础问题，但其首版根因计价仍有两个系统 GAP：
+  1. `issue→complete` 是块请求在设备/队列中的驻留时间，不等于提交线程的响应损失；旧根因席
+     直接消费该区间，会把发起请求后仍在 CPU 上执行的部分也计成 IO 等待，并制造“同一线程
+     running 与 IO 根因同段重叠”的不可能账；
+  2. 首版只要求 issue 后切入“非 runnable”状态，范围过宽，会把 stopped/dead/unknown 等状态
+     也当成 IO 响应等待候选。
+- 本批不推翻 request residence：它继续作为设备/请求机制证据完整发布；修正的是“哪个时长可
+  进入链上根因”。根因响应标尺改为最后一次合格 `S/D sched_switch-out → completion-side
+  sched_wakeup/waking issuer` 的线程实际阻塞区间。
+
+### S 状态是否属于 IO 等待
+
+- **可以，但不能只凭 `prev_state=S`。** 鸿蒙/Android 的块 IO 同步等待可以表现为可中断睡眠 S；
+  仅把 D 当 IO 会系统性漏报这类响应损失。
+- S 或 D 都必须满足同一份精确闭环：同物理来源及请求 identity 的 issue/complete 已配对；发起
+  线程在 issue 后、complete 前切出为 S/D；该睡眠在 complete 前没有被其他 wake 关闭、线程也
+  没有先切回 running；complete emitter 在有界 handler 间隔内精确唤醒同一 issuer；行序和时间
+  均严格递增。缺任一条件时，S 仍只是普通睡眠症状，request residence 仍只是背景机制证据，
+  两者都不能铸成链上 IO 根因。
+
+### 单一构造与消费逻辑
+
+1. `IOLatencySummary` 同时保留两个 typed 标尺：
+   - `DurationMs + WaitCaliber`：请求驻留。RQ 为 `block_rq_issue_to_complete`，BIO 为
+     `block_bio_queue_to_complete`；不再把 BIO 伪标成 RQ；
+   - `IssuerBlockedStartTs/EndTs/Ms/Line/State + CausalWaitCaliber`：响应阻塞。只有完整闭环才
+     铸 `completion_closed_issuer_blocked`，状态闭集只准 S/D。
+2. 每个 `(physical source, issuer PID)` 只构造一次调度时间线；请求以行号二分找到 issue 与
+   complete 之间最后一个 S/D switch-out，再逐事件否证“提前 wake/提前切回”。这既防陈旧睡眠
+   被后续 completion 冒领，也避免为每个请求重扫全 trace。
+3. 根因排序只在 issuer 是最终 typed target/wakeup-chain 成员且闭环有效时消费响应阻塞区间；
+   Top-8 外的精确闭环仍从完整 census 补回。off-chain 请求只保留邻近/背景 request residence，
+   completer 在线程链上不能替 issuer 获得链上资格。
+4. 窗投影、家族折叠、`critical_blocking` 与根因有效归因统一使用响应阻塞区间；行号改为
+   switch-out→wake。generic IO evidence 同时披露 request residence 与 response blocked，并显式
+   标记二者不可相加。系统只给模型 typed 事实、口径及关系，不替模型改写结论。
+5. 一次 wake 仍只归属该 burst 内最后一个合格 completion；同一线程的 response-blocked 与
+   running 物理互斥。任何再次出现的同线程 running×IO 同段镜像都由回归直接判红，不能用展示
+   层“不可相加”文案掩盖计算错误。
+
+### 真迹与合成回归
+
+- 合成 RQ：request residence `0.275ms`，S switch-out→wake response blocked `0.240ms`；根因只
+  消费 `0.240ms`，同时披露 `0.275ms` 为不可相加的机制证据。
+- 合成 D：request residence `0.100ms`，D switch-out→wake `0.090ms`；证明 S/D 共享闭环而非
+  分叉成两套规则。另有“先被其他线程唤醒并已切回、随后 completion 再发 wake”的负例，必须
+  fail-close。
+- 东湖固定窗：完整闭环家族为 49 段、响应阻塞合计 `14.923ms`；默认链预算的 45 段合计
+  `11.141ms`；无 override 的 47 段合计 `12.658ms`。这些值替代旧 request-residence 计价，并
+  消除同线程 running×IO 的虚假重叠。
+- Tieba 固定窗的 IO 响应账校准为 `18.135ms = fscache 7.386 + hmfs_get_dnode 0.171 +
+  hmfs_read 0.145 + 余数 10.433`；旧 `hmfs_read 0.172ms` 含未获完整响应闭环的请求，不再进入
+  链上根因。
+
+### 状态与剩余高 ROI 队列
+
+- **IO-CAL-1：已修（本提交）。** 它关闭块请求层的 S/D 精确响应计价，
+  但不冒充“所有 IO 层级已经闭环”。
+- **IO-XGRAPH-1（P1，下一批）**：文件/inode、page-cache、文件系统、BIO、RQ、设备完成与
+  completion-wake 仍缺一个 typed transaction graph。当前各层汇总可分别看到，但不能普遍证明
+  它们属于同一次用户可见等待；禁止仅凭时间邻近把跨层行拼成根因。
+- **IO-STATE-UNIFY（P1）**：scheduler `D/io_wait`、blocked-reason 及本批 S/D 响应闭环尚需
+  统一占用区间去重/包含关系。目标是同一物理等待只占一个链上根因席，同时保留“调度状态尺”和
+  “请求机制尺”，而不是把两类毫秒直接求和。
+- **IO-CENSUS-1（P1）**：高层 FileIO/PageCache/storage 仍有展示 Top-N 与完整根因 census 的
+  差异；只能仿照本批用精确 contributor/transaction identity 补回，不能全量背景灌入模型上下文。
+- **IO-EBPF-1（P1）**：已识别的官方 eBPF/扩展 IO interval 仍缺统一 consumer 与跨层 identity；
+  在 schema/时钟/线程代际未闭合前只作 typed inventory，不得猜成墙钟根因。
+- **HCONV-IO-VIS（P1）**：trace convert 已能保留核心 block RQ/BIO 与常见 page-cache/file-system
+  文本事件，但 SQL raw allowlist、F2FS/厂商扩展事件及“官方查看器可见、通用查看器不显示”的
+  辅助泳道尚未完成全族对账。下一批须以官方 SmartPerf/trace_streamer schema 做表级 census，
+  同时保留通用 systrace 文本与兼容查看器辅助记录；禁止按单个事件名补洞。
+
+### 验证回执
+
+- 精确闭环、S/D 正臂、提前关闭睡眠/terminal 状态/错 wakee/burst 单次消费负臂、BIO/RQ 口径、
+  状态枚举结构 pin 均通过。
+- `go test ./internal/tracequery ./internal/tool ./internal/tracediag ./cmd -count=1`：通过
+  （`79.059s / 189.208s / 6.444s / 11.887s`）。
+- `go test ./... -p 4 -count=1`：EXIT=0；重量包 `hitraceconv 102.034s`、`tool 195.752s`、
+  `tracequery 83.784s`，其余包全绿。
+- `git diff --check`：通过。

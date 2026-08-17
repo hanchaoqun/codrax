@@ -197,7 +197,8 @@ func TestBlockAndStorageSinglePairsDoNotRegress(t *testing.T) {
  io-40 (40) [003] .... 1.004000: f2fs_direct_IO_exit: dev=260:136 ino=0x1 pos=0 len=4096 rw=read ret=4096
 `)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 1, TimeEnd: 1.005})
-	if len(stats.IOLatencies) != 1 || !near(stats.IOLatencies[0].DurationMs, 1, 0.001) {
+	if len(stats.IOLatencies) != 1 || !near(stats.IOLatencies[0].DurationMs, 1, 0.001) ||
+		stats.IOLatencies[0].EndpointFamily != blockEndpointFamilyBIO || stats.IOLatencies[0].WaitCaliber != BlockIOWaitCaliberBIOQueueToComplete {
 		t.Fatalf("valid bio pair regressed: %+v", stats.IOLatencies)
 	}
 	block := storageLatencyRow(stats.StorageLatencyByLayer, "block", blockEndpointFamilyBIO)

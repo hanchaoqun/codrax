@@ -5013,10 +5013,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, io := range result.WindowStats.IOLatencies {
 			wake := ""
 			if io.CompletionWokeIssuer {
-				wake = fmt.Sprintf(" completion_woke_issuer=true wakeup_ts=%.6f wakeup_line=%d", io.WakeupTs, io.WakeupLine)
+				wake = fmt.Sprintf(" completion_woke_issuer=true wakeup_ts=%.6f wakeup_line=%d issuer_blocked_state=%s issuer_blocked_start=%.6f issuer_blocked_end=%.6f issuer_blocked=%.3fms causal_wait_caliber=%s non_additive_with_request_residence=true", io.WakeupTs, io.WakeupLine, sanitizeForBanner(io.IssuerBlockedState), io.IssuerBlockedStartTs, io.IssuerBlockedEndTs, io.IssuerBlockedMs, sanitizeForBanner(io.CausalWaitCaliber))
 			}
-			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d request_wait=%.3fms wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
-				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
+			fmt.Fprintf(&b, "- io_latency family=%s dev=%s op=%s sector=%d len=%d request_residence=%.3fms wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
+				sanitizeForBanner(io.EndpointFamily), io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
 		}
 		if result.WindowStats.IOLatencyOverflowCount > 0 {
 			fmt.Fprintf(&b, "- io_latency_overflow pairs=%d request_ms_sum=%.3frequest·ms (non-wall-clock; requests may overlap; beyond the display cap; target/chain ranking and blocking recover strict completion-to-issuer wake requests from the full census; generic evidence and other requests remain bounded context)\n",

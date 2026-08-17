@@ -2870,7 +2870,11 @@ type StateDrilldownStep struct {
 }
 
 type IOLatencySummary struct {
-	SourcePath     string    `json:"source_path,omitempty"`
+	SourcePath string `json:"source_path,omitempty"`
+	// EndpointFamily keeps the exact elapsed endpoint layer. RQ and BIO
+	// pairs can carry the same dev/op/sector/len identity, but their rulers
+	// are not interchangeable and must remain visible downstream.
+	EndpointFamily string    `json:"endpoint_family,omitempty"`
 	Dev            string    `json:"dev,omitempty"`
 	Op             string    `json:"op,omitempty"`
 	Sector         int64     `json:"sector,omitempty"`
@@ -2888,7 +2892,17 @@ type IOLatencySummary struct {
 	// completion emitter issued a later sched_wakeup/sched_waking for the
 	// request's IssueThread within the bounded handler slack.  It is false on
 	// absence/ambiguity; no temporal-proximity guess is emitted.
-	CompletionWokeIssuer bool    `json:"completion_woke_issuer,omitempty"`
+	CompletionWokeIssuer bool `json:"completion_woke_issuer,omitempty"`
+	// IssuerBlocked* is the response-impact ruler behind a strict completion
+	// closure. It spans the issuing thread's final eligible S/D switch-out
+	// through the completion-side wakeup, independently from request residence.
+	// The two intervals may overlap and must be unioned, never added.
+	IssuerBlockedStartTs float64 `json:"issuer_blocked_start_ts,omitempty"`
+	IssuerBlockedEndTs   float64 `json:"issuer_blocked_end_ts,omitempty"`
+	IssuerBlockedMs      float64 `json:"issuer_blocked_ms,omitempty"`
+	IssuerBlockedLine    int     `json:"issuer_blocked_line,omitempty"`
+	IssuerBlockedState   string  `json:"issuer_blocked_state,omitempty"`
+	CausalWaitCaliber    string  `json:"causal_wait_caliber,omitempty"`
 	WakeupTs             float64 `json:"wakeup_ts,omitempty"`
 	WakeupLine           int     `json:"wakeup_line,omitempty"`
 	IssueLine            int     `json:"issue_line,omitempty"`

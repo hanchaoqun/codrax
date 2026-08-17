@@ -590,8 +590,8 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		// B829 frees one candidate slot by removing relation-only semantic
 		// work from the priced election; the next legitimate off-chain D-state
 		// disclosure now survives the fixed cap.
-		"hmfs_get_dnode": {0.171, false, false},
-		"hmfs_read":      {0.172, false, true},
+		"hmfs_get_dnode": {0.171, false, true},
+		"hmfs_read":      {0.145, false, false},
 	}
 	sum := 0.0
 	for cause, expect := range want {
@@ -606,8 +606,8 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		}
 		sum += dioByCause[cause]
 	}
-	if math.Abs(sum-18.162) > 0.002 {
-		t.Fatalf("partition Σ must reconstruct the full scheduler-state truth 18.162, got %.3f", sum)
+	if math.Abs(sum-18.135) > 0.002 {
+		t.Fatalf("partition Σ must reconstruct the full scheduler-state truth 18.135, got %.3f", sum)
 	}
 	// ONCHAIN-3c live-trace witness pins (SCAN-3 61839 判例正收): the io seat
 	// converts whole (3.550 fully pre-edge, no bipartition trio), the runnable

@@ -102,11 +102,11 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("self basis must not fabricate a chain-window overlap: %+v", seat)
 	}
-	// The old 3.264ms/5-member value was the accidental public Top-8 slice.
-	// The complete strict completion-wake account is 49 disjoint request waits
-	// totalling 16.136ms in this fixed fixture.
-	if got := fmt.Sprintf("%.3f", rootCauseEffectiveImpactMs(*seat)); got != "16.136" {
-		t.Fatalf("published effective must use the full strict request-wait census: %s (%+v)", got, seat)
+	// The old request-residence total was not the issuing thread's response
+	// loss. The complete strict completion-wake account is 49 disjoint
+	// switch-out→wake intervals totalling 14.923ms in this fixed fixture.
+	if got := fmt.Sprintf("%.3f", rootCauseEffectiveImpactMs(*seat)); got != "14.923" {
+		t.Fatalf("published effective must use the full completion-closed issuer-blocked census: %s (%+v)", got, seat)
 	}
 	if seat.EffectiveImpactMs != seat.CumulativeImpactMs || seat.MemberCount != 49 || !seat.ResourceCompletionClosure {
 		t.Fatalf("witness family shape drifted (49 direct completion-wake IOs, eff==cum): %+v", seat)
@@ -138,7 +138,8 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 
 // The default chain budget obeys the same completion-closure ruler: public
 // Top-N and temporal overlap never define task wait. Its smaller chain shape
-// admits 45 exact release-point requests totalling 12.208ms.
+// admits 45 exact release-point waits totalling 11.141ms on the issuer-blocked
+// response ruler.
 func TestSelfAllChainBudgetDefaultTierUsesCompletionClosureRuler(t *testing.T) {
 	q := selfAllDonghuQuery()
 	q.MaxBranches = 0   // default (capacity table)
@@ -158,8 +159,8 @@ func TestSelfAllChainBudgetDefaultTierUsesCompletionClosureRuler(t *testing.T) {
 	if fold == nil {
 		t.Fatalf("fixture drifted: expected the strict completion-closure io_latency fold: %+v", rows)
 	}
-	if got := fmt.Sprintf("%.3f", fold.EffectiveImpactMs); got != "12.208" || fold.MemberCount != 45 {
-		t.Fatalf("completion-closure fold must hold 45 exact waits totalling 12.208ms, got %s x%d", got, fold.MemberCount)
+	if got := fmt.Sprintf("%.3f", fold.EffectiveImpactMs); got != "11.141" || fold.MemberCount != 45 {
+		t.Fatalf("completion-closure fold must hold 45 exact issuer-blocked waits totalling 11.141ms, got %s x%d", got, fold.MemberCount)
 	}
 	if fold.ChainRelevance != "on_chain" {
 		t.Fatalf("the overlap-ruler family rides the on-chain channel: %+v", fold)
@@ -201,7 +202,7 @@ func TestSelfAllOverlapProvenSeatStaysASeparateSeat(t *testing.T) {
 	if family == nil {
 		t.Fatalf("fixture drifted: no self-basis io_latency family: %+v", rank.Items)
 	}
-	if got := fmt.Sprintf("%.3f", family.EffectiveImpactMs); got != "16.136" || family.MemberCount != 49 || !family.ResourceCompletionClosure {
+	if got := fmt.Sprintf("%.3f", family.EffectiveImpactMs); got != "14.923" || family.MemberCount != 49 || !family.ResourceCompletionClosure {
 		t.Fatalf("M3 两把尺禁混折: the self family must hold only the 49 strict completion-wake IOs; non-credential overlap rows stay out: eff=%s members=%d",
 			got, family.MemberCount)
 	}

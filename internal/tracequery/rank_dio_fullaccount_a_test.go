@@ -194,7 +194,7 @@ func TestDIOFullAccountTiebaWitness(t *testing.T) {
 	want := map[string]float64{
 		"fscache_page_wait_o": 7.386,
 		"hmfs_get_dnode":      0.171,
-		"hmfs_read":           0.172,
+		"hmfs_read":           0.145,
 		"":                    10.433,
 	}
 	got := map[string]float64{}
@@ -236,7 +236,7 @@ func TestDIOFullAccountTiebaWitness(t *testing.T) {
 			t.Fatalf("tieba 60555 %q seat must carry the full account %.3f, got %.3f (all=%v)", cause, ms, got[cause], got)
 		}
 	}
-	if math.Abs(sum-18.162) > 0.001 {
-		t.Fatalf("partition Σ must equal the full scheduler-state truth 18.162, got %.3f", sum)
+	if math.Abs(sum-18.135) > 0.001 {
+		t.Fatalf("partition Σ must equal the full scheduler-state truth 18.135, got %.3f", sum)
 	}
 }

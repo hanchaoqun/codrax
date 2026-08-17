@@ -45,11 +45,14 @@ com.tencent.mm-25827 (25827) [004] .... 1.150330: sched_switch: prev_comm=idle/4
 			break
 		}
 	}
-	if customer == nil || customer.WaitCaliber != BlockIOWaitCaliberIssueToComplete || !customer.CompletionWokeIssuer || customer.WakeupLine <= customer.CompleteLine {
+	if customer == nil || customer.EndpointFamily != blockEndpointFamilyRQ || customer.WaitCaliber != BlockIOWaitCaliberIssueToComplete || !customer.CompletionWokeIssuer || customer.WakeupLine <= customer.CompleteLine {
 		t.Fatalf("customer request lost its exact wait/wakeup credential: %+v", customer)
 	}
 	if customer.DurationMs < 0.274 || customer.DurationMs > 0.276 {
 		t.Fatalf("issue→complete request wait must be 0.275ms, got %+v", customer)
+	}
+	if customer.CausalWaitCaliber != BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked || customer.IssuerBlockedState != string(StateSSleep) || customer.IssuerBlockedMs < 0.239 || customer.IssuerBlockedMs > 0.241 {
+		t.Fatalf("the response-impact ruler must be S switch-out→completion wake (0.240ms), independent from request residence: %+v", customer)
 	}
 	chain := BuildWakeupChain(idx, q)
 	foundEdge := false
@@ -71,8 +74,11 @@ com.tencent.mm-25827 (25827) [004] .... 1.150330: sched_switch: prev_comm=idle/4
 	for _, item := range rank.Items {
 		if item.Type == "io_latency" && item.Thread.PID == 25827 {
 			foundRank = true
-			if item.ChainRelevance != "on_chain" || !item.ResourceCompletionClosure || !strings.Contains(item.MemberKey, "len=64") {
+			if item.ChainRelevance != "on_chain" || !item.ResourceCompletionClosure || !strings.Contains(item.MemberKey, "family=block_rq") || !strings.Contains(item.MemberKey, "len=64") || item.EffectiveImpactMs < 0.239 || item.EffectiveImpactMs > 0.241 {
 				t.Fatalf("full-census customer IO did not retain its on-chain exact identity: %+v", item)
+			}
+			if !strings.Contains(item.Summary, "request_residence=0.275ms is mechanism evidence and is not additive") {
+				t.Fatalf("rank summary must disclose both non-additive rulers: %+v", item)
 			}
 		}
 	}
@@ -83,11 +89,43 @@ com.tencent.mm-25827 (25827) [004] .... 1.150330: sched_switch: prev_comm=idle/4
 	foundBlocking := false
 	for _, item := range blocking.Items {
 		if item.Type == "io_latency" && item.Thread.PID == 25827 {
-			foundBlocking = strings.Contains(item.Summary, "completion directly woke issuer")
+			foundBlocking = item.DurationMs > 0.239 && item.DurationMs < 0.241 && strings.Contains(item.Summary, "response_blocked(s_sleep, completion_closed)=0.240ms")
 		}
 	}
 	if !foundBlocking {
 		t.Fatalf("critical-blocking face did not consume the full typed IO census: %+v", blocking.Items)
+	}
+}
+
+func TestBlockIOCompletionWakeupUsesDStateResponseRuler(t *testing.T) {
+	idx := buildTraceIndex(t, "block_io_d_wait.systrace", `
+app-40 (40) [001] .... 5.000000: block_rq_issue: 8,0 R 4096 () 123 + 8 [app]
+app-40 (40) [001] .... 5.000020: sched_switch: prev_comm=app prev_pid=40 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
+irq-2 (2) [001] .... 5.000100: block_rq_complete: 8,0 R () 123 + 8 [0]
+irq-2 (2) [001] .... 5.000110: sched_wakeup: comm=app pid=40 prio=20 target_cpu=001
+`)
+	stats := ComputeWindowStats(idx, Query{PID: 40, TimeStart: 5, TimeEnd: 5.001})
+	if len(stats.IOLatencies) != 1 {
+		t.Fatalf("expected one exact request: %+v", stats.IOLatencies)
+	}
+	io := stats.IOLatencies[0]
+	if !io.CompletionWokeIssuer || io.IssuerBlockedState != string(StateDSleep) || io.IssuerBlockedMs < 0.089 || io.IssuerBlockedMs > 0.091 {
+		t.Fatalf("D and S must share the exact completion-closed response ruler: %+v", io)
+	}
+}
+
+func TestBlockIOCompletionWakeupRejectsClosedEarlierSleep(t *testing.T) {
+	idx := buildTraceIndex(t, "block_io_prior_wake.systrace", `
+app-40 (40) [001] .... 6.000000: block_rq_issue: 8,0 R 4096 () 123 + 8 [app]
+app-40 (40) [001] .... 6.000020: sched_switch: prev_comm=app prev_pid=40 prev_prio=20 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+other-3 (3) [001] .... 6.000050: sched_wakeup: comm=app pid=40 prio=20 target_cpu=001
+idle-0 (0) [001] .... 6.000060: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=40 next_prio=20
+irq-2 (2) [001] .... 6.000100: block_rq_complete: 8,0 R () 123 + 8 [0]
+irq-2 (2) [001] .... 6.000110: sched_wakeup: comm=app pid=40 prio=20 target_cpu=001
+`)
+	stats := ComputeWindowStats(idx, Query{PID: 40, TimeStart: 6, TimeEnd: 6.001})
+	if len(stats.IOLatencies) != 1 || stats.IOLatencies[0].CompletionWokeIssuer || stats.IOLatencies[0].IssuerBlockedMs != 0 {
+		t.Fatalf("a sleep already closed before request completion must not be re-owned by a later wake: %+v", stats.IOLatencies)
 	}
 }
 
@@ -140,5 +178,18 @@ irq-2 (2) [001] .... 4.000110: sched_wakeup: comm=app pid=40 prio=20 target_cpu=
 	}
 	if stats.IOLatencies[0].CompletionWokeIssuer {
 		t.Fatalf("issue/complete plus proximity is not enough without an issuer blocking transition: %+v", stats.IOLatencies[0])
+	}
+}
+
+func TestBlockIOCompletionWakeupRejectsTerminalIssuerState(t *testing.T) {
+	idx := buildTraceIndex(t, "block_io_stopped_issue.systrace", `
+app-40 (40) [001] .... 4.100000: block_rq_issue: 8,0 R 4096 () 123 + 8 [app]
+app-40 (40) [001] .... 4.100020: sched_switch: prev_comm=app prev_pid=40 prev_prio=20 prev_state=T ==> next_comm=idle/1 next_pid=0 next_prio=120
+irq-2 (2) [001] .... 4.100100: block_rq_complete: 8,0 R () 123 + 8 [0]
+irq-2 (2) [001] .... 4.100110: sched_wakeup: comm=app pid=40 prio=20 target_cpu=001
+`)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 4.1, TimeEnd: 4.101})
+	if len(stats.IOLatencies) != 1 || stats.IOLatencies[0].CompletionWokeIssuer {
+		t.Fatalf("stopped/dead/unknown exits are not IO response-wait states: %+v", stats.IOLatencies)
 	}
 }

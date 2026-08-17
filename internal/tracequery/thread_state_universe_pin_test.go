@@ -304,6 +304,11 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 // (universe order) and default marker: "<members>" or "<members>|default".
 // Deleting a case is red HERE even when the switch carries a default.
 var threadStateSwitchSiteGolden = map[string]string{
+	// IO-CAL-1 (2026-08-17): an exact request-completion wake may price a
+	// response wait only when the issuer actually switched out in an S/D
+	// scheduler state. Runnable/running and terminal/unknown states are not
+	// IO-wait admission signals; the default arm rejects them fail-closed.
+	"block_pairing.go:blockIOIssuerWaitState#1": "s_sleep,d_sleep|default",
 	"query.go:computeOffCPUStats#1":             "runnable,s_sleep,d_sleep,io_wait",
 	"query.go:computeOffCPUStats#2":             "runnable,s_sleep,d_sleep,io_wait",
 	"query.go:computeOffCPUStats#3":             "runnable,s_sleep,d_sleep,io_wait",
@@ -579,9 +584,6 @@ type threadStateComparisonSite struct {
 // doc-comment line, TSH F8); tampering one member or adding/removing a
 // comparison is a drift that must be reviewed against §7.11 B-1 semantics.
 var threadStateComparisonSiteGolden = map[string]string{
-	// IO-WAKE: a request gains completion→issuer causality only when the
-	// issuer switched to a non-runnable state between issue and completion.
-	"block_pairing.go:stampBlockIOCompletionWakeups": "runnable#1",
 	"cpu_occupancy.go:computeIdleRunnableMismatchMs": "runnable#1",
 	// §29.27② (COV-4, 2026-07-11): the four-state account's deterministic-
 	// running intersection selects the target's RUNNING intervals only —

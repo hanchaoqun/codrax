@@ -399,8 +399,10 @@ func TestSupplementH3WindowMintsIOFacetEndToEndWord(t *testing.T) {
 	if !strings.Contains(corpus, "块设备层·块设备IO(inode)（block_io_by_inode） 2.694(综合评分,非墙钟)") {
 		t.Fatalf("the composite caliber sidebar must render with the deterministic 2.694 member:\n%s", corpus)
 	}
-	// The wall-clock max member (trace-exact 1.347ms) stays on the seat.
-	if !strings.Contains(corpus, "1.347ms") {
-		t.Fatalf("the wall-clock 1.347ms member must render:\n%s", corpus)
+	// IO-CAL-1: this seat spends the completion-closed issuer-blocked ruler,
+	// not request residence. The trace-exact maximum response wait is 0.782ms;
+	// the former 1.347ms value mixed a different ruler into the seat.
+	if !strings.Contains(corpus, "0.782ms") {
+		t.Fatalf("the response-blocked wall-clock 0.782ms member must render:\n%s", corpus)
 	}
 }
