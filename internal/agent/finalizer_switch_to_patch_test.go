@@ -995,7 +995,7 @@ func TestRequiredFlowMixedRelationAndParticipantRejectRepeatsTypedBoundary(t *te
 			}
 			for _, want := range []string{
 				"edge_recipe[1]=`n1 -> n2`",
-				"Requested participants without a proven incident relation may remain disconnected",
+				"Requested participants without a proven directed incident relation must retain an unproven boundary",
 				"boundary_recipe[1]",
 				`boundary_row={"participant":"AnalysisIR","status":"unproven"}`,
 				"edge_action=`none`",
