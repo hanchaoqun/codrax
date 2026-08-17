@@ -1042,6 +1042,57 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 	}
 }
 
+func TestTraceFinalPrincipalRankPopulationSeparatesSelectedWindowOrdinalsFromContext(t *testing.T) {
+	inWindow := true
+	principal := types.TraceCausalProjectionNode{
+		EvidenceID: "principal", Subject: "worker-1", TypeToken: "priority_inversion_candidate",
+		Rank: 1, EffectiveImpactMS: 8.3, ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
+	}
+	expanded := types.TraceCausalProjectionNode{
+		EvidenceID: "expanded", Subject: "app-100", TypeToken: "runnable_wait",
+		Rank: 2, EffectiveImpactMS: 0.020, ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.011,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 1, WindowEndTs: 1.010,
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "app-100", WindowStartTs: 1, WindowEndTs: 1.010, TotalMS: 10,
+		},
+		RankedSeats: []types.TraceCausalProjectionNode{expanded, principal},
+	}
+
+	got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"selected_window_rank_population artifact=`customer.systrace`; selected_window=`1.000000..1.010000`",
+		"ordinal_authority=`principal_roster_only`",
+		"principal_rank=`#1`; subject=`worker-1`; cause_kind=`priority_inversion_candidate`; effective_attribution=8.300ms",
+		"contextual_rank_row subject=`app-100`; local_board_rank=`#2`; cause_kind=`runnable_wait`; effective_attribution=0.020ms",
+		"selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",
+		"row_query_window=`1.000000..1.011000`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("selected-window rank population missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "principal_rank=`#2`") {
+		t.Fatalf("different-window rank row leaked into the selected-window ordinal roster:\n%s", got)
+	}
+}
+
+func TestTraceFinalPrincipalRankPopulationRequiresTypedPrincipalWindowAuthority(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "multi-board.systrace", WindowStartTs: 1, WindowEndTs: 1.010,
+		RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "other-window", Subject: "worker", Rank: 1, EffectiveImpactMS: 2,
+			ChainRelevance: "on_chain", RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.011,
+		}},
+	}
+	if got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}); got != "" {
+		t.Fatalf("an uncorroborated multi-board display ruler must not mint selected-window ordinal authority:\n%s", got)
+	}
+}
+
 func TestTraceFinalLeaderMechanismCeilingIsSalientWithoutTypedTargetBlocker(t *testing.T) {
 	inWindow := true
 	leader := types.TraceCausalProjectionNode{
