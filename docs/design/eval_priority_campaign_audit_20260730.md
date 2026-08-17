@@ -35692,6 +35692,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1007 r638/B1004/B1005/B1006：write oracle 闭环；最终阶段 raw trace 与 typed 窗口权威冲突（2026-08-17）
+
+1. 在 `main@05d9d1c6f` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_io_chain + github_issue_libgit2_foreach_worktree`。Runner `2/2 PASS`；人工为
+   `Trace fail / Write pass`，逐项证据见
+   `eval/parallel_selected_summary_evalcampaign_io_write_r638_20260817_manual_audit.md`。
+2. B1004 获生产闭环：write 只修改 `repository.c`，两处均用“先赋值、后比较”保存原始负错误码，
+   `make check` 和改后树 oracle 全绿。新 folded-text oracle 接受语义等价的跨行/括号形，同时仍拒绝原始
+   `error = (value != 0)` / `error = (value < 0)` 布尔压缩形，没有为单一输出降验证杆。
+3. B1005 获异构生产正证：finalizer 收到 `reader_causal_scope_options` 与
+   `choose_exactly_one_matching_summary_caliber_never_combine`，不再把三个互斥 causal caliber 合取。
+   Trace 显式窗、`#1 threadpool-400 IO=11.000ms`、三席各 1.000ms runnable、实际占时/既有规则可消双轴、
+   因果投影与自动补齐均完整，背景仍未进入主席名册。
+4. 人工仍不能签 Trace。用户窗和 typed target-state account 都是 `2.000000..2.020000`、
+   `sleep=20.000ms`；正文却从完整附件的窗后 switch-in 重算出 `20.020ms`，一处还同时写
+   “20.020ms 非运行”和“sleep=20.000ms”。它还把四节点三条箭头称为“四跳”，并把
+   `fscache_page_wait_on_page_bit` 的 kernel wait caller / on-chain 候选升级成“直接拉长整个链路”，
+   虽同页 caveat 明确 completion/sync/holder relation 未证。
+5. 冷读确认 B1006 不是纯模型波动：最终成文上下文同时携带完整 raw trace 与已经完成的 deterministic
+   `trace_query` typed 边界；前者继续要求“自行阅读并判断”，后者又明令 selected window 不得延伸到窗外
+   switch-in。模型于是用较弱 raw 附件重算并覆盖较强 typed 主值。最优修向是按 stage/provenance 收敛
+   authority：analyzer/perf_triager/explorer 继续拥有 raw trace；finalizer 一旦已有 hard-grounded
+   deterministic trace-query observations，就只消费 typed 查询、投影、账本与精确 support refs，不再收到
+   整份 raw body。查询未发生时仍保留 raw 降级路径。该门只读 agent/stage 与 typed observation count，
+   不扫描用户原文或模型答案，不替模型形成结论。
+6. 本批没有增加 20.020、四跳、caller 名称或任何答案词面的硬门，也不由系统修正文案。下一批先实现
+   B1006 的 finalizer-only 权威收敛并加正负 pin，再用 IO/真实 Trace 与 JSON/图案例严格并发两个回放。
+   若机制越界在无冲突上下文仍稳定复现，再审计 typed caller/edge 载体与软教学，而不做 case 拟合。
+7. 两案活跃字节流都远超 4ms 并正常结束，无固定 4ms/总年龄降级。显式时间窗、完整 causal-diagnosis
+   的 Trace 因果投影与自动补齐、链上-only 主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务
+   线索双轴继续保留；系统不删除、替换或代写模型结论。
+
+状态：
+
+`r638=runner-2/2/human=trace-fail+write-pass`；
+`B1004-EVALWRITEEQUIVALENTSOURCEORACLE1=production-closed-r638`；
+`B1005-TRACECAUSALSCOPEOPTIONCONJUNCTION1=production-positive-r638`；
+`B1006-FINALIZERRAWTRACEAUTHORITYCONFLICT1=confirmed/P1/pending-implementation`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1006 r637/B1003/B1004/B1005：Trace 图例落地后仍误述机理；write 等价实现被窄 oracle 错杀（2026-08-17）
 
 1. 在 `main@51f88a8fc` 严格并发恰好两个案例：
