@@ -35827,6 +35827,42 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1013 r644：类型关系生产正证；严格 JSON 暴露延迟脚本阶段合同自冲突（2026-08-17）
+
+1. 在 `main@92094eb11` 严格并发恰好两个异构案例：
+   `qf_type_relation_loop_controller + data_json_strict_ids`。Runner 与人工正确性均 `2/2 PASS`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_relation_json_r644_20260817_manual_audit.md`。
+2. QF 终稿枚举 12 个生产 `LoopController` 实现，每个条目有源码定位，Mermaid 以 12 条
+   `implements` 边完整表达类型关系，语法、方向和成员数均正确。全程没有 Finalizer 拒绝、系统补边
+   或关系代写，B1014 的关系 recipe 组合负担在 direct type-relation 面未复现；15 次读取与 7 次
+   mid-loop 提示仅作为效率观察，不据单次运行增加硬门。
+3. 严格 JSON 的用户可见结果精确为 `{"ids":["u1","u3"]}`，没有代码围栏、说明文字或内部枚举泄漏，
+   因此结果正确性通过。但 19 字节结果耗时 143s、经历 6 个数据轮和两次计划拆分；这不是模型随机
+   绕行，而是新确认 B1015 的确定性系统合同冲突。
+4. 初始计划为 `extract_records -> filter_records -> scripted custom_transform`。前缀拆分把后两项保存为
+   deferred queue；filter 成功后，`custom_transform` 的输入已经存在，账本也把它列为 final projection
+   producer，但 `deferredActionAllowed` 对所有带 script 的 custom transform 无条件返回 false。与此同时，
+   `stage_not_allowed` 被生命周期逻辑归类为 retain，系统因此反复同时发布“action_3 是最终产出路径”与
+   “action_3 当前阶段不能执行”。模型明确识别该矛盾后，只能另造 derive/compute/reconcile/assemble 路径。
+5. 设计文档 Batch 110 将 deferred queue 定义为可按真实工件重放的 typed action suffix；Batch 72 对
+   scripted suffix 的约束是等待未来 planner 基于新工件重规划，而不是复用旧脚本。当前实现把二者混为
+   一条队列。最优根修保持脚本安全门：前缀拆分只排队无脚本 typed action，遇到 scripted suffix 后将
+   已保留 typed 前缀标成 intermediate，并通过 `next_batch` 要求基于新工件重规划；旧 checkpoint 或其他
+   漏网脚本必须发 typed `script_requires_replan` 并淘汰，不能永久 retain，也不直接放行陈旧模型代码。
+6. 修复只消费结构化 action kind/script carrier、阶段 enum 和工件 readiness，不扫描用户原文、模型解释
+   或最终答案，不替模型计算业务值。严格 JSON 仍由 output contract 验证；关系图仍由模型从 typed 源证据
+   编写。Trace 本批未触达，显式时间窗、因果投影、系统补齐与链上-only 主因均保持。
+
+状态：
+
+`r644=runner-2/2+human-2/2`；
+`B1014-RELATIONRECIPECOMPOSITIONLOAD1=not-reproduced/direct-type-relation-production-positive-r644`；
+`B1015-DEFERREDSCRIPTSTAGECONTRACT1=confirmed/P1/pending-two-layer-fix`；
+`strict-json-visible-output=correct/workflow-contract-churn`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
