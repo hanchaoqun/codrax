@@ -55,9 +55,15 @@ func traceWaitTestLedger() types.ObservationLedger {
 			types.TraceNoteKeyBlockedReasonWindowCaller+"=fscache_page_get_an/hmfs_read"),
 		// measured wakeup edges: one real waker + an identical republication.
 		traceWaitTestRecord("trace_query:t#wakeup_chain_edge:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_chain_edge", "0.123",
-			"wakeup_ts=13762.801234", "latency=0.123"),
+			"wakeup_ts=13762.801234", "latency=0.123",
+			types.TraceNoteKeyWakeupWakerCPU+"=2",
+			types.TraceNoteKeyWakeupWakeeTargetCPU+"=1",
+			types.TraceNoteKeyWakeupCPURelation+"=cross_cpu"),
 		traceWaitTestRecord("trace_query:t#wakeup_chain_edge:2", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_chain_edge", "0.123",
-			"wakeup_ts=13762.801234", "latency=0.123"),
+			"wakeup_ts=13762.801234", "latency=0.123",
+			types.TraceNoteKeyWakeupWakerCPU+"=2",
+			types.TraceNoteKeyWakeupWakeeTargetCPU+"=1",
+			types.TraceNoteKeyWakeupCPURelation+"=cross_cpu"),
 		traceWaitTestRecord("trace_query:t#wakeup_chain_edge:3", "binder:642_10-1385", "gpu-token-id4-2931", "wakeup_chain_edge", "",
 			"wakeup_ts=13762.800001"),
 	}}
@@ -208,7 +214,7 @@ func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay):") {
 		t.Fatalf("wakeup edge lane missing:\n%s", summary)
 	}
-	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (pre-wakeup wait: sleep/blocking start → sched_wakeup 0.123ms; latency_caliber=sleep_start_to_sched_wakeup)"
+	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (pre-wakeup wait: sleep/blocking start → sched_wakeup 0.123ms; latency_caliber=sleep_start_to_sched_wakeup) [waker_cpu=2; wakee_target_cpu=1; cpu_relation=cross_cpu; same_cpu_occupancy_or_direct_competition_authority=not_provided]"
 	if got := strings.Count(summary, want); got != 1 {
 		t.Fatalf("identical edge republications must collapse to one row (got %d):\n%s", got, summary)
 	}

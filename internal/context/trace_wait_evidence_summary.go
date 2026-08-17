@@ -432,6 +432,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	}
 	type wakeupEdge struct {
 		waker, wakee, ts, latency, latencyCaliber string
+		wakerCPU, wakeeTargetCPU, cpuRelation     string
 		tsValue                                   float64
 	}
 	var edges []wakeupEdge
@@ -503,7 +504,13 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			if caliber == "" && strings.TrimSpace(notes["latency"]) != "" {
 				caliber = tracequery.WakeupEdgeLatencyCaliberSleepStartToSchedWakeup
 			}
-			edge := wakeupEdge{waker: subject, wakee: wakee, ts: ts, latency: strings.TrimSpace(notes["latency"]), latencyCaliber: caliber}
+			edge := wakeupEdge{
+				waker: subject, wakee: wakee, ts: ts,
+				latency: strings.TrimSpace(notes["latency"]), latencyCaliber: caliber,
+				wakerCPU:       strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakerCPU]),
+				wakeeTargetCPU: strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakeeTargetCPU]),
+				cpuRelation:    strings.TrimSpace(notes[types.TraceNoteKeyWakeupCPURelation]),
+			}
 			edge.tsValue, _ = strconv.ParseFloat(ts, 64)
 			edges = append(edges, edge)
 			continue
@@ -1121,6 +1128,22 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			}
 			if edge.latency != "" {
 				line += " (pre-wakeup wait: sleep/blocking start → sched_wakeup " + edge.latency + "ms; latency_caliber=" + edge.latencyCaliber + ")"
+			}
+			if edge.wakerCPU != "" || edge.wakeeTargetCPU != "" || edge.cpuRelation != "" {
+				var topology []string
+				if edge.wakerCPU != "" {
+					topology = append(topology, "waker_cpu="+edge.wakerCPU)
+				}
+				if edge.wakeeTargetCPU != "" {
+					topology = append(topology, "wakee_target_cpu="+edge.wakeeTargetCPU)
+				}
+				if edge.cpuRelation != "" {
+					topology = append(topology, "cpu_relation="+edge.cpuRelation)
+				}
+				if edge.cpuRelation == string(types.TraceWakeupCPUTopologyCrossCPU) {
+					topology = append(topology, "same_cpu_occupancy_or_direct_competition_authority=not_provided")
+				}
+				line += " [" + strings.Join(topology, "; ") + "]"
 			}
 			b.WriteString(line + "\n")
 		}
