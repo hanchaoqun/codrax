@@ -36368,6 +36368,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.974 r600：typed `(pid)` 目标使有限四态权威失联；主路径所有权生产闭环（2026-08-16）
+
+1. 在 `main@371b73881` 重建后严格并发恰好两个异构 case：跨 Python/Rust 关系
+   `mr_poly_binding_chain` 与显式窗真 Trace `real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`，人工为
+   Poly pass、Trace fail。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_poly_trace_replay_r600_20260816.md` 与同名 `_manual_audit.md`。
+2. Poly 连续五次成文拒绝均发生在模型提交无权、错向或可见图与 typed anchors 不一致的关系上；最终 principal list
+   自行提交 `_fastlex.tokenize_bytes -> py.tokenize_bytes` 的 `register` 关系以及完整 guard/call anchors 后通过。
+   模型撤回始终映射不好的可选 Mermaid 合法，系统没有生成、改向或补写关系。B948 因此取得生产正证并收账；r599
+   的虚构空白 `__init__.py:2` 引用症状也未复现，B950 保持测试闭环与生产症状负证，但本轮没有宣称覆盖每一删除分支。
+3. Trace 的精确 `target_window_states` 与 explorer aggregate 已同时持有 running=157.248ms、runnable=5.604ms、
+   sleep=70.338ms、D-state/io-wait=0；终稿却只显示 running，把余量 75.942ms 合并为未知非 running，直接导致 oracle
+   FAIL。数据、查询与探索均未丢失，失联发生在 answer context 编译层。
+4. 根因 B951 是 typed identity 兼容缺口：Analyzer 把目标写成 `.ugc.aweme.lite-17267 (17267)`，record subject 是
+   `.ugc.aweme.lite-17267`；共享 deterministic matcher 只识别 `[17267]` suffix，未识别同一 typed field 内的
+   `(17267)`，所以 `Trace Target-State Scope Authority` 整块没有进入 finalizer prompt。该判断不依赖用户或模型原文。
+5. B951 已扩展唯一 typed suffix parser，同时接受尾部 `[pid]` 与 `(pid)`：只允许纯数字和合法范围；若名称尾部已有
+   PID/TID 且与 suffix 冲突则 fail-closed。types 回归覆盖同 ID 与冲突 ID；agent e2e pin 要求四态精确值、total 与
+   complete 一起进入 prompt，并负钉有限问题不得凭空生成 `Trace Causal Projection`。
+6. 这道题的正确 breadth 是 finite scheduler-state facts + “频率条件是否约束目标”的 `bounded_effect_verdict`，并非
+   根因发现，因此本轮没有完整 Trace 因果投影本身不是 gap。对明确根因/贡献者/机制问题，既有显式窗因果投影、自动补齐、
+   链上-only 加冕、实际占时/业务线索与规则可消双轴必须继续保持；不能靠强制所有 Trace 都投影来修本案。
+7. Analyzer 本轮三次尝试还暴露 B952 soft-teaching 债：先把 finite effect 扩成 causal，后又选 bounded facts 但漏
+   `target_effect_verdict`，并把“排除当前源码”的句子放进 artifact citation quote 而非专用 source-exclusion 字段。
+   现有 precise validator 拒绝方向正确；下一小批只降低 JSON 心智负担、提供单选 copy-ready 结构，不扫原文作硬门，
+   不降低证据杆，也不让系统决定 verdict。
+8. `go test ./internal/types ./internal/agent -count=1` 全绿。两案均无空答案、系统答案替换、固定 4ms/4s/总年龄降级；
+   邻近/background 仍只作支持，不进入主因席。
+
+状态：
+
+`B948-PRINCIPALPATHFACETOWNER1=production-closed-r600`；
+`B949-FREQUENCYNEXTSTEPCALIBER1=implemented/full-tests-pass/pending-causal-projection-replay`；
+`B950-PATCHCITATIONROWCLOSURE1=implementation-closed/tests-pass/r600-symptom-negative`；
+`B951-TYPEDTARGETPARENSPID1=implemented/full-types+agent-tests-pass`；
+`B952-RUNTIMEANALYSISJSONSHAPE1=confirmed/soft-teaching-next`；
+`Trace finite bounded effect=causal-projection-not-required`；
+`Trace causal diagnosis explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

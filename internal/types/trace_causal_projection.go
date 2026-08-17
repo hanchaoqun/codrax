@@ -2739,17 +2739,29 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 }
 
 // traceCausalProjectionTypedDiagnosticPIDDisplay accepts a typed diagnostic
-// display suffix such as "worker-17267 [17267]" or "worker [17267]". Models
-// sometimes retain the human-facing bracketed tid inside RuntimeTarget.Thread
-// instead of populating RuntimeTarget.PID separately. The suffix is still a
-// precise typed integer carrier; if a name-tid base exposes a different tid,
-// the shape is contradictory and fails closed.
+// display suffix such as "worker-17267 [17267]", "worker [17267]", or the
+// parenthesized runtime-target spelling "worker-17267 (17267)". Models
+// sometimes retain the human-facing pid/tid display inside
+// RuntimeTarget.Thread instead of populating RuntimeTarget.PID separately.
+// This parser is consumed only after the entity has entered a typed lane; it
+// never mines raw request or answer prose. The suffix is therefore a precise
+// typed integer carrier. If a name-tid base exposes a different id, the shape
+// is contradictory and fails closed.
 func traceCausalProjectionTypedDiagnosticPIDDisplay(raw string) (string, int, bool) {
 	raw = strings.TrimSpace(raw)
-	if len(raw) < 4 || raw[len(raw)-1] != ']' {
+	if len(raw) < 4 {
 		return "", 0, false
 	}
-	open := strings.LastIndexByte(raw, '[')
+	closeDelim := raw[len(raw)-1]
+	openDelim := byte('[')
+	switch closeDelim {
+	case ']':
+	case ')':
+		openDelim = '('
+	default:
+		return "", 0, false
+	}
+	open := strings.LastIndexByte(raw, openDelim)
 	if open <= 0 {
 		return "", 0, false
 	}

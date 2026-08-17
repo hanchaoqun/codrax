@@ -2390,6 +2390,14 @@ func TestObservationRecordMatchesUserRuntimeTarget_TypedDiagnosticPIDSuffix(t *t
 	if ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
 		t.Fatal("contradictory name tid and bracket tid must fail closed")
 	}
+	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite-17267 (17267)"
+	if !ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("typed parenthesized pid/tid display must match the same deterministic target")
+	}
+	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite-17267 (17268)"
+	if ObservationRecordMatchesUserRuntimeTarget(record, &rm) {
+		t.Fatal("contradictory name tid and parenthesized id must fail closed")
+	}
 	rm.RuntimeTargets[0].Source = RuntimeTargetSourceExplicitToolCall
 	rm.RuntimeTargets[0].Thread = ".ugc.aweme.lite-17267 [17267]"
 	if ObservationRecordMatchesUserRuntimeTarget(record, &rm) {

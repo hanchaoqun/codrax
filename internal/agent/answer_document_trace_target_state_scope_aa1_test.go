@@ -139,3 +139,50 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWitho
 		}
 	}
 }
+
+func TestRenderAnswerDocObservationLedgerPublishesFiniteStateForTypedParenthesizedTarget(t *testing.T) {
+	start, end := 13762.791708, 13763.024898
+	mut := types.NewMutableState("查询目标线程四态")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{{
+			ID: "state-requested", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/donghu.ftrace",
+			},
+			ClaimKey: "target_window_states:.ugc.aweme.lite-17267", Predicate: "target_window_states",
+			Subject: ".ugc.aweme.lite-17267", Object: "state_partition", Value: "233.190", Unit: "ms",
+			RichNotes: []string{
+				"selected_window=13762.791708..13763.024898", "running=157.248", "runnable=5.604",
+				"sleep=70.338", "d_state=0.000", "io_wait=0.000", "sleep_io_wait=0.000", "total=233.190",
+			},
+		}},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindThread, Thread: ".ugc.aweme.lite-17267 (17267)", Source: "user_explicit",
+			}},
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start, TimeEnd: &end, SourceQuote: "13762.791708 到 13763.024898",
+			},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"### Trace Target-State Scope Authority",
+		"target=`.ugc.aweme.lite-17267`",
+		"running=157.248ms; runnable=5.604ms; sleep=70.338ms; d_state=0.000ms",
+		"total=233.190ms; state_partition_coverage=`complete`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("parenthesized typed target lost finite state authority %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Trace Causal Projection") {
+		t.Fatalf("finite target-state authority must not manufacture a causal projection:\n%s", got)
+	}
+}
