@@ -46,15 +46,19 @@ This scaffold is for human review. The runner records typed metrics and declared
 4. 已施工：中英文模板分别改为“提升运行算力供给 / improving running compute supply”与“相对既定理想基准的 modeled headroom”；
    回归逐字钉住 subject、58.320ms、升频/迁核动作，并负钉 `解除/限制/lifting/limits/eliminable`。相关 A2 套件全绿。
 
-### T599-3（P1，待后批）：追加 citation 的文件/行/quote 未形成同源闭包
+### T599-3（P1，已施工）：追加 citation 的文件/行/quote 未形成同源闭包
 
 1. Explorer 的正确证据是 `bindings-py/fastlex/tokenizer.py:2` 导入 `_fastlex`；`bindings-py/fastlex/__init__.py` 只 re-export
    `FastTokenizer`。最终 patch 却追加 `{file=__init__.py,line=2,quote="import _fastlex"}`，并在可见 section 宣称导入发生在
    `__init__.py`。
 2. 该 quote 与真实文件行不符，系统虽修了一处 item `citation_ref`，错误 citation 仍留在 citation pool 和可见 prose，最后只发通用
    “前后不一致” advisory。说明 patch append-citation 的 location/quote、item 绑定与可见声明没有在同一 exact source row 上闭合。
-3. 后批应从 citation 载体完整性根修：当前源码 citation 的 file+line+quote 必须匹配同一 checkout 行；不匹配时拒绝该 citation 或要求模型改正，
-   不能依据模型自报 quote 伪造源码权威，也不能扫描自由 prose 决定真假。
+3. 已从 citation 载体完整性根修：共享 normalizer 只读取 typed citation 的 file/line/line_end 与当前 checkout。确定越界或整个区间全为空白时，
+   删除该 citation 并统一重映射/解绑 `citation_ref`；真实非空单行但 quote 陈旧时，仍由既有 exact-row pass 修正 quote。运行时工件、负证据、
+   current-source 排除车道以及无法安全读取的文件均保持原有 fail-open 边界，不猜测其真假。
+4. 完整 emit、patch pre-emit、共享 persist 与 degraded recovery 四条发布路径复用同一函数；patch e2e 逐字复现
+   `source.py:2(blank) / import _fastlex`，验证模型正文保留、伪 citation 剔除、item ref 解绑。多行范围的“含至少一个非空行”正臂与“全空白”负臂、
+   越界、其他 authority、不安全文件均有 pin。修复不读取自由 prose、不代写文件归属结论，也不新增 finalizer retry。
 
 ## 非回归与上下文审计
 
@@ -63,3 +67,5 @@ This scaffold is for human review. The runner records typed metrics and declared
 - Poly 的探索上下文本身含正确 import 行与核心 wrapper→core call evidence；错误不是“没给模型信息”，而是关系 patch 元数据丢失和 citation
   追加闭包不足。三个图拒绝均由精确 typed mismatch 触发，删除可选图本身合法；不应为保图放松关系权威。
 - 两案均持续收到模型字节并正常完成；未出现 4ms、4s 或固定总年龄降级，也没有系统替换模型答案。
+- B950 聚焦回归及 `go test ./internal/tool -count=1` 全绿；全套测试还发现并修正 B949 新词面未走 compute-delivery 显示单源的问题，未扩充
+  semantic wording 白名单。

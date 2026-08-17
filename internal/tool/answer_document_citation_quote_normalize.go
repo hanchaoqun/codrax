@@ -62,10 +62,14 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 	return fixed
 }
 
-// normalizeOutOfBoundsCurrentSourceCitations removes current-source
-// citations whose declared line interval is provably outside the cited
-// file. This is a physical file/range check over the typed citation pool;
-// it never scans the user request or answer prose.
+// normalizeInvalidCurrentSourceCitationRows removes current-source citations
+// whose declared line interval is provably outside the cited file, plus
+// citations whose entire declared interval is physically present but blank. A
+// blank interval cannot support a non-empty model-authored quote (the r599
+// witness cited a blank __init__.py:2 as "import _fastlex"), nor can it provide
+// any source fact when the quote is empty. This is a physical
+// file/range/content check over the typed citation pool; it never scans the
+// user request, answer prose, or model reasoning.
 //
 // The check is deliberately narrow:
 //   - runtime-artifact and negative-search citations belong to separate
@@ -78,7 +82,7 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 // a model-authored quote from another file being carried by an impossible
 // target such as small.go:4346. The shared drop helper remaps every
 // surviving citation_ref and detaches refs to the rejected entry.
-func normalizeOutOfBoundsCurrentSourceCitations(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+func normalizeInvalidCurrentSourceCitationRows(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
 		return 0
 	}
@@ -119,12 +123,27 @@ func normalizeOutOfBoundsCurrentSourceCitations(doc *types.AnswerDocumentV2, ctx
 		}
 		if cit.Line > lineCount || lastLine > lineCount {
 			remove[i] = true
+			continue
+		}
+		// Multi-line ranges may legitimately start/end on blank formatting
+		// rows, but a range made entirely of whitespace is no more evidentiary
+		// than one blank row. Keep a range as soon as one addressed row is
+		// non-blank; quote verification remains the independent quote pass.
+		nonBlank := false
+		for lineIndex := cit.Line - 1; lineIndex < lastLine; lineIndex++ {
+			if strings.TrimSpace(lines[lineIndex]) != "" {
+				nonBlank = true
+				break
+			}
+		}
+		if !nonBlank {
+			remove[i] = true
 		}
 	}
 	if len(remove) == 0 {
 		return 0
 	}
-	return dropAnswerDocumentCitationsByIndex(doc, remove, "current_source_citation_line_out_of_bounds")
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "current_source_citation_row_invalid")
 }
 
 func currentSourceCitationLine(repoRoot, file string, lineNo int, lineCache map[string][]string) (string, bool) {

@@ -36350,18 +36350,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. Patch e2e pin 复现“旧块有 owner → replacement 保留 facet/visible hops 但清空 owner”，现已同轮拒绝并返回精确
    `claim_uses AND edge_anchors` 修补位置；正臂和跨 family 负臂同批覆盖。该修复不要求 Mermaid，模型可撤回路径 facet 或重新提交自己选择的真实边。
 5. Trace 模型正文正确区分 policy ceiling、target binding 与 supply-fold headroom；四态守恒、完整 Trace 因果投影、链上-only 主因、实际占时/业务线索与
-   规则可消双轴全部正常。但系统 next-step 把 `frequency_thermal` 固定写成“解除运行频点限制”，在目标绑定未证时过度主张。登记
-   B949，下一独立小批只改确定性修向词面为“提升运行算力供给/相对理想基准可提升空间”，不改模型结论或投影值。
+   规则可消双轴全部正常。但系统 next-step 把 `frequency_thermal` 固定写成“解除运行频点限制”，在目标绑定未证时过度主张。B949 已把确定性修向
+   校准为“提升运行算力供给/相对理想基准可提升空间”，保留 subject、升频/迁核动作与 58.320ms，不改模型结论、排序或投影值；中英文均负钉
+   `解除/限制/lifting/limits/eliminable`。完整 tool 回归还发现新词面未走 compute-delivery 单源，现已复用 root-cause type label，未扩白名单。
 6. 同一 Poly 终稿还暴露 citation append 闭包缺口：正确 import 位于 `tokenizer.py:2`，patch 却提交不存在于真实行的
-   `__init__.py:2 / import _fastlex`，错误 citation 与文件归属声明仍发布。登记 B950，后批按当前 checkout 的 exact
-   file+line+quote 同源校验根修，不扫描答案 prose。
+   `__init__.py:2 / import _fastlex`。B950 已扩展共享 current-source citation normalizer：确定越界或整个区间全空白时删除 pool entry 并统一
+   remap/detach 引用；真实非空单行但 quote 错误时继续 exact-row 修正。完整 emit、patch pre-emit、persist 与 degraded recovery 同源消费；
+   runtime artifact、negative citation、source-excluded、不安全/不可读文件均不猜测、不删除。该机械证据修复不扫描答案 prose、不改模型正文、不造结论。
 7. 两案均没有空答案、系统答案替换或固定 4ms/4s/总年龄降级；Trace 路径未被 B948 触及，邻近/background 仍 support-only。
 
 状态：
 
 `B948-PRINCIPALPATHFACETOWNER1=implemented/full-tool+types+skill-tests-pass/pending-production-replay`；
-`B949-FREQUENCYNEXTSTEPCALIBER1=implemented/zh+en-focused-tests-pass/pending-production-replay`；
-`B950-PATCHCITATIONROWCLOSURE1=confirmed/pending-later-batch`；
+`B949-FREQUENCYNEXTSTEPCALIBER1=implemented/zh+en+semantic-wording+full-tool-tests-pass/pending-production-replay`；
+`B950-PATCHCITATIONROWCLOSURE1=implemented/focused+full-tool-tests-pass/pending-production-replay`；
 `Trace explicit-window/causal projection/auto-supplement=preserved-r599`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。

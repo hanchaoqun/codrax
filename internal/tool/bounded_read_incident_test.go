@@ -64,7 +64,7 @@ func TestNormalizeCurrentSourceCitationQuotes_SkipsOversizedFile(t *testing.T) {
 	}
 }
 
-func TestNormalizeOutOfBoundsCurrentSourceCitations_RemovesAndRemapsOnlyProvenInvalid(t *testing.T) {
+func TestNormalizeInvalidCurrentSourceCitationRows_RemovesAndRemapsOnlyProvenInvalid(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "small.go"), []byte("package x\nfunc Real() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestNormalizeOutOfBoundsCurrentSourceCitations_RemovesAndRemapsOnlyProvenIn
 	}
 	ctx := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("q")}
 
-	if changed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); changed != 5 {
+	if changed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); changed != 5 {
 		t.Fatalf("changed=%d, want 5 (two pool entries + two detached refs + one remapped ref)", changed)
 	}
 	if len(doc.Citations) != 1 || doc.Citations[0].Line != 2 {
@@ -104,7 +104,7 @@ func TestNormalizeOutOfBoundsCurrentSourceCitations_RemovesAndRemapsOnlyProvenIn
 	}
 }
 
-func TestNormalizeOutOfBoundsCurrentSourceCitations_PreservesOtherAuthoritiesAndUnprovenFiles(t *testing.T) {
+func TestNormalizeInvalidCurrentSourceCitationRows_PreservesOtherAuthoritiesAndUnprovenFiles(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "trace.systrace"), []byte("one\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -121,11 +121,46 @@ func TestNormalizeOutOfBoundsCurrentSourceCitations_PreservesOtherAuthoritiesAnd
 		AttachedHitraceSource: "trace.systrace",
 	}
 
-	if changed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); changed != 0 {
+	if changed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); changed != 0 {
 		t.Fatalf("other/unproven authorities must remain untouched, changed=%d citations=%+v", changed, doc.Citations)
 	}
 	if len(doc.Citations) != 4 {
 		t.Fatalf("unexpected citation removal: %+v", doc.Citations)
+	}
+}
+
+func TestNormalizeInvalidCurrentSourceCitationRows_DropsBlankRowForgeryButKeepsRealRow(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "source.py"), []byte("import os\n\nimport _fastlex\n\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "imports", Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{ID: "forged", CitationRef: 0},
+				{ID: "real", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "source.py", Line: 2, Quote: "import _fastlex"},
+			{File: "source.py", Line: 3, Quote: "stale but repairable"},
+			{File: "source.py", Line: 2, LineEnd: 3, Quote: "import _fastlex"},
+			{File: "source.py", Line: 4, LineEnd: 5, Quote: "forged all-blank range"},
+		},
+	}
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("q")}
+	if changed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); changed != 4 {
+		t.Fatalf("changed=%d, want 4 (two pool drops, one detached ref, one referenced-index remap)", changed)
+	}
+	if len(doc.Citations) != 2 || doc.Citations[0].Line != 3 || doc.Citations[1].LineEnd != 3 {
+		t.Fatalf("blank source row must not survive as citation authority: %+v", doc.Citations)
+	}
+	if doc.Blocks[0].Items[0].CitationRef != -1 || doc.Blocks[0].Items[1].CitationRef != 0 {
+		t.Fatalf("blank-row removal did not detach/remap item refs: %+v", doc.Blocks[0].Items)
+	}
+	if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed != 1 || doc.Citations[0].Quote != "import _fastlex" {
+		t.Fatalf("real non-blank row must remain and receive its exact source quote: fixed=%d citations=%+v", fixed, doc.Citations)
 	}
 }
 

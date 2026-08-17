@@ -119,9 +119,9 @@ func runtimeTraceNextStepDirectionActionFor(section runtimeTraceProjElimSection,
 		}
 	case "frequency_thermal":
 		if zh {
-			body = fmt.Sprintf("评估提升 %s 的运行算力供给(升频/迁核)(按既定理想基准折算的可提升空间 %s)", subject, value)
+			body = fmt.Sprintf("评估提升 %s 的运行%s(升频/迁核)(按既定理想基准折算的可提升空间 %s)", subject, runtimeTraceRootCauseTypeZHLabel("compute_supply"), value)
 		} else {
-			body = fmt.Sprintf("evaluate improving %s's running compute supply (boost / migrate) (modeled headroom %s versus the stated ideal basis)", subject, value)
+			body = fmt.Sprintf("evaluate improving %s's running %s (boost / migrate) (modeled headroom %s versus the stated ideal basis)", subject, runtimeTraceRootCauseTypeENLabel("compute_supply"), value)
 		}
 	case "self_workload":
 		verb := fmt.Sprintf("评估削减 %s 的确定性工作(%s 可消)", subject, value)

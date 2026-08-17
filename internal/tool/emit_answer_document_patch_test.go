@@ -313,6 +313,36 @@ func TestEmitAnswerDocumentPatch_VerifiesNonEmptyAppendedCitationQuote(t *testin
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DropsAppendedCitationWhoseExactSourceRowIsBlank(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "source.py"), []byte("import os\n\nimport _fastlex\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := newPatchTestBusContext()
+	bus.RepoRoot = repo
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id":"s1", "kind":"summary", "text":"model-authored import explanation",
+			"items":[{"id":"lead-cite", "citation_ref":1}]
+		}],
+		"append_citations": [{"file":"source.py", "line":2, "quote":"import _fastlex"}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("blank-row citation is a mechanically removable carrier, not a reason to lose the model answer: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("forged blank-row citation survived patch persist: %+v", doc)
+	}
+	if len(doc.Blocks) == 0 || len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].CitationRef != -1 {
+		t.Fatalf("item reference to blank source row was not detached: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RepairsSingleUnknownItemTextAlias(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

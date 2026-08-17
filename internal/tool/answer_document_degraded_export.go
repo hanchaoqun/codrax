@@ -70,8 +70,8 @@ func MaterializeDeterministicAnswerSectionsForDegradedDoc(ctx *types.BusContext,
 	// (degradedSectionDisplayNames); recordCitationQuoteRewriteDegradation
 	// is deliberately NOT called here — booking it on the degradation
 	// ledger too would double-disclose the same rewrites.
-	if fixed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); fixed > 0 {
-		logging.Warning("[answer_document/degraded_export] removed or detached %d out-of-bounds current-source citation carrier(s) on recovery lane", fixed)
+	if fixed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); fixed > 0 {
+		logging.Warning("[answer_document/degraded_export] removed or detached %d invalid current-source citation row carrier(s) on recovery lane", fixed)
 	}
 	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {

@@ -272,8 +272,8 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	// mint fresh bare file:line citations too (same appendOrReuse shape as
 	// the pre-emit chain). Same gated backfill as the chain end so
 	// system-rebuilt references persist with a source-line quote.
-	if fixed := normalizeOutOfBoundsCurrentSourceCitations(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] removed or detached %d out-of-bounds current-source citation carrier(s) before persist", toolName, fixed)
+	if fixed := normalizeInvalidCurrentSourceCitationRows(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] removed or detached %d invalid current-source citation row carrier(s) before persist", toolName, fixed)
 	}
 	// Full emits already normalize every submitted quote before entering this
 	// shared path. A patch can append a NON-EMPTY but stale/wrong quote after

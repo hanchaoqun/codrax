@@ -302,8 +302,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// normalizeAnswerDocumentForPreEmit and before persist in
 	// persistMergedAnswerDocument. Do not reorder any of these passes
 	// alone.
-	if fixed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] removed or detached %d out-of-bounds current-source citation carrier(s)", toolName, fixed)
+	if fixed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] removed or detached %d invalid current-source citation row carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
 		recordCitationQuoteRewriteDegradation(ctx, fixed)
@@ -928,9 +928,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	// out-of-repo) keeps the gate open on every later chain run, at the
 	// bounded cost of one stat/read attempt per cited file per run.
 	// Runtime-artifact citations are excluded inside the gate.
-	if fixed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeOutOfBoundsCurrentSourceCitations", fixed)
-		logging.Warning("[%s] removed or detached %d out-of-bounds current-source citation carrier(s)", toolName, fixed)
+	if fixed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeInvalidCurrentSourceCitationRows", fixed)
+		logging.Warning("[%s] removed or detached %d invalid current-source citation row carrier(s)", toolName, fixed)
 	}
 	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
