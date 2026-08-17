@@ -4440,6 +4440,37 @@ func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRequiredDiagramDim
 	}
 }
 
+func TestEmitAnalysis_Execute_RequiredDiagramDimensionCannotLoseDiagramHintOnRepair(t *testing.T) {
+	raw := "请用 Mermaid 架构图画出 Analyzer、Explorer 和 Mutable 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["Analyzer","Explorer","Mutable","数据流"],
+		"entities":["Analyzer","Explorer","Mutable"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"Mermaid 架构图","role":"diagram","source_quote":"Mermaid 架构图","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid 架构图", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "missing required top-level field(s): diagram_hint") ||
+		!strings.Contains(res.Summary, "presentation authority and does not prove any edge") {
+		t.Fatalf("required diagram carrier omission must fail with bounded repair guidance: %+v", res)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("analysis missing its required diagram carrier must not persist a RequestModel")
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRelationScopeCoListsTypedEntities(t *testing.T) {
 	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
 	mu := types.NewMutableState(raw)

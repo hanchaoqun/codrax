@@ -35753,6 +35753,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.984 r608/B963：硬图合同在无关字段重发中丢失；局部真边被自动 oracle 误判为完整关系（2026-08-17）
+
+1. 在 `main@409118c92` 重建后严格并发恰好两个案例：显式窗 Trace
+   `trace_query_wakeup_causal_runnable` 与读模式关系图
+   `qf_logic_view_read_pipeline`。Runner `2/2 PASS`，人工为 `trace-partial + qf-fail`；记录冻结在
+   `eval/parallel_selected_summary_evalcampaign_trace_logic_r608_20260817.md` 及对应 `_manual_audit.md`。
+2. B962 获生产闭环：Trace route 现为 `diagram_required=false presentation=""`，没有再把调度状态/唤醒关系
+   这些内容维度合成为时间线/表格展示硬门；三次查询全部在显式窗内，Trace 因果投影和自动补齐均存在。
+   但模型仍把 typed `measured_lower_priority_dependency_supply_candidate` 扩写为“持锁直接阻塞/典型优先级反转/
+   实际阻塞 10ms”，而 final handoff 已明示不得宣称 holder/waiter、同步阻塞、post-wakeup delay 或已证反转。
+   上下文足够、系统投影口径正确，故只记 B965 模型服从观察，不扫描正文做硬门、不由系统改写结论。
+3. QF 自动 PASS 是假绿。Router 已正确输出逐字 `presentation="Mermaid 架构图"` 与
+   `diagram_required=true`；Analyzer 首次提交 required flow、精确关系 quote 和六名 incident participant，
+   但因另一个 `call_chain_endpoints` 字段缺失被拒。第二次所谓“完整对象”保留 requested diagram dimension，
+   却漏掉整个 `diagram_hint`，旧工具仍接受并只保留最后一次写入，硬图/参与者合同从 RequestModel 消失。
+4. 合同丢失后，Explorer 虽经 focused flow 补采取得三条精确操作边（Orchestrator 调用 analyze、Explorer
+   写 TurnAArtifacts、Extractor 读 TurnAArtifacts），Finalizer 的 required participant coverage 却不再运行；
+   第三次修补明确误称 `OPTIONAL diagram`。终图只剩三条局部真边及多个断开节点，正文同时宣称完整四阶段经
+   BusContext/Mutable 传递。Runner 只钉 diagram 存在和最小边数，因而无法发现“局部真边冒充所求关系”。
+5. `B963-REQUIREDPRESENTATIONREPAIRLOSS1/P1` 根修位于分析结构入口：只要 schema-valid
+   `requested_answer_dimensions` 已携 `required role=diagram`，完整重发若缺 `diagram_hint` 必须 fail-loud，要求模型
+   重发其自选 family、逐字 relation scope 和 participant roster。系统不从请求关键词推断 kind/participant，不恢复
+   首稿、不造边、不画图；它只禁止一个已接受硬合同在修另一个字段时被静默删除。
+6. JSON 教学同步消除自相矛盾：`diagram_hint` 只在没有当前轮 hard visual carrier 时可选；一旦当前轮明确要求图，
+   每次 complete repair 都必须保留。Requested dimension 本身仍不是证据源；它只要求 sibling carrier/最终展示存在，
+   参与者与每条边仍分别需要逐字来源和 typed source evidence。专项测试钉住“缺 hint 必拒且不落 RequestModel”，
+   原六参与者流、空 roster 负臂及 skill 文案 pin 均通过。
+7. `B964-RELATIONSPINEFALSEGREEN1` 暂按 B963 的生产后果处理：恢复 hard contract 后，已有 participant validator 会要求
+   每个 incident participant 要么拥有 request-scoped typed incident relation，要么作为断开节点携
+   `participant_boundaries=unproven`；三条局部 call 不再能无披露冒充完整数据流。先回放验证这条通用合同，不按
+   Analyzer/Finalizer/BusContext 名字增强 case oracle；若仍假绿，再增加基于 typed requested-relation receipt 的通用
+   evaluator 指标。
+8. 本批不动 Trace 根因规则、不动模型答案正文、不把背景晋升主因。显式窗、因果投影、自动补齐、链上-only 主因、
+   业务线索与实际占时/规则计价双轴保持；活跃字节流不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`r608 runner=2/2-pass/human=trace-partial+qf-fail`；
+`B962-PRESENTATIONPROVENANCE1=production-closed-r608`；
+`B963-REQUIREDPRESENTATIONREPAIRLOSS1=implemented/pins-pass/pending-replay`；
+`B964-RELATIONSPINEFALSEGREEN1=pending-replay/no-case-keyword-fit`；
+`B965-TRACEMODELCALIBER1=model-adherence-watch/context-sufficient/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r608`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

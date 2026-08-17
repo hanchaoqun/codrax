@@ -836,7 +836,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Active dimensions remain soft presentation guidance, not an evidence origin and not a hard validation gate.",
+				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension, when independently paired with the current-turn out-of-band visual authority, requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge.",
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
@@ -904,7 +904,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantPlanningContract,
+				"description": "Visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; in that authorized shape this object must be retained on every complete repair call. Otherwise set required=false and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantPlanningContract,
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request independently confirmed by the out-of-band typed requires_diagram signal; without that carrier, true is normalized to false and remains optional structural guidance."},
@@ -1610,6 +1610,26 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		// explicitly required. It can authorize only the presence of a visual;
 		// it cannot mint facts, endpoints, relations, or answer conclusions.
 		hardDiagramAuthorized = true
+	}
+	// A required diagram dimension is already a schema-validated,
+	// current-request-proven presentation obligation.  Do not let a repair of
+	// an unrelated missing analysis field silently erase the richer
+	// diagram_hint carrier on the next complete emit.  Requiring the analyzer
+	// to re-emit that carrier preserves its model-authored family, relation
+	// scope, and participant roster; the system still does not infer an edge,
+	// participant, diagram body, or conclusion.
+	//
+	// Keep the condition on the accepted required dimension rather than the
+	// out-of-band boolean alone.  Some compatibility callers expose only the
+	// latter as permission for a model-proposed diagram, while a hard current-
+	// turn answer obligation needs both precise carriers.
+	if requiredDiagramRequestedDimension(requestedAnswerDimensions) && p.DiagramHint == nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   emitAnalysisMissingTopLevelFieldsSummary([]string{"diagram_hint"}),
+			Timestamp: time.Now(),
+		}, nil
 	}
 	diagramHint, diagramHintErr, diagramHintWarnings := parseDiagramHint(
 		raw,
@@ -2381,6 +2401,8 @@ func emitAnalysisMissingTopLevelFieldsSummary(missing []string) string {
 		". Re-emit one complete object matching the projected schema; use predicate_axis=\"\" only when no clear action relation exists, and use explicit false/empty typed objects where the schema requires them."
 	for _, field := range missing {
 		switch field {
+		case "diagram_hint":
+			summary += " The accepted current-turn diagram dimension remains required: re-emit diagram_hint with its model-chosen kind, exact relation_scope_quote, and explicit participant roster; this carrier is presentation authority and does not prove any edge."
 		case "call_chain_endpoints":
 			summary += " For call_chain_endpoints, emit only ordered endpoint identity: source, sink, and sink_mode."
 		case "runtime_selection_profile":

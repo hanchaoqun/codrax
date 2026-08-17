@@ -195,9 +195,10 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	for _, want := range []string{
 		"Presentation Directive",
-		"emit it with `required=true`",
+		"emit diagram_hint with `required=true`",
+		"on every complete call, including a repair of an unrelated field",
 		"optional structural hint MUST use `required=false`",
-		"typed Presentation Directive explicitly asks for a diagram",
+		"out-of-band typed Presentation Directive requiring a visual",
 		"Explicit presentation modality outranks topic inference",
 		"MUST use `sequence` even when predicate_axis=call",
 		"remove only that participant row",
