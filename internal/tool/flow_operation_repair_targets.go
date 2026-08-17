@@ -479,8 +479,8 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 	if ctx == nil || ctx.Mutable == nil || len(surfaces) == 0 || rm.DiagramHint == nil {
 		return flowResolvedParticipantIdentity{}
 	}
-	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	if graph == nil || len(graph.SymbolDefs) == 0 {
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
 		return flowResolvedParticipantIdentity{}
 	}
 
@@ -505,27 +505,24 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 		declaredType string
 	}
 	var candidates []candidate
-	seenSymbols := make(map[*repotypes.Symbol]bool)
-	for _, key := range flowParticipantSymbolLookupKeys(surfaces) {
-		for _, symbol := range graph.SymbolDefs[key] {
-			if symbol == nil || seenSymbols[symbol] {
-				continue
-			}
-			seenSymbols[symbol] = true
-			path := canonicalRelationSourcePath(symbol.File)
-			name := strings.TrimSpace(symbol.Name)
-			parent := strings.TrimSpace(symbol.Parent)
-			declaredType := strings.TrimSpace(symbol.DeclaredType)
-			if path == "" || !relationSourceInRequestedScope(path, rm) ||
-				name == "" || parent == "" || declaredType == "" ||
-				!flowAnyIdentitySurfaceMatches(surfaces, name) ||
-				!flowAnyIdentitySurfaceMatches(ownerSurfaces, parent) {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				file: path, name: name, parent: parent, declaredType: declaredType,
-			})
+	for _, site := range flowNavigationSymbols(index, surfaces) {
+		symbol := site.symbol
+		if symbol == nil {
+			continue
 		}
+		path := canonicalRelationSourcePath(firstNonEmptyFlowRepairString(symbol.File, site.file))
+		name := strings.TrimSpace(symbol.Name)
+		parent := strings.TrimSpace(symbol.Parent)
+		declaredType := strings.TrimSpace(symbol.DeclaredType)
+		if path == "" || !relationSourceInRequestedScope(path, rm) ||
+			name == "" || parent == "" || declaredType == "" ||
+			!flowAnyIdentitySurfaceMatches(surfaces, name) ||
+			!flowAnyIdentitySurfaceMatches(ownerSurfaces, parent) {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			file: path, name: name, parent: parent, declaredType: declaredType,
+		})
 	}
 	if len(candidates) != 1 {
 		return flowResolvedParticipantIdentity{}

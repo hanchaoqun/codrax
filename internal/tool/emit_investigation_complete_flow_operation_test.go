@@ -1267,6 +1267,58 @@ func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossL
 	}
 }
 
+func TestFlowOperationNavigationResolvesAmbiguousMemberFromProjectedFileIndexAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			ctx := flowOperationCompletionContext(nil)
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "Extractor", ResolvedAs: "extractorEvaluator", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			declarationPath := filepath.ToSlash(filepath.Join("src", language, "context.src"))
+			componentPath := filepath.ToSlash(filepath.Join("src", language, "extractor.src"))
+			files := map[string]*repotypes.FileInfo{
+				declarationPath: {
+					RelPath: declarationPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 5},
+						{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "MutableState", Line: 6},
+					},
+				},
+				componentPath: {
+					RelPath: componentPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{Name: "run", Kind: "method", Receiver: "extractorEvaluator", Line: 1, EndLine: 20}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: componentPath, Line: 10,
+						FromEP: repotypes.RelationEndpoint{Line: 10},
+						ToEP:   repotypes.RelationEndpoint{Name: "TurnAArtifacts", Receiver: "ctx.Mutable", Line: 10},
+					}},
+				},
+			}
+			// Production scoped/multi-repo projections may retain complete
+			// FileIndex symbols while omitting the legacy name-keyed index.
+			ctx.Mutable.SetSearchGraph(&repotypes.Graph{FileIndex: files, SymbolDefs: map[string][]*repotypes.Symbol{}})
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable", "BusContext"})
+			if !ok || target.file != componentPath {
+				t.Fatalf("%s projected FileIndex must retain unique member navigation: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("projected member navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationPrefersCarrierHandoffOwnedByAnotherMissingParticipant(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{
