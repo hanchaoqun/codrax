@@ -35692,6 +35692,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1003 r634/B997/B998/B1000：末端词典未压过 raw 重复源；无箭头 grouping 缺可复制身份形（2026-08-17）
+
+1. 在 `main@e50567fea` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `Trace fail / QF partial`；证据见
+   `eval/parallel_selected_summary_evalcampaign_reader_language_r634_20260817_manual_audit.md`。
+2. Trace 确定性面继续正确：显式主窗、链上 worker-200 #1=8.300ms、目标状态、邻近与背景分权、因果投影
+   均未退化。模型却在摘要、风险段和表格继续复制 `priority_inversion_candidate`，把候选先写成“典型的
+   优先级反转场景”，并给不持排序席的 app-100 sleep 虚列 #2。B997 的末端自然语言 map 已被模型读到，
+   但没有压过前文多份 raw ledger/rank/schema，故不能签收。
+3. 最优方向不是增加输出字符串门或系统改写，而是把 finalizer 消费面分成 machine JSON 控制字段、audit
+   追溯字段和 reader synthesis 字段；非 JSON 发射所需的 cause/status raw 值只在前两者保留，读者面只给
+   同源 display label 与自然语义。主窗 ordinal 同理只给唯一 reader roster，旧板仍可留审计但不重复教学。
+4. B998 部分生效：QF 最终图已去掉源码位置，但仍把 `precedence` 作为可见边标签；说明独立的业务文案
+   提示弱于 raw typed recipe。后续让同一 recipe 同时携带 immutable relation kind 与 reader label，模型
+   只把后者写到图上，edge anchor 继续提交前者。
+5. 新确认 B1000：owner/member/type 合取只有行式说明，没有 copy-ready 无箭头 Mermaid 形。首修用 `MS`
+   作为节点 id，触发 `Mutable` exact participant 不可见，增加第二次修补。可从 parser-owned row 生成
+   exact participant id/首标签的无箭头 grouping skeleton；这是证据载体，不创建箭头、不替模型选结论。
+6. 两案活跃字节流均远超 4ms 正常结束。系统未依据固定累计年龄降级或接管答案。
+
+状态：
+
+`r634=runner-2/2/human=trace-fail+qf-partial`；
+`B997-TRACECONTROLENUMCUSTOMERLANGUAGE1=prompt-wired/production-negative/r634`；
+`B998-DIAGRAMVISIBLEAUDITMETADATA1=partial/file-location-closed+raw-relation-label-open`；
+`B1000-NOARROWGROUPINGCOPYSKELETON1=confirmed/open`；
+`B995-SELECTEDWINDOWPRINCIPALORDINALTAIL1=system-correct/model-repeat-noise-open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1002 r633/B996/B997/B998：无箭头包含关系生产闭环；内部枚举与审计标签仍进入客户表达（2026-08-17）
 
 1. 在 `main@4c373b31b` 严格并发恰好两个案例：
