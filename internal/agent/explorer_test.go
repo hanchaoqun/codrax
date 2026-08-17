@@ -1178,6 +1178,46 @@ func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstruction_ConfigPrecedenceSeparatesValueProvenance(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "compare two config knobs and their precedence",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentConfigQuery,
+				Scenario: types.ScenarioConfigTrace,
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Config Value Provenance Discipline",
+		"production initializer, constructor, or constant",
+		"sample config value or documentation comment",
+		"inherit/unset sentinel",
+		"every requested config bucket",
+		"explicit unresolved value/source",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("config provenance prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	nonConfigPrompt := (&explorerEvaluator{}).BuildInitialInstruction(&types.AgentContext{
+		Objective: "explain one function",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+		}},
+		RepoRoot: ".",
+	}, nil)
+	if strings.Contains(nonConfigPrompt, "Config Value Provenance Discipline") {
+		t.Fatalf("config provenance guidance leaked into a non-config family:\n%s", nonConfigPrompt)
+	}
+}
+
 func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

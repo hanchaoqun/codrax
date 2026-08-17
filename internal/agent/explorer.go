@@ -1033,6 +1033,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("- Prefer the built-in `grep` tool for repo-wide token sweeps. It keeps breadth scans path-stable on every OS and avoids shell-specific path drift.\n")
 		b.WriteString("- Spend read_file budget on production config/default/loader/flag-binding surfaces before repairing doc/test mentions.\n\n")
 	}
+	if ctx != nil && ctx.AnalysisIR != nil && types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFConfigPrecedence {
+		b.WriteString("### Config Value Provenance Discipline\n\n")
+		b.WriteString("For every requested config bucket, investigate the value and precedence roles independently; do not copy one bucket's value or source into another bucket. Keep these source roles distinct:\n")
+		b.WriteString("- The runtime code default must be grounded in the production initializer, constructor, or constant that seeds the resolved setting before overrides. Search both the external config key and its owning field/symbol, and read the production initialization region even when an earlier broad file read was truncated.\n")
+		b.WriteString("- A sample config value or documentation comment describes an example/configuration surface. It is not proof of the runtime code default unless the production baseline source establishes the same value.\n")
+		b.WriteString("- A CLI flag registration default such as zero may be an inherit/unset sentinel. Verify the explicit-flag/changed guard and override assignment before calling it a user-visible default.\n")
+		b.WriteString("- Close with an explicit unresolved value/source for any missing role instead of borrowing a nearby number or emitting a high-confidence aggregate. Carry the separately grounded code-default, config, CLI, and runtime roles into the completion handoff.\n\n")
+	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.EnumerationBoundary != nil {
 		boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
 		if boundary.DeclaredCount > 0 && strings.TrimSpace(boundary.SourceQuote) != "" {

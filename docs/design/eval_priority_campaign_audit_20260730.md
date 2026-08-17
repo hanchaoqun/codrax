@@ -35898,12 +35898,19 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
    观察项，等待不同表格形复现，避免为单案硬拟合。
 7. 本批不修改 Trace。显式时间窗、因果投影、系统补齐、链上-only 根因和背景 support-only 保持；
    活跃字节流没有固定 4ms/4s 降级。
+8. B1016 已按上述方案施工：Explorer 仅由 typed `QFConfigPrecedence` 注入逐 bucket 的值来源纪律，
+   要求分别读取生产 initializer/constructor/constant、配置面与 CLI 显式覆盖门，并把示例值和
+   inherit/unset sentinel 与运行时代码默认值分权；AnswerSupport principal lane 同步携带同一口径，
+   缺锚时引导模型披露未核实而非借值。没有新增用户原文或模型输出扫描，没有系统代写/改写答案。
+   单元测试钉住 config-family 生效及非 config family 不泄漏；`internal/agent`、`internal/types` 全包通过。
+   Eval oracle 已由“任意位置出现裸数字 3”收紧为“代码默认值 3 / `MaxRetriesPerStage` 初始化值 3”同句
+   关系，防止行号或邻近数字继续制造假绿。生产回放留给下一轮严格双并发。
 
 状态：
 
 `r645=runner-2/2+human-1/2`；
 `B1015-DEFERREDSCRIPTSTAGECONTRACT1=code-pinned+terminal-script-production-positive/pending-multirank-production-replay`；
-`B1016-CONFIGDEFAULTPROVENANCE1=confirmed/P1/pending-soft-evidence-discipline+oracle-fix`；
+`B1016-CONFIGDEFAULTPROVENANCE1=implemented/typed-soft-evidence-discipline+principal-guidance+precise-oracle/pending-production-replay`；
 `config-structured-table-leading-duplicate=observed-once/P2-watch`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion-authorship=none`；

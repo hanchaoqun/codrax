@@ -869,7 +869,7 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 			},
 			allowed:              "summary,scalar,table,ordered_list",
 			wantText:             "PipelineMaxSteps: 50",
-			wantGuidance:         "real default/config/CLI/runtime layer anchors",
+			wantGuidance:         "production initializer, constructor, or constant",
 			forbiddenSummaryTerm: "overridden by config",
 		},
 		{

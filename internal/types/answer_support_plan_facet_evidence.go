@@ -1526,7 +1526,7 @@ func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) strin
 		"When an entry says member_surface=source_location, the cited file/path/line is the principal member label; do not replace it with a helper symbol or imported endpoint."
 	switch family {
 	case QFConfigPrecedence:
-		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."
+		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer. A runtime code default must be supported by the production initializer, constructor, or constant that seeds the resolved setting before overrides. A sample configuration/comment is documentation, and a CLI zero/unset registration value may be an inherit sentinel; neither is proof of the runtime code default without that production baseline anchor. Keep each requested key's roles separate, and state that a role is unresolved instead of borrowing a nearby value."
 	case QFEnumeration:
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 			if rm.ChangeImpactProfile.RequestedOutput == ImpactOutputFiles {
