@@ -821,7 +821,11 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 	if ac.AgentName != types.AgentPerfTriager {
 		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
-		if section := formatPerfTriageStructured(perfTriageBundleForPrompt(ac), locator); section != "" {
+		rawTraceVisible := !shouldSuppressAttachedRuntimeTrace(ac) && strings.TrimSpace(ac.AttachedHitrace) != ""
+		if section := formatPerfTriageStructured(perfTriageBundleForPrompt(ac), locator, perfTriageStructuredRenderOptions{
+			RawTraceVisible:             rawTraceVisible,
+			DeterministicQueryAuthority: finalizerHasDeterministicRuntimeQuery(ac),
+		}); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPerfTriageExtraction,
@@ -4384,7 +4388,12 @@ func logBundleHasThreadSnapshots(bundle *types.LogBundle) bool {
 // Returns "" when bundle is nil or carries no actionable content
 // (zero frames + zero janks + zero stalls + nil startup + zero
 // residue). Caller skips the section.
-func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLocator) string {
+type perfTriageStructuredRenderOptions struct {
+	RawTraceVisible             bool
+	DeterministicQueryAuthority bool
+}
+
+func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLocator, options ...perfTriageStructuredRenderOptions) string {
 	if bundle == nil {
 		return ""
 	}
@@ -4395,12 +4404,23 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		return ""
 	}
 
+	opts := perfTriageStructuredRenderOptions{RawTraceVisible: true}
+	if len(options) > 0 {
+		opts = options[0]
+	}
+
 	var b strings.Builder
 	b.WriteString("The attached performance trace was parsed into the structured view below. " +
-		"Use validator-owned rows as facts and pre-triage model-extracted rows only as navigation candidates; a later deterministic trace query supersedes candidate semantics and values. " +
-		"The full raw trace is still in the next section for " +
-		"context the structured schema did not capture. When the current request asks " +
-		"whether an observed trace symptom still exists, answer in two lanes: what the trace " +
+		"Use validator-owned rows as facts and pre-triage model-extracted rows only as navigation candidates; a later deterministic trace query supersedes candidate semantics and values. ")
+	switch {
+	case opts.RawTraceVisible:
+		b.WriteString("The full raw trace is still in the next section for context the structured schema did not capture. ")
+	case opts.DeterministicQueryAuthority:
+		b.WriteString("The full raw trace is intentionally not repeated at this final-answer stage because hard-grounded deterministic trace-query rows are now the value and relation authority. Use their exact windows, values, source refs, and uncertainty boundaries; do not reconstruct a selected-window value from attachment-wide metadata or an out-of-window event. ")
+	default:
+		b.WriteString("No raw trace body is present in this stage; use only the structured rows and their stated authority boundaries. ")
+	}
+	b.WriteString("When the current request asks whether an observed trace symptom still exists, answer in two lanes: what the trace " +
 		"observed, and what current code evidence proves now.\n\n")
 
 	// ── Detected patterns (same engine the log_triage section uses) ──
@@ -4413,7 +4433,9 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	// trace-content terminology rather than inventing a category or
 	// speculating from unrelated repository symbols. Symmetric with
 	// the log_triage section to avoid input-modality skew.
-	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "trace"))
+	if opts.RawTraceVisible {
+		b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "trace"))
+	}
 
 	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). Facts drawn from the trace must stay in the attached-trace observation lane — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")

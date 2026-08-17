@@ -3982,15 +3982,47 @@ func TestShouldSuppressAttachedRuntimeTrace_FinalizerAfterDeterministicQueryOnly
 	})
 	raw := "app-100 [001] .... 2.020020: sched_switch: prev_comm=idle next_comm=app\n"
 
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "systrace"},
+		Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityDeterministicValidator,
+			Kind:      "timestamp_unit",
+			Summary:   "attachment extent is wider than the selected query window",
+		}},
+	}
 	finalizer := &types.AgentContext{
 		AgentName:       types.AgentFinalizer,
 		Stage:           types.StageFinalize,
 		Mutable:         mu,
+		PerfTrace:       bundle,
 		AttachedHitrace: raw,
 	}
 	finalPrompt := BuildPromptContext(finalizer, finalizerSkill())
 	if sec := findSectionTitle(finalPrompt, SectionAttachedPerfTrace); sec != nil {
 		t.Fatalf("finalizer must not receive raw trace after deterministic query authority: %q", sec.Content)
+	}
+	structured := findSectionTitle(finalPrompt, SectionPerfTriageExtraction)
+	if structured == nil {
+		t.Fatal("finalizer must retain validator-owned structured perf observations")
+	}
+	for _, forbidden := range []string{
+		"The full raw trace is still in the next section",
+		"Read the raw trace content carefully",
+		"READ the trace's own content first",
+	} {
+		if strings.Contains(structured.Content, forbidden) {
+			t.Fatalf("suppressed raw trace left contradictory instruction %q:\n%s", forbidden, structured.Content)
+		}
+	}
+	for _, want := range []string{
+		"intentionally not repeated at this final-answer stage",
+		"hard-grounded deterministic trace-query rows",
+		"do not reconstruct a selected-window value",
+		"attachment extent is wider than the selected query window",
+	} {
+		if !strings.Contains(structured.Content, want) {
+			t.Fatalf("structured finalizer trace boundary missing %q:\n%s", want, structured.Content)
+		}
 	}
 
 	explorer := &types.AgentContext{

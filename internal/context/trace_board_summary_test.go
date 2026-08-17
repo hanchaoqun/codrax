@@ -79,6 +79,19 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 	if !strings.Contains(summary, "never reorder silently") || !strings.Contains(summary, "never sum rows together") {
 		t.Fatalf("board summary preamble must carry the ordering/no-sum teaching:\n%s", summary)
 	}
+	for _, want := range []string{
+		"authoritative for ranked eliminable-seat order and published values",
+		"not by itself for a mechanism or end-to-end causal verdict",
+		"selected claim-caliber contract",
+		"a typed cause, a bounded candidate, or no causal conclusion",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("board summary must separate ordering authority from conclusion caliber (missing %q):\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "State root causes in THIS order") {
+		t.Fatalf("board ordering guidance must not command an unconditional causal conclusion:\n%s", summary)
+	}
 	if !strings.Contains(summary, "a distinct ordinal space") || strings.Contains(summary, "an independent ordinal space") {
 		t.Fatalf("adjacent ordering must use domain vocabulary, not physical-independence wording:\n%s", summary)
 	}

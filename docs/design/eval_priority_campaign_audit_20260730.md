@@ -35692,6 +35692,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1008 r639/B1006/B1007/B1008/B1009：精确窗恢复；Finalizer 两处权威提示自冲突（2026-08-17）
+
+1. 在 `main@e878d0c7e` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_io_chain + data_json_strict_ids`。Runner `2/2 PASS`；人工为
+   `Trace partial / JSON pass`，完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_json_r639_20260817_manual_audit.md`。
+2. B1006 获生产闭环。Finalizer 起始后不再出现完整 `Attached Performance Trace`；宽窗 raw 仍只给
+   perf-triager/analyzer/explorer 使用。最终答案把目标状态恢复为 typed 主窗的精确 `20.000ms`，不再从
+   窗后 switch-in 重算 `20.020ms`；四个节点也不再误称四跳。显式 `2.000000..2.020000` 窗、Trace
+   因果投影、自动补齐、`IO 11.000ms + runnable 1.000ms × 3` 的主席顺序以及实际占用/规则可消双轴均保留。
+3. 人工仍为 partial：模型把仅证实为 `pre-wakeup on-chain work` 的 IO 席描述成“级联拉长目标、可直接
+   缩短整条链路”。这不是数值或链席丢失，而是两个精确系统提示互相打架。B1007：Finalizer 已隔离 raw，
+   但结构化 perf-triage 前言仍声称“full raw trace is still in the next section”，bug-class 教学仍命令
+   “Read the raw trace”。B1008：席位级 `final_answer_mechanism_scope` 明确 completion/target-blocking 未证、
+   `reader_causal_scope_options` 只允许 bounded/no conclusion；根因排序板却无条件命令
+   `State root causes in THIS order`。后者把“顺序/数值权威”错误扩成“机理/端到端因果结论权威”。
+4. B1007 已按 stage/provenance 根修：结构化 perf-triage renderer 显式接收 `RawTraceVisible` 与
+   `DeterministicQueryAuthority`。raw 可见时保留旧导航；Finalizer 已有 hard-grounded 查询时明确 raw 不再
+   重复、typed query 是精确窗值/关系权威，并禁止从附件级或窗外 metadata 重构主值；无 query 的降级车道
+   仍诚实提示只使用现有结构行。依赖 raw 的 bug-class 阅读教学只在 raw 真可见时发射。
+5. B1008 只修软合同，不替模型下结论：排序板现在只确权“eligible seat 的顺序与 published values”，并
+   明确自身不能单独确权 mechanism/end-to-end causality；可见答案应写 typed cause、bounded candidate 还是
+   no causal conclusion，只由最终被消费席位的 claim-caliber 合同决定。没有扫描用户问题、模型思考或最终
+   prose，没有删改答案，也没有按 IO/caller/20ms 等 case 字符串硬拟合。专项 pin 同时禁止旧的无条件根因
+   命令复活；`go test ./internal/context ./internal/agent ./internal/types -count=1` 全绿。
+6. JSON 案最终严格为 `{"ids":["u1","u3"]}`，没有畸形 JSON、恢复稿或正文污染，人工 PASS。但用了
+   6 轮、`data_action_failed=4`：模型首轮跳过必需的 `derive_rules`，后续又把当前 rank 的 filter/compute 与
+   未来 rank 的 reconcile/assemble 放入同一批。动态 schema 与 compact repair 均正确 fail-loud/收窄，故
+   记 B1009 为 P2 教学心智/效率债而非正确性 gap；后续应让当前 `allowed_next_actions` 更显著并减少同时展示
+   未来动作的心智负担，不能放宽 rank、自动代选业务动作或扫描模型 JSON 文本做特例。
+7. 两案活跃字节流均远超 4ms 且正常完成，没有固定 4ms/固定累计年龄降级。下一批继续严格并发两个：同一
+   IO 链回放验证 B1007/B1008，配一个关系/逻辑图案；人工同时审计答案、日志和模型上下文。
+
+状态：
+
+`r639=runner-2/2/human=trace-partial+json-pass`；
+`B1006-FINALIZERRAWTRACEAUTHORITYCONFLICT1=production-closed-r639`；
+`B1007-FINALIZERPERFTRIAGERAWVISIBILITYCONTRADICTION1=implemented/stage-aware+pinned/pending-replay`；
+`B1008-TRACEBOARDCLAIMCALIBERCONFLICT1=implemented/soft-authority-separation+pinned/pending-replay`；
+`B1009-DATACURRENTRANKTEACHINGLOAD1=confirmed/P2/correctness-pass/no-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1007 r638/B1004/B1005/B1006：write oracle 闭环；最终阶段 raw trace 与 typed 窗口权威冲突（2026-08-17）
 
 1. 在 `main@05d9d1c6f` 严格并发恰好两个案例：
