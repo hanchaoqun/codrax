@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.998 r629/B990：显式窗主值生产闭环；跨 owner 候选同分误选（2026-08-17）
+
+1. 在 `main@088d9d656` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `QF fail / Trace partial`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_projectedmember_window_r629_20260817_manual_audit.md`。
+2. B989 获生产闭环：Trace ledger 的 selected window、目标状态主值和根因板均严格保持
+   `1.000000..1.010000 / 10.000ms`；附件 `1.010020` 只作为闭合边界/时间单位来源，不再把主值扩成
+   11ms/10.020ms。worker-200 链上 8.300ms、CPU2→CPU1 唤醒、因果投影、自动补齐、实际占用与
+   规则计价双轴都未丢失，邻近行没有晋升主因。
+3. Trace 人工仍为 partial：模型把 `[002] 1.010020 sched_switch` 写成“让出 CPU1”，并在正文原样
+   展示 `priority_inversion_candidate/lock_priority/on_chain`。前者是一次边界 CPU 叙述错误；后者与
+   用户此前指出的 `bounded_window_candidate` 属同类客户词汇债。当前没有 schema-valid 信号可以
+   安全改写任意自由文本，不新增 raw answer 关键词硬门；作为 typed context/JSON 教学的异构回放项
+   留档，不推翻显式窗隔离的生产正证。
+4. B988 也获生产正证但未闭环 QF。late repair hint 已出现 `BusContext.Mutable/*MutableState/BusContext`
+   等精确 parser identity，证明 projected FileIndex 修复生效；真正失败发生在下一层候选排序。
+   `this.Mutable` 的本地 helper 与 `o.busCtx.Mutable` 跨 owner 真实交接具有同样 participant-touch，旧
+   排序最后按文件名选择前者，导致 completion 两次读到 cgec/contract validator，最终 Mutable 与
+   BusContext 仍断开。
+5. B990（`54c81daea`）新增 parser-owned static owner bridge 的软排序：只有内层成员的 exact owner、
+   外层 binding 的 exact declared type、外层 callable owner 和完整实参尾段再次命中原 binding 时，
+   跨 owner 交接才高于同 owner helper。该 rank 只选下一段源码，不铸 evidence、关系、图或答案；
+   没有文件名、语言名、用户原文或模型正文特判。生产形测试覆盖全部支持语言，关系导航矩阵和完整
+   `go test ./internal/tool -count=1` 通过（178.405s）。
+6. QF 本轮还出现系统 recipe `Orchestrator.Run -> o.busCtx.Mutable.ChangePlan` 被同轮 validator 以
+   `call_edge_unproven` 拒绝的疑似合同冲突。它位于错读坐标之后，先等 B990 的 r630 回放；若正确
+   交接到达后仍复现，再以 recipe 与 validator 的 typed tuple 直接对账，避免混入本批排序修复。
+7. 两案都有超过 30 秒的持续模型输出，liveness 明确显示“已收到模型语义输出，持续生成中”，没有
+   固定 4ms 降级。本批不动 Trace 查询/投影数值，不扫描 raw request/model prose，不由系统代画关系
+   或覆盖模型结论。
+
+状态：
+
+`r629=runner-2/2/human=qf-fail+trace-partial`；
+`B988-PROJECTEDFILEINDEXMEMBERNAV1=production-positive-r629`；
+`B989-TRACEPRINCIPALWINDOWISOLATION1=production-closed-r629`；
+`B990-TYPEDOWNERBRIDGECANDIDATERANK1=implemented/all-language+full-tool-suite-pass/pending-r630`；
+`Trace customer-vocabulary/CPU-boundary narration=observed/P2/needs-heterogeneous-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.997 r628/B988/B989：投影视图丢旧索引；探索宽窗污染显式窗主值（2026-08-17）
 
 1. 在 `main@71436e97b` 严格并发恰好两个案例：
