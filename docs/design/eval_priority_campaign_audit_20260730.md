@@ -35692,6 +35692,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1002 r633/B996/B997/B998：无箭头包含关系生产闭环；内部枚举与审计标签仍进入客户表达（2026-08-17）
+
+1. 在 `main@4c373b31b` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_structural_composition_r633_20260817_manual_audit.md`。
+2. B996 获生产正证：QF 终图以 `BusContext` 外组包含 `Mutable (*MutableState)` 内组，阶段顺序仍是
+   Analyzer→Explorer→Extractor→Finalizer；没有为包含关系铸箭头，也没有把两个断开的局部操作拼成
+   请求数据流。相比 r632，耗时 `533s→219s`，finalizer reject/patch `3/3→1/1`。
+3. Trace 正对照保持：主窗 `1.000000..1.010000` 只选 worker-200 链上 #1、有效归因 8.300ms；
+   目标自身睡眠、邻近 sleep 与调度背景没有晋升主因，Trace 因果投影和系统补采均在。说明 owner/group
+   bridge 未伤到显式时间窗、链上排序或双轴可消除量。
+4. 新确认 B997：模型正文仍复制 `priority_inversion_candidate`，历史客户稿还出现
+   `bounded_window_candidate`。它们是 JSON/审计控制值，不是客户语言。当前批在最终合成尾部只对本轮
+   活跃 typed 值发布共享中英文词典和自然语义；不扫描 request/output，不因词面拒绝，不删除或改写
+   模型答案，原 wire enum 与审计可追溯性保持。
+5. 新确认 B998：QF 图关系结构已正确，但可见边仍写 `precedence @ file:line`、`call @ file:line`，
+   把关系类型、validator/recipe 与源码位置混入业务视图。当前批将这些位置保留在 citation/typed anchor，
+   仅提示模型用仓库/业务职责和动作写可见标签；该指导无权增删、反转或连接任何关系。
+6. QF 正文仍有未证端到端读写表述，列为 B999 异构观察项。先审计 typed 上下文是否足够，再决定是否
+   补精确 carrier；禁止用答案关键词门或系统重写结论闭环。两案活跃流均跨过 4ms 正常完成。
+
+状态：
+
+`r633=runner-2/2/human=partial+partial`；
+`B996-PARTICIPANTIMPLEMENTATIONCARRIERCOMPONENT1=production-positive-r633`；
+`B997-TRACECONTROLENUMCUSTOMERLANGUAGE1=implemented/prompt-only+shared-lexicon/pending-r634`；
+`B998-DIAGRAMVISIBLEAUDITMETADATA1=implemented/prompt-only/no-relation-mutation/pending-r634`；
+`B999-QFPROSETRANSFEROVERCLAIM1=observed/pending-heterogeneous-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1001 r632/B994/B995：扩窗系统面闭环后模型仍复制旧 rank；call 修补输入合同自冲突（2026-08-17）
 
 1. 在 `main@169f0ca56` 严格并发恰好两个案例：
