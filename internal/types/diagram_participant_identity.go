@@ -12,7 +12,8 @@ import "strings"
 //
 // The bridge is deliberately narrow:
 //   - it reads only DiagramParticipantHint plus typed analyzer entities;
-//   - a native code identity is returned unchanged;
+//   - a native code identity remains the presentation surface, while one
+//     uniquely resolved symbol provenance may add its canonical source name;
 //   - otherwise exactly one boundary-complete entity must occur in the primary
 //     display segment (before a parenthetical qualifier);
 //   - ambiguous/no-match labels remain unresolved.
@@ -25,7 +26,7 @@ func DiagramParticipantIdentitySurfaces(rm RequestModel, participant DiagramPart
 		return nil
 	}
 	if IsCodeIdentitySurface(identity) {
-		return []string{identity}
+		return diagramParticipantCanonicalProvenanceSurfaces(rm, []string{identity})
 	}
 	primary := identity
 	if idx := strings.IndexRune(primary, '('); idx >= 0 {
@@ -52,7 +53,74 @@ func DiagramParticipantIdentitySurfaces(rm RequestModel, participant DiagramPart
 	if len(matched) != 1 {
 		return nil
 	}
-	return matched
+	return diagramParticipantCanonicalProvenanceSurfaces(rm, matched)
+}
+
+// diagramParticipantCanonicalProvenanceSurfaces preserves the request-visible
+// participant label and, when analyzer entity provenance resolves that label
+// to exactly one source symbol, adds the canonical parser identity. This is a
+// typed identity projection only: it does not inspect request/answer prose,
+// create evidence, choose an edge, or authorize a relation. Downstream
+// relation consumers still require their ordinary citable operation rows.
+//
+// Keeping both surfaces is important. The display label is the answer contract
+// (for example `Extractor`), while the source operation may be owned by
+// `extractorEvaluator`. Dropping ResolvedAs makes navigation, completion, and
+// diagram validation disagree even though all three consume the same precise
+// analyzer resolution.
+func diagramParticipantCanonicalProvenanceSurfaces(rm RequestModel, base []string) []string {
+	if len(base) == 0 || len(rm.AnalyzerHints.EntityProvenance) == 0 {
+		return base
+	}
+	var resolved []string
+	for _, candidate := range rm.AnalyzerHints.EntityProvenance {
+		if candidate.Resolution != EntityResolutionSymbol || !candidate.Resolved || !candidate.UseForShape {
+			continue
+		}
+		sourceSurface := strings.TrimSpace(candidate.Surface)
+		resolvedSurface := strings.TrimSpace(candidate.ResolvedAs)
+		if resolvedSurface == "" {
+			resolvedSurface = sourceSurface
+		}
+		if resolvedSurface == "" || !IsCodeIdentitySurface(resolvedSurface) {
+			continue
+		}
+		matched := false
+		for _, surface := range base {
+			if AnswerCodeIdentitySurfacesEquivalent(surface, sourceSurface) ||
+				AnswerCodeIdentitySurfacesCompatible(surface, sourceSurface) ||
+				AnswerCodeIdentitySurfacesEquivalent(surface, resolvedSurface) ||
+				AnswerCodeIdentitySurfacesCompatible(surface, resolvedSurface) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		duplicate := false
+		for _, current := range resolved {
+			if AnswerCodeIdentitySurfacesEquivalent(current, resolvedSurface) || strings.EqualFold(current, resolvedSurface) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			resolved = append(resolved, resolvedSurface)
+		}
+	}
+	if len(resolved) != 1 {
+		// Ambiguous provenance remains presentation-only and cannot widen a
+		// source operation identity.
+		return base
+	}
+	out := append([]string(nil), base...)
+	for _, current := range out {
+		if AnswerCodeIdentitySurfacesEquivalent(current, resolved[0]) || strings.EqualFold(current, resolved[0]) {
+			return out
+		}
+	}
+	return append(out, resolved[0])
 }
 
 // DiagramParticipantHasPreciseSourceOperationIdentity reports whether a

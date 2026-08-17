@@ -35969,6 +35969,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.989 r613/B970：canonical typed participant 身份被投影层丢弃（2026-08-17）
+
+1. 在已推送 `main@34858a5c1` 严格并发恰好两个案例：读模式 `qf_logic_view_read_pipeline` 与显式窗
+   `real_trace_h7_self_seat_full_spectrum`。Runner `2/2 PASS`；人工为 `qf-partial + trace-pass-with-caveat`。
+   详见 `eval/parallel_selected_summary_evalcampaign_owner_trace_r613_20260817.md` 及 `_manual_audit.md`。
+2. Trace 全主能力稳定：仅在用户窗执行两次 typed 查询，模型首先总结自身 running 供给折算 65.912ms、D-state
+   36.757ms、链上小额来源与链外背景；系统随后保留完整因果投影、自动补齐、链上/邻近/背景权限、实际占时/业务
+   span 与规则可消除量双轴。`bounded_window_candidate` 未进入可见正文，活跃流未因 4ms/固定年龄降级。
+3. Trace 人工 caveat 仍属 B965：模型写“全部链上场序席位”，但 typed 覆盖边界明确
+   `enumeration_status=incomplete`；又把 `dma_fence_default_w` 所在 `devhost.elf` 解释成 GPU/媒体驱动宿主。系统提供的
+   最终投影仍诚实区分 callsite、对象/持有者未证和枚举不完整，不扫描或替换模型正文。
+4. B969 获得部分生产正证：模型终于发射
+   `extractorEvaluator.BuildInitialInstruction -> ctx.Mutable.TurnAArtifacts @ extractor.go:262`，终图也保留这条 exact
+   typed call；QF 从 r612 的 371s/4 repo_map/6 completion attempts 降至 299s/2 repo_map/4 attempts。
+5. 但前两次 exact repair 仍先后指向 `cgec_enforcers.go::forcedReadCancelled` 与
+   `contract_check_block.go::validateEnumerationItemLabelExtractorMatch`。这不是 owner 恢复失效：真实 parser relation、
+   enclosing callable 和源码 read closure 均已存在。根因是新确认
+   `B970-CANONICALPARTICIPANTPROJECTION1/P1`：Analyzer 的 typed `EntityProvenance` 已把展示参与者唯一解析到源码
+   symbol，`DiagramParticipantHasPreciseSourceOperationIdentity` 也据此批准 operation search；但共享
+   `DiagramParticipantIdentitySurfaces` 对任何看似合法的代码标识直接只返回展示名，丢弃同一 provenance 的
+   `ResolvedAs`。导航、completion relation component、最终 diagram candidate 因而分别使用 `Extractor` 与
+   `extractorEvaluator`，能读到/发射真实边却不能稳定绑定回请求参与者。
+6. 通用根修保持展示名，同时仅在 `resolution=symbol + resolved=true + use_for_shape=true` 且 canonical `ResolvedAs`
+   唯一时追加源码身份；多个不同 canonical 解析时 fail-closed，仅保留展示面。该单一 typed identity source 被所有语言的
+   flow navigation、completion scope 和 diagram validation 共用；不读取请求/答案 prose，不生成 evidence、关系、图或
+   结论，真实边仍必须有原有 citable operation。
+7. 新 pin 覆盖：`Extractor -> extractorEvaluator`、`Mutable -> MutableState` canonical 传递；歧义 Worker 双解析不扩域；
+   已读真实 Extractor→Mutable 操作压过未读 BusContext 局部 use；已有 typed call 只解除 Extractor/Mutable 覆盖，
+   无边的 BusContext 仍保持 unproven。`internal/types + internal/tool` 全套通过。
+8. 本批不修改 Trace 查询/投影/补齐，不新增可见词面门，不让系统接管模型答案。下一轮必须用同一 QF 生产回放验证
+   repair 首跳和 finalizer 拒绝数，再并行 IO 链/跨语言关系用例检查泛化。
+
+状态：
+
+`r613 runner=2/2-pass/human=qf-partial+trace-pass-with-caveat`；
+`B968-READCLOSUREEXTRACTION1=production-positive-r613`；
+`B969-PARSERENCLOSINGOWNER1=production-positive-r613/identity-projection-blocked`；
+`B970-CANONICALPARTICIPANTPROJECTION1=implemented/typed-unique-resolvedAs/pins+full-packages-pass/pending-replay`；
+`B967-CONTROLMETADATALEAK1=production-stable-r613`；
+`B965-MODELBOUNDARYADHERENCE1=observed-r613/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r613`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

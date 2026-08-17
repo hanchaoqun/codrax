@@ -56,3 +56,46 @@ func TestDiagramParticipantHasPreciseSourceOperationIdentityUsesTypedProvenance(
 		t.Fatal("missing legacy provenance should preserve the prior exact-identity behavior")
 	}
 }
+
+func TestDiagramParticipantIdentitySurfacesCarriesUniqueCanonicalResolvedSymbol(t *testing.T) {
+	rm := RequestModel{AnalyzerHints: AnalyzerHints{
+		Entities: []string{"Extractor", "Mutable"},
+		EntityProvenance: []EntityProvenance{
+			{Surface: "Extractor", ResolvedAs: "extractorEvaluator", Resolution: EntityResolutionSymbol, Resolved: true, UseForShape: true},
+			{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		},
+	}}
+	for _, tc := range []struct {
+		identity string
+		want     []string
+	}{
+		{identity: "Extractor", want: []string{"Extractor", "extractorEvaluator"}},
+		{identity: "Mutable (shared state)", want: []string{"Mutable", "MutableState"}},
+	} {
+		t.Run(tc.identity, func(t *testing.T) {
+			got := DiagramParticipantIdentitySurfaces(rm, DiagramParticipantHint{Identity: tc.identity})
+			if len(got) != len(tc.want) {
+				t.Fatalf("surfaces=%v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("surfaces=%v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestDiagramParticipantIdentitySurfacesDoesNotCarryAmbiguousCanonicalResolution(t *testing.T) {
+	rm := RequestModel{AnalyzerHints: AnalyzerHints{
+		Entities: []string{"Worker"},
+		EntityProvenance: []EntityProvenance{
+			{Surface: "Worker", ResolvedAs: "ReadWorker", Resolution: EntityResolutionSymbol, Resolved: true, UseForShape: true},
+			{Surface: "Worker", ResolvedAs: "WriteWorker", Resolution: EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		},
+	}}
+	got := DiagramParticipantIdentitySurfaces(rm, DiagramParticipantHint{Identity: "Worker"})
+	if len(got) != 1 || got[0] != "Worker" {
+		t.Fatalf("ambiguous canonical resolutions must stay presentation-only: %v", got)
+	}
+}

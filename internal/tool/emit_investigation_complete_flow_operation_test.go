@@ -1056,6 +1056,82 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 	}
 }
 
+func TestFlowOperationNavigationUsesCanonicalTypedParticipantResolution(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Extractor", "Mutable", "BusContext"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Extractor", ResolvedAs: "extractorEvaluator", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"internal/orchestrator/helper.go": {
+			RelPath: "internal/orchestrator/helper.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "busCtx", Kind: "parameter", Parent: "helper", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/orchestrator/helper.go", Line: 3,
+				FromEP: repotypes.RelationEndpoint{Name: "helper", Line: 3},
+				ToEP:   repotypes.RelationEndpoint{Name: "Context", Receiver: "BusContext", Line: 3},
+			}},
+		},
+		"internal/agent/extractor.go": {
+			RelPath: "internal/agent/extractor.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "BuildInitialInstruction", Kind: "method", Receiver: "extractorEvaluator", Line: 241, EndLine: 631}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/agent/extractor.go", Line: 262,
+				FromEP: repotypes.RelationEndpoint{Line: 262},
+				ToEP:   repotypes.RelationEndpoint{Name: "TurnAArtifacts", Receiver: "ctx.Mutable", Line: 262},
+			}},
+		},
+	}))
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{"internal/agent/extractor.go": true})
+	ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+		"internal/agent/extractor.go": {{Start: 240, End: 270}},
+	})
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Extractor", "Mutable", "BusContext"})
+	if !ok || target.file != "internal/agent/extractor.go" || !target.alreadyRead {
+		t.Fatalf("canonical typed alias must retain the direct already-read operation: ok=%t target=%+v", ok, target)
+	}
+}
+
+func TestFlowParticipantCoverageBindsCanonicalTypedAliasesToExistingOperation(t *testing.T) {
+	operation := flowOperationEvidence(types.AnchorCall,
+		"extractorEvaluator.BuildInitialInstruction", "ctx.Mutable.TurnAArtifacts", 262)
+	operation.Source = "internal/agent/extractor.go"
+	operation.OwnerIdentity = "extractorEvaluator.BuildInitialInstruction"
+	operation.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "ctx.Mutable", Type: "*MutableState", Owner: "extractorEvaluator.BuildInitialInstruction",
+	}}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{operation})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Extractor", "Mutable", "BusContext"}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Extractor", ResolvedAs: "extractorEvaluator", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if flowTestSliceContains(missing, "Extractor") || flowTestSliceContains(missing, "Mutable") || !flowTestSliceContains(missing, "BusContext") {
+		t.Fatalf("existing typed Extractor->Mutable operation should bind canonical aliases while unrelated BusContext stays unproven: %v", missing)
+	}
+}
+
 func TestFlowOperationNavigationFindsSingleTokenComponentThroughEnclosingCallable(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {
