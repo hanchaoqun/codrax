@@ -170,7 +170,7 @@ func TestTraceStreamerProviderSourceMutationIsHardAndDominatesChildFailure(t *te
 	if !strings.Contains(outcome.err.Error(), "exit status 7") {
 		t.Fatalf("hard source-generation error lost child failure evidence: %v", outcome.err)
 	}
-	if strings.Contains(outcome.err.Error(), "codrax-trace-streamer-") {
+	if strings.Contains(outcome.err.Error(), strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")) {
 		t.Fatalf("hard trace_streamer failure exposed private staging path: %v", outcome.err)
 	}
 	var boundaryFailed bool

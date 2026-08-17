@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -127,6 +128,7 @@ are never overwritten; delete the file first or choose another output path.`,
 			KeepTraceDB:            traceConvertKeepTraceDB,
 			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
 			RuntimeAnchor:          runtime.runtimeAnchor,
+			RuntimeAnchorFallback:  traceConvertWSLRuntimeAnchorFallback(runtime.runtimeAnchor),
 		}
 		var diagnosticProgress traceConvertDiagnosticProgressLog
 		opts.Progress = func(event hitraceconv.ProgressEvent) {
@@ -269,6 +271,39 @@ func configureTraceConvertUtilityRuntime(command *cobra.Command) (traceConvertUt
 	}
 	hitraceconv.SetEmbeddedTraceStreamerCacheRoot(resolved.cacheRoot)
 	return resolved, nil
+}
+
+func traceConvertWSLRuntimeAnchorFallback(primary string) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	release, _ := os.ReadFile("/proc/sys/kernel/osrelease")
+	return traceConvertWSLRuntimeAnchorFallbackFor(
+		runtime.GOOS,
+		string(release),
+		os.Getenv("WSL_DISTRO_NAME") != "" || os.Getenv("WSL_INTEROP") != "",
+		primary,
+	)
+}
+
+func traceConvertWSLRuntimeAnchorFallbackFor(goos, kernelRelease string, wslEnvironment bool, primary string) string {
+	release := strings.ToLower(strings.TrimSpace(kernelRelease))
+	if goos != "linux" || (!wslEnvironment && !strings.Contains(release, "microsoft") && !strings.Contains(release, "wsl")) {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	fallback, err := filepath.Abs(filepath.Join(home, runtimeAnchorDir))
+	if err != nil {
+		return ""
+	}
+	primaryAbs, err := filepath.Abs(filepath.Clean(primary))
+	if err == nil && primaryAbs == fallback {
+		return ""
+	}
+	return fallback
 }
 
 func loadTraceConvertUtilitySettings(location runtimeSettingsLocation) (*traceConvertUtilitySettings, error) {

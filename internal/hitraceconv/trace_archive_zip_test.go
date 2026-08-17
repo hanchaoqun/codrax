@@ -692,7 +692,7 @@ func TestTraceArchiveZIPTraceStreamerConsumesSelectedMemberInExplicitAndAutoMode
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, private := range []string{traceArchiveMemberSnapshotLeaf, ".archive/", "codrax-trace-streamer-"} {
+			for _, private := range []string{traceArchiveMemberSnapshotLeaf, ".archive/", strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")} {
 				if bytes.Contains(manifest, []byte(private)) {
 					t.Fatalf("trace_streamer archive bundle leaked private token %q: %s", private, manifest)
 				}

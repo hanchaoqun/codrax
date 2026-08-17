@@ -601,6 +601,34 @@ func environmentWithoutKey(environment []string, blocked string) []string {
 	return out
 }
 
+func TestTraceConvertWSLRuntimeAnchorFallbackIsPlatformAndSignalScoped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	primary := filepath.Join(t.TempDir(), ".codrax")
+	want := filepath.Join(home, ".codrax")
+	for _, test := range []struct {
+		name        string
+		goos        string
+		release     string
+		environment bool
+		want        string
+	}{
+		{name: "WSL kernel", goos: "linux", release: "5.15.167.4-microsoft-standard-WSL2", want: want},
+		{name: "WSL environment", goos: "linux", release: "6.8.0-generic", environment: true, want: want},
+		{name: "ordinary Linux", goos: "linux", release: "6.8.0-generic"},
+		{name: "Windows host", goos: "windows", release: "microsoft-standard-WSL2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := traceConvertWSLRuntimeAnchorFallbackFor(test.goos, test.release, test.environment, primary); got != test.want {
+				t.Fatalf("fallback=%q want=%q", got, test.want)
+			}
+		})
+	}
+	if got := traceConvertWSLRuntimeAnchorFallbackFor("linux", "microsoft-standard-WSL2", true, want); got != "" {
+		t.Fatalf("native home runtime anchor should not name itself as fallback: %q", got)
+	}
+}
+
 func commandHelpText(t *testing.T, command *cobra.Command) string {
 	t.Helper()
 	var output bytes.Buffer

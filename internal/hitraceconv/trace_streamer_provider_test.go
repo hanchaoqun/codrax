@@ -74,7 +74,7 @@ func TestConvertFileTraceStreamerReportsPublicSnapshotProgress(t *testing.T) {
 	}
 	var started, copied, completed bool
 	for _, event := range events {
-		if strings.Contains(event.Path, "codrax-trace-streamer-") || strings.Contains(event.OutputPath, "codrax-trace-streamer-") {
+		if strings.Contains(event.Path, "ts-") || strings.Contains(event.OutputPath, "ts-") {
 			t.Fatalf("progress exposed private trace_streamer staging path: %+v", event)
 		}
 		if event.Stage != "trace_streamer_input_snapshot" {
@@ -167,7 +167,7 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 	stagingInput := argLines[0]
 	stagingDB := argLines[2]
 	if filepath.Base(stagingDB) != "trace_streamer_export.db" ||
-		!strings.HasPrefix(filepath.Base(filepath.Dir(stagingDB)), "codrax-trace-streamer-") ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(stagingDB)), strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")) ||
 		filepath.Dir(stagingInput) != filepath.Dir(stagingDB) {
 		t.Fatalf("default DB must use a private transient staging directory, got %q", stagingDB)
 	}

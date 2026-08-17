@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const traceStreamerConverter = converterVersion + "+trace-streamer-db"
+const (
+	traceStreamerConverter         = converterVersion + "+trace-streamer-db"
+	traceStreamerPrivateDirPattern = "ts-*"
+)
 
 type traceStreamerExportResult struct {
 	Artifact          Artifact
@@ -614,7 +617,11 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 			return traceStreamerDBTarget{}, err
 		}
 	}
-	pattern := "codrax-trace-streamer-*"
+	// Keep the 128-bit random leaf but minimize the fixed prefix. Official
+	// Windows trace_streamer builds still encounter legacy MAX_PATH handling;
+	// preserving a long customer basename inside the former 22-byte prefix
+	// pushed otherwise ordinary inputs past that boundary before parsing.
+	pattern := traceStreamerPrivateDirPattern
 	if parent != "" {
 		pattern = ".codrax-trace-db-*"
 	}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -17,11 +18,13 @@ import (
 )
 
 const (
-	privateConversionDirFullControl        = windows.ACCESS_MASK(0x001f01ff)
-	privateConversionDirWindowsDirBuffer   = 64 * 1024
-	privateConversionDirWindowsNameOffset  = 68
-	privateConversionDirWindowsMaxDepth    = 4096
-	privateConversionDirWindowsObjectAttrs = windows.OBJ_CASE_INSENSITIVE | windows.OBJ_DONT_REPARSE
+	privateConversionDirFullControl                 = windows.ACCESS_MASK(0x001f01ff)
+	privateConversionDirWindowsDirBuffer            = 64 * 1024
+	privateConversionDirWindowsNameOffset           = 68
+	privateConversionDirWindowsMaxDepth             = 4096
+	privateConversionDirWindowsObjectAttrs          = windows.OBJ_CASE_INSENSITIVE | windows.OBJ_DONT_REPARSE
+	privateConversionDirWindowsDeletePendingRetries = 200
+	privateConversionDirWindowsDeletePendingDelay   = 10 * time.Millisecond
 )
 
 type privateConversionDirPlatformState struct {
@@ -445,6 +448,7 @@ func removePrivateConversionDirWindowsChildren(parent windows.Handle, parentPath
 	if depth > privateConversionDirWindowsMaxDepth {
 		return fmt.Errorf("private conversion directory cleanup depth exceeded: %d", privateConversionDirWindowsMaxDepth)
 	}
+	deletePendingRetries := 0
 	for {
 		names, err := privateConversionDirWindowsDirectoryNames(parent, parentPath)
 		if err != nil {
@@ -459,8 +463,17 @@ func removePrivateConversionDirWindowsChildren(parent windows.Handle, parentPath
 		for _, name := range names {
 			child, attributes, err := openPrivateConversionDirWindowsChild(parent, name)
 			if err != nil {
+				if privateConversionDirWindowsDeletePending(err) {
+					if deletePendingRetries >= privateConversionDirWindowsDeletePendingRetries {
+						return fmt.Errorf("wait for delete-pending private conversion directory child %q: retries exhausted: %w", name, err)
+					}
+					deletePendingRetries++
+					time.Sleep(privateConversionDirWindowsDeletePendingDelay)
+					break
+				}
 				return fmt.Errorf("open private conversion directory child %q: %w", name, err)
 			}
+			deletePendingRetries = 0
 			if attributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 && attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT == 0 {
 				err = removePrivateConversionDirWindowsChildren(
 					windows.Handle(child.Fd()),
@@ -483,6 +496,10 @@ func removePrivateConversionDirWindowsChildren(parent windows.Handle, parentPath
 			*removed++
 		}
 	}
+}
+
+func privateConversionDirWindowsDeletePending(err error) bool {
+	return errors.Is(err, windows.ERROR_DELETE_PENDING) || errors.Is(err, windows.STATUS_DELETE_PENDING)
 }
 
 func privateConversionDirWindowsDirectoryNames(handle windows.Handle, path string) ([]string, error) {

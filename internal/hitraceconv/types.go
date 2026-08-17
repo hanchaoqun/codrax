@@ -38,7 +38,13 @@ type Options struct {
 	// this to <CWD>/.codrax; direct library callers default to a .codrax
 	// directory beside the selected output.
 	RuntimeAnchor string
-	Progress      ProgressFunc
+	// RuntimeAnchorFallback is a product-selected private staging root used
+	// only when RuntimeAnchor cannot enforce the platform security contract.
+	// It never relaxes ownership/mode checks and is intentionally empty for
+	// direct library callers. The CLI uses it for WSL interop filesystems that
+	// report every directory as 0777 despite a successful chmod.
+	RuntimeAnchorFallback string
+	Progress              ProgressFunc
 }
 
 type Artifact struct {

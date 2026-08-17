@@ -45,6 +45,49 @@ func resolveConversionRuntimeAnchor(configured, output string) (string, error) {
 	return absoluteRoot, nil
 }
 
+// selectSecureConversionRuntimeAnchor keeps the caller-selected anchor unless
+// that filesystem precisely fails the private-directory security contract.
+// A fallback is never used for permission, identity, I/O, or cleanup errors:
+// those remain fail-loud rather than being hidden by a path switch.
+func selectSecureConversionRuntimeAnchor(primary, fallback string) (string, error) {
+	return selectSecureConversionRuntimeAnchorWithProbe(primary, fallback, func(root string) error {
+		dir, err := newRuntimePrivateConversionDir(root, ".anchor-probe-*")
+		if err != nil {
+			return err
+		}
+		return dir.FinalizeCleanup()
+	})
+}
+
+func selectSecureConversionRuntimeAnchorWithProbe(primary, fallback string, probe func(string) error) (string, error) {
+	primary = strings.TrimSpace(primary)
+	fallback = strings.TrimSpace(fallback)
+	if primary == "" || fallback == "" || sameConversionCanonicalPath(primary, fallback) {
+		return primary, nil
+	}
+	if probe == nil {
+		return "", fmt.Errorf("conversion runtime anchor probe is required")
+	}
+	primaryErr := probe(primary)
+	if primaryErr == nil {
+		return primary, nil
+	}
+	if !errors.Is(primaryErr, errPrivateConversionDirSecurityInvalid) {
+		return "", fmt.Errorf("validate conversion runtime anchor %s: %w", primary, primaryErr)
+	}
+	fallbackRoot, err := filepath.Abs(filepath.Clean(fallback))
+	if err != nil {
+		return "", fmt.Errorf("resolve conversion runtime fallback %s: %w", fallback, err)
+	}
+	if fallbackErr := probe(fallbackRoot); fallbackErr != nil {
+		return "", traceDBJoinPreservingSingle(
+			fmt.Errorf("conversion runtime anchor cannot enforce private directory security: %s: %w", primary, primaryErr),
+			fmt.Errorf("conversion runtime fallback cannot enforce private directory security: %s: %w", fallbackRoot, fallbackErr),
+		)
+	}
+	return fallbackRoot, nil
+}
+
 func ensureConversionRuntimeAnchor(root string) (string, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {

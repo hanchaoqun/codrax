@@ -6633,3 +6633,103 @@ preservation, sorter integrity or whole-output cross-validation remains
 forbidden.
 
 No code change or further correctness replay is required from LARG-H.
+
+## CVT-I customer long-name / Windows cleanup / WSL staging incident (2026-08-16)
+
+Customer evidence:
+
+- `/Users/han/opt/customlogs/trace_cvt_err.txt`
+- input size `211,307,693` bytes;
+- Windows working directory `D:\temp\微信启动`;
+- exact input basename length `189` characters.
+
+This incident contains three independent layers. Quoting the input is not the
+cause: both quoted and unquoted Windows attempts reach the same provider and
+fail in about `300ms`.
+
+### CVT-I1 — official child path exceeded the legacy Windows budget
+
+The immutable snapshot correctly preserved the exact customer basename, but
+the former private leaf was `codrax-trace-streamer-` plus a 128-bit random
+suffix. For this exact customer shape the child input argv was `265`
+characters:
+
+```text
+D:\temp\微信启动\.codrax\codrax-trace-streamer-<32 hex>\<189-char basename>
+```
+
+Codrax's own held-handle APIs use extended Windows paths, but the official
+child still receives a normal pathname. A legacy-path implementation in that
+child can therefore fail before parsing, which matches the immediate
+`exit status 1` and empty child output. This is a code-backed, high-confidence
+root-cause inference; the customer log cannot expose the child's internal
+file-open error because the external child emitted no diagnostic bytes.
+
+The fix changes only the fixed private namespace to `ts-<32 hex>`. The random
+suffix remains the full 128 bits, the exact input basename and extension remain
+unchanged, and all held-parent / DACL / generation / no-replace contracts stay
+in force. The same customer-shaped argv is now `246` characters. A regression
+pins both the customer shape under the legacy boundary and the unchanged
+32-hex random suffix. This is not a general promise that every arbitrary
+255-character basename under every arbitrarily deep directory can fit a
+legacy child; such inputs must still fail honestly rather than rename the
+basename behind the official parser.
+
+### CVT-I2 — delete-pending cleanup race masked the provider result
+
+After the child failed, Windows cleanup enumerated the snapshot but its
+relative reopen returned `ERROR_DELETE_PENDING` / `STATUS_DELETE_PENDING`:
+
+```text
+A non close operation has been requested of a file object with a delete pending.
+```
+
+That state means deletion was already authorized and the name was waiting for
+the final kernel handle close. Treating it as an identity or security failure
+made an otherwise provider-classifiable child failure hard and prevented the
+normal auto fallback. Cleanup now recognizes only those two exact typed status
+codes, waits in `10ms` steps for at most `2s`, and re-enumerates through the
+same held parent. Every other open error remains fail-loud; timeout remains an
+error, so a leaked/maliciously-held child cannot be silently abandoned. A
+Windows-native contract test holds a delete-pending child briefly and requires
+cleanup to converge only after the last handle closes.
+
+### CVT-I3 — WSL DrvFS cannot satisfy the private 0700 contract
+
+The WSL replay failed before the child started because `/mnt/d` surfaced the
+new private directory as `drwxrwxrwx` even after chmod. Relaxing the `0700`
+gate would expose the immutable trace snapshot and is prohibited.
+
+The trace-convert CLI now supplies `$HOME/.codrax` as a fallback only when both
+of these precise conditions hold:
+
+1. the host is typed as WSL by kernel release or WSL environment; and
+2. an actual private-directory probe on the primary `<CWD>/.codrax` fails with
+   `errPrivateConversionDirSecurityInvalid`.
+
+The fallback is itself probed with the identical ownership/mode contract. A
+permission, identity, cleanup or general I/O failure never activates it, and
+an insecure fallback also fails. Direct library callers retain their existing
+single-anchor behavior. Thus repository-local runtime remains the default,
+while a WSL interop mount uses the existing Linux-home `.codrax` namespace
+instead of creating an unrelated directory or weakening security.
+
+### Verification and replay status
+
+Completed locally:
+
+- focused `internal/hitraceconv` tests for security-only fallback, exact
+  basename, shorter private path and end-to-end transient DB cleanup;
+- focused `cmd` WSL signal/fallback test;
+- `gofmt` and `git diff --check`.
+
+The local macOS host has no MinGW cross compiler; a `CGO_ENABLED=0` Windows
+compile is not a valid substitute because repository tree-sitter dependencies
+require CGO. The Windows-only delete-pending test is therefore compile/run
+evidence for the release Windows lane, not falsely reported as locally run.
+
+Customer replay is still required after a Windows build containing this batch:
+success proves CVT-I1 for the real official binary; if the child still fails,
+auto mode must now preserve the provider failure/fallback decision without the
+delete-pending masking error. The WSL route should no longer reject `/mnt/d`
+mode `0777`; its private staging must be under Linux-home `.codrax`.

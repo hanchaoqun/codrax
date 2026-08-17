@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -248,6 +249,64 @@ func TestReleasePrivateConversionDirWindowsReparseCleanupIsSentinelSafe(t *testi
 	}
 	if body, err := os.ReadFile(sentinel); err != nil || string(body) != "external" {
 		t.Fatalf("Windows cleanup followed child reparse point: body=%q err=%v", body, err)
+	}
+}
+
+func TestReleasePrivateConversionDirWindowsCleanupWaitsForDeletePendingChild(t *testing.T) {
+	dir, err := newPrivateConversionDir(t.TempDir(), "codrax-private-delete-pending-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(dir.Path(), "snapshot.sys")
+	if err := os.WriteFile(child, []byte("snapshot"), 0o600); err != nil {
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+	pathPtr, err := privateConversionDirWindowsAPIPath(child)
+	if err != nil {
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE)
+	hold, err := windows.CreateFile(pathPtr, windows.FILE_READ_ATTRIBUTES, share, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+	deleteHandle, err := windows.CreateFile(pathPtr, windows.DELETE|windows.FILE_READ_ATTRIBUTES, share, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		_ = windows.CloseHandle(hold)
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+	if err := markPrivateConversionDirWindowsHandleForDeletion(deleteHandle); err != nil {
+		_ = windows.CloseHandle(deleteHandle)
+		_ = windows.CloseHandle(hold)
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+	if err := windows.CloseHandle(deleteHandle); err != nil {
+		_ = windows.CloseHandle(hold)
+		_ = dir.FinalizeCleanup()
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- dir.FinalizeCleanup() }()
+	time.Sleep(50 * time.Millisecond)
+	if err := windows.CloseHandle(hold); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("cleanup rejected a transient delete-pending child: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cleanup did not converge after the delete-pending handle closed")
+	}
+	if _, err := os.Lstat(dir.Path()); !os.IsNotExist(err) {
+		t.Fatalf("private directory survived delete-pending cleanup: %v", err)
 	}
 }
 
@@ -510,7 +569,7 @@ func assertNoWindowsProviderStagingDirs(t *testing.T, root string) {
 			return nil
 		}
 		name := entry.Name()
-		if strings.HasPrefix(name, "codrax-trace-streamer-") || strings.HasPrefix(name, ".codrax-trace-db-") ||
+		if strings.HasPrefix(name, strings.TrimSuffix(traceStreamerPrivateDirPattern, "*")) || strings.HasPrefix(name, ".codrax-trace-db-") ||
 			strings.HasPrefix(name, ".codrax-sql-systrace-") ||
 			strings.HasSuffix(name, ".simpleperf") || strings.HasSuffix(name, ".hiperf") {
 			return fmt.Errorf("provider staging directory leaked: %s", path)

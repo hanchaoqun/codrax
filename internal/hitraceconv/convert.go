@@ -160,6 +160,10 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
+	opts.RuntimeAnchor, err = selectSecureConversionRuntimeAnchor(opts.RuntimeAnchor, opts.RuntimeAnchorFallback)
+	if err != nil {
+		return Result{}, err
+	}
 	inputBytes := authority.Size()
 	probe, err := authority.Probe()
 	if err != nil {
