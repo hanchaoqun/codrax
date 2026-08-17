@@ -36164,6 +36164,11 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
     fail-loud 重试或进入 repo Trace pipeline；不得扫描用户原文或工具名关键词。详见
     `eval/parallel_selected_summary_evalcampaign_iophysicaldedup_traceguard_r620_20260817_manual_audit.md`。
 14. r620 两案均未出现 active-stream 固定 4ms 降级；失败来自完整流结束后的路由和模型语义消费。
+15. `B979` 已施工到 REPL/CLI 共用的 `ApplyTurnPolicyGuards`：仅当 dispatcher-owned 事实证明“本轮有新鲜 runtime
+    log/trace 附件、无既有答案”，且 classifier 的 typed tuple 为 `source=artifact` + 非 concrete operation + data 信号时，
+    把不可能消费附件的 data route 收回 analysis pipeline。`source=data` 的真实结构化数据任务与有明确 target surface/side
+    effect 的 concrete operation 均有正向 carve-out。判据不读 request/reason/tool 名/答案文本；现有 classifier JSON 教学本已明确
+    log/trace diagnosis 属 repo，故本批修的是教学失守后的结构一致性，不再叠加 case 文案。r621 负责生产复放。
 
 状态：
 
@@ -36176,7 +36181,7 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
 `B976-IOLATENCYCALIBERAUTHORITY1=implemented+production-positive-r618`；
 `B977-IOLATENCYCOVERAGEOWNERSCOPE1=production-mixed/r619-positive+r620-model-consumption-negative`；
 `B978-RUNTIMEFACTPHYSICALDEDUP1=production-positive-r620`；
-`B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=open/next-batch`；
+`B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=implemented/shared-route-guard+carveout-pins/pending-r621`；
 `H3-oracle=system-projection-fixed-words-retired/physical-calibers-preserved`；
 `B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-independent-batch`；
 `Trace explicit-window causal projection/auto-supplement=pass-r616-r618`；

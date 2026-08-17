@@ -1491,6 +1491,33 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.Route = RouteRepo
 	}
 
+	// Fresh runtime attachments are consumed only by the analysis pipeline's
+	// log/trace pre-stages. The data workflow receives repository/request-path
+	// materials, not the already-loaded attachedLog/attachedHitrace payload. A
+	// classifier can nevertheless call a trace "data" and emit the internally
+	// coherent but operationally impossible tuple below:
+	//
+	//   route=data operation=data_task source=artifact needs_data_access=true
+	//
+	// Recover that exact cross-field contradiction before the generic data
+	// normalizer cements it. This guard uses only dispatcher-owned attachment
+	// presence plus schema enums; it never scans the request, reason, a tool
+	// name, or answer prose. `source=data` remains a real data task, and a
+	// concrete computer/artifact operation remains outside this branch.
+	if freshRuntimeArtifactDataRouteDrift(p, hasPriorAnswer, hasAttachment) {
+		p.Route = RouteRepo
+		p.NeedsRepoAccess = true
+		p.NeedsOperationAccess = false
+		p.NeedsDataAccess = false
+		p.Operation = "investigate"
+		p.OperationKind = ""
+		p.DataTaskKind = ""
+		p.RiskLevel = "none"
+		p.SideEffects = nil
+		p.TargetSurface = ""
+		p.RequiresConfirmation = false
+	}
+
 	// Data lane self-contradiction for runtime/repo observation analysis:
 	// the classifier can correctly identify a trace/log/MCP artifact turn as
 	// operation=investigate/source=artifact while also setting
@@ -1808,6 +1835,19 @@ func isDataLikeOperation(op string) bool {
 
 func hasDataSignal(p TurnPolicy) bool {
 	return p.NeedsDataAccess ||
+		isDataLikeOperation(p.Operation) ||
+		isDataLikeOperation(p.DataTaskKind)
+}
+
+func freshRuntimeArtifactDataRouteDrift(p TurnPolicy, hasPriorAnswer, hasAttachment bool) bool {
+	if !hasAttachment || hasPriorAnswer || strings.TrimSpace(p.Source) != "artifact" {
+		return false
+	}
+	if concreteOperationSignal(p) {
+		return false
+	}
+	return p.Route == RouteData ||
+		p.NeedsDataAccess ||
 		isDataLikeOperation(p.Operation) ||
 		isDataLikeOperation(p.DataTaskKind)
 }

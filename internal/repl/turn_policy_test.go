@@ -1026,6 +1026,63 @@ func TestApplyTurnPolicyGuards_DataRoute(t *testing.T) {
 		traceDataRouteDrift.DataTaskKind != "" {
 		t.Fatalf("analysis-only external observation must recover from data route drift: %+v", traceDataRouteDrift)
 	}
+
+	// Production witness r620: the classifier knew a fresh runtime trace was
+	// attached, but described the internal investigation as a generic data
+	// task. The data lane cannot consume attachedLog/attachedHitrace, so this
+	// exact typed tuple must return to the analysis pipeline without inspecting
+	// the request or the model's reason text.
+	freshAttachedTraceDataDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: false,
+		NeedsDataAccess:      true,
+		Operation:            "data_task",
+		DataTaskKind:         "data_task",
+		Source:               "artifact",
+		RiskLevel:            "low",
+		Confidence:           0.88,
+	}, false, true)
+	if freshAttachedTraceDataDrift.Route != RouteRepo ||
+		!freshAttachedTraceDataDrift.NeedsRepoAccess ||
+		freshAttachedTraceDataDrift.NeedsDataAccess ||
+		freshAttachedTraceDataDrift.NeedsOperationAccess ||
+		freshAttachedTraceDataDrift.Operation != "investigate" ||
+		freshAttachedTraceDataDrift.DataTaskKind != "" {
+		t.Fatalf("fresh runtime artifact must remain consumable by the analysis pipeline: %+v", freshAttachedTraceDataDrift)
+	}
+
+	// The attachment is not blanket authority to steal unrelated structured
+	// data work. `source=data` remains on the data lane even when a sticky
+	// runtime attachment happens to exist.
+	realDataBesideAttachment := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		Operation:       "data_aggregation",
+		DataTaskKind:    "data_aggregation",
+		Source:          "data",
+		Confidence:      0.9,
+	}, false, true)
+	if realDataBesideAttachment.Route != RouteData ||
+		!realDataBesideAttachment.NeedsDataAccess ||
+		realDataBesideAttachment.NeedsRepoAccess {
+		t.Fatalf("a real typed data task must not be captured by attachment routing: %+v", realDataBesideAttachment)
+	}
+
+	// Concrete operation authority also survives. A runtime artifact may be
+	// present while the current turn explicitly requests an external artifact.
+	concreteOperationBesideAttachment := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "artifact_generation",
+		OperationKind:        "artifact_generation",
+		Source:               "artifact",
+		TargetSurface:        "file_artifact",
+		Confidence:           0.9,
+	}, false, true)
+	if concreteOperationBesideAttachment.Route != RouteOperation ||
+		!concreteOperationBesideAttachment.NeedsOperationAccess {
+		t.Fatalf("concrete operation must retain its typed authority: %+v", concreteOperationBesideAttachment)
+	}
 }
 
 func TestApplyTurnPolicyGuards_WriteRoute(t *testing.T) {
