@@ -15735,6 +15735,20 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 	var best *types.TraceCausalProjectionNode
 	bestValue := 0.0
 	for i := range roots {
+		// B1013 (r642): buildRuntimeTraceProjTreeModel has already moved a
+		// ranked row from a neighboring/expanded query board to the context
+		// lane when an independently elected principal window exists.  The
+		// rankless fallback reads the pre-model root bucket for legacy shapes,
+		// so it must apply the same typed window predicate or it can re-crown
+		// the row that every rendered board just rejected.  Missing window
+		// identity remains fail-open through the shared predicate; no endpoint
+		// or tolerance is re-derived here.
+		if model.PrincipalWindowAuthoritative && roots[i].Rank > 0 &&
+			!types.TraceCausalProjectionNodeMatchesPrincipalWindow(
+				roots[i], projection.WindowStartTs, projection.WindowEndTs,
+			) {
+			continue
+		}
 		if roots[i].IsContextOnlyRow() {
 			continue
 		}

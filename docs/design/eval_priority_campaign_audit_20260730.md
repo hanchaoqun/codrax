@@ -35775,12 +35775,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    补齐仍在、链外/邻近只作背景、模型原结论不被替换、活跃流不按固定 4ms/4s 降级。
 8. 本轮无畸形 JSON、空答案或旧稿替代。Trace 因果投影实际存在，活跃字节流持续工作 282s；QF
    持续 619s。再次确认固定 4ms 不产答案不是允许的降级条件。
+9. B1013 第一层已施工：`runtimeTraceProjLeadPrimary` 的 legacy root fallback 复用树编译的
+   `PrincipalWindowAuthoritative + TraceCausalProjectionNodeMatchesPrincipalWindow` 判据。新增 r642
+   同形回归先红证明 2.021s 宽窗席会被错误重冠，修后头行/比较单元与树榜共同返回“精确窗无主席”；
+   缺失窗口身份继续 fail-open。`go test ./internal/types ./internal/tool -count=1` 全绿，其中 tool
+   185.375s。第二层 exact-window supplement 仍独立待施工。
 
 状态：
 
 `r642=runner-2/2/human=trace-fail+qf-partial`；
 `B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=production-positive-r642`；
-`B1013-EXACTWINDOWRANKSURFACEDRIFT1=confirmed-r642/P0/pending-two-layer-fix`；
+`B1013-EXACTWINDOWRANKSURFACEDRIFT1=layer1-implemented+tested/pending-exact-window-supplement`；
 `B1014-RELATIONRECIPECOMPOSITIONLOAD1=observed-r642/not-yet-contract-conflict`；
 `Trace explicit-window/causal projection/auto-supplement=projection-present/supplement-gap-confirmed`；
 Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-only`；

@@ -179,6 +179,46 @@ func TestCOVLeadEmptyPrimaryBucketKeepsNoConclusion(t *testing.T) {
 	}
 }
 
+// B1013 (r642): the tree already removes a ranked row measured on a
+// neighboring/expanded board from the principal population.  The rankless
+// fallback must consume that same exact-window decision; otherwise the lead
+// line re-crowns the very row that the tree, detail table and elimination
+// overview all publish as context-only.
+func TestCOVLeadExpandedWindowPrimaryCannotRecrownThroughFallback(t *testing.T) {
+	inside := true
+	expanded := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "expanded-rank",
+		Subject: "threadpool-400", Object: "io_wait", TypeToken: "io_wait",
+		Predicate: "root_cause_primary", Rank: 1, Tier: "primary",
+		ImpactMS: 11, CumulativeImpactMS: 11, EffectiveImpactMS: 11,
+		EffectiveImpactPublished: true,
+		ChainRelevance:           "on_chain", Causality: "on_wakeup_chain", ChainDepth: 1,
+		WithinRequestedWindow:  &inside,
+		RankQueryWindowStartTs: 2.000, RankQueryWindowEndTs: 2.021,
+		Confidence: 0.84,
+	}
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 2.000, WindowEndTs: 2.020,
+		WakeupPath:        []string{"threadpool-400", "app-100"},
+		PrimaryRootCauses: []types.TraceCausalProjectionNode{expanded},
+		OnChainCauses:     []types.TraceCausalProjectionNode{expanded},
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "app-100", WindowStartTs: 2.000, WindowEndTs: 2.020,
+			SleepMS: 20, TotalMS: 20,
+		},
+	}
+	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
+	if !model.PrincipalWindowAuthoritative {
+		t.Fatal("fixture drifted: the exact target-state account must elect the principal window")
+	}
+	if lead, lane := runtimeTraceProjLeadSelect(projection, model); lead != nil || lane != runtimeTraceProjLeadLaneNone {
+		t.Fatalf("expanded-window context row must not re-crown through the root fallback: lane=%d lead=%+v", lane, lead)
+	}
+	if line := runtimeTraceProjConclusionLine(projection, model, true); strings.Contains(line, "threadpool-400") {
+		t.Fatalf("the principal conclusion must not name the expanded-window row:\n%s", line)
+	}
+}
+
 // --- C1: coverage numerator consumes the typed TargetImpactMS ----------------
 
 func TestCOVNumeratorConsumesTargetImpactChannel(t *testing.T) {
