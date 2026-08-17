@@ -35692,6 +35692,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1006 r637/B1003/B1004/B1005：Trace 图例落地后仍误述机理；write 等价实现被窄 oracle 错杀（2026-08-17）
+
+1. 在 `main@51f88a8fc` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + github_issue_libgit2_foreach_worktree`。Runner 为 `1 PASS / 1 FAIL`；
+   人工为 `Trace fail / Write pass（runner false negative）`，逐项证据见
+   `eval/parallel_selected_summary_evalcampaign_trace_write_r637_20260817_manual_audit.md`。
+2. B1003 的系统图例修复获得生产正证：`下钻` 已明确仅代表已发布链的上游依赖/影响席，优先级候选也明确
+   runnable 调度等待、running 算力供给及 holder/waiter 关系必须分证。显式窗、`#1=8.300ms`、实际占时/
+   既有规则可消两轴、Trace 因果投影与自动补齐全在；客户正文不再泄漏
+   `bounded_window_candidate`。但模型仍称 worker “占据调度资源”、目标“必须等它完成调度”，人工继续 FAIL。
+3. 冷读排除了 pre-triage/analyzer 模型事实污染：非 validator 的 perf 观测未进入 finalizer，analyzer 的 artifact
+   `observation_summary` 与单目标窗 `sub_topics` 也被清理；final typed boundary 已逐项写明 direct blocker、等待
+   work completion、holder/waiter 均未提供。剩余系统矛盾位于读者口径 handoff：它把 summary 字段允许的
+   `no conclusion / bounded candidate / typed chain` 三个**互斥选项**翻译后用分号拼成一个
+   `permitted_reader_causal_scope`，等价于要求模型同时遵守三种强度。
+4. 新确认并修复 B1005：允许集现在发射为 `reader_causal_scope_options`，并带
+   `choose_exactly_one_matching_summary_caliber_never_combine`；自然语言使用“或者/OR”而非合取。该修复只改
+   prompt 中 typed 合同的逻辑表达，不扫描、拒绝、删除或改写模型答案，不替模型选择原因。
+5. Write 产品行为完全正确：两处优先级 bug 都以“赋值后比较”修复，只改 `repository.c`，`make check` 和终验
+   都通过。B1004 是 eval 自身的 false negative：旧 `EXPECT_MATCHES_REGEX` 只认 `return lookup_result` 或
+   条件内赋值，不认跨行 `error=lookup_result; if(error<0) return error;`。已改为 folded-text 语义等价选择，
+   同时仍拒绝原始优先级错误形，未降低产品验证。
+6. 两案活跃字节流均远超 4ms 并正常完成，无固定 4ms/总年龄降级。下一批先用异构 Trace IO 链验证
+   B1005，再回放 write oracle；若 Trace 仍在无合同冲突下重复越界，再按模型稳定性/上下文负担裁定，禁止
+   增加答案关键词硬门或系统代写结论。
+
+状态：
+
+`r637=runner-1/2/human=trace-fail+write-pass(false-negative)`；
+`B1003-TRACEDRILLLEGENDMECHANISMCONFLICT1=implemented+production-present`；
+`B1004-EVALWRITEEQUIVALENTSOURCEORACLE1=implemented/pending-replay`；
+`B1005-TRACECAUSALSCOPEOPTIONCONJUNCTION1=implemented/agent-suite-pass/pending-heterogeneous-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1005 r636/B1002/B1003：图候选生产正证；Trace 图例与末端机制边界自冲突（2026-08-17）
 
 1. 在 `main@c6aeecc34` 严格并发恰好两个案例：
