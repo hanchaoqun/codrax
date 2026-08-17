@@ -1084,6 +1084,92 @@ func TestFlowOperationNavigationFindsOwnedCarrierHandoffAcrossSourceFilesAcrossL
 	}
 }
 
+func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			statePath := filepath.ToSlash(filepath.Join("src", language, "context_state.src"))
+			outerPath := filepath.ToSlash(filepath.Join("src", language, "orchestrator_owner.src"))
+			handoffPath := filepath.ToSlash(filepath.Join("src", language, "orchestrator_stage.src"))
+			stateLines := make([]string, 25)
+			stateLines[9] = "check(this.Mutable)"
+			outerLines := make([]string, 10)
+			outerLines[0] = "orchestrator owns typed bus context"
+			handoffLines := make([]string, 40)
+			handoffLines[29] = "sink.append(this.busContext.Mutable, AgentExtractor)"
+			for path, body := range map[string]string{
+				statePath: strings.Join(stateLines, "\n"), outerPath: strings.Join(outerLines, "\n"),
+				handoffPath: strings.Join(handoffLines, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				statePath: {
+					RelPath: statePath, Language: language, Package: "state",
+					Symbols: []repotypes.Symbol{
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 1},
+						{Name: "inspect", Kind: "method", Receiver: "BusContext", Line: 1, EndLine: 25},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: statePath, Line: 10,
+						ToEP:       repotypes.RelationEndpoint{Name: "check", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				outerPath: {
+					RelPath: outerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{
+						Name: "busContext", Kind: "field", Parent: "Orchestrator", DeclaredType: "BusContext", Line: 1,
+					}},
+				},
+				handoffPath: {
+					RelPath: handoffPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{
+						Name: "apply", Kind: "method", Receiver: "Orchestrator", Line: 1, EndLine: 40,
+					}},
+					// FromEP is intentionally empty: this is the shape emitted by the
+					// production Go parser, so owner recovery must use the method span.
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: handoffPath, Line: 30,
+						ToEP:       repotypes.RelationEndpoint{Name: "append", Receiver: "sink", Line: 30},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext", "Mutable"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s nested typed owner handoff must win: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("nested owner navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {

@@ -17,7 +17,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v4"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v5"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -860,7 +860,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				relation: relation,
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 					relation, binding,
-					append(append([]string(nil), site.ownerSurfaces...), argumentSurfaces...),
+					append(append(append([]string(nil), site.ownerSurfaces...), binding.owner), argumentSurfaces...),
 					participantSurfaceGroups,
 				),
 				carrierRank: 1,
@@ -953,22 +953,51 @@ func flowNavigationBindingRelationSites(
 	if declFile == nil {
 		return out
 	}
-	for _, key := range flowNavigationSurfaceKeys(owner) {
-		for _, site := range index.relationsByOwnerKey[key] {
-			candidateFile := graph.FileIndex[site.file]
-			if candidateFile == nil || candidateFile.Language != declFile.Language ||
-				!flowAnyIdentitySurfaceMatches(site.ownerSurfaces, owner) {
-				continue
-			}
-			samePackage := strings.TrimSpace(declFile.Package) != "" &&
-				strings.TrimSpace(declFile.Package) == strings.TrimSpace(candidateFile.Package)
-			sameDirectory := filepath.ToSlash(filepath.Dir(binding.file)) ==
-				filepath.ToSlash(filepath.Dir(site.file))
-			if !samePackage && !sameDirectory {
-				continue
-			}
-			appendSite(site)
+	appendOwnerSites := func(staticOwner, ownerFile string) {
+		ownerInfo := graph.FileIndex[ownerFile]
+		if ownerInfo == nil {
+			return
 		}
+		for _, key := range flowNavigationSurfaceKeys(staticOwner) {
+			for _, site := range index.relationsByOwnerKey[key] {
+				candidateFile := graph.FileIndex[site.file]
+				if candidateFile == nil || candidateFile.Language != ownerInfo.Language ||
+					!flowAnyIdentitySurfaceMatches(site.ownerSurfaces, staticOwner) {
+					continue
+				}
+				samePackage := strings.TrimSpace(ownerInfo.Package) != "" &&
+					strings.TrimSpace(ownerInfo.Package) == strings.TrimSpace(candidateFile.Package)
+				sameDirectory := filepath.ToSlash(filepath.Dir(ownerFile)) ==
+					filepath.ToSlash(filepath.Dir(site.file))
+				if samePackage || sameDirectory {
+					appendSite(site)
+				}
+			}
+		}
+	}
+	appendOwnerSites(owner, binding.file)
+
+	// A nested state member is often consumed through another typed field:
+	// Mutable belongs to BusContext, while an Orchestrator field of static type
+	// BusContext carries `o.busCtx.Mutable` into a sink. Follow exactly one such
+	// parser-owned declaration hop, then inspect operations owned by the outer
+	// declaration. This is still only a navigation expansion: both declarations
+	// need exact static types and the eventual complete argument must independently
+	// match the original binding before it can become a candidate.
+	seenBridge := make(map[string]bool)
+	for _, bridge := range flowNavigationSymbols(index, []string{owner}) {
+		if bridge.symbol == nil || strings.TrimSpace(bridge.symbol.DeclaredType) == "" ||
+			!flowRepairSymbolMatchesAnySurface(*bridge.symbol, []string{owner}) {
+			continue
+		}
+		bridgeOwner := strings.TrimSpace(firstNonEmptyFlowRepairString(bridge.symbol.Parent, bridge.symbol.Receiver))
+		bridgeFile := canonicalRelationSourcePath(bridge.file)
+		key := strings.ToLower(bridgeFile + "\x00" + bridgeOwner)
+		if bridgeOwner == "" || bridgeFile == "" || seenBridge[key] {
+			continue
+		}
+		seenBridge[key] = true
+		appendOwnerSites(bridgeOwner, bridgeFile)
 	}
 	return out
 }
