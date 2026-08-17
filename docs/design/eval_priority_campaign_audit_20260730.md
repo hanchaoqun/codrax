@@ -35797,6 +35797,36 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1012 r643/B1013：精确窗排名、投影与补齐生产闭环；write 基线无回退（2026-08-17）
+
+1. 在 `main@49978e692` 严格并发恰好两个异构案例：
+   `trace_query_wakeup_causal_io_chain + patch_go_typo`。Runner 与人工均 `2/2 PASS`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_exactwindow_write_r643_20260817_manual_audit.md`。
+2. Trace 本轮模型的 `window_stats / wakeup_chain / root_cause_rank` 全部使用用户精确窗
+   `2.000000..2.020000s`，系统补齐器只补同窗缺失的 `critical_blocking_calls`。最终投影头行、◎ 可消除量、
+   因果树、指标明细和证据索引共同发布 threadpool-400 io_wait 11.000ms 为链上 #1；r642 的“头行重冠
+   11ms、榜面却无持值行、证据又是 context-only”三面矛盾完全消失。
+3. 因果边界也保持：cookie/network 的 sleep 只是链路上下文，窗口 IO 压力只在背景段；三个互斥
+   runnable 席各 1ms，作为调度供给方向单独成节。模型负责给出 IO 根因解释和下钻方向，系统只追加
+   typed 投影/账目，没有删除、替换或重写模型结论。
+4. 这次生产运行没有再次制造 1ms 邻窗，故“邻窗必须补精确窗”由 B1013 的 0.5ms 红绿回归证明；
+   r643 提供的是 exact-window 正常车道和最终多面一致性的生产正证。二者合并构成闭环，不以放宽容差
+   掩盖问题。
+5. write 案例只修改 `main.go` 的一行 `retrun → return`，applied-tree 其余字节不变；验证执行
+   `go test -json ./...` exit=0，changed-path coverage 覆盖 main.go，最终状态 verified。无 replan、无
+   成文拒绝，说明 Trace 修复没有污染 write 控制器、累计验证域或工作树隔离。
+6. 两条流分别持续 268s/103s。没有固定 4ms/4s 无答案降级、畸形 JSON、旧稿替代或系统代写答案。
+
+状态：
+
+`r643=runner-2/2+human-2/2`；
+`B1013-EXACTWINDOWRANKSURFACEDRIFT1=closed/code-pins+production-positive-r643`；
+`Trace explicit-window/causal projection/auto-supplement=preserved+production-positive-r643`；
+Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-only`；
+`write-plan/apply/verify=production-positive-r643`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
