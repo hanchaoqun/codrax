@@ -36169,6 +36169,15 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
     把不可能消费附件的 data route 收回 analysis pipeline。`source=data` 的真实结构化数据任务与有明确 target surface/side
     effect 的 concrete operation 均有正向 carve-out。判据不读 request/reason/tool 名/答案文本；现有 classifier JSON 教学本已明确
     log/trace diagnosis 属 repo，故本批修的是教学失守后的结构一致性，不再叠加 case 文案。r621 负责生产复放。
+16. r621 `1/2 PASS`，人工 `Trace pass / H3 fail`。Trace 对照 route=repo、3 次 trace_query，完整保留
+    `worker-200 → app-100`、8.300ms 链上反转候选与因果投影，B979 收为 production-closed。H3 路由及 6-request 去重正常，
+    但模型把单请求 elapsed wall clock 写成非墙钟，把 scheduler D/io_wait 零 roster 扩大成“interruptible S 也没有 IO 等待”，
+    同时漏掉 41.329 request·ms 的非墙钟/不可相加口径并泄漏内部枚举。
+17. 新立 `B980-IOMEASUREMENTRELATIONBRIDGE1`：当前精确事实分散于 requested-family、target-wait 与 blocking-wall-clock
+    三块，且 `target_window_wait_occurrences` 的表面名称宽于 producer 实际集合。根修由同一 typed ledger 生成一张有界关系桥，
+    并置“单请求 elapsed wall clock / completion-closed 目标阻塞 wall clock / scheduler D/io-wait roster / 全窗 request·ms”，
+    明示零 roster 不否定 separately proven S wait；只降低模型心智，不改 answer_document、不加 prose 门。逐案见
+    `eval/parallel_selected_summary_evalcampaign_attachmentroute_io_r621_20260817_manual_audit.md`。
 
 状态：
 
@@ -36177,11 +36186,13 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
 `r618=h3-runner-fail-old-oracle/human-major-partial+causal-trace-pass`；
 `r619=runner-2/2-pass/human=h3-major-partial+trace-pass`；
 `r620=runner-0/2/human=h3-partial+trace-route-fail`；
+`r621=runner-1/2/human=trace-pass+h3-fail`；
 `B975-REQUESTEDFACTPROMPTSURVIVAL1=implemented+production-positive-r618`；
 `B976-IOLATENCYCALIBERAUTHORITY1=implemented+production-positive-r618`；
 `B977-IOLATENCYCOVERAGEOWNERSCOPE1=production-mixed/r619-positive+r620-model-consumption-negative`；
 `B978-RUNTIMEFACTPHYSICALDEDUP1=production-positive-r620`；
-`B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=implemented/shared-route-guard+carveout-pins/pending-r621`；
+`B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=production-closed-r621`；
+`B980-IOMEASUREMENTRELATIONBRIDGE1=open/next-batch`；
 `H3-oracle=system-projection-fixed-words-retired/physical-calibers-preserved`；
 `B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-independent-batch`；
 `Trace explicit-window causal projection/auto-supplement=pass-r616-r618`；
