@@ -35649,6 +35649,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.997 r628/B988/B989：投影视图丢旧索引；探索宽窗污染显式窗主值（2026-08-17）
+
+1. 在 `main@71436e97b` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `QF fail / Trace partial`；完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_nestedcarrier_trace_r628_20260817_manual_audit.md`。
+2. QF 的 runner 再次假阳性。B987 的静态类型 owner 链代码在场，但生产第一次 exact completion 仍落到
+   `cgec_enforcers.go:767-791`，第二次落到 `contract_check_block.go:3501-3525`；模型最终只画出四阶段
+   precedence，Mutable/BusContext 保持断开。人工构造 production parser 诊断后确认，源码图实际拥有
+   `BusContext.Mutable`、同名 `AgentContext.Mutable`、extractor evaluator method 和 `ctx.Mutable` call，
+   不是解析器缺事实。
+3. 新确认 B988：scoped/multi-repo projection 可以保留完整 `FileIndex` 而省略旧 name-keyed
+   `SymbolDefs`；B987 的 late member identity upgrade 却只读 `SymbolDefs`，所以生产投影下直接返回空。
+   `577fc86e4` 将该入口收敛到已有 `flowNavigationIndexForContext` 完整索引，仍要求 exact member、exact
+   typed owner、requested principal scope 与唯一 surviving declaration。全部支持语言矩阵、关系导航矩阵
+   和完整 `go test ./internal/tool -count=1` 通过（181.888s）。它只给 explorer 一个精确读取坐标，不铸
+   evidence、关系边、图或答案。
+4. Trace 的核心因果能力保持正向：用户显式 1.000..1.010 窗、worker-200 链上 #1 8.300ms、target
+   sleep 10.000ms、CPU2→CPU1 跨核权限边界、实际占用/新修向与规则计价可消量双轴、Trace 因果投影和
+   背景 support-only 均在。但最终 principal state/CPU 面写成 1.000..1.011、11.000ms、10.020ms，并含
+   1.011 尾行，人工只能签 partial。
+5. 新确认 B989：历史 F-2 `±1ms` 同窗容差用于把邻近探索查询聚成同一个因果调查是合理的，却被
+   target-state account 和 CPU occupancy principal value 复用；1ms 扩窗结果因 total 更大而夺取主值席。
+   `6e35a8ec5` 新增 2µs principal-value window equality，仅收窄这两个主值附着点。一般探索/因果聚合
+   继续使用 ±1ms；邻近数据可作背景，不能再改写用户显式窗数值。types/tool 定向和整包测试均通过。
+6. 本批没有 raw request/model prose 关键词硬门，没有系统接管结论，也没有为单个名字、语言或案例
+   写特判。QF 409 秒与 Trace 202 秒的活跃成文均正常结束，不存在固定 4ms 年龄降级。
+
+状态：
+
+`r628=runner-2/2/human=qf-fail+trace-partial`；
+`B987-NESTEDTYPEDCARRIEROWNERNAV1=production-failed-r628/superseded-by-B988`；
+`B988-PROJECTEDFILEINDEXMEMBERNAV1=implemented/all-language+full-tool-suite-pass/pending-r629`；
+`B989-TRACEPRINCIPALWINDOWISOLATION1=implemented/types+tool-suite-pass/pending-r629`；
+`active-stream-4ms-degrade=forbidden/202s+409s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive/core-chain-preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.996 r627/B987：跨核语义生产闭环；嵌套载体需要静态类型 owner 链（2026-08-17）
 
 1. 在 `main@d1bf4f786` 严格并发恰好两个案例：
