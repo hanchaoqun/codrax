@@ -36484,6 +36484,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.977 r602/B954：完整 Trace 因果诊断正证；静态载体实参补证导航闭环（2026-08-16）
+
+1. 在 `main@abd8e9ebb` 重建后严格并发恰好两个异构 case：显式窗完整诊断
+   `real_trace_d4_demand_vs_supply` 与源码逻辑图 `qf_logic_view_read_pipeline`。Runner `2/2 PASS`，人工为
+   Trace pass、逻辑图 fail。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r602_20260816.md` 与同名 `_manual_audit.md`。
+2. D4 是 B755/B757 的完整诊断正对照。Analyzer 首稿把有限 effect tuple 与 root-cause/diagnostic 字段混发，
+   精确 schema 门 fail-loud；第二稿改为 coherent `causal_diagnosis` 后通过。最终保留用户窗五态
+   running=26.946ms、runnable=3.636ms、sleep=84.358ms、D/io=0，以及唤醒链、链上排序、频率供给折算、
+   业务语义 span 和 Trace 因果投影；结论由模型形成，需求/依赖侧为主、供给 headroom 为次。邻近与背景
+   仍只在参考层，系统补充明确跨核唤醒边不自动证明同核竞争。Explorer 两次尝试 read_file 被 trace-only
+   权限正确拒绝，属于模型工具遵循噪声，不扩权限处理。
+3. 逻辑图 runner 的“至少一条边+参与者名” oracle 是假绿。终稿图只保留四阶段 precedence 与一条 analyzer
+   局部 call，`BusContext`、`Mutable` 成为断开节点；正文却声称四阶段共享并追加同一 MutableState，用户要求的
+   data-flow 主链没有被图表达。全程 22 次 read、17 次 mid-loop、3 次 finalizer reject、516s，不能归为一次
+   模型波动。
+4. 深审确认 B954 的断点不在关系词汇或硬校验。既有 `DetectArgumentFlowsAtLine`、typed declared binding、
+   `argument -> receiver` repair 与证据门已覆盖 Go/Python/JS/TS/ArkTS/仓颉/C/C++/Rust 等；Explorer 也已找到
+   `Mutable: bus.Mutable`。但 completion navigator 只按 Relation 的 from/to endpoint 建索引，调用
+   `BuildAgentContext(o.busCtx, agentName, stage)` 的 `o.busCtx` 只在实参内，不在 endpoint，因而系统反复把模型
+   导向 `Mutable.Reset...` 等局部调用。模型还曾把错误行号引用成 BuildAgentContext，grounder 正确恢复为该行
+   实际的其他调用，未伪造关系。
+5. B954 根修只扩充 SOFT 导航：导航索引按文件保存 parser-owned call sites；从精确静态类型声明得到有界
+   binding alias 后，只在同一来源文件解析完整顶层调用实参。真实 `o.busCtx` / `this.busContext` /
+   `this->busContext_` 作为完整实参时优先下一次手术式 read；引号字符串同名、越仓路径、未声明类型、非 call、
+   已读行均不提权。读取结果不进入 EvidenceItem、不关闭 participant coverage、不补边、不改方向，模型仍须读行
+   并自行提交 argument evidence。
+6. 导航缓存键升至 v2，源文件只在 typed binding 命中后按需读取且每 run/file 缓存；binding file/alias 仍受
+   6×8 有界 roster 约束，避免 completion retry 回到全仓扫描。15 种 `SupportedReadLanguages`（含 ArkTS、仓颉）
+   共用同一测试矩阵，并有 quoted-literal 负 pin、缓存重建、read-advisory、argument evidence ownership 复验。
+   `go test ./internal/tool -count=1` 173.327s、`go test ./internal/tool/ground ./internal/types -count=1` 全绿。
+7. 本批不扫描用户原文/模型思考/最终文案，不增加答案或图的系统代写，不改变 JSON 教学、关系硬门或 Trace
+   查询/投影。有限 effect 仍不被强制扩为完整诊断；明确 root-cause/机制问法仍保留显式窗因果投影、自动补齐、
+   链上-only 主因，以及实际占时/业务线索与规则可消除量双轴。活跃字节流不因 4ms/4s/总年龄降级。
+
+状态：
+
+`B953-PASSIVETARGETEFFECTSALIENCE1=pending-finite-effect-production-replay`；
+`B954-CARRIERARGNAV1=implemented/soft-navigation-only/all-language-matrix+negative-pins/full-tool-tests-pass`；
+`qf_logic_view_read_pipeline runner-oracle=weak/production-replay-required`；
+`Trace causal diagnosis explicit-window/causal projection/auto-supplement=production-positive-r602`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

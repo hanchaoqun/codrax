@@ -1,10 +1,14 @@
 package tool
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -13,7 +17,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v1"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v2"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -31,6 +35,11 @@ type flowParserSymbolSite struct {
 	symbol *repotypes.Symbol
 }
 
+type flowDeclaredBindingSite struct {
+	file  string
+	alias string
+}
+
 // flowNavigationIndex is a graph-derived, navigation-only index. It replaces
 // repeated whole-repository symbol/relation scans during completion retries.
 // Candidate lookup is exact after language-neutral case/separator folding;
@@ -39,8 +48,12 @@ type flowParserSymbolSite struct {
 // repo_map/grep guidance, but is intentionally not paid as an O(repository)
 // synchronous completion tax.
 type flowNavigationIndex struct {
-	symbolsByKey   map[string][]flowParserSymbolSite
-	relationsByKey map[string][]flowParserRelationSite
+	symbolsByKey         map[string][]flowParserSymbolSite
+	relationsByKey       map[string][]flowParserRelationSite
+	relationsByFile      map[string][]flowParserRelationSite
+	sourceLinesMu        sync.Mutex
+	sourceLinesByFile    map[string]map[int]string
+	sourceLinesAttempted map[string]bool
 }
 
 func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
@@ -55,8 +68,11 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 		return nil
 	}
 	index := &flowNavigationIndex{
-		symbolsByKey:   make(map[string][]flowParserSymbolSite),
-		relationsByKey: make(map[string][]flowParserRelationSite),
+		symbolsByKey:         make(map[string][]flowParserSymbolSite),
+		relationsByKey:       make(map[string][]flowParserRelationSite),
+		relationsByFile:      make(map[string][]flowParserRelationSite),
+		sourceLinesByFile:    make(map[string]map[int]string),
+		sourceLinesAttempted: make(map[string]bool),
 	}
 	paths := make([]string, 0, len(graph.FileIndex))
 	for path := range graph.FileIndex {
@@ -88,6 +104,9 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 			site := flowParserRelationSite{
 				file:     canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, file.RelPath, path)),
 				relation: relation,
+			}
+			if site.file != "" {
+				index.relationsByFile[site.file] = append(index.relationsByFile[site.file], site)
 			}
 			seenKeys := make(map[string]bool)
 			for _, key := range flowNavigationSurfaceKeys(
@@ -151,6 +170,72 @@ func flowNavigationRelationSites(index *flowNavigationIndex, surfaces []string) 
 		}
 	}
 	return out
+}
+
+// flowNavigationSourceLines loads one parser-indexed source file only after a
+// typed declared binding has made that file relevant to a repair. The cache is
+// navigation-only and run-local; source text never becomes evidence merely by
+// being present here. repoRelativePathWithinRoot prevents graph/cache paths
+// from escaping the active repository.
+func flowNavigationSourceLines(ctx *types.BusContext, index *flowNavigationIndex, source string) map[int]string {
+	if ctx == nil || index == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return nil
+	}
+	source = canonicalRelationSourcePath(source)
+	if source == "" {
+		return nil
+	}
+	index.sourceLinesMu.Lock()
+	defer index.sourceLinesMu.Unlock()
+	if index.sourceLinesAttempted[source] {
+		return index.sourceLinesByFile[source]
+	}
+	index.sourceLinesAttempted[source] = true
+	rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, source)
+	if !ok || rel == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		return nil
+	}
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	rows := strings.Split(text, "\n")
+	lines := make(map[int]string, len(rows))
+	for idx, row := range rows {
+		lines[idx+1] = strings.TrimSuffix(row, "\r")
+	}
+	index.sourceLinesByFile[source] = lines
+	return lines
+}
+
+func flowNavigationCallReceiver(relation *repotypes.Relation) string {
+	if relation == nil || strings.TrimSpace(relation.Kind) != "call" {
+		return ""
+	}
+	name := strings.TrimSpace(relation.ToEP.Name)
+	receiver := strings.TrimSpace(relation.ToEP.Receiver)
+	if name != "" && receiver != "" {
+		return receiver + "." + name
+	}
+	return firstNonEmptyFlowRepairString(name, receiver)
+}
+
+// flowNavigationArgumentMatchesBinding accepts only a complete identifier-like
+// argument whose final identity segment is the parser-declared binding. Quoted
+// literals are rejected before identity normalization so a display string such
+// as "busCtx" cannot steer source navigation as though it were the variable.
+func flowNavigationArgumentMatchesBinding(argument, alias string) bool {
+	argument = strings.TrimSpace(argument)
+	alias = strings.TrimSpace(alias)
+	if argument == "" || alias == "" {
+		return false
+	}
+	switch argument[0] {
+	case '\'', '"', '`':
+		return false
+	}
+	return types.AnswerCodeIdentitySurfacesCompatible(alias, argument)
 }
 
 // flowResolvedParticipantIdentity is a parser-owned navigation projection for
@@ -478,10 +563,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	type rankedTarget struct {
-		target    flowOperationRepairReadTarget
-		matchRank int
-		kindRank  int
-		line      int
+		target      flowOperationRepairReadTarget
+		carrierRank int
+		matchRank   int
+		kindRank    int
+		line        int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -525,10 +611,71 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			line:      line,
 		})
 	}
+	// A static participant is often named by its type while its operation site
+	// mentions only a field/local binding. Parser relation endpoints cannot
+	// carry call arguments, so endpoint-only lookup repeatedly lands on local
+	// receiver calls and misses the actual handoff. Join the exact declared
+	// binding to parser-owned calls in the same file and rank a complete
+	// argument occurrence ahead of those local sites. This remains a read
+	// coordinate: DetectArgumentFlowsAtLine does not create evidence, and the
+	// explorer must still submit the source-owned argument row.
+	for _, binding := range flowRepairDeclaredBindingSites(index, rm, surfaces) {
+		lines := flowNavigationSourceLines(ctx, index, binding.file)
+		if len(lines) == 0 {
+			continue
+		}
+		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+		gc := &ground.Context{
+			Graph: graph, RepoRoot: ctx.RepoRoot,
+			LineIndex: map[string]map[int]string{binding.file: lines},
+		}
+		for _, site := range index.relationsByFile[binding.file] {
+			relation := site.relation
+			callee := flowNavigationCallReceiver(relation)
+			if relation == nil || callee == "" {
+				continue
+			}
+			line := relation.Line
+			if line <= 0 {
+				line = relation.ToEP.Line
+			}
+			if line <= 0 || closure.HasReadLine(binding.file, line) {
+				continue
+			}
+			argumentRank := 0
+			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, binding.file, line, callee) {
+				if flowNavigationArgumentMatchesBinding(flow.Argument, binding.alias) {
+					argumentRank = max(argumentRank, flowRepairPlanningSurfaceMatchRank(
+						[]string{binding.alias}, []string{flow.Argument},
+					))
+				}
+			}
+			if argumentRank == 0 {
+				continue
+			}
+			start := line - flowOperationRepairReadRadius
+			if start < 1 {
+				start = 1
+			}
+			candidates = append(candidates, rankedTarget{
+				target: flowOperationRepairReadTarget{
+					file:      binding.file,
+					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+				},
+				carrierRank: 1,
+				matchRank:   argumentRank,
+				kindRank:    flowOperationRepairRelationKindRank(relation.Kind),
+				line:        line,
+			})
+		}
+	}
 	if len(candidates) == 0 {
 		return flowOperationRepairReadTarget{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].carrierRank != candidates[j].carrierRank {
+			return candidates[i].carrierRank > candidates[j].carrierRank
+		}
 		if candidates[i].matchRank != candidates[j].matchRank {
 			return candidates[i].matchRank > candidates[j].matchRank
 		}
@@ -682,19 +829,57 @@ func flowRepairDeclaredBindingTargets(ctx *types.BusContext, rm types.RequestMod
 	}
 	files := make([]string, 0, maxFlowOperationRepairFiles)
 	aliases := make([]string, 0, maxFlowOperationRepairKeywords)
+	for _, site := range flowRepairDeclaredBindingSites(index, rm, surfaces) {
+		files = appendUniqueBounded(files, []string{site.file}, maxFlowOperationRepairFiles)
+		aliases = appendUniqueBounded(aliases, []string{site.alias}, maxFlowOperationRepairKeywords)
+	}
+	return files, aliases
+}
+
+func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.RequestModel, surfaces []string) []flowDeclaredBindingSite {
+	if index == nil || len(surfaces) == 0 {
+		return nil
+	}
+	var out []flowDeclaredBindingSite
+	seen := make(map[string]bool)
 	for _, site := range flowNavigationSymbols(index, surfaces) {
 		symbol := site.symbol
 		path := site.file
-		if !relationSourceInRequestedScope(path, rm) {
+		if symbol == nil || !relationSourceInRequestedScope(path, rm) {
 			continue
 		}
 		if !flowRepairSymbolMatchesAnySurface(*symbol, surfaces) {
 			continue
 		}
-		files = appendUniqueBounded(files, []string{path}, maxFlowOperationRepairFiles)
-		aliases = appendUniqueBounded(aliases, []string{symbol.Name}, maxFlowOperationRepairKeywords)
+		alias := strings.TrimSpace(symbol.Name)
+		key := strings.ToLower(path + "\x00" + alias)
+		if path == "" || alias == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, flowDeclaredBindingSite{file: path, alias: alias})
 	}
-	return files, aliases
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].file != out[j].file {
+			return out[i].file < out[j].file
+		}
+		return out[i].alias < out[j].alias
+	})
+	bounded := make([]flowDeclaredBindingSite, 0, min(len(out), maxFlowOperationRepairFiles*maxFlowOperationRepairKeywords))
+	files := make(map[string]bool)
+	aliases := make(map[string]bool)
+	for _, site := range out {
+		fileKey := strings.ToLower(site.file)
+		aliasKey := strings.ToLower(site.alias)
+		if (!files[fileKey] && len(files) >= maxFlowOperationRepairFiles) ||
+			(!aliases[aliasKey] && len(aliases) >= maxFlowOperationRepairKeywords) {
+			continue
+		}
+		files[fileKey] = true
+		aliases[aliasKey] = true
+		bounded = append(bounded, site)
+	}
+	return bounded
 }
 
 func flowRepairSymbolMatchesAnySurface(symbol repotypes.Symbol, surfaces []string) bool {

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -833,6 +834,116 @@ func TestFlowOperationNavigationReadIsAdvisoryAndAdvancesAcrossUnreadParserSites
 	next, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"emit_answer_document"})
 	if !ok || next.file != "internal/agent/agent.go" || next.lineRange != (types.LineRange{Start: 3776, End: 3800}) {
 		t.Fatalf("after the first site is read the repair must prefer the exact identity over an earlier lexical match, got ok=%t target=%+v", ok, next)
+	}
+}
+
+func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			path := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			absolute := filepath.Join(repo, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			source := strings.Join([]string{
+				"run pipeline",
+				"this.busContext.reset()",
+				"prepare stage",
+				"const agentContext = builder.build(this.busContext, stage)",
+			}, "\n")
+			if err := os.WriteFile(absolute, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{{
+					Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+				}},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				path: {
+					RelPath: path, Language: language,
+					Symbols: []repotypes.Symbol{{
+						Name: "busContext", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1,
+					}},
+					Relations: []repotypes.Relation{
+						{
+							Kind: "call", File: path, Line: 2,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 2},
+							ToEP:       repotypes.RelationEndpoint{Name: "reset", Receiver: "this.busContext", Line: 2},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+						{
+							Kind: "call", File: path, Line: 4,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 4},
+							ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 4},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+					},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 1, End: 16}) {
+				t.Fatalf("%s typed carrier handoff must outrank the local receiver call: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("carrier navigation must not manufacture argument evidence")
+			}
+		})
+	}
+}
+
+func TestFlowOperationNavigationDoesNotTreatQuotedCarrierAsArgumentBinding(t *testing.T) {
+	repo := t.TempDir()
+	const path = "src/pipeline.go"
+	absolute := filepath.Join(repo, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte(strings.Join([]string{
+		"func run() {",
+		"o.busContext.Reset()",
+		`builder.Build("o.busContext", stage)`,
+		"}",
+	}, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := flowOperationCompletionContext(nil)
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		path: {
+			RelPath: path, Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "busContext", Parent: "Orchestrator", DeclaredType: "*BusContext", Line: 1}},
+			Relations: []repotypes.Relation{
+				{
+					Kind: "call", File: path, Line: 2,
+					FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Orchestrator", Line: 2},
+					ToEP:       repotypes.RelationEndpoint{Name: "Reset", Receiver: "o.busContext", Line: 2},
+					Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+				},
+				{
+					Kind: "call", File: path, Line: 3,
+					FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Orchestrator", Line: 3},
+					ToEP:       repotypes.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 3},
+					Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+				},
+			},
+		},
+	}))
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+	if !ok || target.lineRange != (types.LineRange{Start: 1, End: 14}) {
+		t.Fatalf("quoted display text must not outrank the real local binding operation: ok=%t target=%+v", ok, target)
 	}
 }
 
