@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.996 r627/B987：跨核语义生产闭环；嵌套载体需要静态类型 owner 链（2026-08-17）
+
+1. 在 `main@d1bf4f786` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `QF fail / Trace pass`；完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_ownercpu_trace_r627_20260817_manual_audit.md`。
+2. B986 生产闭环。finalizer 的早期 measured wakeup 行已携带
+   `waker_cpu=2; wakee_target_cpu=1; cpu_relation=cross_cpu` 和无同核竞争权限；模型正文随即正确写成
+   CPU2→CPU1 跨核唤醒，不再把它叙述为同核占用、抢占或直接竞争。正文同时明确同步阻塞、锁持有者/
+   等待者关系未建立，priority inversion 仍是验证候选。用户显式窗、worker-200 链上 #1 8.300ms、
+   target sleep 10.000ms、实际耗时/新修向与现规则可消量双轴、Trace 因果投影、自动补齐和背景
+   support-only 全部保留；系统没有修改模型正文或结论。
+3. QF 仍是假阳性。第一轮 completion 依旧被导向 `cgec_enforcers.go`；模型后来靠宽搜索自行找到
+   `dispatchStage -> BuildAgentContext(o.busCtx, agentName, stage)` 以及
+   `applyStageOutput -> appendStageOutputEvidenceToMutable(o.busCtx.Mutable, ...)`，所以正文比 r626 更准确，
+   但 Mermaid 仍只画四阶段 precedence，把 BusContext/Mutable 保留为断开的 unproven 节点；用户所求
+   载体数据流没有出现在图里，不能签绿。
+4. 生产解析形推翻 B985 的“一跳同 owner 足够”假设：Go parser 对 `extract_work.go` call 的 `FromEP`
+   为空，但 method span 可精确恢复 `Orchestrator`；真正缺失的是嵌套静态载体。`Mutable` 声明属于
+   `BusContext`，实际 `o.busCtx.Mutable` 使用点却属于持有 `*types.BusContext` 字段的 `Orchestrator`。
+   因而关系路径是 `Mutable --owner--> BusContext --declared type of busCtx--> Orchestrator method`，不是同
+   owner 的 sibling file；调分或扩关键词都无法修复。
+5. 新立并施工 `B987-NESTEDTYPEDCARRIEROWNERNAV1`（`75181dfcb`）：先保留 B985 的同 owner 跨文件
+   枚举，再只沿一条 parser-owned 静态声明类型桥（字段/参数的 declared type 精确匹配内层 owner）进入
+   外层 owner 的同语言、同包/目录调用集合；最终候选仍须在源码完整实参中精确命中原始 binding。
+   binding 的 typed owner 只加入 soft participant-touch 排序，使 `o.busCtx.Mutable` 同时覆盖 Mutable 与
+   BusContext 的导航质量，不成为关系证据或图边。
+6. 新测试覆盖全部 `SupportedReadLanguages()`，并刻意令 relation `FromEP` 为空以复现真实 Go extractor
+   形；局部 `BusContext.inspect(Mutable)` 与外层
+   `sink.append(this.busContext.Mutable, AgentExtractor)` 并存时必须选择外层交接，且 evidence 集合保持空。
+   定向矩阵通过；完整 `go test ./internal/tool -count=1` 通过（175.874s）。B987 待 r628 生产回放。
+7. QF 成文在 30 秒仍为“已收到模型语义输出，持续生成中”，最终正常完成；没有固定 4ms 活跃流降级。
+   本批只修 reader 导航，不改变 answer validator、图关系权威、Trace 查询/投影/补齐或模型答案所有权。
+
+状态：
+
+`r627=runner-2/2/human=qf-fail+trace-pass`；
+`B985-OWNERSPANNINGCARRIERARGNAV1=production-partial-r627/superseded-by-B987`；
+`B986-WAKEUPCPUTOPOLOGYSALIENCE1=production-closed-r627`；
+`B987-NESTEDTYPEDCARRIEROWNERNAV1=implemented/all-language+full-tool-suite-pass/pending-r628`；
+`active-stream-4ms-degrade=forbidden/196s+273s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r627`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.995 r626/B985/B986：字段声明与载体交接跨文件；跨核唤醒事实到达成文过晚（2026-08-17）
 
 1. 在 `main@a2a8959ce` 严格并发恰好两个案例：
