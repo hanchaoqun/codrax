@@ -60,7 +60,9 @@ func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse
 	for _, want := range []string{
 		"reader_facing_control_metadata_policy=`json_only_never_visible`",
 		"raw JSON field names, enum literals, authority/status keys",
-		"permitted_reader_causal_scope=",
+		"reader_causal_scope_options=",
+		"selection_rule=`choose_exactly_one_matching_summary_caliber_never_combine`",
+		"本轮只报告观测，不选择原因或候选方向 或者 结论仅限所选窗口",
 		"结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因",
 		"permitted_reader_cause_label=\"优先级反转候选\"",
 		"raw_parenthetical_forbidden=true",
@@ -73,6 +75,9 @@ func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse
 		if !strings.Contains(got, want) {
 			t.Fatalf("reader-facing control-metadata boundary missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "permitted_reader_causal_scope=") {
+		t.Fatalf("mutually exclusive causal scopes must not be rendered as one conjunctive permission:\n%s", got)
 	}
 }
 

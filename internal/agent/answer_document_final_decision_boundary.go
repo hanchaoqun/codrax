@@ -250,7 +250,17 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 			}
 		}
 		if len(meanings) > 0 {
-			fmt.Fprintf(&b, "  - permitted_reader_causal_scope=%q. The structured summary still selects its required caliber value, while visible prose states only the corresponding natural scope and never its control value.\n", strings.Join(meanings, "；"))
+			// Allowed is a choice set for one summary field, not a conjunction of
+			// simultaneously true causal claims.  Joining the translations with a
+			// semicolon previously made a no-conclusion option and a typed-chain
+			// option read like one combined instruction.  Keep the mutually
+			// exclusive meanings explicit so the model selects exactly the one
+			// matching its structured caliber declaration.
+			separator := " OR "
+			if zh {
+				separator = " 或者 "
+			}
+			fmt.Fprintf(&b, "  - reader_causal_scope_options=%q; selection_rule=`choose_exactly_one_matching_summary_caliber_never_combine`. The structured summary selects one allowed caliber value; visible prose states only that option's natural scope and never its control value.\n", strings.Join(meanings, separator))
 		}
 	}
 
