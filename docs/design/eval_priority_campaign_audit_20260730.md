@@ -35692,6 +35692,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1005 r636/B1002/B1003：图候选生产正证；Trace 图例与末端机制边界自冲突（2026-08-17）
+
+1. 在 `main@c6aeecc34` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `Trace fail / QF partial`；证据见
+   `eval/parallel_selected_summary_evalcampaign_mechanism_edgeguidance_r636_20260817_manual_audit.md`。
+2. B1002 获生产正证：QF repair candidate 逐条带 `participant_node_id/side`、技术 identity 只留 anchor、
+   自然语言 `visible_arrow_label`；模型直接用“随后进入/调用”等可见词完成一次 patch。相较 r635，耗时
+   `622s→292s`，final reject/patch `6/6→1/1`；终图不再显示 raw `argument_flow`，也不再重复
+   BusContext。系统没有替模型选择候选或铸边。
+3. QF 剩余一次拒绝来自首稿一次画入多条无 typed anchor 的数据流；修补后 BusContext/Mutable 只保留
+   无箭头 grouping 与未证边界，结构诚实。但模型正文仍声称各阶段通过 BusContext/Mutable 完成端到端
+   传递，B999 获第二个生产 witness。先继续审计最终上下文/图文一致性，禁止扫描答案硬拒或 renderer
+   代写正文。
+4. B1001 的末端 mechanism scope 确实到达 Trace finalizer，逐字说明 runnable 不等于占用 CPU、候选或
+   唤醒先后不证明同步阻塞/等待工作完成；模型仍在摘要和时序表写“worker 完成工作前阻塞 app”“等待
+   worker 响应”。进一步冷读确认这不是纯模型波动：系统生成的树图例仍把 `├─下钻─` 定义为“父行在
+   等什么、子行就是父行等待的直接原因”，反转候选图例还把“低优先级依赖/持有资源可能阻塞”并成默认
+   语义，直接抵消末端精确边界。
+5. 新确认 B1003：统一把 `下钻` 收窄为“沿已发布链向上游展开的依赖/影响席”；仅有独立等待-完成绑定、
+   holder/waiter 或其他精确关系时，模型才可声称等待其完成、资源持有或直接阻塞。优先级候选图例分列
+   runnable 调度供给、running 算力供给与另证资源关系。该修复改正系统自身事实教学，不扫描或改写模型
+   答案，不改变链上席位、排序、数值或可消除量。
+6. 两案活跃字节流均远超 4ms 并正常完成。显式时间窗 Trace 因果投影、自动补齐、链上根因权限及
+   邻近/背景 support-only 均保持。
+
+状态：
+
+`r636=runner-2/2/human=trace-fail+qf-partial`；
+`B1001-TRACECAUSEMECHANISMSCOPE1=implemented+production-present/conflicted-by-B1003`；
+`B1002-DIAGRAMCANDIDATEENDPOINTREADERLABEL1=production-positive-r636`；
+`B1003-TRACEDRILLLEGENDMECHANISMCONFLICT1=confirmed/open`；
+`B999-QFPROSETRANSFEROVERCLAIM1=repeated-witness/open/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1004 r635/B1001/B1002：控制枚举退出后机理仍越界；typed 图候选缺端点映射（2026-08-17）
 
 1. 在 `main@a8fcaa930` 严格并发恰好两个案例：
