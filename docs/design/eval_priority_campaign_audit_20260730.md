@@ -35649,6 +35649,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.995 r626/B985/B986：字段声明与载体交接跨文件；跨核唤醒事实到达成文过晚（2026-08-17）
+
+1. 在 `main@a2a8959ce` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `QF fail / Trace partial`；完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_fullrequest_carrier_trace_r626_20260817_manual_audit.md`。
+2. QF 再次证明 runner oracle 假阳性。B984 已让候选质量读取完整请求 participant 集合，但声明
+   `Orchestrator.busCtx` 位于 `orchestrator.go`，真正把该载体和 `AgentExtractor` 一起交给
+   `BuildAgentContext(o.busCtx, AgentExtractor, StageExtract)` 的调用位于同一 `Orchestrator` owner 的
+   `extract_work.go`。旧实现只在字段声明文件枚举 complete-argument call，正确候选根本不在排名集合；
+   因此调权重无法根修。生产补采先到 `cgec_enforcers.go:767-791`，再到
+   `contract_check_block.go:3501-3525`，终稿只画出阶段 precedence 和无关的枚举校验调用，
+   BusContext/Mutable 请求数据流仍未证。
+3. 新立并施工 `B985-OWNERSPANNINGCARRIERARGNAV1`（`e9b32d2af`）：字段 binding 增加 parser-owned
+   static owner；导航索引按 enclosing callable owner 建 relation 索引。完整实参 discovery 保留声明文件，
+   并扩展到“相同语言、owner 精确相同、且同 package 或同目录”的 sibling source file。该扩展只返回
+   bounded read coordinate；不产生 EvidenceItem、关系、图边或答案，也不替模型选择最终关系。
+   全部 `SupportedReadLanguages()` 均新增跨文件 owner handoff pin，并断言 evidence 集合始终为空。
+4. Trace 的确定性主工件仍正确：用户显式窗、自动补采、Trace 因果投影均在；worker-200 是链上 #1，
+   有效归因 8.300ms；app-100 自身 runnable 0.020ms；背景压力保持 support-only。模型正文却把
+   `worker-200@CPU2 -> app-100 target_cpu=1` 的跨核唤醒写成“同一 CPU 占用/直接竞争”，并进一步把
+   app 睡眠期描述为可抢占 CPU 的竞争期。答案末尾系统 typed 核对已经明确写明跨核且不提供同核占用、
+   抢占或直接竞争权限，所以这是模型机理解释失败，不是 trace 数值或投影失败，人工不能签全绿。
+5. 新立并施工 `B986-WAKEUPCPUTOPOLOGYSALIENCE1`（`974579527`）：把 trace_query 已有的精确
+   `waker_cpu`、`wakee_target_cpu` 与 `cpu_relation` 放进 finalizer 的“Measured wakeup edges”早期上下文；
+   只有 typed `cross_cpu` 才并列
+   `same_cpu_occupancy_or_direct_competition_authority=not_provided`。这是 typed 事实和权限边界前置，
+   不是结论生成或答案改写；不扫描用户输入、thinking 或模型正文，也没有新增 hard gate。
+6. `go test ./internal/context ./internal/tool -count=1` 全绿（context 0.633s，tool 175.419s）。QF 成文
+   第 1 轮在 30 秒状态明确为“已收到模型语义输出，持续生成中”，之后继续完成三个成文回合；活跃字节流
+   没有固定 4ms 降级。仅取消/deadline、无首字节、字节停顿、传输或解码终态可进入降级路径。
+7. B985/B986 均待下一组相同双案例生产回放。显式时间窗 Trace 因果投影、系统自动补齐、两维根因
+   （真实耗时/新优化方向与规则可消除量）、链上业务线索和模型结论所有权均未改变；邻近/背景仍只支持，
+   系统不生成主因、不修改正文、不以关键词门控答案。
+
+状态：
+
+`r626=runner-2/2/human=qf-fail+trace-partial`；
+`B984-FULLREQUESTPARTICIPANTQUALITY1=production-failed-r626/superseded-by-B985`；
+`B985-OWNERSPANNINGCARRIERARGNAV1=implemented/all-language+full-tool-suite-pass/pending-r627`；
+`B986-WAKEUPCPUTOPOLOGYSALIENCE1=implemented/typed-context-only+context-suite-pass/pending-r627`；
+`active-stream-4ms-degrade=forbidden/216s+339s-no-age-degrade`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r626`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.994 r625/B984：缺失集合误兼任关系对端全集；Trace 正对照稳定（2026-08-17）
 
 1. 在 `main@d65e19480` 严格并发恰好两个案例：
