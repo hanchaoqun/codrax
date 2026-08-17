@@ -35744,6 +35744,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1011 r642/B1012/B1013：跨载体导航生产转正；精确窗排名出现三面发布漂移（2026-08-17）
+
+1. 在 `main@2962ab4c1` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_io_chain + qf_logic_view_read_pipeline`。Runner `2/2 PASS`，人工为
+   Trace fail、QF partial；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r642_20260817_manual_audit.md`。
+2. B1012 获得生产正证。QF 不再被 `forcedReadCancelled` / 局部 getter 抢走导航预算，最终上下文给出
+   `o.busCtx.ToolResults -> append` 的 typed argument-flow 候选，最终图也保留了 BusContext 的已证边；
+   15 语言共享的“每参与者配额 + 完整载体优先”没有铸边、没有替模型写答案。
+3. QF 仍只算 partial。首稿把 `o.busCtx.Mutable -> appendStageOutputEvidenceToMutable` 实参流画反并增加
+   无证消费边，第二稿又让 BusContext/Mutable 都从图中消失，第三稿才形成 BusContext 已证边 + Mutable
+   未证边界。最终正文声称 Mutable 贯穿各阶段，图却保守断开。两次拒绝均有明确结构依据，当前不把它
+   误报成合同自冲突；但 619s、27 次 read、16 次中途提示与 2 次成文拒绝构成新的高心智负担观察项，
+   后续用异构载体案例验证是否存在通用的 relation-recipe 组合缺口，不按 Go/BusContext 特拟合。
+4. 新确认 B1013（P0）：Trace 用户主窗是 `2.000000..2.020000s`，模型把三个根因视图查询为
+   `2.000000..2.021000s`。原始 `trace_query` 行对宽窗本身是自洽的：threadpool-400 的 io_wait
+   `rank=1/tier=primary/on_chain/effective=11ms`。投影编译采用用户主窗并按 2us 精确容差过滤，正确把
+   这批宽窗席移出主榜，所以树、证据索引和可消除量总览都显示 context-only / 无同尺持值行。
+5. 但头行的 fallback 直接重读未过滤的 `projection.PrimaryRootCauses`，重新发布
+   “主根因…11.000ms”。同页于是同时出现“主根因 11ms”“无同尺持值行”“11ms 不参与根因排序”三种
+   互斥说法。Runner 的字符串 oracle 没有识别这类跨面语义冲突，人工判 fail。
+6. 最优方案冻结为两层、分批施工：第一层让头行、树、明细、证据索引、可消除量只消费同一个
+   exact-window filtered election population，宽窗探索席可以留在背景，但不得被任何回退重新加冕；第二层
+   在模型只查到邻近宽窗时，由 typed 用户窗和 typed query 参数触发精确窗自动补齐，重新查询
+   window/root-cause/wakeup 视图并构造可排名席。不得把 2us 容差放宽到 1ms，因为窗外事件会改变排序和
+   可消除量；不得扫描用户/模型原文，不得让系统改写模型结论。
+7. 第一层的诚实降级是“当前精确窗没有已证可加冕席”，不是拿宽窗主因冒充精确窗结论；第二层完成后
+   应恢复用户主窗内的 typed 排名和 Trace 因果投影。回归必须同时钉住：近邻宽窗不得污染头行、精确窗
+   补齐仍在、链外/邻近只作背景、模型原结论不被替换、活跃流不按固定 4ms/4s 降级。
+8. 本轮无畸形 JSON、空答案或旧稿替代。Trace 因果投影实际存在，活跃字节流持续工作 282s；QF
+   持续 619s。再次确认固定 4ms 不产答案不是允许的降级条件。
+
+状态：
+
+`r642=runner-2/2/human=trace-fail+qf-partial`；
+`B1012-CROSSCOMPONENTCARRIERPROJECTIONNAV1=production-positive-r642`；
+`B1013-EXACTWINDOWRANKSURFACEDRIFT1=confirmed-r642/P0/pending-two-layer-fix`；
+`B1014-RELATIONRECIPECOMPOSITIONLOAD1=observed-r642/not-yet-contract-conflict`；
+`Trace explicit-window/causal projection/auto-supplement=projection-present/supplement-gap-confirmed`；
+Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
