@@ -379,9 +379,13 @@ func flowNavigationCallReceiver(relation *repotypes.Relation) string {
 }
 
 // flowNavigationArgumentMatchesBinding accepts only a complete identifier-like
-// argument whose final identity segment is the parser-declared binding. Quoted
-// literals are rejected before identity normalization so a display string such
-// as "busCtx" cannot steer source navigation as though it were the variable.
+// argument containing the parser-declared binding as one exact identity
+// segment. The binding may be the final value (`ctx.Mutable`) or an outer typed
+// carrier whose member is handed off (`o.busCtx.Mutable`). Quoted literals are
+// rejected before identity normalization so a display string such as "busCtx"
+// cannot steer source navigation as though it were the variable. This is only
+// a read-coordinate signal; the complete argument still needs separately
+// grounded evidence before it can authorize any relation.
 func flowNavigationArgumentMatchesBinding(argument, alias string) bool {
 	argument = strings.TrimSpace(argument)
 	alias = strings.TrimSpace(alias)
@@ -392,7 +396,8 @@ func flowNavigationArgumentMatchesBinding(argument, alias string) bool {
 	case '\'', '"', '`':
 		return false
 	}
-	return types.AnswerCodeIdentitySurfacesCompatible(alias, argument)
+	return types.AnswerCodeIdentitySurfacesCompatible(alias, argument) ||
+		types.AnswerCodeIdentityContainsExactSegment(argument, alias)
 }
 
 // flowResolvedParticipantIdentity is a parser-owned navigation projection for

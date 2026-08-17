@@ -1163,6 +1163,10 @@ func TestFlowOperationNavigationFindsNestedTypedCarrierHandoffAcrossOwnersAcross
 			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
 				t.Fatalf("%s nested typed owner handoff must win: ok=%t target=%+v", language, ok, target)
 			}
+			target, ok = flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s outer typed carrier used inside a complete member path must win: ok=%t target=%+v", language, ok, target)
+			}
 			if len(ctx.Mutable.EmittedEvidence()) != 0 {
 				t.Fatal("nested owner navigation must not manufacture relation evidence")
 			}
