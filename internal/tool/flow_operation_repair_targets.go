@@ -388,8 +388,17 @@ func flowNavigationArgumentMatchesBinding(argument, alias string) bool {
 // obligation, but never create relation authority; only a separately grounded
 // operation can do that.
 type flowResolvedParticipantIdentity struct {
-	surfaces []string
-	files    []string
+	// surfaces are precise hard-coverage identities. planningSurfaces are
+	// additional parser-owned navigation aliases and must never be passed to
+	// relation/answer authority.
+	surfaces         []string
+	planningSurfaces []string
+	files            []string
+}
+
+func (r flowResolvedParticipantIdentity) softNavigationSurfaces() []string {
+	out := appendUniqueBounded(nil, r.surfaces, maxFlowOperationRepairKeywords)
+	return appendUniqueBounded(out, r.planningSurfaces, maxFlowOperationRepairKeywords)
 }
 
 // flowOperationPlanningParticipants returns the identities that may steer a
@@ -521,7 +530,12 @@ func flowResolveParticipantIdentity(ctx *types.BusContext, rm types.RequestModel
 		[]string{c.parent + "." + c.name, c.declaredType}, maxFlowOperationRepairKeywords)
 	return flowResolvedParticipantIdentity{
 		surfaces: resolved,
-		files:    appendUniqueBounded(nil, []string{c.file}, maxFlowOperationRepairFiles),
+		// The requested member remains the only hard identity. Its exact
+		// parser-owned parent is a SOFT navigation bridge so a later repair can
+		// follow a value handoff through the owner without treating every owner
+		// operation as an incident edge for the member itself.
+		planningSurfaces: appendUniqueBounded(nil, []string{c.parent}, maxFlowOperationRepairKeywords),
+		files:            appendUniqueBounded(nil, []string{c.file}, maxFlowOperationRepairFiles),
 	}
 }
 
@@ -592,7 +606,7 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 			continue
 		}
 		resolved := flowResolveParticipantIdentity(ctx, rm, participant)
-		surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
+		surfaces = appendUniqueBounded(surfaces, resolved.softNavigationSurfaces(), maxFlowOperationRepairKeywords)
 		resolvedFiles = appendUniqueBounded(resolvedFiles, resolved.files, maxFlowOperationRepairFiles)
 	}
 	// A typed context-only participant is not an edge obligation. It becomes a
@@ -612,6 +626,7 @@ func flowOperationRepairTargets(ctx *types.BusContext, missing []string, evidenc
 			surfaces = appendUniqueBounded(surfaces, contextSurfaces, maxFlowOperationRepairKeywords)
 			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
 			resolvedFiles = appendUniqueBounded(resolvedFiles, resolved.files, maxFlowOperationRepairFiles)
+			surfaces = appendUniqueBounded(surfaces, resolved.softNavigationSurfaces(), maxFlowOperationRepairKeywords)
 		}
 	}
 
@@ -699,9 +714,10 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				continue
 			}
 			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
-			surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
-			if len(resolved.surfaces) > 0 {
-				participantSurfaceGroups = append(participantSurfaceGroups, resolved.surfaces)
+			planningSurfaces := resolved.softNavigationSurfaces()
+			surfaces = appendUniqueBounded(surfaces, planningSurfaces, maxFlowOperationRepairKeywords)
+			if len(planningSurfaces) > 0 {
+				participantSurfaceGroups = append(participantSurfaceGroups, planningSurfaces)
 			}
 		}
 	}
@@ -713,7 +729,8 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	type rankedTarget struct {
-		target flowOperationRepairReadTarget
+		target   flowOperationRepairReadTarget
+		relation *repotypes.Relation
 		// participantTouchRank counts distinct requested participant groups
 		// touched by this one parser-owned operation coordinate. It ranks a
 		// real cross-participant receiver/caller site ahead of a ubiquitous
@@ -763,6 +780,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 				alreadyRead: closure.HasReadLine(file, line),
 			},
+			relation: relation,
 			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 				relation, flowDeclaredBindingSite{}, site.ownerSurfaces, participantSurfaceGroups,
 			),
@@ -823,6 +841,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 					alreadyRead: closure.HasReadLine(binding.file, line),
 				},
+				relation: relation,
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 					relation, binding, site.ownerSurfaces, participantSurfaceGroups,
 				),
@@ -865,7 +884,117 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		return candidates[i].line < candidates[j].line
 	})
-	return candidates[0].target, true
+	selected := candidates[0]
+	if selected.target.alreadyRead && selected.carrierRank > 0 {
+		if next, ok := flowNavigationCalleeMutationReadTarget(
+			ctx, index, selected.relation, participantSurfaceGroups,
+		); ok {
+			return next, true
+		}
+	}
+	return selected.target, true
+}
+
+// flowNavigationCalleeMutationReadTarget follows one already-read carrier
+// handoff into a unique parser-owned callee definition and selects an exact
+// AST-tagged assignment/member-initializer line mentioning the still-missing
+// participant. This is the language-neutral second hop after an argument
+// handoff: it helps the model inspect whether the callee actually stores or
+// propagates the value instead of repeatedly rereading the caller.
+//
+// The target is navigation only. LineFeatures establish source shape, not
+// data-flow semantics; the explorer must read the line and emit a separately
+// grounded assignment/initializer row. Ambiguous callees, missing AST
+// features, out-of-scope definitions, and already-read mutations fail closed.
+func flowNavigationCalleeMutationReadTarget(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	relation *repotypes.Relation,
+	participantSurfaceGroups [][]string,
+) (flowOperationRepairReadTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || index == nil || relation == nil ||
+		strings.TrimSpace(relation.Kind) != "call" || len(participantSurfaceGroups) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	callee := strings.TrimSpace(relation.ToEP.Name)
+	if callee == "" {
+		return flowOperationRepairReadTarget{}, false
+	}
+	var definitions []flowParserSymbolSite
+	seen := make(map[*repotypes.Symbol]bool)
+	for _, site := range flowNavigationSymbols(index, []string{callee}) {
+		symbol := site.symbol
+		if symbol == nil || seen[symbol] ||
+			(symbol.Kind != "function" && symbol.Kind != "method") ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(callee, symbol.Name) ||
+			!relationSourceInRequestedScope(site.file, ctx.AnalysisIR.RequestModel) ||
+			symbol.Line <= 0 || symbol.EndLine < symbol.Line {
+			continue
+		}
+		seen[symbol] = true
+		definitions = append(definitions, site)
+	}
+	if len(definitions) != 1 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	definition := definitions[0]
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return flowOperationRepairReadTarget{}, false
+	}
+	file := graph.FileIndex[definition.file]
+	if file == nil || len(file.LineFeatures) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	lines := flowNavigationSourceLines(ctx, index, definition.file)
+	if len(lines) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	wanted := make(map[string]bool)
+	for _, group := range participantSurfaceGroups {
+		for _, surface := range group {
+			for _, key := range flowParticipantSymbolLookupKeys([]string{surface}) {
+				if key = flowRepairPlanningKey(key); len(key) >= 4 {
+					wanted[key] = true
+				}
+			}
+		}
+	}
+	if len(wanted) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	for line := definition.symbol.Line; line <= definition.symbol.EndLine; line++ {
+		features := file.LineFeatures[line]
+		shape := false
+		for _, feature := range features {
+			if feature == repotypes.LineFeatureAssignment || feature == repotypes.LineFeatureMemberInitializer {
+				shape = true
+				break
+			}
+		}
+		if !shape || closure.HasReadLine(definition.file, line) {
+			continue
+		}
+		matched := false
+		for _, token := range flowNavigationIdentityTokens(lines[line]) {
+			if wanted[flowRepairPlanningKey(token)] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		start := line - flowOperationRepairReadRadius
+		if start < 1 {
+			start = 1
+		}
+		return flowOperationRepairReadTarget{
+			file: definition.file, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+		}, true
+	}
+	return flowOperationRepairReadTarget{}, false
 }
 
 // flowNavigationRequestedParticipantTouchRank prefers one parser operation

@@ -932,6 +932,103 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 	}
 }
 
+func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			callerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			calleePath := filepath.ToSlash(filepath.Join("src", language, "builder.src"))
+			callerLines := make([]string, 30)
+			callerLines[0] = "run pipeline"
+			callerLines[1] = "this.busContext.reset()"
+			callerLines[29] = "const agentContext = builder.BuildAgentContext(this.busContext, stage)"
+			calleeLines := make([]string, 40)
+			calleeLines[19] = "BuildAgentContext(bus, stage)"
+			calleeLines[29] = "Mutable: bus.Mutable"
+			for path, body := range map[string]string{
+				callerPath: strings.Join(callerLines, "\n"),
+				calleePath: strings.Join(calleeLines, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				callerPath: {
+					RelPath: callerPath, Language: language,
+					Symbols: []repotypes.Symbol{
+						{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 30},
+						{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+					},
+					Relations: []repotypes.Relation{
+						{
+							Kind: "call", File: callerPath, Line: 2,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 2},
+							ToEP:       repotypes.RelationEndpoint{Name: "reset", Receiver: "this.busContext", Line: 2},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+						{
+							Kind: "call", File: callerPath, Line: 30,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 30},
+							ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+					},
+				},
+				calleePath: {
+					RelPath: calleePath, Language: language,
+					Symbols: []repotypes.Symbol{
+						{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 5},
+						{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "MutableState", Line: 6},
+					},
+					LineFeatures: map[int][]repotypes.LineFeature{
+						30: {repotypes.LineFeatureMemberInitializer},
+					},
+				},
+			}))
+			missing := flowParticipantCoverageMissing(ctx, nil)
+			if !flowTestSliceContains(missing, "BusContext") || !flowTestSliceContains(missing, "Mutable") {
+				t.Fatalf("%s planning aliases must not close hard participant coverage: %v", language, missing)
+			}
+
+			first, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext", "Mutable"})
+			if !ok || first.file != callerPath || first.lineRange != (types.LineRange{Start: 18, End: 42}) || first.alreadyRead {
+				t.Fatalf("%s first hop must select the exact carrier argument handoff: ok=%t target=%+v", language, ok, first)
+			}
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{callerPath: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				callerPath: {{Start: 18, End: 42}},
+			})
+			second, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable"})
+			if !ok || second.file != calleePath || second.lineRange != (types.LineRange{Start: 18, End: 42}) || second.alreadyRead {
+				t.Fatalf("%s second hop must select the exact AST-tagged callee initializer: ok=%t target=%+v", language, ok, second)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("two-hop navigation must not manufacture argument or mutation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationPrefersCarrierHandoffOwnedByAnotherMissingParticipant(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{

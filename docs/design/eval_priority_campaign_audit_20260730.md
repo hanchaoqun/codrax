@@ -36051,13 +36051,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    读取并发射 exact operation；系统不生成关系或替换结论。
 10. 本批零 Trace 代码改动。显式窗、因果投影、自动补齐、链上-only 根因、D/io/runnable/算力/确定性语义与业务
     线索保持；邻近/背景仍只能 support-only，活跃流不得因 4ms 或固定年龄降级。
+11. `B972-CALLOPERATIONDIRECTION1/P1` 已施工。Explorer 与 Finalizer 共用的语义教学明确：typed call 只证明
+    invocation，不能单独证明 read/write/mutation/returned value/value transfer；getter 尤其不能因为所在阶段最终
+    产生输出就被写成“写入”。读写/传值结论必须来自独立 assignment/initializer/argument/return 行，或读取被调
+    函数体后重新发射的精确 operation。该教学是 soft guidance，不扫描或改写模型答案。
+12. 同批把软导航从单一调用点扩成有界两跳：只有 parser 已证明“完整非 callable 参数进入 qualified callee”、且
+    第一跳已经读过时，才解析唯一 callee definition，并在其函数范围内选择同时满足 AST
+    `assignment/member_initializer` 与缺失 participant 精确 identity 的未读行。callee 同名歧义、函数范围缺失、AST
+    feature 缺失、目标已读或普通 call 均 fail-closed；源码行仍须由模型读取并发射，系统不铸 EvidenceItem/关系/图/
+    结论。
+13. requested member 的 exact owner 只加入 `planningSurfaces`，硬覆盖仍只消费原 `surfaces`。覆盖全部
+    `SupportedReadLanguages`（含 ArkTS/Cangjie）的矩阵 pin 逐语言证明：第一次命中 caller 参数交接，第二次命中
+    callee 成员初始化；同时 BusContext/Mutable 的 hard participant 缺口在零证据时仍存在，导航前后 emitted evidence
+    均为 0。`internal/types + internal/tool + internal/agent` 完整包回归通过。
+14. 本次仍未修改 Trace 查询、投影编译、自动补齐或答案 mutation。显式时间窗完整因果诊断继续保留投影，主因只
+    能来自 typed on-chain；邻近/背景只能提供额外排查方向，4ms/固定年龄不能结束活跃字节流。
 
 状态：
 
 `r614 runner=2/2-pass/human=qf-fail+trace-pass-with-caveat`；
 `B970-CANONICALPARTICIPANTPROJECTION1=implemented-but-production-negative-r614`；
 `B971-STAGEAUTHORITYADMISSION1=implemented/typed-authority-separation/pins-pass/pending-replay`；
-`B972-CALLOPERATIONDIRECTION1=filed/prompt-only/pending`；
+`B972-CALLOPERATIONDIRECTION1=implemented/shared-soft-semantics+typed-two-hop-navigation+all-language-pins/full-packages-pass/pending-replay`；
 `block_rq issue-complete production replay=pending`；
 `B965-MODELBOUNDARYADHERENCE1=observed-r614/no-prose-hard-gate`；
 `Trace explicit-window causal projection/auto-supplement=pass-r614`；
