@@ -379,10 +379,46 @@ func proseWallClockDimComparator(acc *proseWallClockAccount, dim proseWallClockD
 	return v, ok
 }
 
-// proseWallClockAccountsFromLedger parses the typed target_window_states
-// records (one per focused thread and window) — the §29.27② full-window
-// partitions whose Σ balances the window by construction.
+// proseWallClockAccountsFromLedger returns the target-state accounts elected by
+// the SAME typed scope authority as the trace causal projection.  An explorer
+// may issue a wider probe before it reaches the user's exact window; choosing
+// the largest raw target_window_states record here would let that exploratory
+// window leak into the system appendix even though the final projection chose
+// the exact window.  The shared authority owns that election.  The raw-record
+// parser remains only as a legacy fallback for ledgers that predate selected
+// window metadata and therefore cannot compile an authority.
 func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWallClockAccount {
+	if authorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger); len(authorities) > 0 {
+		out := make([]proseWallClockAccount, 0, len(authorities))
+		for _, authority := range authorities {
+			subject := strings.TrimSpace(authority.Subject)
+			tid := proseWallClockSubjectTID(subject)
+			if subject == "" || tid == "" || authority.TotalMS <= 0 {
+				continue
+			}
+			windowMS := authority.WindowMS
+			if windowMS <= 0 {
+				windowMS = authority.TotalMS
+			}
+			out = append(out, proseWallClockAccount{
+				subject: subject,
+				tid:     tid,
+				dims: map[proseWallClockDimension]float64{
+					proseWallClockDimRunning:  authority.RunningMS,
+					proseWallClockDimRunnable: authority.RunnableMS,
+					proseWallClockDimSleep:    authority.SleepMS,
+					proseWallClockDimDState:   authority.DStateMS,
+				},
+				sleepIO:  authority.SleepIOWaitMS,
+				ioWait:   authority.IOWaitMS,
+				totalMS:  authority.TotalMS,
+				windowMS: windowMS,
+			})
+		}
+		proseWallClockMarkMainThreads(out, ledger)
+		return out
+	}
+
 	var out []proseWallClockAccount
 	for _, record := range ledger.Records {
 		if strings.TrimSpace(record.Predicate) != "target_window_states" {
@@ -416,8 +452,8 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 		if acc.windowMS <= 0 {
 			acc.windowMS = acc.totalMS
 		}
-		// Keep, per thread, the account with the largest window (the
-		// conservative comparator when several windows were queried).
+		// Legacy records have no selected-window authority. Keep, per thread,
+		// the largest observed window as the old conservative comparator.
 		replaced := false
 		for i := range out {
 			if out[i].tid == acc.tid {
@@ -433,9 +469,14 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 			out = append(out, acc)
 		}
 	}
-	// 修复轮 P3①: prove main-threadness from the evidence face — a record
-	// whose subject carries the SAME tid and whose typed tgid note equals
-	// that tid (the CR-3 件③ rank-row tgid lane). Unprovable stays false.
+	proseWallClockMarkMainThreads(out, ledger)
+	return out
+}
+
+// proseWallClockMarkMainThreads proves main-threadness from the evidence face:
+// a record whose subject carries the SAME tid and whose typed tgid note equals
+// that tid (the CR-3 件③ rank-row tgid lane). Unprovable stays false.
+func proseWallClockMarkMainThreads(out []proseWallClockAccount, ledger types.ObservationLedger) {
 	for i := range out {
 		for _, record := range ledger.Records {
 			if proseWallClockSubjectTID(strings.TrimSpace(record.Subject)) != out[i].tid {
@@ -449,7 +490,6 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 			}
 		}
 	}
-	return out
 }
 
 // proseWallClockNoteValue returns the raw value of a k=v rich note.

@@ -53,6 +53,53 @@ func p6DonghuAccount() types.ObservationRecord {
 	return p6AccountRecord(".ugc.aweme.lite-17267", 157.248, 5.604, 70.338, 0, 0, 233.190, 233.190)
 }
 
+// TestProseWallClockAccountsPreferSelectedExplicitWindowOverBroaderProbe pins
+// r640/B1010.  A legitimate discovery query starts before the trace and thus
+// reports a 2020ms selected window while only 20ms of states are observable.
+// The user and final causal projection both select 2.000..2.020s.  The system
+// appendix must consume that shared election instead of choosing the largest
+// exploratory window and printing the contradictory "Σ=20ms; window=2020ms".
+func TestProseWallClockAccountsPreferSelectedExplicitWindowOverBroaderProbe(t *testing.T) {
+	exact := p6AccountRecord("app-100", 4, 3, 13, 0, 0, 20, 20)
+	exact.ID = "trace_query:exact#target_window_states"
+	exact.SourceRef.Path = "/tmp/customer.systrace"
+	exact.RichNotes[len(exact.RichNotes)-1] = types.TraceNoteKeySelectedWindow + "=2.000000..2.020000"
+
+	wide := p6AccountRecord("app-100", 4, 3, 13, 0, 0, 20, 2020)
+	wide.ID = "trace_query:probe#target_window_states"
+	wide.SourceRef.Path = "/tmp/customer.systrace"
+	wide.RichNotes[len(wide.RichNotes)-1] = types.TraceNoteKeySelectedWindow + "=0.000000..2.020000"
+
+	start, end := 2.0, 2.02
+	ledger := types.ObservationLedger{
+		Records: []types.ObservationRecord{wide, exact},
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "2.000s 到 2.020s",
+		},
+		AnchorUserEntities: []types.AnchorUserEntity{{Value: "100", TypedLane: true}},
+	}
+
+	accounts := proseWallClockAccountsFromLedger(ledger)
+	if len(accounts) != 1 {
+		t.Fatalf("selected account count=%d, want 1: %+v", len(accounts), accounts)
+	}
+	if accounts[0].subject != "app-100" || accounts[0].totalMS != 20 ||
+		accounts[0].windowMS < 19.999 || accounts[0].windowMS > 20.001 {
+		t.Fatalf("explicit-window election lost to broader probe: %+v", accounts[0])
+	}
+
+	zh, _ := proseFactPartitionFact(&proseFactThreadFacts{subject: "app-100", account: &accounts[0]})
+	if !strings.Contains(zh, "Σ=4.000+3.000+13.000+0.000+0.000=20.000ms,窗长 20.000ms") {
+		t.Fatalf("partition appendix must use the selected 20ms window: %s", zh)
+	}
+	if strings.Contains(zh, "2020.000") {
+		t.Fatalf("exploration window leaked into the system appendix: %s", zh)
+	}
+}
+
 // TestProseWallClockConservation_TiebaTripleSumForm — 件① witness: the
 // CR-2 B1 tieba triple. Prose claims running 20.372 + runnable 46.364 for
 // the main thread; with the published sleep truth the partition sums past

@@ -35692,6 +35692,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
+
+1. 在 `main@5edb1d624` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_io_chain + qf_logic_view_read_pipeline`。Runner `2/2 PASS`，人工均为
+   partial；完整逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r640_20260817_manual_audit.md`。
+2. Trace 生产回放证明 B1007/B1008 根修生效：Finalizer 不再要求读取已经被确定性 query 替代的
+   raw trace，根因板也明确只拥有排序/量值而不拥有机理与端到端因果。模型保留用户明确
+   `2.000..2.020s` 窗、20ms 状态账、typed 唤醒链和 11ms IO 首席，并将目标线程直接阻塞关系
+   标成未证；显式窗、因果投影、自动补齐和链上-only 主因均未受损。
+3. 新确认并施工 B1010：系统自己的事实并置附录却发射
+   `Σ五态=20.000ms;窗长 2020.000ms`。根因不是模型，而是
+   `proseWallClockAccountsFromLedger` 在同 TID 多次 query 中机械选择最大 `window_ms`；探索期
+   `0..2.02s` 查询早于 trace 起点 2.0s，只有 20ms 可观测状态，却凭 2020ms 宽窗覆盖了最终
+   投影选中的 20ms 用户窗。修复改为先消费
+   `BuildTraceTargetStateScopeAuthoritiesFromLedger`：与因果投影共享同一 typed 窗选举；只有旧
+   ledger 无法编译 selected-window authority 时才走原始最大窗兼容回退。回归同时放入 20ms
+   精确窗与 2020ms 探索窗，固定系统附录只能输出 `Σ=20ms,窗长 20ms`。
+4. Trace 终稿仍有两处模型成文问题：四节点三条边写成“四跳”，以及违反同向 max-only 纪律把
+   #2~#4 三个 1ms 席位相加为 3ms。当前 typed 数据和提示均已给出，不以正文关键词扫描、
+   系统改写或 type 特判强制修文；继续异构回放，若跨模型稳定复现再收敛为通用软教学。
+5. QF 图语法有效但主要数据流不完整：探索在 `BuildAgentContext(...)` 的首个局部载体停下，
+   没有继续读取同一 `dispatchStage` 内的 `ag.Execute(agentCtx)` 与
+   `applyStageOutput(output)`，导致 BusContext/Mutable/AgentContext 成为孤点。Finalizer 对未证边的
+   拒绝是正确的；GAP 在探索导航没有覆盖 enclosing callable 的后续消费/回写，而不是应降低
+   关系证据杆。
+6. B1011 最优方案冻结为跨语言结构方案：缺关系时，导航从已读局部载体继续寻找同一 callable
+   内尚未覆盖的 consumer/result-application/handoff；对 `lhs := Callee(arg)` 一类 parser-owned
+   复合行，软教学明确 call、argument→callee、callee/result→lhs 是三个独立可发射关系候选。
+   系统只交付源码候选和下一读区间，不自铸边、不强制完整图，也不扫描用户或模型原文作硬门。
+7. 本批没有引入 4ms 累计时长降级。活跃字节流仍只受 caller cancel/deadline、无首字节、
+   byte-stall、transport/decode failure 控制；模型草稿恢复也不允许被系统证据改写为新答案。
+
+状态：
+
+`r640=runner-2/2/human=trace-partial+qf-partial`；
+`B1010-APPENDIXEXPLORATIONWINDOWLEAK1=implemented/shared-selected-scope-authority+pin-pass`；
+`B1011-ENCLOSINGCALLABLERELATIONNAV1=confirmed/high-ROI/next-batch`；
+`B1007/B1008=production-positive-r640`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`；`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1008 r639/B1006/B1007/B1008/B1009：精确窗恢复；Finalizer 两处权威提示自冲突（2026-08-17）
 
 1. 在 `main@e878d0c7e` 严格并发恰好两个案例：
