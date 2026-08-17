@@ -710,15 +710,23 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			if participant.Role != types.DiagramParticipantIncidentRequired {
 				continue
 			}
-			if len(wanted) > 0 && !wanted[strings.ToLower(strings.TrimSpace(participant.Identity))] {
-				continue
-			}
 			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
 			planningSurfaces := resolved.softNavigationSurfaces()
-			surfaces = appendUniqueBounded(surfaces, planningSurfaces, maxFlowOperationRepairKeywords)
 			if len(planningSurfaces) > 0 {
 				participantSurfaceGroups = append(participantSurfaceGroups, planningSurfaces)
 			}
+			// Candidate discovery remains scoped to the participant(s) that
+			// still lack incidence. Candidate QUALITY, however, must compare
+			// that operation with every independently requested participant.
+			// A stage/component may already be covered by another edge while
+			// still being the exact opposite endpoint carried as a sibling
+			// argument at the missing carrier's real handoff. Filtering both
+			// sets by missing status made that useful endpoint disappear and
+			// left unrelated same-type helper calls tied for first place.
+			if len(wanted) > 0 && !wanted[strings.ToLower(strings.TrimSpace(participant.Identity))] {
+				continue
+			}
+			surfaces = appendUniqueBounded(surfaces, planningSurfaces, maxFlowOperationRepairKeywords)
 		}
 	}
 	if len(surfaces) == 0 {

@@ -988,7 +988,10 @@ func TestFlowOperationNavigationPrefersCarrierHandoffWithRequestedSiblingArgumen
 				},
 			}))
 
-			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext", "extractor"})
+			// extractor is already covered elsewhere in the requested graph;
+			// only BusContext remains missing. The covered participant must
+			// still raise the quality of the exact handoff that names it.
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
 			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
 				t.Fatalf("%s requested sibling argument must prioritize the cross-participant carrier handoff: ok=%t target=%+v", language, ok, target)
 			}
