@@ -36445,6 +36445,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden`。
 
+### §123.976 r601：有限四态生产复绿；被动 target-effect 显著性残余（2026-08-16）
+
+1. 在 `main@002e42afa` 重建后严格并发恰好两个异构 case：显式窗 finite Trace
+   `real_trace_h4_supply_thermal_witness` 与原生 Python write
+   `github_issue_dateutil_relativedelta_float_symptom`。Runner `1 PASS / 1 FAIL`；人工为 write pass、Trace
+   pass-with-caveat。完整记录见 `eval/parallel_selected_summary_evalcampaign_trace_write_r601_20260816.md` 与同名
+   `_manual_audit.md`。
+2. B951 获生产闭环。Finalizer prompt 出现 `Trace Target-State Scope Authority`，逐字携
+   running=157.248ms、runnable=5.604ms、sleep=70.338ms、D/IO=0、total=233.190ms 与 complete；模型正文全部
+   精确复制，r600 的 75.942ms 模糊合并消失。该有限问题仍没有 `Trace Causal Projection`，符合 breadth 边界，
+   不是缺投影。
+3. B952 取得两项生产正证：Analyzer 从 r600 三次 emit 收敛为首稿一次成功；源码排除同一对象内正确携
+   `exclude + explicit_user_exclusion + current_source_exclusion_quote`，没有再被软化为 allow。但 scope 仍是
+   `bounded_fact_set`，模型把“目标频率有没有受到限制”的 required dimension 写成 `observed_value`，没有选择
+   `target_effect_verdict`。连续两次同类 misclassification 不能只记模型波动。
+4. B953 按通用被动效果形补软显著性：compact role schema 明确“target was limited/constrained/affected”仍是
+   `target_effect_verdict`，即使 constraining condition class 尚未知。它不包含 CPU/频率/线程/case 词，不扫描用户或
+   模型原文，不增加 hard gate、不替模型判断 yes/no，也不强制 full causal projection。
+5. Trace 的最终频率边界本身正确：cpu0/cpu4 只证明 policy presence，target-slice binding 保持 unproven；cpu12
+   无同核 policy pair。Runner 唯一 FAIL 是固定正则要求 `策略上限` 词序，而模型写成等价的“频率上限的策略存在性”，
+   人工判 oracle 假阴性，禁止为其硬拟合产品文案。模型另把 S-state 称“深度休眠”，并误写“running+sleep 覆盖全窗”
+   （还需 runnable 5.604ms）；typed 表格和总账正确，记模型语义/算术轻微偏差，不由系统改写正文。
+6. Write 只改 `relativedelta.py`：whole-valued float months/years 归一为 int，fractional float 抛 ValueError，测试未改。
+   模型 probe、原生 `unittest` 等五项均通过，changed path 为 `project_runner/target_behavior`，workflow 诚实
+   `all_verified`。没有 source-static 提权、replan、重复 apply 或假绿。
+7. 两案均无空答案、malformed JSON recovery、系统结论/关系/图代写、unavailable 或固定 4ms/4s/总年龄降级。
+   明确根因/贡献者/机制 Trace 仍保留显式窗因果投影、自动补齐、链上-only 主因、实际占时/业务线索与规则可消双轴。
+
+状态：
+
+`B951-TYPEDTARGETPARENSPID1=production-closed-r601`；
+`B952-RUNTIMEANALYSISJSONSHAPE1=production-positive-r601/analyzer-one-shot+source-exclusion-closed/effect-role-partial`；
+`B953-PASSIVETARGETEFFECTSALIENCE1=implemented/soft-schema-pin/pending-replay`；
+`Trace finite bounded effect=principal-values-complete/no-full-projection-required`；
+`Trace causal diagnosis explicit-window/causal projection/auto-supplement=unchanged`；
+`write dateutil=target-behavior-verified`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

@@ -112,6 +112,11 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 	if strings.Count(roleDescription, skill.AnalysisRuntimeDimensionSchemaTeaching) != 1 || strings.Contains(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) {
 		t.Fatalf("dimension-role schema must carry one compact role reminder, not duplicate the workflow: %q", roleDescription)
 	}
+	for _, want := range []string{"Passive wording", "was limited, constrained, or affected", "condition class is not yet known"} {
+		if !strings.Contains(roleDescription, want) {
+			t.Fatalf("dimension-role schema lost finite passive-effect guidance %q: %q", want, roleDescription)
+		}
+	}
 	if strings.Contains(roleDescription, skill.AnalysisRuntimeScopeFromDimensionTeaching) {
 		t.Fatalf("dimension-role schema must not repeat the runtime scope consequence: %q", roleDescription)
 	}
