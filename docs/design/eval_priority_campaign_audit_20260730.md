@@ -37046,6 +37046,24 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    先看 typed recovery mode/degrade reason、是否存在 structured/no-tool/retry-state carrier，再立新 gap；禁止根据
    最终散文是否“像好答案”选稿。活跃流仍不能因 4ms/4s/4m 或累计年龄降级，结束权只属于 caller cancel/deadline、
    首包静默、byte stall、transport/decode failure。
+6. 旧日志中 `emit_analysis` 后仍构建 2 文件 repo 索引也是历史行为，不能按该旧证据宣称当前 main
+   仍违反“不分析代码”。当前 run-entry 先用 `RuntimeArtifactPreflight` 的 artifact path/kind 精确载体延迟
+   single/multi-repo graph warmup；对“中文紧贴 `.sys.ftrace` 路径 + `Choreographer#doFrame` + 不分析代码”的客户形已有
+   exact no-space preflight pin。Analyzer 一旦发出带当前请求原文引用的 typed
+   `external_observation_policy.current_source_mode=exclude`，Explorer schema、repo tool 和 completion/source-floor 三面
+   会共同关闭当前源车道。实测 `TestRun_AttachedRuntimeArtifactDefersSingleRepoGraphWarmup` 与
+   `TestRun_RequestRuntimeArtifactPathDefersSingleRepoGraphWarmup` 均为 build calls=0。该决策不从用户词汇直接
+   自动铸出 exclude；排除源仍由 Analyzer 的 typed mode + verbatim provenance 负责，避免把“结合代码验证”
+   的混合问题误封闭。
+7. 旧 Explorer 散文中“低优先级唤醒高优先级 = 已证持锁/资源反转”、“邻近 IRQ/IO/跨 CPU = 主因”
+   同样不是 typed 证据支持的结论。当前 fallback/finalizer 上下文已明确区分
+   `priority_inversion_candidate` 与 lock/resource ownership，并要求主因只来自 typed on-chain rows；邻近/全局
+   信息只能做 support-only 的排查方向。这是给模型更精确上下文和证据边界，不是扫描模型原文、
+   删改结论或由系统代写。
+8. 本次回归对照还确认一个容易误判的运行现象：日志中 13m30s 的 LLM 调用期间持续有上游字节活性，
+   UI 也明确显示静态首字节上限已由活性顺延；它不是固定 4 分钟降级。当前 main 又区分 keepalive/reasoning/
+   tool-call framing 字节与真正 byte stall，对应 `internal/llm`/`internal/render` 专项回归通过。不得为缩短单次
+   耗时恢复固定总年龄上限；后续优化应放在减少无效查询/重试和上下文负担。
 
 状态：
 
@@ -37053,6 +37071,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `RLOG1-FINALRUNTIMEFACTBLACKOUT=historical-P0/closed-current-main`；
 `B779-RUNTIMEFALLBACKEVIDENCE1=current-main-covered+pinned`；
 `B800-RAWDETERMINISTIC1=current-main-covered+pinned`；
+`RLOG1-TRACEONLYREPOINDEX=historical/current-main-preflight-deferred+pinned`；
+`RLOG1-UNSUPPORTEDROOTPROMOTION=current-context-bounded/on-chain-only+pinned/customer-replay-pending`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-age-degrade=forbidden`；
