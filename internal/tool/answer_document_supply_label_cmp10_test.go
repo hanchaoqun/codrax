@@ -34,10 +34,10 @@ func TestSupplyPressureDisplayCauseLanesRelabelBothSurfaces(t *testing.T) {
 		t.Fatalf("en display cause = %q", got)
 	}
 	// Narrative lane keeps the raw wire token for audit fidelity.
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("supply_pressure", true); got != "调度压力(需求积压)（supply_pressure）" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("supply_pressure", true); got != "调度压力(需求积压)" {
 		t.Fatalf("zh narrative cause = %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("supply_pressure", false); got != "scheduling pressure (demand backlog) (supply_pressure)" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("supply_pressure", false); got != "scheduling pressure (demand backlog)" {
 		t.Fatalf("en narrative cause = %q", got)
 	}
 	// EVOLUTION RECORD (RULE3-1 件8, §29.182②, 2026-07-21): the EN raw-token

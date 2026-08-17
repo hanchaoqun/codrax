@@ -15442,8 +15442,8 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		return "**Primary root cause:** no on-chain primary root cause was located in the window" + selfNote + "."
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
-	// D4: the narrative lane uses the 中文（english_token） combined format on
-	// the zh surface (tree rows stay concise zh; the table keeps raw tokens).
+	// Reader narrative uses the localized label only; raw wire identity remains
+	// available in the explicit evidence/audit carriers.
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionNarrativeCauseName(primary.Object, zh))
 	// 修复轮 P2-3 crown face (2026-07-12): a crowned refined-D row's cause
 	// word consumes the proof — the merged compound must not resurface on
@@ -19163,7 +19163,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		add("进程", "process", runtimeTraceProjDetailProcessCell(node))
 		add("层级", "layer", runtimeTraceProjDetailLayerCell(row, zh, flat))
 		add("因果位置", "causal position", runtimeTraceProjDetailPositionCellWithAuthority(row, model.LeadKey, zh, model.FrameCausalityUnproven))
-		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
+		typeToken := runtimeTraceCausalProjectionDetailTypeLabel(node, zh)
 		add("类型", "type", runtimeTraceCausalProjectionMarkdownSafe(typeToken))
 		// PTV8-RCR-B (UXA 域B #17, 2026-07-08). EVOLUTION RECORD: the
 		// 「关系 ▸ 影响点」 composite line is split — ▸ doubled as field

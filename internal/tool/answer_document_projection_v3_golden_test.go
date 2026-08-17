@@ -120,7 +120,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	for _, want := range []string{
 		// 复核 Med (2026-07-06): the cumulative-source headline carries its
 		// caliber word and no 占窗 share (C00 同源门).
-		"**主根因(=已证链上单项最大可消除量):** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms，下钻到 RenderService-3021",
+		"**主根因(=已证链上单项最大可消除量):** binder:42591_4-42712 sleep 链上累计 38.400ms，下钻到 RenderService-3021",
 		"分析窗 738291.402~738291.466s，共 64.000ms",
 		"\n- 链上已归因 38.400ms(60%),未归因 25.600ms(40%)",
 	} {
@@ -201,11 +201,11 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"| 21.300ms | 27.900ms | 27.900ms | 27.900ms |",
 		"- 层级: 链上L1",
 		"- 因果位置: 主根因(优先处理)",
-		"- 类型: sleep_wait",
+		"- 类型: sleep",
 		"- 影响形态: sleep / 等待唤醒",
 		"- 影响形态: running / CPU执行",
 		"- 关系: 由 oney.hmn.berlin-42591 下钻得到",
-		"- 类型: compute_supply",
+		"- 类型: 算力供给",
 		"- 关系: 唤醒 binder:42591_4-42712",
 		"RenderService-3021 / VerifyClass com.example.render.Pipeline",
 		// PTV8-RCR-C (§24.12 维度C C-新5 宿主如实, 2026-07-08). EVOLUTION
@@ -331,7 +331,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	}
 	// R1+R2: io_latency renders as ONE ×3 aggregate with the udk-irq peers kept
 	// (merged range + impact points live on the lossless detail row after C4b).
-	for _, want := range []string{"3次(0.499~0.568ms)", "udk-irq-10-90", "IO延迟", "- 类型: io_latency"} {
+	for _, want := range []string{"3次(0.499~0.568ms)", "udk-irq-10-90", "IO延迟", "- 类型: IO延迟"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing io_latency aggregation %q:\n%s", want, md)
 		}

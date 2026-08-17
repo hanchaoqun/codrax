@@ -292,8 +292,9 @@ func TestSemLeadOnChainSemanticOutsideRootTopNStillMandatoryOptimizationMention(
 		t.Fatalf("mandatory semantic optimization block missing:\n%s", md)
 	}
 	for class := range semanticClasses {
-		if !strings.Contains(md, class) {
-			t.Fatalf("TOP-N-evicted semantic class %q must still be mentioned in the optimization block:\n%s", class, md)
+		label := runtimeTraceRootCauseTypeZHLabel(class)
+		if label == "" || !strings.Contains(md, label) {
+			t.Fatalf("TOP-N-evicted semantic class %q must still be mentioned through reader label %q in the optimization block:\n%s", class, label, md)
 		}
 	}
 }

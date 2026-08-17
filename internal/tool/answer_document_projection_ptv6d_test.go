@@ -427,7 +427,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// specimen pins.
 			inventory: []string{
 				"优先级反转候选·置信高·链上L1·有效归因 1.661ms(全额)",
-				"影响点 优先级反转·可运行等待（priority_inversion_runnable_wait）",
+				"影响点 优先级反转·可运行等待",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",
 			},

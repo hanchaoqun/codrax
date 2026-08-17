@@ -125,12 +125,12 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 // lane no longer leaks the bare wire token; the detail 类型 row keeps it
 // (§22.2.1 兜底结构).
 func TestUXALeadBlockingSpanZHLabel(t *testing.T) {
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", true); got != "持锁阻塞（blocking_span）" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", true); got != "持锁阻塞" {
 		t.Fatalf("zh narrative blocking_span = %q", got)
 	}
 	// RULE3-1 件8 (§29.182②): the EN narrative speaks the combined
 	// label-(token) form; the detail 类型 row below keeps the raw token.
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "lock-holder blocking (blocking_span)" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "lock-holder blocking" {
 		t.Fatalf("en narrative combined form drifted: %q", got)
 	}
 	if got := runtimeTraceCausalProjectionRawTypeToken(types.TraceCausalProjectionNode{Object: "blocking_span"}); got != "blocking_span" {
@@ -146,7 +146,7 @@ func TestUXAMissingWakeupDisplayWord(t *testing.T) {
 	if got := runtimeTraceCausalProjectionDisplayCauseName("missing_wakeup", true); got != "窗内未找到匹配唤醒记录" {
 		t.Fatalf("zh display cause = %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("missing_wakeup", true); got != "窗内未找到匹配唤醒记录（missing_wakeup）" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("missing_wakeup", true); got != "窗内未找到匹配唤醒记录" {
 		t.Fatalf("zh narrative = %q", got)
 	}
 	fence, _ := rcrOpendirFence(t, true)
@@ -164,7 +164,8 @@ func TestUXAMissingWakeupDisplayWord(t *testing.T) {
 		t.Fatalf("the ⊘链止 marker itself must survive:\n%s", flatFence)
 	}
 	// §22.2.1 兜底结构 (复核 pin 缺口 (i)): a row whose CAUSE word is the
-	// translated missing_wakeup keeps the raw token on the block's 类型 line.
+	// translated missing_wakeup keeps the same reader label on its 类型 line;
+	// raw identity belongs to the typed evidence/audit carrier.
 	tokenRow := types.TraceCausalProjection{
 		WakeupPath:    []string{"worker-9", "app-100"},
 		WindowStartTs: 100.0,
@@ -177,8 +178,8 @@ func TestUXAMissingWakeupDisplayWord(t *testing.T) {
 	}
 	tokenModel := buildRuntimeTraceProjTreeModel(tokenRow, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	blocks := runtimeTraceProjDetailFullText(tokenModel, true)
-	if !strings.Contains(blocks, "- 类型: missing_wakeup") {
-		t.Fatalf("the raw token must survive on the 类型 lossless line:\n%s", blocks)
+	if !strings.Contains(blocks, "- 类型: 窗内未找到匹配唤醒记录") || strings.Contains(blocks, "missing_wakeup") {
+		t.Fatalf("the 类型 reader line must use the localized label without leaking the wire token:\n%s", blocks)
 	}
 	if !strings.Contains(blocks, "窗内未找到匹配唤醒记录") {
 		t.Fatalf("the zh display word must lead the block name:\n%s", blocks)
@@ -467,8 +468,8 @@ func TestUXABoundaryTruncateNoMidWordResidue(t *testing.T) {
 }
 
 // TestUXAConclusionLeadSpeaksZhBlockingWord — end-to-end: a rank-lane lead
-// whose Object is the bare blocking_span token renders the zh label + token
-// pair on the conclusion line (fixture mirrors the opendir lead shape).
+// whose Object is the bare blocking_span token renders the zh reader label
+// on the conclusion line (fixture mirrors the opendir lead shape).
 func TestUXAConclusionLeadSpeaksZhBlockingWord(t *testing.T) {
 	projection := rcrHopOnlyProjection(112.175, 112.223)
 	projection.PrimaryRootCauses = []types.TraceCausalProjectionNode{{
@@ -481,11 +482,11 @@ func TestUXAConclusionLeadSpeaksZhBlockingWord(t *testing.T) {
 	}}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "持锁阻塞（blocking_span）") {
-		t.Fatalf("the lead must speak the zh label with the token in parens: %q", line)
+	if !strings.Contains(line, "持锁阻塞") {
+		t.Fatalf("the lead must speak the zh reader label: %q", line)
 	}
-	if strings.Contains(strings.ReplaceAll(line, "持锁阻塞（blocking_span）", ""), "blocking_span") {
-		t.Fatalf("no bare wire token outside the labeled pair: %q", line)
+	if strings.Contains(line, "blocking_span") {
+		t.Fatalf("the reader lead must not expose the wire token: %q", line)
 	}
 }
 

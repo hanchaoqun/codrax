@@ -21487,17 +21487,45 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("\n### Verified stage-order edge recipes\n\n")
 	b.WriteString("- Each row below is one complete, checkout-verified authoring recipe. If you choose to draw that stage-order edge, select either its stage identity pair or its agent identity pair, preserve that exact pair in `edge_anchors.from_identity/to_identity`, and set `relation_kind=precedence`. Diagram node IDs remain your choice and must match `from_node/to_node`; visible labels remain business/domain copy.\n")
 	b.WriteString("- These recipes prove only adjacent stage precedence. They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality; those relations still require their own typed evidence.\n")
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 	for i, relation := range precedence {
-		fmt.Fprintf(&b, "- stage_precedence[%d]: from_stage=`%s` (`%s`); from_agent=`%s` (`%s`); to_stage=`%s` (`%s`); to_agent=`%s` (`%s`); relation_kind=`precedence`; source=`%s:%d-%d`.\n",
+		fmt.Fprintf(&b, "- stage_precedence[%d]: from_stage=`%s` (`%s`); from_agent=`%s` (`%s`); to_stage=`%s` (`%s`); to_agent=`%s` (`%s`); relation_kind=`precedence`; visible_arrow_label=%q; source=`%s:%d-%d`.\n",
 			i+1,
 			relation.From.StageIdent, relation.From.StageValue,
 			relation.From.AgentIdent, relation.From.AgentValue,
 			relation.To.StageIdent, relation.To.StageValue,
 			relation.To.AgentIdent, relation.To.AgentValue,
+			answerDocReadStageTransitionReaderLabel(relation.From.StageValue, relation.To.StageValue, zh),
 			relation.SourceFile, relation.LineStart, relation.LineEnd)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocReadStageTransitionReaderLabel(from, to string, zh bool) string {
+	pair := strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
+	if zh {
+		switch pair {
+		case "analyze\x00explore":
+			return "确定分析范围后收集证据"
+		case "explore\x00extract":
+			return "证据就绪后提炼事实"
+		case "extract\x00finalize":
+			return "结构化事实就绪后组织答案"
+		default:
+			return "进入下一阶段"
+		}
+	}
+	switch pair {
+	case "analyze\x00explore":
+		return "scope the analysis, then gather evidence"
+	case "explore\x00extract":
+		return "turn gathered evidence into structured facts"
+	case "extract\x00finalize":
+		return "compose the answer from structured facts"
+	default:
+		return "continue to the next stage"
+	}
 }
 
 func answerDocStageArtifactGroupingRequested(ctx *types.AgentContext) bool {

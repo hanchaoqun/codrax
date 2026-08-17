@@ -151,8 +151,16 @@ func renderAnswerDocDiagramStructuralCompositionHandoff(ctx *types.AgentContext)
 	for i, row := range rows {
 		fmt.Fprintf(&b, "- no_arrow_ownership_group[%d]: owner=`%s`; member=`%s`; type=`%s`; source=`%s:%d`; directed_relation_authority=`none`; representation=`visible_owner_group_with_visible_nested_member`.\n",
 			i+1, row.owner, row.member, row.typ, row.source, row.line)
+		fmt.Fprintf(&b, "  copy_ready_no_arrow_mermaid[%d]:\n    subgraph ownership_group_%d[\"%s\"]\n      ownership_member_%d[\"%s<br/>%s\"]\n    end\n",
+			i+1, i+1, answerDocNoArrowMermaidLabel(row.owner), i+1,
+			answerDocNoArrowMermaidLabel(row.member), answerDocNoArrowMermaidLabel(row.typ))
 	}
 	b.WriteString("- A separately proved local operation may be drawn inside the matching participant group with its own exact technical endpoints and anchor. It remains a local fact and cannot close the missing inter-participant transfer. Keep any proved request-scoped spine unchanged in a sibling visual region; do not add an arrow between the spine and the ownership group without its own typed operation.\n")
 	b.WriteString("- Reader-facing diagram copy: source locations, recipe/validator terms, raw relation kinds such as `precedence`/`call`, and `@ file:line` suffixes belong in citations or typed anchors, not in visible node/message labels. Write visible labels as concise repository/domain responsibilities and actions; this display guidance cannot add, remove, reverse, or reconnect any relation. The model still authors all visible wording, selection, layout, and conclusions.\n\n")
 	return b.String()
+}
+
+func answerDocNoArrowMermaidLabel(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "\\\\")
+	return strings.ReplaceAll(value, "\"", "\\\"")
 }

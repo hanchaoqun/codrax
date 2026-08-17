@@ -212,10 +212,11 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	if aggregateRow[3] != "—" {
 		t.Fatalf("off-chain aggregate must not acquire root-ranking attribution: %q\nrow: %v", aggregateRow[3], aggregateRow)
 	}
-	// The raw type token stays reachable on the per-artifact (b) blocks.
+	// Reader detail uses the shared display lexicon; raw tokens remain in the
+	// explicit evidence/audit carriers.
 	detailFullA := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1_detail_full")
-	if detailFullA == nil || !strings.Contains(detailFullA.Text, "- 类型: supply_pressure") {
-		t.Fatalf("per-artifact (b) blocks must keep the raw type token: %+v", detailFullA)
+	if detailFullA == nil || !strings.Contains(detailFullA.Text, "- 类型: 调度压力(需求积压)") {
+		t.Fatalf("per-artifact (b) blocks must use the reader type label: %+v", detailFullA)
 	}
 	// The identity-less record renders only through the partition caveat.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无工件归属 → 无法归属到任一 trace 文件 (其他族)

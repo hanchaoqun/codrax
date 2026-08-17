@@ -9532,6 +9532,7 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		Mode:     types.ModeRead,
 		RepoRoot: repo,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Language: "zh-CN",
 			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
 				IsDimensionedAnswer: true,
 				Dimensions: []types.RequestedAnswerDimension{{
@@ -9584,9 +9585,9 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"### Verified stage-order edge recipes",
 		"one complete, checkout-verified authoring recipe",
 		"preserve that exact pair in `edge_anchors.from_identity/to_identity`, and set `relation_kind=precedence`",
-		"stage_precedence[1]: from_stage=`StageAnalyze` (`analyze`); from_agent=`AgentAnalyzer` (`analyzer`); to_stage=`StageExplore` (`explore`); to_agent=`AgentExplorer` (`explorer`); relation_kind=`precedence`",
-		"stage_precedence[2]: from_stage=`StageExplore` (`explore`); from_agent=`AgentExplorer` (`explorer`); to_stage=`StageExtract` (`extract`); to_agent=`AgentExtractor` (`extractor`); relation_kind=`precedence`",
-		"stage_precedence[3]: from_stage=`StageExtract` (`extract`); from_agent=`AgentExtractor` (`extractor`); to_stage=`StageFinalize` (`finalize`); to_agent=`AgentFinalizer` (`finalizer`); relation_kind=`precedence`",
+		"stage_precedence[1]: from_stage=`StageAnalyze` (`analyze`); from_agent=`AgentAnalyzer` (`analyzer`); to_stage=`StageExplore` (`explore`); to_agent=`AgentExplorer` (`explorer`); relation_kind=`precedence`; visible_arrow_label=\"确定分析范围后收集证据\"",
+		"stage_precedence[2]: from_stage=`StageExplore` (`explore`); from_agent=`AgentExplorer` (`explorer`); to_stage=`StageExtract` (`extract`); to_agent=`AgentExtractor` (`extractor`); relation_kind=`precedence`; visible_arrow_label=\"证据就绪后提炼事实\"",
+		"stage_precedence[3]: from_stage=`StageExtract` (`extract`); from_agent=`AgentExtractor` (`extractor`); to_stage=`StageFinalize` (`finalize`); to_agent=`AgentFinalizer` (`finalizer`); relation_kind=`precedence`; visible_arrow_label=\"结构化事实就绪后组织答案\"",
 		"source=`internal/types/enums.go:",
 		"They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality",
 	} {

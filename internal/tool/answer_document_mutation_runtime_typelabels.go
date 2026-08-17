@@ -1,20 +1,20 @@
 package tool
 
-// §7.30.3 D2/D4 — three-tier fidelity for root-cause type tokens:
-//   narrative lanes (lead line)   = zh label（raw token） on the zh surface;
-//   tree / cause rows             = concise zh label only;
-//   lossless detail table         = a dedicated 类型 column keeps the raw
-//                                   English token verbatim (audit fidelity).
-// The EN surface keeps raw tokens everywhere (they are already aligned).
-// Unmapped tokens always render verbatim — labels are never fabricated.
+// §7.30.3 D2/D4 — role-separated fidelity for root-cause type tokens:
+//   reader surfaces (lead/tree/detail) = localized reader label only;
+//   typed evidence / audit carriers    = raw wire token verbatim.
+// The roles deliberately do not share one display string: audit identity stays
+// machine-stable while customer-facing prose does not expose an internal
+// snake_case enum. Unmapped tokens render verbatim rather than fabricating a
+// meaning.
 //
 // PTV7 (#74, 用户裁定 2026-07-06, 内核状态词英文原词化): labels whose CONTENT
 // is a kernel scheduler state speak the canonical English state token
 // (running/runnable/sleep/D-state/iowait; the ambiguous producer compound
 // keeps its honest two-sided D-state/iowait) — the tag / action / cause lanes
 // share ONE token set and the Chinese state semantics live solely in the
-// legend's state-icon entries. When a zh label equals its raw token the D4
-// combined form collapses to the bare token (no label（label） echo). Product
+// legend's state-icon entries. When a reader label equals its raw token it
+// naturally collapses to the bare token (no label（label） echo). Product
 // compound words (优先级反转候选 / 优先级反转·可运行等待), caliber words and
 // narrative frames stay Chinese per the same ruling.
 
@@ -117,7 +117,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// PTV8-RCR-B (UXA 域A #1 / 域D 漏审 S1, 2026-07-08): the lead sentence
 		// and the compare primary cell rendered the bare wire token — the zh
 		// word matches the E4 row / monitor_contention wording (one token, one
-		// translation); the raw token stays on the detail 类型 row (D2).
+		// translation); the raw token stays in typed evidence/audit carriers.
 		return "持锁阻塞"
 	case "missing_wakeup":
 		// PTV8-RCR-B (UXA 域A #22 / 域B #15 / 域D #7, 任务令终词 2026-07-08),
@@ -126,12 +126,12 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// window. It must not claim that the physical wakeup did not happen.
 		// Display-only; the
 		// registry wakeup_chain lane is untouched (红线 §7.2.1/§7.4/§7.5) and
-		// the raw token stays on the detail 类型 row / evidence predicate.
+		// the raw token stays on the evidence predicate / audit carrier.
 		return "窗内未找到匹配唤醒记录"
 	case "trace_gap":
 		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07): the diagnostic trace_gap
-		// marker's display word — the raw token stays on the detail table's
-		// 类型 column; registry LabelZhRef column moved in lockstep (golden
+		// marker's display word — the raw token stays in typed evidence/audit
+		// carriers; registry LabelZhRef column moved in lockstep (golden
 		// EVOLUTION RECORD in causal_token_registry_golden_test.go).
 		return "数据盲区"
 	case "irq_burst":
@@ -160,8 +160,8 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 // the rest follow the same reader-word discipline. State-identity tokens
 // (runnable_wait/sleep_wait/running families) keep the bare kernel state
 // word exactly like the zh table. Returns "" for unmapped tokens — callers
-// keep the original token; the detail 类型 column and every wire key keep
-// the raw snake_case token (证据引用键位, deliberately NOT this lane).
+// keep the original token; every typed wire/audit key keeps the raw
+// snake_case token (证据引用键位, deliberately NOT this lane).
 func runtimeTraceRootCauseTypeENLabel(token string) string {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "priority_inversion_candidate":
@@ -286,8 +286,7 @@ func TraceRootCauseTypeDisplayLabel(token string, zh bool) string {
 // type=supply_pressure itself is deliberately untouched: migrating the token
 // is a separate R2' six-spot-sync adjudication (with an alias transition),
 // not this display relabel. All display points MUST route through this
-// helper; the detail-table 类型 column keeps the raw token for audit
-// fidelity.
+// helper; typed evidence/audit carriers keep the raw token for fidelity.
 func runtimeTraceSupplyPressureDisplayLabel(zh bool) string {
 	if zh {
 		return "调度压力(需求积压)"
@@ -340,8 +339,8 @@ func runtimeTraceAggregateTypeShapeLabel(token string, zh bool) string {
 // wire token 留证据引用键位)」. The EN face now consumes its OWN label table
 // (runtimeTraceRootCauseTypeENLabel — same token universe as the zh table, so
 // zh/EN can never diverge in seat coverage); the raw snake_case wire token
-// keeps its seats on the detail 类型 column, the evidence index and every
-// wire/JSON key (runtimeTraceCausalProjectionRawTypeToken lane, untouched).
+// keeps its seats in the evidence index and every wire/JSON key
+// (runtimeTraceCausalProjectionRawTypeToken lane, untouched).
 func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 	// CMP-10 (§7.4): supply_pressure is display-relabeled on BOTH surfaces
 	// (the EN raw-token rule is intentionally overridden for this one token —
@@ -639,40 +638,45 @@ func runtimeTraceCausalProjectionImpactPointBareState(token string) bool {
 	return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: token}, true) != ""
 }
 
-// runtimeTraceCausalProjectionNarrativeCauseName is the narrative lane (D4):
-// on the zh surface a recognized type token renders as label（english_token）,
-// e.g. 优先级反转候选（priority_inversion_candidate）; EN and unmapped tokens
-// render verbatim. PTV7 (#74): a label equal to its raw token (the running
-// state-family label) collapses to the bare token — no label（label） echo.
+// runtimeTraceCausalProjectionNarrativeCauseName is the reader narrative lane.
+// Recognized typed values use the shared localized label only; their raw wire
+// identity remains lossless in structured records and the explicit evidence
+// index. Unmapped values stay verbatim because no display meaning may be
+// fabricated. PTV7 (#74): a label equal to its raw token naturally collapses
+// to the same bare word.
 func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string {
 	raw = strings.TrimSpace(raw)
 	if zh {
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
-			if label == raw {
-				return raw
-			}
-			return label + "（" + raw + "）"
+			return label
 		}
 	}
-	// RULE3-1 件8 (§29.182②, 2026-07-21): the EN narrative lane speaks the
-	// same reader label as the EN display lane, in the D4 combined form the
-	// zh narrative always had (label + raw wire token — the supply_pressure
-	// arm below established exactly this EN grammar): the verdict word is
-	// readable while the raw token stays quotable (证据引用键位).
+	// RULE3-1 件8 (§29.182②, 2026-07-21), refined by the reader/audit
+	// separation: the EN narrative lane speaks the same reader label as the EN
+	// display lane; the raw token remains quotable through typed evidence and
+	// audit keys, not through customer-facing prose.
 	if !zh {
 		if label := runtimeTraceRootCauseTypeENLabel(raw); label != "" {
-			if label == raw {
-				return raw
-			}
-			return label + " (" + raw + ")"
+			return label
 		}
 	}
 	// CMP-10 (§7.4): the EN narrative also carries the demand-backlog
-	// relabel while keeping the raw wire token for audit fidelity.
+	// relabel; raw wire identity remains in typed/audit carriers.
 	if runtimeTraceSupplyPressureToken(raw) {
-		return runtimeTraceSupplyPressureDisplayLabel(false) + " (" + raw + ")"
+		return runtimeTraceSupplyPressureDisplayLabel(false)
 	}
 	return runtimeTraceCausalProjectionDisplayNodeName(raw, zh)
+}
+
+// runtimeTraceCausalProjectionDetailTypeLabel is the reader-facing full-detail
+// type lane. The raw token is available separately through
+// runtimeTraceCausalProjectionRawTypeToken for evidence/audit identities.
+func runtimeTraceCausalProjectionDetailTypeLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	raw := runtimeTraceCausalProjectionRawTypeToken(node)
+	if label := TraceRootCauseTypeDisplayLabel(raw, zh); label != "" {
+		return label
+	}
+	return raw
 }
 
 // runtimeTraceCausalProjectionSemanticSpanRow is the ONE semantic-span row
@@ -977,8 +981,8 @@ func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, 
 	return "", false
 }
 
-// runtimeTraceCausalProjectionRawTypeToken supplies the detail table's 类型
-// column (D2 audit fidelity): the raw English type token backing this row —
+// runtimeTraceCausalProjectionRawTypeToken supplies the audit/evidence lane's
+// raw English type token backing this row —
 // the Object when it is a recognized type token, the typed semantic class for
 // span rows, or the typed BlockingKind for contention rows. "" = no type
 // token (the caller renders a dash).

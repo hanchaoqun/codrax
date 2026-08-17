@@ -739,7 +739,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	if detailFull == nil || detailFull.Kind != types.BlockSection {
 		t.Fatalf("missing T10 (b) lossless vertical blocks:\n%s", text)
 	}
-	for _, want := range []string{"- 层级: ", "- 因果位置: ", "- 关系: ", "- 影响形态: ", "- 类型: io_wait"} {
+	for _, want := range []string{"- 层级: ", "- 因果位置: ", "- 关系: ", "- 影响形态: ", "- 类型: iowait"} {
 		if !strings.Contains(detailFull.Text, want) {
 			t.Fatalf("(b) blocks missing %q:\n%s", want, detailFull.Text)
 		}
@@ -747,7 +747,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	// PTV6-C #6 (#73): the blocking action word is absorbed by the row's own
 	// iowait state tag (近义收敛, typed) — the fact surface asserts the state
 	// word (PTV7 canonical face: iowait).
-	for _, want := range []string{"threadpool-400 / iowait", "11.000ms", "iowait", "确定性优化点", "VerifyClass com.example.Foo", "class_verification"} {
+	for _, want := range []string{"threadpool-400 / iowait", "11.000ms", "iowait", "确定性优化点", "VerifyClass com.example.Foo", "类校验"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("projection should surface fact %q:\n%s", want, text)
 		}
@@ -1260,8 +1260,8 @@ func TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText(t *
 	if !strings.Contains(rendered, "VerifyClass com.example.Foo") {
 		t.Fatalf("the concrete low-impact semantic span name must survive to rendered text: %q", rendered)
 	}
-	if !strings.Contains(rendered, "class_verification") {
-		t.Fatalf("the semantic class must survive to rendered text: %q", rendered)
+	if !strings.Contains(rendered, "类校验") || strings.Contains(rendered, "class_verification") {
+		t.Fatalf("the semantic class must survive through its reader-facing label without leaking the wire enum: %q", rendered)
 	}
 	// v3: the anchor window renders as the lead's explicit window line (in-window
 	// nodes carry no marker; only outside/crossing nodes get ⚠).
@@ -1328,7 +1328,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
 	// PTV5 C21 (#68): the headline magnitude carries its caliber word.
-	for _, want := range []string{"**Primary root cause (= the largest single proven on-chain eliminable contribution):** threadpool-400 iowait (io_wait) chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
+	for _, want := range []string{"**Primary root cause (= the largest single proven on-chain eliminable contribution):** threadpool-400 iowait chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}

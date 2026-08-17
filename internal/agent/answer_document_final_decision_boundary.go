@@ -195,12 +195,13 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- compact_unknowns: evidence_absence_implication=`unknown_not_false`; target_direct_blocking_not_established_does_not_prove_no_external_blocking=`true`; cross_direction_physical_relation=`unresolved_unless_an_exact_pair_row_says_otherwise`; absent_overlap_record_proves_independence=`false`; cause_decomposition_status=`not_closed_by_state_partition_or_ranked_seat_roster`; exhaustive_cause_wording=`requires_one_exact_typed_additive_cause_partition`. An unestablished typed mechanism is unknown, not physically absent; missing relation evidence authorizes neither `independent` nor `no overlap`; a target state partition closes only what state the target experienced, not why it experienced it.\n")
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString(renderTraceFinalSynthesisScope(set, authority.FrameEvidenceStatus))
-	b.WriteString(renderTraceFinalPrincipalRankPopulation(set))
+	lang := extractAnswerDocLang(ctx)
+	b.WriteString(renderTraceFinalPrincipalRankPopulation(set, lang))
 	var causalClaimContract *types.TraceCausalClaimContract
 	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil {
 		causalClaimContract = view.TraceCausalClaimContract
 	}
-	b.WriteString(renderTraceFinalReaderFacingLanguageHandoff(set, causalClaimContract, extractAnswerDocLang(ctx)))
+	b.WriteString(renderTraceFinalReaderFacingLanguageHandoff(set, causalClaimContract, lang))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
 }
@@ -218,6 +219,7 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 	var b strings.Builder
 	b.WriteString("- reader_facing_control_metadata_policy=`json_only_never_visible`: raw JSON field names, enum literals, authority/status keys, and their snake_case values belong only in structured fields and audit carriers. Never repeat them in the model-authored lead, headings, parenthetical explanations, lists, tables, caveats, or diagrams. Express the same evidence boundary naturally; this changes no measurement, rank, causal ceiling, or conclusion. This is authoring guidance only; no model-authored prose is scanned, rejected, deleted, translated, or rewritten.\n")
 	if contract != nil && contract.Active() {
+		meanings := make([]string, 0, len(contract.Allowed))
 		for _, caliber := range contract.Allowed {
 			meaning := ""
 			if zh {
@@ -244,8 +246,11 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 				}
 			}
 			if meaning != "" {
-				fmt.Fprintf(&b, "  - causal_caliber_reader_wording control_value=`%s`; json_field_only=true; visible_meaning=%q. Choose the caliber in JSON, then write this meaning in your own natural conclusion without naming the control value.\n", caliber, meaning)
+				meanings = append(meanings, meaning)
 			}
+		}
+		if len(meanings) > 0 {
+			fmt.Fprintf(&b, "  - permitted_reader_causal_scope=%q. The structured summary still selects its required caliber value, while visible prose states only the corresponding natural scope and never its control value.\n", strings.Join(meanings, "；"))
 		}
 	}
 
@@ -272,7 +277,7 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 						continue
 					}
 					seen[key] = true
-					fmt.Fprintf(&b, "  - cause_kind_reader_wording control_value=`%s`; visible_label=%q; raw_parenthetical_forbidden=true. Use the visible label in model-authored prose and keep the control value only in typed/audit fields.\n", token, label)
+					fmt.Fprintf(&b, "  - permitted_reader_cause_label=%q; raw_parenthetical_forbidden=true. Use only this reader label in model-authored prose; the wire identity stays in typed/audit fields and is intentionally omitted from this reader-facing handoff.\n", label)
 				}
 			}
 		}
@@ -286,7 +291,8 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 // query window is contextual evidence for this answer and cannot retain its
 // local board ordinal in the elected-window conclusion. This consumes only
 // compiled typed window/rank fields; it neither inspects nor rewrites prose.
-func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet) string {
+func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet, lang string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	var b strings.Builder
 	for index, projection := range set.Projections {
 		if !types.TraceCausalProjectionPrincipalWindowAuthoritative(projection) {
@@ -301,21 +307,32 @@ func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet)
 		if len(principal) == 0 && len(excluded) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "- selected_window_rank_population artifact=`%s`; selected_window=`%.6f..%.6f`; ordinal_authority=`principal_roster_only`; differently_windowed_rank_rows=`background_without_selected_window_ordinal`. The model owns the conclusion, but only the principal roster below may receive a #N ordinal in that selected-window conclusion.\n",
-			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs)
+		allowedOrdinals := make([]string, 0, len(principal))
 		for _, node := range principal {
-			fmt.Fprintf(&b, "  - principal_rank=`#%d`; subject=`%s`; cause_kind=`%s`; effective_attribution=%.3fms",
-				node.Rank, traceDecisionPromptScalar(strings.TrimSpace(node.Subject)),
-				traceDecisionPromptScalar(traceDecisionEliminableSeatKind(node)), node.EffectiveImpactMS)
+			allowedOrdinals = append(allowedOrdinals, fmt.Sprintf("#%d", node.Rank))
+		}
+		fmt.Fprintf(&b, "- selected_window_reader_rank_roster artifact=`%s`; selected_window=`%.6f..%.6f`; ranked_row_count=`%d`; allowed_visible_ordinals=`%s`; every_other_row=`unranked_context_or_symptom`. The model owns the conclusion, but only the rows below may receive these ordinals in the selected-window answer.\n",
+			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs,
+			len(principal), strings.Join(allowedOrdinals, ","))
+		for _, node := range principal {
+			causeLabel := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+			if causeLabel == "" {
+				if zh {
+					causeLabel = "已测链上候选"
+				} else {
+					causeLabel = "measured on-chain candidate"
+				}
+			}
+			fmt.Fprintf(&b, "  - reader_rank=`#%d`; subject=`%s`; reader_cause_label=%q; effective_attribution=%.3fms",
+				node.Rank, traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), causeLabel, node.EffectiveImpactMS)
 			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
 				fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`", start, end)
 			}
 			b.WriteByte('\n')
 		}
 		for _, node := range excluded {
-			fmt.Fprintf(&b, "  - contextual_rank_row subject=`%s`; local_board_rank=`#%d`; cause_kind=`%s`; effective_attribution=%.3fms; selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",
-				traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), node.Rank,
-				traceDecisionPromptScalar(traceDecisionEliminableSeatKind(node)), node.EffectiveImpactMS)
+			fmt.Fprintf(&b, "  - unranked_context_row subject=`%s`; effective_attribution=%.3fms; selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",
+				traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), node.EffectiveImpactMS)
 			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
 				fmt.Fprintf(&b, "; row_query_window=`%.6f..%.6f`", start, end)
 			}

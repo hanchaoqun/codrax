@@ -83,16 +83,18 @@ func dRoundTypeObs() []types.ObservationRecord {
 
 func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), dRoundTypeObs(), "")
-	// D4: bold lead label + 中文（token） combined narrative format.
-	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** dep-200 优先级反转候选（priority_inversion_candidate）") {
-		t.Fatalf("D4 lead must use bold label + combined zh(token) cause:\n%s", md)
+	// Reader lead keeps the localized cause label; raw identity remains in the
+	// explicit evidence/audit carriers.
+	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** dep-200 优先级反转候选") {
+		t.Fatalf("reader lead must use the localized cause label:\n%s", md)
 	}
 	// D2: tree rows show the concise zh label only.
 	if !strings.Contains(md, "dep-200 · 优先级反转候选") {
 		t.Fatalf("D2 tree row must show the concise zh label:\n%s", md)
 	}
-	// D2 (PTV4 T10): the raw tokens live on the (b) vertical blocks' 类型 line.
-	for _, want := range []string{"- 类型: priority_inversion_candidate", "- 类型: io_latency", "io-500 / IO延迟"} {
+	// D2 (PTV4 T10): reader-facing labels live on the vertical blocks; raw
+	// tokens remain lossless in the evidence index.
+	for _, want := range []string{"- 类型: 优先级反转候选", "- 类型: IO延迟", "io-500 / IO延迟"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("D2 detail blocks missing raw token %q:\n%s", want, md)
 		}
@@ -103,14 +105,13 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundTypeObs(), "en")
 	// EVOLUTION RECORD (RULE3-1 件8, §29.182② verbatim 「②维持族判词 EN 化…
 	// ◎/树判词面用词,wire token 留证据引用键位」, 2026-07-21): the EN tree/
-	// narrative faces now speak the reader verdict words (narrative in the D4
-	// combined label-(token) form); the raw snake_case token keeps exactly
-	// its audit seats — the detail 「- type:」 column stays verbatim.
+	// narrative/detail faces now speak reader verdict words; raw snake_case
+	// tokens remain in the explicit evidence/audit carriers.
 	for _, want := range []string{
-		"**Primary root cause (= the largest single proven on-chain eliminable contribution):** dep-200 priority inversion (candidate) (priority_inversion_candidate)",
+		"**Primary root cause (= the largest single proven on-chain eliminable contribution):** dep-200 priority inversion (candidate)",
 		"priority inversion (candidate) · root-cause rank #1 · confidence high",
 		"io-500 · IO latency",
-		"- type: priority_inversion_candidate",
+		"- type: priority inversion (candidate)",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("EN D2 rendering missing %q:\n%s", want, md)
@@ -183,9 +184,10 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundInversionObs(), "en")
 	// PTV6-C ruling B: the EN twin of the deleted shape word ("inversion
-	// impact") must not resurface either; identity rides the raw cause token.
-	if !strings.Contains(md, "priority_inversion_candidate") {
-		t.Fatalf("EN D3 inversion cause token missing:\n%s", md)
+	// impact") must not resurface either; the reader face uses the shared
+	// display label while raw identity remains confined to audit carriers.
+	if !strings.Contains(md, "priority inversion (candidate)") {
+		t.Fatalf("EN D3 inversion reader label missing:\n%s", md)
 	}
 	// PTV8-RCR-A (§24 ②): EN mirrors the 行3 breakdown + sub-rows.
 	despacedEN := vs2Despace(md)
@@ -202,7 +204,7 @@ func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 		t.Fatalf("deleted \"inversion impact\" shape word resurfaced (PTV6-C ruling B):\n%s", md)
 	}
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "priority_inversion_candidate") && strings.Contains(line, "| running") {
+		if strings.Contains(line, "priority inversion (candidate)") && strings.Contains(line, "| running") {
 			t.Fatalf("EN inversion row must not claim a single running state:\n%s", line)
 		}
 	}

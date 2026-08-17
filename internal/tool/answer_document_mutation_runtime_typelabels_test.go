@@ -79,15 +79,14 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 	if got := runtimeTraceCausalProjectionDisplayCauseName("page_cache_churn", false); got != "page-cache churn" {
 		t.Fatalf("EN tree lane must speak the §29.182② ruled word, got %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", false); got != "priority inversion (candidate) (priority_inversion_candidate)" {
-		t.Fatalf("EN narrative lane must use the label (token) combined format, got %q", got)
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", false); got != "priority inversion (candidate)" {
+		t.Fatalf("EN narrative lane must use the reader label while audit keeps the wire token, got %q", got)
 	}
 	if got := runtimeTraceCausalProjectionDisplayCauseName("runnable_delay", false); got != "runnable_delay" {
 		t.Fatalf("EN unmapped token must render raw, got %q", got)
 	}
-	// D4 combined format on the zh narrative lane.
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", true); got != "优先级反转候选（priority_inversion_candidate）" {
-		t.Fatalf("zh narrative lane must use the 中文（token） combined format, got %q", got)
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", true); got != "优先级反转候选" {
+		t.Fatalf("zh narrative lane must use the reader label while audit keeps the wire token, got %q", got)
 	}
 }
 

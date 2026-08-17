@@ -60,10 +60,9 @@ func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse
 	for _, want := range []string{
 		"reader_facing_control_metadata_policy=`json_only_never_visible`",
 		"raw JSON field names, enum literals, authority/status keys",
-		"control_value=`bounded_window_candidate`; json_field_only=true",
+		"permitted_reader_causal_scope=",
 		"结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因",
-		"without naming the control value",
-		"control_value=`priority_inversion_candidate`; visible_label=\"优先级反转候选\"",
+		"permitted_reader_cause_label=\"优先级反转候选\"",
 		"raw_parenthetical_forbidden=true",
 		"no model-authored prose is scanned, rejected, deleted, translated, or rewritten",
 	} {
@@ -81,7 +80,7 @@ func TestTraceFinalReaderFacingLanguageHandoffUsesEnglishDisplayLexicon(t *testi
 	got := renderTraceFinalReaderFacingLanguageHandoff(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, nil, "en",
 	)
-	if !strings.Contains(got, "control_value=`page_cache_churn`; visible_label=\"page-cache churn\"") {
+	if !strings.Contains(got, "permitted_reader_cause_label=\"page-cache churn\"") {
 		t.Fatalf("English reader lexicon was not reused:\n%s", got)
 	}
 }
@@ -1112,12 +1111,12 @@ func TestTraceFinalPrincipalRankPopulationSeparatesSelectedWindowOrdinalsFromCon
 		RankedSeats: []types.TraceCausalProjectionNode{expanded, principal},
 	}
 
-	got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "zh-CN")
 	for _, want := range []string{
-		"selected_window_rank_population artifact=`customer.systrace`; selected_window=`1.000000..1.010000`",
-		"ordinal_authority=`principal_roster_only`",
-		"principal_rank=`#1`; subject=`worker-1`; cause_kind=`priority_inversion_candidate`; effective_attribution=8.300ms",
-		"contextual_rank_row subject=`app-100`; local_board_rank=`#2`; cause_kind=`runnable_wait`; effective_attribution=0.020ms",
+		"selected_window_reader_rank_roster artifact=`customer.systrace`; selected_window=`1.000000..1.010000`",
+		"ranked_row_count=`1`; allowed_visible_ordinals=`#1`; every_other_row=`unranked_context_or_symptom`",
+		"reader_rank=`#1`; subject=`worker-1`; reader_cause_label=\"优先级反转候选\"; effective_attribution=8.300ms",
+		"unranked_context_row subject=`app-100`; effective_attribution=0.020ms",
 		"selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",
 		"row_query_window=`1.000000..1.011000`",
 	} {
@@ -1125,7 +1124,7 @@ func TestTraceFinalPrincipalRankPopulationSeparatesSelectedWindowOrdinalsFromCon
 			t.Fatalf("selected-window rank population missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "principal_rank=`#2`") {
+	if strings.Contains(got, "reader_rank=`#2`") || strings.Contains(got, "cause_kind=`") {
 		t.Fatalf("different-window rank row leaked into the selected-window ordinal roster:\n%s", got)
 	}
 }
@@ -1138,7 +1137,7 @@ func TestTraceFinalPrincipalRankPopulationRequiresTypedPrincipalWindowAuthority(
 			ChainRelevance: "on_chain", RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.011,
 		}},
 	}
-	if got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}); got != "" {
+	if got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "en"); got != "" {
 		t.Fatalf("an uncorroborated multi-board display ruler must not mint selected-window ordinal authority:\n%s", got)
 	}
 }

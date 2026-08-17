@@ -656,8 +656,8 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 		t.Fatalf("deleted 反转影响 shape word resurfaced (PTV6-C ruling B):\n%s", line)
 	}
 	// T1 upgrade: the formerly-elided extras are all reachable in the fence.
-	// PTV6-C #6: the 影响点 tokens speak the D4 中文（token） combined form.
-	for _, want := range []string{"链上累计5.997ms", "影响点 优先级反转·可运行等待（priority_inversion_runnable_wait）/runnable"} {
+	// PTV6-C #6: recognized 影响点 tokens use reader-facing labels.
+	for _, want := range []string{"链上累计5.997ms", "影响点 优先级反转·可运行等待/runnable"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("demoted tag %q must survive on a subordinate line:\n%s", want, line)
 		}

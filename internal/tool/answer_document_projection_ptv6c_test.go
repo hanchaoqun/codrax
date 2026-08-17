@@ -305,14 +305,15 @@ func TestPTV6CStateLabelAbsorbsActionRestatement(t *testing.T) {
 
 func TestPTV6CImpactPointD4CombinedForm(t *testing.T) {
 	cases := []struct{ token, zh, en string }{
-		// PTV7: an identity echo collapses to the bare token; alias tokens
-		// keep the combined audit form; product compounds keep the D4 form.
+		// PTV7: an identity echo collapses to the bare token; scheduler-state
+		// aliases keep the existing state audit form; recognized cause families
+		// use reader labels while raw identities remain in explicit audit rows.
 		{"runnable", "runnable", "runnable"},
 		{"s_sleep", "sleep（s_sleep）", "s_sleep"},
 		// RULE3-1 件8 (§29.182②): the EN impact-point lane speaks the D4
 		// combined label-(token) form, mirroring the zh lane.
-		{"priority_inversion_runnable_wait", "优先级反转·可运行等待（priority_inversion_runnable_wait）", "priority-inversion runnable wait (priority_inversion_runnable_wait)"},
-		{"priority_inversion_runnable_wait/runnable", "优先级反转·可运行等待（priority_inversion_runnable_wait）/runnable", "priority-inversion runnable wait (priority_inversion_runnable_wait)/runnable"},
+		{"priority_inversion_runnable_wait", "优先级反转·可运行等待", "priority-inversion runnable wait"},
+		{"priority_inversion_runnable_wait/runnable", "优先级反转·可运行等待/runnable", "priority-inversion runnable wait/runnable"},
 		{"udk-irq-10-90", "udk-irq-10-90", "udk-irq-10-90"}, // unmapped: verbatim, never fabricated
 	}
 	for _, tc := range cases {
@@ -923,7 +924,7 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	if strings.Contains(fence, "反转影响") {
 		t.Fatalf("deleted 反转影响 resurfaced:\n%s", fence)
 	}
-	if !strings.Contains(fence, "影响点 优先级反转·可运行等待（priority_inversion_runnable_wait）") {
+	if !strings.Contains(fence, "影响点 优先级反转·可运行等待") {
 		t.Fatalf("影响点 must ride the D4 combined form:\n%s", fence)
 	}
 	// 关键行二 (成因 row): 名称即全词 (PTV7: runnable) → 重复 chip 融掉 (前:
