@@ -35870,6 +35870,45 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1014 r645：严格 JSON 单批正证；配置默认值三种口径混淆并被 oracle 假绿（2026-08-17）
+
+1. 在 `main@ba22c9864` 严格并发恰好两个异构案例：
+   `data_json_strict_ids + read_combo_config_two_knobs_precedence`。Runner `2/2 PASS`，人工为
+   `1 PASS / 1 FAIL`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_json_config_r645_20260817_manual_audit.md`。
+2. 严格 JSON 可见结果精确为 `{"ids":["u1","u3"]}`，本轮模型选择一个直接终态
+   `custom_transform`，1 个 data round、0 action failure、0 deferred queue，耗时 45s。它证明 B1015
+   没有误伤 freshly planned terminal script，但没有命中 r644 的多 rank 脚本后缀形；代码 pin 已覆盖
+   后缀不排队与历史队列淘汰，生产状态仍诚实记为待异构重现。
+3. Config 案例 Runner 假绿。`pipeline_max_steps` 的 code default=50 与三层顺序正确；
+   `pipeline_max_retries_per_stage` 的真实生产基线在 `cmd/root.go:3147`：
+   `MaxRetriesPerStage: 3`。终稿却把 flag 注册的 0（仅表示未显式 CLI 时继承）和
+   `codrax.yaml.example` 的过期注释 Default 2 当作代码默认，并错误声称生产代码没有显式基线。
+4. 根因是 B1016（P1）：QFConfigPrecedence 上下文只宽泛要求 default/config/runtime/override 角色，
+   没有把“生产初始化基线”“配置示例的文档建议值”“CLI parser 的 inherit sentinel”分开。Explorer
+   首轮整文件读取被截断，后续只读 flag 注册、merge 与示例窗口，没有读 settings struct literal，仍以
+   high confidence 发出错误 aggregate；Finalizer 收到的主值已经被污染，且没有角色口径提醒来拒绝猜测。
+5. 修复采用 family/bucket 驱动的软证据纪律，不做用户/模型正文关键词硬门：每个用户 bucket 分别定位
+   production initializer/constant、config field/override assignment、CLI registration 及显式 changed guard；
+   code default 只能来自生产基线锚，示例注释与 CLI sentinel 必须按自身口径披露。若某 cell 无对应锚，
+   模型应标未核实而非跨层借值。Finalizer 的 principal evidence guidance 使用同一规则，系统不代算也不
+   改写结论。
+6. Eval oracle 同步修正：裸数字 `3` 不再算通过，必须出现“代码默认值为/=/is 3”或源码初始化
+   `MaxRetriesPerStage: 3`。这修的是已知答案验收精度，不进入生产回答门。表格首列重复暂记次级展示
+   观察项，等待不同表格形复现，避免为单案硬拟合。
+7. 本批不修改 Trace。显式时间窗、因果投影、系统补齐、链上-only 根因和背景 support-only 保持；
+   活跃字节流没有固定 4ms/4s 降级。
+
+状态：
+
+`r645=runner-2/2+human-1/2`；
+`B1015-DEFERREDSCRIPTSTAGECONTRACT1=code-pinned+terminal-script-production-positive/pending-multirank-production-replay`；
+`B1016-CONFIGDEFAULTPROVENANCE1=confirmed/P1/pending-soft-evidence-discipline+oracle-fix`；
+`config-structured-table-leading-duplicate=observed-once/P2-watch`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
