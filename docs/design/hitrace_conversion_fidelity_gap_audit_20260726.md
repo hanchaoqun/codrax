@@ -6733,3 +6733,100 @@ success proves CVT-I1 for the real official binary; if the child still fails,
 auto mode must now preserve the provider failure/fallback decision without the
 delete-pending masking error. The WSL route should no longer reject `/mnt/d`
 mode `0777`; its private staging must be under Linux-home `.codrax`.
+
+## CVT-WINERR long input / DrvFS publication replay (2026-08-16)
+
+Customer evidence:
+
+- `/Users/han/opt/customlogs/trace_cvt_winerr.txt`;
+- the same `211,307,693`-byte trace and long customer basename;
+- native Windows embedded `trace_streamer` still exits in about `700ms` with
+  empty stdout/stderr;
+- WSL embedded `trace_streamer` exports its SQLite DB in `7s`, completes
+  `2m21.5s` of DB-to-text work, and fails only while publishing the sealed
+  output to `/mnt/d`.
+
+This replay proves that CVT-I3's secure WSL staging fallback is effective: the
+child and private conversion DB now live under Linux-home `.codrax`, and the
+official parser succeeds. It also exposes two deeper, independent portability
+gaps.
+
+### CVT-W1 — the exact basename still overflows the native child transport
+
+CVT-I1 shortened the private directory leaf but deliberately retained the
+exact input basename. That is insufficient for this longer filename: the
+official Windows child still receives a private input path beyond a
+conservative legacy path budget and exits before emitting a diagnostic.
+
+The new fix compacts only the immutable child-private transport leaf when the
+native Windows input snapshot path exceeds `240` UTF-16 code units. It becomes
+`input` plus the bounded original extension (for this trace, `input.sys`). The
+customer-visible input path, output path, provenance, hashes and diagnostic
+identity remain exact. Ordinary Windows paths and every non-Windows path keep
+the exact basename. This is a geometry-based compatibility decision, not a
+filename/content keyword rule.
+
+When a native Windows child returns no bytes, the provider error now also
+reports only bounded path geometry: executable/input/DB UTF-16 lengths, the
+legacy budget, and whether the private leaf was compacted. It never prints the
+private argv paths through this diagnostic. This makes a remaining official
+child limitation distinguishable from an opaque parser failure without asking
+the customer for a larger log.
+
+The native root cause remains a high-confidence implementation inference until
+the customer runs a Windows build containing this change. The previous
+`invalid_magic=0xdf49` built-in fallback message is not evidence of damaged
+input: it only says this file is not the separate RMQ container understood by
+that fallback decoder.
+
+### CVT-W2 — DrvFS rejects `O_TMPFILE` for final-output publication
+
+The WSL failure is exact and occurs after successful parsing and text
+construction:
+
+```text
+create unnamed sealed conversion output publication inode: operation not supported
+```
+
+The sealed Linux publisher formerly required `O_TMPFILE`. DrvFS can provide
+ordinary exclusive files and atomic same-directory publication while rejecting
+that optional unnamed-inode facility. Treating this capability difference as a
+conversion failure discarded more than two minutes of successful work.
+
+The publisher now keeps `O_TMPFILE` as its first choice. Only the typed
+unsupported-operation family (`EOPNOTSUPP`/`ENOTSUP`, `EINVAL`, `ENOSYS` or
+`EISDIR`) activates a named compatibility generation in the already-held
+output parent. That generation:
+
+- uses a random 128-bit `.codrax-publish-*.tmp` leaf with exclusive creation,
+  `O_NOFOLLOW`, mode `0600`, and a held file descriptor;
+- preserves the sealed source bytes, size and requested permissions, syncs the
+  file, and revalidates the source before publication;
+- verifies the parent-relative binding against the held descriptor's device
+  and inode;
+- publishes with `renameat2(RENAME_NOREPLACE)`, using a no-replace hard link
+  only when the rename flag itself is unsupported;
+- never overwrites a racing final owner and cleans the compatibility leaf on
+  every success or failure path.
+
+No new directory is created. The compatibility file exists only transiently
+in the destination directory because cross-filesystem rename cannot safely
+publish a file staged under Linux-home `.codrax` onto `/mnt/d`.
+
+### Verification and remaining replay obligation
+
+Local tests cover exact named-fallback output, retained publication authority,
+no-replace collision behavior, temporary-leaf cleanup, Windows UTF-16 path
+geometry, extension preservation, non-Windows/existing short-path invariance,
+and path-free empty-child diagnostics. The complete `internal/hitraceconv`
+suite passed on the development host. `CGO_ENABLED=0` test-binary compilation
+also passed for `linux/amd64` and `windows/amd64`; the cross-compiled binaries
+were not falsely reported as executed on the macOS host.
+
+After delivery, one customer replay is still required. The WSL route is
+expected to finish rather than repeat CVT-W2 because the log already proves all
+earlier parsing and normalization stages succeed. The Windows route is
+expected to get past CVT-W1; if the official child still exits, its new bounded
+geometry diagnostic will determine whether another path is over budget or the
+official parser has an independent failure. Neither outcome should be reported
+as guaranteed before that replay.

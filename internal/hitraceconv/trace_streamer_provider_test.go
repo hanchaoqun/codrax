@@ -50,6 +50,34 @@ func TestTraceStreamerInputSnapshotLeafPreservesExactBasenameAndRejectsArtifacts
 	}
 }
 
+func TestTraceStreamerWindowsLongSnapshotLeafCompactsOnlyPrivateTransportName(t *testing.T) {
+	staging := `C:\Users\customer\.codrax\ts-0123456789abcdef0123456789abcdef`
+	short := "record_trace_20260812035041@32095-930824219.sys"
+	if got, compacted := traceStreamerInputSnapshotLeafForPlatform(staging, short, "windows"); got != short || compacted {
+		t.Fatalf("ordinary Windows snapshot basename changed: got=%q compacted=%t", got, compacted)
+	}
+	long := strings.Repeat("customer_capture_", 18) + ".sys"
+	got, compacted := traceStreamerInputSnapshotLeafForPlatform(staging, long, "windows")
+	if got != "input.sys" || !compacted {
+		t.Fatalf("long Windows snapshot transport was not compacted with its format suffix: got=%q compacted=%t", got, compacted)
+	}
+	if got, compacted := traceStreamerInputSnapshotLeafForPlatform(staging, long, "linux"); got != long || compacted {
+		t.Fatalf("non-Windows snapshot basename must remain exact: got=%q compacted=%t", got, compacted)
+	}
+	if units := windowsPathUTF16Units("A😀"); units != 3 {
+		t.Fatalf("Windows path geometry must count UTF-16 units, got %d", units)
+	}
+	diagnostic := traceStreamerEmptyChildDiagnostic("windows", nil, `C:\tool\trace_streamer.exe`, filepath.Join(staging, "input.sys"), filepath.Join(staging, "trace_streamer_export.db"), true)
+	for _, want := range []string{"child_output=empty", "windows_path_units(", "legacy_path_budget=240", "snapshot_leaf_compacted=true"} {
+		if !strings.Contains(diagnostic, want) {
+			t.Fatalf("empty-child diagnostic lost %q: %s", want, diagnostic)
+		}
+	}
+	if strings.Contains(diagnostic, "customer") || strings.Contains(diagnostic, "trace_streamer.exe") {
+		t.Fatalf("empty-child diagnostic leaked argv paths: %s", diagnostic)
+	}
+}
+
 func TestConvertFileTraceStreamerReportsPublicSnapshotProgress(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")

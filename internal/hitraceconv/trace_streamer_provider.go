@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 const (
@@ -193,6 +195,9 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
 	}
+	snapshotLeaf, snapshotLeafCompacted := traceStreamerInputSnapshotLeafForPlatform(
+		privateStagingPath, snapshotLeaf, runtime.GOOS,
+	)
 	snapshotStart := progressStarted(
 		opts,
 		"trace_streamer_input_snapshot",
@@ -267,7 +272,10 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, runErr, cleanupErr)
 		}
-		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s", runErr, boundedTraceStreamerCommandOutput(combined))
+		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s%s", runErr,
+			boundedTraceStreamerCommandOutput(combined),
+			traceStreamerEmptyChildDiagnostic(runtime.GOOS, combined, lane.Path,
+				filepath.Join(privateStagingPath, snapshotLeaf), dbPath, snapshotLeafCompacted))
 		if cleanupErr != nil {
 			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_streamer_export", "trace_streamer_failed", caveat, runErr), cleanupErr)
 		}
@@ -740,6 +748,45 @@ func traceStreamerInputSnapshotLeafForView(input conversionInputView) (string, e
 		)
 	}
 	return traceStreamerInputSnapshotLeaf(input.DisplayPath())
+}
+
+const traceStreamerWindowsLegacyPathBudget = 240
+
+// traceStreamerInputSnapshotLeafForPlatform preserves the customer/member
+// basename unless the native Windows argv path would exceed the conservative
+// legacy budget still used by official trace_streamer builds. In that one
+// case the immutable private snapshot keeps the format extension but uses a
+// short leaf. The public input/output identity and all provenance remain the
+// original path; only the child-private transport name changes.
+func traceStreamerInputSnapshotLeafForPlatform(stagingDir, leaf, goos string) (string, bool) {
+	if goos != "windows" || windowsPathUTF16Units(filepath.Join(stagingDir, leaf)) <= traceStreamerWindowsLegacyPathBudget {
+		return leaf, false
+	}
+	ext := filepath.Ext(leaf)
+	if len(ext) == 0 || len(ext) > 16 {
+		ext = ".trace"
+	} else {
+		for index := 0; index < len(ext); index++ {
+			if ext[index] > 0x7f || os.IsPathSeparator(ext[index]) {
+				ext = ".trace"
+				break
+			}
+		}
+	}
+	return "input" + ext, true
+}
+
+func windowsPathUTF16Units(path string) int {
+	return len(utf16.Encode([]rune(path)))
+}
+
+func traceStreamerEmptyChildDiagnostic(goos string, output []byte, executable, snapshot, db string, compacted bool) string {
+	if goos != "windows" || strings.TrimSpace(string(output)) != "" {
+		return ""
+	}
+	return fmt.Sprintf("; child_output=empty windows_path_units(executable=%d,input_snapshot=%d,db=%d) legacy_path_budget=%d snapshot_leaf_compacted=%t",
+		windowsPathUTF16Units(executable), windowsPathUTF16Units(snapshot), windowsPathUTF16Units(db),
+		traceStreamerWindowsLegacyPathBudget, compacted)
 }
 
 func boundedTraceStreamerCommandOutput(output []byte) string {
