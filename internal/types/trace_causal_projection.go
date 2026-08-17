@@ -3140,6 +3140,23 @@ const traceCausalProjectionFullWindowSameWindowToleranceS = 0.001
 // constant instead of re-minting the literal.
 const TraceCausalProjectionSameWindowToleranceS = traceCausalProjectionFullWindowSameWindowToleranceS
 
+// TraceCausalProjectionPrincipalValueWindowToleranceS is deliberately much
+// narrower than the historical F-2 grouping tolerance above. F-2 may group
+// float-re-rendered observations for disclosure, but a principal numeric side
+// channel (for example the target-state partition or process CPU occupancy)
+// must belong to the exact elected query scope. At the trace producer's
+// six-decimal timestamp precision, two microseconds absorbs representation
+// drift without allowing an adjacent 1ms exploration window to replace the
+// requested value surface.
+const TraceCausalProjectionPrincipalValueWindowToleranceS = 0.000002
+
+func TraceCausalProjectionPrincipalValueSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
+	return TraceCausalProjectionWindowPresent(aStart, aEnd) &&
+		TraceCausalProjectionWindowPresent(bStart, bEnd) &&
+		math.Abs(aStart-bStart) <= TraceCausalProjectionPrincipalValueWindowToleranceS &&
+		math.Abs(aEnd-bEnd) <= TraceCausalProjectionPrincipalValueWindowToleranceS
+}
+
 // traceCausalProjectionAttachFullWindowStateTotals copies the RN-12 typed
 // cross-reference onto CHAIN-UNIVERSE nodes only (primary / on-chain /
 // supporting-hop buckets — the rows the tree renders as chain or flat rows;
@@ -3251,7 +3268,7 @@ func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecor
 
 // traceCausalProjectionAttachTargetStateAccount admits the ONE candidate
 // whose typed selected_window matches the resolved anchor window within the
-// F-2 ±1ms tolerance (both endpoints). Ties (same window re-queried) resolve
+// principal-value µs tolerance (both endpoints). Ties (same window re-queried) resolve
 // to the largest TotalMS — deterministic on record order independence (RN-12
 // precedent). A projection without an anchor window attaches nothing (禁猜).
 func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjection, candidates []traceCausalProjectionTargetStateCandidate) {
@@ -3264,8 +3281,10 @@ func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjec
 	var chosen *traceCausalProjectionTargetStateCandidate
 	for i := range candidates {
 		candidate := &candidates[i]
-		if math.Abs(candidate.WindowStart-projection.WindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
-			math.Abs(candidate.WindowEnd-projection.WindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS {
+		if !TraceCausalProjectionPrincipalValueSameWindow(
+			candidate.WindowStart, candidate.WindowEnd,
+			projection.WindowStartTs, projection.WindowEndTs,
+		) {
 			continue
 		}
 		if chosen == nil || candidate.Account.TotalMS > chosen.Account.TotalMS {

@@ -2308,8 +2308,10 @@ func runtimeTraceOccupancyCPUCandidates(
 	for _, cpu := range projection.CPUOccupancyProcesses {
 		if cpu.RunningCPUMS <= 0 ||
 			(types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) &&
-				(math.Abs(cpu.WindowStart-projection.WindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
-					math.Abs(cpu.WindowEnd-projection.WindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS)) {
+				!types.TraceCausalProjectionPrincipalValueSameWindow(
+					cpu.WindowStart, cpu.WindowEnd,
+					projection.WindowStartTs, projection.WindowEndTs,
+				)) {
 			continue
 		}
 		location := fmt.Sprintf("%.6f..%.6f", cpu.WindowStart, cpu.WindowEnd)

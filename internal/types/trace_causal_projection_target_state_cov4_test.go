@@ -4,8 +4,8 @@ package types
 // compile-side pins (ledger docs/design/real_trace_campaign_20260705.md, user
 // ruling 2026-07-11): the target_window_states record attaches to the
 // projection as the typed TargetStateAccount ONLY when its typed
-// selected_window matches the resolved anchor window within the F-2 ±1ms
-// tolerance (禁猜 — a partition that cannot prove its window makes no window
+// selected_window matches the resolved anchor window within the principal-
+// value µs tolerance (禁猜 — a partition that cannot prove its window makes no window
 // claim); ties resolve to the largest TotalMS (record-order independent).
 
 import (
@@ -102,5 +102,20 @@ func TestCov4TargetStateAccountAttachAdmission(t *testing.T) {
 	})
 	if anchorless.TargetStateAccount != nil {
 		t.Fatalf("no anchor window → no attach (禁猜): %+v", anchorless.TargetStateAccount)
+	}
+}
+
+func TestCov4TargetStateAccountDoesNotBorrowAdjacentExplorationWindow(t *testing.T) {
+	anchor := rn12Obs("root-exact", "root_cause_primary", "root_cause_primary:x",
+		"app-100", "runnable_wait", "8.300", 8.3, 3, 9,
+		"rank=1", "tier=primary", "chain_relevance=on_chain",
+		"causality=on_wakeup_chain", "chain_depth=1", "dominant_state=runnable",
+		"selected_window=1.000000..1.010000")
+	exact := cov4StateRecord("state-exact", "app-100", "selected_window=1.000000..1.010000", 10.000)
+	adjacent := cov4StateRecord("state-adjacent", "app-100", "selected_window=1.000000..1.011000", 10.020)
+
+	projection := TraceCausalProjectionFromObservationRecords([]ObservationRecord{anchor, adjacent, exact})
+	if projection.TargetStateAccount == nil || projection.TargetStateAccount.EvidenceID != "state-exact" {
+		t.Fatalf("principal value authority borrowed an adjacent exploration window: %+v", projection.TargetStateAccount)
 	}
 }

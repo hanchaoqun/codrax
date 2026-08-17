@@ -182,6 +182,20 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 	}
 }
 
+func TestTwoDimOccupancyRejectsAdjacentExplorationWindow(t *testing.T) {
+	projection := twodimOccupancyMatrixProjection()
+	projection.WindowStartTs = 1.000000
+	projection.WindowEndTs = 1.010000
+	projection.CPUOccupancyProcesses = []types.TraceCausalProjectionCPUOccupancyProcess{
+		{Subject: "principal", RunningCPUMS: 0.500, ThreadCount: 1, WindowStart: 1.000000, WindowEnd: 1.010000},
+		{Subject: "adjacent", RunningCPUMS: 0.520, ThreadCount: 1, WindowStart: 1.000000, WindowEnd: 1.011000},
+	}
+	rows := runtimeTraceOccupancyCPUCandidates(projection, true)
+	if len(rows) != 1 || rows[0].subject != "principal" {
+		t.Fatalf("CPU principal-value surface borrowed adjacent exploration window: %+v", rows)
+	}
+}
+
 func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T) {
 	chain := types.TraceCausalProjectionNode{
 		EvidenceID:               "chain-state-row",

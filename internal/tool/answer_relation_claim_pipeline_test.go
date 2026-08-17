@@ -223,13 +223,13 @@ func TestFinalRelationClaimsValidateOptionalAuthorityAddedByDeterministicSupplem
 	}
 }
 
-func TestTargetStateRelationClaimSurvivesToleratedAnchorEndpointDrift(t *testing.T) {
+func TestTargetStateRelationClaimSurvivesPrincipalValueEndpointDrift(t *testing.T) {
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.trace",
 		ArtifactID: "customer.trace", ArtifactKind: "trace",
 	}
 	anchorWindow := types.TraceNoteKeySelectedWindow + "=10.000000..10.015000"
-	accountWindow := types.TraceNoteKeySelectedWindow + "=10.000000..10.015020"
+	accountWindow := types.TraceNoteKeySelectedWindow + "=10.000000..10.015001"
 	mu := types.NewMutableState("trace tolerated relation test")
 	mu.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{
 		{
@@ -243,11 +243,11 @@ func TestTargetStateRelationClaimSurvivesToleratedAnchorEndpointDrift(t *testing
 			ID: "trace_query:states#target_window_states", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
 			ClaimKey: "target_window_states:target-7", Subject: "target-7", Predicate: "target_window_states",
-			Object: "state_partition", Value: "15.020", Unit: "ms",
+			Object: "state_partition", Value: "15.001", Unit: "ms",
 			RichNotes: []string{
 				types.TraceNoteKeyRunning + "=1.000", types.TraceNoteKeyRunnable + "=2.000",
-				types.TraceNoteKeySleep + "=3.020", types.TraceNoteKeyDState + "=4.000",
-				types.TraceNoteKeyIOWait + "=5.000", types.TraceNoteKeyTotal + "=15.020", accountWindow,
+				types.TraceNoteKeySleep + "=3.001", types.TraceNoteKeyDState + "=4.000",
+				types.TraceNoteKeyIOWait + "=5.000", types.TraceNoteKeyTotal + "=15.001", accountWindow,
 			},
 		},
 	}})
@@ -255,9 +255,9 @@ func TestTargetStateRelationClaimSurvivesToleratedAnchorEndpointDrift(t *testing
 
 	previewAuthorities := types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
-			Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3.020,
-			DStateMS: 4, IOWaitMS: 5, TotalMS: 15.020,
-			WindowStartTs: 10, WindowEndTs: 10.015020,
+			Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3.001,
+			DStateMS: 4, IOWaitMS: 5, TotalMS: 15.001,
+			WindowStartTs: 10, WindowEndTs: 10.015001,
 		},
 	}}})
 	if len(previewAuthorities) != 1 {
@@ -270,7 +270,7 @@ func TestTargetStateRelationClaimSurvivesToleratedAnchorEndpointDrift(t *testing
 		SubtotalValue: preview.SubtotalValue, SubtotalUnit: preview.SubtotalUnit,
 	}
 	if got, err := validateCompletionRelationClaims(bus, []types.AnswerRelationClaim{claim}); err != nil || len(got) != 1 {
-		t.Fatalf("completion rejected a relation admitted within the shared window tolerance: got=%+v err=%v", got, err)
+		t.Fatalf("completion rejected a relation admitted within the principal-value window tolerance: got=%+v err=%v", got, err)
 	}
 	mu.SetInvestigationRelationClaims([]types.AnswerRelationClaim{claim})
 	mu.SetInvestigationComplete("model accepted the typed target-state partition")
