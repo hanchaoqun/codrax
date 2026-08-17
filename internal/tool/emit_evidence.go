@@ -6343,10 +6343,11 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 		if row.callbackReceiverPair {
 			callbackPairCount++
 			fields = append(fields, "items")
+			inputTarget := emitCallRepairInputTarget(row.callee)
 			rows = append(rows, fmt.Sprintf(
-				"the callback handoff from items[%d] @ %s was accepted; emit one additional item with evidence_kind=%q, anchor_kind=%q, subject=%q (exact enclosing caller), predicate=%q, object=%q (exact receiving API), and anchor_symbol=%q",
+				"the callback handoff from items[%d] @ %s was accepted; emit one additional item with evidence_kind=%q, anchor_kind=%q, subject=%q (exact enclosing caller), predicate=%q, object=%q (exact parser call token; parser validation restores the unique qualified callee), and anchor_symbol=%q",
 				row.itemIndex, loc, string(types.EvidenceRelationship), string(types.AnchorCall),
-				row.caller, "calls", row.callee, row.callee,
+				row.caller, "calls", inputTarget, inputTarget,
 			))
 			continue
 		}
@@ -6357,9 +6358,10 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 			fmt.Sprintf("items[%d].object", row.itemIndex),
 			fmt.Sprintf("items[%d].anchor_symbol", row.itemIndex),
 		)
+		inputTarget := emitCallRepairInputTarget(row.callee)
 		rows = append(rows, fmt.Sprintf(
-			"items[%d] @ %s requires evidence_kind=%q, subject=%q (exact caller), predicate=%q, object=%q (exact callee), and anchor_symbol=%q",
-			row.itemIndex, loc, string(types.EvidenceRelationship), row.caller, "calls", row.callee, row.callee,
+			"items[%d] @ %s requires evidence_kind=%q, subject=%q (exact caller), predicate=%q, object=%q (exact parser call token; parser validation restores the unique qualified callee %q), and anchor_symbol=%q",
+			row.itemIndex, loc, string(types.EvidenceRelationship), row.caller, "calls", inputTarget, row.callee, inputTarget,
 		))
 	}
 	hint := "The typed source relationship still needs an exact directed call row. The submitted call-shaped observation remained citable text, but its caller/callee fields did not preserve the unique parser-owned invocation, so call-edge authority was removed. Re-emit only the named item(s), copying the same source/line/snippet and the exact fields below; do not rebuild accepted siblings or rename endpoints to stage/component roles: "
@@ -6385,6 +6387,22 @@ func buildEmitEvidenceCallEndpointRepair(in []emitEvidenceCallEndpointRepair) *t
 				callEndpointRepairObligations(in)),
 		},
 	}
+}
+
+// emitCallRepairInputTarget returns the source-level call token that the
+// line grounder accepts as an unambiguous anchor. The durable repair
+// obligation deliberately keeps the fully qualified parser-owned callee; an
+// exact re-emit is normalized back to that canonical identity before it can
+// satisfy completion. Asking the model to copy the qualified receiver into
+// object/anchor_symbol is both unnecessary and, for nested selectors such as
+// ctx.Mutable.EmittedAnswerSymbols, can make an otherwise exact call look like
+// a semantic endpoint and be downgraded to text_reference.
+func emitCallRepairInputTarget(callee string) string {
+	callee = strings.TrimSpace(callee)
+	if tail := emitLastDotSegment(callee); tail != "" {
+		return tail
+	}
+	return callee
 }
 
 func buildEmitEvidenceRegistrationBindingRepair(in []emitEvidenceRegistrationBindingRepair) *types.ToolRepair {

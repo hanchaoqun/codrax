@@ -4032,7 +4032,7 @@ func TestEmitEvidence_RequiredRelationPublishesExactCallEndpointRepair(t *testin
 	}
 	for _, want := range []string{
 		`evidence_kind="relationship"`, `subject="run_pipeline"`, `predicate="calls"`,
-		`object="plugin.handle"`, `anchor_symbol="plugin.handle"`,
+		`object="handle"`, `anchor_symbol="handle"`, `unique qualified callee "plugin.handle"`,
 	} {
 		if !strings.Contains(res.Repair.Hint, want) {
 			t.Fatalf("call repair hint missing %q: %s", want, res.Repair.Hint)
@@ -4043,7 +4043,7 @@ func TestEmitEvidence_RequiredRelationPublishesExactCallEndpointRepair(t *testin
 		t.Fatalf("wrong call tuple must remain citable without call authority: %+v", got)
 	}
 
-	correct := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"run_pipeline","predicate":"calls","object":"plugin.handle","source":"repo-b/pipeline/runner.py","line_start":2,"summary":"pipeline invokes the plugin","anchor_kind":"call","anchor_symbol":"plugin.handle"}]}`)
+	correct := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"run_pipeline","predicate":"calls","object":"handle","source":"repo-b/pipeline/runner.py","line_start":2,"summary":"pipeline invokes the plugin","anchor_kind":"call","anchor_symbol":"handle"}]}`)
 	res, err = tool.Execute(ctx, correct)
 	if err != nil || !res.Success {
 		t.Fatalf("exact call tuple re-emit failed, err=%v result=%+v", err, res)
@@ -4158,7 +4158,7 @@ func TestEmitEvidence_CallbackExpressionRequiresSeparateReceiverCallForTypedChai
 	}
 	for _, want := range []string{
 		"callback handoff", `subject="run_pipeline"`, `predicate="calls"`,
-		`object="loop.run_in_executor"`, `anchor_symbol="loop.run_in_executor"`,
+		`object="run_in_executor"`, `anchor_symbol="run_in_executor"`,
 	} {
 		if !strings.Contains(res.Repair.Hint, want) {
 			t.Fatalf("callback pair hint missing %q: %s", want, res.Repair.Hint)
@@ -4172,9 +4172,9 @@ func TestEmitEvidence_CallbackExpressionRequiresSeparateReceiverCallForTypedChai
 
 	directReceiverCall := json.RawMessage(`{"items":[{
 		"scope":"line","evidence_kind":"relationship","subject":"run_pipeline",
-		"predicate":"calls","object":"loop.run_in_executor","source":"pipeline/runner.py","line_start":2,
+		"predicate":"calls","object":"run_in_executor","source":"pipeline/runner.py","line_start":2,
 		"summary":"run_pipeline invokes the executor API","anchor_kind":"call",
-		"anchor_symbol":"loop.run_in_executor","snippet":"return await loop.run_in_executor(None, plugin.handle, payload)"
+		"anchor_symbol":"run_in_executor","snippet":"return await loop.run_in_executor(None, plugin.handle, payload)"
 	}]}`)
 	res, err = tool.Execute(ctx, directReceiverCall)
 	if err != nil || !res.Success {
