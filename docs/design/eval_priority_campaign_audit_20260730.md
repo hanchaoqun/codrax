@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.993 r624/B983：载体交接被无关同类型调用稀释；写验证保持诚实未证（2026-08-17）
+
+1. 在 `main@bf515e333` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`，人工为
+   `read fail / write partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_carriernav_write_r624_20260817_manual_audit.md`。
+2. 代码图的 runner PASS 是假阳性：它只检查阶段名、Mermaid 与最少边数。Explorer 已找到四阶段
+   definition/precedence，但完成门正确指出 `BusContext/Mutable` 没有进入请求关系组件；其软补采却
+   连续引向 `cgec_enforcers.go` 的取消检查和 `emit_investigation_complete.go` 的 authority 自检。
+   真正的 `dispatchStage -> BuildAgentContext(o.busCtx, agentName, stage)` 及 builder 内
+   `Mutable: bus.Mutable` 没被选中。最终答案因而把无关内部函数画进主架构，并把用户明确要求的
+   两个载体数据流降成未证断点；6 次 completion、2 次成文拒绝和 404s 是同一导航错误的级联。
+3. 根因是 carrier 候选的 participant-touch rank 只看声明 binding、call endpoints 与 callable
+   owner。通用 dispatcher 常把另一个组件身份作为完整 sibling argument（enum/constant/object）
+   传入；该身份不在 callable 名上，所以真正跨组件交接与任意同类型 helper 同分，最后由文件名/
+   行号决定。已有单 binding、cross-owner、callee-mutation 测试都无法覆盖这个生产形。
+4. `B983-CROSSPARTICIPANTCARRIERARGNAV1` 已在 `425c05beb` 施工：复用语言无关
+   `DetectArgumentFlowsAtLine` 的 parser-owned 完整实参 roster，把 sibling argument surfaces 只加入
+   “一个候选触达多少个独立请求参与者”的软排序。精确载体参数仍是入选前提；排序结果仍只是一处
+   bounded read coordinate，不能制造 EvidenceItem、关闭 participant/relation gate、生成图边或改写答案。
+5. 新增所有 `SupportedReadLanguages()` 的矩阵 pin：两个调用都传同一 typed carrier，只有后一调用
+   同时传入另一个被请求参与者时必须优先后者；并断言 evidence 集合保持空。既有 carrier handoff、
+   second-hop callee mutation、跨 owner 与 direct multi-participant 测试全部通过；完整
+   `go test ./internal/tool -count=1` 通过（178.167s）。
+6. Zod 写案例两处改动正确落地，`make check` exit=0；但 fixture 的检查器只是 Python source-shape
+   checker，两条 TypeScript 生产路径均为 `capability=source_static`，当前环境没有 Node/project-native
+   行为执行证据。Controller 把模型 `all_verified` 规范化为 `accept_unverified` 是正确 fail-closed。
+   这不是需要降低验证杆的 gap；有真实执行环境时再生产复放。
+7. 本批未修改 answer validator、系统答案、结论或 Trace。显式时间窗、Trace 因果投影、自动补齐、
+   链上-only 主因、实际占用/业务线索与规则计价可消除量双轴保持；邻近/背景仅作支持。没有按用户
+   原文或模型输出做关键词门，也没有活跃字节流 4ms 降级。
+
+状态：
+
+`r624=runner-1/2/human=read-fail+write-partial`；
+`B983-CROSSPARTICIPANTCARRIERARGNAV1=implemented/all-language-matrix+full-tool-suite-pass/pending-production-replay`；
+`WRITE-SOURCE-STATIC=honest-unverified/no-proof-bar-lowering`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.982 r606/B959：Data 修补按 typed 进展收敛；Trace 核心通过但源码可选权威仍漂移（2026-08-17）
 
 1. 在 `main@30cbcc26e` 严格并行恰好两个异构案例：Data/JSON 的
