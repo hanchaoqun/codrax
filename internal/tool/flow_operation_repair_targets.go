@@ -36,8 +36,9 @@ type flowParserSymbolSite struct {
 }
 
 type flowDeclaredBindingSite struct {
-	file  string
-	alias string
+	file         string
+	alias        string
+	declaredType string
 }
 
 // flowNavigationIndex is a graph-derived, navigation-only index. It replaces
@@ -543,6 +544,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	var surfaces []string
+	var participantSurfaceGroups [][]string
 	if rm.DiagramHint != nil {
 		for _, participant := range flowOperationPlanningParticipants(rm) {
 			if participant.Role != types.DiagramParticipantIncidentRequired {
@@ -553,6 +555,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			resolved := flowResolveParticipantIdentity(ctx, rm, participant)
 			surfaces = appendUniqueBounded(surfaces, resolved.surfaces, maxFlowOperationRepairKeywords)
+			if len(resolved.surfaces) > 0 {
+				participantSurfaceGroups = append(participantSurfaceGroups, resolved.surfaces)
+			}
 		}
 	}
 	if len(surfaces) == 0 {
@@ -565,10 +570,17 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	type rankedTarget struct {
 		target      flowOperationRepairReadTarget
 		carrierRank int
-		handoffRank int
-		matchRank   int
-		kindRank    int
-		line        int
+		// participantJoinRank is a navigation-only preference for an
+		// operation whose parser-owned caller/callee identity touches a
+		// second requested participant in addition to the typed carrier
+		// argument. It prevents a ubiquitous context parameter from steering
+		// the repair into an unrelated helper merely because that helper also
+		// accepts the same context object.
+		participantJoinRank int
+		handoffRank         int
+		matchRank           int
+		kindRank            int
+		line                int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -664,6 +676,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 				},
 				carrierRank: 1,
+				participantJoinRank: flowNavigationRequestedParticipantJoinRank(
+					relation, binding, participantSurfaceGroups,
+				),
 				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
 				matchRank:   argumentRank,
 				kindRank:    flowOperationRepairRelationKindRank(relation.Kind),
@@ -677,6 +692,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].carrierRank != candidates[j].carrierRank {
 			return candidates[i].carrierRank > candidates[j].carrierRank
+		}
+		if candidates[i].participantJoinRank != candidates[j].participantJoinRank {
+			return candidates[i].participantJoinRank > candidates[j].participantJoinRank
 		}
 		if candidates[i].handoffRank != candidates[j].handoffRank {
 			return candidates[i].handoffRank > candidates[j].handoffRank
@@ -693,6 +711,41 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return candidates[i].line < candidates[j].line
 	})
 	return candidates[0].target, true
+}
+
+// flowNavigationRequestedParticipantJoinRank prefers a typed carrier argument
+// at an operation owned by another requested participant. The carrier's
+// declaration and the parser relation are both exact, but the result is still
+// only a SOFT read coordinate: it neither proves that the callee consumes the
+// carrier nor creates an answer/diagram edge.
+//
+// Participant groups are kept separate so one carrier cannot count itself as
+// the second endpoint. This remains language-neutral: it uses the repository
+// parser's receiver/name identities and the shared code-identity comparator,
+// not request or answer prose.
+func flowNavigationRequestedParticipantJoinRank(
+	relation *repotypes.Relation,
+	binding flowDeclaredBindingSite,
+	participantSurfaceGroups [][]string,
+) int {
+	if relation == nil || len(participantSurfaceGroups) < 2 {
+		return 0
+	}
+	bindingSymbol := repotypes.Symbol{Name: binding.alias, DeclaredType: binding.declaredType}
+	endpoints := append(
+		flowRepairRelationEndpointSurfaces(relation.FromEP),
+		flowRepairRelationEndpointSurfaces(relation.ToEP)...,
+	)
+	joined := 0
+	for _, group := range participantSurfaceGroups {
+		if len(group) == 0 || flowRepairSymbolMatchesAnySurface(bindingSymbol, group) {
+			continue
+		}
+		if flowRepairPlanningSurfaceMatchRank(group, endpoints) > 0 {
+			joined++
+		}
+	}
+	return joined
 }
 
 // flowNavigationCarrierHandoffRank is a SOFT ordering signal for complete
@@ -899,7 +952,9 @@ func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.Request
 			continue
 		}
 		seen[key] = true
-		out = append(out, flowDeclaredBindingSite{file: path, alias: alias})
+		out = append(out, flowDeclaredBindingSite{
+			file: path, alias: alias, declaredType: strings.TrimSpace(symbol.DeclaredType),
+		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].file != out[j].file {

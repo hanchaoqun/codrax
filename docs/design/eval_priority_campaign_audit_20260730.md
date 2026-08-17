@@ -35799,6 +35799,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.985 r609/B966：硬图合同生产闭环；通用 carrier 参数把关系补读导向错误 owner（2026-08-17）
+
+1. 在 `main@5dbae8d1a` 重建后严格并发恰好两个案例：读模式关系图
+   `qf_logic_view_read_pipeline` 与写模式 `github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`；人工为
+   `qf-partial + write-pass-with-caveat`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_required_diagram_write_r609_20260817.md` 及对应
+   `_manual_audit.md`。
+2. B963 获生产闭环。Router 继续给出 exact `diagram_required=true`；Analyzer 首次 required flow 因缺
+   `call_chain_endpoints` 被拒，第二次完整重发仍保留同一图 family、逐字 relation scope 与六名 participant，
+   没再发生“修无关字段时删除硬图合同”。这是 structural fail-loud 的正证，不依赖 case 名称或答案词面。
+3. B964 的视觉面获生产正证。模型首稿给 Mutable/BusContext 及各 stage 铸造多条未证读写边，typed validator
+   连续两次拒绝；终图只保留三条 checkout-verified stage precedence，Mutable 与 BusContext 作为断开节点并显式
+   `unproven`。系统没有造边、补图或改写结论，局部真边不再被自动 oracle 当成完整所求关系。
+4. 正文仍越过完全相同的精确边界，声称 BusContext 在各阶段传递、Mutable 是唯一跨阶段可写载体、各阶段
+   读写具体字段；final handoff 已同时给出 `requested_relation_spine_status=unproven`、三条 exact relation subset 和
+   participant boundary。故这部分归为 B965 模型服从/上下文消费观察，而不是缺上下文；禁止为此扫描回答关键词、
+   删除模型正文或由系统代写结论。图中 `precedence` 也偏内部词，已有软教学继续要求用业务语言表达，不新增词面硬门。
+5. 同轮确认 `B966-TYPEDCARRIERNAVIGATIONOWNER1/P1`。关系补采的 direct-read 排序会枚举所有声明类型为
+   `BusContext` 的参数，并把“该参数完整出现在调用实参中”视为高质量坐标；但没有继续判断调用 owner 是否命中
+   另一名仍缺关系的 participant。因此第二次补读被引到
+   `answer_document_evaluator.go:13723-13747` 的 finalizer schema 辅助逻辑，而不是 extractor/共享状态的真实交接点。
+   模型读后准确识别无关并诚实保留 unproven，但浪费一次恢复机会且正文证据不足。
+6. 根修给候选排序增加 `participantJoinRank`：一个 parser-owned typed carrier argument，若其 exact caller/callee
+   identity 还命中另一组缺失 participant，则优先于只在无关 helper 中传递同一上下文参数的候选。participant
+   surfaces 始终分组，carrier 自身不得冒充“第二 participant”；判断跨语言复用 parser receiver/name 与统一 code
+   identity comparator，不读取 request/answer prose。它只选择下一段有界 read coordinate，仍不生成 EvidenceItem、
+   diagram edge 或答案结论；无真实交接时继续显式 unproven。
+7. 新测试构造两个都接收 `BusContext` 的真实语法调用：字典序靠前的 finalizer helper 与 extractor-owned handoff。
+   旧排序稳定选错前者，新排序选择 extractor；既有全语言 carrier argument、引号伪参数、跨 owner handoff 正负 pin
+   均保持。Zod 写案例的补丁与 falsy tests 正确，runner FAIL 仅因当前环境无 Node、`make check` 是 source-static；
+   deterministic verdict 诚实 `unverified`，不降低生产行为验证杆。
+8. 本批不修改 Trace 查询、投影编译、自动补齐或答案正文。显式时间窗、链上-only 主因、实际占时/业务线索与规则
+   可消除量双轴保持；邻近/背景只能支撑额外排查。活跃字节流也不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`r609 runner=1-pass+1-honest-unverified/human=qf-partial+write-pass-with-caveat`；
+`B963-REQUIREDPRESENTATIONREPAIRLOSS1=production-closed-r609`；
+`B964-RELATIONSPINEFALSEGREEN1=production-positive-r609/visual-honest`；
+`B965-MODELBOUNDARYADHERENCE1=watch/context-sufficient/no-prose-hard-gate`；
+`B966-TYPEDCARRIERNAVIGATIONOWNER1=implemented/parser-owned-soft-rank/pins-pass/pending-replay`；
+`Trace explicit-window causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

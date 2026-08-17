@@ -907,6 +907,76 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 	}
 }
 
+func TestFlowOperationNavigationPrefersCarrierHandoffOwnedByAnotherMissingParticipant(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"internal/agent/answer_document_evaluator.go": strings.Join([]string{
+			"package agent",
+			"func (e *answerDocumentEvaluator) run(ctx *BusContext) {",
+			"builder.Check(ctx)",
+			"}",
+		}, "\n"),
+		"internal/agent/extractor.go": strings.Join([]string{
+			"package agent",
+			"func (e *extractorEvaluator) run(ctx *BusContext) {",
+			"builder.Build(ctx)",
+			"}",
+		}, "\n"),
+	}
+	for path, body := range files {
+		absolute := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx := flowOperationCompletionContext(nil)
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "extractor", ResolvedAs: "extractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	graphFiles := make(map[string]*repotypes.FileInfo, len(files))
+	for path := range files {
+		receiver := "answerDocumentEvaluator"
+		callee := "Check"
+		if strings.HasSuffix(path, "extractor.go") {
+			receiver = "extractorEvaluator"
+			callee = "Build"
+		}
+		graphFiles[path] = &repotypes.FileInfo{
+			RelPath: path, Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "ctx", Kind: "parameter", Parent: receiver + ".run", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: path, Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: receiver, Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: callee, Receiver: "builder", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+			}},
+		}
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(graphFiles))
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"extractor", "BusContext"})
+	if !ok || target.file != "internal/agent/extractor.go" ||
+		target.lineRange != (types.LineRange{Start: 1, End: 15}) {
+		t.Fatalf("carrier repair should prefer the operation owned by another missing participant: ok=%t target=%+v", ok, target)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Fatal("participant-aware navigation must not manufacture relation evidence")
+	}
+}
+
 func TestFlowOperationNavigationDoesNotTreatQuotedCarrierAsArgumentBinding(t *testing.T) {
 	repo := t.TempDir()
 	const path = "src/pipeline.go"
