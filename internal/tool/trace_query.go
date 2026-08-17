@@ -5013,9 +5013,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, io := range result.WindowStats.IOLatencies {
 			wake := ""
 			if io.CompletionWokeIssuer {
-				wake = fmt.Sprintf(" completion_woke_issuer=true wakeup_ts=%.6f wakeup_line=%d issuer_blocked_state=%s issuer_blocked_start=%.6f issuer_blocked_end=%.6f issuer_blocked=%.3fms causal_wait_caliber=%s non_additive_with_request_residence=true", io.WakeupTs, io.WakeupLine, sanitizeForBanner(io.IssuerBlockedState), io.IssuerBlockedStartTs, io.IssuerBlockedEndTs, io.IssuerBlockedMs, sanitizeForBanner(io.CausalWaitCaliber))
+				wake = fmt.Sprintf(" completion_woke_issuer=true wakeup_ts=%.6f wakeup_line=%d issuer_blocked_state=%s issuer_blocked_start=%.6f issuer_blocked_end=%.6f issuer_blocked=%.3fms issuer_blocked_clock_scope=target_blocking_elapsed_wall_clock causal_wait_caliber=%s non_additive_with_request_residence=true", io.WakeupTs, io.WakeupLine, sanitizeForBanner(io.IssuerBlockedState), io.IssuerBlockedStartTs, io.IssuerBlockedEndTs, io.IssuerBlockedMs, sanitizeForBanner(io.CausalWaitCaliber))
 			}
-			fmt.Fprintf(&b, "- io_latency family=%s dev=%s op=%s sector=%d len=%d request_residence=%.3fms wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
+			// Keep the two physical rulers explicit on the first face consumed by
+			// explorer.  The typed observation ledger carries the same scopes for
+			// finalizer; omitting them here previously let explorer mint the
+			// opposite unit for request residence, which then contradicted the
+			// finalizer's precise authority.  A single request's issue→complete
+			// interval is elapsed wall clock even though it is not target blocking;
+			// only the cross-request request·ms sum below is non-wall-clock.
+			fmt.Fprintf(&b, "- io_latency family=%s dev=%s op=%s sector=%d len=%d request_residence=%.3fms request_clock_scope=single_request_elapsed_wall_clock_not_target_blocking wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
 				sanitizeForBanner(io.EndpointFamily), io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
 		}
 		if result.WindowStats.IOLatencyOverflowCount > 0 {
